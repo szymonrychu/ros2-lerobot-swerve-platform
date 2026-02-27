@@ -1,8 +1,20 @@
 ---
 # Deploy or uninstall a ROS2 node as a systemd service (container).
-# Expects (from playbook): node_name, node_image, node_present, node_enabled,
-# and optionally node_config_path, node_config (string), node_env, node_extra_args.
+# Expects (from playbook): node_name, node_image, node_build_context, repo_dest,
+# node_present, node_enabled; optionally node_config_path, node_config, node_env, node_extra_args.
 # Playbook resolves node_type -> image/config_path/env via ros2_node_type_defaults.
+
+- name: Validate required variables for ROS2 node deploy
+  ansible.builtin.assert:
+    that:
+      - node_name is defined
+      - node_name | length > 0
+      - node_image is defined
+      - node_image | length > 0
+      - node_build_context is defined
+      - repo_dest is defined
+    fail_msg: "ros2_node_deploy requires node_name, node_image, node_build_context, repo_dest (from playbook loop)."
+    success_msg: "Required vars present for {{ node_name }}"
 
 - name: Set current node name for handlers
   ansible.builtin.set_fact:
@@ -50,7 +62,8 @@
         cmd: "docker build -t {{ node_image }} {{ node_build_context }}"
         chdir: "{{ repo_dest }}"
       become: true
-      changed_when: true
+      register: docker_build_result
+      changed_when: docker_build_result.rc == 0
 
     - name: Ensure ROS2 node config directory exists
       ansible.builtin.file:

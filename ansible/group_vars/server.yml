@@ -18,7 +18,7 @@ ros2_nodes:
     node_type: ros2_master
     present: true
     enabled: true
-  - name: lerobot_follower
+  - name: lerobot_leader
     node_type: feetech_servos
     present: true
     enabled: true
