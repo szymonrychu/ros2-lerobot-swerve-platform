@@ -1,12 +1,19 @@
 # Example config for leader arm (e.g. Server).
 # Mount this or set FEETECH_SERVOS_CONFIG to its path.
+# Each joint must have explicit name and servo id (IDs need not start from 1 or be sequential).
 namespace: leader
 joint_names:
-  - shoulder_pan
-  - shoulder_lift
-  - elbow_flex
-  - wrist_flex
-  - wrist_roll
-  - gripper
+  - name: shoulder_pan
+    id: 1
+  - name: shoulder_lift
+    id: 2
+  - name: elbow_flex
+    id: 3
+  - name: wrist_flex
+    id: 4
+  - name: wrist_roll
+    id: 5
+  - name: gripper
+    id: 6
 # device: /dev/ttyUSB0
 # baudrate: 115200

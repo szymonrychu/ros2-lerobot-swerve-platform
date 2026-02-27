@@ -1,4 +1,4 @@
-"""Configuration loading for Feetech servos bridge (namespace, joint names, device)."""
+"""Configuration loading for Feetech servos bridge (namespace, joints with name+id, device)."""
 
 import os
 from dataclasses import dataclass
@@ -9,34 +9,65 @@ import yaml
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/feetech_servos/config.yaml")
 ENV_CONFIG_PATH_KEY = "FEETECH_SERVOS_CONFIG"
 
+# Valid servo ID range for Feetech STS (0-253).
+SERVO_ID_MIN = 0
+SERVO_ID_MAX = 253
+
+
+@dataclass
+class JointEntry:
+    """Single joint: ROS name and Feetech servo ID.
+
+    Attributes:
+        name: Joint name for JointState messages (str).
+        id: Servo ID on the bus (int, 0-253).
+    """
+
+    name: str
+    id: int  # noqa: A003
+
 
 @dataclass
 class BridgeConfig:
-    """Bridge config: namespace for topics, joint names, optional serial.
+    """Bridge config: namespace, joints (name + servo id each), optional serial.
 
     Attributes:
         namespace: Topic prefix (e.g. "leader" -> /leader/joint_states).
-        joint_names: List of joint names for JointState messages.
+        joints: List of JointEntry (name + servo id); order defines joint order in messages.
         device: Optional serial device path (e.g. /dev/ttyUSB0).
         baudrate: Optional baud rate for serial; None if not set.
     """
 
     namespace: str
-    joint_names: list[str]
+    joints: list[JointEntry]
     device: str | None = None
     baudrate: int | None = None
+
+    @property
+    def joint_names(self) -> list[str]:
+        """Ordered joint names for JointState (same order as joints)."""
+        return [j.name for j in self.joints]
+
+    def servo_id_for_joint_name(self, name: str) -> int | None:
+        """Return servo ID for a joint name, or None if not found."""
+        for j in self.joints:
+            if j.name == name:
+                return j.id
+        return None
 
 
 def load_config(path: Path | None = None) -> BridgeConfig | None:
     """Load bridge config from YAML file.
 
+    Expects joint_names as list of { name: str, id: int } (explicit servo ID per joint).
+    Does not assume servo IDs start from 1 or are sequential.
+
     Args:
         path: Path to YAML file. If None, uses DEFAULT_CONFIG_PATH.
 
     Returns:
-        BridgeConfig | None: Parsed config, or None if file missing/invalid or
-            namespace/joint_names missing. Rejects namespace containing '/' and
-            empty joint names.
+        BridgeConfig | None: Parsed config, or None if file missing/invalid,
+            namespace/joint_names missing, or any joint missing name/id or invalid id.
     """
     if path is None:
         path = DEFAULT_CONFIG_PATH
@@ -46,15 +77,35 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
     if not data or not isinstance(data, dict):
         return None
     namespace = (data.get("namespace") or "").strip()
-    joint_names = data.get("joint_names") or []
-    if not namespace or not joint_names:
+    raw_joints = data.get("joint_names") or []
+    if not namespace or not raw_joints:
         return None
     if "/" in namespace:
         return None  # namespace is a topic segment, not a path
-    if not isinstance(joint_names, list):
+    if not isinstance(raw_joints, list):
         return None
-    joint_names = [str(n).strip() for n in joint_names if n is not None]
-    if not joint_names or any(not n for n in joint_names):
+    joints: list[JointEntry] = []
+    seen_ids: set[int] = set()
+    for item in raw_joints:
+        if not isinstance(item, dict):
+            return None
+        name = (item.get("name") or "").strip()
+        if not name:
+            return None
+        raw_id = item.get("id")
+        if raw_id is None:
+            return None
+        try:
+            sid = int(raw_id)
+        except (TypeError, ValueError):
+            return None
+        if not (SERVO_ID_MIN <= sid <= SERVO_ID_MAX):
+            return None
+        if sid in seen_ids:
+            return None  # duplicate servo id
+        seen_ids.add(sid)
+        joints.append(JointEntry(name=name, id=sid))
+    if not joints:
         return None
     device = data.get("device")
     device = str(device).strip() if device else None
@@ -66,7 +117,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
             baudrate = None
     return BridgeConfig(
         namespace=namespace,
-        joint_names=joint_names,
+        joints=joints,
         device=device,
         baudrate=baudrate,
     )

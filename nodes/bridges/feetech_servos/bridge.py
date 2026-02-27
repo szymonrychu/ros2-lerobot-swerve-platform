@@ -63,6 +63,7 @@ def main() -> None:
     if config is None:
         sys.exit(
             "Feetech servos config not found or invalid. Set FEETECH_SERVOS_CONFIG to a YAML path "
-            "with 'namespace' and 'joint_names', or deploy config to /etc/ros2/feetech_servos/config.yaml"
+            "with 'namespace' and 'joint_names' (list of { name, id } per joint), or deploy config to "
+            "/etc/ros2/feetech_servos/config.yaml"
         )
     run_bridge(config.namespace, config.joint_names)

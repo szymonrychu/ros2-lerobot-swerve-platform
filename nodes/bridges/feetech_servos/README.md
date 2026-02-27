@@ -6,8 +6,19 @@
 
 ## Configuration
 
-- **Config file:** YAML with `namespace` (string) and `joint_names` (list). Optional: `device`, `baudrate` for future serial use.
+- **Config file:** YAML with `namespace` (string) and `joint_names` (list of entries). Each entry must have `name` (joint name for ROS) and `id` (Feetech servo ID, 0–253). Servo IDs need not start from 1 or be sequential. Optional: `device`, `baudrate` for serial.
 - **Config path:** Set `FEETECH_SERVOS_CONFIG` to the config file path, or deploy to `/etc/ros2/feetech_servos/config.yaml`.
+
+Example format:
+
+```yaml
+namespace: follower
+joint_names:
+  - name: shoulder_pan
+    id: 1
+  - name: gripper
+    id: 6
+```
 
 Example configs are in `config/leader.yaml` and `config/follower.yaml`. Mount one as the config (e.g. in compose) or copy to the default path.
 

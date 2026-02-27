@@ -67,7 +67,19 @@ ros2_nodes:
     enabled: true
     config: |
       namespace: follower
-      joint_names: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6]
+      joint_names:
+        - name: joint_1
+          id: 1
+        - name: joint_2
+          id: 2
+        - name: joint_3
+          id: 3
+        - name: joint_4
+          id: 4
+        - name: joint_5
+          id: 5
+        - name: joint_6
+          id: 6
   - name: gripper_uvc_camera
     node_type: uvc_camera
     enabled: true

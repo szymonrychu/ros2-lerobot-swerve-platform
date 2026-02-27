@@ -13,7 +13,7 @@ Reusable ROS2 nodes that expose hardware as standard ROS2 topics. Each bridge ty
 | Bridge        | Directory           | Status   | Env / notes                                      |
 |---------------|---------------------|----------|--------------------------------------------------|
 | UVC camera    | [uvc_camera/](uvc_camera/README.md) | Implemented (stub) | `UVC_DEVICE`, `UVC_TOPIC`; device mapping in compose |
-| Feetech servos | [feetech_servos/](feetech_servos/README.md) | Implemented (stub) | Config file (namespace, joint_names); example leader/follower configs |
+| Feetech servos | [feetech_servos/](feetech_servos/README.md) | Implemented (stub) | Config: namespace + joint_names as list of { name, id } (explicit servo ID per joint); example leader/follower configs |
 | RealSense     | —                   | Stub     | Placeholder service in compose                   |
 | RPLidar       | —                   | Stub     | Placeholder service in compose                   |
 | IMU (BNO095)  | —                   | Stub     | Placeholder service in compose                   |
