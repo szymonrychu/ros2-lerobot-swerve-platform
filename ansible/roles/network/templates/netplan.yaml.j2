@@ -1,9 +1,11 @@
-# Ansible-managed netplan: static IP for {{ _network_interface }}
-# Vars: network_address (CIDR), network_gateway, network_nameservers (optional)
+# Ansible-managed netplan: primary interface static IP, others DHCP. IPv6 disabled.
+# Primary: {{ _network_interface }} ({{ 'wlan' if _network_interface_is_wlan else 'ethernet' }})
 network:
   version: 2
   renderer: networkd
+{% if (not _network_interface_is_wlan) or (_other_ethernets | length > 0) %}
   ethernets:
+{% if not _network_interface_is_wlan %}
     {{ _network_interface }}:
       dhcp4: false
       dhcp6: false
@@ -18,4 +20,34 @@ network:
 {% for ns in network_nameservers %}
           - {{ ns }}
 {% endfor %}
+{% endif %}
+{% endif %}
+{% for iface in _other_ethernets %}
+    {{ iface }}:
+      dhcp4: true
+      dhcp6: false
+{% endfor %}
+{% endif %}
+{% if _network_interface_is_wlan %}
+  wifis:
+    {{ _network_interface }}:
+      dhcp4: false
+      dhcp6: false
+      addresses:
+        - {{ network_address }}
+      routes:
+        - to: default
+          via: {{ network_gateway }}
+{% if network_nameservers is defined and network_nameservers | length > 0 %}
+      nameservers:
+        addresses:
+{% for ns in network_nameservers %}
+          - {{ ns }}
+{% endfor %}
+{% endif %}
+      access-points:
+        "{{ network_wifi_ssid }}":
+{% if network_wifi_password is defined and network_wifi_password | length > 0 %}
+          password: "{{ network_wifi_password }}"
+{% endif %}
 {% endif %}

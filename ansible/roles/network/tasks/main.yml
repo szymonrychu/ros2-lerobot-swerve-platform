@@ -1,8 +1,8 @@
 ---
-# Configure static IP using netplan. Detects primary interface if network_interface not set.
-# Requires: network_address (CIDR, e.g. 192.168.1.10/24), network_gateway.
-# Optional: network_nameservers (list), network_interface (explicit override).
-# When not set: use default IPv4 interface if ethernet (eth* or en*); if default is wireless (wl*), use first ethernet-like interface to avoid netplan "changes device type" error.
+# Configure static IP on primary interface (ethernet or wlan); other interfaces set to DHCP. IPv6 disabled.
+# Requires: network_address (CIDR), network_gateway.
+# Optional: network_interface (default: primary IPv4 interface), network_nameservers.
+# For primary wlan: network_wifi_ssid (required), network_wifi_password (optional).
 
 - name: Validate network variables
   ansible.builtin.assert:
@@ -14,34 +14,33 @@
     fail_msg: "network role requires network_address and network_gateway (set in group_vars or host_vars)."
     success_msg: "Network vars present"
 
-- name: Set interface when explicitly specified
+- name: Set primary interface (explicit or default IPv4)
   ansible.builtin.set_fact:
-    _network_interface: "{{ network_interface }}"
+    _network_interface: "{{ network_interface | default(ansible_facts['default_ipv4']['interface']) }}"
   when: network_interface is defined and network_interface | length > 0
 
-- name: Set interface from default IPv4 when it looks like ethernet (eth* or en*)
+- name: Set primary interface from default IPv4
   ansible.builtin.set_fact:
     _network_interface: "{{ ansible_facts['default_ipv4']['interface'] }}"
-  when: >-
-    (network_interface is not defined or network_interface | length == 0)
-    and (ansible_facts['default_ipv4']['interface'] is match('^eth') or ansible_facts['default_ipv4']['interface'] is match('^en'))
+  when: network_interface is not defined or network_interface | length == 0
 
-- name: Set interface to first ethernet-like when default is wireless (wl*)
+- name: Set whether primary is wireless (wl*)
   ansible.builtin.set_fact:
-    _network_interface: "{{ _first_eth }}"
-  when: >-
-    (network_interface is not defined or network_interface | length == 0)
-    and ansible_facts['default_ipv4']['interface'] is match('^wl')
-  vars:
-    _ifaces: "{{ ansible_facts['interfaces'] | default([]) | reject('match', '^lo$') | reject('match', '^wl') | list }}"
-    _first_eth: "{{ (_ifaces | select('match', '^eth') | list | first) | default(_ifaces | select('match', '^en') | list | first) | default(ansible_facts['default_ipv4']['interface']) }}"
+    _network_interface_is_wlan: "{{ _network_interface is match('^wl') }}"
 
-- name: Set interface to default IPv4 (fallback when not eth/en/wl)
+- name: Require network_wifi_ssid when primary interface is WiFi
+  ansible.builtin.assert:
+    that: network_wifi_ssid is defined and network_wifi_ssid | length > 0
+    fail_msg: "network role requires network_wifi_ssid when primary interface ({{ _network_interface }}) is WiFi. Set in group_vars or host_vars."
+  when: _network_interface_is_wlan | bool
+
+- name: Set list of other interfaces (exclude lo and primary)
   ansible.builtin.set_fact:
-    _network_interface: "{{ ansible_facts['default_ipv4']['interface'] }}"
-  when: >-
-    (network_interface is not defined or network_interface | length == 0)
-    and (ansible_facts['default_ipv4']['interface'] is not match('^eth') and ansible_facts['default_ipv4']['interface'] is not match('^en') and ansible_facts['default_ipv4']['interface'] is not match('^wl'))
+    _other_interfaces: "{{ ansible_facts['interfaces'] | default([]) | reject('match', '^lo$') | reject('equalto', _network_interface) | list }}"
+
+- name: Set other ethernet-like interfaces (for DHCP in template)
+  ansible.builtin.set_fact:
+    _other_ethernets: "{{ _other_interfaces | reject('match', '^wl') | list }}"
 
 - name: Ensure netplan config directory exists
   ansible.builtin.file:

@@ -1,10 +1,11 @@
 ---
 # Network (netplan) role defaults.
-# Override in group_vars or host_vars: network_address, network_gateway, network_nameservers.
-# Optional: network_interface (default: ansible_default_ipv4.interface).
+# Primary interface gets static IP (ethernet or wlan); other interfaces set to DHCP. IPv6 disabled.
+# Override in group_vars or host_vars.
 
 network_netplan_file: 01-ansible-netplan.yaml
-# network_address: "192.168.1.10/24"   # required when role is used
-# network_gateway: "192.168.1.1"       # required when role is used
+# network_address: "192.168.1.10/24"   # required
+# network_gateway: "192.168.1.1"       # required
 # network_nameservers: ["8.8.8.8", "8.8.4.4"]  # optional
-# network_interface: "eth0"            # optional; default: primary interface with default route
+# network_interface: "eth0"            # optional; default: primary IPv4 interface (ethernet or wlan)
+# When primary is WiFi (wl*): network_wifi_ssid (required), network_wifi_password (optional)

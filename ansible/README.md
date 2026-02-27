@@ -12,7 +12,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build each node’s container locally from the repo, deploy config, install systemd unit, enable/start or disable/stop. Containers are built on the node from the cloned repo (no pre-built image pull).
 - **`roles/`**
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
-  - **`network`** — Static IP via netplan: detects primary interface (or use `network_interface`), sets address (CIDR), gateway, optional nameservers. Runs only when `network_address` and `network_gateway` are set in group_vars or host_vars.
+  - **`network`** — Netplan: primary interface gets static IP (ethernet or wlan, auto-detected); other interfaces DHCP; IPv6 disabled. Runs when `network_address` and `network_gateway` are set; for primary WiFi set `network_wifi_ssid` (and optionally `network_wifi_password`).
   - **`hostname`** — Set system hostname (hostnamectl, `/etc/hostname`, `127.0.1.1` in `/etc/hosts`). Runs only when `hostname` is set.
   - **`docker`** — Docker CE + Docker Compose plugin on Ubuntu 24.04.
   - **`ros2_node_deploy`** — For each node: build image from repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
@@ -95,15 +95,18 @@ When you add, remove, or reconfigure ROS2 nodes (including in docker-compose or 
 
 ## Network and hostname (provision)
 
+The **network** role sets a static IP on the primary interface (ethernet or WiFi, auto-detected), sets all other interfaces to DHCP, and disables IPv6 in netplan.
+
 In **`group_vars/server.yml`** or **`group_vars/client.yml`** (or host_vars), set:
 
-- **`network_address`** — Static IP in CIDR (e.g. `192.168.1.10/24`). Required for the network role to run.
-- **`network_gateway`** — Default gateway (e.g. `192.168.1.1`).
+- **`network_address`** — Static IP in CIDR (e.g. `192.168.1.10/24`). Required.
+- **`network_gateway`** — Default gateway (e.g. `192.168.1.1`). Required.
 - **`network_nameservers`** — Optional list (e.g. `["8.8.8.8", "8.8.4.4"]`).
-- **`network_interface`** — Optional. Default: primary interface with default route (`ansible_default_ipv4.interface`).
+- **`network_interface`** — Optional. Default: primary IPv4 interface (ethernet or wlan).
+- When the primary interface is **WiFi** (e.g. `wlan0`): **`network_wifi_ssid`** (required), **`network_wifi_password`** (optional).
 - **`hostname`** — Short hostname (e.g. `server-rpi4`). Optional; when set, the hostname role runs.
 
-The **network** role writes a netplan file under `/etc/netplan/` and runs `netplan apply`. The **hostname** role runs `hostnamectl set-hostname` and updates `/etc/hostname` and `/etc/hosts`.
+The network role writes a netplan file under `/etc/netplan/` and runs `netplan apply`. The **hostname** role runs `hostnamectl set-hostname` and updates `/etc/hostname` and `/etc/hosts`.
 
 ## ROS2 network setup (bind and localhost)
 
