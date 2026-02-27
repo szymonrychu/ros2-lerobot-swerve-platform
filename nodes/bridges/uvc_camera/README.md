@@ -12,7 +12,8 @@
 
 ## Code layout
 
-- **`bridge.py`** — `get_config()` reads env; `run_bridge(device, topic, frame_id)` opens the device with OpenCV, reads frames, publishes `sensor_msgs/Image` with header stamp and frame_id. Entry via `__main__.py`.
+- **`config.py`** — Env-based config only (no ROS/OpenCV); `get_config()` returns (device, topic, frame_id). Used by bridge and by unit tests.
+- **`bridge.py`** — Imports `get_config` from config; `run_bridge(device, topic, frame_id)` opens the device with OpenCV, reads frames, publishes `sensor_msgs/Image` with header stamp and frame_id. Entry via `__main__.py`.
 - **`Dockerfile`** — Installs `ros-jazzy-sensor-msgs` and system libs for OpenCV; copies package, runs `python3 -m uvc_camera`.
 
 ## Build and run

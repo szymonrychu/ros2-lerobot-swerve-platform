@@ -29,8 +29,12 @@ Use this file and [MEMORY.md](MEMORY.md) when working in this repo.
 
 ### Python conventions
 
-* **Use the right libraries**: Prefer established libraries for complex or well-known operations (e.g. numpy for non-trivial computation; ROS2 logging in ROS2 nodes; standard `logging` for non-ROS2 code; an existing Feetech servo library over a custom protocol implementation). Implement only functions that are missing in the chosen library.
+* **Use the right libraries**: Prefer established libraries even when they seem more complex than the minimum (e.g. numpy for non-trivial computation; ROS2 logging in ROS2 nodes; standard `logging` for non-ROS2 code; an existing Feetech servo library over a custom protocol implementation; **pydantic** for config loading/validation such as master2master settings instead of ad-hoc dict/YAML parsing). Implement only functions that are missing in the chosen library.
 * **Prefer file configuration over CLI**: Use config files (YAML/JSON) for node and script options unless the user explicitly asks for command-line arguments.
+* **Fewer private functions**: Prefer module-level or non-underscore-prefixed functions; use "private" (leading-underscore) helpers only when there is a clear need.
+* **Constants**: Group constant variables at the upper portion of each Python file; name them in `SCREAMING_SNAKE_CASE`.
+* **Imports**: Keep all imports at the top of the file; do not wrap imports in try/except—let import errors fail fast.
+* **Docstrings**: Document input and output (parameters and return) in docstrings, including their types (aligned with type hints).
 * **Unit tests**: Write unit tests for each new function; extend the test suite as the codebase grows.
 
 ## Pointers

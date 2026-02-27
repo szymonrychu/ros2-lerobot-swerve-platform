@@ -4,13 +4,17 @@ import os
 import sys
 from pathlib import Path
 
-from .config import ConfigError, load_config
+from .config import DEFAULT_CONFIG_PATH, ConfigError, load_config
 from .proxy import run_all_relays
 
 
 def main() -> int:
-    """Load config and run relay node. Exits 0 if no rules; 1 on config error."""
-    config_path = os.environ.get("MASTER2MASTER_CONFIG", "/etc/ros2/master2master/config.yaml")
+    """Load config and run relay node.
+
+    Returns:
+        int: 0 on success or when no rules; 1 on config error.
+    """
+    config_path = os.environ.get("MASTER2MASTER_CONFIG", str(DEFAULT_CONFIG_PATH))
     path = Path(config_path)
     try:
         rules = load_config(path)

@@ -30,10 +30,16 @@ def test_calibrate_missing_joint_exits(tmp_path: Path) -> None:
     mock_servo = MagicMock()
     mock_servo.ListServos.return_value = [1, 2, 3]  # only 3, expected 6 by default
 
-    with patch("st3215.ST3215", MagicMock(return_value=mock_servo)):
+    with patch.object(m, "ST3215", MagicMock(return_value=mock_servo)):
         with patch.object(
             sys,
             "argv",
-            ["calibrate_servos", "--device", "/dev/tty", "--output", str(tmp_path / "out.json")],
+            [
+                "calibrate_servos",
+                "--device",
+                "/dev/tty",
+                "--output",
+                str(tmp_path / "out.json"),
+            ],
         ):
             assert m.main() == 1

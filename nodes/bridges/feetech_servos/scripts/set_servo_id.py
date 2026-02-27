@@ -8,24 +8,41 @@ unless the library is extended to accept it.
 import argparse
 import sys
 
+from st3215 import ST3215
+
+VALID_ID_MIN = 0
+VALID_ID_MAX = 253
+
 
 def main() -> int:
+    """Run CLI: require exactly one servo on device, then set its ID to --new-id.
+
+    Returns:
+        int: 0 on success, 1 on validation or device/library error.
+    """
     parser = argparse.ArgumentParser(
         description="Set new ID on a single Feetech servo (exactly one must be on the bus)."
     )
     parser.add_argument("--device", required=True, help="Serial device path (e.g. /dev/ttyUSB0)")
-    parser.add_argument("--baudrate", type=int, default=1000000, help="Baudrate (default: 1000000)")
-    parser.add_argument("--new-id", type=int, required=True, help="New servo ID to assign (0-253)")
+    parser.add_argument(
+        "--baudrate",
+        type=int,
+        default=1000000,
+        help="Baudrate (default: 1000000)",
+    )
+    parser.add_argument(
+        "--new-id",
+        type=int,
+        required=True,
+        help="New servo ID to assign (0-253)",
+    )
     args = parser.parse_args()
 
-    if not (0 <= args.new_id <= 253):
-        print("Error: new-id must be between 0 and 253", file=sys.stderr)
-        return 1
-
-    try:
-        from st3215 import ST3215
-    except ImportError:
-        print("Error: st3215 library not installed (pip install st3215)", file=sys.stderr)
+    if not (VALID_ID_MIN <= args.new_id <= VALID_ID_MAX):
+        print(
+            f"Error: new-id must be between {VALID_ID_MIN} and {VALID_ID_MAX}",
+            file=sys.stderr,
+        )
         return 1
 
     try:
@@ -63,7 +80,3 @@ def main() -> int:
 
     print(f"Servo ID changed from {current_id} to {args.new_id}.")
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

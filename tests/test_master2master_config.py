@@ -10,7 +10,13 @@ _nodes_master2master = Path(__file__).resolve().parent.parent / "nodes" / "maste
 if _nodes_master2master.exists():
     sys.path.insert(0, str(_nodes_master2master))
 
-from master2master.config import ConfigError, load_config_from_dict  # noqa: E402
+from master2master.config import (  # noqa: E402
+    ConfigError,
+    load_config,
+    load_config_from_dict,
+    normalize_topic,
+    parse_rule_entry,
+)
 
 
 def test_load_config_from_dict_empty() -> None:
@@ -88,3 +94,44 @@ def test_load_config_from_dict_normalizes_topic_slash() -> None:
     assert len(rules) == 1
     assert rules[0].source == "/foo"
     assert rules[0].dest == "/bar"
+
+
+def test_normalize_topic_empty_or_whitespace() -> None:
+    """normalize_topic returns empty string for empty or whitespace-only input."""
+    assert normalize_topic("") == ""
+    assert normalize_topic("   ") == ""
+
+
+def test_normalize_topic_adds_leading_slash() -> None:
+    """normalize_topic adds leading slash when missing."""
+    assert normalize_topic("foo") == "/foo"
+    assert normalize_topic("  bar  ") == "/bar"
+
+
+def test_normalize_topic_strips_trailing_slash() -> None:
+    """normalize_topic strips trailing slash; single slash becomes '/'."""
+    assert normalize_topic("/foo/") == "/foo"
+    assert normalize_topic("/") == "/"
+
+
+def test_load_config_from_file(tmp_path: Path) -> None:
+    """load_config reads and parses YAML from file path."""
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("topics:\n  - /topic_a\n  - source: /b\n    dest: /c\n")
+    rules = load_config(config_file)
+    assert len(rules) == 2
+    assert rules[0].source == "/topic_a" and rules[0].dest == "/topic_a"
+    assert rules[1].source == "/b" and rules[1].dest == "/c"
+
+
+def test_load_config_nonexistent_returns_empty() -> None:
+    """load_config returns empty list for nonexistent path."""
+    assert load_config(Path("/nonexistent/config.yaml")) == []
+
+
+def test_parse_rule_entry_invalid_type_raises() -> None:
+    """parse_rule_entry raises ConfigError for non-dict non-str entry."""
+    with pytest.raises(ConfigError, match="expected dict or str"):
+        parse_rule_entry(123, 0)
+    with pytest.raises(ConfigError, match="expected dict or str"):
+        parse_rule_entry([], 1)

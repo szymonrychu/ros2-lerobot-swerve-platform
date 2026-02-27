@@ -23,3 +23,15 @@ def test_clamp_low() -> None:
 def test_clamp_high() -> None:
     """clamp returns high when value above range."""
     assert clamp(1.5, 0.0, 1.0) == 1.0
+
+
+def test_clamp_equal_bounds() -> None:
+    """clamp with low == high returns that bound."""
+    assert clamp(0.5, 1.0, 1.0) == 1.0
+    assert clamp(1.0, 1.0, 1.0) == 1.0
+
+
+def test_clamp_at_bounds() -> None:
+    """clamp returns value when value equals low or high."""
+    assert clamp(0.0, 0.0, 1.0) == 0.0
+    assert clamp(1.0, 0.0, 1.0) == 1.0

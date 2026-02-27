@@ -6,10 +6,20 @@ from pathlib import Path
 
 import yaml
 
+DEFAULT_CONFIG_PATH = Path("/etc/ros2/feetech_servos/config.yaml")
+ENV_CONFIG_PATH_KEY = "FEETECH_SERVOS_CONFIG"
+
 
 @dataclass
 class BridgeConfig:
-    """Bridge config: namespace for topics, joint names, optional serial."""
+    """Bridge config: namespace for topics, joint names, optional serial.
+
+    Attributes:
+        namespace: Topic prefix (e.g. "leader" -> /leader/joint_states).
+        joint_names: List of joint names for JointState messages.
+        device: Optional serial device path (e.g. /dev/ttyUSB0).
+        baudrate: Optional baud rate for serial; None if not set.
+    """
 
     namespace: str
     joint_names: list[str]
@@ -18,9 +28,18 @@ class BridgeConfig:
 
 
 def load_config(path: Path | None = None) -> BridgeConfig | None:
-    """Load bridge config from YAML. Returns None if file missing or invalid."""
+    """Load bridge config from YAML file.
+
+    Args:
+        path: Path to YAML file. If None, uses DEFAULT_CONFIG_PATH.
+
+    Returns:
+        BridgeConfig | None: Parsed config, or None if file missing/invalid or
+            namespace/joint_names missing. Rejects namespace containing '/' and
+            empty joint names.
+    """
     if path is None:
-        path = Path("/etc/ros2/feetech_servos/config.yaml")
+        path = DEFAULT_CONFIG_PATH
     if not path.exists():
         return None
     data = yaml.safe_load(path.read_text())
@@ -54,7 +73,11 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
 
 
 def load_config_from_env() -> BridgeConfig | None:
-    """Load config from path in FEETECH_SERVOS_CONFIG, or default path."""
-    path_str = os.environ.get("FEETECH_SERVOS_CONFIG", "").strip()
-    path = Path(path_str) if path_str else Path("/etc/ros2/feetech_servos/config.yaml")
+    """Load config from path in FEETECH_SERVOS_CONFIG env, or default path.
+
+    Returns:
+        BridgeConfig | None: Result of load_config(path).
+    """
+    path_str = os.environ.get(ENV_CONFIG_PATH_KEY, "").strip()
+    path = Path(path_str) if path_str else DEFAULT_CONFIG_PATH
     return load_config(path)

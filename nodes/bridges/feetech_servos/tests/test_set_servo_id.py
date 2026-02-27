@@ -28,7 +28,7 @@ def test_set_servo_id_exactly_one_servo_success() -> None:
     mock_servo.ListServos.return_value = [1]
     mock_servo.ChangeId.return_value = None  # success
 
-    with patch("st3215.ST3215", MagicMock(return_value=mock_servo)):
+    with patch.object(m, "ST3215", MagicMock(return_value=mock_servo)):
         with patch.object(sys, "argv", ["set_servo_id", "--device", "/dev/tty", "--new-id", "2"]):
             assert m.main() == 0
     mock_servo.ChangeId.assert_called_once_with(1, 2)
@@ -41,7 +41,7 @@ def test_set_servo_id_zero_servos_fails() -> None:
     mock_servo = MagicMock()
     mock_servo.ListServos.return_value = []
 
-    with patch("st3215.ST3215", MagicMock(return_value=mock_servo)):
+    with patch.object(m, "ST3215", MagicMock(return_value=mock_servo)):
         with patch.object(sys, "argv", ["set_servo_id", "--device", "/dev/tty", "--new-id", "1"]):
             assert m.main() == 1
 
@@ -53,6 +53,6 @@ def test_set_servo_id_two_servos_fails() -> None:
     mock_servo = MagicMock()
     mock_servo.ListServos.return_value = [1, 2]
 
-    with patch("st3215.ST3215", MagicMock(return_value=mock_servo)):
+    with patch.object(m, "ST3215", MagicMock(return_value=mock_servo)):
         with patch.object(sys, "argv", ["set_servo_id", "--device", "/dev/tty", "--new-id", "3"]):
             assert m.main() == 1

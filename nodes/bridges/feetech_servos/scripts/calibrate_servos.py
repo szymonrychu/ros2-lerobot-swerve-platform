@@ -11,17 +11,30 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
+
+from st3215 import ST3215
 
 # STS3215 EEPROM register addresses (from Feetech docs)
 STS_MIN_ANGLE = 0x09
 STS_MAX_ANGLE = 0x0B
-
-# Default expected joint count for a typical 6-DOF arm
 DEFAULT_EXPECTED_JOINT_COUNT = 6
+DEFAULT_CENTER = 2048
+SAMPLING_DURATION_S = 3.0
 
 
-def _write_min_max_angles(servo: object, sts_id: int, min_pos: int, max_pos: int) -> bool:
-    """Write min and max angle limits to servo EEPROM. Uses library's UnLockEprom, write2ByteTxRx, LockEprom."""
+def write_min_max_angles(servo: Any, sts_id: int, min_pos: int, max_pos: int) -> bool:
+    """Write min and max angle limits to servo EEPROM.
+
+    Args:
+        servo: ST3215 instance (object with UnLockEprom, write2ByteTxRx, LockEprom).
+        sts_id: Servo ID (int).
+        min_pos: Min position in steps (int).
+        max_pos: Max position in steps (int).
+
+    Returns:
+        bool: True if both registers written successfully, False otherwise.
+    """
     if servo.UnLockEprom(sts_id) != 0:  # COMM_SUCCESS is 0
         return False
     try:
@@ -37,12 +50,26 @@ def _write_min_max_angles(servo: object, sts_id: int, min_pos: int, max_pos: int
 
 
 def main() -> int:
+    """Run interactive calibration: neutral then min/max per joint; write JSON to --output.
+
+    Returns:
+        int: 0 on success, 1 on device/scan/write error.
+    """
     parser = argparse.ArgumentParser(
         description="Interactive calibration for Feetech servo arm (neutral + min/max per joint)."
     )
     parser.add_argument("--device", required=True, help="Serial device path (e.g. /dev/ttyUSB0)")
-    parser.add_argument("--baudrate", type=int, default=1000000, help="Baudrate (default: 1000000)")
-    parser.add_argument("--output", required=True, help="Output JSON path for min/center/max per servo ID")
+    parser.add_argument(
+        "--baudrate",
+        type=int,
+        default=1000000,
+        help="Baudrate (default: 1000000)",
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Output JSON path for min/center/max per servo ID",
+    )
     parser.add_argument(
         "--expected-joints",
         type=int,
@@ -50,12 +77,6 @@ def main() -> int:
         help=f"Expected number of joints (default: {DEFAULT_EXPECTED_JOINT_COUNT})",
     )
     args = parser.parse_args()
-
-    try:
-        from st3215 import ST3215
-    except ImportError:
-        print("Error: st3215 library not installed (pip install st3215)", file=sys.stderr)
-        return 1
 
     try:
         servo = ST3215(args.device)
@@ -89,11 +110,14 @@ def main() -> int:
     for jid in joint_ids:
         input(f"Move joint (servo ID {jid}) to neutral position, then press Enter...")
         if servo.DefineMiddle(jid) is not True:
-            print(f"Error: failed to set center for servo {jid}", file=sys.stderr)
+            print(
+                f"Error: failed to set center for servo {jid}",
+                file=sys.stderr,
+            )
             return 1
         center = servo.ReadPosition(jid)
         if center is None:
-            center = 2048  # default center
+            center = DEFAULT_CENTER
         result[jid] = {"min": 0, "center": center, "max": 0}
         print(f"  Servo {jid}: center = {center}")
 
@@ -104,19 +128,25 @@ def main() -> int:
         input()
         positions: list[int] = []
         print("  Sampling position for 3 seconds...")
-        deadline = time.monotonic() + 3.0
+        deadline = time.monotonic() + SAMPLING_DURATION_S
         while time.monotonic() < deadline:
             pos = servo.ReadPosition(jid)
             if pos is not None:
                 positions.append(pos)
             time.sleep(0.05)
         if not positions:
-            print(f"Error: could not read position for servo {jid}", file=sys.stderr)
+            print(
+                f"Error: could not read position for servo {jid}",
+                file=sys.stderr,
+            )
             return 1
         min_pos = min(positions)
         max_pos = max(positions)
-        if not _write_min_max_angles(servo, jid, min_pos, max_pos):
-            print(f"Error: failed to write min/max to servo {jid}", file=sys.stderr)
+        if not write_min_max_angles(servo, jid, min_pos, max_pos):
+            print(
+                f"Error: failed to write min/max to servo {jid}",
+                file=sys.stderr,
+            )
             return 1
         result[jid]["min"] = min_pos
         result[jid]["max"] = max_pos
@@ -132,7 +162,3 @@ def main() -> int:
         json.dump(result, f, indent=2)
     print(f"\nCalibration saved to {out_path}")
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

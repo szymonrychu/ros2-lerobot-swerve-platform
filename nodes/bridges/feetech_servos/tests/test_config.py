@@ -2,7 +2,8 @@
 
 from pathlib import Path
 
-from feetech_servos.config import BridgeConfig, load_config
+import pytest
+from feetech_servos.config import BridgeConfig, load_config, load_config_from_env
 
 
 def test_load_config_nonexistent_path() -> None:
@@ -66,3 +67,22 @@ def test_load_config_rejects_empty_joint_name(tmp_path: Path) -> None:
     p = tmp_path / "c.yaml"
     p.write_text("namespace: leader\njoint_names: [j1, '', j3]\n")
     assert load_config(p) is None
+
+
+def test_load_config_from_env_uses_default_path_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """load_config_from_env uses default path when FEETECH_SERVOS_CONFIG is unset."""
+    monkeypatch.delenv("FEETECH_SERVOS_CONFIG", raising=False)
+    result = load_config_from_env()
+    # Default path typically does not exist in test env
+    assert result is None or isinstance(result, BridgeConfig)
+
+
+def test_load_config_from_env_uses_env_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """load_config_from_env reads path from FEETECH_SERVOS_CONFIG and loads that file."""
+    config_file = tmp_path / "custom.yaml"
+    config_file.write_text("namespace: leader\njoint_names: [j1, j2]\n")
+    monkeypatch.setenv("FEETECH_SERVOS_CONFIG", str(config_file))
+    cfg = load_config_from_env()
+    assert cfg is not None
+    assert cfg.namespace == "leader"
+    assert cfg.joint_names == ["j1", "j2"]

@@ -10,6 +10,7 @@ python = "^3.11"
 opencv-python-headless = ">=4.8.0"
 
 [tool.poetry.group.dev.dependencies]
+pytest = "^9.0.0"
 flake8 = "^7.0.0"
 black = "^24.0.0"
 isort = "^5.13.0"
@@ -38,6 +39,10 @@ extend-exclude = [".venv", "__pycache__"]
 exclude = ["**/__pycache__"]
 min_confidence = 80
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
 [tool.poe.tasks]
 lint = { shell = """
   set -e
@@ -52,3 +57,4 @@ lint-fix = { shell = """
   isort --skip .venv --skip __pycache__ .
   autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables --exclude '.venv|__pycache__' .
 """ }
+test = "pytest tests/ -v --tb=short"

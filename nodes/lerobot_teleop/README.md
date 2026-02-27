@@ -9,7 +9,7 @@
 - **Leader state on client:** Leader joint_states topic must be available on the client (proxied from Server by master2master). Default: `/leader/joint_states`.
 - **Follower bridge:** The follower joints bridge must be running and subscribed to the follower joint_commands topic. Default: `/follower/joint_commands`.
 - **Environment (optional):** `TELEOP_LEADER_JOINT_STATES_TOPIC`, `TELEOP_FOLLOWER_JOINT_COMMANDS_TOPIC` override the default topic names.
-- No device access; ROS2 only.
+- No device access; ROS2 only. Config is in `config.py` (no ROS deps) for testability; run tests with `poetry run poe test` from the node directory.
 
 ## Topics
 
