@@ -12,10 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 RUN python3 -m venv /app/venv && /app/venv/bin/pip install --no-cache-dir poetry
 ENV PATH="/app/venv/bin:$PATH"
-RUN poetry config virtualenvs.create false
+RUN poetry config virtualenvs.in-project true
 
 COPY pyproject.toml poetry.lock ./
-RUN poetry install --no-dev --no-interaction
+RUN poetry install --only main --no-interaction --no-root
+ENV PATH="/app/.venv/bin:$PATH"
 
 COPY . ./feetech_servos/
 

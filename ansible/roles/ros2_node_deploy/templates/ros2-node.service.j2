@@ -10,7 +10,7 @@ RestartSec=5
 TimeoutStopSec=30
 # Config dir mounted read-only at node_config_path when set (e.g. /etc/ros2/master2master)
 ExecStart=/usr/bin/docker run --rm --name ros2-{{ node_name }} \
-  {% if node_config_path is defined and node_config_path | length > 0 %}
+  {% if node_config_path is defined and node_config_path is string and node_config_path | length > 0 %}
   -v {{ ros2_node_config_dir }}/{{ node_name }}:{{ node_config_path }}:ro \
   {% endif %}
   {% for env in node_env | default([]) %}

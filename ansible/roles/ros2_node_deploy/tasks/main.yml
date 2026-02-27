@@ -78,7 +78,7 @@
         content: "{{ node_config | default('') }}"
         mode: "0644"
       become: true
-      when: node_config_path is defined
+      when: node_config_path is defined and node_config_path is string and (node_config_path | length > 0)
       notify: "Restart ROS2 node"
 
     - name: Create systemd unit for ROS2 node
