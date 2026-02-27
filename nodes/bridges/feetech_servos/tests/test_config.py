@@ -60,10 +60,7 @@ def test_load_config_with_device_baudrate(tmp_path: Path) -> None:
     """load_config parses optional device and baudrate."""
     p = tmp_path / "c.yaml"
     p.write_text(
-        "namespace: leader\n"
-        "joint_names:\n  - name: j1\n    id: 3\n"
-        "device: /dev/ttyUSB0\n"
-        "baudrate: 115200\n"
+        "namespace: leader\n" "joint_names:\n  - name: j1\n    id: 3\n" "device: /dev/ttyUSB0\n" "baudrate: 115200\n"
     )
     cfg = load_config(p)
     assert cfg is not None
@@ -117,12 +114,7 @@ def test_load_config_rejects_id_out_of_range(tmp_path: Path) -> None:
 def test_load_config_rejects_duplicate_servo_id(tmp_path: Path) -> None:
     """load_config returns None when two joints share the same servo id."""
     p = tmp_path / "c.yaml"
-    p.write_text(
-        "namespace: leader\n"
-        "joint_names:\n"
-        "  - name: j1\n    id: 1\n"
-        "  - name: j2\n    id: 1\n"
-    )
+    p.write_text("namespace: leader\n" "joint_names:\n" "  - name: j1\n    id: 1\n" "  - name: j2\n    id: 1\n")
     assert load_config(p) is None
 
 
@@ -154,10 +146,7 @@ def test_load_config_from_env_uses_env_path(tmp_path: Path, monkeypatch: pytest.
     """load_config_from_env reads path from FEETECH_SERVOS_CONFIG and loads that file."""
     config_file = tmp_path / "custom.yaml"
     config_file.write_text(
-        "namespace: leader\n"
-        "joint_names:\n"
-        "  - name: j1\n    id: 1\n"
-        "  - name: j2\n    id: 2\n"
+        "namespace: leader\n" "joint_names:\n" "  - name: j1\n    id: 1\n" "  - name: j2\n    id: 2\n"
     )
     monkeypatch.setenv("FEETECH_SERVOS_CONFIG", str(config_file))
     cfg = load_config_from_env()

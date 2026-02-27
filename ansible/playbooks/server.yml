@@ -1,9 +1,14 @@
 ---
-# Provision Server Raspberry Pi (Ubuntu 24.04): bootstrap + Docker
-# Run: ansible-playbook -i ../inventory playbooks/server.yml -l server
+# Provision Server Raspberry Pi (Ubuntu 24.04): bootstrap, network, hostname, Docker
+# Run: ansible-playbook -i inventory playbooks/server.yml -l server
+# Set in group_vars/server.yml or host_vars: network_address, network_gateway, hostname (and optional network_nameservers).
 - name: Provision Server
   hosts: server
   become: true
   roles:
     - common
+    - role: network
+      when: network_address is defined and network_address | length > 0
+    - role: hostname
+      when: hostname is defined and hostname | length > 0
     - docker

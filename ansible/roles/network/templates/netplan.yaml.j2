@@ -1,0 +1,21 @@
+# Ansible-managed netplan: static IP for {{ _network_interface }}
+# Vars: network_address (CIDR), network_gateway, network_nameservers (optional)
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    {{ _network_interface }}:
+      dhcp4: false
+      dhcp6: false
+      addresses:
+        - {{ network_address }}
+      routes:
+        - to: default
+          via: {{ network_gateway }}
+{% if network_nameservers is defined and network_nameservers | length > 0 %}
+      nameservers:
+        addresses:
+{% for ns in network_nameservers %}
+          - {{ ns }}
+{% endfor %}
+{% endif %}

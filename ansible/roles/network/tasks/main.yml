@@ -1,0 +1,45 @@
+---
+# Configure static IP using netplan. Detects primary interface if network_interface not set.
+# Requires: network_address (CIDR, e.g. 192.168.1.10/24), network_gateway.
+# Optional: network_nameservers (list), network_interface (default: ansible_default_ipv4.interface).
+
+- name: Validate network variables
+  ansible.builtin.assert:
+    that:
+      - network_address is defined
+      - network_address | length > 0
+      - network_gateway is defined
+      - network_gateway | length > 0
+    fail_msg: "network role requires network_address and network_gateway (set in group_vars or host_vars)."
+    success_msg: "Network vars present"
+
+- name: Set primary interface when not specified
+  ansible.builtin.set_fact:
+    _network_interface: "{{ network_interface | default(ansible_default_ipv4.interface) }}"
+  when: network_interface is not defined or network_interface | length == 0
+
+- name: Set primary interface when specified
+  ansible.builtin.set_fact:
+    _network_interface: "{{ network_interface }}"
+  when: network_interface is defined and network_interface | length > 0
+
+- name: Ensure netplan config directory exists
+  ansible.builtin.file:
+    path: /etc/netplan
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Deploy netplan configuration
+  ansible.builtin.template:
+    src: netplan.yaml.j2
+    dest: "/etc/netplan/{{ network_netplan_file }}"
+    mode: "0644"
+  become: true
+  register: netplan_config
+
+- name: Apply netplan (only when config changed)
+  ansible.builtin.command:
+    cmd: netplan apply
+  become: true
+  when: netplan_config is changed

@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: ""
+  description: Set Raspberry Pi hostname (hostnamectl and /etc/hostname, /etc/hosts)
+  license: MIT
+  min_ansible_version: "2.16"
+dependencies: []

@@ -1,15 +1,25 @@
 ---
 # Server — Raspberry Pi 4b: Lerobot SO-101 leader, GPS-RTK LC29H(BS)
+# Network (netplan) and hostname — set for each host or here for the group:
+# network_address: "192.168.1.10/24"
+# network_gateway: "192.168.1.1"
+# network_nameservers: ["8.8.8.8", "8.8.4.4"]
+# hostname: "server-rpi4"
+
 # ROS2 node types: image and default settings per type (used by ros2_node_deploy).
+# Server ROS2 master binds to all interfaces (0.0.0.0) so Client can connect; other nodes use localhost only.
 ros2_node_type_defaults:
   ros2_master:
     image: harbor.szymonrichert.pl/containers/server-ros2-master:latest
     build_context: nodes/ros2_master
+    env:
+      - ROS_LOCALHOST_ONLY=0
   feetech_servos:
     image: harbor.szymonrichert.pl/containers/server-feetech-servos-leader:latest
     build_context: nodes/bridges/feetech_servos
     config_path: /etc/ros2/feetech_servos
     env:
+      - ROS_LOCALHOST_ONLY=1
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
 
 # Nodes to deploy: name, node_type, present, enabled, config.

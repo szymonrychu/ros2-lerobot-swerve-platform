@@ -1,0 +1,5 @@
+---
+# Hostname role defaults.
+# Override in group_vars or host_vars: hostname (short name, e.g. server-rpi4).
+
+# hostname: "server-rpi4"   # required when role is used

@@ -7,10 +7,12 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 - **`inventory`** — Host groups `server` and `client`. Edit with your hostnames or IPs. `all:vars` can set `ansible_user`, `ansible_python_interpreter`.
 - **`group_vars/`** — `all.yml`, `server.yml`, `client.yml` for group-specific variables.
 - **`playbooks/`**
-  - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04 and install Docker (and Compose plugin). Run once per host (or when changing base setup).
+  - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, then Docker (and Compose plugin). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
   - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build each node’s container locally from the repo, deploy config, install systemd unit, enable/start or disable/stop. Containers are built on the node from the cloned repo (no pre-built image pull).
 - **`roles/`**
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
+  - **`network`** — Static IP via netplan: detects primary interface (or use `network_interface`), sets address (CIDR), gateway, optional nameservers. Runs only when `network_address` and `network_gateway` are set in group_vars or host_vars.
+  - **`hostname`** — Set system hostname (hostnamectl, `/etc/hostname`, `127.0.1.1` in `/etc/hosts`). Runs only when `hostname` is set.
   - **`docker`** — Docker CE + Docker Compose plugin on Ubuntu 24.04.
   - **`ros2_node_deploy`** — For each node: build image from repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
 
@@ -89,6 +91,25 @@ ros2_nodes:
 ```
 
 When you add, remove, or reconfigure ROS2 nodes (including in docker-compose or node source), update these vars and re-run the deploy playbook.
+
+## Network and hostname (provision)
+
+In **`group_vars/server.yml`** or **`group_vars/client.yml`** (or host_vars), set:
+
+- **`network_address`** — Static IP in CIDR (e.g. `192.168.1.10/24`). Required for the network role to run.
+- **`network_gateway`** — Default gateway (e.g. `192.168.1.1`).
+- **`network_nameservers`** — Optional list (e.g. `["8.8.8.8", "8.8.4.4"]`).
+- **`network_interface`** — Optional. Default: primary interface with default route (`ansible_default_ipv4.interface`).
+- **`hostname`** — Short hostname (e.g. `server-rpi4`). Optional; when set, the hostname role runs.
+
+The **network** role writes a netplan file under `/etc/netplan/` and runs `netplan apply`. The **hostname** role runs `hostnamectl set-hostname` and updates `/etc/hostname` and `/etc/hosts`.
+
+## ROS2 network setup (bind and localhost)
+
+Containers get env vars so that:
+
+- **Server:** ROS2 master node uses **`ROS_LOCALHOST_ONLY=0`** so it binds to all interfaces (0.0.0.0) and the Client can reach it. All other Server nodes use **`ROS_LOCALHOST_ONLY=1`** (localhost only).
+- **Client:** ROS2 master and all nodes (including master2master) use **`ROS_LOCALHOST_ONLY=1`** (localhost). The **master2master** node additionally receives **`ROS2_SERVER_HOST`** (Server IP or hostname) so it can connect to the Server’s ROS2 master on the “remote” end. Set **`ros2_server_host`** in `group_vars/client.yml` (e.g. `192.168.1.10` or the server hostname) so the deploy playbook passes it into the master2master container.
 
 ## Linting and testing
 

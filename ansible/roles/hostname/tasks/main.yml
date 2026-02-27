@@ -1,0 +1,31 @@
+---
+# Set system hostname (short name). Updates /etc/hostname and hostnamectl; ensures 127.0.1.1 in /etc/hosts.
+
+- name: Validate hostname variable
+  ansible.builtin.assert:
+    that:
+      - hostname is defined
+      - hostname | length > 0
+    fail_msg: "hostname role requires hostname (set in group_vars or host_vars)."
+    success_msg: "Hostname var present"
+
+- name: Set hostname via hostnamectl
+  ansible.builtin.command:
+    cmd: hostnamectl set-hostname "{{ hostname }}"
+  become: true
+  changed_when: true
+
+- name: Ensure /etc/hostname contains short hostname
+  ansible.builtin.copy:
+    dest: /etc/hostname
+    content: "{{ hostname }}\n"
+    mode: "0644"
+  become: true
+
+- name: Ensure 127.0.1.1 hostname entry in /etc/hosts (for sudo and local resolution)
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\s*127\.0\.1\.1\s+'
+    line: "127.0.1.1 {{ hostname }}"
+    state: present
+  become: true

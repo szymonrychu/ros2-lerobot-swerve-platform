@@ -28,6 +28,7 @@
       ansible.builtin.include_role:
         name: ros2_node_deploy
       vars:
+        _master2master_server_env: "{{ ['ROS2_SERVER_HOST=' + ros2_server_host] if (item.node_type == 'master2master' and ros2_server_host is defined and ros2_server_host | length > 0) else [] }}"
         node_name: "{{ item.name }}"
         node_present: "{{ item.present | default(true) }}"
         node_enabled: "{{ item.enabled | default(true) }}"
@@ -36,7 +37,7 @@
         node_build_context: "{{ ros2_node_type_defaults[item.node_type].build_context }}"
         repo_dest: "{{ ros2_repo_dest }}"
         node_config_path: "{{ ros2_node_type_defaults[item.node_type].config_path | default(omit) }}"
-        node_env: "{{ (ros2_node_type_defaults[item.node_type].env | default([])) + (item.env | default([])) }}"
+        node_env: "{{ (ros2_node_type_defaults[item.node_type].env | default([])) + (item.env | default([])) + _master2master_server_env }}"
         node_extra_args: "{{ item.extra_args | default('') }}"
       loop: "{{ ros2_nodes }}"
       loop_control:
