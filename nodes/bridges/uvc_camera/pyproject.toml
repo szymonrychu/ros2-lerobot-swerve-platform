@@ -7,6 +7,7 @@ packages = []
 
 [tool.poetry.dependencies]
 python = "^3.11"
+opencv-python-headless = ">=4.8.0"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^7.0.0"
