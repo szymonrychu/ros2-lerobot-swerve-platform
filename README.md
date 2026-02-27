@@ -56,6 +56,18 @@ SteamDeck running Ubuntu, equipped with ROS2 and Proton based GUI controlling ro
 * [ROADMAP.md](ROADMAP.md) — MVP scope and roadmap streams
 * [AGENTS.md](AGENTS.md) — Cursor/agent rules and conventions (**read when resuming work, when joining the project, or when context is summarized**)
 * [MEMORY.md](MEMORY.md) — key decisions and agent notes for this project
-* Per-node and key-directory READMEs: `nodes/README.md`, `nodes/master2master/README.md`, `nodes/bridges/README.md`, `shared/README.md`, `ansible/README.md`, `tests/README.md`, etc.
+
+### READMEs by directory
+
+* [ansible/README.md](ansible/README.md) — Ansible playbooks, roles, node deployment, lint and run
+* [shared/README.md](shared/README.md) — shared Python libraries
+* [tests/README.md](tests/README.md) — root and per-node test suite
+* [nodes/README.md](nodes/README.md) — nodes overview
+* [nodes/ros2_master/README.md](nodes/ros2_master/README.md) — ROS2 master container
+* [nodes/master2master/README.md](nodes/master2master/README.md) — topic relay (Server ↔ Client)
+* [nodes/lerobot_teleop/README.md](nodes/lerobot_teleop/README.md) — leader–follower teleop
+* [nodes/bridges/README.md](nodes/bridges/README.md) — hardware bridges overview
+* [nodes/bridges/feetech_servos/README.md](nodes/bridges/feetech_servos/README.md) — Feetech servos bridge
+* [nodes/bridges/uvc_camera/README.md](nodes/bridges/uvc_camera/README.md) — UVC camera bridge
 
 Repository: `ros2-lerobot-swerve-platform`
