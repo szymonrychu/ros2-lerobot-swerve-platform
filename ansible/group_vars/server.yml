@@ -33,6 +33,7 @@ ros2_nodes:
     present: true
     enabled: true
     config: |
+      device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059057-if00
       namespace: leader
       joint_names:
         - joint_1
