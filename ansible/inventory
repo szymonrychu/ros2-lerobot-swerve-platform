@@ -3,11 +3,11 @@
 # Replace hostnames/IPs with your actual targets.
 
 [server]
-# server-rpi4 ansible_host=192.168.1.10
+server-rpi4 ansible_host=192.168.1.33
 
 [client]
-# client-rpi5 ansible_host=192.168.1.20
+client-rpi5 ansible_host=192.168.1.34
 
 [all:vars]
-ansible_user=ubuntu
+ansible_user=szymonri
 ansible_python_interpreter=/usr/bin/python3

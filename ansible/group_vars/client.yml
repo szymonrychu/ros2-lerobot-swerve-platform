@@ -1,13 +1,13 @@
 ---
 # Client — Raspberry Pi 5: follower, swerve, sensors, master2master
 # Network (netplan) and hostname — set for each host or here for the group:
-network_address: "192.168.1.20/24"
+network_address: "192.168.1.34/24"
 network_gateway: "192.168.1.1"
 network_nameservers: ["192.168.1.1"]
 hostname: "client-rpi5"
 
 # Server IP/hostname for master2master to connect to Server's ROS2 master (set or use inventory).
-# ros2_server_host: "192.168.1.10"   # or server hostname if DNS/resolution works
+ros2_server_host: "192.168.1.33"   # or server hostname if DNS/resolution works
 
 # ROS2 node types. Client ROS2 master and all nodes use localhost; master2master also gets server host for remote end.
 ros2_node_type_defaults:

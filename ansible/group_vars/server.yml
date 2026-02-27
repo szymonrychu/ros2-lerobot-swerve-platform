@@ -1,10 +1,10 @@
 ---
 # Server — Raspberry Pi 4b: Lerobot SO-101 leader, GPS-RTK LC29H(BS)
 # Network (netplan) and hostname — set for each host or here for the group:
-# network_address: "192.168.1.10/24"
-# network_gateway: "192.168.1.1"
-# network_nameservers: ["8.8.8.8", "8.8.4.4"]
-# hostname: "server-rpi4"
+network_address: "192.168.1.33/24"
+network_gateway: "192.168.1.1"
+network_nameservers: ["192.168.1.1"]
+hostname: "server-rpi4"
 
 # ROS2 node types: image and default settings per type (used by ros2_node_deploy).
 # Server ROS2 master binds to all interfaces (0.0.0.0) so Client can connect; other nodes use localhost only.
