@@ -15,6 +15,10 @@ Unit tests for master2master topic proxy config parsing (`nodes/master2master/ma
 | `test_load_config_from_dict_dict_entries` | Dict entries support `source`/`from`, `dest`/`to`, `direction`; default direction is `"in"`. |
 | `test_load_config_from_dict_skips_missing_source` | Entries without a source (or from) are skipped; result list does not contain them. |
 | `test_load_config_from_dict_msg_type` | Dict entries support `type` (e.g. `"JointState"`); default `msg_type` is `"string"`. |
+| `test_load_config_from_dict_invalid_direction_raises` | Invalid `direction` raises `ConfigError`. |
+| `test_load_config_from_dict_invalid_type_raises` | Invalid `type` raises `ConfigError`. |
+| `test_load_config_from_dict_topics_not_list_raises` | `topics` / `topic_proxy` must be a list; otherwise `ConfigError`. |
+| `test_load_config_from_dict_normalizes_topic_slash` | Topic names get a leading slash if missing. |
 
 ### `test_shared_utils.py`
 
@@ -28,7 +32,7 @@ Unit tests for the shared library `shared/ros2_common/_utils.py`. Imports from r
 
 ### Per-node tests (feetech_servos)
 
-The **feetech_servos** node has its own test suite under `nodes/bridges/feetech_servos/tests/`. Run from that directory: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`), set_servo_id script argparse and exactly-one-servo logic (`test_set_servo_id.py`), calibrate_servos JSON shape and missing-joint exit (`test_calibrate_servos.py`).
+The **feetech_servos** node has its own test suite under `nodes/bridges/feetech_servos/tests/`. Run from that directory: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading and validation (`test_config.py`: missing namespace/joint_names, device/baudrate, rejects namespace with slash, empty joint name), set_servo_id script argparse and exactly-one-servo logic (`test_set_servo_id.py`), calibrate_servos JSON shape and missing-joint exit (`test_calibrate_servos.py`).
 
 ---
 
