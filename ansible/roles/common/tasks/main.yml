@@ -1,6 +1,6 @@
 ---
 # Bootstrap Ubuntu 24.04: ensure Python, basic packages, sudo
-- name: Ensure Python3 and minimal packages
+- name: Ensure Python3, git, and minimal packages
   ansible.builtin.apt:
     name:
       - python3
@@ -8,6 +8,7 @@
       - ca-certificates
       - curl
       - gnupg
+      - git
     state: present
     update_cache: true
   become: true

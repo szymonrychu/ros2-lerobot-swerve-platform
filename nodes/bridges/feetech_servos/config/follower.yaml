@@ -1,0 +1,12 @@
+# Example config for follower arm (e.g. Client).
+# Mount this or set FEETECH_SERVOS_CONFIG to its path.
+namespace: follower
+joint_names:
+  - shoulder_pan
+  - shoulder_lift
+  - elbow_flex
+  - wrist_flex
+  - wrist_roll
+  - gripper
+# device: /dev/ttyUSB0
+# baudrate: 115200

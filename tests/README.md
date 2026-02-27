@@ -26,6 +26,10 @@ Unit tests for the shared library `shared/ros2_common/_utils.py`. Imports from r
 | `test_clamp_low` | `clamp` returns `low` when `value` is below the range. |
 | `test_clamp_high` | `clamp` returns `high` when `value` is above the range. |
 
+### Per-node tests (feetech_servos)
+
+The **feetech_servos** node has its own test suite under `nodes/bridges/feetech_servos/tests/`. Run from that directory: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`), set_servo_id script argparse and exactly-one-servo logic (`test_set_servo_id.py`), calibrate_servos JSON shape and missing-joint exit (`test_calibrate_servos.py`).
+
 ---
 
 **Maintenance:** Keep this README up to date when adding, removing, or changing tests. Document each new test file and each test (or test group) briefly so the test suite remains easy to navigate.

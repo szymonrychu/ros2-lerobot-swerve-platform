@@ -1,5 +1,5 @@
-# Generic Lerobot SO-101 joints bridge — one container per arm (leader or follower)
-# Env: LEROBOT_NAMESPACE=leader|follower (required, avoids topic collision)
+# Feetech servos bridge — one container per arm (e.g. leader or follower).
+# Config via FEETECH_SERVOS_CONFIG (YAML path) or /etc/ros2/feetech_servos/config.yaml.
 FROM ros:jazzy-ros-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,7 +17,7 @@ RUN poetry config virtualenvs.create false
 COPY pyproject.toml poetry.lock ./
 RUN poetry install --no-dev --no-interaction
 
-COPY . ./lerobot_joints/
+COPY . ./feetech_servos/
 
 ENV PYTHONPATH=/app
-CMD ["bash", "-c", "source /opt/ros/jazzy/setup.bash && exec python3 -m lerobot_joints"]
+CMD ["bash", "-c", "source /opt/ros/jazzy/setup.bash && exec python3 -m feetech_servos"]

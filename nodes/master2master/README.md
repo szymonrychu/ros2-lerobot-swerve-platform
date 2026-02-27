@@ -29,21 +29,8 @@ Supported relay types: **`std_msgs/String`** (default) and **`sensor_msgs/JointS
 
 ## Build and run
 
-From `client/` (build context `../nodes/master2master`):
-
-```bash
-# Ensure config is present (e.g. copy config.example.yaml into a volume or bind mount)
-docker compose build master2master
-docker compose up -d master2master
-```
-
-After editing any Python under `nodes/master2master/` or `Dockerfile` / `requirements.txt`, rebuild so the image includes the changes:
-
-```bash
-docker compose build master2master
-docker compose up -d master2master
-```
+Ansible deploys by cloning the repo on the node and building the container from `nodes/master2master`. Run the deploy playbook for client or server; ensure config is deployed to `/etc/ros2-nodes/master2master/` (or as set in group_vars). After editing source or Dockerfile, re-run the deploy playbook so the repo is updated and the image is rebuilt locally.
 
 ## Image
 
-- Built as `ros2-lerobot-sverve-platform/client-master2master:latest`. Base: `ros:jazzy-ros-base`; uses an in-container venv (`/app/venv`) for Python deps (PEP 668 on Ubuntu 24.04); installs from `requirements.txt` and copies the `master2master` package.
+- Built as `harbor.szymonrichert.pl/containers/client-master2master:latest`. Base: `ros:jazzy-ros-base`; uses an in-container venv (`/app/venv`) for Python deps (PEP 668 on Ubuntu 24.04); installs from `requirements.txt` and copies the `master2master` package.

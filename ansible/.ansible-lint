@@ -1,0 +1,17 @@
+# Ansible-lint configuration (see https://docs.ansible.com/projects/lint/configuring/)
+profile: basic
+exclude_paths:
+  - .cache/
+# Run from ansible/ directory so roles_path is resolved correctly (ansible-lint .).
+# skip_list: syntax-check is not skippable; run from ansible/ to fix role resolution.
+skip_list:
+  - ignore-errors  # uninstall block: stop/disable may fail if service not installed
+  - var-naming[no-role-prefix]  # playbook passes node_name, node_image, etc. to role; prefix would be ros2_node_deploy_
+kinds:
+  - playbook: "playbooks/*.yml"
+  - tasks: "roles/*/tasks/*.yml"
+  - vars: "group_vars/*.yml"
+  - vars: "host_vars/*.yml"
+  - handlers: "roles/*/handlers/*.yml"
+  - meta: "roles/*/meta/main.yml"
+  - yaml: "**/*.yml"

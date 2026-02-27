@@ -6,7 +6,6 @@ Wants=network-online.target
 [Service]
 Type=simple
 Restart=on-failure
-ExecStartPre=-/usr/bin/docker pull {{ node_image }}
 ExecStart=/usr/bin/docker run --rm --name ros2-{{ node_name }} \
   {% if node_config_path | default(false) %}
   -v {{ ros2_node_config_dir }}/{{ node_name }}:{{ node_config_path }}:ro \

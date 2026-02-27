@@ -3,19 +3,23 @@
 # ROS2 node types: image and default settings per type (used by ros2_node_deploy).
 ros2_node_type_defaults:
   ros2_master:
-    image: ros2-lerobot-sverve-platform/client-ros2-master:latest
+    image: harbor.szymonrichert.pl/containers/client-ros2-master:latest
+    build_context: nodes/ros2_master
   master2master:
-    image: ros2-lerobot-sverve-platform/client-master2master:latest
+    image: harbor.szymonrichert.pl/containers/client-master2master:latest
+    build_context: nodes/master2master
     config_path: /etc/ros2/master2master
     env:
       - MASTER2MASTER_CONFIG=/etc/ros2/master2master/config.yaml
   feetech_servos:
-    image: ros2-lerobot-sverve-platform/client-feetech-servos-follower:latest
+    image: harbor.szymonrichert.pl/containers/client-feetech-servos-follower:latest
+    build_context: nodes/bridges/feetech_servos
     config_path: /etc/ros2/feetech_servos
     env:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
   uvc_camera:
-    image: ros2-lerobot-sverve-platform/client-uvc-camera:latest
+    image: harbor.szymonrichert.pl/containers/client-uvc-camera:latest
+    build_context: nodes/bridges/uvc_camera
     env: []
 
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.

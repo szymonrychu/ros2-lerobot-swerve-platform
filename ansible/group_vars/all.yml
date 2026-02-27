@@ -1,3 +1,8 @@
 ---
 # Shared variables for all hosts (Client and Server)
 # Ubuntu 24.04 on Raspberry Pi
+
+# Repo to clone on each node for local container builds (deploy playbooks).
+ros2_repo_url: https://github.com/szymonrychu/ros2-lerobot-swerve-platform
+ros2_repo_revision: main  # branch, tag, or commit
+ros2_repo_dest: /opt/ros2-lerobot-swerve-platform

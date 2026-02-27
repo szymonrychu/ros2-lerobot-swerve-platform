@@ -3,28 +3,21 @@
 ## Development setup
 
 * **Python**: Managed with [mise](https://mise.jdx.dev/). Run `mise install` in the repo to install Python 3.12, uv, and Poetry.
-* **Dependencies**: Root package (tests, shared): `mise exec -- poetry install`. Each Python node under `nodes/` has its own Poetry project: run `poetry install` (or `mise exec -- poetry install`) inside `nodes/master2master`, `nodes/bridges/uvc_camera`, `nodes/bridges/lerobot_joints`, `nodes/lerobot_teleop`.
-* **Linters**: Root (tests, shared): `poetry run poe lint` / `poetry run poe lint-fix`. All Python nodes: `poetry run poe lint-nodes` or `./scripts/lint-all-nodes.sh`. Each node can be linted on its own: `cd nodes/<node> && poetry run poe lint`. Docker builds for nodes use Poetry (no requirements.txt).
+* **Dependencies**: Root package (tests, shared): `mise exec -- poetry install`. Each Python node under `nodes/` has its own Poetry project: run `poetry install` (or `mise exec -- poetry install`) inside `nodes/master2master`, `nodes/bridges/uvc_camera`, `nodes/bridges/feetech_servos`, `nodes/lerobot_teleop`.
+* **Linters**: Root (tests, shared): `poetry run poe lint` / `poetry run poe lint-fix`. All Python nodes: `poetry run poe lint-nodes` or `./scripts/lint-all-nodes.sh`. Ansible: `poetry run poe lint-ansible` or `./scripts/lint-ansible.sh` (requires ansible-lint installed, e.g. `pip install ansible-lint`). Each node can be linted on its own: `cd nodes/<node> && poetry run poe lint`. Docker builds for nodes use Poetry (no requirements.txt).
 * **Pre-commit**: Run `pre-commit install` once so hooks run on every commit. To run all hooks on the whole repo (full check or before first commit): `./scripts/run-pre-commit.sh` — it stages all files if none are tracked so that hooks have files to check. Manual run: `pre-commit run --all-files` (requires tracked files).
 * **Tests**: `poetry run pytest` and `poetry run coverage run -m pytest` for the root package.
 
 ## Monorepo layout
 
-* **`client/`** — Client Raspberry Pi: **only** `docker-compose.yml` (and optional config). No node source here; builds reference `../nodes/`.
-* **`server/`** — Server Raspberry Pi: **only** `docker-compose.yml` (and optional config). No node source here; builds reference `../nodes/`.
 * **`nodes/`** — All ROS2 node source and Dockerfiles (ros2_master, master2master, bridges, lerobot_teleop, etc.).
 * **`shared/`** — Shared Python libraries used by multiple nodes.
-* **`ansible/`** — Provisioning and deployment: playbooks and roles for Ubuntu 24.04 on Raspberry Pis, Docker install, and deploying nodes as systemd services.
-
-## Docker (build and run)
-
-* **Server**: `cd server && docker compose build && docker compose up -d ros2-master`. Optional profiles: `--profile gps`, `--profile lerobot-leader`.
-* **Client**: `cd client && docker compose build && docker compose up -d ros2-master master2master`. Optional profiles: `--profile uvc`, `--profile realsense`, `--profile lidar`, `--profile imu`, `--profile gps`, `--profile lerobot`, `--profile swerve`. Map devices in `docker-compose.yml` (e.g. `device: /dev/video0`) when running on hardware.
+* **`ansible/`** — Provisioning and deployment: playbooks and roles for Ubuntu 24.04 on Raspberry Pis, Docker install, clone of this repo on each node, local container build, and deploying nodes as systemd services.
 
 ## Ansible
 
 * **Provision** (bootstrap + Docker on Ubuntu 24.04): from `ansible/`, run `ansible-playbook -i inventory playbooks/server.yml -l server` or `playbooks/client.yml -l client`. Edit `inventory` with your hostnames or IPs.
-* **Deploy nodes** (systemd services): build images on the target or push to a registry, then run `ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server` or `playbooks/deploy_nodes_client.yml -l client`. Node config (e.g. master2master topics) is deployed to `/etc/ros2-nodes/<node_name>/` and mounted into the container; services restart when config or image changes.
+* **Deploy nodes** (clone repo, build containers locally, systemd services): run `ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server` or `deploy_nodes_client.yml -l client`. Ansible clones the repo from GitHub (revision configurable, default `main`), builds each node's container from the repo on the node, deploys config to `/etc/ros2-nodes/<node_name>/`, and manages systemd services. Container images use the registry `https://harbor.szymonrichert.pl/containers/<node name>`.
 
 ## Development roadmap
 
@@ -63,6 +56,6 @@ SteamDeck running Ubuntu, equipped with ROS2 and Proton based GUI controlling ro
 * [ROADMAP.md](ROADMAP.md) — MVP scope and roadmap streams
 * [AGENTS.md](AGENTS.md) — Cursor/agent rules and conventions (**read when resuming work, when joining the project, or when context is summarized**)
 * [MEMORY.md](MEMORY.md) — key decisions and agent notes for this project
-* Per-node and key-directory READMEs: `server/README.md`, `client/README.md`, `nodes/README.md`, `nodes/master2master/README.md`, `nodes/bridges/README.md`, `shared/README.md`, `ansible/README.md`, `tests/README.md`, etc.
+* Per-node and key-directory READMEs: `nodes/README.md`, `nodes/master2master/README.md`, `nodes/bridges/README.md`, `shared/README.md`, `ansible/README.md`, `tests/README.md`, etc.
 
-Repository: `ros2-lerobot-sverve-platform`
+Repository: `ros2-lerobot-swerve-platform`

@@ -3,9 +3,11 @@
 # ROS2 node types: image and default settings per type (used by ros2_node_deploy).
 ros2_node_type_defaults:
   ros2_master:
-    image: ros2-lerobot-sverve-platform/server-ros2-master:latest
+    image: harbor.szymonrichert.pl/containers/server-ros2-master:latest
+    build_context: nodes/ros2_master
   feetech_servos:
-    image: ros2-lerobot-sverve-platform/server-feetech-servos-leader:latest
+    image: harbor.szymonrichert.pl/containers/server-feetech-servos-leader:latest
+    build_context: nodes/bridges/feetech_servos
     config_path: /etc/ros2/feetech_servos
     env:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml

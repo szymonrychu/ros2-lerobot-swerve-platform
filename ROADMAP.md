@@ -40,8 +40,7 @@ Optional node (Preparation phase):
 
 * **Lerobot teleoperation node** (Client Raspberry Pi): reads topics from the Server's Lerobot leader arm (via ROS2 / master2master), and sends appropriate ROS2 requests/commands/topic updates to steer the Client's Lerobot follower arm. Enables leader–follower teleop without topic collision (leader and follower use distinct namespaces: `/leader/*`, `/follower/*`).
 
-Note about reusability and what it means: 
+Note about reusability and what it means:
 
 Instead of writing separate "bridge" nodes for Lerobot SO-101 leader, follower and separate node for running swerve platform operations, there is single generic "bridge" exposing joints in non-colliding manner.
 The same is true for USB Cameras, or GPS modules.
-

@@ -2,4 +2,6 @@
 galaxy_info:
   author: ""
   description: Install Docker and Docker Compose plugin on Ubuntu 24.04
+  license: MIT
+  min_ansible_version: "2.16"
 dependencies: []

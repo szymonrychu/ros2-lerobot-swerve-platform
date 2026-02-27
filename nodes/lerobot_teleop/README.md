@@ -19,11 +19,4 @@ No topic collision: leader and follower use distinct namespaces.
 
 ## Build and run
 
-From `client/` (build context `../nodes/lerobot_teleop`):
-
-```bash
-docker compose build lerobot_teleop
-docker compose up -d lerobot_teleop
-```
-
-Start master2master and leader/follower bridges (and proxy config) so leader state is available. After editing source under `nodes/lerobot_teleop/`, rebuild the image (see [AGENTS.md](../../AGENTS.md)).
+Ansible deploys by cloning the repo on the node and building the container from `nodes/lerobot_teleop`. Run the deploy playbook for client. Start master2master and leader/follower bridges (and proxy config) so leader state is available. After editing source, re-run the deploy playbook to refresh the repo and rebuild the image (see [AGENTS.md](../../AGENTS.md)).

@@ -1,11 +1,28 @@
 ---
-# Deploy ROS2 nodes on Server as systemd services.
-# Node list and config come from group_vars/server.yml (ros2_nodes, ros2_node_type_defaults).
+# Deploy ROS2 nodes on Server: clone repo, build containers locally, systemd + config.
+# Node list and config from group_vars/server.yml; repo from group_vars/all.yml.
 # Run from ansible/: ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server
 
 - name: Deploy Server ROS2 nodes
   hosts: server
   become: true
+  pre_tasks:
+    - name: Ensure repo directory exists
+      ansible.builtin.file:
+        path: "{{ ros2_repo_dest }}"
+        state: directory
+        mode: "0755"
+      become: true
+
+    - name: Clone or update repo for local builds
+      ansible.builtin.git:
+        repo: "{{ ros2_repo_url }}"
+        dest: "{{ ros2_repo_dest }}"
+        version: "{{ ros2_repo_revision }}"
+        force: true
+        update: true
+      become: true
+
   tasks:
     - name: Deploy each ROS2 node
       ansible.builtin.include_role:
@@ -16,6 +33,8 @@
         node_enabled: "{{ item.enabled | default(true) }}"
         node_config: "{{ item.config | default('') }}"
         node_image: "{{ ros2_node_type_defaults[item.node_type].image }}"
+        node_build_context: "{{ ros2_node_type_defaults[item.node_type].build_context }}"
+        repo_dest: "{{ ros2_repo_dest }}"
         node_config_path: "{{ ros2_node_type_defaults[item.node_type].config_path | default(omit) }}"
         node_env: "{{ (ros2_node_type_defaults[item.node_type].env | default([])) + (item.env | default([])) }}"
         node_extra_args: "{{ item.extra_args | default('') }}"

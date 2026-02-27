@@ -8,26 +8,36 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 - **`group_vars/`** — `all.yml`, `server.yml`, `client.yml` for group-specific variables.
 - **`playbooks/`**
   - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04 and install Docker (and Compose plugin). Run once per host (or when changing base setup).
-  - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: turn each ROS2 node into a systemd service (container via `docker run`), deploy config, enable/start or disable/stop. Run after building images whenever node list or config changes.
+  - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build each node’s container locally from the repo, deploy config, install systemd unit, enable/start or disable/stop. Containers are built on the node from the cloned repo (no pre-built image pull).
 - **`roles/`**
-  - **`common`** — Minimal bootstrap: Python3, sudo, basic packages.
+  - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
   - **`docker`** — Docker CE + Docker Compose plugin on Ubuntu 24.04.
-  - **`ros2_node_deploy`** — For each node: install (create config dir, write config file, systemd unit, enable/start) or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
+  - **`ros2_node_deploy`** — For each node: build image from repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
 
 ## Node list and config (ros2_nodes)
 
 Node list and per-type defaults live in **`group_vars/client.yml`** and **`group_vars/server.yml`**.
 
+### Repo (group_vars/all.yml)
+
+Deploy playbooks clone the repo on each node for local builds:
+
+- **`ros2_repo_url`** — e.g. `https://github.com/szymonrychu/ros2-lerobot-swerve-platform`
+- **`ros2_repo_revision`** — branch, tag, or commit (default `main`)
+- **`ros2_repo_dest`** — path on the node (default `/opt/ros2-lerobot-swerve-platform`)
+
 ### ros2_node_type_defaults
 
-Maps each **node_type** to image and optional config path and env:
+Maps each **node_type** to image (registry path), **build_context** (path relative to repo root for `docker build`), and optional config path and env. Images use the registry `https://harbor.szymonrichert.pl/containers/<name>`.
 
 ```yaml
 ros2_node_type_defaults:
   ros2_master:
-    image: ros2-lerobot-sverve-platform/client-ros2-master:latest
+    image: harbor.szymonrichert.pl/containers/client-ros2-master:latest
+    build_context: nodes/ros2_master
   feetech_servos:
-    image: ros2-lerobot-sverve-platform/client-feetech-servos-follower:latest
+    image: harbor.szymonrichert.pl/containers/client-feetech-servos-follower:latest
+    build_context: nodes/bridges/feetech_servos
     config_path: /etc/ros2/feetech_servos
     env:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
@@ -40,7 +50,7 @@ List of nodes to deploy. Each entry:
 | Key         | Required | Default | Description |
 |------------|----------|---------|-------------|
 | `name`     | yes      | —       | Logical node name; systemd unit is `ros2-{{ name }}.service`. |
-| `node_type`| yes      | —       | Key in `ros2_node_type_defaults` (image, config_path, env). |
+| `node_type`| yes      | —       | Key in `ros2_node_type_defaults` (image, build_context, config_path, env). |
 | `present`  | no       | `true`  | If `false`, the node is uninstalled (unit and config dir removed). |
 | `enabled`  | no       | `true`  | If `true`, service is enabled and started; if `false`, stopped and disabled. |
 | `config`   | no       | —       | Config file content (string) in the node’s expected format; used when type has `config_path`. |
@@ -67,6 +77,12 @@ ros2_nodes:
 ```
 
 When you add, remove, or reconfigure ROS2 nodes (including in docker-compose or node source), update these vars and re-run the deploy playbook.
+
+## Linting and testing
+
+- **ansible-lint**: Run from the `ansible/` directory so `roles_path` resolves: `cd ansible && ansible-lint .`. From repo root: `poetry run poe lint-ansible`.
+- **test-ansible**: Lint plus playbook syntax-check for all playbooks: `poetry run poe test-ansible` (runs `ansible-lint .` and `ansible-playbook -i inventory playbooks/<name>.yml --syntax-check` for each playbook).
+- **Config**: `ansible/.ansible-lint` (profile, skip_list, warn_list). Pre-commit runs ansible-lint on staged `ansible/*.yml` files via a local hook that runs from `ansible/`. Install ansible-lint (e.g. `pip install ansible-lint` or `pipx install ansible-lint`) for the hook to work.
 
 ## Running playbooks
 

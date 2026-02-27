@@ -2,4 +2,6 @@
 galaxy_info:
   author: ""
   description: Deploy a ROS2 node (Docker container) as systemd service with config
+  license: MIT
+  min_ansible_version: "2.16"
 dependencies: []

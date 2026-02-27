@@ -48,3 +48,13 @@ repos:
       - id: flake8
         args: [--max-line-length=120]
     # Runs on all staged .py files (monorepo: src, tests, shared, nodes/*)
+
+  # Run from ansible/ so roles_path resolves; use local hook to cd into ansible first
+  - repo: local
+    hooks:
+      - id: ansible-lint
+        name: ansible-lint
+        entry: bash -c 'cd ansible && ansible-lint .'
+        language: system
+        pass_filenames: false
+        files: ^ansible/.*\\.(ya?ml)$

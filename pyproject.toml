@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "ros2-lerobot-sverve-platform"
+name = "ros2-lerobot-swerve-platform"
 version = "0.1.0"
 description = "ROS2 Lerobot Swerve-Drive Platform — monorepo for server, client, and Ansible"
 authors = []
@@ -78,6 +78,14 @@ lint-nodes = { shell = """
   set -e
   (cd nodes/master2master && poetry run poe lint)
   (cd nodes/bridges/uvc_camera && poetry run poe lint)
-  (cd nodes/bridges/lerobot_joints && poetry run poe lint)
+  (cd nodes/bridges/feetech_servos && poetry run poe lint)
   (cd nodes/lerobot_teleop && poetry run poe lint)
+""" }
+lint-ansible = { shell = """
+  set -e
+  cd ansible && ansible-lint .
+""" }
+test-ansible = { shell = """
+  set -e
+  cd ansible && ansible-lint . && ansible-playbook -i inventory playbooks/client.yml --syntax-check && ansible-playbook -i inventory playbooks/server.yml --syntax-check && ansible-playbook -i inventory playbooks/deploy_nodes_client.yml --syntax-check && ansible-playbook -i inventory playbooks/deploy_nodes_server.yml --syntax-check
 """ }

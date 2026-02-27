@@ -17,21 +17,13 @@
 
 ## Build and run
 
-From `client/` (build context `../nodes/bridges/uvc_camera`):
+Ansible deploys by cloning the repo on the node and building the container from `nodes/bridges/uvc_camera`. Run the deploy playbook for client to build and start one or more UVC camera services. After editing source, re-run the deploy playbook to refresh the repo and rebuild the image:
 
 ```bash
-docker compose build uvc_camera_0
-docker compose --profile uvc up -d uvc_camera_0 uvc_camera_1
-```
-
-After editing any source in `nodes/bridges/uvc_camera/`, rebuild the image so the container gets the changes:
-
-```bash
-docker compose build uvc_camera_0
-# uvc_camera_1 uses the same image
-docker compose --profile uvc up -d uvc_camera_0 uvc_camera_1
+# On the node (after clone): from repo root
+docker build -t harbor.szymonrichert.pl/containers/client-uvc-camera:latest nodes/bridges/uvc_camera
 ```
 
 ## Image
 
-- Built as `ros2-lerobot-sverve-platform/client-uvc-camera:latest`. Both `uvc_camera_0` and `uvc_camera_1` use this image with different env (and device when uncommented).
+- Built as `harbor.szymonrichert.pl/containers/client-uvc-camera:latest`. Both `uvc_camera_0` and `uvc_camera_1` use this image with different env (and device when uncommented).

@@ -15,14 +15,13 @@ Use this file and [MEMORY.md](MEMORY.md) when working in this repo.
 
 ## Structure
 
-* Monorepo with **`client/`**, **`server/`**, **`ansible/`**, **`nodes/`**, and **`shared/`**
-* **No node source under `client/` or `server/`** — all node code and Dockerfiles live under **`nodes/`**. `client/` and `server/` contain only `docker-compose.yml` (and optional config) and reference `../nodes/...` for builds
-* **`shared/`** holds shared Python libraries used by multiple nodes
+* Monorepo with **`ansible/`**, **`nodes/`**, and **`shared/`**
+* All node code and Dockerfiles live under **`nodes/`**. **`shared/`** holds shared Python libraries used by multiple nodes
 * Ansible role(s) and runbook for provisioning and deployment
 
 ## Conventions
 
-* Add new node source under **`nodes/`**; add the service to the appropriate compose file (`client/docker-compose.yml` or `server/docker-compose.yml`) with `build.context: ../nodes/<path>`
+* Add new node source under **`nodes/`**; add the node type and build context to Ansible `group_vars` and the deploy role so containers are built from the repo on each node
 * Device access: use docker-compose device mappings for `/dev/` where needed
 * Prefer one container per node
 * **Always use Python 3 type hints** for all new and modified Python code (functions, method parameters and returns, class attributes where appropriate)
@@ -49,14 +48,14 @@ Use this file and [MEMORY.md](MEMORY.md) when working in this repo.
 ## AI rules (mandatory)
 
 * Write basic unit tests for new functionality.
-* Run linters and unit tests before considering work done. Root lint: `poetry run poe lint` (tests, shared). Lint all Python nodes: `poetry run poe lint-nodes` or `./scripts/lint-all-nodes.sh`. Each node has its own Poetry and `poe lint` in its directory.
-* Use semantic commit messages for each feature (e.g. `feat:`, `fix:`, `docs:`). **Create a commit after each phase/iteration that passes**; the agent performs these commits and follows the semantic-commits convention.
-* **Ansible and ROS2 nodes:** Whenever ROS2 nodes or their configuration change, update the Ansible code so it stays in sync. Ansible must support deploying, enabling, and disabling nodes by name and configuring them via the `ros2_nodes` schema (name, node_type, present, enabled, config). See `group_vars/client.yml` and `group_vars/server.yml` and the `ros2_node_deploy` role.
+* Run linters and unit tests before considering work done. Root lint: `poetry run poe lint` (tests, shared). Lint all Python nodes: `poetry run poe lint-nodes` or `./scripts/lint-all-nodes.sh`. Each node has its own Poetry and `poe lint` in its directory. **Ansible:** run `poetry run poe lint-ansible` (or `cd ansible && ansible-lint .`) and `poetry run poe test-ansible` (ansible-lint + playbook `--syntax-check`). When changing Ansible code, run these and fix any reported issues.
+* Use semantic commit messages for each feature (e.g. `feat:`, `fix:`, `docs:`). **Create a commit after each phase/iteration that passes**; the agent performs these commits and follows the semantic-commits convention. **Push to the upstream repository after each such commit.** When only one agent works on the codebase, do not use feature branches—push only to `main`.
+* **Ansible and ROS2 nodes:** Whenever ROS2 nodes or their configuration change, update the Ansible code so it stays in sync. Ansible must support deploying, enabling, and disabling nodes by name and configuring them via the `ros2_nodes` schema (name, node_type, present, enabled, config). See `group_vars/client.yml` and `group_vars/server.yml` and the `ros2_node_deploy` role. Keep Ansible lint and tests passing: run `poe lint-ansible` and `poe test-ansible`; fix or document any skip/warn in `ansible/.ansible-lint`.
 * Prefer working on multiple branches when possible.
 * Ask the developer very detailed questions about everything when unclear.
 * Never hallucinate — prefer asking or citing sources over inventing.
 * **Containers and source changes:** Whenever source code that is used inside a container is edited, rebuild that container so the image reflects the change. Remember each container's purpose and its requirements (env, devices, config). Iterate with fixes until all mandatory functionality for that node works; do not leave broken or half-working behaviour.
-* **Documentation:** Document work in README.md files: one per node under `nodes/` (e.g. `nodes/master2master/README.md`, `nodes/bridges/feetech_servos/README.md`), one for [ansible/](ansible/README.md), and one for other key directories (`server/README.md`, `client/README.md`, `nodes/README.md`, `shared/README.md`, **[tests/README.md](tests/README.md)**). Target audience: mid-level Python developer with ROS/ROS2 experience. Keep READMEs up to date whenever something in that area changes.
+* **Documentation:** Document work in README.md files: one per node under `nodes/` (e.g. `nodes/master2master/README.md`, `nodes/bridges/feetech_servos/README.md`), one for [ansible/](ansible/README.md), and one for other key directories (`nodes/README.md`, `shared/README.md`, **[tests/README.md](tests/README.md)**). Target audience: mid-level Python developer with ROS/ROS2 experience. Keep READMEs up to date whenever something in that area changes.
 * **Tests README:** Maintain [tests/README.md](tests/README.md): list each test file, briefly describe what it covers, and document each test (or test group). Update this README when adding, removing, or changing tests so the test suite stays easy to navigate.
 
 ## Memory and decisions
