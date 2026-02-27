@@ -36,7 +36,7 @@ def main() -> int:
 
     try:
         ids = servo.ListServos()
-    except Exception as e:
+    except (OSError, ValueError, RuntimeError) as e:
         print(f"Error scanning for servos: {e}", file=sys.stderr)
         return 1
 

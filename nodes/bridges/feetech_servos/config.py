@@ -30,9 +30,13 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
     joint_names = data.get("joint_names") or []
     if not namespace or not joint_names:
         return None
+    if "/" in namespace:
+        return None  # namespace is a topic segment, not a path
     if not isinstance(joint_names, list):
         return None
-    joint_names = [str(n) for n in joint_names]
+    joint_names = [str(n).strip() for n in joint_names if n is not None]
+    if not joint_names or any(not n for n in joint_names):
+        return None
     device = data.get("device")
     device = str(device).strip() if device else None
     baudrate = data.get("baudrate")

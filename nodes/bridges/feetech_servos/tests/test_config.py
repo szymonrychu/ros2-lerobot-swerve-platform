@@ -50,3 +50,19 @@ def test_load_config_with_device_baudrate(tmp_path: Path) -> None:
     assert cfg is not None
     assert cfg.device == "/dev/ttyUSB0"
     assert cfg.baudrate == 115200
+
+
+def test_load_config_rejects_namespace_with_slash(tmp_path: Path) -> None:
+    """load_config returns None when namespace contains '//' or starts with '/'."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: /leader\njoint_names: [j1]\n")
+    assert load_config(p) is None
+    p.write_text("namespace: foo/bar\njoint_names: [j1]\n")
+    assert load_config(p) is None
+
+
+def test_load_config_rejects_empty_joint_name(tmp_path: Path) -> None:
+    """load_config returns None when joint_names contains empty or blank string."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: leader\njoint_names: [j1, '', j3]\n")
+    assert load_config(p) is None
