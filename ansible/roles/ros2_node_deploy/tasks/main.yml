@@ -57,7 +57,16 @@
 - name: Deploy ROS2 node (present is true)
   when: node_present | default(true) | bool
   block:
+    - name: Pull node container image from registry
+      when: node_build_on_controller | default(false) | bool
+      ansible.builtin.command:
+        cmd: "docker pull {{ node_image }}"
+      become: true
+      register: docker_pull_result
+      changed_when: docker_pull_result.rc == 0
+
     - name: Build node container image from repo
+      when: not (node_build_on_controller | default(false) | bool)
       ansible.builtin.command:
         cmd: "docker build -t {{ node_image }} {{ node_build_context }}"
         chdir: "{{ repo_dest }}"

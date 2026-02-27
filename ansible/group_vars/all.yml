@@ -6,3 +6,8 @@
 ros2_repo_url: https://github.com/szymonrychu/ros2-lerobot-swerve-platform
 ros2_repo_revision: main  # branch, tag, or commit
 ros2_repo_dest: /opt/ros2-lerobot-swerve-platform
+
+# When true, build images on the Ansible controller and push to registry; client only pulls.
+# Use when the client (e.g. Pi) has no outbound internet during docker build (DNS/apt fails).
+ros2_build_on_controller: true
+ros2_repo_root: "{{ playbook_dir }}/.."

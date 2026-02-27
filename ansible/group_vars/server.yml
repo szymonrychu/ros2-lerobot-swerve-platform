@@ -3,7 +3,7 @@
 # Network (netplan) and hostname — set for each host or here for the group:
 network_address: "192.168.1.33/24"
 network_gateway: "192.168.1.1"
-network_nameservers: ["192.168.1.1"]
+network_nameservers: ["192.168.1.1", "1.1.1.1"]
 hostname: "server-rpi4"
 
 # ROS2 node types: image and default settings per type (used by ros2_node_deploy).

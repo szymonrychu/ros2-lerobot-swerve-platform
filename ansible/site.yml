@@ -1,7 +1,8 @@
 ---
-# Provision all hosts (Server + Client): bootstrap, network, hostname, Docker
-# Run: ansible-playbook -i inventory playbooks/site.yml
+# Full site: provision all hosts (Server + Client), then deploy ROS2 nodes on each.
+# Run from ansible/: ansible-playbook -i inventory site.yml
 # Set network_address, network_gateway, hostname in group_vars (server.yml / client.yml) or host_vars.
+
 - name: Provision all
   hosts: all
   become: true
@@ -12,3 +13,9 @@
     - role: hostname
       when: hostname is defined and hostname | length > 0
     - docker
+
+- name: Deploy Server ROS2 nodes
+  ansible.builtin.import_playbook: playbooks/deploy_nodes_server.yml
+
+- name: Deploy Client ROS2 nodes
+  ansible.builtin.import_playbook: playbooks/deploy_nodes_client.yml

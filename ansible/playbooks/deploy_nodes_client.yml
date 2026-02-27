@@ -1,7 +1,36 @@
 ---
-# Deploy ROS2 nodes on Client: clone repo, build containers locally, systemd + config.
+# Deploy ROS2 nodes on Client: clone repo, build or pull containers, systemd + config.
 # Node list and config from group_vars/client.yml; repo from group_vars/all.yml.
+# When ros2_build_on_controller is true, images are built on the controller and pushed;
+# the client only pulls (avoids DNS/network failures during docker build on the Pi).
 # Run from ansible/: ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client
+
+- name: Build and push node images on controller
+  hosts: client
+  gather_facts: false
+  vars:
+    _unique_types: "{{ ros2_nodes | map(attribute='node_type') | unique | list }}"
+  tasks:
+    - name: Build and push each unique node image
+      when: ros2_build_on_controller | default(false) | bool
+      ansible.builtin.command:
+        cmd: "docker build -t {{ ros2_node_type_defaults[item].image }} {{ ros2_node_type_defaults[item].build_context }}"
+        chdir: "{{ ros2_repo_root }}"
+      loop: "{{ _unique_types }}"
+      loop_control:
+        label: "{{ ros2_node_type_defaults[item].image }}"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Push built images to registry
+      when: ros2_build_on_controller | default(false) | bool
+      ansible.builtin.command:
+        cmd: "docker push {{ ros2_node_type_defaults[item].image }}"
+      loop: "{{ _unique_types }}"
+      loop_control:
+        label: "{{ ros2_node_type_defaults[item].image }}"
+      delegate_to: localhost
+      run_once: true
 
 - name: Deploy Client ROS2 nodes
   hosts: client
@@ -37,6 +66,7 @@
         node_build_context: "{{ ros2_node_type_defaults[item.node_type].build_context }}"
         repo_dest: "{{ ros2_repo_dest }}"
         node_config_path: "{{ ros2_node_type_defaults[item.node_type].config_path | default(omit) }}"
+        node_build_on_controller: "{{ ros2_build_on_controller | default(false) }}"
         node_env: "{{ (ros2_node_type_defaults[item.node_type].env | default([])) + (item.env | default([])) + _master2master_server_env }}"
         node_extra_args: "{{ item.extra_args | default('') }}"
       loop: "{{ ros2_nodes }}"

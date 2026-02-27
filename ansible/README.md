@@ -6,10 +6,10 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 
 - **`inventory`** — Host groups `server` and `client`. Edit with your hostnames or IPs. `all:vars` can set `ansible_user`, `ansible_python_interpreter`.
 - **`group_vars/`** — `all.yml`, `server.yml`, `client.yml` for group-specific variables.
+- **`site.yml`** — Full site: provision all hosts, then deploy ROS2 nodes on server and client (includes playbooks below). Run `ansible-playbook -i inventory site.yml`.
 - **`playbooks/`**
-  - **`site.yml`** — Provision **all** hosts (server + client): bootstrap, optional network and hostname, Docker. Run `ansible-playbook -i inventory playbooks/site.yml`.
   - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, then Docker (and Compose plugin). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
-  - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build each node’s container locally from the repo, deploy config, install systemd unit, enable/start or disable/stop. Containers are built on the node from the cloned repo (no pre-built image pull).
+  - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build or pull each node’s container, deploy config, install systemd unit, enable/start or disable/stop. For the client, when `ros2_build_on_controller` is true (default), images are built on the Ansible controller and pushed to the registry; the client only pulls (avoids DNS/network failures during `docker build` on the Pi).
 - **`roles/`**
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
   - **`network`** — Netplan: primary interface gets static IP (ethernet or wlan, auto-detected); other interfaces DHCP; IPv6 disabled. Runs when `network_address` and `network_gateway` are set; for primary WiFi set `network_wifi_ssid` (and optionally `network_wifi_password`).
@@ -28,6 +28,8 @@ Deploy playbooks clone the repo on each node for local builds:
 - **`ros2_repo_url`** — e.g. `https://github.com/szymonrychu/ros2-lerobot-swerve-platform`
 - **`ros2_repo_revision`** — branch, tag, or commit (default `main`)
 - **`ros2_repo_dest`** — path on the node (default `/opt/ros2-lerobot-swerve-platform`)
+- **`ros2_build_on_controller`** — (default `true` for client) When true, node images are built on the machine running Ansible and pushed to the registry; the client (e.g. Pi) only pulls. Use when the client has no outbound internet or DNS during `docker build`. Controller needs Docker and `docker login` to the registry.
+- **`ros2_repo_root`** — (default `{{ playbook_dir }}/..`) Path to repo root on the controller when building images; used as `docker build` context.
 
 ### ros2_node_type_defaults
 
@@ -125,17 +127,18 @@ Containers get env vars so that:
 
 From the **`ansible/`** directory (so `ansible.cfg` and `inventory` are used):
 
-**Provision (bootstrap + Docker):**
+**Full site (provision + deploy nodes):**
 ```bash
-ansible-playbook -i inventory playbooks/site.yml
-# Or per group:
+ansible-playbook -i inventory site.yml
+```
+
+**Provision only (bootstrap + Docker):**
+```bash
 ansible-playbook -i inventory playbooks/server.yml -l server
 ansible-playbook -i inventory playbooks/client.yml -l client
 ```
 
-**Deploy nodes (systemd services):**
-Build (or pull) the node images on the target (or push to a registry and pull there). Then:
-
+**Deploy nodes only (systemd services):**
 ```bash
 ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server
 ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client
