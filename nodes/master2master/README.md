@@ -23,9 +23,9 @@ Supported relay types: **`std_msgs/String`** (default) and **`sensor_msgs/JointS
 
 ## Code layout
 
-- **`master2master/config.py`** — Load and parse YAML into `TopicRule` dataclasses; unit-tested.
-- **`master2master/proxy.py`** — One thread per rule: rclpy node, subscribe source, publish dest. Uses `std_msgs/String`.
-- **`master2master/__main__.py`** — Entry: load config, run relays. Exit 0 if no rules.
+- **`master2master/config.py`** — Load and validate YAML into `TopicRule` dataclasses; invalid direction/type raise `ConfigError`; unit-tested.
+- **`master2master/proxy.py`** — Single process: one rclpy node, one `MultiThreadedExecutor`, all rules as sub/pub pairs; no per-thread init/shutdown.
+- **`master2master/__main__.py`** — Entry: load config, run relays. Exit 0 if no rules, 1 on config error.
 
 ## Build and run
 

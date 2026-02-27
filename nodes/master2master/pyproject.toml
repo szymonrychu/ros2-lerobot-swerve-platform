@@ -41,11 +41,11 @@ lint = { shell = """
   flake8 master2master
   black --check master2master
   isort --check master2master
-  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables master2master
+  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables --exclude 'master2master/config.py' master2master
   vulture master2master --min-confidence 80
 """ }
 lint-fix = { shell = """
   black master2master
   isort master2master
-  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables master2master
+  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables --exclude 'master2master/config.py' master2master
 """ }

@@ -3,12 +3,14 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 # Add nodes/master2master so we can import master2master package
 _nodes_master2master = Path(__file__).resolve().parent.parent / "nodes" / "master2master"
 if _nodes_master2master.exists():
     sys.path.insert(0, str(_nodes_master2master))
 
-from master2master.config import load_config_from_dict  # noqa: E402
+from master2master.config import ConfigError, load_config_from_dict  # noqa: E402
 
 
 def test_load_config_from_dict_empty() -> None:
@@ -60,3 +62,29 @@ def test_load_config_from_dict_msg_type() -> None:
     assert len(rules) == 2
     assert rules[0].msg_type == "jointstate"
     assert rules[1].msg_type == "string"
+
+
+def test_load_config_from_dict_invalid_direction_raises() -> None:
+    """Invalid direction raises ConfigError."""
+    with pytest.raises(ConfigError, match="direction must be one of"):
+        load_config_from_dict({"topics": [{"source": "/a", "direction": "invalid"}]})
+
+
+def test_load_config_from_dict_invalid_type_raises() -> None:
+    """Invalid type raises ConfigError."""
+    with pytest.raises(ConfigError, match="type must be one of"):
+        load_config_from_dict({"topics": [{"source": "/a", "type": "Image"}]})
+
+
+def test_load_config_from_dict_topics_not_list_raises() -> None:
+    """topics must be a list; otherwise ConfigError."""
+    with pytest.raises(ConfigError, match="as a list"):
+        load_config_from_dict({"topics": "not a list"})
+
+
+def test_load_config_from_dict_normalizes_topic_slash() -> None:
+    """Topic names get leading slash if missing."""
+    rules = load_config_from_dict({"topics": [{"source": "foo", "dest": "bar"}]})
+    assert len(rules) == 1
+    assert rules[0].source == "/foo"
+    assert rules[0].dest == "/bar"
