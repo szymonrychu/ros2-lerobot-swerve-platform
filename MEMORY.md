@@ -1,0 +1,21 @@
+# Key decisions and agent notes for this project
+
+(Record important decisions, conventions, and Cursor/LLM context here.)
+
+**Agents:** Always read [AGENTS.md](AGENTS.md) when resuming work, when joining the project, or when context is summarized; mandatory rules and "when to read" are defined there.
+
+## Preparation phase
+
+* **Tooling**: Python 3 via mise; dependencies via uv and Poetry (ROADMAP had "UVC" — corrected to uv). Linting and testing setup follows [hikvision-doorbell](https://github.com/szymonrychu/hikvision-doorbell): pre-commit, flake8, black, isort, vulture, autoflake, pytest, coverage.
+* **ROS2 distro**: TBD (e.g. Humble on 22.04 or Jazzy on 24.04). To be recorded when chosen; Docker base images and Ansible will use the same.
+* **Layout**: No node source under `client/` or `server/`. All nodes live under **`nodes/`**; **`shared/`** holds shared Python libraries. Compose files reference `../nodes/...` for builds.
+* **Leader/follower arms**: The **feetech_servos** node (configurable via YAML: namespace, joint_names) publishes `/<namespace>/joint_states` and subscribes `/<namespace>/joint_commands`. Use example configs `config/leader.yaml` and `config/follower.yaml` for leader (Server) and follower (Client). Topic layout remains `/leader/...` and `/follower/...` when so configured. Optional lerobot_teleop node on Client: subscribes `/leader/joint_states` (proxied by master2master), publishes `/follower/joint_commands`. master2master supports `type: JointState` for sensor_msgs/JointState relay.
+
+## Linting and Python nodes
+
+* **Per-node Poetry**: Each Python node has its own `pyproject.toml` and `poetry.lock` (master2master, uvc_camera, feetech_servos, lerobot_teleop). Run `poetry install` and `poetry run poe lint` / `poetry run poe lint-fix` inside each node directory. From repo root: `poetry run poe lint-nodes` or `./scripts/lint-all-nodes.sh` to lint all nodes. Root `poe lint` covers only `tests`, `shared` (no `src` package).
+* **Docker**: Node images use Poetry (no requirements.txt); Dockerfiles install poetry in a venv, then `poetry install --no-dev`.
+* **Pre-commit**: Pre-commit only runs on files known to git. If nothing is tracked yet (e.g. before first commit), run `./scripts/run-pre-commit.sh` — it stages all files and runs all hooks. Then run `pre-commit install` for hooks on every commit.
+* **Python conventions**: Prefer established libraries (e.g. Feetech servo library over custom protocol); prefer file config over CLI; write unit tests for each new function.
+* **Commits**: Create a commit after each phase/iteration that passes; use semantic commit messages (feat:, fix:, docs:, etc.); the agent performs these commits.
+* **Ansible and ROS2 nodes**: When ROS2 nodes or their configuration change, update Ansible so it stays in sync. Node list and config live in `group_vars/client.yml` and `group_vars/server.yml` under `ros2_nodes` and `ros2_node_type_defaults`. Schema: each node has `name`, `node_type` (maps to image/config via type defaults), `present` (default true; false triggers uninstall), `enabled` (default true; systemd enable/start vs disable/stop), optional `config` (string, node’s config file content), optional `env` (list of KEY=VAL). The role installs or uninstalls the systemd unit and config dir per node.

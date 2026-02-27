@@ -1,0 +1,22 @@
+[Unit]
+Description=ROS2 node {{ node_name }} (container)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=on-failure
+ExecStartPre=-/usr/bin/docker pull {{ node_image }}
+ExecStart=/usr/bin/docker run --rm --name ros2-{{ node_name }} \
+  {% if node_config_path | default(false) %}
+  -v {{ ros2_node_config_dir }}/{{ node_name }}:{{ node_config_path }}:ro \
+  {% endif %}
+  {% for env in node_env | default([]) %}
+  -e {{ env }} \
+  {% endfor %}
+  {{ node_extra_args | default('') }} \
+  {{ node_image }}
+ExecStop=/usr/bin/docker stop ros2-{{ node_name }}
+
+[Install]
+WantedBy=multi-user.target

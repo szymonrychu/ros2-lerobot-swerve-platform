@@ -1,0 +1,24 @@
+---
+# Deploy ROS2 nodes on Server as systemd services.
+# Node list and config come from group_vars/server.yml (ros2_nodes, ros2_node_type_defaults).
+# Run from ansible/: ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server
+
+- name: Deploy Server ROS2 nodes
+  hosts: server
+  become: true
+  tasks:
+    - name: Deploy each ROS2 node
+      ansible.builtin.include_role:
+        name: ros2_node_deploy
+      vars:
+        node_name: "{{ item.name }}"
+        node_present: "{{ item.present | default(true) }}"
+        node_enabled: "{{ item.enabled | default(true) }}"
+        node_config: "{{ item.config | default('') }}"
+        node_image: "{{ ros2_node_type_defaults[item.node_type].image }}"
+        node_config_path: "{{ ros2_node_type_defaults[item.node_type].config_path | default(omit) }}"
+        node_env: "{{ (ros2_node_type_defaults[item.node_type].env | default([])) + (item.env | default([])) }}"
+        node_extra_args: "{{ item.extra_args | default('') }}"
+      loop: "{{ ros2_nodes }}"
+      loop_control:
+        label: "{{ item.name }}"

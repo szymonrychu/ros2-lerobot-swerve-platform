@@ -1,0 +1,9 @@
+---
+# Provision Client Raspberry Pi (Ubuntu 24.04): bootstrap + Docker
+# Run: ansible-playbook -i ../inventory playbooks/client.yml -l client
+- name: Provision Client
+  hosts: client
+  become: true
+  roles:
+    - common
+    - docker

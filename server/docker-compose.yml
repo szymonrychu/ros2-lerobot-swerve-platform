@@ -1,0 +1,40 @@
+# Server Raspberry Pi — one container per node
+# Node source lives in ../nodes/; no node code under server/
+# Run: docker compose up -d ros2-master
+# Or: docker compose --profile gps --profile lerobot-leader up -d
+
+services:
+  ros2-master:
+    build:
+      context: ../nodes/ros2_master
+      dockerfile: Dockerfile
+    image: ros2-lerobot-sverve-platform/server-ros2-master:latest
+    restart: unless-stopped
+    networks:
+      - server
+
+  gps-rtk:
+    image: ros:jazzy-ros-base
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+    profiles:
+      - gps
+    networks:
+      - server
+
+  lerobot-leader:
+    build:
+      context: ../nodes/bridges/lerobot_joints
+      dockerfile: Dockerfile
+    image: ros2-lerobot-sverve-platform/server-lerobot-leader:latest
+    restart: unless-stopped
+    environment:
+      LEROBOT_NAMESPACE: leader
+    profiles:
+      - lerobot-leader
+    networks:
+      - server
+
+networks:
+  server:
+    driver: bridge

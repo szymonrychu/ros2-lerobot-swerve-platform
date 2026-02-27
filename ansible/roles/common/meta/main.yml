@@ -1,0 +1,5 @@
+---
+galaxy_info:
+  author: ""
+  description: Bootstrap Ubuntu 24.04 for ROS2 nodes
+dependencies: []

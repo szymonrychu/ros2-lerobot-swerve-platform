@@ -1,0 +1,13 @@
+# Inventory for Client and Server Raspberry Pis (Ubuntu 24.04)
+# Usage: ansible-playbook -i inventory playbooks/server.yml
+# Replace hostnames/IPs with your actual targets.
+
+[server]
+# server-rpi4 ansible_host=192.168.1.10
+
+[client]
+# client-rpi5 ansible_host=192.168.1.20
+
+[all:vars]
+ansible_user=ubuntu
+ansible_python_interpreter=/usr/bin/python3

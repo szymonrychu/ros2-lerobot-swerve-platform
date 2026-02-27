@@ -1,0 +1,51 @@
+[tool.poetry]
+name = "master2master"
+version = "0.1.0"
+description = "ROS2 topic proxy between Client and Server"
+readme = "README.md"
+packages = []
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyyaml = ">=6.0"
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.0.0"
+black = "^24.0.0"
+isort = "^5.13.0"
+autoflake = "^2.3.1"
+vulture = "^2.11"
+poethepoet = "^0.42.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.flake8]
+max-line-length = 120
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  flake8 master2master
+  black --check master2master
+  isort --check master2master
+  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables master2master
+  vulture master2master --min-confidence 80
+""" }
+lint-fix = { shell = """
+  black master2master
+  isort master2master
+  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables master2master
+""" }

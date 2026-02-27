@@ -1,0 +1,9 @@
+---
+# Provision Server Raspberry Pi (Ubuntu 24.04): bootstrap + Docker
+# Run: ansible-playbook -i ../inventory playbooks/server.yml -l server
+- name: Provision Server
+  hosts: server
+  become: true
+  roles:
+    - common
+    - docker

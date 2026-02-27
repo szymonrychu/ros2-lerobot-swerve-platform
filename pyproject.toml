@@ -1,0 +1,83 @@
+[tool.poetry]
+name = "ros2-lerobot-sverve-platform"
+version = "0.1.0"
+description = "ROS2 Lerobot Swerve-Drive Platform — monorepo for server, client, and Ansible"
+authors = []
+readme = "README.md"
+packages = []
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.0.0"
+pytest-cov = "^7.0.0"
+flake8 = "^7.0.0"
+black = "^24.0.0"
+isort = "^5.13.0"
+vulture = "^2.11"
+autoflake = "^2.3.1"
+pre-commit = "^4.0.0"
+poethepoet = "^0.42.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+addopts = "-v -rxXs"
+testpaths = ["tests"]
+log_cli = true
+log_cli_level = "INFO"
+
+[tool.autoflake]
+remove-all-unused-imports = true
+in-place = true
+expand-star-imports = true
+remove-unused-variables = true
+
+[tool.black]
+line-length = 120
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.flake8]
+max-line-length = 120
+
+[tool.vulture]
+exclude = ["venv", ".venv", "build", "dist", "client", "server", "ansible", "nodes", "**/__pycache__"]
+paths = ["tests", "shared"]
+min_confidence = 80
+sort_by_size = true
+
+[tool.coverage.run]
+branch = true
+source = ["shared"]
+
+[tool.coverage.report]
+skip_empty = true
+
+# Root lint: tests, shared only. Python nodes have their own Poetry and `poe lint` (see README).
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  flake8 tests shared
+  black --check tests shared
+  isort --check tests shared
+  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables tests shared
+  vulture tests shared --min-confidence 80
+""" }
+lint-fix = { shell = """
+  black tests shared
+  isort tests shared
+  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables tests shared
+""" }
+lint-nodes = { shell = """
+  set -e
+  (cd nodes/master2master && poetry run poe lint)
+  (cd nodes/bridges/uvc_camera && poetry run poe lint)
+  (cd nodes/bridges/lerobot_joints && poetry run poe lint)
+  (cd nodes/lerobot_teleop && poetry run poe lint)
+""" }

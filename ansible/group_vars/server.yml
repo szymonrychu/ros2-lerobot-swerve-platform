@@ -1,0 +1,31 @@
+---
+# Server — Raspberry Pi 4b: Lerobot SO-101 leader, GPS-RTK LC29H(BS)
+# ROS2 node types: image and default settings per type (used by ros2_node_deploy).
+ros2_node_type_defaults:
+  ros2_master:
+    image: ros2-lerobot-sverve-platform/server-ros2-master:latest
+  feetech_servos:
+    image: ros2-lerobot-sverve-platform/server-feetech-servos-leader:latest
+    config_path: /etc/ros2/feetech_servos
+    env:
+      - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
+
+# Nodes to deploy: name, node_type, present, enabled, config.
+ros2_nodes:
+  - name: ros2-master
+    node_type: ros2_master
+    present: true
+    enabled: true
+  - name: lerobot_follower
+    node_type: feetech_servos
+    present: true
+    enabled: true
+    config: |
+      namespace: leader
+      joint_names:
+        - joint_1
+        - joint_2
+        - joint_3
+        - joint_4
+        - joint_5
+        - joint_6

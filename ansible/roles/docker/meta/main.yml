@@ -1,0 +1,5 @@
+---
+galaxy_info:
+  author: ""
+  description: Install Docker and Docker Compose plugin on Ubuntu 24.04
+dependencies: []

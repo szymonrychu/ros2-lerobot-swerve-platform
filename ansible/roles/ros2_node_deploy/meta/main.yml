@@ -1,0 +1,5 @@
+---
+galaxy_info:
+  author: ""
+  description: Deploy a ROS2 node (Docker container) as systemd service with config
+dependencies: []

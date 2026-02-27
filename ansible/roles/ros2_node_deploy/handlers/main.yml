@@ -1,0 +1,12 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+
+- name: Restart ROS2 node
+  ansible.builtin.service:
+    name: "ros2-{{ ros2_node_restart_now }}"
+    state: restarted
+  become: true
+  when: ros2_node_restart_on_change | default(true) | bool

@@ -1,0 +1,17 @@
+# Example config for master2master (topic proxy)
+# Deploy to /etc/ros2/master2master/config.yaml
+# Format: list of topic rules; direction "in" = server->client, "out" = client->server
+# Namespaces avoid collision: leader (server), follower (client).
+
+topics:
+  - source: /server/cmd_vel
+    dest: /client/cmd_vel
+    direction: in
+  - source: /client/odom
+    dest: /server/odom
+    direction: out
+  # Lerobot: leader state from server -> client for teleop node (type required for JointState)
+  - source: /leader/joint_states
+    dest: /leader/joint_states
+    direction: in
+    type: JointState

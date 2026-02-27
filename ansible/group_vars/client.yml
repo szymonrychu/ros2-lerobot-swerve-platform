@@ -1,0 +1,62 @@
+---
+# Client — Raspberry Pi 5: follower, swerve, sensors, master2master
+# ROS2 node types: image and default settings per type (used by ros2_node_deploy).
+ros2_node_type_defaults:
+  ros2_master:
+    image: ros2-lerobot-sverve-platform/client-ros2-master:latest
+  master2master:
+    image: ros2-lerobot-sverve-platform/client-master2master:latest
+    config_path: /etc/ros2/master2master
+    env:
+      - MASTER2MASTER_CONFIG=/etc/ros2/master2master/config.yaml
+  feetech_servos:
+    image: ros2-lerobot-sverve-platform/client-feetech-servos-follower:latest
+    config_path: /etc/ros2/feetech_servos
+    env:
+      - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
+  uvc_camera:
+    image: ros2-lerobot-sverve-platform/client-uvc-camera:latest
+    env: []
+
+# Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
+ros2_nodes:
+  - name: ros2-master
+    node_type: ros2_master
+    present: true
+    enabled: true
+  - name: master2master
+    node_type: master2master
+    present: true
+    enabled: true
+    config: |
+      topics:
+        - source: /server/cmd_vel
+          dest: /client/cmd_vel
+          direction: in
+        - source: /client/odom
+          dest: /server/odom
+          direction: out
+        - source: /leader/joint_states
+          dest: /leader/joint_states
+          direction: in
+          type: JointState
+  - name: gripper_uvc_camera
+    node_type: uvc_camera
+    present: true
+    enabled: true
+    env:
+      - UVC_DEVICE=/dev/video0
+      - UVC_TOPIC=/camera_0/image_raw
+  - name: lerobot_follower
+    node_type: feetech_servos
+    present: true
+    enabled: true
+    config: |
+      namespace: follower
+      joint_names:
+        - joint_1
+        - joint_2
+        - joint_3
+        - joint_4
+        - joint_5
+        - joint_6

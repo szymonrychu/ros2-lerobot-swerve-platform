@@ -1,0 +1,53 @@
+[tool.poetry]
+name = "lerobot-teleop"
+version = "0.1.0"
+description = "Lerobot leader-follower teleop node"
+readme = "README.md"
+packages = []
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.0.0"
+black = "^24.0.0"
+isort = "^5.13.0"
+autoflake = "^2.3.1"
+vulture = "^2.11"
+poethepoet = "^0.42.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+extend-exclude = "\\.venv|__pycache__"
+
+[tool.isort]
+profile = "black"
+line_length = 120
+skip = [".venv", "__pycache__"]
+
+[tool.flake8]
+max-line-length = 120
+extend-exclude = [".venv", "__pycache__"]
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  flake8 --exclude=.venv,__pycache__ .
+  black --check --exclude '\\.venv|__pycache__' .
+  isort --check --skip .venv --skip __pycache__ .
+  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables --exclude '.venv|__pycache__' .
+  vulture . --min-confidence 80 --exclude .venv
+""" }
+lint-fix = { shell = """
+  black --exclude '\\.venv|__pycache__' .
+  isort --skip .venv --skip __pycache__ .
+  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables --exclude '.venv|__pycache__' .
+""" }

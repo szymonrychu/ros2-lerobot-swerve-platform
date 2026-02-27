@@ -1,0 +1,83 @@
+---
+# Deploy or uninstall a ROS2 node as a systemd service (container).
+# Expects (from playbook): node_name, node_image, node_present, node_enabled,
+# and optionally node_config_path, node_config (string), node_env, node_extra_args.
+# Playbook resolves node_type -> image/config_path/env via ros2_node_type_defaults.
+
+- name: Set current node name for handlers
+  ansible.builtin.set_fact:
+    ros2_node_restart_now: "{{ node_name }}"
+
+- name: Uninstall ROS2 node (present is false)
+  block:
+    - name: Stop ROS2 node service
+      ansible.builtin.service:
+        name: "ros2-{{ node_name }}"
+        state: stopped
+      become: true
+      ignore_errors: true
+
+    - name: Disable ROS2 node service
+      ansible.builtin.service:
+        name: "ros2-{{ node_name }}"
+        enabled: false
+      become: true
+      ignore_errors: true
+
+    - name: Remove systemd unit for ROS2 node
+      ansible.builtin.file:
+        path: "/etc/systemd/system/ros2-{{ node_name }}.service"
+        state: absent
+      become: true
+
+    - name: Remove ROS2 node config directory
+      ansible.builtin.file:
+        path: "{{ ros2_node_config_dir }}/{{ node_name }}"
+        state: absent
+      become: true
+
+    - name: Reload systemd after uninstall
+      ansible.builtin.systemd:
+        daemon_reload: true
+      become: true
+  when: not (node_present | default(true) | bool)
+
+- name: Deploy ROS2 node (present is true)
+  block:
+    - name: Ensure ROS2 node config directory exists
+      ansible.builtin.file:
+        path: "{{ ros2_node_config_dir }}/{{ node_name }}"
+        state: directory
+        mode: "0755"
+      become: true
+
+    - name: Deploy node config file (when config_path is set)
+      ansible.builtin.copy:
+        dest: "{{ ros2_node_config_dir }}/{{ node_name }}/config.yaml"
+        content: "{{ node_config | default('') }}"
+        mode: "0644"
+      become: true
+      when: node_config_path is defined
+      notify: "Restart ROS2 node"
+
+    - name: Create systemd unit for ROS2 node
+      ansible.builtin.template:
+        src: ros2-node.service.j2
+        dest: "/etc/systemd/system/ros2-{{ node_name }}.service"
+        mode: "0644"
+      become: true
+      notify:
+        - "Reload systemd"
+        - "Restart ROS2 node"
+
+    - name: Set service state and enabled according to node_enabled
+      ansible.builtin.service:
+        name: "ros2-{{ node_name }}"
+        state: "{{ 'started' if (node_enabled | default(true) | bool) else 'stopped' }}"
+        enabled: "{{ node_enabled | default(true) | bool }}"
+        daemon_reload: true
+      become: true
+
+    - name: Flush handlers so restart runs with current node when role is used in a loop
+      ansible.builtin.meta: flush_handlers
+  when: node_present | default(true) | bool
