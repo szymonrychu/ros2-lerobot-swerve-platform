@@ -7,6 +7,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 - **`inventory`** — Host groups `server` and `client`. Edit with your hostnames or IPs. `all:vars` can set `ansible_user`, `ansible_python_interpreter`.
 - **`group_vars/`** — `all.yml`, `server.yml`, `client.yml` for group-specific variables.
 - **`playbooks/`**
+  - **`site.yml`** — Provision **all** hosts (server + client): bootstrap, optional network and hostname, Docker. Run `ansible-playbook -i inventory playbooks/site.yml`.
   - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, then Docker (and Compose plugin). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
   - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build each node’s container locally from the repo, deploy config, install systemd unit, enable/start or disable/stop. Containers are built on the node from the cloned repo (no pre-built image pull).
 - **`roles/`**
@@ -123,6 +124,8 @@ From the **`ansible/`** directory (so `ansible.cfg` and `inventory` are used):
 
 **Provision (bootstrap + Docker):**
 ```bash
+ansible-playbook -i inventory playbooks/site.yml
+# Or per group:
 ansible-playbook -i inventory playbooks/server.yml -l server
 ansible-playbook -i inventory playbooks/client.yml -l client
 ```

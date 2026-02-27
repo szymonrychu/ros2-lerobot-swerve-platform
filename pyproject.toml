@@ -89,5 +89,5 @@ lint-ansible = { shell = """
 """ }
 test-ansible = { shell = """
   set -e
-  cd ansible && ansible-lint . && ansible-playbook -i inventory playbooks/client.yml --syntax-check && ansible-playbook -i inventory playbooks/server.yml --syntax-check && ansible-playbook -i inventory playbooks/deploy_nodes_client.yml --syntax-check && ansible-playbook -i inventory playbooks/deploy_nodes_server.yml --syntax-check
+  cd ansible && ansible-lint . && ansible-playbook -i inventory playbooks/site.yml --syntax-check && ansible-playbook -i inventory playbooks/client.yml --syntax-check && ansible-playbook -i inventory playbooks/server.yml --syntax-check && ansible-playbook -i inventory playbooks/deploy_nodes_client.yml --syntax-check && ansible-playbook -i inventory playbooks/deploy_nodes_server.yml --syntax-check
 """ }

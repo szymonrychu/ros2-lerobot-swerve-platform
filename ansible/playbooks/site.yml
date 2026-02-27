@@ -1,0 +1,14 @@
+---
+# Provision all hosts (Server + Client): bootstrap, network, hostname, Docker
+# Run: ansible-playbook -i inventory playbooks/site.yml
+# Set network_address, network_gateway, hostname in group_vars (server.yml / client.yml) or host_vars.
+- name: Provision all
+  hosts: all
+  become: true
+  roles:
+    - common
+    - role: network
+      when: network_address is defined and network_address | length > 0
+    - role: hostname
+      when: hostname is defined and hostname | length > 0
+    - docker
