@@ -5,4 +5,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-ros2cli \
     && rm -rf /var/lib/apt/lists/*
 
-CMD ["ros2", "daemon", "start"]
+# Start daemon then keep container running so systemd sees active
+CMD ["sh", "-c", "ros2 daemon start; exec sleep infinity"]

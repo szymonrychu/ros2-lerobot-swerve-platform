@@ -41,3 +41,7 @@
       loop: "{{ ros2_nodes }}"
       loop_control:
         label: "{{ item.name }}"
+
+    - name: Verify all ROS2 node services are active and stable
+      ansible.builtin.include_role:
+        name: ros2_node_verify

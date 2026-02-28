@@ -1,0 +1,39 @@
+---
+# Verify all present and enabled ROS2 node services are active and stable.
+# Run after ros2_node_deploy (all nodes). Expects ros2_nodes in scope.
+
+- name: Wait for ROS2 node services to settle
+  ansible.builtin.pause:
+    seconds: "{{ ros2_node_verify_settle_seconds | default(10) }}"
+    prompt: ""
+
+- name: Check each present and enabled ROS2 node service is active (with retries)
+  ansible.builtin.command: systemctl is-active ros2-{{ item.name }}
+  register: _ros2_verify_active
+  changed_when: false
+  until: _ros2_verify_active.stdout | trim == 'active'
+  retries: "{{ ros2_node_verify_retries | default(12) }}"
+  delay: "{{ ros2_node_verify_delay | default(5) }}"
+  failed_when: _ros2_verify_active.stdout | trim != 'active'
+  loop: "{{ ros2_nodes }}"
+  when: (item.present | default(true)) and (item.enabled | default(true))
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Wait before stability re-check
+  ansible.builtin.pause:
+    seconds: "{{ ros2_node_verify_stable_seconds | default(5) }}"
+    prompt: ""
+
+- name: Re-check ROS2 node services are still active (stable)
+  ansible.builtin.command: systemctl is-active ros2-{{ item.name }}
+  register: _ros2_verify_stable
+  changed_when: false
+  until: _ros2_verify_stable.stdout | trim == 'active'
+  retries: "{{ ros2_node_verify_stable_retries | default(3) }}"
+  delay: "{{ ros2_node_verify_delay | default(5) }}"
+  failed_when: _ros2_verify_stable.stdout | trim != 'active'
+  loop: "{{ ros2_nodes }}"
+  when: (item.present | default(true)) and (item.enabled | default(true))
+  loop_control:
+    label: "{{ item.name }}"

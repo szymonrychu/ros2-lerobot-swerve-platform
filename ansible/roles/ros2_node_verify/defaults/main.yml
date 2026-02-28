@@ -1,0 +1,9 @@
+---
+# Seconds to wait after deploy before first service check.
+ros2_node_verify_settle_seconds: 25
+# Seconds to wait between first check and stability re-check.
+ros2_node_verify_stable_seconds: 10
+# Retries and delay (seconds) when polling for service active; total wait up to retries * delay.
+ros2_node_verify_retries: 12
+ros2_node_verify_delay: 5
+ros2_node_verify_stable_retries: 3

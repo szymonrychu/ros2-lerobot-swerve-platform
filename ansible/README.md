@@ -18,6 +18,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`docker`** — Docker CE + Docker Compose plugin on Ubuntu 24.04.
   - **`monitoring`** — Alloy, Mimir, Loki, Grafana in one role: docker-compose + systemd. Alloy collects Docker container logs and cAdvisor metrics (scrape interval configurable, default 1s), sends metrics to Mimir and logs to Loki. Mimir and Loki use local filesystem with configurable retention (default 8h). Grafana listens on a configurable port (default 8080), admin/admin, with Mimir and Loki as datasources. Applied to **all hosts** (server and client); each host runs its own stack (see `site.yml`). Variables: `monitoring_mimir_retention`, `monitoring_loki_retention`, `monitoring_alloy_scrape_interval`, `monitoring_grafana_http_port`, `monitoring_data_dir`; image tags in role defaults.
   - **`ros2_node_deploy`** — For each node: build image from repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
+  - **`ros2_node_verify`** — Runs after all nodes are deployed: waits for services to settle, checks each present+enabled node’s systemd unit is active, waits again, then re-checks (stability). Used by `deploy_nodes_server.yml` and `deploy_nodes_client.yml`. Variables: `ros2_node_verify_settle_seconds` (default 10), `ros2_node_verify_stable_seconds` (default 5).
 
 ## Node list and config (ros2_nodes)
 
