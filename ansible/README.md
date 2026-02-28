@@ -10,7 +10,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 - **`playbooks/`**
   - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, then Docker (and Compose plugin). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
   - **`deploy_monitoring.yml`** — Deploy only the monitoring stack (Alloy, Mimir, Loki, Grafana) on selected hosts. Run `ansible-playbook -i inventory playbooks/deploy_monitoring.yml`; use `-l server` or `-l client` to limit to a host group.
-  - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build or pull each node’s container, deploy config, install systemd unit, enable/start or disable/stop. For the client, when `ros2_build_on_controller` is true (default), images are built on the Ansible controller and pushed to the registry; the client only pulls (avoids DNS/network failures during `docker build` on the Pi).
+  - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build or pull each node’s container, deploy config, install systemd unit, enable/start or disable/stop. Containers are built on each Pi from the cloned repo (no CI/registry by default). Set `node_build_on_controller: true` when you have a registry to build on the controller and pull on nodes.
 - **`roles/`**
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
   - **`network`** — Netplan: primary interface gets static IP (ethernet or wlan, auto-detected); other interfaces DHCP; IPv6 disabled. Runs when `network_address` and `network_gateway` are set; for primary WiFi set `network_wifi_ssid` (and optionally `network_wifi_password`).
@@ -30,7 +30,7 @@ Deploy playbooks clone the repo on each node for local builds:
 - **`ros2_repo_url`** — e.g. `https://github.com/szymonrychu/ros2-lerobot-swerve-platform`
 - **`ros2_repo_revision`** — branch, tag, or commit (default `main`)
 - **`ros2_repo_dest`** — path on the node (default `/opt/ros2-lerobot-swerve-platform`)
-- **`ros2_build_on_controller`** — (default `true` for client) When true, node images are built on the machine running Ansible and pushed to the registry; the client (e.g. Pi) only pulls. Use when the client has no outbound internet or DNS during `docker build`. Controller needs Docker and `docker login` to the registry.
+- **`node_build_on_controller`** — (default `false`) When false, images are built on each Raspberry Pi from the cloned repo. Set `true` when you have a registry/CI: controller builds and pushes, nodes pull (requires `docker_registry_username` / `docker_registry_password` on nodes and `docker login` on controller).
 - **`ros2_repo_root`** — (default `{{ playbook_dir }}/../..`) Path to repo root on the controller when building images; used as `docker build` context (playbook lives in `ansible/playbooks/`).
 
 ### ros2_node_type_defaults

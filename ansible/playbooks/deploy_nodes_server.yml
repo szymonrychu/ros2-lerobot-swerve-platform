@@ -1,5 +1,5 @@
 ---
-# Deploy ROS2 nodes on Server: clone repo, build containers locally, systemd + config.
+# Deploy ROS2 nodes on Server: clone repo on the Pi, build containers there, systemd + config.
 # Node list and config from group_vars/server.yml; repo from group_vars/all.yml.
 # Run from ansible/: ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server
 
