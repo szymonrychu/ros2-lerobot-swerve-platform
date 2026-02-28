@@ -36,12 +36,14 @@ class BridgeConfig:
         joints: List of JointEntry (name + servo id); order defines joint order in messages.
         device: Optional serial device path (e.g. /dev/ttyUSB0).
         baudrate: Optional baud rate for serial; None if not set.
+        log_joint_updates: If True, print one line per update with changing joint names and values (silent by default).
     """
 
     namespace: str
     joints: list[JointEntry]
     device: str | None = None
     baudrate: int | None = None
+    log_joint_updates: bool = False
 
     @property
     def joint_names(self) -> list[str]:
@@ -115,11 +117,15 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
             baudrate = int(baudrate)
         except (TypeError, ValueError):
             baudrate = None
+    log_joint_updates = data.get("log_joint_updates", False)
+    if not isinstance(log_joint_updates, bool):
+        log_joint_updates = bool(log_joint_updates)
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
         device=device,
         baudrate=baudrate,
+        log_joint_updates=log_joint_updates,
     )
 
 

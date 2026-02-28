@@ -6,7 +6,7 @@
 
 ## Configuration
 
-- **Config file:** YAML with `namespace` (string) and `joint_names` (list of entries). Each entry must have `name` (joint name for ROS) and `id` (Feetech servo ID, 0–253). Servo IDs need not start from 1 or be sequential. Optional: `device`, `baudrate` for serial.
+- **Config file:** YAML with `namespace` (string) and `joint_names` (list of entries). Each entry must have `name` (joint name for ROS) and `id` (Feetech servo ID, 0–253). Servo IDs need not start from 1 or be sequential. Optional: `device`, `baudrate` for serial; `log_joint_updates` (bool, default false) to print one line per joint_commands update with changing joints as `joint1:val1,joint2:val2,...` to stdout (silent when false).
 - **Config path:** Set `FEETECH_SERVOS_CONFIG` to the config file path, or deploy to `/etc/ros2/feetech_servos/config.yaml`.
 
 Example format:
@@ -24,8 +24,14 @@ Example configs are in `config/leader.yaml` and `config/follower.yaml`. Mount on
 
 ## Topic layout
 
-- With `namespace: leader`: `/leader/joint_states` (pub), `/leader/joint_commands` (sub).
-- With `namespace: follower`: `/follower/joint_states` (pub), `/follower/joint_commands` (sub).
+- With `namespace: leader`: `/leader/joint_states` (pub), `/leader/joint_commands` (sub), `/leader/servo_registers` (pub, JSON), `/leader/set_register` (sub, JSON).
+- With `namespace: follower`: `/follower/joint_states` (pub), `/follower/joint_commands` (sub), `/follower/servo_registers` (pub), `/follower/set_register` (sub).
+
+When `device` is set, the bridge connects to hardware and:
+
+- **Startup:** Reads all Feetech STS registers for each configured joint and prints one compact JSON line per servo to stdout (for debugging): `{"servo_id":1,"joint_name":"shoulder_pan","registers":{...}}`.
+- **Publish:** `joint_states` from present position/speed; `servo_registers` (std_msgs/String) as JSON `{ "<joint_name>": { "<register_name>": <value>, ... }, ... }` at ~1 Hz.
+- **Subscribe:** `joint_commands` (JointState) writes goal_position (RAM) per joint; `set_register` (std_msgs/String) expects JSON `{"joint_name":"<name>","register":"<name>","value":<int>}` to write any writable register. EPROM registers are written with unlock → write → lock; writes are skipped when the value is unchanged.
 
 ## Build and run
 

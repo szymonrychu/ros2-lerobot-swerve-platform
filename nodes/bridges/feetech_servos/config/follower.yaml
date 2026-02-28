@@ -17,3 +17,4 @@ joint_names:
     id: 6
 # device: /dev/ttyUSB0
 # baudrate: 115200
+# log_joint_updates: false  # set true to print joint location updates to stdout (joint1:val1,joint2:val2,...)

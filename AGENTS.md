@@ -51,10 +51,26 @@ Use this file and [MEMORY.md](MEMORY.md) when working in this repo.
 
 ## AI rules (mandatory)
 
+### ⚠️ MANDATORY: Test → Commit → Push → Deploy
+
+**Before considering any change done, the agent MUST complete this sequence. No exceptions.**
+
+1. **Test** — Run the relevant test/lint for what you changed: node tests (e.g. `cd nodes/bridges/feetech_servos && poetry run pytest tests/ -v`), root `poetry run poe lint`, `poetry run poe lint-nodes`, or Ansible `poetry run poe lint-ansible` and `poetry run poe test-ansible`. Fix any failures.
+2. **Commit** — Create a commit with a semantic message (`feat:`, `fix:`, `docs:`, etc.) for the change.
+3. **Push** — Push to the upstream repository (`git push`). When only one agent works on the codebase, push to `main`.
+4. **Deploy** — When Ansible or any ROS2 node code changed, run from `ansible/`:  
+   `ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client`  
+   `ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server`  
+   so deployed containers and services reflect the latest code.
+
+**Do not skip any step.** If deploy playbooks are not run (e.g. no target hosts), still complete Test, Commit, and Push.
+
+---
+
 * Write basic unit tests for new functionality.
 * Run linters and unit tests before considering work done. Root lint: `poetry run poe lint` (tests, shared). Lint all Python nodes: `poetry run poe lint-nodes` or `./scripts/lint-all-nodes.sh`. Each node has its own Poetry and `poe lint` in its directory. **Ansible:** run `poetry run poe lint-ansible` (or `cd ansible && ansible-lint .`) and `poetry run poe test-ansible` (ansible-lint + playbook `--syntax-check`). When changing Ansible code, run these and fix any reported issues.
 * **Always commit and push:** Use semantic commit messages (e.g. `feat:`, `fix:`, `docs:`). **Create a commit after each phase/iteration that passes**; the agent performs these commits and follows the semantic-commits convention. **Always push to the upstream repository after each such commit.** When only one agent works on the codebase, do not use feature branches—push only to `main`.
-* **Ansible and ROS2 nodes:** Whenever ROS2 nodes or their configuration change, update the Ansible code so it stays in sync. Ansible must support deploying, enabling, and disabling nodes by name and configuring them via the `ros2_nodes` schema (name, node_type, present, enabled, config). See `group_vars/client.yml` and `group_vars/server.yml` and the `ros2_node_deploy` role. Keep Ansible lint and tests passing: run `poe lint-ansible` and `poe test-ansible`; fix or document any skip/warn in `ansible/.ansible-lint`. **When changing Ansible or ROS2 node deployment, verify with:** `ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client` and `ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server` (run from `ansible/`).
+* **Ansible and ROS2 nodes:** Whenever ROS2 nodes or their configuration change, update the Ansible code so it stays in sync. Ansible must support deploying, enabling, and disabling nodes by name and configuring them via the `ros2_nodes` schema (name, node_type, present, enabled, config). See `group_vars/client.yml` and `group_vars/server.yml` and the `ros2_node_deploy` role. Keep Ansible lint and tests passing: run `poe lint-ansible` and `poe test-ansible`; fix or document any skip/warn in `ansible/.ansible-lint`. **Run Ansible deploy playbooks whenever Ansible or ROS2 node code changes:** `ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client` and `ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server` (run from `ansible/`), so that deployed containers and services reflect the latest code.
 * Prefer working on multiple branches when possible.
 * Ask the developer very detailed questions about everything when unclear.
 * Never hallucinate — prefer asking or citing sources over inventing.

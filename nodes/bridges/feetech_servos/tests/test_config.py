@@ -68,6 +68,20 @@ def test_load_config_with_device_baudrate(tmp_path: Path) -> None:
     assert cfg.baudrate == 115200
     assert cfg.joint_names == ["j1"]
     assert cfg.joints[0].id == 3
+    assert cfg.log_joint_updates is False
+
+
+def test_load_config_log_joint_updates(tmp_path: Path) -> None:
+    """load_config parses optional log_joint_updates; default False."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: leader\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.log_joint_updates is False
+    p.write_text("namespace: leader\njoint_names:\n  - name: j1\n    id: 1\nlog_joint_updates: true\n")
+    cfg2 = load_config(p)
+    assert cfg2 is not None
+    assert cfg2.log_joint_updates is True
 
 
 def test_load_config_rejects_namespace_with_slash(tmp_path: Path) -> None:
