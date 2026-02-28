@@ -6,4 +6,4 @@ ros2_node_verify_stable_seconds: 10
 # Retries and delay (seconds) when polling for service active; total wait up to retries * delay.
 ros2_node_verify_retries: 12
 ros2_node_verify_delay: 5
-ros2_node_verify_stable_retries: 3
+ros2_node_verify_stable_retries: 6
