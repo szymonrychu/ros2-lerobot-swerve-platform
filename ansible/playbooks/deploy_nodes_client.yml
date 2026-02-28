@@ -30,6 +30,7 @@
       vars:
         _master2master_server_env: "{{ ['ROS2_SERVER_HOST=' + ros2_server_host] if (item.node_type == 'master2master' and ros2_server_host is defined and ros2_server_host | length > 0) else [] }}"
         node_name: "{{ item.name }}"
+        node_type: "{{ item.node_type }}"
         node_present: "{{ item.present | default(true) }}"
         node_enabled: "{{ item.enabled | default(true) }}"
         node_config: "{{ item.config | default('') }}"

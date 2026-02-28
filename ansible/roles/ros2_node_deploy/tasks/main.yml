@@ -20,6 +20,27 @@
   ansible.builtin.set_fact:
     ros2_node_restart_now: "{{ node_name }}"
 
+- name: Validate feetech_servos node config schema (name+id per joint)
+  when:
+    - node_present | default(true) | bool
+    - node_type is defined
+    - node_type == "feetech_servos"
+  vars:
+    _feetech_cfg: "{{ (node_config | default('') | from_yaml) if (node_config | default('') | trim | length > 0) else {} }}"
+  ansible.builtin.assert:
+    that:
+      - _feetech_cfg is mapping
+      - _feetech_cfg.namespace is defined
+      - _feetech_cfg.joint_names is defined
+      - _feetech_cfg.joint_names is sequence
+      - _feetech_cfg.joint_names | length > 0
+      - (_feetech_cfg.joint_names | select('mapping') | list | length) == (_feetech_cfg.joint_names | length)
+      - (_feetech_cfg.joint_names | selectattr('name', 'defined') | list | length) == (_feetech_cfg.joint_names | length)
+      - (_feetech_cfg.joint_names | selectattr('id', 'defined') | list | length) == (_feetech_cfg.joint_names | length)
+    fail_msg: >-
+      feetech_servos node '{{ node_name }}' requires config.joint_names as list of
+      objects with both name and id (e.g. [{name: joint_1, id: 1}, ...]).
+
 - name: Uninstall ROS2 node (present is false)
   when: not (node_present | default(true) | bool)
   block:

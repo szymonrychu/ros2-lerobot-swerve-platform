@@ -29,6 +29,7 @@
         name: ros2_node_deploy
       vars:
         node_name: "{{ item.name }}"
+        node_type: "{{ item.node_type }}"
         node_present: "{{ item.present | default(true) }}"
         node_enabled: "{{ item.enabled | default(true) }}"
         node_config: "{{ item.config | default('') }}"

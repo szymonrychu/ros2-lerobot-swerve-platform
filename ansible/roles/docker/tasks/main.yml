@@ -63,7 +63,7 @@
 
 - name: Set default Docker daemon config (no existing file)
   ansible.builtin.set_fact:
-    docker_daemon_config: {"dns": "{{ docker_dns_servers }}"}
+    docker_daemon_config: "{{ {'dns': docker_dns_servers} }}"
   when: docker_daemon_config is not defined
 
 - name: Deploy Docker daemon.json (DNS for container resolution)
