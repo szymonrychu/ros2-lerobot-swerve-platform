@@ -1,0 +1,7 @@
+---
+- name: Restart monitoring stack
+  ansible.builtin.systemd:
+    name: monitoring-stack
+    state: restarted
+    daemon_reload: true
+  become: true

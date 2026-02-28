@@ -2,8 +2,16 @@
 # Server — Raspberry Pi 4b: Lerobot SO-101 leader, GPS-RTK LC29H(BS)
 # Network (netplan) and hostname — set for each host or here for the group:
 network_address: "192.168.1.33/24"
+
+# Monitoring stack (Alloy, Mimir, Loki, Grafana). Override in host_vars if needed.
+monitoring_mimir_retention: "8h"
+monitoring_loki_retention: "8h"
+monitoring_alloy_scrape_interval: "1s"
+monitoring_grafana_http_port: 8080
+monitoring_data_dir: /var/lib/monitoring
+
 network_gateway: "192.168.1.1"
-network_nameservers: ["192.168.1.1", "1.1.1.1"]
+network_nameservers: ["1.1.1.1"]
 hostname: "server-rpi4"
 
 # ROS2 node types: image and default settings per type (used by ros2_node_deploy).

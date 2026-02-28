@@ -11,3 +11,5 @@ client-rpi5 ansible_host=192.168.1.34
 [all:vars]
 ansible_user=szymonri
 ansible_python_interpreter=/usr/bin/python3
+network_wifi_ssid=main
+network_wifi_password=GZHOAmtt5NZy3tBnHKdE

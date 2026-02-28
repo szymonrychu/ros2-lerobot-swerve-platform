@@ -1,0 +1,55 @@
+# Mimir: local filesystem storage, single-node. Do not use in production.
+# Retention enforced by compactor (configurable via monitoring_mimir_retention).
+# Paths under /data are mounted from host {{ monitoring_data_dir }}/mimir.
+
+multitenancy_enabled: false
+
+limits:
+  compactor_blocks_retention_period: {{ monitoring_mimir_retention }}
+
+blocks_storage:
+  backend: filesystem
+  bucket_store:
+    sync_dir: /data/tsdb-sync
+  filesystem:
+    dir: /data/data/tsdb
+  tsdb:
+    dir: /data/tsdb
+
+compactor:
+  data_dir: /data/compactor
+  sharding_ring:
+    kvstore:
+      store: inmemory
+
+distributor:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+  pool:
+    health_check_ingesters: true
+
+ingester:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+    replication_factor: 1
+    min_ready_duration: 0s
+    final_sleep: 0s
+
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/rules
+
+server:
+  http_listen_port: 9009
+  log_level: error
+
+store_gateway:
+  sharding_ring:
+    kvstore:
+      store: inmemory
+    replication_factor: 1

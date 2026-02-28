@@ -1,0 +1,10 @@
+---
+# Deploy monitoring stack only (Alloy, Mimir, Loki, Grafana) on selected hosts.
+# Run from ansible/: ansible-playbook -i inventory playbooks/deploy_monitoring.yml
+# Limit to host group: -l server  or  -l client  or omit for all.
+
+- name: Deploy monitoring stack
+  hosts: all
+  become: true
+  roles:
+    - monitoring

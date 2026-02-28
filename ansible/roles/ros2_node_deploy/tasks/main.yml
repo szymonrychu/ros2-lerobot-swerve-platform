@@ -68,7 +68,7 @@
     - name: Build node container image from repo
       when: not (node_build_on_controller | default(false) | bool)
       ansible.builtin.command:
-        cmd: "docker build -t {{ node_image }} {{ node_build_context }}"
+        cmd: "docker build --network=host -t {{ node_image }} {{ node_build_context }}"
         chdir: "{{ repo_dest }}"
       become: true
       register: docker_build_result

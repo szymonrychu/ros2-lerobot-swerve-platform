@@ -36,6 +36,44 @@
     enabled: true
   become: true
 
+- name: Ensure /etc/docker exists
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Check if Docker daemon.json exists
+  ansible.builtin.stat:
+    path: /etc/docker/daemon.json
+  register: docker_daemon_json_stat
+  become: true
+
+- name: Read existing Docker daemon.json
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: docker_daemon_json_slurp
+  when: docker_daemon_json_stat.stat.exists
+  become: true
+
+- name: Set Docker daemon config (merge DNS into existing)
+  ansible.builtin.set_fact:
+    docker_daemon_config: "{{ (docker_daemon_json_slurp.content | b64decode | from_json) | combine({'dns': docker_dns_servers}, recursive=true) }}"
+  when: docker_daemon_json_stat.stat.exists and docker_daemon_json_slurp.content | length > 0
+
+- name: Set default Docker daemon config (no existing file)
+  ansible.builtin.set_fact:
+    docker_daemon_config: {"dns": "{{ docker_dns_servers }}"}
+  when: docker_daemon_config is not defined
+
+- name: Deploy Docker daemon.json (DNS for container resolution)
+  ansible.builtin.copy:
+    content: "{{ docker_daemon_config | to_nice_json }}"
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+  notify: Restart Docker
+  become: true
+
 - name: Add ansible_user to docker group (allow run without sudo)
   ansible.builtin.user:
     name: "{{ ansible_user }}"

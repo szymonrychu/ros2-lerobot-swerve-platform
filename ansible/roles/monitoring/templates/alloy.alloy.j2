@@ -1,0 +1,82 @@
+// Alloy: Docker container logs -> Loki; cAdvisor metrics -> Mimir. Scrape interval configurable (default 1s).
+// Targets: mimir and loki on compose network (mimir:9009, loki:3100).
+
+// ###############################
+// #### Metrics Configuration ####
+// ###############################
+
+prometheus.exporter.cadvisor "example" {
+  docker_only = true
+}
+
+discovery.relabel "example" {
+  targets = prometheus.exporter.cadvisor.example.targets
+
+  rule {
+    target_label = "job"
+    replacement = "integrations/docker"
+  }
+
+  rule {
+    target_label = "instance"
+    replacement = constants.hostname
+  }
+}
+
+prometheus.scrape "scraper" {
+  targets         = discovery.relabel.example.output
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "{{ monitoring_alloy_scrape_interval }}"
+  scrape_timeout  = "{{ monitoring_alloy_scrape_interval }}"
+}
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "http://mimir:9009/api/v1/push"
+  }
+}
+
+// ###############################
+// #### Logging Configuration ####
+// ###############################
+
+discovery.docker "linux" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "logs_integrations_docker" {
+  targets = discovery.docker.linux.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container_name"
+  }
+
+  rule {
+    target_label = "instance"
+    replacement  = constants.hostname
+  }
+}
+
+loki.source.docker "default" {
+  host         = "unix:///var/run/docker.sock"
+  targets      = discovery.docker.linux.targets
+  relabel_rules = discovery.relabel.logs_integrations_docker.rules
+  forward_to   = [loki.process.docker_logs.receiver]
+}
+
+loki.process "docker_logs" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.drop {
+    source     = "container_name"
+    expression = "(alloy|grafana|loki|mimir)"
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

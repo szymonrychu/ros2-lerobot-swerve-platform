@@ -39,3 +39,8 @@
 * **Lerobot teleop**: Config split to `config.py` (no ROS deps); tests in `nodes/lerobot_teleop/tests/test_config.py`; same pythonpath pattern.
 * **Feetech**: Tests for `load_config_from_env`; `BridgeConfig` and master2master `TopicRule` docstrings (Attributes). Shared `clamp` tests: equal bounds, at bounds.
 * **Node tests**: uvc_camera and lerobot_teleop need `poetry install --no-root` (or `poetry lock` then install) before first run; run from node dir with `poetry run poe test`.
+
+## Monitoring stack and Docker DNS
+
+* **Monitoring (Loki)**: Loki 3 needs `common.ring.kvstore.store: inmemory` and `replication_factor: 1` for single-node (otherwise it tries Consul on localhost:8500). Loki runs as UID 10001; Ansible creates `loki/tsdb-shipper-cache`, `loki/compactor/deletion` and sets ownership of `{{ monitoring_data_dir }}/loki` to 10001:10001 so the container can write.
+* **Docker DNS**: Containers may fail to resolve (e.g. `ports.ubuntu.com`, or service names like `loki` in compose). The **docker** role deploys `/etc/docker/daemon.json` with `"dns": ["8.8.8.8", "8.8.4.4"]` (overridable via `docker_dns_servers`). Existing daemon.json is merged, not overwritten. Docker is restarted after the change. Apply to both server and client (e.g. run `deploy_monitoring.yml` or the docker role).

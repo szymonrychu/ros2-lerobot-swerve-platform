@@ -1,0 +1,6 @@
+---
+# DNS servers used by containers (fixes resolution of ports.ubuntu.com, service names, etc.).
+# Override in group_vars if you need different resolvers.
+docker_dns_servers:
+  - 8.8.8.8
+  - 8.8.4.4

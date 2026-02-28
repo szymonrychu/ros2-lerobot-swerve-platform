@@ -1,0 +1,22 @@
+---
+# Monitoring stack: Alloy, Mimir, Loki, Grafana (single role, docker-compose + systemd)
+# Override in group_vars or host_vars as needed.
+
+# Pinned image tags (no latest)
+monitoring_alloy_image: "grafana/alloy:v1.13.2"
+monitoring_mimir_image: "grafana/mimir:2.16.0"
+monitoring_loki_image: "grafana/loki:3.0.0"
+monitoring_grafana_image: "grafana/grafana:11.0.0"
+
+# Retention (Mimir metrics, Loki logs)
+monitoring_mimir_retention: "8h"
+monitoring_loki_retention: "8h"
+
+# Alloy scrape interval (aggressive for dev)
+monitoring_alloy_scrape_interval: "1s"
+
+# Grafana HTTP port on host
+monitoring_grafana_http_port: 8080
+
+# Base directory for configs and data (Mimir/Loki/Alloy/Grafana under this)
+monitoring_data_dir: /var/lib/monitoring

@@ -3,7 +3,7 @@
 # Network (netplan) and hostname — set for each host or here for the group:
 network_address: "192.168.1.34/24"
 network_gateway: "192.168.1.1"
-network_nameservers: ["192.168.1.1", "1.1.1.1"]
+network_nameservers: ["1.1.1.1"]
 hostname: "client-rpi5"
 
 # Server IP/hostname for master2master to connect to Server's ROS2 master (set or use inventory).

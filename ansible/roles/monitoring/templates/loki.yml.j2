@@ -1,0 +1,41 @@
+# Loki: local filesystem, retention (configurable via monitoring_loki_retention). Single-node.
+# Paths under /data are mounted from host {{ monitoring_data_dir }}/loki.
+# Loki 3.x: storage under common; compactor.shared_store removed.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /data
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /data/chunks
+      rules_directory: /data/rules
+
+schema_config:
+  configs:
+    - from: "2020-10-24"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: {{ monitoring_loki_retention }}
+
+compactor:
+  working_directory: /data/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem

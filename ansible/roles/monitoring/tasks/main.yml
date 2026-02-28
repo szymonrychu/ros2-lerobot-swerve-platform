@@ -1,0 +1,98 @@
+---
+# Monitoring stack: Alloy, Mimir, Loki, Grafana (docker-compose + systemd)
+
+- name: Create monitoring data and config directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ monitoring_data_dir }}"
+    - "{{ monitoring_data_dir }}/alloy"
+    - "{{ monitoring_data_dir }}/mimir"
+    - "{{ monitoring_data_dir }}/mimir/tsdb-sync"
+    - "{{ monitoring_data_dir }}/mimir/data"
+    - "{{ monitoring_data_dir }}/mimir/data/tsdb"
+    - "{{ monitoring_data_dir }}/mimir/tsdb"
+    - "{{ monitoring_data_dir }}/mimir/compactor"
+    - "{{ monitoring_data_dir }}/mimir/rules"
+    - "{{ monitoring_data_dir }}/loki"
+    - "{{ monitoring_data_dir }}/loki/chunks"
+    - "{{ monitoring_data_dir }}/loki/rules"
+    - "{{ monitoring_data_dir }}/loki/compactor"
+    - "{{ monitoring_data_dir }}/loki/compactor/deletion"
+    - "{{ monitoring_data_dir }}/loki/tsdb-shipper-cache"
+    - "{{ monitoring_data_dir }}/grafana"
+    - "{{ monitoring_data_dir }}/grafana/provisioning"
+    - "{{ monitoring_data_dir }}/grafana/provisioning/datasources"
+  become: true
+
+- name: Set Loki data dir ownership for container user (UID 10001)
+  ansible.builtin.file:
+    path: "{{ monitoring_data_dir }}/loki"
+    state: directory
+    owner: "10001"
+    group: "10001"
+    recurse: true
+  become: true
+
+- name: Deploy Alloy config
+  ansible.builtin.template:
+    src: alloy.alloy.j2
+    dest: "{{ monitoring_data_dir }}/alloy/alloy.alloy"
+    mode: "0644"
+  notify: Restart monitoring stack
+  become: true
+
+- name: Deploy Mimir config
+  ansible.builtin.template:
+    src: mimir.yml.j2
+    dest: "{{ monitoring_data_dir }}/mimir/mimir.yml"
+    mode: "0644"
+  notify: Restart monitoring stack
+  become: true
+
+- name: Deploy Loki config
+  ansible.builtin.template:
+    src: loki.yml.j2
+    dest: "{{ monitoring_data_dir }}/loki/loki.yml"
+    mode: "0644"
+  notify: Restart monitoring stack
+  become: true
+
+- name: Deploy Grafana datasources
+  ansible.builtin.template:
+    src: grafana-datasources.yml.j2
+    dest: "{{ monitoring_data_dir }}/grafana/provisioning/datasources/datasources.yml"
+    mode: "0644"
+  notify: Restart monitoring stack
+  become: true
+
+- name: Deploy docker-compose.yml
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ monitoring_data_dir }}/docker-compose.yml"
+    mode: "0644"
+  notify: Restart monitoring stack
+  become: true
+
+- name: Install monitoring-stack systemd unit
+  ansible.builtin.template:
+    src: monitoring-stack.service.j2
+    dest: /etc/systemd/system/monitoring-stack.service
+    mode: "0644"
+  become: true
+  notify: Restart monitoring stack
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+
+- name: Enable and start monitoring stack
+  ansible.builtin.systemd:
+    name: monitoring-stack
+    state: started
+    enabled: true
+    daemon_reload: true
+  become: true
