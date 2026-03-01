@@ -98,6 +98,18 @@ ros2_nodes:
 
 When you add, remove, or reconfigure ROS2 nodes (including in docker-compose or node source), update these vars and re-run the deploy playbook.
 
+### Joint command topic flow (client)
+
+Leader joint states are relayed and filtered before reaching the follower feetech bridge:
+
+- **Server:** `lerobot_leader` (feetech) publishes `/leader/joint_states`.
+- **Client:** `master2master` subscribes to `/leader/joint_states` and republishes to **`/filter/input_joint_updates`**.
+- **Client:** `test_joint_api` can also publish to `/filter/input_joint_updates` (same path as master2master; use for testing, gripper-only).
+- **Client:** `filter_node` subscribes to `/filter/input_joint_updates`, runs the configured algorithm (e.g. Kalman), and publishes to **`/follower/joint_commands`**.
+- **Client:** `lerobot_follower` (feetech) subscribes to `/follower/joint_commands` and drives the servos.
+
+So both master2master and the test API feed the same filter → feetech chain.
+
 ## Network and hostname (provision)
 
 The **network** role sets a static IP on the primary interface (ethernet or WiFi, auto-detected), sets all other interfaces to DHCP, and disables IPv6 in netplan.

@@ -1,12 +1,12 @@
 # Feetech servos bridge
 
-**Purpose:** Configurable bridge for Feetech servo arms. Publishes `sensor_msgs/JointState` as `/<namespace>/joint_states` and subscribes to `/<namespace>/joint_commands`. Namespace and joint names come from a config file so the same node can run as leader or follower (or any other role).
+**Purpose:** Configurable bridge for Feetech servo arms. Publishes `sensor_msgs/JointState` as `/<namespace>/joint_states` and subscribes to `/<namespace>/joint_commands`. Namespace and joint names come from a config file so the same node can run as leader or follower (or any other role). Command filtering/smoothing is handled by a separate filter node; this bridge applies incoming joint_commands directly to servo goal_position.
 
 **Audience:** Mid-level Python dev with ROS2 (rclpy, JointState).
 
 ## Configuration
 
-- **Config file:** YAML with `namespace` (string) and `joint_names` (list of entries). Each entry must have `name` (joint name for ROS) and `id` (Feetech servo ID, 0–253). Servo IDs need not start from 1 or be sequential. Optional: `device`, `baudrate` for serial; `log_joint_updates` (bool, default false) to print one line per joint_commands update with changing joints as `joint1:val1,joint2:val2,...` to stdout (silent when false); `enable_torque_on_start` (bool, default false); `disable_torque_on_start` (bool, default false); `interpolation_enabled` (bool, default true) and `command_smoothing_time_s` (float, default `0.12`) for smooth follower command transitions with ease-in/ease-out interpolation; `interpolation_target_update_hz` (float, default `40.0`) to pace retargeting when source is steady; `moving_target_update_hz` (float, default `120.0`) to retarget faster while source is moving; `command_deadband_steps` (int, default `3`) to ignore tiny command jitter when source is steady; `moving_command_deadband_steps` (int, default `0`) for moving-source deadband; `source_motion_velocity_threshold_steps_s` (float, default `10.0`) to classify source as moving; `kalman_enabled` (bool, default `true`) for constant-velocity Kalman command tracking; `kalman_process_noise_pos`, `kalman_process_noise_vel`, `kalman_measurement_noise`, `kalman_prediction_lead_s` tune filter responsiveness and prediction lead; `kalman_velocity_decay_per_s` damps extrapolated velocity between command updates; `kalman_max_prediction_time_s` limits how long the bridge predicts without fresh commands (prevents drift); `target_lowpass_alpha` (float in `[0,1]`, default `0.2`) remains available for non-Kalman path; `max_goal_step_rate` (steps/s, default `400.0`, <=0 disables) to limit per-second goal jumps; `control_loop_hz` (float, default `100.0`) for bridge update frequency.
+- **Config file:** YAML with `namespace` (string) and `joint_names` (list of entries). Each entry must have `name` (joint name for ROS) and `id` (Feetech servo ID, 0–253). Servo IDs need not start from 1 or be sequential. Optional: `device`, `baudrate` for serial; `log_joint_updates` (bool, default false) to print one line per joint_commands update with changing joints as `joint1:val1,joint2:val2,...` to stdout (silent when false); `enable_torque_on_start` (bool, default false); `disable_torque_on_start` (bool, default false); `control_loop_hz` (float, default `100.0`) for bridge update frequency.
 - **Config path:** Set `FEETECH_SERVOS_CONFIG` to the config file path, or deploy to `/etc/ros2/feetech_servos/config.yaml`.
 
 Example format:
@@ -31,7 +31,7 @@ When `device` is set, the bridge connects to hardware and:
 
 - **Startup:** Reads all Feetech STS registers for each configured joint and prints one compact JSON line per servo to stdout (for debugging): `{"servo_id":1,"joint_name":"shoulder_pan","registers":{...}}`.
 - **Publish:** `joint_states` from present position/speed; `servo_registers` (std_msgs/String) as JSON `{ "<joint_name>": { "<register_name>": <value>, ... }, ... }` at ~1 Hz.
-- **Subscribe:** `joint_commands` (JointState) writes goal_position (RAM) per joint; `set_register` (std_msgs/String) expects JSON `{"joint_name":"<name>","register":"<name>","value":<int>}` to write any writable register. EPROM registers are written with unlock → write → lock; writes are skipped when the value is unchanged.
+- **Subscribe:** `joint_commands` (JointState) writes goal_position (RAM) per joint; `set_register` (std_msgs/String) expects JSON `{"joint_name":"<name>","register":"<name>","value":<int>}` to write any writable register. EPROM registers are written with unlock -> write -> lock; writes are skipped when the value is unchanged.
 
 ## Build and run
 

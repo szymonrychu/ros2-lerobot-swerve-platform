@@ -5,6 +5,7 @@ When device is set: connects to hardware, reads all registers at startup (prints
 publishes joint_states and servo_registers (JSON), subscribes to joint_commands and set_register.
 EPROM writes use unlock -> write -> lock; writes are skipped when value unchanged.
 When device is not set: stub (publish zero joint_states, log joint_commands).
+Filtering/smoothing of joint_commands is handled by a separate filter node; this bridge applies commands directly.
 """
 
 import json
@@ -19,15 +20,12 @@ from std_msgs.msg import String
 
 from .config import BridgeConfig, load_config_from_env
 from .joint_updates import get_position_updates
-from .kalman import JointKalmanFilter, make_joint_kalman_filter, predict_joint, predicted_position, update_joint
 from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers
 from .registers import read_register as read_register_raw
 from .registers import write_register
 from .startup_torque import set_startup_torque_state
-from .trajectory import JointInterpolator, make_joint_interpolator, sample_joint, set_joint_target
 
 DEFAULT_QOS_DEPTH = 10
-# Run the control loop faster for smoother follower motion.
 SPIN_CYCLES_PER_LOOP = 2
 SPIN_TIMEOUT_S = 0.002
 REGISTER_PUBLISH_INTERVAL_S = 1.0
@@ -85,14 +83,6 @@ def run_bridge(config: BridgeConfig) -> None:
 
     last_positions: dict[str, float] = {}
     last_written: dict[int, dict[str, int]] = {}  # servo_id -> { register_name: value }
-    latest_goal_targets: dict[int, int] = {}
-    applied_goal_targets: dict[int, int] = {}
-    last_retarget_time: dict[int, float] = {}
-    kalman_filters: dict[int, JointKalmanFilter] = {}
-    last_command_received_time: dict[int, float] = {}
-    last_sent_goal: dict[int, int] = {}
-    last_sent_time: dict[int, float] = {}
-    interpolators: dict[int, JointInterpolator] = {}
     servo: Any = None
 
     if config.device:
@@ -150,25 +140,7 @@ def run_bridge(config: BridgeConfig) -> None:
             target_steps = _clamp_steps(float(msg.position[i]) * POSITION_RADIAN_TO_STEPS)
             if sid not in last_written:
                 last_written[sid] = {}
-            if config.interpolation_enabled:
-                now = time.monotonic()
-                if config.kalman_enabled:
-                    if sid not in kalman_filters:
-                        kalman_filters[sid] = make_joint_kalman_filter(float(target_steps), now)
-                    update_joint(
-                        kalman_filters[sid],
-                        measurement_position=float(target_steps),
-                        now_s=now,
-                        process_noise_pos=config.kalman_process_noise_pos,
-                        process_noise_vel=config.kalman_process_noise_vel,
-                        measurement_noise=config.kalman_measurement_noise,
-                    )
-                    latest_goal_targets[sid] = int(round(predicted_position(kalman_filters[sid], 0.0)))
-                    last_command_received_time[sid] = now
-                else:
-                    latest_goal_targets[sid] = target_steps
-            else:
-                write_register(servo, sid, goal_entry, target_steps, last_written[sid])
+            write_register(servo, sid, goal_entry, target_steps, last_written[sid])
 
     def on_set_register(msg: String) -> None:
         if servo is None:
@@ -218,14 +190,11 @@ def run_bridge(config: BridgeConfig) -> None:
             msg.name = list(joint_names)
             positions: list[float] = []
             velocities: list[float] = []
-            position_steps_by_id: dict[int, int] = {}
             pos_entry = get_register_entry_by_name("present_position")
             speed_entry = get_register_entry_by_name("present_speed")
             for joint in config.joints:
                 pos = read_register_raw(servo, joint.id, pos_entry) if pos_entry else None
                 speed = read_register_raw(servo, joint.id, speed_entry) if speed_entry else None
-                if pos is not None:
-                    position_steps_by_id[joint.id] = int(pos)
                 positions.append(float(pos) / POSITION_RADIAN_TO_STEPS if pos is not None else 0.0)
                 velocities.append(float(speed) if speed is not None else 0.0)
             msg.position = positions
@@ -237,99 +206,6 @@ def run_bridge(config: BridgeConfig) -> None:
                 if changing:
                     line = ",".join(f"{name}:{val}" for name, val in changing)
                     print(line, flush=True)
-            if goal_entry is not None and config.interpolation_enabled:
-                now = time.monotonic()
-                for joint in config.joints:
-                    sid = joint.id
-                    if sid not in last_sent_goal:
-                        initial_steps = position_steps_by_id.get(sid, 0)
-                        last_sent_goal[sid] = int(round(initial_steps))
-                        last_sent_time[sid] = now
-                    if config.kalman_enabled:
-                        if sid in kalman_filters:
-                            command_age_s = now - last_command_received_time.get(sid, now)
-                            if command_age_s <= config.kalman_max_prediction_time_s:
-                                predict_joint(
-                                    kalman_filters[sid],
-                                    now_s=now,
-                                    process_noise_pos=config.kalman_process_noise_pos,
-                                    process_noise_vel=config.kalman_process_noise_vel,
-                                    velocity_decay_per_s=config.kalman_velocity_decay_per_s,
-                                )
-                                target_value = predicted_position(
-                                    kalman_filters[sid],
-                                    config.kalman_prediction_lead_s,
-                                )
-                            else:
-                                kalman_filters[sid].velocity = 0.0
-                                target_value = kalman_filters[sid].position
-                        else:
-                            target_value = float(latest_goal_targets.get(sid, last_sent_goal[sid]))
-                        smoothed = int(round(target_value))
-                        if config.max_goal_step_rate > 0:
-                            previous_goal = last_sent_goal.get(sid, smoothed)
-                            previous_time = last_sent_time.get(sid, now)
-                            dt = max(0.0, now - previous_time)
-                            max_delta = max(1, int(round(config.max_goal_step_rate * dt)))
-                            delta = smoothed - previous_goal
-                            if delta > max_delta:
-                                smoothed = previous_goal + max_delta
-                            elif delta < -max_delta:
-                                smoothed = previous_goal - max_delta
-                        last_sent_goal[sid] = smoothed
-                        last_sent_time[sid] = now
-                        write_register(servo, sid, goal_entry, smoothed, last_written[sid])
-                        continue
-                    if sid not in interpolators:
-                        initial_steps = position_steps_by_id.get(sid, 0)
-                        interpolators[sid] = make_joint_interpolator(float(initial_steps), now)
-                        applied_goal_targets[sid] = int(round(initial_steps))
-                        last_retarget_time[sid] = now
-                        last_sent_goal[sid] = int(round(initial_steps))
-                        last_sent_time[sid] = now
-                    pending = latest_goal_targets.get(sid)
-                    if pending is not None:
-                        last_applied = applied_goal_targets.get(sid, pending)
-                        moving_threshold = config.source_motion_velocity_threshold_steps_s
-                        source_velocity = 0.0
-                        is_source_moving = source_velocity >= moving_threshold
-                        active_target_hz = (
-                            config.moving_target_update_hz
-                            if is_source_moving
-                            else config.interpolation_target_update_hz
-                        )
-                        active_deadband_steps = (
-                            config.moving_command_deadband_steps if is_source_moving else config.command_deadband_steps
-                        )
-                        retarget_period_s = 1.0 / max(1.0, active_target_hz)
-                        delta_steps = abs(int(pending) - int(last_applied))
-                        if active_deadband_steps <= 0:
-                            should_retarget = delta_steps > 0
-                        else:
-                            should_retarget = delta_steps >= active_deadband_steps
-                        if should_retarget and now - last_retarget_time.get(sid, 0.0) >= retarget_period_s:
-                            set_joint_target(
-                                interpolators[sid],
-                                float(pending),
-                                now,
-                                config.command_smoothing_time_s,
-                            )
-                            applied_goal_targets[sid] = int(pending)
-                            last_retarget_time[sid] = now
-                    smoothed = int(round(sample_joint(interpolators[sid], now)))
-                    if config.max_goal_step_rate > 0:
-                        previous_goal = last_sent_goal.get(sid, smoothed)
-                        previous_time = last_sent_time.get(sid, now)
-                        dt = max(0.0, now - previous_time)
-                        max_delta = max(1, int(round(config.max_goal_step_rate * dt)))
-                        delta = smoothed - previous_goal
-                        if delta > max_delta:
-                            smoothed = previous_goal + max_delta
-                        elif delta < -max_delta:
-                            smoothed = previous_goal - max_delta
-                    last_sent_goal[sid] = smoothed
-                    last_sent_time[sid] = now
-                    write_register(servo, sid, goal_entry, smoothed, last_written[sid])
             # Publish full register dump at REGISTER_PUBLISH_INTERVAL_S.
             now = time.monotonic()
             if now - last_register_publish >= REGISTER_PUBLISH_INTERVAL_S:

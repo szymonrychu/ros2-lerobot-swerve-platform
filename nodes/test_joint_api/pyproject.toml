@@ -1,0 +1,60 @@
+[tool.poetry]
+name = "test-joint-api"
+version = "0.1.0"
+description = "REST API for posting joint updates (same path as master2master: filter -> feetech)"
+readme = "README.md"
+packages = [{ include = "test_joint_api", from = "." }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+aiohttp = ">=3.9.0"
+pyyaml = ">=6.0"
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.0.0"
+black = "^24.0.0"
+isort = "^5.13.0"
+autoflake = "^2.3.1"
+vulture = "^2.11"
+poethepoet = "^0.42.0"
+pytest = "^8.0.0"
+pytest-asyncio = "^0.23.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.flake8]
+max-line-length = 120
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  flake8 test_joint_api tests
+  black --check test_joint_api tests
+  isort --check test_joint_api tests
+  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables test_joint_api tests
+  vulture test_joint_api tests --min-confidence 80
+""" }
+lint-fix = { shell = """
+  black test_joint_api tests
+  isort test_joint_api tests
+  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables test_joint_api tests
+""" }
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"

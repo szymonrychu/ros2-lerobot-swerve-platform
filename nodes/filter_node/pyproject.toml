@@ -1,0 +1,59 @@
+[tool.poetry]
+name = "filter_node"
+version = "0.1.0"
+description = "Modular joint command filter (Kalman and future algorithms) for follower teleop"
+readme = "README.md"
+packages = [{ include = "filter_node", from = "." }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyyaml = ">=6.0"
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.0.0"
+black = "^24.0.0"
+isort = "^5.13.0"
+autoflake = "^2.3.1"
+vulture = "^2.11"
+poethepoet = "^0.42.0"
+pytest = "^8.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.flake8]
+max-line-length = 120
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+# joint_name in algorithm interface is part of API; implementations may use it
+ignore_names = ["joint_name"]
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  flake8 filter_node
+  black --check filter_node tests
+  isort --check filter_node tests
+  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables filter_node tests
+  vulture filter_node tests --min-confidence 80
+""" }
+lint-fix = { shell = """
+  black filter_node tests
+  isort filter_node tests
+  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables filter_node tests
+""" }
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

@@ -110,69 +110,6 @@ def test_load_config_disable_torque_on_start(tmp_path: Path) -> None:
     assert cfg2.disable_torque_on_start is True
 
 
-def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None:
-    """load_config parses interpolation settings with sensible defaults."""
-    p = tmp_path / "c.yaml"
-    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n")
-    cfg = load_config(p)
-    assert cfg is not None
-    assert cfg.interpolation_enabled is True
-    assert cfg.command_smoothing_time_s == 0.12
-    assert cfg.interpolation_target_update_hz == 40.0
-    assert cfg.moving_target_update_hz == 120.0
-    assert cfg.command_deadband_steps == 3
-    assert cfg.moving_command_deadband_steps == 0
-    assert cfg.source_motion_velocity_threshold_steps_s == 10.0
-    assert cfg.kalman_enabled is True
-    assert cfg.kalman_process_noise_pos == 200.0
-    assert cfg.kalman_process_noise_vel == 1200.0
-    assert cfg.kalman_measurement_noise == 36.0
-    assert cfg.kalman_prediction_lead_s == 0.03
-    assert cfg.kalman_velocity_decay_per_s == 4.0
-    assert cfg.kalman_max_prediction_time_s == 0.12
-    assert cfg.target_lowpass_alpha == 0.2
-    assert cfg.max_goal_step_rate == 400.0
-
-    p.write_text(
-        "namespace: follower\n"
-        "joint_names:\n  - name: j1\n    id: 1\n"
-        "interpolation_enabled: false\n"
-        "command_smoothing_time_s: 0.25\n"
-        "interpolation_target_update_hz: 25\n"
-        "moving_target_update_hz: 140\n"
-        "command_deadband_steps: 5\n"
-        "moving_command_deadband_steps: 1\n"
-        "source_motion_velocity_threshold_steps_s: 6\n"
-        "kalman_enabled: true\n"
-        "kalman_process_noise_pos: 300\n"
-        "kalman_process_noise_vel: 1800\n"
-        "kalman_measurement_noise: 25\n"
-        "kalman_prediction_lead_s: 0.05\n"
-        "kalman_velocity_decay_per_s: 6.5\n"
-        "kalman_max_prediction_time_s: 0.2\n"
-        "target_lowpass_alpha: 0.15\n"
-        "max_goal_step_rate: 250\n"
-    )
-    cfg2 = load_config(p)
-    assert cfg2 is not None
-    assert cfg2.interpolation_enabled is False
-    assert cfg2.command_smoothing_time_s == 0.25
-    assert cfg2.interpolation_target_update_hz == 25.0
-    assert cfg2.moving_target_update_hz == 140.0
-    assert cfg2.command_deadband_steps == 5
-    assert cfg2.moving_command_deadband_steps == 1
-    assert cfg2.source_motion_velocity_threshold_steps_s == 6.0
-    assert cfg2.kalman_enabled is True
-    assert cfg2.kalman_process_noise_pos == 300.0
-    assert cfg2.kalman_process_noise_vel == 1800.0
-    assert cfg2.kalman_measurement_noise == 25.0
-    assert cfg2.kalman_prediction_lead_s == 0.05
-    assert cfg2.kalman_velocity_decay_per_s == 6.5
-    assert cfg2.kalman_max_prediction_time_s == 0.2
-    assert cfg2.target_lowpass_alpha == 0.15
-    assert cfg2.max_goal_step_rate == 250.0
-
-
 def test_load_config_control_loop_hz_defaults_and_override(tmp_path: Path) -> None:
     """load_config parses control_loop_hz with default and explicit override."""
     p = tmp_path / "c.yaml"
