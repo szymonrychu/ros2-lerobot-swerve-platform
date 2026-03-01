@@ -45,12 +45,12 @@ ros2_nodes:
     node_type: ros2_master
     present: true
     enabled: true
-    extra_args: --network host
+    extra_args: --network host --ipc host
   - name: master2master
     node_type: master2master
     present: true
     enabled: true
-    extra_args: --network host
+    extra_args: --network host --ipc host
     config: |
       topics:
         - source: /server/cmd_vel
@@ -69,6 +69,7 @@ ros2_nodes:
     enabled: true
     extra_args: >-
       --network host
+      --ipc host
       --device=/dev/video0:/dev/video0
     env:
       - UVC_DEVICE=/dev/video0
@@ -79,6 +80,7 @@ ros2_nodes:
     enabled: true
     extra_args: >-
       --network host
+      --ipc host
       --device=/dev/ttyACM0:/dev/ttyACM0
       --mount type=bind,src=/dev/serial/by-id,dst=/dev/serial/by-id,readonly
     config: |

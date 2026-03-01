@@ -37,13 +37,14 @@ ros2_nodes:
     node_type: ros2_master
     present: true
     enabled: true
-    extra_args: --network host
+    extra_args: --network host --ipc host
   - name: lerobot_leader
     node_type: feetech_servos
     present: true
     enabled: true
     extra_args: >-
       --network host
+      --ipc host
       --device=/dev/ttyACM0:/dev/ttyACM0
       --mount type=bind,src=/dev/serial/by-id,dst=/dev/serial/by-id,readonly
     config: |
