@@ -49,3 +49,8 @@
 
 * **master2master connectivity**: `ROS2_SERVER_HOST` env alone is not consumed by node code and does not configure DDS discovery by itself. For server↔client relay, use host networking and DDS discovery envs.
 * **Working setup**: client `master2master` runs with `--network host`, `ROS_LOCALHOST_ONLY=0`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, `ROS_STATIC_PEERS=<server-ip>`; server `lerobot_leader` runs with `--network host`, `ROS_LOCALHOST_ONLY=0`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, `ROS_STATIC_PEERS=<client-ip>`.
+
+## Leader-follower smoothness and local DDS transport
+
+* **Container IPC for ROS2**: On client/server ROS2 containers, `--ipc host` is required with `--network host` to avoid FastDDS shared-memory isolation issues where discovery appears correct but local container-to-container payload delivery is unreliable.
+* **Follower motion smoothing**: `feetech_servos` supports command interpolation (enabled by default) with per-joint smoothstep trajectories over `command_smoothing_time_s` (default `0.12`). This reduces choppy follower movement by sending gradual goal_position updates with ease-in/ease-out behavior.

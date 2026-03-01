@@ -38,6 +38,8 @@ class BridgeConfig:
         baudrate: Optional baud rate for serial; None if not set.
         log_joint_updates: If True, print one line per update with changing joint names and values (silent by default).
         enable_torque_on_start: If True, set torque_enable=1 for all configured servos on startup.
+        interpolation_enabled: If True, smooth joint command targets with interpolation before writing goal_position.
+        command_smoothing_time_s: Interpolation duration in seconds for each new joint target.
     """
 
     namespace: str
@@ -46,6 +48,8 @@ class BridgeConfig:
     baudrate: int | None = None
     log_joint_updates: bool = False
     enable_torque_on_start: bool = False
+    interpolation_enabled: bool = True
+    command_smoothing_time_s: float = 0.12
 
     @property
     def joint_names(self) -> list[str]:
@@ -125,6 +129,14 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
     enable_torque_on_start = data.get("enable_torque_on_start", False)
     if not isinstance(enable_torque_on_start, bool):
         enable_torque_on_start = bool(enable_torque_on_start)
+    interpolation_enabled = data.get("interpolation_enabled", True)
+    if not isinstance(interpolation_enabled, bool):
+        interpolation_enabled = bool(interpolation_enabled)
+    raw_smoothing = data.get("command_smoothing_time_s", 0.12)
+    try:
+        command_smoothing_time_s = max(0.0, float(raw_smoothing))
+    except (TypeError, ValueError):
+        command_smoothing_time_s = 0.12
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -132,6 +144,8 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         baudrate=baudrate,
         log_joint_updates=log_joint_updates,
         enable_torque_on_start=enable_torque_on_start,
+        interpolation_enabled=interpolation_enabled,
+        command_smoothing_time_s=command_smoothing_time_s,
     )
 
 

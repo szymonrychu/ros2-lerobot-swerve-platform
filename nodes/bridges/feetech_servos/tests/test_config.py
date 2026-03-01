@@ -97,6 +97,27 @@ def test_load_config_enable_torque_on_start(tmp_path: Path) -> None:
     assert cfg2.enable_torque_on_start is True
 
 
+def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None:
+    """load_config parses interpolation settings with sensible defaults."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.interpolation_enabled is True
+    assert cfg.command_smoothing_time_s == 0.12
+
+    p.write_text(
+        "namespace: follower\n"
+        "joint_names:\n  - name: j1\n    id: 1\n"
+        "interpolation_enabled: false\n"
+        "command_smoothing_time_s: 0.25\n"
+    )
+    cfg2 = load_config(p)
+    assert cfg2 is not None
+    assert cfg2.interpolation_enabled is False
+    assert cfg2.command_smoothing_time_s == 0.25
+
+
 def test_load_config_rejects_namespace_with_slash(tmp_path: Path) -> None:
     """load_config returns None when namespace contains '/'."""
     p = tmp_path / "c.yaml"

@@ -22,6 +22,7 @@ from .joint_updates import get_position_updates
 from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers
 from .registers import read_register as read_register_raw
 from .registers import write_register
+from .trajectory import JointInterpolator, make_joint_interpolator, sample_joint, set_joint_target
 
 DEFAULT_QOS_DEPTH = 10
 # Run the control loop faster for smoother follower motion.
@@ -80,6 +81,8 @@ def run_bridge(config: BridgeConfig) -> None:
 
     last_positions: dict[str, float] = {}
     last_written: dict[int, dict[str, int]] = {}  # servo_id -> { register_name: value }
+    pending_goal_targets: dict[int, int] = {}
+    interpolators: dict[int, JointInterpolator] = {}
     servo: Any = None
 
     if config.device:
@@ -108,8 +111,12 @@ def run_bridge(config: BridgeConfig) -> None:
                     write_register(servo, joint.id, torque_entry, 1, last_written[joint.id])
                 node.get_logger().info("Enabled torque on startup for all configured servos.")
 
+    goal_entry = get_register_entry_by_name("goal_position")
+
     def on_command(msg: JointState) -> None:
         if servo is None:
+            return
+        if goal_entry is None:
             return
         for i, name in enumerate(msg.name):
             if i >= len(msg.position):
@@ -118,11 +125,12 @@ def run_bridge(config: BridgeConfig) -> None:
             if sid is None:
                 continue
             target_steps = _clamp_steps(float(msg.position[i]) * POSITION_RADIAN_TO_STEPS)
-            entry = get_register_entry_by_name("goal_position")
-            if entry is not None:
-                if sid not in last_written:
-                    last_written[sid] = {}
-                write_register(servo, sid, entry, target_steps, last_written[sid])
+            if sid not in last_written:
+                last_written[sid] = {}
+            if config.interpolation_enabled:
+                pending_goal_targets[sid] = target_steps
+            else:
+                write_register(servo, sid, goal_entry, target_steps, last_written[sid])
 
     def on_set_register(msg: String) -> None:
         if servo is None:
@@ -172,11 +180,14 @@ def run_bridge(config: BridgeConfig) -> None:
             msg.name = list(joint_names)
             positions: list[float] = []
             velocities: list[float] = []
+            position_steps_by_id: dict[int, int] = {}
             pos_entry = get_register_entry_by_name("present_position")
             speed_entry = get_register_entry_by_name("present_speed")
             for joint in config.joints:
                 pos = read_register_raw(servo, joint.id, pos_entry) if pos_entry else None
                 speed = read_register_raw(servo, joint.id, speed_entry) if speed_entry else None
+                if pos is not None:
+                    position_steps_by_id[joint.id] = int(pos)
                 positions.append(float(pos) / POSITION_RADIAN_TO_STEPS if pos is not None else 0.0)
                 velocities.append(float(speed) if speed is not None else 0.0)
             msg.position = positions
@@ -188,6 +199,18 @@ def run_bridge(config: BridgeConfig) -> None:
                 if changing:
                     line = ",".join(f"{name}:{val}" for name, val in changing)
                     print(line, flush=True)
+            if goal_entry is not None and config.interpolation_enabled:
+                now = time.monotonic()
+                for joint in config.joints:
+                    sid = joint.id
+                    if sid not in interpolators:
+                        initial_steps = position_steps_by_id.get(sid, 0)
+                        interpolators[sid] = make_joint_interpolator(float(initial_steps), now)
+                    pending = pending_goal_targets.pop(sid, None)
+                    if pending is not None:
+                        set_joint_target(interpolators[sid], float(pending), now, config.command_smoothing_time_s)
+                    smoothed = int(round(sample_joint(interpolators[sid], now)))
+                    write_register(servo, sid, goal_entry, smoothed, last_written[sid])
             # Publish full register dump at REGISTER_PUBLISH_INTERVAL_S.
             now = time.monotonic()
             if now - last_register_publish >= REGISTER_PUBLISH_INTERVAL_S:
