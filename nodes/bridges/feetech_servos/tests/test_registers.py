@@ -42,6 +42,7 @@ def test_get_register_entry_by_name() -> None:
 
 def test_read_all_registers_mock_servo() -> None:
     """read_all_registers returns dict; mock returns empty on read error."""
+
     class MockServo:
         def read1ByteTxRx(self, sts_id: int, address: int):  # noqa: A002
             return 0, 0, 0  # value, comm, err
@@ -58,6 +59,7 @@ def test_read_all_registers_mock_servo() -> None:
 
 def test_read_register_one_byte() -> None:
     """read_register with size 1 returns single byte value."""
+
     class MockServo:
         def read1ByteTxRx(self, sts_id: int, address: int):  # noqa: A002
             return 42, 0, 0
@@ -72,6 +74,7 @@ def test_read_register_one_byte() -> None:
 
 def test_read_register_comm_error_returns_none() -> None:
     """read_register returns None when comm or error non-zero."""
+
     class MockServo:
         def read1ByteTxRx(self, sts_id: int, address: int):  # noqa: A002
             return 0, -1, 0  # comm fail

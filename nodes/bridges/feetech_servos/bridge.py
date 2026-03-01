@@ -18,13 +18,10 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
 from .config import BridgeConfig, load_config_from_env
-from .registers import (
-    WRITABLE_REGISTER_NAMES,
-    get_register_entry_by_name,
-    read_all_registers,
-    read_register as read_register_raw,
-    write_register,
-)
+from .joint_updates import get_position_updates
+from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers
+from .registers import read_register as read_register_raw
+from .registers import write_register
 
 DEFAULT_QOS_DEPTH = 10
 STUB_PUBLISH_INTERVAL_S = 0.1
@@ -104,19 +101,6 @@ def run_bridge(config: BridgeConfig) -> None:
             last_written[sid] = {}
 
     def on_command(msg: JointState) -> None:
-        if config.log_joint_updates:
-            changing: list[tuple[str, float]] = []
-            for i, name in enumerate(msg.name):
-                if i >= len(msg.position):
-                    continue
-                new_val = float(msg.position[i])
-                old_val = last_positions.get(name)
-                if old_val is None or old_val != new_val:
-                    changing.append((name, new_val))
-                    last_positions[name] = new_val
-            if changing:
-                line = ",".join(f"{name}:{val}" for name, val in changing)
-                print(line, flush=True)
         if servo is None:
             return
         for i, name in enumerate(msg.name):
@@ -191,6 +175,11 @@ def run_bridge(config: BridgeConfig) -> None:
             msg.velocity = velocities
             msg.effort = []
             pub_state.publish(msg)
+            if config.log_joint_updates:
+                changing = get_position_updates(msg.name, msg.position, last_positions)
+                if changing:
+                    line = ",".join(f"{name}:{val}" for name, val in changing)
+                    print(line, flush=True)
             # Publish full register dump at REGISTER_PUBLISH_INTERVAL_S.
             now = time.monotonic()
             if now - last_register_publish >= REGISTER_PUBLISH_INTERVAL_S:

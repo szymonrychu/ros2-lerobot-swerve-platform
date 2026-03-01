@@ -44,3 +44,8 @@
 
 * **Monitoring (Loki)**: Loki 3 needs `common.ring.kvstore.store: inmemory` and `replication_factor: 1` for single-node (otherwise it tries Consul on localhost:8500). Loki runs as UID 10001; Ansible creates `loki/tsdb-shipper-cache`, `loki/compactor/deletion` and sets ownership of `{{ monitoring_data_dir }}/loki` to 10001:10001 so the container can write.
 * **Docker DNS**: Containers may fail to resolve (e.g. `ports.ubuntu.com`, or service names like `loki` in compose). The **docker** role deploys `/etc/docker/daemon.json` with `"dns": ["8.8.8.8", "8.8.4.4"]` (overridable via `docker_dns_servers`). Existing daemon.json is merged, not overwritten. Docker is restarted after the change. Apply to both server and client (e.g. run `deploy_monitoring.yml` or the docker role).
+
+## ROS2 cross-host relay discovery
+
+* **master2master connectivity**: `ROS2_SERVER_HOST` env alone is not consumed by node code and does not configure DDS discovery by itself. For server↔client relay, use host networking and DDS discovery envs.
+* **Working setup**: client `master2master` runs with `--network host`, `ROS_LOCALHOST_ONLY=0`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, `ROS_STATIC_PEERS=<server-ip>`; server `lerobot_leader` runs with `--network host`, `ROS_LOCALHOST_ONLY=0`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, `ROS_STATIC_PEERS=<client-ip>`.

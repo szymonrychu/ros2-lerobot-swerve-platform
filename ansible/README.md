@@ -117,8 +117,9 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 
 Containers get env vars so that:
 
-- **Server:** ROS2 master node uses **`ROS_LOCALHOST_ONLY=0`** so it binds to all interfaces (0.0.0.0) and the Client can reach it. All other Server nodes use **`ROS_LOCALHOST_ONLY=1`** (localhost only).
-- **Client:** ROS2 master and all nodes (including master2master) use **`ROS_LOCALHOST_ONLY=1`** (localhost). The **master2master** node additionally receives **`ROS2_SERVER_HOST`** (Server IP or hostname) so it can connect to the Server’s ROS2 master on the “remote” end. Set **`ros2_server_host`** in `group_vars/client.yml` (e.g. `192.168.1.10` or the server hostname) so the deploy playbook passes it into the master2master container.
+- **Server:** `ros2-master` and `lerobot_leader` use **`ROS_LOCALHOST_ONLY=0`** and run with `--network host` so leader topics are discoverable to the Client for cross-host relay.
+- **Client:** `master2master` uses **`ROS_LOCALHOST_ONLY=0`**, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, and `ROS_STATIC_PEERS=<server-ip>` (from `group_vars/client.yml`) so it can discover and relay server topics.
+- **Local-only nodes:** Other client nodes (e.g. follower, UVC) can stay localhost-oriented while still using `--network host` for consistent ROS graph visibility and device access.
 
 ## Linting and testing
 

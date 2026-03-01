@@ -9,7 +9,7 @@ hostname: "client-rpi5"
 # Server IP/hostname for master2master to connect to Server's ROS2 master (set or use inventory).
 ros2_server_host: "192.168.1.33"   # or server hostname if DNS/resolution works
 
-# ROS2 node types. Client ROS2 master and all nodes use localhost; master2master also gets server host for remote end.
+# ROS2 node types. Most client nodes stay localhost-only; master2master must reach server ROS graph.
 ros2_node_type_defaults:
   ros2_master:
     image: harbor.szymonrichert.pl/containers/client-ros2-master:latest
@@ -21,7 +21,9 @@ ros2_node_type_defaults:
     build_context: nodes/master2master
     config_path: /etc/ros2/master2master
     env:
-      - ROS_LOCALHOST_ONLY=1
+      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      - ROS_STATIC_PEERS=192.168.1.33
       - MASTER2MASTER_CONFIG=/etc/ros2/master2master/config.yaml
       # ROS2_SERVER_HOST passed per-node below so master2master can connect to Server's ROS2 master
   feetech_servos:
@@ -43,10 +45,12 @@ ros2_nodes:
     node_type: ros2_master
     present: true
     enabled: true
+    extra_args: --network host
   - name: master2master
     node_type: master2master
     present: true
     enabled: true
+    extra_args: --network host
     config: |
       topics:
         - source: /server/cmd_vel
@@ -64,6 +68,7 @@ ros2_nodes:
     present: true
     enabled: true
     extra_args: >-
+      --network host
       --device=/dev/video0:/dev/video0
     env:
       - UVC_DEVICE=/dev/video0
@@ -73,6 +78,7 @@ ros2_nodes:
     present: true
     enabled: true
     extra_args: >-
+      --network host
       --device=/dev/ttyACM0:/dev/ttyACM0
       --mount type=bind,src=/dev/serial/by-id,dst=/dev/serial/by-id,readonly
     config: |

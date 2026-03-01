@@ -50,7 +50,11 @@ STS_PRESENT_CURRENT_L = 69
 
 @dataclass
 class RegisterEntry:
-    """Single register: address, size in bytes, name, read-only, and whether it is in EPROM (needs unlock/write/lock)."""
+    """Single register metadata.
+
+    Includes address, size, name, read-only status, and EPROM flag
+    (EPROM writes require unlock/write/lock sequence).
+    """
 
     address: int
     size: int  # 1 or 2
@@ -106,9 +110,7 @@ REGISTER_MAP: list[RegisterEntry] = [
 ]
 
 # Registers we expose for writing via ROS2 (exclude 'lock' and read-only).
-WRITABLE_REGISTER_NAMES: set[str] = {
-    r.name for r in REGISTER_MAP if not r.read_only and r.name != "lock"
-}
+WRITABLE_REGISTER_NAMES: set[str] = {r.name for r in REGISTER_MAP if not r.read_only and r.name != "lock"}
 
 
 def read_register(
