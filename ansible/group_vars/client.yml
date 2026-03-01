@@ -85,6 +85,7 @@ ros2_nodes:
       device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00
       namespace: follower
       log_joint_updates: true
+      enable_torque_on_start: true
       joint_names:
         - name: joint_1
           id: 1

@@ -84,6 +84,19 @@ def test_load_config_log_joint_updates(tmp_path: Path) -> None:
     assert cfg2.log_joint_updates is True
 
 
+def test_load_config_enable_torque_on_start(tmp_path: Path) -> None:
+    """load_config parses optional enable_torque_on_start; default False."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.enable_torque_on_start is False
+    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\nenable_torque_on_start: true\n")
+    cfg2 = load_config(p)
+    assert cfg2 is not None
+    assert cfg2.enable_torque_on_start is True
+
+
 def test_load_config_rejects_namespace_with_slash(tmp_path: Path) -> None:
     """load_config returns None when namespace contains '/'."""
     p = tmp_path / "c.yaml"

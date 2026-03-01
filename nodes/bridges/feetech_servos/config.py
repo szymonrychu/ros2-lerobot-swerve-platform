@@ -37,6 +37,7 @@ class BridgeConfig:
         device: Optional serial device path (e.g. /dev/ttyUSB0).
         baudrate: Optional baud rate for serial; None if not set.
         log_joint_updates: If True, print one line per update with changing joint names and values (silent by default).
+        enable_torque_on_start: If True, set torque_enable=1 for all configured servos on startup.
     """
 
     namespace: str
@@ -44,6 +45,7 @@ class BridgeConfig:
     device: str | None = None
     baudrate: int | None = None
     log_joint_updates: bool = False
+    enable_torque_on_start: bool = False
 
     @property
     def joint_names(self) -> list[str]:
@@ -120,12 +122,16 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
     log_joint_updates = data.get("log_joint_updates", False)
     if not isinstance(log_joint_updates, bool):
         log_joint_updates = bool(log_joint_updates)
+    enable_torque_on_start = data.get("enable_torque_on_start", False)
+    if not isinstance(enable_torque_on_start, bool):
+        enable_torque_on_start = bool(enable_torque_on_start)
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
         device=device,
         baudrate=baudrate,
         log_joint_updates=log_joint_updates,
+        enable_torque_on_start=enable_torque_on_start,
     )
 
 
