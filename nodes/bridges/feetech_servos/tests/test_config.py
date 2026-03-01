@@ -97,6 +97,19 @@ def test_load_config_enable_torque_on_start(tmp_path: Path) -> None:
     assert cfg2.enable_torque_on_start is True
 
 
+def test_load_config_disable_torque_on_start(tmp_path: Path) -> None:
+    """load_config parses optional disable_torque_on_start; default False."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: leader\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.disable_torque_on_start is False
+    p.write_text("namespace: leader\njoint_names:\n  - name: j1\n    id: 1\ndisable_torque_on_start: true\n")
+    cfg2 = load_config(p)
+    assert cfg2 is not None
+    assert cfg2.disable_torque_on_start is True
+
+
 def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None:
     """load_config parses interpolation settings with sensible defaults."""
     p = tmp_path / "c.yaml"

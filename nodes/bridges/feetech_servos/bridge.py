@@ -104,12 +104,13 @@ def run_bridge(config: BridgeConfig) -> None:
             payload = {"servo_id": sid, "joint_name": joint.name, "registers": regs}
             print(json.dumps(payload, separators=(",", ":")), flush=True)
             last_written[sid] = {}
-        if config.enable_torque_on_start:
+        if config.enable_torque_on_start or config.disable_torque_on_start:
             torque_entry = get_register_entry_by_name("torque_enable")
             if torque_entry is not None:
+                torque_value = 1 if config.enable_torque_on_start else 0
                 for joint in config.joints:
-                    write_register(servo, joint.id, torque_entry, 1, last_written[joint.id])
-                node.get_logger().info("Enabled torque on startup for all configured servos.")
+                    write_register(servo, joint.id, torque_entry, torque_value, last_written[joint.id])
+                node.get_logger().info(f"Applied torque_enable={torque_value} on startup for all configured servos.")
 
     goal_entry = get_register_entry_by_name("goal_position")
 

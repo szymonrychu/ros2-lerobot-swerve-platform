@@ -52,6 +52,7 @@ ros2_nodes:
       namespace: leader
       log_joint_updates: true
       enable_torque_on_start: false
+      disable_torque_on_start: true
       control_loop_hz: 180
       joint_names:
         - name: joint_1
