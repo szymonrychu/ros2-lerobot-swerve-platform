@@ -21,25 +21,42 @@ IMU_QOS = QoSProfile(
 BNO_REPORT_INTERVAL_US = 10000
 
 
-def _create_bno08x(i2c_bus: int) -> Any:
-    """Create BNO08x I2C driver. Uses ExtendedI2C on Linux when available for bus selection."""
+def _create_i2c(i2c_bus: int) -> Any:
+    """Create I2C bus object for Blinka-based drivers."""
     try:
         from adafruit_extended_bus import ExtendedI2C as I2C
 
-        i2c = I2C(i2c_bus)
+        return I2C(i2c_bus)
     except ImportError:
         import board
         import busio
 
-        i2c = busio.I2C(board.SCL, board.SDA)
+        return busio.I2C(board.SCL, board.SDA)
+
+
+def _create_bno08x(i2c_bus: int, i2c_address: int) -> tuple[Any, int]:
+    """Create BNO08x I2C driver with configured address and fallback to alternate BNO address."""
     from adafruit_bno08x import BNO_REPORT_GYROSCOPE, BNO_REPORT_LINEAR_ACCELERATION, BNO_REPORT_ROTATION_VECTOR
     from adafruit_bno08x.i2c import BNO08X_I2C
 
-    bno = BNO08X_I2C(i2c)
-    bno.enable_feature(BNO_REPORT_ROTATION_VECTOR, BNO_REPORT_INTERVAL_US)
-    bno.enable_feature(BNO_REPORT_GYROSCOPE, BNO_REPORT_INTERVAL_US)
-    bno.enable_feature(BNO_REPORT_LINEAR_ACCELERATION, BNO_REPORT_INTERVAL_US)
-    return bno
+    tried: list[tuple[int, Exception]] = []
+    addresses: list[int] = [i2c_address]
+    if i2c_address != 0x4A:
+        addresses.append(0x4A)
+    if i2c_address != 0x4B:
+        addresses.append(0x4B)
+    for addr in addresses:
+        try:
+            i2c = _create_i2c(i2c_bus)
+            bno = BNO08X_I2C(i2c, address=addr)
+            bno.enable_feature(BNO_REPORT_ROTATION_VECTOR, BNO_REPORT_INTERVAL_US)
+            bno.enable_feature(BNO_REPORT_GYROSCOPE, BNO_REPORT_INTERVAL_US)
+            bno.enable_feature(BNO_REPORT_LINEAR_ACCELERATION, BNO_REPORT_INTERVAL_US)
+            return bno, addr
+        except Exception as exc:  # noqa: BLE001
+            tried.append((addr, exc))
+    tried_desc = ", ".join([f"0x{addr:02x} ({type(exc).__name__})" for addr, exc in tried])
+    raise RuntimeError(f"Unable to initialize BNO08x on i2c-{i2c_bus}; tried {tried_desc}")
 
 
 def run_imu_node(config: ImuNodeConfig) -> None:
@@ -51,7 +68,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     period_s = 1.0 / max(1.0, config.publish_hz)
 
     try:
-        bno = _create_bno08x(config.i2c_bus)
+        bno, used_addr = _create_bno08x(config.i2c_bus, config.i2c_address)
     except Exception as e:
         node.get_logger().error("BNO095 init failed: %s" % e)
         node.destroy_node()
@@ -59,7 +76,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         raise
 
     node.get_logger().info(
-        "BNO095 IMU: publishing %s at %.1f Hz (frame_id=%s)" % (config.topic, config.publish_hz, config.frame_id)
+        "BNO095 IMU: publishing %s at %.1f Hz (frame_id=%s, i2c=%d, address=0x%02x)"
+        % (config.topic, config.publish_hz, config.frame_id, config.i2c_bus, used_addr)
     )
 
     while rclpy.ok():

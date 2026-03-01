@@ -20,6 +20,7 @@ YAML config path: `BNO095_IMU_CONFIG` or `/etc/ros2/bno095_imu/config.yaml`.
 | `frame_id` | `imu_link` | Header frame_id |
 | `publish_hz` | `100` | Publish rate (1–1000) |
 | `i2c_bus` | `1` | I2C bus number (e.g. 1 → /dev/i2c-1) |
+| `i2c_address` | `0x4a` | BNO08x I2C address (`0x4a` or `0x4b` typical) |
 | `orientation_covariance` | `0.01` or list of 9 | Diagonal variance or full 9-element row-major |
 | `angular_velocity_covariance` | `0.01` or list of 9 | Same format |
 | `linear_acceleration_covariance` | `0.04` or list of 9 | Same format |
@@ -31,6 +32,7 @@ topic: /imu/data
 frame_id: imu_link
 publish_hz: 100
 i2c_bus: 1
+i2c_address: 0x4a
 orientation_covariance: 0.01
 angular_velocity_covariance: 0.01
 linear_acceleration_covariance: 0.04
@@ -39,7 +41,8 @@ linear_acceleration_covariance: 0.04
 ## Hardware
 
 - **Sensor**: BNO085 or BNO095 (Hillcrest/CEVA) over I2C.
-- **Default address**: 0x4A (library default).
+- **Default address**: `0x4A`; many boards can also use `0x4B` depending on ADR wiring.
+- **Fallback behavior**: Node tries configured `i2c_address` first, then falls back to the alternate BNO address.
 - **Host**: Map the I2C device into the container, e.g. `--device=/dev/i2c-1:/dev/i2c-1`. On Raspberry Pi, enable I2C and use the correct bus (typically `i2c_bus: 1`).
 
 ## Build and run

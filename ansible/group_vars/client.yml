@@ -134,6 +134,7 @@ ros2_nodes:
       frame_id: imu_link
       publish_hz: 100
       i2c_bus: 1
+      i2c_address: 0x4a
       orientation_covariance: 0.01
       angular_velocity_covariance: 0.01
       linear_acceleration_covariance: 0.04

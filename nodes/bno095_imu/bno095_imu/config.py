@@ -49,6 +49,7 @@ class ImuNodeConfig:
         frame_id: Header frame_id for Imu messages (e.g. imu_link).
         publish_hz: Publish rate in Hz.
         i2c_bus: I2C bus number (e.g. 1 for /dev/i2c-1). Used only when bus selection is supported.
+        i2c_address: I2C device address for BNO08x (typically 0x4A or 0x4B).
         orientation_covariance: 9-element row-major orientation covariance; -1 in [0] means unknown.
         angular_velocity_covariance: 9-element row-major angular velocity covariance.
         linear_acceleration_covariance: 9-element row-major linear acceleration covariance.
@@ -58,6 +59,7 @@ class ImuNodeConfig:
     frame_id: str
     publish_hz: float
     i2c_bus: int
+    i2c_address: int
     orientation_covariance: list[float]
     angular_velocity_covariance: list[float]
     linear_acceleration_covariance: list[float]
@@ -97,6 +99,13 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         i2c_bus = max(0, int(raw_bus))
     except (TypeError, ValueError):
         i2c_bus = 1
+    raw_addr = data.get("i2c_address", "0x4a")
+    try:
+        i2c_address = int(str(raw_addr), 0)
+        if not (0x03 <= i2c_address <= 0x77):
+            i2c_address = 0x4A
+    except (TypeError, ValueError):
+        i2c_address = 0x4A
     orientation_cov = _parse_covariance(data.get("orientation_covariance"), DEFAULT_ORIENTATION_COVARIANCE)
     angular_vel_cov = _parse_covariance(data.get("angular_velocity_covariance"), DEFAULT_ANGULAR_VELOCITY_COVARIANCE)
     linear_accel_cov = _parse_covariance(
@@ -107,6 +116,7 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         frame_id=frame_id,
         publish_hz=publish_hz,
         i2c_bus=i2c_bus,
+        i2c_address=i2c_address,
         orientation_covariance=orientation_cov,
         angular_velocity_covariance=angular_vel_cov,
         linear_acceleration_covariance=linear_accel_cov,
