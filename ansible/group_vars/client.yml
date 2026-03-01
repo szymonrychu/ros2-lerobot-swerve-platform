@@ -61,6 +61,7 @@ ros2_node_type_defaults:
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      - BLINKA_FORCECHIP=BCM2XXX
       - BNO095_IMU_CONFIG=/etc/ros2/bno095_imu/config.yaml
 
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
