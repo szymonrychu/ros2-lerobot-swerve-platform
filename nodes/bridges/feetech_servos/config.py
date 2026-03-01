@@ -46,6 +46,11 @@ class BridgeConfig:
         command_deadband_steps: Minimum goal_position delta (steps) required to retarget.
         moving_command_deadband_steps: Retarget deadband while source is moving.
         source_motion_velocity_threshold_steps_s: Velocity threshold (steps/s) to classify source as moving.
+        kalman_enabled: If True, use Kalman target tracking for smoothing/interpolation.
+        kalman_process_noise_pos: Position process noise density for Kalman predictor.
+        kalman_process_noise_vel: Velocity process noise density for Kalman predictor.
+        kalman_measurement_noise: Measurement variance for incoming command position.
+        kalman_prediction_lead_s: Lead horizon for short prediction to improve continuity.
         target_lowpass_alpha: Low-pass blend for incoming targets in [0, 1]. Lower means smoother/slower.
         max_goal_step_rate: Max goal_position change rate in steps/second (<=0 disables limiter).
         control_loop_hz: Main bridge loop frequency in Hz for state publish and command processing.
@@ -65,6 +70,11 @@ class BridgeConfig:
     command_deadband_steps: int = 3
     moving_command_deadband_steps: int = 0
     source_motion_velocity_threshold_steps_s: float = 10.0
+    kalman_enabled: bool = True
+    kalman_process_noise_pos: float = 200.0
+    kalman_process_noise_vel: float = 1200.0
+    kalman_measurement_noise: float = 36.0
+    kalman_prediction_lead_s: float = 0.03
     target_lowpass_alpha: float = 0.2
     max_goal_step_rate: float = 400.0
     control_loop_hz: float = 100.0
@@ -183,6 +193,29 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         source_motion_velocity_threshold_steps_s = max(0.0, float(raw_motion_velocity_threshold))
     except (TypeError, ValueError):
         source_motion_velocity_threshold_steps_s = 10.0
+    kalman_enabled = data.get("kalman_enabled", True)
+    if not isinstance(kalman_enabled, bool):
+        kalman_enabled = bool(kalman_enabled)
+    raw_kalman_process_noise_pos = data.get("kalman_process_noise_pos", 200.0)
+    try:
+        kalman_process_noise_pos = max(0.0, float(raw_kalman_process_noise_pos))
+    except (TypeError, ValueError):
+        kalman_process_noise_pos = 200.0
+    raw_kalman_process_noise_vel = data.get("kalman_process_noise_vel", 1200.0)
+    try:
+        kalman_process_noise_vel = max(0.0, float(raw_kalman_process_noise_vel))
+    except (TypeError, ValueError):
+        kalman_process_noise_vel = 1200.0
+    raw_kalman_measurement_noise = data.get("kalman_measurement_noise", 36.0)
+    try:
+        kalman_measurement_noise = max(1e-9, float(raw_kalman_measurement_noise))
+    except (TypeError, ValueError):
+        kalman_measurement_noise = 36.0
+    raw_kalman_prediction_lead_s = data.get("kalman_prediction_lead_s", 0.03)
+    try:
+        kalman_prediction_lead_s = max(0.0, float(raw_kalman_prediction_lead_s))
+    except (TypeError, ValueError):
+        kalman_prediction_lead_s = 0.03
     raw_lowpass_alpha = data.get("target_lowpass_alpha", 0.2)
     try:
         target_lowpass_alpha = min(1.0, max(0.0, float(raw_lowpass_alpha)))
@@ -213,6 +246,11 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         command_deadband_steps=command_deadband_steps,
         moving_command_deadband_steps=moving_command_deadband_steps,
         source_motion_velocity_threshold_steps_s=source_motion_velocity_threshold_steps_s,
+        kalman_enabled=kalman_enabled,
+        kalman_process_noise_pos=kalman_process_noise_pos,
+        kalman_process_noise_vel=kalman_process_noise_vel,
+        kalman_measurement_noise=kalman_measurement_noise,
+        kalman_prediction_lead_s=kalman_prediction_lead_s,
         target_lowpass_alpha=target_lowpass_alpha,
         max_goal_step_rate=max_goal_step_rate,
         control_loop_hz=control_loop_hz,

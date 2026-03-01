@@ -94,6 +94,11 @@ ros2_nodes:
       command_deadband_steps: 4
       moving_command_deadband_steps: 0
       source_motion_velocity_threshold_steps_s: 10
+      kalman_enabled: true
+      kalman_process_noise_pos: 220
+      kalman_process_noise_vel: 1400
+      kalman_measurement_noise: 30
+      kalman_prediction_lead_s: 0.035
       target_lowpass_alpha: 0.22
       max_goal_step_rate: 550
       joint_names:
