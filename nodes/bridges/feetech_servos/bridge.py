@@ -24,8 +24,10 @@ from .registers import read_register as read_register_raw
 from .registers import write_register
 
 DEFAULT_QOS_DEPTH = 10
-STUB_PUBLISH_INTERVAL_S = 0.1
-STUB_SPIN_CYCLES_PER_LOOP = 10
+# Run the control loop faster for smoother follower motion.
+CONTROL_LOOP_SLEEP_S = 0.01
+SPIN_CYCLES_PER_LOOP = 2
+SPIN_TIMEOUT_S = 0.002
 REGISTER_PUBLISH_INTERVAL_S = 1.0
 SERVO_WAIT_INTERVAL_S = 1.0
 # Radians to steps: scale for joint_commands position -> servo goal_position (steps); adjust per hardware.
@@ -206,9 +208,9 @@ def run_bridge(config: BridgeConfig) -> None:
             msg.effort = []
             pub_state.publish(msg)
 
-        for _ in range(STUB_SPIN_CYCLES_PER_LOOP):
-            rclpy.spin_once(node, timeout_sec=0.01)
-        time.sleep(STUB_PUBLISH_INTERVAL_S)
+        for _ in range(SPIN_CYCLES_PER_LOOP):
+            rclpy.spin_once(node, timeout_sec=SPIN_TIMEOUT_S)
+        time.sleep(CONTROL_LOOP_SLEEP_S)
 
     node.destroy_node()
     rclpy.shutdown()
