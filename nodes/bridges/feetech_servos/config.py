@@ -40,6 +40,8 @@ class BridgeConfig:
         enable_torque_on_start: If True, set torque_enable=1 for all configured servos on startup.
         disable_torque_on_start: If True, set torque_enable=0 for all configured servos on startup.
         control_loop_hz: Main bridge loop frequency in Hz for state publish and command processing.
+        register_publish_interval_s: Interval in seconds for full servo_registers dump (0 = disabled).
+            Use >= 10 to avoid blocking the control loop and causing visible stutter; 1 Hz is not recommended.
     """
 
     namespace: str
@@ -50,6 +52,7 @@ class BridgeConfig:
     enable_torque_on_start: bool = False
     disable_torque_on_start: bool = False
     control_loop_hz: float = 100.0
+    register_publish_interval_s: float = 10.0
 
     @property
     def joint_names(self) -> list[str]:
@@ -137,6 +140,11 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         control_loop_hz = max(1.0, float(raw_control_hz))
     except (TypeError, ValueError):
         control_loop_hz = 100.0
+    raw_reg_interval = data.get("register_publish_interval_s", 10.0)
+    try:
+        register_publish_interval_s = max(0.0, float(raw_reg_interval))
+    except (TypeError, ValueError):
+        register_publish_interval_s = 10.0
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -146,6 +154,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         enable_torque_on_start=enable_torque_on_start,
         disable_torque_on_start=disable_torque_on_start,
         control_loop_hz=control_loop_hz,
+        register_publish_interval_s=register_publish_interval_s,
     )
 
 

@@ -124,6 +124,29 @@ def test_load_config_control_loop_hz_defaults_and_override(tmp_path: Path) -> No
     assert cfg2.control_loop_hz == 180.0
 
 
+def test_load_config_register_publish_interval_s(tmp_path: Path) -> None:
+    """load_config parses register_publish_interval_s; default 10.0, 0 disables dump."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.register_publish_interval_s == 10.0
+    p.write_text(
+        "namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n"
+        "register_publish_interval_s: 0\n"
+    )
+    cfg0 = load_config(p)
+    assert cfg0 is not None
+    assert cfg0.register_publish_interval_s == 0.0
+    p.write_text(
+        "namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n"
+        "register_publish_interval_s: 30\n"
+    )
+    cfg30 = load_config(p)
+    assert cfg30 is not None
+    assert cfg30.register_publish_interval_s == 30.0
+
+
 def test_load_config_rejects_namespace_with_slash(tmp_path: Path) -> None:
     """load_config returns None when namespace contains '/'."""
     p = tmp_path / "c.yaml"

@@ -28,7 +28,6 @@ from .startup_torque import set_startup_torque_state
 DEFAULT_QOS_DEPTH = 10
 SPIN_CYCLES_PER_LOOP = 2
 SPIN_TIMEOUT_S = 0.002
-REGISTER_PUBLISH_INTERVAL_S = 1.0
 SERVO_WAIT_INTERVAL_S = 1.0
 TORQUE_WRITE_ATTEMPTS = 8
 TORQUE_VERIFY_SLEEP_S = 0.02
@@ -206,15 +205,17 @@ def run_bridge(config: BridgeConfig) -> None:
                 if changing:
                     line = ",".join(f"{name}:{val}" for name, val in changing)
                     print(line, flush=True)
-            # Publish full register dump at REGISTER_PUBLISH_INTERVAL_S.
-            now = time.monotonic()
-            if now - last_register_publish >= REGISTER_PUBLISH_INTERVAL_S:
-                last_register_publish = now
-                payload: dict[str, dict[str, int]] = {}
-                for joint in config.joints:
-                    regs: dict[str, int] = read_all_registers(servo, joint.id)
-                    payload[joint.name] = regs
-                pub_registers.publish(String(data=json.dumps(payload, separators=(",", ":"))))
+            # Publish full register dump at config interval (0 = disabled). Use >= 10s to avoid 1s stutter.
+            reg_interval = config.register_publish_interval_s
+            if reg_interval > 0:
+                now = time.monotonic()
+                if now - last_register_publish >= reg_interval:
+                    last_register_publish = now
+                    payload: dict[str, dict[str, int]] = {}
+                    for joint in config.joints:
+                        regs: dict[str, int] = read_all_registers(servo, joint.id)
+                        payload[joint.name] = regs
+                    pub_registers.publish(String(data=json.dumps(payload, separators=(",", ":"))))
         else:
             # Stub: zero joint_states.
             msg = JointState()

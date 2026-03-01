@@ -137,6 +137,7 @@ ros2_nodes:
       namespace: follower
       log_joint_updates: true
       enable_torque_on_start: true
+      register_publish_interval_s: 10
       joint_names:
         - name: joint_1
           id: 1
