@@ -53,6 +53,7 @@ ros2_nodes:
       log_joint_updates: true
       enable_torque_on_start: false
       disable_torque_on_start: true
+      interpolation_enabled: false
       control_loop_hz: 180
       joint_names:
         - name: joint_1
