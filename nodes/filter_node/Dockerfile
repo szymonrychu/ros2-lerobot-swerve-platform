@@ -3,6 +3,7 @@
 FROM ros:jazzy-ros-base
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-numpy \
     python3-pip \
     python3-venv \
     ros-jazzy-rclpy \
