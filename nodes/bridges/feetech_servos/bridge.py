@@ -22,6 +22,7 @@ from .joint_updates import get_position_updates
 from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers
 from .registers import read_register as read_register_raw
 from .registers import write_register
+from .startup_torque import set_startup_torque_state
 from .trajectory import JointInterpolator, make_joint_interpolator, sample_joint, set_joint_target
 
 DEFAULT_QOS_DEPTH = 10
@@ -30,6 +31,8 @@ SPIN_CYCLES_PER_LOOP = 2
 SPIN_TIMEOUT_S = 0.002
 REGISTER_PUBLISH_INTERVAL_S = 1.0
 SERVO_WAIT_INTERVAL_S = 1.0
+TORQUE_WRITE_ATTEMPTS = 8
+TORQUE_VERIFY_SLEEP_S = 0.02
 # Radians to steps: scale for joint_commands position -> servo goal_position (steps); adjust per hardware.
 POSITION_RADIAN_TO_STEPS = 1000.0
 MIN_STEPS = 0
@@ -108,9 +111,21 @@ def run_bridge(config: BridgeConfig) -> None:
             torque_entry = get_register_entry_by_name("torque_enable")
             if torque_entry is not None:
                 torque_value = 1 if config.enable_torque_on_start else 0
-                for joint in config.joints:
-                    write_register(servo, joint.id, torque_entry, torque_value, last_written[joint.id])
-                node.get_logger().info(f"Applied torque_enable={torque_value} on startup for all configured servos.")
+                joint_ids = [joint.id for joint in config.joints]
+                failed_ids = set_startup_torque_state(
+                    joint_ids=joint_ids,
+                    torque_value=torque_value,
+                    write_once=lambda sid, value: write_register(servo, sid, torque_entry, value, last_written[sid]),
+                    read_once=lambda sid: read_register_raw(servo, sid, torque_entry),
+                    attempts=TORQUE_WRITE_ATTEMPTS,
+                    verify_sleep_s=TORQUE_VERIFY_SLEEP_S,
+                )
+                if failed_ids:
+                    node.get_logger().warn(f"Failed startup torque_enable={torque_value} for servos: {failed_ids}")
+                else:
+                    node.get_logger().info(
+                        f"Applied torque_enable={torque_value} on startup for all configured servos."
+                    )
 
     goal_entry = get_register_entry_by_name("goal_position")
 
