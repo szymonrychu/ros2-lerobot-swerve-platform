@@ -63,6 +63,8 @@ ros2_nodes:
     node_type: uvc_camera
     present: true
     enabled: true
+    extra_args: >-
+      --device=/dev/video0:/dev/video0
     env:
       - UVC_DEVICE=/dev/video0
       - UVC_TOPIC=/camera_0/image_raw
@@ -70,6 +72,9 @@ ros2_nodes:
     node_type: feetech_servos
     present: true
     enabled: true
+    extra_args: >-
+      --device=/dev/ttyACM0:/dev/ttyACM0
+      --mount type=bind,src=/dev/serial/by-id,dst=/dev/serial/by-id,readonly
     config: |
       device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00
       namespace: follower
