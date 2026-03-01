@@ -88,6 +88,9 @@ def run_bridge(config: BridgeConfig) -> None:
     filtered_goal_targets: dict[int, float] = {}
     applied_goal_targets: dict[int, int] = {}
     last_retarget_time: dict[int, float] = {}
+    command_velocity_steps_s: dict[int, float] = {}
+    last_command_steps: dict[int, float] = {}
+    last_command_time: dict[int, float] = {}
     last_sent_goal: dict[int, int] = {}
     last_sent_time: dict[int, float] = {}
     interpolators: dict[int, JointInterpolator] = {}
@@ -149,11 +152,20 @@ def run_bridge(config: BridgeConfig) -> None:
             if sid not in last_written:
                 last_written[sid] = {}
             if config.interpolation_enabled:
+                now = time.monotonic()
                 prev_filtered = filtered_goal_targets.get(sid, float(target_steps))
                 alpha = config.target_lowpass_alpha
                 filtered = prev_filtered + alpha * (float(target_steps) - prev_filtered)
                 filtered_goal_targets[sid] = filtered
                 latest_goal_targets[sid] = int(round(filtered))
+                prev_steps = last_command_steps.get(sid)
+                prev_time = last_command_time.get(sid, now)
+                if prev_steps is not None and now > prev_time:
+                    command_velocity_steps_s[sid] = (filtered - prev_steps) / (now - prev_time)
+                else:
+                    command_velocity_steps_s[sid] = 0.0
+                last_command_steps[sid] = filtered
+                last_command_time[sid] = now
             else:
                 write_register(servo, sid, goal_entry, target_steps, last_written[sid])
 
@@ -226,7 +238,6 @@ def run_bridge(config: BridgeConfig) -> None:
                     print(line, flush=True)
             if goal_entry is not None and config.interpolation_enabled:
                 now = time.monotonic()
-                retarget_period_s = 1.0 / max(1.0, config.interpolation_target_update_hz)
                 for joint in config.joints:
                     sid = joint.id
                     if sid not in interpolators:
@@ -239,16 +250,32 @@ def run_bridge(config: BridgeConfig) -> None:
                     pending = latest_goal_targets.get(sid)
                     if pending is not None:
                         last_applied = applied_goal_targets.get(sid, pending)
-                        if abs(int(pending) - int(last_applied)) >= config.command_deadband_steps:
-                            if now - last_retarget_time.get(sid, 0.0) >= retarget_period_s:
-                                set_joint_target(
-                                    interpolators[sid],
-                                    float(pending),
-                                    now,
-                                    config.command_smoothing_time_s,
-                                )
-                                applied_goal_targets[sid] = int(pending)
-                                last_retarget_time[sid] = now
+                        moving_threshold = config.source_motion_velocity_threshold_steps_s
+                        source_velocity = abs(command_velocity_steps_s.get(sid, 0.0))
+                        is_source_moving = source_velocity >= moving_threshold
+                        active_target_hz = (
+                            config.moving_target_update_hz
+                            if is_source_moving
+                            else config.interpolation_target_update_hz
+                        )
+                        active_deadband_steps = (
+                            config.moving_command_deadband_steps if is_source_moving else config.command_deadband_steps
+                        )
+                        retarget_period_s = 1.0 / max(1.0, active_target_hz)
+                        delta_steps = abs(int(pending) - int(last_applied))
+                        if active_deadband_steps <= 0:
+                            should_retarget = delta_steps > 0
+                        else:
+                            should_retarget = delta_steps >= active_deadband_steps
+                        if should_retarget and now - last_retarget_time.get(sid, 0.0) >= retarget_period_s:
+                            set_joint_target(
+                                interpolators[sid],
+                                float(pending),
+                                now,
+                                config.command_smoothing_time_s,
+                            )
+                            applied_goal_targets[sid] = int(pending)
+                            last_retarget_time[sid] = now
                     smoothed = int(round(sample_joint(interpolators[sid], now)))
                     if config.max_goal_step_rate > 0:
                         previous_goal = last_sent_goal.get(sid, smoothed)

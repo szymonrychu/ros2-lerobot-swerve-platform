@@ -88,9 +88,14 @@ ros2_nodes:
       namespace: follower
       log_joint_updates: true
       enable_torque_on_start: true
-      command_smoothing_time_s: 0.2
-      interpolation_target_update_hz: 25
-      command_deadband_steps: 5
+      command_smoothing_time_s: 0.12
+      interpolation_target_update_hz: 30
+      moving_target_update_hz: 120
+      command_deadband_steps: 4
+      moving_command_deadband_steps: 0
+      source_motion_velocity_threshold_steps_s: 10
+      target_lowpass_alpha: 0.22
+      max_goal_step_rate: 550
       joint_names:
         - name: joint_1
           id: 1

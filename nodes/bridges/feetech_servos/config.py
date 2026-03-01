@@ -42,7 +42,10 @@ class BridgeConfig:
         interpolation_enabled: If True, smooth joint command targets with interpolation before writing goal_position.
         command_smoothing_time_s: Interpolation duration in seconds for each new joint target.
         interpolation_target_update_hz: Max frequency for applying new interpolation targets.
+        moving_target_update_hz: Retarget frequency while leader source command is moving.
         command_deadband_steps: Minimum goal_position delta (steps) required to retarget.
+        moving_command_deadband_steps: Retarget deadband while source is moving.
+        source_motion_velocity_threshold_steps_s: Velocity threshold (steps/s) to classify source as moving.
         target_lowpass_alpha: Low-pass blend for incoming targets in [0, 1]. Lower means smoother/slower.
         max_goal_step_rate: Max goal_position change rate in steps/second (<=0 disables limiter).
         control_loop_hz: Main bridge loop frequency in Hz for state publish and command processing.
@@ -58,7 +61,10 @@ class BridgeConfig:
     interpolation_enabled: bool = True
     command_smoothing_time_s: float = 0.12
     interpolation_target_update_hz: float = 40.0
+    moving_target_update_hz: float = 120.0
     command_deadband_steps: int = 3
+    moving_command_deadband_steps: int = 0
+    source_motion_velocity_threshold_steps_s: float = 10.0
     target_lowpass_alpha: float = 0.2
     max_goal_step_rate: float = 400.0
     control_loop_hz: float = 100.0
@@ -157,11 +163,26 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         interpolation_target_update_hz = max(1.0, float(raw_target_hz))
     except (TypeError, ValueError):
         interpolation_target_update_hz = 40.0
+    raw_moving_target_hz = data.get("moving_target_update_hz", 120.0)
+    try:
+        moving_target_update_hz = max(1.0, float(raw_moving_target_hz))
+    except (TypeError, ValueError):
+        moving_target_update_hz = 120.0
     raw_deadband_steps = data.get("command_deadband_steps", 3)
     try:
         command_deadband_steps = max(0, int(raw_deadband_steps))
     except (TypeError, ValueError):
         command_deadband_steps = 3
+    raw_moving_deadband_steps = data.get("moving_command_deadband_steps", 0)
+    try:
+        moving_command_deadband_steps = max(0, int(raw_moving_deadband_steps))
+    except (TypeError, ValueError):
+        moving_command_deadband_steps = 0
+    raw_motion_velocity_threshold = data.get("source_motion_velocity_threshold_steps_s", 10.0)
+    try:
+        source_motion_velocity_threshold_steps_s = max(0.0, float(raw_motion_velocity_threshold))
+    except (TypeError, ValueError):
+        source_motion_velocity_threshold_steps_s = 10.0
     raw_lowpass_alpha = data.get("target_lowpass_alpha", 0.2)
     try:
         target_lowpass_alpha = min(1.0, max(0.0, float(raw_lowpass_alpha)))
@@ -188,7 +209,10 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         interpolation_enabled=interpolation_enabled,
         command_smoothing_time_s=command_smoothing_time_s,
         interpolation_target_update_hz=interpolation_target_update_hz,
+        moving_target_update_hz=moving_target_update_hz,
         command_deadband_steps=command_deadband_steps,
+        moving_command_deadband_steps=moving_command_deadband_steps,
+        source_motion_velocity_threshold_steps_s=source_motion_velocity_threshold_steps_s,
         target_lowpass_alpha=target_lowpass_alpha,
         max_goal_step_rate=max_goal_step_rate,
         control_loop_hz=control_loop_hz,

@@ -119,7 +119,10 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
     assert cfg.interpolation_enabled is True
     assert cfg.command_smoothing_time_s == 0.12
     assert cfg.interpolation_target_update_hz == 40.0
+    assert cfg.moving_target_update_hz == 120.0
     assert cfg.command_deadband_steps == 3
+    assert cfg.moving_command_deadband_steps == 0
+    assert cfg.source_motion_velocity_threshold_steps_s == 10.0
     assert cfg.target_lowpass_alpha == 0.2
     assert cfg.max_goal_step_rate == 400.0
 
@@ -129,7 +132,10 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
         "interpolation_enabled: false\n"
         "command_smoothing_time_s: 0.25\n"
         "interpolation_target_update_hz: 25\n"
+        "moving_target_update_hz: 140\n"
         "command_deadband_steps: 5\n"
+        "moving_command_deadband_steps: 1\n"
+        "source_motion_velocity_threshold_steps_s: 6\n"
         "target_lowpass_alpha: 0.15\n"
         "max_goal_step_rate: 250\n"
     )
@@ -138,7 +144,10 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
     assert cfg2.interpolation_enabled is False
     assert cfg2.command_smoothing_time_s == 0.25
     assert cfg2.interpolation_target_update_hz == 25.0
+    assert cfg2.moving_target_update_hz == 140.0
     assert cfg2.command_deadband_steps == 5
+    assert cfg2.moving_command_deadband_steps == 1
+    assert cfg2.source_motion_velocity_threshold_steps_s == 6.0
     assert cfg2.target_lowpass_alpha == 0.15
     assert cfg2.max_goal_step_rate == 250.0
 
