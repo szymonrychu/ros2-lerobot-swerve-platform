@@ -40,6 +40,9 @@ ros2_nodes:
     node_type: feetech_servos
     present: true
     enabled: true
+    extra_args: >-
+      --device=/dev/ttyACM0:/dev/ttyACM0
+      --mount type=bind,src=/dev/serial/by-id,dst=/dev/serial/by-id,readonly
     config: |
       device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059057-if00
       namespace: leader
