@@ -40,6 +40,7 @@ class BridgeConfig:
         enable_torque_on_start: If True, set torque_enable=1 for all configured servos on startup.
         interpolation_enabled: If True, smooth joint command targets with interpolation before writing goal_position.
         command_smoothing_time_s: Interpolation duration in seconds for each new joint target.
+        control_loop_hz: Main bridge loop frequency in Hz for state publish and command processing.
     """
 
     namespace: str
@@ -50,6 +51,7 @@ class BridgeConfig:
     enable_torque_on_start: bool = False
     interpolation_enabled: bool = True
     command_smoothing_time_s: float = 0.12
+    control_loop_hz: float = 100.0
 
     @property
     def joint_names(self) -> list[str]:
@@ -137,6 +139,11 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         command_smoothing_time_s = max(0.0, float(raw_smoothing))
     except (TypeError, ValueError):
         command_smoothing_time_s = 0.12
+    raw_control_hz = data.get("control_loop_hz", 100.0)
+    try:
+        control_loop_hz = max(1.0, float(raw_control_hz))
+    except (TypeError, ValueError):
+        control_loop_hz = 100.0
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -146,6 +153,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         enable_torque_on_start=enable_torque_on_start,
         interpolation_enabled=interpolation_enabled,
         command_smoothing_time_s=command_smoothing_time_s,
+        control_loop_hz=control_loop_hz,
     )
 
 

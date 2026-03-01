@@ -26,7 +26,6 @@ from .trajectory import JointInterpolator, make_joint_interpolator, sample_joint
 
 DEFAULT_QOS_DEPTH = 10
 # Run the control loop faster for smoother follower motion.
-CONTROL_LOOP_SLEEP_S = 0.01
 SPIN_CYCLES_PER_LOOP = 2
 SPIN_TIMEOUT_S = 0.002
 REGISTER_PUBLISH_INTERVAL_S = 1.0
@@ -69,6 +68,7 @@ def run_bridge(config: BridgeConfig) -> None:
     """Run the bridge: joint_states, joint_commands, optional full register read/write when device is set."""
     rclpy.init()
     node = Node("feetech_servos_bridge")
+    control_loop_sleep_s = 1.0 / max(1.0, config.control_loop_hz)
     namespace = config.namespace
     joint_names = config.joint_names
     state_topic = f"/{namespace}/joint_states"
@@ -233,7 +233,7 @@ def run_bridge(config: BridgeConfig) -> None:
 
         for _ in range(SPIN_CYCLES_PER_LOOP):
             rclpy.spin_once(node, timeout_sec=SPIN_TIMEOUT_S)
-        time.sleep(CONTROL_LOOP_SLEEP_S)
+        time.sleep(control_loop_sleep_s)
 
     node.destroy_node()
     rclpy.shutdown()

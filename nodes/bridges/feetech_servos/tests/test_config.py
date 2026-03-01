@@ -118,6 +118,20 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
     assert cfg2.command_smoothing_time_s == 0.25
 
 
+def test_load_config_control_loop_hz_defaults_and_override(tmp_path: Path) -> None:
+    """load_config parses control_loop_hz with default and explicit override."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: leader\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.control_loop_hz == 100.0
+
+    p.write_text("namespace: leader\njoint_names:\n  - name: j1\n    id: 1\ncontrol_loop_hz: 180\n")
+    cfg2 = load_config(p)
+    assert cfg2 is not None
+    assert cfg2.control_loop_hz == 180.0
+
+
 def test_load_config_rejects_namespace_with_slash(tmp_path: Path) -> None:
     """load_config returns None when namespace contains '/'."""
     p = tmp_path / "c.yaml"
