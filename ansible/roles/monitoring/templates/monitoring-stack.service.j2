@@ -14,9 +14,9 @@ StandardError=journal
 # Wait for Docker to be ready before running compose (avoids "control process exited" on cold boot)
 ExecStartPre=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do /usr/bin/docker info >/dev/null 2>&1 && break; sleep 3; done'
 # Clean stale/orphaned resources from previous interrupted runs before startup.
-ExecStartPre=/bin/sh -c '/usr/bin/docker compose -f {{ monitoring_data_dir }}/docker-compose.yml down --remove-orphans >/dev/null 2>&1 || true'
-ExecStart=/usr/bin/docker compose -f {{ monitoring_data_dir }}/docker-compose.yml up -d --remove-orphans
-ExecStop=/usr/bin/docker compose -f {{ monitoring_data_dir }}/docker-compose.yml down
+ExecStartPre=/bin/sh -c '/usr/bin/docker compose -p monitoring_stack -f {{ monitoring_data_dir }}/docker-compose.yml down --remove-orphans >/dev/null 2>&1 || true'
+ExecStart=/usr/bin/docker compose -p monitoring_stack -f {{ monitoring_data_dir }}/docker-compose.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -p monitoring_stack -f {{ monitoring_data_dir }}/docker-compose.yml down
 TimeoutStartSec=300
 
 [Install]
