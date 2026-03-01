@@ -8,6 +8,7 @@ packages = [{ include = "bno095_imu", from = "." }]
 [tool.poetry.dependencies]
 python = "^3.11"
 pyyaml = ">=6.0"
+numpy = ">=1.26.0"
 adafruit-circuitpython-bno08x = ">=1.0.0"
 adafruit-blinka = ">=8.0.0"
 adafruit-extended-bus = ">=1.0.0"
