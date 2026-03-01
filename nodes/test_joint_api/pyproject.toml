@@ -9,6 +9,7 @@ packages = [{ include = "test_joint_api", from = "." }]
 python = "^3.11"
 aiohttp = ">=3.9.0"
 pyyaml = ">=6.0"
+numpy = ">=1.26.0"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^7.0.0"
