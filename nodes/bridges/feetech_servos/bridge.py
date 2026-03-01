@@ -84,7 +84,9 @@ def run_bridge(config: BridgeConfig) -> None:
 
     last_positions: dict[str, float] = {}
     last_written: dict[int, dict[str, int]] = {}  # servo_id -> { register_name: value }
-    pending_goal_targets: dict[int, int] = {}
+    latest_goal_targets: dict[int, int] = {}
+    applied_goal_targets: dict[int, int] = {}
+    last_retarget_time: dict[int, float] = {}
     interpolators: dict[int, JointInterpolator] = {}
     servo: Any = None
 
@@ -144,7 +146,7 @@ def run_bridge(config: BridgeConfig) -> None:
             if sid not in last_written:
                 last_written[sid] = {}
             if config.interpolation_enabled:
-                pending_goal_targets[sid] = target_steps
+                latest_goal_targets[sid] = target_steps
             else:
                 write_register(servo, sid, goal_entry, target_steps, last_written[sid])
 
@@ -217,14 +219,27 @@ def run_bridge(config: BridgeConfig) -> None:
                     print(line, flush=True)
             if goal_entry is not None and config.interpolation_enabled:
                 now = time.monotonic()
+                retarget_period_s = 1.0 / max(1.0, config.interpolation_target_update_hz)
                 for joint in config.joints:
                     sid = joint.id
                     if sid not in interpolators:
                         initial_steps = position_steps_by_id.get(sid, 0)
                         interpolators[sid] = make_joint_interpolator(float(initial_steps), now)
-                    pending = pending_goal_targets.pop(sid, None)
+                        applied_goal_targets[sid] = int(round(initial_steps))
+                        last_retarget_time[sid] = now
+                    pending = latest_goal_targets.get(sid)
                     if pending is not None:
-                        set_joint_target(interpolators[sid], float(pending), now, config.command_smoothing_time_s)
+                        last_applied = applied_goal_targets.get(sid, pending)
+                        if abs(int(pending) - int(last_applied)) >= config.command_deadband_steps:
+                            if now - last_retarget_time.get(sid, 0.0) >= retarget_period_s:
+                                set_joint_target(
+                                    interpolators[sid],
+                                    float(pending),
+                                    now,
+                                    config.command_smoothing_time_s,
+                                )
+                                applied_goal_targets[sid] = int(pending)
+                                last_retarget_time[sid] = now
                     smoothed = int(round(sample_joint(interpolators[sid], now)))
                     write_register(servo, sid, goal_entry, smoothed, last_written[sid])
             # Publish full register dump at REGISTER_PUBLISH_INTERVAL_S.

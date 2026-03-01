@@ -41,6 +41,8 @@ class BridgeConfig:
         disable_torque_on_start: If True, set torque_enable=0 for all configured servos on startup.
         interpolation_enabled: If True, smooth joint command targets with interpolation before writing goal_position.
         command_smoothing_time_s: Interpolation duration in seconds for each new joint target.
+        interpolation_target_update_hz: Max frequency for applying new interpolation targets.
+        command_deadband_steps: Minimum goal_position delta (steps) required to retarget.
         control_loop_hz: Main bridge loop frequency in Hz for state publish and command processing.
     """
 
@@ -53,6 +55,8 @@ class BridgeConfig:
     disable_torque_on_start: bool = False
     interpolation_enabled: bool = True
     command_smoothing_time_s: float = 0.12
+    interpolation_target_update_hz: float = 40.0
+    command_deadband_steps: int = 3
     control_loop_hz: float = 100.0
 
     @property
@@ -144,6 +148,16 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         command_smoothing_time_s = max(0.0, float(raw_smoothing))
     except (TypeError, ValueError):
         command_smoothing_time_s = 0.12
+    raw_target_hz = data.get("interpolation_target_update_hz", 40.0)
+    try:
+        interpolation_target_update_hz = max(1.0, float(raw_target_hz))
+    except (TypeError, ValueError):
+        interpolation_target_update_hz = 40.0
+    raw_deadband_steps = data.get("command_deadband_steps", 3)
+    try:
+        command_deadband_steps = max(0, int(raw_deadband_steps))
+    except (TypeError, ValueError):
+        command_deadband_steps = 3
     raw_control_hz = data.get("control_loop_hz", 100.0)
     try:
         control_loop_hz = max(1.0, float(raw_control_hz))
@@ -159,6 +173,8 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         disable_torque_on_start=disable_torque_on_start,
         interpolation_enabled=interpolation_enabled,
         command_smoothing_time_s=command_smoothing_time_s,
+        interpolation_target_update_hz=interpolation_target_update_hz,
+        command_deadband_steps=command_deadband_steps,
         control_loop_hz=control_loop_hz,
     )
 

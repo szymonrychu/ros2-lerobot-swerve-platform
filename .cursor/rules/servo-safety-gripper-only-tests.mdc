@@ -1,0 +1,11 @@
+---
+description: Restrict physical servo tests to gripper joints only
+alwaysApply: true
+---
+
+# Servo Safety: Gripper-Only Physical Tests
+
+- For any physical movement test on real hardware, move only gripper joints.
+- Do not perform exploratory or validation movement on arm base, shoulder, elbow, or wrist joints.
+- If a test requires actuation, use minimal-amplitude gripper motion first.
+- If broader movement seems necessary, stop and ask the user before proceeding.

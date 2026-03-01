@@ -118,17 +118,23 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
     assert cfg is not None
     assert cfg.interpolation_enabled is True
     assert cfg.command_smoothing_time_s == 0.12
+    assert cfg.interpolation_target_update_hz == 40.0
+    assert cfg.command_deadband_steps == 3
 
     p.write_text(
         "namespace: follower\n"
         "joint_names:\n  - name: j1\n    id: 1\n"
         "interpolation_enabled: false\n"
         "command_smoothing_time_s: 0.25\n"
+        "interpolation_target_update_hz: 25\n"
+        "command_deadband_steps: 5\n"
     )
     cfg2 = load_config(p)
     assert cfg2 is not None
     assert cfg2.interpolation_enabled is False
     assert cfg2.command_smoothing_time_s == 0.25
+    assert cfg2.interpolation_target_update_hz == 25.0
+    assert cfg2.command_deadband_steps == 5
 
 
 def test_load_config_control_loop_hz_defaults_and_override(tmp_path: Path) -> None:
