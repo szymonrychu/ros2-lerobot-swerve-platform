@@ -110,7 +110,7 @@ ros2_nodes:
     extra_args: --network host --ipc host
     config: |
       host: "0.0.0.0"
-      port: 8080
+      port: 18080
       topic: /filter/input_joint_updates
   - name: gripper_uvc_camera
     node_type: uvc_camera

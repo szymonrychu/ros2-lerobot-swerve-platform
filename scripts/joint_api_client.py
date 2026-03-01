@@ -32,7 +32,7 @@ except ImportError:
     urllib = None  # type: ignore[assignment]
 
 
-DEFAULT_BASE_URL = "http://localhost:8080"
+DEFAULT_BASE_URL = "http://localhost:18080"
 ENV_BASE_URL = "JOINT_API_BASE_URL"
 
 
