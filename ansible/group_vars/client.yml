@@ -54,6 +54,14 @@ ros2_node_type_defaults:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - TEST_JOINT_API_CONFIG=/etc/ros2/test_joint_api/config.yaml
+  bno095_imu:
+    image: harbor.szymonrichert.pl/containers/client-bno095-imu:latest
+    build_context: nodes/bno095_imu
+    config_path: /etc/ros2/bno095_imu
+    env:
+      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      - BNO095_IMU_CONFIG=/etc/ros2/bno095_imu/config.yaml
 
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
 ros2_nodes:
@@ -112,6 +120,22 @@ ros2_nodes:
       host: "0.0.0.0"
       port: 18080
       topic: /filter/input_joint_updates
+  - name: bno095_imu
+    node_type: bno095_imu
+    present: true
+    enabled: true
+    extra_args: >-
+      --network host
+      --ipc host
+      --device=/dev/i2c-1:/dev/i2c-1
+    config: |
+      topic: /imu/data
+      frame_id: imu_link
+      publish_hz: 100
+      i2c_bus: 1
+      orientation_covariance: 0.01
+      angular_velocity_covariance: 0.01
+      linear_acceleration_covariance: 0.04
   - name: gripper_uvc_camera
     node_type: uvc_camera
     present: true

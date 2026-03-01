@@ -58,6 +58,10 @@ The **filter_node** node has tests under `nodes/filter_node/tests/`. Run from `n
 
 The **test_joint_api** node has tests under `nodes/test_joint_api/tests/`. Run from `nodes/test_joint_api`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config (`test_config.py`); GET/POST `/joint-updates` (`test_app.py`: empty GET, single/multiple POST, validation errors, gripper-only POST). Endpoint use in tests is limited to gripper joints (joint_5, joint_6) for safety. The utility script `scripts/joint_api_client.py` can GET or POST joint updates (see script docstring for examples).
 
+### Per-node tests (bno095_imu)
+
+The **bno095_imu** node has tests under `nodes/bno095_imu/tests/`. Run from `nodes/bno095_imu`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`: missing/empty file, defaults, explicit topic/frame_id/publish_hz/i2c_bus/covariances, publish_hz clamping, load_config_from_env). quaternion and IMU message mapping (`test_imu_msg.py`: `quaternion_ijkr_to_xyzw`, `build_imu_message` units and covariance arrays; build_imu_message tests are skipped when sensor_msgs is not available, e.g. without a ROS environment).
+
 ---
 
 **Maintenance:** Keep this README up to date when adding, removing, or changing tests. Document each new test file and each test (or test group) briefly so the test suite remains easy to navigate.

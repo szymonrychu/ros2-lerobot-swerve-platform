@@ -1,0 +1,60 @@
+[tool.poetry]
+name = "bno095_imu"
+version = "0.1.0"
+description = "BNO095 IMU bridge publishing sensor_msgs/Imu for Nav2 and navigation stack"
+readme = "README.md"
+packages = [{ include = "bno095_imu", from = "." }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyyaml = ">=6.0"
+adafruit-circuitpython-bno08x = ">=1.0.0"
+adafruit-blinka = ">=8.0.0"
+adafruit-extended-bus = ">=1.0.0"
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.0.0"
+black = "^24.0.0"
+isort = "^5.13.0"
+autoflake = "^2.3.1"
+vulture = "^2.11"
+poethepoet = "^0.42.0"
+pytest = "^8.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.flake8]
+max-line-length = 120
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  flake8 bno095_imu
+  black --check bno095_imu tests
+  isort --check bno095_imu tests
+  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables bno095_imu tests
+  vulture bno095_imu tests --min-confidence 80
+""" }
+lint-fix = { shell = """
+  black bno095_imu tests
+  isort bno095_imu tests
+  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables bno095_imu tests
+""" }
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
