@@ -36,6 +36,14 @@
     recurse: true
   become: true
 
+- name: Remove stale monitoring containers by fixed names (legacy/conflicting state)
+  ansible.builtin.command:
+    cmd: docker rm -f loki mimir alloy grafana
+  become: true
+  register: monitoring_rm_stale
+  changed_when: monitoring_rm_stale.rc == 0
+  failed_when: false
+
 - name: Deploy Alloy config
   ansible.builtin.template:
     src: alloy.alloy.j2
