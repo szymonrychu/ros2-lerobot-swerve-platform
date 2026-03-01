@@ -1,5 +1,6 @@
 """Constant-velocity Kalman filter helpers for joint target tracking."""
 
+import math
 from dataclasses import dataclass
 
 MIN_DT_S = 1e-6
@@ -50,7 +51,11 @@ def make_joint_kalman_filter(initial_position: float, now_s: float) -> JointKalm
 
 
 def predict_joint(
-    filter_state: JointKalmanFilter, now_s: float, process_noise_pos: float, process_noise_vel: float
+    filter_state: JointKalmanFilter,
+    now_s: float,
+    process_noise_pos: float,
+    process_noise_vel: float,
+    velocity_decay_per_s: float = 0.0,
 ) -> None:
     """Run Kalman predict step with constant-velocity process model.
 
@@ -59,12 +64,16 @@ def predict_joint(
         now_s: Current monotonic time in seconds.
         process_noise_pos: Position process noise density (steps^2 / s).
         process_noise_vel: Velocity process noise density ((steps/s)^2 / s).
+        velocity_decay_per_s: Exponential velocity decay rate [1/s].
     """
     dt = max(MIN_DT_S, float(now_s) - filter_state.last_time_s)
+    decay = max(0.0, float(velocity_decay_per_s))
+    velocity_scale = math.exp(-decay * dt) if decay > 0.0 else 1.0
+    velocity = filter_state.velocity * velocity_scale
 
     # x = F x
-    new_position = filter_state.position + filter_state.velocity * dt
-    new_velocity = filter_state.velocity
+    new_position = filter_state.position + velocity * dt
+    new_velocity = velocity
 
     # P = F P F^T + Q
     p11 = filter_state.p11 + dt * (filter_state.p21 + filter_state.p12) + dt * dt * filter_state.p22

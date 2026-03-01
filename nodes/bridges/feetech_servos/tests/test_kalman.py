@@ -40,3 +40,25 @@ def test_kalman_prediction_lead_moves_ahead() -> None:
     )
     lead = predicted_position(f, 0.05)
     assert lead >= f.position
+
+
+def test_kalman_velocity_decay_reduces_extrapolated_speed() -> None:
+    """Prediction with decay should reduce retained velocity over time."""
+    f = make_joint_kalman_filter(initial_position=0.0, now_s=0.0)
+    update_joint(
+        f,
+        measurement_position=20.0,
+        now_s=0.1,
+        process_noise_pos=200.0,
+        process_noise_vel=1200.0,
+        measurement_noise=16.0,
+    )
+    velocity_before = abs(f.velocity)
+    predict_joint(
+        f,
+        now_s=0.3,
+        process_noise_pos=200.0,
+        process_noise_vel=1200.0,
+        velocity_decay_per_s=6.0,
+    )
+    assert abs(f.velocity) < velocity_before

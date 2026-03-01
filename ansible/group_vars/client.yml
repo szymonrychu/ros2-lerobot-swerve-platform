@@ -99,6 +99,8 @@ ros2_nodes:
       kalman_process_noise_vel: 1400
       kalman_measurement_noise: 30
       kalman_prediction_lead_s: 0.035
+      kalman_velocity_decay_per_s: 4.5
+      kalman_max_prediction_time_s: 0.14
       target_lowpass_alpha: 0.22
       max_goal_step_rate: 550
       joint_names:

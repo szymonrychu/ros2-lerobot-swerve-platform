@@ -128,6 +128,8 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
     assert cfg.kalman_process_noise_vel == 1200.0
     assert cfg.kalman_measurement_noise == 36.0
     assert cfg.kalman_prediction_lead_s == 0.03
+    assert cfg.kalman_velocity_decay_per_s == 4.0
+    assert cfg.kalman_max_prediction_time_s == 0.12
     assert cfg.target_lowpass_alpha == 0.2
     assert cfg.max_goal_step_rate == 400.0
 
@@ -146,6 +148,8 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
         "kalman_process_noise_vel: 1800\n"
         "kalman_measurement_noise: 25\n"
         "kalman_prediction_lead_s: 0.05\n"
+        "kalman_velocity_decay_per_s: 6.5\n"
+        "kalman_max_prediction_time_s: 0.2\n"
         "target_lowpass_alpha: 0.15\n"
         "max_goal_step_rate: 250\n"
     )
@@ -163,6 +167,8 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
     assert cfg2.kalman_process_noise_vel == 1800.0
     assert cfg2.kalman_measurement_noise == 25.0
     assert cfg2.kalman_prediction_lead_s == 0.05
+    assert cfg2.kalman_velocity_decay_per_s == 6.5
+    assert cfg2.kalman_max_prediction_time_s == 0.2
     assert cfg2.target_lowpass_alpha == 0.15
     assert cfg2.max_goal_step_rate == 250.0
 

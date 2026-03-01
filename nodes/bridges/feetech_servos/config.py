@@ -51,6 +51,8 @@ class BridgeConfig:
         kalman_process_noise_vel: Velocity process noise density for Kalman predictor.
         kalman_measurement_noise: Measurement variance for incoming command position.
         kalman_prediction_lead_s: Lead horizon for short prediction to improve continuity.
+        kalman_velocity_decay_per_s: Exponential decay rate for predicted velocity between measurements.
+        kalman_max_prediction_time_s: Max age of last command for active prediction; older commands hold position.
         target_lowpass_alpha: Low-pass blend for incoming targets in [0, 1]. Lower means smoother/slower.
         max_goal_step_rate: Max goal_position change rate in steps/second (<=0 disables limiter).
         control_loop_hz: Main bridge loop frequency in Hz for state publish and command processing.
@@ -75,6 +77,8 @@ class BridgeConfig:
     kalman_process_noise_vel: float = 1200.0
     kalman_measurement_noise: float = 36.0
     kalman_prediction_lead_s: float = 0.03
+    kalman_velocity_decay_per_s: float = 4.0
+    kalman_max_prediction_time_s: float = 0.12
     target_lowpass_alpha: float = 0.2
     max_goal_step_rate: float = 400.0
     control_loop_hz: float = 100.0
@@ -216,6 +220,16 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         kalman_prediction_lead_s = max(0.0, float(raw_kalman_prediction_lead_s))
     except (TypeError, ValueError):
         kalman_prediction_lead_s = 0.03
+    raw_kalman_velocity_decay = data.get("kalman_velocity_decay_per_s", 4.0)
+    try:
+        kalman_velocity_decay_per_s = max(0.0, float(raw_kalman_velocity_decay))
+    except (TypeError, ValueError):
+        kalman_velocity_decay_per_s = 4.0
+    raw_kalman_max_prediction_time_s = data.get("kalman_max_prediction_time_s", 0.12)
+    try:
+        kalman_max_prediction_time_s = max(0.0, float(raw_kalman_max_prediction_time_s))
+    except (TypeError, ValueError):
+        kalman_max_prediction_time_s = 0.12
     raw_lowpass_alpha = data.get("target_lowpass_alpha", 0.2)
     try:
         target_lowpass_alpha = min(1.0, max(0.0, float(raw_lowpass_alpha)))
@@ -251,6 +265,8 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         kalman_process_noise_vel=kalman_process_noise_vel,
         kalman_measurement_noise=kalman_measurement_noise,
         kalman_prediction_lead_s=kalman_prediction_lead_s,
+        kalman_velocity_decay_per_s=kalman_velocity_decay_per_s,
+        kalman_max_prediction_time_s=kalman_max_prediction_time_s,
         target_lowpass_alpha=target_lowpass_alpha,
         max_goal_step_rate=max_goal_step_rate,
         control_loop_hz=control_loop_hz,

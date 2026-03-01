@@ -89,6 +89,7 @@ def run_bridge(config: BridgeConfig) -> None:
     applied_goal_targets: dict[int, int] = {}
     last_retarget_time: dict[int, float] = {}
     kalman_filters: dict[int, JointKalmanFilter] = {}
+    last_command_received_time: dict[int, float] = {}
     last_sent_goal: dict[int, int] = {}
     last_sent_time: dict[int, float] = {}
     interpolators: dict[int, JointInterpolator] = {}
@@ -162,8 +163,8 @@ def run_bridge(config: BridgeConfig) -> None:
                         process_noise_vel=config.kalman_process_noise_vel,
                         measurement_noise=config.kalman_measurement_noise,
                     )
-                    predicted = predicted_position(kalman_filters[sid], config.kalman_prediction_lead_s)
-                    latest_goal_targets[sid] = int(round(predicted))
+                    latest_goal_targets[sid] = int(round(predicted_position(kalman_filters[sid], 0.0)))
+                    last_command_received_time[sid] = now
                 else:
                     latest_goal_targets[sid] = target_steps
             else:
@@ -240,6 +241,45 @@ def run_bridge(config: BridgeConfig) -> None:
                 now = time.monotonic()
                 for joint in config.joints:
                     sid = joint.id
+                    if sid not in last_sent_goal:
+                        initial_steps = position_steps_by_id.get(sid, 0)
+                        last_sent_goal[sid] = int(round(initial_steps))
+                        last_sent_time[sid] = now
+                    if config.kalman_enabled:
+                        if sid in kalman_filters:
+                            command_age_s = now - last_command_received_time.get(sid, now)
+                            if command_age_s <= config.kalman_max_prediction_time_s:
+                                predict_joint(
+                                    kalman_filters[sid],
+                                    now_s=now,
+                                    process_noise_pos=config.kalman_process_noise_pos,
+                                    process_noise_vel=config.kalman_process_noise_vel,
+                                    velocity_decay_per_s=config.kalman_velocity_decay_per_s,
+                                )
+                                target_value = predicted_position(
+                                    kalman_filters[sid],
+                                    config.kalman_prediction_lead_s,
+                                )
+                            else:
+                                kalman_filters[sid].velocity = 0.0
+                                target_value = kalman_filters[sid].position
+                        else:
+                            target_value = float(latest_goal_targets.get(sid, last_sent_goal[sid]))
+                        smoothed = int(round(target_value))
+                        if config.max_goal_step_rate > 0:
+                            previous_goal = last_sent_goal.get(sid, smoothed)
+                            previous_time = last_sent_time.get(sid, now)
+                            dt = max(0.0, now - previous_time)
+                            max_delta = max(1, int(round(config.max_goal_step_rate * dt)))
+                            delta = smoothed - previous_goal
+                            if delta > max_delta:
+                                smoothed = previous_goal + max_delta
+                            elif delta < -max_delta:
+                                smoothed = previous_goal - max_delta
+                        last_sent_goal[sid] = smoothed
+                        last_sent_time[sid] = now
+                        write_register(servo, sid, goal_entry, smoothed, last_written[sid])
+                        continue
                     if sid not in interpolators:
                         initial_steps = position_steps_by_id.get(sid, 0)
                         interpolators[sid] = make_joint_interpolator(float(initial_steps), now)
@@ -249,24 +289,9 @@ def run_bridge(config: BridgeConfig) -> None:
                         last_sent_time[sid] = now
                     pending = latest_goal_targets.get(sid)
                     if pending is not None:
-                        if config.kalman_enabled and sid in kalman_filters:
-                            predict_joint(
-                                kalman_filters[sid],
-                                now_s=now,
-                                process_noise_pos=config.kalman_process_noise_pos,
-                                process_noise_vel=config.kalman_process_noise_vel,
-                            )
-                            pending = int(
-                                round(predicted_position(kalman_filters[sid], config.kalman_prediction_lead_s))
-                            )
-                            latest_goal_targets[sid] = pending
                         last_applied = applied_goal_targets.get(sid, pending)
                         moving_threshold = config.source_motion_velocity_threshold_steps_s
-                        source_velocity = (
-                            abs(kalman_filters[sid].velocity)
-                            if config.kalman_enabled and sid in kalman_filters
-                            else 0.0
-                        )
+                        source_velocity = 0.0
                         is_source_moving = source_velocity >= moving_threshold
                         active_target_hz = (
                             config.moving_target_update_hz
