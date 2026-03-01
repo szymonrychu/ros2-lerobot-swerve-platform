@@ -58,7 +58,7 @@ def run_bridge(device: str | int, topic: str, frame_id: str) -> None:
     node = Node("uvc_camera_bridge")
     pub = node.create_publisher(Image, topic, PUBLISH_QOS_DEPTH)
     logger = node.get_logger()
-    logger.info("UVC bridge: device=%s topic=%s frame_id=%s", device, topic, frame_id)
+    logger.info(f"UVC bridge: device={device} topic={topic} frame_id={frame_id}")
 
     try:
         while rclpy.ok():
