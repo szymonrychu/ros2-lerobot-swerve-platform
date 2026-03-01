@@ -85,8 +85,11 @@ def run_bridge(config: BridgeConfig) -> None:
     last_positions: dict[str, float] = {}
     last_written: dict[int, dict[str, int]] = {}  # servo_id -> { register_name: value }
     latest_goal_targets: dict[int, int] = {}
+    filtered_goal_targets: dict[int, float] = {}
     applied_goal_targets: dict[int, int] = {}
     last_retarget_time: dict[int, float] = {}
+    last_sent_goal: dict[int, int] = {}
+    last_sent_time: dict[int, float] = {}
     interpolators: dict[int, JointInterpolator] = {}
     servo: Any = None
 
@@ -146,7 +149,11 @@ def run_bridge(config: BridgeConfig) -> None:
             if sid not in last_written:
                 last_written[sid] = {}
             if config.interpolation_enabled:
-                latest_goal_targets[sid] = target_steps
+                prev_filtered = filtered_goal_targets.get(sid, float(target_steps))
+                alpha = config.target_lowpass_alpha
+                filtered = prev_filtered + alpha * (float(target_steps) - prev_filtered)
+                filtered_goal_targets[sid] = filtered
+                latest_goal_targets[sid] = int(round(filtered))
             else:
                 write_register(servo, sid, goal_entry, target_steps, last_written[sid])
 
@@ -227,6 +234,8 @@ def run_bridge(config: BridgeConfig) -> None:
                         interpolators[sid] = make_joint_interpolator(float(initial_steps), now)
                         applied_goal_targets[sid] = int(round(initial_steps))
                         last_retarget_time[sid] = now
+                        last_sent_goal[sid] = int(round(initial_steps))
+                        last_sent_time[sid] = now
                     pending = latest_goal_targets.get(sid)
                     if pending is not None:
                         last_applied = applied_goal_targets.get(sid, pending)
@@ -241,6 +250,18 @@ def run_bridge(config: BridgeConfig) -> None:
                                 applied_goal_targets[sid] = int(pending)
                                 last_retarget_time[sid] = now
                     smoothed = int(round(sample_joint(interpolators[sid], now)))
+                    if config.max_goal_step_rate > 0:
+                        previous_goal = last_sent_goal.get(sid, smoothed)
+                        previous_time = last_sent_time.get(sid, now)
+                        dt = max(0.0, now - previous_time)
+                        max_delta = max(1, int(round(config.max_goal_step_rate * dt)))
+                        delta = smoothed - previous_goal
+                        if delta > max_delta:
+                            smoothed = previous_goal + max_delta
+                        elif delta < -max_delta:
+                            smoothed = previous_goal - max_delta
+                    last_sent_goal[sid] = smoothed
+                    last_sent_time[sid] = now
                     write_register(servo, sid, goal_entry, smoothed, last_written[sid])
             # Publish full register dump at REGISTER_PUBLISH_INTERVAL_S.
             now = time.monotonic()

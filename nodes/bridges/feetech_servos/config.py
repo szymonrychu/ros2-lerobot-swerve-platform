@@ -43,6 +43,8 @@ class BridgeConfig:
         command_smoothing_time_s: Interpolation duration in seconds for each new joint target.
         interpolation_target_update_hz: Max frequency for applying new interpolation targets.
         command_deadband_steps: Minimum goal_position delta (steps) required to retarget.
+        target_lowpass_alpha: Low-pass blend for incoming targets in [0, 1]. Lower means smoother/slower.
+        max_goal_step_rate: Max goal_position change rate in steps/second (<=0 disables limiter).
         control_loop_hz: Main bridge loop frequency in Hz for state publish and command processing.
     """
 
@@ -57,6 +59,8 @@ class BridgeConfig:
     command_smoothing_time_s: float = 0.12
     interpolation_target_update_hz: float = 40.0
     command_deadband_steps: int = 3
+    target_lowpass_alpha: float = 0.2
+    max_goal_step_rate: float = 400.0
     control_loop_hz: float = 100.0
 
     @property
@@ -158,6 +162,16 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         command_deadband_steps = max(0, int(raw_deadband_steps))
     except (TypeError, ValueError):
         command_deadband_steps = 3
+    raw_lowpass_alpha = data.get("target_lowpass_alpha", 0.2)
+    try:
+        target_lowpass_alpha = min(1.0, max(0.0, float(raw_lowpass_alpha)))
+    except (TypeError, ValueError):
+        target_lowpass_alpha = 0.2
+    raw_max_goal_step_rate = data.get("max_goal_step_rate", 400.0)
+    try:
+        max_goal_step_rate = float(raw_max_goal_step_rate)
+    except (TypeError, ValueError):
+        max_goal_step_rate = 400.0
     raw_control_hz = data.get("control_loop_hz", 100.0)
     try:
         control_loop_hz = max(1.0, float(raw_control_hz))
@@ -175,6 +189,8 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         command_smoothing_time_s=command_smoothing_time_s,
         interpolation_target_update_hz=interpolation_target_update_hz,
         command_deadband_steps=command_deadband_steps,
+        target_lowpass_alpha=target_lowpass_alpha,
+        max_goal_step_rate=max_goal_step_rate,
         control_loop_hz=control_loop_hz,
     )
 

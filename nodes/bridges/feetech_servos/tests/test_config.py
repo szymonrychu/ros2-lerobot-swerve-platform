@@ -120,6 +120,8 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
     assert cfg.command_smoothing_time_s == 0.12
     assert cfg.interpolation_target_update_hz == 40.0
     assert cfg.command_deadband_steps == 3
+    assert cfg.target_lowpass_alpha == 0.2
+    assert cfg.max_goal_step_rate == 400.0
 
     p.write_text(
         "namespace: follower\n"
@@ -128,6 +130,8 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
         "command_smoothing_time_s: 0.25\n"
         "interpolation_target_update_hz: 25\n"
         "command_deadband_steps: 5\n"
+        "target_lowpass_alpha: 0.15\n"
+        "max_goal_step_rate: 250\n"
     )
     cfg2 = load_config(p)
     assert cfg2 is not None
@@ -135,6 +139,8 @@ def test_load_config_interpolation_defaults_and_override(tmp_path: Path) -> None
     assert cfg2.command_smoothing_time_s == 0.25
     assert cfg2.interpolation_target_update_hz == 25.0
     assert cfg2.command_deadband_steps == 5
+    assert cfg2.target_lowpass_alpha == 0.15
+    assert cfg2.max_goal_step_rate == 250.0
 
 
 def test_load_config_control_loop_hz_defaults_and_override(tmp_path: Path) -> None:
