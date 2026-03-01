@@ -29,7 +29,6 @@ ros2_node_type_defaults:
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-      - ROS_STATIC_PEERS=192.168.1.34
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
 
 # Nodes to deploy: name, node_type, present, enabled, config.

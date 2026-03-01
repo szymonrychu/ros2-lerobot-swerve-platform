@@ -23,7 +23,6 @@ ros2_node_type_defaults:
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-      - ROS_STATIC_PEERS=192.168.1.33
       - MASTER2MASTER_CONFIG=/etc/ros2/master2master/config.yaml
       # ROS2_SERVER_HOST passed per-node below so master2master can connect to Server's ROS2 master
   feetech_servos:
@@ -31,7 +30,8 @@ ros2_node_type_defaults:
     build_context: nodes/bridges/feetech_servos
     config_path: /etc/ros2/feetech_servos
     env:
-      - ROS_LOCALHOST_ONLY=1
+      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
   uvc_camera:
     image: harbor.szymonrichert.pl/containers/client-uvc-camera:latest
@@ -60,7 +60,7 @@ ros2_nodes:
           dest: /server/odom
           direction: out
         - source: /leader/joint_states
-          dest: /leader/joint_states
+          dest: /follower/joint_commands
           direction: in
           type: JointState
   - name: gripper_uvc_camera
