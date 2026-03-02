@@ -69,3 +69,9 @@ def test_map_position_inverted_source() -> None:
     # normal: 3000 -> 3377; inverted: 3000 -> 1951
     assert map_position_to_steps(3.0, 0, 3000, 1951, 3377, source_inverted=True) == 1951
     assert map_position_to_steps(0.0, 0, 3000, 1951, 3377, source_inverted=True) == 3377
+
+
+def test_map_position_source_snap_to_min() -> None:
+    """When raw source is near source_min (within snap window), map exactly to cmd_min."""
+    # raw=2000, source_min=1900, snap=120 => snap to min
+    assert map_position_to_steps(2.0, 1900, 3000, 1900, 3377, source_snap_steps=120) == 1900

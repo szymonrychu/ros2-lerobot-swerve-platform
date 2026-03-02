@@ -170,6 +170,7 @@ def run_bridge(config: BridgeConfig) -> None:
                     cmd_min,
                     cmd_max,
                     source_inverted=joint_entry.source_inverted,
+                    source_snap_steps=joint_entry.source_snap_steps or 0,
                 )
             if sid not in last_written:
                 last_written[sid] = {}

@@ -41,6 +41,7 @@ class JointEntry:
         source_min_steps: Optional; leader/source range min (0-4095). None => 0.
         source_max_steps: Optional; leader/source range max (0-4095). None => 4095.
         source_inverted: Optional; if True, invert source progress before mapping to command range.
+        source_snap_steps: Optional; snap to source endpoints within this many steps (0 disables).
         command_min_steps: Optional; follower command range min. None => read from servo.
         command_max_steps: Optional; follower command range max. None => read from servo.
     """
@@ -50,6 +51,7 @@ class JointEntry:
     source_min_steps: int | None = None
     source_max_steps: int | None = None
     source_inverted: bool = False
+    source_snap_steps: int | None = None
     command_min_steps: int | None = None
     command_max_steps: int | None = None
 
@@ -153,6 +155,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         source_min = _parse_optional_steps(item.get("source_min_steps"))
         source_max = _parse_optional_steps(item.get("source_max_steps"))
         source_inverted = bool(item.get("source_inverted", False))
+        source_snap_steps = _parse_optional_steps(item.get("source_snap_steps"))
         cmd_min = _parse_optional_steps(item.get("command_min_steps"))
         cmd_max = _parse_optional_steps(item.get("command_max_steps"))
         if source_min is not None and source_max is not None and source_min > source_max:
@@ -166,6 +169,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
                 source_min_steps=source_min,
                 source_max_steps=source_max,
                 source_inverted=source_inverted,
+                source_snap_steps=source_snap_steps,
                 command_min_steps=cmd_min,
                 command_max_steps=cmd_max,
             )

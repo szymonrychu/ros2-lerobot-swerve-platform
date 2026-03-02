@@ -16,6 +16,7 @@ def map_position_to_steps(
     cmd_min: int,
     cmd_max: int,
     source_inverted: bool = False,
+    source_snap_steps: int = 0,
 ) -> int:
     """Map incoming position (pseudo-radians, steps/1000) to target steps in [cmd_min, cmd_max].
 
@@ -25,7 +26,12 @@ def map_position_to_steps(
     raw_steps = position * POSITION_RADIAN_TO_STEPS
     if source_max == source_min:
         return cmd_min
-    normalized = max(0.0, min(1.0, (raw_steps - source_min) / (source_max - source_min)))
+    if source_snap_steps > 0 and abs(raw_steps - source_min) <= source_snap_steps:
+        normalized = 0.0
+    elif source_snap_steps > 0 and abs(raw_steps - source_max) <= source_snap_steps:
+        normalized = 1.0
+    else:
+        normalized = max(0.0, min(1.0, (raw_steps - source_min) / (source_max - source_min)))
     if source_inverted:
         normalized = 1.0 - normalized
     target = round(cmd_min + normalized * (cmd_max - cmd_min))
