@@ -179,5 +179,4 @@ ros2_nodes:
           id: 6
           source_min_steps: 1900
           source_max_steps: 3000
-          source_snap_steps: 120
           command_min_steps: 1900
