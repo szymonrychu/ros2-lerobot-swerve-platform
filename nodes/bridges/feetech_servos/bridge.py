@@ -142,6 +142,8 @@ def run_bridge(config: BridgeConfig) -> None:
                 command_limits[joint.name] = (MIN_STEPS, MAX_STEPS)
 
     goal_entry = get_register_entry_by_name("goal_position")
+    load_entry = get_register_entry_by_name("present_load")
+    effort_joint_set = set(config.publish_effort_joints) if config.publish_effort_joints else set()
 
     def on_command(msg: JointState) -> None:
         if servo is None:
@@ -223,6 +225,7 @@ def run_bridge(config: BridgeConfig) -> None:
             msg.name = list(joint_names)
             positions: list[float] = []
             velocities: list[float] = []
+            efforts: list[float] = []
             pos_entry = get_register_entry_by_name("present_position")
             speed_entry = get_register_entry_by_name("present_speed")
             for joint in config.joints:
@@ -230,9 +233,14 @@ def run_bridge(config: BridgeConfig) -> None:
                 speed = read_register_raw(servo, joint.id, speed_entry) if speed_entry else None
                 positions.append(float(pos) / POSITION_RADIAN_TO_STEPS if pos is not None else 0.0)
                 velocities.append(float(speed) if speed is not None else 0.0)
+                if effort_joint_set and joint.name in effort_joint_set and load_entry:
+                    load_val = read_register_raw(servo, joint.id, load_entry)
+                    efforts.append(float(load_val) if load_val is not None else 0.0)
+                else:
+                    efforts.append(0.0)
             msg.position = positions
             msg.velocity = velocities
-            msg.effort = []
+            msg.effort = efforts if effort_joint_set else []
             pub_state.publish(msg)
             if config.log_joint_updates:
                 changing = get_position_updates(msg.name, msg.position, last_positions)

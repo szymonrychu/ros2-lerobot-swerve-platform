@@ -63,6 +63,14 @@ ros2_node_type_defaults:
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - BLINKA_FORCECHIP=BCM2XXX
       - BNO095_IMU_CONFIG=/etc/ros2/bno095_imu/config.yaml
+  haptic_controller:
+    image: harbor.szymonrichert.pl/containers/client-haptic-controller:latest
+    build_context: nodes/haptic_controller
+    config_path: /etc/ros2/haptic_controller
+    env:
+      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      - HAPTIC_CONTROLLER_CONFIG=/etc/ros2/haptic_controller/config.yaml
 
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
 ros2_nodes:
@@ -87,6 +95,10 @@ ros2_nodes:
         - source: /leader/joint_states
           dest: /filter/input_joint_updates
           direction: in
+          type: JointState
+        - source: /client/haptic_leader_commands
+          dest: /leader/joint_commands
+          direction: out
           type: JointState
   - name: filter_node
     node_type: filter_node
@@ -138,6 +150,25 @@ ros2_nodes:
       orientation_covariance: 0.01
       angular_velocity_covariance: 0.01
       linear_acceleration_covariance: 0.04
+  - name: haptic_controller
+    node_type: haptic_controller
+    present: true
+    enabled: false
+    extra_args: --network host --ipc host
+    config: |
+      mode: off
+      gripper_joint_names:
+        - joint_5
+        - joint_6
+      leader_state_topic: /filter/input_joint_updates
+      follower_state_topic: /follower/joint_states
+      leader_cmd_topic: /client/haptic_leader_commands
+      control_loop_hz: 100
+      resistance_gains:
+        max_stiffness: 0.002
+        load_deadband: 50.0
+        max_step_per_cycle: 0.05
+      watchdog_timeout_s: 0.5
   - name: gripper_uvc_camera
     node_type: uvc_camera
     present: true
@@ -164,6 +195,9 @@ ros2_nodes:
       log_joint_updates: true
       enable_torque_on_start: true
       register_publish_interval_s: 10
+      publish_effort_joints:
+        - joint_5
+        - joint_6
       joint_names:
         - name: joint_1
           id: 1

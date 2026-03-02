@@ -62,6 +62,10 @@ The **test_joint_api** node has tests under `nodes/test_joint_api/tests/`. Run f
 
 The **bno095_imu** node has tests under `nodes/bno095_imu/tests/`. Run from `nodes/bno095_imu`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`: missing/empty file, defaults, explicit topic/frame_id/publish_hz/i2c_bus/covariances, publish_hz clamping, load_config_from_env). quaternion and IMU message mapping (`test_imu_msg.py`: `quaternion_ijkr_to_xyzw`, `build_imu_message` units and covariance arrays; build_imu_message tests are skipped when sensor_msgs is not available, e.g. without a ROS environment).
 
+### Per-node tests (haptic_controller)
+
+The **haptic_controller** node has tests under `nodes/haptic_controller/tests/`. Run from `nodes/haptic_controller`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`: missing/empty file, defaults, mode off/resistance/zero_g, invalid mode fallback, resistance_gains, load_config_from_env); resistance control law (`test_node.py`: `compute_resistance_target` — no load/zero velocity returns leader_pos, opposes closing when load above deadband, respects max_step_per_cycle). No ROS2/rclpy dependency in tests.
+
 ---
 
 **Maintenance:** Keep this README up to date when adding, removing, or changing tests. Document each new test file and each test (or test group) briefly so the test suite remains easy to navigate.

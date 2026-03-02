@@ -69,6 +69,8 @@ class BridgeConfig:
         control_loop_hz: Main bridge loop frequency in Hz for state publish and command processing.
         register_publish_interval_s: Interval in seconds for full servo_registers dump (0 = disabled).
             Use >= 10 to avoid blocking the control loop and causing visible stutter; 1 Hz is not recommended.
+        publish_effort_joints: Optional list of joint names for which to read present_load and publish
+            in JointState.effort at control-loop rate (for haptic/force-feedback use). Empty/omit = no effort.
     """
 
     namespace: str
@@ -80,6 +82,7 @@ class BridgeConfig:
     disable_torque_on_start: bool = False
     control_loop_hz: float = 100.0
     register_publish_interval_s: float = 10.0
+    publish_effort_joints: list[str] = ()
 
     @property
     def joint_names(self) -> list[str]:
@@ -199,6 +202,14 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         register_publish_interval_s = max(0.0, float(raw_reg_interval))
     except (TypeError, ValueError):
         register_publish_interval_s = 10.0
+    raw_effort_joints = data.get("publish_effort_joints")
+    if isinstance(raw_effort_joints, list):
+        publish_effort_joints = [str(j).strip() for j in raw_effort_joints if j]
+        # Only include names that exist in joints
+        joint_name_set = {j.name for j in joints}
+        publish_effort_joints = [n for n in publish_effort_joints if n in joint_name_set]
+    else:
+        publish_effort_joints = []
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -209,6 +220,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         disable_torque_on_start=disable_torque_on_start,
         control_loop_hz=control_loop_hz,
         register_publish_interval_s=register_publish_interval_s,
+        publish_effort_joints=publish_effort_joints,
     )
 
 

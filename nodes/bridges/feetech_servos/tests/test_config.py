@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from feetech_servos.config import BridgeConfig, JointEntry, load_config, load_config_from_env
+from feetech_servos.config import BridgeConfig, load_config, load_config_from_env
 
 
 def test_load_config_nonexistent_path() -> None:
@@ -141,6 +141,46 @@ def test_load_config_register_publish_interval_s(tmp_path: Path) -> None:
     cfg30 = load_config(p)
     assert cfg30 is not None
     assert cfg30.register_publish_interval_s == 30.0
+
+
+def test_load_config_publish_effort_joints(tmp_path: Path) -> None:
+    """load_config parses publish_effort_joints; only includes joint names that exist; default empty."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: follower\n" "joint_names:\n" "  - name: joint_5\n" "    id: 5\n" "  - name: joint_6\n" "    id: 6\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.publish_effort_joints == []
+    p.write_text(
+        "namespace: follower\n"
+        "joint_names:\n"
+        "  - name: joint_5\n"
+        "    id: 5\n"
+        "  - name: joint_6\n"
+        "    id: 6\n"
+        "publish_effort_joints:\n"
+        "  - joint_5\n"
+        "  - joint_6\n"
+    )
+    cfg2 = load_config(p)
+    assert cfg2 is not None
+    assert cfg2.publish_effort_joints == ["joint_5", "joint_6"]
+    p.write_text(
+        "namespace: follower\n"
+        "joint_names:\n"
+        "  - name: joint_5\n"
+        "    id: 5\n"
+        "  - name: joint_6\n"
+        "    id: 6\n"
+        "publish_effort_joints:\n"
+        "  - joint_5\n"
+        "  - joint_6\n"
+        "  - joint_99\n"
+    )
+    cfg3 = load_config(p)
+    assert cfg3 is not None
+    assert cfg3.publish_effort_joints == ["joint_5", "joint_6"]
 
 
 def test_load_config_rejects_namespace_with_slash(tmp_path: Path) -> None:
@@ -285,12 +325,7 @@ def test_load_config_range_mapping_invalid_ignored(tmp_path: Path) -> None:
 def test_joint_entry_by_name(tmp_path: Path) -> None:
     """joint_entry_by_name returns the matching JointEntry or None."""
     p = tmp_path / "c.yaml"
-    p.write_text(
-        "namespace: leader\n"
-        "joint_names:\n"
-        "  - name: a\n    id: 1\n"
-        "  - name: b\n    id: 2\n"
-    )
+    p.write_text("namespace: leader\n" "joint_names:\n" "  - name: a\n    id: 1\n" "  - name: b\n    id: 2\n")
     cfg = load_config(p)
     assert cfg is not None
     a = cfg.joint_entry_by_name("a")
