@@ -65,6 +65,8 @@ Use this file and [MEMORY.md](MEMORY.md) when working in this repo.
 
 **Do not skip any step.** If deploy playbooks are not run (e.g. no target hosts), still complete Test, Commit, and Push.
 
+**Default behavior for this repo:** always finish with **Commit + Push + Deploy** after a completed change iteration (unless the user explicitly asks not to deploy).
+
 ---
 
 * Write basic unit tests for new functionality.
