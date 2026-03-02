@@ -1,6 +1,6 @@
 """Unit tests for joint command position-to-steps mapping (range mapping)."""
 
-from feetech_servos.command_mapping import map_position_to_steps
+from feetech_servos.command_mapping import map_position_to_steps, position_to_raw_steps
 
 
 def test_map_position_full_range_identity() -> None:
@@ -54,3 +54,10 @@ def test_map_position_clamped_above_source() -> None:
     result = map_position_to_steps(4.0, 0, 3000, 1951, 3377)
     # 4000 > 3000 => normalized 1
     assert result == 3377
+
+
+def test_position_to_raw_steps_passthrough_clamped() -> None:
+    """Raw pass-through converts pseudo-radians to steps with 0..4095 clamp."""
+    assert position_to_raw_steps(3.0) == 3000
+    assert position_to_raw_steps(-0.2) == 0
+    assert position_to_raw_steps(9.0) == 4095

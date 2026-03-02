@@ -18,7 +18,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
-from .command_mapping import POSITION_RADIAN_TO_STEPS, map_position_to_steps
+from .command_mapping import POSITION_RADIAN_TO_STEPS, map_position_to_steps, position_to_raw_steps
 from .config import BridgeConfig, load_config_from_env
 from .joint_updates import get_position_updates
 from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers
@@ -155,11 +155,15 @@ def run_bridge(config: BridgeConfig) -> None:
             if joint_entry is None:
                 continue
             sid = joint_entry.id
-            source_min = joint_entry.source_min_steps if joint_entry.source_min_steps is not None else 0
-            source_max = joint_entry.source_max_steps if joint_entry.source_max_steps is not None else 4095
-            cmd_min, cmd_max = command_limits.get(name, (MIN_STEPS, MAX_STEPS))
             position_val = float(msg.position[i])
-            target_steps = map_position_to_steps(position_val, source_min, source_max, cmd_min, cmd_max)
+            # Backward-compatible default: if source range is not configured, keep raw pass-through behavior.
+            if joint_entry.source_min_steps is None and joint_entry.source_max_steps is None:
+                target_steps = position_to_raw_steps(position_val)
+            else:
+                source_min = joint_entry.source_min_steps if joint_entry.source_min_steps is not None else 0
+                source_max = joint_entry.source_max_steps if joint_entry.source_max_steps is not None else 4095
+                cmd_min, cmd_max = command_limits.get(name, (MIN_STEPS, MAX_STEPS))
+                target_steps = map_position_to_steps(position_val, source_min, source_max, cmd_min, cmd_max)
             if sid not in last_written:
                 last_written[sid] = {}
             write_register(servo, sid, goal_entry, target_steps, last_written[sid])

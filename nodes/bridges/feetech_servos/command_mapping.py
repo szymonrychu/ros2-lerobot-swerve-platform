@@ -4,6 +4,11 @@
 POSITION_RADIAN_TO_STEPS = 1000.0
 
 
+def position_to_raw_steps(position: float) -> int:
+    """Convert incoming pseudo-radians to raw servo steps, clamped to 0..4095."""
+    return max(0, min(4095, int(round(position * POSITION_RADIAN_TO_STEPS))))
+
+
 def map_position_to_steps(
     position: float,
     source_min: int,
