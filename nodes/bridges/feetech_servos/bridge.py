@@ -163,7 +163,14 @@ def run_bridge(config: BridgeConfig) -> None:
                 source_min = joint_entry.source_min_steps if joint_entry.source_min_steps is not None else 0
                 source_max = joint_entry.source_max_steps if joint_entry.source_max_steps is not None else 4095
                 cmd_min, cmd_max = command_limits.get(name, (MIN_STEPS, MAX_STEPS))
-                target_steps = map_position_to_steps(position_val, source_min, source_max, cmd_min, cmd_max)
+                target_steps = map_position_to_steps(
+                    position_val,
+                    source_min,
+                    source_max,
+                    cmd_min,
+                    cmd_max,
+                    source_inverted=joint_entry.source_inverted,
+                )
             if sid not in last_written:
                 last_written[sid] = {}
             write_register(servo, sid, goal_entry, target_steps, last_written[sid])

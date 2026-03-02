@@ -239,6 +239,7 @@ def test_load_config_range_mapping_options(tmp_path: Path) -> None:
         "    id: 6\n"
         "    source_min_steps: 1951\n"
         "    source_max_steps: 3000\n"
+        "    source_inverted: true\n"
         "    command_min_steps: 1951\n"
         "    command_max_steps: 3377\n"
     )
@@ -247,6 +248,7 @@ def test_load_config_range_mapping_options(tmp_path: Path) -> None:
     j = cfg.joints[0]
     assert j.name == "joint_6" and j.id == 6
     assert j.source_min_steps == 1951 and j.source_max_steps == 3000
+    assert j.source_inverted is True
     assert j.command_min_steps == 1951 and j.command_max_steps == 3377
 
 
@@ -258,6 +260,7 @@ def test_load_config_range_mapping_defaults_none(tmp_path: Path) -> None:
     assert cfg is not None
     j = cfg.joints[0]
     assert j.source_min_steps is None and j.source_max_steps is None
+    assert j.source_inverted is False
     assert j.command_min_steps is None and j.command_max_steps is None
 
 

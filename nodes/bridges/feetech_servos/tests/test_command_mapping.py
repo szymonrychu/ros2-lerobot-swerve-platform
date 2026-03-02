@@ -61,3 +61,11 @@ def test_position_to_raw_steps_passthrough_clamped() -> None:
     assert position_to_raw_steps(3.0) == 3000
     assert position_to_raw_steps(-0.2) == 0
     assert position_to_raw_steps(9.0) == 4095
+
+
+def test_map_position_inverted_source() -> None:
+    """With source_inverted, source max maps to command min (useful for opposite close/open direction)."""
+    # source 0..3000, command 1951..3377:
+    # normal: 3000 -> 3377; inverted: 3000 -> 1951
+    assert map_position_to_steps(3.0, 0, 3000, 1951, 3377, source_inverted=True) == 1951
+    assert map_position_to_steps(0.0, 0, 3000, 1951, 3377, source_inverted=True) == 3377

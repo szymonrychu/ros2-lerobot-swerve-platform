@@ -40,6 +40,7 @@ class JointEntry:
         id: Servo ID on the bus (int, 0-253).
         source_min_steps: Optional; leader/source range min (0-4095). None => 0.
         source_max_steps: Optional; leader/source range max (0-4095). None => 4095.
+        source_inverted: Optional; if True, invert source progress before mapping to command range.
         command_min_steps: Optional; follower command range min. None => read from servo.
         command_max_steps: Optional; follower command range max. None => read from servo.
     """
@@ -48,6 +49,7 @@ class JointEntry:
     id: int  # noqa: A003
     source_min_steps: int | None = None
     source_max_steps: int | None = None
+    source_inverted: bool = False
     command_min_steps: int | None = None
     command_max_steps: int | None = None
 
@@ -150,6 +152,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         # Optional range-mapping: source (leader) and command (follower) steps; invalid => ignore, use None.
         source_min = _parse_optional_steps(item.get("source_min_steps"))
         source_max = _parse_optional_steps(item.get("source_max_steps"))
+        source_inverted = bool(item.get("source_inverted", False))
         cmd_min = _parse_optional_steps(item.get("command_min_steps"))
         cmd_max = _parse_optional_steps(item.get("command_max_steps"))
         if source_min is not None and source_max is not None and source_min > source_max:
@@ -162,6 +165,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
                 id=sid,
                 source_min_steps=source_min,
                 source_max_steps=source_max,
+                source_inverted=source_inverted,
                 command_min_steps=cmd_min,
                 command_max_steps=cmd_max,
             )
