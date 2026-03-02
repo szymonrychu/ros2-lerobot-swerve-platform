@@ -177,3 +177,8 @@ ros2_nodes:
           id: 5
         - name: joint_6
           id: 6
+          # Range mapping: when leader gripper is fully closed it may publish e.g. 3000 steps;
+          # follower gripper may need 3377 steps for full close. Set source_max_steps to the
+          # value the leader sends when closed; command range is read from servo or set here.
+          # source_min_steps: 1951
+          # source_max_steps: 3000

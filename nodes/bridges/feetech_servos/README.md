@@ -7,6 +7,7 @@
 ## Configuration
 
 - **Config file:** YAML with `namespace` (string) and `joint_names` (list of entries). Each entry must have `name` (joint name for ROS) and `id` (Feetech servo ID, 0–253). Servo IDs need not start from 1 or be sequential. Optional: `device`, `baudrate` for serial; `log_joint_updates` (bool, default false) to print one line per joint_commands update with changing joints as `joint1:val1,joint2:val2,...` to stdout (silent when false); `enable_torque_on_start` (bool, default false); `disable_torque_on_start` (bool, default false); `control_loop_hz` (float, default `100.0`) for bridge update frequency; `register_publish_interval_s` (float, default `10.0`) interval in seconds for full `servo_registers` JSON dump—use ≥ 10 or 0 (disabled) to avoid blocking the control loop and causing visible stutter (1 Hz is not recommended).
+- **Per-joint range mapping (optional):** For each joint you may set `source_min_steps` and `source_max_steps` (0–4095) to define the **incoming** range (e.g. leader’s range). Incoming positions are interpreted in this range; if omitted, 0 and 4095 are used. You may also set `command_min_steps` and `command_max_steps` to override the **follower** command range; if omitted, the bridge reads `min_angle_limit` and `max_angle_limit` from the servo at startup. This allows “leader at source_max” to map to “follower at command_max” so that when the leader gripper is fully closed (e.g. 3000 steps), the follower gripper goes to its own full close (e.g. 3377 steps). Invalid or out-of-range values are ignored (defaults used).
 - **Config path:** Set `FEETECH_SERVOS_CONFIG` to the config file path, or deploy to `/etc/ros2/feetech_servos/config.yaml`.
 
 Example format:
@@ -18,6 +19,11 @@ joint_names:
     id: 1
   - name: gripper
     id: 6
+    # Optional: map leader gripper range to follower range so leader "fully closed" -> follower "fully closed"
+    # source_min_steps: 1951   # leader open (steps)
+    # source_max_steps: 3000   # leader closed (steps) — set to value leader publishes when closed
+    # command_min_steps: 1951  # follower open (or omit to read from servo)
+    # command_max_steps: 3377  # follower closed (or omit to read from servo)
 ```
 
 Example configs are in `config/leader.yaml` and `config/follower.yaml`. Mount one as the config (e.g. in compose) or copy to the default path.

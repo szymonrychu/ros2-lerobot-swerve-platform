@@ -49,9 +49,11 @@ def test_load_config_valid(tmp_path: Path) -> None:
     assert cfg.namespace == "follower"
     assert cfg.joint_names == ["shoulder_pan", "gripper"]
     assert len(cfg.joints) == 2
-    assert cfg.joints[0] == JointEntry(name="shoulder_pan", id=1)
-    assert cfg.joints[1] == JointEntry(name="gripper", id=6)
+    assert cfg.joints[0].name == "shoulder_pan" and cfg.joints[0].id == 1
+    assert cfg.joints[1].name == "gripper" and cfg.joints[1].id == 6
     assert cfg.servo_id_for_joint_name("shoulder_pan") == 1
+    assert cfg.joint_entry_by_name("shoulder_pan") is cfg.joints[0]
+    assert cfg.joint_entry_by_name("unknown") is None
     assert cfg.servo_id_for_joint_name("gripper") == 6
     assert cfg.servo_id_for_joint_name("unknown") is None
 
@@ -225,3 +227,71 @@ def test_load_config_from_env_uses_env_path(tmp_path: Path, monkeypatch: pytest.
     assert cfg.namespace == "leader"
     assert cfg.joint_names == ["j1", "j2"]
     assert cfg.joints[0].id == 1 and cfg.joints[1].id == 2
+
+
+def test_load_config_range_mapping_options(tmp_path: Path) -> None:
+    """load_config parses optional source_min_steps, source_max_steps, command_min_steps, command_max_steps."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: follower\n"
+        "joint_names:\n"
+        "  - name: joint_6\n"
+        "    id: 6\n"
+        "    source_min_steps: 1951\n"
+        "    source_max_steps: 3000\n"
+        "    command_min_steps: 1951\n"
+        "    command_max_steps: 3377\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    j = cfg.joints[0]
+    assert j.name == "joint_6" and j.id == 6
+    assert j.source_min_steps == 1951 and j.source_max_steps == 3000
+    assert j.command_min_steps == 1951 and j.command_max_steps == 3377
+
+
+def test_load_config_range_mapping_defaults_none(tmp_path: Path) -> None:
+    """When range options are omitted, all are None (bridge uses 0/4095 and reads from servo)."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    j = cfg.joints[0]
+    assert j.source_min_steps is None and j.source_max_steps is None
+    assert j.command_min_steps is None and j.command_max_steps is None
+
+
+def test_load_config_range_mapping_invalid_ignored(tmp_path: Path) -> None:
+    """Invalid range values (out of 0-4095 or min > max) are ignored and stored as None."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: follower\n"
+        "joint_names:\n"
+        "  - name: j1\n"
+        "    id: 1\n"
+        "    source_min_steps: 3000\n"
+        "    source_max_steps: 2000\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    j = cfg.joints[0]
+    # source_min > source_max => both cleared to None
+    assert j.source_min_steps is None and j.source_max_steps is None
+
+
+def test_joint_entry_by_name(tmp_path: Path) -> None:
+    """joint_entry_by_name returns the matching JointEntry or None."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: leader\n"
+        "joint_names:\n"
+        "  - name: a\n    id: 1\n"
+        "  - name: b\n    id: 2\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    a = cfg.joint_entry_by_name("a")
+    b = cfg.joint_entry_by_name("b")
+    assert a is not None and a.name == "a" and a.id == 1
+    assert b is not None and b.name == "b" and b.id == 2
+    assert cfg.joint_entry_by_name("c") is None

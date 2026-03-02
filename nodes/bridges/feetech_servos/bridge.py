@@ -18,6 +18,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
+from .command_mapping import POSITION_RADIAN_TO_STEPS, map_position_to_steps
 from .config import BridgeConfig, load_config_from_env
 from .joint_updates import get_position_updates
 from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers
@@ -31,8 +32,6 @@ SPIN_TIMEOUT_S = 0.002
 SERVO_WAIT_INTERVAL_S = 1.0
 TORQUE_WRITE_ATTEMPTS = 8
 TORQUE_VERIFY_SLEEP_S = 0.02
-# Radians to steps: scale for joint_commands position -> servo goal_position (steps); adjust per hardware.
-POSITION_RADIAN_TO_STEPS = 1000.0
 MIN_STEPS = 0
 MAX_STEPS = 4095
 
@@ -82,6 +81,7 @@ def run_bridge(config: BridgeConfig) -> None:
 
     last_positions: dict[str, float] = {}
     last_written: dict[int, dict[str, int]] = {}  # servo_id -> { register_name: value }
+    command_limits: dict[str, tuple[int, int]] = {}  # joint_name -> (cmd_min, cmd_max)
     servo: Any = None
 
     if config.device:
@@ -122,6 +122,24 @@ def run_bridge(config: BridgeConfig) -> None:
                     node.get_logger().info(
                         f"Applied torque_enable={torque_value} on startup for all configured servos."
                     )
+        # Build per-joint command range: config override or read min/max_angle_limit from servo.
+        min_entry = get_register_entry_by_name("min_angle_limit")
+        max_entry = get_register_entry_by_name("max_angle_limit")
+        for joint in config.joints:
+            if joint.command_min_steps is not None and joint.command_max_steps is not None:
+                command_limits[joint.name] = (joint.command_min_steps, joint.command_max_steps)
+            elif min_entry and max_entry:
+                min_val = read_register_raw(servo, joint.id, min_entry)
+                max_val = read_register_raw(servo, joint.id, max_entry)
+                if min_val is not None and max_val is not None:
+                    command_limits[joint.name] = (min_val, max_val)
+                else:
+                    node.get_logger().warn(
+                        f"Could not read min/max_angle_limit for {joint.name} (id={joint.id}), using 0-4095."
+                    )
+                    command_limits[joint.name] = (MIN_STEPS, MAX_STEPS)
+            else:
+                command_limits[joint.name] = (MIN_STEPS, MAX_STEPS)
 
     goal_entry = get_register_entry_by_name("goal_position")
 
@@ -133,10 +151,15 @@ def run_bridge(config: BridgeConfig) -> None:
         for i, name in enumerate(msg.name):
             if i >= len(msg.position):
                 continue
-            sid = config.servo_id_for_joint_name(name)
-            if sid is None:
+            joint_entry = config.joint_entry_by_name(name)
+            if joint_entry is None:
                 continue
-            target_steps = _clamp_steps(float(msg.position[i]) * POSITION_RADIAN_TO_STEPS)
+            sid = joint_entry.id
+            source_min = joint_entry.source_min_steps if joint_entry.source_min_steps is not None else 0
+            source_max = joint_entry.source_max_steps if joint_entry.source_max_steps is not None else 4095
+            cmd_min, cmd_max = command_limits.get(name, (MIN_STEPS, MAX_STEPS))
+            position_val = float(msg.position[i])
+            target_steps = map_position_to_steps(position_val, source_min, source_max, cmd_min, cmd_max)
             if sid not in last_written:
                 last_written[sid] = {}
             write_register(servo, sid, goal_entry, target_steps, last_written[sid])

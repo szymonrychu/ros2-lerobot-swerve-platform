@@ -13,18 +13,43 @@ ENV_CONFIG_PATH_KEY = "FEETECH_SERVOS_CONFIG"
 SERVO_ID_MIN = 0
 SERVO_ID_MAX = 253
 
+# Valid step range for position/limit config (Feetech STS 0-4095).
+STEPS_MIN = 0
+STEPS_MAX = 4095
+
+
+def _parse_optional_steps(value: object) -> int | None:
+    """Parse optional step value; must be int in [STEPS_MIN, STEPS_MAX]. Returns None if missing/invalid."""
+    if value is None:
+        return None
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return None
+    if not (STEPS_MIN <= v <= STEPS_MAX):
+        return None
+    return v
+
 
 @dataclass
 class JointEntry:
-    """Single joint: ROS name and Feetech servo ID.
+    """Single joint: ROS name and Feetech servo ID, optional range mapping.
 
     Attributes:
         name: Joint name for JointState messages (str).
         id: Servo ID on the bus (int, 0-253).
+        source_min_steps: Optional; leader/source range min (0-4095). None => 0.
+        source_max_steps: Optional; leader/source range max (0-4095). None => 4095.
+        command_min_steps: Optional; follower command range min. None => read from servo.
+        command_max_steps: Optional; follower command range max. None => read from servo.
     """
 
     name: str
     id: int  # noqa: A003
+    source_min_steps: int | None = None
+    source_max_steps: int | None = None
+    command_min_steps: int | None = None
+    command_max_steps: int | None = None
 
 
 @dataclass
@@ -64,6 +89,13 @@ class BridgeConfig:
         for j in self.joints:
             if j.name == name:
                 return j.id
+        return None
+
+    def joint_entry_by_name(self, name: str) -> JointEntry | None:
+        """Return the full JointEntry for a joint name, or None if not found."""
+        for j in self.joints:
+            if j.name == name:
+                return j
         return None
 
 
@@ -115,7 +147,25 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         if sid in seen_ids:
             return None  # duplicate servo id
         seen_ids.add(sid)
-        joints.append(JointEntry(name=name, id=sid))
+        # Optional range-mapping: source (leader) and command (follower) steps; invalid => ignore, use None.
+        source_min = _parse_optional_steps(item.get("source_min_steps"))
+        source_max = _parse_optional_steps(item.get("source_max_steps"))
+        cmd_min = _parse_optional_steps(item.get("command_min_steps"))
+        cmd_max = _parse_optional_steps(item.get("command_max_steps"))
+        if source_min is not None and source_max is not None and source_min > source_max:
+            source_min, source_max = None, None
+        if cmd_min is not None and cmd_max is not None and cmd_min > cmd_max:
+            cmd_min, cmd_max = None, None
+        joints.append(
+            JointEntry(
+                name=name,
+                id=sid,
+                source_min_steps=source_min,
+                source_max_steps=source_max,
+                command_min_steps=cmd_min,
+                command_max_steps=cmd_max,
+            )
+        )
     if not joints:
         return None
     device = data.get("device")

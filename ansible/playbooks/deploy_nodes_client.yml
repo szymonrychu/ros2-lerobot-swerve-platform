@@ -7,6 +7,16 @@
   hosts: client
   become: true
   pre_tasks:
+    - name: Stop feetech (servo) node services before deploy
+      ansible.builtin.service:
+        name: "ros2-{{ item.name }}"
+        state: stopped
+      loop: "{{ ros2_nodes | selectattr('node_type', 'equalto', 'feetech_servos') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+      ignore_errors: true
+      become: true
+
     - name: Ensure repo directory exists
       ansible.builtin.file:
         path: "{{ ros2_repo_dest }}"
