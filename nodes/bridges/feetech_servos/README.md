@@ -55,13 +55,60 @@ Example: `poetry run python scripts/set_servo_id.py --device /dev/ttyUSB0 --new-
 
 ### calibrate_servos.py
 
-Interactive calibration for arm joints (e.g. 6-DOF arm). Disables torque, prompts for neutral then min/max range per joint, writes limits to servos, and outputs JSON.
+CLI with subcommands for calibration, register read/write, and min/max limit management. All single-servo commands accept `--device` (required), `--baudrate` (default 1000000), and `--id` (default 1) for the servo ID.
 
-- `--device` (required): Serial device path.
-- `--baudrate` (default 1000000): Baudrate.
-- `--output` (required): Path for output JSON file.
-- `--expected-joints` (default 6): Expected number of joints; script exits if fewer are found.
+**Subcommands:**
 
-Output JSON shape: `{ "<servo_id>": { "min": <steps>, "center": <steps>, "max": <steps> } }` (keys are string IDs).
+- **`calibrate`** — Interactive calibration for arm joints (e.g. 6-DOF). Disables torque, prompts for neutral then min/max range per joint, writes limits to servos, outputs JSON.
+  - `--device`, `--baudrate`, `--output` (required), `--expected-joints` (default 6).
+  - Output JSON: `{ "<servo_id>": { "min", "center", "max" } }` (steps).
+- **`read`** — Read one register by name or all registers. Requires either `--register <name>` or `--all`.
+- **`get`** — Same as read: get one or all registers (works for both read-only and read-write registers).
+- **`write`** — Write one register: `--register <name>` and `--value <int>`.
+- **`set`** — Same as write but for read-write registers only; refuses read-only with a detailed error (use `get` to read them).
+- **`limits-set`** — Set min/max angle limits (steps 0..4095, min ≤ max): `--min <steps>` and `--max <steps>`.
+- **`limits-get`** — Read min/max angle limits from one servo; prints JSON `{"min": <n>, "max": <n>}`.
+- **`limits-clear`** — Clear min/max limits to full range (0, 4095).
+- **`load-config`** — Load an extended JSON config file and apply to servos. Refuses if the file contains any read-only register (exits with a detailed message listing them). Legacy keys `min`/`max` map to `min_angle_limit`/`max_angle_limit`; `center` is ignored.
+- **`dump-config`** — Read all registers for one or more servos and output extended JSON (`servo_id -> { register_name: value }`). Optional `--output <path>`; otherwise prints to stdout. Use `--id 1 2 3` to dump multiple servos.
+- **`list-registers`** — Print register map (name, address, size, read_only, eprom) as JSON. No device needed.
 
-Example: `poetry run python scripts/calibrate_servos.py --device /dev/ttyUSB0 --output cal.json`
+**File-based config (extended JSON):** The format is `{ "<servo_id>": { "<register_name>": <int>, ... } }`. Use `dump-config` to produce it and `load-config --file <path>` to apply it. Only writable registers may appear in a file you load; read-only registers cause load to fail with an error.
+
+Register names match `registers.py` (e.g. `present_position`, `goal_position`, `min_angle_limit`, `max_angle_limit`, `torque_enable`). Use `list-registers` to see all.
+
+**Examples:**
+
+```bash
+# Interactive calibration (multi-joint)
+poetry run python scripts/calibrate_servos.py calibrate --device /dev/ttyUSB0 --output cal.json
+
+# Read one register from servo ID 1 (default)
+poetry run python scripts/calibrate_servos.py read --device /dev/ttyUSB0 --register present_position
+
+# Read all registers from servo ID 2
+poetry run python scripts/calibrate_servos.py read --device /dev/ttyUSB0 --id 2 --all
+
+# Write goal_position on servo 1
+poetry run python scripts/calibrate_servos.py write --device /dev/ttyUSB0 --register goal_position --value 2048
+
+# Set min/max limits on servo 1
+poetry run python scripts/calibrate_servos.py limits-set --device /dev/ttyUSB0 --id 1 --min 100 --max 4000
+
+# Read current min/max limits (JSON)
+poetry run python scripts/calibrate_servos.py limits-get --device /dev/ttyUSB0 --id 1
+
+# Clear limits to full range
+poetry run python scripts/calibrate_servos.py limits-clear --device /dev/ttyUSB0 --id 1
+
+# Get/set (get any register; set only read-write)
+poetry run python scripts/calibrate_servos.py get --device /dev/ttyUSB0 --register present_position
+poetry run python scripts/calibrate_servos.py set --device /dev/ttyUSB0 --register goal_position --value 2048
+
+# File-based config: dump all registers to JSON, then load back (file must not contain read-only registers)
+poetry run python scripts/calibrate_servos.py dump-config --device /dev/ttyUSB0 --id 1 2 --output config.json
+poetry run python scripts/calibrate_servos.py load-config --device /dev/ttyUSB0 --file config.json
+
+# List register map (no device)
+poetry run python scripts/calibrate_servos.py list-registers
+```

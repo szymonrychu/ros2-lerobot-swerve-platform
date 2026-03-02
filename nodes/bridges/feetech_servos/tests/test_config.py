@@ -131,17 +131,11 @@ def test_load_config_register_publish_interval_s(tmp_path: Path) -> None:
     cfg = load_config(p)
     assert cfg is not None
     assert cfg.register_publish_interval_s == 10.0
-    p.write_text(
-        "namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n"
-        "register_publish_interval_s: 0\n"
-    )
+    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n" "register_publish_interval_s: 0\n")
     cfg0 = load_config(p)
     assert cfg0 is not None
     assert cfg0.register_publish_interval_s == 0.0
-    p.write_text(
-        "namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n"
-        "register_publish_interval_s: 30\n"
-    )
+    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n" "register_publish_interval_s: 30\n")
     cfg30 = load_config(p)
     assert cfg30 is not None
     assert cfg30.register_publish_interval_s == 30.0
