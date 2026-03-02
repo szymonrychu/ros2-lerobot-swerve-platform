@@ -177,6 +177,6 @@ ros2_nodes:
           id: 5
         - name: joint_6
           id: 6
-          source_min_steps: 1900
-          source_max_steps: 3000
+          source_min_steps: 2045
+          source_max_steps: 3289
           command_min_steps: 1900
