@@ -133,7 +133,7 @@ ros2_nodes:
         process_noise_pos: 0.00022
         process_noise_vel: 0.014
         measurement_noise: 3e-5
-        prediction_lead_s: 0.035
+        prediction_lead_s: 0.045
         velocity_decay_per_s: 4.5
         max_prediction_time_s: 0.14
   - name: test_joint_api
@@ -147,8 +147,8 @@ ros2_nodes:
       topic: /filter/input_joint_updates
   - name: topic_scraper_api
     node_type: topic_scraper_api
-    present: false  # set true when nodes/topic_scraper_api exists in repo
-    enabled: false
+    present: true
+    enabled: true
     extra_args: --network host --ipc host
     config: |
       host: "0.0.0.0"
@@ -157,6 +157,26 @@ ros2_nodes:
       allowed_types:
         - sensor_msgs/msg/JointState
         - std_msgs/msg/String
+      observation_rules:
+        - name: leader_vs_follower
+          topics:
+            - /filter/input_joint_updates
+            - /follower/joint_states
+          type: compare
+          joint_names:
+            - joint_5
+            - joint_6
+        - name: leader_follower_oscillation
+          topics:
+            - /filter/input_joint_updates
+            - /follower/joint_states
+          type: oscillation
+          joint_names:
+            - joint_5
+            - joint_6
+          window_s: 1.0
+          variance_threshold: 1e-5
+          sign_change_min_hz: 2.0
   - name: bno095_imu
     node_type: bno095_imu
     present: true
@@ -177,10 +197,10 @@ ros2_nodes:
   - name: haptic_controller
     node_type: haptic_controller
     present: true
-    enabled: true
+    enabled: false
     extra_args: --network host --ipc host
     config: |
-      mode: resistance
+      mode: off
       gripper_joint_names:
         - joint_5
         - joint_6
@@ -190,9 +210,9 @@ ros2_nodes:
       leader_set_register_topic: /client/haptic_leader_set_register
       control_loop_hz: 100
       resistance_gains:
-        max_stiffness: 0.002
-        load_deadband: 50.0
-        max_step_per_cycle: 0.05
+        max_stiffness: 0.0008
+        load_deadband: 60.0
+        max_step_per_cycle: 0.02
         activation_velocity_threshold: 0.01
         release_delay_s: 0.15
         load_release_ratio: 0.6
