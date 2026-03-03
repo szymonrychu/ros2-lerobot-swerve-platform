@@ -10,7 +10,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
-from .config import SUPPORTED_MSG_TYPES, TopicRule
+from .config import SUPPORTED_MSG_TYPES, TopicRule, validate_relay_rules
 
 RELAY_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -59,6 +59,7 @@ def run_all_relays(
                 "Unsupported msg_type %r for rule %s -> %s; available: %s"
                 % (r.msg_type, r.source, r.dest, list(RELAY_MESSAGE_TYPES))
             )
+    validate_relay_rules(rules)
 
     class RelayNode(Node):
         """Single node that runs all topic relays (one sub+pub per rule)."""
@@ -89,6 +90,10 @@ def run_all_relays(
 
     try:
         node = RelayNode()
+        logger = node.get_logger()
+        logger.info("master2master relay rules (direction=in: remote->local, out: local->remote):")
+        for rule in rules:
+            logger.info("  [%s] %s -> %s type=%s" % (rule.direction, rule.source, rule.dest, rule.msg_type))
         for rule in rules:
             node.add_relay(rule)
 

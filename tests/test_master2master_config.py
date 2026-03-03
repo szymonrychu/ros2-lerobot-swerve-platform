@@ -12,10 +12,12 @@ if _nodes_master2master.exists():
 
 from master2master.config import (  # noqa: E402
     ConfigError,
+    TopicRule,
     load_config,
     load_config_from_dict,
     normalize_topic,
     parse_rule_entry,
+    validate_relay_rules,
 )
 
 
@@ -135,3 +137,22 @@ def test_parse_rule_entry_invalid_type_raises() -> None:
         parse_rule_entry(123, 0)
     with pytest.raises(ConfigError, match="expected dict or str"):
         parse_rule_entry([], 1)
+
+
+def test_validate_relay_rules_allows_acyclic_rules() -> None:
+    """validate_relay_rules accepts rules that do not re-relay own output."""
+    rules = [
+        TopicRule(source="/leader/joint_states", dest="/filter/input", direction="in", msg_type="jointstate"),
+        TopicRule(source="/client/cmds", dest="/leader/commands", direction="out", msg_type="jointstate"),
+    ]
+    validate_relay_rules(rules)
+
+
+def test_validate_relay_rules_raises_when_dest_is_source_of_another() -> None:
+    """validate_relay_rules raises when one rule's dest is another's source (re-relay loop)."""
+    rules = [
+        TopicRule(source="/a", dest="/b", direction="in", msg_type="string"),
+        TopicRule(source="/b", dest="/c", direction="out", msg_type="string"),
+    ]
+    with pytest.raises(ValueError, match="Relay loop guard"):
+        validate_relay_rules(rules)

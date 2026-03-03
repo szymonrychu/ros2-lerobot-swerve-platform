@@ -17,14 +17,14 @@ See `config.example.yaml`. Top-level key `topics` (or `topic_proxy`) with a list
 
 - **source** (or **from**): topic to subscribe to.
 - **dest** (or **to**): topic to publish to (defaults to source if omitted).
-- **direction:** `in` (server → client) or `out` (client → server); used for documentation / filtering later.
+- **direction:** `in` (server → client) or `out` (client → server); logged at startup for diagnostics. At runtime, a relay loop guard ensures no rule's `dest` is the `source` of another rule (prevents re-relaying own output and feedback amplification).
 
 Supported relay types: **`std_msgs/String`** (default) and **`sensor_msgs/JointState`** (set `type: JointState` in config). Extending to more types is done by adding type-aware relays in `proxy.py`.
 
 ## Code layout
 
 - **`master2master/config.py`** — Load and validate YAML into `TopicRule` dataclasses; invalid direction/type raise `ConfigError`; unit-tested.
-- **`master2master/proxy.py`** — Single process: one rclpy node, one `MultiThreadedExecutor`, all rules as sub/pub pairs; no per-thread init/shutdown.
+- **`master2master/proxy.py`** — Single process: one rclpy node, one `MultiThreadedExecutor`, all rules as sub/pub pairs; validates rules (no dest→source loop), logs all rules with direction and type at startup, then runs relays.
 - **`master2master/__main__.py`** — Entry: load config, run relays. Exit 0 if no rules, 1 on config error.
 
 ## Build and run

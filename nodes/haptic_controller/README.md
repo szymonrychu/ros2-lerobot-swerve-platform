@@ -10,7 +10,7 @@ Client-side ROS2 node for **force-feedback (active resistance)** and **zero-G ho
 
 ## Data flow
 
-- **Leader state:** `/filter/input_joint_updates` (leader joint_states forwarded by master2master to client).
+- **Leader state:** `/filter/input_joint_updates` (leader joint_states forwarded by master2master to client). During haptic/teleop evaluation, use only one source for this topic (e.g. master2master from leader); do not publish from the test_joint_api to the same topic at the same time to avoid conflicting inputs.
 - **Follower state:** `/follower/joint_states` (must include `effort` for gripper joints; set `publish_effort_joints` on the follower feetech bridge).
 - **Leader commands:** Node publishes to `/client/haptic_leader_commands`; master2master relays this to `/leader/joint_commands` on the server (direction **out**).
 
@@ -29,6 +29,11 @@ Config file path: `HAPTIC_CONTROLLER_CONFIG` or `/etc/ros2/haptic_controller/con
 | `resistance_gains.max_stiffness` | Virtual stiffness (position delta per unit load) | `0.002` |
 | `resistance_gains.load_deadband` | Follower load below this = no resistance | `50.0` |
 | `resistance_gains.max_step_per_cycle` | Max position step per cycle (safety) | `0.05` |
+| `resistance_gains.activation_velocity_threshold` | Min closing velocity to apply resistance | `0.01` |
+| `resistance_gains.release_delay_s` | Delay after last resistance before torque off | `0.15` |
+| `resistance_gains.load_release_ratio` | Hysteresis: release when load < deadband × this | `0.6` |
+| `resistance_gains.activation_debounce_cycles` | Consecutive cycles active before enabling torque | `2` |
+| `delay_safety_max_skew_s` | Max leader/follower reception time skew; above this, resistance drops to passive | `0.4` |
 | `watchdog_timeout_s` | No publish if leader/follower state older than this | `0.5` |
 
 ## Deployment

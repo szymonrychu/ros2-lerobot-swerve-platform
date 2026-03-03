@@ -175,6 +175,9 @@ ros2_nodes:
         max_step_per_cycle: 0.05
         activation_velocity_threshold: 0.01
         release_delay_s: 0.15
+        load_release_ratio: 0.6
+        activation_debounce_cycles: 2
+      delay_safety_max_skew_s: 0.4
       watchdog_timeout_s: 0.5
   - name: gripper_uvc_camera
     node_type: uvc_camera

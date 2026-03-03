@@ -119,3 +119,27 @@ poetry run python scripts/calibrate_servos.py load-config --device /dev/ttyUSB0 
 # List register map (no device)
 poetry run python scripts/calibrate_servos.py list-registers
 ```
+
+### Leader gripper tuning for haptics
+
+When using the leader arm with the haptic controller (resistance or zero-G), the leader gripper servos (IDs 5 and 6) benefit from reduced stiffness and capped torque so the arm stays backdrivable and does not feel locked. A **gripper-only tuning profile** is provided so you can apply it reproducibly.
+
+**Profile file:** `leader_gripper_haptic_profile.json` in this directory. It sets only the gripper servo IDs (5 and 6) and only writable registers used for stability and backdrivability:
+
+- **PID:** Lower `p_coefficient`, modest `d_coefficient`, `i_coefficient` 0 (reduces stiffness, adds damping).
+- **Deadband:** `cw_dead_zone` and `ccw_dead_zone` (small value, e.g. 3) to avoid jitter at rest.
+- **Current/torque limits:** `protection_current`, `max_torque_limit`, `protective_torque` (capped for backdrivability).
+- **Motion:** `acceleration`, `goal_speed` (reduced for smoother response during contact).
+
+**Workflow:**
+
+1. On the **server** (leader machine), connect the leader arm and identify the serial device (e.g. `/dev/serial/by-id/usb-...`).
+2. Apply the profile (writes to EEPROM; servos 5 and 6 only):
+   ```bash
+   cd nodes/bridges/feetech_servos
+   poetry run python scripts/calibrate_servos.py load-config --device /dev/serial/by-id/usb-... --file leader_gripper_haptic_profile.json
+   ```
+3. Restart the leader feetech_servos node so it runs with the new register values.
+4. Tune if needed: use `dump-config --id 5 6` to read current values, edit the JSON, then `load-config` again. Keep haptic tests **gripper-only** (do not move other joints during tuning).
+
+The same profile can be used as a reference for ROS2 `set_register` (e.g. from the haptic controller or external tools) if you prefer to apply values at runtime instead of EEPROM.

@@ -156,6 +156,24 @@ def load_config(path: Path | None = None) -> list[TopicRule]:
     return rules
 
 
+def validate_relay_rules(rules: list[TopicRule]) -> None:
+    """Validate rules to prevent self-echo and accidental feedback loops.
+
+    Ensures no rule's dest is the source of a different rule (would re-relay our
+    own output and can amplify feedback with delay).
+
+    Raises:
+        ValueError: If any rule.dest equals another rule.source.
+    """
+    for i, r in enumerate(rules):
+        for j, s in enumerate(rules):
+            if i != j and r.dest == s.source:
+                raise ValueError(
+                    "Relay loop guard: rule dest %r is source of another rule; "
+                    "would re-relay own output. Fix config (direction in/out)." % r.dest
+                )
+
+
 def load_config_from_dict(data: dict[str, Any]) -> list[TopicRule]:
     """Build and validate TopicRule list from a dict (for tests and programmatic use).
 
@@ -196,4 +214,5 @@ __all__ = [
     "load_config_from_dict",
     "normalize_topic",
     "parse_rule_entry",
+    "validate_relay_rules",
 ]

@@ -15,6 +15,28 @@ def should_apply_resistance(
     return follower_load > load_deadband and leader_vel > activation_velocity_threshold
 
 
+def should_apply_resistance_hysteresis(
+    leader_vel: float,
+    follower_load: float,
+    load_deadband: float,
+    activation_velocity_threshold: float,
+    load_release_ratio: float,
+    was_active: bool,
+) -> bool:
+    """Like should_apply_resistance but with load hysteresis to reduce chatter.
+
+    Activate when load > load_deadband and leader_vel > threshold.
+    Once active, stay active until load < load_deadband * load_release_ratio.
+    load_release_ratio should be in (0, 1), e.g. 0.6.
+    """
+    release_threshold = load_deadband * load_release_ratio
+    if was_active:
+        if follower_load < release_threshold:
+            return False
+        return leader_vel > activation_velocity_threshold
+    return follower_load > load_deadband and leader_vel > activation_velocity_threshold
+
+
 def compute_resistance_target(
     leader_pos: float,
     leader_vel: float,

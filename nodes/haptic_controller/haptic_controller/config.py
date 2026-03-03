@@ -33,6 +33,9 @@ class HapticConfig:
         resistance_max_step_per_cycle: Max position step (pseudo-radians) per cycle to avoid sudden jumps.
         resistance_activation_velocity_threshold: Minimum closing velocity to apply resistance.
         resistance_release_delay_s: Delay after last active resistance before torque is disabled again.
+        resistance_load_release_ratio: Hysteresis: release when load < deadband * this (e.g. 0.6).
+        resistance_activation_debounce_cycles: Consecutive cycles resistance must be active before enabling torque.
+        delay_safety_max_skew_s: Max leader/follower reception time skew; above this, resistance drops to passive.
         watchdog_timeout_s: If no leader or follower state for this long, stop publishing (safety).
     """
 
@@ -48,6 +51,9 @@ class HapticConfig:
     resistance_max_step_per_cycle: float
     resistance_activation_velocity_threshold: float
     resistance_release_delay_s: float
+    resistance_load_release_ratio: float
+    resistance_activation_debounce_cycles: int
+    delay_safety_max_skew_s: float
     watchdog_timeout_s: float
 
 
@@ -91,6 +97,9 @@ def load_config(path: Path | None = None) -> HapticConfig | None:
     resistance_max_step_per_cycle = float(gains.get("max_step_per_cycle", 0.05))
     resistance_activation_velocity_threshold = float(gains.get("activation_velocity_threshold", 0.01))
     resistance_release_delay_s = float(gains.get("release_delay_s", 0.15))
+    resistance_load_release_ratio = float(gains.get("load_release_ratio", 0.6))
+    resistance_activation_debounce_cycles = int(gains.get("activation_debounce_cycles", 2))
+    delay_safety_max_skew_s = float(data.get("delay_safety_max_skew_s", 0.4))
     watchdog_timeout_s = float(data.get("watchdog_timeout_s", 0.5))
     return HapticConfig(
         mode=mode,
@@ -105,6 +114,9 @@ def load_config(path: Path | None = None) -> HapticConfig | None:
         resistance_max_step_per_cycle=max(0.0, resistance_max_step_per_cycle),
         resistance_activation_velocity_threshold=max(0.0, resistance_activation_velocity_threshold),
         resistance_release_delay_s=max(0.0, resistance_release_delay_s),
+        resistance_load_release_ratio=max(0.01, min(0.99, resistance_load_release_ratio)),
+        resistance_activation_debounce_cycles=max(1, resistance_activation_debounce_cycles),
+        delay_safety_max_skew_s=max(0.05, delay_safety_max_skew_s),
         watchdog_timeout_s=max(0.05, watchdog_timeout_s),
     )
 

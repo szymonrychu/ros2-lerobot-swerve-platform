@@ -10,7 +10,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
 from .config import MODE_OFF, MODE_RESISTANCE, MODE_ZERO_G, HapticConfig
-from .resistance import compute_resistance_target, should_apply_resistance
+from .resistance import compute_resistance_target, should_apply_resistance_hysteresis
 
 HAPTIC_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -46,6 +46,8 @@ def run_haptic_node(config: HapticConfig) -> None:
     resistance_last_active_s: float = 0.0
     resistance_torque_enabled: bool = False
     resistance_initialized: bool = False
+    resistance_was_active_per_joint: dict[str, bool] = {}  # hysteresis state
+    resistance_active_cycles: int = 0  # debounce: consecutive cycles active
 
     def on_leader(msg: JointState) -> None:
         nonlocal leader_names_order, leader_stamp, last_leader_time
@@ -140,6 +142,11 @@ def run_haptic_node(config: HapticConfig) -> None:
             resistance_torque_enabled = False
             resistance_initialized = True
 
+        # Delay safety: in resistance mode, drop to passive if leader/follower stamp skew too high
+        skip_resistance_due_to_skew = (
+            config.mode == MODE_RESISTANCE and abs(leader_stamp - follower_stamp) > config.delay_safety_max_skew_s
+        )
+
         positions: list[float] = []
         out_names: list[str] = []
         resistance_active = False
@@ -149,14 +156,22 @@ def run_haptic_node(config: HapticConfig) -> None:
                 out_names.append(name)
                 positions.append(pos)
             elif config.mode == MODE_RESISTANCE:
+                if skip_resistance_due_to_skew:
+                    resistance_was_active_per_joint[name] = False
+                    continue
                 vel = leader_velocity.get(name, 0.0)
                 load = follower_load.get(name, 0.0)
-                if should_apply_resistance(
+                was_active = resistance_was_active_per_joint.get(name, False)
+                active = should_apply_resistance_hysteresis(
                     vel,
                     load,
                     config.resistance_load_deadband,
                     config.resistance_activation_velocity_threshold,
-                ):
+                    config.resistance_load_release_ratio,
+                    was_active,
+                )
+                resistance_was_active_per_joint[name] = active
+                if active:
                     resistance_active = True
                     out_names.append(name)
                     pos = compute_resistance_target(
@@ -175,12 +190,21 @@ def run_haptic_node(config: HapticConfig) -> None:
         if config.mode == MODE_RESISTANCE:
             if resistance_active:
                 resistance_last_active_s = now
-                if not resistance_torque_enabled:
+                resistance_active_cycles = min(
+                    resistance_active_cycles + 1,
+                    config.resistance_activation_debounce_cycles + 1,
+                )
+                if (
+                    not resistance_torque_enabled
+                    and resistance_active_cycles >= config.resistance_activation_debounce_cycles
+                ):
                     set_gripper_torque(True)
                     resistance_torque_enabled = True
-            elif resistance_torque_enabled and now - resistance_last_active_s >= config.resistance_release_delay_s:
-                set_gripper_torque(False)
-                resistance_torque_enabled = False
+            else:
+                resistance_active_cycles = 0
+                if resistance_torque_enabled and (now - resistance_last_active_s >= config.resistance_release_delay_s):
+                    set_gripper_torque(False)
+                    resistance_torque_enabled = False
 
         if out_names and positions:
             out = JointState()

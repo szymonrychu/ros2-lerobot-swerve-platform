@@ -2,7 +2,11 @@
 
 import pytest
 
-from haptic_controller.resistance import compute_resistance_target, should_apply_resistance
+from haptic_controller.resistance import (
+    compute_resistance_target,
+    should_apply_resistance,
+    should_apply_resistance_hysteresis,
+)
 
 
 def test_should_apply_resistance_requires_contact_and_closing_motion() -> None:
@@ -44,3 +48,17 @@ def test_compute_resistance_target_no_cap_when_delta_small() -> None:
     # 0.001 * (100 - 50) = 0.05, max_step 0.1 -> delta 0.05
     out = compute_resistance_target(2.0, 0.1, 100.0, 50.0, 0.001, 0.1)
     assert out == pytest.approx(2.0 - 0.05, rel=1e-5)
+
+
+def test_should_apply_resistance_hysteresis_activates_above_deadband() -> None:
+    """Hysteresis version activates when load > deadband and vel > threshold."""
+    assert should_apply_resistance_hysteresis(0.02, 100.0, 50.0, 0.01, 0.6, False) is True
+    assert should_apply_resistance_hysteresis(0.005, 100.0, 50.0, 0.01, 0.6, False) is False
+
+
+def test_should_apply_resistance_hysteresis_stays_active_until_release() -> None:
+    """Once active, stays active until load < deadband * release_ratio."""
+    # Was active; load 40, deadband 50, ratio 0.6 -> release at 30; 40 > 30 so stay active (if vel ok)
+    assert should_apply_resistance_hysteresis(0.02, 40.0, 50.0, 0.01, 0.6, True) is True
+    # Was active; load 25 < 30 -> release
+    assert should_apply_resistance_hysteresis(0.02, 25.0, 50.0, 0.01, 0.6, True) is False

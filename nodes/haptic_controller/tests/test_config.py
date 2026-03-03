@@ -42,6 +42,9 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.control_loop_hz == 100.0
     assert cfg.resistance_activation_velocity_threshold == 0.01
     assert cfg.resistance_release_delay_s == 0.15
+    assert cfg.resistance_load_release_ratio == 0.6
+    assert cfg.resistance_activation_debounce_cycles == 2
+    assert cfg.delay_safety_max_skew_s == 0.4
     assert cfg.watchdog_timeout_s == 0.5
 
 
@@ -57,6 +60,9 @@ def test_load_config_resistance_mode(tmp_path: Path) -> None:
         "  max_step_per_cycle: 0.08\n"
         "  activation_velocity_threshold: 0.015\n"
         "  release_delay_s: 0.2\n"
+        "  load_release_ratio: 0.7\n"
+        "  activation_debounce_cycles: 3\n"
+        "delay_safety_max_skew_s: 0.3\n"
         "watchdog_timeout_s: 0.3\n"
     )
     cfg = load_config(p)
@@ -67,6 +73,9 @@ def test_load_config_resistance_mode(tmp_path: Path) -> None:
     assert cfg.resistance_max_step_per_cycle == 0.08
     assert cfg.resistance_activation_velocity_threshold == 0.015
     assert cfg.resistance_release_delay_s == 0.2
+    assert cfg.resistance_load_release_ratio == 0.7
+    assert cfg.resistance_activation_debounce_cycles == 3
+    assert cfg.delay_safety_max_skew_s == 0.3
     assert cfg.watchdog_timeout_s == 0.3
 
 
