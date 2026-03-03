@@ -68,6 +68,91 @@ observation_rules:
 - Adds/removes subscriptions as topics appear/disappear.
 - Stores only the last sample per topic (plus timing metadata and sequence).
 
+## Collector usage examples (`scripts/topic_scraper_collect.py`)
+
+The collector polls one or more scraper instances and prints merged NDJSON records.
+Each record includes:
+
+- `timestamp_ns` (collector wall-clock timestamp)
+- `source` (the `--source` label)
+- `topic`
+- `received_at_ns`, `header_stamp_ns`, `sample_seq` (from scraper payload)
+- `value` (result of your jq selector)
+
+### Basic examples
+
+```bash
+# 1) One host, one topic, one value
+python scripts/topic_scraper_collect.py \
+  --source client=http://192.168.1.34:18100 \
+  --select /leader/joint_states:.position[5] \
+  --interval 0.2
+
+# 2) Single snapshot and exit
+python scripts/topic_scraper_collect.py \
+  --source client=http://192.168.1.34:18100 \
+  --select /follower/joint_states:.position[5] \
+  --once
+```
+
+### Advanced examples
+
+```bash
+# 3) Merge client + server streams
+python scripts/topic_scraper_collect.py \
+  --source client=http://192.168.1.34:18100 \
+  --source server=http://192.168.1.33:18100 \
+  --select /leader/joint_states:.position[5] \
+  --interval 0.1
+
+# 4) Track multiple topics in one run
+python scripts/topic_scraper_collect.py \
+  --source client=http://192.168.1.34:18100 \
+  --select /filter/input_joint_updates:.position[5] \
+  --select /follower/joint_states:.position[5] \
+  --select /follower/joint_states:.effort[5] \
+  --interval 0.1
+
+# 5) Emit compact objects from jq
+python scripts/topic_scraper_collect.py \
+  --source client=http://192.168.1.34:18100 \
+  --select '/follower/joint_states:{joint5_pos: .position[5], joint5_effort: .effort[5]}' \
+  --interval 0.1
+```
+
+### Expert examples
+
+```bash
+# 6) Leader-follower skew telemetry across hosts
+python scripts/topic_scraper_collect.py \
+  --source client=http://192.168.1.34:18100 \
+  --source server=http://192.168.1.33:18100 \
+  --select /filter/input_joint_updates:.position[5] \
+  --select /follower/joint_states:.position[5] \
+  --interval 0.05
+
+# 7) Live projection for quick terminal analysis
+python scripts/topic_scraper_collect.py \
+  --source client=http://192.168.1.34:18100 \
+  --source server=http://192.168.1.33:18100 \
+  --select /filter/input_joint_updates:.position[5] \
+  --select /follower/joint_states:.position[5] \
+  --interval 0.05 | jq -c '{t: .timestamp_ns, src: .source, topic: .topic, v: .value, seq: .sample_seq}'
+
+# 8) Capture to file for offline comparison
+python scripts/topic_scraper_collect.py \
+  --source client=http://192.168.1.34:18100 \
+  --source server=http://192.168.1.33:18100 \
+  --select /filter/input_joint_updates:.position[5] \
+  --select /follower/joint_states:.position[5] \
+  --interval 0.05 > scrape_capture.ndjson
+```
+
+Notes:
+- `--source` format: `name=url`
+- `--select` format: `/topic:jq-filter` (jq runs against `payload.message`)
+- `jq` CLI must be available on PATH
+
 ## Development
 
 Run tests and lint:
