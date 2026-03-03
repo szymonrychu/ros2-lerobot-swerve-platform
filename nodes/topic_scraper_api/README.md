@@ -85,13 +85,13 @@ Each record includes:
 # 1) One host, one topic, one value
 python scripts/topic_scraper_collect.py \
   --source client=http://192.168.1.34:18100 \
-  --select /leader/joint_states:.position[5] \
+  --select '/leader/joint_states:.position[5]' \
   --interval 0.2
 
 # 2) Single snapshot and exit
 python scripts/topic_scraper_collect.py \
   --source client=http://192.168.1.34:18100 \
-  --select /follower/joint_states:.position[5] \
+  --select '/follower/joint_states:.position[5]' \
   --once
 ```
 
@@ -102,15 +102,15 @@ python scripts/topic_scraper_collect.py \
 python scripts/topic_scraper_collect.py \
   --source client=http://192.168.1.34:18100 \
   --source server=http://192.168.1.33:18100 \
-  --select /leader/joint_states:.position[5] \
+  --select '/leader/joint_states:.position[5]' \
   --interval 0.1
 
 # 4) Track multiple topics in one run
 python scripts/topic_scraper_collect.py \
   --source client=http://192.168.1.34:18100 \
-  --select /filter/input_joint_updates:.position[5] \
-  --select /follower/joint_states:.position[5] \
-  --select /follower/joint_states:.effort[5] \
+  --select '/filter/input_joint_updates:.position[5]' \
+  --select '/follower/joint_states:.position[5]' \
+  --select '/follower/joint_states:.effort[5]' \
   --interval 0.1
 
 # 5) Emit compact objects from jq
@@ -127,30 +127,32 @@ python scripts/topic_scraper_collect.py \
 python scripts/topic_scraper_collect.py \
   --source client=http://192.168.1.34:18100 \
   --source server=http://192.168.1.33:18100 \
-  --select /filter/input_joint_updates:.position[5] \
-  --select /follower/joint_states:.position[5] \
+  --select '/filter/input_joint_updates:.position[5]' \
+  --select '/follower/joint_states:.position[5]' \
   --interval 0.05
 
 # 7) Live projection for quick terminal analysis
 python scripts/topic_scraper_collect.py \
   --source client=http://192.168.1.34:18100 \
   --source server=http://192.168.1.33:18100 \
-  --select /filter/input_joint_updates:.position[5] \
-  --select /follower/joint_states:.position[5] \
+  --select '/filter/input_joint_updates:.position[5]' \
+  --select '/follower/joint_states:.position[5]' \
   --interval 0.05 | jq -c '{t: .timestamp_ns, src: .source, topic: .topic, v: .value, seq: .sample_seq}'
 
 # 8) Capture to file for offline comparison
 python scripts/topic_scraper_collect.py \
   --source client=http://192.168.1.34:18100 \
   --source server=http://192.168.1.33:18100 \
-  --select /filter/input_joint_updates:.position[5] \
-  --select /follower/joint_states:.position[5] \
+  --select '/filter/input_joint_updates:.position[5]' \
+  --select '/follower/joint_states:.position[5]' \
   --interval 0.05 > scrape_capture.ndjson
 ```
 
 Notes:
 - `--source` format: `name=url`
 - `--select` format: `/topic:jq-filter` (jq runs against `payload.message`)
+- In `zsh`, quote `--select` values (single quotes recommended), otherwise
+  selectors containing brackets like `.position[5]` may be treated as globs.
 - `jq` CLI must be available on PATH
 
 ## Development
