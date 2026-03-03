@@ -9,14 +9,12 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 - **`site.yml`** — Full site: provision all hosts, then deploy ROS2 nodes on server and client (includes playbooks below). Run `ansible-playbook -i inventory site.yml`.
 - **`playbooks/`**
   - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, then Docker (and Compose plugin). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
-  - **`deploy_monitoring.yml`** — Deploy only the monitoring stack (Alloy, Mimir, Loki, Grafana) on selected hosts. Run `ansible-playbook -i inventory playbooks/deploy_monitoring.yml`; use `-l server` or `-l client` to limit to a host group.
   - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build or pull each node’s container, deploy config, install systemd unit, enable/start or disable/stop. Containers are built on each Pi from the cloned repo (no CI/registry by default). Set `node_build_on_controller: true` when you have a registry to build on the controller and pull on nodes.
 - **`roles/`**
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
   - **`network`** — Netplan: primary interface gets static IP (ethernet or wlan, auto-detected); other interfaces DHCP; IPv6 disabled. Runs when `network_address` and `network_gateway` are set; for primary WiFi set `network_wifi_ssid` (and optionally `network_wifi_password`).
   - **`hostname`** — Set system hostname (hostnamectl, `/etc/hostname`, `127.0.1.1` in `/etc/hosts`). Runs only when `hostname` is set.
   - **`docker`** — Docker CE + Docker Compose plugin on Ubuntu 24.04.
-  - **`monitoring`** — Alloy, Mimir, Loki, Grafana in one role: docker-compose + systemd. Alloy collects Docker container logs and cAdvisor metrics (scrape interval configurable, default 1s), sends metrics to Mimir and logs to Loki. Mimir and Loki use local filesystem with configurable retention (default 8h). Grafana listens on a configurable port (default 8080), admin/admin, with Mimir and Loki as datasources. Applied to **all hosts** (server and client); each host runs its own stack (see `site.yml`). Variables: `monitoring_mimir_retention`, `monitoring_loki_retention`, `monitoring_alloy_scrape_interval`, `monitoring_grafana_http_port`, `monitoring_data_dir`; image tags in role defaults.
   - **`ros2_node_deploy`** — For each node: build image from repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
   - **`ros2_node_verify`** — Runs after all nodes are deployed: waits for services to settle, checks each present+enabled node’s systemd unit is active, waits again, then re-checks (stability). Used by `deploy_nodes_server.yml` and `deploy_nodes_client.yml`. Variables: `ros2_node_verify_settle_seconds` (default 10), `ros2_node_verify_stable_seconds` (default 5).
 
@@ -109,6 +107,22 @@ Leader joint states are relayed and filtered before reaching the follower feetec
 - **Client:** `lerobot_follower` (feetech) subscribes to `/follower/joint_commands` and drives the servos.
 
 So both master2master and the test API feed the same filter → feetech chain.
+
+### Topic scraper debug API (client + server)
+
+The **topic_scraper_api** node runs on both hosts and exposes:
+
+- `GET /topics` for topic metadata (topic, endpoint, type, sample status)
+- `GET /topics/<topic-path>` for latest sample payload plus timing fields (`header_stamp_ns`, `received_at_ns`)
+
+Default port is `18100` and it runs with host networking. Example:
+
+```bash
+curl http://192.168.1.34:18100/topics
+curl http://192.168.1.33:18100/topics/leader/joint_states
+```
+
+Use `scripts/topic_scraper_collect.py` to poll both hosts and emit merged NDJSON for dynamic comparisons.
 
 ### IMU (client)
 

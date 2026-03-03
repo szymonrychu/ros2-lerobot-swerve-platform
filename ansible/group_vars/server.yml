@@ -3,13 +3,6 @@
 # Network (netplan) and hostname — set for each host or here for the group:
 network_address: "192.168.1.33/24"
 
-# Monitoring stack (Alloy, Mimir, Loki, Grafana). Override in host_vars if needed.
-monitoring_mimir_retention: "8h"
-monitoring_loki_retention: "8h"
-monitoring_alloy_scrape_interval: "1s"
-monitoring_grafana_http_port: 8080
-monitoring_data_dir: /var/lib/monitoring
-
 network_gateway: "192.168.1.1"
 network_nameservers: ["1.1.1.1"]
 hostname: "server-rpi4"
@@ -30,6 +23,14 @@ ros2_node_type_defaults:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
+  topic_scraper_api:
+    image: harbor.szymonrichert.pl/containers/server-topic-scraper-api:latest
+    build_context: nodes/topic_scraper_api
+    config_path: /etc/ros2/topic_scraper_api
+    env:
+      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
 
 # Nodes to deploy: name, node_type, present, enabled, config.
 ros2_nodes:
@@ -68,3 +69,15 @@ ros2_nodes:
           id: 5
         - name: joint_6
           id: 6
+  - name: topic_scraper_api
+    node_type: topic_scraper_api
+    present: true
+    enabled: true
+    extra_args: --network host --ipc host
+    config: |
+      host: "0.0.0.0"
+      port: 18100
+      topic_refresh_interval_s: 0.25
+      allowed_types:
+        - sensor_msgs/msg/JointState
+        - std_msgs/msg/String
