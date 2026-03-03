@@ -1,3 +1,4 @@
+from array import array
 from dataclasses import dataclass
 
 from topic_scraper_api.serializer import ros_message_to_builtin, ros_time_to_ns
@@ -38,3 +39,8 @@ def test_ros_message_to_builtin_nested() -> None:
     assert data["header"]["frame_id"] == "x"
     assert data["name"] == ["joint_5", "joint_6"]
     assert data["position"] == [0.1, 0.2]
+
+
+def test_ros_message_to_builtin_array_values() -> None:
+    data = ros_message_to_builtin(array("d", [0.1, 0.2, 0.3]))
+    assert data == [0.1, 0.2, 0.3]

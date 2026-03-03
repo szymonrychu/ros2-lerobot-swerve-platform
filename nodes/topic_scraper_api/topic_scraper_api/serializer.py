@@ -1,5 +1,6 @@
 """ROS message serializer helpers."""
 
+from array import array
 from typing import Any
 
 
@@ -38,6 +39,8 @@ def ros_message_to_builtin(value: Any) -> Any:
     if isinstance(value, list):
         return [ros_message_to_builtin(item) for item in value]
     if isinstance(value, tuple):
+        return [ros_message_to_builtin(item) for item in value]
+    if isinstance(value, array):
         return [ros_message_to_builtin(item) for item in value]
     if isinstance(value, dict):
         return {str(k): ros_message_to_builtin(v) for k, v in value.items()}
