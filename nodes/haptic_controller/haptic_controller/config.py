@@ -26,11 +26,14 @@ class HapticConfig:
         leader_state_topic: Topic for leader JointState (on client typically /filter/input_joint_updates).
         follower_state_topic: Topic for follower JointState (must include effort for resistance mode).
         leader_cmd_topic: Topic to publish leader commands (relayed to /leader/joint_commands).
+        leader_set_register_topic: Topic to publish leader register writes (relayed to /leader/set_register).
         control_loop_hz: Loop rate for publishing leader commands when mode is resistance or zero_g.
-    resistance_max_stiffness: Max virtual stiffness (position delta per unit load) for resistance mode.
-    resistance_load_deadband: Follower load below this is treated as no contact (no resistance).
-    resistance_max_step_per_cycle: Max position step (pseudo-radians) per cycle to avoid sudden jumps.
-    watchdog_timeout_s: If no leader or follower state for this long, stop publishing (safety).
+        resistance_max_stiffness: Max virtual stiffness (position delta per unit load) for resistance mode.
+        resistance_load_deadband: Follower load below this is treated as no contact (no resistance).
+        resistance_max_step_per_cycle: Max position step (pseudo-radians) per cycle to avoid sudden jumps.
+        resistance_activation_velocity_threshold: Minimum closing velocity to apply resistance.
+        resistance_release_delay_s: Delay after last active resistance before torque is disabled again.
+        watchdog_timeout_s: If no leader or follower state for this long, stop publishing (safety).
     """
 
     mode: str
@@ -38,10 +41,13 @@ class HapticConfig:
     leader_state_topic: str
     follower_state_topic: str
     leader_cmd_topic: str
+    leader_set_register_topic: str
     control_loop_hz: float
     resistance_max_stiffness: float
     resistance_load_deadband: float
     resistance_max_step_per_cycle: float
+    resistance_activation_velocity_threshold: float
+    resistance_release_delay_s: float
     watchdog_timeout_s: float
 
 
@@ -71,6 +77,7 @@ def load_config(path: Path | None = None) -> HapticConfig | None:
     leader_state_topic = (data.get("leader_state_topic") or "/filter/input_joint_updates").strip()
     follower_state_topic = (data.get("follower_state_topic") or "/follower/joint_states").strip()
     leader_cmd_topic = (data.get("leader_cmd_topic") or "/client/haptic_leader_commands").strip()
+    leader_set_register_topic = (data.get("leader_set_register_topic") or "/client/haptic_leader_set_register").strip()
     raw_hz = data.get("control_loop_hz", 100.0)
     try:
         control_loop_hz = max(1.0, float(raw_hz))
@@ -82,6 +89,8 @@ def load_config(path: Path | None = None) -> HapticConfig | None:
     resistance_max_stiffness = float(gains.get("max_stiffness", 0.002))
     resistance_load_deadband = float(gains.get("load_deadband", 50.0))
     resistance_max_step_per_cycle = float(gains.get("max_step_per_cycle", 0.05))
+    resistance_activation_velocity_threshold = float(gains.get("activation_velocity_threshold", 0.01))
+    resistance_release_delay_s = float(gains.get("release_delay_s", 0.15))
     watchdog_timeout_s = float(data.get("watchdog_timeout_s", 0.5))
     return HapticConfig(
         mode=mode,
@@ -89,10 +98,13 @@ def load_config(path: Path | None = None) -> HapticConfig | None:
         leader_state_topic=leader_state_topic,
         follower_state_topic=follower_state_topic,
         leader_cmd_topic=leader_cmd_topic,
+        leader_set_register_topic=leader_set_register_topic,
         control_loop_hz=control_loop_hz,
         resistance_max_stiffness=max(0.0, resistance_max_stiffness),
         resistance_load_deadband=max(0.0, resistance_load_deadband),
         resistance_max_step_per_cycle=max(0.0, resistance_max_step_per_cycle),
+        resistance_activation_velocity_threshold=max(0.0, resistance_activation_velocity_threshold),
+        resistance_release_delay_s=max(0.0, resistance_release_delay_s),
         watchdog_timeout_s=max(0.05, watchdog_timeout_s),
     )
 

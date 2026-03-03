@@ -1,4 +1,18 @@
-"""Resistance control law for haptic force-feedback (no ROS2 dependency)."""
+"""Resistance control law helpers for haptic force-feedback (no ROS2 dependency)."""
+
+
+def should_apply_resistance(
+    leader_vel: float,
+    follower_load: float,
+    load_deadband: float,
+    activation_velocity_threshold: float,
+) -> bool:
+    """Return True when resistance should be rendered.
+
+    Resistance is rendered only when follower load indicates contact and
+    leader motion is in the closing direction with sufficient speed.
+    """
+    return follower_load > load_deadband and leader_vel > activation_velocity_threshold
 
 
 def compute_resistance_target(

@@ -2,7 +2,14 @@
 
 import pytest
 
-from haptic_controller.resistance import compute_resistance_target
+from haptic_controller.resistance import compute_resistance_target, should_apply_resistance
+
+
+def test_should_apply_resistance_requires_contact_and_closing_motion() -> None:
+    """Resistance is active only with load above deadband and closing velocity above threshold."""
+    assert should_apply_resistance(0.02, 100.0, 50.0, 0.01) is True
+    assert should_apply_resistance(0.005, 100.0, 50.0, 0.01) is False
+    assert should_apply_resistance(0.02, 40.0, 50.0, 0.01) is False
 
 
 def test_compute_resistance_target_no_load_returns_leader_pos() -> None:

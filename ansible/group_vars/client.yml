@@ -100,6 +100,10 @@ ros2_nodes:
           dest: /leader/joint_commands
           direction: out
           type: JointState
+        - source: /client/haptic_leader_set_register
+          dest: /leader/set_register
+          direction: out
+          type: String
   - name: filter_node
     node_type: filter_node
     present: true
@@ -153,21 +157,24 @@ ros2_nodes:
   - name: haptic_controller
     node_type: haptic_controller
     present: true
-    enabled: false
+    enabled: true
     extra_args: --network host --ipc host
     config: |
-      mode: off
+      mode: resistance
       gripper_joint_names:
         - joint_5
         - joint_6
       leader_state_topic: /filter/input_joint_updates
       follower_state_topic: /follower/joint_states
       leader_cmd_topic: /client/haptic_leader_commands
+      leader_set_register_topic: /client/haptic_leader_set_register
       control_loop_hz: 100
       resistance_gains:
         max_stiffness: 0.002
         load_deadband: 50.0
         max_step_per_cycle: 0.05
+        activation_velocity_threshold: 0.01
+        release_delay_s: 0.15
       watchdog_timeout_s: 0.5
   - name: gripper_uvc_camera
     node_type: uvc_camera

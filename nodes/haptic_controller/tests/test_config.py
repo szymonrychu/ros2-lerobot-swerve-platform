@@ -38,7 +38,10 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.leader_state_topic == "/filter/input_joint_updates"
     assert cfg.follower_state_topic == "/follower/joint_states"
     assert cfg.leader_cmd_topic == "/client/haptic_leader_commands"
+    assert cfg.leader_set_register_topic == "/client/haptic_leader_set_register"
     assert cfg.control_loop_hz == 100.0
+    assert cfg.resistance_activation_velocity_threshold == 0.01
+    assert cfg.resistance_release_delay_s == 0.15
     assert cfg.watchdog_timeout_s == 0.5
 
 
@@ -52,6 +55,8 @@ def test_load_config_resistance_mode(tmp_path: Path) -> None:
         "  max_stiffness: 0.003\n"
         "  load_deadband: 80.0\n"
         "  max_step_per_cycle: 0.08\n"
+        "  activation_velocity_threshold: 0.015\n"
+        "  release_delay_s: 0.2\n"
         "watchdog_timeout_s: 0.3\n"
     )
     cfg = load_config(p)
@@ -60,6 +65,8 @@ def test_load_config_resistance_mode(tmp_path: Path) -> None:
     assert cfg.resistance_max_stiffness == 0.003
     assert cfg.resistance_load_deadband == 80.0
     assert cfg.resistance_max_step_per_cycle == 0.08
+    assert cfg.resistance_activation_velocity_threshold == 0.015
+    assert cfg.resistance_release_delay_s == 0.2
     assert cfg.watchdog_timeout_s == 0.3
 
 

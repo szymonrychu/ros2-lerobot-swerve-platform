@@ -1,14 +1,16 @@
 """ROS2 haptic controller node: resistance and zero-G hold for leader gripper."""
 
+import json
 import time
 
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
+from std_msgs.msg import String
 
 from .config import MODE_OFF, MODE_RESISTANCE, MODE_ZERO_G, HapticConfig
-from .resistance import compute_resistance_target
+from .resistance import compute_resistance_target, should_apply_resistance
 
 HAPTIC_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -30,6 +32,7 @@ def run_haptic_node(config: HapticConfig) -> None:
     rclpy.init()
     node = Node("haptic_controller")
     pub = node.create_publisher(JointState, config.leader_cmd_topic, HAPTIC_QOS)
+    pub_set_register = node.create_publisher(String, config.leader_set_register_topic, HAPTIC_QOS)
 
     leader_state: dict[str, float] = {}  # joint -> position
     leader_velocity: dict[str, float] = {}  # joint -> velocity (from last delta)
@@ -40,6 +43,9 @@ def run_haptic_node(config: HapticConfig) -> None:
     follower_stamp: float = 0.0
     last_leader_pos: dict[str, float] = {}
     last_leader_time: float = 0.0
+    resistance_last_active_s: float = 0.0
+    resistance_torque_enabled: bool = False
+    resistance_initialized: bool = False
 
     def on_leader(msg: JointState) -> None:
         nonlocal leader_names_order, leader_stamp, last_leader_time
@@ -91,12 +97,22 @@ def run_haptic_node(config: HapticConfig) -> None:
     )
 
     node.get_logger().info(
-        "Haptic controller: mode=%s gripper=%s leader_cmd=%s"
-        % (config.mode, config.gripper_joint_names, config.leader_cmd_topic)
+        "Haptic controller: mode=%s gripper=%s leader_cmd=%s leader_set_register=%s"
+        % (config.mode, config.gripper_joint_names, config.leader_cmd_topic, config.leader_set_register_topic)
     )
 
     control_period_s = 1.0 / max(1.0, config.control_loop_hz)
     now = time.monotonic()
+
+    def set_gripper_torque(enable: bool) -> None:
+        value = 1 if enable else 0
+        for joint_name in config.gripper_joint_names:
+            payload = {
+                "joint_name": joint_name,
+                "register": "torque_enable",
+                "value": value,
+            }
+            pub_set_register.publish(String(data=json.dumps(payload, separators=(",", ":"))))
 
     while rclpy.ok():
         rclpy.spin_once(node, timeout_sec=0.001)
@@ -118,34 +134,63 @@ def run_haptic_node(config: HapticConfig) -> None:
             time.sleep(control_period_s)
             continue
 
+        if config.mode == MODE_RESISTANCE and not resistance_initialized:
+            # Safety: start in manual mode (torque off), only enable during active resistance rendering.
+            set_gripper_torque(False)
+            resistance_torque_enabled = False
+            resistance_initialized = True
+
         positions: list[float] = []
+        out_names: list[str] = []
+        resistance_active = False
         for name in names:
             pos = leader_state[name]
             if config.mode == MODE_ZERO_G:
+                out_names.append(name)
                 positions.append(pos)
             elif config.mode == MODE_RESISTANCE:
                 vel = leader_velocity.get(name, 0.0)
                 load = follower_load.get(name, 0.0)
-                pos = compute_resistance_target(
-                    pos,
+                if should_apply_resistance(
                     vel,
                     load,
                     config.resistance_load_deadband,
-                    config.resistance_max_stiffness,
-                    config.resistance_max_step_per_cycle,
-                )
-                positions.append(pos)
+                    config.resistance_activation_velocity_threshold,
+                ):
+                    resistance_active = True
+                    out_names.append(name)
+                    pos = compute_resistance_target(
+                        pos,
+                        vel,
+                        load,
+                        config.resistance_load_deadband,
+                        config.resistance_max_stiffness,
+                        config.resistance_max_step_per_cycle,
+                    )
+                    positions.append(pos)
             else:
+                out_names.append(name)
                 positions.append(pos)
 
-        out = JointState()
-        out.header.stamp = node.get_clock().now().to_msg()
-        out.header.frame_id = ""
-        out.name = names
-        out.position = positions
-        out.velocity = []
-        out.effort = []
-        pub.publish(out)
+        if config.mode == MODE_RESISTANCE:
+            if resistance_active:
+                resistance_last_active_s = now
+                if not resistance_torque_enabled:
+                    set_gripper_torque(True)
+                    resistance_torque_enabled = True
+            elif resistance_torque_enabled and now - resistance_last_active_s >= config.resistance_release_delay_s:
+                set_gripper_torque(False)
+                resistance_torque_enabled = False
+
+        if out_names and positions:
+            out = JointState()
+            out.header.stamp = node.get_clock().now().to_msg()
+            out.header.frame_id = ""
+            out.name = out_names
+            out.position = positions
+            out.velocity = []
+            out.effort = []
+            pub.publish(out)
 
         time.sleep(control_period_s)
 
