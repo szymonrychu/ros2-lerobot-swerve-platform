@@ -54,6 +54,14 @@ ros2_node_type_defaults:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - TEST_JOINT_API_CONFIG=/etc/ros2/test_joint_api/config.yaml
+  topic_scraper_api:
+    image: harbor.szymonrichert.pl/containers/client-topic-scraper-api:latest
+    build_context: nodes/topic_scraper_api
+    config_path: /etc/ros2/topic_scraper_api
+    env:
+      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   bno095_imu:
     image: harbor.szymonrichert.pl/containers/client-bno095-imu:latest
     build_context: nodes/bno095_imu
@@ -137,6 +145,18 @@ ros2_nodes:
       host: "0.0.0.0"
       port: 18080
       topic: /filter/input_joint_updates
+  - name: topic_scraper_api
+    node_type: topic_scraper_api
+    present: false  # set true when nodes/topic_scraper_api exists in repo
+    enabled: false
+    extra_args: --network host --ipc host
+    config: |
+      host: "0.0.0.0"
+      port: 18100
+      topic_refresh_interval_s: 0.25
+      allowed_types:
+        - sensor_msgs/msg/JointState
+        - std_msgs/msg/String
   - name: bno095_imu
     node_type: bno095_imu
     present: true
