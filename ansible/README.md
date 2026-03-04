@@ -128,6 +128,53 @@ Use `scripts/topic_scraper_collect.py` to poll both hosts and emit merged NDJSON
 
 The **bno095_imu** node runs on the client and publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation, angular velocity, linear acceleration, and full covariance matrices for use with the Navigation stack (Nav2). It reads a BNO085/BNO095 over I2C; the container is given access to the I2C device (e.g. `--device=/dev/i2c-1:/dev/i2c-1`). Config: topic, frame_id, publish_hz, i2c_bus, and covariance values (see `nodes/bno095_imu/README.md`).
 
+### Raspberry Pi GPIO/I2C tooling (all users)
+
+The `common` role installs:
+
+- `gpiod` and `i2c-tools`
+- compatibility commands: `pinctrl` and `raspi-gpio` under `/usr/local/bin`
+- udev access rules for all users on Raspberry Pi hosts:
+  - `/dev/gpiochip*` -> mode `0666`
+  - `/dev/i2c-*` -> mode `0666`
+
+This allows non-root users to run GPIO and I2C checks directly.
+
+#### BNO085 `RST` / `INT` pin usage
+
+Assuming:
+
+- `RST` on GPIO17
+- `INT` on GPIO4
+- I2C on GPIO2/3 (`/dev/i2c-1`)
+
+Use this reset-and-probe sequence:
+
+```bash
+# Hold reset low (active-low reset), then release high
+pinctrl set 17 op dl
+sleep 0.05
+pinctrl set 17 op dh
+
+# Keep INT as input and read its current level
+pinctrl set 4 ip
+pinctrl get 4
+
+# Probe I2C (as normal user)
+i2cdetect -y -r 1
+```
+
+Equivalent with `raspi-gpio`:
+
+```bash
+raspi-gpio set 17 op dl
+sleep 0.05
+raspi-gpio set 17 op dh
+raspi-gpio set 4 ip
+raspi-gpio get 4
+i2cdetect -y -r 1
+```
+
 ## Network and hostname (provision)
 
 The **network** role sets a static IP on the primary interface (ethernet or WiFi, auto-detected), sets all other interfaces to DHCP, and disables IPv6 in netplan.

@@ -9,6 +9,9 @@
       - curl
       - gnupg
       - git
+      - gpiod
+      - i2c-tools
+      - libraspberrypi-bin
     state: present
     update_cache: true
   become: true
@@ -17,4 +20,128 @@
   ansible.builtin.apt:
     name: sudo
     state: present
+  become: true
+
+- name: Install pinctrl compatibility wrapper
+  ansible.builtin.copy:
+    dest: /usr/local/bin/pinctrl
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      usage() {
+        echo "Usage:"
+        echo "  pinctrl set <pin> op <dh|dl>"
+        echo "  pinctrl set <pin> ip"
+        echo "  pinctrl get <pin>"
+        exit 2
+      }
+      cmd="${1:-}"
+      if [[ -z "$cmd" ]]; then
+        usage
+      fi
+      case "$cmd" in
+        set)
+          pin="${2:-}"
+          mode="${3:-}"
+          level="${4:-}"
+          [[ -n "$pin" && -n "$mode" ]] || usage
+          case "$mode" in
+            op)
+              case "$level" in
+                dh) gpioset gpiochip0 "${pin}=1" ;;
+                dl) gpioset gpiochip0 "${pin}=0" ;;
+                *) usage ;;
+              esac
+              ;;
+            ip)
+              gpioget gpiochip0 "${pin}" >/dev/null
+              ;;
+            *)
+              usage
+              ;;
+          esac
+          ;;
+        get)
+          pin="${2:-}"
+          [[ -n "$pin" ]] || usage
+          val="$(gpioget gpiochip0 "${pin}")"
+          echo "GPIO ${pin}: level=${val}"
+          ;;
+        *)
+          usage
+          ;;
+      esac
+  become: true
+
+- name: Install raspi-gpio compatibility wrapper
+  ansible.builtin.copy:
+    dest: /usr/local/bin/raspi-gpio
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      usage() {
+        echo "Usage:"
+        echo "  raspi-gpio set <pin> op <dh|dl>"
+        echo "  raspi-gpio set <pin> ip"
+        echo "  raspi-gpio get <pin>"
+        exit 2
+      }
+      cmd="${1:-}"
+      if [[ -z "$cmd" ]]; then
+        usage
+      fi
+      case "$cmd" in
+        set)
+          pin="${2:-}"
+          mode="${3:-}"
+          level="${4:-}"
+          [[ -n "$pin" && -n "$mode" ]] || usage
+          case "$mode" in
+            op)
+              case "$level" in
+                dh) gpioset gpiochip0 "${pin}=1" ;;
+                dl) gpioset gpiochip0 "${pin}=0" ;;
+                *) usage ;;
+              esac
+              ;;
+            ip)
+              gpioget gpiochip0 "${pin}" >/dev/null
+              ;;
+            *)
+              usage
+              ;;
+          esac
+          ;;
+        get)
+          pin="${2:-}"
+          [[ -n "$pin" ]] || usage
+          val="$(gpioget gpiochip0 "${pin}")"
+          echo "GPIO ${pin}: level=${val}"
+          ;;
+        *)
+          usage
+          ;;
+      esac
+  become: true
+
+- name: Allow all users to access GPIO and I2C character devices
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-rpi-gpio-i2c-access.rules
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      KERNEL=="gpiochip*", MODE="0666"
+      KERNEL=="i2c-[0-9]*", MODE="0666"
+  become: true
+
+- name: Reload udev rules for GPIO and I2C access
+  ansible.builtin.shell: udevadm control --reload-rules && udevadm trigger
+  changed_when: true
   become: true
