@@ -8,7 +8,8 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 - **`group_vars/`** — `all.yml`, `server.yml`, `client.yml` for group-specific variables.
 - **`site.yml`** — Full site: provision all hosts, then deploy ROS2 nodes on server and client (includes playbooks below). Run `ansible-playbook -i inventory site.yml`.
 - **`playbooks/`**
-  - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, then Docker (and Compose plugin). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
+  - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, Docker (and Compose plugin), and system optimization (debloat + tuning). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
+  - **`optimize.yml`** — System optimization only: debloat, performance tuning, resilience. Can be run standalone on all hosts.
   - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build or pull each node’s container, deploy config, install systemd unit, enable/start or disable/stop. Containers are built on each Pi from the cloned repo (no CI/registry by default). Set `node_build_on_controller: true` when you have a registry to build on the controller and pull on nodes.
 - **`roles/`**
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
@@ -17,6 +18,55 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`docker`** — Docker CE + Docker Compose plugin on Ubuntu 24.04.
   - **`ros2_node_deploy`** — For each node: build image from repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
   - **`ros2_node_verify`** — Runs after all nodes are deployed: waits for services to settle, checks each present+enabled node’s systemd unit is active, waits again, then re-checks (stability). Used by `deploy_nodes_server.yml` and `deploy_nodes_client.yml`. Variables: `ros2_node_verify_settle_seconds` (default 10), `ros2_node_verify_stable_seconds` (default 5).
+
+  - **`system_optimize`** — Ubuntu 24.04 debloating, performance tuning, and resilience hardening for Raspberry Pi. See [System optimization](#system-optimization) below.
+
+## System optimization
+
+The `system_optimize` role strips unnecessary packages and services from Ubuntu 24.04, tunes kernel/VM/network parameters for ROS2 + Docker workloads, and adds resilience features. It runs as part of provisioning (`server.yml`, `client.yml`, `site.yml`) or standalone via `playbooks/optimize.yml`.
+
+### What it does
+
+**Debloat (packages removed and services masked):**
+- snapd (and all snap data), cloud-init, ModemManager, open-vm-tools, vgauth, open-iscsi, multipath-tools, udisks2, apport, pollinate, unattended-upgrades, ubuntu-advantage/pro, secureboot-db, avahi-daemon, wpa_supplicant (configurable)
+- APT pinning prevents snapd and cloud-init from being reinstalled
+
+**Performance tuning:**
+- CPU governor set to `performance` (configurable)
+- `vm.swappiness=10`, `vm.vfs_cache_pressure=50`, `vm.dirty_ratio=10` for Docker/ROS2 workloads
+- `vm.min_free_kbytes=65536` to prevent OOM stalls
+- ROS2 DDS UDP buffer sizes: `net.core.rmem_max/wmem_max=8MB`
+- `fs.inotify` limits raised for Docker
+
+**Resilience:**
+- 1 GB swap file (configurable) with fstab entry
+- Hardware watchdog (`bcm2835_wdt`) with systemd `RuntimeWatchdogSec` — auto-reboots on kernel hang
+- `kernel.panic=10` and `kernel.panic_on_oops=1` — auto-reboots on panic
+- Journal size capped at 100 MB (prevents log bloat filling SD card)
+- `/tmp` mounted as tmpfs (reduces SD card writes)
+- Docker log rotation (`json-file`, 10 MB max, 3 files)
+
+### Configuration
+
+All defaults are in `roles/system_optimize/defaults/main.yml`. Override in `group_vars` or `host_vars`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `cpu_governor` | `performance` | CPU frequency governor |
+| `swap_size_mb` | `1024` | Swap file size in MiB (0 to skip) |
+| `watchdog_enabled` | `true` | Enable hardware watchdog |
+| `watchdog_timeout_s` | `15` | Watchdog timeout (seconds) |
+| `journal_max_use` | `100M` | Max journal disk usage |
+| `tmpfs_tmp_enabled` | `true` | Mount /tmp as tmpfs |
+| `docker_log_max_size` | `10m` | Docker container log max size |
+| `debloat_disable_wpa_supplicant` | `true` | Mask wpa_supplicant (set false if using WiFi) |
+
+### Running standalone
+
+```bash
+cd ansible
+ansible-playbook -i inventory playbooks/optimize.yml
+```
 
 ## Node list and config (ros2_nodes)
 

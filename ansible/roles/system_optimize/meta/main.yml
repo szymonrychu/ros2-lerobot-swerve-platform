@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: szymonrychu
+  description: Ubuntu 24.04 debloating, performance tuning, and resilience for Raspberry Pi
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+dependencies: []

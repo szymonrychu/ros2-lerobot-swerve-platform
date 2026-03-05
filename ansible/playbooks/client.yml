@@ -12,3 +12,4 @@
     - role: hostname
       when: hostname is defined and hostname | length > 0
     - docker
+    - system_optimize

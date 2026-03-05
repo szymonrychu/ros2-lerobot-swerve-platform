@@ -1,0 +1,255 @@
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1. DEBLOAT — remove unnecessary packages and services
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: Stop and mask unnecessary services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    masked: true
+    enabled: false
+  loop: "{{ debloat_services_mask }}"
+  failed_when: false
+  changed_when: false
+
+- name: Disable wpa_supplicant when not using WiFi
+  ansible.builtin.systemd:
+    name: wpa_supplicant.service
+    state: stopped
+    masked: true
+    enabled: false
+  when: debloat_disable_wpa_supplicant
+  failed_when: false
+  changed_when: false
+
+- name: Remove snap packages before purging snapd
+  ansible.builtin.command: snap remove --purge {{ item }}
+  loop:
+    - snapd
+  failed_when: false
+  changed_when: false
+
+- name: Purge bloat packages
+  ansible.builtin.apt:
+    name: "{{ debloat_packages_purge }}"
+    state: absent
+    purge: true
+    autoremove: true
+
+- name: Prevent snapd from being reinstalled
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/no-snapd
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      Package: snapd
+      Pin: release *
+      Pin-Priority: -10
+
+- name: Prevent cloud-init from being reinstalled
+  ansible.builtin.copy:
+    dest: /etc/apt/preferences.d/no-cloud-init
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      Package: cloud-init cloud-guest-utils
+      Pin: release *
+      Pin-Priority: -10
+
+- name: Remove leftover snap directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /snap
+    - /var/snap
+    - /var/lib/snapd
+    - /root/snap
+    - /var/cache/snapd
+
+- name: Remove leftover cloud-init directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/cloud
+    - /var/lib/cloud
+
+- name: Clean apt cache
+  ansible.builtin.apt:
+    autoclean: true
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. PERFORMANCE — CPU, memory, network tuning
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: Install cpufrequtils for governor control
+  ansible.builtin.apt:
+    name: cpufrequtils
+    state: present
+
+- name: Set CPU governor default
+  ansible.builtin.copy:
+    dest: /etc/default/cpufrequtils
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      GOVERNOR="{{ cpu_governor }}"
+
+- name: Apply CPU governor immediately
+  ansible.builtin.shell: |
+    for cpu in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
+      echo "{{ cpu_governor }}" > "$cpu" 2>/dev/null || true
+    done
+  changed_when: false
+
+- name: Deploy sysctl performance and resilience tuning
+  ansible.builtin.template:
+    src: 90-rpi-optimize.conf.j2
+    dest: /etc/sysctl.d/90-rpi-optimize.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Apply sysctl
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. RESILIENCE — swap, watchdog, journal, tmpfs, Docker logs
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Swap ──
+- name: Check existing swap file
+  ansible.builtin.stat:
+    path: "{{ swap_path }}"
+  register: swap_stat
+  when: swap_size_mb > 0
+
+- name: Create swap file
+  ansible.builtin.command: fallocate -l {{ swap_size_mb }}M {{ swap_path }}
+  when: swap_size_mb > 0 and not (swap_stat.stat.exists | default(false))
+  changed_when: true
+
+- name: Set swap file permissions
+  ansible.builtin.file:
+    path: "{{ swap_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: swap_size_mb > 0
+
+- name: Format swap file
+  ansible.builtin.command: mkswap {{ swap_path }}
+  when: swap_size_mb > 0 and not (swap_stat.stat.exists | default(false))
+  changed_when: true
+
+- name: Enable swap file
+  ansible.builtin.command: swapon {{ swap_path }}
+  when: swap_size_mb > 0
+  failed_when: false
+  changed_when: false
+
+- name: Ensure swap file in fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: "^{{ swap_path }}"
+    line: "{{ swap_path }} none swap sw 0 0"
+    state: present
+  when: swap_size_mb > 0
+
+# ── Hardware watchdog ──
+- name: Load hardware watchdog kernel module
+  ansible.builtin.command: modprobe bcm2835_wdt
+  when: watchdog_enabled
+  failed_when: false
+  changed_when: false
+
+- name: Ensure watchdog module loads at boot
+  ansible.builtin.lineinfile:
+    path: /etc/modules-load.d/watchdog.conf
+    line: bcm2835_wdt
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  when: watchdog_enabled
+
+- name: Ensure systemd system.conf.d directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure systemd watchdog
+  ansible.builtin.template:
+    src: watchdog.conf.j2
+    dest: /etc/systemd/system.conf.d/watchdog.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: watchdog_enabled
+  notify: Reload systemd
+
+# ── Journal size cap ──
+- name: Ensure journald.conf.d directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Configure journald size limits
+  ansible.builtin.template:
+    src: journald-size.conf.j2
+    dest: /etc/systemd/journald.conf.d/size-limit.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart journald
+
+- name: Vacuum old journal entries
+  ansible.builtin.command: journalctl --vacuum-size={{ journal_max_use }}
+  changed_when: false
+
+# ── tmpfs for /tmp ──
+- name: Add tmpfs mount for /tmp in fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: "^tmpfs\\s+/tmp"
+    line: "tmpfs /tmp tmpfs defaults,noatime,nosuid,nodev,size={{ tmpfs_tmp_size }} 0 0"
+    state: present
+  when: tmpfs_tmp_enabled
+
+- name: Mount /tmp as tmpfs now
+  ansible.builtin.command: mount -o remount /tmp
+  when: tmpfs_tmp_enabled
+  failed_when: false
+  changed_when: false
+
+# ── Docker log rotation ──
+- name: Read existing Docker daemon.json
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: docker_daemon_existing
+  failed_when: false
+
+- name: Merge Docker log-driver config into daemon.json
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+    content: "{{ existing | combine(log_config) | to_nice_json }}\n"
+  vars:
+    existing: "{{ (docker_daemon_existing.content | default('e30=') | b64decode | from_json) if docker_daemon_existing is not failed else {} }}"
+    log_config:
+      log-driver: json-file
+      log-opts:
+        max-size: "{{ docker_log_max_size }}"
+        max-file: "{{ docker_log_max_file }}"
+  notify: Restart docker

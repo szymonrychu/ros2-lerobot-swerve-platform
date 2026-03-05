@@ -1,0 +1,9 @@
+---
+# System optimization for all Raspberry Pis: debloat Ubuntu, performance tuning, resilience.
+# Run: ansible-playbook -i inventory playbooks/optimize.yml
+# Or target a single host: ansible-playbook -i inventory playbooks/optimize.yml -l server
+- name: Optimize system
+  hosts: all
+  become: true
+  roles:
+    - system_optimize
