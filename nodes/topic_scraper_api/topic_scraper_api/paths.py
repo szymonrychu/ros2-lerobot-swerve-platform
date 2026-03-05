@@ -1,6 +1,8 @@
 """Topic path helpers for topic_scraper_api."""
 
 TOPIC_PREFIX = "/topics"
+STREAM_PREFIX = "/streams"
+PREVIEW_PREFIX = "/previews"
 
 
 def normalize_topic(topic: str) -> str:
@@ -54,3 +56,41 @@ def endpoint_to_topic(endpoint: str) -> str:
         return ""
     suffix = value.removeprefix(TOPIC_PREFIX)
     return normalize_topic(suffix)
+
+
+def topic_to_stream_endpoint(topic: str) -> str:
+    """Map ROS topic path to HTTP stream endpoint (HTML viewer)."""
+    normalized = normalize_topic(topic)
+    if not normalized or normalized == "/":
+        return STREAM_PREFIX
+    return f"{STREAM_PREFIX}{normalized}"
+
+
+def topic_to_preview_endpoint(topic: str) -> str:
+    """Map ROS topic path to HTTP preview endpoint (HTML viewer)."""
+    normalized = normalize_topic(topic)
+    if not normalized or normalized == "/":
+        return PREVIEW_PREFIX
+    return f"{PREVIEW_PREFIX}{normalized}"
+
+
+def stream_endpoint_to_topic(endpoint: str) -> str:
+    """Map stream endpoint path back to ROS topic path."""
+    value = (endpoint or "").strip()
+    if not value.startswith(STREAM_PREFIX):
+        return ""
+    suffix = value.removeprefix(STREAM_PREFIX)
+    if suffix.endswith("/mjpg"):
+        suffix = suffix[:-5].rstrip("/") or "/"
+    return normalize_topic(suffix) if suffix else ""
+
+
+def preview_endpoint_to_topic(endpoint: str) -> str:
+    """Map preview endpoint path back to ROS topic path."""
+    value = (endpoint or "").strip()
+    if not value.startswith(PREVIEW_PREFIX):
+        return ""
+    suffix = value.removeprefix(PREVIEW_PREFIX)
+    if suffix.endswith("/image.jpg"):
+        suffix = suffix[:-10].rstrip("/") or "/"
+    return normalize_topic(suffix) if suffix else ""

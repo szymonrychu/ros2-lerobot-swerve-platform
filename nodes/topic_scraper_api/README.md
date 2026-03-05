@@ -8,11 +8,24 @@ This node replaces infrastructure monitoring as the default runtime debug path f
 
 ## Endpoints
 
-- `GET /topics` — list tracked topics, endpoint mapping, type, and whether a sample was seen.
+- `GET /topics` — list tracked topics, endpoint mapping, type, and whether a sample was seen. Image topics include `is_image`, `stream_endpoint`, and `preview_endpoint`.
 - `GET /topics/<topic-path>` — latest payload for a topic.
   - Example: ROS topic `/leader/joint_states` maps to endpoint `/topics/leader/joint_states`.
 - `GET /rules` — list observation rules and last result summary (has_result, oscillation_detected, last_updated_ns). Empty when no `observation_rules` in config.
 - `GET /rules/<name>` — full result for a rule: comparison (per-joint position delta between first two topics), oscillation_detected, oscillation_score, last_updated_ns.
+
+### Image topics (streams and previews)
+
+ROS image topics (`sensor_msgs/msg/Image`, `sensor_msgs/msg/CompressedImage`) are autodiscovered like other types. For image topics only, the following endpoints are available (list is dynamic and follows topic discovery):
+
+- `GET /streams` — list of image topics with `topic`, `stream_endpoint`, `preview_endpoint`, `has_sample`.
+- `GET /streams/<topic-path>` — HTML page that auto-starts the MJPG stream in an `<img>` (e.g. open in browser for live view).
+- `GET /streams/<topic-path>/mjpg` — MJPG stream (multipart/x-mixed-replace) of the latest JPEG frames.
+- `GET /previews` — list of image topics (same shape as `/streams`).
+- `GET /previews/<topic-path>` — HTML page that auto-loads the current snapshot.
+- `GET /previews/<topic-path>/image.jpg` — current JPEG snapshot (single image).
+
+Example: for topic `/camera_0/image_raw`, open `http://<host>:18100/streams/camera_0/image_raw` in a browser for a live stream, or `http://<host>:18100/previews/camera_0/image_raw` for a static preview that refreshes when you reload.
 
 Sample response shape:
 
@@ -39,6 +52,7 @@ port: 18100
 topic_refresh_interval_s: 0.25
 allowed_types:
   - sensor_msgs/msg/JointState
+  - sensor_msgs/msg/Image
   - std_msgs/msg/String
 observation_rules:
   - name: leader_vs_follower
@@ -67,6 +81,7 @@ observation_rules:
 - Refreshes topic graph periodically.
 - Adds/removes subscriptions as topics appear/disappear.
 - Stores only the last sample per topic (plus timing metadata and sequence).
+- For image topics, also keeps the latest frame as JPEG for streaming and preview; raw Image (bgr8, rgb8, mono8) and CompressedImage (jpeg) are supported.
 
 ## Collector usage examples (`scripts/topic_scraper_collect.py`)
 

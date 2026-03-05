@@ -76,10 +76,11 @@ The **test_joint_api** node has tests under `nodes/test_joint_api/tests/`. Run f
 The **topic_scraper_api** node has tests under `nodes/topic_scraper_api/tests/`. Run from `nodes/topic_scraper_api`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers:
 
 - config parsing (`test_config.py`: defaults, overrides, type allow-list, observation_rules parsing)
-- endpoint mapping (`test_paths.py`: normalize topic, topic->endpoint, endpoint->topic)
+- endpoint mapping (`test_paths.py`: normalize topic, topic->endpoint, endpoint->topic; stream/preview path helpers)
 - message serialization (`test_serializer.py`: recursive conversion for ROS-like message objects, time conversion)
-- dynamic subscription bookkeeping (`test_scraper.py`: allow-list handling, add/remove topic subscriptions)
-- HTTP API behavior (`test_app.py`: `/topics`, `/topics/<topic-path>`, `/rules`, `/rules/<name>`; empty rules when no observer; 404 for unknown rule)
+- image encoding (`test_image_encoding.py`: is_image_type, CompressedImage jpeg passthrough, raw Image bgr8/mono8 to JPEG, unsupported encoding returns None)
+- dynamic subscription bookkeeping (`test_scraper.py`: allow-list handling, add/remove topic subscriptions; image topic metadata and JPEG cache)
+- HTTP API behavior (`test_app.py`: `/topics`, `/topics/<topic-path>`, `/rules`, `/rules/<name>`; `/streams`, `/previews` lists; stream/preview HTML pages; `/previews/<topic>/image.jpg` JPEG snapshot; 404 when no image sample for stream/preview image)
 - observation rules (`test_observer.py`: RulesObserver empty rules, compare rule produces position delta, missing payload yields None comparison, rules summary)
 
 ### Per-node tests (bno095_imu)
