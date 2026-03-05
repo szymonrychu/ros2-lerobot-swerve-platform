@@ -16,8 +16,8 @@ Reusable ROS2 nodes that expose hardware as standard ROS2 topics. Each bridge ty
 | Feetech servos | [feetech_servos/](feetech_servos/README.md) | Implemented (stub) | Config: namespace + joint_names as list of { name, id } (explicit servo ID per joint); example leader/follower configs |
 | RealSense     | —                   | Stub     | Placeholder service in compose                   |
 | RPLidar       | —                   | Stub     | Placeholder service in compose                   |
-| IMU (BNO095)  | —                   | Stub     | Placeholder service in compose                   |
-| GPS-RTK       | —                   | Stub     | Placeholder service in compose                   |
+| IMU (BNO095)  | (nodes/bno095_imu)  | Implemented | Client only; I2C, Nav2 covariance                |
+| GPS-RTK       | [gps_rtk/](gps_rtk/README.md) | Implemented | LC29H-BS (base) on Server, LC29H-DA (rover) on Client; NavSatFix + RTCM3 TCP |
 | Swerve        | —                   | Stub     | Placeholder service in compose                   |
 
 When adding a new bridge: add a directory under `bridges/` with a Dockerfile and Python (or other) code, document it in this README and in a local README, and add the node type and build context to Ansible `group_vars` and the deploy role so it is built and run on target nodes.

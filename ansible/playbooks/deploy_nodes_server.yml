@@ -7,6 +7,15 @@
   hosts: server
   become: true
   pre_tasks:
+    - name: Ensure UART enabled for GPS RTK (enable_uart=1)
+      when: ros2_nodes | selectattr('node_type', 'equalto', 'gps_rtk') | list | length > 0
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/config.txt
+        line: "enable_uart=1"
+        regexp: "^enable_uart="
+        create: true
+      become: true
+
     - name: Stop feetech (servo) node services before deploy
       ansible.builtin.service:
         name: "ros2-{{ item.name }}"

@@ -81,6 +81,7 @@ lint-nodes = { shell = """
   (cd nodes/master2master && poetry run poe lint)
   (cd nodes/bridges/uvc_camera && poetry run poe lint)
   (cd nodes/bridges/feetech_servos && poetry run poe lint)
+  (cd nodes/bridges/gps_rtk && poetry run poe lint)
   (cd nodes/lerobot_teleop && poetry run poe lint)
 """ }
 lint-ansible = { shell = """

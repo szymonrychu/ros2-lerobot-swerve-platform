@@ -80,6 +80,13 @@ ros2_node_type_defaults:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - HAPTIC_CONTROLLER_CONFIG=/etc/ros2/haptic_controller/config.yaml
+  gps_rtk:
+    image: harbor.szymonrichert.pl/containers/client-gps-rtk:latest
+    build_context: nodes/bridges/gps_rtk
+    config_path: /etc/ros2/gps_rtk
+    env:
+      - ROS_LOCALHOST_ONLY=0
+      - GPS_RTK_CONFIG=/etc/ros2/gps_rtk/config.yaml
 
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
 ros2_nodes:
@@ -157,6 +164,8 @@ ros2_nodes:
       topic_refresh_interval_s: 0.25
       allowed_types:
         - sensor_msgs/msg/JointState
+        - sensor_msgs/msg/Image
+        - sensor_msgs/msg/CompressedImage
         - std_msgs/msg/String
       observation_rules:
         - name: leader_vs_follower
@@ -195,6 +204,21 @@ ros2_nodes:
       orientation_covariance: 0.01
       angular_velocity_covariance: 0.01
       linear_acceleration_covariance: 0.04
+  - name: gps_rtk_rover
+    node_type: gps_rtk
+    present: true
+    enabled: true
+    extra_args: >-
+      --network host --ipc host
+      --device=/dev/ttyS0:/dev/ttyS0
+    config: |
+      mode: rover
+      serial_port: /dev/ttyS0
+      baud_rate: 115200
+      topic: /client/gps/fix
+      frame_id: gps_link
+      rtcm_server_host: 192.168.1.33
+      rtcm_server_port: 5016
   - name: haptic_controller
     node_type: haptic_controller
     present: true

@@ -32,6 +32,13 @@ ros2_node_type_defaults:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
+  gps_rtk:
+    image: harbor.szymonrichert.pl/containers/server-gps-rtk:latest
+    build_context: nodes/bridges/gps_rtk
+    config_path: /etc/ros2/gps_rtk
+    env:
+      - ROS_LOCALHOST_ONLY=0
+      - GPS_RTK_CONFIG=/etc/ros2/gps_rtk/config.yaml
 
 # Nodes to deploy: name, node_type, present, enabled, config.
 ros2_nodes:
@@ -81,4 +88,20 @@ ros2_nodes:
       topic_refresh_interval_s: 0.25
       allowed_types:
         - sensor_msgs/msg/JointState
+        - sensor_msgs/msg/Image
+        - sensor_msgs/msg/CompressedImage
         - std_msgs/msg/String
+  - name: gps_rtk_base
+    node_type: gps_rtk
+    present: true
+    enabled: true
+    extra_args: >-
+      --network host --ipc host
+      --device=/dev/ttyS0:/dev/ttyS0
+    config: |
+      mode: base
+      serial_port: /dev/ttyS0
+      baud_rate: 115200
+      topic: /server/gps/fix
+      frame_id: gps_link
+      rtcm_tcp_port: 5016
