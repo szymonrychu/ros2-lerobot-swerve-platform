@@ -16,6 +16,25 @@
         create: true
       become: true
 
+    - name: Enable UART0 overlay for RPi 5 (GPIO 14/15 for LC29H hat)
+      when:
+        - ros2_nodes | selectattr('node_type', 'equalto', 'gps_rtk') | list | length > 0
+        - ansible_machine == "aarch64"
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/config.txt
+        line: "dtoverlay=uart0-pi5"
+        regexp: "^dtoverlay=uart0-pi5"
+        insertafter: "^enable_uart="
+        create: true
+      become: true
+      register: uart_overlay_result
+
+    - name: Reboot client if UART overlay was added (required for Pi 5)
+      when: uart_overlay_result is defined and uart_overlay_result.changed
+      ansible.builtin.reboot:
+        reboot_timeout: 120
+      become: true
+
     - name: Stop feetech (servo) node services before deploy
       ansible.builtin.service:
         name: "ros2-{{ item.name }}"

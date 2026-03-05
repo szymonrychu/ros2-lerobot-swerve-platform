@@ -7,7 +7,6 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import NavSatFix
 
 from .config import GpsRtkConfig
@@ -15,12 +14,6 @@ from .nmea_parser import build_nav_sat_fix, parse_gga
 from .serial_handler import SerialHandler
 
 LOG = logging.getLogger(__name__)
-
-NAVSATFIX_QOS = QoSProfile(
-    reliability=ReliabilityPolicy.BEST_EFFORT,
-    history=HistoryPolicy.KEEP_LAST,
-    depth=10,
-)
 
 
 class GpsRtkRoverNode(Node):
@@ -31,11 +24,7 @@ class GpsRtkRoverNode(Node):
         self.config = config
         self._latest_fix: NavSatFix | None = None
         self._fix_lock = threading.Lock()
-        self.pub = self.create_publisher(
-            NavSatFix,
-            config.topic,
-            NAVSATFIX_QOS,
-        )
+        self.pub = self.create_publisher(NavSatFix, config.topic, 10)
         self.serial: SerialHandler | None = None
         self._rtcm_socket: socket.socket | None = None
         self._rtcm_thread: threading.Thread | None = None

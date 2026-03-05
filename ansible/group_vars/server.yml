@@ -88,6 +88,7 @@ ros2_nodes:
       topic_refresh_interval_s: 0.25
       allowed_types:
         - sensor_msgs/msg/JointState
+        - sensor_msgs/msg/NavSatFix
         - sensor_msgs/msg/Image
         - sensor_msgs/msg/CompressedImage
         - std_msgs/msg/String

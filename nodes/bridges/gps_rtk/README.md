@@ -29,6 +29,8 @@ On RPi native UART the LC29H can emit proprietary binary alongside NMEA and RTCM
 
 One-time survey-in is done with `scripts/calibrate_rtk_base.py` on the server (see repo root). After calibration, the base position is stored in the module; the node only sends the per-boot configure commands.
 
+**From your computer:** use `scripts/rtk_calibrate.sh` to run the full workflow over SSH (stops base service, runs survey-in, then instructs power-cycle and restart). See [scripts/README.md](../../../scripts/README.md#gps-rtk) for calibration, verification, and status scripts.
+
 ## Deploy
 
-Ansible deploys this node on server (base) and client (rover). Serial device: on RPi 4 (server) the LC29H-BS hat uses `/dev/ttyS0`; on RPi 5 (client) the LC29H-DA hat uses `/dev/ttyAMA10`. Ensure UART is enabled on the host (e.g. `enable_uart=1` in boot config).
+Ansible deploys this node on server (base) and client (rover). Serial device: on RPi 4 (server) the LC29H-BS hat uses `/dev/ttyS0`; on RPi 5 (client) the LC29H-DA hat uses `/dev/ttyAMA0` (requires `dtoverlay=uart0-pi5` in boot config, added by the deploy playbook). Ensure UART is enabled on the host (e.g. `enable_uart=1` in boot config). The topic scraper's `allowed_types` must include `sensor_msgs/msg/NavSatFix` to observe GPS topics.

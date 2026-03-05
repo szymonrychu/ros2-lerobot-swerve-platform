@@ -164,6 +164,7 @@ ros2_nodes:
       topic_refresh_interval_s: 0.25
       allowed_types:
         - sensor_msgs/msg/JointState
+        - sensor_msgs/msg/NavSatFix
         - sensor_msgs/msg/Image
         - sensor_msgs/msg/CompressedImage
         - std_msgs/msg/String
@@ -204,17 +205,17 @@ ros2_nodes:
       orientation_covariance: 0.01
       angular_velocity_covariance: 0.01
       linear_acceleration_covariance: 0.04
-  # RPi 5 uses /dev/ttyAMA10 for GPIO UART (LC29H-DA hat); RPi 4 uses /dev/ttyS0
+  # RPi 5: GPIO UART0 (pins 14/15) needs dtoverlay=uart0-pi5; creates /dev/ttyAMA0
   - name: gps_rtk_rover
     node_type: gps_rtk
     present: true
     enabled: true
     extra_args: >-
       --network host --ipc host
-      --device=/dev/ttyAMA10:/dev/ttyAMA10
+      --device=/dev/ttyAMA0:/dev/ttyAMA0
     config: |
       mode: rover
-      serial_port: /dev/ttyAMA10
+      serial_port: /dev/ttyAMA0
       baud_rate: 115200
       topic: /client/gps/fix
       frame_id: gps_link

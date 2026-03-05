@@ -214,14 +214,22 @@ class SerialHandler:
             self._ser = None
 
     def _read_loop(self) -> None:
+        error_backoff = 0.01
         while not self._stop.is_set() and self._ser is not None and self._ser.is_open:
             try:
-                data = self._ser.read(4096)
-                if data and self._parser is not None:
-                    self._parser.feed(data)
+                waiting = self._ser.in_waiting
+                if waiting > 0:
+                    data = self._ser.read(min(waiting, 4096))
+                    if data and self._parser is not None:
+                        self._parser.feed(data)
+                    error_backoff = 0.01
+                else:
+                    self._stop.wait(0.02)
             except (OSError, serial.SerialException) as e:
-                LOG.warning("Serial read error: %s", e)
-            self._stop.wait(0.01)
+                if error_backoff < 0.5:
+                    LOG.warning("Serial read error: %s", e)
+                error_backoff = min(error_backoff * 2, 2.0)
+                self._stop.wait(error_backoff)
 
     def send_nmea(self, cmd: str) -> None:
         """Send NMEA command with checksum and \\r\\n."""

@@ -6,7 +6,6 @@ import threading
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import NavSatFix
 
 from .config import GpsRtkConfig
@@ -14,12 +13,6 @@ from .nmea_parser import build_nav_sat_fix, parse_gga
 from .serial_handler import SerialHandler
 
 LOG = logging.getLogger(__name__)
-
-NAVSATFIX_QOS = QoSProfile(
-    reliability=ReliabilityPolicy.BEST_EFFORT,
-    history=HistoryPolicy.KEEP_LAST,
-    depth=10,
-)
 
 
 class GpsRtkBaseNode(Node):
@@ -33,11 +26,7 @@ class GpsRtkBaseNode(Node):
         self._rtcm_clients: list[socket.socket] = []
         self._rtcm_lock = threading.Lock()
         self._rtcm_queue: list[bytes] = []
-        self.pub = self.create_publisher(
-            NavSatFix,
-            config.topic,
-            NAVSATFIX_QOS,
-        )
+        self.pub = self.create_publisher(NavSatFix, config.topic, 10)
         self.serial: SerialHandler | None = None
         self._server_socket: socket.socket | None = None
         self._server_thread: threading.Thread | None = None
@@ -103,9 +92,7 @@ class GpsRtkBaseNode(Node):
         self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server_socket.bind((self.config.rtcm_tcp_bind, self.config.rtcm_tcp_port))
         self._server_socket.listen(5)
-        self.get_logger().info(
-            f"RTCM3 TCP server on {self.config.rtcm_tcp_bind}:{self.config.rtcm_tcp_port}"
-        )
+        self.get_logger().info(f"RTCM3 TCP server on {self.config.rtcm_tcp_bind}:{self.config.rtcm_tcp_port}")
         self._server_thread = threading.Thread(target=self._accept_loop, daemon=True)
         self._server_thread.start()
 
