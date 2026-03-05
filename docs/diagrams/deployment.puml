@@ -1,0 +1,42 @@
+@startuml deployment
+!theme plain
+skinparam backgroundColor white
+skinparam defaultFontSize 11
+skinparam nodeBorderColor #444
+skinparam componentBorderColor #555
+
+title Deployment — Docker Containers per Host
+
+node "Server (RPi 4b)\n192.168.1.33" as server {
+  component "ros2-master" as sm <<Docker>> #C8E6C9
+  component "lerobot_leader\n(feetech_servos)" as sl <<Docker>> #A5D6A7
+  component "gps_rtk_base" as sg <<Docker>> #A5D6A7
+  component "topic_scraper_api" as ss <<Docker>> #C8E6C9
+}
+
+node "Client (RPi 5)\n192.168.1.34" as client {
+  component "ros2-master" as cm <<Docker>> #BBDEFB
+  component "master2master" as cmm <<Docker>> #90CAF9
+  component "filter_node" as cf <<Docker>> #90CAF9
+  component "lerobot_follower\n(feetech_servos)" as clf <<Docker>> #64B5F6
+  component "gps_rtk_rover" as cg <<Docker>> #64B5F6
+  component "bno095_imu" as ci <<Docker>> #64B5F6
+  component "gripper_uvc_camera" as cc <<Docker>> #64B5F6
+  component "test_joint_api" as ct <<Docker>> #90CAF9
+  component "topic_scraper_api" as cs <<Docker>> #BBDEFB
+  component "haptic_controller\n(disabled)" as ch <<Docker>> #CFD8DC
+}
+
+server -[#green]-> client : WiFi (DDS + TCP)
+
+note right of server
+  4 containers
+  systemd-managed
+end note
+
+note right of client
+  10 containers
+  systemd-managed
+end note
+
+@enduml

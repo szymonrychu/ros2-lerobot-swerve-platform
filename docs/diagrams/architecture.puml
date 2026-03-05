@@ -1,0 +1,65 @@
+@startuml architecture
+!theme plain
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+skinparam defaultFontSize 11
+skinparam packageBorderColor #666
+skinparam componentBorderColor #444
+skinparam arrowColor #555
+skinparam noteBorderColor #999
+
+title ROS2 Lerobot Swerve-Drive Platform — System Architecture
+
+package "Server — Raspberry Pi 4b" as server #E8F5E9 {
+  component "ros2-master\n(DDS daemon)" as s_master #C8E6C9
+  component "lerobot_leader\n(feetech_servos)" as s_leader #A5D6A7
+  component "gps_rtk_base\n(LC29H-BS)" as s_gps #A5D6A7
+  component "topic_scraper_api\n(:18100)" as s_scraper #C8E6C9
+
+  database "SO-101 Leader Arm\n(USB serial)" as hw_leader
+  database "LC29H-BS HAT\n(/dev/ttyS0)" as hw_gps_bs
+
+  s_leader --> hw_leader : Feetech SCS
+  s_gps --> hw_gps_bs : NMEA + RTCM3
+}
+
+package "Client — Raspberry Pi 5" as client #E3F2FD {
+  component "ros2-master\n(DDS daemon)" as c_master #BBDEFB
+  component "master2master\n(topic proxy)" as c_m2m #90CAF9
+  component "filter_node\n(Kalman)" as c_filter #90CAF9
+  component "lerobot_follower\n(feetech_servos)" as c_follower #64B5F6
+  component "gps_rtk_rover\n(LC29H-DA)" as c_gps #64B5F6
+  component "bno095_imu\n(I2C)" as c_imu #64B5F6
+  component "gripper_uvc_camera" as c_cam #64B5F6
+  component "haptic_controller\n(disabled)" as c_haptic #CFD8DC
+  component "test_joint_api\n(:18080)" as c_testapi #90CAF9
+  component "topic_scraper_api\n(:18100)" as c_scraper #BBDEFB
+
+  database "SO-101 Follower Arm\n(USB serial)" as hw_follower
+  database "LC29H-DA HAT\n(/dev/ttyAMA0)" as hw_gps_da
+  database "BNO085\n(/dev/i2c-1)" as hw_imu
+  database "USB Camera\n(/dev/video0)" as hw_cam
+
+  c_follower --> hw_follower : Feetech SCS
+  c_gps --> hw_gps_da : NMEA + RTCM3
+  c_imu --> hw_imu : I2C
+  c_cam --> hw_cam : V4L2
+}
+
+s_leader ..> c_m2m : /leader/joint_states\n(WiFi, DDS)
+c_m2m ..> c_filter : /filter/input_joint_updates
+c_filter ..> c_follower : /follower/joint_commands
+
+s_gps ..> c_gps : RTCM3 corrections\n(TCP :5016)
+
+note bottom of c_testapi
+  REST → /filter/input_joint_updates
+  (same path as master2master)
+end note
+
+note bottom of c_haptic
+  Force-feedback disabled
+  (mode: off)
+end note
+
+@enduml

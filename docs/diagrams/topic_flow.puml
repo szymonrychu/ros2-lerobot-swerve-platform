@@ -1,0 +1,48 @@
+@startuml topic_flow
+!theme plain
+skinparam backgroundColor white
+skinparam defaultFontSize 11
+skinparam actorBorderColor #444
+skinparam participantBorderColor #444
+skinparam arrowColor #555
+
+title ROS2 Topic Flow — Leader–Follower Teleop + Sensors
+
+participant "lerobot_leader\n(Server)" as leader #A5D6A7
+participant "master2master\n(Client)" as m2m #90CAF9
+participant "filter_node\n(Client)" as filter #90CAF9
+participant "lerobot_follower\n(Client)" as follower #64B5F6
+participant "test_joint_api\n(Client)" as testapi #90CAF9
+
+== Leader–Follower Teleop ==
+
+leader -> m2m : /leader/joint_states\n(JointState, via DDS/WiFi)
+m2m -> filter : /filter/input_joint_updates\n(JointState, renamed)
+filter -> follower : /follower/joint_commands\n(JointState, Kalman-filtered)
+
+== Test API (alternative input) ==
+
+testapi -> filter : /filter/input_joint_updates\n(JointState, via REST POST)
+
+== GPS RTK ==
+
+participant "gps_rtk_base\n(Server)" as gps_base #A5D6A7
+participant "gps_rtk_rover\n(Client)" as gps_rover #64B5F6
+
+gps_base -> gps_base : /server/gps/fix\n(NavSatFix)
+gps_base -> gps_rover : RTCM3 corrections\n(TCP :5016)
+gps_rover -> gps_rover : /client/gps/fix\n(NavSatFix)
+
+== IMU ==
+
+participant "bno095_imu\n(Client)" as imu #64B5F6
+
+imu -> imu : /imu/data\n(sensor_msgs/Imu)
+
+== Camera ==
+
+participant "uvc_camera\n(Client)" as cam #64B5F6
+
+cam -> cam : /camera_0/image_raw\n(sensor_msgs/Image)
+
+@enduml
