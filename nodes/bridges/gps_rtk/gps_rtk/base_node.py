@@ -31,6 +31,9 @@ class GpsRtkBaseNode(Node):
         self._server_socket: socket.socket | None = None
         self._server_thread: threading.Thread | None = None
         self._stop = threading.Event()
+        self._rtcm_tx_frames = 0
+        self._rtcm_tx_bytes = 0
+        self._diag_counter = 0
 
     def _on_nmea(self, sentence: str) -> None:
         if "GGA" not in sentence:
@@ -46,18 +49,21 @@ class GpsRtkBaseNode(Node):
                 status=parsed["status"],
                 frame_id=self.config.frame_id,
             )
-            # Stamp in publish loop
             with self._fix_lock:
                 self._latest_fix = msg
+                self._latest_quality = parsed["quality"]
         except Exception as e:
             self.get_logger().debug(f"NavSatFix build error: {e}")
 
     def _on_rtcm3(self, frame: bytes) -> None:
         with self._rtcm_lock:
             self._rtcm_queue.append(frame)
+            n_clients = len(self._rtcm_clients)
             for sock in self._rtcm_clients[:]:
                 try:
                     sock.sendall(frame)
+                    self._rtcm_tx_frames += 1
+                    self._rtcm_tx_bytes += len(frame)
                 except (BrokenPipeError, ConnectionResetError, OSError):
                     self._rtcm_clients.remove(sock)
 
@@ -103,9 +109,17 @@ class GpsRtkBaseNode(Node):
     def _publish_cb(self) -> None:
         with self._fix_lock:
             msg = self._latest_fix
+            quality = getattr(self, "_latest_quality", None)
         if msg is not None:
             msg.header.stamp = self.get_clock().now().to_msg()
             self.pub.publish(msg)
+        self._diag_counter += 1
+        if self._diag_counter % 100 == 0:
+            with self._rtcm_lock:
+                n_clients = len(self._rtcm_clients)
+            self.get_logger().info(
+                f"[diag] gga_q={quality} rtcm_tx={self._rtcm_tx_frames}f/{self._rtcm_tx_bytes}B clients={n_clients}"
+            )
 
     def shutdown(self) -> None:
         """Close serial and TCP server."""

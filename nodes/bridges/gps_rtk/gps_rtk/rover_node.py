@@ -30,6 +30,9 @@ class GpsRtkRoverNode(Node):
         self._rtcm_thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._rtcm_connected = threading.Event()
+        self._rtcm_rx_bytes = 0
+        self._rtcm_wx_bytes = 0
+        self._diag_counter = 0
 
     def _on_nmea(self, sentence: str) -> None:
         if "GGA" not in sentence:
@@ -47,6 +50,7 @@ class GpsRtkRoverNode(Node):
             )
             with self._fix_lock:
                 self._latest_fix = msg
+                self._latest_quality = parsed["quality"]
         except Exception as e:
             self.get_logger().debug("NavSatFix build error: %s", e)
 
@@ -69,7 +73,9 @@ class GpsRtkRoverNode(Node):
                         data = sock.recv(4096)
                         if not data:
                             break
+                        self._rtcm_rx_bytes += len(data)
                         self.serial.write(data)
+                        self._rtcm_wx_bytes += len(data)
                     except (ConnectionResetError, BrokenPipeError, OSError) as e:
                         self.get_logger().warning(f"RTCM connection lost: {e}")
                         break
@@ -107,9 +113,16 @@ class GpsRtkRoverNode(Node):
     def _publish_cb(self) -> None:
         with self._fix_lock:
             msg = self._latest_fix
+            quality = getattr(self, "_latest_quality", None)
         if msg is not None:
             msg.header.stamp = self.get_clock().now().to_msg()
             self.pub.publish(msg)
+        self._diag_counter += 1
+        if self._diag_counter % 100 == 0:
+            connected = self._rtcm_connected.is_set()
+            self.get_logger().info(
+                f"[diag] gga_q={quality} rtcm_rx={self._rtcm_rx_bytes}B wx={self._rtcm_wx_bytes}B tcp={'UP' if connected else 'DOWN'}"
+            )
 
     def shutdown(self) -> None:
         """Close serial and RTCM socket."""
