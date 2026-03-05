@@ -105,4 +105,5 @@ ros2_nodes:
       baud_rate: 115200
       topic: /server/gps/fix
       frame_id: gps_link
+      configure_on_start: true
       rtcm_tcp_port: 5016

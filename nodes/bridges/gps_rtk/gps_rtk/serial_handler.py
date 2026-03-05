@@ -245,6 +245,10 @@ class SerialHandler:
         self._ser.write(data)
 
     def send_base_configure(self) -> None:
-        """Send LC29H-BS configure commands (MSM7, ref 1005, ephemeris, NMEA)."""
+        """Send LC29H-BS configure commands (MSM7, ref 1005, ephemeris, NMEA) and save to flash."""
+        import time
+
         for cmd in LC29HBS_CONFIGURE_COMMANDS:
             self.send_nmea(cmd)
+        time.sleep(0.5)
+        self.send_nmea("$PQTMSAVEPAR")
