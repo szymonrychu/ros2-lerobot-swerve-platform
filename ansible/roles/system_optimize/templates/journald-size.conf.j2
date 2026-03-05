@@ -1,5 +1,11 @@
 # Managed by Ansible — system_optimize role
 [Journal]
+{% if sdcard_journal_volatile | default(false) %}
+Storage=volatile
+RuntimeMaxUse={{ journal_max_use }}
+RuntimeMaxFileSize={{ journal_max_file_size }}
+{% else %}
 SystemMaxUse={{ journal_max_use }}
 SystemMaxFileSize={{ journal_max_file_size }}
+{% endif %}
 MaxFileSec=1week

@@ -37,20 +37,26 @@ debloat_services_mask:
   - apport.service
   - pollinate.service
   - secureboot-db.service
+  - bluetooth.service
 
-# Keep wpa_supplicant running only if WiFi is configured
-debloat_disable_wpa_supplicant: true
+# WiFi is used extensively — keep wpa_supplicant enabled
+debloat_disable_wpa_supplicant: false
 
 # ── Performance ──────────────────────────────────────────────────────────────
 # CPU governor: "performance" for lowest latency; "ondemand" for power saving
 cpu_governor: performance
 
-# Virtual memory tuning
-sysctl_vm_swappiness: 10
+# Virtual memory tuning (no swap — swappiness=0)
+sysctl_vm_swappiness: 0
 sysctl_vm_vfs_cache_pressure: 50
 sysctl_vm_dirty_ratio: 10
 sysctl_vm_dirty_background_ratio: 5
 sysctl_vm_min_free_kbytes: 65536
+
+# Writeback interval: flush dirty pages less often to reduce SD card writes
+# Default is 500 (5 s); 1500 = 15 s
+sysctl_vm_dirty_writeback_centisecs: 1500
+sysctl_vm_dirty_expire_centisecs: 3000
 
 # Network buffers for ROS2 DDS (UDP) performance
 sysctl_net_core_rmem_max: 8388608
@@ -58,22 +64,53 @@ sysctl_net_core_wmem_max: 8388608
 sysctl_net_core_rmem_default: 1048576
 sysctl_net_core_wmem_default: 1048576
 
+# ── Raspberry Pi specific ───────────────────────────────────────────────────
+# GPU memory (MB) — headless, minimal allocation
+rpi_gpu_mem: 16
+
+# Disable Bluetooth (saves power, reduces SD card writes from bluez)
+rpi_disable_bluetooth: true
+
+# Disable HDMI output (saves ~30 mA per port)
+rpi_disable_hdmi: true
+
+# Disable WiFi power saving (lower latency, important for ROS2 DDS)
+rpi_wifi_power_save_off: true
+
+# ── SD card wear reduction ───────────────────────────────────────────────────
+# Add noatime + commit=600 to root filesystem mount (ext4)
+sdcard_optimize_fstab: true
+sdcard_ext4_commit_s: 600
+
+# Disable apt daily update/upgrade timers (manual updates only)
+sdcard_disable_apt_timers: true
+
+# Disable core dumps to avoid large writes on crash
+sdcard_disable_core_dumps: true
+
+# Use volatile journald storage (RAM only, no /var/log/journal writes)
+sdcard_journal_volatile: true
+
 # ── Resilience ───────────────────────────────────────────────────────────────
-# Swap file (MiB); set 0 to skip
-swap_size_mb: 1024
+# Swap is DISABLED — SD cards wear out from swap I/O
+swap_enabled: false
 swap_path: /swapfile
 
 # Hardware watchdog (auto-reboot on hang)
 watchdog_enabled: true
 watchdog_timeout_s: 15
 
-# Journal size cap (prevent log bloat on SD card)
-journal_max_use: 100M
-journal_max_file_size: 25M
+# Journal size cap (in-memory since volatile)
+journal_max_use: 64M
+journal_max_file_size: 16M
 
 # tmpfs for /tmp to reduce SD card writes
 tmpfs_tmp_enabled: true
 tmpfs_tmp_size: 256M
+
+# tmpfs for /var/tmp
+tmpfs_var_tmp_enabled: true
+tmpfs_var_tmp_size: 64M
 
 # Kernel panic auto-reboot delay (seconds)
 kernel_panic_reboot_s: 10

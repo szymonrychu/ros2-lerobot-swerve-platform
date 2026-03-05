@@ -1,12 +1,16 @@
 # Managed by Ansible — system_optimize role
-# Performance and resilience tuning for Raspberry Pi
+# Performance and resilience tuning for Raspberry Pi (SD card friendly)
 
-# ── Virtual memory ──
+# ── Virtual memory (no swap) ──
 vm.swappiness = {{ sysctl_vm_swappiness }}
 vm.vfs_cache_pressure = {{ sysctl_vm_vfs_cache_pressure }}
 vm.dirty_ratio = {{ sysctl_vm_dirty_ratio }}
 vm.dirty_background_ratio = {{ sysctl_vm_dirty_background_ratio }}
 vm.min_free_kbytes = {{ sysctl_vm_min_free_kbytes }}
+
+# ── SD card write reduction ──
+vm.dirty_writeback_centisecs = {{ sysctl_vm_dirty_writeback_centisecs }}
+vm.dirty_expire_centisecs = {{ sysctl_vm_dirty_expire_centisecs }}
 
 # ── Network buffers for ROS2 DDS (FastDDS / CycloneDDS use large UDP) ──
 net.core.rmem_max = {{ sysctl_net_core_rmem_max }}

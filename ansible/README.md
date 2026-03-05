@@ -23,27 +23,40 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 
 ## System optimization
 
-The `system_optimize` role strips unnecessary packages and services from Ubuntu 24.04, tunes kernel/VM/network parameters for ROS2 + Docker workloads, and adds resilience features. It runs as part of provisioning (`server.yml`, `client.yml`, `site.yml`) or standalone via `playbooks/optimize.yml`.
+The `system_optimize` role strips unnecessary packages and services from Ubuntu 24.04, tunes kernel/VM/network parameters for ROS2 + Docker workloads, reduces SD card wear, and adds resilience features. Designed for headless Raspberry Pi running from SD cards over WiFi. It runs as part of provisioning (`server.yml`, `client.yml`, `site.yml`) or standalone via `playbooks/optimize.yml`.
 
 ### What it does
 
 **Debloat (packages removed and services masked):**
-- snapd (and all snap data), cloud-init, ModemManager, open-vm-tools, vgauth, open-iscsi, multipath-tools, udisks2, apport, pollinate, unattended-upgrades, ubuntu-advantage/pro, secureboot-db, avahi-daemon, wpa_supplicant (configurable)
+- snapd (and all snap data), cloud-init, ModemManager, open-vm-tools, vgauth, open-iscsi, multipath-tools, udisks2, apport, pollinate, unattended-upgrades, ubuntu-advantage/pro, secureboot-db, avahi-daemon, bluetooth
 - APT pinning prevents snapd and cloud-init from being reinstalled
+- WiFi (wpa_supplicant) is kept enabled by default
 
 **Performance tuning:**
 - CPU governor set to `performance` (configurable)
-- `vm.swappiness=10`, `vm.vfs_cache_pressure=50`, `vm.dirty_ratio=10` for Docker/ROS2 workloads
+- `vm.swappiness=0` (no swap), `vm.vfs_cache_pressure=50`, `vm.dirty_ratio=10`
 - `vm.min_free_kbytes=65536` to prevent OOM stalls
 - ROS2 DDS UDP buffer sizes: `net.core.rmem_max/wmem_max=8MB`
 - `fs.inotify` limits raised for Docker
+- WiFi power management disabled for low-latency ROS2 DDS
+
+**SD card wear reduction:**
+- Swap fully disabled (removed from fstab, file deleted)
+- Root filesystem mounted with `noatime` and `commit=600` (10-minute ext4 commit)
+- Dirty page writeback interval raised to 15 s (`dirty_writeback_centisecs=1500`)
+- `/tmp` and `/var/tmp` mounted as tmpfs
+- Journal set to volatile (RAM-only, `/var/log/journal` removed)
+- APT daily update/upgrade timers disabled
+- Core dumps disabled
+
+**Raspberry Pi specific:**
+- GPU memory reduced to 16 MB (headless)
+- Bluetooth disabled via device tree overlay and service masking
+- HDMI output blanked to save power (~30 mA per port)
 
 **Resilience:**
-- 1 GB swap file (configurable) with fstab entry
 - Hardware watchdog (`bcm2835_wdt`) with systemd `RuntimeWatchdogSec` — auto-reboots on kernel hang
 - `kernel.panic=10` and `kernel.panic_on_oops=1` — auto-reboots on panic
-- Journal size capped at 100 MB (prevents log bloat filling SD card)
-- `/tmp` mounted as tmpfs (reduces SD card writes)
 - Docker log rotation (`json-file`, 10 MB max, 3 files)
 
 ### Configuration
@@ -53,13 +66,19 @@ All defaults are in `roles/system_optimize/defaults/main.yml`. Override in `grou
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `cpu_governor` | `performance` | CPU frequency governor |
-| `swap_size_mb` | `1024` | Swap file size in MiB (0 to skip) |
+| `swap_enabled` | `false` | Enable swap (disabled to protect SD card) |
 | `watchdog_enabled` | `true` | Enable hardware watchdog |
 | `watchdog_timeout_s` | `15` | Watchdog timeout (seconds) |
-| `journal_max_use` | `100M` | Max journal disk usage |
+| `journal_max_use` | `64M` | Max journal size (in RAM when volatile) |
+| `sdcard_journal_volatile` | `true` | Journal to RAM only (no SD writes) |
+| `sdcard_ext4_commit_s` | `600` | ext4 commit interval (seconds) |
 | `tmpfs_tmp_enabled` | `true` | Mount /tmp as tmpfs |
 | `docker_log_max_size` | `10m` | Docker container log max size |
-| `debloat_disable_wpa_supplicant` | `true` | Mask wpa_supplicant (set false if using WiFi) |
+| `debloat_disable_wpa_supplicant` | `false` | Keep WiFi enabled |
+| `rpi_gpu_mem` | `16` | GPU memory allocation (MB) |
+| `rpi_disable_bluetooth` | `true` | Disable Bluetooth |
+| `rpi_disable_hdmi` | `true` | Blank HDMI output |
+| `rpi_wifi_power_save_off` | `true` | Disable WiFi power saving |
 
 ### Running standalone
 

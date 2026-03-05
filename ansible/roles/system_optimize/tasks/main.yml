@@ -117,47 +117,179 @@
   notify: Apply sysctl
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 3. RESILIENCE — swap, watchdog, journal, tmpfs, Docker logs
+# 3. SWAP — disable to protect SD card
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Swap ──
-- name: Check existing swap file
-  ansible.builtin.stat:
-    path: "{{ swap_path }}"
-  register: swap_stat
-  when: swap_size_mb > 0
-
-- name: Create swap file
-  ansible.builtin.command: fallocate -l {{ swap_size_mb }}M {{ swap_path }}
-  when: swap_size_mb > 0 and not (swap_stat.stat.exists | default(false))
-  changed_when: true
-
-- name: Set swap file permissions
-  ansible.builtin.file:
-    path: "{{ swap_path }}"
-    owner: root
-    group: root
-    mode: "0600"
-  when: swap_size_mb > 0
-
-- name: Format swap file
-  ansible.builtin.command: mkswap {{ swap_path }}
-  when: swap_size_mb > 0 and not (swap_stat.stat.exists | default(false))
-  changed_when: true
-
-- name: Enable swap file
-  ansible.builtin.command: swapon {{ swap_path }}
-  when: swap_size_mb > 0
+- name: Disable all active swap
+  ansible.builtin.command: swapoff -a
+  when: not swap_enabled
   failed_when: false
   changed_when: false
 
-- name: Ensure swap file in fstab
+- name: Remove swap entries from fstab
   ansible.builtin.lineinfile:
     path: /etc/fstab
-    regexp: "^{{ swap_path }}"
-    line: "{{ swap_path }} none swap sw 0 0"
+    regexp: "\\sswap\\s"
+    state: absent
+  when: not swap_enabled
+
+- name: Remove swap file if present
+  ansible.builtin.file:
+    path: "{{ swap_path }}"
+    state: absent
+  when: not swap_enabled
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 4. SD CARD WEAR REDUCTION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: Add noatime and commit interval to root mount in fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '(^\S+\s+/\s+ext4\s+)(\S+)'
+    replace: '\1defaults,noatime,commit={{ sdcard_ext4_commit_s }}'
+  when: sdcard_optimize_fstab
+
+- name: Remount root with noatime
+  ansible.builtin.command: mount -o remount,noatime /
+  when: sdcard_optimize_fstab
+  failed_when: false
+  changed_when: false
+
+- name: Disable apt daily update timer
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    masked: true
+    enabled: false
+  loop:
+    - apt-daily.timer
+    - apt-daily.service
+    - apt-daily-upgrade.timer
+    - apt-daily-upgrade.service
+  when: sdcard_disable_apt_timers
+  failed_when: false
+  changed_when: false
+
+- name: Disable core dumps via limits.conf
+  ansible.builtin.copy:
+    dest: /etc/security/limits.d/no-coredumps.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      * hard core 0
+      * soft core 0
+  when: sdcard_disable_core_dumps
+
+- name: Disable core dumps via sysctl
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/50-no-coredump.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      kernel.core_pattern=|/bin/false
+  when: sdcard_disable_core_dumps
+  notify: Apply sysctl
+
+# ── tmpfs mounts ──
+- name: Add tmpfs mount for /tmp in fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: "^tmpfs\\s+/tmp"
+    line: "tmpfs /tmp tmpfs defaults,noatime,nosuid,nodev,size={{ tmpfs_tmp_size }} 0 0"
     state: present
-  when: swap_size_mb > 0
+  when: tmpfs_tmp_enabled
+
+- name: Mount /tmp as tmpfs now
+  ansible.builtin.command: mount -o remount /tmp
+  when: tmpfs_tmp_enabled
+  failed_when: false
+  changed_when: false
+
+- name: Add tmpfs mount for /var/tmp in fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: "^tmpfs\\s+/var/tmp"
+    line: "tmpfs /var/tmp tmpfs defaults,noatime,nosuid,nodev,size={{ tmpfs_var_tmp_size }} 0 0"
+    state: present
+  when: tmpfs_var_tmp_enabled
+
+- name: Mount /var/tmp as tmpfs now
+  ansible.builtin.command: mount /var/tmp
+  when: tmpfs_var_tmp_enabled
+  failed_when: false
+  changed_when: false
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. RASPBERRY PI SPECIFIC
+# ═══════════════════════════════════════════════════════════════════════════════
+
+- name: Set GPU memory for headless operation
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^gpu_mem="
+    line: "gpu_mem={{ rpi_gpu_mem }}"
+    insertafter: "\\[all\\]"
+  failed_when: false
+
+- name: Disable Bluetooth via device tree overlay
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^dtoverlay=disable-bt$"
+    line: "dtoverlay=disable-bt"
+    insertafter: "\\[all\\]"
+  when: rpi_disable_bluetooth
+  failed_when: false
+
+- name: Mask Bluetooth-related services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    masked: true
+    enabled: false
+  loop:
+    - bluetooth.service
+    - hciuart.service
+  when: rpi_disable_bluetooth
+  failed_when: false
+  changed_when: false
+
+- name: Disable HDMI output to save power
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^hdmi_blanking="
+    line: "hdmi_blanking=2"
+    insertafter: "\\[all\\]"
+  when: rpi_disable_hdmi
+  failed_when: false
+
+- name: Disable WiFi power management for low latency
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [connection]
+      wifi.powersave = 2
+  when: rpi_wifi_power_save_off
+  failed_when: false
+
+- name: Disable WiFi power management via iw (immediate)
+  ansible.builtin.shell: |
+    for wlan in /sys/class/net/wlan*; do
+      iface=$(basename "$wlan")
+      iw dev "$iface" set power_save off 2>/dev/null || true
+    done
+  when: rpi_wifi_power_save_off
+  changed_when: false
+  failed_when: false
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. RESILIENCE — watchdog, journal, Docker logs
+# ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Hardware watchdog ──
 - name: Load hardware watchdog kernel module
@@ -194,7 +326,7 @@
   when: watchdog_enabled
   notify: Reload systemd
 
-# ── Journal size cap ──
+# ── Journal ──
 - name: Ensure journald.conf.d directory exists
   ansible.builtin.file:
     path: /etc/systemd/journald.conf.d
@@ -203,7 +335,7 @@
     group: root
     mode: "0755"
 
-- name: Configure journald size limits
+- name: Configure journald (volatile + size limits)
   ansible.builtin.template:
     src: journald-size.conf.j2
     dest: /etc/systemd/journald.conf.d/size-limit.conf
@@ -212,23 +344,14 @@
     mode: "0644"
   notify: Restart journald
 
+- name: Remove persistent journal directory to save SD card
+  ansible.builtin.file:
+    path: /var/log/journal
+    state: absent
+  when: sdcard_journal_volatile
+
 - name: Vacuum old journal entries
   ansible.builtin.command: journalctl --vacuum-size={{ journal_max_use }}
-  changed_when: false
-
-# ── tmpfs for /tmp ──
-- name: Add tmpfs mount for /tmp in fstab
-  ansible.builtin.lineinfile:
-    path: /etc/fstab
-    regexp: "^tmpfs\\s+/tmp"
-    line: "tmpfs /tmp tmpfs defaults,noatime,nosuid,nodev,size={{ tmpfs_tmp_size }} 0 0"
-    state: present
-  when: tmpfs_tmp_enabled
-
-- name: Mount /tmp as tmpfs now
-  ansible.builtin.command: mount -o remount /tmp
-  when: tmpfs_tmp_enabled
-  failed_when: false
   changed_when: false
 
 # ── Docker log rotation ──

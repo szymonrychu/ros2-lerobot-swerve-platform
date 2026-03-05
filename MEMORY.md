@@ -87,8 +87,10 @@
 
 ## System optimization (both RPis)
 
-* **system_optimize** role: Debloats Ubuntu 24.04, tunes performance, adds resilience for RPi. Integrated into provision playbooks (`server.yml`, `client.yml`, `site.yml`) and available standalone via `playbooks/optimize.yml`.
-* **Debloat**: Removes snapd, cloud-init, ModemManager, open-vm-tools, open-iscsi, multipath-tools, udisks2, apport, pollinate, unattended-upgrades, ubuntu-advantage/pro, secureboot-db; masks avahi-daemon and wpa_supplicant; APT-pins snapd and cloud-init to prevent reinstall.
-* **Performance**: CPU governor `performance`, `vm.swappiness=10`, `vm.vfs_cache_pressure=50`, `vm.dirty_ratio=10`, `vm.min_free_kbytes=65536`, ROS2 DDS UDP buffers 8 MB, inotify limits raised.
-* **Resilience**: 1 GB swap file, hardware watchdog (`bcm2835_wdt`, 15 s timeout), `kernel.panic=10` auto-reboot, journal capped at 100 MB, `/tmp` as tmpfs, Docker log rotation (10 MB × 3 files).
+* **system_optimize** role: Debloats Ubuntu 24.04, tunes performance, reduces SD card wear, adds resilience for RPi. Integrated into provision playbooks (`server.yml`, `client.yml`, `site.yml`) and available standalone via `playbooks/optimize.yml`.
+* **Debloat**: Removes snapd, cloud-init, ModemManager, open-vm-tools, open-iscsi, multipath-tools, udisks2, apport, pollinate, unattended-upgrades, ubuntu-advantage/pro, secureboot-db; masks avahi-daemon and bluetooth. WiFi (wpa_supplicant) stays enabled — both RPis use WiFi extensively.
+* **Performance**: CPU governor `performance`, `vm.swappiness=0` (no swap), `vm.vfs_cache_pressure=50`, `vm.dirty_ratio=10`, `vm.min_free_kbytes=65536`, ROS2 DDS UDP buffers 8 MB, inotify limits raised, WiFi power management disabled for low-latency DDS.
+* **SD card wear reduction**: Swap fully disabled (removed), root mounted `noatime` + `commit=600`, dirty writeback 15 s, `/tmp` and `/var/tmp` as tmpfs, journal volatile (RAM-only, `/var/log/journal` removed), apt daily timers disabled, core dumps disabled.
+* **RPi-specific**: GPU memory 16 MB (headless), Bluetooth disabled (dtoverlay + service mask), HDMI blanked.
+* **Resilience**: Hardware watchdog (`bcm2835_wdt`, 15 s timeout), `kernel.panic=10` auto-reboot, Docker log rotation (10 MB × 3 files).
 * **LGTM monitoring stack removed**: Grafana, Loki, Mimir, Alloy containers, images, systemd units, compose files, and data dirs were manually cleaned from both hosts. No monitoring role remains in Ansible.
