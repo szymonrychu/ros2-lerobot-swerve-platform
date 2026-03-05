@@ -244,11 +244,49 @@ class SerialHandler:
             raise RuntimeError("Serial port not open")
         self._ser.write(data)
 
-    def send_base_configure(self) -> None:
-        """Send LC29H-BS configure commands (MSM7, ref 1005, ephemeris, NMEA) and save to flash."""
+    def wait_for_serial_ready(self, timeout_s: float = 30.0) -> bool:
+        """Block until the serial port starts producing data, or timeout.
+
+        After a cold power-on the GNSS module needs a few seconds before the
+        UART becomes active. This avoids sending configure commands into the
+        void and accumulating serial I/O errors.
+
+        Args:
+            timeout_s: Maximum seconds to wait.
+
+        Returns:
+            True if data was detected, False on timeout.
+        """
         import time
+
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if self._ser is None or not self._ser.is_open:
+                return False
+            try:
+                if self._ser.in_waiting > 0:
+                    return True
+            except (OSError, serial.SerialException):
+                pass
+            self._stop.wait(0.5)
+        return False
+
+    def send_base_configure(self) -> None:
+        """Send LC29H-BS configure commands (MSM7, ref 1005, ephemeris, NMEA) and save to flash.
+
+        Waits for the module to be ready, sends all PAIR/NMEA enable
+        commands, then persists with $PQTMSAVEPAR so settings survive
+        power cycles.
+        """
+        import time
+
+        LOG.info("Waiting for GNSS module serial to become ready...")
+        if not self.wait_for_serial_ready(timeout_s=30.0):
+            LOG.warning("Serial not ready after 30 s, sending configure anyway")
 
         for cmd in LC29HBS_CONFIGURE_COMMANDS:
             self.send_nmea(cmd)
+            time.sleep(0.05)
         time.sleep(0.5)
         self.send_nmea("$PQTMSAVEPAR")
+        LOG.info("Configure commands sent and saved to flash")
