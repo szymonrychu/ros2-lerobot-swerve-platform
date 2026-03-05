@@ -7,6 +7,7 @@ packages = [{ include = "gps_rtk", from = "." }]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+numpy = ">=1.26.0"
 pyserial = ">=3.5"
 pydantic = ">=2.0"
 pyyaml = ">=6.0"
