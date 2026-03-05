@@ -31,4 +31,4 @@ One-time survey-in is done with `scripts/calibrate_rtk_base.py` on the server (s
 
 ## Deploy
 
-Ansible deploys this node on server (base) and client (rover) with `--device=/dev/ttyS0:/dev/ttyS0`. Ensure UART is enabled on the host (e.g. `enable_uart=1` in boot config).
+Ansible deploys this node on server (base) and client (rover). Serial device: on RPi 4 (server) the LC29H-BS hat uses `/dev/ttyS0`; on RPi 5 (client) the LC29H-DA hat uses `/dev/ttyAMA10`. Ensure UART is enabled on the host (e.g. `enable_uart=1` in boot config).

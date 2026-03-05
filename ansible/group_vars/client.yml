@@ -204,16 +204,17 @@ ros2_nodes:
       orientation_covariance: 0.01
       angular_velocity_covariance: 0.01
       linear_acceleration_covariance: 0.04
+  # RPi 5 uses /dev/ttyAMA10 for GPIO UART (LC29H-DA hat); RPi 4 uses /dev/ttyS0
   - name: gps_rtk_rover
     node_type: gps_rtk
     present: true
     enabled: true
     extra_args: >-
       --network host --ipc host
-      --device=/dev/ttyS0:/dev/ttyS0
+      --device=/dev/ttyAMA10:/dev/ttyAMA10
     config: |
       mode: rover
-      serial_port: /dev/ttyS0
+      serial_port: /dev/ttyAMA10
       baud_rate: 115200
       topic: /client/gps/fix
       frame_id: gps_link
