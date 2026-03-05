@@ -61,7 +61,7 @@ class GpsRtkBaseNode(Node):
             with self._fix_lock:
                 self._latest_fix = msg
         except Exception as e:
-            self.get_logger().debug("NavSatFix build error: %s", e)
+            self.get_logger().debug(f"NavSatFix build error: {e}")
 
     def _on_rtcm3(self, frame: bytes) -> None:
         with self._rtcm_lock:
@@ -104,9 +104,7 @@ class GpsRtkBaseNode(Node):
         self._server_socket.bind((self.config.rtcm_tcp_bind, self.config.rtcm_tcp_port))
         self._server_socket.listen(5)
         self.get_logger().info(
-            "RTCM3 TCP server on %s:%d",
-            self.config.rtcm_tcp_bind,
-            self.config.rtcm_tcp_port,
+            f"RTCM3 TCP server on {self.config.rtcm_tcp_bind}:{self.config.rtcm_tcp_port}"
         )
         self._server_thread = threading.Thread(target=self._accept_loop, daemon=True)
         self._server_thread.start()

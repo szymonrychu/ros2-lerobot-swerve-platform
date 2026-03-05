@@ -73,9 +73,7 @@ class GpsRtkRoverNode(Node):
                 self._rtcm_socket = sock
                 self._rtcm_connected.set()
                 self.get_logger().info(
-                    "RTCM connected to %s:%d",
-                    self.config.rtcm_server_host,
-                    self.config.rtcm_server_port,
+                    f"RTCM connected to {self.config.rtcm_server_host}:{self.config.rtcm_server_port}"
                 )
                 while not self._stop.is_set() and self.serial is not None:
                     try:
@@ -84,10 +82,10 @@ class GpsRtkRoverNode(Node):
                             break
                         self.serial.write(data)
                     except (ConnectionResetError, BrokenPipeError, OSError) as e:
-                        self.get_logger().warning("RTCM connection lost: %s", e)
+                        self.get_logger().warning(f"RTCM connection lost: {e}")
                         break
             except (socket.timeout, socket.error, OSError) as e:
-                self.get_logger().debug("RTCM connect failed: %s", e)
+                self.get_logger().debug(f"RTCM connect failed: {e}")
             finally:
                 self._rtcm_connected.clear()
                 if self._rtcm_socket is not None:
