@@ -22,6 +22,8 @@ node "Client (RPi 5)\n192.168.1.34" as client {
   component "gps_rtk_rover" as cg <<Docker>> #64B5F6
   component "bno095_imu" as ci <<Docker>> #64B5F6
   component "gripper_uvc_camera" as cc <<Docker>> #64B5F6
+  component "rplidar_a1" as cr <<Docker>> #64B5F6
+  component "realsense_d435i" as cre <<Docker>> #64B5F6
   component "test_joint_api" as ct <<Docker>> #90CAF9
   component "topic_scraper_api" as cs <<Docker>> #BBDEFB
   component "haptic_controller\n(disabled)" as ch <<Docker>> #CFD8DC
@@ -35,7 +37,7 @@ note right of server
 end note
 
 note right of client
-  10 containers
+  12 containers
   systemd-managed
 end note
 

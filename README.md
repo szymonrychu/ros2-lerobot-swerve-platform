@@ -30,13 +30,13 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 |---------|--------|-------------|
 | Leader–follower teleop | **Working** | 6-DOF arm teleop: leader (Server) → master2master → Kalman filter → follower (Client) |
 | GPS RTK positioning | **Working** | LC29H-BS base (Server) + LC29H-DA rover (Client), RTCM3 over TCP, `NavSatFix` topics, sub-meter accuracy |
-| IMU | **Working** | BNO085/BNO095 over I2C, `sensor_msgs/Imu` with Nav2 covariance matrices |
+| IMU | **Working** | BNO055 over I2C, `sensor_msgs/Imu` with Nav2 covariance matrices |
 | USB cameras | **Working** | UVC camera bridge, `sensor_msgs/Image` (bgr8) via OpenCV |
 | Topic scraper API | **Working** | Dynamic ROS2 topic discovery + HTTP JSON API for runtime diagnostics |
 | Haptic controller | **Disabled** | Force-feedback and zero-G hold for leader gripper (code present, `enabled: false`) |
 | Swerve drive | Stub | Placeholder for 4-wheel swerve platform control |
-| RealSense D435i | Stub | Placeholder for depth camera |
-| RPLidar-A1 | Stub | Placeholder for 2D lidar |
+| RealSense D435i | **Working** | Depth + color + IMU via ros-jazzy-realsense2-camera |
+| RPLidar-A1 | **Working** | 2D lidar `sensor_msgs/LaserScan` via ros-jazzy-rplidar-ros |
 | Nav2 + SLAM | Planned | Navigation stack integration |
 
 ## Node catalog
@@ -47,7 +47,7 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 |------|------|-------------|----------|
 | `ros2-master` | ros2_master | DDS daemon | — |
 | `lerobot_leader` | feetech_servos | `/leader/joint_states` (pub) | SO-101 arm (USB serial) |
-| `gps_rtk_base` | gps_rtk | `/server/gps/fix` (pub), RTCM3 TCP :5016 | LC29H-BS HAT (`/dev/ttyS0`) |
+| `gps_rtk_base` | gps_rtk | `/server/gps/fix` (pub), RTCM3 TCP :5016 | LC29H-BS HAT (`/dev/ttyAMA0`) |
 | `topic_scraper_api` | topic_scraper_api | HTTP :18100 | — |
 
 ### Client (Raspberry Pi 5 — 192.168.1.34)
@@ -59,8 +59,10 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `filter_node` | filter_node | `/filter/input_joint_updates` (sub) → `/follower/joint_commands` (pub) | — |
 | `lerobot_follower` | feetech_servos | `/follower/joint_commands` (sub), `/follower/joint_states` (pub) | SO-101 arm (USB serial) |
 | `gps_rtk_rover` | gps_rtk | `/client/gps/fix` (pub), RTCM3 from Server :5016 | LC29H-DA HAT (`/dev/ttyAMA0`) |
-| `bno095_imu` | bno095_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO085 (`/dev/i2c-1`) |
+| `bno095_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
 | `gripper_uvc_camera` | uvc_camera | `/camera_0/image_raw` (pub, `sensor_msgs/Image`) | USB camera (`/dev/video0`) |
+| `rplidar_a1` | rplidar_a1 | `/scan` (pub, `sensor_msgs/LaserScan`) | RPLidar A1 (`/dev/ttyUSB0`) |
+| `realsense_d435i` | realsense_d435i | `/camera/*` (color, depth, pointcloud, IMU) | RealSense D435i (USB 3.0) |
 | `test_joint_api` | test_joint_api | REST :18080 → `/filter/input_joint_updates` (pub) | — |
 | `topic_scraper_api` | topic_scraper_api | HTTP :18100 | — |
 | `haptic_controller` | haptic_controller | Disabled (`mode: off`) | — |
@@ -109,7 +111,7 @@ Client: master2master   →  /filter/input_joint_updates  ← test_joint_api (RE
 │   ├── filter_node/        Kalman filter for joint commands
 │   ├── test_joint_api/     REST API for joint testing
 │   ├── topic_scraper_api/  Dynamic topic scraper + HTTP API
-│   ├── bno095_imu/         BNO085/095 IMU bridge
+│   ├── bno095_imu/         BNO055 IMU bridge
 │   ├── haptic_controller/  Force-feedback (disabled)
 │   └── bridges/
 │       ├── feetech_servos/ Feetech servo bridge (leader + follower)

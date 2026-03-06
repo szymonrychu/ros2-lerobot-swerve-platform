@@ -14,9 +14,9 @@ Reusable ROS2 nodes that expose hardware as standard ROS2 topics. Each bridge ty
 |---------------|---------------------|----------|--------------------------------------------------|
 | UVC camera    | [uvc_camera/](uvc_camera/README.md) | Implemented (stub) | `UVC_DEVICE`, `UVC_TOPIC`; device mapping in compose |
 | Feetech servos | [feetech_servos/](feetech_servos/README.md) | Implemented (stub) | Config: namespace + joint_names as list of { name, id } (explicit servo ID per joint); example leader/follower configs |
-| RealSense     | —                   | Stub     | Placeholder service in compose                   |
-| RPLidar       | —                   | Stub     | Placeholder service in compose                   |
-| IMU (BNO095)  | (nodes/bno095_imu)  | Implemented | Client only; I2C, Nav2 covariance                |
+| RealSense D435i | [realsense_d435i/](realsense_d435i/README.md) | Implemented | ros-jazzy-realsense2-camera; USB 3.0, `--privileged` |
+| RPLidar A1   | [rplidar_a1/](rplidar_a1/README.md) | Implemented | ros-jazzy-rplidar-ros; `/dev/ttyUSB0`, LaserScan `/scan` |
+| IMU (BNO055)  | (nodes/bno095_imu)  | Implemented | Client only; I2C, Nav2 covariance                |
 | GPS-RTK       | [gps_rtk/](gps_rtk/README.md) | Implemented | LC29H-BS (base) on Server, LC29H-DA (rover) on Client; NavSatFix + RTCM3 TCP |
 | Swerve        | —                   | Stub     | Placeholder service in compose                   |
 

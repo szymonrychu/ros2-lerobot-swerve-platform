@@ -45,4 +45,16 @@ participant "uvc_camera\n(Client)" as cam #64B5F6
 
 cam -> cam : /camera_0/image_raw\n(sensor_msgs/Image)
 
+== Lidar ==
+
+participant "rplidar_a1\n(Client)" as rplidar #64B5F6
+
+rplidar -> rplidar : /scan\n(sensor_msgs/LaserScan)
+
+== RealSense ==
+
+participant "realsense_d435i\n(Client)" as realsense #64B5F6
+
+realsense -> realsense : /camera/color/image_raw\n/camera/depth/...\n(sensor_msgs/Image, PointCloud2, Imu)
+
 @enduml
