@@ -99,6 +99,36 @@ ros2_node_type_defaults:
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+  swerve_controller:
+    image: harbor.szymonrichert.pl/containers/client-swerve-controller:latest
+    build_context: nodes/swerve_drive_controller
+    config_path: /etc/ros2/swerve_drive_controller
+    env:
+      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_drive_controller/config.yaml
+  static_tf_publisher:
+    image: harbor.szymonrichert.pl/containers/client-static-tf-publisher:latest
+    build_context: nodes/static_tf_publisher
+    config_path: /etc/ros2/static_tf_publisher
+    env:
+      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      - STATIC_TF_PUBLISHER_CONFIG=/etc/ros2/static_tf_publisher/config.yaml
+  robot_localization_ekf:
+    image: harbor.szymonrichert.pl/containers/client-robot-localization-ekf:latest
+    build_context: nodes/robot_localization_ekf
+    config_path: /etc/ros2/robot_localization_ekf
+    env:
+      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      - ROBOT_LOCALIZATION_EKF_CONFIG=/etc/ros2/robot_localization_ekf/config.yaml
+  nav2_bringup:
+    image: harbor.szymonrichert.pl/containers/client-nav2-bringup:latest
+    build_context: nodes/nav2_bringup
+    env:
+      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
 ros2_nodes:
@@ -263,7 +293,7 @@ ros2_nodes:
   - name: gripper_uvc_camera
     node_type: uvc_camera
     present: true
-    enabled: true
+    enabled: false
     extra_args: >-
       --network host
       --ipc host
@@ -321,3 +351,109 @@ ros2_nodes:
           source_min_steps: 2045
           source_max_steps: 3289
           command_min_steps: 1900
+  - name: swerve_drive_servos
+    node_type: feetech_servos
+    present: true
+    enabled: true
+    extra_args: >-
+      --network host
+      --ipc host
+      --device=/dev/ttyUSB1:/dev/ttyUSB1
+    config: |
+      device: /dev/ttyUSB1
+      namespace: swerve_drive
+      log_joint_updates: false
+      enable_torque_on_start: true
+      register_publish_interval_s: 10
+      joint_names:
+        - name: fl_drive
+          id: 1
+        - name: fl_steer
+          id: 2
+        - name: fr_drive
+          id: 3
+        - name: fr_steer
+          id: 4
+        - name: rl_drive
+          id: 5
+        - name: rl_steer
+          id: 6
+        - name: rr_drive
+          id: 7
+        - name: rr_steer
+          id: 8
+  - name: swerve_controller
+    node_type: swerve_controller
+    present: true
+    enabled: true
+    extra_args: --network host --ipc host
+    config: |
+      half_length_m: 0.2
+      half_width_m: 0.15
+      wheel_radius_m: 0.15
+      cmd_vel_topic: /cmd_vel
+      joint_states_topic: /swerve_drive/joint_states
+      joint_commands_topic: /swerve_drive/joint_commands
+      odom_topic: /odom
+      odom_frame_id: odom
+      base_frame_id: base_link
+      control_loop_hz: 50
+      steer_error_threshold_rad: 0.35
+      joint_names:
+        - fl_drive
+        - fl_steer
+        - fr_drive
+        - fr_steer
+        - rl_drive
+        - rl_steer
+        - rr_drive
+        - rr_steer
+  - name: static_tf_publisher
+    node_type: static_tf_publisher
+    present: true
+    enabled: true
+    extra_args: --network host --ipc host
+    config: |
+      parent_frame: base_link
+      frames:
+        - child: imu_link
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          yaw: 0.0
+        - child: laser_frame
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          yaw: 0.0
+  - name: robot_localization_ekf
+    node_type: robot_localization_ekf
+    present: true
+    enabled: true
+    extra_args: --network host --ipc host
+    config: |
+      ekf_filter_node:
+        ros__parameters:
+          frequency: 50.0
+          sensor_timeout: 0.1
+          two_d_mode: true
+          publish_tf: true
+          map_frame: map
+          odom_frame: odom
+          base_link_frame: base_link
+          world_frame: odom
+          odom0: /odom
+          odom0_config: [true, true, false, false, false, false, true, true, false, false, false, true, false, false, false]
+          odom0_queue_size: 10
+          imu0: /imu/data
+          imu0_config: [false, false, false, true, true, true, false, false, false, true, true, true, true, true, true]
+          imu0_differential: false
+          imu0_relative: true
+          imu0_queue_size: 10
+          imu0_remove_gravitational_acceleration: true
+          use_control: false
+  - name: nav2_bringup
+    node_type: nav2_bringup
+    present: true
+    enabled: true
+    extra_args: --network host --ipc host

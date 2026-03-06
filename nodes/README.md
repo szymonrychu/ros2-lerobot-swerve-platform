@@ -15,7 +15,11 @@ All ROS2 node source code and Dockerfiles live here. Deployment is via Ansible: 
 - **bno095_imu/** — BNO055 IMU bridge; publishes `sensor_msgs/Imu` on `/imu/data` with covariance for Nav2 (Client only).
 - **bridges/gps_rtk/** — GPS RTK bridge for LC29H-BS (base, Server) and LC29H-DA (rover, Client); publishes `sensor_msgs/NavSatFix`, streams RTCM3 over TCP.
 - **bridges/rplidar_a1/** — RPLidar A1 bridge; publishes `sensor_msgs/LaserScan` on `/scan` (Client only).
-- **bridges/realsense_d435i/** — RealSense D435i bridge; color, depth, point cloud, IMU (Client only).
+- **bridges/realsense_d435i/** — RealSense D435i bridge; color, depth, point cloud, unified IMU `/camera/imu` (Client only).
+- **swerve_drive_controller/** — Swerve controller: cmd_vel → joint commands, FK/IK, odometry (Client only).
+- **static_tf_publisher/** — Static TF base_link → sensor frames (Client only).
+- **robot_localization_ekf/** — EKF fuse odom + IMU → `/odometry/filtered` (Client only).
+- **nav2_bringup/** — Nav2 2D navigation stack container (Client only).
 - **haptic_controller/** — Force-feedback (resistance) and zero-G hold mode for leader gripper; gripper-only pilot (Client only).
 
 Shared Python libraries used by multiple nodes live in [../shared/](../shared/). See [AGENTS.md](../AGENTS.md) for conventions (type hints, unit tests, rebuild on source change).

@@ -63,6 +63,14 @@ The **uvc_camera** node has tests under `nodes/bridges/uvc_camera/tests/`. Run f
 
 The **lerobot_teleop** node has tests under `nodes/lerobot_teleop/tests/`. Run from `nodes/lerobot_teleop`: `poetry run pytest tests/ -v` (or `poetry run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, empty env fallback. Config lives in `config.py` (no ROS deps) for testability.
 
+### Per-node tests (swerve_drive_controller)
+
+The **swerve_drive_controller** node has tests under `nodes/swerve_drive_controller/tests/`. Run from `nodes/swerve_drive_controller`: `poetry run pytest tests/ -v`. Covers: kinematics (`test_kinematics.py`: wheel_positions, inverse_kinematics straight/zero/sideways, forward_kinematics roundtrip, steer_angle_difference, should_zero_drive); config (`test_config.py`: load_config missing/minimal/defaults).
+
+### Per-node tests (static_tf_publisher)
+
+The **static_tf_publisher** node has tests under `nodes/static_tf_publisher/tests/`. Run from `nodes/static_tf_publisher`: `poetry run pytest tests/ -v`. Covers: config loading (`test_config.py`: missing file, frames list with parent/child and offsets).
+
 ### Per-node tests (filter_node)
 
 The **filter_node** node has tests under `nodes/filter_node/tests/`. Run from `nodes/filter_node`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`: input/output topic, algorithm, params, joint_names); algorithm registry and Kalman (`test_algorithms.py`: get_algorithm, Kalman create_state/update/predict).
@@ -85,7 +93,7 @@ The **topic_scraper_api** node has tests under `nodes/topic_scraper_api/tests/`.
 
 ### Per-node tests (bno095_imu)
 
-The **bno095_imu** node has tests under `nodes/bno095_imu/tests/`. Run from `nodes/bno095_imu`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`: missing/empty file, defaults, explicit topic/frame_id/publish_hz/i2c_bus/covariances, publish_hz clamping, load_config_from_env). quaternion and IMU message mapping (`test_imu_msg.py`: `quaternion_ijkr_to_xyzw`, `build_imu_message` units and covariance arrays; build_imu_message tests are skipped when sensor_msgs is not available, e.g. without a ROS environment).
+The **bno095_imu** node has tests under `nodes/bno095_imu/tests/`. Run from `nodes/bno095_imu`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`: missing/empty file, defaults, explicit topic/frame_id/publish_hz/i2c_bus/i2c_address/covariances, publish_hz clamping, load_config_from_env). quaternion and IMU message mapping (`test_imu_msg.py`: `quaternion_wxyz_to_xyzw`, `build_imu_message` units and covariance arrays; build_imu_message tests are skipped when sensor_msgs is not available, e.g. without a ROS environment).
 
 ### Per-node tests (haptic_controller)
 

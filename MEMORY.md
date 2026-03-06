@@ -88,7 +88,17 @@
 ## RPLidar A1 and RealSense D435i (client)
 
 * **rplidar_a1** node: Client-only. Uses [rplidar_ros](https://github.com/Slamtec/rplidar_ros) (Slamtec, BSD-2-Clause) via `ros-jazzy-rplidar-ros`. Publishes `sensor_msgs/LaserScan` on `/scan`. Device: `/dev/ttyUSB0` (or `/dev/serial/by-id/...`); container `--device=/dev/ttyUSB0:/dev/ttyUSB0`. Headless launch in `nodes/bridges/rplidar_a1/launch/rplidar_a1.launch.py` (no RViz). Env `RPLIDAR_SERIAL_PORT` overrides default port.
-* **realsense_d435i** node: Client-only. Uses [realsense-ros](https://github.com/realsenseai/realsense-ros) (Intel RealSense, Apache 2.0) via `ros-jazzy-realsense2-camera`. Publishes color, depth, point cloud, IMU (D435i). Container runs with `--privileged` for USB 3.0 access. Topic scraper `allowed_types` includes `sensor_msgs/msg/LaserScan` and `sensor_msgs/msg/PointCloud2` for observability.
+* **realsense_d435i** node: Client-only. Uses [realsense-ros](https://github.com/realsenseai/realsense-ros) (Intel RealSense, Apache 2.0) via `ros-jazzy-realsense2-camera`. Publishes color, depth, point cloud, IMU (D435i). Launch enables accel/gyro and `unite_imu_method:=linear_interpolation` so unified `sensor_msgs/Imu` is on `/camera/imu` for robot_localization. Container runs with `--privileged` for USB 3.0 access.
+
+## Swerve drive and Nav2 (client)
+
+* **UVC camera**: Deployed with `enabled: false` when camera is unplugged; set `enabled: true` in client.yml when camera is in use.
+* **swerve_drive_servos**: Second feetech_servos instance; namespace `swerve_drive`, 8 joints (fl/fr/rl/rr × drive+steer), device e.g. `/dev/ttyUSB1`. Same bridge code as follower; config defines joint names and IDs.
+* **swerve_controller**: New node under `nodes/swerve_drive_controller`. Subscribes `/cmd_vel` (Twist), `/swerve_drive/joint_states`; publishes `/swerve_drive/joint_commands`, `/odom` (Odometry), TF odom→base_link. Forward and inverse kinematics for symmetric 4-wheel swerve (configurable half_length_m, half_width_m, wheel_radius_m). No-propulsion safeguard: zero drive when steer error exceeds `steer_error_threshold_rad`. ST3215 steering rate ~4.71 rad/s (0.222 s/60°); tune Nav2 max velocities accordingly.
+* **static_tf_publisher**: Publishes static TF from base_link to imu_link, laser_frame (configurable offsets). Config: YAML with `frames` list or shorthand frame_id: [x, y, yaw].
+* **robot_localization_ekf**: Container runs robot_localization ekf_node; fuses `/odom` (swerve) and `/imu/data` (BNO055); publishes `/odometry/filtered`. Config deployed as config.yaml (Ansible); env ROBOT_LOCALIZATION_EKF_CONFIG points to it. BNO055 assumed working for full fusion; EKF can run with odom + RealSense IMU if BNO055 unavailable.
+* **nav2_bringup**: Container runs Nav2 with `use_localization:=false` (no map/AMCL); reads `/odom`, `/scan`, publishes `/cmd_vel`. Goal via `navigate_to_pose` action. Params in image; tune max velocities for swerve steering rate.
+* **Debug script**: `scripts/swerve_goal_relative.py` sends a goal relative to current pose (--dx, --dy, --dtheta in robot frame) via navigate_to_pose action.
 
 ## System optimization (both RPis)
 

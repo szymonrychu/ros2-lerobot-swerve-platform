@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "static_tf_publisher"
+version = "0.1.0"
+description = "Publish static TF from base_link to sensor frames (configurable offsets)"
+readme = "README.md"
+packages = [{ include = "static_tf_publisher", from = "." }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyyaml = ">=6.0"
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.0.0"
+black = "^24.0.0"
+isort = "^5.13.0"
+pytest = "^8.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+
+[tool.poe.tasks]
+lint = "flake8 static_tf_publisher && black --check static_tf_publisher && isort --check static_tf_publisher"
+test = "pytest tests/ -v"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

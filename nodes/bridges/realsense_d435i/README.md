@@ -8,9 +8,9 @@ Uses [realsense-ros](https://github.com/realsenseai/realsense-ros) (Intel RealSe
 
 ## Features
 
-- **Topics**: Color (`/camera/color/image_raw`), depth (`/camera/depth/image_rect_raw`), point cloud, camera info; D435i also exposes IMU (gyro/accel).
+- **Topics**: Color (`/camera/color/image_raw`), depth (`/camera/depth/image_rect_raw`), point cloud, camera info; D435i IMU enabled with `unite_imu_method:=linear_interpolation` so a unified `sensor_msgs/Imu` is published on `/camera/imu` for robot_localization.
 - **Device**: USB 3.0. The container is run with `--privileged` for reliable USB access; device-specific mounts can be refined later.
-- **Launch**: Default `rs_launch.py` (enable_color, enable_depth true). Override with launch args via config or env if needed.
+- **Launch**: `rs_launch.py` with `enable_accel:=true`, `enable_gyro:=true`, `unite_imu_method:=linear_interpolation`.
 
 ## Build and run
 

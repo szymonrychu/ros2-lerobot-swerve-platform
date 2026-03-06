@@ -20,7 +20,7 @@ Run these from your computer (or from a host with SSH and network access to serv
 # Skip factory restore (if module already reset)
 ./scripts/rtk_calibrate.sh --no-restore
 
-# Run locally (you must be on the server with /dev/ttyS0)
+# Run locally (you must be on the server with /dev/ttyAMA0)
 ./scripts/rtk_calibrate.sh --local
 ```
 
@@ -73,6 +73,22 @@ After the base is calibrated and the server RPi has been power-cycled:
    `./scripts/rtk_verify.sh --capture 60` → client status distribution and last fixes (confirm sustained RTK fix and position).
 
 Run these from a machine that can reach both server and client (e.g. your laptop on the same network). Topic scraper must be running on both hosts (port 18100) for verify steps.
+
+### Swerve navigation debug (relative goal)
+
+Send a Nav2 goal relative to the current robot pose (e.g. "1 m forward") for testing the swerve + Nav2 stack. Requires ROS2 Jazzy sourced and Nav2 running (e.g. on client).
+
+```bash
+# From a machine that can reach the client ROS2 graph (e.g. with ROS_DOMAIN_ID and DDS discovery, or SSH + X11 for local):
+source /opt/ros/jazzy/setup.bash
+python scripts/swerve_goal_relative.py --dx 1.0 --dy 0
+python scripts/swerve_goal_relative.py --dx 0.5 --dy 0.3 --dtheta 0.2
+```
+
+- **--dx, --dy, --dtheta**: Offset in robot frame (m, m, rad). Goal = current pose + offset.
+- **--odom-topic**: Odometry topic (default `/odom` or `SWERVE_GOAL_ODOM_TOPIC`).
+- **--action**: NavigateToPose action name (default `/navigate_to_pose`).
+- **--frame-id**: Frame for goal pose (default `odom` for odom-relative goals).
 
 ### Other
 

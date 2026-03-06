@@ -31,13 +31,13 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | Leader–follower teleop | **Working** | 6-DOF arm teleop: leader (Server) → master2master → Kalman filter → follower (Client) |
 | GPS RTK positioning | **Working** | LC29H-BS base (Server) + LC29H-DA rover (Client), RTCM3 over TCP, `NavSatFix` topics, sub-meter accuracy |
 | IMU | **Working** | BNO055 over I2C, `sensor_msgs/Imu` with Nav2 covariance matrices |
-| USB cameras | **Working** | UVC camera bridge, `sensor_msgs/Image` (bgr8) via OpenCV |
+| USB cameras | **Disabled** | UVC camera bridge (present, `enabled: false` while camera unplugged) |
 | Topic scraper API | **Working** | Dynamic ROS2 topic discovery + HTTP JSON API for runtime diagnostics |
 | Haptic controller | **Disabled** | Force-feedback and zero-G hold for leader gripper (code present, `enabled: false`) |
-| Swerve drive | Stub | Placeholder for 4-wheel swerve platform control |
-| RealSense D435i | **Working** | Depth + color + IMU via ros-jazzy-realsense2-camera |
-| RPLidar-A1 | **Working** | 2D lidar `sensor_msgs/LaserScan` via ros-jazzy-rplidar-ros |
-| Nav2 + SLAM | Planned | Navigation stack integration |
+| Swerve drive | **Working** | 4-wheel swerve: feetech bridge (8 servos) + controller (cmd_vel, FK/IK, odom) |
+| RealSense D435i | **Working** | Depth + color + IMU (unified `/camera/imu`) via ros-jazzy-realsense2-camera |
+| RPLidar-A1 | **Working** | 2D lidar `sensor_msgs/LaserScan` on `/scan` via ros-jazzy-rplidar-ros |
+| Nav2 (MVP) | **Working** | 2D nav stack: odom, scan, IMU, goal → cmd_vel; EKF fuses odom+IMU |
 
 ## Node catalog
 
@@ -60,9 +60,14 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `lerobot_follower` | feetech_servos | `/follower/joint_commands` (sub), `/follower/joint_states` (pub) | SO-101 arm (USB serial) |
 | `gps_rtk_rover` | gps_rtk | `/client/gps/fix` (pub), RTCM3 from Server :5016 | LC29H-DA HAT (`/dev/ttyAMA0`) |
 | `bno095_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
-| `gripper_uvc_camera` | uvc_camera | `/camera_0/image_raw` (pub, `sensor_msgs/Image`) | USB camera (`/dev/video0`) |
+| `gripper_uvc_camera` | uvc_camera | Disabled (`enabled: false`) | USB camera |
+| `swerve_drive_servos` | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 (e.g. `/dev/ttyUSB1`) |
+| `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub) | — |
+| `static_tf_publisher` | static_tf_publisher | TF base_link → imu_link, laser_frame | — |
+| `robot_localization_ekf` | robot_localization_ekf | `/odom` (sub), `/imu/data` (sub), `/odometry/filtered` (pub) | — |
+| `nav2_bringup` | nav2_bringup | `/cmd_vel` (pub), `/odom` or `/odometry/filtered`, `/scan`, `navigate_to_pose` (action) | — |
 | `rplidar_a1` | rplidar_a1 | `/scan` (pub, `sensor_msgs/LaserScan`) | RPLidar A1 (`/dev/ttyUSB0`) |
-| `realsense_d435i` | realsense_d435i | `/camera/*` (color, depth, pointcloud, IMU) | RealSense D435i (USB 3.0) |
+| `realsense_d435i` | realsense_d435i | `/camera/*` (color, depth, pointcloud, `/camera/imu`) | RealSense D435i (USB 3.0) |
 | `test_joint_api` | test_joint_api | REST :18080 → `/filter/input_joint_updates` (pub) | — |
 | `topic_scraper_api` | topic_scraper_api | HTTP :18100 | — |
 | `haptic_controller` | haptic_controller | Disabled (`mode: off`) | — |
@@ -77,6 +82,18 @@ Client: master2master   →  /filter/input_joint_updates  ← test_joint_api (RE
         filter_node     →  /follower/joint_commands (Kalman-filtered)
                               ↓
         lerobot_follower → servos
+```
+
+### Topic flow (swerve + Nav2)
+
+```
+Nav2 (nav2_bringup)     →  /cmd_vel
+                              ↓
+        swerve_controller → /swerve_drive/joint_commands  →  swerve_drive_servos (8 servos)
+        swerve_controller → /odom (and odom→base_link TF)
+                              ↓
+        robot_localization_ekf (optional) fuses /odom + /imu/data → /odometry/filtered
+Nav2 reads: /odom or /odometry/filtered, /scan, /imu/data; goal via navigate_to_pose action.
 ```
 
 ## Hardware components
