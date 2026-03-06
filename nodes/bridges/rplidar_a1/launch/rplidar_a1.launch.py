@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Headless launch for RPLidar A1 (node only, no RViz)."""
+"""Headless launch for RPLidar A1 (node only, no RViz). Uses rplidar_composition from ros-jazzy-rplidar-ros."""
 
 import os
 
@@ -15,7 +15,6 @@ def generate_launch_description() -> LaunchDescription:
     frame_id = LaunchConfiguration("frame_id", default="laser")
     inverted = LaunchConfiguration("inverted", default="false")
     angle_compensate = LaunchConfiguration("angle_compensate", default="true")
-    scan_mode = LaunchConfiguration("scan_mode", default="Sensitivity")
 
     return LaunchDescription([
         DeclareLaunchArgument("serial_port", default_value=serial_port, description="USB port for lidar"),
@@ -23,19 +22,16 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("frame_id", default_value=frame_id, description="Frame ID for LaserScan"),
         DeclareLaunchArgument("inverted", default_value=inverted, description="Invert scan data"),
         DeclareLaunchArgument("angle_compensate", default_value=angle_compensate, description="Angle compensation"),
-        DeclareLaunchArgument("scan_mode", default_value=scan_mode, description="Scan mode"),
         Node(
             package="rplidar_ros",
-            executable="rplidar_node",
-            name="rplidar_node",
+            executable="rplidar_composition",
+            name="rplidar_composition",
             parameters=[{
-                "channel_type": "serial",
                 "serial_port": serial_port,
                 "serial_baudrate": serial_baudrate,
                 "frame_id": frame_id,
                 "inverted": inverted,
                 "angle_compensate": angle_compensate,
-                "scan_mode": scan_mode,
             }],
             output="screen",
         ),
