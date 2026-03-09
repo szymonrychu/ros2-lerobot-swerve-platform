@@ -44,7 +44,7 @@ linear_acceleration_covariance: 0.04
 - **Default address**: `0x28`; alternate `0x29` depending on ADR pin.
 - **Fallback behavior**: Node tries configured `i2c_address` first, then falls back to alternate BNO055 addresses.
 - **Host**: Map the I2C device into the container, e.g. `--device=/dev/i2c-1:/dev/i2c-1`. On Raspberry Pi, enable I2C and use the correct bus (typically `i2c_bus: 1`).
-- **Mode**: The node uses **ACCGYRO** (raw accel+gyro, no fusion) for reliable output. When still, `linear_acceleration` shows gravity (~9.8 m/s²); angular velocity and linear acceleration change when the module moves. Orientation is published as identity with covariance -1 (unknown).
+- **Mode**: The node uses **IMUPLUS** fusion: publishes orientation (quaternion), angular velocity, and linear acceleration. When fusion fails, falls back to raw acceleration; orientation then published as identity with covariance -1.
 
 ## Build and run
 

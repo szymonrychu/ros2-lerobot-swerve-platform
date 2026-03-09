@@ -33,7 +33,7 @@ def _create_i2c(i2c_bus: int) -> Any:
 
 def _create_bno055(i2c_bus: int, i2c_address: int) -> tuple[Any, int]:
     """Create BNO055 I2C driver with configured address and fallback to alternate address."""
-    from adafruit_bno055 import BNO055_I2C, ACCGYRO_MODE
+    from adafruit_bno055 import BNO055_I2C, IMUPLUS_MODE
 
     tried: list[tuple[int, Exception]] = []
     addresses: list[int] = [i2c_address]
@@ -46,9 +46,9 @@ def _create_bno055(i2c_bus: int, i2c_address: int) -> tuple[Any, int]:
             i2c = _create_i2c(i2c_bus)
             bno = BNO055_I2C(i2c, address=addr)
             bno.use_external_crystal = True
-            # ACCGYRO: raw accel+gyro only — no fusion, always returns real data (incl. gravity ~9.8)
-            bno.mode = ACCGYRO_MODE
-            time.sleep(0.1)
+            # IMUPLUS: accel+gyro fusion — quaternion, gyro, linear_acceleration (no magnetometer)
+            bno.mode = IMUPLUS_MODE
+            time.sleep(0.3)
             return bno, addr
         except Exception as exc:  # noqa: BLE001
             tried.append((addr, exc))
@@ -94,26 +94,39 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     def _all_zero(seq: tuple[float, ...], tol: float = 1e-6) -> bool:
         return seq and all(abs(x) <= tol for x in seq)
 
-    def _has_valid_data(acc: tuple | None, gyro: tuple | None) -> bool:
-        if not acc or not gyro:
+    def _has_valid_tuple(tup: tuple | None, min_len: int, allow_zeros: bool = False) -> bool:
+        if not tup or len(tup) < min_len:
             return False
-        av = tuple(_coerce(acc[i]) for i in range(min(3, len(acc))))
-        gv = tuple(_coerce(gyro[i]) for i in range(min(3, len(gyro))))
-        if _all_zero(av) and _all_zero(gv):
+        if any(tup[i] is None for i in range(min(min_len, len(tup)))):
+            return False
+        vals = tuple(_coerce(tup[i]) for i in range(min(min_len, len(tup))))
+        if not allow_zeros and _all_zero(vals):
             return False
         return True
 
+    def _valid_quat(quat: tuple | None) -> bool:
+        if not quat or len(quat) < 4 or any(quat[i] is None for i in range(4)):
+            return False
+        w, x, y, z = _coerce(quat[0]), _coerce(quat[1]), _coerce(quat[2]), _coerce(quat[3])
+        if _all_zero((w, x, y, z)):
+            return False
+        n2 = w * w + x * x + y * y + z * z
+        return 0.9 <= n2 <= 1.1  # quaternion should be unit length
+
     while rclpy.ok():
-        raw_acc, raw_gyro = None, None
+        quat, gyro, accel = None, None, None
         for _ in range(5):
             try:
-                raw_acc = bno.acceleration
-                raw_gyro = bno.gyro
+                quat = bno.quaternion
+                gyro = bno.gyro
+                accel = bno.linear_acceleration
             except (RuntimeError, OSError) as e:
                 node.get_logger().warn("BNO055 read error: %s" % e, throttle_duration_sec=5.0)
-                raw_acc = raw_gyro = None
+                quat = gyro = accel = None
                 break
-            if _has_valid_data(raw_acc, raw_gyro):
+            has_gyro = _has_valid_tuple(gyro, 3, allow_zeros=True)
+            has_accel = _has_valid_tuple(accel, 3, allow_zeros=True)
+            if has_gyro and has_accel:
                 break
             time.sleep(0.01)
         else:
@@ -121,21 +134,33 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             time.sleep(period_s)
             continue
 
-        if not _has_valid_data(raw_acc, raw_gyro):
+        if not _has_valid_tuple(accel, 3):
+            try:
+                accel = bno.acceleration
+            except (RuntimeError, OSError):
+                pass
+        if not _has_valid_tuple(gyro, 3) or not _has_valid_tuple(accel, 3):
             rclpy.spin_once(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
 
-        gyro_vals = tuple(_coerce(raw_gyro[i]) for i in range(min(3, len(raw_gyro or [])))) if raw_gyro else (0.0, 0.0, 0.0)
-        accel_vals = tuple(_coerce(raw_acc[i]) for i in range(min(3, len(raw_acc or [])))) if raw_acc else (0.0, 0.0, 0.0)
+        gyro_vals = tuple(_coerce(gyro[i]) for i in range(min(3, len(gyro or [])))) if gyro else (0.0, 0.0, 0.0)
+        accel_vals = tuple(_coerce(accel[i]) for i in range(min(3, len(accel or [])))) if accel else (0.0, 0.0, 0.0)
         while len(gyro_vals) < 3:
             gyro_vals = gyro_vals + (0.0,)
         while len(accel_vals) < 3:
             accel_vals = accel_vals + (0.0,)
 
+        if _valid_quat(quat):
+            quat_vals = tuple(_coerce(quat[i]) for i in range(4)) if quat else IDENTITY_QUAT_WXYZ
+            orient_cov = config.orientation_covariance
+        else:
+            quat_vals = IDENTITY_QUAT_WXYZ
+            orient_cov = ORIENTATION_UNKNOWN_COV
+
         stamp = clock.now().to_msg()
         quat_xyzw = quaternion_wxyz_to_xyzw(
-            IDENTITY_QUAT_WXYZ[0], IDENTITY_QUAT_WXYZ[1], IDENTITY_QUAT_WXYZ[2], IDENTITY_QUAT_WXYZ[3]
+            quat_vals[0], quat_vals[1], quat_vals[2], quat_vals[3]
         )
         msg = build_imu_message(
             stamp_sec=stamp.sec,
@@ -144,7 +169,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             quat_xyzw=quat_xyzw,
             angular_vel_xyz=gyro_vals,
             linear_accel_xyz=accel_vals,
-            orientation_covariance=ORIENTATION_UNKNOWN_COV,
+            orientation_covariance=orient_cov,
             angular_velocity_covariance=config.angular_velocity_covariance,
             linear_acceleration_covariance=config.linear_acceleration_covariance,
         )
