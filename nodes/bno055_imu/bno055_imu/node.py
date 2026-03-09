@@ -88,6 +88,17 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             rclpy.spin_once(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
+        if (
+            len(quat) < 4
+            or len(gyro) < 3
+            or len(accel) < 3
+            or any(v is None for v in quat[:4])
+            or any(v is None for v in gyro[:3])
+            or any(v is None for v in accel[:3])
+        ):
+            rclpy.spin_once(node, timeout_sec=0.01)
+            time.sleep(period_s)
+            continue
         stamp = clock.now().to_msg()
         # BNO055 quaternion is (w, x, y, z); ROS uses (x, y, z, w)
         quat_xyzw = quaternion_wxyz_to_xyzw(quat[0], quat[1], quat[2], quat[3])
