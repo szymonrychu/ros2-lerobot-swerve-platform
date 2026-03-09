@@ -99,16 +99,19 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             rclpy.spin_once(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
+        quat_vals = tuple(quat[:4])
+        gyro_vals = tuple(gyro[:3])
+        accel_vals = tuple(accel[:3])
         stamp = clock.now().to_msg()
         # BNO055 quaternion is (w, x, y, z); ROS uses (x, y, z, w)
-        quat_xyzw = quaternion_wxyz_to_xyzw(quat[0], quat[1], quat[2], quat[3])
+        quat_xyzw = quaternion_wxyz_to_xyzw(quat_vals[0], quat_vals[1], quat_vals[2], quat_vals[3])
         msg = build_imu_message(
             stamp_sec=stamp.sec,
             stamp_nanosec=stamp.nanosec,
             frame_id=config.frame_id,
             quat_xyzw=quat_xyzw,
-            angular_vel_xyz=(gyro[0], gyro[1], gyro[2]),
-            linear_accel_xyz=(accel[0], accel[1], accel[2]),
+            angular_vel_xyz=gyro_vals,
+            linear_accel_xyz=accel_vals,
             orientation_covariance=config.orientation_covariance,
             angular_velocity_covariance=config.angular_velocity_covariance,
             linear_acceleration_covariance=config.linear_acceleration_covariance,
