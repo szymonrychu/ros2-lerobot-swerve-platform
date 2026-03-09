@@ -88,16 +88,34 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     def _coerce(v: Any, default: float = 0.0) -> float:
         return default if v is None else float(v)
 
-    # ACCGYRO: always read acceleration (includes gravity) and gyro — no fusion, reliable output
     ORIENTATION_UNKNOWN_COV = [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     IDENTITY_QUAT_WXYZ = (1.0, 0.0, 0.0, 0.0)
 
+    def _all_zero(seq: tuple[float, ...], tol: float = 1e-6) -> bool:
+        return seq and all(abs(x) <= tol for x in seq)
+
+    def _has_valid_data(acc: tuple | None, gyro: tuple | None) -> bool:
+        if not acc or not gyro:
+            return False
+        av = tuple(_coerce(acc[i]) for i in range(min(3, len(acc))))
+        gv = tuple(_coerce(gyro[i]) for i in range(min(3, len(gyro))))
+        if _all_zero(av) and _all_zero(gv):
+            return False
+        return True
+
     while rclpy.ok():
-        try:
-            raw_acc = bno.acceleration
-            raw_gyro = bno.gyro
-        except (RuntimeError, OSError) as e:
-            node.get_logger().warn("BNO055 read error: %s" % e, throttle_duration_sec=5.0)
+        raw_acc, raw_gyro = None, None
+        for _ in range(5):
+            try:
+                raw_acc = bno.acceleration
+                raw_gyro = bno.gyro
+            except (RuntimeError, OSError) as e:
+                node.get_logger().warn("BNO055 read error: %s" % e, throttle_duration_sec=5.0)
+                break
+            if _has_valid_data(raw_acc, raw_gyro):
+                break
+            time.sleep(0.01)
+        else:
             rclpy.spin_once(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
