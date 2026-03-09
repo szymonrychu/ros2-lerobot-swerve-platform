@@ -111,11 +111,17 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 raw_gyro = bno.gyro
             except (RuntimeError, OSError) as e:
                 node.get_logger().warn("BNO055 read error: %s" % e, throttle_duration_sec=5.0)
+                raw_acc = raw_gyro = None
                 break
             if _has_valid_data(raw_acc, raw_gyro):
                 break
             time.sleep(0.01)
         else:
+            rclpy.spin_once(node, timeout_sec=0.01)
+            time.sleep(period_s)
+            continue
+
+        if not _has_valid_data(raw_acc, raw_gyro):
             rclpy.spin_once(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
