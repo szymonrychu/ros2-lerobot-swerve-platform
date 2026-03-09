@@ -105,6 +105,18 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             time.sleep(period_s)
             continue
 
+        def _has_none(tup: tuple) -> bool:
+            return tup is None or any(x is None for x in (tup or []))
+
+        if _has_none(quat) or _has_none(gyro) or _has_none(accel):
+            time.sleep(0.005)
+            try:
+                quat = bno.quaternion
+                gyro = bno.gyro
+                accel = bno.linear_acceleration
+            except (RuntimeError, OSError):
+                pass
+
         quat_vals = tuple(_coerce(quat[i]) for i in range(min(4, len(quat or [])))) if quat else (0.0, 0.0, 0.0, 0.0)
         gyro_vals = tuple(_coerce(gyro[i]) for i in range(min(3, len(gyro or [])))) if gyro else (0.0, 0.0, 0.0)
         accel_vals = tuple(_coerce(accel[i]) for i in range(min(3, len(accel or [])))) if accel else (0.0, 0.0, 0.0)

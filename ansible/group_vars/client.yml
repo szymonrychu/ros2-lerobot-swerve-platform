@@ -235,6 +235,7 @@ ros2_nodes:
           sign_change_min_hz: 2.0
   - name: bno055_imu
     node_type: bno055_imu
+    # 50 Hz reduces I2C load; BNO055 can return None on transient read failures
     present: true
     enabled: true
     extra_args: >-
@@ -244,7 +245,7 @@ ros2_nodes:
     config: |
       topic: /imu/data
       frame_id: imu_link
-      publish_hz: 100
+      publish_hz: 50
       i2c_bus: 1
       i2c_address: 0x28
       orientation_covariance: 0.01
