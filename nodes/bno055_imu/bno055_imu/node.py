@@ -88,20 +88,24 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             rclpy.spin_once(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
-        if (
-            len(quat) < 4
-            or len(gyro) < 3
-            or len(accel) < 3
-            or any(v is None for v in quat[:4])
-            or any(v is None for v in gyro[:3])
-            or any(v is None for v in accel[:3])
-        ):
+
+        def _coerce(v: Any, default: float = 0.0) -> float:
+            return default if v is None else float(v)
+
+        quat_vals = tuple(_coerce(quat[i]) for i in range(min(4, len(quat or []))))
+        gyro_vals = tuple(_coerce(gyro[i]) for i in range(min(3, len(gyro or []))))
+        accel_vals = tuple(_coerce(accel[i]) for i in range(min(3, len(accel or []))))
+        if len(quat_vals) < 4 or len(gyro_vals) < 3 or len(accel_vals) < 3:
             rclpy.spin_once(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
-        quat_vals = tuple(quat[:4])
-        gyro_vals = tuple(gyro[:3])
-        accel_vals = tuple(accel[:3])
+        # Pad if needed (e.g. BNO055 returned shorter sequence)
+        while len(quat_vals) < 4:
+            quat_vals = quat_vals + (0.0,)
+        while len(gyro_vals) < 3:
+            gyro_vals = gyro_vals + (0.0,)
+        while len(accel_vals) < 3:
+            accel_vals = accel_vals + (0.0,)
         stamp = clock.now().to_msg()
         # BNO055 quaternion is (w, x, y, z); ROS uses (x, y, z, w)
         quat_xyzw = quaternion_wxyz_to_xyzw(quat_vals[0], quat_vals[1], quat_vals[2], quat_vals[3])

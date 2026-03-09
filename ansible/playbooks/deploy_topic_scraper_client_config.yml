@@ -1,0 +1,57 @@
+---
+# One-off: push topic_scraper_api config (with Imu in allowed_types) to client and restart.
+- hosts: client
+  vars:
+    node_name: topic_scraper_api
+    ros2_node_config_dir: /etc/ros2-nodes
+    topic_scraper_config: |
+      host: "0.0.0.0"
+      port: 18100
+      topic_refresh_interval_s: 0.25
+      allowed_types:
+        - sensor_msgs/msg/JointState
+        - sensor_msgs/msg/NavSatFix
+        - sensor_msgs/msg/Image
+        - sensor_msgs/msg/CompressedImage
+        - sensor_msgs/msg/LaserScan
+        - sensor_msgs/msg/PointCloud2
+        - sensor_msgs/msg/Imu
+        - std_msgs/msg/String
+      observation_rules:
+        - name: leader_vs_follower
+          topics:
+            - /filter/input_joint_updates
+            - /follower/joint_states
+          type: compare
+          joint_names:
+            - joint_5
+            - joint_6
+        - name: leader_follower_oscillation
+          topics:
+            - /filter/input_joint_updates
+            - /follower/joint_states
+          type: oscillation
+          joint_names:
+            - joint_5
+            - joint_6
+          window_s: 1.0
+          variance_threshold: 1e-5
+          sign_change_min_hz: 2.0
+  tasks:
+    - name: Deploy topic_scraper_api config with Imu allowed
+      ansible.builtin.copy:
+        dest: "{{ ros2_node_config_dir }}/{{ node_name }}/config.yaml"
+        content: "{{ topic_scraper_config }}"
+        mode: "0644"
+      become: true
+      notify: Restart topic_scraper_api
+
+    - name: Flush handlers
+      ansible.builtin.meta: flush_handlers
+
+  handlers:
+    - name: Restart topic_scraper_api
+      ansible.builtin.service:
+        name: "ros2-{{ node_name }}"
+        state: restarted
+      become: true

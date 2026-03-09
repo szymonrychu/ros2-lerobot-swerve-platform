@@ -211,6 +211,7 @@ ros2_nodes:
         - sensor_msgs/msg/CompressedImage
         - sensor_msgs/msg/LaserScan
         - sensor_msgs/msg/PointCloud2
+        - sensor_msgs/msg/Imu
         - std_msgs/msg/String
       observation_rules:
         - name: leader_vs_follower
