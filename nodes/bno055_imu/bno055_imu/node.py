@@ -45,9 +45,11 @@ def _create_bno055(i2c_bus: int, i2c_address: int) -> tuple[Any, int]:
         try:
             i2c = _create_i2c(i2c_bus)
             bno = BNO055_I2C(i2c, address=addr)
+            # Adafruit breakout has external 32kHz crystal — required for stable sensor output
+            bno.use_external_crystal = True
             # IMUPLUS: accel+gyro fusion — quaternion, gyro, linear_acceleration (no magnetometer)
             bno.mode = IMUPLUS_MODE
-            time.sleep(0.1)
+            time.sleep(0.5)  # allow fusion to stabilize
             return bno, addr
         except Exception as exc:  # noqa: BLE001
             tried.append((addr, exc))
