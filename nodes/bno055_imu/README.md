@@ -44,7 +44,7 @@ linear_acceleration_covariance: 0.04
 - **Default address**: `0x28`; alternate `0x29` depending on ADR pin.
 - **Fallback behavior**: Node tries configured `i2c_address` first, then falls back to alternate BNO055 addresses.
 - **Host**: Map the I2C device into the container, e.g. `--device=/dev/i2c-1:/dev/i2c-1`. On Raspberry Pi, enable I2C and use the correct bus (typically `i2c_bus: 1`).
-- **Calibration**: BNO055 uses NDOF fusion mode by default. For best accuracy, calibrate the sensor (magnetometer, accelerometer, gyroscope) per Bosch documentation.
+- **Mode**: The node uses **IMUPLUS** (accel+gyro fusion only), so orientation and linear acceleration are valid without magnetometer calibration. If fusion output is all zeros (e.g. right after power-on), the node falls back to raw acceleration and gyro so data changes when the module is moved; orientation is then published as unknown (covariance -1).
 
 ## Build and run
 
