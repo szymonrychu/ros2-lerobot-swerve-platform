@@ -1,4 +1,4 @@
-"""Configuration loading for BNO095 IMU node (topic, frame_id, publish rate, bus, covariances)."""
+"""Configuration loading for BNO055 IMU node (topic, frame_id, publish rate, bus, covariances)."""
 
 import os
 from dataclasses import dataclass
@@ -7,8 +7,8 @@ from typing import Any
 
 import yaml
 
-DEFAULT_CONFIG_PATH = Path("/etc/ros2/bno095_imu/config.yaml")
-ENV_CONFIG_PATH_KEY = "BNO095_IMU_CONFIG"
+DEFAULT_CONFIG_PATH = Path("/etc/ros2/bno055_imu/config.yaml")
+ENV_CONFIG_PATH_KEY = "BNO055_IMU_CONFIG"
 
 
 def _diagonal_covariance(var: float) -> list[float]:
@@ -42,14 +42,14 @@ def _parse_covariance(raw: Any, default_var: float) -> list[float]:
 
 @dataclass
 class ImuNodeConfig:
-    """BNO095 IMU node config: topic, frame_id, rate, I2C bus, covariances.
+    """BNO055 IMU node config: topic, frame_id, rate, I2C bus, covariances.
 
     Attributes:
         topic: ROS2 topic for sensor_msgs/Imu (e.g. /imu/data).
         frame_id: Header frame_id for Imu messages (e.g. imu_link).
         publish_hz: Publish rate in Hz.
         i2c_bus: I2C bus number (e.g. 1 for /dev/i2c-1). Used only when bus selection is supported.
-        i2c_address: I2C device address for BNO08x (typically 0x4A or 0x4B).
+        i2c_address: I2C device address for BNO055 (typically 0x28 or 0x29).
         orientation_covariance: 9-element row-major orientation covariance; -1 in [0] means unknown.
         angular_velocity_covariance: 9-element row-major angular velocity covariance.
         linear_acceleration_covariance: 9-element row-major linear acceleration covariance.
@@ -72,7 +72,7 @@ DEFAULT_LINEAR_ACCELERATION_COVARIANCE = 0.04
 
 
 def load_config(path: Path | None = None) -> ImuNodeConfig | None:
-    """Load BNO095 IMU config from YAML file.
+    """Load BNO055 IMU config from YAML file.
 
     Args:
         path: Path to YAML file. If None, uses DEFAULT_CONFIG_PATH.
@@ -99,13 +99,13 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         i2c_bus = max(0, int(raw_bus))
     except (TypeError, ValueError):
         i2c_bus = 1
-    raw_addr = data.get("i2c_address", "0x4a")
+    raw_addr = data.get("i2c_address", "0x28")
     try:
         i2c_address = int(str(raw_addr), 0)
         if not (0x03 <= i2c_address <= 0x77):
-            i2c_address = 0x4A
+            i2c_address = 0x28
     except (TypeError, ValueError):
-        i2c_address = 0x4A
+        i2c_address = 0x28
     orientation_cov = _parse_covariance(data.get("orientation_covariance"), DEFAULT_ORIENTATION_COVARIANCE)
     angular_vel_cov = _parse_covariance(data.get("angular_velocity_covariance"), DEFAULT_ANGULAR_VELOCITY_COVARIANCE)
     linear_accel_cov = _parse_covariance(
@@ -124,7 +124,7 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
 
 
 def load_config_from_env() -> ImuNodeConfig | None:
-    """Load config from path in BNO095_IMU_CONFIG env, or default path.
+    """Load config from path in BNO055_IMU_CONFIG env, or default path.
 
     Returns:
         ImuNodeConfig | None: Result of load_config(path).

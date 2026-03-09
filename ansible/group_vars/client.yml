@@ -63,15 +63,15 @@ ros2_node_type_defaults:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
-  bno095_imu:
-    image: harbor.szymonrichert.pl/containers/client-bno095-imu:latest
-    build_context: nodes/bno095_imu
-    config_path: /etc/ros2/bno095_imu
+  bno055_imu:
+    image: harbor.szymonrichert.pl/containers/client-bno055-imu:latest
+    build_context: nodes/bno055_imu
+    config_path: /etc/ros2/bno055_imu
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - BLINKA_FORCECHIP=BCM2XXX
-      - BNO095_IMU_CONFIG=/etc/ros2/bno095_imu/config.yaml
+      - BNO055_IMU_CONFIG=/etc/ros2/bno055_imu/config.yaml
   haptic_controller:
     image: harbor.szymonrichert.pl/containers/client-haptic-controller:latest
     build_context: nodes/haptic_controller
@@ -232,8 +232,8 @@ ros2_nodes:
           window_s: 1.0
           variance_threshold: 1e-5
           sign_change_min_hz: 2.0
-  - name: bno095_imu
-    node_type: bno095_imu
+  - name: bno055_imu
+    node_type: bno055_imu
     present: true
     enabled: true
     extra_args: >-

@@ -195,7 +195,7 @@ Use `scripts/topic_scraper_collect.py` to poll both hosts and emit merged NDJSON
 
 ### IMU (client)
 
-The **bno095_imu** node runs on the client and publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation, angular velocity, linear acceleration, and full covariance matrices for use with the Navigation stack (Nav2). It reads a BNO085/BNO095 over I2C; the container is given access to the I2C device (e.g. `--device=/dev/i2c-1:/dev/i2c-1`). Config: topic, frame_id, publish_hz, i2c_bus, and covariance values (see `nodes/bno095_imu/README.md`).
+The **bno055_imu** node runs on the client and publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation, angular velocity, linear acceleration, and full covariance matrices for use with the Navigation stack (Nav2). It reads a BNO055 over I2C; the container is given access to the I2C device (e.g. `--device=/dev/i2c-1:/dev/i2c-1`). Config: topic, frame_id, publish_hz, i2c_bus, i2c_address (default 0x28), and covariance values (see `nodes/bno055_imu/README.md`).
 
 ### Raspberry Pi GPIO/I2C tooling (all users)
 
@@ -209,7 +209,7 @@ The `common` role installs:
 
 This allows non-root users to run GPIO and I2C checks directly.
 
-#### BNO085 `RST` / `INT` pin usage
+#### BNO055 `RST` / `INT` pin usage
 
 Assuming:
 

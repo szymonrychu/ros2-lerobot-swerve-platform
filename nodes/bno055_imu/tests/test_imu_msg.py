@@ -2,18 +2,18 @@
 
 import pytest
 
-from bno095_imu.imu_msg import quaternion_ijkr_to_xyzw
+from bno055_imu.imu_msg import quaternion_wxyz_to_xyzw
 
 
-def test_quaternion_ijkr_to_xyzw_identity() -> None:
-    """BNO (i,j,k,r) maps to ROS (x,y,z,w) in order."""
-    x, y, z, w = quaternion_ijkr_to_xyzw(0.0, 0.0, 0.0, 1.0)
+def test_quaternion_wxyz_to_xyzw_identity() -> None:
+    """BNO055 (w,x,y,z) identity quaternion maps to ROS (x,y,z,w)."""
+    x, y, z, w = quaternion_wxyz_to_xyzw(1.0, 0.0, 0.0, 0.0)
     assert (x, y, z, w) == (0.0, 0.0, 0.0, 1.0)
 
 
-def test_quaternion_ijkr_to_xyzw_values() -> None:
-    """Arbitrary (i,j,k,r) preserved as (x,y,z,w)."""
-    x, y, z, w = quaternion_ijkr_to_xyzw(0.1, 0.2, 0.3, 0.9)
+def test_quaternion_wxyz_to_xyzw_values() -> None:
+    """BNO055 (w,x,y,z) reorders to ROS (x,y,z,w)."""
+    x, y, z, w = quaternion_wxyz_to_xyzw(0.9, 0.1, 0.2, 0.3)
     assert (x, y, z, w) == (0.1, 0.2, 0.3, 0.9)
 
 
@@ -21,7 +21,7 @@ def test_build_imu_message_units_and_covariance() -> None:
     """build_imu_message produces Imu with correct units and covariance arrays."""
     pytest.importorskip("sensor_msgs.msg", reason="sensor_msgs not available (no ROS)")
     pytest.importorskip("builtin_interfaces.msg", reason="builtin_interfaces not available")
-    from bno095_imu.imu_msg import build_imu_message
+    from bno055_imu.imu_msg import build_imu_message
 
     stamp_sec = 100
     stamp_nanosec = 500000000
@@ -60,7 +60,7 @@ def test_build_imu_message_unknown_orientation_covariance() -> None:
     """Orientation covariance can use -1 in first element for 'unknown'."""
     pytest.importorskip("sensor_msgs.msg", reason="sensor_msgs not available (no ROS)")
     pytest.importorskip("builtin_interfaces.msg", reason="builtin_interfaces not available")
-    from bno095_imu.imu_msg import build_imu_message
+    from bno055_imu.imu_msg import build_imu_message
 
     ori_cov = [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     msg = build_imu_message(

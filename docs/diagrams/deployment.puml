@@ -20,7 +20,7 @@ node "Client (RPi 5)\n192.168.1.34" as client {
   component "filter_node" as cf <<Docker>> #90CAF9
   component "lerobot_follower\n(feetech_servos)" as clf <<Docker>> #64B5F6
   component "gps_rtk_rover" as cg <<Docker>> #64B5F6
-  component "bno095_imu" as ci <<Docker>> #64B5F6
+  component "bno055_imu" as ci <<Docker>> #64B5F6
   component "gripper_uvc_camera" as cc <<Docker>> #64B5F6
   component "rplidar_a1" as cr <<Docker>> #64B5F6
   component "realsense_d435i" as cre <<Docker>> #64B5F6

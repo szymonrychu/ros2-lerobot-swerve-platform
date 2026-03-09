@@ -29,7 +29,7 @@ package "Client — Raspberry Pi 5" as client #E3F2FD {
   component "filter_node\n(Kalman)" as c_filter #90CAF9
   component "lerobot_follower\n(feetech_servos)" as c_follower #64B5F6
   component "gps_rtk_rover\n(LC29H-DA)" as c_gps #64B5F6
-  component "bno095_imu\n(I2C)" as c_imu #64B5F6
+  component "bno055_imu\n(I2C)" as c_imu #64B5F6
   component "gripper_uvc_camera" as c_cam #64B5F6
   component "rplidar_a1" as c_rplidar #64B5F6
   component "realsense_d435i" as c_realsense #64B5F6

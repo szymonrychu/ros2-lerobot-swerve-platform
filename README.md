@@ -59,7 +59,7 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `filter_node` | filter_node | `/filter/input_joint_updates` (sub) → `/follower/joint_commands` (pub) | — |
 | `lerobot_follower` | feetech_servos | `/follower/joint_commands` (sub), `/follower/joint_states` (pub) | SO-101 arm (USB serial) |
 | `gps_rtk_rover` | gps_rtk | `/client/gps/fix` (pub), RTCM3 from Server :5016 | LC29H-DA HAT (`/dev/ttyAMA0`) |
-| `bno095_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
+| `bno055_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
 | `gripper_uvc_camera` | uvc_camera | Disabled (`enabled: false`) | USB camera |
 | `swerve_drive_servos` | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 (e.g. `/dev/ttyUSB1`) |
 | `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub) | — |
@@ -108,7 +108,7 @@ Nav2 reads: /odom or /odometry/filtered, /scan, /imu/data; goal via navigate_to_
 - Lerobot SO-101 follower arm (Feetech SCS servos, USB serial)
 - Swerve drive platform (4 × Feetech ST3215 pairs — wheel + steering)
 - GPS-RTK LC29H(DA) HAT with antenna
-- BNO095 IMU (I2C)
+- BNO055 IMU (I2C)
 - RPLidar-A1 (USB)
 - Intel RealSense D435i (USB)
 - 2 × Arducam B0454 5MP OV5648 USB cameras
@@ -128,7 +128,7 @@ Nav2 reads: /odom or /odometry/filtered, /scan, /imu/data; goal via navigate_to_
 │   ├── filter_node/        Kalman filter for joint commands
 │   ├── test_joint_api/     REST API for joint testing
 │   ├── topic_scraper_api/  Dynamic topic scraper + HTTP API
-│   ├── bno095_imu/         BNO055 IMU bridge
+│   ├── bno055_imu/         BNO055 IMU bridge
 │   ├── haptic_controller/  Force-feedback (disabled)
 │   └── bridges/
 │       ├── feetech_servos/ Feetech servo bridge (leader + follower)
@@ -201,5 +201,5 @@ See [ansible/README.md](ansible/README.md) for full details on roles, node confi
 | filter_node | [nodes/filter_node/README.md](nodes/filter_node/README.md) |
 | test_joint_api | [nodes/test_joint_api/README.md](nodes/test_joint_api/README.md) |
 | topic_scraper_api | [nodes/topic_scraper_api/README.md](nodes/topic_scraper_api/README.md) |
-| bno095_imu | [nodes/bno095_imu/README.md](nodes/bno095_imu/README.md) |
+| bno055_imu | [nodes/bno055_imu/README.md](nodes/bno055_imu/README.md) |
 | haptic_controller | [nodes/haptic_controller/README.md](nodes/haptic_controller/README.md) |

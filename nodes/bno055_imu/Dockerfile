@@ -1,5 +1,5 @@
-# BNO095 IMU bridge — publishes sensor_msgs/Imu for Nav2.
-# Config via BNO095_IMU_CONFIG or /etc/ros2/bno095_imu/config.yaml.
+# BNO055 IMU bridge — publishes sensor_msgs/Imu for Nav2.
+# Config via BNO055_IMU_CONFIG or /etc/ros2/bno055_imu/config.yaml.
 # Pass I2C device e.g. --device=/dev/i2c-1:/dev/i2c-1 when running.
 FROM ros:jazzy-ros-base
 
@@ -19,6 +19,6 @@ COPY pyproject.toml poetry.lock* ./
 RUN poetry install --only main --no-interaction --no-root
 ENV PATH="/app/.venv/bin:$PATH"
 
-COPY bno095_imu ./bno095_imu
+COPY bno055_imu ./bno055_imu
 
-CMD ["bash", "-c", "source /opt/ros/jazzy/setup.bash && exec python3 -m bno095_imu"]
+CMD ["bash", "-c", "source /opt/ros/jazzy/setup.bash && exec python3 -m bno055_imu"]

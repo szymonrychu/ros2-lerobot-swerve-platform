@@ -1,4 +1,4 @@
-"""Entry point for BNO095 IMU node: load config and run publish loop."""
+"""Entry point for BNO055 IMU node: load config and run publish loop."""
 
 import sys
 
@@ -15,8 +15,8 @@ def main() -> int:
     config = load_config_from_env()
     if config is None:
         print(
-            "BNO095 IMU config not found or invalid. Set BNO095_IMU_CONFIG to a YAML path "
-            "or deploy to /etc/ros2/bno095_imu/config.yaml",
+            "BNO055 IMU config not found or invalid. Set BNO055_IMU_CONFIG to a YAML path "
+            "or deploy to /etc/ros2/bno055_imu/config.yaml",
             file=sys.stderr,
         )
         return 1

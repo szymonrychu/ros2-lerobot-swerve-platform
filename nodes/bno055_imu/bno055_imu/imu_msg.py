@@ -1,20 +1,20 @@
-"""Build sensor_msgs/Imu from BNO08x raw readings and config (covariances, units)."""
+"""Build sensor_msgs/Imu from BNO055 raw readings and config (covariances, units)."""
 
 from __future__ import annotations
 
 from typing import Any
 
 
-def quaternion_ijkr_to_xyzw(i: float, j: float, k: float, r: float) -> tuple[float, float, float, float]:
-    """Convert BNO08x quaternion (i, j, k, real) to ROS (x, y, z, w).
+def quaternion_wxyz_to_xyzw(w: float, x: float, y: float, z: float) -> tuple[float, float, float, float]:
+    """Convert BNO055 quaternion (w, x, y, z) to ROS (x, y, z, w).
 
     Args:
-        i, j, k, r: BNO08x quaternion components.
+        w, x, y, z: BNO055 quaternion components (scalar first).
 
     Returns:
         tuple[float, float, float, float]: (x, y, z, w) for geometry_msgs/Quaternion.
     """
-    return (float(i), float(j), float(k), float(r))
+    return (float(x), float(y), float(z), float(w))
 
 
 def build_imu_message(

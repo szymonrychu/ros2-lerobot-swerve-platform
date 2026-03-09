@@ -35,7 +35,7 @@ gps_rover -> gps_rover : /client/gps/fix\n(NavSatFix)
 
 == IMU ==
 
-participant "bno095_imu\n(Client)" as imu #64B5F6
+participant "bno055_imu\n(Client)" as imu #64B5F6
 
 imu -> imu : /imu/data\n(sensor_msgs/Imu)
 

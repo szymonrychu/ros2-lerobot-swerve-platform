@@ -72,7 +72,7 @@
 
 ## BNO055 IMU (client)
 
-* **bno095_imu** node: Client-only. Reads BNO055 over I2C (default bus 1, `/dev/i2c-1`); publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation (quaternion), angular velocity (rad/s), linear acceleration (m/s²), and configurable covariance matrices for Nav2. Config: `BNO095_IMU_CONFIG` or `/etc/ros2/bno095_imu/config.yaml`; keys: topic, frame_id (default `imu_link`), publish_hz (default 100), i2c_bus, i2c_address (default 0x28), orientation_covariance, angular_velocity_covariance, linear_acceleration_covariance. Driver: adafruit-circuitpython-bno055; on Linux, adafruit-extended-bus is used to select I2C bus by number. Container needs `--device=/dev/i2c-1:/dev/i2c-1` (or the bus in use).
+* **bno055_imu** node: Client-only. Reads BNO055 over I2C (default bus 1, `/dev/i2c-1`); publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation (quaternion), angular velocity (rad/s), linear acceleration (m/s²), and configurable covariance matrices for Nav2. Config: `BNO055_IMU_CONFIG` or `/etc/ros2/bno055_imu/config.yaml`; keys: topic, frame_id (default `imu_link`), publish_hz (default 100), i2c_bus, i2c_address (default 0x28), orientation_covariance, angular_velocity_covariance, linear_acceleration_covariance. Driver: adafruit-circuitpython-bno055; on Linux, adafruit-extended-bus is used to select I2C bus by number. Container needs `--device=/dev/i2c-1:/dev/i2c-1` (or the bus in use).
 
 ## Haptic controller (force-feedback and zero-G, client)
 
