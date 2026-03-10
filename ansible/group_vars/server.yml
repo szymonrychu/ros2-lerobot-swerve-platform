@@ -98,10 +98,10 @@ ros2_nodes:
     enabled: true
     extra_args: >-
       --network host --ipc host
-      --device=/dev/ttyS0:/dev/ttyS0
+      --device=/dev/ttyAMA0:/dev/ttyAMA0
     config: |
       mode: base
-      serial_port: /dev/ttyS0
+      serial_port: /dev/ttyAMA0
       baud_rate: 115200
       topic: /server/gps/fix
       frame_id: gps_link

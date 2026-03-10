@@ -38,7 +38,7 @@ When `device` is set, the bridge connects to hardware and:
 
 - **Startup:** Reads all Feetech STS registers for each configured joint and prints one compact JSON line per servo to stdout (for debugging): `{"servo_id":1,"joint_name":"shoulder_pan","registers":{...}}`.
 - **Publish:** `joint_states` from present position/speed; `servo_registers` (std_msgs/String) as JSON `{ "<joint_name>": { "<register_name>": <value>, ... }, ... }` at ~1 Hz.
-- **Subscribe:** `joint_commands` (JointState) writes goal_position (RAM) per joint; `set_register` (std_msgs/String) expects JSON `{"joint_name":"<name>","register":"<name>","value":<int>}` to write any writable register. EPROM registers are written with unlock -> write -> lock; writes are skipped when the value is unchanged.
+- **Subscribe:** `joint_commands` (JointState) writes goal_position (RAM) per joint; `set_register` (std_msgs/String) expects JSON `{"joint_name":"<name>","register":"<name>","value":<int>}`. **At runtime only RAM registers are accepted** (e.g. `torque_enable`, `goal_position`, `acceleration`, `goal_speed`, `goal_time`). EPROM registers (PID, current limits, angle limits, etc.) are **rejected** from ROS; set them once via `calibrate_servos.py load-config` on the host to avoid constant EEPROM wear.
 
 ## Build and run
 
@@ -122,14 +122,14 @@ poetry run python scripts/calibrate_servos.py list-registers
 
 ### Leader gripper tuning for haptics
 
-When using the leader arm with the haptic controller (resistance or zero-G), the leader gripper servos (IDs 5 and 6) benefit from reduced stiffness and capped torque so the arm stays backdrivable and does not feel locked. A **gripper-only tuning profile** is provided so you can apply it reproducibly.
+When using the leader arm with the haptic controller (resistance or zero-G), the leader gripper servos (IDs 5 and 6) benefit from reduced stiffness and capped current so the arm stays backdrivable. Tuning is **PID and current only**; apply once via the profile (EEPROM), not via ROS at runtime.
 
-**Profile file:** `leader_gripper_haptic_profile.json` in this directory. It sets only the gripper servo IDs (5 and 6) and only writable registers used for stability and backdrivability:
+**Profile file:** `leader_gripper_haptic_profile.json` in this directory. It sets only the gripper servo IDs (5 and 6) and only:
 
-- **PID:** Lower `p_coefficient`, modest `d_coefficient`, `i_coefficient` 0 (reduces stiffness, adds damping).
-- **Deadband:** `cw_dead_zone` and `ccw_dead_zone` (small value, e.g. 3) to avoid jitter at rest.
-- **Current/torque limits:** `protection_current`, `max_torque_limit`, `protective_torque` (capped for backdrivability).
-- **Motion:** `acceleration`, `goal_speed` (reduced for smoother response during contact).
+- **PID:** `p_coefficient`, `d_coefficient`, `i_coefficient` (lower P, modest D, I=0 for backdrivability and stability).
+- **Current limits:** `protection_current`, `max_torque_limit` (capped so the leader does not lock up).
+
+Deadband, acceleration, goal_speed, and protective_torque are left at servo defaults; add them to the JSON if you need to override.
 
 **Workflow:**
 
@@ -140,6 +140,4 @@ When using the leader arm with the haptic controller (resistance or zero-G), the
    poetry run python scripts/calibrate_servos.py load-config --device /dev/serial/by-id/usb-... --file leader_gripper_haptic_profile.json
    ```
 3. Restart the leader feetech_servos node so it runs with the new register values.
-4. Tune if needed: use `dump-config --id 5 6` to read current values, edit the JSON, then `load-config` again. Keep haptic tests **gripper-only** (do not move other joints during tuning).
-
-The same profile can be used as a reference for ROS2 `set_register` (e.g. from the haptic controller or external tools) if you prefer to apply values at runtime instead of EEPROM.
+4. Tune if needed: use `dump-config --id 5 6` to read current values, edit the JSON (PID and current only), then `load-config` again. Keep haptic tests **gripper-only**.

@@ -16,7 +16,7 @@ class GpsRtkConfig(BaseModel):
 
     Attributes:
         mode: "base" (LC29H-BS) or "rover" (LC29H-DA).
-        serial_port: Serial device path (e.g. /dev/ttyS0).
+        serial_port: Serial device path (e.g. /dev/ttyAMA0 on RPi 4 with disable-bt).
         baud_rate: Serial baud rate.
         topic: ROS2 topic for sensor_msgs/NavSatFix.
         frame_id: Header frame_id for NavSatFix.
@@ -30,7 +30,7 @@ class GpsRtkConfig(BaseModel):
     """
 
     mode: Literal["base", "rover"]
-    serial_port: str = "/dev/ttyS0"
+    serial_port: str = "/dev/ttyAMA0"
     baud_rate: int = 115200
     topic: str = Field(..., description="e.g. /server/gps/fix or /client/gps/fix")
     frame_id: str = "gps_link"

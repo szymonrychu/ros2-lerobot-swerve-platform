@@ -206,6 +206,12 @@ def run_bridge(config: BridgeConfig) -> None:
         entry = get_register_entry_by_name(reg_name)
         if entry is None:
             return
+        # Reject EPROM writes from ROS: PID/current/t limits must be set once via calibrate_servos load-config.
+        if entry.eprom:
+            node.get_logger().warn(
+                "set_register: rejecting EPROM register '%s'; set once via calibrate_servos load-config" % reg_name
+            )
+            return
         if sid not in last_written:
             last_written[sid] = {}
         if not write_register(servo, sid, entry, value, last_written[sid]):

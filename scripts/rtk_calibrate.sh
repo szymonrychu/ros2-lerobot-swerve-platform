@@ -10,7 +10,7 @@
 # Usage:
 #   ./scripts/rtk_calibrate.sh [--local] [--samples 3600] [--accuracy 15] [--no-restore]
 #
-#   --local       Run on this machine (you must be on the server with /dev/ttyS0).
+#   --local       Run on this machine (you must be on the server with /dev/ttyAMA0).
 #   --samples     Survey-in sample count (default: 3600; ~1h at 1 Hz).
 #   --accuracy    Accuracy limit in metres (default: 15).
 #   --no-restore  Skip factory restore (PQTMRESTOREPAR).
@@ -56,10 +56,10 @@ REMOTE_SCRIPT=""
 REMOTE_CMD=""
 
 run_local() {
-  echo "Running calibration locally (port /dev/ttyS0)."
+  echo "Running calibration locally (port /dev/ttyAMA0)."
   echo "Ensure gps_rtk_base is stopped so the serial port is free."
   python3 "$REPO_ROOT/scripts/calibrate_rtk_base.py" \
-    --port /dev/ttyS0 \
+    --port /dev/ttyAMA0 \
     --samples "$SAMPLES" \
     --accuracy "$ACCURACY" \
     $NO_RESTORE
@@ -75,7 +75,7 @@ run_remote() {
   scp -o ConnectTimeout=10 "$REPO_ROOT/scripts/calibrate_rtk_base.py" \
     "$SSH_USER@$SERVER_HOST:/tmp/calibrate_rtk_base.py"
 
-  echo "Checking for pyserial on server (for root, so we can access /dev/ttyS0)..."
+  echo "Checking for pyserial on server (for root, so we can access /dev/ttyAMA0)..."
   ssh "$SSH_USER@$SERVER_HOST" "sudo python3 -c 'import serial' 2>/dev/null" || {
     echo "Installing pyserial for root (python3-serial or pip)..."
     ssh "$SSH_USER@$SERVER_HOST" "sudo apt-get install -y python3-serial 2>/dev/null || sudo pip3 install pyserial"
@@ -86,7 +86,7 @@ run_remote() {
   echo "---"
   ssh -t -o ServerAliveInterval=60 -o ServerAliveCountMax=120 \
     "$SSH_USER@$SERVER_HOST" \
-    "sudo python3 /tmp/calibrate_rtk_base.py --port /dev/ttyS0 --samples $SAMPLES --accuracy $ACCURACY $NO_RESTORE"
+    "sudo python3 /tmp/calibrate_rtk_base.py --port /dev/ttyAMA0 --samples $SAMPLES --accuracy $ACCURACY $NO_RESTORE"
   CAL_EXIT=$?
 
   echo "---"

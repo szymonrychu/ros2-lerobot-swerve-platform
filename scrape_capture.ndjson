@@ -1,0 +1,4 @@
+{"timestamp_ns": 1772532135542114000, "source": "client", "topic": "/filter/input_joint_updates", "error": "jq: error (at <stdin>:0): Cannot index string with number"}
+{"timestamp_ns": 1772532135559231000, "source": "client", "topic": "/follower/joint_states", "error": "jq: error (at <stdin>:0): Cannot index string with number"}
+{"timestamp_ns": 1772532135947426000, "source": "server", "topic": "/filter/input_joint_updates", "error": "jq: error (at <stdin>:0): Cannot index string with number"}
+{"timestamp_ns": 1772532136025075000, "source": "server", "topic": "/follower/joint_states", "error": "jq: error (at <stdin>:0): Cannot index string with number"}

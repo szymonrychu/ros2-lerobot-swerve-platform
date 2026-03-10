@@ -12,7 +12,7 @@ ROS2 node for LC29H-BS (base station) and LC29H-DA (rover) over **native RPi UAR
 YAML config path: `GPS_RTK_CONFIG` or `/etc/ros2/gps_rtk/config.yaml`.
 
 - `mode`: `base` | `rover`
-- `serial_port`: e.g. `/dev/ttyS0`
+- `serial_port`: e.g. `/dev/ttyAMA0` (RPi 4 with disable-bt) or `/dev/ttyS0` (legacy)
 - `baud_rate`: default `115200`
 - `topic`: e.g. `/server/gps/fix`, `/client/gps/fix`
 - `frame_id`: default `gps_link`
@@ -33,4 +33,4 @@ One-time survey-in is done with `scripts/calibrate_rtk_base.py` on the server (s
 
 ## Deploy
 
-Ansible deploys this node on server (base) and client (rover). Serial device: on RPi 4 (server) the LC29H-BS hat uses `/dev/ttyS0`; on RPi 5 (client) the LC29H-DA hat uses `/dev/ttyAMA0` (requires `dtoverlay=uart0-pi5` in boot config, added by the deploy playbook). Ensure UART is enabled on the host (e.g. `enable_uart=1` in boot config). The topic scraper's `allowed_types` must include `sensor_msgs/msg/NavSatFix` to observe GPS topics.
+Ansible deploys this node on server (base) and client (rover). Serial device: on RPi 4 (server) with `dtoverlay=disable-bt` the LC29H-BS hat uses `/dev/ttyAMA0` (PL011 UART on GPIO 14/15); on RPi 5 (client) the LC29H-DA hat uses `/dev/ttyAMA0` (requires `dtoverlay=uart0-pi5` in boot config, added by the deploy playbook). Ensure UART is enabled on the host (e.g. `enable_uart=1` in boot config). Using `/dev/ttyS0` on RPi 4 with disable-bt causes "Input/output error" because the primary UART is ttyAMA0. The topic scraper's `allowed_types` must include `sensor_msgs/msg/NavSatFix` to observe GPS topics.

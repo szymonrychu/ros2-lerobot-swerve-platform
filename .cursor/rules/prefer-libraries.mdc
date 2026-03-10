@@ -1,0 +1,10 @@
+---
+description: Prefer library functionality over self-developed code
+alwaysApply: true
+---
+
+# Prefer Libraries Over Custom Code
+
+- Use established libraries and frameworks for non-trivial logic (parsing, crypto, networking, protocols, math, etc.) instead of writing your own.
+- Only implement custom code when no suitable library exists or when the library cannot meet the requirement.
+- When in doubt, search for an existing solution (PyPI, ROS2 packages, stdlib) before implementing from scratch.

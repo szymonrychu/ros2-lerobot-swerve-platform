@@ -13,7 +13,7 @@ def test_config_minimal_base() -> None:
     cfg = GpsRtkConfig.model_validate(data)
     assert cfg.mode == "base"
     assert cfg.topic == "/server/gps/fix"
-    assert cfg.serial_port == "/dev/ttyS0"
+    assert cfg.serial_port == "/dev/ttyAMA0"
     assert cfg.baud_rate == 115200
     assert cfg.rtcm_tcp_port == 5016
     assert cfg.rtcm_server_host == ""

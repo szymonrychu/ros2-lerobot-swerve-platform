@@ -40,6 +40,22 @@ def test_get_register_entry_by_name() -> None:
     assert e2 is None
 
 
+def test_eprom_registers_marked_for_runtime_rejection() -> None:
+    """EPROM registers (e.g. PID, current) must not be written from ROS set_register; bridge rejects them."""
+    p_coef = get_register_entry_by_name("p_coefficient")
+    protection_curr = get_register_entry_by_name("protection_current")
+    assert p_coef is not None and p_coef.eprom is True
+    assert protection_curr is not None and protection_curr.eprom is True
+
+
+def test_ram_registers_accepted_at_runtime() -> None:
+    """RAM registers (torque_enable, goal_position) are accepted from ROS set_register."""
+    torque = get_register_entry_by_name("torque_enable")
+    goal = get_register_entry_by_name("goal_position")
+    assert torque is not None and torque.eprom is False
+    assert goal is not None and goal.eprom is False
+
+
 def test_read_all_registers_mock_servo() -> None:
     """read_all_registers returns dict; mock returns empty on read error."""
 

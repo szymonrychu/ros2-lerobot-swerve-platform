@@ -90,6 +90,27 @@ python scripts/swerve_goal_relative.py --dx 0.5 --dy 0.3 --dtheta 0.2
 - **--action**: NavigateToPose action name (default `/navigate_to_pose`).
 - **--frame-id**: Frame for goal pose (default `odom` for odom-relative goals).
 
+### IMU (BNO055) verification
+
+The client runs the BNO055 IMU node publishing `sensor_msgs/Imu` on `/imu/data`. The **topic_scraper_api** (client, port 18100) allows type `sensor_msgs/msg/Imu`; use it to confirm the IMU is publishing.
+
+```bash
+# From a host that can reach the client (e.g. 192.168.1.34:18100):
+# List topics (should include /imu/data with has_sample: true when node is healthy)
+curl -s http://<client>:18100/topics | jq '.topics[] | select(.topic == "/imu/data")'
+
+# Latest IMU sample (orientation, angular_velocity, linear_acceleration)
+curl -s http://<client>:18100/topics/imu/data | jq .
+
+# Stream IMU orientation quaternion (x,y,z,w) at 0.2 s interval
+python scripts/topic_scraper_collect.py \
+  --source client=http://<client>:18100 \
+  --select '/imu/data:.orientation' \
+  --interval 0.2
+```
+
+If `/imu/data` has no sample, check `ros2-bno055_imu` service and logs; the node coerces partial sensor reads to zeros so it should publish as long as the sensor is detected on I2C.
+
 ### Other
 
 - **calibrate_rtk_base.py** — Low-level calibration script (run on the machine that has the base serial port). Used by `rtk_calibrate.sh` when not using `--local`.

@@ -3,24 +3,14 @@
     "p_coefficient": 22,
     "d_coefficient": 12,
     "i_coefficient": 0,
-    "cw_dead_zone": 3,
-    "ccw_dead_zone": 3,
     "protection_current": 200,
-    "max_torque_limit": 800,
-    "protective_torque": 100,
-    "acceleration": 30,
-    "goal_speed": 80
+    "max_torque_limit": 800
   },
   "6": {
     "p_coefficient": 22,
     "d_coefficient": 12,
     "i_coefficient": 0,
-    "cw_dead_zone": 3,
-    "ccw_dead_zone": 3,
     "protection_current": 200,
-    "max_torque_limit": 800,
-    "protective_torque": 100,
-    "acceleration": 30,
-    "goal_speed": 80
+    "max_torque_limit": 800
   }
 }

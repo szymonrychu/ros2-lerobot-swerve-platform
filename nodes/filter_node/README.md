@@ -9,6 +9,10 @@
 - **Config file:** YAML with `input_topic` (default `/filter/input_joint_updates`), `output_topic` (default `/follower/joint_commands`), `algorithm` (default `kalman`), `control_loop_hz` (default `100.0`), optional `joint_names` (order for output), and `algorithm_params` (algorithm-specific keys). For Kalman: `process_noise_pos`, `process_noise_vel`, `measurement_noise`, `prediction_lead_s`, `velocity_decay_per_s`, `max_prediction_time_s`.
 - **Config path:** Set `FILTER_NODE_CONFIG` or deploy to `/etc/ros2/filter_node/config.yaml`.
 
+## Network delay compensation
+
+The Kalman algorithm outputs a short-horizon **prediction** ahead of the last measurement (`state.position + state.velocity * prediction_lead_s`). Increasing `prediction_lead_s` (e.g. 0.04–0.06 s) makes the follower command “ahead” in time and **compensates for leader→client network delay**: the filter effectively defies delay by predicting where the leader will be. If topic_scraper or logs show large leader–follower skew or oscillations, raise `prediction_lead_s` (and optionally `max_prediction_time_s`) and re-test.
+
 ## Topic flow
 
 - **Input:** `sensor_msgs/JointState` on `input_topic`. Each message updates per-joint filter state.

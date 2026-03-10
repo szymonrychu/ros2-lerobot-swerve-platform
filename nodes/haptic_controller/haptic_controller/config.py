@@ -92,9 +92,9 @@ def load_config(path: Path | None = None) -> HapticConfig | None:
     gains = data.get("resistance_gains") or {}
     if not isinstance(gains, dict):
         gains = {}
-    resistance_max_stiffness = float(gains.get("max_stiffness", 0.002))
-    resistance_load_deadband = float(gains.get("load_deadband", 50.0))
-    resistance_max_step_per_cycle = float(gains.get("max_step_per_cycle", 0.05))
+    resistance_max_stiffness = float(gains.get("max_stiffness", 0.0008))
+    resistance_load_deadband = float(gains.get("load_deadband", 60.0))
+    resistance_max_step_per_cycle = float(gains.get("max_step_per_cycle", 0.02))
     resistance_activation_velocity_threshold = float(gains.get("activation_velocity_threshold", 0.01))
     resistance_release_delay_s = float(gains.get("release_delay_s", 0.15))
     resistance_load_release_ratio = float(gains.get("load_release_ratio", 0.6))

@@ -6,7 +6,7 @@ poll until complete, then save ECEF position to flash. Run on the server (RPi
 with BS hat). After calibration, power cycle the module.
 
 Usage:
-  python scripts/calibrate_rtk_base.py --port /dev/ttyS0 --samples 3600 --accuracy 15
+  python scripts/calibrate_rtk_base.py --port /dev/ttyAMA0 --samples 3600 --accuracy 15
 
 See RTK_NOTES.md for calibration flow and PQTMCFGSVIN command details.
 """
@@ -118,8 +118,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--port",
-        default="/dev/ttyS0",
-        help="Serial port (default: /dev/ttyS0)",
+        default="/dev/ttyAMA0",
+        help="Serial port (default: /dev/ttyAMA0 on RPi 4 with disable-bt)",
     )
     parser.add_argument(
         "--baud",

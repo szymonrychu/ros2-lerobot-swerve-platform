@@ -1,0 +1,14 @@
+---
+description: Always commit, push, and deploy code after completing work
+alwaysApply: true
+---
+
+# Commit, Push, and Deploy
+
+After completing code changes (features, fixes, or config updates):
+
+1. **Commit** — Stage and commit with a semantic message (`feat:`, `fix:`, `docs:`, etc.). One logical change per commit.
+2. **Push** — Push to the upstream repository (e.g. `main`).
+3. **Deploy** — Run the project’s deployment (e.g. Ansible playbook) so changes are applied on target hosts.
+
+Do not consider work done until all three steps are done. If deploy fails, fix issues and redeploy until it succeeds.

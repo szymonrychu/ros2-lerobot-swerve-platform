@@ -44,7 +44,7 @@ Use this file and [MEMORY.md](MEMORY.md) when working in this repo.
 
 ## Scope (MVP)
 
-* **Client stream**: All robot nodes (ROS2 server, UVC cameras, RealSense D435i, RPLidar-A1, Lerobot SO-101 follower, BNO095 IMU, GPS-RTK LC29H(DA), Nav2 + SLAM), Ansible + systemd
+* **Client stream**: All robot nodes (ROS2 server, UVC cameras, RealSense D435i, RPLidar-A1, Lerobot SO-101 follower, BNO055 IMU, GPS-RTK LC29H(DA), Nav2 + SLAM), Ansible + systemd
 * **Server stream**: ROS2 server, GPS-RTK LC29H(BS), Lerobot SO-101 leader
 * **Shared stream**: Leader–follower teleop over ROS2/local network; ROS2 master-to-master on all MVP topics
 * OpenVLA and other non-MVP features are out of scope for MVP
@@ -78,6 +78,7 @@ Use this file and [MEMORY.md](MEMORY.md) when working in this repo.
 * Ask the developer very detailed questions about everything when unclear.
 * Never hallucinate — prefer asking or citing sources over inventing.
 * **Containers and source changes:** Whenever source code that is used inside a container is edited, rebuild that container so the image reflects the change. Remember each container's purpose and its requirements (env, devices, config). Iterate with fixes until all mandatory functionality for that node works; do not leave broken or half-working behaviour.
+* **Runtime diagnostics default:** Use `topic_scraper_api` + `scripts/topic_scraper_collect.py` as the default post-deploy telemetry/debug workflow (instead of infrastructure monitoring). For leader-follower oscillation checks, collect merged NDJSON from both client and server scrapers and verify timing/skew plus command stability.
 * **Documentation:** Document work in README.md files: one per node under `nodes/` (e.g. `nodes/master2master/README.md`, `nodes/bridges/feetech_servos/README.md`), one for [ansible/](ansible/README.md), and one for other key directories (`nodes/README.md`, `shared/README.md`, **[tests/README.md](tests/README.md)**). Target audience: mid-level Python developer with ROS/ROS2 experience. Keep READMEs up to date whenever something in that area changes.
 * **Tests README:** Maintain [tests/README.md](tests/README.md): list each test file, briefly describe what it covers, and document each test (or test group). Update this README when adding, removing, or changing tests so the test suite stays easy to navigate.
 

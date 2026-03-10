@@ -26,9 +26,9 @@ Config file path: `HAPTIC_CONTROLLER_CONFIG` or `/etc/ros2/haptic_controller/con
 | `follower_state_topic` | Topic for follower JointState (with effort) | `/follower/joint_states` |
 | `leader_cmd_topic` | Topic to publish leader commands | `/client/haptic_leader_commands` |
 | `control_loop_hz` | Loop rate when mode is resistance or zero_g | `100.0` |
-| `resistance_gains.max_stiffness` | Virtual stiffness (position delta per unit load) | `0.002` |
-| `resistance_gains.load_deadband` | Follower load below this = no resistance | `50.0` |
-| `resistance_gains.max_step_per_cycle` | Max position step per cycle (safety) | `0.05` |
+| `resistance_gains.max_stiffness` | Virtual stiffness (position delta per unit load); keep low for subtle feedback | `0.0008` |
+| `resistance_gains.load_deadband` | Follower load below this = no resistance | `60.0` |
+| `resistance_gains.max_step_per_cycle` | Max position step per cycle (safety); lower = lighter resistance | `0.02` |
 | `resistance_gains.activation_velocity_threshold` | Min closing velocity to apply resistance | `0.01` |
 | `resistance_gains.release_delay_s` | Delay after last resistance before torque off | `0.15` |
 | `resistance_gains.load_release_ratio` | Hysteresis: release when load < deadband × this | `0.6` |
@@ -38,7 +38,7 @@ Config file path: `HAPTIC_CONTROLLER_CONFIG` or `/etc/ros2/haptic_controller/con
 
 ## Deployment
 
-Deployed on the **client** only. Default Ansible config has the node **present** but **enabled: false**. Enable the service and set `mode: resistance` or `mode: zero_g` in config when you want haptics. Ensure the follower feetech bridge has `publish_effort_joints: [joint_5, joint_6]` so follower load is available. For resistance or zero-G, leader torque must be enabled on the server (e.g. manually or via a separate mechanism); the node only publishes position commands.
+Deployed on the **client** only. Default Ansible config has the node **present** but **enabled: false**. Enable the service and set `mode: resistance` or `mode: zero_g` in config when you want haptics. Ensure the follower feetech bridge has `publish_effort_joints: [joint_5, joint_6]` so follower load is available. For resistance or zero-G, leader torque must be enabled on the server (e.g. manually or via a separate mechanism); the node only publishes position commands. **Feedback is intentionally subtle** (low stiffness, small step per cycle)—you should feel some resistance on contact, not strong locking.
 
 ## Tests
 
