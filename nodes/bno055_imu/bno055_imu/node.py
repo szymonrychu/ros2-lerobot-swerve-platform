@@ -48,7 +48,8 @@ def _create_bno055(i2c_bus: int, i2c_address: int) -> tuple[Any, int]:
             bno.use_external_crystal = True
             # IMUPLUS: accel+gyro fusion — quaternion, gyro, linear_acceleration (no magnetometer)
             bno.mode = IMUPLUS_MODE
-            time.sleep(0.3)
+            # Fusion needs 1–2 s after mode switch to produce valid data; 0.3 s was too short.
+            time.sleep(1.5)
             return bno, addr
         except Exception as exc:  # noqa: BLE001
             tried.append((addr, exc))
@@ -84,6 +85,35 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         )
     except Exception:  # noqa: S110
         pass
+
+    # Warm-up: try to get first valid gyro+accel before main loop (fusion can need 1–2 s).
+    def _warmup_check() -> bool:
+        try:
+            g = bno.gyro
+            a = bno.linear_acceleration
+        except (RuntimeError, OSError):
+            return False
+        if not g or len(g) < 3 or any(g[i] is None for i in range(3)):
+            return False
+        if not a or len(a) < 3 or any(a[i] is None for i in range(3)):
+            try:
+                a = bno.acceleration
+            except (RuntimeError, OSError):
+                return False
+        return bool(a and len(a) >= 3 and a[0] is not None and a[1] is not None and a[2] is not None)
+
+    warmup_deadline = time.monotonic() + 3.0
+    while time.monotonic() < warmup_deadline and rclpy.ok():
+        if _warmup_check():
+            node.get_logger().info("BNO055 warm-up complete, sensor ready")
+            break
+        time.sleep(0.1)
+        rclpy.spin_once(node, timeout_sec=0.01)
+    else:
+        node.get_logger().warn(
+            "BNO055 warm-up timed out (3 s); will retry each cycle. "
+            "Check I2C, calibration, and keep sensor still for a few seconds."
+        )
 
     def _coerce(v: Any, default: float = 0.0) -> float:
         return default if v is None else float(v)
@@ -130,6 +160,12 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 break
             time.sleep(0.01)
         else:
+            node.get_logger().debug(
+                "BNO055 no valid gyro/accel after 5 retries (gyro=%s, accel=%s); skipping publish",
+                type(gyro).__name__ if gyro is not None else "None",
+                type(accel).__name__ if accel is not None else "None",
+                throttle_duration_sec=10.0,
+            )
             rclpy.spin_once(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
@@ -140,6 +176,12 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             except (RuntimeError, OSError):
                 pass
         if not _has_valid_tuple(gyro, 3) or not _has_valid_tuple(accel, 3):
+            node.get_logger().debug(
+                "BNO055 accel fallback still invalid (gyro_ok=%s, accel_ok=%s); skipping publish",
+                _has_valid_tuple(gyro, 3, allow_zeros=True),
+                _has_valid_tuple(accel, 3, allow_zeros=True),
+                throttle_duration_sec=10.0,
+            )
             rclpy.spin_once(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
