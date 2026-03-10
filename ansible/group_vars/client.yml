@@ -3,11 +3,15 @@
 # Network (netplan) and hostname — set for each host or here for the group:
 network_address: "192.168.1.34/24"
 network_gateway: "192.168.1.1"
-network_nameservers: ["1.1.1.1"]
+primary_dns_server: "192.168.1.1"
+secondary_dns_server: "1.1.1.1"
+network_nameservers:
+  - "{{ primary_dns_server }}"
+  - "{{ secondary_dns_server }}"
 hostname: "client-rpi5"
 
-# Server IP/hostname for master2master to connect to Server's ROS2 master (set or use inventory).
-ros2_server_host: "192.168.1.33"   # or server hostname if DNS/resolution works
+# Server hostname for master2master, rtcm, and ROS2 DDS (resolved via /etc/hosts).
+ros2_server_host: "{{ ros2_server_hostname }}"
 
 # ROS2 node types. Most client nodes stay localhost-only; master2master must reach server ROS graph.
 ros2_node_type_defaults:
@@ -23,7 +27,7 @@ ros2_node_type_defaults:
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-      - ROS_STATIC_PEERS=192.168.1.33
+      - ROS_STATIC_PEERS={{ ros2_server_hostname }}
       - MASTER2MASTER_CONFIG=/etc/ros2/master2master/config.yaml
       # ROS2_SERVER_HOST passed per-node below so master2master can connect to Server's ROS2 master
   feetech_servos:
@@ -265,7 +269,7 @@ ros2_nodes:
       baud_rate: 115200
       topic: /client/gps/fix
       frame_id: gps_link
-      rtcm_server_host: 192.168.1.33
+      rtcm_server_host: {{ ros2_server_hostname }}
       rtcm_server_port: 5016
   - name: haptic_controller
     node_type: haptic_controller

@@ -23,12 +23,12 @@ def test_config_rover_with_host() -> None:
     data = {
         "mode": "rover",
         "topic": "/client/gps/fix",
-        "rtcm_server_host": "192.168.1.33",
+        "rtcm_server_host": "server.ros2.lan",
         "rtcm_server_port": 5016,
     }
     cfg = GpsRtkConfig.model_validate(data)
     assert cfg.mode == "rover"
-    assert cfg.rtcm_server_host == "192.168.1.33"
+    assert cfg.rtcm_server_host == "server.ros2.lan"
     assert cfg.rtcm_server_port == 5016
 
 

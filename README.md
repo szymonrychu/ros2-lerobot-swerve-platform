@@ -41,7 +41,7 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 
 ## Node catalog
 
-### Server (Raspberry Pi 4b — 192.168.1.33)
+### Server (Raspberry Pi 4b — server.ros2.lan)
 
 | Node | Type | ROS2 Topics | Hardware |
 |------|------|-------------|----------|
@@ -50,7 +50,7 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `gps_rtk_base` | gps_rtk | `/server/gps/fix` (pub), RTCM3 TCP :5016 | LC29H-BS HAT (`/dev/ttyAMA0`) |
 | `topic_scraper_api` | topic_scraper_api | HTTP :18100 | — |
 
-### Client (Raspberry Pi 5 — 192.168.1.34)
+### Client (Raspberry Pi 5 — client.ros2.lan)
 
 | Node | Type | ROS2 Topics | Hardware |
 |------|------|-------------|----------|

@@ -7,7 +7,7 @@ path as master2master: filter_node -> feetech. For physical tests, restrict to g
 Examples:
   # GET current joint updates (default base URL http://localhost:8080)
   python scripts/joint_api_client.py get
-  python scripts/joint_api_client.py get --base-url http://192.168.1.34:8080
+  python scripts/joint_api_client.py get --base-url http://client.ros2.lan:18080
 
   # POST single joint (gripper)
   python scripts/joint_api_client.py post --joint joint_6 0.15

@@ -50,7 +50,7 @@
 ## ROS2 cross-host relay discovery
 
 * **master2master connectivity**: `ROS2_SERVER_HOST` env alone is not consumed by node code and does not configure DDS discovery by itself. For server↔client relay, use host networking and DDS discovery envs.
-* **Working setup**: client `master2master` runs with `--network host`, `ROS_LOCALHOST_ONLY=0`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, `ROS_STATIC_PEERS=<server-ip>`; server `lerobot_leader` runs with `--network host`, `ROS_LOCALHOST_ONLY=0`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, `ROS_STATIC_PEERS=<client-ip>`.
+* **Working setup**: client `master2master` runs with `--network host`, `ROS_LOCALHOST_ONLY=0`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, `ROS_STATIC_PEERS=server.ros2.lan`; server `lerobot_leader` runs with `--network host`, `ROS_LOCALHOST_ONLY=0`, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, `ROS_STATIC_PEERS=client.ros2.lan`.
 
 ## Leader-follower smoothness and local DDS transport
 
@@ -109,3 +109,10 @@
 * **RPi-specific**: GPU memory 16 MB (headless), Bluetooth disabled (dtoverlay + service mask), HDMI blanked.
 * **Resilience**: Hardware watchdog (`bcm2835_wdt`, 15 s timeout), `kernel.panic=10` auto-reboot, Docker log rotation (10 MB × 3 files).
 * **LGTM monitoring stack removed**: Grafana, Loki, Mimir, Alloy containers, images, systemd units, compose files, and data dirs were manually cleaned from both hosts. No monitoring role remains in Ansible.
+
+## DNS and ROS2 hostnames
+
+* **DNS override**: System DNS set via `primary_dns_server` (192.168.1.1) and `secondary_dns_server` (1.1.1.1) in group_vars; `network_nameservers` derived from them for netplan.
+* **ROS2 hostnames**: `server.ros2.lan` (192.168.1.33) and `client.ros2.lan` (192.168.1.34). Both Pis resolve them via `/etc/hosts` (hostname role adds `ros2_hosts_entries` from all.yml).
+* **Inventory**: Default `ansible_host` uses hostnames. When running Ansible from a dev machine, add to `/etc/hosts`: `192.168.1.33 server.ros2.lan`, `192.168.1.34 client.ros2.lan`.
+* **ROS2 config**: `ROS_STATIC_PEERS`, `ros2_server_host`, `rtcm_server_host`, and script defaults use hostnames (server.ros2.lan / client.ros2.lan).

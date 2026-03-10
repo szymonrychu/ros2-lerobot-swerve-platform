@@ -5,14 +5,14 @@
 #   ./scripts/rtk_status.sh           # Service and port check only.
 #   ./scripts/rtk_status.sh --fix     # Also print one-shot fix from topic_scraper.
 #
-# Env: RTK_SERVER_HOST, RTK_CLIENT_HOST (defaults 192.168.1.33, 192.168.1.34).
+# Env: RTK_SERVER_HOST, RTK_CLIENT_HOST (defaults server.ros2.lan, client.ros2.lan).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SERVER="${RTK_SERVER_HOST:-192.168.1.33}"
-CLIENT="${RTK_CLIENT_HOST:-192.168.1.34}"
+SERVER="${RTK_SERVER_HOST:-server.ros2.lan}"
+CLIENT="${RTK_CLIENT_HOST:-client.ros2.lan}"
 SSH_USER="${RTK_SSH_USER:-}"
 SHOW_FIX=false
 

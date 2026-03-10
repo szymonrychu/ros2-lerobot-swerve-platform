@@ -1,12 +1,13 @@
 # Inventory for Client and Server Raspberry Pis (Ubuntu 24.04)
 # Usage: ansible-playbook -i inventory playbooks/server.yml
-# Replace hostnames/IPs with your actual targets.
+# Hostnames server.ros2.lan and client.ros2.lan are set in /etc/hosts on both Pis.
+# For Ansible from a dev machine, add to /etc/hosts: 192.168.1.33 server.ros2.lan, 192.168.1.34 client.ros2.lan
 
 [server]
-server-rpi4 ansible_host=192.168.1.33
+server-rpi4 ansible_host=server.ros2.lan
 
 [client]
-client-rpi5 ansible_host=192.168.1.34
+client-rpi5 ansible_host=client.ros2.lan
 
 [all:vars]
 ansible_user=szymonri

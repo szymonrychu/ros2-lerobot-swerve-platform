@@ -2,6 +2,13 @@
 # Shared variables for all hosts (Client and Server)
 # Ubuntu 24.04 on Raspberry Pi
 
+# ROS2 hostnames for cross-host DDS and RTCM (resolved via /etc/hosts on both Pis).
+ros2_server_hostname: "server.ros2.lan"
+ros2_client_hostname: "client.ros2.lan"
+ros2_hosts_entries:
+  - { ip: "192.168.1.33", hostname: "server.ros2.lan" }
+  - { ip: "192.168.1.34", hostname: "client.ros2.lan" }
+
 # Repo to clone on each node for local container builds (deploy playbooks).
 ros2_repo_url: https://github.com/szymonrychu/ros2-lerobot-swerve-platform
 ros2_repo_revision: main  # branch, tag, or commit

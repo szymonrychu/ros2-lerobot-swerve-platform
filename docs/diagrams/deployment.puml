@@ -7,14 +7,14 @@ skinparam componentBorderColor #555
 
 title Deployment — Docker Containers per Host
 
-node "Server (RPi 4b)\n192.168.1.33" as server {
+node "Server (RPi 4b)\nserver.ros2.lan" as server {
   component "ros2-master" as sm <<Docker>> #C8E6C9
   component "lerobot_leader\n(feetech_servos)" as sl <<Docker>> #A5D6A7
   component "gps_rtk_base" as sg <<Docker>> #A5D6A7
   component "topic_scraper_api" as ss <<Docker>> #C8E6C9
 }
 
-node "Client (RPi 5)\n192.168.1.34" as client {
+node "Client (RPi 5)\nclient.ros2.lan" as client {
   component "ros2-master" as cm <<Docker>> #BBDEFB
   component "master2master" as cmm <<Docker>> #90CAF9
   component "filter_node" as cf <<Docker>> #90CAF9

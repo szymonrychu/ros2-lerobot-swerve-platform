@@ -2,9 +2,12 @@
 # Server — Raspberry Pi 4b: Lerobot SO-101 leader, GPS-RTK LC29H(BS)
 # Network (netplan) and hostname — set for each host or here for the group:
 network_address: "192.168.1.33/24"
-
 network_gateway: "192.168.1.1"
-network_nameservers: ["1.1.1.1"]
+primary_dns_server: "192.168.1.1"
+secondary_dns_server: "1.1.1.1"
+network_nameservers:
+  - "{{ primary_dns_server }}"
+  - "{{ secondary_dns_server }}"
 hostname: "server-rpi4"
 
 # ROS2 node types: image and default settings per type (used by ros2_node_deploy).
@@ -22,7 +25,7 @@ ros2_node_type_defaults:
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-      - ROS_STATIC_PEERS=192.168.1.34
+      - ROS_STATIC_PEERS={{ ros2_client_hostname }}
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
   topic_scraper_api:
     image: harbor.szymonrichert.pl/containers/server-topic-scraper-api:latest

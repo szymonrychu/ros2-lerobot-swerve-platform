@@ -13,16 +13,16 @@
 #   ./scripts/rtk_verify.sh --capture 60 # Capture for 60s, then summarize.
 #
 # Env:
-#   RTK_SERVER_HOST   Server host (default: 192.168.1.33).
-#   RTK_CLIENT_HOST   Client host (default: 192.168.1.34).
+#   RTK_SERVER_HOST   Server host (default: server.ros2.lan).
+#   RTK_CLIENT_HOST   Client host (default: client.ros2.lan).
 #   SCRAPER_PORT      Topic scraper port (default: 18100).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SERVER="${RTK_SERVER_HOST:-192.168.1.33}"
-CLIENT="${RTK_CLIENT_HOST:-192.168.1.34}"
+SERVER="${RTK_SERVER_HOST:-server.ros2.lan}"
+CLIENT="${RTK_CLIENT_HOST:-client.ros2.lan}"
 PORT="${SCRAPER_PORT:-18100}"
 MODE="once"
 CAPTURE_SEC=""

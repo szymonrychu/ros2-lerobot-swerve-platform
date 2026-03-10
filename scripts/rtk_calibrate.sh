@@ -16,7 +16,7 @@
 #   --no-restore  Skip factory restore (PQTMRESTOREPAR).
 #
 # Env (optional):
-#   RTK_SERVER_HOST   Server hostname or IP (default: 192.168.1.33).
+#   RTK_SERVER_HOST   Server hostname or IP (default: server.ros2.lan).
 #   RTK_SSH_USER      SSH user (default: from inventory or $USER).
 #   RTK_REPO_PATH     On server, path to repo (default: ./ then $HOME/ros2-lerobot-sverve-platform).
 #
@@ -27,7 +27,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SERVER_HOST="${RTK_SERVER_HOST:-192.168.1.33}"
+SERVER_HOST="${RTK_SERVER_HOST:-server.ros2.lan}"
 SSH_USER="${RTK_SSH_USER:-}"
 RUN_LOCAL=false
 SAMPLES=3600

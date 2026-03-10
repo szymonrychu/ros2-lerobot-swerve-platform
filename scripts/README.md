@@ -24,7 +24,7 @@ Run these from your computer (or from a host with SSH and network access to serv
 ./scripts/rtk_calibrate.sh --local
 ```
 
-**Env:** `RTK_SERVER_HOST` (default `192.168.1.33`), `RTK_SSH_USER` (from Ansible inventory or `$USER`).
+**Env:** `RTK_SERVER_HOST` (default `server.ros2.lan`), `RTK_SSH_USER` (from Ansible inventory or `$USER`).
 
 After calibration, the script tells you to **power cycle** the base (unplug/plug HAT or reboot) and start the service again.
 
@@ -45,7 +45,7 @@ Requires **topic_scraper_api** running on server and client (port 18100) and **j
 
 **Fix status:** `-1` = no fix, `0` = GPS fix, `1` = SBAS, `2` = **RTK fix** (goal for rover).
 
-**Env:** `RTK_SERVER_HOST`, `RTK_CLIENT_HOST` (defaults `192.168.1.33`, `192.168.1.34`), `SCRAPER_PORT` (default `18100`).
+**Env:** `RTK_SERVER_HOST`, `RTK_CLIENT_HOST` (defaults `server.ros2.lan`, `client.ros2.lan`), `SCRAPER_PORT` (default `18100`).
 
 ### 3. Quick status (services + RTCM port)
 
@@ -95,7 +95,7 @@ python scripts/swerve_goal_relative.py --dx 0.5 --dy 0.3 --dtheta 0.2
 The client runs the BNO055 IMU node publishing `sensor_msgs/Imu` on `/imu/data`. The **topic_scraper_api** (client, port 18100) allows type `sensor_msgs/msg/Imu`; use it to confirm the IMU is publishing.
 
 ```bash
-# From a host that can reach the client (e.g. 192.168.1.34:18100):
+# From a host that can reach the client (e.g. client.ros2.lan:18100):
 # List topics (should include /imu/data with has_sample: true when node is healthy)
 curl -s http://<client>:18100/topics | jq '.topics[] | select(.topic == "/imu/data")'
 
@@ -110,6 +110,30 @@ python scripts/topic_scraper_collect.py \
 ```
 
 If `/imu/data` has no sample, check `ros2-bno055_imu` service and logs; the node coerces partial sensor reads to zeros so it should publish as long as the sensor is detected on I2C.
+
+### Post-deploy verification (topic scraper)
+
+After deploying ROS2 nodes, verify cross-host connectivity and topic flow using `topic_scraper_collect.py`. Run from a host that can reach both Pis (e.g. dev machine with `/etc/hosts` entries for `server.ros2.lan` and `client.ros2.lan`):
+
+```bash
+python scripts/topic_scraper_collect.py \
+  --source client=http://client.ros2.lan:18100 \
+  --source server=http://server.ros2.lan:18100 \
+  --select '/leader/joint_states:.position' \
+  --select '/follower/joint_states:.position' \
+  --interval 0.1 \
+  --once
+```
+
+**Validation checklist:**
+
+- Topics return non-empty payloads (no timeouts/404).
+- Values are not all zeros (e.g. `position` has non-zero entries when arms are connected).
+- Both `client` and `server` sources emit data.
+- Save a short capture and inspect with `jq` for structure and non-zero values:  
+  `... > scrape_capture.ndjson` then `jq . scrape_capture.ndjson | head`
+
+**Suggested test matrix:** `/leader/joint_states` (server), `/follower/joint_states` (client), `/filter/input_joint_updates` (client), `/odom` or `/imu/data` if available, `/server/gps/fix` and `/client/gps/fix` (expect zeros until RTK fix).
 
 ### Other
 

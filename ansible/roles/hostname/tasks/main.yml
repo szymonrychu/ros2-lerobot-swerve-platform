@@ -29,3 +29,13 @@
     line: "127.0.1.1 {{ hostname }}"
     state: present
   become: true
+
+- name: Ensure ROS2 peer hostnames in /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ item.ip }} {{ item.hostname }}"
+    regexp: "^{{ item.ip }}\\s+{{ item.hostname }}\\s*$"
+    state: present
+  loop: "{{ ros2_hosts_entries }}"
+  when: ros2_hosts_entries is defined and ros2_hosts_entries | length > 0
+  become: true

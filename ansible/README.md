@@ -4,7 +4,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 
 ## Layout
 
-- **`inventory`** — Host groups `server` and `client`. Edit with your hostnames or IPs. `all:vars` can set `ansible_user`, `ansible_python_interpreter`.
+- **`inventory`** — Host groups `server` and `client`. Edit with your hostnames or IPs. `all:vars` can set `ansible_user`, `ansible_python_interpreter`. The default inventory uses hostnames `server.ros2.lan` and `client.ros2.lan`; when running Ansible from a dev machine, add to `/etc/hosts`: `192.168.1.33 server.ros2.lan` and `192.168.1.34 client.ros2.lan`.
 - **`group_vars/`** — `all.yml`, `server.yml`, `client.yml` for group-specific variables.
 - **`site.yml`** — Full site: provision all hosts, then deploy ROS2 nodes on server and client (includes playbooks below). Run `ansible-playbook -i inventory site.yml`.
 - **`playbooks/`**
@@ -187,8 +187,8 @@ The **topic_scraper_api** node runs on both hosts and exposes:
 Default port is `18100` and it runs with host networking. Example:
 
 ```bash
-curl http://192.168.1.34:18100/topics
-curl http://192.168.1.33:18100/topics/leader/joint_states
+curl http://client.ros2.lan:18100/topics
+curl http://server.ros2.lan:18100/topics/leader/joint_states
 ```
 
 Use `scripts/topic_scraper_collect.py` to poll both hosts and emit merged NDJSON for dynamic comparisons.
@@ -252,7 +252,7 @@ In **`group_vars/server.yml`** or **`group_vars/client.yml`** (or host_vars), se
 
 - **`network_address`** — Static IP in CIDR (e.g. `192.168.1.10/24`). Required.
 - **`network_gateway`** — Default gateway (e.g. `192.168.1.1`). Required.
-- **`network_nameservers`** — Optional list (e.g. `["8.8.8.8", "8.8.4.4"]`).
+- **`network_nameservers`** — Optional list. By default derived from `primary_dns_server` (e.g. `192.168.1.1`) and `secondary_dns_server` (e.g. `1.1.1.1`).
 - **`network_interface`** — Optional. Default: primary IPv4 interface (ethernet or wlan).
 - When the primary interface is **WiFi** (e.g. `wlan0`): **`network_wifi_ssid`** (required), **`network_wifi_password`** (optional).
 - **`hostname`** — Short hostname (e.g. `server-rpi4`). Optional; when set, the hostname role runs.
