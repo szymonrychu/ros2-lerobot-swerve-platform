@@ -109,7 +109,7 @@ python scripts/topic_scraper_collect.py \
   --interval 0.2
 ```
 
-If `/imu/data` has no sample, check `ros2-bno055_imu` service and logs; the node coerces partial sensor reads to zeros so it should publish as long as the sensor is detected on I2C.
+If `/imu/data` has no sample, check `ros2-bno055_imu` service and logs. The node publishes only when it has valid gyro and accel data from the sensor; it does not publish placeholder data.
 
 ### Post-deploy verification (topic scraper)
 

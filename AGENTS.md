@@ -37,6 +37,10 @@ Use this file and [MEMORY.md](MEMORY.md) when working in this repo.
 * **Docstrings**: Document input and output (parameters and return) in docstrings, including their types (aligned with type hints).
 * **Unit tests**: Write unit tests for each new function; extend the test suite as the codebase grows.
 
+### ROS2 publishing
+
+* **No placeholder data on topics**: Publish only real, valid data from sensors or actual state. Do not publish zeroed/coerced/synthetic data when reads fail. If valid data is unavailable, skip publishing for that cycle. See `.cursor/rules/ros2-no-placeholder-data.mdc`.
+
 ## Pointers
 
 * Full architecture and component list: [README.md](README.md)
