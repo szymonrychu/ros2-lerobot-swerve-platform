@@ -161,9 +161,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             time.sleep(0.01)
         else:
             node.get_logger().debug(
-                "BNO055 no valid gyro/accel after 5 retries (gyro=%s, accel=%s); skipping publish",
-                type(gyro).__name__ if gyro is not None else "None",
-                type(accel).__name__ if accel is not None else "None",
+                "BNO055 no valid gyro/accel after 5 retries (gyro=%s, accel=%s); skipping publish"
+                % (type(gyro).__name__ if gyro is not None else "None", type(accel).__name__ if accel is not None else "None"),
                 throttle_duration_sec=10.0,
             )
             rclpy.spin_once(node, timeout_sec=0.01)
@@ -177,9 +176,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 pass
         if not _has_valid_tuple(gyro, 3) or not _has_valid_tuple(accel, 3):
             node.get_logger().debug(
-                "BNO055 accel fallback still invalid (gyro_ok=%s, accel_ok=%s); skipping publish",
-                _has_valid_tuple(gyro, 3, allow_zeros=True),
-                _has_valid_tuple(accel, 3, allow_zeros=True),
+                "BNO055 accel fallback still invalid (gyro_ok=%s, accel_ok=%s); skipping publish"
+                % (_has_valid_tuple(gyro, 3, allow_zeros=True), _has_valid_tuple(accel, 3, allow_zeros=True)),
                 throttle_duration_sec=10.0,
             )
             rclpy.spin_once(node, timeout_sec=0.01)
