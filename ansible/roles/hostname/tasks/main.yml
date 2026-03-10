@@ -37,5 +37,8 @@
     regexp: "^{{ item.ip }}\\s+{{ item.hostname }}\\s*$"
     state: present
   loop: "{{ ros2_hosts_entries }}"
-  when: ros2_hosts_entries is defined and ros2_hosts_entries | length > 0
+  when:
+    - ros2_extend_etc_hosts | default(false) | bool
+    - ros2_hosts_entries is defined
+    - ros2_hosts_entries | length > 0
   become: true

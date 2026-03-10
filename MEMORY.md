@@ -113,6 +113,6 @@
 ## DNS and ROS2 hostnames
 
 * **DNS override**: System DNS set via `primary_dns_server` (192.168.1.1) and `secondary_dns_server` (1.1.1.1) in group_vars; `network_nameservers` derived from them for netplan.
-* **ROS2 hostnames**: `server.ros2.lan` (192.168.1.33) and `client.ros2.lan` (192.168.1.34). Both Pis resolve them via `/etc/hosts` (hostname role adds `ros2_hosts_entries` from all.yml).
+* **ROS2 hostnames**: `server.ros2.lan` (192.168.1.33) and `client.ros2.lan` (192.168.1.34). By default `ros2_extend_etc_hosts: false` — rely on primary DNS. Set `ros2_extend_etc_hosts: true` to have the hostname role add `ros2_hosts_entries` to `/etc/hosts` on both Pis.
 * **Inventory**: Default `ansible_host` uses hostnames. When running Ansible from a dev machine, add to `/etc/hosts`: `192.168.1.33 server.ros2.lan`, `192.168.1.34 client.ros2.lan`.
 * **ROS2 config**: `ROS_STATIC_PEERS`, `ros2_server_host`, `rtcm_server_host`, and script defaults use hostnames (server.ros2.lan / client.ros2.lan).

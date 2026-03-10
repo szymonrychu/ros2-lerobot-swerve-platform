@@ -256,6 +256,7 @@ In **`group_vars/server.yml`** or **`group_vars/client.yml`** (or host_vars), se
 - **`network_interface`** — Optional. Default: primary IPv4 interface (ethernet or wlan).
 - When the primary interface is **WiFi** (e.g. `wlan0`): **`network_wifi_ssid`** (required), **`network_wifi_password`** (optional).
 - **`hostname`** — Short hostname (e.g. `server-rpi4`). Optional; when set, the hostname role runs.
+- **`ros2_extend_etc_hosts`** — (default `false`) When true, hostname role adds `ros2_hosts_entries` (server.ros2.lan, client.ros2.lan) to `/etc/hosts`. Default false: rely on primary DNS.
 
 The network role writes a netplan file under `/etc/netplan/` and runs `netplan apply`. The **hostname** role runs `hostnamectl set-hostname` and updates `/etc/hostname` and `/etc/hosts`.
 
