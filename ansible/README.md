@@ -53,6 +53,7 @@ The `system_optimize` role strips unnecessary packages and services from Ubuntu 
 - GPU memory reduced to 16 MB (headless)
 - Bluetooth disabled via device tree overlay and service masking
 - HDMI output blanked to save power (~30 mA per port)
+- I2C clock speed set to 400 kHz (`dtparam=i2c_arm_baudrate`) when `rpi_i2c_baudrate` is defined (client only, requires reboot)
 
 **Resilience:**
 - Hardware watchdog (`bcm2835_wdt`) with systemd `RuntimeWatchdogSec` — auto-reboots on kernel hang
@@ -79,6 +80,7 @@ All defaults are in `roles/system_optimize/defaults/main.yml`. Override in `grou
 | `rpi_disable_bluetooth` | `true` | Disable Bluetooth |
 | `rpi_disable_hdmi` | `true` | Blank HDMI output |
 | `rpi_wifi_power_save_off` | `true` | Disable WiFi power saving |
+| `rpi_i2c_baudrate` | _(undefined)_ | I2C clock speed in Hz; set to `400000` in `group_vars/client.yml` for BNO055 reliability |
 
 ### Running standalone
 
@@ -192,6 +194,13 @@ curl http://server.ros2.lan:18100/topics/leader/joint_states
 ```
 
 Use `scripts/topic_scraper_collect.py` to poll both hosts and emit merged NDJSON for dynamic comparisons.
+
+### I2C Baudrate (BNO055 Reliability)
+
+The `system_optimize` role configures I2C clock speed on the client RPi via
+`dtparam=i2c_arm_baudrate` in `/boot/firmware/config.txt`.
+Set `rpi_i2c_baudrate: 400000` in `group_vars/client.yml` (default).
+**Requires reboot** to take effect.
 
 ### IMU (client)
 

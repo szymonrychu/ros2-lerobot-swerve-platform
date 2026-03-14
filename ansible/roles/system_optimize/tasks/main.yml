@@ -265,6 +265,15 @@
   when: rpi_disable_hdmi
   failed_when: false
 
+- name: Set I2C baudrate for BNO055 reliability
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^dtparam=i2c_arm_baudrate="
+    line: "dtparam=i2c_arm_baudrate={{ rpi_i2c_baudrate }}"
+    insertafter: "\\[all\\]"
+  when: rpi_i2c_baudrate is defined
+  failed_when: false
+
 - name: Disable WiFi power management for low latency
   ansible.builtin.copy:
     dest: /etc/NetworkManager/conf.d/wifi-powersave-off.conf
