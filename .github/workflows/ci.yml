@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Install root dependencies
+        run: poetry install --no-root
+      - name: Run lint
+        run: poetry run poe lint
+
+  lint-nodes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Run node linters
+        run: ./scripts/lint-all-nodes.sh
+
+  test-nodes:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # All nodes below have tests that work without ROS2.
+        # Tests that require rclpy/sensor_msgs/etc. use pytest.importorskip and are skipped automatically.
+        node:
+          - bno055_imu
+          - filter_node
+          - haptic_controller
+          - lerobot_teleop
+          - static_tf_publisher
+          - swerve_drive_controller
+          - test_joint_api
+          - topic_scraper_api
+          - bridges/feetech_servos
+          - bridges/gps_rtk
+          - bridges/uvc_camera
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Install node dependencies
+        working-directory: nodes/${{ matrix.node }}
+        run: poetry install
+      - name: Run tests
+        working-directory: nodes/${{ matrix.node }}
+        run: poetry run pytest tests/ -v --tb=short
+
+  lint-ansible:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Poetry
+        run: pip install poetry
+      - name: Install root dependencies
+        run: poetry install --no-root
+      - name: Run ansible lint
+        # NOTE: ansible-lint may fail if Ansible collections (e.g. community.general,
+        # ansible.posix) are not installed. Add an `ansible-galaxy collection install`
+        # step here if the playbooks require specific collections.
+        run: poetry run poe lint-ansible
