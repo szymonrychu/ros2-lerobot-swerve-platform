@@ -18,6 +18,7 @@ isort = "^5.13.0"
 autoflake = "^2.3.1"
 vulture = "^2.11"
 poethepoet = "^0.42.0"
+pytest = "^9.0.2"
 
 [build-system]
 requires = ["poetry-core"]
