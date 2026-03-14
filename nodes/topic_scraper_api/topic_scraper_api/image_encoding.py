@@ -1,6 +1,9 @@
 """Convert ROS image messages to JPEG bytes for streaming and preview."""
 
+import logging
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 IMAGE_TYPE_RAW = "sensor_msgs/msg/Image"
 IMAGE_TYPE_COMPRESSED = "sensor_msgs/msg/CompressedImage"
@@ -89,7 +92,8 @@ def _raw_image_to_jpeg(msg: Any) -> bytes | None:
         return None
     try:
         pil_img = PILImage.fromarray(arr, mode=pil_mode)
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        _log.debug("PILImage.fromarray failed (encoding=%s): %s", encoding, e)
         return None
     import io
 

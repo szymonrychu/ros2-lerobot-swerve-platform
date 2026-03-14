@@ -1,11 +1,14 @@
 """Configuration for GPS RTK node (base or rover mode, serial, topic, RTCM TCP)."""
 
+import logging
 import os
 from pathlib import Path
 from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field
+
+_log = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/gps_rtk/config.yaml")
 ENV_CONFIG_PATH_KEY = "GPS_RTK_CONFIG"
@@ -62,7 +65,8 @@ def load_config(path: Path | None = None) -> GpsRtkConfig | None:
         return None
     try:
         return GpsRtkConfig.model_validate(data)
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        _log.debug("GpsRtkConfig validation failed for %s: %s", path, e)
         return None
 
 

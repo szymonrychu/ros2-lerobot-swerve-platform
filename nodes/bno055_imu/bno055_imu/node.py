@@ -11,6 +11,8 @@ from sensor_msgs.msg import Imu
 from .config import ImuNodeConfig
 from .imu_msg import build_imu_message, quaternion_wxyz_to_xyzw
 
+I2C_RECONNECT_THRESHOLD = 10
+
 IMU_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     history=HistoryPolicy.KEEP_LAST,
@@ -136,8 +138,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             "BNO055 calibration (sys, gyro, accel, mag): %d, %d, %d, %d (0=uncal, 3=full)"
             % (sys_c, gyro_c, accel_c, mag_c)
         )
-    except Exception:  # noqa: S110
-        pass
+    except Exception as e:  # noqa: BLE001
+        node.get_logger().debug("BNO055 calibration status unavailable: %s" % e)
 
     # Warm-up: try to get first valid gyro+accel before main loop (fusion can need 1–2 s).
     warmup_deadline = time.monotonic() + 3.0
@@ -153,7 +155,23 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             "Check I2C, calibration, and keep sensor still for a few seconds."
         )
 
+    consecutive_failures: int = 0
     while rclpy.ok():
+        if consecutive_failures >= I2C_RECONNECT_THRESHOLD:
+            node.get_logger().warn("BNO055: %d consecutive failures — attempting I2C reconnect" % consecutive_failures)
+            backoff = min(30.0, 2 ** (consecutive_failures // I2C_RECONNECT_THRESHOLD - 1))
+            time.sleep(backoff)
+            try:
+                bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address)
+                consecutive_failures = 0
+                node.get_logger().info("BNO055 reconnected successfully on 0x%02x" % used_addr)
+            except Exception as e:  # noqa: BLE001
+                node.get_logger().error("BNO055 reconnect failed: %s" % e)
+                # Don't reset counter — will retry again after threshold
+            rclpy.spin_once(node, timeout_sec=0.01)
+            time.sleep(period_s)
+            continue
+
         quat, gyro, accel = None, None, None
         for _ in range(5):
             try:
@@ -170,6 +188,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 break
             time.sleep(0.01)
         else:
+            consecutive_failures += 1
             node.get_logger().debug(
                 "BNO055 no valid gyro/accel after 5 retries (gyro=%s, accel=%s); skipping publish"
                 % (
@@ -188,6 +207,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             except (RuntimeError, OSError):
                 pass
         if not has_valid_tuple(gyro, 3) or not has_valid_tuple(accel, 3):
+            consecutive_failures += 1
             node.get_logger().debug(
                 "BNO055 accel fallback still invalid (gyro_ok=%s, accel_ok=%s); skipping publish"
                 % (has_valid_tuple(gyro, 3, allow_zeros=True), has_valid_tuple(accel, 3, allow_zeros=True)),
@@ -197,6 +217,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             time.sleep(period_s)
             continue
 
+        consecutive_failures = 0
         gyro_vals = tuple(coerce(gyro[i]) for i in range(min(3, len(gyro or [])))) if gyro else (0.0, 0.0, 0.0)
         accel_vals = tuple(coerce(accel[i]) for i in range(min(3, len(accel or [])))) if accel else (0.0, 0.0, 0.0)
         while len(gyro_vals) < 3:

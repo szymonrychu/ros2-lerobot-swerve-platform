@@ -1,5 +1,6 @@
 """Entry point for GPS RTK node: load config, run base or rover."""
 
+import logging
 import sys
 
 import rclpy
@@ -7,6 +8,8 @@ import rclpy
 from .base_node import GpsRtkBaseNode
 from .config import load_config_from_env
 from .rover_node import GpsRtkRoverNode
+
+_log = logging.getLogger(__name__)
 
 
 def main() -> int:
@@ -40,8 +43,8 @@ def main() -> int:
         node.destroy_node()
         try:
             rclpy.shutdown()
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001
+            _log.debug("rclpy.shutdown() raised during cleanup: %s", e)
     return 0
 
 
