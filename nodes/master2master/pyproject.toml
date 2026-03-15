@@ -3,7 +3,7 @@ name = "master2master"
 version = "0.1.0"
 description = "ROS2 topic proxy between Client and Server"
 readme = "README.md"
-packages = []
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.11"

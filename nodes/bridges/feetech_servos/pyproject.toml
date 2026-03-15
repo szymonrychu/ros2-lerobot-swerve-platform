@@ -3,7 +3,7 @@ name = "feetech-servos"
 version = "0.1.0"
 description = "Feetech servos bridge (joint_states / joint_commands) and calibration tools"
 readme = "README.md"
-packages = []
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.11"
