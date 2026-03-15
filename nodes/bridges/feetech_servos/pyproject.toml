@@ -32,6 +32,7 @@ extend-exclude = "\\.venv|__pycache__"
 profile = "black"
 line_length = 120
 skip = [".venv", "__pycache__"]
+known_first_party = ["feetech_servos"]
 
 [tool.flake8]
 max-line-length = 120
