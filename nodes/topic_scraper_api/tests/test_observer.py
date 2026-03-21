@@ -1,7 +1,6 @@
 """Unit tests for RulesObserver (compare and oscillation from scraper payloads)."""
 
 import pytest
-
 from topic_scraper_api.config import RULE_TYPE_COMPARE, RULE_TYPE_OSCILLATION, ObservationRule
 from topic_scraper_api.observer import RulesObserver
 

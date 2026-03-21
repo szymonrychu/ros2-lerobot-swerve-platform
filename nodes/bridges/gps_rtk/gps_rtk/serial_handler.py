@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import time
 from typing import Callable
 
 import serial
@@ -14,6 +15,10 @@ NMEA_PREAMBLE = ord("$")
 RTCM3_PREAMBLE = 0xD3
 MAX_NMEA_LEN = 256
 MAX_RTCM3_PAYLOAD = 1023
+
+SERIAL_OPEN_MAX_RETRIES = 5
+SERIAL_OPEN_RETRY_DELAY_S = 2.0
+CONFIGURE_MAX_RETRIES = 3
 
 
 def nmea_checksum(sentence: str) -> str:
@@ -148,18 +153,21 @@ class SerialStreamParser:
             return False
 
 
-# Base station configure commands (LC29H-BS): enable MSM7, ref 1005, ephemeris, NMEA sentences
+# Base station configure commands (LC29H-BS): enable MSM7, ref 1005, ephemeris, NMEA sentences.
+# The LC29H-BS outputs a mixed stream (NMEA + RTCM3 + proprietary binary). The SerialStreamParser
+# handles the mixed stream correctly; these commands ensure the required RTCM message types and
+# NMEA sentences are enabled. $PQTMSAVEPAR persists settings across power cycles.
 LC29HBS_CONFIGURE_COMMANDS = [
-    "$PAIR432,1",
-    "$PAIR434,1",
-    "$PAIR436,1",
-    "$PAIR062,0,1",
-    "$PAIR062,1,1",
-    "$PAIR062,2,1",
-    "$PAIR062,3,1",
-    "$PAIR062,4,1",
-    "$PAIR062,5,1",
-    "$PAIR062,6,1",
+    "$PAIR432,1",  # Enable RTCM MSM7 observation messages
+    "$PAIR434,1",  # Enable RTCM 1005 reference station ARP
+    "$PAIR436,1",  # Enable RTCM ephemeris messages
+    "$PAIR062,0,1",  # Enable GGA
+    "$PAIR062,1,1",  # Enable GLL
+    "$PAIR062,2,1",  # Enable GSA
+    "$PAIR062,3,1",  # Enable GSV
+    "$PAIR062,4,1",  # Enable RMC
+    "$PAIR062,5,1",  # Enable VTG
+    "$PAIR062,6,1",  # Enable ZDA
     "$PAIR062,7,1",
     "$PAIR062,8,1",
 ]
@@ -187,13 +195,34 @@ class SerialHandler:
         self._stop = threading.Event()
 
     def open(self) -> None:
-        """Open serial port and start read thread."""
-        self._ser = serial.Serial(
-            port=self.port,
-            baudrate=self.baud_rate,
-            timeout=0.1,
-            write_timeout=2.0,
-        )
+        """Open serial port with retry and start read thread.
+
+        Retries up to SERIAL_OPEN_MAX_RETRIES times with SERIAL_OPEN_RETRY_DELAY_S
+        backoff if the port fails to open (e.g. GNSS module not ready on cold boot).
+
+        Raises:
+            serial.SerialException: If all retries are exhausted.
+        """
+        last_exc: Exception | None = None
+        for attempt in range(1, SERIAL_OPEN_MAX_RETRIES + 1):
+            try:
+                self._ser = serial.Serial(
+                    port=self.port,
+                    baudrate=self.baud_rate,
+                    timeout=0.1,
+                    write_timeout=2.0,
+                )
+                break
+            except (OSError, serial.SerialException) as e:
+                last_exc = e
+                LOG.warning("Serial open failed (attempt %d/%d): %s", attempt, SERIAL_OPEN_MAX_RETRIES, e)
+                if attempt < SERIAL_OPEN_MAX_RETRIES:
+                    self._stop.wait(SERIAL_OPEN_RETRY_DELAY_S)
+        else:
+            raise serial.SerialException(
+                f"Failed to open {self.port} after {SERIAL_OPEN_MAX_RETRIES} attempts: {last_exc}"
+            )
+
         self._parser = SerialStreamParser(
             on_nmea=self.on_nmea,
             on_rtcm3=self.on_rtcm3,
@@ -257,8 +286,6 @@ class SerialHandler:
         Returns:
             True if data was detected, False on timeout.
         """
-        import time
-
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             if self._ser is None or not self._ser.is_open:
@@ -274,19 +301,40 @@ class SerialHandler:
     def send_base_configure(self) -> None:
         """Send LC29H-BS configure commands (MSM7, ref 1005, ephemeris, NMEA) and save to flash.
 
-        Waits for the module to be ready, sends all PAIR/NMEA enable
-        commands, then persists with $PQTMSAVEPAR so settings survive
-        power cycles.
+        Waits for the module to be ready, then sends all PAIR/NMEA enable commands and
+        persists with $PQTMSAVEPAR. Retries up to CONFIGURE_MAX_RETRIES times with
+        exponential backoff if serial write errors occur (e.g. module not ready yet on
+        cold boot). Does not raise — logs error and returns if all retries fail so the
+        node can still relay RTCM even without fresh configure.
         """
-        import time
-
-        LOG.info("Waiting for GNSS module serial to become ready...")
-        if not self.wait_for_serial_ready(timeout_s=30.0):
-            LOG.warning("Serial not ready after 30 s, sending configure anyway")
-
-        for cmd in LC29HBS_CONFIGURE_COMMANDS:
-            self.send_nmea(cmd)
-            time.sleep(0.05)
-        time.sleep(0.5)
-        self.send_nmea("$PQTMSAVEPAR")
-        LOG.info("Configure commands sent and saved to flash")
+        for attempt in range(1, CONFIGURE_MAX_RETRIES + 1):
+            LOG.info(
+                "Waiting for GNSS module serial to become ready... (attempt %d/%d)",
+                attempt,
+                CONFIGURE_MAX_RETRIES,
+            )
+            if not self.wait_for_serial_ready(timeout_s=30.0):
+                LOG.warning("Serial not ready after 30 s (attempt %d/%d)", attempt, CONFIGURE_MAX_RETRIES)
+            try:
+                for cmd in LC29HBS_CONFIGURE_COMMANDS:
+                    self.send_nmea(cmd)
+                    time.sleep(0.05)
+                time.sleep(0.5)
+                self.send_nmea("$PQTMSAVEPAR")
+                LOG.info("Configure commands sent and saved to flash")
+                return
+            except (OSError, serial.SerialException) as e:
+                LOG.warning(
+                    "Serial write error during configure (attempt %d/%d): %s",
+                    attempt,
+                    CONFIGURE_MAX_RETRIES,
+                    e,
+                )
+                if attempt < CONFIGURE_MAX_RETRIES:
+                    backoff = 2**attempt
+                    LOG.info("Retrying configure in %ds", backoff)
+                    time.sleep(backoff)
+        LOG.error(
+            "Failed to send configure commands after %d attempts — node will continue without configure",
+            CONFIGURE_MAX_RETRIES,
+        )

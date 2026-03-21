@@ -45,6 +45,23 @@ def parse_rtcm3_length(header: bytes) -> int | None:
     return length
 
 
+def parse_rtcm3_message_type(frame: bytes) -> int | None:
+    """Extract RTCM3 message type from a validated frame.
+
+    The 12-bit message type occupies the first 12 bits of the payload
+    (bytes 3-4 of the full frame: bits [7:0] of byte 3 and bits [7:4] of byte 4).
+
+    Args:
+        frame: Full RTCM3 frame (preamble + header + payload + CRC).
+
+    Returns:
+        Message type integer (e.g. 1005, 1077), or None if frame too short.
+    """
+    if len(frame) < 6:
+        return None
+    return ((frame[3] << 4) | (frame[4] >> 4)) & 0xFFF
+
+
 def is_valid_rtcm3_frame(frame: bytes) -> bool:
     """Check that frame has 0xD3, valid length, and correct CRC24Q.
 

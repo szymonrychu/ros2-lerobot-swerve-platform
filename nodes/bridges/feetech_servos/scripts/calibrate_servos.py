@@ -18,8 +18,6 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from st3215 import ST3215  # noqa: E402
-
 from registers import (  # noqa: E402
     REGISTER_MAP,
     get_register_entry_by_name,
@@ -27,6 +25,7 @@ from registers import (  # noqa: E402
     read_register,
     write_register,
 )
+from st3215 import ST3215  # noqa: E402
 
 # Legacy cal.json keys mapped to register names when loading config
 _LEGACY_CONFIG_KEYS: dict[str, str] = {"min": "min_angle_limit", "max": "max_angle_limit"}

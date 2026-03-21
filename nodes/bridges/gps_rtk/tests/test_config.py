@@ -4,7 +4,6 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
 from gps_rtk.config import GpsRtkConfig, load_config
 
 
@@ -62,3 +61,29 @@ def test_load_config_empty_file_returns_none() -> None:
         assert load_config(path) is None
     finally:
         path.unlink(missing_ok=True)
+
+
+def test_config_ntrip_defaults() -> None:
+    cfg = GpsRtkConfig.model_validate({"mode": "base", "topic": "/server/gps/fix"})
+    assert cfg.ntrip_mountpoint == "/rtk"
+    assert cfg.ntrip_user == ""
+    assert cfg.ntrip_password == ""
+    assert cfg.ntrip_gga_interval_s == 10.0
+
+
+def test_config_rover_with_ntrip() -> None:
+    data = {
+        "mode": "rover",
+        "topic": "/client/gps/fix",
+        "rtcm_server_host": "server.ros2.lan",
+        "rtcm_server_port": 5016,
+        "ntrip_mountpoint": "/rtk",
+        "ntrip_user": "admin",
+        "ntrip_password": "s3cr3t",
+        "ntrip_gga_interval_s": 5.0,
+    }
+    cfg = GpsRtkConfig.model_validate(data)
+    assert cfg.ntrip_mountpoint == "/rtk"
+    assert cfg.ntrip_user == "admin"
+    assert cfg.ntrip_password == "s3cr3t"
+    assert cfg.ntrip_gga_interval_s == 5.0

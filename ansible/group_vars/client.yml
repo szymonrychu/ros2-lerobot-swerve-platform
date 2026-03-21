@@ -272,6 +272,10 @@ ros2_nodes:
       frame_id: gps_link
       rtcm_server_host: {{ ros2_server_hostname }}
       rtcm_server_port: 5016
+      ntrip_mountpoint: /rtk
+      ntrip_user: ""
+      ntrip_password: ""
+      ntrip_gga_interval_s: 10.0
   - name: haptic_controller
     node_type: haptic_controller
     present: true

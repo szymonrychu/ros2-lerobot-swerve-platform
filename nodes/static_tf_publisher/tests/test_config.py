@@ -12,7 +12,8 @@ def test_load_config_missing() -> None:
 
 def test_load_config_frames_list() -> None:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        f.write("""
+        f.write(
+            """
 parent_frame: base_link
 frames:
   - child: imu_link
@@ -24,7 +25,8 @@ frames:
     x: 0.1
     y: 0.0
     yaw: 0.0
-""")
+"""
+        )
         path = Path(f.name)
     try:
         out = load_config(path)

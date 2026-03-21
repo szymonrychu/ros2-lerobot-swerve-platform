@@ -1,7 +1,6 @@
 """Unit tests for haptic controller resistance control law (no ROS2)."""
 
 import pytest
-
 from haptic_controller.resistance import (
     compute_resistance_target,
     should_apply_resistance,

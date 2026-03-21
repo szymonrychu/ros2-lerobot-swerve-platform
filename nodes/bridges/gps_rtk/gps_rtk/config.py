@@ -15,7 +15,7 @@ ENV_CONFIG_PATH_KEY = "GPS_RTK_CONFIG"
 
 
 class GpsRtkConfig(BaseModel):
-    """GPS RTK node config: mode, serial, topic, RTCM TCP settings.
+    """GPS RTK node config: mode, serial, topic, RTCM TCP/NTRIP settings.
 
     Attributes:
         mode: "base" (LC29H-BS) or "rover" (LC29H-DA).
@@ -25,11 +25,15 @@ class GpsRtkConfig(BaseModel):
         frame_id: Header frame_id for NavSatFix.
         publish_hz: Publish rate in Hz.
         configure_on_start: If True, send BS configure commands on startup (base only).
-        rtcm_tcp_port: TCP port for RTCM3 server (base) or client target port (rover).
-        rtcm_tcp_bind: Bind address for RTCM server (base), e.g. "0.0.0.0".
-        rtcm_server_host: Base station host for rover to connect to.
-        rtcm_server_port: Base station RTCM TCP port (rover).
+        rtcm_tcp_port: TCP port for NTRIP server (base) or client target port (rover).
+        rtcm_tcp_bind: Bind address for NTRIP server (base), e.g. "0.0.0.0".
+        rtcm_server_host: Base station host for rover NTRIP client to connect to.
+        rtcm_server_port: Base station NTRIP TCP port (rover).
         rtcm_reconnect_interval_s: Reconnect interval in seconds (rover).
+        ntrip_mountpoint: NTRIP mountpoint path, e.g. "/rtk" (base serves, rover requests).
+        ntrip_user: NTRIP username for auth. Empty string disables auth (LAN-only use).
+        ntrip_password: NTRIP password for auth.
+        ntrip_gga_interval_s: How often (seconds) rover sends GGA position to NTRIP caster.
     """
 
     mode: Literal["base", "rover"]
@@ -44,6 +48,10 @@ class GpsRtkConfig(BaseModel):
     rtcm_server_host: str = ""
     rtcm_server_port: int = 5016
     rtcm_reconnect_interval_s: float = 5.0
+    ntrip_mountpoint: str = "/rtk"
+    ntrip_user: str = ""
+    ntrip_password: str = ""
+    ntrip_gga_interval_s: float = 10.0
 
 
 def load_config(path: Path | None = None) -> GpsRtkConfig | None:

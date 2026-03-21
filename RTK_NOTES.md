@@ -25,7 +25,7 @@ After that, you will need to reboot the Pi.
 Run the following commands to update the software and install the necessary libraries:
 
 sudo apt-get update
-sudo apt-get install gpsd gpsd-clients 
+sudo apt-get install gpsd gpsd-clients
 sudo pip3 install gps3
 
 Modify the gpsd file with nano:
@@ -124,7 +124,7 @@ class NtripClient(object):
             self.gps_file = open(self.gps_file_path, 'ab')
         else:
             self.gps_file = None
-        
+
 
         if UDP_Port:
             self.UDP_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -175,7 +175,7 @@ class NtripClient(object):
             if bytes("GNGGA",'ascii') in raw_data :
                 # print(parsed_data)
                 return raw_data
-            
+
     def __del__(self):
         if self.gps_file:
             self.gps_file.close()
@@ -231,7 +231,7 @@ class NtripClient(object):
                         casterResponse=self.socket.recv(4096) #All the data
                         # print(casterResponse)
                         header_lines = casterResponse.decode('utf-8').split("\r\n")
-                        
+
 # header_lines empty, request fail,exit while loop
                         for line in header_lines:
                             if line=="":
@@ -355,8 +355,8 @@ class NtripClient(object):
             self.stream.close()
             sys.exit()
 
-    
-        
+
+
 
 if __name__ == '__main__':
     usage="NtripClient.py [options] [caster] [port] mountpoint"
@@ -517,15 +517,15 @@ def read_from_gps(ser):
 
 def main():
     baud_rate = 115200
-    
+
     try:
         ser = serial.Serial("/dev/ttyS0", baud_rate, timeout=1)
     except Exception as e:
         print(f"Error opening serial port: {e}")
         return
-    
+
     threading.Thread(target=read_from_gps, args=(ser,), daemon=True).start()
-    
+
     print("Type GPS commands to send. Press Ctrl+C to exit.")
     try:
         while True:
@@ -534,11 +534,11 @@ def main():
                 if not user_input.startswith('$'):
                     print("Error: Command must start with '$'")
                     continue
-                
+
                 command = user_input[1:]  # Remove leading $
                 checksum = calculate_checksum(command)
                 full_command = f"${command}*{checksum}\r\n"
-                
+
                 ser.write(full_command.encode('utf-8'))
                 print(f"Sent: {full_command.strip()}")
     except KeyboardInterrupt:
@@ -579,7 +579,7 @@ sudo ./install.sh --all release
 
 Once you have it installed you should be able to open the RTKBase software by typing the IP address of your Raspberry Pi in the browser. The default password to rtkbase is admin. The configuration of the main service for this module looks as follows. For base coordinates you need to convert from ECEF to LLA coordinates, you can do that with QGNSS (screen below) or with some online tools. A small tip here, the altitude needs to have at least two decimal places otherwise you won’t be able to save the changes. Once your configuration is ready click on to turn on the main service, it should turn green.
 
- 
+
 
 After that, we can configure the NTRIP caster as follows. Choose whatever you want for the username, password, and mount point. These are the credentials you will use to connect from the DA module to the base station as shown previously.
 

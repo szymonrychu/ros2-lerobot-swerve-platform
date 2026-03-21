@@ -5,7 +5,6 @@ from unittest.mock import patch
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
-
 from test_joint_api.app import create_app, set_ros_publisher
 from test_joint_api.config import ApiConfig
 

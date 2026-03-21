@@ -26,8 +26,8 @@ import sys
 from typing import Any
 
 try:
-    import urllib.request
     import urllib.error
+    import urllib.request
 except ImportError:
     urllib = None  # type: ignore[assignment]
 

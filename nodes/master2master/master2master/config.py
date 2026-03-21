@@ -18,8 +18,6 @@ DEFAULT_CONFIG_PATH = Path("/etc/ros2/master2master/config.yaml")
 class ConfigError(Exception):
     """Raised when config is invalid or missing required fields."""
 
-    pass
-
 
 def normalize_topic(topic: str) -> str:
     """Ensure topic has leading slash and no trailing slash for consistency.

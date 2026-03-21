@@ -1,10 +1,7 @@
-"""Rover node: LC29H-DA, NavSatFix publisher, RTCM3 TCP client to base."""
+"""Rover node: LC29H-DA, NavSatFix publisher, NTRIP v1 client to base."""
 
 import collections
 import logging
-import socket
-import threading
-import time
 from typing import Any
 
 import rclpy
@@ -13,6 +10,7 @@ from sensor_msgs.msg import NavSatFix
 
 from .config import GpsRtkConfig
 from .nmea_parser import build_nav_sat_fix, drift_from_mean, parse_gga, quality_label
+from .ntrip_client import NtripClient
 from .serial_handler import SerialHandler
 
 LOG = logging.getLogger(__name__)
@@ -22,26 +20,22 @@ DIAG_INTERVAL_TICKS = 100  # at 10 Hz → every 10 s
 
 
 class GpsRtkRoverNode(Node):
-    """ROS2 node for GPS RTK rover: serial in/out, NavSatFix out, RTCM3 TCP client."""
+    """ROS2 node for GPS RTK rover: serial in/out, NavSatFix out, NTRIP v1 client."""
 
     def __init__(self, config: GpsRtkConfig) -> None:
         super().__init__("gps_rtk_rover")
         self.config = config
         self._latest_fix: NavSatFix | None = None
         self._latest_gga: dict[str, Any] | None = None
-        self._fix_lock = threading.Lock()
+        self._latest_gga_sentence: str | None = None
+        self._fix_lock = __import__("threading").Lock()
         self._position_history: collections.deque[tuple[float, float, float]] = collections.deque(
             maxlen=POSITION_HISTORY_LEN
         )
 
         self.pub = self.create_publisher(NavSatFix, config.topic, 10)
         self.serial: SerialHandler | None = None
-        self._rtcm_socket: socket.socket | None = None
-        self._rtcm_thread: threading.Thread | None = None
-        self._stop = threading.Event()
-        self._rtcm_connected = threading.Event()
-        self._rtcm_rx_bytes = 0
-        self._rtcm_wx_bytes = 0
+        self._ntrip: NtripClient | None = None
         self._diag_counter = 0
 
     def _on_nmea(self, sentence: str) -> None:
@@ -62,6 +56,7 @@ class GpsRtkRoverNode(Node):
             with self._fix_lock:
                 self._latest_fix = msg
                 self._latest_gga = parsed
+                self._latest_gga_sentence = sentence
                 self._position_history.append((parsed["latitude"], parsed["longitude"], parsed["altitude"]))
         except Exception as e:
             self.get_logger().debug("NavSatFix build error: %s", e)
@@ -69,43 +64,21 @@ class GpsRtkRoverNode(Node):
     def _on_rtcm3(self, _frame: bytes) -> None:
         pass
 
-    def _rtcm_client_loop(self) -> None:
-        while not self._stop.is_set():
+    def _get_gga_for_ntrip(self) -> str | None:
+        """Return the latest GGA sentence for the NTRIP caster position report."""
+        with self._fix_lock:
+            return self._latest_gga_sentence
+
+    def _on_ntrip_data(self, data: bytes) -> None:
+        """Write RTCM3 data received from NTRIP caster to the rover's serial port."""
+        if self.serial is not None:
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(10.0)
-                sock.connect((self.config.rtcm_server_host, self.config.rtcm_server_port))
-                self._rtcm_socket = sock
-                self._rtcm_connected.set()
-                self.get_logger().info(
-                    f"RTCM connected to {self.config.rtcm_server_host}:{self.config.rtcm_server_port}"
-                )
-                while not self._stop.is_set() and self.serial is not None:
-                    try:
-                        data = sock.recv(4096)
-                        if not data:
-                            break
-                        self._rtcm_rx_bytes += len(data)
-                        self.serial.write(data)
-                        self._rtcm_wx_bytes += len(data)
-                    except (ConnectionResetError, BrokenPipeError, OSError) as e:
-                        self.get_logger().warning(f"RTCM connection lost: {e}")
-                        break
-            except (socket.timeout, socket.error, OSError) as e:
-                self.get_logger().debug(f"RTCM connect failed: {e}")
-            finally:
-                self._rtcm_connected.clear()
-                if self._rtcm_socket is not None:
-                    try:
-                        self._rtcm_socket.close()
-                    except OSError:
-                        pass
-                    self._rtcm_socket = None
-            if not self._stop.is_set():
-                time.sleep(self.config.rtcm_reconnect_interval_s)
+                self.serial.write(data)
+            except (RuntimeError, OSError) as e:
+                self.get_logger().debug("Serial write error (NTRIP data): %s", e)
 
     def run(self) -> None:
-        """Open serial, start RTCM client thread, run spin."""
+        """Open serial, start NTRIP client thread, run spin."""
         self.serial = SerialHandler(
             port=self.config.serial_port,
             baud_rate=self.config.baud_rate,
@@ -115,8 +88,19 @@ class GpsRtkRoverNode(Node):
         )
         self.serial.open()
 
-        self._rtcm_thread = threading.Thread(target=self._rtcm_client_loop, daemon=True)
-        self._rtcm_thread.start()
+        self._ntrip = NtripClient(
+            host=self.config.rtcm_server_host,
+            port=self.config.rtcm_server_port,
+            mountpoint=self.config.ntrip_mountpoint,
+            user=self.config.ntrip_user,
+            password=self.config.ntrip_password,
+            on_data=self._on_ntrip_data,
+            get_gga=self._get_gga_for_ntrip,
+            gga_interval_s=self.config.ntrip_gga_interval_s,
+            reconnect_interval_s=self.config.rtcm_reconnect_interval_s,
+            logger=self.get_logger(),
+        )
+        self._ntrip.start()
 
         period_ns = int(1e9 / max(0.1, self.config.publish_hz))
         self._timer = self.create_timer(period_ns / 1e9, self._publish_cb)
@@ -135,10 +119,11 @@ class GpsRtkRoverNode(Node):
             self._log_diag(gga, history)
 
     def _log_diag(self, gga: dict[str, Any] | None, history: list[tuple[float, float, float]]) -> None:
-        tcp_status = "UP" if self._rtcm_connected.is_set() else "DOWN"
+        ntrip_status = "UP" if (self._ntrip is not None and self._ntrip.is_connected) else "DOWN"
+        rx_bytes = self._ntrip.rx_bytes if self._ntrip is not None else 0
 
         if gga is None:
-            self.get_logger().info(f"[diag] no_fix | rtcm_rx={self._rtcm_rx_bytes}B tcp={tcp_status}")
+            self.get_logger().info(f"[diag] no_fix | ntrip_rx={rx_bytes}B ntrip={ntrip_status}")
             return
 
         q = gga["quality"]
@@ -156,20 +141,15 @@ class GpsRtkRoverNode(Node):
         if drift is not None:
             parts.append(f"drift2d={drift[0]:.2f}m")
             parts.append(f"drift3d={drift[1]:.2f}m")
-        parts.append(f"rtcm_rx={self._rtcm_rx_bytes}B")
-        parts.append(f"wx={self._rtcm_wx_bytes}B")
-        parts.append(f"tcp={tcp_status}")
+        parts.append(f"ntrip_rx={rx_bytes}B")
+        parts.append(f"ntrip={ntrip_status}")
 
         self.get_logger().info(f"[diag] {' | '.join(parts)}")
 
     def shutdown(self) -> None:
-        """Close serial and RTCM socket."""
-        self._stop.set()
-        if self._rtcm_socket is not None:
-            try:
-                self._rtcm_socket.close()
-            except OSError:
-                pass
-            self._rtcm_socket = None
+        """Close NTRIP client and serial."""
+        if self._ntrip is not None:
+            self._ntrip.stop()
+            self._ntrip = None
         if self.serial is not None:
             self.serial.close()

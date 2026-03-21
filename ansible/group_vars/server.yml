@@ -110,3 +110,6 @@ ros2_nodes:
       frame_id: gps_link
       configure_on_start: true
       rtcm_tcp_port: 5016
+      ntrip_mountpoint: /rtk
+      ntrip_user: ""
+      ntrip_password: ""

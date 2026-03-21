@@ -1,7 +1,11 @@
-"""Tests for serial handler: NMEA checksum, stream parser (NMEA vs RTCM3)."""
+"""Tests for serial handler: NMEA checksum, stream parser (NMEA vs RTCM3), retry logic."""
 
+from unittest.mock import MagicMock, patch
+
+import pytest
+import serial
 from gps_rtk.rtcm3 import crc24q, is_valid_rtcm3_frame, parse_rtcm3_length
-from gps_rtk.serial_handler import SerialStreamParser, append_checksum_if_missing, nmea_checksum
+from gps_rtk.serial_handler import SerialHandler, SerialStreamParser, append_checksum_if_missing, nmea_checksum
 
 
 def test_nmea_checksum() -> None:
@@ -29,6 +33,29 @@ def test_crc24q_consistency() -> None:
     data = bytes([0xD3, 0x00, 0x02, 0x01, 0x02])
     c = crc24q(data)
     assert 0 <= c <= 0xFFFFFF
+
+
+def test_parse_rtcm3_message_type() -> None:
+    from gps_rtk.rtcm3 import parse_rtcm3_message_type
+
+    # Build a minimal RTCM3 frame with message type 1005
+    # 1005 = 0x3ED → bits: 0011 1110 1101
+    # payload byte 0: 0x3E (top 8 bits of type), byte 1: 0xD0 (bottom 4 bits << 4)
+    payload = bytes([0x3E, 0xD0])  # message type 1005 in first 12 bits
+    payload_len = len(payload)
+    header = bytes([0xD3, (payload_len >> 8) & 0x03, payload_len & 0xFF])
+    from gps_rtk.rtcm3 import crc24q
+
+    data = header + payload
+    crc = crc24q(data)
+    frame = data + bytes([crc >> 16, (crc >> 8) & 0xFF, crc & 0xFF])
+    assert parse_rtcm3_message_type(frame) == 1005
+
+
+def test_parse_rtcm3_message_type_too_short() -> None:
+    from gps_rtk.rtcm3 import parse_rtcm3_message_type
+
+    assert parse_rtcm3_message_type(b"\xD3\x00\x02\x3E") is None  # only 4 bytes, need 6
 
 
 def test_build_valid_rtcm3_frame() -> None:
@@ -93,3 +120,106 @@ def test_parser_discards_unknown_bytes() -> None:
     parser.feed(b"\x00\x01\x02\x03\x04")
     assert nmea_count == 0
     assert rtcm_count == 0
+
+
+# --- SerialHandler retry logic tests ---
+
+
+def _make_mock_serial() -> MagicMock:
+    mock_ser = MagicMock()
+    mock_ser.is_open = True
+    mock_ser.in_waiting = 0
+    return mock_ser
+
+
+def test_open_retries_on_serial_exception() -> None:
+    """open() should retry if serial.Serial() raises SerialException, then succeed."""
+    mock_ser = _make_mock_serial()
+    call_count = 0
+
+    def serial_constructor(*args: object, **_kwargs: object) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise serial.SerialException("port busy")
+        return mock_ser
+
+    handler = SerialHandler(
+        port="/dev/ttyAMA0",
+        baud_rate=115200,
+        on_nmea=lambda s: None,
+        on_rtcm3=lambda _: None,
+    )
+    with patch("gps_rtk.serial_handler.serial.Serial", side_effect=serial_constructor):
+        with patch("gps_rtk.serial_handler.threading.Thread"):
+            with patch.object(handler._stop, "wait"):
+                handler.open()
+    assert call_count == 3
+
+
+def test_open_raises_after_max_retries() -> None:
+    """open() should raise SerialException after all retries exhausted."""
+    handler = SerialHandler(
+        port="/dev/ttyAMA0",
+        baud_rate=115200,
+        on_nmea=lambda s: None,
+        on_rtcm3=lambda _: None,
+    )
+    with patch(
+        "gps_rtk.serial_handler.serial.Serial",
+        side_effect=serial.SerialException("always fails"),
+    ):
+        with patch.object(handler._stop, "wait"):
+            with pytest.raises(serial.SerialException):
+                handler.open()
+
+
+def test_send_base_configure_retries_on_oserror() -> None:
+    """send_base_configure() should retry once after OSError on send_nmea."""
+    mock_ser = _make_mock_serial()
+    mock_ser.in_waiting = 1
+    handler = SerialHandler(
+        port="/dev/ttyAMA0",
+        baud_rate=115200,
+        on_nmea=lambda s: None,
+        on_rtcm3=lambda _: None,
+    )
+    handler._ser = mock_ser
+
+    call_count = 0
+    original_send = handler.send_nmea
+
+    def send_nmea_with_one_failure(cmd: str) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise OSError("I/O error")
+        original_send(cmd)
+
+    with patch.object(handler, "send_nmea", side_effect=send_nmea_with_one_failure):
+        with patch("gps_rtk.serial_handler.time.sleep"):
+            handler.send_base_configure()
+    # First attempt failed on first cmd, second attempt succeeded
+    assert call_count > 1
+
+
+def test_send_base_configure_gives_up_after_max_retries(caplog: pytest.LogCaptureFixture) -> None:
+    """send_base_configure() should log error and return (not raise) after all retries fail."""
+    import logging
+
+    mock_ser = _make_mock_serial()
+    mock_ser.in_waiting = 1
+    handler = SerialHandler(
+        port="/dev/ttyAMA0",
+        baud_rate=115200,
+        on_nmea=lambda s: None,
+        on_rtcm3=lambda _: None,
+    )
+    handler._ser = mock_ser
+
+    with patch.object(handler, "send_nmea", side_effect=OSError("always fails")):
+        with patch("gps_rtk.serial_handler.time.sleep"):
+            with caplog.at_level(logging.ERROR, logger="gps_rtk.serial_handler"):
+                handler.send_base_configure()  # must not raise
+
+    assert any("Failed to send configure" in r.message for r in caplog.records)

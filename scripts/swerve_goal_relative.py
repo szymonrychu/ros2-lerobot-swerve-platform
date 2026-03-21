@@ -18,11 +18,11 @@ import math
 import sys
 
 import rclpy
+from geometry_msgs.msg import PoseStamped
+from nav2_msgs.action import NavigateToPose
+from nav_msgs.msg import Odometry
 from rclpy.action import ActionClient
 from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped
-from nav_msgs.msg import Odometry
-from nav2_msgs.action import NavigateToPose
 
 
 def quaternion_to_yaw(x: float, y: float, z: float, w: float) -> float:
@@ -72,6 +72,7 @@ class RelativeGoalSender(Node):
 
     def wait_for_odom(self, timeout_s: float = 10.0) -> bool:
         import time
+
         start = time.monotonic()
         while rclpy.ok() and (time.monotonic() - start) < timeout_s:
             rclpy.spin_once(self, timeout_sec=0.2)
@@ -102,10 +103,7 @@ class RelativeGoalSender(Node):
         goal_msg.pose.pose.orientation.z = q[2]
         goal_msg.pose.pose.orientation.w = q[3]
 
-        self.get_logger().info(
-            "Sending goal: (%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)"
-            % (x, y, yaw, gx, gy, gyaw)
-        )
+        self.get_logger().info("Sending goal: (%.2f, %.2f, %.2f) -> (%.2f, %.2f, %.2f)" % (x, y, yaw, gx, gy, gyaw))
         self._action_client.wait_for_server(timeout_sec=5.0)
         if not self._action_client.server_is_ready():
             self.get_logger().error("Action server not available")
@@ -143,9 +141,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    odom_topic = args.odom_topic or __import__("os").environ.get(
-        "SWERVE_GOAL_ODOM_TOPIC", "/odom"
-    )
+    odom_topic = args.odom_topic or __import__("os").environ.get("SWERVE_GOAL_ODOM_TOPIC", "/odom")
 
     rclpy.init()
     node = RelativeGoalSender(

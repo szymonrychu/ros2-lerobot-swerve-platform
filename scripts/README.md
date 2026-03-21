@@ -63,13 +63,13 @@ Requires **topic_scraper_api** running on server and client (port 18100) and **j
 
 After the base is calibrated and the server RPi has been power-cycled:
 
-1. **Start the base** (if it didn’t auto-start):  
+1. **Start the base** (if it didn’t auto-start):
    `ssh $USER@<server> 'sudo systemctl start ros2-gps_rtk_base'`
-2. **Check stack**:  
+2. **Check stack**:
    `./scripts/rtk_status.sh` → both services active, server TCP 5016 listening.
-3. **Check fix quality**:  
+3. **Check fix quality**:
    `./scripts/rtk_verify.sh` or `./scripts/rtk_verify.sh --fix` → client should show `status=2` (RTK fix) once corrections are flowing and the rover has converged.
-4. **Optional capture**:  
+4. **Optional capture**:
    `./scripts/rtk_verify.sh --capture 60` → client status distribution and last fixes (confirm sustained RTK fix and position).
 
 Run these from a machine that can reach both server and client (e.g. your laptop on the same network). Topic scraper must be running on both hosts (port 18100) for verify steps.
@@ -130,7 +130,7 @@ python scripts/topic_scraper_collect.py \
 - Topics return non-empty payloads (no timeouts/404).
 - Values are not all zeros (e.g. `position` has non-zero entries when arms are connected).
 - Both `client` and `server` sources emit data.
-- Save a short capture and inspect with `jq` for structure and non-zero values:  
+- Save a short capture and inspect with `jq` for structure and non-zero values:
   `... > scrape_capture.ndjson` then `jq . scrape_capture.ndjson | head`
 
 **Suggested test matrix:** `/leader/joint_states` (server), `/follower/joint_states` (client), `/filter/input_joint_updates` (client), `/odom` or `/imu/data` if available, `/server/gps/fix` and `/client/gps/fix` (expect zeros until RTK fix).

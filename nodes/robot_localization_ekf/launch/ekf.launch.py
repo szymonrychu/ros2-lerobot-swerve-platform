@@ -13,12 +13,14 @@ EKF_CONFIG_PATH = os.environ.get(
 
 
 def generate_launch_description() -> LaunchDescription:
-    return LaunchDescription([
-        Node(
-            package="robot_localization",
-            executable="ekf_node",
-            name="ekf_filter_node",
-            output="screen",
-            parameters=[EKF_CONFIG_PATH],
-        ),
-    ])
+    return LaunchDescription(
+        [
+            Node(
+                package="robot_localization",
+                executable="ekf_node",
+                name="ekf_filter_node",
+                output="screen",
+                parameters=[EKF_CONFIG_PATH],
+            ),
+        ]
+    )

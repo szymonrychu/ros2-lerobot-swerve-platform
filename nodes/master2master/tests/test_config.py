@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
-
 from master2master.config import (
     ConfigError,
     TopicRule,
@@ -17,7 +15,7 @@ from master2master.config import (
     parse_rule_entry,
     validate_relay_rules,
 )
-
+from pydantic import ValidationError
 
 # ---------------------------------------------------------------------------
 # normalize_topic
@@ -296,12 +294,7 @@ def test_load_config_empty_file_returns_empty(tmp_path: Path) -> None:
 def test_load_config_valid_file(tmp_path: Path) -> None:
     """load_config parses a well-formed YAML file into TopicRules."""
     p = tmp_path / "config.yaml"
-    p.write_text(
-        "topics:\n"
-        "  - source: /server/cmd_vel\n"
-        "    dest: /client/cmd_vel\n"
-        "    direction: in\n"
-    )
+    p.write_text("topics:\n" "  - source: /server/cmd_vel\n" "    dest: /client/cmd_vel\n" "    direction: in\n")
     rules = load_config(p)
     assert len(rules) == 1
     assert rules[0].source == "/server/cmd_vel"

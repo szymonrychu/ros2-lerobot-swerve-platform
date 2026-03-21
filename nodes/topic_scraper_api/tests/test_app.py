@@ -1,7 +1,6 @@
 from typing import Any
 
 from aiohttp.test_utils import TestClient, TestServer
-
 from topic_scraper_api.app import create_app
 
 

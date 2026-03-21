@@ -7,7 +7,6 @@ import types
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # Build minimal rclpy mock before importing proxy so the module-level
 # attributes (RELAY_QOS, RELAY_MESSAGE_TYPES) are resolved against mocks.
@@ -77,7 +76,6 @@ sys.modules.setdefault("std_msgs.msg", _std_msgs_mock.msg)
 from master2master.config import TopicRule  # noqa: E402
 from master2master.proxy import get_message_class, get_supported_message_types, run_all_relays  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -134,9 +132,7 @@ class _TrackingNodeBase:
         """No-op destroy."""
 
 
-def _run_with_tracking_node(
-    rules: list[TopicRule], **kwargs: Any
-) -> "_TrackingNodeBase":
+def _run_with_tracking_node(rules: list[TopicRule], **kwargs: Any) -> "_TrackingNodeBase":
     """Run run_all_relays with a _TrackingNodeBase as the Node mock.
 
     Returns the RelayNode instance created inside run_all_relays.

@@ -105,7 +105,7 @@ def read_lines(ser: serial.Serial, duration_s: float) -> list[str]:
             if end < 0:
                 break
             line = buf[: end + 1].decode("ascii", errors="ignore").strip()
-            buf = buf[end + 1:]  # noqa: E203
+            buf = buf[end + 1 :]  # noqa: E203
             if line.startswith("$"):
                 lines.append(line)
         time.sleep(0.1)
@@ -113,9 +113,7 @@ def read_lines(ser: serial.Serial, duration_s: float) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Calibrate LC29H(BS) base station survey-in (one-time)."
-    )
+    parser = argparse.ArgumentParser(description="Calibrate LC29H(BS) base station survey-in (one-time).")
     parser.add_argument(
         "--port",
         default="/dev/ttyAMA0",
@@ -167,9 +165,7 @@ def main() -> int:
                 print("  (no PQTMRESTOREPAR response in time)")
             time.sleep(1.0)
 
-        print(
-            f"Starting survey-in: samples={args.samples}, accuracy={args.accuracy}m"
-        )
+        print(f"Starting survey-in: samples={args.samples}, accuracy={args.accuracy}m")
         cmd = f"$PQTMCFGSVIN,W,1,{args.samples},{int(args.accuracy)},0,0,0"
         r = send_cmd_wait_for(ser, cmd, "PQTMCFGSVIN", timeout_s=10.0)
         if r:
@@ -190,7 +186,7 @@ def main() -> int:
                 print("  (no PQTMCFGSVIN response)")
                 continue
             print(f"  -> {r}")
-            # Response can be OK,1,<samples>,1,X,Y,Z (done) or OK,1,<samples>,<accuracy>,X,Y,Z (e.g. 15.0,0,0,0 = in progress)
+            # Response: OK,1,<samples>,1,X,Y,Z (done) or OK,1,<samples>,<accuracy>,X,Y,Z (e.g. 15.0,0,0,0 = in progress)
             # Accept completion only when we have non-zero ECEF (doc format: OK,1,3600,1,X,Y,Z)
             m = re.search(
                 r"PQTMCFGSVIN,OK,1,\d+,[\d.]+,([-\d.]+),([-\d.]+),([-\d.]+)",

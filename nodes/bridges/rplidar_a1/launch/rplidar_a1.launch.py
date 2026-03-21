@@ -16,23 +16,29 @@ def generate_launch_description() -> LaunchDescription:
     inverted = LaunchConfiguration("inverted", default="false")
     angle_compensate = LaunchConfiguration("angle_compensate", default="true")
 
-    return LaunchDescription([
-        DeclareLaunchArgument("serial_port", default_value=serial_port, description="USB port for lidar"),
-        DeclareLaunchArgument("serial_baudrate", default_value=serial_baudrate, description="Baud rate (115200 for A1)"),
-        DeclareLaunchArgument("frame_id", default_value=frame_id, description="Frame ID for LaserScan"),
-        DeclareLaunchArgument("inverted", default_value=inverted, description="Invert scan data"),
-        DeclareLaunchArgument("angle_compensate", default_value=angle_compensate, description="Angle compensation"),
-        Node(
-            package="rplidar_ros",
-            executable="rplidar_composition",
-            name="rplidar_composition",
-            parameters=[{
-                "serial_port": serial_port,
-                "serial_baudrate": serial_baudrate,
-                "frame_id": frame_id,
-                "inverted": inverted,
-                "angle_compensate": angle_compensate,
-            }],
-            output="screen",
-        ),
-    ])
+    return LaunchDescription(
+        [
+            DeclareLaunchArgument("serial_port", default_value=serial_port, description="USB port for lidar"),
+            DeclareLaunchArgument(
+                "serial_baudrate", default_value=serial_baudrate, description="Baud rate (115200 for A1)"
+            ),
+            DeclareLaunchArgument("frame_id", default_value=frame_id, description="Frame ID for LaserScan"),
+            DeclareLaunchArgument("inverted", default_value=inverted, description="Invert scan data"),
+            DeclareLaunchArgument("angle_compensate", default_value=angle_compensate, description="Angle compensation"),
+            Node(
+                package="rplidar_ros",
+                executable="rplidar_composition",
+                name="rplidar_composition",
+                parameters=[
+                    {
+                        "serial_port": serial_port,
+                        "serial_baudrate": serial_baudrate,
+                        "frame_id": frame_id,
+                        "inverted": inverted,
+                        "angle_compensate": angle_compensate,
+                    }
+                ],
+                output="screen",
+            ),
+        ]
+    )
