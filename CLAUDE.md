@@ -1,26 +1,5 @@
 # CLAUDE.md — Project Conventions
 
-This is the **single source of truth** for conventions, rules, and mandatory workflow for this project. Read this file at the start of every session.
-
----
-
-## Read First (Mandatory)
-
-Before implementing any change:
-
-1. **Read** this file (`CLAUDE.md`), [`MEMORY.md`](MEMORY.md), and the relevant `README.md` (repo root plus any area-specific README: `nodes/README.md`, `ansible/README.md`, or a node's own README).
-2. **Adhere** to the conventions, scope, and decisions described in these docs (tech stack, structure, Python/Ansible rules, MVP scope, etc.).
-3. If the **user's request conflicts** with these docs (e.g. out-of-scope feature, different convention), **ask the user to confirm** they want to override what's written, rather than implementing against the docs silently.
-
-### Session-start checklist
-
-At the start of each session or when resuming after context summarisation, read:
-
-- `CLAUDE.md` (this file) — conventions and mandatory rules
-- `MEMORY.md` — key decisions, past context, node details
-- `README.md` — architecture overview
-- Any area-specific README for the subsystem being worked on
-
 ---
 
 ## Tech Stack
@@ -45,7 +24,6 @@ At the start of each session or when resuming after context summarisation, read:
 ## Python Conventions
 
 - **Always use Python 3 type hints** for all new and modified Python code (functions, method parameters and returns, class attributes where appropriate).
-- **Extend unit tests as the project grows** — add or update tests when adding functionality, refactoring, or fixing bugs; keep test coverage and quality in step with the codebase.
 
 ### Libraries
 
@@ -95,12 +73,6 @@ Any data published on ROS2 topics **must not be placeholder data**. Only real, v
 - The topic may have "no sample yet" until real data is available — that is acceptable
 
 This applies to all ROS2 publishers in `nodes/`.
-
-### Prefer Established Libraries
-
-- Use established libraries and frameworks for non-trivial logic (parsing, crypto, networking, protocols, math, etc.) instead of writing your own.
-- Only implement custom code when no suitable library exists or when the library cannot meet the requirement.
-- When in doubt, search for an existing solution (PyPI, ROS2 packages, stdlib) before implementing from scratch.
 
 ---
 
@@ -168,8 +140,7 @@ python scripts/topic_scraper_collect.py \
 
 ### Additional mandatory rules
 
-- Never hallucinate — prefer asking or citing sources over inventing.
-- Ask the developer detailed questions when requirements are unclear.
+- If a request conflicts with these conventions (e.g. out-of-scope feature, different convention), ask the user to confirm before overriding.
 - **Ansible and ROS2 nodes:** Whenever ROS2 nodes or their configuration change, update the Ansible code so it stays in sync. Ansible must support deploying, enabling, and disabling nodes by name and configuring them via the `ros2_nodes` schema (`name`, `node_type`, `present`, `enabled`, `config`). See `group_vars/client.yml` and `group_vars/server.yml` and the `ros2_node_deploy` role. Keep Ansible lint and tests passing: run `poe lint-ansible` and `poe test-ansible`; fix or document any skip/warn in `ansible/.ansible-lint`.
 
 ---
@@ -218,6 +189,4 @@ Target audience: mid-level Python developer with ROS/ROS2 experience. Keep READM
 
 ## Memory and Decisions
 
-Use [`MEMORY.md`](MEMORY.md) to record key project decisions and LLM notes about the project. When you make or learn important decisions, conventions, or context, append or update `MEMORY.md` so future sessions and humans have a single place to look.
-
-**Do not modify MEMORY.md** during refactoring or housekeeping tasks unless content is genuinely stale or incorrect.
+[`MEMORY.md`](MEMORY.md) records key project decisions and LLM context. Update it when making important decisions. Do not modify it during refactoring unless content is genuinely stale.

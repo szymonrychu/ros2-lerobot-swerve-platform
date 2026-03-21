@@ -1,8 +1,6 @@
 # Key decisions and agent notes for this project
 
-(Record important decisions, conventions, and Cursor/LLM context here.)
-
-**Agents:** Always read [AGENTS.md](AGENTS.md) when resuming work, when joining the project, or when context is summarized; mandatory rules and "when to read" are defined there.
+(Record important decisions, conventions, and LLM context here.)
 
 ## Preparation phase
 
@@ -119,4 +117,4 @@
 
 ## ROS2 topic publishing
 
-* **No placeholder data**: Only real, valid data from sensors or actual state may be published on ROS2 topics. Do not publish zeroed/coerced/synthetic data when reads fail or are invalid. If valid data is unavailable, skip publishing for that cycle. See `.cursor/rules/ros2-no-placeholder-data.mdc`.
+* **No placeholder data**: Only real, valid data from sensors or actual state may be published on ROS2 topics. Do not publish zeroed/coerced/synthetic data when reads fail or are invalid. If valid data is unavailable, skip publishing for that cycle. See CLAUDE.md "No Placeholder Data on Topics".
