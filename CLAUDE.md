@@ -187,6 +187,21 @@ Target audience: mid-level Python developer with ROS/ROS2 experience. Keep READM
 
 ---
 
+## GPS RTK Diagnostics
+
+**Use `scripts/rtk_diag.sh` for all RTK health checks — never SSH manually.** The skill `rtk-diagnostics` (in `.claude/skills/rtk-diagnostics/SKILL.md`) describes all modes and how to interpret output.
+
+```bash
+./scripts/rtk_diag.sh              # Full one-shot diagnostic
+./scripts/rtk_diag.sh --watch      # Repeat every 10s
+./scripts/rtk_diag.sh --capture 60 # 60s capture + fix distribution
+./scripts/rtk_diag.sh --logs-only  # Only journalctl [diag] lines
+```
+
+For re-calibration (survey-in): `./scripts/rtk_calibrate.sh --accuracy 20`
+
+---
+
 ## Memory and Decisions
 
 [`MEMORY.md`](MEMORY.md) records key project decisions and LLM context. Update it when making important decisions. Do not modify it during refactoring unless content is genuinely stale.
