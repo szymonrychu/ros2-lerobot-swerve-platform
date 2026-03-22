@@ -187,6 +187,18 @@ Target audience: mid-level Python developer with ROS/ROS2 experience. Keep READM
 
 ---
 
+## BNO055 IMU Diagnostics
+
+**Use `scripts/bno055_diag.sh` for all BNO055 health checks — never SSH manually.** The skill `bno055-diagnostics` (in `.claude/skills/bno055-diagnostics/SKILL.md`) describes all modes and how to interpret output.
+
+```bash
+./scripts/bno055_diag.sh              # Full one-shot diagnostic
+./scripts/bno055_diag.sh --watch      # Repeat every 10s
+./scripts/bno055_diag.sh --logs-only  # Only service logs
+```
+
+---
+
 ## GPS RTK Diagnostics
 
 **Use `scripts/rtk_diag.sh` for all RTK health checks — never SSH manually.** The skill `rtk-diagnostics` (in `.claude/skills/rtk-diagnostics/SKILL.md`) describes all modes and how to interpret output.
