@@ -73,7 +73,7 @@ section_service() {
 section_i2c() {
   echo "--- I2C scan (bus 1) ---"
   local scan
-  if scan=$(ssh_cmd "$CLIENT" "timeout 5 i2cdetect -y 1 2>/dev/null"); then
+  if scan=$(ssh_cmd "$CLIENT" "timeout 30 i2cdetect -y 1 2>/dev/null"); then
     echo "$scan" | sed 's/^/  /'
     if echo "$scan" | grep -qE '(^|[[:space:]])28([[:space:]]|$)'; then
       echo "  → BNO055 found at 0x28"

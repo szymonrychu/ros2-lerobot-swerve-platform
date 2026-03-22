@@ -142,7 +142,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         node.get_logger().debug("BNO055 calibration status unavailable: %s" % e)
 
     # Warm-up: try to get first valid gyro+accel before main loop (fusion can need 1–2 s).
-    warmup_deadline = time.monotonic() + 3.0
+    warmup_deadline = time.monotonic() + 10.0
     while time.monotonic() < warmup_deadline and rclpy.ok():
         if warmup_check(bno):
             node.get_logger().info("BNO055 warm-up complete, sensor ready")
@@ -151,7 +151,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         rclpy.spin_once(node, timeout_sec=0.01)
     else:
         node.get_logger().warn(
-            "BNO055 warm-up timed out (3 s); will retry each cycle. "
+            "BNO055 warm-up timed out (10 s); will retry each cycle. "
             "Check I2C, calibration, and keep sensor still for a few seconds."
         )
 

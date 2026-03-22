@@ -33,7 +33,7 @@ Run `scripts/bno055_diag.sh` for a complete one-command IMU diagnostic. Never SS
 |---------|-------|-----|
 | Service `inactive` | Container crashed or device not mounted | Check logs for import error or `PermissionError`; verify `--device=/dev/i2c-1` in container args |
 | `BNO055 NOT found` in I2C scan | Wrong address, wiring, or module not powered | Check physical connection; try `i2c_address: 0x29` in config |
-| `warm-up timed out` | Sensor not returning valid gyro/accel within 3 s | Keep sensor still for a few seconds; power-cycle module; check I2C baudrate |
+| `warm-up timed out` | Sensor not returning valid gyro/accel within 10 s | Keep sensor still for a few seconds; power-cycle module; check I2C baudrate |
 | `consecutive failures — attempting I2C reconnect` | Intermittent I2C bus errors | Check wiring integrity; verify `i2c_baudrate` Ansible var is ≤ 400000 |
 | `reconnect failed` | Hardware-level I2C failure | Power-cycle client RPi; check `/dev/i2c-1` is accessible inside container |
 | `orientation_covariance[0]=-1` in scraper | Orientation unknown — quaternion invalid or sensor uncalibrated | Move sensor slowly in figure-8; wait for sys/gyro/accel calibration ≥ 1 |
