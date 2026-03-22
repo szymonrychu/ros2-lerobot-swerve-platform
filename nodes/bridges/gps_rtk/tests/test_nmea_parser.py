@@ -74,6 +74,7 @@ def test_parse_gga_rtk_float_with_diff_age() -> None:
     out = parse_gga(sentence)
     assert out is not None
     assert out["quality"] == 5
+    assert out["status"] == 2
     assert out["num_satellites"] == 27
     assert out["hdop"] == 0.58
     assert out["diff_age_s"] == 1.0
@@ -99,7 +100,7 @@ def test_gga_quality_to_status_mapping() -> None:
     assert GGA_QUALITY_TO_STATUS[0] == -1
     assert GGA_QUALITY_TO_STATUS[1] == 0
     assert GGA_QUALITY_TO_STATUS[4] == 2
-    assert GGA_QUALITY_TO_STATUS[5] == 1
+    assert GGA_QUALITY_TO_STATUS[5] == 2
 
 
 def test_quality_label() -> None:
