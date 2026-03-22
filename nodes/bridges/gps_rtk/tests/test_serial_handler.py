@@ -223,3 +223,107 @@ def test_send_base_configure_gives_up_after_max_retries(caplog: pytest.LogCaptur
                 handler.send_base_configure()  # must not raise
 
     assert any("Failed to send configure" in r.message for r in caplog.records)
+
+
+# --- send_nmea_wait tests ---
+
+
+def test_send_nmea_wait_returns_matching_line() -> None:
+    """send_nmea_wait() should return the first line containing expect_substring."""
+    import threading
+
+    mock_ser = _make_mock_serial()
+    handler = SerialHandler(
+        port="/dev/ttyAMA0",
+        baud_rate=115200,
+        on_nmea=lambda s: None,
+        on_rtcm3=lambda _: None,
+    )
+    handler._ser = mock_ser
+
+    response_line = "$PQTMCFGSVIN,OK,1,3600,1.0,3920123.45,-123456.78,5000000.00*XX"
+
+    def deliver_response(cmd: str) -> None:
+        # Simulate the background read loop delivering a NMEA line after send
+        def _deliver() -> None:
+            handler._dispatch_nmea(response_line)
+
+        t = threading.Thread(target=_deliver, daemon=True)
+        t.start()
+
+    with patch.object(handler, "send_nmea", side_effect=deliver_response):
+        result = handler.send_nmea_wait("$PQTMCFGSVIN,R", "PQTMCFGSVIN", timeout_s=1.0)
+
+    assert result == response_line
+
+
+def test_send_nmea_wait_returns_none_on_timeout() -> None:
+    """send_nmea_wait() should return None when no matching response arrives."""
+    mock_ser = _make_mock_serial()
+    handler = SerialHandler(
+        port="/dev/ttyAMA0",
+        baud_rate=115200,
+        on_nmea=lambda s: None,
+        on_rtcm3=lambda _: None,
+    )
+    handler._ser = mock_ser
+
+    with patch.object(handler, "send_nmea"):
+        result = handler.send_nmea_wait("$PQTMCFGSVIN,R", "PQTMCFGSVIN", timeout_s=0.05)
+
+    assert result is None
+
+
+def test_activate_base_fixed_position_sends_w2_command() -> None:
+    """_activate_base_fixed_position() should send PQTMCFGSVIN,W,2 when ECEF is non-zero."""
+    mock_ser = _make_mock_serial()
+    handler = SerialHandler(
+        port="/dev/ttyAMA0",
+        baud_rate=115200,
+        on_nmea=lambda s: None,
+        on_rtcm3=lambda _: None,
+    )
+    handler._ser = mock_ser
+
+    ecef_response = "$PQTMCFGSVIN,OK,1,3600,1.0,3920123.45,-123456.78,5000000.00*XX"
+    sent_commands: list[str] = []
+
+    def capture_send(cmd: str) -> None:
+        sent_commands.append(cmd)
+
+    with patch.object(handler, "send_nmea_wait", return_value=ecef_response):
+        with patch.object(handler, "send_nmea", side_effect=capture_send):
+            with patch("gps_rtk.serial_handler.time.sleep"):
+                handler._activate_base_fixed_position()
+
+    assert any("PQTMCFGSVIN,W,2" in c for c in sent_commands)
+    assert any("PQTMSAVEPAR" in c for c in sent_commands)
+
+
+def test_activate_base_fixed_position_warns_if_no_ecef(caplog: pytest.LogCaptureFixture) -> None:
+    """_activate_base_fixed_position() should warn and not raise when ECEF is zero or absent."""
+    import logging
+
+    mock_ser = _make_mock_serial()
+    handler = SerialHandler(
+        port="/dev/ttyAMA0",
+        baud_rate=115200,
+        on_nmea=lambda s: None,
+        on_rtcm3=lambda _: None,
+    )
+    handler._ser = mock_ser
+
+    # Case 1: no response at all
+    with patch.object(handler, "send_nmea_wait", return_value=None):
+        with caplog.at_level(logging.WARNING, logger="gps_rtk.serial_handler"):
+            handler._activate_base_fixed_position()  # must not raise
+    assert any("calibration" in r.message.lower() for r in caplog.records)
+
+    caplog.clear()
+
+    # Case 2: zero ECEF
+    zero_response = "$PQTMCFGSVIN,OK,1,3600,15.0,0.0,0.0,0.0*XX"
+    with patch.object(handler, "send_nmea_wait", return_value=zero_response):
+        with caplog.at_level(logging.WARNING, logger="gps_rtk.serial_handler"):
+            handler._activate_base_fixed_position()  # must not raise
+    assert any("zero" in r.message.lower() or "calibration" in r.message.lower() for r in caplog.records)

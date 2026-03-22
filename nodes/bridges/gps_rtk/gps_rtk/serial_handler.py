@@ -1,6 +1,7 @@
 """Serial handler: mixed NMEA + RTCM3 + binary stream over native UART."""
 
 import logging
+import re
 import threading
 import time
 from typing import Callable
@@ -193,6 +194,9 @@ class SerialHandler:
         self._parser: SerialStreamParser | None = None
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+        # Waiter for send_nmea_wait: (expect_substring, event, result_list) or None
+        self._nmea_waiter: tuple[str, threading.Event, list[str]] | None = None
+        self._waiter_lock = threading.Lock()
 
     def open(self) -> None:
         """Open serial port with retry and start read thread.
@@ -224,7 +228,7 @@ class SerialHandler:
             )
 
         self._parser = SerialStreamParser(
-            on_nmea=self.on_nmea,
+            on_nmea=self._dispatch_nmea,
             on_rtcm3=self.on_rtcm3,
             log_unknown=self.log_unknown_bytes,
         )
@@ -298,6 +302,80 @@ class SerialHandler:
             self._stop.wait(0.5)
         return False
 
+    def _dispatch_nmea(self, line: str) -> None:
+        """Route incoming NMEA line to any active waiter, then to the user callback."""
+        with self._waiter_lock:
+            if self._nmea_waiter is not None:
+                expect, event, result = self._nmea_waiter
+                if expect in line:
+                    result.append(line)
+                    self._nmea_waiter = None
+                    event.set()
+        self.on_nmea(line)
+
+    def send_nmea_wait(self, cmd: str, expect_substring: str, timeout_s: float = 5.0) -> str | None:
+        """Send NMEA command and wait for a response line containing expect_substring.
+
+        Uses the background read loop to capture the response; no busy-polling.
+
+        Args:
+            cmd: NMEA command (checksum appended automatically if missing).
+            expect_substring: Substring to match in the response line.
+            timeout_s: Maximum seconds to wait.
+
+        Returns:
+            First matching response line, or None on timeout.
+        """
+        event = threading.Event()
+        result: list[str] = []
+        with self._waiter_lock:
+            self._nmea_waiter = (expect_substring, event, result)
+        try:
+            self.send_nmea(cmd)
+        except Exception:
+            with self._waiter_lock:
+                self._nmea_waiter = None
+            raise
+        event.wait(timeout=timeout_s)
+        with self._waiter_lock:
+            self._nmea_waiter = None
+        return result[0] if result else None
+
+    def _activate_base_fixed_position(self) -> None:
+        """Query stored ECEF from module flash and re-activate fixed-position base mode.
+
+        The LC29H(BS) retains the ECEF result of survey-in in flash but does not
+        automatically re-enter fixed-position mode after a power cycle. This method
+        reads the stored position with PQTMCFGSVIN,R and, if non-zero ECEF is found,
+        re-sends the PQTMCFGSVIN,W,2 command to activate base mode. Safe to call on
+        an uncalibrated module — logs a warning and returns without raising.
+        """
+        response = self.send_nmea_wait("$PQTMCFGSVIN,R", "PQTMCFGSVIN", timeout_s=5.0)
+        if not response:
+            LOG.warning("No PQTMCFGSVIN response — base calibration (survey-in) may not have been run yet")
+            return
+        m = re.search(
+            r"PQTMCFGSVIN,OK,1,\d+,[\d.]+,([-\d.]+),([-\d.]+),([-\d.]+)",
+            response,
+        )
+        if not m:
+            LOG.warning("PQTMCFGSVIN response not parseable: %s", response)
+            return
+        x, y, z = m.group(1), m.group(2), m.group(3)
+        try:
+            xf, yf, zf = float(x), float(y), float(z)
+        except ValueError:
+            LOG.warning("PQTMCFGSVIN ECEF values not numeric: %s %s %s", x, y, z)
+            return
+        if (xf == 0.0 and yf == 0.0 and zf == 0.0) or abs(xf) < 1e-6:
+            LOG.warning("PQTMCFGSVIN ECEF is zero — base calibration (survey-in) needed")
+            return
+        LOG.info("Stored ECEF X=%s Y=%s Z=%s — activating fixed-position base mode", x, y, z)
+        self.send_nmea(f"$PQTMCFGSVIN,W,2,0,0,{x},{y},{z}")
+        time.sleep(0.1)
+        self.send_nmea("$PQTMSAVEPAR")
+        LOG.info("Fixed-position base mode activated and saved to flash")
+
     def send_base_configure(self) -> None:
         """Send LC29H-BS configure commands (MSM7, ref 1005, ephemeris, NMEA) and save to flash.
 
@@ -322,6 +400,7 @@ class SerialHandler:
                 time.sleep(0.5)
                 self.send_nmea("$PQTMSAVEPAR")
                 LOG.info("Configure commands sent and saved to flash")
+                self._activate_base_fixed_position()
                 return
             except (OSError, serial.SerialException) as e:
                 LOG.warning(
