@@ -253,12 +253,12 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             time.sleep(period_s)
             continue
 
-        if not has_valid_tuple(accel, 3):
+        if not has_valid_tuple(accel, 3, allow_zeros=True):
             try:
                 accel = bno.acceleration
             except (RuntimeError, OSError):
                 pass
-        if not has_valid_tuple(gyro, 3) or not has_valid_tuple(accel, 3):
+        if not has_valid_tuple(gyro, 3, allow_zeros=True) or not has_valid_tuple(accel, 3, allow_zeros=True):
             consecutive_failures += 1
             node.get_logger().warn(
                 "BNO055 accel fallback still invalid (gyro_ok=%s, accel_ok=%s); skipping publish"
