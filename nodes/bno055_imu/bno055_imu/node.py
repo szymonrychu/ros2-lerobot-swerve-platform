@@ -13,6 +13,10 @@ from .imu_msg import build_imu_message, quaternion_wxyz_to_xyzw
 
 I2C_RECONNECT_THRESHOLD = 10
 WARMUP_TIMEOUT_S = 10.0
+CRYSTAL_STABILIZE_S = 1.0  # BNO055 needs time after crystal switch before mode writes take effect
+MODE_SWITCH_DELAY_S = 1.5  # Fusion needs time after mode switch to produce valid data
+MODE_VERIFY_RETRIES = 3
+IMUPLUS_MODE_VALUE = 0x08  # adafruit_bno055.IMUPLUS_MODE — kept here for testability without hardware libs
 
 IMU_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -135,10 +139,22 @@ def _create_bno055(i2c_bus: int, i2c_address: int) -> tuple[Any, int]:
             i2c = _create_i2c(i2c_bus)
             bno = BNO055_I2C(i2c, address=addr)
             bno.use_external_crystal = True
+            # At low I2C speeds (e.g. 10 kHz), the BNO055 needs ~1 s after a crystal
+            # switch before mode writes take effect. The Adafruit library only sleeps
+            # 10 ms, so its internal mode restore silently fails, locking the sensor in
+            # CONFIG mode (0x00). Every property read then returns (None, None, None).
+            time.sleep(CRYSTAL_STABILIZE_S)
             # IMUPLUS: accel+gyro fusion — quaternion, gyro, linear_acceleration (no magnetometer)
             bno.mode = IMUPLUS_MODE
-            # Fusion needs 1–2 s after mode switch to produce valid data; 0.3 s was too short.
-            time.sleep(1.5)
+            # Fusion needs 1–2 s after mode switch to produce valid data.
+            time.sleep(MODE_SWITCH_DELAY_S)
+            # Verify mode actually set; at low I2C speeds mode writes can silently fail.
+            for attempt in range(MODE_VERIFY_RETRIES):
+                if bno.mode == IMUPLUS_MODE_VALUE:
+                    break
+                time.sleep(0.5 * (attempt + 1))
+                bno.mode = IMUPLUS_MODE
+                time.sleep(0.5)
             return bno, addr
         except Exception as exc:  # noqa: BLE001
             tried.append((addr, exc))
@@ -162,10 +178,16 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         rclpy.shutdown()
         raise
 
+    actual_mode = bno.mode
     node.get_logger().info(
-        "BNO055 IMU: publishing %s at %.1f Hz (frame_id=%s, i2c=%d, address=0x%02x)"
-        % (config.topic, config.publish_hz, config.frame_id, config.i2c_bus, used_addr)
+        "BNO055 IMU: mode=0x%02x, publishing %s at %.1f Hz (frame_id=%s, i2c=%d, address=0x%02x)"
+        % (actual_mode, config.topic, config.publish_hz, config.frame_id, config.i2c_bus, used_addr)
     )
+    if actual_mode != IMUPLUS_MODE_VALUE:
+        node.get_logger().warn(
+            "BNO055 mode mismatch after init: expected 0x08 (IMUPLUS), got 0x%02x"
+            " — reads will return None" % actual_mode
+        )
     try:
         sys_c, gyro_c, accel_c, mag_c = bno.calibration_status
         node.get_logger().info(
@@ -189,9 +211,15 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address)
                 consecutive_failures = 0
                 reconnect_count += 1
+                reconnect_mode = bno.mode
                 node.get_logger().info(
-                    "BNO055 reconnected successfully on 0x%02x (reconnect #%d)" % (used_addr, reconnect_count)
+                    "BNO055 reconnected on 0x%02x, mode=0x%02x (reconnect #%d)"
+                    % (used_addr, reconnect_mode, reconnect_count)
                 )
+                if reconnect_mode != 0x08:  # IMUPLUS_MODE
+                    node.get_logger().warn(
+                        "BNO055 mode mismatch after reconnect: expected 0x08, got 0x%02x" % reconnect_mode
+                    )
                 _warmup(bno, node)
             except Exception as e:  # noqa: BLE001
                 node.get_logger().error("BNO055 reconnect failed: %s" % e)

@@ -4,7 +4,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bno055_imu.node import _spin_once_safe, _warmup, all_zero, coerce, has_valid_tuple, valid_quat, warmup_check
+from bno055_imu.node import (
+    IMUPLUS_MODE_VALUE,
+    _create_bno055,
+    _spin_once_safe,
+    _warmup,
+    all_zero,
+    coerce,
+    has_valid_tuple,
+    valid_quat,
+    warmup_check,
+)
 
 # ---------------------------------------------------------------------------
 # coerce
@@ -323,3 +333,93 @@ def test_warmup_returns_true_after_initial_none_values() -> None:
                 with patch("bno055_imu.node.time.monotonic", side_effect=[0.0, 0.2, 0.4, 0.6, 100.0]):
                     result = _warmup(bno, node, timeout_s=10.0)
     assert result is True
+
+
+# ---------------------------------------------------------------------------
+# _create_bno055 — mode verification
+# ---------------------------------------------------------------------------
+
+
+def _make_bno_mock_with_mode_sequence(mode_sequence: list[int]) -> MagicMock:
+    """Return a mock BNO055 whose .mode getter returns values from mode_sequence in order.
+
+    The setter is a no-op so that bno.mode = IMUPLUS_MODE does not raise.
+    """
+    bno = MagicMock()
+    mode_iter = iter(mode_sequence)
+
+    def get_mode(self: object) -> int:
+        try:
+            return next(mode_iter)
+        except StopIteration:
+            return IMUPLUS_MODE_VALUE
+
+    def set_mode(self: object, _value: int) -> None:
+        pass  # no-op; getter controls the sequence
+
+    type(bno).mode = property(get_mode, set_mode)
+    return bno
+
+
+def test_create_bno055_mode_correct_on_first_verify() -> None:
+    """_create_bno055 returns immediately when mode reads as IMUPLUS after first verify."""
+    bno = _make_bno_mock_with_mode_sequence([IMUPLUS_MODE_VALUE])
+    mock_bno055_cls = MagicMock(return_value=bno)
+    with (
+        patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
+        patch("bno055_imu.node.time.sleep"),
+        patch.dict(
+            "sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls, IMUPLUS_MODE=IMUPLUS_MODE_VALUE)}
+        ),
+    ):
+        result_bno, addr = _create_bno055(1, 0x28)
+    assert result_bno is bno
+    assert addr == 0x28
+
+
+def test_create_bno055_mode_retries_then_succeeds() -> None:
+    """_create_bno055 retries when mode reads wrong, succeeds when mode becomes IMUPLUS."""
+    # First verify: wrong mode; second verify: correct
+    bno = _make_bno_mock_with_mode_sequence([0x00, IMUPLUS_MODE_VALUE])
+    mock_bno055_cls = MagicMock(return_value=bno)
+    with (
+        patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
+        patch("bno055_imu.node.time.sleep"),
+        patch.dict(
+            "sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls, IMUPLUS_MODE=IMUPLUS_MODE_VALUE)}
+        ),
+    ):
+        result_bno, addr = _create_bno055(1, 0x28)
+    assert result_bno is bno
+    assert addr == 0x28
+
+
+def test_create_bno055_mode_stuck_still_returns() -> None:
+    """_create_bno055 returns even if mode never reads as IMUPLUS — warmup will detect the issue."""
+    # All verify attempts return wrong mode
+    bno = _make_bno_mock_with_mode_sequence([0x00] * 10)
+    mock_bno055_cls = MagicMock(return_value=bno)
+    with (
+        patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
+        patch("bno055_imu.node.time.sleep"),
+        patch.dict(
+            "sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls, IMUPLUS_MODE=IMUPLUS_MODE_VALUE)}
+        ),
+    ):
+        result_bno, addr = _create_bno055(1, 0x28)
+    assert result_bno is bno
+    assert addr == 0x28
+
+
+def test_create_bno055_raises_when_all_addresses_fail() -> None:
+    """_create_bno055 raises RuntimeError when BNO055_I2C raises on all addresses."""
+    mock_bno055_cls = MagicMock(side_effect=RuntimeError("no device"))
+    with (
+        patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
+        patch("bno055_imu.node.time.sleep"),
+        patch.dict(
+            "sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls, IMUPLUS_MODE=IMUPLUS_MODE_VALUE)}
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="Unable to initialize BNO055"):
+            _create_bno055(1, 0x28)
