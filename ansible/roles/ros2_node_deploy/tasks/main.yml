@@ -85,6 +85,7 @@
       become: true
       register: docker_pull_result
       changed_when: docker_pull_result.rc == 0
+      notify: "Restart ROS2 node"
 
     - name: Build node container image from repo
       when: not (node_build_on_controller | default(false) | bool)
@@ -94,6 +95,7 @@
       become: true
       register: docker_build_result
       changed_when: docker_build_result.rc == 0
+      notify: "Restart ROS2 node"
 
     - name: Ensure ROS2 node config directory exists
       ansible.builtin.file:
