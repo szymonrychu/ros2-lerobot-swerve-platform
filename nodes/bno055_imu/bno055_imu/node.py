@@ -170,13 +170,23 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     clock = node.get_clock()
     period_s = 1.0 / max(1.0, config.publish_hz)
 
-    try:
-        bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address)
-    except Exception as e:
-        node.get_logger().error("BNO055 init failed: %s" % e)
+    init_attempt = 0
+    bno, used_addr = None, None
+    while rclpy.ok() and bno is None:
+        try:
+            bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address)
+        except Exception as e:  # noqa: BLE001
+            init_attempt += 1
+            backoff = min(30.0, 2 ** min(init_attempt, 5))
+            node.get_logger().error(
+                "BNO055 init failed (attempt %d): %s — retrying in %.0fs" % (init_attempt, e, backoff)
+            )
+            time.sleep(backoff)
+            _spin_once_safe(node, timeout_sec=0.01)
+    if bno is None:
         node.destroy_node()
         rclpy.shutdown()
-        raise
+        return
 
     actual_mode = bno.mode
     node.get_logger().info(
