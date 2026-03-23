@@ -12,6 +12,7 @@ from .config import ImuNodeConfig
 from .imu_msg import build_imu_message, quaternion_wxyz_to_xyzw
 
 I2C_RECONNECT_THRESHOLD = 10
+WARMUP_TIMEOUT_S = 10.0
 
 IMU_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -71,6 +72,39 @@ def warmup_check(bno: Any) -> bool:
         except (RuntimeError, OSError):
             return False
     return bool(a and len(a) >= 3 and a[0] is not None and a[1] is not None and a[2] is not None)
+
+
+def _spin_once_safe(node: Node, timeout_sec: float = 0.01) -> None:
+    """Call rclpy.spin_once, silently ignoring errors from invalid RCL context."""
+    try:
+        rclpy.spin_once(node, timeout_sec=timeout_sec)
+    except Exception:  # noqa: BLE001
+        pass  # context may be invalid during shutdown or reconnect
+
+
+def _warmup(bno: Any, node: Node, timeout_s: float = WARMUP_TIMEOUT_S) -> bool:
+    """Poll sensor until valid gyro+accel or timeout.
+
+    Args:
+        bno: BNO055 driver instance.
+        node: ROS2 node (for logging and rclpy.ok check).
+        timeout_s: Maximum seconds to wait.
+
+    Returns:
+        bool: True if sensor produced valid data within timeout_s.
+    """
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline and rclpy.ok():
+        if warmup_check(bno):
+            node.get_logger().info("BNO055 warm-up complete, sensor ready")
+            return True
+        time.sleep(0.2)
+        _spin_once_safe(node, timeout_sec=0.01)
+    node.get_logger().warn(
+        "BNO055 warm-up timed out (%.0f s); will retry each cycle. "
+        "Check I2C, calibration, and keep sensor still for a few seconds." % timeout_s
+    )
+    return False
 
 
 def _create_i2c(i2c_bus: int) -> Any:
@@ -141,34 +175,28 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     except Exception as e:  # noqa: BLE001
         node.get_logger().debug("BNO055 calibration status unavailable: %s" % e)
 
-    # Warm-up: try to get first valid gyro+accel before main loop (fusion can need 1–2 s).
-    warmup_deadline = time.monotonic() + 10.0
-    while time.monotonic() < warmup_deadline and rclpy.ok():
-        if warmup_check(bno):
-            node.get_logger().info("BNO055 warm-up complete, sensor ready")
-            break
-        time.sleep(0.1)
-        rclpy.spin_once(node, timeout_sec=0.01)
-    else:
-        node.get_logger().warn(
-            "BNO055 warm-up timed out (10 s); will retry each cycle. "
-            "Check I2C, calibration, and keep sensor still for a few seconds."
-        )
+    _warmup(bno, node)
 
     consecutive_failures: int = 0
+    reconnect_count: int = 0  # increments on each reconnect; reset only on successful publish
     while rclpy.ok():
         if consecutive_failures >= I2C_RECONNECT_THRESHOLD:
             node.get_logger().warn("BNO055: %d consecutive failures — attempting I2C reconnect" % consecutive_failures)
-            backoff = min(30.0, 2 ** (consecutive_failures // I2C_RECONNECT_THRESHOLD - 1))
+            # Backoff grows with reconnect_count to slow down repeated reconnect loops.
+            backoff = min(30.0, 2 ** min(reconnect_count, 5))
             time.sleep(backoff)
             try:
                 bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address)
                 consecutive_failures = 0
-                node.get_logger().info("BNO055 reconnected successfully on 0x%02x" % used_addr)
+                reconnect_count += 1
+                node.get_logger().info(
+                    "BNO055 reconnected successfully on 0x%02x (reconnect #%d)" % (used_addr, reconnect_count)
+                )
+                _warmup(bno, node)
             except Exception as e:  # noqa: BLE001
                 node.get_logger().error("BNO055 reconnect failed: %s" % e)
                 # Don't reset counter — will retry again after threshold
-            rclpy.spin_once(node, timeout_sec=0.01)
+            _spin_once_safe(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
 
@@ -189,15 +217,11 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             time.sleep(0.01)
         else:
             consecutive_failures += 1
-            node.get_logger().debug(
-                "BNO055 no valid gyro/accel after 5 retries (gyro=%s, accel=%s); skipping publish"
-                % (
-                    type(gyro).__name__ if gyro is not None else "None",
-                    type(accel).__name__ if accel is not None else "None",
-                ),
-                throttle_duration_sec=10.0,
+            node.get_logger().warn(
+                "BNO055 no valid gyro/accel after 5 retries (gyro=%r, accel=%r); skipping publish" % (gyro, accel),
+                throttle_duration_sec=5.0,
             )
-            rclpy.spin_once(node, timeout_sec=0.01)
+            _spin_once_safe(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
 
@@ -208,16 +232,17 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 pass
         if not has_valid_tuple(gyro, 3) or not has_valid_tuple(accel, 3):
             consecutive_failures += 1
-            node.get_logger().debug(
+            node.get_logger().warn(
                 "BNO055 accel fallback still invalid (gyro_ok=%s, accel_ok=%s); skipping publish"
                 % (has_valid_tuple(gyro, 3, allow_zeros=True), has_valid_tuple(accel, 3, allow_zeros=True)),
-                throttle_duration_sec=10.0,
+                throttle_duration_sec=5.0,
             )
-            rclpy.spin_once(node, timeout_sec=0.01)
+            _spin_once_safe(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
 
         consecutive_failures = 0
+        reconnect_count = 0  # successful publish — backoff resets
         gyro_vals = tuple(coerce(gyro[i]) for i in range(min(3, len(gyro or [])))) if gyro else (0.0, 0.0, 0.0)
         accel_vals = tuple(coerce(accel[i]) for i in range(min(3, len(accel or [])))) if accel else (0.0, 0.0, 0.0)
         while len(gyro_vals) < 3:
@@ -246,7 +271,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             linear_acceleration_covariance=config.linear_acceleration_covariance,
         )
         pub.publish(msg)
-        rclpy.spin_once(node, timeout_sec=0.001)
+        _spin_once_safe(node, timeout_sec=0.001)
         time.sleep(period_s)
 
     node.destroy_node()

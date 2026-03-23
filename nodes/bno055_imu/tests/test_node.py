@@ -1,10 +1,10 @@
 """Unit tests for BNO055 IMU node validation helper functions."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bno055_imu.node import all_zero, coerce, has_valid_tuple, valid_quat, warmup_check
+from bno055_imu.node import _spin_once_safe, _warmup, all_zero, coerce, has_valid_tuple, valid_quat, warmup_check
 
 # ---------------------------------------------------------------------------
 # coerce
@@ -231,3 +231,95 @@ def test_warmup_check_acceleration_raises_oserror_returns_false() -> None:
     type(bno).linear_acceleration = property(lambda self: (None, None, None))
     type(bno).acceleration = property(raise_oserror)
     assert warmup_check(bno) is False
+
+
+# ---------------------------------------------------------------------------
+# _spin_once_safe
+# ---------------------------------------------------------------------------
+
+
+def test_spin_once_safe_does_not_raise_on_rclpy_error() -> None:
+    """_spin_once_safe swallows any exception from rclpy.spin_once."""
+    node = MagicMock()
+    with patch("bno055_imu.node.rclpy.spin_once", side_effect=RuntimeError("context invalid")):
+        _spin_once_safe(node, timeout_sec=0.01)  # must not raise
+
+
+def test_spin_once_safe_calls_spin_once_with_timeout() -> None:
+    """_spin_once_safe passes timeout_sec to rclpy.spin_once."""
+    node = MagicMock()
+    with patch("bno055_imu.node.rclpy.spin_once") as mock_spin:
+        _spin_once_safe(node, timeout_sec=0.05)
+    mock_spin.assert_called_once_with(node, timeout_sec=0.05)
+
+
+# ---------------------------------------------------------------------------
+# _warmup
+# ---------------------------------------------------------------------------
+
+
+def _make_node_mock() -> MagicMock:
+    node = MagicMock()
+    node.get_logger.return_value = MagicMock()
+    return node
+
+
+def test_warmup_returns_true_when_sensor_ready_immediately() -> None:
+    """_warmup returns True when warmup_check passes on first poll."""
+    bno = MagicMock()
+    type(bno).gyro = property(lambda self: (0.01, 0.02, 0.03))
+    type(bno).linear_acceleration = property(lambda self: (0.1, 0.2, 9.81))
+    node = _make_node_mock()
+    with patch("bno055_imu.node.rclpy.ok", return_value=True):
+        with patch("bno055_imu.node._spin_once_safe"):
+            with patch("bno055_imu.node.time.sleep"):
+                result = _warmup(bno, node, timeout_s=5.0)
+    assert result is True
+
+
+def test_warmup_returns_false_on_timeout() -> None:
+    """_warmup returns False when warmup_check never passes within timeout."""
+    bno = MagicMock()
+    type(bno).gyro = property(lambda self: (None, None, None))
+    type(bno).linear_acceleration = property(lambda self: (None, None, None))
+    node = _make_node_mock()
+    # Use a very short timeout so the loop exits immediately.
+    with patch("bno055_imu.node.rclpy.ok", return_value=True):
+        with patch("bno055_imu.node._spin_once_safe"):
+            with patch("bno055_imu.node.time.sleep"):
+                with patch("bno055_imu.node.time.monotonic", side_effect=[0.0, 100.0, 100.0]):
+                    result = _warmup(bno, node, timeout_s=0.001)
+    assert result is False
+
+
+def test_warmup_returns_false_when_rclpy_not_ok() -> None:
+    """_warmup returns False immediately when rclpy.ok() is False."""
+    bno = MagicMock()
+    node = _make_node_mock()
+    with patch("bno055_imu.node.rclpy.ok", return_value=False):
+        with patch("bno055_imu.node.time.monotonic", return_value=0.0):
+            result = _warmup(bno, node, timeout_s=5.0)
+    assert result is False
+
+
+def test_warmup_returns_true_after_initial_none_values() -> None:
+    """_warmup returns True once sensor starts returning valid data after initial None reads."""
+    call_count = 0
+
+    def gyro_prop(self: object) -> tuple:
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            return (None, None, None)
+        return (0.01, 0.02, 0.03)
+
+    bno = MagicMock()
+    type(bno).gyro = property(gyro_prop)
+    type(bno).linear_acceleration = property(lambda self: (0.1, 0.2, 9.81))
+    node = _make_node_mock()
+    with patch("bno055_imu.node.rclpy.ok", return_value=True):
+        with patch("bno055_imu.node._spin_once_safe"):
+            with patch("bno055_imu.node.time.sleep"):
+                with patch("bno055_imu.node.time.monotonic", side_effect=[0.0, 0.2, 0.4, 0.6, 100.0]):
+                    result = _warmup(bno, node, timeout_s=10.0)
+    assert result is True
