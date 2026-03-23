@@ -70,6 +70,45 @@ section_service() {
   fi
 }
 
+section_i2c_config() {
+  echo "--- I2C boot config ---"
+  local boot_cfg
+  if boot_cfg=$(ssh_cmd "$CLIENT" "grep -E '(i2c|dtparam.*i2c)' /boot/firmware/config.txt 2>/dev/null"); then
+    if [[ -n "$boot_cfg" ]]; then
+      echo "$boot_cfg" | sed 's/^/  /'
+    else
+      echo "  (no I2C-related lines in /boot/firmware/config.txt)"
+    fi
+  else
+    echo "  (could not read /boot/firmware/config.txt)"
+  fi
+
+  echo "--- I2C runtime config ---"
+  local freq
+  if freq=$(ssh_cmd "$CLIENT" "xxd -p /sys/bus/i2c/devices/i2c-1/of_node/clock-frequency 2>/dev/null | tr -d ' \n'"); then
+    if [[ -n "$freq" ]]; then
+      local hz=$((16#${freq}))
+      echo "  clock-frequency: ${hz} Hz ($(( hz / 1000 )) kHz)"
+    else
+      echo "  clock-frequency: (empty)"
+    fi
+  else
+    echo "  clock-frequency: (not available via sysfs)"
+  fi
+  local driver
+  if driver=$(ssh_cmd "$CLIENT" "basename \$(readlink /sys/bus/i2c/devices/i2c-1/device/driver) 2>/dev/null"); then
+    echo "  driver: $driver"
+  fi
+  local pins
+  if pins=$(ssh_cmd "$CLIENT" "cat /sys/bus/i2c/devices/i2c-1/of_node/pinctrl-names 2>/dev/null"); then
+    [[ -n "$pins" ]] && echo "  pinctrl: $pins"
+  fi
+  local i2c_devs
+  if i2c_devs=$(ssh_cmd "$CLIENT" "ls /dev/i2c-* 2>/dev/null"); then
+    echo "  devices: $i2c_devs"
+  fi
+}
+
 section_i2c() {
   echo "--- I2C scan (bus 1) ---"
   local scan
@@ -107,7 +146,7 @@ section_scraper() {
   local raw
   raw=$(python3 -u "$REPO_ROOT/scripts/topic_scraper_collect.py" \
     --source "client=$CLIENT_URL" \
-    --select '/client/imu/data:{orient_cov0: .orientation_covariance[0], orient: .orientation, gyro: .angular_velocity, accel: .linear_acceleration}' \
+    --select '/imu/data:{orient_cov: .orientation_covariance, orient: .orientation, gyro: .angular_velocity, accel: .linear_acceleration}' \
     --once 2>&1) || true
 
   local count=0
@@ -129,8 +168,8 @@ section_scraper() {
     if ! echo "$line" | jq -e '.value' >/dev/null 2>&1; then
       continue
     fi
-    local cov0 ox oy oz ow gx gy gz ax ay az
-    cov0=$(echo "$line" | jq -r '.value.orient_cov0 // "null"')
+    local cov ox oy oz ow gx gy gz ax ay az cov0
+    cov=$(echo "$line" | jq -r '.value.orient_cov // "null"')
     ox=$(echo "$line" | jq -r '.value.orient.x // "null"')
     oy=$(echo "$line" | jq -r '.value.orient.y // "null"')
     oz=$(echo "$line" | jq -r '.value.orient.z // "null"')
@@ -141,7 +180,9 @@ section_scraper() {
     ax=$(echo "$line" | jq -r '.value.accel.x // "null"')
     ay=$(echo "$line" | jq -r '.value.accel.y // "null"')
     az=$(echo "$line" | jq -r '.value.accel.z // "null"')
-    if [[ "$cov0" == "-1" || "$cov0" == "-1.0" ]]; then
+    # orientation_covariance is a numpy-formatted string e.g. "[-1.  0. ...]" or "[0.01 0. ...]"
+    cov0=$(echo "$cov" | tr -s ' [],\t' '\n' | grep -m1 '[0-9]' || echo "null")
+    if [[ "$cov0" == -1* ]]; then
       echo "  orientation_covariance[0]=$cov0 (UNKNOWN — sensor not yet calibrated)"
     else
       echo "  orientation_covariance[0]=$cov0"
@@ -166,6 +207,8 @@ run_once() {
   echo ""
   if [[ "$LOGS_ONLY" == false ]]; then
     section_service
+    echo ""
+    section_i2c_config
     echo ""
     section_i2c
     echo ""

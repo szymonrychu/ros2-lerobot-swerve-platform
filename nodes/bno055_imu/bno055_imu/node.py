@@ -225,12 +225,14 @@ def run_imu_node(config: ImuNodeConfig) -> None:
 
                     bno.mode = IMUPLUS_MODE
                     time.sleep(MODE_SWITCH_DELAY_S)
-                    if bno.mode == IMUPLUS_MODE_VALUE:
-                        consecutive_failures = 0
-                        hard_failures = 0
-                        soft_ok = True
-                        node.get_logger().info("BNO055 soft mode restore succeeded")
-                        _warmup(bno, node)
+                    # Don't read mode back — at 10 kHz the read itself can fail with
+                    # the same transient corruption that caused the None readings.
+                    # Assume the write worked; the next publish attempt will confirm.
+                    consecutive_failures = 0
+                    hard_failures = 0
+                    soft_ok = True
+                    node.get_logger().info("BNO055 soft mode restore (no bus reinit)")
+                    _warmup(bno, node)
                 except Exception:  # noqa: BLE001
                     pass
             if soft_ok:
