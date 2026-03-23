@@ -210,9 +210,34 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     _warmup(bno, node)
 
     consecutive_failures: int = 0
-    reconnect_count: int = 0  # increments on each reconnect; reset only on successful publish
+    hard_failures: int = 0  # OSError/RuntimeError — tracks true I2C bus errors
+    reconnect_count: int = 0  # increments on each full reconnect; reset only on successful publish
     while rclpy.ok():
         if consecutive_failures >= I2C_RECONNECT_THRESHOLD:
+            # First try a soft mode restore: just re-write the mode register without
+            # touching use_external_crystal.  At slow I2C speeds (e.g. 10 kHz), the
+            # crystal-switch sequence in _create_bno055 can corrupt the bus; a simple
+            # mode write is much safer for transient mode-register read failures.
+            soft_ok = False
+            if hard_failures < I2C_RECONNECT_THRESHOLD:
+                try:
+                    from adafruit_bno055 import IMUPLUS_MODE
+
+                    bno.mode = IMUPLUS_MODE
+                    time.sleep(MODE_SWITCH_DELAY_S)
+                    if bno.mode == IMUPLUS_MODE_VALUE:
+                        consecutive_failures = 0
+                        hard_failures = 0
+                        soft_ok = True
+                        node.get_logger().info("BNO055 soft mode restore succeeded")
+                        _warmup(bno, node)
+                except Exception:  # noqa: BLE001
+                    pass
+            if soft_ok:
+                _spin_once_safe(node, timeout_sec=0.01)
+                time.sleep(period_s)
+                continue
+
             node.get_logger().warn("BNO055: %d consecutive failures — attempting I2C reconnect" % consecutive_failures)
             # Backoff grows with reconnect_count to slow down repeated reconnect loops.
             backoff = min(30.0, 2 ** min(reconnect_count, 5))
@@ -220,6 +245,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             try:
                 bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address)
                 consecutive_failures = 0
+                hard_failures = 0
                 reconnect_count += 1
                 reconnect_mode = bno.mode
                 node.get_logger().info(
@@ -247,6 +273,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             except (RuntimeError, OSError) as e:
                 node.get_logger().warn("BNO055 read error: %s" % e, throttle_duration_sec=5.0)
                 quat = gyro = accel = None
+                hard_failures += 1
                 break
             has_gyro = has_valid_tuple(gyro, 3, allow_zeros=True)
             has_accel = has_valid_tuple(accel, 3, allow_zeros=True)
@@ -280,6 +307,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             continue
 
         consecutive_failures = 0
+        hard_failures = 0
         reconnect_count = 0  # successful publish — backoff resets
         gyro_vals = tuple(coerce(gyro[i]) for i in range(min(3, len(gyro or [])))) if gyro else (0.0, 0.0, 0.0)
         accel_vals = tuple(coerce(accel[i]) for i in range(min(3, len(accel or [])))) if accel else (0.0, 0.0, 0.0)
