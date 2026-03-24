@@ -256,6 +256,9 @@ ros2_nodes:
       orientation_covariance: 0.01
       angular_velocity_covariance: 0.01
       linear_acceleration_covariance: 0.04
+      compute_covariance: true
+      covariance_window: 100      # rolling window size (samples, ~2 s at 50 Hz)
+      covariance_min_samples: 20  # samples before estimated covariance replaces config values
   # RPi 5: GPIO UART0 (pins 14/15) needs dtoverlay=uart0-pi5; creates /dev/ttyAMA0
   - name: gps_rtk_rover
     node_type: gps_rtk

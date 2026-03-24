@@ -53,6 +53,10 @@ class ImuNodeConfig:
         orientation_covariance: 9-element row-major orientation covariance; -1 in [0] means unknown.
         angular_velocity_covariance: 9-element row-major angular velocity covariance.
         linear_acceleration_covariance: 9-element row-major linear acceleration covariance.
+        compute_covariance: When True, compute covariance from a rolling window of readings instead of
+            using the fixed config values. Config values are used as fallback until enough samples accumulate.
+        covariance_window: Rolling window size (number of samples) for covariance estimation.
+        covariance_min_samples: Minimum samples required before estimated covariance is published.
     """
 
     topic: str
@@ -63,12 +67,19 @@ class ImuNodeConfig:
     orientation_covariance: list[float]
     angular_velocity_covariance: list[float]
     linear_acceleration_covariance: list[float]
+    compute_covariance: bool
+    covariance_window: int
+    covariance_min_samples: int
 
 
 # Default covariance values: diagonal, low/moderate uncertainty for Nav2.
 DEFAULT_ORIENTATION_COVARIANCE = 0.01
 DEFAULT_ANGULAR_VELOCITY_COVARIANCE = 0.01
 DEFAULT_LINEAR_ACCELERATION_COVARIANCE = 0.04
+
+DEFAULT_COMPUTE_COVARIANCE = False
+DEFAULT_COVARIANCE_WINDOW = 100
+DEFAULT_COVARIANCE_MIN_SAMPLES = 20
 
 
 def load_config(path: Path | None = None) -> ImuNodeConfig | None:
@@ -111,6 +122,17 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
     linear_accel_cov = _parse_covariance(
         data.get("linear_acceleration_covariance"), DEFAULT_LINEAR_ACCELERATION_COVARIANCE
     )
+    compute_covariance = bool(data.get("compute_covariance", DEFAULT_COMPUTE_COVARIANCE))
+    raw_window = data.get("covariance_window", DEFAULT_COVARIANCE_WINDOW)
+    try:
+        covariance_window = max(2, int(raw_window))
+    except (TypeError, ValueError):
+        covariance_window = DEFAULT_COVARIANCE_WINDOW
+    raw_min = data.get("covariance_min_samples", DEFAULT_COVARIANCE_MIN_SAMPLES)
+    try:
+        covariance_min_samples = max(2, int(raw_min))
+    except (TypeError, ValueError):
+        covariance_min_samples = DEFAULT_COVARIANCE_MIN_SAMPLES
     return ImuNodeConfig(
         topic=topic,
         frame_id=frame_id,
@@ -120,6 +142,9 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         orientation_covariance=orientation_cov,
         angular_velocity_covariance=angular_vel_cov,
         linear_acceleration_covariance=linear_accel_cov,
+        compute_covariance=compute_covariance,
+        covariance_window=covariance_window,
+        covariance_min_samples=covariance_min_samples,
     )
 
 

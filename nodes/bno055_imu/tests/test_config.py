@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from bno055_imu.config import DEFAULT_ORIENTATION_COVARIANCE, load_config, load_config_from_env
+from bno055_imu.config import (
+    DEFAULT_COVARIANCE_MIN_SAMPLES,
+    DEFAULT_COVARIANCE_WINDOW,
+    DEFAULT_ORIENTATION_COVARIANCE,
+    load_config,
+    load_config_from_env,
+)
 
 
 def test_load_config_missing_file_returns_none(tmp_path: Path) -> None:
@@ -35,6 +41,9 @@ def test_load_config_defaults(tmp_path: Path) -> None:
     assert cfg.orientation_covariance[0] == DEFAULT_ORIENTATION_COVARIANCE
     assert cfg.orientation_covariance[4] == DEFAULT_ORIENTATION_COVARIANCE
     assert cfg.orientation_covariance[8] == DEFAULT_ORIENTATION_COVARIANCE
+    assert cfg.compute_covariance is False
+    assert cfg.covariance_window == DEFAULT_COVARIANCE_WINDOW
+    assert cfg.covariance_min_samples == DEFAULT_COVARIANCE_MIN_SAMPLES
 
 
 def test_load_config_explicit_values(tmp_path: Path) -> None:
@@ -90,3 +99,34 @@ def test_load_config_invalid_i2c_address_falls_back_to_default(tmp_path: Path) -
     cfg = load_config(tmp_path / "config.yaml")
     assert cfg is not None
     assert cfg.i2c_address == 0x28
+
+
+def test_load_config_compute_covariance_defaults_false(tmp_path: Path) -> None:
+    """compute_covariance defaults to False."""
+    (tmp_path / "config.yaml").write_text("{}")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.compute_covariance is False
+    assert cfg.covariance_window == DEFAULT_COVARIANCE_WINDOW
+    assert cfg.covariance_min_samples == DEFAULT_COVARIANCE_MIN_SAMPLES
+
+
+def test_load_config_compute_covariance_explicit(tmp_path: Path) -> None:
+    """Explicit compute_covariance, covariance_window, and covariance_min_samples are respected."""
+    (tmp_path / "config.yaml").write_text(
+        "compute_covariance: true\ncovariance_window: 200\ncovariance_min_samples: 30\n"
+    )
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.compute_covariance is True
+    assert cfg.covariance_window == 200
+    assert cfg.covariance_min_samples == 30
+
+
+def test_load_config_covariance_window_clamped_to_minimum(tmp_path: Path) -> None:
+    """covariance_window < 2 is clamped to 2."""
+    (tmp_path / "config.yaml").write_text("covariance_window: 0\ncovariance_min_samples: 0\n")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.covariance_window == 2
+    assert cfg.covariance_min_samples == 2

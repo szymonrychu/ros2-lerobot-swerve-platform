@@ -141,12 +141,40 @@ section_logs() {
   fi
 }
 
+print_cov3x3() {
+  # Print a 9-element covariance array (numpy-like string or JSON array) as a 3x3 grid.
+  # Usage: print_cov3x3 "label" "$cov_value"
+  local label="$1"
+  local raw="$2"
+  # Extract 9 numbers (handles numpy "[0.01 0. ...]" and JSON "[0.01, 0, ...]" formats).
+  local nums
+  nums=$(echo "$raw" | tr -s ' [],\t' '\n' | grep -E '^-?[0-9]' | head -9)
+  local count
+  count=$(echo "$nums" | grep -c . 2>/dev/null || true)
+  if [[ $count -lt 9 ]]; then
+    echo "  $label: $raw"
+    return
+  fi
+  # Read into positional array (POSIX-compatible; avoids bash 4-only mapfile).
+  local v0 v1 v2 v3 v4 v5 v6 v7 v8
+  read -r v0 v1 v2 v3 v4 v5 v6 v7 v8 <<< "$(echo "$nums" | tr '\n' ' ')"
+  # Check if first element signals UNKNOWN (-1)
+  if [[ "$v0" == -1* ]]; then
+    printf "  %-35s [UNKNOWN — sensor not yet calibrated]\n" "$label"
+  else
+    printf "  %s:\n" "$label"
+    printf "    [ %12s  %12s  %12s ]\n" "$v0" "$v1" "$v2"
+    printf "    [ %12s  %12s  %12s ]\n" "$v3" "$v4" "$v5"
+    printf "    [ %12s  %12s  %12s ]\n" "$v6" "$v7" "$v8"
+  fi
+}
+
 section_scraper() {
   echo "--- Topic scraper /imu/data ---"
   local raw
   raw=$(python3 -u "$REPO_ROOT/scripts/topic_scraper_collect.py" \
     --source "client=$CLIENT_URL" \
-    --select '/imu/data:{orient_cov: .orientation_covariance, orient: .orientation, gyro: .angular_velocity, accel: .linear_acceleration}' \
+    --select '/imu/data:{orient_cov: .orientation_covariance, gyro_cov: .angular_velocity_covariance, accel_cov: .linear_acceleration_covariance, orient: .orientation, gyro: .angular_velocity, accel: .linear_acceleration}' \
     --once 2>&1) || true
 
   local count=0
@@ -168,8 +196,10 @@ section_scraper() {
     if ! echo "$line" | jq -e '.value' >/dev/null 2>&1; then
       continue
     fi
-    local cov ox oy oz ow gx gy gz ax ay az cov0
-    cov=$(echo "$line" | jq -r '.value.orient_cov // "null"')
+    local orient_cov gyro_cov accel_cov ox oy oz ow gx gy gz ax ay az
+    orient_cov=$(echo "$line" | jq -r '.value.orient_cov // "null"')
+    gyro_cov=$(echo "$line"   | jq -r '.value.gyro_cov  // "null"')
+    accel_cov=$(echo "$line"  | jq -r '.value.accel_cov // "null"')
     ox=$(echo "$line" | jq -r '.value.orient.x // "null"')
     oy=$(echo "$line" | jq -r '.value.orient.y // "null"')
     oz=$(echo "$line" | jq -r '.value.orient.z // "null"')
@@ -180,13 +210,9 @@ section_scraper() {
     ax=$(echo "$line" | jq -r '.value.accel.x // "null"')
     ay=$(echo "$line" | jq -r '.value.accel.y // "null"')
     az=$(echo "$line" | jq -r '.value.accel.z // "null"')
-    # orientation_covariance is a numpy-formatted string e.g. "[-1.  0. ...]" or "[0.01 0. ...]"
-    cov0=$(echo "$cov" | tr -s ' [],\t' '\n' | grep -m1 '[0-9]' || echo "null")
-    if [[ "$cov0" == -1* ]]; then
-      echo "  orientation_covariance[0]=$cov0 (UNKNOWN — sensor not yet calibrated)"
-    else
-      echo "  orientation_covariance[0]=$cov0"
-    fi
+    print_cov3x3 "orientation_covariance    (rad²)" "$orient_cov"
+    print_cov3x3 "angular_velocity_covariance (rad²/s²)" "$gyro_cov"
+    print_cov3x3 "linear_acceleration_cov   (m²/s⁴)" "$accel_cov"
     printf "  orient  x=%-12s y=%-12s z=%-12s w=%s\n" "$ox" "$oy" "$oz" "$ow"
     printf "  gyro    x=%-12s y=%-12s z=%s  rad/s\n" "$gx" "$gy" "$gz"
     printf "  accel   x=%-12s y=%-12s z=%s  m/s²\n" "$ax" "$ay" "$az"

@@ -9,6 +9,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Imu
 
 from .config import ImuNodeConfig
+from .covariance import CovarianceEstimator
 from .imu_msg import build_imu_message, quaternion_wxyz_to_xyzw
 
 I2C_RECONNECT_THRESHOLD = 10
@@ -26,6 +27,8 @@ IMU_QOS = QoSProfile(
 
 ORIENTATION_UNKNOWN_COV = [-1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 IDENTITY_QUAT_WXYZ = (1.0, 0.0, 0.0, 0.0)
+
+DEG_TO_RAD = 0.017453292519943295  # math.pi / 180
 
 
 def coerce(v: Any, default: float = 0.0) -> float:
@@ -209,6 +212,19 @@ def run_imu_node(config: ImuNodeConfig) -> None:
 
     _warmup(bno, node)
 
+    # Optional rolling-window covariance estimation (disabled by default).
+    orient_est: CovarianceEstimator | None = None
+    gyro_est: CovarianceEstimator | None = None
+    accel_est: CovarianceEstimator | None = None
+    if config.compute_covariance:
+        orient_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
+        gyro_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
+        accel_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
+        node.get_logger().info(
+            "BNO055: real covariance estimation enabled (window=%d, min_samples=%d)"
+            % (config.covariance_window, config.covariance_min_samples)
+        )
+
     consecutive_failures: int = 0
     hard_failures: int = 0  # OSError/RuntimeError — tracks true I2C bus errors
     reconnect_count: int = 0  # increments on each full reconnect; reset only on successful publish
@@ -258,6 +274,13 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                     node.get_logger().warn(
                         "BNO055 mode mismatch after reconnect: expected 0x08, got 0x%02x" % reconnect_mode
                     )
+                # Reset estimators so stale pre-reconnect samples don't pollute covariance.
+                if orient_est is not None:
+                    orient_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
+                if gyro_est is not None:
+                    gyro_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
+                if accel_est is not None:
+                    accel_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
                 _warmup(bno, node)
             except Exception as e:  # noqa: BLE001
                 node.get_logger().error("BNO055 reconnect failed: %s" % e)
@@ -318,12 +341,36 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         while len(accel_vals) < 3:
             accel_vals = accel_vals + (0.0,)
 
+        # Feed estimators (only when compute_covariance is enabled).
+        if gyro_est is not None:
+            gyro_est.add(gyro_vals[0], gyro_vals[1], gyro_vals[2])
+        if accel_est is not None:
+            accel_est.add(accel_vals[0], accel_vals[1], accel_vals[2])
+        if orient_est is not None:
+            try:
+                euler = bno.euler  # (heading_deg, roll_deg, pitch_deg) or None
+                if euler and len(euler) >= 3 and all(euler[i] is not None for i in range(3)):
+                    orient_est.add(
+                        coerce(euler[0]) * DEG_TO_RAD,
+                        coerce(euler[1]) * DEG_TO_RAD,
+                        coerce(euler[2]) * DEG_TO_RAD,
+                    )
+            except (RuntimeError, OSError):
+                pass
+
         if valid_quat(quat):
             quat_vals = tuple(coerce(quat[i]) for i in range(4)) if quat else IDENTITY_QUAT_WXYZ
-            orient_cov = config.orientation_covariance
+            orient_cov = (orient_est.covariance() if orient_est is not None else None) or config.orientation_covariance
         else:
             quat_vals = IDENTITY_QUAT_WXYZ
             orient_cov = ORIENTATION_UNKNOWN_COV
+
+        angular_vel_cov = (
+            gyro_est.covariance() if gyro_est is not None else None
+        ) or config.angular_velocity_covariance
+        linear_accel_cov = (
+            accel_est.covariance() if accel_est is not None else None
+        ) or config.linear_acceleration_covariance
 
         stamp = clock.now().to_msg()
         quat_xyzw = quaternion_wxyz_to_xyzw(quat_vals[0], quat_vals[1], quat_vals[2], quat_vals[3])
@@ -335,8 +382,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             angular_vel_xyz=gyro_vals,
             linear_accel_xyz=accel_vals,
             orientation_covariance=orient_cov,
-            angular_velocity_covariance=config.angular_velocity_covariance,
-            linear_acceleration_covariance=config.linear_acceleration_covariance,
+            angular_velocity_covariance=angular_vel_cov,
+            linear_acceleration_covariance=linear_accel_cov,
         )
         pub.publish(msg)
         _spin_once_safe(node, timeout_sec=0.001)
