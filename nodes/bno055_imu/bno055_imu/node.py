@@ -360,7 +360,12 @@ def run_imu_node(config: ImuNodeConfig) -> None:
 
         if valid_quat(quat):
             quat_vals = tuple(coerce(quat[i]) for i in range(4)) if quat else IDENTITY_QUAT_WXYZ
-            orient_cov = (orient_est.covariance() if orient_est is not None else None) or config.orientation_covariance
+            _orient_est_cov = orient_est.covariance() if orient_est is not None else None
+            # Reject zero-diagonal estimated covariance (e.g. Euler heading stuck at 0 in
+            # IMUPLUS mode — no magnetometer — making the estimator useless for orientation).
+            if _orient_est_cov is not None and not any(_orient_est_cov[i] > 1e-15 for i in (0, 4, 8)):
+                _orient_est_cov = None
+            orient_cov = _orient_est_cov or config.orientation_covariance
         else:
             quat_vals = IDENTITY_QUAT_WXYZ
             orient_cov = ORIENTATION_UNKNOWN_COV

@@ -101,6 +101,21 @@ def test_covariance_min_clamped_to_two() -> None:
     assert est.covariance() is not None
 
 
+def test_covariance_zero_diagonal_when_all_samples_identical() -> None:
+    """All-identical samples produce zero-diagonal covariance (zero variance)."""
+    est = CovarianceEstimator(window=50, min_samples=5)
+    for _ in range(20):
+        est.add(0.0, 0.0, 0.0)
+    result = est.covariance()
+    assert result is not None
+    # Diagonal elements (indices 0, 4, 8) should all be zero
+    assert result[0] == pytest.approx(0.0, abs=1e-15)
+    assert result[4] == pytest.approx(0.0, abs=1e-15)
+    assert result[8] == pytest.approx(0.0, abs=1e-15)
+    # Caller should treat this as "not useful" and fall back to config
+    assert not any(result[i] > 1e-15 for i in (0, 4, 8))
+
+
 def test_covariance_symmetric() -> None:
     """Returned 3x3 covariance matrix is symmetric (cov[i][j] == cov[j][i])."""
     est = CovarianceEstimator(window=50, min_samples=5)
