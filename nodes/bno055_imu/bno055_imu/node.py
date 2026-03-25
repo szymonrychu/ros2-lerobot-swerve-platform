@@ -237,9 +237,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             soft_ok = False
             if hard_failures < I2C_RECONNECT_THRESHOLD:
                 try:
-                    from adafruit_bno055 import IMUPLUS_MODE
-
-                    bno.mode = IMUPLUS_MODE
+                    bno.mode = IMUPLUS_MODE_VALUE
                     time.sleep(MODE_SWITCH_DELAY_S)
                     # Don't read mode back — at 10 kHz the read itself can fail with
                     # the same transient corruption that caused the None readings.
@@ -306,11 +304,25 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 break
             time.sleep(0.01)
         else:
-            consecutive_failures += 1
             node.get_logger().warn(
-                "BNO055 no valid gyro/accel after 5 retries (gyro=%r, accel=%r); skipping publish" % (gyro, accel),
+                "BNO055 no valid gyro/accel after 5 retries (gyro=%r, accel=%r); attempting mode restore"
+                % (gyro, accel),
                 throttle_duration_sec=5.0,
             )
+            # All-None returns indicate CONFIG mode (0x00), not a transient I2C glitch.
+            # Restore immediately instead of waiting for 10 consecutive failure cycles.
+            if hard_failures < I2C_RECONNECT_THRESHOLD:
+                try:
+                    bno.mode = IMUPLUS_MODE_VALUE
+                    time.sleep(MODE_SWITCH_DELAY_S)
+                    consecutive_failures = 0
+                    hard_failures = 0
+                    node.get_logger().info("BNO055 inline mode restore after stale reads")
+                    _warmup(bno, node)
+                except Exception:  # noqa: BLE001
+                    consecutive_failures += 1
+            else:
+                consecutive_failures += 1
             _spin_once_safe(node, timeout_sec=0.01)
             time.sleep(period_s)
             continue
