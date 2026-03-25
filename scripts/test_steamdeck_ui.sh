@@ -6,8 +6,8 @@ set -euo pipefail
 PASS=0
 FAIL=0
 
-ok() { echo "[PASS] $*"; ((PASS++)); }
-fail() { echo "[FAIL] $*"; ((FAIL++)); }
+ok() { echo "[PASS] $*"; (( PASS++ )) || true; }
+fail() { echo "[FAIL] $*"; (( FAIL++ )) || true; }
 
 echo "=== SteamDeck UI on-device test ==="
 echo ""
@@ -69,11 +69,27 @@ fi
 # --- Python bridge deps ---
 echo ""
 echo "-- Python bridge dependencies --"
-for pkg in rclpy websockets yaml pydantic cv2 numpy; do
-  if python3 -c "import $pkg" &>/dev/null; then
-    ok "Python: $pkg importable"
+VENV_PYTHON="/opt/steamdeck-ui-bridge-venv/bin/python3"
+BRIDGE_PYTHON="${VENV_PYTHON}"
+if [[ ! -x "$BRIDGE_PYTHON" ]]; then
+  BRIDGE_PYTHON="python3"
+  echo "[INFO] venv not found at $VENV_PYTHON, using system python3"
+fi
+# rclpy and yaml come from system/ROS2; rest from venv
+for pkg in websockets pydantic cv2 numpy; do
+  if "$BRIDGE_PYTHON" -c "import $pkg" &>/dev/null; then
+    ok "Python (venv): $pkg importable"
   else
-    fail "Python: $pkg NOT importable"
+    fail "Python (venv): $pkg NOT importable"
+  fi
+done
+# rclpy requires ROS2 env
+source /opt/ros/jazzy/setup.bash 2>/dev/null || true
+for pkg in rclpy yaml; do
+  if python3 -c "import $pkg" &>/dev/null; then
+    ok "Python (system): $pkg importable"
+  else
+    fail "Python (system): $pkg NOT importable"
   fi
 done
 
@@ -103,7 +119,7 @@ cleanup() {
 trap cleanup EXIT
 
 cd "$APP_DIR/bridge"
-ROS_LOCALHOST_ONLY=0 python3 -m bridge_server --config "$APP_DIR/config/default.yaml" &>/tmp/bridge_smoke.log &
+ROS_LOCALHOST_ONLY=0 "$BRIDGE_PYTHON" -m bridge_server --config "$APP_DIR/config/default.yaml" &>/tmp/bridge_smoke.log &
 BRIDGE_PID=$!
 sleep 3
 
