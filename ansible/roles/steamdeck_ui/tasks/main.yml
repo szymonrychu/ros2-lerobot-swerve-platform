@@ -53,16 +53,16 @@
     cache_valid_time: 3600
   become: true
 
-- name: Install ROS2 Jazzy base and Python bindings
+- name: Install ROS2 Jazzy base and message packages
   ansible.builtin.apt:
     name:
       - ros-jazzy-ros-base
-      - python3-rclpy
-      - python3-sensor-msgs
-      - python3-nav-msgs
-      - python3-geometry-msgs
-      - python3-std-msgs
-      - python3-cv-bridge
+      - ros-jazzy-rclpy
+      - ros-jazzy-sensor-msgs
+      - ros-jazzy-nav-msgs
+      - ros-jazzy-geometry-msgs
+      - ros-jazzy-std-msgs
+      - ros-jazzy-cv-bridge
     state: present
   become: true
 
