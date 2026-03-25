@@ -184,22 +184,10 @@ ros2_nodes:
           dest: /controller/gps/fix
           direction: out
           type: NavSatFix
-        - source: /scan
-          dest: /controller/scan
-          direction: out
-          type: LaserScan
-        - source: /local_costmap/costmap
-          dest: /controller/local_costmap
-          direction: out
-          type: OccupancyGrid
         - source: /odom
           dest: /controller/odom
           direction: out
           type: Odometry
-        - source: /camera_0/image_raw
-          dest: /controller/camera_0/image_raw
-          direction: out
-          type: Image
         # Controller-originated: relay SteamDeck commands into client ROS2 graph
         - source: /controller/goal_pose
           dest: /goal_pose
