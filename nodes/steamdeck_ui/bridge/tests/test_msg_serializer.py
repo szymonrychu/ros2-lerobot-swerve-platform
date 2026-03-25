@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import array
+
 import pytest
-from bridge.msg_serializer import _bytes_per_pixel, extractField_from_dict
+from bridge.msg_serializer import _bytes_per_pixel, _serialize_value, extractField_from_dict
 
 
 class TestBytesPerPixel:
@@ -21,6 +23,23 @@ class TestBytesPerPixel:
 
     def test_rgb16(self) -> None:
         assert _bytes_per_pixel("rgb16") == 2
+
+
+class TestSerializeValue:
+    def test_array_array_to_list(self) -> None:
+        assert _serialize_value(array.array("d", [1.0, 2.0, 3.0])) == [1.0, 2.0, 3.0]
+
+    def test_bytes_to_list(self) -> None:
+        assert _serialize_value(b"\x01\x02") == [1, 2]
+
+    def test_primitives_passthrough(self) -> None:
+        assert _serialize_value(1.5) == 1.5
+        assert _serialize_value(True) is True
+        assert _serialize_value("hi") == "hi"
+        assert _serialize_value(None) is None
+
+    def test_nested_list(self) -> None:
+        assert _serialize_value([1, 2, array.array("d", [3.0])]) == [1, 2, [3.0]]
 
 
 class TestExtractFieldFromDict:

@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
+import array
 import base64
 from typing import Any
 
 import cv2
 import numpy as np
-from rosidl_runtime_py import message_to_ordereddict
 
 
 def msg_to_dict(msg: Any) -> dict[str, Any]:
     """Convert a ROS2 message object to a JSON-serializable dict.
 
     Handles nested messages, arrays, and Image types with JPEG compression.
-    Uses rosidl_runtime_py.message_to_ordereddict for all non-Image messages
-    to ensure correct handling of all ROS2 field types including float64[] arrays.
+    Uses __slots__ introspection to walk the message tree without depending on
+    rosidl_runtime_py (which requires PYTHONPATH from sourced ROS2 setup.bash).
 
     Args:
         msg: ROS2 message object (rclpy message).
@@ -26,7 +26,55 @@ def msg_to_dict(msg: Any) -> dict[str, Any]:
     msg_type = type(msg).__name__
     if msg_type in ("Image", "CompressedImage"):
         return _serialize_image(msg)
-    return dict(message_to_ordereddict(msg))
+    return _serialize_msg(msg)
+
+
+def _serialize_msg(msg: Any) -> dict[str, Any]:
+    """Recursively serialize a ROS2 message to a plain dict.
+
+    Args:
+        msg: ROS2 message with __slots__.
+
+    Returns:
+        dict[str, Any]: JSON-serializable dict.
+    """
+    result: dict[str, Any] = {}
+    slots = getattr(msg, "__slots__", None)
+    if slots is None:
+        return result
+    for slot in slots:
+        # rclpy slot names start with underscore; strip it to get field name
+        field = slot.lstrip("_")
+        value = getattr(msg, field, None)
+        result[field] = _serialize_value(value)
+    return result
+
+
+def _serialize_value(value: Any) -> Any:
+    """Convert a single ROS2 field value to a JSON-serializable type.
+
+    Args:
+        value: Field value from a ROS2 message.
+
+    Returns:
+        Any: JSON-serializable representation.
+    """
+    if isinstance(value, array.array):
+        return list(value)
+    if isinstance(value, (bytes, bytearray)):
+        return list(value)
+    if isinstance(value, (list, tuple)):
+        return [_serialize_value(v) for v in value]
+    if isinstance(value, (int, float, bool, str)) or value is None:
+        return value
+    if hasattr(value, "__slots__"):
+        return _serialize_msg(value)
+    # numpy scalar / array
+    try:
+        return value.tolist()
+    except AttributeError:
+        pass
+    return str(value)
 
 
 def _serialize_image(msg: Any) -> dict[str, Any]:
