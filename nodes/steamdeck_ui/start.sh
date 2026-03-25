@@ -55,4 +55,4 @@ done
 
 # Launch Electron fullscreen
 cd "$SCRIPT_DIR"
-exec npx electron . --config "$CONFIG" --fullscreen
+exec npx electron . --config "$CONFIG" --fullscreen --no-sandbox
