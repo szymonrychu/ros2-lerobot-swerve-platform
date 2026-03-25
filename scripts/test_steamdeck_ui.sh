@@ -20,7 +20,7 @@ else
   fail "ROS2 Jazzy not installed at /opt/ros/jazzy"
 fi
 
-source /opt/ros/jazzy/setup.bash 2>/dev/null || true
+set +u; source /opt/ros/jazzy/setup.bash 2>/dev/null || true; set -u
 
 if ros2 --help &>/dev/null; then
   ok "ros2 CLI available"
@@ -84,7 +84,7 @@ for pkg in websockets pydantic cv2 numpy; do
   fi
 done
 # rclpy requires ROS2 env
-source /opt/ros/jazzy/setup.bash 2>/dev/null || true
+set +u; source /opt/ros/jazzy/setup.bash 2>/dev/null || true; set -u
 for pkg in rclpy yaml; do
   if python3 -c "import $pkg" &>/dev/null; then
     ok "Python (system): $pkg importable"
