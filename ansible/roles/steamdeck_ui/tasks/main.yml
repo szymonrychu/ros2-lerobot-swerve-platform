@@ -162,6 +162,12 @@
     chdir: "{{ steamdeck_ui_app_dir }}"
   changed_when: true
 
+- name: Build Electron app (compile TypeScript + bundle renderer)
+  ansible.builtin.command:
+    cmd: npm run build
+    chdir: "{{ steamdeck_ui_app_dir }}"
+  changed_when: true
+
 # ── Config ────────────────────────────────────────────────────────────────────
 
 - name: Ensure steamdeck-ui config directory
