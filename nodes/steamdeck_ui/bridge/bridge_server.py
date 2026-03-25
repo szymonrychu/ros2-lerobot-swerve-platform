@@ -45,7 +45,7 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/controller/scan": LaserScan,
     "/controller/local_costmap": OccupancyGrid,
     "/controller/odom": Odometry,
-    "/controller/camera_0/image_raw": Image,
+    "/controller/camera_0/image_compressed": CompressedImage,
     "/controller/goal_pose": PoseStamped,
 }
 

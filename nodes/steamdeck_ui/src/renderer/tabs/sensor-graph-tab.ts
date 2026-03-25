@@ -84,7 +84,6 @@ export class SensorGraphTab extends TabBase {
             stroke: "#444444",
             grid: { stroke: "#eeeeee" },
             ticks: { stroke: "#dddddd" },
-            values: (_u, ticks) => ticks.map((t) => `${Math.round(t * 10) / 10}s`),
           },
           {
             stroke: "#444444",
@@ -93,8 +92,6 @@ export class SensorGraphTab extends TabBase {
           },
         ],
         scales: { x: { time: false } },
-        cursor: { show: false },
-        select: { show: false },
         legend: { show: true },
       };
 

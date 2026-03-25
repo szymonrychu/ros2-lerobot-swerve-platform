@@ -188,6 +188,10 @@ ros2_nodes:
           dest: /controller/odom
           direction: out
           type: Odometry
+        - source: /camera_0/image_raw/compressed
+          dest: /controller/camera_0/image_compressed
+          direction: out
+          type: CompressedImage
         # Controller-originated: relay SteamDeck commands into client ROS2 graph
         - source: /controller/goal_pose
           dest: /goal_pose

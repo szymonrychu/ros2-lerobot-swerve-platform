@@ -1,4 +1,4 @@
-"""Generic UVC camera bridge: reads from device, publishes sensor_msgs/Image to ROS2."""
+"""Generic UVC camera bridge: reads from device, publishes sensor_msgs/Image and CompressedImage to ROS2."""
 
 import sys
 from typing import Any, NoReturn
@@ -7,12 +7,13 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Header
 
 from .config import get_config
 
 PUBLISH_QOS_DEPTH = 10
+JPEG_QUALITY = 70
 
 
 def open_capture(device: str | int) -> Any:
@@ -41,7 +42,11 @@ def exit_err(message: str) -> NoReturn:
 
 
 def run_bridge(device: str | int, topic: str, frame_id: str) -> None:
-    """Run the bridge: capture frames from device, publish sensor_msgs/Image on topic.
+    """Run the bridge: capture frames from device, publish sensor_msgs/Image and CompressedImage.
+
+    Publishes:
+      - ``<topic>``             — raw sensor_msgs/Image (bgr8)
+      - ``<topic>/compressed``  — sensor_msgs/CompressedImage (JPEG) for low-bandwidth relay
 
     Args:
         device: Video device path or index.
@@ -56,7 +61,8 @@ def run_bridge(device: str | int, topic: str, frame_id: str) -> None:
 
     rclpy.init()
     node = Node("uvc_camera_bridge")
-    pub = node.create_publisher(Image, topic, PUBLISH_QOS_DEPTH)
+    pub_raw = node.create_publisher(Image, topic, PUBLISH_QOS_DEPTH)
+    pub_compressed = node.create_publisher(CompressedImage, f"{topic}/compressed", PUBLISH_QOS_DEPTH)
     logger = node.get_logger()
     logger.info(f"UVC bridge: device={device} topic={topic} frame_id={frame_id}")
 
@@ -70,17 +76,30 @@ def run_bridge(device: str | int, topic: str, frame_id: str) -> None:
                 )
                 rclpy.spin_once(node, timeout_sec=0.1)
                 continue
-            msg = Image()
-            msg.header = Header()
-            msg.header.stamp = node.get_clock().now().to_msg()
-            msg.header.frame_id = frame_id
-            msg.height = frame.shape[0]
-            msg.width = frame.shape[1]
-            msg.encoding = "bgr8"
-            msg.is_bigendian = 0
-            msg.step = frame.shape[1] * 3  # width * channels
-            msg.data = np.asarray(frame).tobytes()
-            pub.publish(msg)
+
+            stamp = node.get_clock().now().to_msg()
+            header = Header()
+            header.stamp = stamp
+            header.frame_id = frame_id
+
+            raw_msg = Image()
+            raw_msg.header = header
+            raw_msg.height = frame.shape[0]
+            raw_msg.width = frame.shape[1]
+            raw_msg.encoding = "bgr8"
+            raw_msg.is_bigendian = 0
+            raw_msg.step = frame.shape[1] * 3
+            raw_msg.data = np.asarray(frame).tobytes()
+            pub_raw.publish(raw_msg)
+
+            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+            if ok:
+                compressed_msg = CompressedImage()
+                compressed_msg.header = header
+                compressed_msg.format = "jpeg"
+                compressed_msg.data = buf.tobytes()
+                pub_compressed.publish(compressed_msg)
+
             rclpy.spin_once(node, timeout_sec=0.001)
     finally:
         cap.release()
