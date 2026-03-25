@@ -1,7 +1,7 @@
 #!/bin/bash
 # On-device verification script for SteamDeck UI
 # Run on the SteamDeck (controller.ros2.lan) after provisioning.
-set -uo pipefail
+set -u
 
 PASS=0
 FAIL=0
