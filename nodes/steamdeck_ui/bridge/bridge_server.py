@@ -66,10 +66,10 @@ class BridgeNode(Node):
         for topic in topics:
             msg_cls = TOPIC_TYPE_HINTS.get(topic)
             if msg_cls is None:
-                self.get_logger().warning("Unknown msg type for topic %s — skipping", topic)
+                self.get_logger().warning(f"Unknown msg type for topic {topic} — skipping")
                 continue
             self.create_subscription(msg_cls, topic, self._make_callback(topic), 10)
-            self.get_logger().info("Subscribed: %s", topic)
+            self.get_logger().info(f"Subscribed: {topic}")
 
     def _make_callback(self, topic: str) -> Any:
         """Return a ROS2 subscription callback that serializes and enqueues messages.
@@ -87,7 +87,7 @@ class BridgeNode(Node):
                 envelope = {"type": "topic_data", "topic": topic, "data": data}
                 self.queue.put_nowait(envelope)
             except Exception as exc:  # pylint: disable=broad-except
-                self.get_logger().warning("Serialize error on %s: %s", topic, exc)
+                self.get_logger().warning(f"Serialize error on {topic}: {exc}")
 
         return callback
 
@@ -102,7 +102,7 @@ class BridgeNode(Node):
             return
         msg_cls = MSG_TYPE_MAP.get(msg_type_str)
         if msg_cls is None:
-            self.get_logger().warning("Unknown msg type %s for publish topic %s", msg_type_str, topic)
+            self.get_logger().warning(f"Unknown msg type {msg_type_str} for publish topic {topic}")
             return
         self.publishers_[topic] = (self.create_publisher(msg_cls, topic, 10), msg_cls)
 
@@ -114,14 +114,14 @@ class BridgeNode(Node):
             data: JSON-deserialized message data dict.
         """
         if topic not in self.publishers_:
-            self.get_logger().warning("No publisher for topic %s", topic)
+            self.get_logger().warning(f"No publisher for topic {topic}")
             return
         pub, msg_cls = self.publishers_[topic]
         try:
             msg = _dict_to_msg(msg_cls(), data)
             pub.publish(msg)
         except Exception as exc:  # pylint: disable=broad-except
-            self.get_logger().warning("Publish error on %s: %s", topic, exc)
+            self.get_logger().warning(f"Publish error on {topic}: {exc}")
 
 
 def _dict_to_msg(msg: Any, data: dict[str, Any]) -> Any:

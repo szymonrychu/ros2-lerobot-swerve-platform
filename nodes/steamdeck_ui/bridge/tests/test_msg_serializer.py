@@ -6,7 +6,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-
 from bridge.msg_serializer import _bytes_per_pixel, _serialize_value, extractField_from_dict
 
 

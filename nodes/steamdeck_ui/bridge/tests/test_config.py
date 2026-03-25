@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from bridge.config import AppConfig, BridgeConfig, TabConfig, load_config
 
 
