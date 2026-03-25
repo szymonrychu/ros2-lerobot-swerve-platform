@@ -68,15 +68,20 @@
 
 # ── Python bridge dependencies ────────────────────────────────────────────────
 
-- name: Install Python bridge pip packages
+- name: Create venv for bridge packages (avoids conflict with Debian-installed packages)
+  ansible.builtin.command:
+    cmd: python3 -m venv --system-site-packages /opt/steamdeck-ui-bridge-venv
+    creates: /opt/steamdeck-ui-bridge-venv/bin/activate
+  become: true
+
+- name: Install Python bridge pip packages into venv
   ansible.builtin.pip:
     name:
       - websockets
-      - pyyaml
       - pydantic
       - opencv-python-headless
     state: present
-    extra_args: --break-system-packages
+    virtualenv: /opt/steamdeck-ui-bridge-venv
   become: true
 
 # ── Node.js ──────────────────────────────────────────────────────────────────

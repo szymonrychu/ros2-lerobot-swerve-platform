@@ -18,9 +18,15 @@ export ROS_STATIC_PEERS="${ROS_STATIC_PEERS:-client.ros2.lan}"
 echo "[start.sh] Using config: $CONFIG"
 echo "[start.sh] ROS_STATIC_PEERS: $ROS_STATIC_PEERS"
 
+# Use venv Python if available (Ansible installs bridge deps there)
+PYTHON="${STEAMDECK_UI_PYTHON:-/opt/steamdeck-ui-bridge-venv/bin/python3}"
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="python3"
+fi
+
 # Start Python bridge in background
 cd "$SCRIPT_DIR/bridge"
-python3 -m bridge_server --config "$CONFIG" &
+"$PYTHON" -m bridge_server --config "$CONFIG" &
 BRIDGE_PID=$!
 trap "kill $BRIDGE_PID 2>/dev/null || true" EXIT
 
