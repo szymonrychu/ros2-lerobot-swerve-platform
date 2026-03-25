@@ -24,9 +24,10 @@ if [[ ! -x "$PYTHON" ]]; then
   PYTHON="python3"
 fi
 
-# Start Python bridge in background
-cd "$SCRIPT_DIR/bridge"
-"$PYTHON" -m bridge_server --config "$CONFIG" &
+# Start Python bridge in background (run from steamdeck_ui dir so
+# "bridge" is a package and relative imports resolve correctly)
+cd "$SCRIPT_DIR"
+"$PYTHON" -m bridge.bridge_server --config "$CONFIG" &
 BRIDGE_PID=$!
 trap "kill $BRIDGE_PID 2>/dev/null || true" EXIT
 

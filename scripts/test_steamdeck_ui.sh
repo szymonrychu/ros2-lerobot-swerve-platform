@@ -118,8 +118,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cd "$APP_DIR/bridge"
-ROS_LOCALHOST_ONLY=0 "$BRIDGE_PYTHON" -m bridge_server --config "$APP_DIR/config/default.yaml" &>/tmp/bridge_smoke.log &
+cd "$APP_DIR"
+set +u; source /opt/ros/jazzy/setup.bash 2>/dev/null || true; set -u
+ROS_LOCALHOST_ONLY=0 "$BRIDGE_PYTHON" -m bridge.bridge_server --config "$APP_DIR/config/default.yaml" &>/tmp/bridge_smoke.log &
 BRIDGE_PID=$!
 sleep 3
 
