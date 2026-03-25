@@ -2,46 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import MagicMock
-
 import pytest
-from bridge.msg_serializer import _bytes_per_pixel, _serialize_value, extractField_from_dict
-
-
-# Helper: build a minimal mock ROS2 message
-def _make_msg(**fields: Any) -> MagicMock:
-    msg = MagicMock()
-    msg.get_fields_and_field_types.return_value = {k: "" for k in fields}
-    for k, v in fields.items():
-        setattr(msg, k, v)
-    return msg
-
-
-class TestSerializeValue:
-    def test_int(self) -> None:
-        assert _serialize_value(42) == 42
-
-    def test_float(self) -> None:
-        assert _serialize_value(3.14) == pytest.approx(3.14)
-
-    def test_bool(self) -> None:
-        assert _serialize_value(True) is True
-
-    def test_string(self) -> None:
-        assert _serialize_value("hello") == "hello"
-
-    def test_bytes_base64(self) -> None:
-        import base64
-
-        result = _serialize_value(b"\x00\x01\x02")
-        assert result == base64.b64encode(b"\x00\x01\x02").decode("ascii")
-
-    def test_list_of_ints(self) -> None:
-        assert _serialize_value([1, 2, 3]) == [1, 2, 3]
-
-    def test_nested_list(self) -> None:
-        assert _serialize_value([[1, 2], [3, 4]]) == [[1, 2], [3, 4]]
+from bridge.msg_serializer import _bytes_per_pixel, extractField_from_dict
 
 
 class TestBytesPerPixel:

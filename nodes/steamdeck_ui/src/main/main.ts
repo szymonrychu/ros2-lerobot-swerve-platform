@@ -41,6 +41,7 @@ app.whenReady().then(() => {
   }
 
   ipcMain.handle("get-config", () => config);
+  ipcMain.on("quit", () => app.quit());
 
   createWindow();
 

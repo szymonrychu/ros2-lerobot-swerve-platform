@@ -48,6 +48,9 @@ class App {
     this.statusDot.id = "status-dot";
     tabBar.appendChild(this.statusDot);
 
+    // Menu button (right-aligned)
+    this.buildMenuButton(tabBar);
+
     // Build tabs
     for (const tabCfg of this.config.tabs) {
       const tab = this.createTab(tabCfg);
@@ -89,6 +92,38 @@ class App {
     document.addEventListener("ros-publish", (e: Event) => {
       const detail = (e as CustomEvent<PublishRequest["data"]>).detail as PublishRequest;
       this.send({ type: "publish", topic: detail.topic, msg_type: detail.msg_type, data: detail.data });
+    });
+  }
+
+  private buildMenuButton(tabBar: HTMLElement): void {
+    const btn = document.createElement("button");
+    btn.id = "menu-btn";
+    btn.className = "tab-btn";
+    btn.textContent = "≡ MENU";
+    btn.style.marginLeft = "auto";
+    tabBar.appendChild(btn);
+
+    const menu = document.createElement("div");
+    menu.id = "app-menu";
+    menu.style.cssText =
+      "display:none;position:fixed;top:48px;right:0;background:#222;border:1px solid #444;" +
+      "z-index:9999;min-width:160px;flex-direction:column;";
+    document.body.appendChild(menu);
+
+    const exitBtn = document.createElement("button");
+    exitBtn.textContent = "Exit";
+    exitBtn.style.cssText =
+      "width:100%;padding:14px 20px;background:transparent;color:#fff;border:none;" +
+      "border-bottom:1px solid #444;font-family:inherit;font-size:14px;text-align:left;cursor:pointer;";
+    exitBtn.addEventListener("click", () => window.electronAPI.quit());
+    menu.appendChild(exitBtn);
+
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      menu.style.display = menu.style.display === "flex" ? "none" : "flex";
+    });
+    document.addEventListener("click", () => {
+      menu.style.display = "none";
     });
   }
 

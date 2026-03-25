@@ -37,7 +37,7 @@ export class SensorGraphTab extends TabBase {
   }
 
   activate(): void {
-    if (!this.uplot) this.initPlot();
+    if (!this.uplot) requestAnimationFrame(() => this.initPlot());
   }
 
   deactivate(): void {

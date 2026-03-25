@@ -7,12 +7,15 @@ from typing import Any
 
 import cv2
 import numpy as np
+from rosidl_runtime_py import message_to_ordereddict
 
 
 def msg_to_dict(msg: Any) -> dict[str, Any]:
     """Convert a ROS2 message object to a JSON-serializable dict.
 
     Handles nested messages, arrays, and Image types with JPEG compression.
+    Uses rosidl_runtime_py.message_to_ordereddict for all non-Image messages
+    to ensure correct handling of all ROS2 field types including float64[] arrays.
 
     Args:
         msg: ROS2 message object (rclpy message).
@@ -23,46 +26,7 @@ def msg_to_dict(msg: Any) -> dict[str, Any]:
     msg_type = type(msg).__name__
     if msg_type in ("Image", "CompressedImage"):
         return _serialize_image(msg)
-    return _serialize_generic(msg)
-
-
-def _serialize_generic(msg: Any) -> dict[str, Any]:
-    """Recursively serialize a generic ROS2 message to dict.
-
-    Args:
-        msg: ROS2 message object.
-
-    Returns:
-        dict[str, Any]: Serialized message.
-    """
-    result: dict[str, Any] = {}
-    for field_name in msg.get_fields_and_field_types().keys():
-        value = getattr(msg, field_name)
-        result[field_name] = _serialize_value(value)
-    return result
-
-
-def _serialize_value(value: Any) -> Any:
-    """Serialize a single field value to a JSON-compatible type.
-
-    Args:
-        value: Field value (primitive, array, or nested message).
-
-    Returns:
-        JSON-compatible value.
-    """
-    if isinstance(value, (int, float, bool, str)):
-        return value
-    if isinstance(value, bytes):
-        return base64.b64encode(value).decode("ascii")
-    if isinstance(value, (list, tuple)):
-        return [_serialize_value(v) for v in value]
-    if hasattr(value, "get_fields_and_field_types"):
-        return _serialize_generic(value)
-    # numpy array from sensor data
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    return str(value)
+    return dict(message_to_ordereddict(msg))
 
 
 def _serialize_image(msg: Any) -> dict[str, Any]:

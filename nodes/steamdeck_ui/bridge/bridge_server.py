@@ -144,6 +144,9 @@ def _dict_to_msg(msg: Any, data: dict[str, Any]) -> Any:
             setattr(msg, key, value)
         else:
             try:
+                # Coerce int→float to satisfy ROS2 C extension float64 field assertions
+                if isinstance(value, int) and not isinstance(value, bool):
+                    value = float(value)
                 setattr(msg, key, value)
             except Exception:  # pylint: disable=broad-except
                 pass
