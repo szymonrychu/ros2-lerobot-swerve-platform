@@ -1,0 +1,207 @@
+---
+# steamdeck_ui role: install ROS2, Node.js, bridge deps, Electron app, desktop shortcut
+
+# ── System dependencies ──────────────────────────────────────────────────────
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - python3
+      - python3-pip
+      - python3-venv
+      - ca-certificates
+      - curl
+      - git
+      - gnupg
+    state: present
+    update_cache: true
+  become: true
+
+# ── ROS2 Jazzy ───────────────────────────────────────────────────────────────
+
+- name: Add ROS2 apt key
+  ansible.builtin.shell:
+    cmd: >
+      curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key
+      | gpg --dearmor -o /etc/apt/keyrings/ros-archive-keyring.gpg
+    creates: /etc/apt/keyrings/ros-archive-keyring.gpg
+  become: true
+
+- name: Add ROS2 apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/ros2.list
+    content: |
+      deb [arch=amd64 signed-by=/etc/apt/keyrings/ros-archive-keyring.gpg] https://packages.ros.org/ros2/ubuntu noble main
+    mode: "0644"
+  become: true
+  register: ros2_repo_added
+
+- name: Update apt cache after adding ROS2 repo
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+  when: ros2_repo_added.changed
+
+- name: Install ROS2 Jazzy base and Python bindings
+  ansible.builtin.apt:
+    name:
+      - ros-jazzy-ros-base
+      - python3-rclpy
+      - python3-sensor-msgs
+      - python3-nav-msgs
+      - python3-geometry-msgs
+      - python3-std-msgs
+      - python3-cv-bridge
+    state: present
+  become: true
+
+# ── Python bridge dependencies ────────────────────────────────────────────────
+
+- name: Install Python bridge pip packages
+  ansible.builtin.pip:
+    name:
+      - websockets
+      - pyyaml
+      - pydantic
+      - opencv-python-headless
+    state: present
+    extra_args: --break-system-packages
+  become: true
+
+# ── Node.js ──────────────────────────────────────────────────────────────────
+
+- name: Add NodeSource apt key
+  ansible.builtin.shell:
+    cmd: >
+      curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+      | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+    creates: /etc/apt/keyrings/nodesource.gpg
+  become: true
+
+- name: Add NodeSource apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/nodesource.list
+    content: |
+      deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_{{ nodejs_major_version }}.x nodistro main
+    mode: "0644"
+  become: true
+  register: nodejs_repo_added
+
+- name: Update apt cache after adding NodeSource repo
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+  when: nodejs_repo_added.changed
+
+- name: Install Node.js
+  ansible.builtin.apt:
+    name: nodejs
+    state: present
+  become: true
+
+# ── Electron system dependencies ──────────────────────────────────────────────
+
+- name: Install Electron system dependencies
+  ansible.builtin.apt:
+    name:
+      - libgtk-3-0
+      - libgtk-3-dev
+      - libnss3
+      - libnss3-dev
+      - libatk1.0-0
+      - libatk-bridge2.0-0
+      - libdrm2
+      - libgbm1
+      - libasound2t64
+      - libxss1
+      - libxtst6
+      - xvfb
+    state: present
+  become: true
+
+# ── Repository ───────────────────────────────────────────────────────────────
+
+- name: Ensure repo destination directory exists
+  ansible.builtin.file:
+    path: "{{ ros2_repo_dest }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  become: true
+
+- name: Clone or update platform repo
+  ansible.builtin.git:
+    repo: "{{ ros2_repo_url }}"
+    dest: "{{ ros2_repo_dest }}"
+    version: "{{ ros2_repo_revision }}"
+    force: true
+    update: true
+
+# ── npm install ───────────────────────────────────────────────────────────────
+
+- name: Install Electron app npm dependencies
+  ansible.builtin.command:
+    cmd: npm ci
+    chdir: "{{ steamdeck_ui_app_dir }}"
+  changed_when: true
+
+# ── Config ────────────────────────────────────────────────────────────────────
+
+- name: Ensure steamdeck-ui config directory
+  ansible.builtin.file:
+    path: "{{ steamdeck_ui_config_dir }}"
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  become: true
+
+- name: Deploy steamdeck-ui config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ steamdeck_ui_config_file }}"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+
+# ── /etc/hosts ────────────────────────────────────────────────────────────────
+
+- name: Add ROS2 peer hostnames to /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ item.ip }} {{ item.hostname }}"
+    regexp: "^{{ item.ip }}\\s+{{ item.hostname }}\\s*$"
+    state: present
+  loop: "{{ ros2_hosts_entries }}"
+  when:
+    - ros2_hosts_entries is defined
+    - ros2_hosts_entries | length > 0
+  become: true
+
+# ── Desktop shortcut ──────────────────────────────────────────────────────────
+
+- name: Ensure .local/share/applications directory exists
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.local/share/applications"
+    state: directory
+    mode: "0755"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+  become: true
+
+- name: Install desktop shortcut
+  ansible.builtin.template:
+    src: steamdeck-ui.desktop.j2
+    dest: "/home/{{ ansible_user }}/.local/share/applications/ros2-dashboard.desktop"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0644"
+  become: true
+
+- name: Mark desktop shortcut as trusted (executable)
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.local/share/applications/ros2-dashboard.desktop"
+    mode: "0755"
+  become: true

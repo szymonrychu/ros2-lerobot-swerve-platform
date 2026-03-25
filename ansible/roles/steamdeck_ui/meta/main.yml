@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: szymonri
+  description: SteamDeck Electron UI for ROS2 platform
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+dependencies: []

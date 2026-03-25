@@ -1,0 +1,26 @@
+---
+# steamdeck_ui role defaults
+
+# Path where the UI config is deployed on the SteamDeck
+steamdeck_ui_config_dir: /etc/steamdeck-ui
+steamdeck_ui_config_file: "{{ steamdeck_ui_config_dir }}/config.yaml"
+
+# Path to the repo on the SteamDeck (reuses ros2_repo_dest from all.yml)
+steamdeck_ui_app_dir: "{{ ros2_repo_dest }}/nodes/steamdeck_ui"
+
+# ROS2 setup script path
+ros2_setup_script: /opt/ros/jazzy/setup.bash
+
+# Node.js version to install via NodeSource
+nodejs_major_version: "20"
+
+# ROS2 DDS settings for the bridge process
+steamdeck_ros2_static_peers: "{{ ros2_client_hostname }}"
+steamdeck_ros2_domain_id: "0"
+
+# UI window settings
+steamdeck_ui_width: 1280
+steamdeck_ui_height: 800
+
+# Bridge WebSocket port (local only)
+steamdeck_bridge_port: 9090

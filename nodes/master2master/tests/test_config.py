@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
-
 from master2master.config import (
     ConfigError,
     TopicRule,
@@ -17,6 +15,7 @@ from master2master.config import (
     parse_rule_entry,
     validate_relay_rules,
 )
+from pydantic import ValidationError
 
 # ---------------------------------------------------------------------------
 # normalize_topic

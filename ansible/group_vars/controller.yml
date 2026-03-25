@@ -1,0 +1,21 @@
+---
+# Controller — SteamDeck: Electron UI, Python ROS2 bridge, no Docker
+hostname: controller-steamdeck
+network_address: "192.168.1.35/24"
+network_gateway: "192.168.1.1"
+primary_dns_server: "192.168.1.1"
+secondary_dns_server: "1.1.1.1"
+network_nameservers:
+  - "{{ primary_dns_server }}"
+  - "{{ secondary_dns_server }}"
+
+# Always extend /etc/hosts on the SteamDeck so ROS2 hostnames resolve
+ros2_extend_etc_hosts: true
+
+# ROS2 DDS settings for the bridge process (connects to client RPi only)
+steamdeck_ros2_static_peers: "{{ ros2_client_hostname }}"
+steamdeck_ros2_domain_id: "0"
+
+# SteamDeck resolution (native display)
+steamdeck_ui_width: 1280
+steamdeck_ui_height: 800

@@ -1,0 +1,108 @@
+---
+# SteamDeck UI configuration — managed by Ansible, do not edit manually
+bridge:
+  host: localhost
+  port: {{ steamdeck_bridge_port }}
+  ros_static_peers: "{{ steamdeck_ros2_static_peers }}"
+  ros_domain_id: {{ steamdeck_ros2_domain_id }}
+
+tabs:
+{% if steamdeck_ui_tabs is defined %}
+{{ steamdeck_ui_tabs | to_nice_yaml(indent=2) | indent(2, first=true) }}
+{% else %}
+  - id: gripper_camera
+    type: camera
+    label: "Gripper Cam"
+    topic: /controller/camera_0/image_raw
+
+  - id: imu_graphs
+    type: sensor_graph
+    label: "IMU"
+    topics:
+      - topic: /controller/imu/data
+        fields:
+          - path: "linear_acceleration.x"
+            label: "Accel X"
+            color: "#333333"
+          - path: "linear_acceleration.y"
+            label: "Accel Y"
+            color: "#666666"
+          - path: "linear_acceleration.z"
+            label: "Accel Z"
+            color: "#999999"
+          - path: "angular_velocity.z"
+            label: "Gyro Z"
+            color: "#cccccc"
+    window_s: 10
+    max_points: 500
+
+  - id: arm_servos
+    type: effector_graph
+    label: "Arm Servos"
+    topics:
+      - topic: /controller/follower/joint_states
+        fields:
+          - path: "position[0]"
+            label: "Joint 1"
+            color: "#111111"
+          - path: "position[1]"
+            label: "Joint 2"
+            color: "#333333"
+          - path: "position[2]"
+            label: "Joint 3"
+            color: "#555555"
+          - path: "position[3]"
+            label: "Joint 4"
+            color: "#777777"
+          - path: "position[4]"
+            label: "Joint 5"
+            color: "#999999"
+          - path: "position[5]"
+            label: "Joint 6"
+            color: "#bbbbbb"
+    window_s: 10
+    max_points: 500
+
+  - id: local_nav
+    type: nav_local
+    label: "Local Map"
+    scan_topic: /controller/scan
+    costmap_topic: /controller/local_costmap
+    odom_topic: /controller/odom
+    goal_topic: /controller/goal_pose
+
+  - id: gps_nav
+    type: nav_gps
+    label: "GPS Map"
+    fix_topic: /controller/gps/fix
+    goal_topic: /controller/goal_pose
+    tile_url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+    default_zoom: 18
+{% endif %}
+
+overlays:
+{% if steamdeck_ui_overlays is defined %}
+{{ steamdeck_ui_overlays | to_nice_yaml(indent=2) | indent(2, first=true) }}
+{% else %}
+  - topic: /controller/gps/fix
+    field: "latitude"
+    label: "Lat"
+    format: ".6f"
+  - topic: /controller/gps/fix
+    field: "longitude"
+    label: "Lon"
+    format: ".6f"
+  - topic: /controller/odom
+    field: "twist.twist.linear.x"
+    label: "Vel"
+    format: ".2f"
+    unit: "m/s"
+  - topic: /controller/swerve_drive/joint_states
+    field: "position[1]"
+    label: "FL Steer"
+    format: ".2f"
+  - topic: /controller/swerve_drive/joint_states
+    field: "position[3]"
+    label: "FR Steer"
+    format: ".2f"
+{% endif %}

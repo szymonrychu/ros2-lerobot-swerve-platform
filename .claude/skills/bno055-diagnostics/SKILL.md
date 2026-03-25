@@ -23,6 +23,8 @@ Run `scripts/bno055_diag.sh` for a complete one-command IMU diagnostic. Never SS
 | Section | What to look for |
 |---------|-----------------|
 | Service | `active` = container running. `inactive` = check logs for crash reason. |
+| I2C boot config | Lines from `/boot/firmware/config.txt` — confirms `dtparam=i2c_arm=on` and `dtparam=i2c_arm_baudrate=<N>` are present. Takes effect after power cycle. |
+| I2C runtime config | `clock-frequency: 100000 Hz` = running at 100 kHz (correct for BNO055). Driver should be `i2c_designware_platform` on RPi5. |
 | I2C scan | `BNO055 found at 0x28` (or 0x29). If NOT found, sensor not wired or not powered. |
 | IMU logs | `warm-up complete` = sensor ready. `warm-up timed out` = I2C unreliable. `consecutive failures` = persistent I2C errors triggering reconnect. |
 | Topic scraper | Non-zero accel/gyro + `orientation_covariance[0] != -1` = sensor calibrated and publishing. |
@@ -40,6 +42,9 @@ Run `scripts/bno055_diag.sh` for a complete one-command IMU diagnostic. Never SS
 | All accel/gyro zero in scraper | Data valid but all readings zero | Check sensor not on perfectly flat surface; verify it's not publishing placeholder data |
 | No topic_scraper data | `topic_scraper_api` not running or wrong port | Check `ros2-topic_scraper_api` service on client; default port 18100 |
 | `i2cdetect unavailable` | `i2c-tools` not installed on client | `sudo apt install i2c-tools` on client RPi |
+| Boot config shows `400000` but runtime shows `400000 Hz` | Baudrate was 400 kHz before power cycle | Verify Ansible `rpi_i2c_baudrate` is `100000`, re-run `optimize.yml`, power-cycle RPi |
+| Runtime `clock-frequency` not 100000 | Boot config change not yet active | Power-cycle RPi (not just reboot) so RP1 chip resets |
+| Driver not `i2c_designware_platform` | Unexpected I2C driver loaded | Check `/boot/firmware/config.txt` for conflicting overlays |
 
 ## Service and Node Details
 

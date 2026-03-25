@@ -1,0 +1,8 @@
+---
+# Deploy/update SteamDeck UI: pull latest repo, reinstall npm deps, redeploy config
+# Run: ansible-playbook -i inventory playbooks/deploy_steamdeck_ui.yml -l controller
+- name: Deploy SteamDeck UI
+  hosts: controller
+  become: true
+  roles:
+    - steamdeck_ui

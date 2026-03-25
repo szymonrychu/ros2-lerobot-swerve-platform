@@ -1,0 +1,10 @@
+---
+# Provision SteamDeck controller: base packages, hostname, ROS2, Node.js, Electron UI
+# Run: ansible-playbook -i inventory playbooks/controller.yml -l controller
+- name: Provision SteamDeck controller
+  hosts: controller
+  become: true
+  roles:
+    - role: hostname
+      when: hostname is defined and hostname | length > 0
+    - steamdeck_ui
