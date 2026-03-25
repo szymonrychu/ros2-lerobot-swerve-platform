@@ -337,7 +337,7 @@ ros2_nodes:
   - name: gripper_uvc_camera
     node_type: uvc_camera
     present: true
-    enabled: false
+    enabled: true
     extra_args: >-
       --network host
       --ipc host
