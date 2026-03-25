@@ -28,7 +28,7 @@ ros2_node_type_defaults:
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-      - ROS_STATIC_PEERS={{ ros2_server_hostname }}
+      - ROS_STATIC_PEERS={{ ros2_server_hostname }};{{ ros2_controller_hostname }}
       - MASTER2MASTER_CONFIG=/etc/ros2/master2master/config.yaml
       # ROS2_SERVER_HOST passed per-node below so master2master can connect to Server's ROS2 master
   feetech_servos:
@@ -167,6 +167,44 @@ ros2_nodes:
           dest: /leader/set_register
           direction: out
           type: String
+        # Controller-bound: relay client topics to /controller/* namespace (SteamDeck UI)
+        - source: /imu/data
+          dest: /controller/imu/data
+          direction: out
+          type: Imu
+        - source: /follower/joint_states
+          dest: /controller/follower/joint_states
+          direction: out
+          type: JointState
+        - source: /swerve_drive/joint_states
+          dest: /controller/swerve_drive/joint_states
+          direction: out
+          type: JointState
+        - source: /client/gps/fix
+          dest: /controller/gps/fix
+          direction: out
+          type: NavSatFix
+        - source: /scan
+          dest: /controller/scan
+          direction: out
+          type: LaserScan
+        - source: /local_costmap/costmap
+          dest: /controller/local_costmap
+          direction: out
+          type: OccupancyGrid
+        - source: /odom
+          dest: /controller/odom
+          direction: out
+          type: Odometry
+        - source: /camera_0/image_raw
+          dest: /controller/camera_0/image_raw
+          direction: out
+          type: Image
+        # Controller-originated: relay SteamDeck commands into client ROS2 graph
+        - source: /controller/goal_pose
+          dest: /goal_pose
+          direction: in
+          type: PoseStamped
   - name: filter_node
     node_type: filter_node
     present: true

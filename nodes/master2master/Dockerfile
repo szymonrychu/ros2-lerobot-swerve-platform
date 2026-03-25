@@ -6,6 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-numpy \
     python3-pip \
     python3-venv \
+    ros-jazzy-geometry-msgs \
+    ros-jazzy-nav-msgs \
     ros-jazzy-rclpy \
     ros-jazzy-sensor-msgs \
     && rm -rf /var/lib/apt/lists/*

@@ -11,7 +11,19 @@ from pydantic import ValidationError as PydanticValidationError
 from pydantic import field_validator
 
 SUPPORTED_DIRECTIONS = ("in", "out")
-SUPPORTED_MSG_TYPES = ("string", "jointstate")
+SUPPORTED_MSG_TYPES = (
+    "string",
+    "jointstate",
+    "imu",
+    "navsatfix",
+    "laserscan",
+    "occupancygrid",
+    "odometry",
+    "posestamped",
+    "image",
+    "compressedimage",
+    "twist",
+)
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/master2master/config.yaml")
 
 

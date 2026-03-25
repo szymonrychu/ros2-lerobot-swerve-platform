@@ -4,10 +4,12 @@ import signal
 from typing import Any, Callable
 
 import rclpy
+from geometry_msgs.msg import PoseStamped, Twist
+from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
 from std_msgs.msg import String
 
 from .config import SUPPORTED_MSG_TYPES, TopicRule, validate_relay_rules
@@ -21,6 +23,15 @@ RELAY_QOS = QoSProfile(
 RELAY_MESSAGE_TYPES: dict[str, type] = {
     "string": String,
     "jointstate": JointState,
+    "imu": Imu,
+    "navsatfix": NavSatFix,
+    "laserscan": LaserScan,
+    "occupancygrid": OccupancyGrid,
+    "odometry": Odometry,
+    "posestamped": PoseStamped,
+    "image": Image,
+    "compressedimage": CompressedImage,
+    "twist": Twist,
 }
 
 

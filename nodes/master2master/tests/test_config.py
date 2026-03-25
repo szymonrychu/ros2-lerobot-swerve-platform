@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
+
 from master2master.config import (
     ConfigError,
     TopicRule,
@@ -15,7 +17,6 @@ from master2master.config import (
     parse_rule_entry,
     validate_relay_rules,
 )
-from pydantic import ValidationError
 
 # ---------------------------------------------------------------------------
 # normalize_topic
@@ -80,6 +81,26 @@ def test_topic_rule_valid_msg_type_jointstate() -> None:
     assert rule.msg_type == "jointstate"
 
 
+@pytest.mark.parametrize(
+    "msg_type",
+    [
+        "imu",
+        "navsatfix",
+        "laserscan",
+        "occupancygrid",
+        "odometry",
+        "posestamped",
+        "image",
+        "compressedimage",
+        "twist",
+    ],
+)
+def test_topic_rule_valid_new_msg_types(msg_type: str) -> None:
+    """TopicRule accepts all newly added msg_types."""
+    rule = TopicRule(source="/a", dest="/b", msg_type=msg_type)
+    assert rule.msg_type == msg_type
+
+
 def test_topic_rule_direction_case_insensitive() -> None:
     """TopicRule normalises direction to lowercase."""
     rule = TopicRule(source="/a", dest="/b", direction="IN")
@@ -101,7 +122,7 @@ def test_topic_rule_invalid_direction_raises() -> None:
 def test_topic_rule_invalid_msg_type_raises() -> None:
     """TopicRule raises ValidationError for unknown msg_type."""
     with pytest.raises(ValidationError):
-        TopicRule(source="/a", dest="/b", msg_type="image")
+        TopicRule(source="/a", dest="/b", msg_type="bogustype")
 
 
 def test_topic_rule_non_string_source_raises() -> None:

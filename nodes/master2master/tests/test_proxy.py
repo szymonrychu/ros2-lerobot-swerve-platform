@@ -7,6 +7,8 @@ import types
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Build minimal rclpy mock before importing proxy so the module-level
 # attributes (RELAY_QOS, RELAY_MESSAGE_TYPES) are resolved against mocks.
@@ -45,6 +47,11 @@ def _make_sensor_msgs_mock() -> types.ModuleType:
     sensor_msgs = types.ModuleType("sensor_msgs")
     msg_mod = types.ModuleType("sensor_msgs.msg")
     msg_mod.JointState = MagicMock(name="JointState")  # type: ignore[attr-defined]
+    msg_mod.Imu = MagicMock(name="Imu")  # type: ignore[attr-defined]
+    msg_mod.NavSatFix = MagicMock(name="NavSatFix")  # type: ignore[attr-defined]
+    msg_mod.LaserScan = MagicMock(name="LaserScan")  # type: ignore[attr-defined]
+    msg_mod.Image = MagicMock(name="Image")  # type: ignore[attr-defined]
+    msg_mod.CompressedImage = MagicMock(name="CompressedImage")  # type: ignore[attr-defined]
     sensor_msgs.msg = msg_mod  # type: ignore[attr-defined]
     return sensor_msgs
 
@@ -58,10 +65,32 @@ def _make_std_msgs_mock() -> types.ModuleType:
     return std_msgs
 
 
+def _make_nav_msgs_mock() -> types.ModuleType:
+    """Return a minimal nav_msgs mock."""
+    nav_msgs = types.ModuleType("nav_msgs")
+    msg_mod = types.ModuleType("nav_msgs.msg")
+    msg_mod.OccupancyGrid = MagicMock(name="OccupancyGrid")  # type: ignore[attr-defined]
+    msg_mod.Odometry = MagicMock(name="Odometry")  # type: ignore[attr-defined]
+    nav_msgs.msg = msg_mod  # type: ignore[attr-defined]
+    return nav_msgs
+
+
+def _make_geometry_msgs_mock() -> types.ModuleType:
+    """Return a minimal geometry_msgs mock."""
+    geometry_msgs = types.ModuleType("geometry_msgs")
+    msg_mod = types.ModuleType("geometry_msgs.msg")
+    msg_mod.PoseStamped = MagicMock(name="PoseStamped")  # type: ignore[attr-defined]
+    msg_mod.Twist = MagicMock(name="Twist")  # type: ignore[attr-defined]
+    geometry_msgs.msg = msg_mod  # type: ignore[attr-defined]
+    return geometry_msgs
+
+
 # Register mocks in sys.modules before any proxy import happens.
 _rclpy_mock = _make_rclpy_mock()
 _sensor_msgs_mock = _make_sensor_msgs_mock()
 _std_msgs_mock = _make_std_msgs_mock()
+_nav_msgs_mock = _make_nav_msgs_mock()
+_geometry_msgs_mock = _make_geometry_msgs_mock()
 
 sys.modules.setdefault("rclpy", _rclpy_mock)
 sys.modules.setdefault("rclpy.node", _rclpy_mock.node)
@@ -71,6 +100,10 @@ sys.modules.setdefault("sensor_msgs", _sensor_msgs_mock)
 sys.modules.setdefault("sensor_msgs.msg", _sensor_msgs_mock.msg)
 sys.modules.setdefault("std_msgs", _std_msgs_mock)
 sys.modules.setdefault("std_msgs.msg", _std_msgs_mock.msg)
+sys.modules.setdefault("nav_msgs", _nav_msgs_mock)
+sys.modules.setdefault("nav_msgs.msg", _nav_msgs_mock.msg)
+sys.modules.setdefault("geometry_msgs", _geometry_msgs_mock)
+sys.modules.setdefault("geometry_msgs.msg", _geometry_msgs_mock.msg)
 
 # Now it is safe to import proxy.
 from master2master.config import TopicRule  # noqa: E402
@@ -182,7 +215,7 @@ def test_get_message_class_unknown_raises() -> None:
     import pytest
 
     with pytest.raises(KeyError):
-        get_message_class("image")
+        get_message_class("bogustype")
 
 
 # ---------------------------------------------------------------------------
@@ -191,10 +224,42 @@ def test_get_message_class_unknown_raises() -> None:
 
 
 def test_get_supported_message_types_contains_expected() -> None:
-    """get_supported_message_types returns a tuple with 'string' and 'jointstate'."""
+    """get_supported_message_types returns a tuple with all expected types."""
     types_tuple = get_supported_message_types()
-    assert "string" in types_tuple
-    assert "jointstate" in types_tuple
+    for expected in (
+        "string",
+        "jointstate",
+        "imu",
+        "navsatfix",
+        "laserscan",
+        "occupancygrid",
+        "odometry",
+        "posestamped",
+        "image",
+        "compressedimage",
+        "twist",
+    ):
+        assert expected in types_tuple
+
+
+@pytest.mark.parametrize(
+    "msg_type,mock_source",
+    [
+        ("imu", lambda: _sensor_msgs_mock.msg.Imu),
+        ("navsatfix", lambda: _sensor_msgs_mock.msg.NavSatFix),
+        ("laserscan", lambda: _sensor_msgs_mock.msg.LaserScan),
+        ("occupancygrid", lambda: _nav_msgs_mock.msg.OccupancyGrid),
+        ("odometry", lambda: _nav_msgs_mock.msg.Odometry),
+        ("posestamped", lambda: _geometry_msgs_mock.msg.PoseStamped),
+        ("image", lambda: _sensor_msgs_mock.msg.Image),
+        ("compressedimage", lambda: _sensor_msgs_mock.msg.CompressedImage),
+        ("twist", lambda: _geometry_msgs_mock.msg.Twist),
+    ],
+)
+def test_get_message_class_new_types(msg_type: str, mock_source: Any) -> None:
+    """get_message_class returns the correct mock for each new msg_type."""
+    cls = get_message_class(msg_type)
+    assert cls is mock_source()
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +353,7 @@ def test_run_all_relays_rejects_unknown_msg_type() -> None:
 
     rule = TopicRule(source="/a", dest="/b", msg_type="string")
     # Force an unsupported type post-construction (bypass Pydantic validation).
-    object.__setattr__(rule, "msg_type", "image")
+    object.__setattr__(rule, "msg_type", "bogustype")
 
     with pytest.raises(KeyError):
         run_all_relays([rule])
