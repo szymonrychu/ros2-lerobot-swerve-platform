@@ -47,11 +47,11 @@
   become: true
   register: ros2_repo_added
 
-- name: Update apt cache after adding ROS2 repo
+- name: Update apt cache (always, ensures ROS2 repo index is fresh)
   ansible.builtin.apt:
     update_cache: true
+    cache_valid_time: 3600
   become: true
-  when: ros2_repo_added.changed
 
 - name: Install ROS2 Jazzy base and Python bindings
   ansible.builtin.apt:
