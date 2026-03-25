@@ -26,6 +26,10 @@ class TestBridgeConfig:
         cfg = BridgeConfig(host="0.0.0.0", port=9091)
         assert cfg.port == 9091
 
+    def test_ros_domain_id_int_coerced_to_str(self) -> None:
+        cfg = BridgeConfig(ros_domain_id=0)  # type: ignore[arg-type]
+        assert cfg.ros_domain_id == "0"
+
 
 class TestTabConfig:
     def test_valid_camera_tab(self) -> None:

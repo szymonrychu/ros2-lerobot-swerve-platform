@@ -21,6 +21,11 @@ class BridgeConfig(BaseModel):
     ros_static_peers: str = "client.ros2.lan"
     ros_domain_id: str = "0"
 
+    @field_validator("ros_domain_id", mode="before")
+    @classmethod
+    def coerce_domain_id(cls, v: object) -> str:
+        return str(v)
+
 
 class OverlayItem(BaseModel):
     """Single overlay display item."""
