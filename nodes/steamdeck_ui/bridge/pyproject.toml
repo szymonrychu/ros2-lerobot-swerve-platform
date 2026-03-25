@@ -1,0 +1,59 @@
+[tool.poetry]
+name = "steamdeck-ui-bridge"
+version = "0.1.0"
+description = "ROS2-to-WebSocket bridge for SteamDeck UI"
+authors = []
+packages = [{ include = "bridge", from = ".." }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyyaml = ">=6.0"
+pydantic = ">=2.0"
+websockets = ">=12.0"
+numpy = ">=1.24"
+opencv-python-headless = ">=4.8"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^9.0.0"
+poethepoet = "^0.42.0"
+flake8 = "^7.0.0"
+black = "^24.0.0"
+isort = "^5.13.0"
+autoflake = "^2.3.1"
+vulture = "^2.11"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+addopts = "-v -rxXs"
+testpaths = ["tests"]
+log_cli = true
+log_cli_level = "INFO"
+
+[tool.black]
+line-length = 120
+
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.flake8]
+max-line-length = 120
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  flake8 bridge_server.py config.py msg_serializer.py
+  black --check bridge_server.py config.py msg_serializer.py
+  isort --check bridge_server.py config.py msg_serializer.py
+  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables bridge_server.py config.py msg_serializer.py
+  vulture bridge_server.py config.py msg_serializer.py --min-confidence 80 --ignore-names cls
+""" }
+lint-fix = { shell = """
+  black bridge_server.py config.py msg_serializer.py
+  isort bridge_server.py config.py msg_serializer.py
+  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables bridge_server.py config.py msg_serializer.py
+""" }
+test = { shell = "pytest tests/ -v" }

@@ -1,0 +1,9 @@
+node_modules/
+src/renderer/bundle.js
+src/renderer/bundle.js.map
+dist/
+bridge/__pycache__/
+bridge/**/__pycache__/
+bridge/.pytest_cache/
+.pytest_cache/
+*.pyc

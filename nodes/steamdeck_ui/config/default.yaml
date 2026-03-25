@@ -1,0 +1,75 @@
+bridge:
+  host: "localhost"
+  port: 9090
+
+tabs:
+  - id: gripper_camera
+    type: camera
+    label: "Gripper Cam"
+    topic: /controller/camera_0/image_raw
+
+  - id: imu_graphs
+    type: sensor_graph
+    label: "IMU"
+    topics:
+      - topic: /controller/imu/data
+        fields:
+          - path: "linear_acceleration.x"
+            label: "Accel X"
+            color: "#333333"
+          - path: "linear_acceleration.y"
+            label: "Accel Y"
+            color: "#666666"
+          - path: "angular_velocity.z"
+            label: "Gyro Z"
+            color: "#999999"
+    window_s: 10
+    max_points: 500
+
+  - id: arm_servos
+    type: effector_graph
+    label: "Arm Servos"
+    topics:
+      - topic: /controller/follower/joint_states
+        fields:
+          - path: "position[0]"
+            label: "Joint 1"
+          - path: "position[5]"
+            label: "Joint 6"
+    window_s: 10
+
+  - id: local_nav
+    type: nav_local
+    label: "Local Map"
+    scan_topic: /controller/scan
+    costmap_topic: /controller/local_costmap
+    odom_topic: /controller/odom
+    goal_topic: /controller/goal_pose
+
+  - id: gps_nav
+    type: nav_gps
+    label: "GPS Map"
+    fix_topic: /controller/gps/fix
+    goal_topic: /controller/goal_pose
+    tile_url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+    default_zoom: 18
+
+overlays:
+  - topic: /controller/gps/fix
+    field: "latitude"
+    label: "Lat"
+    format: ".6f"
+  - topic: /controller/gps/fix
+    field: "longitude"
+    label: "Lon"
+    format: ".6f"
+  - topic: /controller/odom
+    field: "twist.twist.linear.x"
+    label: "Vel"
+    format: ".2f"
+    unit: "m/s"
+  - topic: /controller/swerve_drive/joint_states
+    field: "position[1]"
+    label: "FL Steer"
+    format: ".2f"
+    unit: "rad"

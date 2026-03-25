@@ -4,12 +4,14 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 
 ## Layout
 
-- **`inventory`** — Host groups `server` and `client`. Edit with your hostnames or IPs. `all:vars` can set `ansible_user`, `ansible_python_interpreter`. The default inventory uses hostnames `server.ros2.lan` and `client.ros2.lan`; when running Ansible from a dev machine, add to `/etc/hosts`: `192.168.1.33 server.ros2.lan` and `192.168.1.34 client.ros2.lan`.
+- **`inventory`** — Host groups `server`, `client`, and `controller`. Edit with your hostnames or IPs. `all:vars` can set `ansible_user`, `ansible_python_interpreter`. The default inventory uses hostnames `server.ros2.lan` and `client.ros2.lan`; when running Ansible from a dev machine, add to `/etc/hosts`: `192.168.1.33 server.ros2.lan` and `192.168.1.34 client.ros2.lan`.
 - **`group_vars/`** — `all.yml`, `server.yml`, `client.yml` for group-specific variables.
 - **`site.yml`** — Full site: provision all hosts, then deploy ROS2 nodes on server and client (includes playbooks below). Run `ansible-playbook -i inventory site.yml`.
 - **`playbooks/`**
   - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, Docker (and Compose plugin), and system optimization (debloat + tuning). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
   - **`optimize.yml`** — System optimization only: debloat, performance tuning, resilience. Can be run standalone on all hosts.
+  - **`controller.yml`** — Full provisioning of the SteamDeck: hostname role + steamdeck_ui role. Run once per SteamDeck.
+  - **`deploy_steamdeck_ui.yml`** — Update-only: re-clones repo, re-runs `npm ci`, re-deploys config. Use for UI-only updates without re-provisioning.
   - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build or pull each node’s container, deploy config, install systemd unit, enable/start or disable/stop. Containers are built on each Pi from the cloned repo (no CI/registry by default). Set `node_build_on_controller: true` when you have a registry to build on the controller and pull on nodes.
 - **`roles/`**
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
@@ -20,6 +22,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`ros2_node_verify`** — Runs after all nodes are deployed: waits for services to settle, checks each present+enabled node’s systemd unit is active, waits again, then re-checks (stability). Used by `deploy_nodes_server.yml` and `deploy_nodes_client.yml`. Variables: `ros2_node_verify_settle_seconds` (default 10), `ros2_node_verify_stable_seconds` (default 5).
 
   - **`system_optimize`** — Ubuntu 24.04 debloating, performance tuning, and resilience hardening for Raspberry Pi. See [System optimization](#system-optimization) below.
+  - **`steamdeck_ui`** — Provisions the SteamDeck controller (controller.ros2.lan / 192.168.1.35): installs ROS2 Jazzy base, Node.js 20, Python bridge deps (websockets, pydantic, opencv), Electron system deps, clones the repo, runs `npm ci`, deploys `/etc/steamdeck-ui/config.yaml` (rendered from Jinja2 template), and installs a `.desktop` shortcut.
 
 ## System optimization
 
@@ -282,6 +285,20 @@ Containers get env vars so that:
 - **ansible-lint**: Run from the `ansible/` directory so `roles_path` resolves: `cd ansible && ansible-lint .`. From repo root: `poetry run poe lint-ansible`.
 - **test-ansible**: Lint plus playbook syntax-check for all playbooks: `poetry run poe test-ansible` (runs `ansible-lint .` and `ansible-playbook -i inventory playbooks/<name>.yml --syntax-check` for each playbook).
 - **Config**: `ansible/.ansible-lint` (profile, skip_list, warn_list). Pre-commit runs ansible-lint on staged `ansible/*.yml` files via a local hook that runs from `ansible/`. Install ansible-lint (e.g. `pip install ansible-lint` or `pipx install ansible-lint`) for the hook to work.
+
+## SteamDeck provisioning
+
+The SteamDeck (`controller.ros2.lan`) is provisioned natively — no Docker. It runs as a touch-friendly dashboard for the client RPi.
+
+```bash
+# Full provisioning (first time):
+ansible-playbook -i inventory playbooks/controller.yml -l controller
+
+# Update UI only (after code changes):
+ansible-playbook -i inventory playbooks/deploy_steamdeck_ui.yml -l controller
+```
+
+See [nodes/steamdeck_ui/README.md](../nodes/steamdeck_ui/README.md) for architecture, config schema, and development docs.
 
 ## Running playbooks
 

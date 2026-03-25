@@ -115,6 +115,15 @@
 * **Inventory**: Default `ansible_host` uses hostnames. When running Ansible from a dev machine, add to `/etc/hosts`: `192.168.1.33 server.ros2.lan`, `192.168.1.34 client.ros2.lan`.
 * **ROS2 config**: `ROS_STATIC_PEERS`, `ros2_server_host`, `rtcm_server_host`, and script defaults use hostnames (server.ros2.lan / client.ros2.lan).
 
+## SteamDeck UI (controller)
+
+* **controller.ros2.lan** (192.168.1.35): SteamDeck running Ubuntu 24.04; native Electron app (no Docker). Fullscreen 1280×800, B&W/gray aesthetic.
+* **Communication stack**: master2master on client RPi acts as the controlled gateway (like nginx). Only `/controller/*`-namespaced topics are relayed externally. SteamDeck bridge uses `ROS_STATIC_PEERS=client.ros2.lan` to discover only what master2master publishes. No rosbridge, no topic_scraper_api — pure ROS2 DDS.
+* **Bridge architecture**: Python rclpy process (`bridge/bridge_server.py`) subscribes all config topics via DDS and serves `ws://localhost:9090`. Protocol: `{"type":"topic_data","topic":"...","data":{...}}` inbound; `{"type":"publish","topic":"...","msg_type":"...","data":{...}}` outbound. Image messages are JPEG-compressed (80%) via opencv before WebSocket transport.
+* **Ansible inventory**: `[controller]` group added; provisioned via `playbooks/controller.yml` (hostname role + steamdeck_ui role); update-only via `playbooks/deploy_steamdeck_ui.yml`. `steamdeck_ui` role installs ROS2 Jazzy base, Node.js 20, Python bridge deps, Electron system deps, npm ci, deploys config to `/etc/steamdeck-ui/config.yaml`, desktop shortcut.
+* **master2master extended**: Added 9 new message types: `imu`, `navsatfix`, `laserscan`, `occupancygrid`, `odometry`, `posestamped`, `image`, `compressedimage`, `twist`. Client m2m now relays `/controller/*` namespace (sensors out, goal_pose in). `ROS_STATIC_PEERS` on client: `server.ros2.lan;controller.ros2.lan`.
+* **Future capabilities** (not implemented): SteamDeck controller inputs via node-hid/SDL2 → Twist; SteamDeck internal IMU via /dev/input/iio → Imu for LeRobot arm effector orientation; battery indicator via /sys/class/power_supply; offline OSM tile cache.
+
 ## ROS2 topic publishing
 
 * **No placeholder data**: Only real, valid data from sensors or actual state may be published on ROS2 topics. Do not publish zeroed/coerced/synthetic data when reads fail or are invalid. If valid data is unavailable, skip publishing for that cycle. See CLAUDE.md "No Placeholder Data on Topics".

@@ -1,0 +1,186 @@
+import type { AppConfig, TabConfig } from "../main/config";
+import { TabBase } from "./tabs/tab-base";
+import { CameraTab } from "./tabs/camera-tab";
+import { SensorGraphTab } from "./tabs/sensor-graph-tab";
+import { EffectorGraphTab } from "./tabs/effector-graph-tab";
+import { NavLocalTab } from "./tabs/nav-local-tab";
+import { NavGpsTab } from "./tabs/nav-gps-tab";
+import { OverlayManager } from "./overlays/overlay-manager";
+
+const RECONNECT_INTERVAL_MS = 3000;
+
+interface BridgeMessage {
+  type: "topic_data";
+  topic: string;
+  data: Record<string, unknown>;
+}
+
+interface PublishRequest {
+  type: "publish";
+  topic: string;
+  msg_type: string;
+  data: Record<string, unknown>;
+}
+
+class App {
+  private config!: AppConfig;
+  private tabs: TabBase[] = [];
+  private activeTabId: string | null = null;
+  private ws: WebSocket | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private topicToTabs: Map<string, TabBase[]> = new Map();
+  private overlayManager: OverlayManager | null = null;
+  private statusDot!: HTMLElement;
+
+  async init(): Promise<void> {
+    this.config = await window.electronAPI.getConfig();
+    this.buildUI();
+    this.connect();
+  }
+
+  private buildUI(): void {
+    const tabBar = document.getElementById("tab-bar") as HTMLElement;
+    const content = document.getElementById("tab-content") as HTMLElement;
+    const overlayBar = document.getElementById("overlay-bar") as HTMLElement;
+
+    // Status dot
+    this.statusDot = document.createElement("div");
+    this.statusDot.id = "status-dot";
+    tabBar.appendChild(this.statusDot);
+
+    // Build tabs
+    for (const tabCfg of this.config.tabs) {
+      const tab = this.createTab(tabCfg);
+      if (!tab) continue;
+      this.tabs.push(tab);
+
+      // Register topic -> tab mapping
+      for (const topic of tab.getTopics()) {
+        const existing = this.topicToTabs.get(topic) ?? [];
+        existing.push(tab);
+        this.topicToTabs.set(topic, existing);
+      }
+
+      content.appendChild(tab.getPanel());
+    }
+
+    // Tab buttons — prepend before status dot
+    for (const tab of this.tabs) {
+      const btn = document.createElement("button");
+      btn.className = "tab-btn";
+      btn.textContent = tab.label;
+      btn.dataset.tabId = tab.id;
+      btn.addEventListener("click", () => this.activateTab(tab.id));
+      tabBar.insertBefore(btn, this.statusDot);
+    }
+
+    // Overlays
+    this.overlayManager = new OverlayManager(overlayBar, this.config.overlays);
+    for (const topic of this.overlayManager.getTopics()) {
+      // overlays also subscribe via the same topicToTabs mechanism (re-use a sentinel)
+      const existing = this.topicToTabs.get(topic) ?? [];
+      this.topicToTabs.set(topic, existing); // ensure key exists for subscription
+    }
+
+    // Activate first tab
+    if (this.tabs.length > 0) this.activateTab(this.tabs[0].id);
+
+    // Listen for publish requests from tabs
+    document.addEventListener("ros-publish", (e: Event) => {
+      const detail = (e as CustomEvent<PublishRequest["data"]>).detail as PublishRequest;
+      this.send({ type: "publish", topic: detail.topic, msg_type: detail.msg_type, data: detail.data });
+    });
+  }
+
+  private createTab(cfg: TabConfig): TabBase | null {
+    switch (cfg.type) {
+      case "camera": return new CameraTab(cfg);
+      case "sensor_graph": return new SensorGraphTab(cfg);
+      case "effector_graph": return new EffectorGraphTab(cfg);
+      case "nav_local": return new NavLocalTab(cfg);
+      case "nav_gps": return new NavGpsTab(cfg);
+      default: console.warn("Unknown tab type:", cfg.type); return null;
+    }
+  }
+
+  private activateTab(id: string): void {
+    if (this.activeTabId) {
+      const prev = this.tabs.find((t) => t.id === this.activeTabId);
+      prev?.deactivate();
+      prev?.getPanel().classList.remove("active");
+    }
+    const tab = this.tabs.find((t) => t.id === id);
+    if (!tab) return;
+    this.activeTabId = id;
+    tab.getPanel().classList.add("active");
+    tab.activate();
+
+    // Update button states
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      const el = btn as HTMLElement;
+      el.classList.toggle("active", el.dataset.tabId === id);
+    });
+  }
+
+  private connect(): void {
+    const { host, port } = this.config.bridge;
+    const url = `ws://${host}:${port}`;
+    this.ws = new WebSocket(url);
+
+    this.ws.onopen = () => {
+      this.setStatus("connected");
+      // Subscribe to all needed topics
+      const topics = [...this.topicToTabs.keys()];
+      if (this.overlayManager) {
+        for (const t of this.overlayManager.getTopics()) {
+          if (!topics.includes(t)) topics.push(t);
+        }
+      }
+      this.send({ type: "subscribe", topics } as unknown as PublishRequest);
+    };
+
+    this.ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data as string) as BridgeMessage;
+        if (msg.type === "topic_data") this.dispatchMessage(msg.topic, msg.data);
+      } catch { /* ignore parse errors */ }
+    };
+
+    this.ws.onclose = () => {
+      this.setStatus("error");
+      this.scheduleReconnect();
+    };
+
+    this.ws.onerror = () => {
+      this.setStatus("error");
+    };
+  }
+
+  private dispatchMessage(topic: string, data: Record<string, unknown>): void {
+    const tabs = this.topicToTabs.get(topic) ?? [];
+    for (const tab of tabs) tab.onMessage(topic, data);
+    this.overlayManager?.onMessage(topic, data);
+  }
+
+  private send(msg: PublishRequest | Record<string, unknown>): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(msg));
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, RECONNECT_INTERVAL_MS);
+  }
+
+  private setStatus(state: "connected" | "error"): void {
+    this.statusDot.className = state;
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  new App().init().catch(console.error);
+});
