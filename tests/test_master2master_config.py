@@ -81,7 +81,7 @@ def test_load_config_from_dict_invalid_direction_raises() -> None:
 def test_load_config_from_dict_invalid_type_raises() -> None:
     """Invalid type raises ConfigError."""
     with pytest.raises(ConfigError, match="type must be one of"):
-        load_config_from_dict({"topics": [{"source": "/a", "type": "Image"}]})
+        load_config_from_dict({"topics": [{"source": "/a", "type": "bogustype"}]})
 
 
 def test_load_config_from_dict_topics_not_list_raises() -> None:
