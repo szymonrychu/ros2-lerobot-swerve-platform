@@ -53,15 +53,22 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
 class BridgeNode(Node):
     """ROS2 node that subscribes to configured topics and fans out to WebSocket clients."""
 
-    def __init__(self, topics: list[str], queue: asyncio.Queue[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        topics: list[str],
+        queue: asyncio.Queue[dict[str, Any]],
+        loop: asyncio.AbstractEventLoop,
+    ) -> None:
         """Initialise BridgeNode with topic list and asyncio queue.
 
         Args:
             topics: List of ROS2 topic strings to subscribe to.
             queue: asyncio queue for passing serialized messages to WebSocket server.
+            loop: The running asyncio event loop (needed for thread-safe queue writes).
         """
         super().__init__("steamdeck_ui_bridge")
         self.queue = queue
+        self.loop = loop
         self.publishers_: dict[str, Any] = {}
         for topic in topics:
             msg_cls = TOPIC_TYPE_HINTS.get(topic)
@@ -74,6 +81,9 @@ class BridgeNode(Node):
     def _make_callback(self, topic: str) -> Any:
         """Return a ROS2 subscription callback that serializes and enqueues messages.
 
+        ROS2 callbacks run in a worker thread; asyncio Queue.put_nowait must be
+        called via loop.call_soon_threadsafe so the event loop wakes up waiters.
+
         Args:
             topic: Topic name for the closure.
 
@@ -85,9 +95,17 @@ class BridgeNode(Node):
             try:
                 data = msg_to_dict(msg)
                 envelope = {"type": "topic_data", "topic": topic, "data": data}
-                self.queue.put_nowait(envelope)
             except Exception as exc:  # pylint: disable=broad-except
                 self.get_logger().warning(f"Serialize error on {topic}: {exc}")
+                return
+
+            def _put() -> None:
+                try:
+                    self.queue.put_nowait(envelope)
+                except asyncio.QueueFull:
+                    pass  # drop oldest-strategy: silently drop when no consumer
+
+            self.loop.call_soon_threadsafe(_put)
 
         return callback
 
@@ -206,7 +224,8 @@ async def run_bridge(config: AppConfig) -> None:
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=200)
 
     rclpy.init()
-    node = BridgeNode(topics, queue)
+    loop = asyncio.get_event_loop()
+    node = BridgeNode(topics, queue, loop)
 
     for topic in publish_topics:
         # We need to know the msg_type; use hints
@@ -216,8 +235,6 @@ async def run_bridge(config: AppConfig) -> None:
 
     executor = MultiThreadedExecutor()
     executor.add_node(node)
-
-    loop = asyncio.get_event_loop()
 
     def spin_ros() -> None:
         while rclpy.ok():
