@@ -36,6 +36,18 @@
   become: true
   register: ros2_repo_added
 
+# packages.ros.org has a TLS cert with CN=*.osuosl.org which does not match
+# the hostname — this is a server-side misconfiguration. Work around it by
+# disabling peer verification only for that host.
+- name: Configure apt to skip TLS verify for packages.ros.org (cert CN mismatch)
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/99ros-tls-workaround
+    content: |
+      Acquire::https::packages.ros.org::Verify-Peer "false";
+      Acquire::https::packages.ros.org::Verify-Host "false";
+    mode: "0644"
+  become: true
+
 - name: Update apt cache after adding ROS2 repo
   ansible.builtin.apt:
     update_cache: true
