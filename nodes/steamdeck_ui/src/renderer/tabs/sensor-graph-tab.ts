@@ -60,9 +60,10 @@ export class SensorGraphTab extends TabBase {
   }
 
   private initPlot(): void {
-    const rect = this.container.getBoundingClientRect();
-    const w = rect.width > 0 ? rect.width : 1200;
-    const h = rect.height > 0 ? rect.height - 32 : 600;
+    // Measure #tab-content — it always has a definite size from the app flex layout
+    const tabContent = document.getElementById("tab-content");
+    const w = tabContent ? tabContent.clientWidth - 32 : 1248;
+    const h = tabContent ? tabContent.clientHeight - 56 : 640; // 32px padding + ~24px legend
 
     const now = Date.now() / 1000;
     const emptyData: number[][] = [
