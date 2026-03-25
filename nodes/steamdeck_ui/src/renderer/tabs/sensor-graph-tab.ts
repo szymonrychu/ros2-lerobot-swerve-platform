@@ -67,7 +67,7 @@ export class SensorGraphTab extends TabBase {
       // Subtract padding (32) + legend rows (~20px each)
       const legendH = this.seriesData.length * 20 + 8;
       const h = (tabContent ? tabContent.clientHeight : 696) - 32 - legendH;
-      console.log(`[graph] initPlot id=${this.config.id} w=${w} h=${h} legendH=${legendH}`);
+      console.log(`[graph] initPlot id=${this.id} w=${w} h=${h} legendH=${legendH}`);
 
       const now = Date.now() / 1000;
       const emptyData: number[][] = [
