@@ -1,6 +1,10 @@
 #!/bin/bash
 # Start the SteamDeck UI: Python rclpy bridge + Electron app
-set -euo pipefail
+
+# Redirect all output to a log file (GUI launcher has no terminal)
+LOG_FILE="/tmp/steamdeck-ui.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "[start.sh] Starting at $(date)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="${STEAMDECK_UI_CONFIG:-/etc/steamdeck-ui/config.yaml}"
@@ -10,7 +14,14 @@ if [[ ! -f "$CONFIG" ]]; then
   CONFIG="$SCRIPT_DIR/config/default.yaml"
 fi
 
+# Ensure Node.js is on PATH (GUI sessions may have a stripped PATH)
+export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+
+# Source ROS2 — must disable nounset (-u) as setup.bash uses unbound vars
+set +u
+# shellcheck disable=SC1091
 source /opt/ros/jazzy/setup.bash
+set -u
 export ROS_LOCALHOST_ONLY=0
 export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
 export ROS_STATIC_PEERS="${ROS_STATIC_PEERS:-client.ros2.lan}"
@@ -35,7 +46,7 @@ trap "kill $BRIDGE_PID 2>/dev/null || true" EXIT
 BRIDGE_PORT="${STEAMDECK_UI_BRIDGE_PORT:-9090}"
 echo "[start.sh] Waiting for bridge on port $BRIDGE_PORT..."
 for i in $(seq 1 20); do
-  if python3 -c "import socket; s=socket.socket(); s.settimeout(0.5); s.connect(('localhost', $BRIDGE_PORT)); s.close()" 2>/dev/null; then
+  if "$PYTHON" -c "import socket; s=socket.socket(); s.settimeout(0.5); s.connect(('localhost', $BRIDGE_PORT)); s.close()" 2>/dev/null; then
     echo "[start.sh] Bridge ready"
     break
   fi
