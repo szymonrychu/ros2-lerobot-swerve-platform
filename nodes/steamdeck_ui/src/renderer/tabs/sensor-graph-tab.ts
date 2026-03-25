@@ -60,42 +60,52 @@ export class SensorGraphTab extends TabBase {
   }
 
   private initPlot(): void {
-    // Measure #tab-content — it always has a definite size from the app flex layout
-    const tabContent = document.getElementById("tab-content");
-    const w = tabContent ? tabContent.clientWidth - 32 : 1248;
-    const h = tabContent ? tabContent.clientHeight - 56 : 640; // 32px padding + ~24px legend
-    console.log(`[graph] initPlot id=${this.config.id} tabContent=${tabContent?.clientWidth}x${tabContent?.clientHeight} plot=${w}x${h}`);
+    try {
+      // Measure #tab-content — it always has a definite size from the app flex layout
+      const tabContent = document.getElementById("tab-content");
+      const w = tabContent ? tabContent.clientWidth - 32 : 1248;
+      // Subtract padding (32) + legend rows (~20px each)
+      const legendH = this.seriesData.length * 20 + 8;
+      const h = (tabContent ? tabContent.clientHeight : 696) - 32 - legendH;
+      console.log(`[graph] initPlot id=${this.config.id} w=${w} h=${h} legendH=${legendH}`);
 
-    const now = Date.now() / 1000;
-    const emptyData: number[][] = [
-      [now - this.windowS, now],
-      ...this.seriesData.map(() => [0, 0]),
-    ];
+      const now = Date.now() / 1000;
+      const emptyData: number[][] = [
+        [now - this.windowS, now],
+        ...this.seriesData.map(() => [0, 0]),
+      ];
 
-    const opts: uPlot.Options = {
-      width: w,
-      height: h,
-      series: this.buildSeriesDefs(),
-      axes: [
-        {
-          stroke: "#444444",
-          grid: { stroke: "#eeeeee" },
-          ticks: { stroke: "#dddddd" },
-          values: (_u, ticks) => ticks.map((t) => `${Math.round(t * 10) / 10}s`),
-        },
-        {
-          stroke: "#444444",
-          grid: { stroke: "#eeeeee" },
-          ticks: { stroke: "#dddddd" },
-        },
-      ],
-      scales: { x: { time: false } },
-      cursor: { show: false },
-      select: { show: false },
-      legend: { show: true },
-    };
+      const opts: uPlot.Options = {
+        width: w,
+        height: h,
+        series: this.buildSeriesDefs(),
+        axes: [
+          {
+            stroke: "#444444",
+            grid: { stroke: "#eeeeee" },
+            ticks: { stroke: "#dddddd" },
+            values: (_u, ticks) => ticks.map((t) => `${Math.round(t * 10) / 10}s`),
+          },
+          {
+            stroke: "#444444",
+            grid: { stroke: "#eeeeee" },
+            ticks: { stroke: "#dddddd" },
+          },
+        ],
+        scales: { x: { time: false } },
+        cursor: { show: false },
+        select: { show: false },
+        legend: { show: true },
+      };
 
-    this.uplot = new uPlot(opts, emptyData as uPlot.AlignedData, this.container);
+      this.uplot = new uPlot(opts, emptyData as uPlot.AlignedData, this.container);
+    } catch (err) {
+      console.error("[graph] initPlot failed:", err);
+      const msg = document.createElement("div");
+      msg.style.cssText = "color:#c00;padding:16px;font-size:12px;";
+      msg.textContent = `Graph init error: ${err}`;
+      this.container.appendChild(msg);
+    }
   }
 
   onMessage(topic: string, data: Record<string, unknown>): void {
