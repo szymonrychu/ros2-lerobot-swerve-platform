@@ -156,17 +156,11 @@
 
 # ── npm install ───────────────────────────────────────────────────────────────
 
-- name: Fix ownership of steamdeck_ui build artifacts (node_modules, dist)
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    recurse: true
-    owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-  loop:
-    - "{{ steamdeck_ui_app_dir }}/node_modules"
-    - "{{ steamdeck_ui_app_dir }}/dist"
+- name: Fix ownership of steamdeck_ui build artifacts (node_modules, dist, bundle.js)
+  ansible.builtin.command:
+    cmd: "chown -R {{ ansible_user }}:{{ ansible_user }} {{ steamdeck_ui_app_dir }}/node_modules {{ steamdeck_ui_app_dir }}/dist {{ steamdeck_ui_app_dir }}/src"
   become: true
+  changed_when: false
   failed_when: false
 
 - name: Install Electron app npm dependencies
