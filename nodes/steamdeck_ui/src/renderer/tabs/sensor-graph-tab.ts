@@ -64,6 +64,7 @@ export class SensorGraphTab extends TabBase {
     const tabContent = document.getElementById("tab-content");
     const w = tabContent ? tabContent.clientWidth - 32 : 1248;
     const h = tabContent ? tabContent.clientHeight - 56 : 640; // 32px padding + ~24px legend
+    console.log(`[graph] initPlot id=${this.config.id} tabContent=${tabContent?.clientWidth}x${tabContent?.clientHeight} plot=${w}x${h}`);
 
     const now = Date.now() / 1000;
     const emptyData: number[][] = [
