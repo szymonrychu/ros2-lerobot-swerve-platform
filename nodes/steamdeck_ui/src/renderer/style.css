@@ -95,6 +95,7 @@ html, body {
 
 #status-dot.connected { background: #444444; }
 #status-dot.error { background: #555555; }
+#status-dot.stale { background: orange; }
 
 /* ── Tab content ─────────────────────────────────────────────────────── */
 

@@ -7,7 +7,8 @@ import { NavLocalTab } from "./tabs/nav-local-tab";
 import { NavGpsTab } from "./tabs/nav-gps-tab";
 import { OverlayManager } from "./overlays/overlay-manager";
 
-const RECONNECT_INTERVAL_MS = 3000;
+const BASE_RECONNECT_MS = 1000;
+const MAX_RECONNECT_MS = 10000;
 const DEBUG = new URLSearchParams(window.location.search).has("debug")
   || !!(window as unknown as Record<string, unknown>).__STEAMDECK_DEBUG__;
 
@@ -30,6 +31,8 @@ class App {
   private activeTabId: string | null = null;
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectDelayMs = BASE_RECONNECT_MS;
+  private lastHeartbeatMs = Date.now();
   private topicToTabs: Map<string, TabBase[]> = new Map();
   private overlayManager: OverlayManager | null = null;
   private statusDot!: HTMLElement;
@@ -166,6 +169,8 @@ class App {
 
     this.ws.onopen = () => {
       console.log(`[bridge] connected to ${url}`);
+      this.reconnectDelayMs = BASE_RECONNECT_MS;
+      this.lastHeartbeatMs = Date.now();
       this.setStatus("connected");
       // Subscribe to all needed topics
       const topics = [...this.topicToTabs.keys()];
@@ -179,7 +184,11 @@ class App {
 
     this.ws.onmessage = (ev) => {
       try {
-        const msg = JSON.parse(ev.data as string) as BridgeMessage;
+        const msg = JSON.parse(ev.data as string) as BridgeMessage & { type: string; ts?: number };
+        if (msg.type === "heartbeat") {
+          this.lastHeartbeatMs = Date.now();
+          return;
+        }
         if (msg.type === "topic_data") {
           if (DEBUG) {
             console.log(`[bridge ${new Date().toISOString()}] ${msg.topic} (${(ev.data as string).length} bytes)`);
@@ -188,6 +197,10 @@ class App {
         }
       } catch { /* ignore parse errors */ }
     };
+
+    setInterval(() => {
+      if (Date.now() - this.lastHeartbeatMs > 10000) this.setStatus("stale");
+    }, 3000);
 
     this.ws.onclose = () => {
       console.log("[bridge] disconnected, reconnecting...");
@@ -217,10 +230,11 @@ class App {
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, RECONNECT_INTERVAL_MS);
+    }, this.reconnectDelayMs);
+    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, MAX_RECONNECT_MS);
   }
 
-  private setStatus(state: "connected" | "error"): void {
+  private setStatus(state: "connected" | "error" | "stale"): void {
     this.statusDot.className = state;
   }
 }

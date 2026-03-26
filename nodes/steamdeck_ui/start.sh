@@ -40,12 +40,23 @@ if [[ ! -x "$PYTHON" ]]; then
   PYTHON="python3"
 fi
 
-# Start Python bridge in background (run from steamdeck_ui dir so
-# "bridge" is a package and relative imports resolve correctly)
+# Start Python bridge in background with supervised restart loop
+# (run from steamdeck_ui dir so "bridge" is a package and relative imports resolve correctly)
 cd "$SCRIPT_DIR"
-"$PYTHON" -m bridge.bridge_server --config "$CONFIG" --log-level "$LOG_LEVEL" &
-BRIDGE_PID=$!
-trap "kill $BRIDGE_PID 2>/dev/null || true" EXIT
+start_bridge() {
+    local delay=2
+    while true; do
+        echo "[start.sh] Starting bridge..."
+        "$PYTHON" -m bridge.bridge_server --config "$CONFIG" --log-level "$LOG_LEVEL"
+        EXIT_CODE=$?
+        echo "[start.sh] Bridge exited (code $EXIT_CODE), restarting in ${delay}s..."
+        sleep "$delay"
+        [ "$delay" -lt 30 ] && delay=$((delay * 2))
+    done
+}
+start_bridge &
+BRIDGE_SUPERVISOR_PID=$!
+trap "kill $BRIDGE_SUPERVISOR_PID 2>/dev/null; true" EXIT
 
 # Wait for the WebSocket server to become available (max 10s)
 BRIDGE_PORT="${STEAMDECK_UI_BRIDGE_PORT:-9090}"
