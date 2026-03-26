@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
@@ -59,6 +60,9 @@ def run_filter_node(config: FilterConfig) -> None:
     node.create_timer(HEALTH_TIMER_PERIOD_S, health_check)
     node.get_logger().info("Filter node: %s -> %s [%s]" % (config.input_topic, config.output_topic, config.algorithm))
 
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+
     while rclpy.ok():
         if state_by_joint and joint_order:
             now = time.monotonic()
@@ -78,8 +82,7 @@ def run_filter_node(config: FilterConfig) -> None:
                 out.velocity = []
                 out.effort = []
                 pub.publish(out)
-        rclpy.spin_once(node, timeout_sec=0.001)
-        time.sleep(control_period_s)
+        executor.spin_once(timeout_sec=control_period_s)
 
     node.destroy_node()
     rclpy.shutdown()
