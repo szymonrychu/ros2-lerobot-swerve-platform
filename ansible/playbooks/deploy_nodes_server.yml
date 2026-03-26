@@ -50,10 +50,8 @@
         name: ros2_node_deploy
         apply:
           tags:
-            - "{{ item.name }}"
             - deploy
       tags:
-        - "{{ item.name }}"
         - deploy
       vars:
         node_name: "{{ item.name }}"
