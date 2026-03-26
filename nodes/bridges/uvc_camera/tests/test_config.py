@@ -1,7 +1,6 @@
 """Unit tests for UVC camera bridge config (env-based)."""
 
 import pytest
-
 from config import DEFAULT_DEVICE, DEFAULT_FRAME_ID, DEFAULT_TOPIC, get_config
 
 
