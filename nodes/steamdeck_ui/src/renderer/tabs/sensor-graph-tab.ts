@@ -16,6 +16,7 @@ export class SensorGraphTab extends TabBase {
   private seriesData: SeriesPoint[][];
   private allTopics: string[];
   private container: HTMLElement;
+  private redrawTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(config: TabConfig) {
     super(config);
@@ -38,10 +39,16 @@ export class SensorGraphTab extends TabBase {
 
   activate(): void {
     if (!this.uplot) requestAnimationFrame(() => this.initPlot());
+    if (!this.redrawTimer) {
+      this.redrawTimer = setInterval(() => this.redraw(Date.now() / 1000), 100);
+    }
   }
 
   deactivate(): void {
-    // keep the plot alive to preserve data across tab switches
+    if (this.redrawTimer) {
+      clearInterval(this.redrawTimer);
+      this.redrawTimer = null;
+    }
   }
 
   private buildSeriesDefs(): uPlot.Series[] {
@@ -122,7 +129,6 @@ export class SensorGraphTab extends TabBase {
       }
     }
     this.trimData(now);
-    this.redraw(now);
   }
 
   private trimData(now: number): void {
