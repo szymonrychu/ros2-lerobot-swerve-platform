@@ -235,7 +235,7 @@ async def run_bridge(config: AppConfig) -> None:
                             log.warning("broadcaster send error (%s): %s", type(exc).__name__, exc)
                             dead.add(ws)
                             break
-                clients -= dead
+                clients.difference_update(dead)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # pylint: disable=broad-except
