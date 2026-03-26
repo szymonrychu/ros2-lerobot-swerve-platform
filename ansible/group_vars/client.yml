@@ -458,17 +458,29 @@ ros2_nodes:
     enabled: true
     extra_args: --network host --ipc host
     config: |
+      # NOTE: These are estimates - update with actual measured offsets
       parent_frame: base_link
       frames:
         - child: imu_link
           x: 0.0
           y: 0.0
-          z: 0.0
+          z: 0.05
+          roll: 0.0
+          pitch: 0.0
           yaw: 0.0
         - child: laser_frame
-          x: 0.0
+          x: 0.10
           y: 0.0
-          z: 0.0
+          z: 0.12
+          roll: 0.0
+          pitch: 0.0
+          yaw: 0.0
+        - child: camera_link
+          x: 0.10
+          y: 0.0
+          z: 0.08
+          roll: 0.0
+          pitch: 0.0
           yaw: 0.0
   - name: robot_localization_ekf
     node_type: robot_localization_ekf
