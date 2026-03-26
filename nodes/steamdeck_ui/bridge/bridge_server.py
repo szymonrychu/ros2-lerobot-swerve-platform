@@ -218,22 +218,28 @@ async def run_bridge(config: AppConfig) -> None:
 
     async def broadcaster() -> None:
         while True:
-            await asyncio.sleep(BROADCAST_INTERVAL_S)
-            if not clients:
-                continue
-            envelopes = node.flush_dirty()
-            if not envelopes:
-                continue
-            frames = [json.dumps(e) for e in envelopes]
-            dead: set[websockets.server.WebSocketServerProtocol] = set()
-            for ws in list(clients):
-                for frame in frames:
-                    try:
-                        await ws.send(frame)
-                    except websockets.ConnectionClosed:
-                        dead.add(ws)
-                        break
-            clients -= dead
+            try:
+                await asyncio.sleep(BROADCAST_INTERVAL_S)
+                if not clients:
+                    continue
+                envelopes = node.flush_dirty()
+                if not envelopes:
+                    continue
+                frames = [json.dumps(e) for e in envelopes]
+                dead: set[Any] = set()
+                for ws in list(clients):
+                    for frame in frames:
+                        try:
+                            await ws.send(frame)
+                        except Exception as exc:  # pylint: disable=broad-except
+                            log.warning("broadcaster send error (%s): %s", type(exc).__name__, exc)
+                            dead.add(ws)
+                            break
+                clients -= dead
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # pylint: disable=broad-except
+                log.error("broadcaster loop error: %s", exc, exc_info=True)
 
     async def handler(ws: websockets.server.WebSocketServerProtocol) -> None:
         log.info("Client connected: %s", ws.remote_address)
