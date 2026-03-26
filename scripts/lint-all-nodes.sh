@@ -4,7 +4,7 @@
 # Or: poetry run poe lint-nodes
 set -e
 cd "$(dirname "$0")/.."
-for dir in nodes/master2master nodes/bridges/uvc_camera nodes/bridges/feetech_servos nodes/lerobot_teleop nodes/filter_node nodes/test_joint_api nodes/bno055_imu nodes/haptic_controller nodes/topic_scraper_api; do
+for dir in nodes/master2master nodes/bridges/uvc_camera nodes/bridges/feetech_servos nodes/lerobot_teleop nodes/filter_node nodes/test_joint_api nodes/bridges/bno055_imu nodes/haptic_controller nodes/topic_scraper_api; do
   echo "Linting $dir ..."
   (cd "$dir" && poetry install --no-interaction --quiet && poetry run poe lint)
 done

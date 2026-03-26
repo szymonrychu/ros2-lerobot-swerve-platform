@@ -70,7 +70,7 @@ ros2_node_type_defaults:
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   bno055_imu:
     image: harbor.szymonrichert.pl/containers/client-bno055-imu:latest
-    build_context: nodes/bno055_imu
+    build_context: nodes/bridges/bno055_imu
     config_path: /etc/ros2/bno055_imu
     env:
       - ROS_LOCALHOST_ONLY=0

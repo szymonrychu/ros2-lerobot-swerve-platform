@@ -128,9 +128,9 @@ Nav2 reads: /odom or /odometry/filtered, /scan, /imu/data; goal via navigate_to_
 │   ├── filter_node/        Kalman filter for joint commands
 │   ├── test_joint_api/     REST API for joint testing
 │   ├── topic_scraper_api/  Dynamic topic scraper + HTTP API
-│   ├── bno055_imu/         BNO055 IMU bridge
 │   ├── haptic_controller/  Force-feedback (disabled)
 │   └── bridges/
+│       ├── bno055_imu/     BNO055 IMU bridge
 │       ├── feetech_servos/ Feetech servo bridge (leader + follower)
 │       ├── uvc_camera/     UVC camera bridge
 │       └── gps_rtk/        GPS RTK bridge (base + rover)
@@ -201,5 +201,5 @@ See [ansible/README.md](ansible/README.md) for full details on roles, node confi
 | filter_node | [nodes/filter_node/README.md](nodes/filter_node/README.md) |
 | test_joint_api | [nodes/test_joint_api/README.md](nodes/test_joint_api/README.md) |
 | topic_scraper_api | [nodes/topic_scraper_api/README.md](nodes/topic_scraper_api/README.md) |
-| bno055_imu | [nodes/bno055_imu/README.md](nodes/bno055_imu/README.md) |
+| bno055_imu | [nodes/bridges/bno055_imu/README.md](nodes/bridges/bno055_imu/README.md) |
 | haptic_controller | [nodes/haptic_controller/README.md](nodes/haptic_controller/README.md) |

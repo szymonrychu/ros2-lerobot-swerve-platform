@@ -41,7 +41,7 @@ jobs:
         # All nodes below have tests that work without ROS2.
         # Tests that require rclpy/sensor_msgs/etc. use pytest.importorskip and are skipped automatically.
         node:
-          - bno055_imu
+          - bridges/bno055_imu
           - filter_node
           - haptic_controller
           - lerobot_teleop
@@ -131,7 +131,7 @@ jobs:
             tags: harbor.szymonrichert.pl/containers/client-filter-node:latest
           - context: nodes/test_joint_api
             tags: harbor.szymonrichert.pl/containers/client-test-joint-api:latest
-          - context: nodes/bno055_imu
+          - context: nodes/bridges/bno055_imu
             tags: harbor.szymonrichert.pl/containers/client-bno055-imu:latest
           - context: nodes/haptic_controller
             tags: harbor.szymonrichert.pl/containers/client-haptic-controller:latest
