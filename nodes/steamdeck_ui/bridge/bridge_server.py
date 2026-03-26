@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import signal
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -49,26 +50,22 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/controller/goal_pose": PoseStamped,
 }
 
+BROADCAST_INTERVAL_S = 0.05  # 20 Hz
+
 
 class BridgeNode(Node):
-    """ROS2 node that subscribes to configured topics and fans out to WebSocket clients."""
+    """ROS2 node that subscribes to configured topics and stores the latest value per topic."""
 
-    def __init__(
-        self,
-        topics: list[str],
-        queue: asyncio.Queue[dict[str, Any]],
-        loop: asyncio.AbstractEventLoop,
-    ) -> None:
-        """Initialise BridgeNode with topic list and asyncio queue.
+    def __init__(self, topics: list[str]) -> None:
+        """Initialise BridgeNode with topic list.
 
         Args:
             topics: List of ROS2 topic strings to subscribe to.
-            queue: asyncio queue for passing serialized messages to WebSocket server.
-            loop: The running asyncio event loop (needed for thread-safe queue writes).
         """
         super().__init__("steamdeck_ui_bridge")
-        self.queue = queue
-        self.loop = loop
+        self._latest: dict[str, dict[str, Any]] = {}
+        self._dirty: set[str] = set()
+        self._lock = threading.Lock()
         self.publishers_: dict[str, Any] = {}
         for topic in topics:
             msg_cls = TOPIC_TYPE_HINTS.get(topic)
@@ -79,10 +76,10 @@ class BridgeNode(Node):
             self.get_logger().info(f"Subscribed: {topic}")
 
     def _make_callback(self, topic: str) -> Any:
-        """Return a ROS2 subscription callback that serializes and enqueues messages.
+        """Return a ROS2 subscription callback that stores the latest serialized message.
 
-        ROS2 callbacks run in a worker thread; asyncio Queue.put_nowait must be
-        called via loop.call_soon_threadsafe so the event loop wakes up waiters.
+        ROS2 callbacks run in a worker thread. Writing to the latest-value dict is
+        protected by a threading.Lock — no asyncio involvement needed.
 
         Args:
             topic: Topic name for the closure.
@@ -98,16 +95,22 @@ class BridgeNode(Node):
             except Exception as exc:  # pylint: disable=broad-except
                 self.get_logger().warning(f"Serialize error on {topic}: {exc}")
                 return
-
-            def _put() -> None:
-                try:
-                    self.queue.put_nowait(envelope)
-                except asyncio.QueueFull:
-                    pass  # drop oldest-strategy: silently drop when no consumer
-
-            self.loop.call_soon_threadsafe(_put)
+            with self._lock:
+                self._latest[topic] = envelope
+                self._dirty.add(topic)
 
         return callback
+
+    def flush_dirty(self) -> list[dict[str, Any]]:
+        """Return all envelopes that have been updated since the last flush and clear the dirty set.
+
+        Returns:
+            list[dict[str, Any]]: List of envelopes for topics updated since last call.
+        """
+        with self._lock:
+            envelopes = [self._latest[t] for t in self._dirty if t in self._latest]
+            self._dirty.clear()
+        return envelopes
 
     def create_publisher_for(self, topic: str, msg_type_str: str) -> None:
         """Create a ROS2 publisher for outbound commands from the Electron renderer.
@@ -171,64 +174,24 @@ def _dict_to_msg(msg: Any, data: dict[str, Any]) -> Any:
     return msg
 
 
-async def ws_handler(
-    websocket: websockets.server.WebSocketServerProtocol,
-    queue: asyncio.Queue[dict[str, Any]],
-    node: BridgeNode,
-) -> None:
-    """Handle a single WebSocket client connection.
-
-    Listens for messages from Electron (subscribe/publish commands) and
-    sends topic data from the queue.
-
-    Args:
-        websocket: Connected WebSocket client.
-        queue: Shared asyncio queue with serialized ROS2 messages.
-        node: BridgeNode for publishing commands back to ROS2.
-    """
-    log.info("Client connected: %s", websocket.remote_address)
-
-    async def sender() -> None:
-        while True:
-            msg = await queue.get()
-            try:
-                await websocket.send(json.dumps(msg))
-            except websockets.ConnectionClosed:
-                break
-
-    async def receiver() -> None:
-        async for raw in websocket:
-            try:
-                msg = json.loads(raw)
-                if msg.get("type") == "publish":
-                    node.create_publisher_for(msg["topic"], msg.get("msg_type", ""))
-                    node.publish_dict(msg["topic"], msg.get("data", {}))
-            except json.JSONDecodeError:
-                pass
-
-    try:
-        await asyncio.gather(sender(), receiver())
-    except websockets.ConnectionClosed:
-        pass
-    log.info("Client disconnected")
-
-
 async def run_bridge(config: AppConfig) -> None:
     """Run the bridge: start ROS2 node + WebSocket server concurrently.
+
+    Uses a latest-value-per-topic store instead of a FIFO queue so that
+    heavy topics (e.g. camera frames) cannot starve lightweight sensor topics.
+    A periodic broadcaster (20 Hz) flushes all dirty topics to all connected
+    clients in a single serialization pass.
 
     Args:
         config: Validated AppConfig with bridge settings and topic lists.
     """
     topics = config.all_subscribed_topics()
     publish_topics = config.publish_topics()
-    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=200)
 
     rclpy.init()
-    loop = asyncio.get_event_loop()
-    node = BridgeNode(topics, queue, loop)
+    node = BridgeNode(topics)
 
     for topic in publish_topics:
-        # We need to know the msg_type; use hints
         for tab in config.tabs:
             if tab.goal_topic == topic:
                 node.create_publisher_for(topic, "geometry_msgs/PoseStamped")
@@ -245,31 +208,58 @@ async def run_bridge(config: AppConfig) -> None:
     def shutdown_handler(*_: Any) -> None:
         stop_event.set()
 
+    loop = asyncio.get_event_loop()
     loop.add_signal_handler(signal.SIGINT, shutdown_handler)
     loop.add_signal_handler(signal.SIGTERM, shutdown_handler)
 
     ros_task = loop.run_in_executor(None, spin_ros)
 
+    clients: set[websockets.server.WebSocketServerProtocol] = set()
+
+    async def broadcaster() -> None:
+        while True:
+            await asyncio.sleep(BROADCAST_INTERVAL_S)
+            if not clients:
+                continue
+            envelopes = node.flush_dirty()
+            if not envelopes:
+                continue
+            frames = [json.dumps(e) for e in envelopes]
+            dead: set[websockets.server.WebSocketServerProtocol] = set()
+            for ws in list(clients):
+                for frame in frames:
+                    try:
+                        await ws.send(frame)
+                    except websockets.ConnectionClosed:
+                        dead.add(ws)
+                        break
+            clients -= dead
+
     async def handler(ws: websockets.server.WebSocketServerProtocol) -> None:
-        # Each client gets its own per-client queue fan-out
-        client_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
-
-        async def forwarder() -> None:
-            while True:
-                msg = await queue.get()
-                await client_queue.put(msg)
-
-        fwd = asyncio.ensure_future(forwarder())
+        log.info("Client connected: %s", ws.remote_address)
+        clients.add(ws)
         try:
-            await ws_handler(ws, client_queue, node)
+            async for raw in ws:
+                try:
+                    msg = json.loads(raw)
+                    if msg.get("type") == "publish":
+                        node.create_publisher_for(msg["topic"], msg.get("msg_type", ""))
+                        node.publish_dict(msg["topic"], msg.get("data", {}))
+                except json.JSONDecodeError:
+                    pass
+        except websockets.ConnectionClosed:
+            pass
         finally:
-            fwd.cancel()
+            clients.discard(ws)
+            log.info("Client disconnected")
 
     log.info("Bridge WebSocket server starting on %s:%d", config.bridge.host, config.bridge.port)
+    broadcast_task = asyncio.ensure_future(broadcaster())
     async with websockets.serve(handler, config.bridge.host, config.bridge.port):
         await stop_event.wait()
 
     log.info("Shutting down bridge")
+    broadcast_task.cancel()
     ros_task.cancel()
     node.destroy_node()
     rclpy.shutdown()
