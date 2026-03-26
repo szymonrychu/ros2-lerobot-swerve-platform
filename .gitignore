@@ -41,3 +41,4 @@ nodes/steamdeck_ui/src/main/*.js
 nodes/steamdeck_ui/src/main/*.js.map
 nodes/steamdeck_ui/src/main/*.d.ts
 nodes/steamdeck_ui/src/main/*.d.ts.map
+.worktrees/
