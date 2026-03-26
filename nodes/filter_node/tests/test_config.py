@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+
 from filter_node.config import load_config, load_config_from_env
 
 

@@ -17,6 +17,9 @@ FILTER_QOS = QoSProfile(
     depth=10,
 )
 
+INPUT_STALE_WARN_S = 5.0
+HEALTH_TIMER_PERIOD_S = 5.0
+
 
 def run_filter_node(config: FilterConfig) -> None:
     """Run the filter node: subscribe input_topic, publish filtered output_topic at control_loop_hz."""
@@ -30,9 +33,11 @@ def run_filter_node(config: FilterConfig) -> None:
     joint_order: list[str] = list(config.joint_names) if config.joint_names else []
     clock = node.get_clock()
     control_period_s = 1.0 / max(1.0, config.control_loop_hz)
+    last_input_time: list[float] = [time.monotonic()]
 
     def on_input(msg: JointState) -> None:
-        now = time.monotonic()
+        last_input_time[0] = time.monotonic()
+        now = last_input_time[0]
         for i, name in enumerate(msg.name):
             if i >= len(msg.position):
                 continue
@@ -45,7 +50,13 @@ def run_filter_node(config: FilterConfig) -> None:
             algorithm.update(state_by_joint[name], name, pos, now)
             last_measurement_time[name] = now
 
+    def health_check() -> None:
+        elapsed = time.monotonic() - last_input_time[0]
+        if elapsed > INPUT_STALE_WARN_S:
+            node.get_logger().warning(f"No input on {config.input_topic} for {elapsed:.1f}s")
+
     node.create_subscription(JointState, config.input_topic, on_input, FILTER_QOS)
+    node.create_timer(HEALTH_TIMER_PERIOD_S, health_check)
     node.get_logger().info("Filter node: %s -> %s [%s]" % (config.input_topic, config.output_topic, config.algorithm))
 
     while rclpy.ok():
