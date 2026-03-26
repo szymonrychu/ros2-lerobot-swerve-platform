@@ -44,6 +44,7 @@ max-line-length = 120
 [tool.vulture]
 exclude = ["**/__pycache__"]
 min_confidence = 80
+ignore_names = ["cls"]
 
 [tool.poe.tasks]
 lint = { shell = """
