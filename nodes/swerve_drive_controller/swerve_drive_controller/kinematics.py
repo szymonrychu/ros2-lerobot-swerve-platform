@@ -135,6 +135,47 @@ def steer_angle_difference(current: float, desired: float) -> float:
     return diff
 
 
+def normalize_angle(angle: float) -> float:
+    """Normalize angle to [-pi, pi].
+
+    Args:
+        angle: Angle in radians, any value.
+
+    Returns:
+        float: Normalized angle in [-pi, pi].
+    """
+    while angle > math.pi:
+        angle -= 2.0 * math.pi
+    while angle < -math.pi:
+        angle += 2.0 * math.pi
+    return angle
+
+
+def optimize_wheel_angle(
+    current_steer: float,
+    desired_steer: float,
+    desired_drive: float,
+) -> tuple[float, float]:
+    """Optimize steer command to minimize rotation distance.
+
+    If rotating the steer wheel by pi (reversing drive direction) results in a
+    smaller angular travel than the direct path, use the flipped configuration.
+    This avoids slow 180-degree steer rotations.
+
+    Args:
+        current_steer: Current steering angle in body frame, rad.
+        desired_steer: Desired steering angle from IK, rad.
+        desired_drive: Desired drive angular velocity, rad/s.
+
+    Returns:
+        tuple: (optimized_steer_rad, optimized_drive_rad_per_s).
+    """
+    diff = steer_angle_difference(current_steer, desired_steer)
+    if abs(diff) > math.pi / 2:
+        return normalize_angle(desired_steer + math.pi), -desired_drive
+    return desired_steer, desired_drive
+
+
 def should_zero_drive(
     current_steer: float,
     desired_steer: float,

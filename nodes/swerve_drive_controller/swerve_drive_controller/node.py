@@ -12,7 +12,9 @@ from sensor_msgs.msg import JointState
 from tf2_ros import TransformBroadcaster
 
 from .config import SwerveControllerConfig
-from .kinematics import forward_kinematics, inverse_kinematics, should_zero_drive
+from .kinematics import forward_kinematics, inverse_kinematics, optimize_wheel_angle, should_zero_drive
+
+CMD_VEL_DEADBAND = 0.005  # m/s and rad/s
 
 CONTROL_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -102,6 +104,10 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
 
         vx, vy, omega = latest_cmd[0], latest_cmd[1], latest_cmd[2]
 
+        # Velocity deadband: suppress tiny commands to avoid servo jitter
+        if abs(vx) < CMD_VEL_DEADBAND and abs(vy) < CMD_VEL_DEADBAND and abs(omega) < CMD_VEL_DEADBAND:
+            vx, vy, omega = 0.0, 0.0, 0.0
+
         # Build current steer angles and drive velocities from joint_states (for FK and safeguard)
         steer_angles: list[float] = []
         drive_velocities: list[float] = []
@@ -111,6 +117,12 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
 
         # Inverse kinematics: desired steer and drive
         desired_steer, desired_drive_angular = inverse_kinematics(vx, vy, omega, lx, ly, R)
+
+        # Wheel direction optimization: flip steer+negate drive if it reduces travel angle
+        for i in range(4):
+            desired_steer[i], desired_drive_angular[i] = optimize_wheel_angle(
+                steer_angles[i], desired_steer[i], desired_drive_angular[i]
+            )
 
         # No-propulsion safeguard: zero drive for a wheel if steer error too large
         for i in range(4):
@@ -127,19 +139,22 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
         # position setpoints. Actually the bridge only accepts position (goal_position in steps).
         # So we need to convert desired_drive_angular to position delta: we integrate.
         # For simplicity: publish steer target (desired_steer) and drive target as current + omega_drive * dt.
-        out = JointState()
-        out.header.stamp = stamp.to_msg()
-        out.header.frame_id = ""
-        out.name = list(joint_names)
-        out.position = []
-        out.velocity = []
-        out.effort = []
-        dt = control_period_s
-        for i in range(4):
-            drive_pos = joint_positions.get(drive_joints[i], 0.0) + desired_drive_angular[i] * dt
-            out.position.append(drive_pos)
-            out.position.append(desired_steer[i])
-        pub_cmd.publish(out)
+        # Skip publishing when all commands are zero and drives are already near zero (avoid jitter).
+        all_drive_near_zero = all(abs(joint_velocities.get(j, 0.0)) < CMD_VEL_DEADBAND for j in drive_joints)
+        if vx != 0.0 or vy != 0.0 or omega != 0.0 or not all_drive_near_zero:
+            out = JointState()
+            out.header.stamp = stamp.to_msg()
+            out.header.frame_id = ""
+            out.name = list(joint_names)
+            out.position = []
+            out.velocity = []
+            out.effort = []
+            dt = control_period_s
+            for i in range(4):
+                drive_pos = joint_positions.get(drive_joints[i], 0.0) + desired_drive_angular[i] * dt
+                out.position.append(drive_pos)
+                out.position.append(desired_steer[i])
+            pub_cmd.publish(out)
 
         # Forward kinematics and odometry
         if len(steer_angles) == 4 and len(drive_velocities) == 4:
@@ -169,6 +184,15 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
             odom.twist.twist.angular.x = 0.0
             odom.twist.twist.angular.y = 0.0
             odom.twist.twist.angular.z = omega_fk
+            is_moving = abs(vx) > CMD_VEL_DEADBAND or abs(vy) > CMD_VEL_DEADBAND or abs(omega) > CMD_VEL_DEADBAND
+            cov_xy = 0.01 if is_moving else 0.001
+            cov_yaw = 0.01 if is_moving else 0.0001
+            odom.pose.covariance[0] = cov_xy
+            odom.pose.covariance[7] = cov_xy
+            odom.pose.covariance[35] = cov_yaw
+            odom.twist.covariance[0] = cov_xy
+            odom.twist.covariance[7] = cov_xy
+            odom.twist.covariance[35] = cov_yaw
             pub_odom.publish(odom)
 
             t = TransformStamped()

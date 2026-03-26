@@ -5,6 +5,8 @@ import math
 from swerve_drive_controller.kinematics import (
     forward_kinematics,
     inverse_kinematics,
+    normalize_angle,
+    optimize_wheel_angle,
     should_zero_drive,
     steer_angle_difference,
     wheel_positions,
@@ -62,3 +64,42 @@ def test_should_zero_drive() -> None:
     assert should_zero_drive(0.0, 0.0, 0.35) is False
     assert should_zero_drive(0.0, 0.5, 0.35) is True
     assert should_zero_drive(0.0, 0.2, 0.35) is False
+
+
+def test_normalize_angle_already_normalized() -> None:
+    assert abs(normalize_angle(0.5) - 0.5) < 1e-9
+
+
+def test_normalize_angle_wraps_positive() -> None:
+    assert abs(normalize_angle(math.pi + 0.1) - (-math.pi + 0.1)) < 1e-6
+
+
+def test_normalize_angle_wraps_negative() -> None:
+    assert abs(normalize_angle(-math.pi - 0.1) - (math.pi - 0.1)) < 1e-6
+
+
+def test_optimize_wheel_no_flip_small_diff() -> None:
+    # diff < pi/2 → no flip
+    steer, drive = optimize_wheel_angle(0.0, 0.3, 5.0)
+    assert abs(steer - 0.3) < 1e-9
+    assert abs(drive - 5.0) < 1e-9
+
+
+def test_optimize_wheel_flip_large_diff() -> None:
+    # diff > pi/2 → flip steer by pi, negate drive
+    steer, drive = optimize_wheel_angle(0.0, math.pi * 0.8, 5.0)
+    # flipped steer = 0.8*pi + pi = 1.8*pi → normalized = -0.2*pi
+    assert abs(steer - (-0.2 * math.pi)) < 1e-6
+    assert abs(drive - (-5.0)) < 1e-9
+
+
+def test_optimize_wheel_flip_near_180() -> None:
+    # diff ≈ pi → definitely flips
+    steer, drive = optimize_wheel_angle(0.0, math.pi - 0.01, 3.0)
+    assert drive < 0  # drive negated
+
+
+def test_optimize_wheel_no_flip_at_boundary() -> None:
+    # diff exactly pi/2 → no flip (boundary case, > not >=)
+    steer, drive = optimize_wheel_angle(0.0, math.pi / 2, 5.0)
+    assert abs(drive - 5.0) < 1e-9
