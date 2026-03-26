@@ -36,7 +36,7 @@ Thumbs.db
 *.log
 
 ansible/inventory
-.claude/worktrees
+# .claude/worktrees/**
 nodes/steamdeck_ui/src/main/*.js
 nodes/steamdeck_ui/src/main/*.js.map
 nodes/steamdeck_ui/src/main/*.d.ts
