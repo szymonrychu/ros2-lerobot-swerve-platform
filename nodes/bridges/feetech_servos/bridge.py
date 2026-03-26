@@ -14,6 +14,7 @@ import time
 from typing import Any
 
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
@@ -27,8 +28,6 @@ from .registers import write_register
 from .startup_torque import set_startup_torque_state
 
 DEFAULT_QOS_DEPTH = 10
-SPIN_CYCLES_PER_LOOP = 2
-SPIN_TIMEOUT_S = 0.002
 SERVO_WAIT_INTERVAL_S = 1.0
 TORQUE_WRITE_ATTEMPTS = 8
 TORQUE_VERIFY_SLEEP_S = 0.02
@@ -222,6 +221,9 @@ def run_bridge(config: BridgeConfig) -> None:
 
     last_register_publish = 0.0
 
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+
     while rclpy.ok():
         if servo is not None:
             # Publish joint_states from present position.
@@ -275,9 +277,7 @@ def run_bridge(config: BridgeConfig) -> None:
             msg.effort = []
             pub_state.publish(msg)
 
-        for _ in range(SPIN_CYCLES_PER_LOOP):
-            rclpy.spin_once(node, timeout_sec=SPIN_TIMEOUT_S)
-        time.sleep(control_loop_sleep_s)
+        executor.spin_once(timeout_sec=control_loop_sleep_s)
 
     node.destroy_node()
     rclpy.shutdown()

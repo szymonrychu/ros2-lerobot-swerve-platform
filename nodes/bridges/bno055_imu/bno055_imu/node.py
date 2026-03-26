@@ -4,6 +4,7 @@ import time
 from typing import Any
 
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Imu
@@ -81,20 +82,21 @@ def warmup_check(bno: Any) -> bool:
     return bool(a and len(a) >= 3 and a[0] is not None and a[1] is not None and a[2] is not None)
 
 
-def _spin_once_safe(node: Node, timeout_sec: float = 0.01) -> None:
-    """Call rclpy.spin_once, silently ignoring errors from invalid RCL context."""
+def _spin_once_safe(executor: SingleThreadedExecutor, timeout_sec: float = 0.01) -> None:
+    """Call executor.spin_once, silently ignoring errors from invalid RCL context."""
     try:
-        rclpy.spin_once(node, timeout_sec=timeout_sec)
+        executor.spin_once(timeout_sec=timeout_sec)
     except Exception:  # noqa: BLE001
         pass  # context may be invalid during shutdown or reconnect
 
 
-def _warmup(bno: Any, node: Node, timeout_s: float = WARMUP_TIMEOUT_S) -> bool:
+def _warmup(bno: Any, node: Node, executor: SingleThreadedExecutor, timeout_s: float = WARMUP_TIMEOUT_S) -> bool:
     """Poll sensor until valid gyro+accel or timeout.
 
     Args:
         bno: BNO055 driver instance.
         node: ROS2 node (for logging and rclpy.ok check).
+        executor: Persistent executor for spinning callbacks during warmup.
         timeout_s: Maximum seconds to wait.
 
     Returns:
@@ -106,7 +108,7 @@ def _warmup(bno: Any, node: Node, timeout_s: float = WARMUP_TIMEOUT_S) -> bool:
             node.get_logger().info("BNO055 warm-up complete, sensor ready")
             return True
         time.sleep(0.2)
-        _spin_once_safe(node, timeout_sec=0.01)
+        _spin_once_safe(executor, timeout_sec=0.01)
     node.get_logger().warn(
         "BNO055 warm-up timed out (%.0f s); will retry each cycle. "
         "Check I2C, calibration, and keep sensor still for a few seconds." % timeout_s
@@ -169,6 +171,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     """Run the IMU node: read BNO055, publish Imu at config.publish_hz."""
     rclpy.init()
     node = Node("bno055_imu")
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
     pub = node.create_publisher(Imu, config.topic, IMU_QOS)
     clock = node.get_clock()
     period_s = 1.0 / max(1.0, config.publish_hz)
@@ -185,7 +189,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 "BNO055 init failed (attempt %d): %s — retrying in %.0fs" % (init_attempt, e, backoff)
             )
             time.sleep(backoff)
-            _spin_once_safe(node, timeout_sec=0.01)
+            _spin_once_safe(executor, timeout_sec=0.01)
     if bno is None:
         node.destroy_node()
         rclpy.shutdown()
@@ -210,7 +214,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     except Exception as e:  # noqa: BLE001
         node.get_logger().debug("BNO055 calibration status unavailable: %s" % e)
 
-    _warmup(bno, node)
+    _warmup(bno, node, executor)
 
     # Optional rolling-window covariance estimation (disabled by default).
     orient_est: CovarianceEstimator | None = None
@@ -246,12 +250,11 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                     hard_failures = 0
                     soft_ok = True
                     node.get_logger().info("BNO055 soft mode restore (no bus reinit)")
-                    _warmup(bno, node)
+                    _warmup(bno, node, executor)
                 except Exception:  # noqa: BLE001
                     pass
             if soft_ok:
-                _spin_once_safe(node, timeout_sec=0.01)
-                time.sleep(period_s)
+                _spin_once_safe(executor, timeout_sec=period_s)
                 continue
 
             node.get_logger().warn("BNO055: %d consecutive failures — attempting I2C reconnect" % consecutive_failures)
@@ -279,12 +282,11 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                     gyro_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
                 if accel_est is not None:
                     accel_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
-                _warmup(bno, node)
+                _warmup(bno, node, executor)
             except Exception as e:  # noqa: BLE001
                 node.get_logger().error("BNO055 reconnect failed: %s" % e)
                 # Don't reset counter — will retry again after threshold
-            _spin_once_safe(node, timeout_sec=0.01)
-            time.sleep(period_s)
+            _spin_once_safe(executor, timeout_sec=period_s)
             continue
 
         quat, gyro, accel = None, None, None
@@ -318,13 +320,12 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                     consecutive_failures = 0
                     hard_failures = 0
                     node.get_logger().info("BNO055 inline mode restore after stale reads")
-                    _warmup(bno, node)
+                    _warmup(bno, node, executor)
                 except Exception:  # noqa: BLE001
                     consecutive_failures += 1
             else:
                 consecutive_failures += 1
-            _spin_once_safe(node, timeout_sec=0.01)
-            time.sleep(period_s)
+            _spin_once_safe(executor, timeout_sec=period_s)
             continue
 
         if not has_valid_tuple(accel, 3, allow_zeros=True):
@@ -339,8 +340,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 % (has_valid_tuple(gyro, 3, allow_zeros=True), has_valid_tuple(accel, 3, allow_zeros=True)),
                 throttle_duration_sec=5.0,
             )
-            _spin_once_safe(node, timeout_sec=0.01)
-            time.sleep(period_s)
+            _spin_once_safe(executor, timeout_sec=period_s)
             continue
 
         consecutive_failures = 0
@@ -403,8 +403,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             linear_acceleration_covariance=linear_accel_cov,
         )
         pub.publish(msg)
-        _spin_once_safe(node, timeout_sec=0.001)
-        time.sleep(period_s)
+        _spin_once_safe(executor, timeout_sec=period_s)
 
     node.destroy_node()
     rclpy.shutdown()

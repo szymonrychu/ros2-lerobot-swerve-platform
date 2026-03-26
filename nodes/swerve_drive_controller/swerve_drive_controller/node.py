@@ -6,6 +6,7 @@ import time
 import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
@@ -93,6 +94,9 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
         "Swerve controller: %s -> %s, odom -> %s"
         % (config.cmd_vel_topic, config.joint_commands_topic, config.odom_topic)
     )
+
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
 
     while rclpy.ok():
         now = time.monotonic()
@@ -208,8 +212,7 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
             t.transform.rotation.w = q[3]
             tf_broadcaster.sendTransform(t)
 
-        rclpy.spin_once(node, timeout_sec=0.001)
-        time.sleep(control_period_s)
+        executor.spin_once(timeout_sec=control_period_s)
 
     node.destroy_node()
     rclpy.shutdown()

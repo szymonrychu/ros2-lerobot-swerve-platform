@@ -5,6 +5,7 @@ import threading
 import time
 
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 
 from .app import create_app
@@ -33,8 +34,10 @@ def spin_node(node: Node, stop_event: threading.Event) -> None:
         stop_event: Event used to stop loop.
     """
 
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
     while rclpy.ok() and not stop_event.is_set():
-        rclpy.spin_once(node, timeout_sec=0.1)
+        executor.spin_once(timeout_sec=0.1)
 
 
 def refresh_topics_loop(

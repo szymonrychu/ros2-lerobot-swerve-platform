@@ -4,6 +4,7 @@ import sys
 import threading
 
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
@@ -20,8 +21,10 @@ QOS = QoSProfile(
 
 def _spin_node(node: Node) -> None:
     """Run rclpy spin in a loop (for background thread)."""
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
     while rclpy.ok():
-        rclpy.spin_once(node, timeout_sec=0.1)
+        executor.spin_once(timeout_sec=0.1)
 
 
 def main() -> int:

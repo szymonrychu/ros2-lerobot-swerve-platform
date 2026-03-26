@@ -4,6 +4,7 @@ import json
 import time
 
 import rclpy
+from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
@@ -106,6 +107,9 @@ def run_haptic_node(config: HapticConfig) -> None:
     control_period_s = 1.0 / max(1.0, config.control_loop_hz)
     now = time.monotonic()
 
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+
     def set_gripper_torque(enable: bool) -> None:
         value = 1 if enable else 0
         for joint_name in config.gripper_joint_names:
@@ -117,23 +121,20 @@ def run_haptic_node(config: HapticConfig) -> None:
             pub_set_register.publish(String(data=json.dumps(payload, separators=(",", ":"))))
 
     while rclpy.ok():
-        rclpy.spin_once(node, timeout_sec=0.001)
+        executor.spin_once(timeout_sec=control_period_s)
         now = time.monotonic()
 
         if config.mode == MODE_OFF:
-            time.sleep(control_period_s)
             continue
 
         # Watchdog: require fresh leader and follower data
         if now - leader_stamp > config.watchdog_timeout_s or now - follower_stamp > config.watchdog_timeout_s:
-            time.sleep(control_period_s)
             continue
 
         # Build command only for gripper joints that we have leader state for
         gripper_set = set(config.gripper_joint_names)
         names = [n for n in leader_names_order if n in gripper_set and n in leader_state]
         if not names:
-            time.sleep(control_period_s)
             continue
 
         if config.mode == MODE_RESISTANCE and not resistance_initialized:
@@ -215,8 +216,6 @@ def run_haptic_node(config: HapticConfig) -> None:
             out.velocity = []
             out.effort = []
             pub.publish(out)
-
-        time.sleep(control_period_s)
 
     node.destroy_node()
     rclpy.shutdown()
