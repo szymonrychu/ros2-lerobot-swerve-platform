@@ -95,8 +95,8 @@ jobs:
     # before the buildx step. QEMU is slower (~10-20 min/image for ROS base images) but
     # works on private repos without additional GitHub plan.
     #
-    # Images are built but NOT pushed here — docker-push (below) handles sequential pushes
-    # after all builds succeed, and only on main branch.
+    # Images are built but NOT pushed (push: false). To re-enable pushing, add a docker-push
+    # job that logs in to the registry and rebuilds with push: true using the GHA cache.
     #
     # Requires all lint and test jobs to pass before any build starts.
     needs: [lint, lint-nodes, lint-ansible, test-nodes]
@@ -161,75 +161,4 @@ jobs:
           # Use inline cache to make layer data available to the push job
           cache-from: type=gha,scope=${{ matrix.context }}
           cache-to: type=gha,mode=max,scope=${{ matrix.context }}
-          tags: ${{ matrix.tags }}
-
-  docker-push:
-    # Pushes images to Harbor sequentially, one at a time, after ALL builds succeed.
-    # Sequential push avoids registry rate-limit issues and ensures consistent state.
-    # Only runs on push to main (not PRs).
-    # Requires GitHub Actions secrets: HARBOR_USERNAME, HARBOR_PASSWORD
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [docker-build]
-    runs-on: ubuntu-24.04-arm
-    strategy:
-      max-parallel: 1   # sequential pushes
-      fail-fast: false
-      matrix:
-        include:
-          - context: nodes/ros2_master
-            tags: |
-              harbor.szymonrichert.pl/containers/client-ros2-master:latest
-              harbor.szymonrichert.pl/containers/server-ros2-master:latest
-          - context: nodes/bridges/feetech_servos
-            tags: |
-              harbor.szymonrichert.pl/containers/client-feetech-servos-follower:latest
-              harbor.szymonrichert.pl/containers/server-feetech-servos-leader:latest
-          - context: nodes/topic_scraper_api
-            tags: |
-              harbor.szymonrichert.pl/containers/client-topic-scraper-api:latest
-              harbor.szymonrichert.pl/containers/server-topic-scraper-api:latest
-          - context: nodes/bridges/gps_rtk
-            tags: |
-              harbor.szymonrichert.pl/containers/client-gps-rtk:latest
-              harbor.szymonrichert.pl/containers/server-gps-rtk:latest
-          - context: nodes/master2master
-            tags: harbor.szymonrichert.pl/containers/client-master2master:latest
-          - context: nodes/bridges/uvc_camera
-            tags: harbor.szymonrichert.pl/containers/client-uvc-camera:latest
-          - context: nodes/filter_node
-            tags: harbor.szymonrichert.pl/containers/client-filter-node:latest
-          - context: nodes/test_joint_api
-            tags: harbor.szymonrichert.pl/containers/client-test-joint-api:latest
-          - context: nodes/bno055_imu
-            tags: harbor.szymonrichert.pl/containers/client-bno055-imu:latest
-          - context: nodes/haptic_controller
-            tags: harbor.szymonrichert.pl/containers/client-haptic-controller:latest
-          - context: nodes/bridges/rplidar_a1
-            tags: harbor.szymonrichert.pl/containers/client-rplidar-a1:latest
-          - context: nodes/bridges/realsense_d435i
-            tags: harbor.szymonrichert.pl/containers/client-realsense-d435i:latest
-          - context: nodes/swerve_drive_controller
-            tags: harbor.szymonrichert.pl/containers/client-swerve-controller:latest
-          - context: nodes/static_tf_publisher
-            tags: harbor.szymonrichert.pl/containers/client-static-tf-publisher:latest
-          - context: nodes/robot_localization_ekf
-            tags: harbor.szymonrichert.pl/containers/client-robot-localization-ekf:latest
-          - context: nodes/nav2_bringup
-            tags: harbor.szymonrichert.pl/containers/client-nav2-bringup:latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - name: Log in to Harbor
-        uses: docker/login-action@v3
-        with:
-          registry: harbor.szymonrichert.pl
-          username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_PASSWORD }}
-      - name: Build and push (uses GHA layer cache from docker-build)
-        uses: docker/build-push-action@v6
-        with:
-          context: ${{ matrix.context }}
-          platforms: linux/arm64
-          push: true
-          cache-from: type=gha,scope=${{ matrix.context }}
           tags: ${{ matrix.tags }}
