@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from web_ui.msg_serializer import extractField_from_dict, msg_to_dict
+from web_ui.msg_serializer import extract_field_from_dict, msg_to_dict
 
 
 def _make_imu() -> MagicMock:
@@ -28,17 +28,17 @@ def test_msg_to_dict_imu() -> None:
 
 def test_extract_field_simple() -> None:
     data = {"linear_acceleration": {"x": 9.8, "y": 0.1, "z": 0.0}}
-    assert extractField_from_dict(data, "linear_acceleration.x") == pytest.approx(9.8)
+    assert extract_field_from_dict(data, "linear_acceleration.x") == pytest.approx(9.8)
 
 
 def test_extract_field_array_index() -> None:
     data = {"position": [0.1, 0.2, 0.3, 0.4]}
-    assert extractField_from_dict(data, "position[2]") == pytest.approx(0.3)
+    assert extract_field_from_dict(data, "position[2]") == pytest.approx(0.3)
 
 
 def test_extract_field_missing_returns_none() -> None:
-    assert extractField_from_dict({}, "does.not.exist") is None
+    assert extract_field_from_dict({}, "does.not.exist") is None
 
 
 def test_extract_field_out_of_bounds_returns_none() -> None:
-    assert extractField_from_dict({"position": [1.0]}, "position[5]") is None
+    assert extract_field_from_dict({"position": [1.0]}, "position[5]") is None

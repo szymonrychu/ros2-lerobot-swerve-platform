@@ -99,15 +99,19 @@ def _serialize_image(msg: Any) -> dict[str, Any]:
             encoding = msg.encoding.lower()
             raw = bytes(msg.data)
             arr = np.frombuffer(raw, dtype=np.uint8)
-            arr = arr.reshape((msg.height, msg.step // _bytes_per_pixel(encoding)))
-            if encoding in ("rgb8", "rgb16"):
-                img = cv2.cvtColor(arr[:, : msg.width], cv2.COLOR_RGB2BGR)
-            elif encoding in ("bgr8", "bgr16"):
-                img = arr[:, : msg.width]
-            elif encoding in ("mono8", "mono16"):
-                img = arr[:, : msg.width]
+            bpp = _bytes_per_pixel(encoding)
+            if bpp == 1:
+                arr = arr.reshape((msg.height, msg.step))[:, : msg.width]
             else:
-                img = arr[:, : msg.width]
+                arr = arr.reshape((msg.height, msg.step // bpp, bpp))[:, : msg.width, :]
+            if encoding in ("rgb8", "rgb16"):
+                img = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+            elif encoding in ("bgr8", "bgr16"):
+                img = arr
+            elif encoding in ("mono8", "mono16"):
+                img = arr
+            else:
+                img = arr
 
         if img is None:
             return {"jpeg_b64": None, "error": "decode_failed"}
@@ -121,7 +125,7 @@ def _serialize_image(msg: Any) -> dict[str, Any]:
         return {"jpeg_b64": None, "error": str(exc)}
 
 
-def extractField_from_dict(data: dict[str, Any], path: str) -> float | None:  # noqa: N802
+def extract_field_from_dict(data: dict[str, Any], path: str) -> float | None:
     """Extract a nested numeric field from a dict using dot-notation + array indexing.
 
     This is the Python equivalent of the TypeScript extractField utility, used for

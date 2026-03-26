@@ -9,6 +9,7 @@ Output format:
   JSON   when stdout is not a TTY (container / production)
   Colour ConsoleRenderer when stdout is a TTY (local dev)
 """
+
 from __future__ import annotations
 
 import logging

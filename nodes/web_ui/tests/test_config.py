@@ -59,6 +59,14 @@ overlays:
     assert "/controller/goal_pose" not in topics  # publish-only
 
 
+def test_load_config_from_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    p = tmp_path / "env_config.yaml"
+    p.write_text("http_port: 7777\ntabs: []\noverlays: []\n")
+    monkeypatch.setenv("WEB_UI_CONFIG", str(p))
+    cfg = load_config()
+    assert cfg.http_port == 7777
+
+
 def test_publish_topics(tmp_path: Path) -> None:
     p = tmp_path / "cfg.yaml"
     p.write_text(
