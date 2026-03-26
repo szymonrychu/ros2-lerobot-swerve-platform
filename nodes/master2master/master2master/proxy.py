@@ -6,6 +6,7 @@ from typing import Any, Callable
 import rclpy
 from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -14,10 +15,32 @@ from std_msgs.msg import String
 
 from .config import SUPPORTED_MSG_TYPES, TopicRule, validate_relay_rules
 
-RELAY_QOS = QoSProfile(
+# Sensor data is disposable — BEST_EFFORT avoids DDS retransmission stalls on packet loss.
+SENSOR_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=5,
+)
+
+# Command topics must be delivered reliably (nav goals, cmd_vel, etc.).
+COMMAND_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
+)
+
+# Msg types that should use BEST_EFFORT QoS (high-rate, disposable sensor data).
+SENSOR_MSG_TYPES: frozenset[str] = frozenset(
+    {
+        "imu",
+        "jointstate",
+        "navsatfix",
+        "laserscan",
+        "occupancygrid",
+        "odometry",
+        "image",
+        "compressedimage",
+    }
 )
 
 RELAY_MESSAGE_TYPES: dict[str, type] = {
@@ -59,6 +82,11 @@ def run_all_relays(
 ) -> None:
     """Run all relays in a single node with MultiThreadedExecutor until shutdown.
 
+    Each relay rule gets its own ReentrantCallbackGroup so the thread pool can
+    execute callbacks for different topics in parallel.  Sensor topics use
+    BEST_EFFORT QoS to avoid DDS retransmission stalls that would block other
+    topics; command topics keep RELIABLE.
+
     Args:
         rules: List of TopicRule (source, dest, direction, msg_type).
         shutdown_callback: Optional callable; when it returns True, spinning stops.
@@ -79,14 +107,22 @@ def run_all_relays(
             super().__init__("master2master")
 
         def add_relay(self, rule: TopicRule) -> None:
-            """Add one relay: subscribe to rule.source, publish to rule.dest with rule.msg_type."""
+            """Add one relay: subscribe to rule.source, publish to rule.dest.
+
+            Each relay gets its own ReentrantCallbackGroup so that the
+            MultiThreadedExecutor can dispatch callbacks for different topics
+            concurrently instead of serialising them.
+            """
+            msg_type_key = (rule.msg_type or "string").lower().strip()
             msg_class = get_message_class(rule.msg_type)
-            pub = self.create_publisher(msg_class, rule.dest, RELAY_QOS)
+            qos = SENSOR_QOS if msg_type_key in SENSOR_MSG_TYPES else COMMAND_QOS
+            cbg = ReentrantCallbackGroup()
+            pub = self.create_publisher(msg_class, rule.dest, qos)
 
             def callback(msg: Any) -> None:
                 pub.publish(msg)
 
-            self.create_subscription(msg_class, rule.source, callback, RELAY_QOS)
+            self.create_subscription(msg_class, rule.source, callback, qos, callback_group=cbg)
             self.get_logger().info(
                 "Relay: %s -> %s [%s]" % (rule.source, rule.dest, rule.msg_type),
                 throttle_duration_sec=10.0,
@@ -123,7 +159,7 @@ def run_all_relays(
         executor.add_node(node)
 
         while rclpy.ok() and not should_stop():
-            executor.spin_once(timeout_sec=0.5)
+            executor.spin_once(timeout_sec=0.01)
     finally:
         if node is not None:
             node.destroy_node()

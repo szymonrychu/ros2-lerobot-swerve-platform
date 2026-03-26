@@ -39,6 +39,11 @@ def _make_rclpy_mock() -> types.ModuleType:
     qos_mod.HistoryPolicy = MagicMock(name="HistoryPolicy")  # type: ignore[attr-defined]
     rclpy_mod.qos = qos_mod  # type: ignore[attr-defined]
 
+    # rclpy.callback_groups
+    cbg_mod = types.ModuleType("rclpy.callback_groups")
+    cbg_mod.ReentrantCallbackGroup = MagicMock(name="ReentrantCallbackGroup")  # type: ignore[attr-defined]
+    rclpy_mod.callback_groups = cbg_mod  # type: ignore[attr-defined]
+
     return rclpy_mod
 
 
@@ -96,6 +101,7 @@ sys.modules.setdefault("rclpy", _rclpy_mock)
 sys.modules.setdefault("rclpy.node", _rclpy_mock.node)
 sys.modules.setdefault("rclpy.executors", _rclpy_mock.executors)
 sys.modules.setdefault("rclpy.qos", _rclpy_mock.qos)
+sys.modules.setdefault("rclpy.callback_groups", _rclpy_mock.callback_groups)
 sys.modules.setdefault("sensor_msgs", _sensor_msgs_mock)
 sys.modules.setdefault("sensor_msgs.msg", _sensor_msgs_mock.msg)
 sys.modules.setdefault("std_msgs", _std_msgs_mock)
@@ -150,7 +156,7 @@ class _TrackingNodeBase:
         self.publishers.append(pub)
         return pub
 
-    def create_subscription(self, msg_cls: type, topic: str, cb: Any, qos: Any) -> MagicMock:
+    def create_subscription(self, msg_cls: type, topic: str, cb: Any, qos: Any, **kwargs: Any) -> MagicMock:
         """Record subscription creation and capture the callback."""
         self._callbacks.append(cb)
         sub = MagicMock(name=f"Subscription({topic})")
