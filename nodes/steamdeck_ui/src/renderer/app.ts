@@ -8,6 +8,8 @@ import { NavGpsTab } from "./tabs/nav-gps-tab";
 import { OverlayManager } from "./overlays/overlay-manager";
 
 const RECONNECT_INTERVAL_MS = 3000;
+const DEBUG = new URLSearchParams(window.location.search).has("debug")
+  || !!(window as unknown as Record<string, unknown>).__STEAMDECK_DEBUG__;
 
 interface BridgeMessage {
   type: "topic_data";
@@ -163,6 +165,7 @@ class App {
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
+      console.log(`[bridge] connected to ${url}`);
       this.setStatus("connected");
       // Subscribe to all needed topics
       const topics = [...this.topicToTabs.keys()];
@@ -177,11 +180,17 @@ class App {
     this.ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data as string) as BridgeMessage;
-        if (msg.type === "topic_data") this.dispatchMessage(msg.topic, msg.data);
+        if (msg.type === "topic_data") {
+          if (DEBUG) {
+            console.log(`[bridge ${new Date().toISOString()}] ${msg.topic} (${(ev.data as string).length} bytes)`);
+          }
+          this.dispatchMessage(msg.topic, msg.data);
+        }
       } catch { /* ignore parse errors */ }
     };
 
     this.ws.onclose = () => {
+      console.log("[bridge] disconnected, reconnecting...");
       this.setStatus("error");
       this.scheduleReconnect();
     };

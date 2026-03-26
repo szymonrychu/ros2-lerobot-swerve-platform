@@ -113,6 +113,9 @@ export class SensorGraphTab extends TabBase {
   }
 
   onMessage(topic: string, data: Record<string, unknown>): void {
+    if ((window as unknown as Record<string, unknown>).__STEAMDECK_DEBUG__) {
+      console.log(`[graph ${new Date().toISOString()}] ${topic} id=${this.id}`);
+    }
     const now = Date.now() / 1000;
     let seriesIdx = 0;
     for (const spec of this.topicSpecs) {

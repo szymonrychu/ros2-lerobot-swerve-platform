@@ -9,6 +9,11 @@ echo "[start.sh] Starting at $(date)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="${STEAMDECK_UI_CONFIG:-/etc/steamdeck-ui/config.yaml}"
 
+LOG_LEVEL="${STEAMDECK_UI_LOG_LEVEL:-INFO}"
+if [[ "$*" == *"--debug"* ]]; then
+  LOG_LEVEL="DEBUG"
+fi
+
 # Fall back to bundled default config if production config is missing
 if [[ ! -f "$CONFIG" ]]; then
   CONFIG="$SCRIPT_DIR/config/default.yaml"
@@ -38,7 +43,7 @@ fi
 # Start Python bridge in background (run from steamdeck_ui dir so
 # "bridge" is a package and relative imports resolve correctly)
 cd "$SCRIPT_DIR"
-"$PYTHON" -m bridge.bridge_server --config "$CONFIG" &
+"$PYTHON" -m bridge.bridge_server --config "$CONFIG" --log-level "$LOG_LEVEL" &
 BRIDGE_PID=$!
 trap "kill $BRIDGE_PID 2>/dev/null || true" EXIT
 
@@ -55,4 +60,8 @@ done
 
 # Launch Electron fullscreen
 cd "$SCRIPT_DIR"
-exec npx electron . --config "$CONFIG" --fullscreen --no-sandbox
+ELECTRON_ARGS=("--config" "$CONFIG" "--fullscreen" "--no-sandbox")
+if [[ "$*" == *"--debug"* ]]; then
+  ELECTRON_ARGS+=("--debug")
+fi
+exec npx electron . "${ELECTRON_ARGS[@]}"

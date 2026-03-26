@@ -20,8 +20,14 @@ function createWindow(): void {
 
   win.loadFile(path.join(__dirname, "../../src/renderer/index.html"));
 
-  if (process.argv.includes("--dev")) {
+  const debugMode = process.argv.includes("--dev") || process.argv.includes("--debug");
+  if (debugMode) {
     win.webContents.openDevTools({ mode: "detach" });
+  }
+  if (process.argv.includes("--debug")) {
+    win.webContents.on("did-finish-load", () => {
+      win.webContents.executeJavaScript("window.__STEAMDECK_DEBUG__ = true;").catch(() => {});
+    });
   }
 }
 

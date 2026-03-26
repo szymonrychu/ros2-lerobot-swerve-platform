@@ -95,6 +95,7 @@ class BridgeNode(Node):
             except Exception as exc:  # pylint: disable=broad-except
                 self.get_logger().warning(f"Serialize error on {topic}: {exc}")
                 return
+            log.debug("RX %s (%d bytes)", topic, len(str(data)))
             with self._lock:
                 self._latest[topic] = envelope
                 self._dirty.add(topic)
@@ -226,6 +227,7 @@ async def run_bridge(config: AppConfig) -> None:
                 if not envelopes:
                     continue
                 frames = [json.dumps(e) for e in envelopes]
+                log.debug("TX %d topics to %d clients", len(frames), len(clients))
                 dead: set[Any] = set()
                 for ws in list(clients):
                     for frame in frames:
@@ -247,6 +249,7 @@ async def run_bridge(config: AppConfig) -> None:
         try:
             async for raw in ws:
                 try:
+                    log.debug("WS recv: %s", raw[:200])
                     msg = json.loads(raw)
                     if msg.get("type") == "publish":
                         node.create_publisher_for(msg["topic"], msg.get("msg_type", ""))
@@ -278,7 +281,11 @@ def main() -> None:
     parser.add_argument("--log-level", default="INFO", help="Logging level")
     args = parser.parse_args()
 
-    logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper(), logging.INFO),
+        format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
     # Set DDS environment from config if not already set
     config = load_config(args.config)

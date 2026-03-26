@@ -44,6 +44,9 @@ export class OverlayManager {
   }
 
   onMessage(topic: string, data: Record<string, unknown>): void {
+    if ((window as unknown as Record<string, unknown>).__STEAMDECK_DEBUG__) {
+      console.log(`[overlay ${new Date().toISOString()}] ${topic}`);
+    }
     const entries = this.topicMap.get(topic);
     if (!entries) return;
     for (const entry of entries) {
