@@ -19,6 +19,7 @@ from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
 
 from .config import AppConfig, load_config
@@ -52,6 +53,19 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
 
 BROADCAST_INTERVAL_S = 0.05  # 20 Hz
 
+# Subscribe BEST_EFFORT for sensor topics so the bridge can receive from both
+# RELIABLE and BEST_EFFORT publishers (master2master uses BEST_EFFORT subs).
+SENSOR_SUB_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.BEST_EFFORT,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
+
+# Message types that publish high-rate sensor data — subscribe BEST_EFFORT.
+SENSOR_TYPES: frozenset[type] = frozenset(
+    {Imu, JointState, NavSatFix, LaserScan, OccupancyGrid, Odometry, Image, CompressedImage}
+)
+
 
 class BridgeNode(Node):
     """ROS2 node that subscribes to configured topics and stores the latest value per topic."""
@@ -72,7 +86,8 @@ class BridgeNode(Node):
             if msg_cls is None:
                 self.get_logger().warning(f"Unknown msg type for topic {topic} — skipping")
                 continue
-            self.create_subscription(msg_cls, topic, self._make_callback(topic), 10)
+            qos = SENSOR_SUB_QOS if msg_cls in SENSOR_TYPES else 10
+            self.create_subscription(msg_cls, topic, self._make_callback(topic), qos)
             self.get_logger().info(f"Subscribed: {topic}")
 
     def _make_callback(self, topic: str) -> Any:

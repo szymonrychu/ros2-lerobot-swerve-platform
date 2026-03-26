@@ -15,14 +15,24 @@ from std_msgs.msg import String
 
 from .config import SUPPORTED_MSG_TYPES, TopicRule, validate_relay_rules
 
-# Sensor data is disposable — BEST_EFFORT avoids DDS retransmission stalls on packet loss.
-SENSOR_QOS = QoSProfile(
+# Subscribe with BEST_EFFORT for sensor topics — matches any publisher QoS (both
+# RELIABLE and BEST_EFFORT publishers can be received by a BEST_EFFORT subscriber).
+SENSOR_SUB_QOS = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
     history=HistoryPolicy.KEEP_LAST,
-    depth=5,
+    depth=1,
 )
 
-# Command topics must be delivered reliably (nav goals, cmd_vel, etc.).
+# All relay publishers use RELIABLE so that any downstream subscriber (RELIABLE or
+# BEST_EFFORT) can receive the data.  Per-relay ReentrantCallbackGroup prevents a
+# stalled camera relay from blocking other topics.
+RELAY_PUB_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=10,
+)
+
+# Command topics use RELIABLE on both ends (nav goals, cmd_vel, etc.).
 COMMAND_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     history=HistoryPolicy.KEEP_LAST,
@@ -83,9 +93,10 @@ def run_all_relays(
     """Run all relays in a single node with MultiThreadedExecutor until shutdown.
 
     Each relay rule gets its own ReentrantCallbackGroup so the thread pool can
-    execute callbacks for different topics in parallel.  Sensor topics use
-    BEST_EFFORT QoS to avoid DDS retransmission stalls that would block other
-    topics; command topics keep RELIABLE.
+    execute callbacks for different topics in parallel.  Sensor subscriptions use
+    BEST_EFFORT QoS (matches any publisher); all relay publishers use RELIABLE so
+    that downstream RELIABLE subscribers (filter_node, bridge, etc.) can receive
+    the data.  Command topics use RELIABLE on both ends.
 
     Args:
         rules: List of TopicRule (source, dest, direction, msg_type).
@@ -112,17 +123,22 @@ def run_all_relays(
             Each relay gets its own ReentrantCallbackGroup so that the
             MultiThreadedExecutor can dispatch callbacks for different topics
             concurrently instead of serialising them.
+
+            QoS strategy:
+            - Subscribe BEST_EFFORT for sensor topics (matches any publisher QoS).
+            - Publish RELIABLE always (compatible with all downstream subscribers).
+            - Command topics use RELIABLE on both ends.
             """
             msg_type_key = (rule.msg_type or "string").lower().strip()
             msg_class = get_message_class(rule.msg_type)
-            qos = SENSOR_QOS if msg_type_key in SENSOR_MSG_TYPES else COMMAND_QOS
             cbg = ReentrantCallbackGroup()
-            pub = self.create_publisher(msg_class, rule.dest, qos)
+            sub_qos = SENSOR_SUB_QOS if msg_type_key in SENSOR_MSG_TYPES else COMMAND_QOS
+            pub = self.create_publisher(msg_class, rule.dest, RELAY_PUB_QOS)
 
             def callback(msg: Any) -> None:
                 pub.publish(msg)
 
-            self.create_subscription(msg_class, rule.source, callback, qos, callback_group=cbg)
+            self.create_subscription(msg_class, rule.source, callback, sub_qos, callback_group=cbg)
             self.get_logger().info(
                 "Relay: %s -> %s [%s]" % (rule.source, rule.dest, rule.msg_type),
                 throttle_duration_sec=10.0,
