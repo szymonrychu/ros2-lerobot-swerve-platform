@@ -51,6 +51,7 @@
         state: directory
         mode: "0755"
       become: true
+      tags: always
 
     - name: Clone or update repo for local builds
       ansible.builtin.git:
@@ -60,11 +61,19 @@
         force: true
         update: true
       become: true
+      tags: always
 
   tasks:
     - name: Deploy each ROS2 node
       ansible.builtin.include_role:
         name: ros2_node_deploy
+        apply:
+          tags:
+            - "{{ item.name }}"
+            - deploy
+      tags:
+        - "{{ item.name }}"
+        - deploy
       vars:
         _master2master_server_env: "{{ ['ROS2_SERVER_HOST=' + ros2_server_host] if (item.node_type == 'master2master' and ros2_server_host is defined and ros2_server_host | length > 0) else [] }}"
         node_name: "{{ item.name }}"

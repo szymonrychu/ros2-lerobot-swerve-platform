@@ -300,6 +300,27 @@ ansible-playbook -i inventory playbooks/deploy_steamdeck_ui.yml -l controller
 
 See [nodes/steamdeck_ui/README.md](../nodes/steamdeck_ui/README.md) for architecture, config schema, and development docs.
 
+## Deploying Individual Nodes
+
+To deploy a single node without running the full playbook:
+
+```bash
+# Using the helper script (from repo root)
+./scripts/deploy-node.sh <node-name> [client|server|steamdeck]
+
+# Examples
+./scripts/deploy-node.sh filter_node client
+./scripts/deploy-node.sh master2master client
+./scripts/deploy-node.sh lerobot_leader server
+./scripts/deploy-node.sh steamdeck
+
+# Or directly with ansible-playbook
+cd ansible
+ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client --tags filter_node
+```
+
+Node names match the `name` field in `group_vars/client.yml` or `group_vars/server.yml` under `ros2_nodes`.
+
 ## Running playbooks
 
 From the **`ansible/`** directory (so `ansible.cfg` and `inventory` are used):

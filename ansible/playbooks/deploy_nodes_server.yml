@@ -32,6 +32,7 @@
         state: directory
         mode: "0755"
       become: true
+      tags: always
 
     - name: Clone or update repo for local builds
       ansible.builtin.git:
@@ -41,11 +42,19 @@
         force: true
         update: true
       become: true
+      tags: always
 
   tasks:
     - name: Deploy each ROS2 node
       ansible.builtin.include_role:
         name: ros2_node_deploy
+        apply:
+          tags:
+            - "{{ item.name }}"
+            - deploy
+      tags:
+        - "{{ item.name }}"
+        - deploy
       vars:
         node_name: "{{ item.name }}"
         node_type: "{{ item.node_type }}"
