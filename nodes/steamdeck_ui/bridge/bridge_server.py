@@ -9,6 +9,7 @@ import logging
 import os
 import signal
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,7 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
 }
 
 BROADCAST_INTERVAL_S = 0.05  # 20 Hz
+HEARTBEAT_INTERVAL_S = 5.0
 
 # Subscribe BEST_EFFORT for sensor topics so the bridge can receive from both
 # RELIABLE and BEST_EFFORT publishers (master2master uses BEST_EFFORT subs).
@@ -81,6 +83,7 @@ class BridgeNode(Node):
         self._dirty: set[str] = set()
         self._lock = threading.Lock()
         self.publishers_: dict[str, Any] = {}
+        self._topic_last_rx: dict[str, float] = {t: time.monotonic() for t in topics if TOPIC_TYPE_HINTS.get(t)}
         for topic in topics:
             msg_cls = TOPIC_TYPE_HINTS.get(topic)
             if msg_cls is None:
@@ -89,6 +92,7 @@ class BridgeNode(Node):
             qos = SENSOR_SUB_QOS if msg_cls in SENSOR_TYPES else 10
             self.create_subscription(msg_cls, topic, self._make_callback(topic), qos)
             self.get_logger().info(f"Subscribed: {topic}")
+        self.create_timer(10.0, self._check_topic_health)
 
     def _make_callback(self, topic: str) -> Any:
         """Return a ROS2 subscription callback that stores the latest serialized message.
@@ -114,8 +118,16 @@ class BridgeNode(Node):
             with self._lock:
                 self._latest[topic] = envelope
                 self._dirty.add(topic)
+            self._topic_last_rx[topic] = time.monotonic()
 
         return callback
+
+    def _check_topic_health(self) -> None:
+        """Log a warning for any subscribed topic that has not received data for >10s."""
+        now = time.monotonic()
+        for topic, last_rx in self._topic_last_rx.items():
+            if now - last_rx > 10.0:
+                self.get_logger().warning(f"No data on {topic} for {now - last_rx:.0f}s")
 
     def flush_dirty(self) -> list[dict[str, Any]]:
         """Return all envelopes that have been updated since the last flush and clear the dirty set.
@@ -233,17 +245,29 @@ async def run_bridge(config: AppConfig) -> None:
     clients: set[websockets.server.WebSocketServerProtocol] = set()
 
     async def broadcaster() -> None:
+        _heartbeat_counter = 0
         while True:
             try:
                 await asyncio.sleep(BROADCAST_INTERVAL_S)
+                _heartbeat_counter += 1
                 if not clients:
                     continue
+                dead: set[Any] = set()
+                if _heartbeat_counter % 100 == 0:
+                    hb_frame = json.dumps({"type": "heartbeat", "ts": int(asyncio.get_event_loop().time() * 1000)})
+                    for ws in list(clients):
+                        try:
+                            await ws.send(hb_frame)
+                        except Exception as exc:  # pylint: disable=broad-except
+                            log.warning("broadcaster heartbeat error (%s): %s", type(exc).__name__, exc)
+                            dead.add(ws)
+                    clients.difference_update(dead)
+                    dead = set()
                 envelopes = node.flush_dirty()
                 if not envelopes:
                     continue
                 frames = [json.dumps(e) for e in envelopes]
                 log.debug("TX %d topics to %d clients", len(frames), len(clients))
-                dead: set[Any] = set()
                 for ws in list(clients):
                     for frame in frames:
                         try:
@@ -279,7 +303,7 @@ async def run_bridge(config: AppConfig) -> None:
 
     log.info("Bridge WebSocket server starting on %s:%d", config.bridge.host, config.bridge.port)
     broadcast_task = asyncio.ensure_future(broadcaster())
-    async with websockets.serve(handler, config.bridge.host, config.bridge.port):
+    async with websockets.serve(handler, config.bridge.host, config.bridge.port, ping_interval=5, ping_timeout=10):
         await stop_event.wait()
 
     log.info("Shutting down bridge")
