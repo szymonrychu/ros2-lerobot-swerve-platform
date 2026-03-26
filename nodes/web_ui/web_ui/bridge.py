@@ -97,7 +97,7 @@ class BridgeNode(Node):
             with self._lock:
                 self._latest[topic] = envelope
                 self._dirty.add(topic)
-            self._topic_last_rx[topic] = time.monotonic()
+                self._topic_last_rx[topic] = time.monotonic()
 
         return callback
 

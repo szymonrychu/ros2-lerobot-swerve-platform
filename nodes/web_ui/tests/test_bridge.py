@@ -52,6 +52,7 @@ def test_flush_dirty_only_returns_dirty() -> None:
 
 def test_publish_dict_rejects_non_allowlisted() -> None:
     node = _make_bridge_node(publish_topics=["/allowed_topic"])
-    with patch.object(node, "_log_warning") as _mock_warn:
+    with patch.object(node, "_log_warning") as mock_warn:
         node.publish_dict("/evil_topic", {})
+    mock_warn.assert_called_once()
     assert "/evil_topic" not in node.publishers_

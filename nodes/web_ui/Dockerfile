@@ -30,6 +30,7 @@ RUN poetry config virtualenvs.in-project true
 COPY pyproject.toml poetry.lock* ./
 RUN poetry install --only main --no-interaction --no-root
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app"
 
 COPY web_ui/ ./web_ui/
 COPY config/ ./config/

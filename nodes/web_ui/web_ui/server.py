@@ -40,6 +40,58 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def _make_start_broadcaster(
+    app: FastAPI,
+    clients: dict[str, WebSocket],
+    bridge_node: Any,
+    broadcast_interval: float,
+    logger: Any,
+) -> Any:
+    """Return an async startup handler that spawns a single shared broadcast task.
+
+    Args:
+        app: The FastAPI application instance.
+        clients: Shared dict mapping client_id to WebSocket.
+        bridge_node: BridgeNode instance (may be None).
+        broadcast_interval: Seconds between broadcast ticks.
+        logger: structlog logger.
+
+    Returns:
+        Async callable suitable for use as a startup event handler.
+    """
+
+    async def start_broadcaster() -> None:
+        async def broadcast_loop() -> None:
+            while True:
+                t0 = time.monotonic()
+                await asyncio.sleep(broadcast_interval)
+                if bridge_node is None or not clients:
+                    continue
+                envelopes = bridge_node.flush_dirty()
+                if not envelopes:
+                    continue
+                elapsed_ms = (time.monotonic() - t0) * 1000
+                if elapsed_ms > 60:
+                    logger.warning("broadcaster_slow", duration_ms=round(elapsed_ms), dirty_topics=len(envelopes))
+                logger.debug("broadcaster_cycle", dirty_topics=len(envelopes), client_count=len(clients))
+                frames = [json.dumps(e) for e in envelopes]
+                dead = []
+                for cid, client_ws in list(clients.items()):
+                    for frame in frames:
+                        try:
+                            await client_ws.send_text(frame)
+                            logger.debug("ws_msg_sent", client_id=cid, payload_bytes=len(frame))
+                        except Exception:
+                            dead.append(cid)
+                            break
+                for cid in dead:
+                    clients.pop(cid, None)
+
+        asyncio.create_task(broadcast_loop())
+
+    return start_broadcaster
+
+
 def build_app(
     config: AppConfig,
     urdf_dir: Path,
@@ -76,13 +128,15 @@ def build_app(
     @app.get("/api/urdf/{path:path}")
     async def get_urdf_file(path: str) -> FileResponse:
         requested = (urdf_dir / path).resolve()
-        if not str(requested).startswith(str(urdf_dir.resolve())):
+        if not str(requested).startswith(str(urdf_dir.resolve()) + "/"):
             log.warning("path_traversal_attempt", path=path)
             return JSONResponse({"error": "invalid path"}, status_code=400)
         if not requested.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         log.debug("urdf_file_served", path=path, size_bytes=requested.stat().st_size)
         return FileResponse(requested)
+
+    app.router.add_event_handler("startup", _make_start_broadcaster(app, clients, bridge_node, broadcast_interval, log))
 
     @app.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
@@ -92,33 +146,6 @@ def build_app(
         remote = ws.client.host if ws.client else "unknown"
         log.info("ws_client_connected", client_id=client_id, remote_addr=remote, total_clients=len(clients))
 
-        async def broadcast_loop() -> None:
-            while True:
-                t0 = time.monotonic()
-                await asyncio.sleep(broadcast_interval)
-                if bridge_node is None:
-                    continue
-                envelopes = bridge_node.flush_dirty()
-                if not envelopes:
-                    continue
-                elapsed_ms = (time.monotonic() - t0) * 1000
-                if elapsed_ms > 60:
-                    log.warning("broadcaster_slow", duration_ms=round(elapsed_ms), dirty_topics=len(envelopes))
-                log.debug("broadcaster_cycle", dirty_topics=len(envelopes), client_count=len(clients))
-                frames = [json.dumps(e) for e in envelopes]
-                dead = []
-                for cid, client_ws in list(clients.items()):
-                    for frame in frames:
-                        try:
-                            await client_ws.send_text(frame)
-                            log.debug("ws_msg_sent", client_id=cid, payload_bytes=len(frame))
-                        except Exception:
-                            dead.append(cid)
-                            break
-                for cid in dead:
-                    clients.pop(cid, None)
-
-        broadcast_task = asyncio.create_task(broadcast_loop())
         try:
             async for raw in ws.iter_text():
                 log.debug("ws_msg_recv", client_id=client_id, raw=raw[:200])
@@ -135,7 +162,6 @@ def build_app(
         except WebSocketDisconnect:
             pass
         finally:
-            broadcast_task.cancel()
             clients.pop(client_id, None)
             log.info("ws_client_disconnected", client_id=client_id, total_clients=len(clients))
 
