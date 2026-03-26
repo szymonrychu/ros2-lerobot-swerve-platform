@@ -9,7 +9,7 @@ Non functional requirements:
 * extensive linting including `pre-commit`, `flake8`, `black`, `isort`, `vulture`, `autoflake`, `coverage`, `pytest` (based on https://github.com/szymonrychu/hikvision-doorbell repository configuration)
 * Ansible is able to provision Client and Server raspberry pis running Ubuntu 24.04 (not raspbian)
 * Every part of the software developed for the purpose of this project is storedin this reposusitory
-* Development is augmented by AI, because of that files like `AGENTS.md`, `MEMORY.md` also exist
+* Development is augmented by AI, because of that files like `CLAUDE.md`, `MEMORY.md` also exist
 * AI builds it's initial rules on it's own, rules must include:
   * developing basic unit tests for new functionality
   * testing code using linters, unit tests

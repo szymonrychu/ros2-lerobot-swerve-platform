@@ -23,4 +23,4 @@ All ROS2 node source code and Dockerfiles live here. Deployment is via Ansible: 
 - **haptic_controller/** — Force-feedback (resistance) and zero-G hold mode for leader gripper; gripper-only pilot (Client only).
 - **steamdeck_ui/** — Touch-friendly Electron dashboard for SteamDeck (controller.ros2.lan). Camera preview, sensor/effector graphs, local nav map, GPS map, overlay bar. Python rclpy bridge subscribes to `/controller/*` topics and serves them via local WebSocket. Native app — no Docker.
 
-Shared Python libraries used by multiple nodes live in [../shared/](../shared/). See [AGENTS.md](../AGENTS.md) for conventions (type hints, unit tests, rebuild on source change).
+Shared Python libraries used by multiple nodes live in [../shared/](../shared/). See [CLAUDE.md](../CLAUDE.md) for conventions (type hints, unit tests, rebuild on source change).

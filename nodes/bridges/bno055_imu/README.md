@@ -51,16 +51,16 @@ linear_acceleration_covariance: 0.04
 From repo root:
 
 ```bash
-cd nodes/bno055_imu
+cd nodes/bridges/bno055_imu
 poetry install
 poetry run poe lint
 poetry run poe test
 ```
 
-Docker (from repo root, build context `nodes/bno055_imu`):
+Docker (from repo root, build context `nodes/bridges/bno055_imu`):
 
 ```bash
-docker build -t bno055_imu:latest nodes/bno055_imu
+docker build -t bno055_imu:latest nodes/bridges/bno055_imu
 docker run --rm --device=/dev/i2c-1:/dev/i2c-1 \
   -v /etc/ros2/bno055_imu:/etc/ros2/bno055_imu:ro \
   -e BNO055_IMU_CONFIG=/etc/ros2/bno055_imu/config.yaml \

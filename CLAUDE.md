@@ -4,12 +4,13 @@
 
 ## Tech Stack
 
-- ROS2 (distro TBD — e.g. Humble/Jazzy)
+- ROS2 Jazzy (Ubuntu 24.04)
 - Docker and docker-compose
 - Ansible
 - Ubuntu 24.04
 - Client: Raspberry Pi 5
-- Server / dev: Intel x64 or MacBook M4
+- Server: Raspberry Pi 4b
+- Dev: MacBook M4
 
 ---
 

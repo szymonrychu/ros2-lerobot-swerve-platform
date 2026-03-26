@@ -19,7 +19,7 @@ See `config.example.yaml`. Top-level key `topics` (or `topic_proxy`) with a list
 - **dest** (or **to**): topic to publish to (defaults to source if omitted).
 - **direction:** `in` (server → client) or `out` (client → server); logged at startup for diagnostics. At runtime, a relay loop guard ensures no rule's `dest` is the `source` of another rule (prevents re-relaying own output and feedback amplification).
 
-Supported relay types: **`std_msgs/String`** (default) and **`sensor_msgs/JointState`** (set `type: JointState` in config). Extending to more types is done by adding type-aware relays in `proxy.py`.
+Supported relay types (set via `type:` in each rule; default `string`): `string`, `jointstate`, `imu`, `navsatfix`, `laserscan`, `occupancygrid`, `odometry`, `posestamped`, `image`, `compressedimage`, `twist`. Sensor topics (imu, laserscan, etc.) use BEST_EFFORT subscription QoS; command topics use RELIABLE. All relay publishers use RELIABLE.
 
 ## Code layout
 
@@ -29,8 +29,8 @@ Supported relay types: **`std_msgs/String`** (default) and **`sensor_msgs/JointS
 
 ## Build and run
 
-Ansible deploys by cloning the repo on the node and building the container from `nodes/master2master`. Run the deploy playbook for client or server; ensure config is deployed to `/etc/ros2-nodes/master2master/` (or as set in group_vars). After editing source or Dockerfile, re-run the deploy playbook so the repo is updated and the image is rebuilt locally.
+Ansible deploys by cloning the repo on the node and building the container from `nodes/master2master`. Run the deploy playbook for client or server; config is deployed to `/etc/ros2/master2master/config.yaml`. After editing source or Dockerfile, re-run the deploy playbook so the repo is updated and the image is rebuilt locally.
 
 ## Image
 
-- Built as `harbor.szymonrichert.pl/containers/client-master2master:latest`. Base: `ros:jazzy-ros-base`; uses an in-container venv (`/app/venv`) for Python deps (PEP 668 on Ubuntu 24.04); installs from `requirements.txt` and copies the `master2master` package.
+- Built as `harbor.szymonrichert.pl/containers/client-master2master:latest`. Base: `ros:jazzy-ros-base`; uses Poetry for dependency management; installs deps and copies the `master2master` package.

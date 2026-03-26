@@ -1,65 +1,97 @@
 ---
-name: bno055-diagnostics
-description: Use when checking BNO055 IMU status, debugging I2C issues, verifying sensor data on /imu/data, or after deploying the bno055_imu node to the client RPi
+name: teleop-diagnostics
+description: Use when checking the leader-follower teleop pipeline health, debugging data flow from lerobot_leader through master2master and filter_node to lerobot_follower, verifying QoS chain, or after deploying teleop-related nodes
 ---
 
-# BNO055 IMU Diagnostics
+# Teleop Pipeline Diagnostics
 
-Run `scripts/bno055_diag.sh` for a complete one-command IMU diagnostic. Never SSH manually to check IMU status — the script handles everything and requires no approvals.
+Run `scripts/teleop_diag.sh` for a complete one-command teleop diagnostic. Never SSH manually to check service status — the script handles everything and requires no approvals.
 
 ## Quick Reference
 
 ```bash
-./scripts/bno055_diag.sh              # Full one-shot diagnostic
-./scripts/bno055_diag.sh --watch      # Repeat every 10s (Ctrl+C to stop)
-./scripts/bno055_diag.sh --watch --interval 5
-./scripts/bno055_diag.sh --logs-only  # Only recent service logs
-./scripts/bno055_diag.sh --lines 30   # More log lines (default: 20)
-./scripts/bno055_diag.sh --no-scraper # Skip topic_scraper query
+./scripts/teleop_diag.sh              # Full one-shot diagnostic
+./scripts/teleop_diag.sh --watch      # Repeat every 10s (Ctrl+C to stop)
+./scripts/teleop_diag.sh --watch --interval 5
+./scripts/teleop_diag.sh --logs-only  # Only recent service logs (no scraper)
+./scripts/teleop_diag.sh --lines 30   # More log lines (default: 20)
+./scripts/teleop_diag.sh --no-scraper # Skip topic_scraper query
+```
+
+## Data Path
+
+```
+Server: lerobot_leader  →  /leader/joint_states  (JointState, RELIABLE)
+                                 ↓ WiFi / DDS
+Client: master2master   →  /filter/input_joint_updates  (BEST_EFFORT sub → RELIABLE pub)
+                                 ↓
+        filter_node     →  /follower/joint_commands  (Kalman-filtered)
+                                 ↓
+        lerobot_follower → SO-101 follower arm (Feetech SCS)
+```
+
+Alternative input (bypasses master2master):
+```
+test_joint_api  →  REST POST  →  /filter/input_joint_updates
 ```
 
 ## Output Sections
 
 | Section | What to look for |
 |---------|-----------------|
-| Service | `active` = container running. `inactive` = check logs for crash reason. |
-| I2C boot config | Lines from `/boot/firmware/config.txt` — confirms `dtparam=i2c_arm=on` and `dtparam=i2c_arm_baudrate=<N>` are present. Takes effect after power cycle. |
-| I2C runtime config | `clock-frequency: 100000 Hz` = running at 100 kHz (correct for BNO055). Driver should be `i2c_designware_platform` on RPi5. |
-| I2C scan | `BNO055 found at 0x28` (or 0x29). If NOT found, sensor not wired or not powered. |
-| IMU logs | `warm-up complete` = sensor ready. `warm-up timed out` = I2C unreliable. `consecutive failures` = persistent I2C errors triggering reconnect. |
-| Topic scraper | Non-zero accel/gyro + `orientation_covariance[0] != -1` = sensor calibrated and publishing. |
+| `[server] lerobot_leader` | `active` = container running; `inactive` = check logs for crash reason. |
+| `[client] master2master relay` | `active` = relay running. Look for relay rules logged at startup: `/leader/joint_states -> /filter/input_joint_updates`. |
+| `[client] filter_node` | `active` = Kalman filter running. Look for `stale input` warnings if no data is flowing. |
+| `[client] lerobot_follower` | `active` = follower running and listening on `/follower/joint_commands`. |
+| Topic scraper | `/leader/joint_states`, `/filter/input_joint_updates`, `/follower/joint_commands` — all three must be PRESENT for end-to-end data flow. |
 
 ## Interpreting Results — Common Patterns
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| Service `inactive` | Container crashed or device not mounted | Check logs for import error or `PermissionError`; verify `--device=/dev/i2c-1` in container args |
-| `BNO055 NOT found` in I2C scan | Wrong address, wiring, or module not powered | Check physical connection; try `i2c_address: 0x29` in config |
-| `warm-up timed out` | Sensor not returning valid gyro/accel within 10 s | Keep sensor still for a few seconds; power-cycle module; check I2C baudrate |
-| `consecutive failures — attempting I2C reconnect` | Intermittent I2C bus errors | Check wiring integrity; verify `i2c_baudrate` Ansible var is ≤ 400000 |
-| `reconnect failed` | Hardware-level I2C failure | Power-cycle client RPi; check `/dev/i2c-1` is accessible inside container |
-| `orientation_covariance[0]=-1` in scraper | Orientation unknown — quaternion invalid or sensor uncalibrated | Move sensor slowly in figure-8; wait for sys/gyro/accel calibration ≥ 1 |
-| All accel/gyro zero in scraper | Data valid but all readings zero | Check sensor not on perfectly flat surface; verify it's not publishing placeholder data |
-| No topic_scraper data | `topic_scraper_api` not running or wrong port | Check `ros2-topic_scraper_api` service on client; default port 18100 |
-| `i2cdetect unavailable` | `i2c-tools` not installed on client | `sudo apt install i2c-tools` on client RPi |
-| Boot config shows `400000` but runtime shows `400000 Hz` | Baudrate was 400 kHz before power cycle | Verify Ansible `rpi_i2c_baudrate` is `100000`, re-run `optimize.yml`, power-cycle RPi |
-| Runtime `clock-frequency` not 100000 | Boot config change not yet active | Power-cycle RPi (not just reboot) so RP1 chip resets |
-| Driver not `i2c_designware_platform` | Unexpected I2C driver loaded | Check `/boot/firmware/config.txt` for conflicting overlays |
+| `lerobot_leader` service `inactive` | Container crashed (common: `RCLError: publisher's context is invalid` on SIGTERM) | `sudo systemctl restart ros2-lerobot_leader` on server |
+| `lerobot_follower` service `inactive` | Container failed to start (servo device not found or permission error) | `sudo systemctl restart ros2-lerobot_follower` on client |
+| `/leader/joint_states` MISSING in scraper | Leader not publishing; DDS discovery not working; master2master not relaying | Check lerobot_leader logs; verify `ROS_DOMAIN_ID` matches on server and client |
+| `/filter/input_joint_updates` MISSING | master2master relay not forwarding; rule not in config | Check master2master logs for startup rule list; verify relay config |
+| `/follower/joint_commands` MISSING | filter_node not running or not receiving input | Check filter_node logs for `stale input` warnings or startup errors |
+| `MISSING` for all three topics | topic_scraper_api not running or wrong port | Check `ros2-topic_scraper_api` service on client; default port 18100 |
+| Oscillation / runaway arm | QoS mismatch causing burst replays, or Kalman params too aggressive | Check QoS chain (see below); collect merged NDJSON with `topic_scraper_collect.py` |
+| `filter_node` logs `stale input` | No data arriving at `/filter/input_joint_updates` for > 5 s | Trace back: check master2master, then lerobot_leader |
+| master2master logs no relay rules | Config missing or path wrong | Check `/etc/ros2/master2master/config.yaml` on client |
+
+## QoS Chain
+
+The correct QoS chain (fixed in main):
+
+| Publisher | Topic | QoS |
+|-----------|-------|-----|
+| `lerobot_leader` | `/leader/joint_states` | RELIABLE |
+| `master2master` sub | `/leader/joint_states` | BEST_EFFORT |
+| `master2master` pub | `/filter/input_joint_updates` | RELIABLE |
+| `filter_node` sub | `/filter/input_joint_updates` | RELIABLE |
+| `filter_node` pub | `/follower/joint_commands` | RELIABLE |
+| `lerobot_follower` sub | `/follower/joint_commands` | RELIABLE |
+
+RELIABLE←BEST_EFFORT is incompatible (silent data loss). If master2master subscribed RELIABLE to a BEST_EFFORT publisher, no messages would flow.
+
+## Oscillation Check (merged NDJSON)
+
+For leader–follower oscillation, collect merged data from both scrapers:
+
+```bash
+python scripts/topic_scraper_collect.py \
+  --source client=http://client.ros2.lan:18100 \
+  --source server=http://server.ros2.lan:18100 \
+  --select /filter/input_joint_updates:.position \
+  --select /follower/joint_states:.position \
+  --interval 0.1
+```
+
+Look for: timing skew (`received_at_ns` / `header_stamp_ns`), command stability (position/effort deltas), no runaway oscillation.
 
 ## Service and Node Details
 
-- **Service:** `ros2-bno055_imu.service` on `client.ros2.lan`
-- **Topic:** `/imu/data` (type: `sensor_msgs/Imu`)
-- **I2C:** bus 1 (`/dev/i2c-1`), default address 0x28 (fallback 0x29)
-- **Config:** `/etc/ros2/bno055_imu/config.yaml`
-- **Key log markers:** `BNO055 IMU: publishing` (startup), `warm-up complete`, `calibration (sys, gyro, accel, mag):`
-
-## Calibration Info
-
-BNO055 calibration status is logged at startup:
-```
-BNO055 calibration (sys, gyro, accel, mag): 0, 1, 1, 0  (0=uncal, 3=full)
-```
-- `sys=3` = fully calibrated; lower values = partial
-- Calibration is lost on power cycle; the sensor re-calibrates automatically during use
-- `orientation_covariance[0]=-1` means quaternion is not trusted yet (keep sensor still or move slowly)
+- **lerobot_leader**: `ros2-lerobot_leader.service` on `server.ros2.lan`; topic `/leader/joint_states` (JointState)
+- **master2master**: `ros2-master2master.service` on `client.ros2.lan`; config `/etc/ros2/master2master/config.yaml`
+- **filter_node**: `ros2-filter_node.service` on `client.ros2.lan`; algorithm Kalman; input `/filter/input_joint_updates`, output `/follower/joint_commands`
+- **lerobot_follower**: `ros2-lerobot_follower.service` on `client.ros2.lan`; subscribes `/follower/joint_commands`

@@ -60,6 +60,8 @@ steamdeck_ui/
 │   │   └── preload.ts        # contextBridge for renderer
 │   └── renderer/
 │       ├── app.ts            # Tab manager, WebSocket client
+│       ├── index.html        # Single-page shell
+│       ├── style.css         # B&W, square corners, no borders
 │       ├── tabs/
 │       │   ├── tab-base.ts           # Abstract base
 │       │   ├── camera-tab.ts         # base64 JPEG image viewer
@@ -80,8 +82,6 @@ steamdeck_ui/
 │   └── tests/
 │       ├── test_config.py
 │       └── test_msg_serializer.py
-│   │   ├── index.html        # Single-page shell
-│   │   └── style.css         # B&W, square corners, no borders
 └── tests/
     ├── test_config.test.ts
     ├── test_field_extract.test.ts

@@ -60,7 +60,7 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `lerobot_follower` | feetech_servos | `/follower/joint_commands` (sub), `/follower/joint_states` (pub) | SO-101 arm (USB serial) |
 | `gps_rtk_rover` | gps_rtk | `/client/gps/fix` (pub), RTCM3 from Server :5016 | LC29H-DA HAT (`/dev/ttyAMA0`) |
 | `bno055_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
-| `gripper_uvc_camera` | uvc_camera | Disabled (`enabled: false`) | USB camera |
+| `gripper_uvc_camera` | uvc_camera | `/camera_0/image_compressed` (pub, `sensor_msgs/CompressedImage`) | USB camera |
 | `swerve_drive_servos` | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 (e.g. `/dev/ttyUSB1`) |
 | `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub) | — |
 | `static_tf_publisher` | static_tf_publisher | TF base_link → imu_link, laser_frame | — |
@@ -116,7 +116,6 @@ Nav2 reads: /odom or /odometry/filtered, /scan, /imu/data; goal via navigate_to_
 ### Future
 
 - AI offloading server (x64, LLM/VLA)
-- SteamDeck on-site controller (Ubuntu + ROS2 + GUI)
 
 ## Monorepo layout
 
@@ -129,18 +128,25 @@ Nav2 reads: /odom or /odometry/filtered, /scan, /imu/data; goal via navigate_to_
 │   ├── test_joint_api/     REST API for joint testing
 │   ├── topic_scraper_api/  Dynamic topic scraper + HTTP API
 │   ├── haptic_controller/  Force-feedback (disabled)
+│   ├── swerve_drive_controller/ Swerve IK/FK, odometry, cmd_vel→joints
+│   ├── static_tf_publisher/ Static TF base_link→sensors
+│   ├── robot_localization_ekf/ EKF fuse odom+IMU
+│   ├── nav2_bringup/       Nav2 navigation stack
+│   ├── steamdeck_ui/       SteamDeck Electron UI + Python bridge (native, no Docker)
 │   └── bridges/
 │       ├── bno055_imu/     BNO055 IMU bridge
 │       ├── feetech_servos/ Feetech servo bridge (leader + follower)
 │       ├── uvc_camera/     UVC camera bridge
-│       └── gps_rtk/        GPS RTK bridge (base + rover)
+│       ├── gps_rtk/        GPS RTK bridge (base + rover)
+│       ├── rplidar_a1/     RPLidar A1 LaserScan bridge
+│       └── realsense_d435i/ RealSense D435i bridge
 ├── shared/                 Shared Python libraries
 ├── ansible/                Provisioning + deployment (Ansible)
 │   ├── roles/              common, docker, network, hostname, ros2_node_deploy,
-│   │                       ros2_node_verify, system_optimize
+│   │                       ros2_node_verify, system_optimize, steamdeck_ui
 │   ├── playbooks/          Provision + deploy + optimize
 │   └── group_vars/         Per-host node lists and config
-├── scripts/                Utility scripts (calibration, verification, diagrams)
+├── scripts/                Utility scripts (calibration, verification, diagnostics)
 ├── tests/                  Root-level tests
 └── docs/diagrams/          PlantUML sources + generated PNGs
 ```
@@ -180,7 +186,7 @@ See [ansible/README.md](ansible/README.md) for full details on roles, node confi
 | Document | Description |
 |----------|-------------|
 | [ROADMAP.md](ROADMAP.md) | MVP scope and roadmap streams |
-| [AGENTS.md](AGENTS.md) | Cursor/agent rules and conventions |
+| [CLAUDE.md](CLAUDE.md) | Project conventions for AI coding assistants |
 | [MEMORY.md](MEMORY.md) | Key decisions and agent notes |
 | [ansible/README.md](ansible/README.md) | Ansible playbooks, roles, deployment |
 | [nodes/README.md](nodes/README.md) | Nodes overview |
@@ -202,4 +208,11 @@ See [ansible/README.md](ansible/README.md) for full details on roles, node confi
 | test_joint_api | [nodes/test_joint_api/README.md](nodes/test_joint_api/README.md) |
 | topic_scraper_api | [nodes/topic_scraper_api/README.md](nodes/topic_scraper_api/README.md) |
 | bno055_imu | [nodes/bridges/bno055_imu/README.md](nodes/bridges/bno055_imu/README.md) |
+| rplidar_a1 | [nodes/bridges/rplidar_a1/README.md](nodes/bridges/rplidar_a1/README.md) |
+| realsense_d435i | [nodes/bridges/realsense_d435i/README.md](nodes/bridges/realsense_d435i/README.md) |
 | haptic_controller | [nodes/haptic_controller/README.md](nodes/haptic_controller/README.md) |
+| swerve_drive_controller | [nodes/swerve_drive_controller/README.md](nodes/swerve_drive_controller/README.md) |
+| static_tf_publisher | [nodes/static_tf_publisher/README.md](nodes/static_tf_publisher/README.md) |
+| robot_localization_ekf | [nodes/robot_localization_ekf/README.md](nodes/robot_localization_ekf/README.md) |
+| nav2_bringup | [nodes/nav2_bringup/README.md](nodes/nav2_bringup/README.md) |
+| steamdeck_ui | [nodes/steamdeck_ui/README.md](nodes/steamdeck_ui/README.md) |

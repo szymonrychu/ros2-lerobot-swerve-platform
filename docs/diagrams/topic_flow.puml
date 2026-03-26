@@ -6,7 +6,7 @@ skinparam actorBorderColor #444
 skinparam participantBorderColor #444
 skinparam arrowColor #555
 
-title ROS2 Topic Flow — Leader–Follower Teleop + Sensors
+title ROS2 Topic Flow — Leader–Follower Teleop + Swerve + Nav2 + Sensors
 
 participant "lerobot_leader\n(Server)" as leader #A5D6A7
 participant "master2master\n(Client)" as m2m #90CAF9
@@ -24,6 +24,32 @@ filter -> follower : /follower/joint_commands\n(JointState, Kalman-filtered)
 
 testapi -> filter : /filter/input_joint_updates\n(JointState, via REST POST)
 
+== Swerve Drive ==
+
+participant "nav2_bringup\n(Client)" as nav2 #90CAF9
+participant "swerve_controller\n(Client)" as swerve_ctrl #90CAF9
+participant "swerve_drive_servos\n(Client)" as swerve_servos #64B5F6
+
+nav2 -> swerve_ctrl : /cmd_vel\n(geometry_msgs/Twist)
+swerve_ctrl -> swerve_servos : /swerve_drive/joint_commands\n(JointState — 8 servos)
+swerve_ctrl -> swerve_ctrl : /odom\n(nav_msgs/Odometry + TF odom→base_link)
+
+== EKF Sensor Fusion ==
+
+participant "bno055_imu\n(Client)" as imu #64B5F6
+participant "robot_localization_ekf\n(Client)" as ekf #90CAF9
+
+imu -> imu : /imu/data\n(sensor_msgs/Imu)
+swerve_ctrl -> ekf : /odom\n(nav_msgs/Odometry)
+imu -> ekf : /imu/data\n(sensor_msgs/Imu)
+ekf -> nav2 : /odometry/filtered\n(nav_msgs/Odometry)
+
+== Static TF ==
+
+participant "static_tf_publisher\n(Client)" as tf_pub #BBDEFB
+
+tf_pub -> tf_pub : TF base_link→imu_link\nTF base_link→laser_frame\nTF base_link→camera_link
+
 == GPS RTK ==
 
 participant "gps_rtk_base\n(Server)" as gps_base #A5D6A7
@@ -33,28 +59,32 @@ gps_base -> gps_base : /server/gps/fix\n(NavSatFix)
 gps_base -> gps_rover : RTCM3 corrections\n(TCP :5016)
 gps_rover -> gps_rover : /client/gps/fix\n(NavSatFix)
 
-== IMU ==
-
-participant "bno055_imu\n(Client)" as imu #64B5F6
-
-imu -> imu : /imu/data\n(sensor_msgs/Imu)
-
-== Camera ==
-
-participant "uvc_camera\n(Client)" as cam #64B5F6
-
-cam -> cam : /camera_0/image_raw\n(sensor_msgs/Image)
-
 == Lidar ==
 
 participant "rplidar_a1\n(Client)" as rplidar #64B5F6
 
 rplidar -> rplidar : /scan\n(sensor_msgs/LaserScan)
+rplidar -> nav2 : /scan\n(for costmap)
 
 == RealSense ==
 
 participant "realsense_d435i\n(Client)" as realsense #64B5F6
 
-realsense -> realsense : /camera/color/image_raw\n/camera/depth/...\n(sensor_msgs/Image, PointCloud2, Imu)
+realsense -> realsense : /camera/color/image_raw\n/camera/depth/...\n/camera/imu\n(Image, PointCloud2, Imu)
+
+== Camera ==
+
+participant "uvc_camera\n(Client)" as cam #64B5F6
+
+cam -> cam : /camera_0/image_compressed\n(sensor_msgs/CompressedImage)
+
+== SteamDeck UI ==
+
+participant "steamdeck_ui bridge\n(Controller)" as ui_bridge #FFF176
+participant "Electron renderer\n(Controller)" as ui_renderer #FFF176
+
+m2m -> ui_bridge : /controller/* topics\n(relayed via DDS)
+ui_bridge -> ui_renderer : WebSocket ws://localhost:9090\n(sensor data, camera, map, GPS)
+ui_renderer -> m2m : /controller/goal_pose\n(geometry_msgs/PoseStamped → Nav2)
 
 @enduml

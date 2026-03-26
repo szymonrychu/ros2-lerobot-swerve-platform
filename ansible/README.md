@@ -83,7 +83,7 @@ All defaults are in `roles/system_optimize/defaults/main.yml`. Override in `grou
 | `rpi_disable_bluetooth` | `true` | Disable Bluetooth |
 | `rpi_disable_hdmi` | `true` | Blank HDMI output |
 | `rpi_wifi_power_save_off` | `true` | Disable WiFi power saving |
-| `rpi_i2c_baudrate` | _(undefined)_ | I2C clock speed in Hz; set to `400000` in `group_vars/client.yml` for BNO055 reliability |
+| `rpi_i2c_baudrate` | _(undefined)_ | I2C clock speed in Hz; set to `10000` in `group_vars/client.yml` for BNO055 reliability |
 
 ### Running standalone
 
@@ -202,12 +202,12 @@ Use `scripts/topic_scraper_collect.py` to poll both hosts and emit merged NDJSON
 
 The `system_optimize` role configures I2C clock speed on the client RPi via
 `dtparam=i2c_arm_baudrate` in `/boot/firmware/config.txt`.
-Set `rpi_i2c_baudrate: 400000` in `group_vars/client.yml` (default).
+Set `rpi_i2c_baudrate: 10000` in `group_vars/client.yml` (current value).
 **Requires reboot** to take effect.
 
 ### IMU (client)
 
-The **bno055_imu** node runs on the client and publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation, angular velocity, linear acceleration, and full covariance matrices for use with the Navigation stack (Nav2). It reads a BNO055 over I2C; the container is given access to the I2C device (e.g. `--device=/dev/i2c-1:/dev/i2c-1`). Config: topic, frame_id, publish_hz, i2c_bus, i2c_address (default 0x28), and covariance values (see `nodes/bno055_imu/README.md`).
+The **bno055_imu** node runs on the client and publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation, angular velocity, linear acceleration, and full covariance matrices for use with the Navigation stack (Nav2). It reads a BNO055 over I2C; the container is given access to the I2C device (e.g. `--device=/dev/i2c-1:/dev/i2c-1`). Config: topic, frame_id, publish_hz, i2c_bus, i2c_address (default 0x28), and covariance values (see `nodes/bridges/bno055_imu/README.md`).
 
 ### Raspberry Pi GPIO/I2C tooling (all users)
 
@@ -344,4 +344,4 @@ ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client
 
 ## After changing playbooks or roles
 
-When you change playbooks, roles, or templates, re-run the relevant playbook so targets get the updates. There is no “container rebuild” inside Ansible; image builds are done via Docker (see repo [AGENTS.md](../AGENTS.md) and [README.md](../README.md)). When you change node **source code**, rebuild the container image and then re-run the deploy playbook if you need to pull/restart the service.
+When you change playbooks, roles, or templates, re-run the relevant playbook so targets get the updates. There is no “container rebuild” inside Ansible; image builds are done via Docker (see repo [CLAUDE.md](../CLAUDE.md) and [README.md](../README.md)). When you change node **source code**, rebuild the container image and then re-run the deploy playbook if you need to pull/restart the service.

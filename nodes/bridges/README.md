@@ -18,10 +18,9 @@ Reusable ROS2 nodes that expose hardware as standard ROS2 topics. Each bridge ty
 | RPLidar A1   | [rplidar_a1/](rplidar_a1/README.md) | Implemented | ros-jazzy-rplidar-ros; `/dev/ttyUSB0`, LaserScan `/scan` |
 | IMU (BNO055)  | [bno055_imu/](bno055_imu/README.md) | Implemented | Client only; I2C, Nav2 covariance                |
 | GPS-RTK       | [gps_rtk/](gps_rtk/README.md) | Implemented | LC29H-BS (base) on Server, LC29H-DA (rover) on Client; NavSatFix + RTCM3 TCP |
-| Swerve        | —                   | Stub     | Placeholder service in compose                   |
 
 When adding a new bridge: add a directory under `bridges/` with a Dockerfile and Python (or other) code, document it in this README and in a local README, and add the node type and build context to Ansible `group_vars` and the deploy role so it is built and run on target nodes.
 
 ## Rebuild rule
 
-After editing any source used by a bridge container, re-run the Ansible deploy playbook on the target node so the repo is updated and the container is rebuilt locally (see [AGENTS.md](../../AGENTS.md)).
+After editing any source used by a bridge container, re-run the Ansible deploy playbook on the target node so the repo is updated and the container is rebuilt locally (see [CLAUDE.md](../../CLAUDE.md)).

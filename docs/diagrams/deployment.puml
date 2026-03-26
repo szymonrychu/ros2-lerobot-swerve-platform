@@ -24,12 +24,26 @@ node "Client (RPi 5)\nclient.ros2.lan" as client {
   component "gripper_uvc_camera" as cc <<Docker>> #64B5F6
   component "rplidar_a1" as cr <<Docker>> #64B5F6
   component "realsense_d435i" as cre <<Docker>> #64B5F6
+  component "swerve_drive_servos\n(feetech_servos)" as css <<Docker>> #64B5F6
+  component "swerve_controller" as csc <<Docker>> #90CAF9
+  component "static_tf_publisher" as ctf <<Docker>> #BBDEFB
+  component "robot_localization_ekf" as cekf <<Docker>> #90CAF9
+  component "nav2_bringup" as cnav <<Docker>> #90CAF9
   component "test_joint_api" as ct <<Docker>> #90CAF9
   component "topic_scraper_api" as cs <<Docker>> #BBDEFB
   component "haptic_controller\n(disabled)" as ch <<Docker>> #CFD8DC
 }
 
+node "Controller (SteamDeck)\ncontroller.ros2.lan" as controller {
+  component "steamdeck_ui\n(Python bridge + Electron)" as csd <<Native>> #FFF176
+  note right of csd
+    No Docker — native app.
+    Python rclpy bridge + Electron renderer.
+  end note
+}
+
 server -[#green]-> client : WiFi (DDS + TCP)
+client -[#green]-> controller : WiFi (DDS)
 
 note right of server
   4 containers
@@ -37,7 +51,7 @@ note right of server
 end note
 
 note right of client
-  12 containers
+  17 containers
   systemd-managed
 end note
 

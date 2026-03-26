@@ -33,6 +33,11 @@ package "Client — Raspberry Pi 5" as client #E3F2FD {
   component "gripper_uvc_camera" as c_cam #64B5F6
   component "rplidar_a1" as c_rplidar #64B5F6
   component "realsense_d435i" as c_realsense #64B5F6
+  component "swerve_drive_servos\n(feetech_servos)" as c_swerve_servos #64B5F6
+  component "swerve_controller\n(IK/FK/odom)" as c_swerve_ctrl #90CAF9
+  component "static_tf_publisher" as c_tf #BBDEFB
+  component "robot_localization_ekf\n(EKF)" as c_ekf #90CAF9
+  component "nav2_bringup\n(Nav2)" as c_nav2 #90CAF9
   component "haptic_controller\n(disabled)" as c_haptic #CFD8DC
   component "test_joint_api\n(:18080)" as c_testapi #90CAF9
   component "topic_scraper_api\n(:18100)" as c_scraper #BBDEFB
@@ -43,6 +48,7 @@ package "Client — Raspberry Pi 5" as client #E3F2FD {
   database "USB Camera\n(/dev/video0)" as hw_cam
   database "RPLidar A1\n(/dev/ttyUSB0)" as hw_lidar
   database "RealSense D435i\n(USB 3.0)" as hw_rs
+  database "8× ST3215\n(swerve servos)" as hw_swerve
 
   c_follower --> hw_follower : Feetech SCS
   c_gps --> hw_gps_da : NMEA + RTCM3
@@ -50,6 +56,19 @@ package "Client — Raspberry Pi 5" as client #E3F2FD {
   c_cam --> hw_cam : V4L2
   c_rplidar --> hw_lidar : USB serial
   c_realsense --> hw_rs : USB 3.0
+  c_swerve_servos --> hw_swerve : Feetech SCS
+}
+
+package "Controller — SteamDeck" as controller #FFF9C4 {
+  component "steamdeck_ui\n(Electron + Python bridge)" as c_steamdeck #FFF176
+  note right of c_steamdeck
+    Python rclpy bridge subscribes
+    /controller/* topics via DDS,
+    serves ws://localhost:9090.
+    Electron renderer: camera preview,
+    sensor graphs, nav map, GPS map.
+    Native (no Docker).
+  end note
 }
 
 s_leader ..> c_m2m : /leader/joint_states\n(WiFi, DDS)
@@ -57,6 +76,14 @@ c_m2m ..> c_filter : /filter/input_joint_updates
 c_filter ..> c_follower : /follower/joint_commands
 
 s_gps ..> c_gps : RTCM3 corrections\n(TCP :5016)
+
+c_nav2 ..> c_swerve_ctrl : /cmd_vel
+c_swerve_ctrl ..> c_swerve_servos : /swerve_drive/joint_commands
+c_swerve_ctrl ..> c_ekf : /odom
+c_imu ..> c_ekf : /imu/data
+c_ekf ..> c_nav2 : /odometry/filtered
+
+c_scraper ..> c_steamdeck : /controller/* topics\n(DDS relay via m2m)
 
 note bottom of c_testapi
   REST → /filter/input_joint_updates
