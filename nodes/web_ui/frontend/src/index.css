@@ -1,0 +1,92 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #000;
+  color: #eee;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 14px;
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.tab-bar {
+  display: flex;
+  background: #111;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  border-right: 1px solid #333;
+  color: #888;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.tab-btn.active {
+  color: #fff;
+  background: #1a1a1a;
+  border-bottom: 2px solid #fff;
+}
+
+.tab-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.overlay-bar {
+  display: flex;
+  align-items: center;
+  background: #0a0a0a;
+  border-top: 1px solid #222;
+  padding: 4px 12px;
+  gap: 24px;
+  flex-shrink: 0;
+  min-height: 36px;
+}
+
+.overlay-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.overlay-label {
+  color: #555;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.overlay-value {
+  color: #ccc;
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.overlay-unit {
+  color: #444;
+  font-size: 10px;
+}
+
+.ws-status {
+  margin-left: auto;
+  font-size: 11px;
+  color: #444;
+}
+
+.ws-status.connected { color: #4a4; }
