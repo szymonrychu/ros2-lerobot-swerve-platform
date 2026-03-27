@@ -10,4 +10,4 @@ COPY config/nav2_params.yaml /app/config/nav2_params.yaml
 
 # use_localization:=false -> no AMCL (no map required). Use odom + scan only.
 # params_file points to our config (odom, scan, frame_ids).
-CMD ["bash", "-c", "source /opt/ros/jazzy/setup.bash && exec ros2 launch nav2_bringup bringup_launch.py use_localization:=false params_file:=/app/config/nav2_params.yaml"]
+CMD ["bash", "-c", "source /opt/ros/jazzy/setup.bash && exec ros2 launch nav2_bringup bringup_launch.py use_localization:=False params_file:=/app/config/nav2_params.yaml"]
