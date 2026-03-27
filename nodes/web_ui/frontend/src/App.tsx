@@ -7,6 +7,7 @@ import { AppConfig, TabConfig } from './types'
 const CameraTab = lazy(() => import('./tabs/CameraTab'))
 const SensorGraphTab = lazy(() => import('./tabs/SensorGraphTab'))
 const EffectorGraphTab = lazy(() => import('./tabs/EffectorGraphTab'))
+const ImuOrientationTab = lazy(() => import('./tabs/ImuOrientationTab'))
 const NavLocalTab = lazy(() => import('./tabs/NavLocalTab'))
 const NavGpsTab = lazy(() => import('./tabs/NavGpsTab'))
 const Scene3DTab = lazy(() => import('./tabs/Scene3DTab'))
@@ -18,6 +19,7 @@ function renderTab(tab: TabConfig, topicData: Record<string, unknown>, publish: 
     case 'camera': return <CameraTab {...props} />
     case 'sensor_graph': return <SensorGraphTab {...props} />
     case 'effector_graph': return <EffectorGraphTab {...props} />
+    case 'imu_orientation': return <ImuOrientationTab {...props} />
     case 'nav_local': return <NavLocalTab {...props} />
     case 'nav_gps': return <NavGpsTab {...props} />
     case 'scene3d': return <Scene3DTab {...props} />

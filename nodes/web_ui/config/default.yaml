@@ -13,22 +13,11 @@ tabs:
     topic: /controller/camera_0/image_raw
 
   - id: imu_graphs
-    type: sensor_graph
+    type: imu_orientation
     label: "IMU"
     topics:
       - topic: /controller/imu/data
-        fields:
-          - path: "linear_acceleration.x"
-            label: "Accel X"
-            color: "#333333"
-          - path: "linear_acceleration.y"
-            label: "Accel Y"
-            color: "#666666"
-          - path: "angular_velocity.z"
-            label: "Gyro Z"
-            color: "#999999"
-    window_s: 10
-    max_points: 500
+        fields: []
 
   - id: arm_servos
     type: effector_graph
@@ -37,9 +26,23 @@ tabs:
       - topic: /controller/follower/joint_states
         fields:
           - path: "position[0]"
-            label: "Joint 1"
+            label: "J1 shoulder_pan"
+            color: "#e06c75"
+          - path: "position[1]"
+            label: "J2 shoulder_lift"
+            color: "#e5c07b"
+          - path: "position[2]"
+            label: "J3 elbow_flex"
+            color: "#98c379"
+          - path: "position[3]"
+            label: "J4 wrist_flex"
+            color: "#56b6c2"
+          - path: "position[4]"
+            label: "J5 wrist_roll"
+            color: "#61afef"
           - path: "position[5]"
-            label: "Joint 6"
+            label: "J6 gripper"
+            color: "#c678dd"
     window_s: 10
 
   - id: local_nav

@@ -66,11 +66,23 @@ class TabConfig(BaseModel):
     tile_url: str | None = None
     default_zoom: int = 18
     urdf_file: str | None = None  # for scene3d / robot_status tabs
+    arm_urdf_file: str | None = None
+    arm_joint_topic: str | None = None
+    arm_offset: tuple[float, float, float] | None = None
 
     @field_validator("type")
     @classmethod
     def check_type(cls, v: str) -> str:
-        valid = {"camera", "sensor_graph", "effector_graph", "nav_local", "nav_gps", "scene3d", "robot_status"}
+        valid = {
+            "camera",
+            "sensor_graph",
+            "effector_graph",
+            "imu_orientation",
+            "nav_local",
+            "nav_gps",
+            "scene3d",
+            "robot_status",
+        }
         if v not in valid:
             raise ValueError(f"tab type must be one of {valid}, got {v!r}")
         return v
@@ -97,7 +109,7 @@ class AppConfig(BaseModel):
                 topics.add(tab.topic)
             for ts in tab.topics:
                 topics.add(ts.topic)
-            for attr in ("scan_topic", "costmap_topic", "odom_topic", "fix_topic"):
+            for attr in ("scan_topic", "costmap_topic", "odom_topic", "fix_topic", "arm_joint_topic"):
                 val = getattr(tab, attr)
                 if val:
                     topics.add(val)

@@ -4,6 +4,7 @@ import 'uplot/dist/uPlot.min.css'
 import log from '../logging'
 import { TabConfig } from '../types'
 import { extractField } from '../utils/fieldExtract'
+import { getOrCreateBuffer, setBuffer } from '../utils/graphBuffers'
 
 interface Props {
   tab: TabConfig
@@ -14,7 +15,6 @@ interface Props {
 export default function SensorGraphTab({ tab, topicData }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const plotRef = useRef<uPlot | null>(null)
-  const bufferRef = useRef<number[][]>([[]])
 
   const topics = tab.topics ?? []
   const seriesCount = topics.reduce((n, ts) => n + ts.fields.length, 0)
@@ -46,8 +46,9 @@ export default function SensorGraphTab({ tab, topicData }: Props) {
       ],
     }
 
-    bufferRef.current = Array.from({ length: seriesCount + 1 }, () => [])
-    plotRef.current = new uPlot(opts, bufferRef.current as uPlot.AlignedData, containerRef.current)
+    // Restore or create persistent buffer — survives tab switches
+    const buf = getOrCreateBuffer(tab.id, seriesCount)
+    plotRef.current = new uPlot(opts, buf as uPlot.AlignedData, containerRef.current)
 
     return () => {
       plotRef.current?.destroy()
@@ -58,7 +59,7 @@ export default function SensorGraphTab({ tab, topicData }: Props) {
   useEffect(() => {
     if (!plotRef.current || seriesCount === 0) return
     const now = performance.now()
-    const buf = bufferRef.current
+    const buf = getOrCreateBuffer(tab.id, seriesCount)
 
     // Check whether any series has new data before touching the buffer
     let hasUpdate = false
@@ -87,11 +88,15 @@ export default function SensorGraphTab({ tab, topicData }: Props) {
     const cutoff = now - windowMs
     const firstKeep = buf[0].findIndex((t) => t >= cutoff)
     if (firstKeep > 0) {
-      for (let i = 0; i < buf.length; i++) buf[i] = buf[i].slice(firstKeep)
+      const trimmed = buf.map((arr) => arr.slice(firstKeep))
+      trimmed.forEach((arr, i) => { buf[i] = arr })
+      setBuffer(tab.id, buf)
     }
     if (buf[0].length > maxPoints) {
       const trim = buf[0].length - maxPoints
-      for (let i = 0; i < buf.length; i++) buf[i] = buf[i].slice(trim)
+      const trimmed = buf.map((arr) => arr.slice(trim))
+      trimmed.forEach((arr, i) => { buf[i] = arr })
+      setBuffer(tab.id, buf)
     }
 
     log.debug('[graph] append: topics updated, points:', buf[0].length)
