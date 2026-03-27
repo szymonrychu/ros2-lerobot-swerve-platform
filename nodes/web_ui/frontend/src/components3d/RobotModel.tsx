@@ -18,7 +18,7 @@ interface Props {
 }
 
 export function RobotModel({ urdfFile, jointStates, position }: Props) {
-  const { scene } = useThree()
+  const { scene, invalidate } = useThree()
   const robotRef = useRef<URDFRobot | null>(null)
 
   useEffect(() => {
@@ -52,6 +52,7 @@ export function RobotModel({ urdfFile, jointStates, position }: Props) {
         if (position) robot.position.set(...position)
         robotRef.current = robot
         scene.add(robot)
+        invalidate()
         const linkCount = Object.keys(robot.links).length
         const jointCount = Object.keys(robot.joints).length
         log.info(`[3d] URDF loaded: ${urdfFile} — ${linkCount} links, ${jointCount} joints`)
@@ -68,7 +69,7 @@ export function RobotModel({ urdfFile, jointStates, position }: Props) {
         robotRef.current = null
       }
     }
-  }, [urdfFile, scene])
+  }, [urdfFile, scene, invalidate])
 
   useEffect(() => {
     const robot = robotRef.current
@@ -82,8 +83,9 @@ export function RobotModel({ urdfFile, jointStates, position }: Props) {
         updated++
       }
     }
+    if (updated > 0) invalidate()
     log.debug('[3d] frame:', updated, 'joints updated')
-  }, [jointStates])
+  }, [jointStates, invalidate])
 
   return null
 }

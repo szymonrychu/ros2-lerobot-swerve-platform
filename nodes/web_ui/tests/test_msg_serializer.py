@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+
 from web_ui.msg_serializer import extract_field_from_dict, msg_to_dict
 
 
