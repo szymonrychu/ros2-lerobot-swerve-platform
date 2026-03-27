@@ -27,7 +27,7 @@ export function RobotModel({ urdfFile, jointStates, position }: Props) {
 
     loader.loadMeshCb = (path, _manager, done) => {
       log.debug('[3d] fetching mesh:', path)
-      const fullPath = `/api/urdf/${path}`
+      const fullPath = path
       fetch(fullPath)
         .then((r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`)
