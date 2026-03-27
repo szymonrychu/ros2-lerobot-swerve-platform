@@ -1,0 +1,12 @@
+---
+- name: Deploy nav2_bringup on client
+  hosts: client
+  become: true
+  pre_tasks:
+    - name: Sync repository
+      ansible.builtin.include_tasks: ../../tasks/repo_sync.yml
+  tasks:
+    - name: Deploy nav2_bringup
+      ansible.builtin.include_tasks: ../../tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: nav2_bringup

@@ -1,0 +1,12 @@
+---
+- name: Deploy test_joint_api on client
+  hosts: client
+  become: true
+  pre_tasks:
+    - name: Sync repository
+      ansible.builtin.include_tasks: ../../tasks/repo_sync.yml
+  tasks:
+    - name: Deploy test_joint_api
+      ansible.builtin.include_tasks: ../../tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: test_joint_api

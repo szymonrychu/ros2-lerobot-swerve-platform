@@ -1,0 +1,34 @@
+---
+- name: Deploy gps_rtk_rover on client
+  hosts: client
+  become: true
+  pre_tasks:
+    - name: Ensure UART enabled for GPS RTK (enable_uart=1)
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/config.txt
+        line: "enable_uart=1"
+        regexp: "^enable_uart="
+        create: true
+
+    - name: Enable UART0 overlay for RPi 5 (GPIO 14/15 for LC29H hat)
+      when: ansible_machine == "aarch64"
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/config.txt
+        line: "dtoverlay=uart0-pi5"
+        regexp: "^dtoverlay=uart0-pi5"
+        insertafter: "^enable_uart="
+        create: true
+      register: uart_overlay_result
+
+    - name: Reboot client if UART overlay was added (required for Pi 5)
+      when: uart_overlay_result is defined and uart_overlay_result.changed
+      ansible.builtin.reboot:
+        reboot_timeout: 120
+
+    - name: Sync repository
+      ansible.builtin.include_tasks: ../../tasks/repo_sync.yml
+  tasks:
+    - name: Deploy gps_rtk_rover
+      ansible.builtin.include_tasks: ../../tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: gps_rtk_rover

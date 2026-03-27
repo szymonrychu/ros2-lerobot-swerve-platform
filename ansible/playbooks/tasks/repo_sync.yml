@@ -1,0 +1,19 @@
+---
+# Shared pre-task: ensure the Git repository is cloned and up-to-date on the target host.
+# Include from playbooks via: ansible.builtin.include_tasks: tasks/repo_sync.yml
+
+- name: Ensure repo directory exists
+  ansible.builtin.file:
+    path: "{{ ros2_repo_dest }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Clone or update repo for local builds
+  ansible.builtin.git:
+    repo: "{{ ros2_repo_url }}"
+    dest: "{{ ros2_repo_dest }}"
+    version: "{{ ros2_repo_revision }}"
+    force: true
+    update: true
+  become: true

@@ -1,0 +1,18 @@
+---
+- name: Deploy swerve_drive_servos on client
+  hosts: client
+  become: true
+  pre_tasks:
+    - name: Stop swerve_drive_servos service before deploy (safety)
+      ansible.builtin.service:
+        name: ros2-swerve_drive_servos
+        state: stopped
+      ignore_errors: true
+
+    - name: Sync repository
+      ansible.builtin.include_tasks: ../../tasks/repo_sync.yml
+  tasks:
+    - name: Deploy swerve_drive_servos
+      ansible.builtin.include_tasks: ../../tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: swerve_drive_servos

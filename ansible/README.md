@@ -12,7 +12,10 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`optimize.yml`** — System optimization only: debloat, performance tuning, resilience. Can be run standalone on all hosts.
   - **`controller.yml`** — Full provisioning of the SteamDeck: hostname role + steamdeck_ui role. Run once per SteamDeck.
   - **`deploy_steamdeck_ui.yml`** — Update-only: re-clones repo, re-runs `npm ci`, re-deploys config. Use for UI-only updates without re-provisioning.
-  - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy: clone repo from GitHub (URL and revision in `group_vars/all.yml`), build or pull each node’s container, deploy config, install systemd unit, enable/start or disable/stop. Containers are built on each Pi from the cloned repo (no CI/registry by default). Set `node_build_on_controller: true` when you have a registry to build on the controller and pull on nodes.
+  - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy all nodes on a target. Each node is listed **explicitly** (no loops) so the order and set of deployments is always clear. Runs repo sync once, deploys every node, then verifies all services are active.
+  - **`nodes/client/<node>.yml`**, **`nodes/server/<node>.yml`** — Per-node standalone playbooks. Each syncs the repo, deploys exactly one node, and exits. Use these directly or via `scripts/deploy-nodes.sh`.
+  - **`tasks/repo_sync.yml`** — Shared include: ensures the Git repo is cloned and up-to-date on the target host.
+  - **`tasks/resolve_and_deploy.yml`** — Shared include: looks up a node by name from `ros2_nodes`, resolves all vars, and calls the `ros2_node_deploy` role. Accepts `_deploy_node_name` and optional `_extra_env`.
 - **`roles/`**
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
   - **`network`** — Netplan: primary interface gets static IP (ethernet or wlan, auto-detected); other interfaces DHCP; IPv6 disabled. Runs when `network_address` and `network_gateway` are set; for primary WiFi set `network_wifi_ssid` (and optionally `network_wifi_password`).
@@ -300,26 +303,25 @@ ansible-playbook -i inventory playbooks/deploy_steamdeck_ui.yml -l controller
 
 See [nodes/steamdeck_ui/README.md](../nodes/steamdeck_ui/README.md) for architecture, config schema, and development docs.
 
-## Deploying Individual Nodes
+## Deploying Nodes
 
-To deploy a single node without running the full playbook:
+**Always use `scripts/deploy-nodes.sh`** — never run `ansible-playbook` directly for node deploys.
 
 ```bash
-# Using the helper script (from repo root)
-./scripts/deploy-node.sh <node-name> [client|server|steamdeck]
+# Single node
+./scripts/deploy-nodes.sh client web_ui
+./scripts/deploy-nodes.sh server lerobot_leader
 
-# Examples
-./scripts/deploy-node.sh filter_node client
-./scripts/deploy-node.sh master2master client
-./scripts/deploy-node.sh lerobot_leader server
-./scripts/deploy-node.sh steamdeck
+# Multiple nodes in parallel (independent nodes run simultaneously)
+./scripts/deploy-nodes.sh client web_ui filter_node bno055_imu
+./scripts/deploy-nodes.sh client web_ui & ./scripts/deploy-nodes.sh server topic_scraper_api &
 
-# Or directly with ansible-playbook
-cd ansible
-ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client --tags filter_node
+# All nodes on a target (sequential, includes full verify step)
+./scripts/deploy-nodes.sh client --all
+./scripts/deploy-nodes.sh server --all
 ```
 
-Node names match the `name` field in `group_vars/client.yml` or `group_vars/server.yml` under `ros2_nodes`.
+Node names match the `name` field in `group_vars/client.yml` or `group_vars/server.yml` under `ros2_nodes`. Each node has a matching playbook under `playbooks/nodes/<target>/<node>.yml`.
 
 ## Running playbooks
 
@@ -336,10 +338,10 @@ ansible-playbook -i inventory playbooks/server.yml -l server
 ansible-playbook -i inventory playbooks/client.yml -l client
 ```
 
-**Deploy nodes only (systemd services):**
+**Deploy nodes only (via script from repo root):**
 ```bash
-ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server
-ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client
+./scripts/deploy-nodes.sh server --all
+./scripts/deploy-nodes.sh client --all
 ```
 
 ## After changing playbooks or roles

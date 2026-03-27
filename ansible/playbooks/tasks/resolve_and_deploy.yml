@@ -1,0 +1,24 @@
+---
+# Resolve a single node from ros2_nodes by name, then invoke the ros2_node_deploy role.
+# Required var: _deploy_node_name   — the node's `name` field in ros2_nodes
+# Optional var: _extra_env           — additional env list to merge (e.g. ROS2_SERVER_HOST)
+
+- name: "Look up {{ _deploy_node_name }} in ros2_nodes"
+  ansible.builtin.set_fact:
+    _node: "{{ ros2_nodes | selectattr('name', 'equalto', _deploy_node_name) | first }}"
+
+- name: "Deploy {{ _deploy_node_name }}"
+  ansible.builtin.include_role:
+    name: ros2_node_deploy
+  vars:
+    node_name: "{{ _node.name }}"
+    node_type: "{{ _node.node_type }}"
+    node_present: "{{ _node.present | default(true) }}"
+    node_enabled: "{{ _node.enabled | default(true) }}"
+    node_config: "{{ _node.config | default('') }}"
+    node_image: "{{ ros2_node_type_defaults[_node.node_type].image }}"
+    node_build_context: "{{ ros2_node_type_defaults[_node.node_type].build_context }}"
+    repo_dest: "{{ ros2_repo_dest }}"
+    node_config_path: "{{ ros2_node_type_defaults[_node.node_type].config_path | default(omit) }}"
+    node_env: "{{ (ros2_node_type_defaults[_node.node_type].env | default([])) + (_node.env | default([])) + (_extra_env | default([])) }}"
+    node_extra_args: "{{ _node.extra_args | default('') }}"

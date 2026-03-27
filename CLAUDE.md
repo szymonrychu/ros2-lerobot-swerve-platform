@@ -126,11 +126,18 @@ python scripts/topic_scraper_collect.py \
 
 3. **Push** — Push to the upstream repository. When only one agent works on the codebase, push to `main` (no feature branches).
 
-4. **Deploy** — When Ansible or any ROS2 node code changed, run from `ansible/`:
+4. **Deploy** — When Ansible or any ROS2 node code changed, use `scripts/deploy-nodes.sh`.
+   **Never run `ansible-playbook` directly — always use the script.**
+   Always invoke the `ansible-deploy` skill before deploying to get the correct command.
 
    ```bash
-   ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client
-   ansible-playbook -i inventory playbooks/deploy_nodes_server.yml -l server
+   # Single or multiple changed nodes (parallel)
+   ./scripts/deploy-nodes.sh client web_ui filter_node
+   ./scripts/deploy-nodes.sh server lerobot_leader
+
+   # All nodes on a target
+   ./scripts/deploy-nodes.sh client --all
+   ./scripts/deploy-nodes.sh server --all
    ```
 
    so deployed containers and services reflect the latest code.

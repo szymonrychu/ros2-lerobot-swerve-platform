@@ -1,93 +1,140 @@
 ---
-# Deploy ROS2 nodes on Client: clone repo on the Pi, build containers there, systemd + config.
-# Node list and config from group_vars/client.yml; repo from group_vars/all.yml.
-# Run from ansible/: ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client
+# Deploy all ROS2 nodes on Client RPi5.
+# Node list and config live in group_vars/client.yml; repo vars in group_vars/all.yml.
+# For a single node use: scripts/deploy-nodes.sh client <node-name>
 
-- name: Deploy Client ROS2 nodes
+- name: Deploy all Client ROS2 nodes
   hosts: client
   become: true
   pre_tasks:
     - name: Ensure UART enabled for GPS RTK (enable_uart=1)
-      when: ros2_nodes | selectattr('node_type', 'equalto', 'gps_rtk') | list | length > 0
       ansible.builtin.lineinfile:
         path: /boot/firmware/config.txt
         line: "enable_uart=1"
         regexp: "^enable_uart="
         create: true
-      become: true
 
     - name: Enable UART0 overlay for RPi 5 (GPIO 14/15 for LC29H hat)
-      when:
-        - ros2_nodes | selectattr('node_type', 'equalto', 'gps_rtk') | list | length > 0
-        - ansible_machine == "aarch64"
+      when: ansible_machine == "aarch64"
       ansible.builtin.lineinfile:
         path: /boot/firmware/config.txt
         line: "dtoverlay=uart0-pi5"
         regexp: "^dtoverlay=uart0-pi5"
         insertafter: "^enable_uart="
         create: true
-      become: true
       register: uart_overlay_result
 
     - name: Reboot client if UART overlay was added (required for Pi 5)
       when: uart_overlay_result is defined and uart_overlay_result.changed
       ansible.builtin.reboot:
         reboot_timeout: 120
-      become: true
 
-    - name: Stop feetech (servo) node services before deploy
+    - name: Stop lerobot_follower service before deploy (safety)
       ansible.builtin.service:
-        name: "ros2-{{ item.name }}"
+        name: ros2-lerobot_follower
         state: stopped
-      loop: "{{ ros2_nodes | selectattr('node_type', 'equalto', 'feetech_servos') | list }}"
-      loop_control:
-        label: "{{ item.name }}"
       ignore_errors: true
-      become: true
 
-    - name: Ensure repo directory exists
-      ansible.builtin.file:
-        path: "{{ ros2_repo_dest }}"
-        state: directory
-        mode: "0755"
-      become: true
-      tags: always
+    - name: Stop swerve_drive_servos service before deploy (safety)
+      ansible.builtin.service:
+        name: ros2-swerve_drive_servos
+        state: stopped
+      ignore_errors: true
 
-    - name: Clone or update repo for local builds
-      ansible.builtin.git:
-        repo: "{{ ros2_repo_url }}"
-        dest: "{{ ros2_repo_dest }}"
-        version: "{{ ros2_repo_revision }}"
-        force: true
-        update: true
-      become: true
-      tags: always
+    - name: Sync repository
+      ansible.builtin.include_tasks: tasks/repo_sync.yml
 
   tasks:
-    - name: Deploy each ROS2 node
-      ansible.builtin.include_role:
-        name: ros2_node_deploy
-        apply:
-          tags:
-            - deploy
-      tags:
-        - deploy
+    - name: Deploy ros2-master
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
       vars:
-        _master2master_server_env: "{{ ['ROS2_SERVER_HOST=' + ros2_server_host] if (item.node_type == 'master2master' and ros2_server_host is defined and ros2_server_host | length > 0) else [] }}"
-        node_name: "{{ item.name }}"
-        node_type: "{{ item.node_type }}"
-        node_present: "{{ item.present | default(true) }}"
-        node_enabled: "{{ item.enabled | default(true) }}"
-        node_config: "{{ item.config | default('') }}"
-        node_image: "{{ ros2_node_type_defaults[item.node_type].image }}"
-        node_build_context: "{{ ros2_node_type_defaults[item.node_type].build_context }}"
-        repo_dest: "{{ ros2_repo_dest }}"
-        node_config_path: "{{ ros2_node_type_defaults[item.node_type].config_path | default(omit) }}"
-        node_env: "{{ (ros2_node_type_defaults[item.node_type].env | default([])) + (item.env | default([])) + _master2master_server_env }}"
-        node_extra_args: "{{ item.extra_args | default('') }}"
-      loop: "{{ ros2_nodes }}"
-      loop_control:
-        label: "{{ item.name }}"
+        _deploy_node_name: ros2-master
+
+    - name: Deploy master2master
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: master2master
+        _extra_env: "{{ ['ROS2_SERVER_HOST=' + ros2_server_host] if (ros2_server_host is defined and ros2_server_host | length > 0) else [] }}"
+
+    - name: Deploy filter_node
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: filter_node
+
+    - name: Deploy test_joint_api
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: test_joint_api
+
+    - name: Deploy topic_scraper_api
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: topic_scraper_api
+
+    - name: Deploy bno055_imu
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: bno055_imu
+
+    - name: Deploy gps_rtk_rover
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: gps_rtk_rover
+
+    - name: Deploy haptic_controller
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: haptic_controller
+
+    - name: Deploy gripper_uvc_camera
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: gripper_uvc_camera
+
+    - name: Deploy rplidar_a1
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: rplidar_a1
+
+    - name: Deploy realsense_d435i
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: realsense_d435i
+
+    - name: Deploy lerobot_follower
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: lerobot_follower
+
+    - name: Deploy swerve_drive_servos
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: swerve_drive_servos
+
+    - name: Deploy swerve_controller
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: swerve_controller
+
+    - name: Deploy static_tf_publisher
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: static_tf_publisher
+
+    - name: Deploy robot_localization_ekf
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: robot_localization_ekf
+
+    - name: Deploy nav2_bringup
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: nav2_bringup
+
+    - name: Deploy web_ui
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: web_ui
 
     - name: Verify all ROS2 node services are active and stable
       ansible.builtin.include_role:

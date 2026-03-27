@@ -9,6 +9,8 @@ skip_list:
   - var-naming[no-role-prefix]  # playbook passes node_name, node_image, etc. to role; prefix would be ros2_node_deploy_
 kinds:
   - playbook: "playbooks/*.yml"
+  - playbook: "playbooks/nodes/**/*.yml"
+  - tasks: "playbooks/tasks/*.yml"
   - tasks: "roles/*/tasks/*.yml"
   - vars: "group_vars/*.yml"
   - vars: "host_vars/*.yml"

@@ -1,0 +1,19 @@
+---
+- name: Deploy gps_rtk_base on server
+  hosts: server
+  become: true
+  pre_tasks:
+    - name: Ensure UART enabled for GPS RTK base station (enable_uart=1)
+      ansible.builtin.lineinfile:
+        path: /boot/firmware/config.txt
+        line: "enable_uart=1"
+        regexp: "^enable_uart="
+        create: true
+
+    - name: Sync repository
+      ansible.builtin.include_tasks: ../../tasks/repo_sync.yml
+  tasks:
+    - name: Deploy gps_rtk_base
+      ansible.builtin.include_tasks: ../../tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: gps_rtk_base
