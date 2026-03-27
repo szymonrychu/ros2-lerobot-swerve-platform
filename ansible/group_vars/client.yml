@@ -594,6 +594,10 @@ ros2_nodes:
         - id: robot_status
           type: robot_status
           label: "Robot Status"
+          urdf_file: robot.urdf
+          topic: /controller/swerve_drive/joint_states
+          arm_urdf_file: so101_arm.urdf
+          arm_joint_topic: /controller/follower/joint_states
       overlays:
         - topic: /controller/gps/fix
           field: "latitude"

@@ -2,6 +2,7 @@ import { useEffect, useState, Suspense } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { RobotModel } from '../components3d/RobotModel'
+import { TabConfig } from '../types'
 import log from '../logging'
 
 interface MeshStatus {
@@ -24,12 +25,12 @@ interface UrdfStatusResponse {
 }
 
 interface Props {
-  tab: unknown
+  tab: TabConfig
   topicData: Record<string, unknown>
   publish: (topic: string, msgType: string, data: unknown) => void
 }
 
-export default function RobotStatusTab({ topicData }: Props) {
+export default function RobotStatusTab({ tab, topicData }: Props) {
   const [urdfStatus, setUrdfStatus] = useState<UrdfFileStatus[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -46,9 +47,13 @@ export default function RobotStatusTab({ topicData }: Props) {
       })
   }, [])
 
-  const jointStates = topicData['/controller/swerve_drive/joint_states'] as
-    | { name?: string[]; position?: number[] }
-    | undefined
+  const jointStates = tab.topic
+    ? (topicData[tab.topic] as { name?: string[]; position?: number[] } | undefined)
+    : undefined
+
+  const armJointStates = tab.arm_joint_topic
+    ? (topicData[tab.arm_joint_topic] as { name?: string[]; position?: number[] } | undefined)
+    : undefined
 
   const statusColor = (s: string) => ({ ok: '#4a4', parse_error: '#c44', missing: '#664' }[s] ?? '#888')
 
@@ -116,8 +121,13 @@ export default function RobotStatusTab({ topicData }: Props) {
           <ambientLight intensity={0.7} />
           <directionalLight position={[3, 5, 3]} intensity={1} />
           <Suspense fallback={null}>
-            <RobotModel urdfFile="robot.urdf" jointStates={jointStates} />
+            <RobotModel urdfFile={tab.urdf_file ?? 'robot.urdf'} jointStates={jointStates} />
           </Suspense>
+          {tab.arm_urdf_file && (
+            <Suspense fallback={null}>
+              <RobotModel urdfFile={tab.arm_urdf_file} jointStates={armJointStates} />
+            </Suspense>
+          )}
           <OrbitControls />
         </Canvas>
       </div>
