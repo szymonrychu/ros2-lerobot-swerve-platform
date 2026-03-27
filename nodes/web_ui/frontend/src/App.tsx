@@ -45,7 +45,7 @@ export default function App() {
         ...config.tabs.flatMap((t) => [
           t.topic,
           ...(t.topics?.map((ts) => ts.topic) ?? []),
-          t.scan_topic, t.costmap_topic, t.odom_topic, t.fix_topic,
+          t.scan_topic, t.costmap_topic, t.odom_topic, t.fix_topic, t.arm_joint_topic,
         ]),
         ...config.overlays.map((o) => o.topic),
       ].filter((t): t is string => Boolean(t))

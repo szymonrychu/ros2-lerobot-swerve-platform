@@ -1,13 +1,17 @@
 import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import markerIcon from 'leaflet/dist/images/marker-icon.png'
+import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
+import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 import { TabConfig } from '../types'
 
+// Use locally bundled marker images instead of CDN URLs (which are blocked by CSP and unavailable offline)
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl
 L.Icon.Default.mergeOptions({
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+  iconUrl: markerIcon,
+  iconRetinaUrl: markerIcon2x,
+  shadowUrl: markerShadow,
 })
 
 interface Props {
@@ -28,7 +32,8 @@ export default function NavGpsTab({ tab, topicData, publish }: Props) {
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
-    const map = L.map(containerRef.current).setView([0, 0], tab.default_zoom ?? 18)
+    // Start at world view (zoom 2) until we receive a GPS fix
+    const map = L.map(containerRef.current).setView([0, 0], 2)
     L.tileLayer(
       tab.tile_url ?? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
       { attribution: '© OpenStreetMap © CARTO', maxZoom: 21 },
@@ -54,7 +59,8 @@ export default function NavGpsTab({ tab, topicData, publish }: Props) {
     const map = mapRef.current
     if (!map || !tab.fix_topic) return
     const fix = topicData[tab.fix_topic] as GpsFix | undefined
-    if (!fix?.latitude || !fix?.longitude) return
+    // Use nullish check instead of falsy to allow latitude/longitude 0 (equatorial GPS fixes)
+    if (fix?.latitude == null || fix?.longitude == null) return
 
     const latlng: L.LatLngExpression = [fix.latitude, fix.longitude]
     if (!markerRef.current) {

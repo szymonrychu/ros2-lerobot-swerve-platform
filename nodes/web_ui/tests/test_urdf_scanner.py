@@ -16,7 +16,8 @@ def test_scan_finds_robot_urdf(urdf_dir: Path) -> None:
 def test_scan_parses_links_and_joints(tmp_path: Path) -> None:
     d = tmp_path / "urdf"
     d.mkdir()
-    (d / "test.urdf").write_text("""<?xml version="1.0"?>
+    (d / "test.urdf").write_text(
+        """<?xml version="1.0"?>
 <robot name="r">
   <link name="base_link"/>
   <link name="wheel"/>
@@ -24,7 +25,8 @@ def test_scan_parses_links_and_joints(tmp_path: Path) -> None:
     <parent link="base_link"/>
     <child link="wheel"/>
   </joint>
-</robot>""")
+</robot>"""
+    )
     results = scan_urdf_directory(d)
     assert len(results) == 1
     r = results[0]
@@ -36,12 +38,14 @@ def test_scan_parses_links_and_joints(tmp_path: Path) -> None:
 def test_scan_detects_missing_mesh(tmp_path: Path) -> None:
     d = tmp_path / "urdf"
     d.mkdir()
-    (d / "arm.urdf").write_text("""<?xml version="1.0"?>
+    (d / "arm.urdf").write_text(
+        """<?xml version="1.0"?>
 <robot name="arm">
   <link name="base">
     <visual><geometry><mesh filename="meshes/arm/base.stl"/></geometry></visual>
   </link>
-</robot>""")
+</robot>"""
+    )
     results = scan_urdf_directory(d)
     r = results[0]
     assert r.has_meshes is True

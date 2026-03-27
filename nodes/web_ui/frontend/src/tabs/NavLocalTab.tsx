@@ -10,6 +10,25 @@ interface Props {
 
 export default function NavLocalTab({ tab, topicData, publish }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Sync canvas buffer size with its CSS-rendered size
+  useEffect(() => {
+    const container = containerRef.current
+    const canvas = canvasRef.current
+    if (!container || !canvas) return
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect
+        if (canvas.width !== Math.floor(width) || canvas.height !== Math.floor(height)) {
+          canvas.width = Math.floor(width)
+          canvas.height = Math.floor(height)
+        }
+      }
+    })
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -32,7 +51,18 @@ export default function NavLocalTab({ tab, topicData, publish }: Props) {
     ctx.fillStyle = '#050505'
     ctx.fillRect(0, 0, W, H)
 
-    if (costmapData?.info && costmapData.data) {
+    const hasCostmap = Boolean(costmapData?.info && costmapData.data)
+    const hasScan = Boolean(scanData?.ranges?.length)
+
+    if (!hasCostmap && !hasScan) {
+      ctx.fillStyle = '#444'
+      ctx.font = '14px monospace'
+      ctx.textAlign = 'center'
+      ctx.fillText('Waiting for data…', W / 2, H / 2)
+      return
+    }
+
+    if (hasCostmap && costmapData?.info && costmapData.data) {
       const { width: gw, height: gh } = costmapData.info
       const cellPx = Math.max(1, Math.floor(Math.min(W / gw, H / gh)))
       const ox = (W - gw * cellPx) / 2
@@ -46,7 +76,7 @@ export default function NavLocalTab({ tab, topicData, publish }: Props) {
       }
     }
 
-    if (scanData?.ranges) {
+    if (hasScan && scanData?.ranges) {
       ctx.fillStyle = '#0f0'
       const cx = W / 2, cy = H / 2
       const scale = costmapData?.info ? 1 / costmapData.info.resolution * Math.min(W, H) / (costmapData.info.width ?? 100) : 10
@@ -89,12 +119,12 @@ export default function NavLocalTab({ tab, topicData, publish }: Props) {
   }
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={800}
-      height={600}
-      style={{ width: '100%', height: '100%', cursor: 'crosshair' }}
-      onClick={handleClick}
-    />
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <canvas
+        ref={canvasRef}
+        style={{ display: 'block', width: '100%', height: '100%', cursor: 'crosshair' }}
+        onClick={handleClick}
+      />
+    </div>
   )
 }

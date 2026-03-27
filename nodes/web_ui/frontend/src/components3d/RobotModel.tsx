@@ -46,6 +46,8 @@ export function RobotModel({ urdfFile, jointStates }: Props) {
     loader.load(
       `/api/urdf/${urdfFile}`,
       (robot) => {
+        // ROS/URDF uses Z-up; Three.js uses Y-up. Rotate -90° around X to correct orientation.
+        robot.rotation.x = -Math.PI / 2
         robotRef.current = robot
         scene.add(robot)
         const linkCount = Object.keys(robot.links).length

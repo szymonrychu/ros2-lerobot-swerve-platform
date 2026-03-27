@@ -62,6 +62,9 @@ tabs:
     type: scene3d
     label: "3D Scene"
     urdf_file: robot.urdf
+    topic: /controller/swerve_drive/joint_states
+    arm_urdf_file: so101_arm.urdf
+    arm_joint_topic: /controller/follower/joint_states
     scan_topic: /controller/scan
     costmap_topic: /controller/local_costmap
     odom_topic: /controller/odom

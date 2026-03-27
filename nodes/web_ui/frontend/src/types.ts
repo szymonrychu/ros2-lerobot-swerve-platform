@@ -25,6 +25,8 @@ export interface TabConfig {
   tile_url?: string
   default_zoom?: number
   urdf_file?: string
+  arm_urdf_file?: string
+  arm_joint_topic?: string
 }
 
 export interface OverlayItem {
