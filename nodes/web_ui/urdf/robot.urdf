@@ -1,0 +1,111 @@
+<?xml version="1.0"?>
+<robot name="swerve_robot">
+
+  <!-- Body -->
+  <link name="base_link">
+    <visual>
+      <geometry><box size="0.4 0.3 0.1"/></geometry>
+      <material name="grey"><color rgba="0.5 0.5 0.5 1.0"/></material>
+    </visual>
+    <collision>
+      <geometry><box size="0.4 0.3 0.1"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Front-Left -->
+  <link name="fl_steer_link"/>
+  <joint name="fl_steer" type="revolute">
+    <parent link="base_link"/>
+    <child link="fl_steer_link"/>
+    <origin xyz="0.2 0.15 -0.05" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="5"/>
+  </joint>
+
+  <link name="fl_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.15" length="0.04"/></geometry>
+      <material name="dark"><color rgba="0.1 0.1 0.1 1.0"/></material>
+    </visual>
+  </link>
+  <joint name="fl_drive" type="continuous">
+    <parent link="fl_steer_link"/>
+    <child link="fl_wheel_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+  </joint>
+
+  <!-- Front-Right -->
+  <link name="fr_steer_link"/>
+  <joint name="fr_steer" type="revolute">
+    <parent link="base_link"/>
+    <child link="fr_steer_link"/>
+    <origin xyz="0.2 -0.15 -0.05" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="5"/>
+  </joint>
+
+  <link name="fr_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.15" length="0.04"/></geometry>
+      <material name="dark"/>
+    </visual>
+  </link>
+  <joint name="fr_drive" type="continuous">
+    <parent link="fr_steer_link"/>
+    <child link="fr_wheel_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+  </joint>
+
+  <!-- Rear-Left -->
+  <link name="rl_steer_link"/>
+  <joint name="rl_steer" type="revolute">
+    <parent link="base_link"/>
+    <child link="rl_steer_link"/>
+    <origin xyz="-0.2 0.15 -0.05" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="5"/>
+  </joint>
+
+  <link name="rl_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.15" length="0.04"/></geometry>
+      <material name="dark"/>
+    </visual>
+  </link>
+  <joint name="rl_drive" type="continuous">
+    <parent link="rl_steer_link"/>
+    <child link="rl_wheel_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+  </joint>
+
+  <!-- Rear-Right -->
+  <link name="rr_steer_link"/>
+  <joint name="rr_steer" type="revolute">
+    <parent link="base_link"/>
+    <child link="rr_steer_link"/>
+    <origin xyz="-0.2 -0.15 -0.05" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="5"/>
+  </joint>
+
+  <link name="rr_wheel_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+      <geometry><cylinder radius="0.15" length="0.04"/></geometry>
+      <material name="dark"/>
+    </visual>
+  </link>
+  <joint name="rr_drive" type="continuous">
+    <parent link="rr_steer_link"/>
+    <child link="rr_wheel_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <axis xyz="1 0 0"/>
+  </joint>
+
+</robot>

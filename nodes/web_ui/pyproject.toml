@@ -1,0 +1,59 @@
+[tool.poetry]
+name = "web-ui"
+version = "0.1.0"
+description = "ROS2 web dashboard — FastAPI bridge + React frontend"
+readme = "README.md"
+packages = [{ include = "web_ui", from = "." }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = ">=0.111.0"
+uvicorn = { version = ">=0.30.0", extras = ["standard"] }
+structlog = ">=24.1.0"
+pydantic = ">=2.0.0"
+pyyaml = ">=6.0"
+opencv-python-headless = ">=4.9.0"
+numpy = ">=1.26.0"
+websockets = ">=12.0"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.4.0"
+vulture = "^2.11"
+poethepoet = "^0.42.0"
+pytest = "^8.0.0"
+pytest-asyncio = "^0.23.0"
+httpx = "^0.27.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+ignore_names = ["cls"]
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  ruff check web_ui tests
+  ruff format --check web_ui tests
+  vulture web_ui tests --min-confidence 80
+""" }
+lint-fix = { shell = """
+  ruff check --fix web_ui tests
+  ruff format web_ui tests
+""" }
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
