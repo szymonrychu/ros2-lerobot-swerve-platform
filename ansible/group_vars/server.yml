@@ -68,17 +68,17 @@ ros2_nodes:
       interpolation_enabled: false
       control_loop_hz: 180
       joint_names:
-        - name: joint_1
+        - name: shoulder_pan
           id: 1
-        - name: joint_2
+        - name: shoulder_lift
           id: 2
-        - name: joint_3
+        - name: elbow_flex
           id: 3
-        - name: joint_4
+        - name: wrist_flex
           id: 4
-        - name: joint_5
+        - name: wrist_roll
           id: 5
-        - name: joint_6
+        - name: gripper
           id: 6
   - name: topic_scraper_api
     node_type: topic_scraper_api
