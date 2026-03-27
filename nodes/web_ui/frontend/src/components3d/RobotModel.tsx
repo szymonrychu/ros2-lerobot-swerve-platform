@@ -50,6 +50,7 @@ export function RobotModel({ urdfFile, jointStates, position }: Props) {
         // ROS/URDF uses Z-up; Three.js uses Y-up. Rotate -90° around X to correct orientation.
         robot.rotation.x = -Math.PI / 2
         if (position) robot.position.set(...position)
+        Object.values(robot.joints).forEach((joint) => { (joint as unknown as { ignoreLimits: boolean }).ignoreLimits = true })
         robotRef.current = robot
         scene.add(robot)
         invalidate()
