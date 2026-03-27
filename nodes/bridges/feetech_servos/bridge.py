@@ -19,7 +19,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
-from .command_mapping import POSITION_RADIAN_TO_STEPS, map_position_to_steps, position_to_raw_steps
+from .command_mapping import map_position_to_steps, position_to_raw_steps, steps_to_radians
 from .config import BridgeConfig, load_config_from_env
 from .joint_updates import get_position_updates
 from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers
@@ -239,7 +239,7 @@ def run_bridge(config: BridgeConfig) -> None:
             for joint in config.joints:
                 pos = read_register_raw(servo, joint.id, pos_entry) if pos_entry else None
                 speed = read_register_raw(servo, joint.id, speed_entry) if speed_entry else None
-                positions.append(float(pos) / POSITION_RADIAN_TO_STEPS if pos is not None else 0.0)
+                positions.append(steps_to_radians(pos) if pos is not None else 0.0)
                 velocities.append(float(speed) if speed is not None else 0.0)
                 if effort_joint_set and joint.name in effort_joint_set and load_entry:
                     load_val = read_register_raw(servo, joint.id, load_entry)

@@ -224,9 +224,9 @@ ros2_nodes:
         - wrist_roll
         - gripper
       algorithm_params:
-        process_noise_pos: 0.00022
-        process_noise_vel: 0.014
-        measurement_noise: 3e-5
+        process_noise_pos: 0.000518
+        process_noise_vel: 0.03294
+        measurement_noise: 7.06e-5
         prediction_lead_s: 0.045
         velocity_decay_per_s: 4.5
         max_prediction_time_s: 0.14
