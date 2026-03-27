@@ -125,7 +125,11 @@ export default function RobotStatusTab({ tab, topicData }: Props) {
           </Suspense>
           {tab.arm_urdf_file && (
             <Suspense fallback={null}>
-              <RobotModel urdfFile={tab.arm_urdf_file} jointStates={armJointStates} />
+              <RobotModel
+                urdfFile={tab.arm_urdf_file}
+                jointStates={armJointStates}
+                position={tab.arm_offset ?? [0.25, 0, 0]}
+              />
             </Suspense>
           )}
           <OrbitControls />

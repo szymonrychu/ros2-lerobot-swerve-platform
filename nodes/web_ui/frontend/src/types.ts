@@ -27,6 +27,7 @@ export interface TabConfig {
   urdf_file?: string
   arm_urdf_file?: string
   arm_joint_topic?: string
+  arm_offset?: [number, number, number]
 }
 
 export interface OverlayItem {

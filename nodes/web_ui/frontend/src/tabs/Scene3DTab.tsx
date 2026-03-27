@@ -28,7 +28,11 @@ export default function Scene3DTab({ tab, topicData }: Props) {
       <RobotScene urdfFile={tab.urdf_file ?? 'robot.urdf'} jointStates={jointStates}>
         {tab.arm_urdf_file && (
           <Suspense fallback={null}>
-            <RobotModel urdfFile={tab.arm_urdf_file} jointStates={armJointStates} />
+            <RobotModel
+              urdfFile={tab.arm_urdf_file}
+              jointStates={armJointStates}
+              position={tab.arm_offset ?? [0.25, 0, 0]}
+            />
           </Suspense>
         )}
         <LaserScanLayer data={scanData} />

@@ -14,9 +14,10 @@ interface JointStates {
 interface Props {
   urdfFile: string
   jointStates?: JointStates
+  position?: [number, number, number]
 }
 
-export function RobotModel({ urdfFile, jointStates }: Props) {
+export function RobotModel({ urdfFile, jointStates, position }: Props) {
   const { scene } = useThree()
   const robotRef = useRef<URDFRobot | null>(null)
 
@@ -48,6 +49,7 @@ export function RobotModel({ urdfFile, jointStates }: Props) {
       (robot) => {
         // ROS/URDF uses Z-up; Three.js uses Y-up. Rotate -90° around X to correct orientation.
         robot.rotation.x = -Math.PI / 2
+        if (position) robot.position.set(...position)
         robotRef.current = robot
         scene.add(robot)
         const linkCount = Object.keys(robot.links).length

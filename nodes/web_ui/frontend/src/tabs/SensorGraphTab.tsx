@@ -60,23 +60,29 @@ export default function SensorGraphTab({ tab, topicData }: Props) {
     const now = performance.now()
     const buf = bufferRef.current
 
-    let seriesIdx = 1
+    // Check whether any series has new data before touching the buffer
     let hasUpdate = false
     for (const ts of topics) {
       const msgData = topicData[ts.topic] as Record<string, unknown> | undefined
-      if (!msgData) { seriesIdx += ts.fields.length; continue }
+      if (!msgData) continue
       for (const f of ts.fields) {
-        const val = extractField(msgData, f.path)
-        if (val !== null) {
-          buf[0].push(now)
-          buf[seriesIdx].push(val)
-          hasUpdate = true
-        }
+        if (extractField(msgData, f.path) !== null) { hasUpdate = true; break }
+      }
+      if (hasUpdate) break
+    }
+    if (!hasUpdate) return
+
+    // Push exactly one timestamp per update cycle so all series arrays stay aligned
+    buf[0].push(now)
+    let seriesIdx = 1
+    for (const ts of topics) {
+      const msgData = topicData[ts.topic] as Record<string, unknown> | undefined
+      for (const f of ts.fields) {
+        const val = msgData ? extractField(msgData, f.path) : null
+        buf[seriesIdx].push(val ?? NaN)
         seriesIdx++
       }
     }
-
-    if (!hasUpdate) return
 
     const cutoff = now - windowMs
     const firstKeep = buf[0].findIndex((t) => t >= cutoff)
