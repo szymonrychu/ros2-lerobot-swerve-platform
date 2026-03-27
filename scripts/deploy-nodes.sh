@@ -66,6 +66,7 @@ LOGS_DIR=$(mktemp -d)
 trap 'rm -rf "$LOGS_DIR"' EXIT
 
 declare -a PIDS NODES
+IDX=0
 for NODE in "$@"; do
   NODES+=("$NODE")
   (
@@ -74,7 +75,8 @@ for NODE in "$@"; do
       > "$LOGS_DIR/${NODE}.log" 2>&1
   ) &
   PIDS+=($!)
-  echo "Started: $NODE (pid ${PIDS[-1]})"
+  echo "Started: $NODE (pid ${PIDS[$IDX]})"
+  IDX=$((IDX + 1))
 done
 
 echo ""
