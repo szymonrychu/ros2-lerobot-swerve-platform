@@ -3,8 +3,7 @@ import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import log from '../logging'
 import { TabConfig } from '../types'
-import { extractField } from '../utils/fieldExtract'
-import { getOrCreateBuffer, setBuffer } from '../utils/graphBuffers'
+import { getOrCreateBuffer } from '../utils/graphBuffers'
 
 interface Props {
   tab: TabConfig
@@ -18,9 +17,8 @@ export default function SensorGraphTab({ tab, topicData }: Props) {
 
   const topics = tab.topics ?? []
   const seriesCount = topics.reduce((n, ts) => n + ts.fields.length, 0)
-  const windowMs = (tab.window_s ?? 10) * 1000
-  const maxPoints = tab.max_points ?? 500
 
+  // Create or restore uPlot instance, pre-filled with buffered data
   useEffect(() => {
     if (!containerRef.current || seriesCount === 0) return
 
@@ -46,9 +44,10 @@ export default function SensorGraphTab({ tab, topicData }: Props) {
       ],
     }
 
-    // Restore or create persistent buffer — survives tab switches
+    // Restore persistent buffer — already filled by App-level feedAllGraphBuffers()
     const buf = getOrCreateBuffer(tab.id, seriesCount)
     plotRef.current = new uPlot(opts, buf as uPlot.AlignedData, containerRef.current)
+    log.debug('[graph] mounted tab', tab.id, '— buffer has', buf[0].length, 'points')
 
     return () => {
       plotRef.current?.destroy()
@@ -56,50 +55,11 @@ export default function SensorGraphTab({ tab, topicData }: Props) {
     }
   }, [seriesCount, tab.id])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Redraw chart when buffer is updated by App-level pump
   useEffect(() => {
     if (!plotRef.current || seriesCount === 0) return
-    const now = performance.now()
     const buf = getOrCreateBuffer(tab.id, seriesCount)
-
-    // Check whether any series has new data before touching the buffer
-    let hasUpdate = false
-    for (const ts of topics) {
-      const msgData = topicData[ts.topic] as Record<string, unknown> | undefined
-      if (!msgData) continue
-      for (const f of ts.fields) {
-        if (extractField(msgData, f.path) !== null) { hasUpdate = true; break }
-      }
-      if (hasUpdate) break
-    }
-    if (!hasUpdate) return
-
-    // Push exactly one timestamp per update cycle so all series arrays stay aligned
-    buf[0].push(now)
-    let seriesIdx = 1
-    for (const ts of topics) {
-      const msgData = topicData[ts.topic] as Record<string, unknown> | undefined
-      for (const f of ts.fields) {
-        const val = msgData ? extractField(msgData, f.path) : null
-        buf[seriesIdx].push(val ?? NaN)
-        seriesIdx++
-      }
-    }
-
-    const cutoff = now - windowMs
-    const firstKeep = buf[0].findIndex((t) => t >= cutoff)
-    if (firstKeep > 0) {
-      const trimmed = buf.map((arr) => arr.slice(firstKeep))
-      trimmed.forEach((arr, i) => { buf[i] = arr })
-      setBuffer(tab.id, buf)
-    }
-    if (buf[0].length > maxPoints) {
-      const trim = buf[0].length - maxPoints
-      const trimmed = buf.map((arr) => arr.slice(trim))
-      trimmed.forEach((arr, i) => { buf[i] = arr })
-      setBuffer(tab.id, buf)
-    }
-
-    log.debug('[graph] append: topics updated, points:', buf[0].length)
+    if (buf[0].length === 0) return
     plotRef.current.setData(buf as uPlot.AlignedData)
   }, [topicData])  // eslint-disable-line react-hooks/exhaustive-deps
 

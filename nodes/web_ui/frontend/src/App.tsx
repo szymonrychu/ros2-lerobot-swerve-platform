@@ -3,6 +3,7 @@ import log from './logging'
 import { useRosBridge } from './hooks/useRosBridge'
 import { OverlayBar } from './overlays/OverlayBar'
 import { AppConfig, TabConfig } from './types'
+import { feedAllGraphBuffers } from './utils/graphBuffers'
 
 const CameraTab = lazy(() => import('./tabs/CameraTab'))
 const SensorGraphTab = lazy(() => import('./tabs/SensorGraphTab'))
@@ -54,6 +55,13 @@ export default function App() {
     : []
 
   const { topicData, connected, publish } = useRosBridge(allTopics)
+
+  // Feed all graph-type tabs' buffers on every WebSocket update, regardless of active tab.
+  // This ensures opening any graph tab shows a pre-filled rolling window of data.
+  useEffect(() => {
+    if (!config) return
+    feedAllGraphBuffers(config.tabs, topicData)
+  }, [topicData])  // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!config) {
     return <div style={{ padding: 40, color: '#555' }}>Loading config…</div>
