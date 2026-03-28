@@ -1,7 +1,9 @@
-import { useEffect, useState, Suspense } from 'react'
+import { useCallback, useEffect, useRef, useState, Suspense } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { RobotModel } from '../components3d/RobotModel'
+import { InteractiveArm } from '../components3d/InteractiveArm'
 import { TabConfig } from '../types'
 import log from '../logging'
 
@@ -30,9 +32,12 @@ interface Props {
   publish: (topic: string, msgType: string, data: unknown) => void
 }
 
-export default function RobotStatusTab({ tab, topicData }: Props) {
+export default function RobotStatusTab({ tab, topicData, publish }: Props) {
   const [urdfStatus, setUrdfStatus] = useState<UrdfFileStatus[]>([])
   const [loading, setLoading] = useState(true)
+  const [armReady, setArmReady] = useState(false)
+  const orbitRef = useRef<OrbitControlsImpl | null>(null)
+  const onArmReady = useCallback((ready: boolean) => setArmReady(ready), [])
 
   useEffect(() => {
     fetch('/api/urdf/status')
@@ -114,6 +119,12 @@ export default function RobotStatusTab({ tab, topicData }: Props) {
             </table>
           </div>
         )}
+
+        {tab.arm_command_topic && (
+          <div style={{ marginTop: 16, fontSize: 11, color: armReady ? '#4a4' : '#885500' }}>
+            {armReady ? 'Drag arm joints to command position' : 'Waiting for servo positions…'}
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1 }}>
@@ -123,7 +134,19 @@ export default function RobotStatusTab({ tab, topicData }: Props) {
           <Suspense fallback={null}>
             <RobotModel urdfFile={tab.urdf_file ?? 'robot.urdf'} jointStates={jointStates} />
           </Suspense>
-          {tab.arm_urdf_file && (
+          {tab.arm_urdf_file && tab.arm_command_topic ? (
+            <Suspense fallback={null}>
+              <InteractiveArm
+                urdfFile={tab.arm_urdf_file}
+                liveJointStates={armJointStates}
+                position={tab.arm_offset ?? [0.25, 0, 0]}
+                commandTopic={tab.arm_command_topic}
+                publish={publish}
+                orbitRef={orbitRef}
+                onReady={onArmReady}
+              />
+            </Suspense>
+          ) : tab.arm_urdf_file ? (
             <Suspense fallback={null}>
               <RobotModel
                 urdfFile={tab.arm_urdf_file}
@@ -131,8 +154,8 @@ export default function RobotStatusTab({ tab, topicData }: Props) {
                 position={tab.arm_offset ?? [0.25, 0, 0]}
               />
             </Suspense>
-          )}
-          <OrbitControls />
+          ) : null}
+          <OrbitControls ref={orbitRef} />
         </Canvas>
       </div>
     </div>

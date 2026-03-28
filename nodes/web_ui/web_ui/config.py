@@ -69,6 +69,7 @@ class TabConfig(BaseModel):
     arm_urdf_file: str | None = None
     arm_joint_topic: str | None = None
     arm_offset: tuple[float, float, float] | None = None
+    arm_command_topic: str | None = None
 
     @field_validator("type")
     @classmethod
@@ -127,6 +128,8 @@ class AppConfig(BaseModel):
         for tab in self.tabs:
             if tab.goal_topic:
                 topics.add(tab.goal_topic)
+            if tab.arm_command_topic:
+                topics.add(tab.arm_command_topic)
         return sorted(topics)
 
 
