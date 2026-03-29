@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useThree } from '@react-three/fiber'
 import URDFLoader from 'urdf-loader'
 import type { URDFRobot } from 'urdf-loader'
@@ -21,6 +21,7 @@ interface Props {
 export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded }: Props) {
   const { scene, invalidate } = useThree()
   const robotRef = useRef<URDFRobot | null>(null)
+  const [robotReady, setRobotReady] = useState(0)
   // Store callback in a ref so changing it doesn't retrigger URDF reload
   const onRobotLoadedRef = useRef(onRobotLoaded)
   onRobotLoadedRef.current = onRobotLoaded
@@ -56,6 +57,7 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded }: P
         if (position) robot.position.set(...position)
         robotRef.current = robot
         scene.add(robot)
+        setRobotReady((n) => n + 1)
         invalidate()
         onRobotLoadedRef.current?.(robot)
         const linkCount = Object.keys(robot.links).length
@@ -91,7 +93,7 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded }: P
     }
     if (updated > 0) invalidate()
     log.debug('[3d] frame:', updated, 'joints updated')
-  }, [jointStates, invalidate])
+  }, [jointStates, invalidate, robotReady])
 
   return null
 }

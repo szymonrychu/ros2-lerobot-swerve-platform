@@ -71,6 +71,11 @@ class BridgeConfig:
             Use >= 10 to avoid blocking the control loop and causing visible stutter; 1 Hz is not recommended.
         publish_effort_joints: Optional list of joint names for which to read present_load and publish
             in JointState.effort at control-loop rate (for haptic/force-feedback use). Empty/omit = no effort.
+        publish_only_on_change: If True, only publish joint_states when at least one joint position changed
+            by more than publish_change_epsilon since the last publish. Useful for leader arms to avoid
+            flooding the bus with identical messages and conflicting with external command sources.
+        publish_change_epsilon: Minimum absolute position delta (radians) to count as a change.
+            Only used when publish_only_on_change is True. Default 1e-3 (~0.06 degrees).
     """
 
     namespace: str
@@ -83,6 +88,8 @@ class BridgeConfig:
     control_loop_hz: float = 100.0
     register_publish_interval_s: float = 10.0
     publish_effort_joints: list[str] = ()
+    publish_only_on_change: bool = False
+    publish_change_epsilon: float = 1e-3
 
     @property
     def joint_names(self) -> list[str]:
@@ -210,6 +217,14 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         publish_effort_joints = [n for n in publish_effort_joints if n in joint_name_set]
     else:
         publish_effort_joints = []
+    publish_only_on_change = data.get("publish_only_on_change", False)
+    if not isinstance(publish_only_on_change, bool):
+        publish_only_on_change = bool(publish_only_on_change)
+    raw_change_epsilon = data.get("publish_change_epsilon", 1e-3)
+    try:
+        publish_change_epsilon = max(0.0, float(raw_change_epsilon))
+    except (TypeError, ValueError):
+        publish_change_epsilon = 1e-3
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -221,6 +236,8 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         control_loop_hz=control_loop_hz,
         register_publish_interval_s=register_publish_interval_s,
         publish_effort_joints=publish_effort_joints,
+        publish_only_on_change=publish_only_on_change,
+        publish_change_epsilon=publish_change_epsilon,
     )
 
 

@@ -66,6 +66,8 @@ ros2_nodes:
       enable_torque_on_start: false
       disable_torque_on_start: true
       interpolation_enabled: false
+      publish_only_on_change: true
+      publish_change_epsilon: 0.001
       control_loop_hz: 180
       joint_names:
         - name: shoulder_pan

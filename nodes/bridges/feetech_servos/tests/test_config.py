@@ -333,3 +333,28 @@ def test_joint_entry_by_name(tmp_path: Path) -> None:
     assert a is not None and a.name == "a" and a.id == 1
     assert b is not None and b.name == "b" and b.id == 2
     assert cfg.joint_entry_by_name("c") is None
+
+
+def test_load_config_publish_only_on_change_defaults(tmp_path: Path) -> None:
+    """publish_only_on_change defaults to False; publish_change_epsilon defaults to 1e-3."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: leader\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.publish_only_on_change is False
+    assert cfg.publish_change_epsilon == pytest.approx(1e-3)
+
+
+def test_load_config_publish_only_on_change_explicit(tmp_path: Path) -> None:
+    """publish_only_on_change and publish_change_epsilon are parsed from YAML."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: leader\n"
+        "joint_names:\n  - name: j1\n    id: 1\n"
+        "publish_only_on_change: true\n"
+        "publish_change_epsilon: 0.005\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.publish_only_on_change is True
+    assert cfg.publish_change_epsilon == pytest.approx(0.005)

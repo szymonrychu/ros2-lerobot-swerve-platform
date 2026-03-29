@@ -79,6 +79,7 @@ def run_bridge(config: BridgeConfig) -> None:
     pub_registers = node.create_publisher(String, registers_topic, DEFAULT_QOS_DEPTH)
 
     last_positions: dict[str, float] = {}
+    last_published_positions: dict[str, float] = {}  # for publish_only_on_change gate
     last_written: dict[int, dict[str, int]] = {}  # servo_id -> { register_name: value }
     command_limits: dict[str, tuple[int, int]] = {}  # joint_name -> (cmd_min, cmd_max)
     servo: Any = None
@@ -249,7 +250,14 @@ def run_bridge(config: BridgeConfig) -> None:
             msg.position = positions
             msg.velocity = velocities
             msg.effort = efforts if effort_joint_set else []
-            pub_state.publish(msg)
+            if config.publish_only_on_change:
+                changed = get_position_updates(
+                    msg.name, msg.position, last_published_positions, config.publish_change_epsilon
+                )
+                if changed:
+                    pub_state.publish(msg)
+            else:
+                pub_state.publish(msg)
             if config.log_joint_updates:
                 changing = get_position_updates(msg.name, msg.position, last_positions)
                 if changing:
