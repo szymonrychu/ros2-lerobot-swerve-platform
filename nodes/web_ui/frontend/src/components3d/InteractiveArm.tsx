@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { useThree } from '@react-three/fiber'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
@@ -49,7 +49,8 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
   const cameraRef = useRef<THREE.Camera>(camera)
   cameraRef.current = camera
 
-  const robotRef = useRef<URDFRobot | null>(null)
+  // Ghost robot — shows commanded position, hosts rings
+  const ghostRobotRef = useRef<URDFRobot | null>(null)
   const ringsRef = useRef<RingEntry[]>([])
   const ringByUuidRef = useRef<Map<string, RingEntry>>(new Map())
   const activeDragRef = useRef<ActiveDrag | null>(null)
@@ -57,6 +58,10 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
   const commandedRef = useRef<Record<string, number>>({})
   const lastPublishRef = useRef<number>(0)
   const hasInitialStateRef = useRef<boolean>(false)
+
+  // Ghost joint states state — drives the ghost RobotModel prop
+  const [ghostJointStates, setGhostJointStates] = useState<JointStates | undefined>(undefined)
+  const [isDragging, setIsDragging] = useState(false)
 
   // Sync commanded positions from live state when not dragging
   useEffect(() => {
@@ -73,7 +78,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
   }, [liveJointStates, onReady])
 
   const buildJointStateMsg = useCallback(() => {
-    const robot = robotRef.current
+    const robot = ghostRobotRef.current
     if (!robot) return null
     const names = Object.keys(robot.joints)
     const positions = names.map((n) => commandedRef.current[n] ?? 0)
@@ -88,9 +93,8 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
     }
   }, [buildJointStateMsg, publish, commandTopic])
 
-  // Create torus rings for every non-fixed joint and attach as children
+  // Create torus rings for every non-fixed joint and attach as children of ghost robot
   const createRings = useCallback((robot: URDFRobot) => {
-    // Remove any old rings first
     for (const entry of ringsRef.current) {
       entry.mesh.parent?.remove(entry.mesh)
       entry.mesh.geometry.dispose()
@@ -114,8 +118,6 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       })
       const mesh = new THREE.Mesh(geom, mat)
       mesh.renderOrder = 999 // draw on top
-      // Torus lies in XY plane → ring perpendicular to local Z (the joint rotation axis)
-      // No extra rotation needed since all joints rotate around local Z
       j.add(mesh)
 
       const entry: RingEntry = { mesh, joint: j, jointName: name }
@@ -123,7 +125,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       ringByUuidRef.current.set(mesh.uuid, entry)
     }
 
-    log.info(`[interactive] created ${ringsRef.current.length} joint rings`)
+    log.info(`[interactive] created ${ringsRef.current.length} joint rings on ghost`)
   }, [])
 
   const setRingAppearance = useCallback((entry: RingEntry, color: number, opacity: number) => {
@@ -166,7 +168,6 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       const entry = hitRings(e)
       if (!entry) return
 
-      // Prevent OrbitControls from consuming this event
       e.stopPropagation()
 
       const rect = canvas.getBoundingClientRect()
@@ -181,6 +182,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       }
 
       setRingAppearance(entry, COLOR_DRAG, OPACITY_DRAG)
+      setIsDragging(true)
       if (orbitRef.current) orbitRef.current.enabled = false
       canvas.style.cursor = 'grabbing'
       log.debug('[interactive] drag start:', entry.jointName, 'at', (commandedRef.current[entry.jointName] ?? 0).toFixed(3))
@@ -188,14 +190,12 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
 
     const onPointerMove = (e: PointerEvent) => {
       const drag = activeDragRef.current
-      const robot = robotRef.current
+      const robot = ghostRobotRef.current
 
       if (drag && robot) {
-        // Arc-based drag: compute angle of pointer relative to ring center
         const { ringScreenCenter, startAngle, startJointValue, entry } = drag
         const currentAngle = Math.atan2(e.clientY - ringScreenCenter.y, e.clientX - ringScreenCenter.x)
         let delta = currentAngle - startAngle
-        // Normalize to [-π, π] to handle wrap-around
         delta = ((delta + Math.PI) % (2 * Math.PI)) - Math.PI
 
         const joint = entry.joint
@@ -203,6 +203,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
         if (joint.limit) {
           newValue = Math.max(joint.limit.lower, Math.min(joint.limit.upper, newValue))
         }
+        // Update ghost directly for instant feedback
         robot.setJointValue(entry.jointName, newValue)
         commandedRef.current[entry.jointName] = newValue
         invalidate()
@@ -234,10 +235,11 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       const drag = activeDragRef.current
       if (!drag) return
 
-      setRingAppearance(drag.entry, COLOR_HOVER, OPACITY_HOVER) // restore to hover since cursor is still over it
+      setRingAppearance(drag.entry, COLOR_HOVER, OPACITY_HOVER)
       publishNow()
 
       activeDragRef.current = null
+      setIsDragging(false)
       if (orbitRef.current) orbitRef.current.enabled = true
       canvas.style.cursor = ''
       log.debug('[interactive] drag end:', drag.entry.jointName, 'at', (commandedRef.current[drag.entry.jointName] ?? 0).toFixed(3))
@@ -255,17 +257,33 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
     }
   }, [gl, invalidate, publishNow, setRingAppearance, getRingScreenCenter, orbitRef])
 
+  // Ghost joint states: only update when NOT dragging (drag updates ghost directly via setJointValue)
+  useEffect(() => {
+    if (activeDragRef.current) return
+    if (!liveJointStates) return
+    setGhostJointStates(liveJointStates)
+  }, [liveJointStates])
+
   return (
-    <RobotModel
-      urdfFile={urdfFile}
-      // Always pass live joint states so the arm tracks real servo positions.
-      // During drag, visual updates happen directly via robot.setJointValue() above.
-      jointStates={liveJointStates}
-      position={position}
-      onRobotLoaded={(robot) => {
-        robotRef.current = robot
-        if (robot) createRings(robot)
-      }}
-    />
+    <>
+      {/* Solid arm — always tracks live servo position */}
+      <RobotModel
+        urdfFile={urdfFile}
+        jointStates={liveJointStates}
+        position={position}
+      />
+      {/* Ghost arm — shows commanded position, hosts rings, only visible during drag */}
+      <RobotModel
+        urdfFile={urdfFile}
+        jointStates={ghostJointStates}
+        position={position}
+        ghost
+        visible={isDragging}
+        onRobotLoaded={(robot) => {
+          ghostRobotRef.current = robot
+          if (robot) createRings(robot)
+        }}
+      />
+    </>
   )
 }

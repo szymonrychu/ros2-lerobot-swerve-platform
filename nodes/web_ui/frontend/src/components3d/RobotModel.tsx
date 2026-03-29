@@ -6,6 +6,9 @@ import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import log from '../logging'
 
+const GHOST_COLOR = 0x66aaff
+const GHOST_OPACITY = 0.3
+
 interface JointStates {
   name?: string[]
   position?: number[]
@@ -16,9 +19,25 @@ interface Props {
   jointStates?: JointStates
   position?: [number, number, number]
   onRobotLoaded?: (robot: URDFRobot | null) => void
+  ghost?: boolean
+  visible?: boolean
 }
 
-export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded }: Props) {
+function applyGhostMaterials(robot: URDFRobot): void {
+  robot.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const mesh = child as THREE.Mesh
+      mesh.material = new THREE.MeshStandardMaterial({
+        color: GHOST_COLOR,
+        transparent: true,
+        opacity: GHOST_OPACITY,
+        depthWrite: false,
+      })
+    }
+  })
+}
+
+export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded, ghost, visible = true }: Props) {
   const { scene, invalidate } = useThree()
   const robotRef = useRef<URDFRobot | null>(null)
   const [robotReady, setRobotReady] = useState(0)
@@ -55,6 +74,11 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded }: P
         // ROS/URDF uses Z-up; Three.js uses Y-up. Rotate -90° around X to correct orientation.
         robot.rotation.x = -Math.PI / 2
         if (position) robot.position.set(...position)
+        if (ghost) {
+          applyGhostMaterials(robot)
+          robot.renderOrder = 998
+        }
+        robot.visible = visible
         robotRef.current = robot
         scene.add(robot)
         setRobotReady((n) => n + 1)
@@ -62,7 +86,7 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded }: P
         onRobotLoadedRef.current?.(robot)
         const linkCount = Object.keys(robot.links).length
         const jointCount = Object.keys(robot.joints).length
-        log.info(`[3d] URDF loaded: ${urdfFile} — ${linkCount} links, ${jointCount} joints`)
+        log.info(`[3d] URDF loaded: ${urdfFile}${ghost ? ' (ghost)' : ''} — ${linkCount} links, ${jointCount} joints`)
       },
       undefined,
       (err: unknown) => {
@@ -79,6 +103,14 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded }: P
     }
   }, [urdfFile, scene, invalidate])
 
+  // Update visibility when prop changes
+  useEffect(() => {
+    if (robotRef.current) {
+      robotRef.current.visible = visible
+      invalidate()
+    }
+  }, [visible, invalidate, robotReady])
+
   useEffect(() => {
     const robot = robotRef.current
     if (!robot || !jointStates?.name || !jointStates?.position) return
@@ -92,7 +124,7 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded }: P
       }
     }
     if (updated > 0) invalidate()
-    log.debug('[3d] frame:', updated, 'joints updated')
+    log.debug('[3d] frame:', updated, 'joints updated', ghost ? '(ghost)' : '')
   }, [jointStates, invalidate, robotReady])
 
   return null
