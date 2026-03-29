@@ -6,12 +6,32 @@ import type { URDFRobot, URDFJoint } from 'urdf-loader'
 import { RobotModel } from './RobotModel'
 import log from '../logging'
 
-const DRAG_SENSITIVITY = 0.012 // radians per pixel
 const PUBLISH_INTERVAL_MS = 50 // throttle to ~20Hz
+const RING_RADIUS = 0.045 // world-space metres — slightly larger than arm cross-section
+const RING_TUBE = 0.006
+const COLOR_IDLE = 0x44aaff
+const COLOR_HOVER = 0x66ccff
+const COLOR_DRAG = 0xffffff
+const OPACITY_IDLE = 0.45
+const OPACITY_HOVER = 0.85
+const OPACITY_DRAG = 1.0
 
 interface JointStates {
   name?: string[]
   position?: number[]
+}
+
+interface RingEntry {
+  mesh: THREE.Mesh
+  joint: URDFJoint
+  jointName: string
+}
+
+interface ActiveDrag {
+  entry: RingEntry
+  startAngle: number          // screen-space angle at drag start
+  startJointValue: number     // joint angle at drag start
+  ringScreenCenter: { x: number; y: number }
 }
 
 interface Props {
@@ -24,30 +44,23 @@ interface Props {
   onReady?: (ready: boolean) => void
 }
 
-interface ActiveJoint {
-  joint: URDFJoint
-  name: string
-  startAngle: number
-  startX: number
-  originalMaterials: Map<string, THREE.Material | THREE.Material[]>
-}
-
 export function InteractiveArm({ urdfFile, liveJointStates, position, commandTopic, publish, orbitRef, onReady }: Props) {
   const { gl, camera, invalidate } = useThree()
   const cameraRef = useRef<THREE.Camera>(camera)
   cameraRef.current = camera
+
   const robotRef = useRef<URDFRobot | null>(null)
-  const activeJointRef = useRef<ActiveJoint | null>(null)
+  const ringsRef = useRef<RingEntry[]>([])
+  const ringByUuidRef = useRef<Map<string, RingEntry>>(new Map())
+  const activeDragRef = useRef<ActiveDrag | null>(null)
+  const hoveredRingRef = useRef<RingEntry | null>(null)
   const commandedRef = useRef<Record<string, number>>({})
   const lastPublishRef = useRef<number>(0)
-  // Guard: do not allow drag/publish until at least one live servo reading has been received.
-  // This prevents sending zero positions on startup before real values are known.
   const hasInitialStateRef = useRef<boolean>(false)
 
-  // Sync commanded positions from live state when not dragging.
-  // The first update also sets hasInitialStateRef so interaction becomes safe.
+  // Sync commanded positions from live state when not dragging
   useEffect(() => {
-    if (activeJointRef.current) return
+    if (activeDragRef.current) return
     if (!liveJointStates?.name || !liveJointStates?.position) return
     for (let i = 0; i < liveJointStates.name.length; i++) {
       commandedRef.current[liveJointStates.name[i]] = liveJointStates.position[i]
@@ -75,40 +88,64 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
     }
   }, [buildJointStateMsg, publish, commandTopic])
 
-  const highlightJoint = useCallback((joint: URDFJoint, originalMaterials: Map<string, THREE.Material | THREE.Material[]>) => {
-    joint.traverse((obj) => {
-      if ((obj as THREE.Mesh).isMesh) {
-        const mesh = obj as THREE.Mesh
-        originalMaterials.set(mesh.uuid, mesh.material)
-        mesh.material = new THREE.MeshStandardMaterial({ color: 0x44aaff })
-      }
-    })
+  // Create torus rings for every non-fixed joint and attach as children
+  const createRings = useCallback((robot: URDFRobot) => {
+    // Remove any old rings first
+    for (const entry of ringsRef.current) {
+      entry.mesh.parent?.remove(entry.mesh)
+      entry.mesh.geometry.dispose()
+      ;(entry.mesh.material as THREE.Material).dispose()
+    }
+    ringsRef.current = []
+    ringByUuidRef.current.clear()
+
+    const geom = new THREE.TorusGeometry(RING_RADIUS, RING_TUBE, 32, 48)
+
+    for (const [name, joint] of Object.entries(robot.joints)) {
+      const j = joint as unknown as URDFJoint
+      if (j.jointType === 'fixed') continue
+
+      const mat = new THREE.MeshBasicMaterial({
+        color: COLOR_IDLE,
+        transparent: true,
+        opacity: OPACITY_IDLE,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      })
+      const mesh = new THREE.Mesh(geom, mat)
+      mesh.renderOrder = 999 // draw on top
+      // Torus lies in XY plane → ring perpendicular to local Z (the joint rotation axis)
+      // No extra rotation needed since all joints rotate around local Z
+      j.add(mesh)
+
+      const entry: RingEntry = { mesh, joint: j, jointName: name }
+      ringsRef.current.push(entry)
+      ringByUuidRef.current.set(mesh.uuid, entry)
+    }
+
+    log.info(`[interactive] created ${ringsRef.current.length} joint rings`)
   }, [])
 
-  const restoreJoint = useCallback((joint: URDFJoint, originalMaterials: Map<string, THREE.Material | THREE.Material[]>) => {
-    joint.traverse((obj) => {
-      if ((obj as THREE.Mesh).isMesh) {
-        const mesh = obj as THREE.Mesh
-        const orig = originalMaterials.get(mesh.uuid)
-        if (orig !== undefined) mesh.material = orig
-      }
-    })
+  const setRingAppearance = useCallback((entry: RingEntry, color: number, opacity: number) => {
+    const mat = entry.mesh.material as THREE.MeshBasicMaterial
+    mat.color.setHex(color)
+    mat.opacity = opacity
+  }, [])
+
+  // Compute screen-space center of a ring given its joint's world position
+  const getRingScreenCenter = useCallback((entry: RingEntry, canvasRect: DOMRect) => {
+    const worldPos = entry.joint.getWorldPosition(new THREE.Vector3())
+    const ndc = worldPos.project(cameraRef.current)
+    return {
+      x: ((ndc.x + 1) / 2) * canvasRect.width + canvasRect.left,
+      y: ((-ndc.y + 1) / 2) * canvasRect.height + canvasRect.top,
+    }
   }, [])
 
   useEffect(() => {
     const canvas = gl.domElement
 
-    const onPointerDown = (e: PointerEvent) => {
-      const robot = robotRef.current
-      if (!robot) return
-      if (e.button !== 0) return
-      // Block interaction until live servo positions have been received at least once
-      if (!hasInitialStateRef.current) {
-        log.debug('[interactive] drag blocked — waiting for initial servo positions')
-        return
-      }
-
-      // Build raycaster from pointer position
+    const hitRings = (e: PointerEvent): RingEntry | null => {
       const rect = canvas.getBoundingClientRect()
       const ndc = new THREE.Vector2(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -116,83 +153,96 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       )
       const raycaster = new THREE.Raycaster()
       raycaster.setFromCamera(ndc, cameraRef.current)
+      const ringMeshes = ringsRef.current.map((r) => r.mesh)
+      const hits = raycaster.intersectObjects(ringMeshes, false)
+      if (!hits.length) return null
+      return ringByUuidRef.current.get(hits[0].object.uuid) ?? null
+    }
 
-      const hits = raycaster.intersectObject(robot, true)
-      if (!hits.length) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return
+      if (!hasInitialStateRef.current) return
 
-      // Walk up to find nearest URDFJoint
-      let obj: THREE.Object3D | null = hits[0].object
-      let foundJoint: URDFJoint | null = null
-      let foundName = ''
-      while (obj) {
-        const j = obj as unknown as URDFJoint & { isURDFJoint?: boolean }
-        if (j.isURDFJoint && j.jointType !== 'fixed') {
-          foundJoint = j
-          foundName = j.urdfName
-          break
-        }
-        obj = obj.parent
-      }
-      if (!foundJoint || !foundName) return
+      const entry = hitRings(e)
+      if (!entry) return
 
-      // Prevent OrbitControls from starting orbit when we're dragging a joint
+      // Prevent OrbitControls from consuming this event
       e.stopPropagation()
 
-      const currentAngle = (commandedRef.current[foundName] ?? 0)
-      const originalMaterials = new Map<string, THREE.Material | THREE.Material[]>()
-      highlightJoint(foundJoint, originalMaterials)
+      const rect = canvas.getBoundingClientRect()
+      const center = getRingScreenCenter(entry, rect)
+      const startAngle = Math.atan2(e.clientY - center.y, e.clientX - center.x)
 
-      activeJointRef.current = {
-        joint: foundJoint,
-        name: foundName,
-        startAngle: currentAngle,
-        startX: e.clientX,
-        originalMaterials,
+      activeDragRef.current = {
+        entry,
+        startAngle,
+        startJointValue: commandedRef.current[entry.jointName] ?? 0,
+        ringScreenCenter: center,
       }
 
+      setRingAppearance(entry, COLOR_DRAG, OPACITY_DRAG)
       if (orbitRef.current) orbitRef.current.enabled = false
       canvas.style.cursor = 'grabbing'
-      log.debug('[interactive] drag start:', foundName, 'at', currentAngle.toFixed(3))
+      log.debug('[interactive] drag start:', entry.jointName, 'at', (commandedRef.current[entry.jointName] ?? 0).toFixed(3))
     }
 
     const onPointerMove = (e: PointerEvent) => {
-      const active = activeJointRef.current
+      const drag = activeDragRef.current
       const robot = robotRef.current
-      if (!active || !robot) return
 
-      const deltaX = e.clientX - active.startX
-      const deltaAngle = deltaX * DRAG_SENSITIVITY
+      if (drag && robot) {
+        // Arc-based drag: compute angle of pointer relative to ring center
+        const { ringScreenCenter, startAngle, startJointValue, entry } = drag
+        const currentAngle = Math.atan2(e.clientY - ringScreenCenter.y, e.clientX - ringScreenCenter.x)
+        let delta = currentAngle - startAngle
+        // Normalize to [-π, π] to handle wrap-around
+        delta = ((delta + Math.PI) % (2 * Math.PI)) - Math.PI
 
-      const joint = active.joint
-      let newAngle = active.startAngle + deltaAngle
-      if (joint.limit) {
-        newAngle = Math.max(joint.limit.lower, Math.min(joint.limit.upper, newAngle))
+        const joint = entry.joint
+        let newValue = startJointValue + delta
+        if (joint.limit) {
+          newValue = Math.max(joint.limit.lower, Math.min(joint.limit.upper, newValue))
+        }
+        robot.setJointValue(entry.jointName, newValue)
+        commandedRef.current[entry.jointName] = newValue
+        invalidate()
+
+        if (Date.now() - lastPublishRef.current >= PUBLISH_INTERVAL_MS) {
+          publishNow()
+        }
+        return
       }
 
-      robot.setJointValue(active.name, newAngle)
-      commandedRef.current[active.name] = newAngle
-      invalidate()
+      // Hover detection (no active drag)
+      const hit = hitRings(e)
+      const prev = hoveredRingRef.current
 
-      const now = Date.now()
-      if (now - lastPublishRef.current >= PUBLISH_INTERVAL_MS) {
-        publishNow()
+      if (hit !== prev) {
+        if (prev) setRingAppearance(prev, COLOR_IDLE, OPACITY_IDLE)
+        if (hit) {
+          setRingAppearance(hit, COLOR_HOVER, OPACITY_HOVER)
+          canvas.style.cursor = hasInitialStateRef.current ? 'grab' : 'not-allowed'
+        } else {
+          canvas.style.cursor = ''
+        }
+        hoveredRingRef.current = hit
+        invalidate()
       }
     }
 
     const onPointerUp = () => {
-      const active = activeJointRef.current
-      if (!active) return
+      const drag = activeDragRef.current
+      if (!drag) return
 
-      restoreJoint(active.joint, active.originalMaterials)
+      setRingAppearance(drag.entry, COLOR_HOVER, OPACITY_HOVER) // restore to hover since cursor is still over it
       publishNow()
 
-      activeJointRef.current = null
+      activeDragRef.current = null
       if (orbitRef.current) orbitRef.current.enabled = true
       canvas.style.cursor = ''
-      log.debug('[interactive] drag end:', active.name, 'at', (commandedRef.current[active.name] ?? 0).toFixed(3))
+      log.debug('[interactive] drag end:', drag.entry.jointName, 'at', (commandedRef.current[drag.entry.jointName] ?? 0).toFixed(3))
     }
 
-    // Use capture phase so our handler fires before OrbitControls' listener
     canvas.addEventListener('pointerdown', onPointerDown, { capture: true })
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
@@ -203,23 +253,18 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       window.removeEventListener('pointerup', onPointerUp)
       if (orbitRef.current) orbitRef.current.enabled = true
     }
-  }, [gl, invalidate, publishNow, highlightJoint, restoreJoint, orbitRef])
-
-  // While dragging, use commanded positions; otherwise pass live state
-  const displayJointStates: JointStates | undefined = activeJointRef.current
-    ? {
-        name: Object.keys(commandedRef.current),
-        position: Object.values(commandedRef.current),
-      }
-    : liveJointStates
+  }, [gl, invalidate, publishNow, setRingAppearance, getRingScreenCenter, orbitRef])
 
   return (
     <RobotModel
       urdfFile={urdfFile}
-      jointStates={displayJointStates}
+      // Always pass live joint states so the arm tracks real servo positions.
+      // During drag, visual updates happen directly via robot.setJointValue() above.
+      jointStates={liveJointStates}
       position={position}
       onRobotLoaded={(robot) => {
         robotRef.current = robot
+        if (robot) createRings(robot)
       }}
     />
   )
