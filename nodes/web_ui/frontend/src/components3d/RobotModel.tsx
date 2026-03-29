@@ -7,7 +7,6 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import log from '../logging'
 
 const GHOST_COLOR = 0x66aaff
-const GHOST_OPACITY = 0.3
 
 interface JointStates {
   name?: string[]
@@ -19,47 +18,45 @@ interface Props {
   jointStates?: JointStates
   position?: [number, number, number]
   onRobotLoaded?: (robot: URDFRobot | null) => void
+  /** When true, body meshes are created with transparent material at opacity 0. */
   ghost?: boolean
-  visible?: boolean
+  /** Called after URDF load with all body meshes (created by loadMeshCb). */
+  onBodyMeshesLoaded?: (meshes: THREE.Mesh[]) => void
 }
 
-function applyGhostMaterials(robot: URDFRobot): void {
-  robot.traverse((child) => {
-    if ((child as THREE.Mesh).isMesh) {
-      const mesh = child as THREE.Mesh
-      mesh.material = new THREE.MeshStandardMaterial({
-        color: GHOST_COLOR,
-        transparent: true,
-        opacity: GHOST_OPACITY,
-        depthWrite: false,
-      })
-    }
-  })
-}
-
-export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded, ghost, visible = true }: Props) {
+export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded, ghost, onBodyMeshesLoaded }: Props) {
   const { scene, invalidate } = useThree()
   const robotRef = useRef<URDFRobot | null>(null)
   const [robotReady, setRobotReady] = useState(0)
-  // Store callback in a ref so changing it doesn't retrigger URDF reload
   const onRobotLoadedRef = useRef(onRobotLoaded)
   onRobotLoadedRef.current = onRobotLoaded
+  const onBodyMeshesLoadedRef = useRef(onBodyMeshesLoaded)
+  onBodyMeshesLoadedRef.current = onBodyMeshesLoaded
 
   useEffect(() => {
     const loader = new URDFLoader()
     const stlLoader = new STLLoader()
+    const bodyMeshes: THREE.Mesh[] = []
 
     loader.loadMeshCb = (path, _manager, done) => {
       log.debug('[3d] fetching mesh:', path)
-      const fullPath = path
-      fetch(fullPath)
+      fetch(path)
         .then((r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`)
           return r.arrayBuffer()
         })
         .then((buf) => {
           const geom = stlLoader.parse(buf)
-          const mesh = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: 0x888888 }))
+          const mat = ghost
+            ? new THREE.MeshStandardMaterial({
+                color: GHOST_COLOR,
+                transparent: true,
+                opacity: 0,
+                depthWrite: false,
+              })
+            : new THREE.MeshStandardMaterial({ color: 0x888888 })
+          const mesh = new THREE.Mesh(geom, mat)
+          bodyMeshes.push(mesh)
           done(mesh, undefined)
         })
         .catch((err: Error) => {
@@ -71,19 +68,14 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded, gho
     loader.load(
       `/api/urdf/${urdfFile}`,
       (robot) => {
-        // ROS/URDF uses Z-up; Three.js uses Y-up. Rotate -90° around X to correct orientation.
         robot.rotation.x = -Math.PI / 2
         if (position) robot.position.set(...position)
-        if (ghost) {
-          applyGhostMaterials(robot)
-          robot.renderOrder = 998
-        }
-        robot.visible = visible
         robotRef.current = robot
         scene.add(robot)
         setRobotReady((n) => n + 1)
         invalidate()
         onRobotLoadedRef.current?.(robot)
+        onBodyMeshesLoadedRef.current?.(bodyMeshes)
         const linkCount = Object.keys(robot.links).length
         const jointCount = Object.keys(robot.joints).length
         log.info(`[3d] URDF loaded: ${urdfFile}${ghost ? ' (ghost)' : ''} — ${linkCount} links, ${jointCount} joints`)
@@ -102,14 +94,6 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded, gho
       }
     }
   }, [urdfFile, scene, invalidate])
-
-  // Update visibility when prop changes
-  useEffect(() => {
-    if (robotRef.current) {
-      robotRef.current.visible = visible
-      invalidate()
-    }
-  }, [visible, invalidate, robotReady])
 
   useEffect(() => {
     const robot = robotRef.current

@@ -15,6 +15,7 @@ const COLOR_DRAG = 0xffffff
 const OPACITY_IDLE = 0.45
 const OPACITY_HOVER = 0.85
 const OPACITY_DRAG = 1.0
+const GHOST_BODY_OPACITY = 0.3
 
 interface JointStates {
   name?: string[]
@@ -29,8 +30,8 @@ interface RingEntry {
 
 interface ActiveDrag {
   entry: RingEntry
-  startAngle: number          // screen-space angle at drag start
-  startJointValue: number     // joint angle at drag start
+  startAngle: number
+  startJointValue: number
   ringScreenCenter: { x: number; y: number }
 }
 
@@ -49,8 +50,11 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
   const cameraRef = useRef<THREE.Camera>(camera)
   cameraRef.current = camera
 
-  // Ghost robot — shows commanded position, hosts rings
+  // Ghost robot ref — shows commanded position, hosts rings
   const ghostRobotRef = useRef<URDFRobot | null>(null)
+  // Body meshes of the ghost (from loadMeshCb) — opacity toggled on drag
+  const ghostBodyMeshesRef = useRef<THREE.Mesh[]>([])
+
   const ringsRef = useRef<RingEntry[]>([])
   const ringByUuidRef = useRef<Map<string, RingEntry>>(new Map())
   const activeDragRef = useRef<ActiveDrag | null>(null)
@@ -59,23 +63,29 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
   const lastPublishRef = useRef<number>(0)
   const hasInitialStateRef = useRef<boolean>(false)
 
-  // Ghost joint states state — drives the ghost RobotModel prop
+  // Ghost joint states — frozen during drag so live updates don't overwrite setJointValue()
   const [ghostJointStates, setGhostJointStates] = useState<JointStates | undefined>(undefined)
-  const [isDragging, setIsDragging] = useState(false)
 
-  // Sync commanded positions from live state when not dragging
+  // Sync commanded positions + ghost states from live when not dragging
   useEffect(() => {
     if (activeDragRef.current) return
     if (!liveJointStates?.name || !liveJointStates?.position) return
     for (let i = 0; i < liveJointStates.name.length; i++) {
       commandedRef.current[liveJointStates.name[i]] = liveJointStates.position[i]
     }
+    setGhostJointStates(liveJointStates)
     if (!hasInitialStateRef.current) {
       hasInitialStateRef.current = true
       log.info('[interactive] initial servo positions received — arm control enabled')
       onReady?.(true)
     }
   }, [liveJointStates, onReady])
+
+  const setGhostBodyOpacity = useCallback((opacity: number) => {
+    for (const mesh of ghostBodyMeshesRef.current) {
+      (mesh.material as THREE.MeshStandardMaterial).opacity = opacity
+    }
+  }, [])
 
   const buildJointStateMsg = useCallback(() => {
     const robot = ghostRobotRef.current
@@ -93,7 +103,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
     }
   }, [buildJointStateMsg, publish, commandTopic])
 
-  // Create torus rings for every non-fixed joint and attach as children of ghost robot
+  // Create torus rings on ghost robot's joints
   const createRings = useCallback((robot: URDFRobot) => {
     for (const entry of ringsRef.current) {
       entry.mesh.parent?.remove(entry.mesh)
@@ -117,7 +127,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
         side: THREE.DoubleSide,
       })
       const mesh = new THREE.Mesh(geom, mat)
-      mesh.renderOrder = 999 // draw on top
+      mesh.renderOrder = 999
       j.add(mesh)
 
       const entry: RingEntry = { mesh, joint: j, jointName: name }
@@ -125,7 +135,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       ringByUuidRef.current.set(mesh.uuid, entry)
     }
 
-    log.info(`[interactive] created ${ringsRef.current.length} joint rings on ghost`)
+    log.info(`[interactive] created ${ringsRef.current.length} joint rings`)
   }, [])
 
   const setRingAppearance = useCallback((entry: RingEntry, color: number, opacity: number) => {
@@ -134,7 +144,6 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
     mat.opacity = opacity
   }, [])
 
-  // Compute screen-space center of a ring given its joint's world position
   const getRingScreenCenter = useCallback((entry: RingEntry, canvasRect: DOMRect) => {
     const worldPos = entry.joint.getWorldPosition(new THREE.Vector3())
     const ndc = worldPos.project(cameraRef.current)
@@ -182,9 +191,10 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       }
 
       setRingAppearance(entry, COLOR_DRAG, OPACITY_DRAG)
-      setIsDragging(true)
+      setGhostBodyOpacity(GHOST_BODY_OPACITY)
       if (orbitRef.current) orbitRef.current.enabled = false
       canvas.style.cursor = 'grabbing'
+      invalidate()
       log.debug('[interactive] drag start:', entry.jointName, 'at', (commandedRef.current[entry.jointName] ?? 0).toFixed(3))
     }
 
@@ -203,7 +213,6 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
         if (joint.limit) {
           newValue = Math.max(joint.limit.lower, Math.min(joint.limit.upper, newValue))
         }
-        // Update ghost directly for instant feedback
         robot.setJointValue(entry.jointName, newValue)
         commandedRef.current[entry.jointName] = newValue
         invalidate()
@@ -214,7 +223,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
         return
       }
 
-      // Hover detection (no active drag)
+      // Hover detection
       const hit = hitRings(e)
       const prev = hoveredRingRef.current
 
@@ -236,12 +245,13 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       if (!drag) return
 
       setRingAppearance(drag.entry, COLOR_HOVER, OPACITY_HOVER)
+      setGhostBodyOpacity(0)
       publishNow()
 
       activeDragRef.current = null
-      setIsDragging(false)
       if (orbitRef.current) orbitRef.current.enabled = true
       canvas.style.cursor = ''
+      invalidate()
       log.debug('[interactive] drag end:', drag.entry.jointName, 'at', (commandedRef.current[drag.entry.jointName] ?? 0).toFixed(3))
     }
 
@@ -255,14 +265,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       window.removeEventListener('pointerup', onPointerUp)
       if (orbitRef.current) orbitRef.current.enabled = true
     }
-  }, [gl, invalidate, publishNow, setRingAppearance, getRingScreenCenter, orbitRef])
-
-  // Ghost joint states: only update when NOT dragging (drag updates ghost directly via setJointValue)
-  useEffect(() => {
-    if (activeDragRef.current) return
-    if (!liveJointStates) return
-    setGhostJointStates(liveJointStates)
-  }, [liveJointStates])
+  }, [gl, invalidate, publishNow, setRingAppearance, getRingScreenCenter, setGhostBodyOpacity, orbitRef])
 
   return (
     <>
@@ -272,13 +275,15 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
         jointStates={liveJointStates}
         position={position}
       />
-      {/* Ghost arm — shows commanded position, hosts rings, only visible during drag */}
+      {/* Ghost arm — always in scene; body opacity 0 normally, ghost during drag; hosts rings */}
       <RobotModel
         urdfFile={urdfFile}
         jointStates={ghostJointStates}
         position={position}
         ghost
-        visible={isDragging}
+        onBodyMeshesLoaded={(meshes) => {
+          ghostBodyMeshesRef.current = meshes
+        }}
         onRobotLoaded={(robot) => {
           ghostRobotRef.current = robot
           if (robot) createRings(robot)
