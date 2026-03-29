@@ -79,7 +79,7 @@ tabs:
     topic: /controller/swerve_drive/joint_states
     arm_urdf_file: so101_arm.urdf
     arm_joint_topic: /controller/follower/joint_states
-    arm_command_topic: /controller/follower/joint_commands
+    arm_command_topic: /follower/joint_commands
 
 overlays:
   - topic: /controller/gps/fix

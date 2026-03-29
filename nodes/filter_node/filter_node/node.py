@@ -63,9 +63,24 @@ def run_filter_node(config: FilterConfig) -> None:
     executor = SingleThreadedExecutor()
     executor.add_node(node)
 
+    idle_timeout = config.idle_timeout_s
+    was_idle = False
+
     while rclpy.ok():
         if state_by_joint and joint_order:
             now = time.monotonic()
+            input_age = now - last_input_time[0]
+            if idle_timeout > 0 and input_age > idle_timeout:
+                if not was_idle:
+                    node.get_logger().info(
+                        f"Input idle for {input_age:.1f}s (threshold {idle_timeout}s), pausing output"
+                    )
+                    was_idle = True
+                executor.spin_once(timeout_sec=control_period_s)
+                continue
+            if was_idle:
+                node.get_logger().info("Input resumed, publishing output")
+                was_idle = False
             names = [n for n in joint_order if n in state_by_joint]
             positions: list[float] = []
             for n in names:

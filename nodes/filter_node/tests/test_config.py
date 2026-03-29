@@ -53,6 +53,24 @@ def test_load_config_explicit(tmp_path: Path) -> None:
     assert cfg.algorithm_params.get("prediction_lead_s") == 0.04
 
 
+def test_load_config_idle_timeout_default(tmp_path: Path) -> None:
+    """idle_timeout_s defaults to 0.0 (always publish)."""
+    p = tmp_path / "c.yaml"
+    p.write_text("algorithm: kalman\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.idle_timeout_s == 0.0
+
+
+def test_load_config_idle_timeout_explicit(tmp_path: Path) -> None:
+    """idle_timeout_s is parsed from YAML."""
+    p = tmp_path / "c.yaml"
+    p.write_text("algorithm: kalman\nidle_timeout_s: 0.5\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.idle_timeout_s == pytest.approx(0.5)
+
+
 def test_load_config_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """load_config_from_env uses FILTER_NODE_CONFIG path."""
     config_file = tmp_path / "env_config.yaml"

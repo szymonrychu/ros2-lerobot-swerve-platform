@@ -22,6 +22,10 @@ class FilterConfig:
         algorithm_params: Dict of algorithm-specific parameters (e.g. process_noise_pos).
         control_loop_hz: Main loop frequency for publishing filtered output.
         joint_names: Optional ordered joint names; if empty, inferred from first message.
+        idle_timeout_s: Seconds without new input before the filter stops publishing.
+            0 = always publish (legacy behavior). When the input source goes idle
+            (e.g. leader arm not moving), the filter stops outputting, allowing
+            other command sources (like the web UI) to control the follower.
     """
 
     input_topic: str
@@ -30,6 +34,7 @@ class FilterConfig:
     algorithm_params: dict[str, Any]
     control_loop_hz: float
     joint_names: list[str]
+    idle_timeout_s: float = 0.0
 
 
 def load_config(path: Path | None = None) -> FilterConfig | None:
@@ -63,6 +68,11 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         control_loop_hz = 100.0
     raw_joints = data.get("joint_names") or []
     joint_names = [str(j).strip() for j in raw_joints] if isinstance(raw_joints, list) else []
+    raw_idle = data.get("idle_timeout_s", 0.0)
+    try:
+        idle_timeout_s = max(0.0, float(raw_idle))
+    except (TypeError, ValueError):
+        idle_timeout_s = 0.0
     return FilterConfig(
         input_topic=input_topic,
         output_topic=output_topic,
@@ -70,6 +80,7 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         algorithm_params=algorithm_params,
         control_loop_hz=control_loop_hz,
         joint_names=joint_names,
+        idle_timeout_s=idle_timeout_s,
     )
 
 
