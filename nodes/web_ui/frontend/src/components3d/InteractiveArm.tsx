@@ -135,6 +135,9 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       }
       if (!foundJoint || !foundName) return
 
+      // Prevent OrbitControls from starting orbit when we're dragging a joint
+      e.stopPropagation()
+
       const currentAngle = (commandedRef.current[foundName] ?? 0)
       const originalMaterials = new Map<string, THREE.Material | THREE.Material[]>()
       highlightJoint(foundJoint, originalMaterials)
@@ -189,12 +192,13 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       log.debug('[interactive] drag end:', active.name, 'at', (commandedRef.current[active.name] ?? 0).toFixed(3))
     }
 
-    canvas.addEventListener('pointerdown', onPointerDown)
+    // Use capture phase so our handler fires before OrbitControls' listener
+    canvas.addEventListener('pointerdown', onPointerDown, { capture: true })
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
 
     return () => {
-      canvas.removeEventListener('pointerdown', onPointerDown)
+      canvas.removeEventListener('pointerdown', onPointerDown, { capture: true } as EventListenerOptions)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       if (orbitRef.current) orbitRef.current.enabled = true
