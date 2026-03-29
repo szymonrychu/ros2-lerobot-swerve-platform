@@ -34,12 +34,57 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded, gho
   onBodyMeshesLoadedRef.current = onBodyMeshesLoaded
 
   useEffect(() => {
-    const loader = new URDFLoader()
     const stlLoader = new STLLoader()
     const bodyMeshes: THREE.Mesh[] = []
+    let robotObj: URDFRobot | null = null
 
-    loader.loadMeshCb = (path, _manager, done) => {
+    // Custom LoadingManager: its onLoad fires AFTER all async mesh fetches complete.
+    // urdf-loader's onComplete fires after parse() returns, which is BEFORE meshes
+    // are loaded (loadMeshCb uses async fetch). So ghost material overrides must
+    // happen in the manager's onLoad callback, not in urdf-loader's onComplete.
+    const manager = new THREE.LoadingManager()
+    manager.onLoad = () => {
+      if (!robotObj) return
+      const robot = robotObj
+
+      robot.rotation.x = -Math.PI / 2
+      if (position) robot.position.set(...position)
+
+      // Ghost: override materials AFTER all meshes are loaded and urdf-loader
+      // has applied URDF <material> tags (line 556-558 of URDFLoader.js)
+      if (ghost) {
+        robot.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const m = child as THREE.Mesh
+            m.material = new THREE.MeshStandardMaterial({
+              color: GHOST_COLOR,
+              transparent: true,
+              opacity: 0,
+              depthWrite: false,
+            })
+            bodyMeshes.push(m)
+          }
+        })
+      }
+
+      robotRef.current = robot
+      scene.add(robot)
+      setRobotReady((n) => n + 1)
+      invalidate()
+      onRobotLoadedRef.current?.(robot)
+      if (ghost) onBodyMeshesLoadedRef.current?.(bodyMeshes)
+
+      const linkCount = Object.keys(robot.links).length
+      const jointCount = Object.keys(robot.joints).length
+      log.info(`[3d] URDF loaded: ${urdfFile}${ghost ? ' (ghost)' : ''} — ${linkCount} links, ${jointCount} joints, ${bodyMeshes.length} body meshes`)
+    }
+
+    const loader = new URDFLoader(manager)
+
+    loader.loadMeshCb = (path, mgr, done) => {
       log.debug('[3d] fetching mesh:', path)
+      // Notify manager so it waits for this mesh before firing onLoad
+      mgr.itemStart(path)
       fetch(path)
         .then((r) => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -49,42 +94,21 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded, gho
           const geom = stlLoader.parse(buf)
           const mesh = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: 0x888888 }))
           done(mesh, undefined)
+          mgr.itemEnd(path)
         })
         .catch((err: Error) => {
           log.warn('[3d] mesh load failed:', path, '—', err)
           done(new THREE.Object3D(), err)
+          mgr.itemError(path)
+          mgr.itemEnd(path)
         })
     }
 
     loader.load(
       `/api/urdf/${urdfFile}`,
       (robot) => {
-        robot.rotation.x = -Math.PI / 2
-        if (position) robot.position.set(...position)
-        // Ghost: override materials AFTER urdf-loader applies URDF <material> tags
-        if (ghost) {
-          robot.traverse((child) => {
-            if ((child as THREE.Mesh).isMesh) {
-              const m = child as THREE.Mesh
-              m.material = new THREE.MeshStandardMaterial({
-                color: GHOST_COLOR,
-                transparent: true,
-                opacity: 0,
-                depthWrite: false,
-              })
-              bodyMeshes.push(m)
-            }
-          })
-        }
-        robotRef.current = robot
-        scene.add(robot)
-        setRobotReady((n) => n + 1)
-        invalidate()
-        onRobotLoadedRef.current?.(robot)
-        if (ghost) onBodyMeshesLoadedRef.current?.(bodyMeshes)
-        const linkCount = Object.keys(robot.links).length
-        const jointCount = Object.keys(robot.joints).length
-        log.info(`[3d] URDF loaded: ${urdfFile}${ghost ? ' (ghost)' : ''} — ${linkCount} links, ${jointCount} joints`)
+        // Store robot ref — actual setup happens in manager.onLoad after all meshes load
+        robotObj = robot
       },
       undefined,
       (err: unknown) => {
