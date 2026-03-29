@@ -47,16 +47,7 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded, gho
         })
         .then((buf) => {
           const geom = stlLoader.parse(buf)
-          const mat = ghost
-            ? new THREE.MeshStandardMaterial({
-                color: GHOST_COLOR,
-                transparent: true,
-                opacity: 0,
-                depthWrite: false,
-              })
-            : new THREE.MeshStandardMaterial({ color: 0x888888 })
-          const mesh = new THREE.Mesh(geom, mat)
-          bodyMeshes.push(mesh)
+          const mesh = new THREE.Mesh(geom, new THREE.MeshStandardMaterial({ color: 0x888888 }))
           done(mesh, undefined)
         })
         .catch((err: Error) => {
@@ -70,12 +61,27 @@ export function RobotModel({ urdfFile, jointStates, position, onRobotLoaded, gho
       (robot) => {
         robot.rotation.x = -Math.PI / 2
         if (position) robot.position.set(...position)
+        // Ghost: override materials AFTER urdf-loader applies URDF <material> tags
+        if (ghost) {
+          robot.traverse((child) => {
+            if ((child as THREE.Mesh).isMesh) {
+              const m = child as THREE.Mesh
+              m.material = new THREE.MeshStandardMaterial({
+                color: GHOST_COLOR,
+                transparent: true,
+                opacity: 0,
+                depthWrite: false,
+              })
+              bodyMeshes.push(m)
+            }
+          })
+        }
         robotRef.current = robot
         scene.add(robot)
         setRobotReady((n) => n + 1)
         invalidate()
         onRobotLoadedRef.current?.(robot)
-        onBodyMeshesLoadedRef.current?.(bodyMeshes)
+        if (ghost) onBodyMeshesLoadedRef.current?.(bodyMeshes)
         const linkCount = Object.keys(robot.links).length
         const jointCount = Object.keys(robot.joints).length
         log.info(`[3d] URDF loaded: ${urdfFile}${ghost ? ' (ghost)' : ''} — ${linkCount} links, ${jointCount} joints`)
