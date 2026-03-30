@@ -56,7 +56,6 @@
       - ros-jazzy-navigation2
       - ros-jazzy-nav2-bringup
       - ros-jazzy-rplidar-ros
-      - ros-jazzy-realsense2-camera
       - ros-jazzy-launch-ros
       - python3-rosdep
     state: present
@@ -85,7 +84,7 @@
     name:
       - i2c-tools
       - libi2c-dev
-      - python3-smbus2
+      - python3-smbus
       - libgl1
       - libglib2.0-0
       - libv4l-dev
