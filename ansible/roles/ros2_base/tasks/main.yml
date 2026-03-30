@@ -23,13 +23,6 @@
       Pin: version 1.0.8-5.1
       Pin-Priority: 1001
 
-      Package: libsqlite3-0
-      Pin: version 3.45.1-1ubuntu2
-      Pin-Priority: 1001
-
-      Package: libuuid1
-      Pin: version 2.39.3-9ubuntu6
-      Pin-Priority: 1001
     mode: "0644"
   become: true
 
@@ -40,11 +33,16 @@
       - liblz4-1=1.9.4-1build1
       - libzstd1=1.5.5+dfsg2-2build1
       - libbz2-1.0=1.0.8-5.1
-      - libsqlite3-0=3.45.1-1ubuntu2
-      - libuuid1=2.39.3-9ubuntu6
     state: present
     update_cache: true
     allow_downgrade: true
+  become: true
+
+- name: Enable noble-updates suite (needed for gcc/libgfortran/liblapack matching installed gcc-14-base)
+  ansible.builtin.replace:
+    path: /etc/apt/sources.list.d/ubuntu.sources
+    regexp: '(Suites: noble)$'
+    replace: '\1 noble-updates'
   become: true
 
 - name: Update apt cache and upgrade packages
