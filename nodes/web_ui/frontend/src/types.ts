@@ -29,6 +29,9 @@ export interface TabConfig {
   arm_joint_topic?: string
   arm_offset?: [number, number, number]
   arm_command_topic?: string
+  color_topic?: string
+  depth_topic?: string
+  camera_info_topic?: string
 }
 
 export interface OverlayItem {
