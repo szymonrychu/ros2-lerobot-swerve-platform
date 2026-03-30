@@ -1,20 +1,37 @@
 ---
-# Deploy or uninstall a ROS2 node as a systemd service (container).
-# Expects (from playbook): node_name, node_image, node_build_context, repo_dest,
-# node_present, node_enabled; optionally node_config_path, node_config, node_env, node_extra_args.
-# Playbook resolves node_type -> image/config_path/env via ros2_node_type_defaults.
+# Deploy or uninstall a ROS2 node as a native systemd service (deploy_mode: native)
+# or as a Docker container (deploy_mode: docker, legacy).
+# Expects from resolve_and_deploy.yml:
+#   node_name, node_present, node_enabled, node_deploy_mode
+#   Native: node_launch_command, node_src_dir (optional), node_apt_packages, node_cpu_quota, node_memory_max
+#   Docker: node_image, node_build_context, node_extra_args
+#   Both: node_config_path, node_config, node_env, repo_dest
 
-- name: Validate required variables for ROS2 node deploy
+- name: Validate required variables
   ansible.builtin.assert:
     that:
       - node_name is defined
       - node_name | length > 0
+    fail_msg: "ros2_node_deploy requires node_name."
+    success_msg: "Required vars present for {{ node_name }}"
+
+- name: Validate Docker-mode required variables
+  when: (node_deploy_mode | default('docker')) == 'docker'
+  ansible.builtin.assert:
+    that:
       - node_image is defined
       - node_image | length > 0
       - node_build_context is defined
       - repo_dest is defined
-    fail_msg: "ros2_node_deploy requires node_name, node_image, node_build_context, repo_dest (from playbook loop)."
-    success_msg: "Required vars present for {{ node_name }}"
+    fail_msg: "Docker deploy mode requires node_image, node_build_context, repo_dest."
+
+- name: Validate native-mode required variables
+  when: (node_deploy_mode | default('docker')) == 'native'
+  ansible.builtin.assert:
+    that:
+      - node_launch_command is defined
+      - node_launch_command | length > 0
+    fail_msg: "Native deploy mode requires node_launch_command."
 
 - name: Set current node name for handlers
   ansible.builtin.set_fact:
@@ -41,6 +58,8 @@
       feetech_servos node '{{ node_name }}' requires config.joint_names as list of
       objects with both name and id (e.g. [{name: joint_1, id: 1}, ...]).
 
+# ── UNINSTALL ──────────────────────────────────────────────────────────────────
+
 - name: Uninstall ROS2 node (present is false)
   when: not (node_present | default(true) | bool)
   block:
@@ -64,6 +83,18 @@
         state: absent
       become: true
 
+    - name: Remove launcher script (native)
+      ansible.builtin.file:
+        path: "/usr/local/bin/ros2-{{ node_name }}"
+        state: absent
+      become: true
+
+    - name: Remove node venv directory (native)
+      ansible.builtin.file:
+        path: "/opt/ros2-nodes/{{ node_name }}"
+        state: absent
+      become: true
+
     - name: Remove ROS2 node config directory
       ansible.builtin.file:
         path: "{{ ros2_node_config_dir }}/{{ node_name }}"
@@ -75,8 +106,140 @@
         daemon_reload: true
       become: true
 
-- name: Deploy ROS2 node (present is true)
-  when: node_present | default(true) | bool
+# ── DEPLOY: NATIVE ─────────────────────────────────────────────────────────────
+
+- name: Deploy ROS2 node natively (deploy_mode == native)
+  when:
+    - node_present | default(true) | bool
+    - (node_deploy_mode | default('docker')) == 'native'
+  block:
+    - name: Install node apt packages
+      ansible.builtin.apt:
+        name: "{{ node_apt_packages | default([]) }}"
+        state: present
+        update_cache: false
+      become: true
+      when: (node_apt_packages | default([])) | length > 0
+
+    - name: Create node venv directory
+      ansible.builtin.file:
+        path: "/opt/ros2-nodes/{{ node_name }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+      when: node_src_dir is defined and node_src_dir | length > 0
+
+    - name: Create Poetry venv with system-site-packages
+      ansible.builtin.command:
+        cmd: python3 -m venv --system-site-packages /opt/ros2-nodes/{{ node_name }}/venv
+        creates: /opt/ros2-nodes/{{ node_name }}/venv/bin/python3
+      become: true
+      when: node_src_dir is defined and node_src_dir | length > 0
+
+    - name: Install pip and Poetry into venv
+      ansible.builtin.command:
+        cmd: >-
+          /opt/ros2-nodes/{{ node_name }}/venv/bin/pip install --quiet --upgrade pip poetry
+      become: true
+      when: node_src_dir is defined and node_src_dir | length > 0
+      changed_when: true
+
+    - name: Install node Python dependencies via Poetry
+      ansible.builtin.command:
+        cmd: >-
+          /opt/ros2-nodes/{{ node_name }}/venv/bin/poetry install
+          --only main --no-root --no-interaction
+        chdir: "{{ repo_dest }}/{{ node_src_dir }}"
+      become: true
+      when: node_src_dir is defined and node_src_dir | length > 0
+      notify: "Restart ROS2 node"
+      changed_when: true
+
+    - name: Run npm ci for web_ui frontend
+      ansible.builtin.command:
+        cmd: npm ci
+        chdir: "{{ repo_dest }}/nodes/web_ui/frontend"
+      when: node_name == 'web_ui'
+      changed_when: true
+
+    - name: Run npm run build for web_ui frontend
+      ansible.builtin.command:
+        cmd: npm run build
+        chdir: "{{ repo_dest }}/nodes/web_ui/frontend"
+      when: node_name == 'web_ui'
+      changed_when: true
+      notify: "Restart ROS2 node"
+
+    - name: Copy built web_ui frontend to static dir
+      ansible.builtin.copy:
+        src: "{{ repo_dest }}/nodes/web_ui/frontend/dist/"
+        dest: "{{ repo_dest }}/nodes/web_ui/web_ui/static/"
+        remote_src: true
+        mode: preserve
+      become: true
+      when: node_name == 'web_ui'
+      notify: "Restart ROS2 node"
+
+    - name: Ensure ROS2 node config directory exists
+      ansible.builtin.file:
+        path: "{{ ros2_node_config_dir }}/{{ node_name }}"
+        state: directory
+        mode: "0755"
+      become: true
+
+    - name: Deploy node config file (native)
+      ansible.builtin.copy:
+        dest: "{{ ros2_node_config_dir }}/{{ node_name }}/config.yaml"
+        content: "{{ node_config | default('') }}"
+        mode: "0644"
+      become: true
+      when: node_config_path is defined and node_config_path is string and (node_config_path | length > 0)
+      notify: "Restart ROS2 node"
+
+    - name: Deploy launcher script
+      ansible.builtin.template:
+        src: ros2-node-launcher.j2
+        dest: "/usr/local/bin/ros2-{{ node_name }}"
+        owner: root
+        group: root
+        mode: "0755"
+      become: true
+      notify:
+        - "Reload systemd"
+        - "Restart ROS2 node"
+
+    - name: Create native systemd unit for ROS2 node
+      ansible.builtin.template:
+        src: ros2-node-native.service.j2
+        dest: "/etc/systemd/system/ros2-{{ node_name }}.service"
+        mode: "0644"
+      become: true
+      notify:
+        - "Reload systemd"
+        - "Restart ROS2 node"
+
+    - name: Set service state and enabled (native)
+      ansible.builtin.service:
+        name: "ros2-{{ node_name }}"
+        state: "{{ 'started' if (node_enabled | default(true) | bool) else 'stopped' }}"
+        enabled: "{{ node_enabled | default(true) | bool }}"
+        daemon_reload: true
+      become: true
+
+- name: Flush handlers (native)
+  ansible.builtin.meta: flush_handlers
+  when:
+    - node_present | default(true) | bool
+    - (node_deploy_mode | default('docker')) == 'native'
+
+# ── DEPLOY: DOCKER (legacy) ────────────────────────────────────────────────────
+
+- name: Deploy ROS2 node as container (deploy_mode == docker)
+  when:
+    - node_present | default(true) | bool
+    - (node_deploy_mode | default('docker')) == 'docker'
   block:
     - name: Pull node container image from registry
       when: node_build_on_controller | default(false) | bool
@@ -104,7 +267,7 @@
         mode: "0755"
       become: true
 
-    - name: Deploy node config file (when config_path is set)
+    - name: Deploy node config file (docker)
       ansible.builtin.copy:
         dest: "{{ ros2_node_config_dir }}/{{ node_name }}/config.yaml"
         content: "{{ node_config | default('') }}"
@@ -113,7 +276,7 @@
       when: node_config_path is defined and node_config_path is string and (node_config_path | length > 0)
       notify: "Restart ROS2 node"
 
-    - name: Create systemd unit for ROS2 node
+    - name: Create systemd unit for ROS2 node (docker)
       ansible.builtin.template:
         src: ros2-node.service.j2
         dest: "/etc/systemd/system/ros2-{{ node_name }}.service"
@@ -123,7 +286,7 @@
         - "Reload systemd"
         - "Restart ROS2 node"
 
-    - name: Set service state and enabled according to node_enabled
+    - name: Set service state and enabled (docker)
       ansible.builtin.service:
         name: "ros2-{{ node_name }}"
         state: "{{ 'started' if (node_enabled | default(true) | bool) else 'stopped' }}"
@@ -131,5 +294,8 @@
         daemon_reload: true
       become: true
 
-    - name: Flush handlers so restart runs with current node when role is used in a loop
-      ansible.builtin.meta: flush_handlers
+- name: Flush handlers (docker)
+  ansible.builtin.meta: flush_handlers
+  when:
+    - node_present | default(true) | bool
+    - (node_deploy_mode | default('docker')) == 'docker'
