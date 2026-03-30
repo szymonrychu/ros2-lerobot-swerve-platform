@@ -30,10 +30,6 @@
       Package: libuuid1
       Pin: version 2.39.3-9ubuntu6
       Pin-Priority: 1001
-
-      Package: gcc-14-base
-      Pin: version 14-20240412-0ubuntu1
-      Pin-Priority: 1001
     mode: "0644"
   become: true
 
@@ -46,7 +42,6 @@
       - libbz2-1.0=1.0.8-5.1
       - libsqlite3-0=3.45.1-1ubuntu2
       - libuuid1=2.39.3-9ubuntu6
-      - gcc-14-base=14-20240412-0ubuntu1
     state: present
     update_cache: true
     allow_downgrade: true
@@ -118,9 +113,15 @@
     name:
       - python3-pip
       - python3-venv
-      - python3-numpy
       - pipx
     state: present
+  become: true
+
+- name: Install numpy via pip (apt version blocked by gcc-14-base version conflict on ARM64)
+  ansible.builtin.pip:
+    name: numpy
+    state: present
+    extra_args: --break-system-packages
   become: true
 
 - name: Install Poetry via pipx (system-wide)
