@@ -159,6 +159,7 @@
   become: true
   loop:
     - dialout
+    - tty
     - i2c
     - video
     - plugdev
