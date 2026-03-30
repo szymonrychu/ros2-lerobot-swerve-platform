@@ -13,6 +13,7 @@ const NavLocalTab = lazy(() => import('./tabs/NavLocalTab'))
 const NavGpsTab = lazy(() => import('./tabs/NavGpsTab'))
 const Scene3DTab = lazy(() => import('./tabs/Scene3DTab'))
 const RobotStatusTab = lazy(() => import('./tabs/RobotStatusTab'))
+const RgbdCameraTab = lazy(() => import('./tabs/RgbdCameraTab'))
 
 function renderTab(tab: TabConfig, topicData: Record<string, unknown>, publish: (t: string, mt: string, d: unknown) => void) {
   const props = { tab, topicData, publish }
@@ -25,6 +26,7 @@ function renderTab(tab: TabConfig, topicData: Record<string, unknown>, publish: 
     case 'nav_gps': return <NavGpsTab {...props} />
     case 'scene3d': return <Scene3DTab {...props} />
     case 'robot_status': return <RobotStatusTab {...props} />
+    case 'rgbd_camera': return <RgbdCameraTab {...props} />
     default: return <div style={{ padding: 20, color: '#555' }}>Unknown tab type: {tab.type}</div>
   }
 }
@@ -49,6 +51,7 @@ export default function App() {
           t.topic,
           ...(t.topics?.map((ts) => ts.topic) ?? []),
           t.scan_topic, t.costmap_topic, t.odom_topic, t.fix_topic, t.arm_joint_topic,
+          t.color_topic, t.depth_topic, t.camera_info_topic,
         ]),
         ...config.overlays.map((o) => o.topic),
       ].filter((t): t is string => Boolean(t))
