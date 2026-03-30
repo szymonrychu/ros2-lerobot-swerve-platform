@@ -116,6 +116,16 @@
     state: present
   become: true
 
+- name: Add udev rule to grant dialout access to hardware UART (ttyAMA0)
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-ttyama0.rules
+    content: "KERNEL==\"ttyAMA0\", GROUP=\"dialout\", MODE=\"0660\"\n"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload udev rules
+
 - name: Add NodeSource GPG key (client only)
   when: "'client' in group_names"
   ansible.builtin.apt_key:
