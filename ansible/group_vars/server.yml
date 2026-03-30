@@ -10,17 +10,23 @@ network_nameservers:
   - "{{ secondary_dns_server }}"
 hostname: "server-rpi4"
 
-# ROS2 node types: image and default settings per type (used by ros2_node_deploy).
+# ROS2 node types: default settings per type (used by ros2_node_deploy).
 # Server ROS2 master binds to all interfaces (0.0.0.0) so Client can connect; other nodes use localhost only.
 ros2_node_type_defaults:
   ros2_master:
-    image: harbor.szymonrichert.pl/containers/server-ros2-master:latest
-    build_context: nodes/ros2_master
+    deploy_mode: native
+    node_launch_command: "ros2 daemon start && sleep infinity"
+    node_src_dir: ""
+    cpu_quota: "20%"
+    memory_max: "128M"
     env:
       - ROS_LOCALHOST_ONLY=0
   feetech_servos:
-    image: harbor.szymonrichert.pl/containers/server-feetech-servos-leader:latest
-    build_context: nodes/bridges/feetech_servos
+    deploy_mode: native
+    node_launch_command: "python3 -m feetech_servos_node"
+    node_src_dir: "nodes/bridges/feetech_servos"
+    cpu_quota: "50%"
+    memory_max: "128M"
     config_path: /etc/ros2/feetech_servos
     env:
       - ROS_LOCALHOST_ONLY=0
@@ -28,16 +34,22 @@ ros2_node_type_defaults:
       - ROS_STATIC_PEERS={{ ros2_client_hostname }}
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
   topic_scraper_api:
-    image: harbor.szymonrichert.pl/containers/server-topic-scraper-api:latest
-    build_context: nodes/topic_scraper_api
+    deploy_mode: native
+    node_launch_command: "python3 -m topic_scraper_api"
+    node_src_dir: "nodes/topic_scraper_api"
+    cpu_quota: "25%"
+    memory_max: "128M"
     config_path: /etc/ros2/topic_scraper_api
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   gps_rtk:
-    image: harbor.szymonrichert.pl/containers/server-gps-rtk:latest
-    build_context: nodes/bridges/gps_rtk
+    deploy_mode: native
+    node_launch_command: "python3 -m gps_rtk_node"
+    node_src_dir: "nodes/bridges/gps_rtk"
+    cpu_quota: "25%"
+    memory_max: "64M"
     config_path: /etc/ros2/gps_rtk
     env:
       - ROS_LOCALHOST_ONLY=0
@@ -49,16 +61,10 @@ ros2_nodes:
     node_type: ros2_master
     present: true
     enabled: true
-    extra_args: --network host --ipc host
   - name: lerobot_leader
     node_type: feetech_servos
     present: true
     enabled: true
-    extra_args: >-
-      --network host
-      --ipc host
-      --device=/dev/ttyACM0:/dev/ttyACM0
-      --mount type=bind,src=/dev/serial/by-id,dst=/dev/serial/by-id,readonly
     config: |
       device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059057-if00
       namespace: leader
@@ -86,7 +92,6 @@ ros2_nodes:
     node_type: topic_scraper_api
     present: true
     enabled: true
-    extra_args: --network host --ipc host
     config: |
       host: "0.0.0.0"
       port: 18100
@@ -101,9 +106,6 @@ ros2_nodes:
     node_type: gps_rtk
     present: true
     enabled: true
-    extra_args: >-
-      --network host --ipc host
-      --device=/dev/ttyAMA0:/dev/ttyAMA0
     config: |
       mode: base
       serial_port: /dev/ttyAMA0
