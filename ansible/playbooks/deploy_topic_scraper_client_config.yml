@@ -3,7 +3,7 @@
 - hosts: client
   vars:
     node_name: topic_scraper_api
-    ros2_node_config_dir: /etc/ros2-nodes
+    ros2_node_config_dir: /etc/ros2
     topic_scraper_config: |
       host: "0.0.0.0"
       port: 18100

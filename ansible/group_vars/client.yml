@@ -181,7 +181,7 @@ ros2_node_type_defaults:
       - ROBOT_LOCALIZATION_EKF_CONFIG=/etc/ros2/robot_localization_ekf/config.yaml
   nav2_bringup:
     deploy_mode: native
-    node_launch_command: "ros2 launch nav2_bringup bringup_launch.py use_localization:=False params_file:=/etc/ros2-nodes/nav2_bringup/config.yaml"
+    node_launch_command: "ros2 launch nav2_bringup bringup_launch.py use_localization:=False params_file:=/etc/ros2/nav2_bringup/config.yaml"
     node_src_dir: ""
     cpu_quota: "75%"
     memory_max: "512M"
