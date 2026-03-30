@@ -1,0 +1,143 @@
+---
+# Bootstrap ROS2 Jazzy on a fresh Ubuntu 24.04 host.
+# Installs: apt prerequisites, ROS2 Jazzy, Python tooling, Poetry,
+# hardware support libs, Node.js 22 (client only), user groups.
+
+- name: Update apt cache and upgrade packages
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+    cache_valid_time: 0
+  become: true
+
+- name: Install apt prerequisites
+  ansible.builtin.apt:
+    name:
+      - curl
+      - gnupg2
+      - lsb-release
+      - software-properties-common
+      - ca-certificates
+      - apt-transport-https
+    state: present
+  become: true
+
+- name: Add ROS2 GPG key
+  ansible.builtin.apt_key:
+    url: https://raw.githubusercontent.com/ros/rosdistro/master/ros.key
+    keyring: /usr/share/keyrings/ros-archive-keyring.gpg
+    state: present
+  become: true
+
+- name: Add ROS2 Jazzy apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ ansible_architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}
+      signed-by=/usr/share/keyrings/ros-archive-keyring.gpg]
+      http://packages.ros.org/ros2/ubuntu {{ ansible_distribution_release }} main
+    state: present
+    filename: ros2
+  become: true
+
+- name: Install ROS2 Jazzy base and message packages
+  ansible.builtin.apt:
+    name:
+      - ros-jazzy-ros-base
+      - ros-jazzy-ros2cli
+      - ros-jazzy-rclpy
+      - ros-jazzy-sensor-msgs
+      - ros-jazzy-geometry-msgs
+      - ros-jazzy-nav-msgs
+      - ros-jazzy-std-msgs
+      - ros-jazzy-tf2-ros
+      - ros-jazzy-tf2-geometry-msgs
+      - ros-jazzy-rosidl-runtime-py
+      - ros-jazzy-robot-localization
+      - ros-jazzy-navigation2
+      - ros-jazzy-nav2-bringup
+      - ros-jazzy-rplidar-ros
+      - ros-jazzy-realsense2-camera
+      - ros-jazzy-launch-ros
+      - python3-rosdep
+    state: present
+    update_cache: true
+  become: true
+
+- name: Install Python tooling
+  ansible.builtin.apt:
+    name:
+      - python3-pip
+      - python3-venv
+      - python3-numpy
+      - pipx
+    state: present
+  become: true
+
+- name: Install Poetry via pipx (system-wide)
+  ansible.builtin.command: pipx install poetry --global
+  become: true
+  register: _poetry_install
+  changed_when: "'already installed' not in _poetry_install.stdout"
+  failed_when: _poetry_install.rc != 0 and 'already installed' not in _poetry_install.stderr
+
+- name: Install hardware support libraries
+  ansible.builtin.apt:
+    name:
+      - i2c-tools
+      - libi2c-dev
+      - python3-smbus2
+      - libgl1
+      - libglib2.0-0
+      - libv4l-dev
+      - setserial
+    state: present
+  become: true
+
+- name: Add NodeSource GPG key (client only)
+  when: "'client' in group_names"
+  ansible.builtin.apt_key:
+    url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+    keyring: /usr/share/keyrings/nodesource.gpg
+    state: present
+  become: true
+
+- name: Add NodeSource Node.js 22 repository (client only)
+  when: "'client' in group_names"
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/keyrings/nodesource.gpg]
+      https://deb.nodesource.com/node_22.x nodistro main
+    state: present
+    filename: nodesource
+  become: true
+
+- name: Install Node.js 22 (client only)
+  when: "'client' in group_names"
+  ansible.builtin.apt:
+    name: nodejs
+    state: present
+    update_cache: true
+  become: true
+
+- name: Create /opt/ros2-nodes base directory
+  ansible.builtin.file:
+    path: /opt/ros2-nodes
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Add ansible_user to device access groups
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: "{{ item }}"
+    append: true
+  become: true
+  loop:
+    - dialout
+    - i2c
+    - video
+    - plugdev
+    - gpio
+  failed_when: false
