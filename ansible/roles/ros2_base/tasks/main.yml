@@ -3,7 +3,7 @@
 # Installs: apt prerequisites, ROS2 Jazzy, Python tooling, Poetry,
 # hardware support libs, Node.js 22 (client only), user groups.
 
-- name: Pin runtime libs to noble/main versions (ARM64 security update breaks ROS2 dev deps)
+- name: Pin runtime libs to noble/main versions (ARM64 security updates break ROS2 dev deps)
   ansible.builtin.copy:
     dest: /etc/apt/preferences.d/ros2-compat
     content: |
@@ -22,6 +22,18 @@
       Package: libbz2-1.0
       Pin: version 1.0.8-5.1
       Pin-Priority: 1001
+
+      Package: libsqlite3-0
+      Pin: version 3.45.1-1ubuntu2
+      Pin-Priority: 1001
+
+      Package: libuuid1
+      Pin: version 2.39.3-9ubuntu6
+      Pin-Priority: 1001
+
+      Package: gcc-14-base
+      Pin: version 14-20240412-0ubuntu1
+      Pin-Priority: 1001
     mode: "0644"
   become: true
 
@@ -32,6 +44,9 @@
       - liblz4-1=1.9.4-1build1
       - libzstd1=1.5.5+dfsg2-2build1
       - libbz2-1.0=1.0.8-5.1
+      - libsqlite3-0=3.45.1-1ubuntu2
+      - libuuid1=2.39.3-9ubuntu6
+      - gcc-14-base=14-20240412-0ubuntu1
     state: present
     update_cache: true
     allow_downgrade: true
