@@ -108,13 +108,9 @@ journal_max_file_size: 16M
 tmpfs_tmp_enabled: true
 tmpfs_tmp_size: 256M
 
-# tmpfs for /var/tmp
+# tmpfs for /var/tmp — 512M needed for initramfs rebuild during apt upgrades
 tmpfs_var_tmp_enabled: true
-tmpfs_var_tmp_size: 64M
+tmpfs_var_tmp_size: 512M
 
 # Kernel panic auto-reboot delay (seconds)
 kernel_panic_reboot_s: 10
-
-# Docker log rotation (applied via daemon.json merge)
-docker_log_max_size: 10m
-docker_log_max_file: "3"
