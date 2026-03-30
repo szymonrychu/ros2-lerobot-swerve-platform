@@ -126,20 +126,18 @@
       become: true
       when: node_src_dir is defined and node_src_dir | length > 0
 
-    - name: Install pip and Poetry into venv
+    - name: Upgrade pip in venv
       ansible.builtin.command:
-        cmd: >-
-          /opt/ros2-nodes/{{ node_name }}/venv/bin/pip install --quiet --upgrade pip poetry
+        cmd: /opt/ros2-nodes/{{ node_name }}/venv/bin/pip install --quiet --upgrade pip
       become: true
       when: node_src_dir is defined and node_src_dir | length > 0
       changed_when: true
 
-    - name: Install node Python dependencies via Poetry
+    - name: Install node Python package and dependencies into venv
       ansible.builtin.command:
         cmd: >-
-          /opt/ros2-nodes/{{ node_name }}/venv/bin/poetry install
-          --only main --no-interaction
-        chdir: "{{ repo_dest }}/{{ node_src_dir }}"
+          /opt/ros2-nodes/{{ node_name }}/venv/bin/pip install --quiet
+          {{ repo_dest }}/{{ node_src_dir }}
       become: true
       when: node_src_dir is defined and node_src_dir | length > 0
       notify: "Restart ROS2 node"
