@@ -20,7 +20,8 @@ ros2_node_type_defaults:
     cpu_quota: "20%"
     memory_max: "128M"
     env:
-      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=OFF
+      - ROS_STATIC_PEERS=192.168.1.34;192.168.1.33
   feetech_servos:
     deploy_mode: native
     node_launch_command: "python3 -m feetech_servos"
@@ -30,9 +31,8 @@ ros2_node_type_defaults:
     memory_max: "128M"
     config_path: /etc/ros2/feetech_servos
     env:
-      - ROS_LOCALHOST_ONLY=0
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-      - ROS_STATIC_PEERS={{ ros2_client_hostname }}
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=OFF
+      - ROS_STATIC_PEERS=192.168.1.34;192.168.1.33
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
   topic_scraper_api:
     deploy_mode: native
@@ -42,8 +42,8 @@ ros2_node_type_defaults:
     memory_max: "128M"
     config_path: /etc/ros2/topic_scraper_api
     env:
-      - ROS_LOCALHOST_ONLY=0
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=OFF
+      - ROS_STATIC_PEERS=192.168.1.34;192.168.1.33
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   gps_rtk:
     deploy_mode: native
@@ -53,7 +53,8 @@ ros2_node_type_defaults:
     memory_max: "64M"
     config_path: /etc/ros2/gps_rtk
     env:
-      - ROS_LOCALHOST_ONLY=0
+      - ROS_AUTOMATIC_DISCOVERY_RANGE=OFF
+      - ROS_STATIC_PEERS=192.168.1.34;192.168.1.33
       - GPS_RTK_CONFIG=/etc/ros2/gps_rtk/config.yaml
 
 # Nodes to deploy: name, node_type, present, enabled, config.
