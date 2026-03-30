@@ -23,7 +23,7 @@ ros2_node_type_defaults:
       - ROS_LOCALHOST_ONLY=0
   feetech_servos:
     deploy_mode: native
-    node_launch_command: "python3 -m feetech_servos_node"
+    node_launch_command: "python3 -m feetech_servos"
     node_src_dir: "nodes/bridges/feetech_servos"
     cpu_quota: "50%"
     memory_max: "128M"
@@ -46,7 +46,7 @@ ros2_node_type_defaults:
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   gps_rtk:
     deploy_mode: native
-    node_launch_command: "python3 -m gps_rtk_node"
+    node_launch_command: "python3 -m gps_rtk"
     node_src_dir: "nodes/bridges/gps_rtk"
     cpu_quota: "25%"
     memory_max: "64M"

@@ -17,13 +17,19 @@ ros2_server_host: "{{ ros2_server_hostname }}"
 # ROS2 node types. Most client nodes stay localhost-only; master2master must reach server ROS graph.
 ros2_node_type_defaults:
   ros2_master:
-    image: harbor.szymonrichert.pl/containers/client-ros2-master:latest
-    build_context: nodes/ros2_master
+    deploy_mode: native
+    node_launch_command: "ros2 daemon start && sleep infinity"
+    node_src_dir: ""
+    cpu_quota: "20%"
+    memory_max: "128M"
     env:
       - ROS_LOCALHOST_ONLY=1
   master2master:
-    image: harbor.szymonrichert.pl/containers/client-master2master:latest
-    build_context: nodes/master2master
+    deploy_mode: native
+    node_launch_command: "python3 -m master2master"
+    node_src_dir: "nodes/master2master"
+    cpu_quota: "25%"
+    memory_max: "128M"
     config_path: /etc/ros2/master2master
     env:
       - ROS_LOCALHOST_ONLY=0
@@ -32,45 +38,63 @@ ros2_node_type_defaults:
       - MASTER2MASTER_CONFIG=/etc/ros2/master2master/config.yaml
       # ROS2_SERVER_HOST passed per-node below so master2master can connect to Server's ROS2 master
   feetech_servos:
-    image: harbor.szymonrichert.pl/containers/client-feetech-servos-follower:latest
-    build_context: nodes/bridges/feetech_servos
+    deploy_mode: native
+    node_launch_command: "python3 -m feetech_servos"
+    node_src_dir: "nodes/bridges/feetech_servos"
+    cpu_quota: "50%"
+    memory_max: "128M"
     config_path: /etc/ros2/feetech_servos
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
   uvc_camera:
-    image: harbor.szymonrichert.pl/containers/client-uvc-camera:latest
-    build_context: nodes/bridges/uvc_camera
+    deploy_mode: native
+    node_launch_command: "python3 -m uvc_camera"
+    node_src_dir: "nodes/bridges/uvc_camera"
+    cpu_quota: "30%"
+    memory_max: "256M"
     env:
       - ROS_LOCALHOST_ONLY=1
   filter_node:
-    image: harbor.szymonrichert.pl/containers/client-filter-node:latest
-    build_context: nodes/filter_node
+    deploy_mode: native
+    node_launch_command: "python3 -m filter_node"
+    node_src_dir: "nodes/filter_node"
+    cpu_quota: "25%"
+    memory_max: "128M"
     config_path: /etc/ros2/filter_node
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - FILTER_NODE_CONFIG=/etc/ros2/filter_node/config.yaml
   test_joint_api:
-    image: harbor.szymonrichert.pl/containers/client-test-joint-api:latest
-    build_context: nodes/test_joint_api
+    deploy_mode: native
+    node_launch_command: "python3 -m test_joint_api"
+    node_src_dir: "nodes/test_joint_api"
+    cpu_quota: "15%"
+    memory_max: "64M"
     config_path: /etc/ros2/test_joint_api
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - TEST_JOINT_API_CONFIG=/etc/ros2/test_joint_api/config.yaml
   topic_scraper_api:
-    image: harbor.szymonrichert.pl/containers/client-topic-scraper-api:latest
-    build_context: nodes/topic_scraper_api
+    deploy_mode: native
+    node_launch_command: "python3 -m topic_scraper_api"
+    node_src_dir: "nodes/topic_scraper_api"
+    cpu_quota: "25%"
+    memory_max: "128M"
     config_path: /etc/ros2/topic_scraper_api
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   bno055_imu:
-    image: harbor.szymonrichert.pl/containers/client-bno055-imu:latest
-    build_context: nodes/bridges/bno055_imu
+    deploy_mode: native
+    node_launch_command: "python3 -m bno055_imu"
+    node_src_dir: "nodes/bridges/bno055_imu"
+    cpu_quota: "15%"
+    memory_max: "64M"
     config_path: /etc/ros2/bno055_imu
     env:
       - ROS_LOCALHOST_ONLY=0
@@ -78,65 +102,106 @@ ros2_node_type_defaults:
       - BLINKA_FORCECHIP=BCM2XXX
       - BNO055_IMU_CONFIG=/etc/ros2/bno055_imu/config.yaml
   haptic_controller:
-    image: harbor.szymonrichert.pl/containers/client-haptic-controller:latest
-    build_context: nodes/haptic_controller
+    deploy_mode: native
+    node_launch_command: "python3 -m haptic_controller"
+    node_src_dir: "nodes/haptic_controller"
+    cpu_quota: "25%"
+    memory_max: "64M"
     config_path: /etc/ros2/haptic_controller
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - HAPTIC_CONTROLLER_CONFIG=/etc/ros2/haptic_controller/config.yaml
   gps_rtk:
-    image: harbor.szymonrichert.pl/containers/client-gps-rtk:latest
-    build_context: nodes/bridges/gps_rtk
+    deploy_mode: native
+    node_launch_command: "python3 -m gps_rtk"
+    node_src_dir: "nodes/bridges/gps_rtk"
+    cpu_quota: "25%"
+    memory_max: "64M"
     config_path: /etc/ros2/gps_rtk
     env:
       - ROS_LOCALHOST_ONLY=0
       - GPS_RTK_CONFIG=/etc/ros2/gps_rtk/config.yaml
   rplidar_a1:
-    image: harbor.szymonrichert.pl/containers/client-rplidar-a1:latest
-    build_context: nodes/bridges/rplidar_a1
+    deploy_mode: native
+    node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/bridges/rplidar_a1/launch/rplidar_a1.launch.py"
+    node_src_dir: ""
+    cpu_quota: "30%"
+    memory_max: "128M"
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
   realsense_d435i:
-    image: harbor.szymonrichert.pl/containers/client-realsense-d435i:latest
-    build_context: nodes/bridges/realsense_d435i
+    deploy_mode: native
+    node_launch_command: "ros2 launch realsense2_camera rs_launch.py enable_accel:=true enable_gyro:=true unite_imu_method:=linear_interpolation align_depth.enable:=true"
+    node_src_dir: ""
+    cpu_quota: "50%"
+    memory_max: "512M"
+    apt_packages:
+      - ros-jazzy-realsense2-camera
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
   swerve_controller:
-    image: harbor.szymonrichert.pl/containers/client-swerve-controller:latest
-    build_context: nodes/swerve_drive_controller
+    deploy_mode: native
+    node_launch_command: "python3 -m swerve_drive_controller"
+    node_src_dir: "nodes/swerve_drive_controller"
+    cpu_quota: "30%"
+    memory_max: "128M"
     config_path: /etc/ros2/swerve_drive_controller
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_drive_controller/config.yaml
   static_tf_publisher:
-    image: harbor.szymonrichert.pl/containers/client-static-tf-publisher:latest
-    build_context: nodes/static_tf_publisher
+    deploy_mode: native
+    node_launch_command: "python3 -m static_tf_publisher"
+    node_src_dir: "nodes/static_tf_publisher"
+    cpu_quota: "10%"
+    memory_max: "64M"
     config_path: /etc/ros2/static_tf_publisher
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - STATIC_TF_PUBLISHER_CONFIG=/etc/ros2/static_tf_publisher/config.yaml
   robot_localization_ekf:
-    image: harbor.szymonrichert.pl/containers/client-robot-localization-ekf:latest
-    build_context: nodes/robot_localization_ekf
+    deploy_mode: native
+    node_launch_command: "ros2 launch robot_localization ekf.launch.py"
+    node_src_dir: ""
+    cpu_quota: "25%"
+    memory_max: "128M"
+    apt_packages:
+      - ros-jazzy-robot-localization
     config_path: /etc/ros2/robot_localization_ekf
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
       - ROBOT_LOCALIZATION_EKF_CONFIG=/etc/ros2/robot_localization_ekf/config.yaml
   nav2_bringup:
-    image: harbor.szymonrichert.pl/containers/client-nav2-bringup:latest
-    build_context: nodes/nav2_bringup
+    deploy_mode: native
+    node_launch_command: "ros2 launch nav2_bringup bringup_launch.py use_localization:=False params_file:=/etc/ros2-nodes/nav2_bringup/config.yaml"
+    node_src_dir: ""
+    cpu_quota: "75%"
+    memory_max: "512M"
+    apt_packages:
+      - ros-jazzy-nav2-bringup
+      - ros-jazzy-nav2-core
+      - ros-jazzy-nav2-costmap-2d
+      - ros-jazzy-nav2-map-server
+      - ros-jazzy-nav2-planner
+      - ros-jazzy-nav2-controller
+      - ros-jazzy-nav2-recoveries
+      - ros-jazzy-nav2-bt-navigator
+      - ros-jazzy-nav2-waypoint-follower
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
   web_ui:
-    image: harbor.szymonrichert.pl/containers/client-web-ui:latest
-    build_context: nodes/web_ui
+    deploy_mode: native
+    node_launch_command: "python3 -m web_ui"
+    node_src_dir: "nodes/web_ui"
+    cpu_quota: "30%"
+    memory_max: "256M"
     config_path: /etc/ros2/web_ui
     env:
       - ROS_LOCALHOST_ONLY=0
@@ -150,12 +215,10 @@ ros2_nodes:
     node_type: ros2_master
     present: true
     enabled: true
-    extra_args: --network host --ipc host
   - name: master2master
     node_type: master2master
     present: true
     enabled: true
-    extra_args: --network host --ipc host
     config: |
       topics:
         - source: /server/cmd_vel
@@ -210,7 +273,6 @@ ros2_nodes:
     node_type: filter_node
     present: true
     enabled: true
-    extra_args: --network host --ipc host
     config: |
       input_topic: /filter/input_joint_updates
       output_topic: /follower/joint_commands
@@ -239,7 +301,6 @@ ros2_nodes:
     node_type: test_joint_api
     present: true
     enabled: true
-    extra_args: --network host --ipc host
     config: |
       host: "0.0.0.0"
       port: 18080
@@ -248,7 +309,6 @@ ros2_nodes:
     node_type: topic_scraper_api
     present: true
     enabled: true
-    extra_args: --network host --ipc host
     config: |
       host: "0.0.0.0"
       port: 18100
@@ -287,10 +347,6 @@ ros2_nodes:
     # 50 Hz reduces I2C load; BNO055 can return None on transient read failures
     present: true
     enabled: true
-    extra_args: >-
-      --network host
-      --ipc host
-      --device=/dev/i2c-1:/dev/i2c-1
     config: |
       topic: /imu/data
       frame_id: imu_link
@@ -308,9 +364,6 @@ ros2_nodes:
     node_type: gps_rtk
     present: true
     enabled: true
-    extra_args: >-
-      --network host --ipc host
-      --device=/dev/ttyAMA0:/dev/ttyAMA0
     config: |
       mode: rover
       serial_port: /dev/ttyAMA0
@@ -327,7 +380,6 @@ ros2_nodes:
     node_type: haptic_controller
     present: true
     enabled: false
-    extra_args: --network host --ipc host
     config: |
       mode: off
       gripper_joint_names:
@@ -352,10 +404,6 @@ ros2_nodes:
     node_type: uvc_camera
     present: true
     enabled: true
-    extra_args: >-
-      --network host
-      --ipc host
-      --device=/dev/video0:/dev/video0
     env:
       - UVC_DEVICE=/dev/video0
       - UVC_TOPIC=/camera_0/image_raw
@@ -363,28 +411,14 @@ ros2_nodes:
     node_type: rplidar_a1
     present: true
     enabled: true
-    extra_args: >-
-      --network host
-      --ipc host
-      --device=/dev/ttyUSB0:/dev/ttyUSB0
   - name: realsense_d435i
     node_type: realsense_d435i
     present: true
     enabled: true
-    extra_args: >-
-      --network host
-      --ipc host
-      --privileged
-      --volume /run/udev:/run/udev:ro
   - name: lerobot_follower
     node_type: feetech_servos
     present: true
     enabled: true
-    extra_args: >-
-      --network host
-      --ipc host
-      --device=/dev/ttyACM0:/dev/ttyACM0
-      --mount type=bind,src=/dev/serial/by-id,dst=/dev/serial/by-id,readonly
     config: |
       device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00
       namespace: follower
@@ -414,10 +448,6 @@ ros2_nodes:
     node_type: feetech_servos
     present: true
     enabled: true
-    extra_args: >-
-      --network host
-      --ipc host
-      --device=/dev/ttyUSB1:/dev/ttyUSB1
     config: |
       device: /dev/ttyUSB1
       namespace: swerve_drive
@@ -445,7 +475,6 @@ ros2_nodes:
     node_type: swerve_controller
     present: true
     enabled: true
-    extra_args: --network host --ipc host
     config: |
       half_length_m: 0.2
       half_width_m: 0.15
@@ -471,7 +500,6 @@ ros2_nodes:
     node_type: static_tf_publisher
     present: true
     enabled: true
-    extra_args: --network host --ipc host
     config: |
       # NOTE: These are estimates - update with actual measured offsets
       parent_frame: base_link
@@ -501,7 +529,6 @@ ros2_nodes:
     node_type: robot_localization_ekf
     present: true
     enabled: true
-    extra_args: --network host --ipc host
     config: |
       ekf_filter_node:
         ros__parameters:
@@ -527,12 +554,10 @@ ros2_nodes:
     node_type: nav2_bringup
     present: true
     enabled: true
-    extra_args: --network host --ipc host
   - name: web_ui
     node_type: web_ui
     present: true
     enabled: true
-    extra_args: --network host --ipc host
     config: |
       http_port: 8080
       ws_broadcast_hz: 20
