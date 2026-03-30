@@ -20,4 +20,4 @@ No topic collision: leader and follower use distinct namespaces.
 
 ## Build and run
 
-Ansible deploys by cloning the repo on the node and building the container from `nodes/lerobot_teleop`. Run the deploy playbook for client. Start master2master and leader/follower bridges (and proxy config) so leader state is available. After editing source, re-run the deploy playbook to refresh the repo and rebuild the image (see [CLAUDE.md](../../CLAUDE.md)).
+Deploy with `scripts/deploy-nodes.sh client lerobot_teleop` from the repo root. Start master2master and leader/follower bridges (and proxy config) so leader state is available. After editing source, re-run the deploy script to refresh the repo and reinstall the service (see [CLAUDE.md](../../CLAUDE.md)).

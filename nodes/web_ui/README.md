@@ -2,7 +2,7 @@
 
 Browser-based robot dashboard — replaces the Electron `steamdeck_ui`.
 
-Runs as a Docker container on the client RPi. Accessible at `http://client.ros2.lan:8080` from any device on the LAN.
+Runs as a native service on the client RPi. Accessible at `http://client.ros2.lan:8080` from any device on the LAN.
 
 ## Tabs
 
@@ -19,7 +19,7 @@ Runs as a Docker container on the client RPi. Accessible at `http://client.ros2.
 ## Architecture
 
 Single Python process: FastAPI (uvicorn) on port 8080 serves:
-- `GET /` — React SPA (pre-built by Vite, embedded in Docker image)
+- `GET /` — React SPA (pre-built by Vite, embedded in the service)
 - `GET /api/config` — AppConfig as JSON
 - `GET /api/urdf/{path}` — URDF and mesh files
 - `GET /api/urdf/status` — URDF directory scan result
@@ -29,7 +29,7 @@ A `rclpy` node (`web_ui_bridge`) subscribes to ROS2 topics and stores the latest
 
 ## Configuration
 
-Config file: `/etc/ros2/web_ui/config.yaml` (bind-mounted by Ansible).
+Config file: `/etc/ros2/web_ui/config.yaml` (managed by Ansible).
 
 Key fields:
 - `http_port` (default: 8080)
@@ -40,9 +40,7 @@ Key fields:
 ## Debug Logging
 
 ```bash
-# Python backend verbose logging
-docker run -e DEBUG=true …
-
+# Python backend verbose logging: set DEBUG=true in node env config
 # Frontend verbose logging
 http://client.ros2.lan:8080/?debug
 # or in browser console:
@@ -61,7 +59,7 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 1. Install **fusion2urdf**: `github.com/syuntoku14/fusion2urdf` Fusion 360 add-in
 2. In Fusion 360: Design → Utilities → Add-Ins → fusion2urdf → Export
 3. Output: `robot.urdf` + `meshes/*.stl`
-4. Place in `nodes/web_ui/urdf/` and rebuild the container image
+4. Place in `nodes/web_ui/urdf/` and redeploy the node
 
 ## Development
 
@@ -74,14 +72,11 @@ cd nodes/web_ui/frontend && npm install && npm run dev
 
 # Production build
 cd nodes/web_ui/frontend && npm run build
-
-# Docker build
-docker build nodes/web_ui/ -t web-ui:dev
 ```
 
 ## Deploy
 
 After code changes, run from repo root:
 ```bash
-ansible-playbook -i ansible/inventory ansible/playbooks/deploy_nodes_client.yml -l client
+./scripts/deploy-nodes.sh client web_ui
 ```

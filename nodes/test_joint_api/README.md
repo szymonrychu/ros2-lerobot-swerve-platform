@@ -16,4 +16,4 @@
 
 ## Build and run
 
-Ansible deploys this node on the client; build context is `nodes/test_joint_api`. The container needs ROS2 (rclpy, sensor_msgs) and network access to the same ROS2 graph as the filter node.
+Deploy with `scripts/deploy-nodes.sh client test_joint_api` from the repo root. The service needs ROS2 (rclpy, sensor_msgs) and network access to the same ROS2 graph as the filter node.

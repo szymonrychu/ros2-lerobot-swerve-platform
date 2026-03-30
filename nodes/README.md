@@ -19,7 +19,7 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **swerve_drive_controller/** — Swerve controller: cmd_vel → joint commands, FK/IK, odometry (Client only).
 - **static_tf_publisher/** — Static TF base_link → sensor frames (Client only).
 - **robot_localization_ekf/** — EKF fuse odom + IMU → `/odometry/filtered` (Client only).
-- **nav2_bringup/** — Nav2 2D navigation stack container (Client only).
+- **nav2_bringup/** — Nav2 2D navigation stack (Client only).
 - **haptic_controller/** — Force-feedback (resistance) and zero-G hold mode for leader gripper; gripper-only pilot (Client only).
 - **steamdeck_ui/** — Touch-friendly Electron dashboard for SteamDeck (controller.ros2.lan). Camera preview, sensor/effector graphs, local nav map, GPS map, overlay bar. Python rclpy bridge subscribes to `/controller/*` topics and serves them via local WebSocket. Native app — no Docker.
 

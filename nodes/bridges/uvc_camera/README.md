@@ -7,24 +7,14 @@
 ## Requirements
 
 - **Environment:** `UVC_DEVICE` (default `/dev/video0`, or use integer index e.g. `0`), `UVC_TOPIC` (default `/camera/image_raw`), `UVC_FRAME_ID` (default `camera_optical_frame`).
-- **Device:** Map the camera device into the container (e.g. `device: /dev/video0` in compose). On open failure the process exits with a clear error.
-- Base image: `ros:jazzy-ros-base`; uses `rclpy`, `sensor_msgs/Image`, and `opencv-python-headless`.
+- **Device:** The camera device path is configured in `group_vars/client.yml` via `extra_args`; with native install the process runs as the ansible_user who has system group membership. On open failure the process exits with a clear error.
+- Base: ROS2 Jazzy; uses `rclpy`, `sensor_msgs/Image`, and `opencv-python-headless`.
 
 ## Code layout
 
 - **`config.py`** — Env-based config only (no ROS/OpenCV); `get_config()` returns (device, topic, frame_id). Used by bridge and by unit tests.
 - **`bridge.py`** — Imports `get_config` from config; `run_bridge(device, topic, frame_id)` opens the device with OpenCV, reads frames, publishes `sensor_msgs/Image` with header stamp and frame_id. Entry via `__main__.py`.
-- **`Dockerfile`** — Installs `ros-jazzy-sensor-msgs` and system libs for OpenCV; copies package, runs `python3 -m uvc_camera`.
 
 ## Build and run
 
-Ansible deploys by cloning the repo on the node and building the container from `nodes/bridges/uvc_camera`. Run the deploy playbook for client to build and start one or more UVC camera services. After editing source, re-run the deploy playbook to refresh the repo and rebuild the image:
-
-```bash
-# On the node (after clone): from repo root
-docker build -t harbor.szymonrichert.pl/containers/client-uvc-camera:latest nodes/bridges/uvc_camera
-```
-
-## Image
-
-- Built as `harbor.szymonrichert.pl/containers/client-uvc-camera:latest`. Both `uvc_camera_0` and `uvc_camera_1` use this image with different env (and device when uncommented).
+Deploy with `scripts/deploy-nodes.sh client uvc_camera` from the repo root. Run the deploy script to refresh the repo and reinstall the service. Both `uvc_camera_0` and `uvc_camera_1` use the same node type with different env (and device path configured per instance).
