@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
+
 from web_ui.msg_serializer import extract_field_from_dict, msg_to_dict
 
 
@@ -41,3 +44,87 @@ def test_extract_field_missing_returns_none() -> None:
 
 def test_extract_field_out_of_bounds_returns_none() -> None:
     assert extract_field_from_dict({"position": [1.0]}, "position[5]") is None
+
+
+def _make_depth_image_msg(width: int = 640, height: int = 480, fill_mm: int = 1000) -> MagicMock:
+    """Return a mock 16UC1 depth Image message."""
+    arr = np.full((height, width), fill_mm, dtype=np.uint16)
+    msg = MagicMock()
+    msg.__class__.__name__ = "Image"
+    msg.encoding = "16UC1"
+    msg.width = width
+    msg.height = height
+    msg.step = width * 2
+    msg.data = arr.tobytes()
+    return msg
+
+
+def _make_rgb_image_msg(width: int = 640, height: int = 480) -> MagicMock:
+    """Return a mock rgb8 Image message."""
+    arr = np.zeros((height, width, 3), dtype=np.uint8)
+    arr[:, :, 0] = 200
+    msg = MagicMock()
+    msg.__class__.__name__ = "Image"
+    msg.encoding = "rgb8"
+    msg.width = width
+    msg.height = height
+    msg.step = width * 3
+    msg.data = arr.tobytes()
+    return msg
+
+
+def _make_camera_info_msg(width: int = 640, height: int = 480) -> MagicMock:
+    """Return a mock CameraInfo message."""
+    msg = MagicMock()
+    msg.__class__.__name__ = "CameraInfo"
+    msg.width = width
+    msg.height = height
+    msg.k = [600.0, 0.0, 320.0, 0.0, 600.0, 240.0, 0.0, 0.0, 1.0]
+    return msg
+
+
+def test_serialize_depth_image_returns_expected_keys() -> None:
+    """16UC1 depth image returns depth_preview_b64, depth_b64, depth_width, depth_height."""
+    result = msg_to_dict(_make_depth_image_msg(), topic="/camera/aligned_depth_to_color/image_raw")
+    assert "depth_preview_b64" in result
+    assert "depth_b64" in result
+    assert result["depth_width"] == 160
+    assert result["depth_height"] == 120
+    assert result["depth_preview_b64"] is not None
+
+
+def test_serialize_depth_image_raw_bytes_length() -> None:
+    """Downscaled depth_b64 decodes to exactly 160*120*2 bytes (uint16 LE)."""
+    result = msg_to_dict(_make_depth_image_msg(), topic="/camera/aligned_depth_to_color/image_raw")
+    raw = base64.b64decode(result["depth_b64"])
+    assert len(raw) == 160 * 120 * 2
+
+
+def test_serialize_depth_image_values_preserved() -> None:
+    """Downscaled depth values match the fill value from the source image."""
+    fill_mm = 1500
+    result = msg_to_dict(_make_depth_image_msg(fill_mm=fill_mm), topic="/camera/aligned_depth_to_color/image_raw")
+    raw = base64.b64decode(result["depth_b64"])
+    arr = np.frombuffer(raw, dtype=np.uint16)
+    assert int(arr[0]) == fill_mm
+
+
+def test_serialize_camera_info() -> None:
+    """CameraInfo returns fx, fy, cx, cy, width, height from K matrix."""
+    result = msg_to_dict(_make_camera_info_msg())
+    assert result == {"fx": 600.0, "fy": 600.0, "cx": 320.0, "cy": 240.0, "width": 640, "height": 480}
+
+
+def test_color_image_rgbd_topic_includes_color_small() -> None:
+    """Color image on RGBD color topic includes color_small_b64."""
+    result = msg_to_dict(_make_rgb_image_msg(), topic="/camera/color/image_raw")
+    assert "jpeg_b64" in result
+    assert "color_small_b64" in result
+    assert result["color_small_b64"] is not None
+
+
+def test_color_image_non_rgbd_topic_no_color_small() -> None:
+    """Color image on non-RGBD topic does not include color_small_b64."""
+    result = msg_to_dict(_make_rgb_image_msg(), topic="/controller/camera_0/image_raw")
+    assert "jpeg_b64" in result
+    assert "color_small_b64" not in result
