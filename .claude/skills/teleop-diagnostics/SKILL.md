@@ -39,7 +39,7 @@ test_joint_api  →  REST POST  →  /filter/input_joint_updates
 
 | Section | What to look for |
 |---------|-----------------|
-| `[server] lerobot_leader` | `active` = container running; `inactive` = check logs for crash reason. |
+| `[server] lerobot_leader` | `active` = service running; `inactive` = check logs for crash reason. |
 | `[client] master2master relay` | `active` = relay running. Look for relay rules logged at startup: `/leader/joint_states -> /filter/input_joint_updates`. |
 | `[client] filter_node` | `active` = Kalman filter running. Look for `stale input` warnings if no data is flowing. |
 | `[client] lerobot_follower` | `active` = follower running and listening on `/follower/joint_commands`. |
@@ -49,8 +49,8 @@ test_joint_api  →  REST POST  →  /filter/input_joint_updates
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `lerobot_leader` service `inactive` | Container crashed (common: `RCLError: publisher's context is invalid` on SIGTERM) | `sudo systemctl restart ros2-lerobot_leader` on server |
-| `lerobot_follower` service `inactive` | Container failed to start (servo device not found or permission error) | `sudo systemctl restart ros2-lerobot_follower` on client |
+| `lerobot_leader` service `inactive` | Node crashed (common: `RCLError: publisher's context is invalid` on SIGTERM) | `sudo systemctl restart ros2-lerobot_leader` on server |
+| `lerobot_follower` service `inactive` | Node failed to start (servo device not found or permission error) | `sudo systemctl restart ros2-lerobot_follower` on client |
 | `/leader/joint_states` MISSING in scraper | Leader not publishing; DDS discovery not working; master2master not relaying | Check lerobot_leader logs; verify `ROS_DOMAIN_ID` matches on server and client |
 | `/filter/input_joint_updates` MISSING | master2master relay not forwarding; rule not in config | Check master2master logs for startup rule list; verify relay config |
 | `/follower/joint_commands` MISSING | filter_node not running or not receiving input | Check filter_node logs for `stale input` warnings or startup errors |

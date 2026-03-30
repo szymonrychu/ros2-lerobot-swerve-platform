@@ -5,7 +5,6 @@
 ## Tech Stack
 
 - ROS2 Jazzy (Ubuntu 24.04)
-- Docker and docker-compose
 - Ansible
 - Ubuntu 24.04
 - Client: Raspberry Pi 5
@@ -17,7 +16,7 @@
 ## Repository Structure
 
 - Monorepo with **`ansible/`**, **`nodes/`**, and **`shared/`**
-- All node code and Dockerfiles live under **`nodes/`**. **`shared/`** holds shared Python libraries used by multiple nodes.
+- All node code lives under **`nodes/`**. **`shared/`** holds shared Python libraries used by multiple nodes.
 - Ansible role(s) and runbook for provisioning and deployment.
 
 ---
@@ -51,7 +50,7 @@
 
 ### numpy dependency guard (mandatory)
 
-Before finalising any ROS2 Python node/container, check imported ROS2 message packages (especially `sensor_msgs`) for transitive Python runtime dependencies and **explicitly add `numpy` to the node's Poetry dependencies when needed**. Do not rely only on OS packages inside Docker; validate by starting the container/service and confirming it does not fail with `ModuleNotFoundError: numpy`.
+Before finalising any ROS2 Python node, check imported ROS2 message packages (especially `sensor_msgs`) for transitive Python runtime dependencies and **explicitly add `numpy` to the node's Poetry dependencies when needed**. Validate by starting the service and confirming it does not fail with `ModuleNotFoundError: numpy`.
 
 ---
 
@@ -140,7 +139,7 @@ python scripts/topic_scraper_collect.py \
    ./scripts/deploy-nodes.sh server --all
    ```
 
-   so deployed containers and services reflect the latest code.
+   so deployed services reflect the latest code.
 
    > **Note:** The Deploy step is skipped when RPi targets are offline/unreachable. Still complete Test, Commit, and Push.
 
@@ -174,11 +173,9 @@ Each node has its own Poetry environment and `poe lint` / `poe lint-fix` — run
 
 ---
 
-## Container and Source Changes
+## Native Node Source Changes
 
-Whenever source code that is used inside a container is edited, **rebuild that container** so the image reflects the change. Remember each container's purpose and its requirements (env, devices, config). Iterate with fixes until all mandatory functionality for that node works; do not leave broken or half-working behaviour.
-
-Node images use Poetry (no `requirements.txt`); Dockerfiles install Poetry in a venv, then `poetry install --no-dev`.
+Whenever source code used by a native ROS2 node is edited, **redeploy that node** so the Poetry venv and service reflect the change. Use `scripts/deploy-nodes.sh <target> <node_name>` to redeploy individual nodes.
 
 ---
 

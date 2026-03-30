@@ -8,7 +8,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 - **`group_vars/`** — `all.yml`, `server.yml`, `client.yml` for group-specific variables.
 - **`site.yml`** — Full site: provision all hosts, then deploy ROS2 nodes on server and client (includes playbooks below). Run `ansible-playbook -i inventory site.yml`.
 - **`playbooks/`**
-  - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, Docker (and Compose plugin), and system optimization (debloat + tuning). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
+  - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, and system optimization (debloat + tuning). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
   - **`optimize.yml`** — System optimization only: debloat, performance tuning, resilience. Can be run standalone on all hosts.
   - **`controller.yml`** — Full provisioning of the SteamDeck: hostname role + steamdeck_ui role. Run once per SteamDeck.
   - **`deploy_steamdeck_ui.yml`** — Update-only: re-clones repo, re-runs `npm ci`, re-deploys config. Use for UI-only updates without re-provisioning.
@@ -20,8 +20,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
   - **`network`** — Netplan: primary interface gets static IP (ethernet or wlan, auto-detected); other interfaces DHCP; IPv6 disabled. Runs when `network_address` and `network_gateway` are set; for primary WiFi set `network_wifi_ssid` (and optionally `network_wifi_password`).
   - **`hostname`** — Set system hostname (hostnamectl, `/etc/hostname`, `127.0.1.1` in `/etc/hosts`). Runs only when `hostname` is set.
-  - **`docker`** — Docker CE + Docker Compose plugin on Ubuntu 24.04.
-  - **`ros2_node_deploy`** — For each node: build image from repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
+  - **`ros2_node_deploy`** — For each node: install Poetry venv from repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
   - **`ros2_node_verify`** — Runs after all nodes are deployed: waits for services to settle, checks each present+enabled node’s systemd unit is active, waits again, then re-checks (stability). Used by `deploy_nodes_server.yml` and `deploy_nodes_client.yml`. Variables: `ros2_node_verify_settle_seconds` (default 10), `ros2_node_verify_stable_seconds` (default 5).
 
   - **`system_optimize`** — Ubuntu 24.04 debloating, performance tuning, and resilience hardening for Raspberry Pi. See [System optimization](#system-optimization) below.
@@ -29,7 +28,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 
 ## System optimization
 
-The `system_optimize` role strips unnecessary packages and services from Ubuntu 24.04, tunes kernel/VM/network parameters for ROS2 + Docker workloads, reduces SD card wear, and adds resilience features. Designed for headless Raspberry Pi running from SD cards over WiFi. It runs as part of provisioning (`server.yml`, `client.yml`, `site.yml`) or standalone via `playbooks/optimize.yml`.
+The `system_optimize` role strips unnecessary packages and services from Ubuntu 24.04, tunes kernel/VM/network parameters for ROS2 workloads, reduces SD card wear, and adds resilience features. Designed for headless Raspberry Pi running from SD cards over WiFi. It runs as part of provisioning (`server.yml`, `client.yml`, `site.yml`) or standalone via `playbooks/optimize.yml`.
 
 ### What it does
 
@@ -43,7 +42,7 @@ The `system_optimize` role strips unnecessary packages and services from Ubuntu 
 - `vm.swappiness=0` (no swap), `vm.vfs_cache_pressure=50`, `vm.dirty_ratio=10`
 - `vm.min_free_kbytes=65536` to prevent OOM stalls
 - ROS2 DDS UDP buffer sizes: `net.core.rmem_max/wmem_max=8MB`
-- `fs.inotify` limits raised for Docker
+- `fs.inotify` limits raised
 - WiFi power management disabled for low-latency ROS2 DDS
 
 **SD card wear reduction:**
@@ -64,7 +63,7 @@ The `system_optimize` role strips unnecessary packages and services from Ubuntu 
 **Resilience:**
 - Hardware watchdog (`bcm2835_wdt`) with systemd `RuntimeWatchdogSec` — auto-reboots on kernel hang
 - `kernel.panic=10` and `kernel.panic_on_oops=1` — auto-reboots on panic
-- Docker log rotation (`json-file`, 10 MB max, 3 files)
+- Journald log rotation (max 64 MB in RAM when volatile)
 
 ### Configuration
 
@@ -80,7 +79,6 @@ All defaults are in `roles/system_optimize/defaults/main.yml`. Override in `grou
 | `sdcard_journal_volatile` | `true` | Journal to RAM only (no SD writes) |
 | `sdcard_ext4_commit_s` | `600` | ext4 commit interval (seconds) |
 | `tmpfs_tmp_enabled` | `true` | Mount /tmp as tmpfs |
-| `docker_log_max_size` | `10m` | Docker container log max size |
 | `debloat_disable_wpa_supplicant` | `false` | Keep WiFi enabled |
 | `rpi_gpu_mem` | `16` | GPU memory allocation (MB) |
 | `rpi_disable_bluetooth` | `true` | Disable Bluetooth |
@@ -106,20 +104,17 @@ Deploy playbooks clone the repo on each node for local builds:
 - **`ros2_repo_url`** — e.g. `https://github.com/szymonrychu/ros2-lerobot-swerve-platform`
 - **`ros2_repo_revision`** — branch, tag, or commit (default `main`)
 - **`ros2_repo_dest`** — path on the node (default `/opt/ros2-lerobot-swerve-platform`)
-- **`node_build_on_controller`** — (default `false`) When false, images are built on each Raspberry Pi from the cloned repo. Set `true` when you have a registry/CI: controller builds and pushes, nodes pull (requires `docker_registry_username` / `docker_registry_password` on nodes and `docker login` on controller).
-- **`ros2_repo_root`** — (default `{{ playbook_dir }}/../..`) Path to repo root on the controller when building images; used as `docker build` context (playbook lives in `ansible/playbooks/`).
+- **`ros2_repo_root`** — (default `{{ playbook_dir }}/../..`) Path to repo root on the controller.
 
 ### ros2_node_type_defaults
 
-Maps each **node_type** to image (registry path), **build_context** (path relative to repo root for `docker build`), and optional config path and env. Images use the registry `https://harbor.szymonrichert.pl/containers/<name>`.
+Maps each **node_type** to **build_context** (path relative to repo root), and optional config path and env.
 
 ```yaml
 ros2_node_type_defaults:
   ros2_master:
-    image: harbor.szymonrichert.pl/containers/client-ros2-master:latest
     build_context: nodes/ros2_master
   feetech_servos:
-    image: harbor.szymonrichert.pl/containers/client-feetech-servos-follower:latest
     build_context: nodes/bridges/feetech_servos
     config_path: /etc/ros2/feetech_servos
     env:
@@ -138,7 +133,7 @@ List of nodes to deploy. Each entry:
 | `enabled`  | no       | `true`  | If `true`, service is enabled and started; if `false`, stopped and disabled. |
 | `config`   | no       | —       | Config file content (string) in the node’s expected format; used when type has `config_path`. |
 | `env`      | no       | `[]`    | Extra env vars (list of `KEY=VAL`), appended to type’s `env`. |
-| `extra_args` | no     | `''`    | Extra arguments passed to `docker run`. |
+| `extra_args` | no     | `''`    | Extra arguments passed to the service. |
 
 Example:
 
@@ -171,7 +166,7 @@ ros2_nodes:
       - UVC_TOPIC=/camera_0/image_raw
 ```
 
-When you add, remove, or reconfigure ROS2 nodes (including in docker-compose or node source), update these vars and re-run the deploy playbook.
+When you add, remove, or reconfigure ROS2 nodes, update these vars and re-run the deploy playbook.
 
 ### Joint command topic flow (client)
 
@@ -210,7 +205,7 @@ Set `rpi_i2c_baudrate: 10000` in `group_vars/client.yml` (current value).
 
 ### IMU (client)
 
-The **bno055_imu** node runs on the client and publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation, angular velocity, linear acceleration, and full covariance matrices for use with the Navigation stack (Nav2). It reads a BNO055 over I2C; the container is given access to the I2C device (e.g. `--device=/dev/i2c-1:/dev/i2c-1`). Config: topic, frame_id, publish_hz, i2c_bus, i2c_address (default 0x28), and covariance values (see `nodes/bridges/bno055_imu/README.md`).
+The **bno055_imu** node runs on the client and publishes `sensor_msgs/Imu` on `/imu/data` (configurable) with orientation, angular velocity, linear acceleration, and full covariance matrices for use with the Navigation stack (Nav2). It reads a BNO055 over I2C; the node reads `/dev/i2c-1` directly. Config: topic, frame_id, publish_hz, i2c_bus, i2c_address (default 0x28), and covariance values (see `nodes/bridges/bno055_imu/README.md`).
 
 ### Raspberry Pi GPIO/I2C tooling (all users)
 
@@ -277,11 +272,47 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 
 ## ROS2 network setup (bind and localhost)
 
-Containers get env vars so that:
+Systemd service env vars control DDS discovery:
 
-- **Server:** `ros2-master` and `lerobot_leader` use **`ROS_LOCALHOST_ONLY=0`** and run with `--network host` so leader topics are discoverable to the Client for cross-host relay.
+- **Server:** `ros2-master` and `lerobot_leader` use **`ROS_LOCALHOST_ONLY=0`** so leader topics are discoverable to the Client for cross-host relay.
 - **Client:** `master2master` uses **`ROS_LOCALHOST_ONLY=0`**, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, and `ROS_STATIC_PEERS=<server-ip>` (from `group_vars/client.yml`) so it can discover and relay server topics.
-- **Local-only nodes:** Other client nodes (e.g. follower, UVC) can stay localhost-oriented while still using `--network host` for consistent ROS graph visibility and device access.
+- **Local-only nodes:** Other client nodes (e.g. follower, UVC) can stay localhost-oriented.
+
+## Node Resource Limits
+
+Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` and `group_vars/server.yml`.
+
+### Server
+
+| Node | CPUQuota | MemoryMax |
+|---|---|---|
+| ros2-master | 20% | 128M |
+| lerobot_leader | 50% | 128M |
+| topic_scraper_api | 25% | 128M |
+| gps_rtk_base | 25% | 64M |
+
+### Client
+
+| Node | CPUQuota | MemoryMax |
+|---|---|---|
+| ros2-master | 20% | 128M |
+| master2master | 25% | 128M |
+| filter_node | 25% | 128M |
+| test_joint_api | 15% | 64M |
+| topic_scraper_api | 25% | 128M |
+| bno055_imu | 15% | 64M |
+| gps_rtk_rover | 25% | 64M |
+| haptic_controller | 25% | 64M |
+| gripper_uvc_camera | 30% | 256M |
+| rplidar_a1 | 30% | 128M |
+| realsense_d435i | 50% | 512M |
+| lerobot_follower | 50% | 128M |
+| swerve_drive_servos | 50% | 128M |
+| swerve_controller | 30% | 128M |
+| static_tf_publisher | 10% | 64M |
+| robot_localization_ekf | 25% | 128M |
+| nav2_bringup | 75% | 512M |
+| web_ui | 30% | 256M |
 
 ## Linting and testing
 
@@ -291,7 +322,7 @@ Containers get env vars so that:
 
 ## SteamDeck provisioning
 
-The SteamDeck (`controller.ros2.lan`) is provisioned natively — no Docker. It runs as a touch-friendly dashboard for the client RPi.
+The SteamDeck (`controller.ros2.lan`) is provisioned natively. It runs as a touch-friendly dashboard for the client RPi.
 
 ```bash
 # Full provisioning (first time):
@@ -332,7 +363,7 @@ From the **`ansible/`** directory (so `ansible.cfg` and `inventory` are used):
 ansible-playbook -i inventory site.yml
 ```
 
-**Provision only (bootstrap + Docker):**
+**Provision only (bootstrap):**
 ```bash
 ansible-playbook -i inventory playbooks/server.yml -l server
 ansible-playbook -i inventory playbooks/client.yml -l client
@@ -346,4 +377,4 @@ ansible-playbook -i inventory playbooks/client.yml -l client
 
 ## After changing playbooks or roles
 
-When you change playbooks, roles, or templates, re-run the relevant playbook so targets get the updates. There is no “container rebuild” inside Ansible; image builds are done via Docker (see repo [CLAUDE.md](../CLAUDE.md) and [README.md](../README.md)). When you change node **source code**, rebuild the container image and then re-run the deploy playbook if you need to pull/restart the service.
+When you change playbooks, roles, or templates, re-run the relevant playbook so targets get the updates. When you change node **source code**, re-run the deploy playbook to update the Poetry venv and restart the service.

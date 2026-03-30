@@ -20,4 +20,8 @@ The Kalman algorithm outputs a short-horizon **prediction** ahead of the last me
 
 ## Build and run
 
-From repo root, Ansible deploys the node on the client; build context is `nodes/filter_node`. Run the client deploy playbook to build and start the service.
+Ansible deploys the node on the client from `nodes/filter_node`. Run the client deploy playbook to install and start the service.
+
+```bash
+./scripts/deploy-nodes.sh client filter_node
+```

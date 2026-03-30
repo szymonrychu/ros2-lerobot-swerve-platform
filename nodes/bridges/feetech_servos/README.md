@@ -42,7 +42,12 @@ When `device` is set, the bridge connects to hardware and:
 
 ## Build and run
 
-Node source lives under `nodes/bridges/feetech_servos`. Ansible deploys by cloning the repo on the node and building the container from this path; run the deploy playbook for client or server to build and start the service.
+Node source lives under `nodes/bridges/feetech_servos`. Ansible deploys by cloning the repo on the node and installing the Poetry venv from this path; run the deploy playbook for client or server to install and start the service.
+
+```bash
+./scripts/deploy-nodes.sh client lerobot_follower
+./scripts/deploy-nodes.sh server lerobot_leader
+```
 
 Set `FEETECH_SERVOS_CONFIG` to the path of the mounted config (e.g. `/etc/ros2/feetech_servos/config.yaml`) or mount `config/follower.yaml` or `config/leader.yaml` there.
 

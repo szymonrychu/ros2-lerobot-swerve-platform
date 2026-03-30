@@ -6,7 +6,7 @@
 
 ## Requirements
 
-- **Config:** YAML file listing topic rules (source, dest, direction). Default path inside container: `/etc/ros2/master2master/config.yaml` (overridable via `MASTER2MASTER_CONFIG`).
+- **Config:** YAML file listing topic rules (source, dest, direction). Default path: `/etc/ros2/master2master/config.yaml` (overridable via `MASTER2MASTER_CONFIG`).
 - **Environment:** `ROS_DOMAIN_ID` and any DDS/ROS env you need for discovery.
 - **Volume:** When running via compose or Ansible, the config dir is mounted read-only at `/etc/ros2/master2master`.
 - No device access in this node.
@@ -29,8 +29,8 @@ Supported relay types (set via `type:` in each rule; default `string`): `string`
 
 ## Build and run
 
-Ansible deploys by cloning the repo on the node and building the container from `nodes/master2master`. Run the deploy playbook for client or server; config is deployed to `/etc/ros2/master2master/config.yaml`. After editing source or Dockerfile, re-run the deploy playbook so the repo is updated and the image is rebuilt locally.
+Ansible deploys by cloning the repo on the node and installing the Poetry venv from `nodes/master2master`. Run the deploy playbook for client or server; config is deployed to `/etc/ros2/master2master/config.yaml`. After editing source, re-run the deploy playbook so the repo is updated and the venv is reinstalled.
 
-## Image
-
-- Built as `harbor.szymonrichert.pl/containers/client-master2master:latest`. Base: `ros:jazzy-ros-base`; uses Poetry for dependency management; installs deps and copies the `master2master` package.
+```bash
+./scripts/deploy-nodes.sh client master2master
+```

@@ -10,7 +10,7 @@ description: >
 # Ansible Deploy
 
 **Never run `ansible-playbook` directly.** All deploys go through `scripts/deploy-nodes.sh`.
-Never SSH manually to restart containers — Ansible handles everything.
+Never SSH manually to restart services — Ansible handles everything.
 
 ---
 
@@ -107,9 +107,8 @@ All node configs live in `ansible/group_vars/client.yml` and `server.yml` under 
 ros2_nodes:
   - name: filter_node          # service name: ros2-filter_node
     node_type: filter_node     # maps to ros2_node_type_defaults entry
-    present: true              # false = remove container + systemd unit
+    present: true              # false = remove systemd unit and config dir
     enabled: true              # false = installed but stopped/disabled
-    extra_args: --network host --ipc host
     config: |                  # written to /etc/ros2-nodes/<name>/config.yaml
       some_param: value
 ```
@@ -121,15 +120,12 @@ To add/remove/disable a node: edit `group_vars/client.yml` or `server.yml`, then
 ## After Deploy: Verification
 
 ```bash
-# Check container running
-ssh client.ros2.lan "docker ps | grep <node>"
-ssh server.ros2.lan "docker ps | grep <node>"
-
 # Check systemd service
 ssh client.ros2.lan "systemctl status ros2-<node>"
+ssh server.ros2.lan "systemctl status ros2-<node>"
 
-# Check container logs
-ssh client.ros2.lan "docker logs ros2-<node> --tail 50"
+# Check service logs
+ssh client.ros2.lan "journalctl -u ros2-<node> --no-pager -n 50"
 
 # Check ROS2 topic flow
 ros2 topic hz /controller/follower/joint_states
@@ -143,9 +139,9 @@ ros2 topic echo /controller/imu/data --once
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `No playbook found` | Node name typo or new node without playbook | Check `playbooks/nodes/<target>/` for available names |
-| Docker build TLS timeout | Transient network on RPi | Re-run the same deploy command |
-| Container restart loop | Bad config or missing device | `docker logs ros2-<node>` for traceback |
-| `systemctl status` failed | Container crash on start | Check `docker logs ros2-<node>` |
+| Poetry install timeout | Transient network on RPi | Re-run the same deploy command |
+| Service restart loop | Bad config or missing device | `journalctl -u ros2-<node>` for traceback |
+| `systemctl status` failed | Node crash on start | Check `journalctl -u ros2-<node>` |
 | Parallel deploy race condition | Two nodes share a device | Deploy those two sequentially instead |
 | `ansible-lint` failures | New task missing `name:` | Fix and run `poetry run poe lint-ansible` |
 

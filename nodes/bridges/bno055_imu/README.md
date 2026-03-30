@@ -43,8 +43,8 @@ linear_acceleration_covariance: 0.04
 - **Sensor**: BNO055 (Bosch 9-DOF) over I2C.
 - **Default address**: `0x28`; alternate `0x29` depending on ADR pin.
 - **Fallback behavior**: Node tries configured `i2c_address` first, then falls back to alternate BNO055 addresses.
-- **Host**: Map the I2C device into the container, e.g. `--device=/dev/i2c-1:/dev/i2c-1`. On Raspberry Pi, enable I2C and use the correct bus (typically `i2c_bus: 1`).
-- **Mode**: The node uses **IMUPLUS** fusion: publishes orientation (quaternion), angular velocity, and linear acceleration. When fusion fails, falls back to raw acceleration; orientation then published as identity with covariance -1. After mode switch, the node waits 1.5 s and runs a warm-up phase (up to 3 s) until the sensor returns valid gyro+accel; this addresses BNO055 needing time for fusion to stabilize after power-on or container restart.
+- **Host**: On Raspberry Pi, enable I2C and ensure `/dev/i2c-1` is accessible (udev rules set mode 0666).
+- **Mode**: The node uses **IMUPLUS** fusion: publishes orientation (quaternion), angular velocity, and linear acceleration. When fusion fails, falls back to raw acceleration; orientation then published as identity with covariance -1. After mode switch, the node waits 1.5 s and runs a warm-up phase (up to 3 s) until the sensor returns valid gyro+accel; this addresses BNO055 needing time for fusion to stabilize after power-on or service restart.
 
 ## Build and run
 
@@ -57,18 +57,11 @@ poetry run poe lint
 poetry run poe test
 ```
 
-Docker (from repo root, build context `nodes/bridges/bno055_imu`):
+Deploy to target via Ansible:
 
 ```bash
-docker build -t bno055_imu:latest nodes/bridges/bno055_imu
-docker run --rm --device=/dev/i2c-1:/dev/i2c-1 \
-  -v /etc/ros2/bno055_imu:/etc/ros2/bno055_imu:ro \
-  -e BNO055_IMU_CONFIG=/etc/ros2/bno055_imu/config.yaml \
-  --network host \
-  bno055_imu:latest
+./scripts/deploy-nodes.sh client bno055_imu
 ```
-
-(Ensure ROS2 is sourced inside the image; the Dockerfile uses `source /opt/ros/jazzy/setup.bash`.)
 
 ## Dependencies
 

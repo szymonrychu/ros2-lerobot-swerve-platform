@@ -4,6 +4,11 @@
 
 **Location:** All node source lives under [nodes/](.). See [README.md](../../README.md).
 
-## Build
+## Deploy
 
-Ansible clones the repo on each node and builds the container from `nodes/ros2_master`. Image name uses the registry `harbor.szymonrichert.pl/containers/<client-ros2-master|server-ros2-master>:latest`.
+Ansible clones the repo on each node and deploys the ROS2 daemon as a systemd service.
+
+```bash
+./scripts/deploy-nodes.sh client ros2-master
+./scripts/deploy-nodes.sh server ros2-master
+```
