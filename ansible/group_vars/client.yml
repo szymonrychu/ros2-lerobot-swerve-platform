@@ -375,6 +375,7 @@ ros2_nodes:
       --network host
       --ipc host
       --privileged
+      --volume /run/udev:/run/udev:ro
   - name: lerobot_follower
     node_type: feetech_servos
     present: true
