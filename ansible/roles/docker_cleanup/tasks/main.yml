@@ -1,0 +1,98 @@
+---
+# Full Docker removal + config purge. Run ONLY after all nodes verified running natively.
+
+- name: Check if Docker is installed
+  ansible.builtin.command: which docker
+  register: _docker_present
+  changed_when: false
+  failed_when: false
+
+- name: Stop all running Docker containers
+  ansible.builtin.shell: docker stop $(docker ps -aq) 2>/dev/null || true
+  become: true
+  when: _docker_present.rc == 0
+  changed_when: false
+
+- name: Remove all Docker containers, images, volumes, networks
+  ansible.builtin.command: docker system prune -af --volumes
+  become: true
+  when: _docker_present.rc == 0
+  changed_when: true
+  failed_when: false
+
+- name: Stop Docker services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  become: true
+  loop:
+    - docker.service
+    - docker.socket
+    - containerd.service
+  failed_when: false
+
+- name: Purge Docker packages
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: absent
+    purge: true
+    autoremove: true
+  become: true
+  failed_when: false
+
+- name: Remove Docker data and config directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  become: true
+  loop:
+    - /var/lib/docker
+    - /etc/docker
+    - /var/lib/containerd
+
+- name: Remove Docker systemd overrides
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  become: true
+  loop:
+    - /etc/systemd/system/docker.service.d
+    - /etc/systemd/system/docker.socket.d
+  failed_when: false
+
+- name: Remove docker apt repository file
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/docker.list
+    state: absent
+  become: true
+
+- name: Remove docker apt key
+  ansible.builtin.apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: absent
+  become: true
+  failed_when: false
+
+- name: Remove ansible_user from docker group
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    remove: true
+  become: true
+  failed_when: false
+
+- name: Reload systemd after Docker removal
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+
+- name: Autoremove unused packages
+  ansible.builtin.apt:
+    autoremove: true
+  become: true
