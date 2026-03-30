@@ -17,8 +17,6 @@ const OPACITY_IDLE = 0.45
 const OPACITY_HOVER = 0.85
 const OPACITY_DRAG = 1.0
 const GHOST_BODY_OPACITY = 0.3
-const EE_LINK_NAME = 'gripper_frame_link'
-const IK_CHAIN = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll'] as const
 const EE_SPHERE_RADIUS = 0.018
 const EE_COLOR_IDLE = 0xff6633
 const EE_COLOR_HOVER = 0xff8855
@@ -26,6 +24,18 @@ const EE_COLOR_DRAG = 0xffaa77
 const EE_OPACITY_IDLE = 0.75
 const EE_OPACITY_HOVER = 0.95
 const EE_OPACITY_DRAG = 1.0
+
+// Ordered IK chain: each entry is the joint name and the child link it drives.
+// The sphere for joint[i] is placed at its child link; dragging it solves IK
+// using joints[0..i] as the chain and child link as the end-effector.
+const IK_JOINTS: Array<{ joint: string; childLink: string }> = [
+  { joint: 'shoulder_pan', childLink: 'shoulder_link' },
+  { joint: 'shoulder_lift', childLink: 'upper_arm_link' },
+  { joint: 'elbow_flex', childLink: 'lower_arm_link' },
+  { joint: 'wrist_flex', childLink: 'wrist_link' },
+  { joint: 'wrist_roll', childLink: 'gripper_link' },
+  { joint: 'gripper', childLink: 'gripper_frame_link' },
+]
 
 interface JointStates {
   name?: string[]
@@ -49,6 +59,8 @@ interface ActiveRingDrag {
 interface ActiveIKDrag {
   type: 'ik'
   dragPlane: THREE.Plane
+  /** Index into IK_JOINTS for the grabbed sphere — chain is IK_JOINTS[0..ikJointIdx] */
+  ikJointIdx: number
 }
 
 type ActiveDrag = ActiveRingDrag | ActiveIKDrag
@@ -77,7 +89,10 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
   const ringByUuidRef = useRef<Map<string, RingEntry>>(new Map())
   const activeDragRef = useRef<ActiveDrag | null>(null)
   const hoveredRingRef = useRef<RingEntry | null>(null)
-  const eeSphereRef = useRef<THREE.Mesh | null>(null)
+  // Map from joint name → sphere mesh (one per IK_JOINTS entry)
+  const jointSpheresRef = useRef<Map<string, THREE.Mesh>>(new Map())
+  // Map from sphere uuid → IK_JOINTS index (for hit testing)
+  const sphereByUuidRef = useRef<Map<string, number>>(new Map())
   const commandedRef = useRef<Record<string, number>>({})
   const lastPublishRef = useRef<number>(0)
   const hasInitialStateRef = useRef<boolean>(false)
@@ -157,24 +172,39 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
     log.info(`[interactive] created ${ringsRef.current.length} joint rings`)
   }, [])
 
-  const createEESphere = useCallback((robot: URDFRobot) => {
-    const eeLink = (robot as any).frames?.[EE_LINK_NAME] ?? robot.links[EE_LINK_NAME]
-    if (!eeLink) {
-      log.warn('[interactive] end-effector link not found:', EE_LINK_NAME)
-      return
+  const createJointSpheres = useCallback((robot: URDFRobot) => {
+    // Dispose old spheres
+    for (const sphere of jointSpheresRef.current.values()) {
+      sphere.parent?.remove(sphere)
+      sphere.geometry.dispose()
+      ;(sphere.material as THREE.Material).dispose()
     }
+    jointSpheresRef.current.clear()
+    sphereByUuidRef.current.clear()
+
     const geom = new THREE.SphereGeometry(EE_SPHERE_RADIUS, 16, 16)
-    const mat = new THREE.MeshBasicMaterial({
-      color: EE_COLOR_IDLE,
-      transparent: true,
-      opacity: EE_OPACITY_IDLE,
-      depthTest: false,
-    })
-    const sphere = new THREE.Mesh(geom, mat)
-    sphere.renderOrder = 1000
-    eeLink.add(sphere)
-    eeSphereRef.current = sphere
-    log.info('[interactive] EE sphere created at', EE_LINK_NAME)
+
+    for (let idx = 0; idx < IK_JOINTS.length; idx++) {
+      const { joint: jointName, childLink: linkName } = IK_JOINTS[idx]
+      const link = (robot as any).frames?.[linkName] ?? robot.links[linkName]
+      if (!link) {
+        log.warn('[interactive] link not found for sphere:', linkName)
+        continue
+      }
+      const mat = new THREE.MeshBasicMaterial({
+        color: EE_COLOR_IDLE,
+        transparent: true,
+        opacity: EE_OPACITY_IDLE,
+        depthTest: false,
+      })
+      const sphere = new THREE.Mesh(geom, mat)
+      sphere.renderOrder = 1000
+      link.add(sphere)
+      jointSpheresRef.current.set(jointName, sphere)
+      sphereByUuidRef.current.set(sphere.uuid, idx)
+    }
+
+    log.info(`[interactive] created ${jointSpheresRef.current.size} joint spheres`)
   }, [])
 
   const setRingAppearance = useCallback((entry: RingEntry, color: number, opacity: number) => {
@@ -197,7 +227,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
 
     type HitResult =
       | { kind: 'ring'; entry: RingEntry }
-      | { kind: 'ee' }
+      | { kind: 'ik'; ikJointIdx: number }
       | null
 
     const hitInteractables = (e: PointerEvent): HitResult => {
@@ -210,13 +240,14 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       raycaster.setFromCamera(ndc, cameraRef.current)
 
       const targets: THREE.Object3D[] = [...ringsRef.current.map((r) => r.mesh)]
-      if (eeSphereRef.current) targets.push(eeSphereRef.current)
+      for (const sphere of jointSpheresRef.current.values()) targets.push(sphere)
 
       const hits = raycaster.intersectObjects(targets, false)
       if (!hits.length) return null
 
       const hit = hits[0].object
-      if (eeSphereRef.current && hit.uuid === eeSphereRef.current.uuid) return { kind: 'ee' }
+      const ikIdx = sphereByUuidRef.current.get(hit.uuid)
+      if (ikIdx !== undefined) return { kind: 'ik', ikJointIdx: ikIdx }
       const entry = ringByUuidRef.current.get(hit.uuid)
       return entry ? { kind: 'ring', entry } : null
     }
@@ -248,21 +279,25 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
         canvas.style.cursor = 'grabbing'
         invalidate()
         log.debug('[interactive] ring drag start:', entry.jointName)
-      } else if (hit.kind === 'ee') {
+      } else if (hit.kind === 'ik') {
         if (!hasInitialStateRef.current) return
+        const { ikJointIdx } = hit
+        const jointName = IK_JOINTS[ikJointIdx].joint
+        const sphere = jointSpheresRef.current.get(jointName)
+        if (!sphere) return
         const sphereWorldPos = new THREE.Vector3()
-        eeSphereRef.current!.getWorldPosition(sphereWorldPos)
+        sphere.getWorldPosition(sphereWorldPos)
         const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(cameraRef.current.quaternion)
         const dragPlane = new THREE.Plane().setFromNormalAndCoplanarPoint(camForward, sphereWorldPos)
-        activeDragRef.current = { type: 'ik', dragPlane }
-        const mat = eeSphereRef.current!.material as THREE.MeshBasicMaterial
+        activeDragRef.current = { type: 'ik', dragPlane, ikJointIdx }
+        const mat = sphere.material as THREE.MeshBasicMaterial
         mat.color.setHex(EE_COLOR_DRAG)
         mat.opacity = EE_OPACITY_DRAG
         setGhostBodyOpacity(GHOST_BODY_OPACITY)
         if (orbitRef.current) orbitRef.current.enabled = false
         canvas.style.cursor = 'grabbing'
         invalidate()
-        log.debug('[interactive] IK drag start')
+        log.debug('[interactive] IK drag start on', jointName)
       }
     }
 
@@ -299,15 +334,19 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
           raycaster.setFromCamera(ndc, cameraRef.current)
           const intersection = new THREE.Vector3()
           if (raycaster.ray.intersectPlane(drag.dragPlane, intersection)) {
-            const eeLink = (robot as any).frames?.[EE_LINK_NAME] ?? robot.links[EE_LINK_NAME]
+            // Build sub-chain: joints 0..ikJointIdx (inclusive)
+            const chainEntry = IK_JOINTS[drag.ikJointIdx]
+            const chainJoints = IK_JOINTS.slice(0, drag.ikJointIdx + 1).map((e) => e.joint)
+            const linkName = chainEntry.childLink
+            const eeLink = (robot as any).frames?.[linkName] ?? robot.links[linkName]
             if (eeLink) {
               solveCCDIK(robot, intersection, {
-                chainJointNames: [...IK_CHAIN],
+                chainJointNames: chainJoints,
                 endEffector: eeLink,
                 maxIterations: 10,
                 tolerance: 0.001,
               })
-              for (const name of IK_CHAIN) {
+              for (const name of chainJoints) {
                 const joint = robot.joints[name] as unknown as any
                 if (joint) commandedRef.current[name] = (joint.jointValue as number[])[0] ?? 0
               }
@@ -336,9 +375,13 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
           hoveredRingRef.current = null
           invalidate()
         }
-        if (eeSphereRef.current) {
-          const mat = eeSphereRef.current.material as THREE.MeshBasicMaterial
-          if (hit?.kind === 'ee') {
+        // Sphere hover: brighten hovered sphere, restore all others
+        const hoveredIkIdx = hit?.kind === 'ik' ? hit.ikJointIdx : -1
+        for (let idx = 0; idx < IK_JOINTS.length; idx++) {
+          const sphere = jointSpheresRef.current.get(IK_JOINTS[idx].joint)
+          if (!sphere) continue
+          const mat = sphere.material as THREE.MeshBasicMaterial
+          if (idx === hoveredIkIdx) {
             mat.color.setHex(EE_COLOR_HOVER)
             mat.opacity = EE_OPACITY_HOVER
             canvas.style.cursor = hasInitialStateRef.current ? 'grab' : 'not-allowed'
@@ -346,14 +389,10 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
           } else if (mat.color.getHex() === EE_COLOR_HOVER) {
             mat.color.setHex(EE_COLOR_IDLE)
             mat.opacity = EE_OPACITY_IDLE
-            canvas.style.cursor = ''
             invalidate()
-          } else {
-            canvas.style.cursor = ''
           }
-        } else {
-          canvas.style.cursor = ''
         }
+        if (hoveredIkIdx === -1) canvas.style.cursor = ''
       }
     }
 
@@ -363,10 +402,13 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
 
       if (drag.type === 'ring') {
         setRingAppearance(drag.entry, COLOR_HOVER, OPACITY_HOVER)
-      } else if (drag.type === 'ik' && eeSphereRef.current) {
-        const mat = eeSphereRef.current.material as THREE.MeshBasicMaterial
-        mat.color.setHex(EE_COLOR_IDLE)
-        mat.opacity = EE_OPACITY_IDLE
+      } else if (drag.type === 'ik') {
+        const sphere = jointSpheresRef.current.get(IK_JOINTS[drag.ikJointIdx].joint)
+        if (sphere) {
+          const mat = sphere.material as THREE.MeshBasicMaterial
+          mat.color.setHex(EE_COLOR_IDLE)
+          mat.opacity = EE_OPACITY_IDLE
+        }
       }
 
       setGhostBodyOpacity(0)
@@ -388,7 +430,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       window.removeEventListener('pointerup', onPointerUp)
       if (orbitRef.current) orbitRef.current.enabled = true
     }
-  }, [gl, invalidate, publishNow, setRingAppearance, getRingScreenCenter, setGhostBodyOpacity, orbitRef, eeSphereRef])
+  }, [gl, invalidate, publishNow, setRingAppearance, getRingScreenCenter, setGhostBodyOpacity, orbitRef, jointSpheresRef, sphereByUuidRef])
 
   return (
     <>
@@ -411,13 +453,17 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
           ghostRobotRef.current = robot
           if (robot) {
             createRings(robot)
-            createEESphere(robot)
+            createJointSpheres(robot)
           } else {
-            if (eeSphereRef.current) {
-              eeSphereRef.current.geometry.dispose()
-              ;(eeSphereRef.current.material as THREE.Material).dispose()
-              eeSphereRef.current = null
+            // createJointSpheres disposes old spheres when called with next robot;
+            // on final unmount, dispose manually
+            for (const sphere of jointSpheresRef.current.values()) {
+              sphere.parent?.remove(sphere)
+              sphere.geometry.dispose()
+              ;(sphere.material as THREE.Material).dispose()
             }
+            jointSpheresRef.current.clear()
+            sphereByUuidRef.current.clear()
           }
         }}
       />
