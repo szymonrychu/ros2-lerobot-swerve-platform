@@ -76,17 +76,9 @@ section_server_leader() {
   else
     echo "  service ros2-lerobot_leader ($SERVER): inactive or unreachable"
   fi
-  local container
-  if container=$(ssh_cmd "$SERVER" "docker ps --filter name=ros2-lerobot_leader --format '{{.Status}}' 2>/dev/null"); then
-    if [[ -n "$container" ]]; then
-      echo "  container: $container"
-    else
-      echo "  container: not running"
-    fi
-  fi
   echo "  logs (last $LOG_LINES):"
   local logs
-  if logs=$(ssh_cmd "$SERVER" "docker logs ros2-lerobot_leader --tail $LOG_LINES 2>&1"); then
+  if logs=$(ssh_cmd "$SERVER" "journalctl -u ros2-lerobot_leader.service --no-pager -n $LOG_LINES 2>/dev/null"); then
     if [[ -n "$logs" ]]; then
       echo "$logs" | sed 's/^/    /'
     else
@@ -105,17 +97,9 @@ section_client_master2master() {
   else
     echo "  service ros2-master2master ($CLIENT): inactive or unreachable"
   fi
-  local container
-  if container=$(ssh_cmd "$CLIENT" "docker ps --filter name=ros2-master2master --format '{{.Status}}' 2>/dev/null"); then
-    if [[ -n "$container" ]]; then
-      echo "  container: $container"
-    else
-      echo "  container: not running"
-    fi
-  fi
   echo "  logs (last $LOG_LINES):"
   local logs
-  if logs=$(ssh_cmd "$CLIENT" "docker logs ros2-master2master --tail $LOG_LINES 2>&1"); then
+  if logs=$(ssh_cmd "$CLIENT" "journalctl -u ros2-master2master.service --no-pager -n $LOG_LINES 2>/dev/null"); then
     if [[ -n "$logs" ]]; then
       echo "$logs" | sed 's/^/    /'
     else
@@ -134,17 +118,9 @@ section_client_filter_node() {
   else
     echo "  service ros2-filter_node ($CLIENT): inactive or unreachable"
   fi
-  local container
-  if container=$(ssh_cmd "$CLIENT" "docker ps --filter name=ros2-filter_node --format '{{.Status}}' 2>/dev/null"); then
-    if [[ -n "$container" ]]; then
-      echo "  container: $container"
-    else
-      echo "  container: not running"
-    fi
-  fi
   echo "  logs (last $LOG_LINES):"
   local logs
-  if logs=$(ssh_cmd "$CLIENT" "docker logs ros2-filter_node --tail $LOG_LINES 2>&1"); then
+  if logs=$(ssh_cmd "$CLIENT" "journalctl -u ros2-filter_node.service --no-pager -n $LOG_LINES 2>/dev/null"); then
     if [[ -n "$logs" ]]; then
       echo "$logs" | sed 's/^/    /'
     else
@@ -163,17 +139,9 @@ section_client_lerobot_follower() {
   else
     echo "  service ros2-lerobot_follower ($CLIENT): inactive or unreachable"
   fi
-  local container
-  if container=$(ssh_cmd "$CLIENT" "docker ps --filter name=ros2-lerobot_follower --format '{{.Status}}' 2>/dev/null"); then
-    if [[ -n "$container" ]]; then
-      echo "  container: $container"
-    else
-      echo "  container: not running"
-    fi
-  fi
   echo "  logs (last $LOG_LINES):"
   local logs
-  if logs=$(ssh_cmd "$CLIENT" "docker logs ros2-lerobot_follower --tail $LOG_LINES 2>&1"); then
+  if logs=$(ssh_cmd "$CLIENT" "journalctl -u ros2-lerobot_follower.service --no-pager -n $LOG_LINES 2>/dev/null"); then
     if [[ -n "$logs" ]]; then
       echo "$logs" | sed 's/^/    /'
     else

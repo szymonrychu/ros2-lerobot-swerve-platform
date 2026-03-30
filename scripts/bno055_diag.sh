@@ -60,14 +60,6 @@ section_service() {
   else
     echo "  ros2-bno055_imu ($CLIENT): inactive or unreachable"
   fi
-  local container
-  if container=$(ssh_cmd "$CLIENT" "docker ps --filter name=ros2-bno055_imu --format '{{.Status}}' 2>/dev/null"); then
-    if [[ -n "$container" ]]; then
-      echo "  container: $container"
-    else
-      echo "  container: not running"
-    fi
-  fi
 }
 
 section_i2c_config() {
