@@ -5,6 +5,8 @@
 # ROS2 hostnames for cross-host DDS and RTCM.
 # When ros2_extend_etc_hosts is true, hostname role adds ros2_hosts_entries to /etc/hosts.
 # Default false: rely on primary DNS (e.g. 192.168.1.1) or manual /etc/hosts.
+ros2_node_user: "{{ ansible_user }}"
+
 ros2_extend_etc_hosts: false
 ros2_server_hostname: "server.ros2.lan"
 ros2_client_hostname: "client.ros2.lan"

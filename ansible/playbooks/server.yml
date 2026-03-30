@@ -12,4 +12,5 @@
     - role: hostname
       when: hostname is defined and hostname | length > 0
     - docker
+    - ros2_base
     - system_optimize
