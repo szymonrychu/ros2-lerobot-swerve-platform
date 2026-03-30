@@ -194,7 +194,7 @@ ros2_node_type_defaults:
       - ros-jazzy-nav2-map-server
       - ros-jazzy-nav2-planner
       - ros-jazzy-nav2-controller
-      - ros-jazzy-nav2-recoveries
+      - ros-jazzy-nav2-behaviors
       - ros-jazzy-nav2-bt-navigator
       - ros-jazzy-nav2-waypoint-follower
     env:
