@@ -109,8 +109,11 @@
   become: true
 
 - name: Install Poetry via pipx (system-wide)
-  ansible.builtin.command: pipx install poetry --global
+  ansible.builtin.command: pipx install poetry
   become: true
+  environment:
+    PIPX_HOME: /opt/pipx
+    PIPX_BIN_DIR: /usr/local/bin
   register: _poetry_install
   changed_when: "'already installed' not in _poetry_install.stdout"
   failed_when: _poetry_install.rc != 0 and 'already installed' not in _poetry_install.stderr
