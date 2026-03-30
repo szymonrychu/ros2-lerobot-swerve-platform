@@ -13,13 +13,14 @@ from nav_msgs.msg import OccupancyGrid, Odometry
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
+from sensor_msgs.msg import CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
 
 from .msg_serializer import msg_to_dict
 
 log = structlog.get_logger(__name__)
 
 MSG_TYPE_MAP: dict[str, type] = {
+    "sensor_msgs/CameraInfo": CameraInfo,
     "sensor_msgs/Imu": Imu,
     "sensor_msgs/JointState": JointState,
     "sensor_msgs/NavSatFix": NavSatFix,
@@ -42,6 +43,9 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/controller/camera_0/image_raw": Image,
     "/controller/camera_0/image_compressed": CompressedImage,
     "/controller/goal_pose": PoseStamped,
+    "/camera/color/image_raw": Image,
+    "/camera/aligned_depth_to_color/image_raw": Image,
+    "/camera/aligned_depth_to_color/camera_info": CameraInfo,
 }
 
 SENSOR_SUB_QOS = QoSProfile(
@@ -51,7 +55,7 @@ SENSOR_SUB_QOS = QoSProfile(
 )
 
 SENSOR_TYPES: frozenset[type] = frozenset(
-    {Imu, JointState, NavSatFix, LaserScan, OccupancyGrid, Odometry, Image, CompressedImage}
+    {CameraInfo, Imu, JointState, NavSatFix, LaserScan, OccupancyGrid, Odometry, Image, CompressedImage}
 )
 
 
@@ -88,7 +92,7 @@ class BridgeNode(Node):
     def _make_callback(self, topic: str) -> Any:
         def callback(msg: Any) -> None:
             try:
-                data = msg_to_dict(msg)
+                data = msg_to_dict(msg, topic=topic)
                 envelope = {"topic": topic, "data": data}
             except Exception as exc:
                 self.get_logger().warning(f"Serialize error on {topic}: {exc}")
