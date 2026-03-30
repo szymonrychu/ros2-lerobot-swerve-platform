@@ -7,5 +7,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-jazzy-launch-ros \
     && rm -rf /var/lib/apt/lists/*
 
-# Enable IMU (accel + gyro) and unite to /camera/imu for robot_localization.
-CMD ["bash", "-c", "source /opt/ros/jazzy/setup.bash && exec ros2 launch realsense2_camera rs_launch.py enable_accel:=true enable_gyro:=true unite_imu_method:=linear_interpolation"]
+# Enable IMU (accel + gyro) with unified topic for robot_localization; align depth to color frame.
+CMD ["bash", "-c", "source /opt/ros/jazzy/setup.bash && exec ros2 launch realsense2_camera rs_launch.py enable_accel:=true enable_gyro:=true unite_imu_method:=linear_interpolation align_depth:=true"]

@@ -70,6 +70,9 @@ class TabConfig(BaseModel):
     arm_joint_topic: str | None = None
     arm_offset: tuple[float, float, float] | None = None
     arm_command_topic: str | None = None
+    color_topic: str | None = None
+    depth_topic: str | None = None
+    camera_info_topic: str | None = None
 
     @field_validator("type")
     @classmethod
@@ -83,6 +86,7 @@ class TabConfig(BaseModel):
             "nav_gps",
             "scene3d",
             "robot_status",
+            "rgbd_camera",
         }
         if v not in valid:
             raise ValueError(f"tab type must be one of {valid}, got {v!r}")
@@ -110,7 +114,16 @@ class AppConfig(BaseModel):
                 topics.add(tab.topic)
             for ts in tab.topics:
                 topics.add(ts.topic)
-            for attr in ("scan_topic", "costmap_topic", "odom_topic", "fix_topic", "arm_joint_topic"):
+            for attr in (
+                "scan_topic",
+                "costmap_topic",
+                "odom_topic",
+                "fix_topic",
+                "arm_joint_topic",
+                "color_topic",
+                "depth_topic",
+                "camera_info_topic",
+            ):
                 val = getattr(tab, attr)
                 if val:
                     topics.add(val)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
 from web_ui.config import AppConfig, load_config
 
 
@@ -81,3 +82,43 @@ overlays: []
     )
     cfg = load_config(p)
     assert "/controller/goal_pose" in cfg.publish_topics()
+
+
+def test_rgbd_camera_tab_type_is_valid(tmp_path: Path) -> None:
+    """rgbd_camera is a valid tab type."""
+    p = tmp_path / "cfg.yaml"
+    p.write_text("""
+tabs:
+  - id: rgbd
+    type: rgbd_camera
+    label: RGBD Cam
+    color_topic: /camera/color/image_raw
+    depth_topic: /camera/aligned_depth_to_color/image_raw
+    camera_info_topic: /camera/aligned_depth_to_color/camera_info
+overlays: []
+""")
+    cfg = load_config(p)
+    assert cfg.tabs[0].type == "rgbd_camera"
+    assert cfg.tabs[0].color_topic == "/camera/color/image_raw"
+    assert cfg.tabs[0].depth_topic == "/camera/aligned_depth_to_color/image_raw"
+    assert cfg.tabs[0].camera_info_topic == "/camera/aligned_depth_to_color/camera_info"
+
+
+def test_rgbd_topics_in_all_subscribed_topics(tmp_path: Path) -> None:
+    """color_topic, depth_topic, camera_info_topic are included in subscribed topics."""
+    p = tmp_path / "cfg.yaml"
+    p.write_text("""
+tabs:
+  - id: rgbd
+    type: rgbd_camera
+    label: RGBD Cam
+    color_topic: /camera/color/image_raw
+    depth_topic: /camera/aligned_depth_to_color/image_raw
+    camera_info_topic: /camera/aligned_depth_to_color/camera_info
+overlays: []
+""")
+    cfg = load_config(p)
+    topics = cfg.all_subscribed_topics()
+    assert "/camera/color/image_raw" in topics
+    assert "/camera/aligned_depth_to_color/image_raw" in topics
+    assert "/camera/aligned_depth_to_color/camera_info" in topics
