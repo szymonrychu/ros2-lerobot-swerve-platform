@@ -26,6 +26,7 @@
     state: stopped
     enabled: false
   become: true
+  when: _docker_present.rc == 0
   loop:
     - docker.service
     - docker.socket
@@ -42,8 +43,8 @@
       - docker-compose-plugin
     state: absent
     purge: true
-    autoremove: true
   become: true
+  when: _docker_present.rc == 0
   failed_when: false
 
 - name: Remove Docker data and config directories
@@ -51,6 +52,7 @@
     path: "{{ item }}"
     state: absent
   become: true
+  when: _docker_present.rc == 0
   loop:
     - /var/lib/docker
     - /etc/docker
@@ -61,6 +63,7 @@
     path: "{{ item }}"
     state: absent
   become: true
+  when: _docker_present.rc == 0
   loop:
     - /etc/systemd/system/docker.service.d
     - /etc/systemd/system/docker.socket.d
@@ -71,13 +74,18 @@
     path: /etc/apt/sources.list.d/docker.list
     state: absent
   become: true
+  when: _docker_present.rc == 0
 
-- name: Remove docker apt key
-  ansible.builtin.apt_key:
-    url: https://download.docker.com/linux/ubuntu/gpg
+- name: Remove Docker apt keyring files
+  ansible.builtin.file:
+    path: "{{ item }}"
     state: absent
   become: true
-  failed_when: false
+  when: _docker_present.rc == 0
+  loop:
+    - /etc/apt/keyrings/docker.gpg
+    - /etc/apt/keyrings/docker.asc
+    - /usr/share/keyrings/docker-archive-keyring.gpg
 
 - name: Remove ansible_user from docker group
   ansible.builtin.user:
@@ -85,14 +93,17 @@
     groups: docker
     remove: true
   become: true
+  when: _docker_present.rc == 0
   failed_when: false
 
 - name: Reload systemd after Docker removal
   ansible.builtin.systemd:
     daemon_reload: true
   become: true
+  when: _docker_present.rc == 0
 
 - name: Autoremove unused packages
   ansible.builtin.apt:
     autoremove: true
   become: true
+  when: _docker_present.rc == 0
