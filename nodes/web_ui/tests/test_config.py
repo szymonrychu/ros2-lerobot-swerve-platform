@@ -92,17 +92,17 @@ tabs:
   - id: rgbd
     type: rgbd_camera
     label: RGBD Cam
-    color_topic: /camera/color/image_raw
-    depth_topic: /camera/aligned_depth_to_color/image_raw
-    camera_info_topic: /camera/aligned_depth_to_color/camera_info
+    color_topic: /camera/camera/color/image_raw
+    depth_topic: /camera/camera/aligned_depth_to_color/image_raw
+    camera_info_topic: /camera/camera/aligned_depth_to_color/camera_info
 overlays: []
 """
     )
     cfg = load_config(p)
     assert cfg.tabs[0].type == "rgbd_camera"
-    assert cfg.tabs[0].color_topic == "/camera/color/image_raw"
-    assert cfg.tabs[0].depth_topic == "/camera/aligned_depth_to_color/image_raw"
-    assert cfg.tabs[0].camera_info_topic == "/camera/aligned_depth_to_color/camera_info"
+    assert cfg.tabs[0].color_topic == "/camera/camera/color/image_raw"
+    assert cfg.tabs[0].depth_topic == "/camera/camera/aligned_depth_to_color/image_raw"
+    assert cfg.tabs[0].camera_info_topic == "/camera/camera/aligned_depth_to_color/camera_info"
 
 
 def test_rgbd_topics_in_all_subscribed_topics(tmp_path: Path) -> None:
@@ -114,14 +114,14 @@ tabs:
   - id: rgbd
     type: rgbd_camera
     label: RGBD Cam
-    color_topic: /camera/color/image_raw
-    depth_topic: /camera/aligned_depth_to_color/image_raw
-    camera_info_topic: /camera/aligned_depth_to_color/camera_info
+    color_topic: /camera/camera/color/image_raw
+    depth_topic: /camera/camera/aligned_depth_to_color/image_raw
+    camera_info_topic: /camera/camera/aligned_depth_to_color/camera_info
 overlays: []
 """
     )
     cfg = load_config(p)
     topics = cfg.all_subscribed_topics()
-    assert "/camera/color/image_raw" in topics
-    assert "/camera/aligned_depth_to_color/image_raw" in topics
-    assert "/camera/aligned_depth_to_color/camera_info" in topics
+    assert "/camera/camera/color/image_raw" in topics
+    assert "/camera/camera/aligned_depth_to_color/image_raw" in topics
+    assert "/camera/camera/aligned_depth_to_color/camera_info" in topics
