@@ -3,6 +3,12 @@
 # Installs: apt prerequisites, ROS2 Jazzy, Python tooling, Poetry,
 # hardware support libs, Node.js 22 (client only), user groups.
 
+- name: Remove conflicting cloud-init netplan file (superseded by ansible-managed netplan)
+  ansible.builtin.file:
+    path: /etc/netplan/50-cloud-init.yaml
+    state: absent
+  become: true
+
 - name: Enable noble-updates suite (provides -dev packages matching security-updated ARM64 runtime libs)
   ansible.builtin.replace:
     path: /etc/apt/sources.list.d/ubuntu.sources
