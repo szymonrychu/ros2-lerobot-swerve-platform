@@ -138,7 +138,7 @@
       ansible.builtin.command:
         cmd: >-
           /opt/ros2-nodes/{{ node_name }}/venv/bin/poetry install
-          --only main --no-root --no-interaction
+          --only main --no-interaction
         chdir: "{{ repo_dest }}/{{ node_src_dir }}"
       become: true
       when: node_src_dir is defined and node_src_dir | length > 0
