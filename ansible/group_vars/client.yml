@@ -566,9 +566,9 @@ ros2_nodes:
         - id: rgbd_camera
           type: rgbd_camera
           label: "RGBD Cam"
-          color_topic: /camera/color/image_raw
-          depth_topic: /camera/aligned_depth_to_color/image_raw
-          camera_info_topic: /camera/aligned_depth_to_color/camera_info
+          color_topic: /camera/camera/color/image_raw
+          depth_topic: /camera/camera/aligned_depth_to_color/image_raw
+          camera_info_topic: /camera/camera/aligned_depth_to_color/camera_info
         - id: imu_graphs
           type: imu_orientation
           label: "IMU"

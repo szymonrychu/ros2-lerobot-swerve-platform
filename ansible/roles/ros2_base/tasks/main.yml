@@ -126,6 +126,16 @@
   become: true
   notify: Reload udev rules
 
+- name: Add uvcvideo quirks for RealSense D435i stability (client only)
+  when: "'client' in group_names"
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/99-realsense-uvcvideo.conf
+    content: "options uvcvideo quirks=640\n"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
 - name: Add NodeSource GPG key (client only)
   when: "'client' in group_names"
   ansible.builtin.apt_key:
