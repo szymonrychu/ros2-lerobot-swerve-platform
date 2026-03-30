@@ -126,6 +126,26 @@
   become: true
   notify: Reload udev rules
 
+- name: Deploy RealSense D435i udev rules (client only)
+  when: "'client' in group_names"
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-realsense-d435i.rules
+    content: |
+      # Intel RealSense D435i — USB device access
+      SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b3a", MODE="0666", GROUP="video"
+      SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b3a", ATTR{power/autosuspend}="-1"
+      SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b3a", ATTR{power/control}="on"
+      # Intel RealSense D435i — IIO (IMU) sensor access (gyroscope + accelerometer)
+      SUBSYSTEM=="iio", ATTR{name}=="HID-SENSOR-200073*", MODE="0666"
+      SUBSYSTEM=="iio", ATTR{name}=="HID-SENSOR-200076*", MODE="0666"
+      # HID raw device access for RealSense
+      SUBSYSTEM=="hidraw", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b3a", MODE="0666"
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Reload udev rules
+
 - name: Add uvcvideo quirks for RealSense D435i stability (client only)
   when: "'client' in group_names"
   ansible.builtin.copy:
