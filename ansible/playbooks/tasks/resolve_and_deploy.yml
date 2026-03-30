@@ -17,7 +17,7 @@
     node_enabled: "{{ _node.enabled | default(true) }}"
     node_config: "{{ _node.config | default('') }}"
     repo_dest: "{{ ros2_repo_dest }}"
-    node_deploy_mode: "{{ ros2_node_type_defaults[_node.node_type].deploy_mode | default('docker') }}"
+    node_deploy_mode: "{{ ros2_node_type_defaults[_node.node_type].deploy_mode | default('native') }}"
     node_launch_command: "{{ ros2_node_type_defaults[_node.node_type].node_launch_command | default('') }}"
     node_src_dir: "{{ ros2_node_type_defaults[_node.node_type].node_src_dir | default('') }}"
     node_apt_packages: "{{ ros2_node_type_defaults[_node.node_type].apt_packages | default([]) }}"

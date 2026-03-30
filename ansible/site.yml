@@ -12,7 +12,6 @@
       when: network_address is defined and network_address | length > 0
     - role: hostname
       when: hostname is defined and hostname | length > 0
-    - docker
     - system_optimize
 
 - name: Deploy Server ROS2 nodes

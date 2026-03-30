@@ -1,5 +1,5 @@
 ---
-# Provision Client Raspberry Pi (Ubuntu 24.04): bootstrap, network, hostname, Docker
+# Provision Client Raspberry Pi (Ubuntu 24.04): bootstrap, network, hostname
 # Run: ansible-playbook -i inventory playbooks/client.yml -l client
 # Set in group_vars/client.yml or host_vars: network_address, network_gateway, hostname (and optional network_nameservers).
 - name: Provision Client
@@ -11,6 +11,5 @@
       when: network_address is defined and network_address | length > 0
     - role: hostname
       when: hostname is defined and hostname | length > 0
-    - docker
     - ros2_base
     - system_optimize

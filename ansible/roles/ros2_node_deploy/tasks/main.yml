@@ -1,10 +1,8 @@
 ---
-# Deploy or uninstall a ROS2 node as a native systemd service (deploy_mode: native)
-# or as a Docker container (deploy_mode: docker, legacy).
+# Deploy or uninstall a ROS2 node as a native systemd service (deploy_mode: native).
 # Expects from resolve_and_deploy.yml:
 #   node_name, node_present, node_enabled, node_deploy_mode
 #   Native: node_launch_command, node_src_dir (optional), node_apt_packages, node_cpu_quota, node_memory_max
-#   Docker: node_image, node_build_context, node_extra_args
 #   Both: node_config_path, node_config, node_env, repo_dest
 
 - name: Validate required variables
@@ -15,18 +13,8 @@
     fail_msg: "ros2_node_deploy requires node_name."
     success_msg: "Required vars present for {{ node_name }}"
 
-- name: Validate Docker-mode required variables
-  when: (node_deploy_mode | default('docker')) == 'docker'
-  ansible.builtin.assert:
-    that:
-      - node_image is defined
-      - node_image | length > 0
-      - node_build_context is defined
-      - repo_dest is defined
-    fail_msg: "Docker deploy mode requires node_image, node_build_context, repo_dest."
-
 - name: Validate native-mode required variables
-  when: (node_deploy_mode | default('docker')) == 'native'
+  when: (node_deploy_mode | default('native')) == 'native'
   ansible.builtin.assert:
     that:
       - node_launch_command is defined
@@ -111,7 +99,7 @@
 - name: Deploy ROS2 node natively (deploy_mode == native)
   when:
     - node_present | default(true) | bool
-    - (node_deploy_mode | default('docker')) == 'native'
+    - (node_deploy_mode | default('native')) == 'native'
   block:
     - name: Install node apt packages
       ansible.builtin.apt:
@@ -232,70 +220,4 @@
   ansible.builtin.meta: flush_handlers
   when:
     - node_present | default(true) | bool
-    - (node_deploy_mode | default('docker')) == 'native'
-
-# ── DEPLOY: DOCKER (legacy) ────────────────────────────────────────────────────
-
-- name: Deploy ROS2 node as container (deploy_mode == docker)
-  when:
-    - node_present | default(true) | bool
-    - (node_deploy_mode | default('docker')) == 'docker'
-  block:
-    - name: Pull node container image from registry
-      when: node_build_on_controller | default(false) | bool
-      ansible.builtin.command:
-        cmd: "docker pull {{ node_image }}"
-      become: true
-      register: docker_pull_result
-      changed_when: docker_pull_result.rc == 0
-      notify: "Restart ROS2 node"
-
-    - name: Build node container image from repo
-      when: not (node_build_on_controller | default(false) | bool)
-      ansible.builtin.command:
-        cmd: "docker build --network=host -t {{ node_image }} {{ node_build_context }}"
-        chdir: "{{ repo_dest }}"
-      become: true
-      register: docker_build_result
-      changed_when: docker_build_result.rc == 0
-      notify: "Restart ROS2 node"
-
-    - name: Ensure ROS2 node config directory exists
-      ansible.builtin.file:
-        path: "{{ ros2_node_config_dir }}/{{ node_name }}"
-        state: directory
-        mode: "0755"
-      become: true
-
-    - name: Deploy node config file (docker)
-      ansible.builtin.copy:
-        dest: "{{ ros2_node_config_dir }}/{{ node_name }}/config.yaml"
-        content: "{{ node_config | default('') }}"
-        mode: "0644"
-      become: true
-      when: node_config_path is defined and node_config_path is string and (node_config_path | length > 0)
-      notify: "Restart ROS2 node"
-
-    - name: Create systemd unit for ROS2 node (docker)
-      ansible.builtin.template:
-        src: ros2-node.service.j2
-        dest: "/etc/systemd/system/ros2-{{ node_name }}.service"
-        mode: "0644"
-      become: true
-      notify:
-        - "Reload systemd"
-        - "Restart ROS2 node"
-
-    - name: Set service state and enabled (docker)
-      ansible.builtin.service:
-        name: "ros2-{{ node_name }}"
-        state: "{{ 'started' if (node_enabled | default(true) | bool) else 'stopped' }}"
-        enabled: "{{ node_enabled | default(true) | bool }}"
-        daemon_reload: true
-      become: true
-
-- name: Flush handlers (docker)
-  ansible.builtin.meta: flush_handlers
-  when:
-    - node_present | default(true) | bool
-    - (node_deploy_mode | default('docker')) == 'docker'
+    - (node_deploy_mode | default('native')) == 'native'
