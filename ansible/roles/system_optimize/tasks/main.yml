@@ -362,4 +362,3 @@
 - name: Vacuum old journal entries
   ansible.builtin.command: journalctl --vacuum-size={{ journal_max_use }}
   changed_when: false
-

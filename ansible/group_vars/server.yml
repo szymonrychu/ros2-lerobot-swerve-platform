@@ -66,6 +66,8 @@ ros2_nodes:
     node_type: feetech_servos
     present: true
     enabled: true
+    env:
+      - FEETECH_SERVOS_CONFIG=/etc/ros2/lerobot_leader/config.yaml
     config: |
       device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059057-if00
       namespace: leader
@@ -107,6 +109,8 @@ ros2_nodes:
     node_type: gps_rtk
     present: true
     enabled: true
+    env:
+      - GPS_RTK_CONFIG=/etc/ros2/gps_rtk_base/config.yaml
     config: |
       mode: base
       serial_port: /dev/ttyAMA0

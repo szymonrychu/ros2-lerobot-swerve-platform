@@ -368,6 +368,8 @@ ros2_nodes:
     node_type: gps_rtk
     present: true
     enabled: true
+    env:
+      - GPS_RTK_CONFIG=/etc/ros2/gps_rtk_rover/config.yaml
     config: |
       mode: rover
       serial_port: /dev/ttyAMA0
@@ -423,6 +425,8 @@ ros2_nodes:
     node_type: feetech_servos
     present: true
     enabled: true
+    env:
+      - FEETECH_SERVOS_CONFIG=/etc/ros2/lerobot_follower/config.yaml
     config: |
       device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00
       namespace: follower
@@ -452,6 +456,8 @@ ros2_nodes:
     node_type: feetech_servos
     present: true
     enabled: true
+    env:
+      - FEETECH_SERVOS_CONFIG=/etc/ros2/swerve_drive_servos/config.yaml
     config: |
       device: /dev/ttyUSB1
       namespace: swerve_drive
@@ -479,6 +485,8 @@ ros2_nodes:
     node_type: swerve_controller
     present: true
     enabled: true
+    env:
+      - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_controller/config.yaml
     config: |
       half_length_m: 0.2
       half_width_m: 0.15
