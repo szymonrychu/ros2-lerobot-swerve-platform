@@ -128,6 +128,8 @@ ros2_node_type_defaults:
     node_src_dir: ""
     cpu_quota: "30%"
     memory_max: "128M"
+    apt_packages:
+      - ros-jazzy-rplidar-ros
     env:
       - ROS_LOCALHOST_ONLY=0
       - ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET

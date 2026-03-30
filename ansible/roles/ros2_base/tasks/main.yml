@@ -52,10 +52,6 @@
       - ros-jazzy-tf2-ros
       - ros-jazzy-tf2-geometry-msgs
       - ros-jazzy-rosidl-runtime-py
-      - ros-jazzy-robot-localization
-      - ros-jazzy-navigation2
-      - ros-jazzy-nav2-bringup
-      - ros-jazzy-rplidar-ros
       - ros-jazzy-launch-ros
       - python3-rosdep
     state: present
