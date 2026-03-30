@@ -128,3 +128,12 @@ def test_color_image_non_rgbd_topic_no_color_small() -> None:
     result = msg_to_dict(_make_rgb_image_msg(), topic="/controller/camera_0/image_raw")
     assert "jpeg_b64" in result
     assert "color_small_b64" not in result
+
+
+def test_serialize_depth_image_zero_depth_preserved_in_bytes() -> None:
+    """Zero-depth pixels (invalid) are preserved as 0 in the raw depth_b64 bytes."""
+    result = msg_to_dict(_make_depth_image_msg(fill_mm=0), topic="/camera/aligned_depth_to_color/image_raw")
+    assert result["depth_b64"] is not None
+    raw = base64.b64decode(result["depth_b64"])
+    arr = np.frombuffer(raw, dtype=np.uint16)
+    assert int(arr[0]) == 0

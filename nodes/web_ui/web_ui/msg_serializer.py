@@ -103,6 +103,8 @@ def _serialize_camera_info(msg: Any) -> dict[str, Any]:
         dict[str, Any]: Dict with fx, fy, cx, cy, width, height.
     """
     k = list(msg.k)
+    if len(k) < 9:
+        return {"error": f"CameraInfo K matrix has {len(k)} elements, expected 9"}
     return {
         "fx": float(k[0]),
         "fy": float(k[4]),
@@ -192,15 +194,16 @@ def _serialize_depth_image(msg: Any) -> dict[str, Any]:
     """
     try:
         raw = bytes(msg.data)
-        depth = np.frombuffer(raw, dtype=np.uint16).reshape((msg.height, msg.width))
+        depth = np.frombuffer(raw, dtype=np.uint16).reshape((msg.height, msg.step // 2))[:, : msg.width]
 
         # --- Red-green colormap preview (full resolution) ---
         depth_f = depth.astype(np.float32)
+        valid = depth > 0
         normalized = np.clip((depth_f - _DEPTH_MIN_MM) / (_DEPTH_MAX_MM - _DEPTH_MIN_MM), 0.0, 1.0)
         norm_u8 = (normalized * 255).astype(np.uint8)
         b = np.zeros_like(norm_u8)
-        g = norm_u8
-        r = 255 - norm_u8
+        g = np.where(valid, norm_u8, 0).astype(np.uint8)
+        r = np.where(valid, 255 - norm_u8, 0).astype(np.uint8)
         colormap_bgr = cv2.merge([b, g, r])
         success_p, buf_p = cv2.imencode(".jpg", colormap_bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
         depth_preview_b64 = base64.b64encode(buf_p.tobytes()).decode("ascii") if success_p else None
