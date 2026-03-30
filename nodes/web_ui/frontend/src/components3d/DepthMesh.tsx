@@ -38,6 +38,7 @@ function decodeJpegPixels(b64: string, w: number, h: number): Promise<Uint8Clamp
       ctx.drawImage(img, 0, 0, w, h)
       resolve(ctx.getImageData(0, 0, w, h).data)
     }
+    img.onerror = () => resolve(new Uint8ClampedArray(w * h * 4))
     img.src = `data:image/jpeg;base64,${b64}`
   })
 }
@@ -49,6 +50,7 @@ export default function DepthMesh({
 
   useEffect(() => {
     if (!depthB64 || !colorSmallB64 || !geoRef.current) return
+    let cancelled = false
 
     const W = depthWidth
     const H = depthHeight
@@ -66,6 +68,8 @@ export default function DepthMesh({
     const depth = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2)
 
     decodeJpegPixels(colorSmallB64, W, H).then((rgba) => {
+      if (cancelled || !geoRef.current) return
+
       const nVerts = W * H
       const positions = new Float32Array(nVerts * 3)
       const colors = new Float32Array(nVerts * 3)
@@ -92,7 +96,10 @@ export default function DepthMesh({
       }
 
       // Triangulate: two triangles per 2x2 quad, skip at depth discontinuities
-      const indices: number[] = []
+      const maxIndices = (W - 1) * (H - 1) * 6
+      const indexArray = new Uint32Array(maxIndices)
+      let indexCount = 0
+
       for (let v = 0; v < H - 1; v++) {
         for (let u = 0; u < W - 1; u++) {
           const i00 = v * W + u
@@ -107,14 +114,18 @@ export default function DepthMesh({
             d00 > 0 && d10 > 0 && d01 > 0 &&
             Math.max(d00, d10, d01) - Math.min(d00, d10, d01) < DISCONTINUITY_MM
           ) {
-            indices.push(i00, i10, i01)
+            indexArray[indexCount++] = i00
+            indexArray[indexCount++] = i10
+            indexArray[indexCount++] = i01
           }
           // Lower triangle: top-right → bottom-right → bottom-left
           if (
             d10 > 0 && d11 > 0 && d01 > 0 &&
             Math.max(d10, d11, d01) - Math.min(d10, d11, d01) < DISCONTINUITY_MM
           ) {
-            indices.push(i10, i11, i01)
+            indexArray[indexCount++] = i10
+            indexArray[indexCount++] = i11
+            indexArray[indexCount++] = i01
           }
         }
       }
@@ -122,11 +133,10 @@ export default function DepthMesh({
       const geo = geoRef.current
       geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
       geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-      geo.setIndex(indices)
-      geo.computeVertexNormals()
-      geo.attributes.position.needsUpdate = true
-      geo.attributes.color.needsUpdate = true
+      geo.setIndex(new THREE.BufferAttribute(indexArray.subarray(0, indexCount).slice(), 1))
     })
+
+    return () => { cancelled = true }
   }, [depthB64, colorSmallB64, depthWidth, depthHeight, intrinsics])
 
   return (

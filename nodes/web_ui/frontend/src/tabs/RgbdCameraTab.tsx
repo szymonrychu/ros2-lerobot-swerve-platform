@@ -1,4 +1,4 @@
-import { Suspense } from 'react'
+import { Suspense, useMemo } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { TabConfig } from '../types'
@@ -42,10 +42,26 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
     ? (topicData[tab.camera_info_topic] as CameraInfoData | undefined)
     : undefined
 
+  const stableIntrinsics = useMemo(
+    () =>
+      cameraInfo
+        ? {
+            fx: cameraInfo.fx,
+            fy: cameraInfo.fy,
+            cx: cameraInfo.cx,
+            cy: cameraInfo.cy,
+            width: cameraInfo.width,
+            height: cameraInfo.height,
+          }
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cameraInfo?.fx, cameraInfo?.fy, cameraInfo?.cx, cameraInfo?.cy, cameraInfo?.width, cameraInfo?.height]
+  )
+
   const hasMesh =
     depthData?.depth_b64 != null &&
     colorData?.color_small_b64 != null &&
-    cameraInfo != null
+    stableIntrinsics != null
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#000' }}>
@@ -101,7 +117,7 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
                 depthWidth={depthData!.depth_width}
                 depthHeight={depthData!.depth_height}
                 colorSmallB64={colorData!.color_small_b64!}
-                intrinsics={cameraInfo!}
+                intrinsics={stableIntrinsics!}
               />
             </Suspense>
             <OrbitControls makeDefault />
