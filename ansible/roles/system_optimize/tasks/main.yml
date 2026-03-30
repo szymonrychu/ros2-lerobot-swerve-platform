@@ -363,25 +363,3 @@
   ansible.builtin.command: journalctl --vacuum-size={{ journal_max_use }}
   changed_when: false
 
-# ── Docker log rotation ──
-- name: Read existing Docker daemon.json
-  ansible.builtin.slurp:
-    src: /etc/docker/daemon.json
-  register: docker_daemon_existing
-  failed_when: false
-
-- name: Merge Docker log-driver config into daemon.json
-  ansible.builtin.copy:
-    dest: /etc/docker/daemon.json
-    owner: root
-    group: root
-    mode: "0644"
-    content: "{{ existing | combine(log_config) | to_nice_json }}\n"
-  vars:
-    existing: "{{ (docker_daemon_existing.content | default('e30=') | b64decode | from_json) if docker_daemon_existing is not failed else {} }}"
-    log_config:
-      log-driver: json-file
-      log-opts:
-        max-size: "{{ docker_log_max_size }}"
-        max-file: "{{ docker_log_max_file }}"
-  notify: Restart docker
