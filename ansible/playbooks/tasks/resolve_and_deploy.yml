@@ -21,6 +21,7 @@
     node_launch_command: "{{ ros2_node_type_defaults[_node.node_type].node_launch_command | default('') }}"
     node_src_dir: "{{ ros2_node_type_defaults[_node.node_type].node_src_dir | default('') }}"
     node_apt_packages: "{{ ros2_node_type_defaults[_node.node_type].apt_packages | default([]) }}"
+    node_pythonpath_parent: "{{ ros2_node_type_defaults[_node.node_type].pythonpath_parent | default(false) }}"
     node_cpu_quota: "{{ ros2_node_type_defaults[_node.node_type].cpu_quota | default('50%') }}"
     node_memory_max: "{{ ros2_node_type_defaults[_node.node_type].memory_max | default('256M') }}"
     node_image: "{{ ros2_node_type_defaults[_node.node_type].image | default('') }}"

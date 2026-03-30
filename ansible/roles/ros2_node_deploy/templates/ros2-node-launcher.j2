@@ -4,6 +4,10 @@
 source /opt/ros/jazzy/setup.bash
 {% if node_src_dir is defined and node_src_dir | length > 0 %}
 source /opt/ros2-nodes/{{ node_name }}/venv/bin/activate
+{% if node_pythonpath_parent | default(false) %}
+export PYTHONPATH="{{ (repo_dest + '/' + node_src_dir) | dirname }}${PYTHONPATH:+:$PYTHONPATH}"
+{% else %}
 export PYTHONPATH="{{ repo_dest }}/{{ node_src_dir }}${PYTHONPATH:+:$PYTHONPATH}"
+{% endif %}
 {% endif %}
 exec bash -c '{{ node_launch_command }}'

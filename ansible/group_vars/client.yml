@@ -41,6 +41,7 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m feetech_servos"
     node_src_dir: "nodes/bridges/feetech_servos"
+    pythonpath_parent: true
     cpu_quota: "50%"
     memory_max: "128M"
     config_path: /etc/ros2/feetech_servos
@@ -52,6 +53,7 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m uvc_camera"
     node_src_dir: "nodes/bridges/uvc_camera"
+    pythonpath_parent: true
     cpu_quota: "30%"
     memory_max: "256M"
     env:
