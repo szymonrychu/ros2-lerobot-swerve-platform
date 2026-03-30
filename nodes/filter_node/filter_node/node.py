@@ -35,8 +35,33 @@ def run_filter_node(config: FilterConfig) -> None:
     clock = node.get_clock()
     control_period_s = 1.0 / max(1.0, config.control_loop_hz)
     last_input_time: list[float] = [time.monotonic()]
+    active_source: list[str] = ["leader"]
+    last_web_ui_time: list[float] = [0.0]
+    follower_positions: dict[str, float] = {}
 
     def on_input(msg: JointState) -> None:
+        # Feature 2+3: when web UI is active, check if leader can take over
+        if config.web_ui_input_topic and active_source[0] == "web_ui":
+            elapsed = time.monotonic() - last_web_ui_time[0]
+            if elapsed < config.web_ui_timeout_s:
+                # Web UI still active. Allow leader takeover only if joints are close.
+                if config.follower_feedback_topic and follower_positions:
+                    all_close = all(
+                        abs(float(msg.position[i]) - follower_positions.get(name, float("inf")))
+                        <= config.takeover_threshold_rad
+                        for i, name in enumerate(msg.name)
+                        if i < len(msg.position)
+                    )
+                    if all_close:
+                        active_source[0] = "leader"
+                        node.get_logger().info("Leader takeover: all joints within threshold, switching to leader")
+                    else:
+                        return  # leader too far, ignore
+                else:
+                    return  # no feedback configured, cannot verify proximity
+            else:
+                active_source[0] = "leader"
+                node.get_logger().info("Web UI idle, reverting to leader source")
         last_input_time[0] = time.monotonic()
         now = last_input_time[0]
         for i, name in enumerate(msg.name):
@@ -56,8 +81,37 @@ def run_filter_node(config: FilterConfig) -> None:
         if elapsed > INPUT_STALE_WARN_S:
             node.get_logger().warning(f"No input on {config.input_topic} for {elapsed:.1f}s")
 
+    def on_web_ui_input(msg: JointState) -> None:
+        active_source[0] = "web_ui"
+        last_web_ui_time[0] = time.monotonic()
+        # Publish web UI commands directly — web UI sends clean data, no Kalman needed
+        out = JointState()
+        out.header.stamp = clock.now().to_msg()
+        out.header.frame_id = ""
+        out.name = list(msg.name)
+        out.position = list(msg.position)
+        out.velocity = []
+        out.effort = []
+        pub.publish(out)
+
+    def on_follower_feedback(msg: JointState) -> None:
+        for i, name in enumerate(msg.name):
+            if i < len(msg.position):
+                follower_positions[name] = float(msg.position[i])
+
     node.create_subscription(JointState, config.input_topic, on_input, FILTER_QOS)
     node.create_timer(HEALTH_TIMER_PERIOD_S, health_check)
+    if config.web_ui_input_topic:
+        node.create_subscription(JointState, config.web_ui_input_topic, on_web_ui_input, FILTER_QOS)
+        node.get_logger().info(
+            f"Web UI arbitration enabled: {config.web_ui_input_topic} (timeout {config.web_ui_timeout_s}s)"
+        )
+    if config.follower_feedback_topic:
+        node.create_subscription(JointState, config.follower_feedback_topic, on_follower_feedback, FILTER_QOS)
+        node.get_logger().info(
+            f"Follower feedback for takeover: {config.follower_feedback_topic}"
+            f" (threshold {config.takeover_threshold_rad} rad)"
+        )
     node.get_logger().info("Filter node: %s -> %s [%s]" % (config.input_topic, config.output_topic, config.algorithm))
 
     executor = SingleThreadedExecutor()
@@ -78,6 +132,12 @@ def run_filter_node(config: FilterConfig) -> None:
                     was_idle = True
                 executor.spin_once(timeout_sec=control_period_s)
                 continue
+            # When web UI is active and not timed out, skip Kalman publish
+            # (web UI callback already published directly)
+            if config.web_ui_input_topic and active_source[0] == "web_ui":
+                if time.monotonic() - last_web_ui_time[0] < config.web_ui_timeout_s:
+                    executor.spin_once(timeout_sec=control_period_s)
+                    continue
             if was_idle:
                 node.get_logger().info("Input resumed, publishing output")
                 was_idle = False

@@ -217,6 +217,10 @@ ros2_nodes:
       algorithm: kalman
       control_loop_hz: 100
       idle_timeout_s: 0.5
+      web_ui_input_topic: /filter/web_ui_joint_commands
+      web_ui_timeout_s: 0.5
+      follower_feedback_topic: /follower/joint_states
+      takeover_threshold_rad: 0.15
       joint_names:
         - shoulder_pan
         - shoulder_lift
@@ -602,7 +606,7 @@ ros2_nodes:
           topic: /controller/swerve_drive/joint_states
           arm_urdf_file: so101_arm.urdf
           arm_joint_topic: /controller/follower/joint_states
-          arm_command_topic: /follower/joint_commands
+          arm_command_topic: /filter/web_ui_joint_commands
       overlays:
         - topic: /controller/gps/fix
           field: "latitude"

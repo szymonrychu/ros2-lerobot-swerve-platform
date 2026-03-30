@@ -36,6 +36,15 @@ export default function RobotStatusTab({ tab, topicData, publish }: Props) {
   const [urdfStatus, setUrdfStatus] = useState<UrdfFileStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [armReady, setArmReady] = useState(false)
+  const [hiddenUrdfs, setHiddenUrdfs] = useState<Set<string>>(new Set())
+  const toggleUrdfVisibility = useCallback((name: string) => {
+    setHiddenUrdfs((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }, [])
   const orbitRef = useRef<OrbitControlsImpl | null>(null)
   const onArmReady = useCallback((ready: boolean) => setArmReady(ready), [])
 
@@ -71,8 +80,16 @@ export default function RobotStatusTab({ tab, topicData, publish }: Props) {
         {loading && <div style={{ color: '#555' }}>Loading…</div>}
         {urdfStatus.map((f) => (
           <div key={f.name} style={{ marginBottom: 16, padding: 12, border: '1px solid #222', background: '#0a0a0a' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ color: '#ccc', fontWeight: 'bold' }}>{f.name}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={!hiddenUrdfs.has(f.name)}
+                  onChange={() => toggleUrdfVisibility(f.name)}
+                  style={{ accentColor: '#4a4' }}
+                />
+                <span style={{ color: '#ccc', fontWeight: 'bold' }}>{f.name}</span>
+              </label>
               <span style={{ color: statusColor(f.status), fontSize: 11 }}>{f.status.toUpperCase()}</span>
             </div>
             {f.status === 'ok' && (
@@ -131,30 +148,34 @@ export default function RobotStatusTab({ tab, topicData, publish }: Props) {
         <Canvas camera={{ position: [1, 1, 1.5], fov: 50 }} style={{ background: '#050505' }}>
           <ambientLight intensity={0.7} />
           <directionalLight position={[3, 5, 3]} intensity={1} />
-          <Suspense fallback={null}>
-            <RobotModel urdfFile={tab.urdf_file ?? 'robot.urdf'} jointStates={jointStates} />
-          </Suspense>
-          {tab.arm_urdf_file && tab.arm_command_topic ? (
+          {!hiddenUrdfs.has(tab.urdf_file ?? 'robot.urdf') && (
             <Suspense fallback={null}>
-              <InteractiveArm
-                urdfFile={tab.arm_urdf_file}
-                liveJointStates={armJointStates}
-                position={tab.arm_offset ?? [0.25, 0, 0]}
-                commandTopic={tab.arm_command_topic}
-                publish={publish}
-                orbitRef={orbitRef}
-                onReady={onArmReady}
-              />
+              <RobotModel urdfFile={tab.urdf_file ?? 'robot.urdf'} jointStates={jointStates} />
             </Suspense>
-          ) : tab.arm_urdf_file ? (
-            <Suspense fallback={null}>
-              <RobotModel
-                urdfFile={tab.arm_urdf_file}
-                jointStates={armJointStates}
-                position={tab.arm_offset ?? [0.25, 0, 0]}
-              />
-            </Suspense>
-          ) : null}
+          )}
+          {tab.arm_urdf_file && !hiddenUrdfs.has(tab.arm_urdf_file) && (
+            tab.arm_command_topic ? (
+              <Suspense fallback={null}>
+                <InteractiveArm
+                  urdfFile={tab.arm_urdf_file}
+                  liveJointStates={armJointStates}
+                  position={tab.arm_offset ?? [0.25, 0, 0]}
+                  commandTopic={tab.arm_command_topic}
+                  publish={publish}
+                  orbitRef={orbitRef}
+                  onReady={onArmReady}
+                />
+              </Suspense>
+            ) : (
+              <Suspense fallback={null}>
+                <RobotModel
+                  urdfFile={tab.arm_urdf_file}
+                  jointStates={armJointStates}
+                  position={tab.arm_offset ?? [0.25, 0, 0]}
+                />
+              </Suspense>
+            )
+          )}
           <OrbitControls ref={orbitRef} />
         </Canvas>
       </div>

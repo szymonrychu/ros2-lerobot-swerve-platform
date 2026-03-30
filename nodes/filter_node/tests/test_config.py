@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+
 from filter_node.config import load_config, load_config_from_env
 
 
@@ -69,6 +70,34 @@ def test_load_config_idle_timeout_explicit(tmp_path: Path) -> None:
     cfg = load_config(p)
     assert cfg is not None
     assert cfg.idle_timeout_s == pytest.approx(0.5)
+
+
+def test_load_config_web_ui_fields_default(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text("algorithm: kalman\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.web_ui_input_topic == ""
+    assert cfg.web_ui_timeout_s == pytest.approx(0.5)
+    assert cfg.follower_feedback_topic == ""
+    assert cfg.takeover_threshold_rad == pytest.approx(0.15)
+
+
+def test_load_config_web_ui_fields_explicit(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "algorithm: kalman\n"
+        "web_ui_input_topic: /filter/web_ui_joint_commands\n"
+        "web_ui_timeout_s: 1.0\n"
+        "follower_feedback_topic: /follower/joint_states\n"
+        "takeover_threshold_rad: 0.2\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.web_ui_input_topic == "/filter/web_ui_joint_commands"
+    assert cfg.web_ui_timeout_s == pytest.approx(1.0)
+    assert cfg.follower_feedback_topic == "/follower/joint_states"
+    assert cfg.takeover_threshold_rad == pytest.approx(0.2)
 
 
 def test_load_config_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

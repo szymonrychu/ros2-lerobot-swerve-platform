@@ -26,6 +26,17 @@ class FilterConfig:
             0 = always publish (legacy behavior). When the input source goes idle
             (e.g. leader arm not moving), the filter stops outputting, allowing
             other command sources (like the web UI) to control the follower.
+        web_ui_input_topic: Topic for web UI JointState commands (sensor_msgs/JointState).
+            When non-empty, enables command source arbitration between leader and web UI.
+            Web UI commands are forwarded directly (no Kalman filtering).
+        web_ui_timeout_s: Seconds after which web UI is considered idle and leader resumes.
+            Defaults to 0.5.
+        follower_feedback_topic: Topic providing current follower joint positions
+            (sensor_msgs/JointState). Used to verify proximity before allowing leader
+            takeover while web UI is active.
+        takeover_threshold_rad: Maximum allowed joint position difference (radians) between
+            leader and follower for a leader takeover to be accepted while web UI is active.
+            Defaults to 0.15.
     """
 
     input_topic: str
@@ -35,6 +46,10 @@ class FilterConfig:
     control_loop_hz: float
     joint_names: list[str]
     idle_timeout_s: float = 0.0
+    web_ui_input_topic: str = ""
+    web_ui_timeout_s: float = 0.5
+    follower_feedback_topic: str = ""
+    takeover_threshold_rad: float = 0.15
 
 
 def load_config(path: Path | None = None) -> FilterConfig | None:
@@ -73,6 +88,18 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         idle_timeout_s = max(0.0, float(raw_idle))
     except (TypeError, ValueError):
         idle_timeout_s = 0.0
+    web_ui_input_topic = (data.get("web_ui_input_topic") or "").strip()
+    raw_web_ui_timeout = data.get("web_ui_timeout_s", 0.5)
+    try:
+        web_ui_timeout_s = max(0.0, float(raw_web_ui_timeout))
+    except (TypeError, ValueError):
+        web_ui_timeout_s = 0.5
+    follower_feedback_topic = (data.get("follower_feedback_topic") or "").strip()
+    raw_threshold = data.get("takeover_threshold_rad", 0.15)
+    try:
+        takeover_threshold_rad = max(0.0, float(raw_threshold))
+    except (TypeError, ValueError):
+        takeover_threshold_rad = 0.15
     return FilterConfig(
         input_topic=input_topic,
         output_topic=output_topic,
@@ -81,6 +108,10 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         control_loop_hz=control_loop_hz,
         joint_names=joint_names,
         idle_timeout_s=idle_timeout_s,
+        web_ui_input_topic=web_ui_input_topic,
+        web_ui_timeout_s=web_ui_timeout_s,
+        follower_feedback_topic=follower_feedback_topic,
+        takeover_threshold_rad=takeover_threshold_rad,
     )
 
 
