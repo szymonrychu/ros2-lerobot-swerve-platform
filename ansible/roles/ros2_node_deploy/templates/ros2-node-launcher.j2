@@ -1,0 +1,8 @@
+#!/bin/bash
+# Launcher for ROS2 node: {{ node_name }}
+# Installed by Ansible. Do not edit manually.
+source /opt/ros/jazzy/setup.bash
+{% if node_src_dir is defined and node_src_dir | length > 0 %}
+source /opt/ros2-nodes/{{ node_name }}/venv/bin/activate
+{% endif %}
+exec bash -c '{{ node_launch_command }}'

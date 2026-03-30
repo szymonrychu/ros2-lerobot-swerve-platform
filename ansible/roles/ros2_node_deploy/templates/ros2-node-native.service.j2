@@ -1,0 +1,20 @@
+[Unit]
+Description=ROS2 node {{ node_name }}
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ ansible_user }}
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+CPUQuota={{ node_cpu_quota | default('50%') }}
+MemoryMax={{ node_memory_max | default('256M') }}
+{% for env in node_env | default([]) %}
+Environment={{ env }}
+{% endfor %}
+ExecStart=/usr/local/bin/ros2-{{ node_name }}
+
+[Install]
+WantedBy=multi-user.target
