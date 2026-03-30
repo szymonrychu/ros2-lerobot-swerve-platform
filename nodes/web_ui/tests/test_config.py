@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from web_ui.config import AppConfig, load_config
 
 
@@ -87,7 +86,8 @@ overlays: []
 def test_rgbd_camera_tab_type_is_valid(tmp_path: Path) -> None:
     """rgbd_camera is a valid tab type."""
     p = tmp_path / "cfg.yaml"
-    p.write_text("""
+    p.write_text(
+        """
 tabs:
   - id: rgbd
     type: rgbd_camera
@@ -96,7 +96,8 @@ tabs:
     depth_topic: /camera/aligned_depth_to_color/image_raw
     camera_info_topic: /camera/aligned_depth_to_color/camera_info
 overlays: []
-""")
+"""
+    )
     cfg = load_config(p)
     assert cfg.tabs[0].type == "rgbd_camera"
     assert cfg.tabs[0].color_topic == "/camera/color/image_raw"
@@ -107,7 +108,8 @@ overlays: []
 def test_rgbd_topics_in_all_subscribed_topics(tmp_path: Path) -> None:
     """color_topic, depth_topic, camera_info_topic are included in subscribed topics."""
     p = tmp_path / "cfg.yaml"
-    p.write_text("""
+    p.write_text(
+        """
 tabs:
   - id: rgbd
     type: rgbd_camera
@@ -116,7 +118,8 @@ tabs:
     depth_topic: /camera/aligned_depth_to_color/image_raw
     camera_info_topic: /camera/aligned_depth_to_color/camera_info
 overlays: []
-""")
+"""
+    )
     cfg = load_config(p)
     topics = cfg.all_subscribed_topics()
     assert "/camera/color/image_raw" in topics
