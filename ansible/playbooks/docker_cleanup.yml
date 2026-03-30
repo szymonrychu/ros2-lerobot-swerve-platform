@@ -1,0 +1,15 @@
+---
+# Nuclear Docker cleanup: stop all containers, purge Docker CE, remove all Docker data.
+# Run on both RPis before migrating to native ROS2 node installs.
+# Run: ansible-playbook -i inventory playbooks/docker_cleanup.yml
+- name: Docker cleanup — server
+  hosts: server
+  become: true
+  roles:
+    - docker_cleanup
+
+- name: Docker cleanup — client
+  hosts: client
+  become: true
+  roles:
+    - docker_cleanup
