@@ -108,7 +108,7 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
       <div style={{ flex: 1 }}>
         {hasMesh ? (
           <Canvas
-            camera={{ position: [0, 0, -0.5], fov: 60, near: 0.01, far: 20 }}
+            camera={{ position: [0, 0, 0.5], fov: 60, near: 0.01, far: 20 }}
             style={{ background: '#0a0a0a' }}
           >
             <Suspense fallback={null}>

@@ -83,7 +83,7 @@ export default function DepthMesh({
           if (d > 0) {
             positions[i * 3 + 0] = (u - cx) * z / fx      // x: right
             positions[i * 3 + 1] = -((v - cy) * z / fy)   // y: up (flip image Y)
-            positions[i * 3 + 2] = z                        // z: depth (forward)
+            positions[i * 3 + 2] = -z                       // z: negate for Three.js (-Z forward)
           } else {
             positions[i * 3 + 0] = 0
             positions[i * 3 + 1] = 0
