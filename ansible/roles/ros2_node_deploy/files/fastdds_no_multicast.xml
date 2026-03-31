@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FastDDS profile: disable SPDP multicast, use unicast-only discovery.
+  Applied to all ROS2 nodes via FASTRTPS_DEFAULT_PROFILES_FILE env var.
+  Prevents DDS participant announcements from flooding WiFi.
+-->
+<dds xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <profiles>
+    <participant profile_name="participant_profile" is_default_profile="true">
+      <rtps>
+        <builtin>
+          <metatrafficMulticastLocatorList/>
+          <initialPeersList>
+            <locator>
+              <udpv4>
+                <address>127.0.0.1</address>
+              </udpv4>
+            </locator>
+          </initialPeersList>
+        </builtin>
+      </rtps>
+    </participant>
+  </profiles>
+</dds>

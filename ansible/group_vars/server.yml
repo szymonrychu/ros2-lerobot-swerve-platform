@@ -43,7 +43,6 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/topic_scraper_api
     env:
       - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
-      - ROS_STATIC_PEERS=192.168.1.34
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   gps_rtk:
     deploy_mode: native
@@ -54,7 +53,6 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/gps_rtk
     env:
       - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
-      - ROS_STATIC_PEERS=192.168.1.34
       - GPS_RTK_CONFIG=/etc/ros2/gps_rtk/config.yaml
 
 # Nodes to deploy: name, node_type, present, enabled, config.

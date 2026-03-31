@@ -274,9 +274,10 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 
 Systemd service env vars control DDS discovery:
 
-- **Server:** `ros2-master` and `lerobot_leader` use **`ROS_LOCALHOST_ONLY=0`** so leader topics are discoverable to the Client for cross-host relay.
-- **Client:** `master2master` uses **`ROS_LOCALHOST_ONLY=0`**, `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`, and `ROS_STATIC_PEERS=<server-ip>` (from `group_vars/client.yml`) so it can discover and relay server topics.
-- **Local-only nodes:** Other client nodes (e.g. follower, UVC) can stay localhost-oriented.
+- **All nodes:** `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` — no subnet-wide multicast. FastDDS multicast is disabled via `FASTRTPS_DEFAULT_PROFILES_FILE=/etc/ros2-nodes/fastdds_no_multicast.xml` (set in every service unit by the `ros2_node_deploy` role).
+- **Cross-host (client → server):** `master2master` adds `ROS_STATIC_PEERS=192.168.1.33` for unicast discovery to the server.
+- **Cross-host (server → client):** `ros2-master` and `lerobot_leader` add `ROS_STATIC_PEERS=192.168.1.34` so server topics are discoverable from the client.
+- **Scraper/GPS on server:** `topic_scraper_api` and `gps_rtk_base` use `LOCALHOST` only — no cross-host peering needed.
 
 ## Node Resource Limits
 
