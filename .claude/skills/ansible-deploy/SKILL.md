@@ -16,17 +16,21 @@ Never SSH manually to restart services — Ansible handles everything.
 
 ## Quick Reference
 
+**Always log deploy output to `.logs/`** (gitignored) instead of system temp dirs:
+
 ```bash
+mkdir -p .logs
+
 # Single node
-./scripts/deploy-nodes.sh client web_ui
-./scripts/deploy-nodes.sh server lerobot_leader
+./scripts/deploy-nodes.sh client web_ui 2>&1 | tee .logs/deploy-client.log
+./scripts/deploy-nodes.sh server lerobot_leader 2>&1 | tee .logs/deploy-server.log
 
 # Multiple nodes in PARALLEL (fastest for independent nodes)
-./scripts/deploy-nodes.sh client web_ui filter_node bno055_imu
+./scripts/deploy-nodes.sh client web_ui filter_node bno055_imu 2>&1 | tee .logs/deploy-client.log
 
 # All nodes on a target (sequential, includes full verify)
-./scripts/deploy-nodes.sh client --all
-./scripts/deploy-nodes.sh server --all
+./scripts/deploy-nodes.sh client --all 2>&1 | tee .logs/deploy-client-all.log
+./scripts/deploy-nodes.sh server --all 2>&1 | tee .logs/deploy-server-all.log
 ```
 
 ---

@@ -274,7 +274,7 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 
 Systemd service env vars control DDS discovery:
 
-- **All nodes:** `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` — no subnet-wide multicast. FastDDS multicast is disabled via `FASTRTPS_DEFAULT_PROFILES_FILE=/etc/ros2-nodes/fastdds_no_multicast.xml` (set in every service unit by the `ros2_node_deploy` role).
+- **All nodes:** `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` — restricts DDS discovery to localhost, preventing multicast announcements from flooding WiFi. FastDDS uses shared memory (SHM) for same-machine data transport and unicast UDP for discovery.
 - **Cross-host (client → server):** `master2master` adds `ROS_STATIC_PEERS=192.168.1.33` for unicast discovery to the server.
 - **Cross-host (server → client):** `ros2-master` and `lerobot_leader` add `ROS_STATIC_PEERS=192.168.1.34` so server topics are discoverable from the client.
 - **Scraper/GPS on server:** `topic_scraper_api` and `gps_rtk_base` use `LOCALHOST` only — no cross-host peering needed.

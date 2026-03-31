@@ -173,15 +173,6 @@
         mode: "0755"
       become: true
 
-    - name: Deploy FastDDS no-multicast profile
-      ansible.builtin.copy:
-        src: fastdds_no_multicast.xml
-        dest: /etc/ros2-nodes/fastdds_no_multicast.xml
-        owner: root
-        group: root
-        mode: "0644"
-      become: true
-
     - name: Ensure ROS2 node config directory exists
       ansible.builtin.file:
         path: "{{ ros2_node_config_dir }}/{{ node_name }}"

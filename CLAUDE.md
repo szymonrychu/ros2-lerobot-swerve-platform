@@ -17,9 +17,6 @@
 
 - Monorepo with **`ansible/`**, **`nodes/`**, and **`shared/`**
 - All node code lives under **`nodes/`**. **`shared/`** holds shared Python libraries used by multiple nodes.
-- Ansible role(s) and runbook for provisioning and deployment.
-
----
 
 ## Python Conventions
 
@@ -128,15 +125,18 @@ python scripts/topic_scraper_collect.py \
 4. **Deploy** — When Ansible or any ROS2 node code changed, use `scripts/deploy-nodes.sh`.
    **Never run `ansible-playbook` directly — always use the script.**
    Always invoke the `ansible-deploy` skill before deploying to get the correct command.
+   **Log all deploy output** to `.logs/` (gitignored) instead of system temp dirs:
 
    ```bash
+   mkdir -p .logs
+
    # Single or multiple changed nodes (parallel)
-   ./scripts/deploy-nodes.sh client web_ui filter_node
-   ./scripts/deploy-nodes.sh server lerobot_leader
+   ./scripts/deploy-nodes.sh client web_ui filter_node 2>&1 | tee .logs/deploy-client.log
+   ./scripts/deploy-nodes.sh server lerobot_leader 2>&1 | tee .logs/deploy-server.log
 
    # All nodes on a target
-   ./scripts/deploy-nodes.sh client --all
-   ./scripts/deploy-nodes.sh server --all
+   ./scripts/deploy-nodes.sh client --all 2>&1 | tee .logs/deploy-client-all.log
+   ./scripts/deploy-nodes.sh server --all 2>&1 | tee .logs/deploy-server-all.log
    ```
 
    so deployed services reflect the latest code.

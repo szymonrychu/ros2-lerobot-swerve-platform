@@ -42,3 +42,7 @@ nodes/steamdeck_ui/src/main/*.js.map
 nodes/steamdeck_ui/src/main/*.d.ts
 nodes/steamdeck_ui/src/main/*.d.ts.map
 .worktrees/
+# .logs/
+
+# docs/superpowers
+# docs/web_ui_bugs

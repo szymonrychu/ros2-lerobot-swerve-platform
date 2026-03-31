@@ -11,7 +11,6 @@ RestartSec=15
 TimeoutStopSec=30
 CPUQuota={{ node_cpu_quota | default('50%') }}
 MemoryMax={{ node_memory_max | default('256M') }}
-Environment=FASTRTPS_DEFAULT_PROFILES_FILE=/etc/ros2-nodes/fastdds_no_multicast.xml
 {% for env in node_env | default([]) %}
 Environment={{ env }}
 {% endfor %}
