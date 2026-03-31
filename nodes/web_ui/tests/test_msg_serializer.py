@@ -84,7 +84,7 @@ def _make_camera_info_msg(width: int = 640, height: int = 480) -> MagicMock:
 
 def test_serialize_depth_image_returns_expected_keys() -> None:
     """16UC1 depth image returns depth_preview_b64, depth_b64, depth_width, depth_height."""
-    result = msg_to_dict(_make_depth_image_msg(), topic="/camera/camera/aligned_depth_to_color/image_raw")
+    result = msg_to_dict(_make_depth_image_msg(), topic="/camera/camera/depth/image_rect_raw")
     assert "depth_preview_b64" in result
     assert "depth_b64" in result
     assert result["depth_width"] == 160
@@ -94,7 +94,7 @@ def test_serialize_depth_image_returns_expected_keys() -> None:
 
 def test_serialize_depth_image_raw_bytes_length() -> None:
     """Downscaled depth_b64 decodes to exactly 160*120*2 bytes (uint16 LE)."""
-    result = msg_to_dict(_make_depth_image_msg(), topic="/camera/camera/aligned_depth_to_color/image_raw")
+    result = msg_to_dict(_make_depth_image_msg(), topic="/camera/camera/depth/image_rect_raw")
     raw = base64.b64decode(result["depth_b64"])
     assert len(raw) == 160 * 120 * 2
 
@@ -102,7 +102,7 @@ def test_serialize_depth_image_raw_bytes_length() -> None:
 def test_serialize_depth_image_values_preserved() -> None:
     """Downscaled depth values match the fill value from the source image."""
     fill_mm = 1500
-    result = msg_to_dict(_make_depth_image_msg(fill_mm=fill_mm), topic="/camera/camera/aligned_depth_to_color/image_raw")
+    result = msg_to_dict(_make_depth_image_msg(fill_mm=fill_mm), topic="/camera/camera/depth/image_rect_raw")
     raw = base64.b64decode(result["depth_b64"])
     arr = np.frombuffer(raw, dtype=np.uint16)
     assert int(arr[0]) == fill_mm
@@ -131,7 +131,7 @@ def test_color_image_non_rgbd_topic_no_color_small() -> None:
 
 def test_serialize_depth_image_zero_depth_preserved_in_bytes() -> None:
     """Zero-depth pixels (invalid) are preserved as 0 in the raw depth_b64 bytes."""
-    result = msg_to_dict(_make_depth_image_msg(fill_mm=0), topic="/camera/camera/aligned_depth_to_color/image_raw")
+    result = msg_to_dict(_make_depth_image_msg(fill_mm=0), topic="/camera/camera/depth/image_rect_raw")
     assert result["depth_b64"] is not None
     raw = base64.b64decode(result["depth_b64"])
     arr = np.frombuffer(raw, dtype=np.uint16)

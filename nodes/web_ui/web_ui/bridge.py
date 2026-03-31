@@ -44,8 +44,8 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/controller/camera_0/image_compressed": CompressedImage,
     "/controller/goal_pose": PoseStamped,
     "/camera/camera/color/image_raw": Image,
-    "/camera/camera/aligned_depth_to_color/image_raw": Image,
-    "/camera/camera/aligned_depth_to_color/camera_info": CameraInfo,
+    "/camera/camera/depth/image_rect_raw": Image,
+    "/camera/camera/depth/camera_info": CameraInfo,
 }
 
 SENSOR_SUB_QOS = QoSProfile(

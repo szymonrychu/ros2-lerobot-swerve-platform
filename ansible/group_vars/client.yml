@@ -129,7 +129,7 @@ ros2_node_type_defaults:
       - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
   realsense_d435i:
     deploy_mode: native
-    node_launch_command: "ros2 launch realsense2_camera rs_launch.py enable_accel:=true enable_gyro:=true unite_imu_method:=linear_interpolation align_depth.enable:=true rgb_camera.color_profile:=640x480x15 depth_module.depth_profile:=640x480x15"
+    node_launch_command: "ros2 launch realsense2_camera rs_launch.py enable_accel:=true enable_gyro:=true unite_imu_method:=linear_interpolation rgb_camera.color_profile:=640x480x15 depth_module.depth_profile:=640x480x15"
     node_src_dir: ""
     cpu_quota: "200%"
     memory_max: "512M"
@@ -567,8 +567,8 @@ ros2_nodes:
           type: rgbd_camera
           label: "RGBD Cam"
           color_topic: /camera/camera/color/image_raw
-          depth_topic: /camera/camera/aligned_depth_to_color/image_raw
-          camera_info_topic: /camera/camera/aligned_depth_to_color/camera_info
+          depth_topic: /camera/camera/depth/image_rect_raw
+          camera_info_topic: /camera/camera/depth/camera_info
         - id: imu_graphs
           type: imu_orientation
           label: "IMU"
