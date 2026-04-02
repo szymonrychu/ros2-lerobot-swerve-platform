@@ -15,8 +15,8 @@
 
 ## Repository Structure
 
-- Monorepo with **`ansible/`**, **`nodes/`**, and **`shared/`**
-- All node code lives under **`nodes/`**. **`shared/`** holds shared Python libraries used by multiple nodes.
+- Monorepo with **`ansible/`**, **`nodes/`**, **`shared/`**, **`tests/`**, **`scripts/`**, **`docs/`**, **`client/`**, and **`server/`** at root level.
+- All node code lives under **`nodes/`**. **`shared/`** holds shared Python libraries used by multiple nodes. **`client/`** and **`server/`** contain host-specific non-node config. **`scripts/`** has operational tooling. **`tests/`** has root-level tests. **`docs/`** has project documentation.
 
 ## Python Conventions
 
@@ -159,8 +159,8 @@ Run from the **repository root** unless noted:
 | Command | What it does |
 |---|---|
 | `poetry run poe lint` | Lint `tests/` and `shared/` (root level) |
-| `poetry run poe lint-nodes` | Lint all Python nodes |
-| `./scripts/lint-all-nodes.sh` | Alternative: lint all nodes via shell script |
+| `poetry run poe lint-nodes` | Lint all Python nodes (all 14 node directories with `pyproject.toml`) |
+| `./scripts/lint-all-nodes.sh` | Alternative: lint all nodes via shell script (same coverage) |
 | `poetry run poe lint-ansible` | Run ansible-lint |
 | `poetry run poe test-ansible` | ansible-lint + playbook `--syntax-check` |
 | `poetry run pytest tests/ -v` | Run root-level tests |

@@ -49,6 +49,13 @@
     mode: "0755"
   become: true
 
+- name: Remove conflicting cloud-init netplan file
+  ansible.builtin.file:
+    path: /etc/netplan/50-cloud-init.yaml
+    state: absent
+  become: true
+  register: cloud_init_removed
+
 - name: Deploy netplan configuration
   ansible.builtin.template:
     src: netplan.yaml.j2
@@ -57,8 +64,8 @@
   become: true
   register: netplan_config
 
-- name: Apply netplan (only when config changed)
+- name: Apply netplan (when config or cloud-init state changed)
   ansible.builtin.command:
     cmd: netplan apply
   become: true
-  when: netplan_config is changed
+  when: netplan_config is changed or cloud_init_removed is changed

@@ -22,5 +22,6 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **nav2_bringup/** — Nav2 2D navigation stack (Client only).
 - **haptic_controller/** — Force-feedback (resistance) and zero-G hold mode for leader gripper; gripper-only pilot (Client only).
 - **steamdeck_ui/** — Touch-friendly Electron dashboard for SteamDeck (controller.ros2.lan). Camera preview, sensor/effector graphs, local nav map, GPS map, overlay bar. Python rclpy bridge subscribes to `/controller/*` topics and serves them via local WebSocket. Native app — no Docker.
+- **web_ui/** — FastAPI + React + Three.js browser dashboard replacing steamdeck_ui. Serves config, URDF files, and topic data over HTTP/WebSocket. Native app — no Docker.
 
 Shared Python libraries used by multiple nodes live in [../shared/](../shared/). See [CLAUDE.md](../CLAUDE.md) for conventions (type hints, unit tests, rebuild on source change).

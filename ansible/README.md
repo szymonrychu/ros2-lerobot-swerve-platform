@@ -11,6 +11,8 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`server.yml`**, **`client.yml`** — Provision: bootstrap Ubuntu 24.04, optional network (netplan) and hostname, and system optimization (debloat + tuning). Run once per host (or when changing base setup). Set `network_address`, `network_gateway`, and optionally `hostname`, `network_nameservers` in group_vars or host_vars to apply static IP and hostname.
   - **`optimize.yml`** — System optimization only: debloat, performance tuning, resilience. Can be run standalone on all hosts.
   - **`controller.yml`** — Full provisioning of the SteamDeck: hostname role + steamdeck_ui role. Run once per SteamDeck.
+  - **`docker_cleanup.yml`** — Runs the `docker_cleanup` role on both server and client. Use before migrating to native ROS2 node installs to remove all Docker artifacts. Run: `ansible-playbook -i inventory playbooks/docker_cleanup.yml`.
+  - **`deploy_topic_scraper_client_config.yml`** — One-off playbook that pushes an updated `topic_scraper_api` config to the client (including `sensor_msgs/msg/Imu` in `allowed_types` and observation rules for leader-vs-follower comparison and oscillation detection) and restarts the service.
   - **`deploy_steamdeck_ui.yml`** — Update-only: re-clones repo, re-runs `npm ci`, re-deploys config. Use for UI-only updates without re-provisioning.
   - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy all nodes on a target. Each node is listed **explicitly** (no loops) so the order and set of deployments is always clear. Runs repo sync once, deploys every node, then verifies all services are active.
   - **`nodes/client/<node>.yml`**, **`nodes/server/<node>.yml`** — Per-node standalone playbooks. Each syncs the repo, deploys exactly one node, and exits. Use these directly or via `scripts/deploy-nodes.sh`.
@@ -24,6 +26,8 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`ros2_node_verify`** — Runs after all nodes are deployed: waits for services to settle, checks each present+enabled node’s systemd unit is active, waits again, then re-checks (stability). Used by `deploy_nodes_server.yml` and `deploy_nodes_client.yml`. Variables: `ros2_node_verify_settle_seconds` (default 10), `ros2_node_verify_stable_seconds` (default 5).
 
   - **`system_optimize`** — Ubuntu 24.04 debloating, performance tuning, and resilience hardening for Raspberry Pi. See [System optimization](#system-optimization) below.
+  - **`docker_cleanup`** — Full Docker removal for migration to native ROS2 nodes. Stops all running containers, prunes images/volumes/networks, stops and disables Docker/containerd services, purges Docker CE packages (`docker-ce`, `docker-ce-cli`, `containerd.io`, plugins), removes data dirs (`/var/lib/docker`, `/etc/docker`, `/var/lib/containerd`), removes systemd overrides, APT repo and keyring files, removes the user from the `docker` group, reloads systemd, and autoremoving unused packages. All steps are skipped if Docker is not installed.
+  - **`monitoring`** — Empty role scaffold (directories for defaults, handlers, meta, tasks, templates exist but contain no files yet). Reserved for future host monitoring.
   - **`steamdeck_ui`** — Provisions the SteamDeck controller (controller.ros2.lan / 192.168.1.35): installs ROS2 Jazzy base, Node.js 20, Python bridge deps (websockets, pydantic, opencv), Electron system deps, clones the repo, runs `npm ci`, deploys `/etc/steamdeck-ui/config.yaml` (rendered from Jinja2 template), and installs a `.desktop` shortcut.
 
 ## System optimization
@@ -314,6 +318,16 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | robot_localization_ekf | 25% | 128M |
 | nav2_bringup | 75% | 512M |
 | web_ui | 30% | 256M |
+
+## Connection tuning
+
+The `ansible.cfg` `[ssh_connection]` section hardens SSH for flaky WiFi links to the Raspberry Pis:
+
+- **`ControlMaster=no`** / **`ControlPath=none`** — disables SSH multiplexing to avoid stale sockets after network drops.
+- **`ConnectTimeout=30`** — fails fast on unreachable hosts (30 s).
+- **`ServerAliveInterval=10`** / **`ServerAliveCountMax=6`** — sends a keepalive every 10 s; drops the connection after 60 s of silence.
+- **`timeout=120`** — per-task SSH timeout (2 min).
+- **`retries=5`** — retries failed SSH connections up to 5 times.
 
 ## Linting and testing
 

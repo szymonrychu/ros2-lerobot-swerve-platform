@@ -1,13 +1,78 @@
 # ROS2 Lerobot Swerve-Drive Platform
 
-A ROS2-based robotics platform with leader–follower teleop, RTK GPS, IMU, cameras, and swerve drive. Two Raspberry Pis (Server + Client) communicate over WiFi, each running Docker-containerized ROS2 nodes managed by Ansible and systemd.
+A ROS2-based robotics platform with leader–follower teleop, RTK GPS, IMU, cameras, and swerve drive. Two Raspberry Pis (Server + Client) communicate over WiFi, running native ROS2 nodes managed by Ansible and systemd.
+
+## Highlights
+
+<table>
+<tr>
+<td width="50%">
+
+**Browser-based robot dashboard** — real-time sensor visualization, 3D URDF model, GPS map, and navigation — all from any device on the LAN.
+
+- 7 live tabs: RGBD camera, IMU 3D, servo graphs, local/GPS maps, 3D scene, robot status
+- FastAPI + React + Three.js, served from the onboard RPi
+- WebSocket bridge at 20 Hz for all ROS2 topics
+
+</td>
+<td width="50%">
+
+<img src="docs/screenshots/web-ui-robot-status.png" alt="Robot Status — 3D URDF model with SO-101 arm" width="100%"/>
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+<img src="docs/screenshots/web-ui-gps-map.png" alt="GPS Map — live RTK position on OpenStreetMap" width="100%"/>
+
+</td>
+<td width="50%">
+
+**RTK GPS with sub-meter accuracy** — base station (Server RPi4) broadcasts RTCM3 corrections over TCP to the rover (Client RPi5). Live position on an OpenStreetMap layer with tap-to-navigate.
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+**Leader–follower arm teleop** — move the leader SO-101 arm and the follower mirrors in real-time. Kalman-filtered joint commands cross WiFi via DDS with predictive compensation for network delay.
+
+</td>
+<td width="50%">
+
+<img src="docs/screenshots/web-ui-arm-servos.png" alt="Arm Servos — real-time joint position graphs" width="100%"/>
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+<img src="docs/screenshots/web-ui-imu.png" alt="IMU — live 3D orientation visualization" width="100%"/>
+
+</td>
+<td width="50%">
+
+**Full sensor suite on a Raspberry Pi 5** — BNO055 IMU, RealSense D435i depth camera, RPLidar A1, dual USB cameras, 8-servo swerve drive, and Nav2 navigation stack — all running natively with Poetry venvs and systemd.
+
+</td>
+</tr>
+</table>
+
+**What makes this project unique:**
+
+- **18 ROS2 nodes** running as native systemd services across two Raspberry Pis — no Docker, no X11, just headless embedded Linux
+- **4-wheel swerve drive** with inverse/forward kinematics, odometry, and autonomous navigation via Nav2
+- **Zero-touch deployment** — Ansible provisions bare Ubuntu, installs ROS2, deploys nodes, and tunes the OS for real-time performance
+- **3D robot visualization** in-browser with URDF model, lidar overlay, and costmap — powered by Three.js and react-three-fiber
+- **Telemetry API** — HTTP + WebSocket topic scraper with observation rules for automated health monitoring
 
 ## Architecture
 
 ![System Architecture](docs/diagrams/architecture.png)
 
 <details>
-<summary>Deployment view (containers per host)</summary>
+<summary>Deployment view (services per host)</summary>
 
 ![Deployment](docs/diagrams/deployment.png)
 </details>
@@ -37,6 +102,7 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | Swerve drive | **Working** | 4-wheel swerve: feetech bridge (8 servos) + controller (cmd_vel, FK/IK, odom) |
 | RealSense D435i | **Working** | Depth + color + IMU (unified `/camera/imu`) via ros-jazzy-realsense2-camera |
 | RPLidar-A1 | **Working** | 2D lidar `sensor_msgs/LaserScan` on `/scan` via ros-jazzy-rplidar-ros |
+| Web UI dashboard | **Working** | Browser-based robot dashboard: RGBD cam, IMU 3D, servo graphs, local/GPS map, 3D URDF scene, robot status |
 | Nav2 (MVP) | **Working** | 2D nav stack: odom, scan, IMU, goal → cmd_vel; EKF fuses odom+IMU |
 
 ## Node catalog
@@ -70,6 +136,7 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `realsense_d435i` | realsense_d435i | `/camera/*` (color, depth, pointcloud, `/camera/imu`) | RealSense D435i (USB 3.0) |
 | `test_joint_api` | test_joint_api | REST :18080 → `/filter/input_joint_updates` (pub) | — |
 | `topic_scraper_api` | topic_scraper_api | HTTP :18100 | — |
+| `web_ui` | web_ui | HTTP :8080, WS `/ws` (20 Hz topic broadcast) | — |
 | `haptic_controller` | haptic_controller | Disabled (`mode: off`) | — |
 
 ### Topic flow (leader–follower path)
@@ -121,7 +188,7 @@ Nav2 reads: /odom or /odometry/filtered, /scan, /imu/data; goal via navigate_to_
 
 ```
 ├── nodes/                  All ROS2 node source + Dockerfiles
-│   ├── ros2_master/        DDS daemon container
+│   ├── ros2_master/        DDS daemon
 │   ├── master2master/      Cross-host topic proxy
 │   ├── lerobot_teleop/     Leader→follower teleop (not deployed; path uses filter_node)
 │   ├── filter_node/        Kalman filter for joint commands
@@ -132,7 +199,8 @@ Nav2 reads: /odom or /odometry/filtered, /scan, /imu/data; goal via navigate_to_
 │   ├── static_tf_publisher/ Static TF base_link→sensors
 │   ├── robot_localization_ekf/ EKF fuse odom+IMU
 │   ├── nav2_bringup/       Nav2 navigation stack
-│   ├── steamdeck_ui/       SteamDeck Electron UI + Python bridge (native, no Docker)
+│   ├── web_ui/             Browser dashboard (FastAPI + React + Three.js)
+│   ├── steamdeck_ui/       SteamDeck Electron UI + Python bridge (legacy)
 │   └── bridges/
 │       ├── bno055_imu/     BNO055 IMU bridge
 │       ├── feetech_servos/ Feetech servo bridge (leader + follower)
@@ -142,8 +210,8 @@ Nav2 reads: /odom or /odometry/filtered, /scan, /imu/data; goal via navigate_to_
 │       └── realsense_d435i/ RealSense D435i bridge
 ├── shared/                 Shared Python libraries
 ├── ansible/                Provisioning + deployment (Ansible)
-│   ├── roles/              common, docker, network, hostname, ros2_node_deploy,
-│   │                       ros2_node_verify, system_optimize, steamdeck_ui
+│   ├── roles/              common, network, hostname, ros2_base, ros2_node_deploy,
+│   │                       ros2_node_verify, system_optimize, monitoring, docker_cleanup
 │   ├── playbooks/          Provision + deploy + optimize
 │   └── group_vars/         Per-host node lists and config
 ├── scripts/                Utility scripts (calibration, verification, diagnostics)
@@ -215,4 +283,5 @@ See [ansible/README.md](ansible/README.md) for full details on roles, node confi
 | static_tf_publisher | [nodes/static_tf_publisher/README.md](nodes/static_tf_publisher/README.md) |
 | robot_localization_ekf | [nodes/robot_localization_ekf/README.md](nodes/robot_localization_ekf/README.md) |
 | nav2_bringup | [nodes/nav2_bringup/README.md](nodes/nav2_bringup/README.md) |
+| web_ui | [nodes/web_ui/README.md](nodes/web_ui/README.md) |
 | steamdeck_ui | [nodes/steamdeck_ui/README.md](nodes/steamdeck_ui/README.md) |

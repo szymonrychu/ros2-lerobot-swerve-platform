@@ -83,7 +83,16 @@ lint-nodes = { shell = """
   (cd nodes/bridges/uvc_camera && poetry run poe lint)
   (cd nodes/bridges/feetech_servos && poetry run poe lint)
   (cd nodes/bridges/gps_rtk && poetry run poe lint)
+  (cd nodes/bridges/bno055_imu && poetry run poe lint)
   (cd nodes/lerobot_teleop && poetry run poe lint)
+  (cd nodes/filter_node && poetry run poe lint)
+  (cd nodes/test_joint_api && poetry run poe lint)
+  (cd nodes/haptic_controller && poetry run poe lint)
+  (cd nodes/topic_scraper_api && poetry run poe lint)
+  (cd nodes/swerve_drive_controller && poetry run poe lint)
+  (cd nodes/web_ui && poetry run poe lint)
+  (cd nodes/static_tf_publisher && poetry run poe lint)
+  (cd nodes/steamdeck_ui/bridge && poetry run poe lint)
 """ }
 lint-ansible = { shell = """
   set -e
