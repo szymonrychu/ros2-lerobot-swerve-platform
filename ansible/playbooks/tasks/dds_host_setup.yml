@@ -1,0 +1,43 @@
+---
+# Login shells (SSH, ros2 CLI, diag scripts) join the local FastDDS discovery server as super clients,
+# so `ros2 topic list/echo` sees the whole graph like the ros2 daemon does.
+- name: Install /etc/profile.d/ros2_dds.sh
+  ansible.builtin.copy:
+    dest: /etc/profile.d/ros2_dds.sh
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (playbooks/tasks/dds_host_setup.yml). FastDDS discovery server client settings.
+      export ROS_DISCOVERY_SERVER="{{ ros2_dds_local_discovery }}"
+      export ROS_SUPER_CLIENT=TRUE
+
+# Nodes run as a regular user; with logind's default RemoveIPC=yes every SSH logout of that user deletes
+# its POSIX shared memory, i.e. the FastDDS SHM segments of all running nodes (data silently stops while
+# discovery still works). Keep IPC, and restart the nodes once when this is first applied.
+- name: Keep node user IPC when sessions end (logind RemoveIPC=no)
+  ansible.builtin.copy:
+    dest: /etc/systemd/logind.conf.d/ros2-keep-ipc.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (playbooks/tasks/dds_host_setup.yml): FastDDS shared memory must survive logouts.
+      [Login]
+      RemoveIPC=no
+  register: ros2_keep_ipc
+
+- name: Reload systemd-logind configuration
+  ansible.builtin.systemd:
+    name: systemd-logind
+    state: restarted
+  when: ros2_keep_ipc.changed
+
+- name: Restart running ROS2 node services so they recreate shared memory segments
+  ansible.builtin.shell: |
+    set -o pipefail
+    systemctl list-units --type=service --state=running --no-legend 'ros2-*' | awk '{print $1}' | xargs -r systemctl restart
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: ros2_keep_ipc.changed

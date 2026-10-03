@@ -280,9 +280,10 @@ DDS discovery uses one **FastDDS Discovery Server per host** instead of mesh dis
 
 - **Server process:** node `fastdds_discovery_server` (first entry in `ros2_nodes` on client and server) runs `fastdds discovery -i <ros2_dds_server_id> -l 0.0.0.0 -p 11811`. Server IDs: client `0`, server `1` (`ros2_dds_server_id` in `group_vars/<host>.yml`).
 - **All ROS2 nodes:** the unit template emits `ros2_dds_env` (`group_vars/all.yml`) first: `ROS_DISCOVERY_SERVER=<ros2_dds_local_discovery>`. On the client that is `127.0.0.1:11811`; on the server it is `;127.0.0.1:11811`, because a server's position in the list must equal its ID. Units start after `ros2-fastdds_discovery_server.service`. Node `env` entries come later and override it.
-- **Introspection:** `ros2-master` (ros2 daemon), `topic_scraper_api`, `web_ui` and `master2master` set `ROS_SUPER_CLIENT=TRUE` so they see the whole graph. SSH shells get the same settings from `/etc/profile.d/ros2_dds.sh` (`playbooks/tasks/dds_shell_env.yml`), so the `ros2` CLI and `scripts/*_diag.sh` work. Non-login SSH commands should `source /etc/profile.d/ros2_dds.sh`.
+- **Introspection:** `ros2-master` (ros2 daemon), `topic_scraper_api`, `web_ui` and `master2master` set `ROS_SUPER_CLIENT=TRUE` so they see the whole graph. SSH shells get the same settings from `/etc/profile.d/ros2_dds.sh` (`playbooks/tasks/dds_host_setup.yml`), so the `ros2` CLI and `scripts/*_diag.sh` work. Non-login SSH commands should `source /etc/profile.d/ros2_dds.sh`.
 - **Cross-host:** `master2master` on the client uses `ROS_DISCOVERY_SERVER=127.0.0.1:11811;server.ros2.lan:11811`, so it sees both graphs and is the only process exchanging data over Wi-Fi.
 - **Steam Deck UI:** `ROS_DISCOVERY_SERVER=client.ros2.lan:11811` (`steamdeck_ros2_discovery_server`).
+- **Shared memory:** nodes run as a regular user, and logind's default `RemoveIPC=yes` deletes that user's POSIX shared memory (the FastDDS SHM data segments) on every SSH logout. Data then silently stops while discovery still works. `dds_host_setup.yml` installs `/etc/systemd/logind.conf.d/ros2-keep-ipc.conf` (`RemoveIPC=no`) and restarts running `ros2-*` services once when it is first applied.
 - **Rollout:** deploy `--all` on both hosts so every unit picks up the new environment.
 
 ## Node Resource Limits

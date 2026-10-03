@@ -111,3 +111,14 @@ def test_steamdeck_points_at_client_discovery_server() -> None:
     defaults = yaml.safe_load((ANSIBLE_DIR / "roles" / "steamdeck_ui" / "defaults" / "main.yml").read_text())
     assert defaults["steamdeck_ros2_discovery_server"] == "{{ ros2_client_hostname }}:11811"
     assert "steamdeck_ros2_static_peers" not in defaults
+
+
+def test_host_setup_keeps_ipc_of_node_user() -> None:
+    """logind must not delete the node user's shared memory (FastDDS SHM transport) when SSH sessions end."""
+    tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "tasks" / "dds_host_setup.yml").read_text())
+    logind = [
+        t for t in tasks if t.get("ansible.builtin.copy", {}).get("dest", "").startswith("/etc/systemd/logind.conf.d/")
+    ]
+    assert logind and "RemoveIPC=no" in logind[0]["ansible.builtin.copy"]["content"]
+    restarts = [t for t in tasks if "ros2-" in str(t.get("ansible.builtin.shell", ""))]
+    assert restarts and "when" in restarts[0]

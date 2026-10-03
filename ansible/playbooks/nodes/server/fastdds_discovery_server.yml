@@ -11,5 +11,5 @@
       vars:
         _deploy_node_name: fastdds_discovery_server
 
-    - name: Install DDS discovery environment for shells
-      ansible.builtin.include_tasks: ../../tasks/dds_shell_env.yml
+    - name: DDS host setup (shell env, keep shared memory)
+      ansible.builtin.include_tasks: ../../tasks/dds_host_setup.yml
