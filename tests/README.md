@@ -171,8 +171,12 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_swerve_controller_does_not_publish_odom_tf` | swerve_controller config sets `publish_tf: false` (EKF owns `odom -> base_link`). |
 | `test_slam_params_frames_and_topics` | slam_toolbox params: base_link/odom/map frames, `/scan`, mapping mode, 0.05 m resolution, no hard-coded `map_file_name`. |
 | `test_slam_launch_starts_async_lifecycle_node` | Launch starts `async_slam_toolbox_node` as a lifecycle node with configure + activate transitions. |
-| `test_slam_launch_resumes_only_when_posegraph_exists` | `map_resume_parameters` (compiled out of the launch file) returns `map_file_name` + `map_start_at_dock` only when `<base>.posegraph` exists. |
-| `test_slam_toolbox_ansible_wiring` | Node type defaults (native, apt package, repo launch, budget) and an enabled `ros2_nodes` entry after `fastdds_discovery_server`. |
+| `test_slam_launch_resumes_only_when_posegraph_exists` | `map_resume_parameters` (compiled out of the launch file) returns `map_file_name` + `map_start_at_dock` only when `<base>.posegraph` exists; otherwise it returns `map_file_name: ""` so a `map_file_name` from a params file never makes slam_toolbox load a missing file. |
+| `test_slam_launch_appends_override_params_only_when_present` | `params_files` returns the repo `slam_params.yaml` first and appends the deployed config only when it exists and is non-empty (ROS params files: later wins). |
+| `test_slam_launch_override_defaults_and_env` | Launch reads the override path from `SLAM_TOOLBOX_CONFIG`, defaulting to `/etc/ros2/slam_toolbox/config.yaml`. |
+| `test_slam_launch_map_base_from_configuration` | `configured_map_base` takes `map_file_name` from the last params file that sets it (falls back to `/var/lib/ros2/maps/slam_map`); an explicit `SLAM_TOOLBOX_MAP_BASE` value wins over the files. |
+| `test_slam_toolbox_ansible_wiring` | Node type defaults (native, apt package, repo launch, budget, `config_path: /etc/ros2/slam_toolbox`, env `SLAM_TOOLBOX_CONFIG`) and an enabled `ros2_nodes` entry after `fastdds_discovery_server`. |
+| `test_slam_toolbox_ansible_config_overrides` | The `ros2_nodes` slam_toolbox `config: \|` block parses as YAML with `map_file_name` (`/var/lib/ros2/maps/slam_map`), `min_laser_range` 0.15 and `max_laser_range` 12.0, only known slam_toolbox params, and the same map path as the web_ui Map tab `map_save_path`. |
 | `test_slam_playbooks_deploy_node_and_create_maps_dir` | `deploy_nodes_client.yml` and `nodes/client/slam_toolbox.yml` deploy slam_toolbox and create `/var/lib/ros2/maps` (owner `ansible_user`, 0755). |
 | `test_slam_deployed_after_discovery_server_in_client_playbook` | slam_toolbox is deployed after the discovery server. |
 | `test_nav2_launch_passes_repo_params_without_localization` | Nav2 launch passes the repo `params_file`, keeps `use_localization:=False`. |
@@ -183,7 +187,10 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_planner_navfn_allows_unknown` | NavFn with `allow_unknown: true`. |
 | `test_nav2_velocity_smoother_matches_swerve` | Smoother limits `[0.25, 0.25, 0.5]`, odom `/odometry/filtered`. |
 | `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) and a `/scan` observation source. |
+| `test_nav2_collision_monitor_stays_in_cmd_vel_chain_with_stopbox_disabled` | collision_monitor stays in the `cmd_vel_smoothed -> cmd_vel` chain with its core keys; the `StopBox` stop polygon stays declared but ships `enabled: false` (lidar self-hit risk, explained in a comment). |
+| `test_nav2_readme_documents_collision_monitor_validation` | Nav2 README documents the StopBox `enabled: false` default and the live `/scan` + `collision_monitor_state` validation procedure. |
 | `test_nav2_docking_server_configures_without_docks` | Non-empty `dock_plugins`, no docks. |
 | `test_nav2_readme_documents_plan_topics` | Nav2 README names `/plan` and `/optimal_trajectory`. |
 | `test_web_ui_has_map_nav_tab` | web_ui config has the `map` tab of type `map_nav` with exactly the expected fields. |
 | `test_web_ui_installs_slam_toolbox_for_its_service_imports` | web_ui node type installs `ros-jazzy-slam-toolbox` (it imports `slam_toolbox.srv`), so deploying web_ui alone does not fail with ImportError. |
+| `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_nav_stack_config.py` is listed in this section. |

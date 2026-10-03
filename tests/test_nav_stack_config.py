@@ -25,6 +25,7 @@ SLAM_PARAMS = SLAM_DIR / "config" / "slam_params.yaml"
 SLAM_LAUNCH = SLAM_DIR / "launch" / "slam.launch.py"
 NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yaml"
 NAV2_README = REPO_ROOT / "nodes" / "nav2_bringup" / "README.md"
+TESTS_README = REPO_ROOT / "tests" / "README.md"
 
 LASER_FRAME = "laser_frame"
 MAPS_DIR = "/var/lib/ros2/maps"
@@ -585,3 +586,13 @@ def test_web_ui_installs_slam_toolbox_for_its_service_imports() -> None:
     """web_ui imports slam_toolbox.srv at module top, so deploying it alone must install the package."""
     defaults = client_vars()["ros2_node_type_defaults"]["web_ui"]
     assert "ros-jazzy-slam-toolbox" in defaults.get("apt_packages", [])
+
+
+def test_every_test_is_documented_in_tests_readme() -> None:
+    """tests/README.md must list every test in this file (repo convention: update it whenever tests change)."""
+    text = TESTS_README.read_text()
+    section = text.split("### test_nav_stack_config.py", 1)[1].split("\n### ", 1)[0]
+    tree = ast.parse(Path(__file__).read_text())
+    names = [n.name for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")]
+    missing = [name for name in names if f"`{name}`" not in section]
+    assert not missing, f"undocumented in tests/README.md: {missing}"
