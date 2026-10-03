@@ -4,7 +4,6 @@ ws_broadcast_hz: 20
 bridge:
   host: localhost
   port: 9090
-  ros_static_peers: "client.ros2.lan"
 
 tabs:
   - id: rgbd_camera

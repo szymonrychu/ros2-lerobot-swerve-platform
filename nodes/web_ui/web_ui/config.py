@@ -22,7 +22,6 @@ class BridgeConfig(BaseModel):
 
     host: str = "localhost"
     port: int = 9090
-    ros_static_peers: str = "client.ros2.lan"
     ros_domain_id: str = "0"
 
     @field_validator("ros_domain_id", mode="before")
