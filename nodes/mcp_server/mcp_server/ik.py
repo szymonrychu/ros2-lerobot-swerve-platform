@@ -1,0 +1,250 @@
+"""SO101 arm kinematics on the repo URDF via ikpy: 5-DOF chain, position + approach pitch IK, URDF joint limits."""
+
+import math
+import warnings
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from pathlib import Path
+
+import ikpy.chain
+import numpy as np
+
+BASE_LINK = "base_link"
+ARM_CHAIN_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
+# Joints the IK solves; wrist_roll spins the gripper about its approach axis and is kept from the seed.
+IK_ACTIVE_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex")
+# The tool frame (gripper_frame_link) approach direction is its local z axis (forward/horizontal at zero pose).
+APPROACH_AXIS = "Z"
+POSITION_TOLERANCE_M = 0.002
+PITCH_TOLERANCE_RAD = math.radians(3.0)
+# Extra IK seeds (shoulder_lift, elbow_flex, wrist_flex) tried after the caller's seed.
+HEADING_REFINEMENTS = 6
+EXTRA_SEEDS = ((0.0, 0.0, 0.0), (-0.8, 0.8, 0.5), (0.5, -0.5, 1.0), (-1.2, 1.4, 0.0), (0.8, 0.8, -0.5))
+
+
+class UnreachableError(ValueError):
+    """Raised when no joint configuration within limits reaches the requested target."""
+
+
+@dataclass(frozen=True)
+class CartesianPose:
+    """Tool point pose in the arm base_link frame; pitch > 0 means the gripper points below horizontal."""
+
+    x: float
+    y: float
+    z: float
+    pitch: float
+
+
+def load_joint_limits(urdf_path: Path) -> dict[str, tuple[float, float]]:
+    """Read revolute joint limits from a URDF.
+
+    Args:
+        urdf_path (Path): URDF file.
+
+    Returns:
+        dict[str, tuple[float, float]]: Joint name -> (lower, upper) in rad.
+    """
+    root = ET.parse(urdf_path).getroot()
+    limits: dict[str, tuple[float, float]] = {}
+    for joint in root.iter("joint"):
+        limit = joint.find("limit")
+        if joint.get("type") in ("revolute", "prismatic") and limit is not None:
+            limits[joint.attrib["name"]] = (float(limit.attrib["lower"]), float(limit.attrib["upper"]))
+    return limits
+
+
+def pitch_of(approach: np.ndarray) -> float:
+    """Pitch of an approach vector: angle below the horizontal plane.
+
+    Args:
+        approach (np.ndarray): 3-vector.
+
+    Returns:
+        float: Pitch in rad (positive = pointing down).
+    """
+    return math.atan2(-float(approach[2]), math.hypot(float(approach[0]), float(approach[1])))
+
+
+class ArmKinematics:
+    """Forward and inverse kinematics of the 5-DOF SO101 chain base_link -> gripper_frame_link."""
+
+    def __init__(self, urdf_path: Path, margin: float) -> None:
+        """Build the ikpy chain and shrink the joint bounds by margin.
+
+        Args:
+            urdf_path (Path): Arm URDF.
+            margin (float): Safety margin kept from each URDF limit (rad).
+        """
+        all_limits = load_joint_limits(urdf_path)
+        self.limits = {j: all_limits[j] for j in ARM_CHAIN_JOINTS}
+        self.margin = margin
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            chain = ikpy.chain.Chain.from_urdf_file(str(urdf_path), base_elements=[BASE_LINK])
+        names = [link.name for link in chain.links]
+        missing = [j for j in ARM_CHAIN_JOINTS if j not in names]
+        if missing:
+            raise ValueError(f"URDF chain from {BASE_LINK} lacks joints {missing}")
+        self.index = {j: names.index(j) for j in ARM_CHAIN_JOINTS}
+        mask = [link.name in IK_ACTIVE_JOINTS for link in chain.links]
+        for j in ARM_CHAIN_JOINTS:
+            lo, hi = self.limits[j]
+            chain.links[self.index[j]].bounds = (lo + margin, hi - margin)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.chain = ikpy.chain.Chain(chain.links, active_links_mask=mask, name="so101")
+        self.joint_names = ARM_CHAIN_JOINTS
+        pan_origin = self.chain.forward_kinematics(np.zeros(len(self.chain.links)), full_kinematics=True)[
+            self.index["shoulder_pan"]
+        ]
+        self.pan_axis_xy = (float(pan_origin[0, 3]), float(pan_origin[1, 3]))
+
+    def to_vector(self, joints: dict[str, float]) -> np.ndarray:
+        """Convert a joint map into ikpy's full link vector.
+
+        Args:
+            joints (dict[str, float]): Joint name -> rad (missing chain joints default to 0).
+
+        Returns:
+            np.ndarray: Link vector.
+        """
+        q = np.zeros(len(self.chain.links))
+        for j in ARM_CHAIN_JOINTS:
+            q[self.index[j]] = joints.get(j, 0.0)
+        return q
+
+    def forward(self, joints: dict[str, float]) -> CartesianPose:
+        """Tool pose for a joint configuration.
+
+        Args:
+            joints (dict[str, float]): Joint name -> rad.
+
+        Returns:
+            CartesianPose: Tool position and approach pitch in base_link.
+        """
+        frame = self.chain.forward_kinematics(self.to_vector(joints))
+        return CartesianPose(
+            x=float(frame[0, 3]), y=float(frame[1, 3]), z=float(frame[2, 3]), pitch=pitch_of(frame[:3, 2])
+        )
+
+    def approach_vector(self, heading: float, pitch: float) -> np.ndarray:
+        """Approach direction with the given horizontal heading, pitched down by pitch.
+
+        Args:
+            heading (float): Horizontal heading of the approach in base_link (rad).
+            pitch (float): Approach pitch (rad, positive down).
+
+        Returns:
+            np.ndarray: Unit 3-vector.
+        """
+        return np.array([math.cos(pitch) * math.cos(heading), math.cos(pitch) * math.sin(heading), -math.sin(pitch)])
+
+    def within_limits(self, joints: dict[str, float]) -> bool:
+        """Whether every chain joint lies within its limits minus margin.
+
+        Args:
+            joints (dict[str, float]): Joint name -> rad.
+
+        Returns:
+            bool: True when inside.
+        """
+        eps = 1e-9
+        return all(
+            self.limits[j][0] + self.margin - eps <= joints[j] <= self.limits[j][1] - self.margin + eps
+            for j in ARM_CHAIN_JOINTS
+        )
+
+    def inverse(self, x: float, y: float, z: float, pitch: float | None, seed: dict[str, float]) -> dict[str, float]:
+        """Joint configuration placing the tool at (x, y, z), optionally with the given approach pitch.
+
+        Tries the seed first, then a few fixed seeds, and accepts a solution only when forward kinematics confirms it
+        within POSITION_TOLERANCE_M / PITCH_TOLERANCE_RAD and inside the limits; it never returns a best guess.
+
+        Args:
+            x (float): Target x in base_link (m).
+            y (float): Target y in base_link (m).
+            z (float): Target z in base_link (m).
+            pitch (float | None): Approach pitch (rad, positive down), or None for position only.
+            seed (dict[str, float]): Starting configuration (typically the measured pose); wrist_roll is kept.
+
+        Returns:
+            dict[str, float]: Chain joint name -> rad.
+
+        Raises:
+            UnreachableError: When the target cannot be reached within limits and tolerances.
+        """
+        values = (x, y, z) if pitch is None else (x, y, z, pitch)
+        if not all(math.isfinite(v) for v in values):
+            raise UnreachableError("target must be finite")
+        roll = min(
+            max(seed.get("wrist_roll", 0.0), self.limits["wrist_roll"][0] + self.margin),
+            self.limits["wrist_roll"][1] - self.margin,
+        )
+        target = np.array([x, y, z])
+        heading = math.atan2(y - self.pan_axis_xy[1], x - self.pan_axis_xy[0])
+        seeds = [dict(seed)]
+        for lift, elbow, wrist in EXTRA_SEEDS:
+            seeds.append({"shoulder_pan": -heading, "shoulder_lift": lift, "elbow_flex": elbow, "wrist_flex": wrist})
+        best_error = math.inf
+        for candidate in seeds:
+            sol = self.clamp_seed(candidate | {"wrist_roll": roll})
+            # The arm plane heading depends on the solution (link offsets, wrist_roll), so refine it from each solve.
+            for _ in range(HEADING_REFINEMENTS if pitch is not None else 1):
+                orientation = None if pitch is None else self.approach_vector(heading, pitch)
+                sol = self.solve(target, orientation, sol, roll)
+                frame = self.chain.forward_kinematics(self.to_vector(sol))
+                approach = frame[:3, 2]
+                if math.hypot(float(approach[0]), float(approach[1])) > 1e-6:
+                    heading = math.atan2(float(approach[1]), float(approach[0]))
+                reached = self.forward(sol)
+                error = math.dist((reached.x, reached.y, reached.z), (x, y, z))
+                best_error = min(best_error, error)
+                pitch_ok = pitch is None or abs(reached.pitch - pitch) <= PITCH_TOLERANCE_RAD
+                if error <= POSITION_TOLERANCE_M and pitch_ok and self.within_limits(sol):
+                    return sol
+        raise UnreachableError(
+            f"target ({x:.3f}, {y:.3f}, {z:.3f})"
+            + ("" if pitch is None else f" pitch {pitch:.2f} rad")
+            + f" is unreachable within joint limits (closest {best_error * 1000:.0f} mm)"
+        )
+
+    def solve(
+        self, target: np.ndarray, orientation: np.ndarray | None, start: dict[str, float], roll: float
+    ) -> dict[str, float]:
+        """One ikpy solve from a start configuration.
+
+        Args:
+            target (np.ndarray): Target position.
+            orientation (np.ndarray | None): Approach vector, or None for position only.
+            start (dict[str, float]): Start configuration (inside bounds).
+            roll (float): wrist_roll kept fixed.
+
+        Returns:
+            dict[str, float]: Solved chain joints.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            q = self.chain.inverse_kinematics(
+                target,
+                orientation,
+                orientation_mode=None if orientation is None else APPROACH_AXIS,
+                initial_position=self.to_vector(self.clamp_seed(start)),
+            )
+        sol = {j: float(q[self.index[j]]) for j in ARM_CHAIN_JOINTS}
+        sol["wrist_roll"] = roll
+        return sol
+
+    def clamp_seed(self, joints: dict[str, float]) -> dict[str, float]:
+        """Clamp a seed into the IK bounds (ikpy refuses seeds outside them).
+
+        Args:
+            joints (dict[str, float]): Seed configuration.
+
+        Returns:
+            dict[str, float]: Clamped seed with every chain joint present.
+        """
+        return {
+            j: min(max(joints.get(j, 0.0), self.limits[j][0] + self.margin), self.limits[j][1] - self.margin)
+            for j in ARM_CHAIN_JOINTS
+        }
