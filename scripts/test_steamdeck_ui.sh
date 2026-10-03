@@ -120,7 +120,7 @@ trap cleanup EXIT
 
 cd "$APP_DIR"
 set +u; source /opt/ros/jazzy/setup.bash 2>/dev/null || true; set -u
-ROS_LOCALHOST_ONLY=0 "$BRIDGE_PYTHON" -m bridge.bridge_server --config "$APP_DIR/config/default.yaml" &>/tmp/bridge_smoke.log &
+"$BRIDGE_PYTHON" -m bridge.bridge_server --config "$APP_DIR/config/default.yaml" &>/tmp/bridge_smoke.log &
 BRIDGE_PID=$!
 sleep 3
 
@@ -163,9 +163,8 @@ fi
 # --- DDS discovery ---
 echo ""
 echo "-- DDS topic discovery (requires client RPi online) --"
-export ROS_LOCALHOST_ONLY=0
-export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
-export ROS_STATIC_PEERS="${ROS_STATIC_PEERS:-client.ros2.lan}"
+# Join the robot's FastDDS discovery server (client RPi, server ID 0).
+export ROS_DISCOVERY_SERVER="${ROS_DISCOVERY_SERVER:-client.ros2.lan:11811}"
 
 TOPICS=$(timeout 5 ros2 topic list 2>/dev/null || true)
 if echo "$TOPICS" | grep -q "/controller/"; then

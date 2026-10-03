@@ -15,7 +15,7 @@ ros2_setup_script: /opt/ros/jazzy/setup.bash
 nodejs_major_version: "20"
 
 # ROS2 DDS settings for the bridge process
-steamdeck_ros2_static_peers: "{{ ros2_client_hostname }}"
+steamdeck_ros2_discovery_server: "{{ ros2_client_hostname }}:11811"
 steamdeck_ros2_domain_id: "0"
 
 # UI window settings

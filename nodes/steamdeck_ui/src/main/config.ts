@@ -45,7 +45,7 @@ export interface TabConfig {
 export interface BridgeConfig {
   host: string;
   port: number;
-  ros_static_peers: string;
+  ros_discovery_server: string;
   ros_domain_id?: string;
 }
 

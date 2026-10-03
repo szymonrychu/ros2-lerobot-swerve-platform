@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any
 
@@ -18,13 +19,25 @@ class BridgeConfig(BaseModel):
 
     host: str = "localhost"
     port: int = 9090
-    ros_static_peers: str = "client.ros2.lan"
+    # FastDDS discovery server on the robot (client RPi): list position must equal its server ID (0).
+    ros_discovery_server: str = "client.ros2.lan:11811"
     ros_domain_id: str = "0"
 
     @field_validator("ros_domain_id", mode="before")
     @classmethod
     def coerce_domain_id(cls, v: object) -> str:
         return str(v)
+
+
+def apply_dds_environment(config: BridgeConfig, environ: MutableMapping[str, str]) -> None:
+    """Set DDS discovery variables from config unless already present in the environment.
+
+    Args:
+        config: Bridge settings (discovery server address, domain ID).
+        environ: Environment mapping to update (e.g. os.environ).
+    """
+    environ.setdefault("ROS_DISCOVERY_SERVER", config.ros_discovery_server)
+    environ.setdefault("ROS_DOMAIN_ID", config.ros_domain_id)
 
 
 class OverlayItem(BaseModel):

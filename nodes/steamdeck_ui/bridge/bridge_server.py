@@ -23,7 +23,7 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
 
-from .config import AppConfig, load_config
+from .config import AppConfig, apply_dds_environment, load_config
 from .msg_serializer import msg_to_dict
 
 log = logging.getLogger(__name__)
@@ -328,10 +328,7 @@ def main() -> None:
 
     # Set DDS environment from config if not already set
     config = load_config(args.config)
-    os.environ.setdefault("ROS_LOCALHOST_ONLY", "0")
-    os.environ.setdefault("ROS_AUTOMATIC_DISCOVERY_RANGE", "SUBNET")
-    os.environ.setdefault("ROS_STATIC_PEERS", config.bridge.ros_static_peers)
-    os.environ.setdefault("ROS_DOMAIN_ID", config.bridge.ros_domain_id)
+    apply_dds_environment(config.bridge, os.environ)
 
     asyncio.run(run_bridge(config))
 
