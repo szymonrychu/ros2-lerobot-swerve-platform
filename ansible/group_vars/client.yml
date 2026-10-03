@@ -405,10 +405,11 @@ ros2_nodes:
         activation_debounce_cycles: 2
       delay_safety_max_skew_s: 0.4
       watchdog_timeout_s: 0.5
+  # Disabled while the gripper USB camera is disconnected (it restart-looped every few seconds, adding load).
   - name: gripper_uvc_camera
     node_type: uvc_camera
     present: true
-    enabled: true
+    enabled: false
     env:
       - UVC_DEVICE=/dev/video0
       - UVC_TOPIC=/camera_0/image_raw
