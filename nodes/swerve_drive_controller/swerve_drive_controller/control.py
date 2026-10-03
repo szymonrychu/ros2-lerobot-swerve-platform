@@ -47,12 +47,14 @@ class ControlState:
         last_odom_time: Monotonic time of the previous odometry step, or None after a gap.
         steer_flip: Common steering side of the last cycle (False all unflipped, True all flipped), or None when
             the per-wheel fold was used or before the first cycle.
+        stopped_since: Monotonic time the commanded twist became zero, or None while moving.
     """
 
     steer_targets: list[float] | None = None
     pose: tuple[float, float, float] = (0.0, 0.0, 0.0)
     last_odom_time: float | None = None
     steer_flip: bool | None = None
+    stopped_since: float | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +143,12 @@ def control_step(
         config.max_wheel_angular_velocity_rad_s,
         previous_flip=state.steer_flip,
     )
+    stopped = vx == 0.0 and vy == 0.0 and omega == 0.0
+    stopped_since = (state.stopped_since if state.stopped_since is not None else now) if stopped else None
+    if stopped and config.idle_recenter_s > 0 and now - stopped_since >= config.idle_recenter_s:
+        # Idle long enough: steer straight ahead (drive is already zero while stopped).
+        desired_steer = [0.0] * 4
+        steer_flip = None
     # No-propulsion safeguard: zero drive for a wheel until its steering has caught up.
     for i in range(4):
         if should_zero_drive(steer_angles[i], desired_steer[i], config.steer_error_threshold_rad):
@@ -161,4 +169,10 @@ def control_step(
         odom_twist=twist,
         moving=abs(vx) > CMD_VEL_DEADBAND or abs(vy) > CMD_VEL_DEADBAND or abs(omega) > CMD_VEL_DEADBAND,
     )
-    return output, ControlState(steer_targets=list(desired_steer), pose=pose, last_odom_time=now, steer_flip=steer_flip)
+    return output, ControlState(
+        steer_targets=list(desired_steer),
+        pose=pose,
+        last_odom_time=now,
+        steer_flip=steer_flip,
+        stopped_since=stopped_since,
+    )

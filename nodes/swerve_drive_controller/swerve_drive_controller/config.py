@@ -21,6 +21,8 @@ DEFAULT_MAX_STEER_ANGLE_RAD = math.pi / 2
 DEFAULT_MAX_WHEEL_ANGULAR_VELOCITY_RAD_S = 4.71
 DEFAULT_CMD_VEL_TIMEOUT_S = 0.5
 DEFAULT_JOINT_STATES_TIMEOUT_S = 0.5
+# Steering returns to straight ahead after the commanded twist has been zero this long (0 disables).
+DEFAULT_IDLE_RECENTER_S = 3.0
 # ST3215: 0.222 s/60 deg -> ~4.71 rad/s max steering rate.
 DEFAULT_MAX_STEER_ANGULAR_VELOCITY_RAD_S = 4.71
 # No-propulsion when steer error exceeds this (rad). ~20 deg.
@@ -52,6 +54,8 @@ class SwerveControllerConfig:
         max_wheel_angular_velocity_rad_s: Drive speed limit; all wheels are scaled together above it, rad/s.
         cmd_vel_timeout_s: Commanded twist is zeroed when no cmd_vel arrives for this long, s.
         joint_states_timeout_s: No commands/odometry are published when joint states are older than this, s.
+        idle_recenter_s: Steering targets return to 0 rad after the commanded twist has been zero this long, s
+            (0 disables recentering; stopped wheels then keep their heading).
         publish_tf: Broadcast the odom -> base_link TF (False: only /odom is published).
         imu_offset_xyyaw: Optional [x, y, yaw] offset of IMU from base_link (default 0,0,0).
         rplidar_offset_xyyaw: Optional [x, y, yaw] offset of lidar from base_link (default 0,0,0).
@@ -74,6 +78,7 @@ class SwerveControllerConfig:
     max_wheel_angular_velocity_rad_s: float
     cmd_vel_timeout_s: float
     joint_states_timeout_s: float
+    idle_recenter_s: float
     publish_tf: bool
     imu_offset_xyyaw: tuple[float, float, float]
     rplidar_offset_xyyaw: tuple[float, float, float]
@@ -174,6 +179,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
     )
     cmd_vel_timeout_s = max(0.05, flt("cmd_vel_timeout_s", DEFAULT_CMD_VEL_TIMEOUT_S))
     joint_states_timeout_s = max(0.05, flt("joint_states_timeout_s", DEFAULT_JOINT_STATES_TIMEOUT_S))
+    idle_recenter_s = max(0.0, flt("idle_recenter_s", DEFAULT_IDLE_RECENTER_S))
     publish_tf = parse_bool(data.get("publish_tf"), True)
     imu_offset_xyyaw = _parse_offset(data.get("imu_offset_xyyaw"))
     rplidar_offset_xyyaw = _parse_offset(data.get("rplidar_offset_xyyaw"))
@@ -196,6 +202,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
         max_wheel_angular_velocity_rad_s=max_wheel_angular_velocity_rad_s,
         cmd_vel_timeout_s=cmd_vel_timeout_s,
         joint_states_timeout_s=joint_states_timeout_s,
+        idle_recenter_s=idle_recenter_s,
         publish_tf=publish_tf,
         imu_offset_xyyaw=imu_offset_xyyaw,
         rplidar_offset_xyyaw=rplidar_offset_xyyaw,

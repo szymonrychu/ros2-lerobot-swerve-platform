@@ -502,6 +502,7 @@ ros2_nodes:
       max_wheel_angular_velocity_rad_s: 4.71
       cmd_vel_timeout_s: 0.5
       joint_states_timeout_s: 0.5
+      idle_recenter_s: 3.0
       cmd_vel_topic: /cmd_vel
       joint_states_topic: /swerve_drive/joint_states
       joint_commands_topic: /swerve_drive/joint_commands

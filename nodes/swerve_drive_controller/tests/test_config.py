@@ -138,3 +138,13 @@ def test_parse_bool_returns_default_for_garbage() -> None:
     assert parse_bool("garbage", False) is False
     assert parse_bool("garbage", True) is True
     assert parse_bool(None, False) is False
+
+
+def test_idle_recenter_s_parsed_and_clamped(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text("idle_recenter_s: 5.5\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.idle_recenter_s == 5.5
+    p.write_text("idle_recenter_s: -1\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.idle_recenter_s == 0.0

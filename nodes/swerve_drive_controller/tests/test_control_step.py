@@ -1,7 +1,10 @@
 """Unit tests for the per-cycle control step and combined command builder."""
 
 import math
+from dataclasses import replace
 from pathlib import Path
+
+import pytest
 
 from swerve_drive_controller.config import SwerveControllerConfig, load_config
 from swerve_drive_controller.control import (
@@ -177,3 +180,42 @@ def test_group_flip_kept_when_joint_states_stale(tmp_path: Path) -> None:
     assert out is None
     assert new_state.steer_flip is True
     assert new_state.steer_targets == [1.5] * 4
+
+
+def _sideways_then_stop(cfg, stop_times: list[float]) -> list[list[float]]:
+    """Drive sideways at t=10.0, then send zero twist at each of stop_times; return steer targets per stop cycle."""
+    state = ControlState()
+    _, state = control_step(cfg, state, CmdVelSample((0.0, 0.1, 0.0), 10.0), make_joints(10.0), 10.0)
+    steers = []
+    for t in stop_times:
+        out, state = control_step(cfg, state, CmdVelSample((0.0, 0.0, 0.0), t), make_joints(t), t)
+        assert out is not None
+        steers.append([out.positions[i] for i in (1, 3, 5, 7)])
+    return steers
+
+
+def test_steering_recenters_after_idle_timeout(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    assert cfg.idle_recenter_s == pytest.approx(3.0)
+    held, recentered = _sideways_then_stop(cfg, [10.02, 12.9, 13.1])[1:]
+    assert all(abs(s) > 1.0 for s in held), "heading still held before the timeout"
+    assert recentered == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_motion_resets_idle_timer(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    state = ControlState()
+    for t in (10.0, 11.0, 12.0):  # stop for 2 s ...
+        _, state = control_step(
+            cfg, state, CmdVelSample((0.0, 0.1, 0.0) if t == 10.0 else (0.0, 0.0, 0.0), t), make_joints(t), t
+        )
+    _, state = control_step(cfg, state, CmdVelSample((0.0, 0.1, 0.0), 12.5), make_joints(12.5), 12.5)  # ... move
+    out, state = control_step(cfg, state, CmdVelSample((0.0, 0.0, 0.0), 14.0), make_joints(14.0), 14.0)
+    assert out is not None
+    assert all(abs(out.positions[i]) > 1.0 for i in (1, 3, 5, 7)), "only 1.5 s idle since the last motion"
+
+
+def test_idle_recenter_disabled_with_zero(tmp_path: Path) -> None:
+    cfg = replace(make_config(tmp_path), idle_recenter_s=0.0)
+    late = _sideways_then_stop(cfg, [10.02, 60.0])[-1]
+    assert all(abs(s) > 1.0 for s in late)
