@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+
 from filter_node.config import load_config, load_config_from_env
 
 
@@ -108,3 +109,40 @@ def test_load_config_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert cfg is not None
     assert cfg.input_topic == "/custom/input"
     assert cfg.output_topic == "/custom/output"
+
+
+def test_load_config_autonomy_fields_default(tmp_path: Path) -> None:
+    """Autonomy lease topics default to the /filter/* contract topics."""
+    p = tmp_path / "c.yaml"
+    p.write_text("algorithm: kalman\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.autonomy_input_topic == "/filter/autonomy_joint_commands"
+    assert cfg.autonomy_release_topic == "/filter/autonomy_release"
+    assert cfg.active_source_topic == "/filter/active_source"
+
+
+def test_load_config_autonomy_fields_explicit(tmp_path: Path) -> None:
+    """Autonomy lease topics are parsed from YAML and stripped."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "algorithm: kalman\n"
+        "autonomy_input_topic: ' /mcp/arm_commands '\n"
+        "autonomy_release_topic: /mcp/arm_release\n"
+        "active_source_topic: /mcp/active_source\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.autonomy_input_topic == "/mcp/arm_commands"
+    assert cfg.autonomy_release_topic == "/mcp/arm_release"
+    assert cfg.active_source_topic == "/mcp/active_source"
+
+
+def test_load_config_autonomy_disabled_with_empty_string(tmp_path: Path) -> None:
+    """An explicit empty string disables autonomy input (kept distinct from the default)."""
+    p = tmp_path / "c.yaml"
+    p.write_text("algorithm: kalman\nautonomy_input_topic: ''\nactive_source_topic: ''\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.autonomy_input_topic == ""
+    assert cfg.active_source_topic == ""

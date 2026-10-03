@@ -8,8 +8,10 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
+from std_msgs.msg import Bool, String
 
 from .algorithms import get_algorithm
+from .arbitration import ActiveSourceReporter, SourceArbiter
 from .config import FilterConfig
 
 FILTER_QOS = QoSProfile(
@@ -20,6 +22,20 @@ FILTER_QOS = QoSProfile(
 
 INPUT_STALE_WARN_S = 5.0
 HEALTH_TIMER_PERIOD_S = 5.0
+# Poll faster than the 1 Hz report period so timer jitter never stretches it to 2 s.
+ACTIVE_SOURCE_POLL_S = 0.1
+
+
+def joint_positions(msg: JointState) -> dict[str, float]:
+    """Map joint names to positions, skipping names without a position.
+
+    Args:
+        msg (JointState): Incoming joint state.
+
+    Returns:
+        dict[str, float]: Joint name -> position (rad).
+    """
+    return {name: float(msg.position[i]) for i, name in enumerate(msg.name) if i < len(msg.position)}
 
 
 def run_filter_node(config: FilterConfig) -> None:
@@ -35,33 +51,48 @@ def run_filter_node(config: FilterConfig) -> None:
     clock = node.get_clock()
     control_period_s = 1.0 / max(1.0, config.control_loop_hz)
     last_input_time: list[float] = [time.monotonic()]
-    active_source: list[str] = ["leader"]
-    last_web_ui_time: list[float] = [0.0]
-    follower_positions: dict[str, float] = {}
+    arbiter = SourceArbiter(
+        web_ui_timeout_s=config.web_ui_timeout_s,
+        takeover_threshold_rad=config.takeover_threshold_rad,
+        proximity_check_enabled=bool(config.follower_feedback_topic),
+    )
+    reporter = ActiveSourceReporter()
+    source_pub = (
+        node.create_publisher(String, config.active_source_topic, FILTER_QOS) if config.active_source_topic else None
+    )
+    log = node.get_logger()
+
+    def publish_direct(msg: JointState) -> None:
+        """Republish a clean command (web UI / autonomy) unfiltered on the output topic."""
+        out = JointState()
+        out.header.stamp = clock.now().to_msg()
+        out.header.frame_id = ""
+        out.name = list(msg.name)
+        out.position = list(msg.position)
+        out.velocity = []
+        out.effort = []
+        pub.publish(out)
+
+    def report_source() -> None:
+        """Publish the active source when it changed or the 1 Hz period elapsed."""
+        if source_pub is not None and reporter.due(arbiter.active_source, time.monotonic()):
+            source_msg = String()
+            source_msg.data = arbiter.active_source
+            source_pub.publish(source_msg)
 
     def on_input(msg: JointState) -> None:
-        # Feature 2+3: when web UI is active, check if leader can take over
-        if config.web_ui_input_topic and active_source[0] == "web_ui":
-            elapsed = time.monotonic() - last_web_ui_time[0]
-            if elapsed < config.web_ui_timeout_s:
-                # Web UI still active. Allow leader takeover only if joints are close.
-                if config.follower_feedback_topic and follower_positions:
-                    all_close = all(
-                        abs(float(msg.position[i]) - follower_positions.get(name, float("inf")))
-                        <= config.takeover_threshold_rad
-                        for i, name in enumerate(msg.name)
-                        if i < len(msg.position)
-                    )
-                    if all_close:
-                        active_source[0] = "leader"
-                        node.get_logger().info("Leader takeover: all joints within threshold, switching to leader")
-                    else:
-                        return  # leader too far, ignore
-                else:
-                    return  # no feedback configured, cannot verify proximity
-            else:
-                active_source[0] = "leader"
-                node.get_logger().info("Web UI idle, reverting to leader source")
+        previous = arbiter.active_source
+        decision = arbiter.on_leader_input(joint_positions(msg), time.monotonic())
+        if not decision.accepted:
+            return
+        if decision.resumed_after_release:
+            # Drop stale pre-lease estimates so the first output starts at the (follower-near) leader pose.
+            state_by_joint.clear()
+            last_measurement_time.clear()
+            log.info("Leader takeover after autonomy release: all joints within threshold")
+        elif previous != arbiter.active_source:
+            log.info(f"Leader takeover from {previous}")
+        report_source()
         last_input_time[0] = time.monotonic()
         now = last_input_time[0]
         for i, name in enumerate(msg.name):
@@ -82,22 +113,26 @@ def run_filter_node(config: FilterConfig) -> None:
             node.get_logger().warning(f"No input on {config.input_topic} for {elapsed:.1f}s")
 
     def on_web_ui_input(msg: JointState) -> None:
-        active_source[0] = "web_ui"
-        last_web_ui_time[0] = time.monotonic()
-        # Publish web UI commands directly — web UI sends clean data, no Kalman needed
-        out = JointState()
-        out.header.stamp = clock.now().to_msg()
-        out.header.frame_id = ""
-        out.name = list(msg.name)
-        out.position = list(msg.position)
-        out.velocity = []
-        out.effort = []
-        pub.publish(out)
+        # Web UI sends clean data, no Kalman needed; ignored while autonomy holds the lease
+        if arbiter.on_web_ui_command(time.monotonic()):
+            publish_direct(msg)
+            report_source()
+
+    def on_autonomy_input(msg: JointState) -> None:
+        # The MCP server already streams smooth, rate-limited setpoints: republish directly
+        if not arbiter.autonomy_held:
+            log.info("Autonomy lease taken: web UI and leader input ignored until release")
+        arbiter.on_autonomy_command()
+        publish_direct(msg)
+        report_source()
+
+    def on_autonomy_release(msg: Bool) -> None:
+        if arbiter.on_autonomy_release(bool(msg.data)):
+            log.info("Autonomy lease released: web UI active immediately, leader resumes on proximity")
+            report_source()
 
     def on_follower_feedback(msg: JointState) -> None:
-        for i, name in enumerate(msg.name):
-            if i < len(msg.position):
-                follower_positions[name] = float(msg.position[i])
+        arbiter.update_follower_positions(joint_positions(msg))
 
     node.create_subscription(JointState, config.input_topic, on_input, FILTER_QOS)
     node.create_timer(HEALTH_TIMER_PERIOD_S, health_check)
@@ -112,6 +147,17 @@ def run_filter_node(config: FilterConfig) -> None:
             f"Follower feedback for takeover: {config.follower_feedback_topic}"
             f" (threshold {config.takeover_threshold_rad} rad)"
         )
+    if config.autonomy_input_topic:
+        node.create_subscription(JointState, config.autonomy_input_topic, on_autonomy_input, FILTER_QOS)
+        if config.autonomy_release_topic:
+            node.create_subscription(Bool, config.autonomy_release_topic, on_autonomy_release, FILTER_QOS)
+        else:
+            log.warning("No autonomy_release_topic: an autonomy lease can only end by restarting the node")
+        log.info(f"Autonomy lease enabled: {config.autonomy_input_topic} (release {config.autonomy_release_topic})")
+        if not config.follower_feedback_topic:
+            log.warning("No follower_feedback_topic: leader cannot resume after an autonomy release")
+    if source_pub is not None:
+        node.create_timer(ACTIVE_SOURCE_POLL_S, report_source)
     node.get_logger().info("Filter node: %s -> %s [%s]" % (config.input_topic, config.output_topic, config.algorithm))
 
     executor = SingleThreadedExecutor()
@@ -132,12 +178,11 @@ def run_filter_node(config: FilterConfig) -> None:
                     was_idle = True
                 executor.spin_once(timeout_sec=control_period_s)
                 continue
-            # When web UI is active and not timed out, skip Kalman publish
-            # (web UI callback already published directly)
-            if config.web_ui_input_topic and active_source[0] == "web_ui":
-                if time.monotonic() - last_web_ui_time[0] < config.web_ui_timeout_s:
-                    executor.spin_once(timeout_sec=control_period_s)
-                    continue
+            # Web UI (within timeout) and autonomy publish directly from their callbacks; after an autonomy
+            # release nothing is published until the leader passes the proximity rule.
+            if not arbiter.should_publish_filtered(now):
+                executor.spin_once(timeout_sec=control_period_s)
+                continue
             if was_idle:
                 node.get_logger().info("Input resumed, publishing output")
                 was_idle = False

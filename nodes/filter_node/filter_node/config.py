@@ -9,6 +9,9 @@ import yaml
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/filter_node/config.yaml")
 ENV_CONFIG_PATH_KEY = "FILTER_NODE_CONFIG"
+DEFAULT_AUTONOMY_INPUT_TOPIC = "/filter/autonomy_joint_commands"
+DEFAULT_AUTONOMY_RELEASE_TOPIC = "/filter/autonomy_release"
+DEFAULT_ACTIVE_SOURCE_TOPIC = "/filter/active_source"
 
 
 @dataclass
@@ -36,7 +39,13 @@ class FilterConfig:
             takeover while web UI is active.
         takeover_threshold_rad: Maximum allowed joint position difference (radians) between
             leader and follower for a leader takeover to be accepted while web UI is active.
-            Defaults to 0.15.
+            Defaults to 0.15. Also gates the leader resuming after an autonomy lease is released.
+        autonomy_input_topic: Topic for autonomy (robot MCP server) JointState commands. Highest priority:
+            the first command takes a sticky lease (no timeout) during which web UI and leader input are
+            ignored; commands are republished directly. Empty string disables autonomy input.
+        autonomy_release_topic: std_msgs/Bool topic; ``true`` ends the autonomy lease (``false`` is ignored).
+        active_source_topic: std_msgs/String topic on which the active source (leader, web_ui, autonomy,
+            none) is published on change and at 1 Hz. Empty string disables it.
     """
 
     input_topic: str
@@ -50,6 +59,24 @@ class FilterConfig:
     web_ui_timeout_s: float = 0.5
     follower_feedback_topic: str = ""
     takeover_threshold_rad: float = 0.15
+    autonomy_input_topic: str = DEFAULT_AUTONOMY_INPUT_TOPIC
+    autonomy_release_topic: str = DEFAULT_AUTONOMY_RELEASE_TOPIC
+    active_source_topic: str = DEFAULT_ACTIVE_SOURCE_TOPIC
+
+
+def read_topic(data: dict[str, Any], key: str, default: str) -> str:
+    """Read an optional topic name where an explicit empty value disables the feature.
+
+    Args:
+        data (dict[str, Any]): Parsed YAML mapping.
+        key (str): Config key.
+        default (str): Value used when the key is absent.
+
+    Returns:
+        str: Stripped topic name ("" when explicitly empty or null).
+    """
+    value = data.get(key, default)
+    return str(value).strip() if value is not None else ""
 
 
 def load_config(path: Path | None = None) -> FilterConfig | None:
@@ -112,6 +139,9 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         web_ui_timeout_s=web_ui_timeout_s,
         follower_feedback_topic=follower_feedback_topic,
         takeover_threshold_rad=takeover_threshold_rad,
+        autonomy_input_topic=read_topic(data, "autonomy_input_topic", DEFAULT_AUTONOMY_INPUT_TOPIC),
+        autonomy_release_topic=read_topic(data, "autonomy_release_topic", DEFAULT_AUTONOMY_RELEASE_TOPIC),
+        active_source_topic=read_topic(data, "active_source_topic", DEFAULT_ACTIVE_SOURCE_TOPIC),
     )
 
 
