@@ -729,3 +729,11 @@ def test_ws_connect_sends_cached_snapshot(map_app: Any) -> None:
     bridge.flush_dirty.return_value = []
     with map_app(bridge).websocket_connect("/ws") as ws:
         assert ws.receive_json() == {"topic": "/map", "data": {"png_b64": "abc"}}
+
+
+def test_default_config_has_map_nav_tab() -> None:
+    cfg = load_config(Path(__file__).parent.parent / "config" / "default.yaml")
+    tab = cfg.map_nav_tabs()[0]
+    assert tab.map_topic == "/map"
+    assert "/goal_pose" in cfg.publish_topics()
+    assert cfg.robot_pose_frames() == ("map", "base_link")

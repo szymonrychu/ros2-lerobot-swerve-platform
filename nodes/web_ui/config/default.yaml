@@ -54,6 +54,17 @@ tabs:
     odom_topic: /controller/odom
     goal_topic: /controller/goal_pose
 
+  - id: slam_map
+    type: map_nav
+    label: "Map"
+    map_topic: /map
+    global_plan_topic: /plan
+    local_plan_topic: /local_plan
+    goal_topic: /goal_pose
+    map_frame: map
+    base_frame: base_link
+    map_save_path: /var/lib/ros2/maps/slam_map
+
   - id: gps_nav
     type: nav_gps
     label: "GPS Map"

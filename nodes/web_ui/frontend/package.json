@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test": "vitest run",
     "lint": "eslint src --ext ts,tsx --max-warnings 0",
     "preview": "vite preview"
   },
