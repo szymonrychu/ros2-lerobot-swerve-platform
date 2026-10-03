@@ -25,6 +25,9 @@ DEFAULT_JOINT_STATES_TIMEOUT_S = 0.5
 DEFAULT_MAX_STEER_ANGULAR_VELOCITY_RAD_S = 4.71
 # No-propulsion when steer error exceeds this (rad). ~20 deg.
 DEFAULT_STEER_ERROR_THRESHOLD_RAD = 0.35
+# Accepted string spellings for boolean options (compared lower-case).
+BOOL_TRUE_STRINGS = frozenset({"true", "yes", "on", "1"})
+BOOL_FALSE_STRINGS = frozenset({"false", "no", "off", "0"})
 
 
 @dataclass
@@ -74,6 +77,34 @@ class SwerveControllerConfig:
     publish_tf: bool
     imu_offset_xyyaw: tuple[float, float, float]
     rplidar_offset_xyyaw: tuple[float, float, float]
+
+
+def parse_bool(value: Any, default: bool) -> bool:
+    """Parse a boolean option strictly.
+
+    Accepts YAML booleans, integers 0/1, and strings (case-insensitive, trimmed)
+    'true'/'yes'/'on'/'1' and 'false'/'no'/'off'/'0'. Anything else (other
+    strings, other numbers, lists, None) returns ``default`` instead of being
+    coerced, so a quoted "false" never turns into True.
+
+    Args:
+        value: Raw value from the YAML config.
+        default: Value returned when ``value`` is not a recognised boolean.
+
+    Returns:
+        bool: Parsed boolean, or ``default``.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return {0: False, 1: True}.get(value, default)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in BOOL_TRUE_STRINGS:
+            return True
+        if text in BOOL_FALSE_STRINGS:
+            return False
+    return default
 
 
 def _parse_offset(value: Any) -> tuple[float, float, float]:
@@ -143,7 +174,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
     )
     cmd_vel_timeout_s = max(0.05, flt("cmd_vel_timeout_s", DEFAULT_CMD_VEL_TIMEOUT_S))
     joint_states_timeout_s = max(0.05, flt("joint_states_timeout_s", DEFAULT_JOINT_STATES_TIMEOUT_S))
-    publish_tf = bool(data.get("publish_tf", True))
+    publish_tf = parse_bool(data.get("publish_tf"), True)
     imu_offset_xyyaw = _parse_offset(data.get("imu_offset_xyyaw"))
     rplidar_offset_xyyaw = _parse_offset(data.get("rplidar_offset_xyyaw"))
 

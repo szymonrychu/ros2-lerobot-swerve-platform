@@ -49,7 +49,7 @@ YAML config (path via `SWERVE_DRIVE_CONTROLLER_CONFIG` or `/etc/ros2/swerve_driv
 - `cmd_vel_timeout_s` (default 0.5): the twist is zeroed when `/cmd_vel` goes quiet. `joint_states_timeout_s` (default 0.5).
 - `joint_names`: 8 names in order fl_drive, fl_steer, fr_drive, fr_steer, rl_drive, rl_steer, rr_drive, rr_steer.
 - `cmd_vel_topic`, `joint_states_topic`, `joint_commands_topic`, `odom_topic`, `odom_frame_id`, `base_frame_id`.
-- `publish_tf` (default true): set false to publish only `/odom` and leave the `odom` -> `base_link` TF to another node (e.g. a localization stack).
+- `publish_tf` (default true): set false to publish only `/odom` and leave the `odom` -> `base_link` TF to another node (e.g. a localization stack). Parsed strictly: YAML booleans, integers 0/1, and strings (case-insensitive) `true/yes/on/1` and `false/no/off/0` are accepted; any other value falls back to the default (true) rather than being coerced.
 - `control_loop_hz` (default 50), `steer_error_threshold_rad`, `max_steer_angular_velocity_rad_s` (ST3215 is about 4.71 rad/s, for tuning).
 
 ## Driving manually

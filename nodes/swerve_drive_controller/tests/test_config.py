@@ -11,6 +11,7 @@ from swerve_drive_controller.config import (
     DEFAULT_HALF_WIDTH_M,
     DEFAULT_WHEEL_RADIUS_M,
     load_config,
+    parse_bool,
 )
 
 
@@ -98,3 +99,42 @@ def test_publish_tf_explicit_true(tmp_path: Path) -> None:
     cfg = _load(tmp_path, "publish_tf: true\n")
     assert cfg is not None
     assert cfg.publish_tf is True
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ('"false"', False),
+        ('"False"', False),
+        ('"no"', False),
+        ('"NO"', False),
+        ('"off"', False),
+        ('"0"', False),
+        ('" false "', False),
+        ('"true"', True),
+        ('"TRUE"', True),
+        ('"yes"', True),
+        ('"on"', True),
+        ('"1"', True),
+        ("false", False),
+        ("true", True),
+        ("0", False),
+        ("1", True),
+        ('"maybe"', True),
+        ('""', True),
+        ("2", True),
+        ("0.5", True),
+        ("[false]", True),
+        ("null", True),
+    ],
+)
+def test_publish_tf_strict_parsing(tmp_path: Path, raw: str, expected: bool) -> None:
+    cfg = _load(tmp_path, f"publish_tf: {raw}\n")
+    assert cfg is not None
+    assert cfg.publish_tf is expected
+
+
+def test_parse_bool_returns_default_for_garbage() -> None:
+    assert parse_bool("garbage", False) is False
+    assert parse_bool("garbage", True) is True
+    assert parse_bool(None, False) is False
