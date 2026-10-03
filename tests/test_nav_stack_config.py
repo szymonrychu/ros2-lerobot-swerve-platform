@@ -703,4 +703,11 @@ def test_restart_handler_skips_disabled_nodes() -> None:
     handlers = yaml.safe_load((ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "handlers" / "main.yml").read_text())
     restart = next(h for h in handlers if h["name"] == "Restart ROS2 node")
     conditions = restart["when"] if isinstance(restart["when"], list) else [restart["when"]]
-    assert any("node_enabled" in c for c in conditions), conditions
+    assert any("ros2_node_restart_enabled" in c for c in conditions), conditions
+    tasks = yaml.safe_load((ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "main.yml").read_text())
+    facts = next(
+        t["ansible.builtin.set_fact"]
+        for t in tasks
+        if "ros2_node_restart_now" in str(t.get("ansible.builtin.set_fact"))
+    )
+    assert "node_enabled" in facts["ros2_node_restart_enabled"]
