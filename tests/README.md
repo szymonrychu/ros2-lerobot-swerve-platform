@@ -146,6 +146,33 @@ The **web_ui** node has tests under `nodes/web_ui/tests/`. Run from `nodes/web_u
 - Map tab backend (`test_map_nav.py`): `map_nav` tab type, defaults (`/map`, `/plan`, `/optimal_trajectory`, `/goal_pose`, `map`, `base_link`, save path) and overrides, empty frame rejected, subscribed topics and publish allowlist, topic roles; OccupancyGrid -> PNG grey levels, thresholds, row orientation (y up), metadata, size mismatch; Path serialization and downsampling to 500 points keeping the ends, paths in another frame transformed to `map` (dropped without TF); goal PoseStamped serialization; quaternion/transform helpers; latched (reliable + transient_local) map subscription; robot pose from TF published when available and omitted otherwise; typed `_dict_to_ros_msg` (ints vs floats, errors raised); goal publishing fills stamp and frame; `POST /api/map/save` success, slam failure, service unavailable, timeout, unknown tab, no bridge; cached snapshot sent on WS connect; default config has the map tab. Reset/Stop: `map_reset_service` and `navigate_action` defaults; `POST /api/map/reset` (slam_toolbox `/slam_toolbox/reset`) success, non-success result, unavailable, timeout, unknown tab, no bridge, cached map cleared only on success (cleared-map event); `POST /api/nav/stop` cancels all `NavigateToPose` goals (zero goal id and stamp), unavailable, timeout, cached goal cleared on success (cleared-goal event). Robot footprint: `footprint_topic` default and `footprint` role, PolygonStamped serialized to points and re-expressed in the map frame.
 - Map tab frontend (`frontend/src/map/mapMath.test.ts` and `mapActions.test.ts`, vitest, `npm test`): Reset/Stop action helpers, front edge of the footprint polygon (`frontEdgeIndex`) and world <-> screen (y up), map image placement with origin and yaw, pan, zoom about the cursor with clamping, pinch zoom/pan, fit and centre view, yaw/quaternion helpers and angle normalization, goal heading from drag or plain click (towards goal, robot heading fallback), scale-bar length choice.
 
+### Per-node tests (mcp_server)
+
+The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed: rclpy is imported only by
+`ros_iface.py` and `__main__.py`). Run from `nodes/mcp_server`: `poetry run pytest tests -q` (or `poetry run poe test`).
+`fakes.py` provides a simulated follower arm backend with a fake clock. Covers:
+
+- config (`test_config.py`): defaults (0.0.0.0:18200 `/mcp`, topics, conservative limits, timeouts), repo-relative URDF
+  path resolution, YAML overrides, empty file, unknown keys rejected, hard caps (0.25 m/s, speed scale 0.5, 1024 px),
+  `MCP_SERVER_CONFIG` lookup, `MCP_SERVER_TOKEN` refused when missing/blank/short and stripped otherwise
+- trajectory (`test_trajectory.py`): quintic blend endpoints/monotonicity, limit clamping with margin, duration from the
+  quintic peak velocity, sampled trajectory ends exactly at the goal without exceeding the velocity cap, tracking error
+- staleness (`test_staleness.py`), home store (`test_home_store.py`: missing file, atomic round trip, corrupt file,
+  non-finite values), geometry (`test_geometry.py`: yaw/quaternion, relative goals, twist clamping)
+- IK (`test_ik.py`): URDF joint limits, 5-DOF chain, FK at zero pose and pitch sign, IK forward/inverse round trip with
+  pitch and position only, wrist_roll kept from the seed, solutions inside limits minus margin, unreachable targets
+- perception (`test_perception.py`): 8 scan sectors in base_link (lidar mounted backwards), invalid returns ignored, map
+  stats, map PNG crop size, image fitting, JPEG encoding, `sensor_msgs/Image` encodings, JPEG pass-through/downscale
+- arm controller (`test_arm.py`): lease acquire/release, streamed motion with implicit acquire and velocity cap, speed
+  scale, clamping, argument validation, abort + hold on stale feedback / tracking error / stop, no hold after filter_node
+  switches source, convergence timeout, Cartesian moves (unreachable reported without motion), gripper open fraction
+  and close-until-effort, home/set_home, keepalive and lease loss, state with stale data omitted
+- drive (`test_base_motion.py`): rate, clamping, duration cap, abort always ends with a zero twist
+- tools (`test_tools.py`): all 15 tools registered with real descriptions, structured outputs, camera JPEG + stamp,
+  argument validation, robot errors as tool errors, map PNG, arm tool round trip, bearer-token auth on the Streamable
+  HTTP app (401 without/with a wrong token, 200 with the right one) and the configured path
+- rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
+
 ### Per-node tests (gps_rtk)
 
 The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `nodes/bridges/gps_rtk`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading and validation (`test_config.py`: minimal base/rover, rover with rtcm_server_host, invalid mode rejected, load_config from file/missing/empty); NMEA GGA parsing (`test_nmea_parser.py`: lat/lon N/S/E/W, altitude, fix quality, full sentence, RTK fixed quality 4, quality-to-NavSatStatus mapping); serial stream handling (`test_serial_handler.py`: NMEA checksum and append_checksum_if_missing, RTCM3 length parsing, CRC24Q, valid RTCM3 frame build/validation, parser emits NMEA with valid checksum, ignores invalid NMEA, discards unknown bytes).
@@ -203,6 +230,31 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_readme_documents_collision_monitor_validation` | Nav2 README documents StopBox `enabled: true` on `/scan_filtered` and the live `collision_monitor_state` validation procedure. |
 | `test_nav2_docking_server_configures_without_docks` | Non-empty `dock_plugins`, no docks. |
 | `test_nav2_readme_documents_plan_topics` | Nav2 README names `/plan` and `/optimal_trajectory`. |
-| `test_web_ui_has_map_nav_tab` | web_ui config has the `map` tab of type `map_nav` with exactly the expected fields. |
+| `test_web_ui_has_map_nav_tab` | web_ui config has the `map` tab of type `map_nav` with exactly the expected fields, including the merged 3D view fields (`/scan_filtered`, `/local_costmap/costmap`, swerve and arm URDFs, `/follower/joint_states`, arm command topic `/filter/web_ui_joint_commands`). |
 | `test_web_ui_installs_slam_toolbox_for_its_service_imports` | web_ui node type installs `ros-jazzy-slam-toolbox` (it imports `slam_toolbox.srv`), so deploying web_ui alone does not fail with ImportError. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_nav_stack_config.py` is listed in this section. |
+
+### test_mcp_server_config.py
+
+Static checks of the robot MCP server wiring (YAML, the unit template rendered with jinja2, the token script run with a
+fake `ssh`; no ROS needed).
+
+| Test (group) | Description |
+|------|-------------|
+| `test_mcp_server_node_type_defaults` | `mcp_server` node type: native, `nodes/mcp_server`, `python3 -m mcp_server`, 25% / 256M, `config_path` `/etc/ros2/mcp_server`, env `MCP_SERVER_CONFIG`, token only via `environment_file: /etc/ros2/mcp_server/token`. |
+| `test_mcp_server_node_entry_and_config` | Present + enabled `ros2_nodes` entry; config block keys, server 0.0.0.0:18200 `/mcp`, repo-relative arm URDF that exists, home file `/var/lib/ros2/arm/home.yaml`. |
+| `test_mcp_server_topics_match_filter_node_lease` | mcp_server autonomy command/release/active source and follower feedback topics equal filter_node's. |
+| `test_filter_node_autonomy_params` | filter_node config sets `autonomy_input_topic`, `autonomy_release_topic`, `active_source_topic`. |
+| `test_gripper_camera_enabled` | `gripper_uvc_camera` is present and enabled again. |
+| `test_web_ui_tab_set` | web_ui tabs are exactly map (map_nav, first), camera (`/camera_0/image_raw/compressed`), rgbd_camera, imu_graphs; arm_servos, local_nav, gps_nav, scene3d and robot_status are gone. |
+| `test_mcp_server_setup_tasks_create_token_and_arm_dir` | `tasks/mcp_server_setup.yml` creates `/etc/ros2/mcp_server`, the token (`MCP_SERVER_TOKEN=` + 48-char password lookup, `force: false`, 0600, owner `ansible_user`, `no_log`) and `/var/lib/ros2/arm` owned by the node user. |
+| `test_playbooks_run_setup_before_deploying_mcp_server` | `deploy_nodes_client.yml` and `nodes/client/mcp_server.yml` deploy mcp_server and include the setup tasks before it. |
+| `test_node_playbook_stops_first_and_starts_last` | The per-node playbook targets the client, starts with `stop_ros_nodes.yml`, syncs the repo and ends with `start_ros_nodes.yml`. |
+| `test_unit_template_renders_environment_file_only_when_set` | The native unit template renders `EnvironmentFile=` (before `ExecStart=`) only when `node_environment_file` is non-empty. |
+| `test_resolve_and_deploy_passes_environment_file` | `resolve_and_deploy.yml` passes the node type's `environment_file` (default empty) to the role. |
+| `test_token_file_never_in_repo` | No tracked `token` file and no literal token value in tracked Ansible/scripts/node/test files; `.mcp.json` uses `${ROBOT_MCP_TOKEN}`. |
+| `test_mcp_json_registers_robot_server` | `.mcp.json` registers server `robot` (type http, `http://client.ros2.lan:18200/mcp`, `Authorization: Bearer ${ROBOT_MCP_TOKEN}`) matching the node's port and path. |
+| `test_robot_mcp_token_script` | `scripts/robot_mcp_token.sh` is executable bash (`set -euo pipefail`, passes `bash -n`), reads the token file over ssh and prints an export line. |
+| `test_robot_mcp_token_script_prints_export_line` | With a fake `ssh` returning the EnvironmentFile line, the script prints `export ROBOT_MCP_TOKEN='<token>'`. |
+| `test_mcp_server_node_package_layout` | `nodes/mcp_server` has a Poetry project with the `mcp` dependency and `mcp_server` package, a lock file, `__main__.py`, and a README with the `claude mcp add` setup. |
+| `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_mcp_server_config.py` is listed in this section. |

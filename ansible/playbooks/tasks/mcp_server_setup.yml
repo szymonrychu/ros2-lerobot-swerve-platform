@@ -1,0 +1,29 @@
+---
+# mcp_server prerequisites, run before its deploy: the bearer token EnvironmentFile and the arm home pose directory.
+# The token is generated once on the robot and never overwritten (force: false); it never enters git.
+# Fetch it on the dev machine with scripts/robot_mcp_token.sh.
+- name: Ensure mcp_server config directory exists
+  ansible.builtin.file:
+    path: /etc/ros2/mcp_server
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create mcp_server bearer token if absent
+  ansible.builtin.copy:
+    dest: /etc/ros2/mcp_server/token
+    content: "MCP_SERVER_TOKEN={{ lookup('ansible.builtin.password', '/dev/null', length=48, chars=['ascii_letters', 'digits']) }}\n"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0600"
+    force: false
+  no_log: true
+
+- name: Ensure arm home pose directory exists (owned by the node user)
+  ansible.builtin.file:
+    path: /var/lib/ros2/arm
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"

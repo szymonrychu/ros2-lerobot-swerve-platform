@@ -125,6 +125,10 @@ ros2_node_type_defaults:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
 ```
 
+Optional `environment_file` adds `EnvironmentFile=<path>` to the native unit (via `node_environment_file` in the
+`ros2_node_deploy` role) for secrets that must not appear in the unit's `Environment=` lines. `mcp_server` uses it for
+its bearer token (`/etc/ros2/mcp_server/token`, see "MCP server token" below).
+
 ### ros2_nodes
 
 List of nodes to deploy. Each entry:
@@ -334,12 +338,22 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | slam_toolbox | 75% | 512M |
 | nav2_bringup | 75% | 512M |
 | web_ui | 30% | 256M |
+| mcp_server | 25% | 256M |
 
 ### SLAM maps directory
 
 `playbooks/tasks/slam_maps_dir.yml` creates `/var/lib/ros2/maps` (owner `ansible_user`, mode `0755`) before
 `slam_toolbox` is deployed, both in `deploy_nodes_client.yml` and in `nodes/client/slam_toolbox.yml`.
 slam_toolbox saves and reloads its posegraph there (`slam_map.posegraph` / `slam_map.data`).
+
+### MCP server token and arm home directory
+
+`playbooks/tasks/mcp_server_setup.yml` runs before `mcp_server` is deployed (in `deploy_nodes_client.yml` and in
+`nodes/client/mcp_server.yml`). It creates `/etc/ros2/mcp_server/token` once, containing
+`MCP_SERVER_TOKEN=<48 random letters/digits>` (mode `0600`, owner `ansible_user`, `force: false` so redeploys keep the
+token, `no_log: true`), and `/var/lib/ros2/arm` (owner `ansible_user`) for the arm home pose (`home.yaml`). The unit
+reads the token through `EnvironmentFile=`; the token never enters git. Fetch it on the dev machine with
+`eval "$(./scripts/robot_mcp_token.sh)"` (see `nodes/mcp_server/README.md`).
 
 ## Connection tuning
 

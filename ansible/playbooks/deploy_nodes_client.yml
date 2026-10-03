@@ -166,6 +166,14 @@
       vars:
         _deploy_node_name: nav2_bringup
 
+    - name: MCP server token and arm home directory
+      ansible.builtin.include_tasks: tasks/mcp_server_setup.yml
+
+    - name: Deploy mcp_server
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: mcp_server
+
     - name: Verify all ROS2 node services are active and stable
       ansible.builtin.include_role:
         name: ros2_node_verify

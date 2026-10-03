@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "robot": {
+      "type": "http",
+      "url": "http://client.ros2.lan:18200/mcp",
+      "headers": {
+        "Authorization": "Bearer ${ROBOT_MCP_TOKEN}"
+      }
+    }
+  }
+}

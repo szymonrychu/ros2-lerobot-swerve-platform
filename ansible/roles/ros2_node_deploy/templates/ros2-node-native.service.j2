@@ -17,6 +17,9 @@ Environment={{ env }}
 {% for env in node_env | default([]) %}
 Environment={{ env }}
 {% endfor %}
+{% if node_environment_file | default('') | length > 0 %}
+EnvironmentFile={{ node_environment_file }}
+{% endif %}
 ExecStart=/usr/local/bin/ros2-{{ node_name }}
 
 [Install]

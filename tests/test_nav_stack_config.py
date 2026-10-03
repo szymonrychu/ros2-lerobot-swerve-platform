@@ -574,6 +574,14 @@ def test_web_ui_has_map_nav_tab() -> None:
         "map_frame": "map",
         "base_frame": "base_link",
         "map_save_path": MAP_BASE,
+        # Merged 3D view: lidar, local costmap, swerve base and the interactive arm on the client-local topics.
+        "scan_topic": FILTERED_SCAN,
+        "costmap_topic": "/local_costmap/costmap",
+        "urdf_file": "robot.urdf",
+        "topic": "/swerve_drive/joint_states",
+        "arm_urdf_file": "so101_arm.urdf",
+        "arm_joint_topic": "/follower/joint_states",
+        "arm_command_topic": "/filter/web_ui_joint_commands",
     }
 
 

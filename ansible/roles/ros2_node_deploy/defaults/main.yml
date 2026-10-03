@@ -3,7 +3,8 @@
 # Playbooks pass per-node vars from ros2_nodes + ros2_node_type_defaults:
 #   node_name, node_present (default true), node_enabled (default true),
 #   node_config (optional string), node_image, node_config_path (optional),
-#   node_env (list), node_extra_args (optional).
+#   node_env (list), node_extra_args (optional),
+#   node_environment_file (optional): systemd EnvironmentFile= for secrets kept out of the unit (e.g. mcp_server token).
 
 ros2_node_config_dir: /etc/ros2
 ros2_node_restart_on_change: true
