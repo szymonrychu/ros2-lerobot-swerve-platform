@@ -1,4 +1,4 @@
-"""Static invariants of the robot MCP server wiring (Ansible, unit template, filter_node lease, web_ui tabs, client setup).
+"""Static invariants of the robot MCP server wiring (Ansible, unit template, filter_node lease, web_ui tabs, setup).
 
 The mcp_server node (nodes/mcp_server) serves MCP over Streamable HTTP on the client; its bearer token lives only on the
 robot in a 0600 EnvironmentFile created by Ansible, never in git. Claude Code reads it via scripts/robot_mcp_token.sh
@@ -28,6 +28,7 @@ MCP_JSON = REPO_ROOT / ".mcp.json"
 TOKEN_SCRIPT = REPO_ROOT / "scripts" / "robot_mcp_token.sh"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
 NODE_DIR = REPO_ROOT / "nodes" / "mcp_server"
+NODES_README = REPO_ROOT / "nodes" / "README.md"
 
 CONFIG_DIR = "/etc/ros2/mcp_server"
 TOKEN_FILE = "/etc/ros2/mcp_server/token"
@@ -281,6 +282,12 @@ def test_mcp_server_node_package_layout() -> None:
     assert (NODE_DIR / "poetry.lock").is_file()
     assert (NODE_DIR / "mcp_server" / "__main__.py").is_file()
     assert (NODE_DIR / "README.md").read_text().count("claude mcp add") >= 1
+
+
+def test_mcp_server_listed_in_nodes_readme_index() -> None:
+    """nodes/README.md Layout index must carry an entry for the mcp_server node."""
+    layout = NODES_README.read_text().split("## Layout", 1)[1]
+    assert re.search(r"^- \*\*mcp_server/\*\* .*MCP", layout, re.MULTILINE)
 
 
 def test_every_test_is_documented_in_tests_readme() -> None:
