@@ -53,11 +53,12 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "tile_url": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
     "tile_subdomains": "abcd",
     "tile_cache_dir": "/var/cache/web_ui/tiles",
-    "arm_home_service": "/filter/arm_home",
-    "arm_set_home_service": "/filter/arm_set_home",
-    "urdf_file": "robot.urdf",
-    "arm_urdf_file": "so101_arm.urdf",
-    "arm_joint_topic": "/follower/joint_states",
+    "arm_home_service": "/arm/home",
+    "arm_set_home_service": "/arm/set_home",
+    "base_urdf": "robot.urdf",
+    "arm_urdf": "so101_arm.urdf",
+    "base_joint_states_topic": "/swerve_drive/joint_states",
+    "arm_joint_states_topic": "/follower/joint_states",
     "arm_command_topic": "/filter/web_ui_joint_commands",
 }
 # Default disk cache cap for proxied map tiles (MiB).
@@ -69,7 +70,8 @@ GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
     "costmap_topic",
     "odom_topic",
     "fix_topic",
-    "arm_joint_topic",
+    "base_joint_states_topic",
+    "arm_joint_states_topic",
     "color_topic",
     "depth_topic",
     "camera_info_topic",
@@ -137,9 +139,10 @@ class TabConfig(BaseModel):
     tile_cache_dir: str | None = None  # map_nav: disk cache directory of proxied tiles
     tile_cache_max_mb: int = DEFAULT_TILE_CACHE_MAX_MB  # map_nav: tile cache size cap; oldest tiles evicted first
     default_zoom: int = 18
-    urdf_file: str | None = None  # map_nav: robot base URDF under the URDF directory
-    arm_urdf_file: str | None = None
-    arm_joint_topic: str | None = None
+    base_urdf: str | None = None  # map_nav: swerve base URDF under the URDF directory (/api/urdf/)
+    base_joint_states_topic: str | None = None  # map_nav: sensor_msgs/JointState driving the base URDF
+    arm_urdf: str | None = None  # map_nav: arm URDF under the URDF directory (/api/urdf/)
+    arm_joint_states_topic: str | None = None  # map_nav: sensor_msgs/JointState driving the arm URDF
     arm_offset: tuple[float, float, float] | None = None
     arm_command_topic: str | None = None
     color_topic: str | None = None

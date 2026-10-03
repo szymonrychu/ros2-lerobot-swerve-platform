@@ -149,19 +149,37 @@ def test_map_nav_new_field_defaults() -> None:
     assert tab.tile_subdomains == "abcd"
     assert tab.tile_cache_dir == "/var/cache/web_ui/tiles"
     assert tab.tile_cache_max_mb > 0
-    assert tab.arm_home_service == "/filter/arm_home"
-    assert tab.arm_set_home_service == "/filter/arm_set_home"
-    assert tab.urdf_file == "robot.urdf"
-    assert tab.arm_urdf_file == "so101_arm.urdf"
-    assert tab.arm_joint_topic == "/follower/joint_states"
+    assert tab.arm_home_service == "/arm/home"
+    assert tab.arm_set_home_service == "/arm/set_home"
+    assert tab.base_urdf == "robot.urdf"
+    assert tab.arm_urdf == "so101_arm.urdf"
+    assert tab.base_joint_states_topic == "/swerve_drive/joint_states"
+    assert tab.arm_joint_states_topic == "/follower/joint_states"
     assert tab.arm_command_topic == "/filter/web_ui_joint_commands"
     assert tab.gps_anchor_min_points >= 3
     assert tab.gps_anchor_min_spread_m > 0
     assert tab.gps_anchor_max_residual_m > 0
 
 
+def test_map_nav_legacy_model_fields_removed() -> None:
+    tab = TabConfig(id="m", type="map_nav", label="Map")
+    for legacy in ("urdf_file", "arm_urdf_file", "arm_joint_topic"):
+        assert not hasattr(tab, legacy)
+    assert "urdf_file" not in tab.model_dump()
+
+
+def test_map_nav_model_fields_serialized_for_frontend() -> None:
+    dumped = TabConfig(id="m", type="map_nav", label="Map").model_dump()
+    assert dumped["base_urdf"] == "robot.urdf"
+    assert dumped["arm_urdf"] == "so101_arm.urdf"
+    assert dumped["base_joint_states_topic"] == "/swerve_drive/joint_states"
+    assert dumped["arm_joint_states_topic"] == "/follower/joint_states"
+
+
 def test_map_nav_new_fields_not_defaulted_for_other_tabs() -> None:
     tab = TabConfig(id="c", type="camera", label="Cam")
+    assert tab.base_urdf is None
+    assert tab.arm_joint_states_topic is None
     assert tab.local_costmap_topic is None
     assert tab.gps_fix_topic is None
     assert tab.arm_home_service is None
@@ -183,11 +201,12 @@ def test_topic_roles_include_costmap_and_gps() -> None:
     assert "/local_costmap/costmap" in topics
     assert "/client/gps/fix" in topics
     assert "/follower/joint_states" in topics
+    assert "/swerve_drive/joint_states" in topics
 
 
 def test_trigger_services_listed() -> None:
     cfg = AppConfig(tabs=[TabConfig(id="m", type="map_nav", label="Map")])
-    assert cfg.trigger_services() == ["/filter/arm_home", "/filter/arm_set_home"]
+    assert cfg.trigger_services() == ["/arm/home", "/arm/set_home"]
 
 
 def test_gps_anchor_estimator_from_config() -> None:
@@ -231,6 +250,23 @@ def test_default_yaml_tab_set_map_first() -> None:
     assert tab.local_costmap_topic == "/local_costmap/costmap"
     assert tab.gps_fix_topic == "/client/gps/fix"
     assert tab.arm_command_topic == "/filter/web_ui_joint_commands"
+    assert tab.base_urdf == "robot.urdf"
+    assert tab.arm_urdf == "so101_arm.urdf"
+    assert tab.base_joint_states_topic == "/swerve_drive/joint_states"
+    assert tab.arm_joint_states_topic == "/follower/joint_states"
+    assert tab.arm_home_service == "/arm/home"
+    assert tab.arm_set_home_service == "/arm/set_home"
+    assert tab.topic is None
+
+
+def test_default_yaml_has_no_legacy_map_nav_keys() -> None:
+    import yaml
+
+    raw = yaml.safe_load(DEFAULT_YAML.read_text())
+    map_tab = raw["tabs"][0]
+    for legacy in ("urdf_file", "arm_urdf_file", "arm_joint_topic", "topic"):
+        assert legacy not in map_tab
+    assert "/filter/arm_home" not in DEFAULT_YAML.read_text()
 
 
 def test_default_yaml_topics_all_have_known_types() -> None:
@@ -638,13 +674,13 @@ def test_bridge_init_wires_costmap_gps_and_trigger_clients() -> None:
             allowed_publish_topics=set(),
             topic_roles={"/local_costmap/costmap": "costmap", "/client/gps/fix": "gps"},
             robot_pose_frames=("map", "base_link"),
-            trigger_services=["/filter/arm_home", "/filter/arm_set_home"],
+            trigger_services=["/arm/home", "/arm/set_home"],
             gps_anchor=MagicMock(),
         )
     assert (OccupancyGrid, "/local_costmap/costmap") in created
     assert (NavSatFix, "/client/gps/fix") in created
-    assert (Trigger, "/filter/arm_home") in clients
-    assert (Trigger, "/filter/arm_set_home") in clients
+    assert (Trigger, "/arm/home") in clients
+    assert (Trigger, "/arm/set_home") in clients
     assert node._gps_anchor is not None
 
 
@@ -660,8 +696,8 @@ def ready_client(ready: bool = True) -> MagicMock:
 
 
 def test_trigger_async_unavailable_returns_none() -> None:
-    node = make_bridge(_trigger_clients={"/filter/arm_home": ready_client(False)})
-    assert node.trigger_async("/filter/arm_home") is None
+    node = make_bridge(_trigger_clients={"/arm/home": ready_client(False)})
+    assert node.trigger_async("/arm/home") is None
     assert node.trigger_async("/unknown") is None
 
 
@@ -669,8 +705,8 @@ def test_trigger_async_calls_service() -> None:
     from web_ui.bridge import Trigger
 
     client = ready_client()
-    node = make_bridge(_trigger_clients={"/filter/arm_home": client})
-    assert node.trigger_async("/filter/arm_home") is client.call_async.return_value
+    node = make_bridge(_trigger_clients={"/arm/home": client})
+    assert node.trigger_async("/arm/home") is client.call_async.return_value
     assert isinstance(client.call_async.call_args[0][0], Trigger.Request)
 
 

@@ -24,14 +24,14 @@ tabs:
     map_reset_service: /slam_toolbox/reset
     navigate_action: /navigate_to_pose
     # Robot model (files under the URDF directory), swerve joint states and the arm driven from the tab.
-    urdf_file: robot.urdf
-    topic: /swerve_drive/joint_states
-    arm_urdf_file: so101_arm.urdf
-    arm_joint_topic: /follower/joint_states
+    base_urdf: robot.urdf
+    base_joint_states_topic: /swerve_drive/joint_states
+    arm_urdf: so101_arm.urdf
+    arm_joint_states_topic: /follower/joint_states
     arm_command_topic: /filter/web_ui_joint_commands
     # std_srvs/Trigger services behind the "Home" and "Set home" buttons.
-    arm_home_service: /filter/arm_home
-    arm_set_home_service: /filter/arm_set_home
+    arm_home_service: /arm/home
+    arm_set_home_service: /arm/set_home
     # GPS fix and the anchor fit gates (samples, map-frame track extent in m, RMS residual in m).
     gps_fix_topic: /client/gps/fix
     gps_anchor_min_points: 10
