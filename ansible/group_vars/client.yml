@@ -183,13 +183,18 @@ ros2_node_type_defaults:
       - ros-jazzy-nav2-waypoint-follower
   slam_toolbox:
     deploy_mode: native
-    # Online async mapping; params in the repo, saved posegraph in /var/lib/ros2/maps (see nodes/slam_toolbox/README.md).
+    # Online async mapping; repo nodes/slam_toolbox/config/slam_params.yaml are the defaults, the ros2_nodes
+    # `config: |` block (written to /etc/ros2/slam_toolbox/config.yaml) overrides them; saved posegraph in
+    # /var/lib/ros2/maps (see nodes/slam_toolbox/README.md).
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/slam_toolbox/launch/slam.launch.py"
     node_src_dir: ""
     cpu_quota: "75%"
     memory_max: "512M"
     apt_packages:
       - ros-jazzy-slam-toolbox
+    config_path: /etc/ros2/slam_toolbox
+    env:
+      - SLAM_TOOLBOX_CONFIG=/etc/ros2/slam_toolbox/config.yaml
   web_ui:
     deploy_mode: native
     node_launch_command: "python3 -m web_ui"
@@ -579,6 +584,14 @@ ros2_nodes:
     node_type: slam_toolbox
     present: true
     enabled: true
+    # ROS params overrides loaded after the repo slam_params.yaml (later wins). map_file_name is the posegraph base:
+    # the launch file resumes <base>.posegraph if it exists (keep it equal to the web_ui map tab map_save_path).
+    config: |
+      slam_toolbox:
+        ros__parameters:
+          map_file_name: /var/lib/ros2/maps/slam_map
+          min_laser_range: 0.15
+          max_laser_range: 12.0
   - name: nav2_bringup
     node_type: nav2_bringup
     present: true

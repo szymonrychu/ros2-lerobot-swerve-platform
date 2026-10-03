@@ -1,7 +1,10 @@
 # slam_toolbox online async mapping for the swerve platform (RPLidar A1 on /scan, EKF odom -> base_link).
 # Based on slam_toolbox jazzy config/mapper_params_online_async.yaml, tuned for a Raspberry Pi 5:
 # coarser correlation search, slower map raster updates, and a range cap matching the A1 (12 m).
-# Posegraph loading (map_file_name / map_start_at_dock) is decided at launch by launch/slam.launch.py.
+# These are the defaults. On the robot, launch/slam.launch.py loads /etc/ros2/slam_toolbox/config.yaml (the Ansible
+# ros2_nodes slam_toolbox `config: |` block) after this file, so any key set there overrides the value here.
+# Posegraph loading (map_file_name / map_start_at_dock) is decided at launch by launch/slam.launch.py; the map base
+# comes from map_file_name in the deployed config (not set here).
 slam_toolbox:
   ros__parameters:
     # Plugin params
