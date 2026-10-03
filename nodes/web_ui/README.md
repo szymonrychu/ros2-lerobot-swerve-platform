@@ -39,7 +39,7 @@ Shows the live SLAM map with the robot, the Nav2 plans and the current goal, and
 |---|---|---|
 | `map_topic` | `/map` | `nav_msgs/OccupancyGrid`, subscribed reliable + transient_local + KEEP_LAST 1 so the latched slam_toolbox map is received |
 | `global_plan_topic` | `/plan` | `nav_msgs/Path` from the planner (green) |
-| `local_plan_topic` | `/local_plan` | `nav_msgs/Path` from the controller (orange) |
+| `local_plan_topic` | `/optimal_trajectory` | `nav_msgs/Path` local plan from the Nav2 MPPI controller (`visualize: true`), usually in `odom` and transformed to the map frame by the backend (orange) |
 | `goal_topic` | `/goal_pose` | `geometry_msgs/PoseStamped`: subscribed (shows the current goal from any source, red) and published by the tab |
 | `map_frame` | `map` | Fixed frame for drawing and for published goals |
 | `base_frame` | `base_link` | Robot frame; the bridge looks up `map_frame -> base_frame` in TF |

@@ -115,7 +115,7 @@ def test_map_nav_defaults(tmp_path: Path) -> None:
     tab = load_config(p).tabs[0]
     assert tab.map_topic == "/map"
     assert tab.global_plan_topic == "/plan"
-    assert tab.local_plan_topic == "/local_plan"
+    assert tab.local_plan_topic == "/optimal_trajectory"
     assert tab.goal_topic == "/goal_pose"
     assert tab.map_frame == "map"
     assert tab.base_frame == "base_link"
@@ -145,7 +145,7 @@ def test_map_nav_empty_frame_rejected() -> None:
 def test_all_subscribed_topics_include_map_nav_topics() -> None:
     cfg = AppConfig(tabs=[TabConfig(id="m", type="map_nav", label="Map")])
     topics = cfg.all_subscribed_topics()
-    for t in ("/map", "/plan", "/local_plan", "/goal_pose"):
+    for t in ("/map", "/plan", "/optimal_trajectory", "/goal_pose"):
         assert t in topics
 
 
@@ -376,7 +376,7 @@ def test_bridge_path_in_other_frame_transformed_to_map() -> None:
     tf_buffer = MagicMock()
     tf_buffer.lookup_transform.return_value = make_transform(10.0, 0.0, 0.0)
     node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
-    cb = node._make_callback("/local_plan", serialize_path)
+    cb = node._make_callback("/optimal_trajectory", serialize_path)
     cb(make_path(2, frame_id="odom"))
     data = node.flush_dirty()[0]["data"]
     assert data["frame_id"] == "map"
@@ -391,7 +391,7 @@ def test_bridge_path_in_other_frame_dropped_without_tf() -> None:
     tf_buffer = MagicMock()
     tf_buffer.lookup_transform.side_effect = TransformException("no tf")
     node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
-    node._make_callback("/local_plan", serialize_path)(make_path(2, frame_id="odom"))
+    node._make_callback("/optimal_trajectory", serialize_path)(make_path(2, frame_id="odom"))
     assert node.flush_dirty() == []
 
 
@@ -737,3 +737,11 @@ def test_default_config_has_map_nav_tab() -> None:
     assert tab.map_topic == "/map"
     assert "/goal_pose" in cfg.publish_topics()
     assert cfg.robot_pose_frames() == ("map", "base_link")
+
+
+def test_default_yaml_map_tab_uses_nav2_local_plan_topic() -> None:
+    """The shipped default config shows MPPI's local plan (/optimal_trajectory), which Nav2 actually publishes."""
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
+    map_tabs = [t for t in cfg.tabs if t.type == "map_nav"]
+    assert map_tabs
+    assert all(t.local_plan_topic == "/optimal_trajectory" for t in map_tabs)

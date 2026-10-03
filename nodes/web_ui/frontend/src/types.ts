@@ -32,7 +32,7 @@ export interface TabConfig {
   color_topic?: string
   depth_topic?: string
   camera_info_topic?: string
-  // map_nav tab (backend fills defaults: /map, /plan, /local_plan, /goal_pose, map, base_link, /var/lib/ros2/maps/slam_map)
+  // map_nav tab (backend fills defaults: /map, /plan, /optimal_trajectory, /goal_pose, map, base_link, /var/lib/ros2/maps/slam_map)
   map_topic?: string
   global_plan_topic?: string
   local_plan_topic?: string

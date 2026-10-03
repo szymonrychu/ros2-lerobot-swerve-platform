@@ -59,7 +59,7 @@ tabs:
     label: "Map"
     map_topic: /map
     global_plan_topic: /plan
-    local_plan_topic: /local_plan
+    local_plan_topic: /optimal_trajectory
     goal_topic: /goal_pose
     map_frame: map
     base_frame: base_link

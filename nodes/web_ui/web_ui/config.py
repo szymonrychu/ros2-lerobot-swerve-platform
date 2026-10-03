@@ -37,7 +37,7 @@ MAP_NAV_TAB_TYPE = "map_nav"
 MAP_NAV_DEFAULTS: dict[str, str] = {
     "map_topic": "/map",
     "global_plan_topic": "/plan",
-    "local_plan_topic": "/local_plan",
+    "local_plan_topic": "/optimal_trajectory",
     "goal_topic": "/goal_pose",
     "map_frame": "map",
     "base_frame": "base_link",
