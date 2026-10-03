@@ -1,0 +1,37 @@
+---
+# Keep every installed ROS 2 Jazzy package on the same packages.ros.org sync. Installing one package from a newer
+# sync next to older ones breaks ABI (laser_filters vs diagnostic_updater: undefined symbol at start, 2026-10-03).
+# Running ROS processes keep the old libraries mapped, so they are restarted when anything was upgraded.
+- name: Refresh apt package index (at most hourly)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: List upgradable ROS 2 Jazzy packages
+  ansible.builtin.shell: |
+    set -o pipefail
+    apt list --upgradable 2>/dev/null | awk -F/ '/^ros-jazzy-/ {print $1}'
+  args:
+    executable: /bin/bash
+  register: ros_upgradable
+  changed_when: false
+
+- name: Upgrade ROS 2 Jazzy packages to the current sync
+  ansible.builtin.apt:
+    name: "{{ ros_upgradable.stdout_lines }}"
+    state: latest
+    only_upgrade: true
+  become: true
+  register: ros_upgrade
+  when: ros_upgradable.stdout_lines | length > 0
+
+- name: Restart running ROS2 node services after the ROS upgrade
+  ansible.builtin.shell: |
+    set -o pipefail
+    systemctl list-units --type=service --state=running --no-legend 'ros2-*' | awk '{print $1}' | xargs -r systemctl restart
+  args:
+    executable: /bin/bash
+  become: true
+  changed_when: true
+  when: ros_upgrade is changed

@@ -121,3 +121,18 @@ def test_env_keys_are_lists_when_present(host: str) -> None:
     for node in group["ros2_nodes"]:
         if "env" in node:
             assert isinstance(node["env"], list), f"{host}: node {node['name']} env is {node['env']!r}"
+
+
+@pytest.mark.parametrize("host", ["client", "server"])
+def test_ros_packages_synced_before_node_deploys(host: str) -> None:
+    """Mixed ROS syncs break ABI (laser_filters vs diagnostic_updater, 2026-10-03): --all deploys upgrade all
+    ros-jazzy packages together first and restart running nodes when anything was upgraded."""
+    play = yaml.safe_load((ANSIBLE_DIR / "playbooks" / f"deploy_nodes_{host}.yml").read_text())[0]
+    includes = [t.get("ansible.builtin.include_tasks", "") for t in play["pre_tasks"]]
+    assert "tasks/ros_packages_sync.yml" in includes
+    assert includes.index("tasks/ros_packages_sync.yml") > includes.index("tasks/repo_sync.yml")
+    tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "tasks" / "ros_packages_sync.yml").read_text())
+    text = yaml.safe_dump(tasks)
+    assert "ros-jazzy-" in text and "only_upgrade: true" in text and "cache_valid_time" in text
+    restart = [t for t in tasks if "systemctl" in str(t.get("ansible.builtin.shell", ""))]
+    assert restart and "when" in restart[0]

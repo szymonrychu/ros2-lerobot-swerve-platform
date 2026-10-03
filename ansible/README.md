@@ -283,6 +283,10 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 - **Shared memory:** nodes run as a regular user, and logind's default `RemoveIPC=yes` deletes that user's POSIX shared memory (the FastDDS SHM segments) on every SSH logout. Data then silently stops for processes started afterwards. `dds_host_setup.yml` installs `/etc/systemd/logind.conf.d/ros2-keep-ipc.conf` (`RemoveIPC=no`) and restarts running `ros2-*` services once when it is first applied.
 - **History:** a FastDDS discovery server per host was tried (2026-10-03) and removed: launch_ros' one-shot lifecycle and component-loading service calls (slam_toolbox configure, Nav2 composable nodes) hung intermittently through it on the busy client. The `fastdds_discovery_server` node stays `present: false` so deploys uninstall it.
 
+## ROS package sync
+
+`--all` deploys (`deploy_nodes_client.yml`, `deploy_nodes_server.yml`) run `playbooks/tasks/ros_packages_sync.yml` right after the repo sync. It refreshes the apt index (at most hourly), upgrades every installed `ros-jazzy-*` package that has an update, and restarts the running `ros2-*` services when anything was upgraded. Mixing packages from different packages.ros.org syncs breaks ABI: on 2026-10-03 a freshly installed `laser_filters` failed with an undefined `diagnostic_updater` symbol.
+
 ## Node Resource Limits
 
 Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` and `group_vars/server.yml`.

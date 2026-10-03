@@ -44,6 +44,9 @@
     - name: Sync repository
       ansible.builtin.include_tasks: tasks/repo_sync.yml
 
+    - name: Sync ROS 2 Jazzy packages to one release
+      ansible.builtin.include_tasks: tasks/ros_packages_sync.yml
+
   tasks:
     - name: Deploy fastdds_discovery_server
       ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
