@@ -74,6 +74,11 @@ def make_transform(x: float, y: float, yaw: float, frame_id: str = "map") -> Sim
     )
 
 
+def fake_clock(now_s: float) -> SimpleNamespace:
+    """Return an rclpy Clock-like namespace whose now() is now_s seconds."""
+    return SimpleNamespace(now=lambda: SimpleNamespace(nanoseconds=int(now_s * 1e9)))
+
+
 def make_bridge(**attrs: Any) -> Any:
     """Construct a BridgeNode without running rclpy initialisation."""
     from web_ui.bridge import BridgeNode
@@ -89,6 +94,7 @@ def make_bridge(**attrs: Any) -> Any:
     node._robot_pose_frames = None
     node._frame_id_defaults = {}
     node._serialize_map_client = None
+    node.get_clock = lambda: fake_clock(3.5)
     for key, value in attrs.items():
         setattr(node, key, value)
     return node
@@ -363,7 +369,7 @@ def test_bridge_map_callback_stores_serialized_map() -> None:
     node = make_bridge()
     from web_ui.msg_serializer import serialize_occupancy_grid
 
-    cb = node._make_callback("/map", serialize_occupancy_grid)
+    cb = node._make_callback("/map", serialize_occupancy_grid, "map")
     cb(make_grid(2, 1, [0, 100]))
     env = node.flush_dirty()
     assert env[0]["topic"] == "/map"
@@ -376,7 +382,7 @@ def test_bridge_path_in_other_frame_transformed_to_map() -> None:
     tf_buffer = MagicMock()
     tf_buffer.lookup_transform.return_value = make_transform(10.0, 0.0, 0.0)
     node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
-    cb = node._make_callback("/optimal_trajectory", serialize_path)
+    cb = node._make_callback("/optimal_trajectory", serialize_path, "path")
     cb(make_path(2, frame_id="odom"))
     data = node.flush_dirty()[0]["data"]
     assert data["frame_id"] == "map"
@@ -391,8 +397,90 @@ def test_bridge_path_in_other_frame_dropped_without_tf() -> None:
     tf_buffer = MagicMock()
     tf_buffer.lookup_transform.side_effect = TransformException("no tf")
     node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
-    node._make_callback("/optimal_trajectory", serialize_path)(make_path(2, frame_id="odom"))
+    node._make_callback("/optimal_trajectory", serialize_path, "path")(make_path(2, frame_id="odom"))
     assert node.flush_dirty() == []
+
+
+def test_bridge_goal_in_other_frame_transformed_to_map() -> None:
+    from web_ui.msg_serializer import serialize_goal_pose
+
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.return_value = make_transform(10.0, 5.0, math.pi / 2)
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    goal = SimpleNamespace(
+        header=SimpleNamespace(frame_id="odom", stamp=stamp()),
+        pose=SimpleNamespace(position=SimpleNamespace(x=1.0, y=0.0, z=0.0), orientation=yaw_quat(0.25)),
+    )
+    node._make_callback("/goal_pose", serialize_goal_pose, "goal")(goal)
+    data = node.flush_dirty()[0]["data"]
+    assert data["frame_id"] == "map"
+    assert data["x"] == pytest.approx(10.0)
+    assert data["y"] == pytest.approx(6.0)
+    assert data["yaw"] == pytest.approx(0.25 + math.pi / 2)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"frame_id": "odom", "x": 1.0, "y": 2.0, "yaw": 0.5},
+        {"frame_id": "odom", "points": [[1.0, 2.0]]},
+    ],
+)
+def test_non_map_nav_topic_with_pose_like_keys_passes_through(data: dict[str, Any]) -> None:
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.return_value = make_transform(10.0, 0.0, 0.0)
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    node._make_callback("/controller/odom", lambda _msg: dict(data), None)(object())
+    assert node.flush_dirty()[0]["data"] == data
+    tf_buffer.lookup_transform.assert_not_called()
+
+
+def test_non_map_nav_topic_not_dropped_without_tf() -> None:
+    from tf2_ros import TransformException
+
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.side_effect = TransformException("no tf")
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    data = {"frame_id": "odom", "x": 1.0, "y": 2.0, "yaw": 0.5}
+    node._make_callback("/controller/odom", lambda _msg: dict(data), None)(object())
+    assert node.flush_dirty()[0]["data"] == data
+
+
+def test_map_role_not_transformed() -> None:
+    tf_buffer = MagicMock()
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    data = {"frame_id": "odom", "png_b64": "x", "yaw": 0.1}
+    node._make_callback("/map", lambda _msg: dict(data), "map")(object())
+    assert node.flush_dirty()[0]["data"] == data
+    tf_buffer.lookup_transform.assert_not_called()
+
+
+def test_bridge_init_passes_role_to_callbacks() -> None:
+    from web_ui.bridge import BridgeNode
+
+    roles_seen: dict[str, str | None] = {}
+
+    def fake_make_callback(self: Any, topic: str, serializer: Any, role: str | None) -> Any:
+        roles_seen[topic] = role
+        return lambda msg: None
+
+    with (
+        patch("web_ui.bridge.Node.__init__", return_value=None),
+        patch.object(BridgeNode, "create_subscription", create=True),
+        patch.object(BridgeNode, "create_timer", create=True),
+        patch.object(BridgeNode, "get_logger", create=True),
+        patch.object(BridgeNode, "create_client", create=True),
+        patch.object(BridgeNode, "_make_callback", fake_make_callback),
+        patch("web_ui.bridge.Buffer"),
+        patch("web_ui.bridge.TransformListener"),
+    ):
+        BridgeNode(
+            topics=["/plan", "/goal_pose", "/controller/odom"],
+            allowed_publish_topics=set(),
+            topic_roles={"/plan": "path", "/goal_pose": "goal"},
+            robot_pose_frames=("map", "base_link"),
+        )
+    assert roles_seen == {"/plan": "path", "/goal_pose": "goal", "/controller/odom": None}
 
 
 def test_latest_envelopes_returns_all_cached() -> None:
@@ -428,6 +516,84 @@ def test_robot_pose_omitted_when_tf_unavailable() -> None:
     tf_buffer = MagicMock()
     tf_buffer.lookup_transform.side_effect = TransformException("map frame does not exist")
     node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    assert node.update_robot_pose() is False
+    assert node.flush_dirty() == []
+    assert node.latest_envelopes() == []
+
+
+def test_robot_pose_unchanged_same_stamp_not_marked_dirty_again() -> None:
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.return_value = make_transform(1.0, -1.0, 0.3)
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    assert node.update_robot_pose() is True
+    assert len(node.flush_dirty()) == 1
+    assert node.update_robot_pose() is False
+    assert node.flush_dirty() == []
+    assert len(node.latest_envelopes()) == 1
+
+
+def test_robot_pose_advanced_stamp_marked_dirty() -> None:
+    from web_ui.bridge import ROBOT_POSE_TOPIC
+
+    tf_buffer = MagicMock()
+    tf = make_transform(1.0, -1.0, 0.3)
+    tf_buffer.lookup_transform.return_value = tf
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    node.update_robot_pose()
+    node.flush_dirty()
+    tf.header.stamp = stamp(3, 300_000_000)
+    assert node.update_robot_pose() is True
+    env = node.flush_dirty()
+    assert env[0]["topic"] == ROBOT_POSE_TOPIC
+    assert env[0]["data"]["stamp"] == pytest.approx(3.3)
+
+
+def test_robot_pose_changed_same_stamp_marked_dirty() -> None:
+    tf_buffer = MagicMock()
+    tf = make_transform(1.0, -1.0, 0.3)
+    tf_buffer.lookup_transform.return_value = tf
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    node.update_robot_pose()
+    node.flush_dirty()
+    tf.transform.translation.x = 1.5
+    assert node.update_robot_pose() is True
+    assert node.flush_dirty()[0]["data"]["x"] == 1.5
+
+
+def test_stale_robot_pose_not_cached_or_in_snapshot() -> None:
+    from web_ui.bridge import ROBOT_POSE_STALE_S
+
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.return_value = make_transform(1.0, -1.0, 0.3)  # stamp 3.25 s
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    node.get_clock = lambda: fake_clock(3.25 + ROBOT_POSE_STALE_S + 0.1)
+    assert node.update_robot_pose() is False
+    assert node.flush_dirty() == []
+    assert node.latest_envelopes() == []
+
+
+def test_cached_robot_pose_cleared_when_tf_goes_stale() -> None:
+    from web_ui.bridge import ROBOT_POSE_STALE_S
+
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.return_value = make_transform(1.0, -1.0, 0.3)  # stamp 3.25 s
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    node._latest["/map"] = {"topic": "/map", "data": {"png_b64": "x"}}
+    assert node.update_robot_pose() is True
+    node.get_clock = lambda: fake_clock(3.25 + ROBOT_POSE_STALE_S + 0.1)
+    assert node.update_robot_pose() is False
+    assert node.flush_dirty() == []  # the pending (now stale) pose is not broadcast either
+    assert node.latest_envelopes() == [{"topic": "/map", "data": {"png_b64": "x"}}]
+
+
+def test_cached_robot_pose_cleared_when_tf_lost() -> None:
+    from tf2_ros import TransformException
+
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.return_value = make_transform(1.0, -1.0, 0.3)
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    assert node.update_robot_pose() is True
+    tf_buffer.lookup_transform.side_effect = TransformException("map frame gone")
     assert node.update_robot_pose() is False
     assert node.flush_dirty() == []
     assert node.latest_envelopes() == []

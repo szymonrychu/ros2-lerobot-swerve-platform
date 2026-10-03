@@ -27,7 +27,7 @@ Single Python process: FastAPI (uvicorn) on port 8080 serves:
 - `POST /api/map/save?tab=<tab id>` - ask slam_toolbox to save the map of a `map_nav` tab (see below)
 - `WS /ws` — WebSocket bridge: 20 Hz topic broadcast + publish commands
 
-A `rclpy` node (`web_ui_bridge`) subscribes to ROS2 topics and stores the latest value per topic. A single shared 20 Hz asyncio loop broadcasts dirty topics to all connected clients. A newly connected client first receives the latest cached value of every topic, so latched data such as the SLAM map shows up immediately.
+A `rclpy` node (`web_ui_bridge`) subscribes to ROS2 topics and stores the latest value per topic. A single shared 20 Hz asyncio loop broadcasts dirty topics to all connected clients. A newly connected client first receives the latest cached value of every topic, so latched data such as the SLAM map shows up immediately. Sends to one client are serialized by a per-client lock: broadcast frames queue behind the snapshot and never write to the same WebSocket concurrently.
 
 Inbound publish frames (`{"type": "publish", "topic", "msg_type", "data"}`) are only accepted for allowlisted topics (tab `goal_topic` / `arm_command_topic`). JSON values are converted to each message field's type (int fields such as `header.stamp.sec` get ints, float fields get floats, numeric arrays are converted element-wise); a value that does not fit its field is rejected and logged, not silently dropped. A zero `header.stamp` is filled with the node clock, and an empty `header.frame_id` on a `map_nav` goal topic is filled with the tab's `map_frame`.
 
@@ -51,9 +51,9 @@ WebSocket payloads produced by the backend:
 - map topic: `{png_b64, width, height, resolution, origin: {x, y, yaw}, frame_id, stamp}`. Grayscale PNG with free cells white (254), occupied black (0), unknown grey (205); free/occupied thresholds 25/65 %. Image row 0 is the top of the map (grid rows are flipped). The PNG is encoded once per received map message.
 - plan topics: `{frame_id, points: [[x, y], ...]}`, downsampled to at most 500 points (first and last kept).
 - goal topic: `{frame_id, x, y, yaw}`.
-- `/web_ui/robot_pose` (synthetic topic, not on ROS): `{x, y, yaw, frame_id, stamp}` from TF at the broadcast rate. If the transform is unavailable (e.g. SLAM not running) nothing is sent.
+- `/web_ui/robot_pose` (synthetic topic, not on ROS): `{x, y, yaw, frame_id, stamp}` from TF, looked up at the broadcast rate but sent only when the pose changes or the TF stamp advances. If the transform is unavailable (e.g. SLAM not running) or its stamp is more than 2 s (`ROBOT_POSE_STALE_S`) older than the node clock, nothing is sent and the cached pose is dropped, so newly connected clients never get a stale pose.
 
-Plans and goals in another frame (e.g. a local plan in `odom`) are transformed into `map_frame` with TF; if that transform is unavailable the message is not shown.
+Plans and goals (the map_nav `global_plan_topic`, `local_plan_topic` and `goal_topic`) in another frame (e.g. a local plan in `odom`) are transformed into `map_frame` with TF; if that transform is unavailable the message is not shown. The transform is chosen by the topic's map_nav role, not by payload keys: all other topics (e.g. `/controller/odom` for nav_local) are passed through unchanged.
 
 Controls:
 - Drag to pan; mouse wheel or two-finger pinch zooms about the cursor / fingers. **Fit map** and **Center on robot** reset the view.

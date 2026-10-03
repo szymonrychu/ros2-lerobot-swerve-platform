@@ -77,6 +77,32 @@ def map_save_response(ok: bool, message: str, status_code: int) -> JSONResponse:
     return JSONResponse({"ok": ok, "message": message}, status_code=status_code)
 
 
+class ClientConnection:
+    """A connected WebSocket client whose sends are serialized by a per-client lock.
+
+    Both the connect snapshot and the broadcaster send through send_text, so a WebSocket never has
+    two concurrent writers.
+    """
+
+    def __init__(self, ws: WebSocket) -> None:
+        """Initialise the connection.
+
+        Args:
+            ws (WebSocket): Accepted WebSocket.
+        """
+        self.ws = ws
+        self.send_lock = asyncio.Lock()
+
+    async def send_text(self, text: str) -> None:
+        """Send one text frame, waiting for any in-flight send on this WebSocket to finish.
+
+        Args:
+            text (str): Frame payload.
+        """
+        async with self.send_lock:
+            await self.ws.send_text(text)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to every response."""
 
@@ -96,7 +122,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 def _make_start_broadcaster(
     app: FastAPI,
-    clients: dict[str, WebSocket],
+    clients: dict[str, ClientConnection],
     bridge_node: Any,
     broadcast_interval: float,
     logger: Any,
@@ -105,7 +131,7 @@ def _make_start_broadcaster(
 
     Args:
         app: The FastAPI application instance.
-        clients: Shared dict mapping client_id to WebSocket.
+        clients: Shared dict mapping client_id to its ClientConnection.
         bridge_node: BridgeNode instance (may be None).
         broadcast_interval: Seconds between broadcast ticks.
         logger: structlog logger.
@@ -130,10 +156,10 @@ def _make_start_broadcaster(
                 logger.debug("broadcaster_cycle", dirty_topics=len(envelopes), client_count=len(clients))
                 frames = [json.dumps(e) for e in envelopes]
                 dead = []
-                for cid, client_ws in list(clients.items()):
+                for cid, conn in list(clients.items()):
                     for frame in frames:
                         try:
-                            await client_ws.send_text(frame)
+                            await conn.send_text(frame)
                             logger.debug("ws_msg_sent", client_id=cid, payload_bytes=len(frame))
                         except Exception:
                             dead.append(cid)
@@ -167,7 +193,7 @@ def build_app(
     app.add_middleware(SecurityHeadersMiddleware)
 
     broadcast_interval = 1.0 / config.ws_broadcast_hz
-    clients: dict[str, WebSocket] = {}
+    clients: dict[str, ClientConnection] = {}
 
     @app.get("/api/config")
     async def get_config() -> JSONResponse:
@@ -219,15 +245,17 @@ def build_app(
     async def websocket_endpoint(ws: WebSocket) -> None:
         await ws.accept()
         client_id = str(uuid.uuid4())[:8]
-        clients[client_id] = ws
+        conn = ClientConnection(ws)
         remote = ws.client.host if ws.client else "unknown"
-        log.info("ws_client_connected", client_id=client_id, remote_addr=remote, total_clients=len(clients))
-        if bridge_node is not None:
-            # Latched data (e.g. the SLAM map) is only re-broadcast on change: send the cache to late joiners.
-            for envelope in bridge_node.latest_envelopes():
-                await ws.send_text(json.dumps(envelope))
-
         try:
+            # Latched data (e.g. the SLAM map) is only re-broadcast on change: send the cache to late joiners.
+            # Hold the send lock from registration until the snapshot is out, so broadcast frames queue
+            # behind it instead of writing to the WebSocket concurrently, and none are missed.
+            async with conn.send_lock:
+                clients[client_id] = conn
+                log.info("ws_client_connected", client_id=client_id, remote_addr=remote, total_clients=len(clients))
+                for envelope in bridge_node.latest_envelopes() if bridge_node is not None else []:
+                    await ws.send_text(json.dumps(envelope))
             async for raw in ws.iter_text():
                 log.debug("ws_msg_recv", client_id=client_id, raw=raw[:200])
                 try:

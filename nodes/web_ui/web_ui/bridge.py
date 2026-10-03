@@ -89,6 +89,10 @@ DEFAULT_SUB_QOS_DEPTH = 10
 ROBOT_POSE_TOPIC = "/web_ui/robot_pose"
 SERIALIZE_MAP_SERVICE = "/slam_toolbox/serialize_map"
 TOPIC_STALE_S = 10.0
+# A robot pose whose TF stamp is older than this (vs the node clock) is dropped, never replayed to late joiners.
+ROBOT_POSE_STALE_S = 2.0
+# map_nav roles whose messages are re-expressed in map_frame (plans and goals); every other topic passes through.
+MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal"})
 
 Serializer = Callable[[Any], dict[str, Any]]
 
@@ -169,7 +173,7 @@ class BridgeNode(Node):
                 self.get_logger().warning(f"Unknown msg type for topic {topic!r} - skipping")
                 continue
             msg_cls, qos, serializer = spec
-            self.create_subscription(msg_cls, topic, self._make_callback(topic, serializer), qos)
+            self.create_subscription(msg_cls, topic, self._make_callback(topic, serializer, roles.get(topic)), qos)
             self._topic_last_rx[topic] = time.monotonic()
 
         if robot_pose_frames is not None:
@@ -181,15 +185,17 @@ class BridgeNode(Node):
         log.info("ros2_node_ready", node_name="web_ui_bridge", topics_subscribed=len(self._topic_last_rx))
         self.create_timer(TOPIC_STALE_S, self._check_topic_health)
 
-    def _make_callback(self, topic: str, serializer: Serializer) -> Callable[[Any], None]:
+    def _make_callback(self, topic: str, serializer: Serializer, role: str | None) -> Callable[[Any], None]:
         """Build a subscription callback that serializes and caches each message.
 
-        Messages whose frame differs from the map frame are transformed into it (paths and goals);
-        if that transform is unavailable the message is dropped rather than shown in the wrong place.
+        Plan ("path") and goal ("goal") role messages whose frame differs from the map frame are
+        transformed into it; if that transform is unavailable the message is dropped rather than shown
+        in the wrong place. All other topics are cached as serialized.
 
         Args:
             topic (str): Topic the callback serves.
             serializer (Serializer): Converts the ROS message into a JSON-serializable dict.
+            role (str | None): map_nav role of the topic ("map", "path", "goal") or None.
 
         Returns:
             Callable[[Any], None]: Subscription callback.
@@ -197,7 +203,7 @@ class BridgeNode(Node):
 
         def callback(msg: Any) -> None:
             try:
-                data = self.to_map_frame(serializer(msg))
+                data = self.to_map_frame(serializer(msg), role)
             except Exception as exc:
                 log.warning("serialize_error", topic=topic, error=str(exc))
                 return
@@ -221,22 +227,25 @@ class BridgeNode(Node):
             self._dirty.add(topic)
             self._topic_last_rx[topic] = time.monotonic()
 
-    def to_map_frame(self, data: dict[str, Any]) -> dict[str, Any] | None:
+    def to_map_frame(self, data: dict[str, Any], role: str | None) -> dict[str, Any] | None:
         """Re-express a serialized path ("points") or goal ("x", "y", "yaw") in the map frame.
 
-        Data without a frame_id, already in the map frame, or with TF tracking disabled is returned as is.
+        Only the plan ("path") and goal ("goal") roles are transformed; other roles and topics without a
+        role are returned as is, whatever keys they carry. Data without a frame_id, already in the map
+        frame, or with TF tracking disabled is also returned as is.
 
         Args:
             data (dict[str, Any]): Serialized message with a "frame_id" key.
+            role (str | None): map_nav role of the source topic, or None.
 
         Returns:
             dict[str, Any] | None: Data in the map frame, or None when the transform is unavailable.
         """
         frame_id = data.get("frame_id")
-        if self._robot_pose_frames is None or self._tf_buffer is None or not frame_id:
+        if role not in MAP_FRAME_ROLES or self._robot_pose_frames is None or self._tf_buffer is None:
             return data
         map_frame = self._robot_pose_frames[0]
-        if frame_id == map_frame or ("points" not in data and "yaw" not in data):
+        if not frame_id or frame_id == map_frame:
             return data
         try:
             tf = self._tf_buffer.lookup_transform(map_frame, frame_id, Time())
@@ -246,7 +255,7 @@ class BridgeNode(Node):
         q = tf.transform.rotation
         yaw = quaternion_to_yaw(q.x, q.y, q.z, q.w)
         out = dict(data, frame_id=map_frame)
-        if "points" in data:
+        if role == "path":
             out["points"] = transform_points_2d(data["points"], t.x, t.y, yaw)
         else:
             (x, y), *_ = transform_points_2d([[data["x"], data["y"]]], t.x, t.y, yaw)
@@ -254,12 +263,15 @@ class BridgeNode(Node):
         return out
 
     def update_robot_pose(self) -> bool:
-        """Look up map_frame -> base_frame and cache it under ROBOT_POSE_TOPIC.
+        """Look up map_frame -> base_frame and cache it under ROBOT_POSE_TOPIC when it changed.
 
-        Nothing is cached when TF tracking is disabled or the transform is unavailable (no placeholder pose).
+        The pose is stored and marked for broadcast only when it differs from the cached one (moved or
+        TF stamp advanced). When the transform is unavailable or its stamp is older than
+        ROBOT_POSE_STALE_S, the cached pose is cleared so late joiners never get a stale pose
+        (no placeholder pose either).
 
         Returns:
-            bool: True if a pose was cached.
+            bool: True if a new pose was cached and marked for broadcast.
         """
         if self._robot_pose_frames is None or self._tf_buffer is None:
             return False
@@ -268,9 +280,30 @@ class BridgeNode(Node):
             tf = self._tf_buffer.lookup_transform(map_frame, base_frame, Time())
         except TransformException as exc:
             log.debug("robot_pose_unavailable", error=str(exc))
+            self.clear(ROBOT_POSE_TOPIC)
             return False
-        self.store(ROBOT_POSE_TOPIC, transform_to_pose_dict(tf))
+        pose = transform_to_pose_dict(tf)
+        age_s = self.get_clock().now().nanoseconds / 1e9 - pose["stamp"]
+        if age_s > ROBOT_POSE_STALE_S:
+            log.debug("robot_pose_stale", age_s=round(age_s, 2))
+            self.clear(ROBOT_POSE_TOPIC)
+            return False
+        with self._lock:
+            cached = self._latest.get(ROBOT_POSE_TOPIC)
+            if cached is not None and cached["data"] == pose:
+                return False
+        self.store(ROBOT_POSE_TOPIC, pose)
         return True
+
+    def clear(self, topic: str) -> None:
+        """Drop the cached envelope of topic and any pending broadcast of it.
+
+        Args:
+            topic (str): WS topic name.
+        """
+        with self._lock:
+            self._latest.pop(topic, None)
+            self._dirty.discard(topic)
 
     def serialize_map_async(self, filename: str) -> Any:
         """Request slam_toolbox to serialize its pose graph and map to filename.
