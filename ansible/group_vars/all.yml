@@ -16,6 +16,17 @@ ros2_hosts_entries:
   - { ip: "192.168.1.34", hostname: "client.ros2.lan" }
   - { ip: "192.168.1.35", hostname: "controller.ros2.lan" }
 
+# DDS discovery: one FastDDS Discovery Server per host (node fastdds_discovery_server), every ROS2 process is a
+# client of its local server. Replaces mesh discovery (ROS_AUTOMATIC_DISCOVERY_RANGE / ROS_STATIC_PEERS), whose
+# full-mesh announcements overloaded the hosts and left processes started after boot without any data.
+# ros2_dds_server_id is set per group (client 0, server 1); a client's ROS_DISCOVERY_SERVER list position must
+# equal the server ID, hence the ';' padding. Cross-host bridges list both servers (see master2master).
+ros2_dds_discovery_port: 11811
+ros2_dds_local_discovery: "{{ ';' * ros2_dds_server_id }}127.0.0.1:{{ ros2_dds_discovery_port }}"
+# Rendered first into every ROS2 node unit; node env entries after it override (e.g. ROS_SUPER_CLIENT).
+ros2_dds_env:
+  - "ROS_DISCOVERY_SERVER={{ ros2_dds_local_discovery }}"
+
 # Repo to clone on each node for local container builds (deploy playbooks).
 ros2_repo_url: https://github.com/szymonrychu/ros2-lerobot-swerve-platform
 ros2_repo_revision: main  # branch, tag, or commit

@@ -1,0 +1,13 @@
+---
+# Login shells (SSH, ros2 CLI, diag scripts) join the local FastDDS discovery server as super clients,
+# so `ros2 topic list/echo` sees the whole graph like the ros2 daemon does.
+- name: Install /etc/profile.d/ros2_dds.sh
+  ansible.builtin.copy:
+    dest: /etc/profile.d/ros2_dds.sh
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (playbooks/tasks/dds_shell_env.yml). FastDDS discovery server client settings.
+      export ROS_DISCOVERY_SERVER="{{ ros2_dds_local_discovery }}"
+      export ROS_SUPER_CLIENT=TRUE

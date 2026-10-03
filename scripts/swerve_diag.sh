@@ -37,7 +37,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ROS_ENV="source /opt/ros/jazzy/setup.bash && export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
+ROS_ENV="source /opt/ros/jazzy/setup.bash && source /etc/profile.d/ros2_dds.sh"
 
 ssh_cmd() {
   ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=accept-new \

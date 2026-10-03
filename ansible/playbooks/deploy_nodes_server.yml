@@ -25,6 +25,14 @@
       ansible.builtin.include_tasks: tasks/repo_sync.yml
 
   tasks:
+    - name: Deploy fastdds_discovery_server
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: fastdds_discovery_server
+
+    - name: Install DDS discovery environment for shells
+      ansible.builtin.include_tasks: tasks/dds_shell_env.yml
+
     - name: Deploy ros2-master
       ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
       vars:

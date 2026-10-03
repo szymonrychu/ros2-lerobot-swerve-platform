@@ -14,8 +14,18 @@ hostname: "client-rpi5"
 # Server hostname for master2master, rtcm, and ROS2 DDS (resolved via /etc/hosts).
 ros2_server_host: "{{ ros2_server_hostname }}"
 
-# ROS2 node types. Most client nodes stay localhost-only; master2master must reach server ROS graph.
+# FastDDS discovery server ID of this host (see ros2_dds_* in all.yml).
+ros2_dds_server_id: 0
+
+# ROS2 node types. All nodes discover via the local FastDDS discovery server; master2master also uses the
+# server host's discovery server to bridge both graphs.
 ros2_node_type_defaults:
+  fastdds_discovery_server:
+    deploy_mode: native
+    node_launch_command: "fastdds discovery -i {{ ros2_dds_server_id }} -l 0.0.0.0 -p {{ ros2_dds_discovery_port }}"
+    node_src_dir: ""
+    cpu_quota: "20%"
+    memory_max: "128M"
   ros2_master:
     deploy_mode: native
     node_launch_command: "ros2 daemon start && sleep infinity"
@@ -23,7 +33,7 @@ ros2_node_type_defaults:
     cpu_quota: "20%"
     memory_max: "128M"
     env:
-      - ROS_LOCALHOST_ONLY=1
+      - ROS_SUPER_CLIENT=TRUE
   master2master:
     deploy_mode: native
     node_launch_command: "python3 -m master2master"
@@ -32,8 +42,8 @@ ros2_node_type_defaults:
     memory_max: "128M"
     config_path: /etc/ros2/master2master
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
-      - ROS_STATIC_PEERS=192.168.1.33
+      - ROS_SUPER_CLIENT=TRUE
+      - "ROS_DISCOVERY_SERVER=127.0.0.1:{{ ros2_dds_discovery_port }};{{ ros2_server_hostname }}:{{ ros2_dds_discovery_port }}"
       - MASTER2MASTER_CONFIG=/etc/ros2/master2master/config.yaml
       # ROS2_SERVER_HOST passed per-node below so master2master can connect to Server's ROS2 master
   feetech_servos:
@@ -45,7 +55,6 @@ ros2_node_type_defaults:
     memory_max: "128M"
     config_path: /etc/ros2/feetech_servos
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
   uvc_camera:
     deploy_mode: native
@@ -54,8 +63,6 @@ ros2_node_type_defaults:
     pythonpath_parent: true
     cpu_quota: "30%"
     memory_max: "256M"
-    env:
-      - ROS_LOCALHOST_ONLY=1
   filter_node:
     deploy_mode: native
     node_launch_command: "python3 -m filter_node"
@@ -64,7 +71,6 @@ ros2_node_type_defaults:
     memory_max: "128M"
     config_path: /etc/ros2/filter_node
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       - FILTER_NODE_CONFIG=/etc/ros2/filter_node/config.yaml
   test_joint_api:
     deploy_mode: native
@@ -74,7 +80,6 @@ ros2_node_type_defaults:
     memory_max: "64M"
     config_path: /etc/ros2/test_joint_api
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       - TEST_JOINT_API_CONFIG=/etc/ros2/test_joint_api/config.yaml
   topic_scraper_api:
     deploy_mode: native
@@ -84,7 +89,7 @@ ros2_node_type_defaults:
     memory_max: "128M"
     config_path: /etc/ros2/topic_scraper_api
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+      - ROS_SUPER_CLIENT=TRUE
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   bno055_imu:
     deploy_mode: native
@@ -94,7 +99,6 @@ ros2_node_type_defaults:
     memory_max: "64M"
     config_path: /etc/ros2/bno055_imu
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       - BLINKA_FORCECHIP=BCM2XXX
       - BNO055_IMU_CONFIG=/etc/ros2/bno055_imu/config.yaml
   haptic_controller:
@@ -105,7 +109,6 @@ ros2_node_type_defaults:
     memory_max: "64M"
     config_path: /etc/ros2/haptic_controller
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       - HAPTIC_CONTROLLER_CONFIG=/etc/ros2/haptic_controller/config.yaml
   gps_rtk:
     deploy_mode: native
@@ -115,7 +118,6 @@ ros2_node_type_defaults:
     memory_max: "64M"
     config_path: /etc/ros2/gps_rtk
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       - GPS_RTK_CONFIG=/etc/ros2/gps_rtk/config.yaml
   rplidar_a1:
     deploy_mode: native
@@ -125,8 +127,6 @@ ros2_node_type_defaults:
     memory_max: "128M"
     apt_packages:
       - ros-jazzy-rplidar-ros
-    env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
   realsense_d435i:
     deploy_mode: native
     node_launch_command: "ros2 launch realsense2_camera rs_launch.py enable_accel:=false enable_gyro:=false depth_module.depth_profile:=848x480x90 rgb_camera.color_profile:=1280x720x30 align_depth.enable:=true"
@@ -135,8 +135,6 @@ ros2_node_type_defaults:
     memory_max: "512M"
     apt_packages:
       - ros-jazzy-realsense2-camera
-    env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
   swerve_controller:
     deploy_mode: native
     node_launch_command: "python3 -m swerve_drive_controller"
@@ -145,7 +143,6 @@ ros2_node_type_defaults:
     memory_max: "128M"
     config_path: /etc/ros2/swerve_drive_controller
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_drive_controller/config.yaml
   static_tf_publisher:
     deploy_mode: native
@@ -155,7 +152,6 @@ ros2_node_type_defaults:
     memory_max: "64M"
     config_path: /etc/ros2/static_tf_publisher
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       - STATIC_TF_PUBLISHER_CONFIG=/etc/ros2/static_tf_publisher/config.yaml
   robot_localization_ekf:
     deploy_mode: native
@@ -167,7 +163,6 @@ ros2_node_type_defaults:
       - ros-jazzy-robot-localization
     config_path: /etc/ros2/robot_localization_ekf
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       - ROBOT_LOCALIZATION_EKF_CONFIG=/etc/ros2/robot_localization_ekf/config.yaml
   nav2_bringup:
     deploy_mode: native
@@ -185,8 +180,6 @@ ros2_node_type_defaults:
       - ros-jazzy-nav2-behaviors
       - ros-jazzy-nav2-bt-navigator
       - ros-jazzy-nav2-waypoint-follower
-    env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
   web_ui:
     deploy_mode: native
     node_launch_command: "python3 -m web_ui"
@@ -195,11 +188,15 @@ ros2_node_type_defaults:
     memory_max: "256M"
     config_path: /etc/ros2/web_ui
     env:
-      - ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+      - ROS_SUPER_CLIENT=TRUE
       - WEB_UI_CONFIG=/etc/ros2/web_ui/config.yaml
 
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
 ros2_nodes:
+  - name: fastdds_discovery_server
+    node_type: fastdds_discovery_server
+    present: true
+    enabled: true
   - name: ros2-master
     node_type: ros2_master
     present: true
@@ -571,7 +568,6 @@ ros2_nodes:
       bridge:
         host: localhost
         port: 9090
-        ros_static_peers: "client.ros2.lan"
       tabs:
         - id: rgbd_camera
           type: rgbd_camera

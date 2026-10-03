@@ -274,14 +274,16 @@ In **`group_vars/server.yml`** or **`group_vars/client.yml`** (or host_vars), se
 
 The network role writes a netplan file under `/etc/netplan/` and runs `netplan apply`. The **hostname** role runs `hostnamectl set-hostname` and updates `/etc/hostname` and `/etc/hosts`.
 
-## ROS2 network setup (bind and localhost)
+## ROS2 network setup (FastDDS Discovery Server)
 
-Systemd service env vars control DDS discovery:
+DDS discovery uses one **FastDDS Discovery Server per host** instead of mesh discovery. Mesh discovery (`ROS_AUTOMATIC_DISCOVERY_RANGE` / `ROS_STATIC_PEERS`) overloaded the hosts with announcements, and processes started after boot never received data.
 
-- **All nodes:** `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` — restricts DDS discovery to localhost, preventing multicast announcements from flooding WiFi. FastDDS uses shared memory (SHM) for same-machine data transport and unicast UDP for discovery.
-- **Cross-host (client → server):** `master2master` adds `ROS_STATIC_PEERS=192.168.1.33` for unicast discovery to the server.
-- **Cross-host (server → client):** `ros2-master` and `lerobot_leader` add `ROS_STATIC_PEERS=192.168.1.34` so server topics are discoverable from the client.
-- **Scraper/GPS on server:** `topic_scraper_api` and `gps_rtk_base` use `LOCALHOST` only — no cross-host peering needed.
+- **Server process:** node `fastdds_discovery_server` (first entry in `ros2_nodes` on client and server) runs `fastdds discovery -i <ros2_dds_server_id> -l 0.0.0.0 -p 11811`. Server IDs: client `0`, server `1` (`ros2_dds_server_id` in `group_vars/<host>.yml`).
+- **All ROS2 nodes:** the unit template emits `ros2_dds_env` (`group_vars/all.yml`) first: `ROS_DISCOVERY_SERVER=<ros2_dds_local_discovery>`. On the client that is `127.0.0.1:11811`; on the server it is `;127.0.0.1:11811`, because a server's position in the list must equal its ID. Units start after `ros2-fastdds_discovery_server.service`. Node `env` entries come later and override it.
+- **Introspection:** `ros2-master` (ros2 daemon), `topic_scraper_api`, `web_ui` and `master2master` set `ROS_SUPER_CLIENT=TRUE` so they see the whole graph. SSH shells get the same settings from `/etc/profile.d/ros2_dds.sh` (`playbooks/tasks/dds_shell_env.yml`), so the `ros2` CLI and `scripts/*_diag.sh` work. Non-login SSH commands should `source /etc/profile.d/ros2_dds.sh`.
+- **Cross-host:** `master2master` on the client uses `ROS_DISCOVERY_SERVER=127.0.0.1:11811;server.ros2.lan:11811`, so it sees both graphs and is the only process exchanging data over Wi-Fi.
+- **Steam Deck UI:** `ROS_DISCOVERY_SERVER=client.ros2.lan:11811` (`steamdeck_ros2_discovery_server`).
+- **Rollout:** deploy `--all` on both hosts so every unit picks up the new environment.
 
 ## Node Resource Limits
 

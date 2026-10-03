@@ -146,3 +146,7 @@ The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `n
 ---
 
 **Maintenance:** Keep this README up to date when adding, removing, or changing tests. Document each new test file and each test (or test group) briefly so the test suite remains easy to navigate.
+
+### test_dds_discovery_config.py
+
+Static checks of the FastDDS Discovery Server setup in Ansible: no legacy discovery variables (`ROS_AUTOMATIC_DISCOVERY_RANGE`, `ROS_STATIC_PEERS`, `ROS_LOCALHOST_ONLY`) in client/server env; `fastdds_discovery_server` is the first, present and enabled node with the ID and port templated; server IDs client 0 / server 1; shared `ros2_dds_env` and the `;`-padded `ros2_dds_local_discovery`; introspection node types are super clients; client `master2master` lists both servers in ID order; the unit template renders shared env before node env and orders units after the discovery server; Steam Deck defaults point at the client discovery server.
