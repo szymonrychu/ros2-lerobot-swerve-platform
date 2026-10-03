@@ -20,7 +20,7 @@ class TestBridgeConfig:
         cfg = BridgeConfig()
         assert cfg.host == "localhost"
         assert cfg.port == 9090
-        assert cfg.ros_discovery_server == "client.ros2.lan:11811"
+        assert cfg.ros_static_peers == "client.ros2.lan"
 
     def test_custom_port(self) -> None:
         cfg = BridgeConfig(host="0.0.0.0", port=9091)

@@ -27,11 +27,12 @@ set +u
 # shellcheck disable=SC1091
 source /opt/ros/jazzy/setup.bash
 set -u
-# Join the robot's FastDDS discovery server (client RPi, server ID 0).
-export ROS_DISCOVERY_SERVER="${ROS_DISCOVERY_SERVER:-client.ros2.lan:11811}"
+export ROS_LOCALHOST_ONLY=0
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+export ROS_STATIC_PEERS="${ROS_STATIC_PEERS:-client.ros2.lan}"
 
 echo "[start.sh] Using config: $CONFIG"
-echo "[start.sh] ROS_DISCOVERY_SERVER: $ROS_DISCOVERY_SERVER"
+echo "[start.sh] ROS_STATIC_PEERS: $ROS_STATIC_PEERS"
 
 # Use venv Python if available (Ansible installs bridge deps there)
 PYTHON="${STEAMDECK_UI_PYTHON:-/opt/steamdeck-ui-bridge-venv/bin/python3}"

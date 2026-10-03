@@ -11,7 +11,7 @@ No Docker — native Electron app with a Python rclpy subprocess.
 ```
 SteamDeck (controller.ros2.lan)
 ├── Python rclpy bridge (bridge/bridge_server.py)
-│   ├── ROS2 DDS subscriber — ROS_DISCOVERY_SERVER=client.ros2.lan:11811
+│   ├── ROS2 DDS subscriber — STATIC_PEERS=client.ros2.lan
 │   ├── ROS2 DDS publisher — nav goals, cmd_vel
 │   └── Local WebSocket server — ws://localhost:9090
 │       ├── Pushes topic data to Electron renderer
@@ -23,7 +23,7 @@ SteamDeck (controller.ros2.lan)
 
 Client RPi (client.ros2.lan)
 └── master2master
-    ├── FastDDS discovery server on client.ros2.lan:11811 (the Steam Deck joins it)
+    ├── ROS_STATIC_PEERS includes controller.ros2.lan
     └── Relay rules: /sensor → /controller/sensor (outbound)
                     /controller/goal_pose → /goal_pose (inbound)
 ```
@@ -200,7 +200,7 @@ npm run build                   # esbuild bundles src/renderer/app.ts → dist/r
 STEAMDECK_UI_CONFIG=/path/to/config.yaml ./start.sh
 ```
 
-`start.sh` sources ROS2, sets DDS env vars (`ROS_DISCOVERY_SERVER=client.ros2.lan:11811`, from config `bridge.ros_discovery_server`), starts the Python bridge in the background, waits for the WebSocket port, then launches Electron fullscreen.
+`start.sh` sources ROS2, sets DDS env vars (`ROS_STATIC_PEERS=client.ros2.lan`), starts the Python bridge in the background, waits for the WebSocket port, then launches Electron fullscreen.
 
 ---
 
