@@ -1,6 +1,6 @@
 """Configuration for the web_ui node.
 
-Extends steamdeck_ui AppConfig with http_port and scene3d/robot_status tab types.
+Extends steamdeck_ui AppConfig with http_port and scene3d/robot_status/map_nav tab types.
 Config loaded from WEB_UI_CONFIG env var path or the default path.
 """
 
@@ -11,10 +11,58 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/web_ui/config.yaml")
 ENV_CONFIG_PATH_KEY = "WEB_UI_CONFIG"
+
+VALID_TAB_TYPES: frozenset[str] = frozenset(
+    {
+        "camera",
+        "sensor_graph",
+        "effector_graph",
+        "imu_orientation",
+        "nav_local",
+        "nav_gps",
+        "scene3d",
+        "robot_status",
+        "rgbd_camera",
+        "map_nav",
+    }
+)
+
+MAP_NAV_TAB_TYPE = "map_nav"
+
+# Defaults filled into map_nav tabs for fields left unset (other tab types keep None).
+MAP_NAV_DEFAULTS: dict[str, str] = {
+    "map_topic": "/map",
+    "global_plan_topic": "/plan",
+    "local_plan_topic": "/local_plan",
+    "goal_topic": "/goal_pose",
+    "map_frame": "map",
+    "base_frame": "base_link",
+    "map_save_path": "/var/lib/ros2/maps/slam_map",
+}
+
+# Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
+GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
+    "scan_topic",
+    "costmap_topic",
+    "odom_topic",
+    "fix_topic",
+    "arm_joint_topic",
+    "color_topic",
+    "depth_topic",
+    "camera_info_topic",
+)
+
+# map_nav tab attribute -> bridge subscription role (decides message type, QoS and serializer).
+MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
+    ("map_topic", "map"),
+    ("global_plan_topic", "path"),
+    ("local_plan_topic", "path"),
+    ("goal_topic", "goal"),
+)
 
 
 class BridgeConfig(BaseModel):
@@ -72,24 +120,44 @@ class TabConfig(BaseModel):
     color_topic: str | None = None
     depth_topic: str | None = None
     camera_info_topic: str | None = None
+    map_topic: str | None = None  # map_nav: nav_msgs/OccupancyGrid (latched SLAM map)
+    global_plan_topic: str | None = None  # map_nav: nav_msgs/Path from the planner
+    local_plan_topic: str | None = None  # map_nav: nav_msgs/Path from the controller
+    map_frame: str | None = None  # map_nav: fixed frame for display and goals
+    base_frame: str | None = None  # map_nav: robot frame looked up in TF for the pose arrow
+    map_save_path: str | None = None  # map_nav: slam_toolbox serialize_map filename (no extension)
 
     @field_validator("type")
     @classmethod
     def check_type(cls, v: str) -> str:
-        valid = {
-            "camera",
-            "sensor_graph",
-            "effector_graph",
-            "imu_orientation",
-            "nav_local",
-            "nav_gps",
-            "scene3d",
-            "robot_status",
-            "rgbd_camera",
-        }
-        if v not in valid:
-            raise ValueError(f"tab type must be one of {valid}, got {v!r}")
+        """Reject unknown tab types.
+
+        Args:
+            v (str): Tab type from config.
+
+        Returns:
+            str: The validated tab type.
+        """
+        if v not in VALID_TAB_TYPES:
+            raise ValueError(f"tab type must be one of {sorted(VALID_TAB_TYPES)}, got {v!r}")
         return v
+
+    @model_validator(mode="after")
+    def apply_map_nav_defaults(self) -> TabConfig:
+        """Fill unset map_nav fields with MAP_NAV_DEFAULTS and reject empty ones.
+
+        Returns:
+            TabConfig: This tab with map_nav defaults applied.
+        """
+        if self.type != MAP_NAV_TAB_TYPE:
+            return self
+        for field, default in MAP_NAV_DEFAULTS.items():
+            value = getattr(self, field)
+            if value is None:
+                setattr(self, field, default)
+            elif not value.strip():
+                raise ValueError(f"map_nav tab {self.id!r}: {field} must not be empty")
+        return self
 
 
 class AppConfig(BaseModel):
@@ -113,22 +181,58 @@ class AppConfig(BaseModel):
                 topics.add(tab.topic)
             for ts in tab.topics:
                 topics.add(ts.topic)
-            for attr in (
-                "scan_topic",
-                "costmap_topic",
-                "odom_topic",
-                "fix_topic",
-                "arm_joint_topic",
-                "color_topic",
-                "depth_topic",
-                "camera_info_topic",
-            ):
+            for attr in GENERIC_TOPIC_ATTRS:
                 val = getattr(tab, attr)
                 if val:
                     topics.add(val)
+        topics.update(self.topic_roles())
         for overlay in self.overlays:
             topics.add(overlay.topic)
         return sorted(topics)
+
+    def map_nav_tabs(self) -> list[TabConfig]:
+        """Return all map_nav tabs.
+
+        Returns:
+            list[TabConfig]: Tabs whose type is map_nav, in config order.
+        """
+        return [tab for tab in self.tabs if tab.type == MAP_NAV_TAB_TYPE]
+
+    def topic_roles(self) -> dict[str, str]:
+        """Map each map_nav topic to its bridge subscription role.
+
+        Roles are "map" (OccupancyGrid), "path" (Path) and "goal" (PoseStamped); the bridge derives
+        message types from these instead of TOPIC_TYPE_HINTS.
+
+        Returns:
+            dict[str, str]: Topic name -> role.
+        """
+        roles: dict[str, str] = {}
+        for tab in self.map_nav_tabs():
+            for attr, role in MAP_NAV_TOPIC_ROLES:
+                topic = getattr(tab, attr)
+                if topic:
+                    roles[topic] = role
+        return roles
+
+    def robot_pose_frames(self) -> tuple[str, str] | None:
+        """Return (map_frame, base_frame) of the first map_nav tab for the robot pose TF lookup.
+
+        Returns:
+            tuple[str, str] | None: Frames, or None when no map_nav tab is configured.
+        """
+        tabs = self.map_nav_tabs()
+        if not tabs or tabs[0].map_frame is None or tabs[0].base_frame is None:
+            return None
+        return (tabs[0].map_frame, tabs[0].base_frame)
+
+    def frame_id_defaults(self) -> dict[str, str]:
+        """Return header.frame_id defaults applied by the bridge to outgoing goals with an empty frame.
+
+        Returns:
+            dict[str, str]: map_nav goal topic -> map_frame.
+        """
+        return {tab.goal_topic: tab.map_frame for tab in self.map_nav_tabs() if tab.goal_topic and tab.map_frame}
 
     def publish_topics(self) -> list[str]:
         """Return topics the bridge must be able to publish to.

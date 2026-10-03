@@ -22,6 +22,60 @@ from .urdf_scanner import scan_urdf_directory
 
 log = structlog.get_logger(__name__)
 
+# Seconds to wait for slam_toolbox's serialize_map response before reporting a timeout.
+SAVE_MAP_TIMEOUT_S = 15.0
+# slam_toolbox SerializePoseGraph.Response.RESULT_SUCCESS.
+SERIALIZE_MAP_RESULT_SUCCESS = 0
+
+
+async def await_ros_future(future: Any, timeout_s: float) -> Any:
+    """Await an rclpy Future (completed by the executor thread) from asyncio, with a timeout.
+
+    Args:
+        future (Any): rclpy Future exposing add_done_callback, result, exception and cancel.
+        timeout_s (float): Maximum seconds to wait.
+
+    Returns:
+        Any: The future's result.
+
+    Raises:
+        TimeoutError: If the future does not complete within timeout_s (the future is cancelled).
+        Exception: Whatever exception the future completed with.
+    """
+    loop = asyncio.get_running_loop()
+    done: asyncio.Future[Any] = loop.create_future()
+
+    def resolve(fut: Any) -> None:
+        if done.done():
+            return
+        exc = fut.exception()
+        if exc is not None:
+            done.set_exception(exc)
+        else:
+            done.set_result(fut.result())
+
+    future.add_done_callback(lambda fut: loop.call_soon_threadsafe(resolve, fut))
+    try:
+        return await asyncio.wait_for(done, timeout_s)
+    except TimeoutError:
+        future.cancel()
+        raise
+
+
+def map_save_response(ok: bool, message: str, status_code: int) -> JSONResponse:
+    """Build the JSON body returned by POST /api/map/save.
+
+    Args:
+        ok (bool): Whether the map was saved.
+        message (str): Human-readable result.
+        status_code (int): HTTP status code.
+
+    Returns:
+        JSONResponse: {"ok": bool, "message": str}.
+    """
+    log.info("map_save_result", ok=ok, message=message)
+    return JSONResponse({"ok": ok, "message": message}, status_code=status_code)
+
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to every response."""
@@ -136,6 +190,29 @@ def build_app(
         log.debug("urdf_file_served", path=path, size_bytes=requested.stat().st_size)
         return FileResponse(requested)
 
+    @app.post("/api/map/save")
+    async def save_map(tab: str) -> JSONResponse:
+        tab_cfg = next((t for t in config.map_nav_tabs() if t.id == tab), None)
+        if tab_cfg is None or not tab_cfg.map_save_path:
+            return map_save_response(False, f"no map_nav tab {tab!r}", 404)
+        if bridge_node is None:
+            return map_save_response(False, "ROS bridge unavailable", 503)
+        future = bridge_node.serialize_map_async(tab_cfg.map_save_path)
+        if future is None:
+            return map_save_response(False, "service /slam_toolbox/serialize_map unavailable (is SLAM running?)", 503)
+        try:
+            response = await await_ros_future(future, SAVE_MAP_TIMEOUT_S)
+        except TimeoutError:
+            return map_save_response(False, f"serialize_map timed out after {SAVE_MAP_TIMEOUT_S:g} s", 504)
+        except Exception as exc:
+            return map_save_response(False, f"serialize_map failed: {exc}", 500)
+        if response is None or response.result != SERIALIZE_MAP_RESULT_SUCCESS:
+            code = getattr(response, "result", None)
+            return map_save_response(
+                False, f"slam_toolbox could not write {tab_cfg.map_save_path} (result {code})", 500
+            )
+        return map_save_response(True, f"map saved to {tab_cfg.map_save_path}", 200)
+
     app.router.add_event_handler("startup", _make_start_broadcaster(app, clients, bridge_node, broadcast_interval, log))
 
     @app.websocket("/ws")
@@ -145,6 +222,10 @@ def build_app(
         clients[client_id] = ws
         remote = ws.client.host if ws.client else "unknown"
         log.info("ws_client_connected", client_id=client_id, remote_addr=remote, total_clients=len(clients))
+        if bridge_node is not None:
+            # Latched data (e.g. the SLAM map) is only re-broadcast on change: send the cache to late joiners.
+            for envelope in bridge_node.latest_envelopes():
+                await ws.send_text(json.dumps(envelope))
 
         try:
             async for raw in ws.iter_text():

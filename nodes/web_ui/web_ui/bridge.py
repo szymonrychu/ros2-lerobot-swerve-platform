@@ -1,21 +1,38 @@
-"""ROS2 bridge node: subscribes to topics, stores latest value, broadcasts at 20 Hz."""
+"""ROS2 bridge node: subscribes to topics, stores latest value, broadcasts at 20 Hz.
+
+Also tracks the robot pose in the map frame via TF and calls slam_toolbox's serialize_map service
+for the map_nav tab.
+"""
 
 from __future__ import annotations
 
+import array
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 import rclpy  # noqa: F401  # kept as module attribute for test patching
 import structlog
 from geometry_msgs.msg import PoseStamped
-from nav_msgs.msg import OccupancyGrid, Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
+from slam_toolbox.srv import SerializePoseGraph
+from tf2_ros import Buffer, TransformException, TransformListener
 
-from .msg_serializer import msg_to_dict
+from .msg_serializer import (
+    msg_to_dict,
+    quaternion_to_yaw,
+    serialize_goal_pose,
+    serialize_occupancy_grid,
+    serialize_path,
+    transform_points_2d,
+    transform_to_pose_dict,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -30,6 +47,7 @@ MSG_TYPE_MAP: dict[str, type] = {
     "nav_msgs/OccupancyGrid": OccupancyGrid,
     "nav_msgs/Odometry": Odometry,
     "geometry_msgs/PoseStamped": PoseStamped,
+    "nav_msgs/Path": Path,
 }
 
 TOPIC_TYPE_HINTS: dict[str, type] = {
@@ -58,16 +76,79 @@ SENSOR_TYPES: frozenset[type] = frozenset(
     {CameraInfo, Imu, JointState, NavSatFix, LaserScan, OccupancyGrid, Odometry, Image, CompressedImage}
 )
 
+# slam_toolbox publishes /map reliable + transient_local with depth 1: match it to receive the latched map.
+MAP_SUB_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
+DEFAULT_SUB_QOS_DEPTH = 10
+
+# Synthetic WS topic carrying the map_frame -> base_frame TF pose (not a ROS topic).
+ROBOT_POSE_TOPIC = "/web_ui/robot_pose"
+SERIALIZE_MAP_SERVICE = "/slam_toolbox/serialize_map"
+TOPIC_STALE_S = 10.0
+
+Serializer = Callable[[Any], dict[str, Any]]
+
+# map_nav subscription role -> (message class, QoS, serializer). Roles come from the tab config.
+ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
+    "map": (OccupancyGrid, MAP_SUB_QOS, serialize_occupancy_grid),
+    "path": (Path, DEFAULT_SUB_QOS_DEPTH, serialize_path),
+    "goal": (PoseStamped, DEFAULT_SUB_QOS_DEPTH, serialize_goal_pose),
+}
+
+
+def subscription_spec(topic: str, role: str | None) -> tuple[type, Any, Serializer] | None:
+    """Choose message class, QoS and serializer for a topic.
+
+    map_nav topics (role given) take their type from the role, independent of TOPIC_TYPE_HINTS;
+    other topics fall back to TOPIC_TYPE_HINTS.
+
+    Args:
+        topic (str): ROS2 topic name.
+        role (str | None): map_nav role ("map", "path", "goal") or None.
+
+    Returns:
+        tuple[type, Any, Serializer] | None: (msg class, QoS profile or depth, serializer), or None if unknown.
+    """
+    if role is not None:
+        return ROLE_SPECS[role]
+    msg_cls = TOPIC_TYPE_HINTS.get(topic)
+    if msg_cls is None:
+        return None
+    qos = SENSOR_SUB_QOS if msg_cls in SENSOR_TYPES else DEFAULT_SUB_QOS_DEPTH
+
+    def serializer(msg: Any) -> dict[str, Any]:
+        return msg_to_dict(msg, topic=topic)
+
+    return (msg_cls, qos, serializer)
+
 
 class BridgeNode(Node):
     """rclpy node: subscribes to configured topics, stores latest value per topic."""
 
-    def __init__(self, topics: list[str], allowed_publish_topics: set[str]) -> None:
+    def __init__(
+        self,
+        topics: list[str],
+        allowed_publish_topics: set[str],
+        topic_roles: dict[str, str] | None = None,
+        robot_pose_frames: tuple[str, str] | None = None,
+        frame_id_defaults: dict[str, str] | None = None,
+        pose_rate_hz: float = 20.0,
+    ) -> None:
         """Initialise BridgeNode.
 
         Args:
-            topics: ROS2 topic strings to subscribe to.
-            allowed_publish_topics: Allowlist of topics this node may publish to.
+            topics (list[str]): ROS2 topic strings to subscribe to.
+            allowed_publish_topics (set[str]): Allowlist of topics this node may publish to.
+            topic_roles (dict[str, str] | None): map_nav topic -> role ("map", "path", "goal").
+            robot_pose_frames (tuple[str, str] | None): (map_frame, base_frame) for the TF robot pose,
+                or None to disable TF tracking.
+            frame_id_defaults (dict[str, str] | None): Publish topic -> header.frame_id used when the
+                client sends an empty frame_id.
+            pose_rate_hz (float): Robot pose lookup rate (the WS broadcast rate).
         """
         super().__init__("web_ui_bridge")
         self._latest: dict[str, dict[str, Any]] = {}
@@ -76,39 +157,142 @@ class BridgeNode(Node):
         self.publishers_: dict[str, tuple[Any, type]] = {}
         self._allowed_publish_topics = allowed_publish_topics
         self._topic_last_rx: dict[str, float] = {}
+        self._frame_id_defaults = frame_id_defaults or {}
+        self._robot_pose_frames = robot_pose_frames
+        self._tf_buffer: Any = None
+        self._serialize_map_client: Any = None
+        roles = topic_roles or {}
 
         for topic in topics:
-            msg_cls = TOPIC_TYPE_HINTS.get(topic)
-            if msg_cls is None:
-                self.get_logger().warning(f"Unknown msg type for topic {topic!r} — skipping")
+            spec = subscription_spec(topic, roles.get(topic))
+            if spec is None:
+                self.get_logger().warning(f"Unknown msg type for topic {topic!r} - skipping")
                 continue
-            qos = SENSOR_SUB_QOS if msg_cls in SENSOR_TYPES else 10
-            self.create_subscription(msg_cls, topic, self._make_callback(topic), qos)
+            msg_cls, qos, serializer = spec
+            self.create_subscription(msg_cls, topic, self._make_callback(topic, serializer), qos)
             self._topic_last_rx[topic] = time.monotonic()
 
-        log.info("ros2_node_ready", node_name="web_ui_bridge", topics_subscribed=len(self._topic_last_rx))
-        self.create_timer(10.0, self._check_topic_health)
+        if robot_pose_frames is not None:
+            self._tf_buffer = Buffer()
+            self._tf_listener = TransformListener(self._tf_buffer, self)
+            self.create_timer(1.0 / pose_rate_hz, self.update_robot_pose)
+            self._serialize_map_client = self.create_client(SerializePoseGraph, SERIALIZE_MAP_SERVICE)
 
-    def _make_callback(self, topic: str) -> Any:
+        log.info("ros2_node_ready", node_name="web_ui_bridge", topics_subscribed=len(self._topic_last_rx))
+        self.create_timer(TOPIC_STALE_S, self._check_topic_health)
+
+    def _make_callback(self, topic: str, serializer: Serializer) -> Callable[[Any], None]:
+        """Build a subscription callback that serializes and caches each message.
+
+        Messages whose frame differs from the map frame are transformed into it (paths and goals);
+        if that transform is unavailable the message is dropped rather than shown in the wrong place.
+
+        Args:
+            topic (str): Topic the callback serves.
+            serializer (Serializer): Converts the ROS message into a JSON-serializable dict.
+
+        Returns:
+            Callable[[Any], None]: Subscription callback.
+        """
+
         def callback(msg: Any) -> None:
             try:
-                data = msg_to_dict(msg, topic=topic)
-                envelope = {"topic": topic, "data": data}
+                data = self.to_map_frame(serializer(msg))
             except Exception as exc:
-                self.get_logger().warning(f"Serialize error on {topic}: {exc}")
+                log.warning("serialize_error", topic=topic, error=str(exc))
+                return
+            if data is None:
+                log.debug("msg_dropped_no_tf", topic=topic)
                 return
             log.debug("ros2_msg_rx", topic=topic, msg_type=type(msg).__name__)
-            with self._lock:
-                self._latest[topic] = envelope
-                self._dirty.add(topic)
-                self._topic_last_rx[topic] = time.monotonic()
+            self.store(topic, data)
 
         return callback
+
+    def store(self, topic: str, data: dict[str, Any]) -> None:
+        """Cache data as the latest envelope for topic and mark it for broadcast.
+
+        Args:
+            topic (str): WS topic name.
+            data (dict[str, Any]): Serialized payload.
+        """
+        with self._lock:
+            self._latest[topic] = {"topic": topic, "data": data}
+            self._dirty.add(topic)
+            self._topic_last_rx[topic] = time.monotonic()
+
+    def to_map_frame(self, data: dict[str, Any]) -> dict[str, Any] | None:
+        """Re-express a serialized path ("points") or goal ("x", "y", "yaw") in the map frame.
+
+        Data without a frame_id, already in the map frame, or with TF tracking disabled is returned as is.
+
+        Args:
+            data (dict[str, Any]): Serialized message with a "frame_id" key.
+
+        Returns:
+            dict[str, Any] | None: Data in the map frame, or None when the transform is unavailable.
+        """
+        frame_id = data.get("frame_id")
+        if self._robot_pose_frames is None or self._tf_buffer is None or not frame_id:
+            return data
+        map_frame = self._robot_pose_frames[0]
+        if frame_id == map_frame or ("points" not in data and "yaw" not in data):
+            return data
+        try:
+            tf = self._tf_buffer.lookup_transform(map_frame, frame_id, Time())
+        except TransformException:
+            return None
+        t = tf.transform.translation
+        q = tf.transform.rotation
+        yaw = quaternion_to_yaw(q.x, q.y, q.z, q.w)
+        out = dict(data, frame_id=map_frame)
+        if "points" in data:
+            out["points"] = transform_points_2d(data["points"], t.x, t.y, yaw)
+        else:
+            (x, y), *_ = transform_points_2d([[data["x"], data["y"]]], t.x, t.y, yaw)
+            out.update(x=x, y=y, yaw=data["yaw"] + yaw)
+        return out
+
+    def update_robot_pose(self) -> bool:
+        """Look up map_frame -> base_frame and cache it under ROBOT_POSE_TOPIC.
+
+        Nothing is cached when TF tracking is disabled or the transform is unavailable (no placeholder pose).
+
+        Returns:
+            bool: True if a pose was cached.
+        """
+        if self._robot_pose_frames is None or self._tf_buffer is None:
+            return False
+        map_frame, base_frame = self._robot_pose_frames
+        try:
+            tf = self._tf_buffer.lookup_transform(map_frame, base_frame, Time())
+        except TransformException as exc:
+            log.debug("robot_pose_unavailable", error=str(exc))
+            return False
+        self.store(ROBOT_POSE_TOPIC, transform_to_pose_dict(tf))
+        return True
+
+    def serialize_map_async(self, filename: str) -> Any:
+        """Request slam_toolbox to serialize its pose graph and map to filename.
+
+        Args:
+            filename (str): Target path without extension (slam_toolbox writes .posegraph and .data).
+
+        Returns:
+            Any: rclpy Future resolving to SerializePoseGraph.Response, or None if the service is unavailable.
+        """
+        client = self._serialize_map_client
+        if client is None or not client.service_is_ready():
+            return None
+        request = SerializePoseGraph.Request()
+        request.filename = filename
+        log.info("serialize_map_requested", filename=filename)
+        return client.call_async(request)
 
     def _check_topic_health(self) -> None:
         now = time.monotonic()
         for topic, last_rx in self._topic_last_rx.items():
-            if now - last_rx > 10.0:
+            if now - last_rx > TOPIC_STALE_S:
                 log.warning("topic_stale", topic=topic, seconds_since_rx=round(now - last_rx))
 
     def _log_warning(self, msg: str) -> None:
@@ -125,6 +309,15 @@ class BridgeNode(Node):
             envelopes = [self._latest[t] for t in self._dirty if t in self._latest]
             self._dirty.clear()
         return envelopes
+
+    def latest_envelopes(self) -> list[dict[str, Any]]:
+        """Return the latest cached envelope of every topic (snapshot for newly connected clients).
+
+        Returns:
+            list[dict[str, Any]]: Envelopes, one per topic received so far.
+        """
+        with self._lock:
+            return list(self._latest.values())
 
     def create_publisher_for(self, topic: str, msg_type_str: str) -> None:
         """Create a ROS2 publisher for an allowlisted topic.
@@ -161,28 +354,104 @@ class BridgeNode(Node):
         pub, msg_cls = self.publishers_[topic]
         try:
             msg = _dict_to_ros_msg(msg_cls(), data)
+            self.fill_header(topic, msg)
             pub.publish(msg)
             log.debug("publish_sent", topic=topic)
         except Exception as exc:
             log.warning("publish_error", topic=topic, error=str(exc))
 
+    def fill_header(self, topic: str, msg: Any) -> None:
+        """Fill a zero header.stamp with the node clock and an empty frame_id with the topic default.
+
+        Args:
+            topic (str): Publish topic (selects the frame_id default).
+            msg (Any): Outgoing ROS message; messages without a header are left untouched.
+        """
+        header = getattr(msg, "header", None)
+        if header is None:
+            return
+        if header.stamp.sec == 0 and header.stamp.nanosec == 0:
+            header.stamp = self.get_clock().now().to_msg()
+        if not header.frame_id and topic in self._frame_id_defaults:
+            header.frame_id = self._frame_id_defaults[topic]
+
+
+def coerce_scalar(current: Any, value: Any, field: str) -> Any:
+    """Convert a JSON scalar to the Python type of an existing ROS message field.
+
+    Args:
+        current (Any): Current field value (its type is the field type).
+        value (Any): Incoming JSON value.
+        field (str): Field name, for error messages.
+
+    Returns:
+        Any: value converted to int, float, bool or str matching the field.
+
+    Raises:
+        TypeError: If the value cannot be represented exactly in the field type.
+    """
+    if isinstance(current, bool):
+        if not isinstance(value, bool):
+            raise TypeError(f"{field}: expected bool, got {type(value).__name__}")
+        return value
+    is_number = isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(current, int):
+        if not is_number or (isinstance(value, float) and not value.is_integer()):
+            raise TypeError(f"{field}: expected int, got {value!r}")
+        return int(value)
+    if isinstance(current, float):
+        if not is_number:
+            raise TypeError(f"{field}: expected float, got {type(value).__name__}")
+        return float(value)
+    if isinstance(current, str) and not isinstance(value, str):
+        raise TypeError(f"{field}: expected str, got {type(value).__name__}")
+    return value
+
+
+def coerce_sequence(current: Any, values: list[Any], field: str) -> Any:
+    """Convert a JSON list to the element type of an existing ROS sequence field.
+
+    Args:
+        current (Any): Current field value (array.array for numeric sequences, list otherwise).
+        values (list[Any]): Incoming JSON list.
+        field (str): Field name, for error messages.
+
+    Returns:
+        Any: Values converted so the generated rclpy setter accepts them.
+    """
+    if isinstance(current, array.array):
+        sample: Any = 0.0 if current.typecode in ("f", "d") else 0
+        return [coerce_scalar(sample, v, f"{field}[{i}]") for i, v in enumerate(values)]
+    return values
+
 
 def _dict_to_ros_msg(msg: Any, data: dict[str, Any]) -> Any:
+    """Populate a ROS message in place from a JSON dict, matching each field's Python type.
+
+    Int fields (e.g. header.stamp.sec) get ints and float fields get floats. Unknown keys are logged
+    and skipped; values that do not fit their field raise so the caller can report the failure.
+
+    Args:
+        msg (Any): ROS message instance to fill.
+        data (dict[str, Any]): Deserialized JSON payload.
+
+    Returns:
+        Any: The same message instance.
+
+    Raises:
+        TypeError: If a value does not match its field type.
+    """
     for key, value in data.items():
         if not hasattr(msg, key):
+            log.warning("publish_unknown_field", msg_type=type(msg).__name__, field=key)
             continue
         attr = getattr(msg, key)
         if isinstance(value, dict) and hasattr(attr, "__slots__"):
             _dict_to_ros_msg(attr, value)
         elif isinstance(value, list):
-            setattr(msg, key, value)
+            setattr(msg, key, coerce_sequence(attr, value, key))
         else:
-            try:
-                if isinstance(value, int) and not isinstance(value, bool):
-                    value = float(value)
-                setattr(msg, key, value)
-            except Exception:
-                pass
+            setattr(msg, key, coerce_scalar(attr, value, key))
     return msg
 
 

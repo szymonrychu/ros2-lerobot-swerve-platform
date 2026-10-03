@@ -17,12 +17,16 @@ def _install_ros2_stubs() -> None:
         "rclpy.node",
         "rclpy.executors",
         "rclpy.qos",
+        "rclpy.time",
         "geometry_msgs",
         "geometry_msgs.msg",
         "nav_msgs",
         "nav_msgs.msg",
         "sensor_msgs",
         "sensor_msgs.msg",
+        "tf2_ros",
+        "slam_toolbox",
+        "slam_toolbox.srv",
     ]
     for mod_name in ros2_modules:
         if mod_name not in sys.modules:
@@ -30,9 +34,37 @@ def _install_ros2_stubs() -> None:
 
     # Provide the specific classes/enums used in bridge.py
     qos_mod = sys.modules["rclpy.qos"]
-    for name in ("QoSProfile", "ReliabilityPolicy", "HistoryPolicy"):
+    if not hasattr(qos_mod, "QoSProfile"):
+
+        class _StubQoSProfile:
+            """Records constructor kwargs so tests can assert QoS settings."""
+
+            def __init__(self, **kwargs: object) -> None:
+                self.__dict__.update(kwargs)
+
+        qos_mod.QoSProfile = _StubQoSProfile  # type: ignore[attr-defined]
+    for name in ("ReliabilityPolicy", "HistoryPolicy", "DurabilityPolicy"):
         if not hasattr(qos_mod, name):
             setattr(qos_mod, name, MagicMock())
+
+    time_mod = sys.modules["rclpy.time"]
+    if not hasattr(time_mod, "Time"):
+        time_mod.Time = MagicMock  # type: ignore[attr-defined]
+
+    tf2_mod = sys.modules["tf2_ros"]
+    if not hasattr(tf2_mod, "TransformException"):
+
+        class _StubTransformException(Exception):
+            """Stand-in for tf2_ros.TransformException."""
+
+        tf2_mod.TransformException = _StubTransformException  # type: ignore[attr-defined]
+    for name in ("Buffer", "TransformListener"):
+        if not hasattr(tf2_mod, name):
+            setattr(tf2_mod, name, MagicMock())
+
+    slam_srv_mod = sys.modules["slam_toolbox.srv"]
+    if not hasattr(slam_srv_mod, "SerializePoseGraph"):
+        slam_srv_mod.SerializePoseGraph = MagicMock()  # type: ignore[attr-defined]
 
     node_mod = sys.modules["rclpy.node"]
     if not hasattr(node_mod, "Node"):
@@ -51,7 +83,7 @@ def _install_ros2_stubs() -> None:
         if not hasattr(sensor_mod, msg_class):
             setattr(sensor_mod, msg_class, MagicMock())
 
-    for msg_class in ("OccupancyGrid", "Odometry"):
+    for msg_class in ("OccupancyGrid", "Odometry", "Path"):
         nav_mod = sys.modules["nav_msgs.msg"]
         if not hasattr(nav_mod, msg_class):
             setattr(nav_mod, msg_class, MagicMock())
