@@ -17,18 +17,7 @@ export interface TabConfig {
   topics?: TabTopicSpec[]
   window_s?: number
   max_points?: number
-  scan_topic?: string
-  costmap_topic?: string
-  odom_topic?: string
   goal_topic?: string
-  fix_topic?: string
-  tile_url?: string
-  default_zoom?: number
-  urdf_file?: string
-  arm_urdf_file?: string
-  arm_joint_topic?: string
-  arm_offset?: [number, number, number]
-  arm_command_topic?: string
   color_topic?: string
   depth_topic?: string
   camera_info_topic?: string
@@ -42,6 +31,14 @@ export interface TabConfig {
   map_save_path?: string
   map_reset_service?: string // default /slam_toolbox/reset
   navigate_action?: string // default /navigate_to_pose (Stop cancels <action>/_action/cancel_goal)
+  // map_nav 3D view: robot model, local costmap and arm control
+  local_costmap_topic?: string // map/costmap payload (png_b64 + placement) in map_frame, drawn above the SLAM map
+  base_urdf?: string // swerve base URDF under /api/urdf/, placed at /web_ui/robot_pose
+  base_joint_states_topic?: string // sensor_msgs/JointState driving the base URDF (wheel steer/drive)
+  arm_urdf?: string // arm URDF under /api/urdf/
+  arm_joint_states_topic?: string // sensor_msgs/JointState driving the arm URDF (follower positions)
+  arm_offset?: [number, number, number] // arm mount in the base frame (ROS x, y, z metres)
+  arm_command_topic?: string // sensor_msgs/JointState published by the draggable arm
 }
 
 export interface OverlayItem {

@@ -3,6 +3,8 @@ import {
   initialTabIndex,
   orderTabs,
   readStoredTabId,
+  SUPPORTED_TAB_TYPES,
+  supportedTabs,
   TAB_STORAGE_KEY,
   writeStoredTabId,
 } from './tabSelection'
@@ -87,5 +89,27 @@ describe('stored tab id', () => {
     expect(readStoredTabId(throwingStorage)).toBeNull()
     expect(() => writeStoredTabId(throwingStorage, 'imu')).not.toThrow()
     expect(() => writeStoredTabId(undefined, 'imu')).not.toThrow()
+  })
+})
+
+describe('supportedTabs', () => {
+  it('drops tab types merged into the 3D map tab or removed (nav_local, nav_gps, scene3d, robot_status, effector_graph)', () => {
+    const tabs = [
+      ...TABS,
+      { id: 'local', type: 'nav_local' },
+      { id: 'gps', type: 'nav_gps' },
+      { id: 'scene', type: 'scene3d' },
+      { id: 'status', type: 'robot_status' },
+      { id: 'servos', type: 'effector_graph' },
+      { id: 'cam', type: 'camera' },
+      { id: 'graph', type: 'sensor_graph' },
+    ]
+    expect(supportedTabs(tabs).map((t) => t.id)).toEqual(['rgbd_camera', 'imu', 'map', 'map2', 'cam', 'graph'])
+  })
+
+  it('lists exactly the kept tab types', () => {
+    expect([...SUPPORTED_TAB_TYPES].sort()).toEqual(
+      ['camera', 'imu_orientation', 'map_nav', 'rgbd_camera', 'sensor_graph'].sort(),
+    )
   })
 })

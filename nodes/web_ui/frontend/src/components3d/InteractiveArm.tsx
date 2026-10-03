@@ -98,6 +98,20 @@ interface Props {
   publish: (topic: string, msgType: string, data: unknown) => void
   orbitRef: React.RefObject<OrbitControlsImpl | null>
   onReady?: (ready: boolean) => void
+  /** Hidden arms draw nothing and ignore pointer input (handles cannot be grabbed). */
+  visible?: boolean
+}
+
+/**
+ * Link or frame of the arm by name (urdf-loader keeps fixed frames in `frames`).
+ *
+ * @param robot - loaded URDF robot
+ * @param name - link name
+ * @returns the object, or undefined
+ */
+function findLink(robot: URDFRobot, name: string): THREE.Object3D | undefined {
+  const frames = (robot as unknown as { frames?: Record<string, THREE.Object3D> }).frames
+  return frames?.[name] ?? robot.links[name]
 }
 
 /** Finds t such that lineOrigin + t*lineDir is closest to the given ray. */
@@ -116,8 +130,19 @@ function closestPointOnLine(
   return new THREE.Vector3().copy(lineOrigin).addScaledVector(lineDir, t)
 }
 
-export function InteractiveArm({ urdfFile, liveJointStates, position, commandTopic, publish, orbitRef, onReady }: Props) {
-  const { gl, camera, scene, invalidate } = useThree()
+export function InteractiveArm({
+  urdfFile,
+  liveJointStates,
+  position,
+  commandTopic,
+  publish,
+  orbitRef,
+  onReady,
+  visible = true,
+}: Props) {
+  const { gl, camera, invalidate } = useThree()
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
   const cameraRef = useRef<THREE.Camera>(camera)
   cameraRef.current = camera
 
@@ -232,7 +257,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
 
     for (let idx = 0; idx < IK_JOINTS.length; idx++) {
       const { joint: jointName, childLink: linkName } = IK_JOINTS[idx]
-      const link = (robot as any).frames?.[linkName] ?? robot.links[linkName]
+      const link = findLink(robot, linkName)
       if (!link) {
         log.warn('[interactive] link not found for sphere:', linkName)
         continue
@@ -253,25 +278,27 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
     log.info(`[interactive] created ${jointSpheresRef.current.size} joint spheres`)
   }, [])
 
+  // Axis arrows live in the arm's own group (so they move with the robot base), positioned at each link origin
+  // and aligned with the group's axes; dragging converts the axis to world space.
   const updateArrowPositions = useCallback((robot: URDFRobot) => {
-    robot.updateMatrixWorld(true)
+    const host = robot.parent
+    if (!host) return
+    host.updateMatrixWorld(true)
     for (const entry of axisArrowsRef.current) {
-      const { childLink: linkName } = IK_JOINTS[entry.ikJointIdx]
-      const link = (robot as any).frames?.[linkName] ?? robot.links[linkName]
+      const link = findLink(robot, IK_JOINTS[entry.ikJointIdx].childLink)
       if (!link) continue
-      const wp = link.getWorldPosition(new THREE.Vector3())
-      entry.shaftMesh.parent?.position.copy(wp)
+      const group = entry.shaftMesh.parent
+      if (group) group.position.copy(host.worldToLocal(link.getWorldPosition(new THREE.Vector3())))
     }
   }, [])
 
-  const createAxisArrows = useCallback((robot: URDFRobot, threeScene: THREE.Scene) => {
-    // Dispose previous arrows
+  const disposeAxisArrows = useCallback(() => {
     const seenGroups = new Set<THREE.Object3D>()
     for (const entry of axisArrowsRef.current) {
       const group = entry.shaftMesh.parent
       if (group && !seenGroups.has(group)) {
         seenGroups.add(group)
-        threeScene.remove(group)
+        group.parent?.remove(group)
       }
       entry.shaftMesh.geometry.dispose()
       entry.headMesh.geometry.dispose()
@@ -280,16 +307,20 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
     }
     axisArrowsRef.current = []
     arrowMeshByUuidRef.current.clear()
+  }, [])
 
-    robot.updateMatrixWorld(true)
+  const createAxisArrows = useCallback((robot: URDFRobot) => {
+    disposeAxisArrows()
+    const host = robot.parent
+    if (!host) return
+    host.updateMatrixWorld(true)
 
     // J2..J6 = IK_JOINTS indices 1..5
     for (let idx = 1; idx <= 5; idx++) {
-      const { childLink: linkName } = IK_JOINTS[idx]
-      const link = (robot as any).frames?.[linkName] ?? robot.links[linkName]
+      const link = findLink(robot, IK_JOINTS[idx].childLink)
       if (!link) continue
 
-      const wp = link.getWorldPosition(new THREE.Vector3())
+      const localPos = host.worldToLocal(link.getWorldPosition(new THREE.Vector3()))
 
       const axes: Array<{ key: string; worldAxis: THREE.Vector3 }> = [
         { key: 'x', worldAxis: new THREE.Vector3(1, 0, 0) },
@@ -330,8 +361,8 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
         const group = new THREE.Group()
         group.add(shaftMesh)
         group.add(headMesh)
-        group.position.copy(wp)
-        threeScene.add(group)
+        group.position.copy(localPos)
+        host.add(group)
 
         const entry: AxisArrowEntry = { shaftMesh, headMesh, ikJointIdx: idx, worldAxis, axisKey: key }
         axisArrowsRef.current.push(entry)
@@ -341,7 +372,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
     }
 
     log.info(`[interactive] created ${axisArrowsRef.current.length} axis arrows`)
-  }, [])
+  }, [disposeAxisArrows])
 
   const setRingAppearance = useCallback((entry: RingEntry, color: number, opacity: number) => {
     const mat = entry.mesh.material as THREE.MeshBasicMaterial
@@ -368,6 +399,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
       | null
 
     const hitInteractables = (e: PointerEvent): HitResult => {
+      if (!visibleRef.current) return null
       const rect = canvas.getBoundingClientRect()
       const ndc = new THREE.Vector2(
         ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -460,10 +492,12 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
         const linkName = chainEntry.childLink
         const robot = ghostRobotRef.current
         if (!robot) return
-        const link = (robot as any).frames?.[linkName] ?? robot.links[linkName]
+        const link = findLink(robot, linkName)
         if (!link) return
         const axisOrigin = link.getWorldPosition(new THREE.Vector3())
-        activeDragRef.current = { type: 'axis', worldAxis: worldAxis.clone(), axisOrigin, ikJointIdx }
+        const hostQuat = robot.parent?.getWorldQuaternion(new THREE.Quaternion()) ?? new THREE.Quaternion()
+        const axisInWorld = worldAxis.clone().applyQuaternion(hostQuat).normalize()
+        activeDragRef.current = { type: 'axis', worldAxis: axisInWorld, axisOrigin, ikJointIdx }
         for (const entry of axisArrowsRef.current) {
           if (entry.ikJointIdx === ikJointIdx && entry.axisKey === hit.axisKey) {
             ;(entry.shaftMesh.material as THREE.MeshBasicMaterial).opacity = ARROW_OPACITY_DRAG
@@ -515,7 +549,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
             const chainEntry = IK_JOINTS[drag.ikJointIdx]
             const chainJoints = IK_JOINTS.slice(0, drag.ikJointIdx + 1).map((e) => e.joint)
             const linkName = chainEntry.childLink
-            const eeLink = (robot as any).frames?.[linkName] ?? robot.links[linkName]
+            const eeLink = findLink(robot, linkName)
             if (eeLink) {
               solveCCDIK(robot, intersection, {
                 chainJointNames: chainJoints,
@@ -524,8 +558,8 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
                 tolerance: 0.001,
               })
               for (const name of chainJoints) {
-                const joint = robot.joints[name] as unknown as any
-                if (joint) commandedRef.current[name] = (joint.jointValue as number[])[0] ?? 0
+                const joint = robot.joints[name] as unknown as { jointValue: number[] } | undefined
+                if (joint) commandedRef.current[name] = joint.jointValue[0] ?? 0
               }
               updateArrowPositions(robot)
               invalidate()
@@ -544,7 +578,7 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
           const chainEntry = IK_JOINTS[drag.ikJointIdx]
           const chainJoints = IK_JOINTS.slice(0, drag.ikJointIdx + 1).map((e) => e.joint)
           const linkName = chainEntry.childLink
-          const eeLink = (robot as any).frames?.[linkName] ?? robot.links[linkName]
+          const eeLink = findLink(robot, linkName)
           if (eeLink) {
             solveCCDIK(robot, target, {
               chainJointNames: chainJoints,
@@ -553,8 +587,8 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
               tolerance: 0.001,
             })
             for (const name of chainJoints) {
-              const joint = robot.joints[name] as unknown as any
-              if (joint) commandedRef.current[name] = (joint.jointValue as number[])[0] ?? 0
+              const joint = robot.joints[name] as unknown as { jointValue: number[] } | undefined
+              if (joint) commandedRef.current[name] = joint.jointValue[0] ?? 0
             }
             updateArrowPositions(robot)
             invalidate()
@@ -659,16 +693,13 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
   return (
     <>
       {/* Solid arm — always tracks live servo position */}
-      <RobotModel
-        urdfFile={urdfFile}
-        jointStates={liveJointStates}
-        position={position}
-      />
+      <RobotModel urdfFile={urdfFile} jointStates={liveJointStates} position={position} visible={visible} />
       {/* Ghost arm — always in scene; body opacity 0 normally, ghost during drag; hosts rings */}
       <RobotModel
         urdfFile={urdfFile}
         jointStates={ghostJointStates}
         position={position}
+        visible={visible}
         ghost
         onBodyMeshesLoaded={(meshes) => {
           ghostBodyMeshesRef.current = meshes
@@ -678,23 +709,9 @@ export function InteractiveArm({ urdfFile, liveJointStates, position, commandTop
           if (robot) {
             createRings(robot)
             createJointSpheres(robot)
-            createAxisArrows(robot, scene)
+            createAxisArrows(robot)
           } else {
-            // Cleanup axis arrows
-            const seenGroups = new Set<THREE.Object3D>()
-            for (const entry of axisArrowsRef.current) {
-              const group = entry.shaftMesh.parent
-              if (group && !seenGroups.has(group)) {
-                seenGroups.add(group)
-                scene.remove(group)
-              }
-              entry.shaftMesh.geometry.dispose()
-              entry.headMesh.geometry.dispose()
-              ;(entry.shaftMesh.material as THREE.Material).dispose()
-              ;(entry.headMesh.material as THREE.Material).dispose()
-            }
-            axisArrowsRef.current = []
-            arrowMeshByUuidRef.current.clear()
+            disposeAxisArrows()
             // createJointSpheres disposes old spheres when called with next robot;
             // on final unmount, dispose manually
             for (const sphere of jointSpheresRef.current.values()) {

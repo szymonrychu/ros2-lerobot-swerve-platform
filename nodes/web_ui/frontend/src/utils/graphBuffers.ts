@@ -39,7 +39,7 @@ export function feedAllGraphBuffers(
   topicData: Record<string, unknown>,
 ): void {
   for (const tab of tabs) {
-    if (tab.type !== 'sensor_graph' && tab.type !== 'effector_graph') continue
+    if (tab.type !== 'sensor_graph') continue
     const topics = tab.topics ?? []
     const seriesCount = topics.reduce((n, ts) => n + ts.fields.length, 0)
     if (seriesCount === 0) continue

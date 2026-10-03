@@ -21,27 +21,18 @@ import MapIcon from '@mui/icons-material/Map'
 import VideocamIcon from '@mui/icons-material/Videocam'
 import ShowChartIcon from '@mui/icons-material/ShowChart'
 import ThreeDRotationIcon from '@mui/icons-material/ThreeDRotation'
-import RadarIcon from '@mui/icons-material/Radar'
-import PublicIcon from '@mui/icons-material/Public'
-import ViewInArIcon from '@mui/icons-material/ViewInAr'
-import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing'
 import CameraIcon from '@mui/icons-material/Camera'
 import TabIcon from '@mui/icons-material/Tab'
 import log from './logging'
 import { useRosBridge } from './hooks/useRosBridge'
 import { OverlayBar } from './overlays/OverlayBar'
-import { browserStorage, initialTabIndex, orderTabs, readStoredTabId, writeStoredTabId } from './tabSelection'
+import { browserStorage, initialTabIndex, orderTabs, readStoredTabId, supportedTabs, writeStoredTabId } from './tabSelection'
 import { AppConfig, TabConfig } from './types'
 import { feedAllGraphBuffers } from './utils/graphBuffers'
 
 const CameraTab = lazy(() => import('./tabs/CameraTab'))
 const SensorGraphTab = lazy(() => import('./tabs/SensorGraphTab'))
-const EffectorGraphTab = lazy(() => import('./tabs/EffectorGraphTab'))
 const ImuOrientationTab = lazy(() => import('./tabs/ImuOrientationTab'))
-const NavLocalTab = lazy(() => import('./tabs/NavLocalTab'))
-const NavGpsTab = lazy(() => import('./tabs/NavGpsTab'))
-const Scene3DTab = lazy(() => import('./tabs/Scene3DTab'))
-const RobotStatusTab = lazy(() => import('./tabs/RobotStatusTab'))
 const RgbdCameraTab = lazy(() => import('./tabs/RgbdCameraTab'))
 const MapNavTab = lazy(() => import('./tabs/MapNavTab'))
 
@@ -52,12 +43,7 @@ const TAB_ICONS: Record<string, ReactElement> = {
   camera: <VideocamIcon />,
   rgbd_camera: <CameraIcon />,
   sensor_graph: <ShowChartIcon />,
-  effector_graph: <ShowChartIcon />,
   imu_orientation: <ThreeDRotationIcon />,
-  nav_local: <RadarIcon />,
-  nav_gps: <PublicIcon />,
-  scene3d: <ViewInArIcon />,
-  robot_status: <PrecisionManufacturingIcon />,
 }
 
 function tabIcon(type: string): ReactElement {
@@ -77,12 +63,7 @@ function renderTab(tab: TabConfig, topicData: Record<string, unknown>, publish: 
   switch (tab.type) {
     case 'camera': return <CameraTab {...props} />
     case 'sensor_graph': return <SensorGraphTab {...props} />
-    case 'effector_graph': return <EffectorGraphTab {...props} />
     case 'imu_orientation': return <ImuOrientationTab {...props} />
-    case 'nav_local': return <NavLocalTab {...props} />
-    case 'nav_gps': return <NavGpsTab {...props} />
-    case 'scene3d': return <Scene3DTab {...props} />
-    case 'robot_status': return <RobotStatusTab {...props} />
     case 'rgbd_camera': return <RgbdCameraTab {...props} />
     case 'map_nav': return <MapNavTab {...props} />
     default:
@@ -102,14 +83,15 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   // Map tabs first: the map is the primary view whatever order the config lists tabs in.
-  const tabs = useMemo(() => (config ? orderTabs(config.tabs) : []), [config])
+  // Tab types merged into the 3D map (or removed) are dropped so a stale config shows no dead tabs.
+  const tabs = useMemo(() => (config ? orderTabs(supportedTabs(config.tabs)) : []), [config])
 
   useEffect(() => {
     fetch('/api/config')
       .then((r) => r.json())
       .then((data: AppConfig) => {
         log.info('[app] Config loaded —', data.tabs.length, 'tabs,', data.overlays.length, 'overlay items')
-        setActiveTab(initialTabIndex(orderTabs(data.tabs), readStoredTabId(browserStorage())))
+        setActiveTab(initialTabIndex(orderTabs(supportedTabs(data.tabs)), readStoredTabId(browserStorage())))
         setConfig(data)
       })
       .catch((e) => log.warn('[app] Failed to load config:', e))
@@ -120,9 +102,9 @@ export default function App() {
         ...config.tabs.flatMap((t) => [
           t.topic,
           ...(t.topics?.map((ts) => ts.topic) ?? []),
-          t.scan_topic, t.costmap_topic, t.odom_topic, t.fix_topic, t.arm_joint_topic,
           t.color_topic, t.depth_topic, t.camera_info_topic,
           t.map_topic, t.global_plan_topic, t.local_plan_topic, t.footprint_topic,
+          t.local_costmap_topic, t.base_joint_states_topic, t.arm_joint_states_topic,
           ...(t.type === 'map_nav' ? [t.goal_topic] : []),
         ]),
         ...config.overlays.map((o) => o.topic),
