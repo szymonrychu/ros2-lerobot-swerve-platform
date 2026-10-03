@@ -29,6 +29,8 @@ def _install_ros2_stubs() -> None:
         "slam_toolbox.srv",
         "action_msgs",
         "action_msgs.srv",
+        "std_srvs",
+        "std_srvs.srv",
     ]
     for mod_name in ros2_modules:
         if mod_name not in sys.modules:
@@ -90,6 +92,14 @@ def _install_ros2_stubs() -> None:
                 )
 
         action_srv_mod.CancelGoal = types.SimpleNamespace(Request=_StubCancelGoalRequest)  # type: ignore[attr-defined]
+
+    std_srv_mod = sys.modules["std_srvs.srv"]
+    if not hasattr(std_srv_mod, "Trigger"):
+
+        class _StubTriggerRequest:
+            """std_srvs/srv/Trigger request (no fields)."""
+
+        std_srv_mod.Trigger = types.SimpleNamespace(Request=_StubTriggerRequest)  # type: ignore[attr-defined]
 
     node_mod = sys.modules["rclpy.node"]
     if not hasattr(node_mod, "Node"):

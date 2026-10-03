@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import httpx
 import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
@@ -19,6 +20,15 @@ from starlette.responses import Response
 
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
 from .config import AppConfig, TabConfig
+from .tiles import (
+    BYTES_PER_MB,
+    HTTP_OK,
+    TILE_BROWSER_MAX_AGE_S,
+    TILE_MEDIA_TYPE,
+    TileCache,
+    TileProxy,
+    validate_tile,
+)
 from .urdf_scanner import scan_urdf_directory
 
 log = structlog.get_logger(__name__)
@@ -41,6 +51,18 @@ CANCEL_GOAL_RETURN_CODES: dict[int, str] = {
     3: "goal terminated",
 }
 CANCEL_GOAL_ERROR_NONE = 0
+# Seconds to wait for an arm home / set home std_srvs/Trigger response before reporting a timeout.
+ARM_SERVICE_TIMEOUT_S = 10.0
+# Browser cache lifetime of URDF and mesh files (meshes are tens of MB, e.g. wheel.stl 78.7 MB).
+URDF_CACHE_CONTROL = "public, max-age=86400"
+# Map tiles reach the browser only through /api/tiles (same origin), so img-src needs no external hosts.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "img-src 'self' data: blob:; "
+    "connect-src 'self' ws: wss:; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net"
+)
 
 
 async def await_ros_future(future: Any, timeout_s: float) -> Any:
@@ -78,7 +100,7 @@ async def await_ros_future(future: Any, timeout_s: float) -> Any:
 
 
 def action_response(action: str, ok: bool, message: str, status_code: int) -> JSONResponse:
-    """Build the JSON body returned by the map_nav action endpoints (save, reset, stop).
+    """Build the JSON body returned by the map_nav action endpoints (map save/reset, nav stop, arm home/set home).
 
     Args:
         action (str): Action name used in the log event (e.g. "map_save").
@@ -148,13 +170,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org; "
-            "connect-src 'self' ws: wss:; "
-            "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline' https://unpkg.com https://cdn.jsdelivr.net"
-        )
+        response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
         return response
 
 
@@ -210,11 +226,29 @@ def _make_start_broadcaster(
     return start_broadcaster
 
 
+def make_tile_proxy(config: AppConfig, transport: httpx.AsyncBaseTransport | None = None) -> TileProxy | None:
+    """Build the tile proxy from the first map_nav tab with a tile_url.
+
+    Args:
+        config (AppConfig): Validated configuration.
+        transport (httpx.AsyncBaseTransport | None): Custom httpx transport (tests), None for the network.
+
+    Returns:
+        TileProxy | None: The proxy, or None when no map_nav tab configures tiles.
+    """
+    tab = next((t for t in config.map_nav_tabs() if t.tile_url and t.tile_cache_dir), None)
+    if tab is None or tab.tile_url is None or tab.tile_cache_dir is None:
+        return None
+    cache = TileCache(Path(tab.tile_cache_dir), tab.tile_cache_max_mb * BYTES_PER_MB)
+    return TileProxy(tab.tile_url, tab.tile_subdomains or "", cache, transport=transport)
+
+
 def build_app(
     config: AppConfig,
     urdf_dir: Path,
     static_dir: Path,
     bridge_node: Any = None,
+    tile_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Build and return the FastAPI application.
 
@@ -223,12 +257,16 @@ def build_app(
         urdf_dir: Directory containing URDF files and mesh subdirectories.
         static_dir: Directory containing pre-built React static files.
         bridge_node: Optional BridgeNode instance for WebSocket broadcasting.
+        tile_transport: Optional httpx transport for the tile proxy (tests); None fetches from the network.
 
     Returns:
         FastAPI: Configured application instance.
     """
     app = FastAPI(title="web_ui", docs_url=None, redoc_url=None)
     app.add_middleware(SecurityHeadersMiddleware)
+    tile_proxy = make_tile_proxy(config, tile_transport)
+    if tile_proxy is not None:
+        app.router.add_event_handler("shutdown", tile_proxy.aclose)
 
     broadcast_interval = 1.0 / config.ws_broadcast_hz
     clients: dict[str, ClientConnection] = {}
@@ -252,7 +290,20 @@ def build_app(
         if not requested.exists():
             return JSONResponse({"error": "not found"}, status_code=404)
         log.debug("urdf_file_served", path=path, size_bytes=requested.stat().st_size)
-        return FileResponse(requested)
+        return FileResponse(requested, headers={"Cache-Control": URDF_CACHE_CONTROL})
+
+    @app.get("/api/tiles/{z}/{x}/{y}.png")
+    async def get_tile(z: int, x: int, y: int) -> Response:
+        if tile_proxy is None:
+            return JSONResponse({"error": "no map tiles configured"}, status_code=404)
+        if not validate_tile(z, x, y):
+            return JSONResponse({"error": f"tile {z}/{x}/{y} out of range"}, status_code=400)
+        status, data = await tile_proxy.get(z, x, y)
+        if status != HTTP_OK or data is None:
+            return JSONResponse({"error": f"tile {z}/{x}/{y} unavailable"}, status_code=status)
+        return Response(
+            data, media_type=TILE_MEDIA_TYPE, headers={"Cache-Control": f"public, max-age={TILE_BROWSER_MAX_AGE_S}"}
+        )
 
     def find_map_nav_tab(tab: str) -> TabConfig | None:
         return next((t for t in config.map_nav_tabs() if t.id == tab), None)
@@ -297,6 +348,7 @@ def build_app(
             return action_response("map_reset", False, f"slam_toolbox could not reset the map (result {code})", 500)
         if tab_cfg.map_topic:
             bridge_node.clear_and_notify(tab_cfg.map_topic)
+        bridge_node.reset_gps_anchor()
         return action_response("map_reset", True, "map reset; SLAM is building a new map", 200)
 
     @app.post("/api/nav/stop")
@@ -324,6 +376,30 @@ def build_app(
         count = len(response.goals_canceling)
         message = f"stopped: canceling {count} goal(s)" if count else "stopped: no active goal to cancel"
         return action_response("nav_stop", True, message, 200)
+
+    async def call_arm_trigger(action: str, tab: str, service_attr: str) -> JSONResponse:
+        tab_cfg = find_map_nav_tab(tab)
+        service = getattr(tab_cfg, service_attr) if tab_cfg is not None else None
+        if not service:
+            return action_response(action, False, f"no map_nav tab {tab!r}", 404)
+        if bridge_node is None:
+            return action_response(action, False, "ROS bridge unavailable", 503)
+        response, error = await call_ros_service(
+            action, bridge_node.trigger_async(service), service, ARM_SERVICE_TIMEOUT_S
+        )
+        if error is not None:
+            return error
+        ok = bool(getattr(response, "success", False))
+        message = getattr(response, "message", "") or f"{service} {'succeeded' if ok else 'failed'}"
+        return action_response(action, ok, message, 200 if ok else 500)
+
+    @app.post("/api/arm/home")
+    async def arm_home(tab: str) -> JSONResponse:
+        return await call_arm_trigger("arm_home", tab, "arm_home_service")
+
+    @app.post("/api/arm/set_home")
+    async def arm_set_home(tab: str) -> JSONResponse:
+        return await call_arm_trigger("arm_set_home", tab, "arm_set_home_service")
 
     app.router.add_event_handler("startup", _make_start_broadcaster(app, clients, bridge_node, broadcast_interval, log))
 

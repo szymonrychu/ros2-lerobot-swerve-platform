@@ -1,6 +1,7 @@
 """Configuration for the web_ui node.
 
-Extends steamdeck_ui AppConfig with http_port and scene3d/robot_status/map_nav tab types.
+Extends steamdeck_ui AppConfig with http_port and the map_nav tab type: the merged 3D map tab (SLAM map, Nav2
+plans and local costmap, robot + arm model, GPS fix with auto-fitted anchor over proxied map tiles).
 Config loaded from WEB_UI_CONFIG env var path or the default path.
 """
 
@@ -13,6 +14,13 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, field_validator, model_validator
 
+from .gps_anchor import (
+    DEFAULT_MAX_RESIDUAL_M,
+    DEFAULT_MIN_POINTS,
+    DEFAULT_MIN_SPREAD_M,
+    GpsAnchorEstimator,
+)
+
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/web_ui/config.yaml")
 ENV_CONFIG_PATH_KEY = "WEB_UI_CONFIG"
 
@@ -20,12 +28,7 @@ VALID_TAB_TYPES: frozenset[str] = frozenset(
     {
         "camera",
         "sensor_graph",
-        "effector_graph",
         "imu_orientation",
-        "nav_local",
-        "nav_gps",
-        "scene3d",
-        "robot_status",
         "rgbd_camera",
         "map_nav",
     }
@@ -45,7 +48,20 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "map_reset_service": "/slam_toolbox/reset",
     "navigate_action": "/navigate_to_pose",
     "footprint_topic": "/local_costmap/published_footprint",
+    "local_costmap_topic": "/local_costmap/costmap",
+    "gps_fix_topic": "/client/gps/fix",
+    "tile_url": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+    "tile_subdomains": "abcd",
+    "tile_cache_dir": "/var/cache/web_ui/tiles",
+    "arm_home_service": "/filter/arm_home",
+    "arm_set_home_service": "/filter/arm_set_home",
+    "urdf_file": "robot.urdf",
+    "arm_urdf_file": "so101_arm.urdf",
+    "arm_joint_topic": "/follower/joint_states",
+    "arm_command_topic": "/filter/web_ui_joint_commands",
 }
+# Default disk cache cap for proxied map tiles (MiB).
+DEFAULT_TILE_CACHE_MAX_MB = 256
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
 GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
@@ -66,6 +82,8 @@ MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
     ("local_plan_topic", "path"),
     ("goal_topic", "goal"),
     ("footprint_topic", "footprint"),
+    ("local_costmap_topic", "costmap"),
+    ("gps_fix_topic", "gps"),
 )
 
 
@@ -114,9 +132,12 @@ class TabConfig(BaseModel):
     odom_topic: str | None = None
     goal_topic: str | None = None
     fix_topic: str | None = None
-    tile_url: str | None = None
+    tile_url: str | None = None  # map_nav: XYZ tile template fetched by the /api/tiles proxy ({s} {z} {x} {y} {r})
+    tile_subdomains: str | None = None  # map_nav: characters rotated into {s} of tile_url
+    tile_cache_dir: str | None = None  # map_nav: disk cache directory of proxied tiles
+    tile_cache_max_mb: int = DEFAULT_TILE_CACHE_MAX_MB  # map_nav: tile cache size cap; oldest tiles evicted first
     default_zoom: int = 18
-    urdf_file: str | None = None  # for scene3d / robot_status tabs
+    urdf_file: str | None = None  # map_nav: robot base URDF under the URDF directory
     arm_urdf_file: str | None = None
     arm_joint_topic: str | None = None
     arm_offset: tuple[float, float, float] | None = None
@@ -133,6 +154,13 @@ class TabConfig(BaseModel):
     map_save_path: str | None = None  # map_nav: slam_toolbox serialize_map filename (no extension)
     map_reset_service: str | None = None  # map_nav: slam_toolbox/srv/Reset service cleared by "Reset map"
     navigate_action: str | None = None  # map_nav: Nav2 NavigateToPose action whose goals "Stop" cancels
+    local_costmap_topic: str | None = None  # map_nav: Nav2 local costmap (nav_msgs/OccupancyGrid, odom frame)
+    gps_fix_topic: str | None = None  # map_nav: sensor_msgs/NavSatFix of the rover
+    arm_home_service: str | None = None  # map_nav: std_srvs/Trigger moving the arm to its home pose
+    arm_set_home_service: str | None = None  # map_nav: std_srvs/Trigger storing the current arm pose as home
+    gps_anchor_min_points: int = DEFAULT_MIN_POINTS  # map_nav: samples needed before the GPS anchor is published
+    gps_anchor_min_spread_m: float = DEFAULT_MIN_SPREAD_M  # map_nav: minimum map-frame track extent for the fit
+    gps_anchor_max_residual_m: float = DEFAULT_MAX_RESIDUAL_M  # map_nav: maximum RMS fit residual
 
     @field_validator("type")
     @classmethod
@@ -221,11 +249,38 @@ class AppConfig(BaseModel):
         """
         return sorted({tab.navigate_action for tab in self.map_nav_tabs() if tab.navigate_action})
 
+    def trigger_services(self) -> list[str]:
+        """Return the std_srvs/Trigger arm services (home, set home) of all map_nav tabs.
+
+        Returns:
+            list[str]: Sorted unique service names.
+        """
+        services: set[str] = set()
+        for tab in self.map_nav_tabs():
+            services.update(s for s in (tab.arm_home_service, tab.arm_set_home_service) if s)
+        return sorted(services)
+
+    def gps_anchor_estimator(self) -> GpsAnchorEstimator | None:
+        """Build the GPS anchor estimator from the first map_nav tab that has a GPS fix topic.
+
+        Returns:
+            GpsAnchorEstimator | None: Estimator configured with that tab's gates, or None without such a tab.
+        """
+        tab = next((t for t in self.map_nav_tabs() if t.gps_fix_topic), None)
+        if tab is None:
+            return None
+        return GpsAnchorEstimator(
+            min_points=tab.gps_anchor_min_points,
+            min_spread_m=tab.gps_anchor_min_spread_m,
+            max_residual_m=tab.gps_anchor_max_residual_m,
+        )
+
     def topic_roles(self) -> dict[str, str]:
         """Map each map_nav topic to its bridge subscription role.
 
-        Roles are "map" (OccupancyGrid), "path" (Path) and "goal" (PoseStamped); the bridge derives
-        message types from these instead of TOPIC_TYPE_HINTS.
+        Roles are "map" and "costmap" (OccupancyGrid), "path" (Path), "goal" (PoseStamped), "footprint"
+        (PolygonStamped) and "gps" (NavSatFix); the bridge derives message types from these instead of
+        TOPIC_TYPE_HINTS.
 
         Returns:
             dict[str, str]: Topic name -> role.

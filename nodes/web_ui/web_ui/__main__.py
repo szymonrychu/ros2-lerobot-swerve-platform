@@ -49,6 +49,8 @@ def main() -> None:
         pose_rate_hz=config.ws_broadcast_hz,
         map_reset_services=config.map_reset_services(),
         navigate_actions=config.navigate_actions(),
+        trigger_services=config.trigger_services(),
+        gps_anchor=config.gps_anchor_estimator(),
     )
     executor = create_bridge_executor(node)
 

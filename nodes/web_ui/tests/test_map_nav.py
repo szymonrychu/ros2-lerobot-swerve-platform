@@ -140,7 +140,7 @@ def test_map_nav_reset_and_navigate_overrides_kept() -> None:
 
 
 def test_reset_and_navigate_not_defaulted_for_other_tabs() -> None:
-    tab = TabConfig(id="n", type="nav_local", label="Nav")
+    tab = TabConfig(id="n", type="camera", label="Nav")
     assert tab.map_reset_service is None
     assert tab.navigate_action is None
 
@@ -150,7 +150,7 @@ def test_app_config_lists_reset_services_and_navigate_actions() -> None:
         tabs=[
             TabConfig(id="a", type="map_nav", label="A"),
             TabConfig(id="b", type="map_nav", label="B", map_reset_service="/r2", navigate_action="/n2"),
-            TabConfig(id="c", type="nav_local", label="C"),
+            TabConfig(id="c", type="camera", label="C"),
         ]
     )
     assert cfg.map_reset_services() == ["/r2", "/slam_toolbox/reset"]
@@ -166,7 +166,7 @@ def test_map_nav_overrides_kept() -> None:
 
 
 def test_map_nav_defaults_not_applied_to_other_tabs() -> None:
-    tab = TabConfig(id="n", type="nav_local", label="Nav")
+    tab = TabConfig(id="n", type="camera", label="Nav")
     assert tab.map_topic is None
     assert tab.goal_topic is None
     assert tab.map_save_path is None
@@ -197,6 +197,8 @@ def test_topic_roles_from_map_nav_tabs() -> None:
         "/lp": "path",
         "/goal_pose": "goal",
         "/local_costmap/published_footprint": "footprint",
+        "/local_costmap/costmap": "costmap",
+        "/client/gps/fix": "gps",
     }
 
 
@@ -1194,7 +1196,7 @@ def test_map_nav_footprint_topic_default_and_role() -> None:
 
 
 def test_footprint_not_defaulted_for_other_tabs() -> None:
-    assert TabConfig(id="n", type="nav_local", label="Nav").footprint_topic is None
+    assert TabConfig(id="n", type="camera", label="Nav").footprint_topic is None
 
 
 def test_serialize_polygon_points() -> None:

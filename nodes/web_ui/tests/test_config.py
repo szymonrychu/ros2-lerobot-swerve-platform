@@ -39,7 +39,7 @@ tabs:
     label: Cam
     topic: /controller/camera_0/image_raw
   - id: nav
-    type: nav_local
+    type: camera
     label: Nav
     scan_topic: /controller/scan
     costmap_topic: /controller/local_costmap
@@ -73,7 +73,7 @@ def test_publish_topics(tmp_path: Path) -> None:
         """
 tabs:
   - id: nav
-    type: nav_local
+    type: camera
     label: Nav
     scan_topic: /controller/scan
     goal_topic: /controller/goal_pose

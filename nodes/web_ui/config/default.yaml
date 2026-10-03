@@ -6,97 +6,61 @@ bridge:
   port: 9090
 
 tabs:
-  - id: slam_map
+  # Merged 3D map tab: SLAM map, Nav2 plans + local costmap, robot and interactive arm model, GPS fix with
+  # an auto-fitted anchor over map tiles proxied through /api/tiles. Every map_nav field below is optional
+  # and shows its default.
+  - id: map
     type: map_nav
     label: "Map"
     map_topic: /map
     global_plan_topic: /plan
     local_plan_topic: /optimal_trajectory
     footprint_topic: /local_costmap/published_footprint
+    local_costmap_topic: /local_costmap/costmap
     goal_topic: /goal_pose
     map_frame: map
     base_frame: base_link
     map_save_path: /var/lib/ros2/maps/slam_map
-    # Optional (defaults shown): slam_toolbox Reset service behind "Reset map", and the
-    # Nav2 NavigateToPose action whose goals "Stop" cancels (<action>/_action/cancel_goal).
-    # map_reset_service: /slam_toolbox/reset
-    # navigate_action: /navigate_to_pose
+    map_reset_service: /slam_toolbox/reset
+    navigate_action: /navigate_to_pose
+    # Robot model (files under the URDF directory), swerve joint states and the arm driven from the tab.
+    urdf_file: robot.urdf
+    topic: /swerve_drive/joint_states
+    arm_urdf_file: so101_arm.urdf
+    arm_joint_topic: /follower/joint_states
+    arm_command_topic: /filter/web_ui_joint_commands
+    # std_srvs/Trigger services behind the "Home" and "Set home" buttons.
+    arm_home_service: /filter/arm_home
+    arm_set_home_service: /filter/arm_set_home
+    # GPS fix and the anchor fit gates (samples, map-frame track extent in m, RMS residual in m).
+    gps_fix_topic: /client/gps/fix
+    gps_anchor_min_points: 10
+    gps_anchor_min_spread_m: 5.0
+    gps_anchor_max_residual_m: 1.5
+    # Tile server fetched by the backend proxy ({s} rotates over tile_subdomains) and its disk cache.
+    tile_url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png"
+    tile_subdomains: abcd
+    tile_cache_dir: /var/cache/web_ui/tiles
+    tile_cache_max_mb: 256
+
+  - id: camera
+    type: camera
+    label: "Gripper Cam"
+    topic: /camera_0/image_raw/compressed
 
   - id: rgbd_camera
     type: rgbd_camera
     label: "RGBD Cam"
-    color_topic: /camera/color/image_raw
-    depth_topic: /camera/aligned_depth_to_color/image_raw
-    camera_info_topic: /camera/aligned_depth_to_color/camera_info
+    color_topic: /camera/camera/color/image_raw
+    depth_topic: /camera/camera/depth/image_rect_raw
+    camera_info_topic: /camera/camera/depth/camera_info
 
   - id: imu_graphs
     type: imu_orientation
     label: "IMU"
     topics:
-      - topic: /controller/imu/data
+      - topic: /imu/data
         fields: []
-
-  - id: arm_servos
-    type: effector_graph
-    label: "Arm Servos"
-    topics:
-      - topic: /controller/follower/joint_states
-        fields:
-          - path: "position[0]"
-            label: "J1 shoulder_pan"
-            color: "#e06c75"
-          - path: "position[1]"
-            label: "J2 shoulder_lift"
-            color: "#e5c07b"
-          - path: "position[2]"
-            label: "J3 elbow_flex"
-            color: "#98c379"
-          - path: "position[3]"
-            label: "J4 wrist_flex"
-            color: "#56b6c2"
-          - path: "position[4]"
-            label: "J5 wrist_roll"
-            color: "#61afef"
-          - path: "position[5]"
-            label: "J6 gripper"
-            color: "#c678dd"
-    window_s: 10
-
-  - id: local_nav
-    type: nav_local
-    label: "Local Map"
-    scan_topic: /controller/scan
-    costmap_topic: /controller/local_costmap
-    odom_topic: /controller/odom
-    goal_topic: /controller/goal_pose
-
-  - id: gps_nav
-    type: nav_gps
-    label: "GPS Map"
-    fix_topic: /controller/gps/fix
-    goal_topic: /controller/goal_pose
-    tile_url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-    default_zoom: 18
-
-  - id: scene3d
-    type: scene3d
-    label: "3D Scene"
-    urdf_file: robot.urdf
-    topic: /controller/swerve_drive/joint_states
-    arm_urdf_file: so101_arm.urdf
-    arm_joint_topic: /controller/follower/joint_states
-    scan_topic: /controller/scan
-    costmap_topic: /controller/local_costmap
-    odom_topic: /controller/odom
-
-  - id: robot_status
-    type: robot_status
-    label: "Robot Status"
-    urdf_file: robot.urdf
-    topic: /controller/swerve_drive/joint_states
-    arm_urdf_file: so101_arm.urdf
-    arm_joint_topic: /controller/follower/joint_states
-    arm_command_topic: /filter/web_ui_joint_commands
 
 overlays:
   - topic: /controller/gps/fix

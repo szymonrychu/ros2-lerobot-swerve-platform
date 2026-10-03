@@ -1,7 +1,8 @@
 """ROS2 bridge node: subscribes to topics, stores latest value, broadcasts at 20 Hz.
 
 Also tracks the robot pose in the map frame via TF and, for the map_nav tab, calls slam_toolbox's
-serialize_map and reset services and cancels Nav2 NavigateToPose goals.
+serialize_map and reset services, cancels Nav2 NavigateToPose goals, calls the arm home Trigger services and
+fits the GPS anchor of the map frame from GPS fixes paired with TF robot positions.
 """
 
 from __future__ import annotations
@@ -23,12 +24,16 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
 from slam_toolbox.srv import Reset, SerializePoseGraph
+from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from .gps_anchor import GpsAnchorEstimator
 from .msg_serializer import (
     msg_to_dict,
     quaternion_to_yaw,
+    serialize_costmap,
     serialize_goal_pose,
+    serialize_navsatfix,
     serialize_occupancy_grid,
     serialize_path,
     serialize_polygon,
@@ -66,6 +71,11 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/camera/camera/color/image_raw": Image,
     "/camera/camera/depth/image_rect_raw": Image,
     "/camera/camera/depth/camera_info": CameraInfo,
+    # Local (client-side) topics shown by the map tab and the default camera/IMU tabs.
+    "/follower/joint_states": JointState,
+    "/swerve_drive/joint_states": JointState,
+    "/imu/data": Imu,
+    "/camera_0/image_raw/compressed": CompressedImage,
 }
 
 SENSOR_SUB_QOS = QoSProfile(
@@ -89,6 +99,10 @@ DEFAULT_SUB_QOS_DEPTH = 10
 
 # Synthetic WS topic carrying the map_frame -> base_frame TF pose (not a ROS topic).
 ROBOT_POSE_TOPIC = "/web_ui/robot_pose"
+# Synthetic WS topic carrying the fitted GPS anchor of the map frame {lat, lon, heading_rad, residual_m, n_points}.
+GPS_ANCHOR_TOPIC = "/web_ui/gps_anchor"
+# A GPS fix is paired with the latest map -> base TF only if their stamps differ by at most this (seconds).
+GPS_TF_MAX_SKEW_S = 0.25
 SERIALIZE_MAP_SERVICE = "/slam_toolbox/serialize_map"
 # Appended to an action name to get its cancel service (action_msgs/srv/CancelGoal).
 CANCEL_GOAL_SERVICE_SUFFIX = "/_action/cancel_goal"
@@ -97,8 +111,9 @@ CANCEL_ALL_GOAL_UUID: tuple[int, ...] = (0,) * 16
 TOPIC_STALE_S = 10.0
 # A robot pose whose TF stamp is older than this (vs the node clock) is dropped, never replayed to late joiners.
 ROBOT_POSE_STALE_S = 2.0
-# map_nav roles whose messages are re-expressed in map_frame (plans, goals, robot footprint); every other topic passes through.
-MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal", "footprint"})
+# map_nav roles whose messages are re-expressed in map_frame (plans, goals, robot footprint, costmap origin);
+# every other topic passes through.
+MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal", "footprint", "costmap"})
 
 Serializer = Callable[[Any], dict[str, Any]]
 
@@ -108,6 +123,9 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     "path": (Path, DEFAULT_SUB_QOS_DEPTH, serialize_path),
     "goal": (PoseStamped, DEFAULT_SUB_QOS_DEPTH, serialize_goal_pose),
     "footprint": (PolygonStamped, DEFAULT_SUB_QOS_DEPTH, serialize_polygon),
+    # Nav2 publishes costmaps reliable + transient_local: match it so a (re)connecting UI gets the last one.
+    "costmap": (OccupancyGrid, MAP_SUB_QOS, serialize_costmap),
+    "gps": (NavSatFix, SENSOR_SUB_QOS, serialize_navsatfix),
 }
 
 
@@ -119,7 +137,7 @@ def subscription_spec(topic: str, role: str | None) -> tuple[type, Any, Serializ
 
     Args:
         topic (str): ROS2 topic name.
-        role (str | None): map_nav role ("map", "path", "goal") or None.
+        role (str | None): map_nav role (a ROLE_SPECS key) or None.
 
     Returns:
         tuple[type, Any, Serializer] | None: (msg class, QoS profile or depth, serializer), or None if unknown.
@@ -150,6 +168,8 @@ class BridgeNode(Node):
         pose_rate_hz: float = 20.0,
         map_reset_services: list[str] | None = None,
         navigate_actions: list[str] | None = None,
+        trigger_services: list[str] | None = None,
+        gps_anchor: GpsAnchorEstimator | None = None,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -164,6 +184,8 @@ class BridgeNode(Node):
             pose_rate_hz (float): Robot pose lookup rate (the WS broadcast rate).
             map_reset_services (list[str] | None): slam_toolbox Reset services to create clients for.
             navigate_actions (list[str] | None): NavigateToPose actions whose cancel services get clients.
+            trigger_services (list[str] | None): std_srvs/Trigger services (arm home / set home) to create clients for.
+            gps_anchor (GpsAnchorEstimator | None): Estimator fed with "gps" role fixes, or None to disable the anchor.
         """
         super().__init__("web_ui_bridge")
         self._latest: dict[str, dict[str, Any]] = {}
@@ -179,6 +201,8 @@ class BridgeNode(Node):
         self._serialize_map_client: Any = None
         self._reset_map_clients: dict[str, Any] = {}
         self._cancel_goal_clients: dict[str, Any] = {}
+        self._trigger_clients: dict[str, Any] = {}
+        self._gps_anchor = gps_anchor
         roles = topic_roles or {}
 
         for topic in topics:
@@ -196,6 +220,8 @@ class BridgeNode(Node):
             self.create_timer(1.0 / pose_rate_hz, self.update_robot_pose)
             self._serialize_map_client = self.create_client(SerializePoseGraph, SERIALIZE_MAP_SERVICE)
         self.create_service_clients(map_reset_services or [], navigate_actions or [])
+        for service in trigger_services or []:
+            self._trigger_clients[service] = self.create_client(Trigger, service)
 
         log.info("ros2_node_ready", node_name="web_ui_bridge", topics_subscribed=len(self._topic_last_rx))
         self.create_timer(TOPIC_STALE_S, self._check_topic_health)
@@ -203,14 +229,15 @@ class BridgeNode(Node):
     def _make_callback(self, topic: str, serializer: Serializer, role: str | None) -> Callable[[Any], None]:
         """Build a subscription callback that serializes and caches each message.
 
-        Plan ("path") and goal ("goal") role messages whose frame differs from the map frame are
-        transformed into it; if that transform is unavailable the message is dropped rather than shown
-        in the wrong place. All other topics are cached as serialized.
+        MAP_FRAME_ROLES messages whose frame differs from the map frame are transformed into it; if that
+        transform is unavailable the message is dropped rather than shown in the wrong place. "gps" fixes
+        without a fix (status < 0) are dropped; valid ones also feed the GPS anchor fit. All other topics
+        are cached as serialized.
 
         Args:
             topic (str): Topic the callback serves.
             serializer (Serializer): Converts the ROS message into a JSON-serializable dict.
-            role (str | None): map_nav role of the topic ("map", "path", "goal") or None.
+            role (str | None): map_nav role of the topic (a ROLE_SPECS key) or None.
 
         Returns:
             Callable[[Any], None]: Subscription callback.
@@ -225,8 +252,13 @@ class BridgeNode(Node):
             if data is None:
                 log.debug("msg_dropped_no_tf", topic=topic)
                 return
+            if role == "gps" and data["status"] < 0:
+                log.debug("gps_no_fix_dropped", topic=topic)
+                return
             log.debug("ros2_msg_rx", topic=topic, msg_type=type(msg).__name__)
             self.store(topic, data)
+            if role == "gps":
+                self.feed_gps_anchor(data)
 
         return callback
 
@@ -244,11 +276,11 @@ class BridgeNode(Node):
             self._topic_last_rx[topic] = time.monotonic()
 
     def to_map_frame(self, data: dict[str, Any], role: str | None) -> dict[str, Any] | None:
-        """Re-express a serialized path or footprint ("points") or goal ("x", "y", "yaw") in the map frame.
+        """Re-express a serialized path/footprint ("points"), goal ("x", "y", "yaw") or costmap ("origin") in the map frame.
 
-        Only the plan ("path") and goal ("goal") roles are transformed; other roles and topics without a
-        role are returned as is, whatever keys they carry. Data without a frame_id, already in the map
-        frame, or with TF tracking disabled is also returned as is.
+        Only MAP_FRAME_ROLES are transformed; other roles and topics without a role are returned as is,
+        whatever keys they carry. Data without a frame_id, already in the map frame, or with TF tracking
+        disabled is also returned as is.
 
         Args:
             data (dict[str, Any]): Serialized message with a "frame_id" key.
@@ -273,6 +305,10 @@ class BridgeNode(Node):
         out = dict(data, frame_id=map_frame)
         if role in ("path", "footprint"):
             out["points"] = transform_points_2d(data["points"], t.x, t.y, yaw)
+        elif role == "costmap":
+            origin = data["origin"]
+            (x, y), *_ = transform_points_2d([[origin["x"], origin["y"]]], t.x, t.y, yaw)
+            out["origin"] = {"x": x, "y": y, "yaw": origin["yaw"] + yaw}
         else:
             (x, y), *_ = transform_points_2d([[data["x"], data["y"]]], t.x, t.y, yaw)
             out.update(x=x, y=y, yaw=data["yaw"] + yaw)
@@ -310,6 +346,58 @@ class BridgeNode(Node):
                 return False
         self.store(ROBOT_POSE_TOPIC, pose)
         return True
+
+    def feed_gps_anchor(self, fix: dict[str, Any]) -> None:
+        """Pair a valid fix with the robot's map-frame position and refit the GPS anchor.
+
+        The latest map_frame -> base_frame TF is used only when its stamp is within GPS_TF_MAX_SKEW_S of the
+        fix; otherwise (or without TF) the fix is not used for the fit. A passing fit is cached under
+        GPS_ANCHOR_TOPIC; when a refit no longer passes, a previously published anchor is withdrawn.
+
+        Args:
+            fix (dict[str, Any]): serialize_navsatfix payload (latitude, longitude, stamp).
+        """
+        if self._gps_anchor is None or self._tf_buffer is None or self._robot_pose_frames is None:
+            return
+        map_frame, base_frame = self._robot_pose_frames
+        try:
+            tf = self._tf_buffer.lookup_transform(map_frame, base_frame, Time())
+        except TransformException as exc:
+            log.debug("gps_anchor_no_tf", error=str(exc))
+            return
+        pose = transform_to_pose_dict(tf)
+        if abs(pose["stamp"] - fix["stamp"]) > GPS_TF_MAX_SKEW_S:
+            log.debug("gps_anchor_tf_skew", skew_s=round(pose["stamp"] - fix["stamp"], 3))
+            return
+        anchor = self._gps_anchor.add_sample(fix["latitude"], fix["longitude"], pose["x"], pose["y"])
+        if anchor is not None:
+            self.store(GPS_ANCHOR_TOPIC, anchor)
+            return
+        with self._lock:
+            published = GPS_ANCHOR_TOPIC in self._latest
+        if published:
+            self.clear_and_notify(GPS_ANCHOR_TOPIC)
+
+    def reset_gps_anchor(self) -> None:
+        """Forget all GPS anchor samples and withdraw the published anchor (the SLAM map was reset)."""
+        if self._gps_anchor is not None:
+            self._gps_anchor.reset()
+        self.clear_and_notify(GPS_ANCHOR_TOPIC)
+
+    def trigger_async(self, service: str) -> Any:
+        """Call a std_srvs/Trigger service (arm home / set home).
+
+        Args:
+            service (str): Trigger service name.
+
+        Returns:
+            Any: rclpy Future resolving to Trigger.Response, or None if the service is unknown or unavailable.
+        """
+        client = self._trigger_clients.get(service)
+        if client is None or not client.service_is_ready():
+            return None
+        log.info("trigger_requested", service=service)
+        return client.call_async(Trigger.Request())
 
     def clear(self, topic: str) -> None:
         """Drop the cached envelope of topic and any pending broadcast of it.

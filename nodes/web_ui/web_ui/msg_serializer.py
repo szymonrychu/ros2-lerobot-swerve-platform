@@ -29,6 +29,16 @@ MAP_GREY_UNKNOWN = 205
 MAP_FREE_THRESH = 25
 MAP_OCCUPIED_THRESH = 65
 
+# Nav2 costmap -> OccupancyGrid values: 0 free, 1..98 scaled inflation cost, 99 inscribed, 100 lethal, -1 unknown.
+COSTMAP_INSCRIBED = 99
+COSTMAP_LETHAL = 100
+# Costmap -> RGBA colours: free/unknown fully transparent; inflation cost interpolated from LOW (cost 1) to HIGH
+# (cost 98); inscribed and lethal cells get their own colours so the robot's no-go zone stands out.
+COSTMAP_LOW_RGBA: tuple[int, int, int, int] = (40, 120, 255, 70)
+COSTMAP_HIGH_RGBA: tuple[int, int, int, int] = (255, 160, 0, 200)
+COSTMAP_INSCRIBED_RGBA: tuple[int, int, int, int] = (150, 0, 200, 220)
+COSTMAP_LETHAL_RGBA: tuple[int, int, int, int] = (230, 0, 0, 240)
+
 # Maximum points sent to the browser per nav_msgs/Path.
 PATH_MAX_POINTS = 500
 
@@ -261,13 +271,67 @@ def quaternion_to_yaw(x: float, y: float, z: float, w: float) -> float:
     return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 
+def grid_cells(msg: Any) -> np.ndarray:
+    """Return an OccupancyGrid's data as an int8 array of shape (height, width), grid row 0 first.
+
+    Args:
+        msg (Any): nav_msgs/OccupancyGrid message.
+
+    Returns:
+        np.ndarray: Cell values, shape (height, width).
+
+    Raises:
+        ValueError: If the data length does not match width * height.
+    """
+    width = int(msg.info.width)
+    height = int(msg.info.height)
+    grid = np.asarray(msg.data, dtype=np.int8)
+    if grid.size != width * height:
+        raise ValueError(f"OccupancyGrid data has {grid.size} cells, expected {width}x{height}")
+    return grid.reshape((height, width))
+
+
+def grid_payload(msg: Any, img: np.ndarray) -> dict[str, Any]:
+    """Encode a grid image as PNG and add the OccupancyGrid placement metadata.
+
+    Grid row 0 lies at the origin (lowest y) while image row 0 is the top, so rows are flipped: image
+    pixel (u, v) covers grid cell (u, height - 1 - v).
+
+    Args:
+        msg (Any): nav_msgs/OccupancyGrid message the image was built from.
+        img (np.ndarray): Image in grid row order, (height, width) grey or (height, width, 4) BGRA uint8.
+
+    Returns:
+        dict[str, Any]: png_b64, width, height, resolution, origin {x, y, yaw}, frame_id, stamp (s).
+
+    Raises:
+        ValueError: If PNG encoding fails.
+    """
+    ok, buf = cv2.imencode(".png", np.ascontiguousarray(np.flipud(img)))
+    if not ok:
+        raise ValueError("PNG encoding of OccupancyGrid failed")
+    origin = msg.info.origin
+    q = origin.orientation
+    return {
+        "png_b64": base64.b64encode(buf.tobytes()).decode("ascii"),
+        "width": int(msg.info.width),
+        "height": int(msg.info.height),
+        "resolution": float(msg.info.resolution),
+        "origin": {
+            "x": float(origin.position.x),
+            "y": float(origin.position.y),
+            "yaw": quaternion_to_yaw(q.x, q.y, q.z, q.w),
+        },
+        "frame_id": msg.header.frame_id,
+        "stamp": stamp_to_seconds(msg.header.stamp),
+    }
+
+
 def serialize_occupancy_grid(msg: Any) -> dict[str, Any]:
     """Serialize a nav_msgs/OccupancyGrid to a grayscale PNG plus placement metadata.
 
     Free cells (<= MAP_FREE_THRESH) are MAP_GREY_FREE, occupied cells (>= MAP_OCCUPIED_THRESH) are
-    MAP_GREY_OCCUPIED, unknown (-1) and uncertain cells are MAP_GREY_UNKNOWN. Grid row 0 lies at the
-    origin (lowest y) while image row 0 is the top, so rows are flipped: image pixel (u, v) covers grid
-    cell (u, height - 1 - v).
+    MAP_GREY_OCCUPIED, unknown (-1) and uncertain cells are MAP_GREY_UNKNOWN. Rows are flipped as in grid_payload.
 
     Args:
         msg (Any): nav_msgs/OccupancyGrid message.
@@ -278,30 +342,61 @@ def serialize_occupancy_grid(msg: Any) -> dict[str, Any]:
     Raises:
         ValueError: If the data length does not match width * height or PNG encoding fails.
     """
-    width = int(msg.info.width)
-    height = int(msg.info.height)
-    grid = np.asarray(msg.data, dtype=np.int8)
-    if grid.size != width * height:
-        raise ValueError(f"OccupancyGrid data has {grid.size} cells, expected {width}x{height}")
-    grid = grid.reshape((height, width))
-    img = np.full((height, width), MAP_GREY_UNKNOWN, dtype=np.uint8)
+    grid = grid_cells(msg)
+    img = np.full(grid.shape, MAP_GREY_UNKNOWN, dtype=np.uint8)
     img[(grid >= 0) & (grid <= MAP_FREE_THRESH)] = MAP_GREY_FREE
     img[grid >= MAP_OCCUPIED_THRESH] = MAP_GREY_OCCUPIED
-    ok, buf = cv2.imencode(".png", np.ascontiguousarray(np.flipud(img)))
-    if not ok:
-        raise ValueError("PNG encoding of OccupancyGrid failed")
-    origin = msg.info.origin
-    q = origin.orientation
+    return grid_payload(msg, img)
+
+
+def serialize_costmap(msg: Any) -> dict[str, Any]:
+    """Serialize a Nav2 costmap (nav_msgs/OccupancyGrid) to a cost-coloured RGBA PNG plus placement metadata.
+
+    Free (0), unknown (-1) and out-of-range cells are fully transparent; inflation cost 1..98 is interpolated
+    from COSTMAP_LOW_RGBA to COSTMAP_HIGH_RGBA; inscribed (99) and lethal (100) cells get
+    COSTMAP_INSCRIBED_RGBA and COSTMAP_LETHAL_RGBA. Rows are flipped as in grid_payload. The origin stays in
+    the costmap frame (the bridge re-expresses it in the map frame).
+
+    Args:
+        msg (Any): nav_msgs/OccupancyGrid published by a Nav2 costmap.
+
+    Returns:
+        dict[str, Any]: png_b64 (RGBA), width, height, resolution, origin {x, y, yaw}, frame_id, stamp (s).
+
+    Raises:
+        ValueError: If the data length does not match width * height or PNG encoding fails.
+    """
+    grid = grid_cells(msg)
+    rgba = np.zeros((*grid.shape, 4), dtype=np.uint8)
+    inflated = (grid >= 1) & (grid < COSTMAP_INSCRIBED)
+    t = (grid[inflated].astype(np.float32) - 1.0) / float(COSTMAP_INSCRIBED - 2)
+    low = np.asarray(COSTMAP_LOW_RGBA, dtype=np.float32)
+    high = np.asarray(COSTMAP_HIGH_RGBA, dtype=np.float32)
+    rgba[inflated] = np.round(low + t[:, None] * (high - low)).astype(np.uint8)
+    rgba[grid == COSTMAP_INSCRIBED] = COSTMAP_INSCRIBED_RGBA
+    rgba[grid == COSTMAP_LETHAL] = COSTMAP_LETHAL_RGBA
+    return grid_payload(msg, cv2.cvtColor(rgba, cv2.COLOR_RGBA2BGRA))
+
+
+def serialize_navsatfix(msg: Any) -> dict[str, Any]:
+    """Serialize a sensor_msgs/NavSatFix for the map tab.
+
+    Args:
+        msg (Any): sensor_msgs/NavSatFix message.
+
+    Returns:
+        dict[str, Any]: latitude, longitude, altitude (deg, deg, m), status (NavSatStatus: -1 no fix, 0 fix,
+            1 SBAS, 2 GBAS/RTK), horizontal_accuracy_m (1-sigma from the larger horizontal covariance, None
+            when the covariance is unknown), frame_id, stamp (s).
+    """
+    cov = list(msg.position_covariance)
+    accuracy = math.sqrt(max(cov[0], cov[4], 0.0)) if msg.position_covariance_type != 0 and len(cov) >= 5 else None
     return {
-        "png_b64": base64.b64encode(buf.tobytes()).decode("ascii"),
-        "width": width,
-        "height": height,
-        "resolution": float(msg.info.resolution),
-        "origin": {
-            "x": float(origin.position.x),
-            "y": float(origin.position.y),
-            "yaw": quaternion_to_yaw(q.x, q.y, q.z, q.w),
-        },
+        "latitude": float(msg.latitude),
+        "longitude": float(msg.longitude),
+        "altitude": float(msg.altitude),
+        "status": int(msg.status.status),
+        "horizontal_accuracy_m": accuracy,
         "frame_id": msg.header.frame_id,
         "stamp": stamp_to_seconds(msg.header.stamp),
     }
