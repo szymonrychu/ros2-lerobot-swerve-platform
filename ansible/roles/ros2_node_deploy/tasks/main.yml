@@ -21,9 +21,10 @@
       - node_launch_command | length > 0
     fail_msg: "Native deploy mode requires node_launch_command."
 
-- name: Set current node name for handlers
+- name: Set current node name and enabled state for handlers
   ansible.builtin.set_fact:
     ros2_node_restart_now: "{{ node_name }}"
+    ros2_node_restart_enabled: "{{ node_enabled | default(true) | bool }}"
 
 - name: Validate feetech_servos node config schema (name+id per joint)
   when:

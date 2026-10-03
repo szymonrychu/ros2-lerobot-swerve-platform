@@ -695,3 +695,12 @@ def test_web_ui_frontend_build_runs_at_lowest_priority() -> None:
     assert len(cmds) == 2, cmds
     for cmd in cmds:
         assert cmd.startswith("nice -n 19 ionice -c 3 npm "), cmd
+
+
+def test_restart_handler_skips_disabled_nodes() -> None:
+    """A node deployed with enabled: false was stopped by the role and then restarted by the change handler
+    (gripper_uvc_camera, 2026-10-03): the handler must not restart disabled nodes."""
+    handlers = yaml.safe_load((ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "handlers" / "main.yml").read_text())
+    restart = next(h for h in handlers if h["name"] == "Restart ROS2 node")
+    conditions = restart["when"] if isinstance(restart["when"], list) else [restart["when"]]
+    assert any("node_enabled" in c for c in conditions), conditions

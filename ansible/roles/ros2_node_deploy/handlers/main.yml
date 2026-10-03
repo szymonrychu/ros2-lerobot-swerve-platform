@@ -9,4 +9,7 @@
     name: "ros2-{{ ros2_node_restart_now }}"
     state: restarted
   become: true
-  when: ros2_node_restart_on_change | default(true) | bool
+  # Never (re)start a node deployed with enabled: false; the role has just stopped it.
+  when:
+    - ros2_node_restart_on_change | default(true) | bool
+    - ros2_node_restart_enabled | default(true) | bool  # node_enabled of the node being deployed
