@@ -8,16 +8,12 @@ Runs as a native service on the client RPi. Accessible at `http://client.ros2.la
 
 | Tab | Type | Description |
 |---|---|---|
-| Map | `map_nav` | Primary tab, listed first and opened by default. SLAM occupancy map + TF robot pose + global/local plans + goal setting + stop navigation + save/reset map (see below) |
-| Gripper Cam | `camera` | Live JPEG from arm camera |
-| IMU | `sensor_graph` | Rolling time-series for acceleration + gyro |
-| Arm Servos | `effector_graph` | Rolling time-series for follower joint positions |
-| Local Map | `nav_local` | Canvas: costmap + lidar scan + robot pose + tap-to-navigate |
-| GPS Map | `nav_gps` | Leaflet map with live GPS fix + tap-to-navigate |
-| 3D Scene | `scene3d` | @react-three/fiber: URDF model + lidar + costmap |
-| Robot Status | `robot_status` | URDF load status + joint state table + embedded 3D preview |
+| Map | `map_nav` | Primary tab, listed first and opened by default. One 3D view: SLAM map, local costmap, GPS tiles, Nav2 plans, goal, footprint, the robot URDF at its TF pose and an interactive arm, plus stop / save / reset / arm home (see below) |
+| Gripper Cam | `camera` | Live JPEG from the arm camera (`/camera_0/image_raw/compressed`) |
+| RGBD Cam | `rgbd_camera` | RealSense color + depth previews |
+| IMU | `imu_orientation` | Orientation and rolling acceleration / gyro graphs from `/imu/data` |
 
-- **Robot footprint:** the robot is drawn as the footprint Nav2 uses (`footprint_topic`, default `/local_costmap/published_footprint`, `geometry_msgs/PolygonStamped` re-expressed in `map_frame` by the backend) with the front edge highlighted in yellow. Until a footprint arrives (e.g. Nav2 not running) a small arrow at the TF pose is shown instead.
+`sensor_graph` (generic rolling time-series for configured topic fields) is still a valid tab type but is not in the default config. The valid types are `VALID_TAB_TYPES` in `web_ui/config.py`; the frontend renders the same set (`frontend/src/App.tsx`). The default tab list is `config/default.yaml`, the deployed one is the `web_ui` block in `ansible/group_vars/client.yml`. Tab types that no longer exist (for example `nav_local`, `nav_gps`, `scene3d`, `robot_status`, `effector_graph`) are rejected by the backend config validation and dropped by the frontend, so a stale config shows no dead tabs.
 
 ## UI
 
@@ -25,9 +21,9 @@ The frontend uses Material Design via [MUI](https://mui.com/) (`@mui/material`, 
 
 Responsive behaviour (phones from 360x640 to 1920x1080+ screens, portrait and landscape):
 - The shell is an `AppBar` with scrollable MUI `Tabs` (scroll buttons appear when the tabs do not fit, so any number of tabs works). Below the `sm` breakpoint (600 px) a menu button opens a drawer listing every tab, the title is hidden and tab icons are dropped to save width.
-- The active tab fills the remaining viewport height exactly (`100vh`, then `100dvh` where supported, so mobile browser chrome is excluded); the page itself never scrolls. Canvases, uPlot graphs, Leaflet and 3D views follow their container with `ResizeObserver` (or react-three-fiber's own resize handling).
+- The active tab fills the remaining viewport height exactly (`100vh`, then `100dvh` where supported, so mobile browser chrome is excluded); the page itself never scrolls. Canvases, uPlot graphs and 3D views follow their container with `ResizeObserver` (or react-three-fiber's own resize handling).
 - The overlay bar (configured `overlays`) wraps onto more lines when needed; below `sm` the values collapse behind a toggle so the bar stays one line high.
-- Panels stack vertically on narrow screens: the Robot Status side panel moves above the 3D view (below `md`), the RGBD previews stack (below `sm`), and the map tab's toolbar wraps.
+- Panels stack vertically on narrow screens: the RGBD previews stack (below `sm`), the map tab's layers panel sits over the 3D view and its toolbar wraps.
 
 Tab selection: the app opens on the first `map_nav` tab, and `map_nav` tabs are always listed first whatever the config order (`frontend/src/tabSelection.ts`). The last tab the viewer selected is remembered in `localStorage` (key `web_ui.activeTabId`) and restored on reload only while a tab with that id still exists; otherwise the map tab (or the first tab, if no map tab is configured) is shown. Storage errors (private mode, blocked site data) are ignored.
 
@@ -36,11 +32,13 @@ Tab selection: the app opens on the first `map_nav` tab, and `map_nav` tabs are 
 Single Python process: FastAPI (uvicorn) on port 8080 serves:
 - `GET /` — React SPA (pre-built by Vite, embedded in the service)
 - `GET /api/config` — AppConfig as JSON
-- `GET /api/urdf/{path}` — URDF and mesh files
+- `GET /api/urdf/{path}` - URDF and mesh files (`Cache-Control: public, max-age=86400`, since meshes are tens of MB)
 - `GET /api/urdf/status` — URDF directory scan result
 - `POST /api/map/save?tab=<tab id>` - ask slam_toolbox to save the map of a `map_nav` tab (see below)
 - `POST /api/map/reset?tab=<tab id>` - ask slam_toolbox to drop the current map and start a new one (see below)
 - `POST /api/nav/stop?tab=<tab id>` - cancel all Nav2 NavigateToPose goals (see below)
+- `POST /api/arm/home?tab=<tab id>` and `POST /api/arm/set_home?tab=<tab id>` - call the mcp_server arm Trigger services (see below)
+- `GET /api/tiles/{z}/{x}/{y}.png` - cached map tile proxy (see below)
 - `WS /ws` — WebSocket bridge: 20 Hz topic broadcast + publish commands
 
 A `rclpy` node (`web_ui_bridge`) subscribes to ROS2 topics and stores the latest value per topic. A single shared 20 Hz asyncio loop broadcasts dirty topics to all connected clients. A newly connected client first receives the latest cached value of every topic, so latched data such as the SLAM map shows up immediately. Sends to one client are serialized by a per-client lock: broadcast frames queue behind the snapshot and never write to the same WebSocket concurrently.
@@ -49,40 +47,70 @@ Inbound publish frames (`{"type": "publish", "topic", "msg_type", "data"}`) are 
 
 ## Map tab (`map_nav`)
 
-Shows the live SLAM map with the robot, the Nav2 plans and the current goal, and lets you set a goal by clicking.
+One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `frontend/src/map3d/*`, lazy-loaded) that merges what used to be separate map, GPS and 3D views.
+
+### In the browser
+
+- **Robot:** `base_urdf` (default `robot.urdf`) is placed at the synthetic `/web_ui/robot_pose` (TF `map_frame -> base_frame`), with `arm_urdf` (`so101_arm.urdf`) mounted on it. Wheels follow `base_joint_states_topic`, the arm follows `arm_joint_states_topic`. Without a map pose the robot is drawn at the map origin, so arm control still works without SLAM.
+- **Layers panel** (toggle button in the toolbar, also holds the legend): SLAM map, Local costmap, GPS map, Global plan, Local plan, Goal, Footprint, Robot body, Wheels, Arm. Everything is on by default except GPS map (it needs an anchor and fetches tiles). The state is stored per browser in `localStorage` (key `web_ui.map3d.layers`, see `map3d/layers.ts`); storage errors are ignored.
+- **Footprint:** the Nav2 footprint (`footprint_topic`, `geometry_msgs/PolygonStamped` re-expressed in `map_frame` by the backend) is drawn with the front edge highlighted; until one arrives a small arrow at the pose is shown.
+- **Camera:** free orbit by default (drag rotates, right button or two fingers pan, wheel or pinch zooms). **Top view** locks the camera straight down (drag pans, wheel zooms). The toolbar also has **Center on robot** and **Fit map**.
+- **Goal setting only in Top view.** **Set goal** is disabled in orbit mode (tooltip: switch to Top view). In Top view, press **Set goal**, then press on the map: the press point is the goal position, dragging before release sets the heading (a plain click faces from the robot to the goal). The goal is published once as `geometry_msgs/PoseStamped` (frame `map_frame`, stamped by the backend) and the tab leaves goal mode.
+- **Interactive arm:** drag the rings and handles on the arm model to move it. Setpoints are published on `arm_command_topic` (default `/filter/web_ui_joint_commands`, an allowlisted publish topic) and arbitrated by filter_node. Dragging starts only once live arm joint states have arrived ("Waiting for arm servo positions..." until then).
+- **Arm home / Set home** (shown when `arm_command_topic` is set): **Home** calls `POST /api/arm/home`; **Set home** stores the current pose as home and needs two clicks (the button reads **Confirm home** for 4 s, no browser dialog).
+- **STOP** (red) calls `POST /api/nav/stop`. **Save map** calls `POST /api/map/save`. **Reset map** needs two clicks like Set home (**Confirm reset**). Results appear as a snackbar.
+
+### Fields
 
 | Field | Default | Purpose |
 |---|---|---|
 | `map_topic` | `/map` | `nav_msgs/OccupancyGrid`, subscribed reliable + transient_local + KEEP_LAST 1 so the latched slam_toolbox map is received |
-| `global_plan_topic` | `/plan` | `nav_msgs/Path` from the planner (green) |
-| `local_plan_topic` | `/optimal_trajectory` | `nav_msgs/Path` local plan from the Nav2 MPPI controller (`visualize: true`), usually in `odom` and transformed to the map frame by the backend (orange) |
-| `goal_topic` | `/goal_pose` | `geometry_msgs/PoseStamped`: subscribed (shows the current goal from any source, red) and published by the tab |
+| `global_plan_topic` | `/plan` | `nav_msgs/Path` from the planner |
+| `local_plan_topic` | `/optimal_trajectory` | `nav_msgs/Path` local plan from the Nav2 MPPI controller, usually in `odom`, transformed to the map frame by the backend |
+| `footprint_topic` | `/local_costmap/published_footprint` | `geometry_msgs/PolygonStamped` robot footprint |
+| `local_costmap_topic` | `/local_costmap/costmap` | `nav_msgs/OccupancyGrid`, subscribed reliable + transient_local like Nav2 publishes it |
+| `goal_topic` | `/goal_pose` | `geometry_msgs/PoseStamped`: subscribed (shows the current goal from any source) and published by the tab |
 | `map_frame` | `map` | Fixed frame for drawing and for published goals |
 | `base_frame` | `base_link` | Robot frame; the bridge looks up `map_frame -> base_frame` in TF |
 | `map_save_path` | `/var/lib/ros2/maps/slam_map` | Filename (no extension) passed to `/slam_toolbox/serialize_map` |
 | `map_reset_service` | `/slam_toolbox/reset` | `slam_toolbox/srv/Reset` service called by **Reset map** |
-| `navigate_action` | `/navigate_to_pose` | Nav2 `NavigateToPose` action; **Stop** calls `<navigate_action>/_action/cancel_goal` |
+| `navigate_action` | `/navigate_to_pose` | Nav2 `NavigateToPose` action; **STOP** calls `<navigate_action>/_action/cancel_goal` |
+| `base_urdf` | `robot.urdf` | Base model file under the URDF directory |
+| `arm_urdf` | `so101_arm.urdf` | Arm model file under the URDF directory |
+| `base_joint_states_topic` | `/swerve_drive/joint_states` | Drives wheel / steer joints of the base model |
+| `arm_joint_states_topic` | `/follower/joint_states` | Drives the arm model and the interactive arm |
+| `arm_command_topic` | `/filter/web_ui_joint_commands` | Where arm drags are published |
+| `arm_home_service` | `/arm/home` | `std_srvs/Trigger` behind **Home** |
+| `arm_set_home_service` | `/arm/set_home` | `std_srvs/Trigger` behind **Set home** |
+| `gps_fix_topic` | `/client/gps/fix` | `sensor_msgs/NavSatFix` used for the GPS layer and the anchor fit |
+| `gps_anchor_min_points` | `10` | Samples needed before an anchor is published |
+| `gps_anchor_min_spread_m` | `5.0` | Minimum map-frame track extent (bounding-box diagonal, m) |
+| `gps_anchor_max_residual_m` | `1.5` | Maximum RMS fit residual (m) |
+| `tile_url` | `https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png` | XYZ tile template fetched by the backend proxy |
+| `tile_subdomains` | `abcd` | Characters substituted for `{s}` |
+| `tile_cache_dir` | `/var/cache/web_ui/tiles` | Tile disk cache (created by Ansible) |
+| `tile_cache_max_mb` | `256` | Cache size cap |
 
-All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected).
+All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected). `arm_offset` (optional, `[x, y, z]` in metres) places the arm URDF root on the base model. Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`.
 
-Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`.
+### Backend
 
 WebSocket payloads produced by the backend:
-- map topic: `{png_b64, width, height, resolution, origin: {x, y, yaw}, frame_id, stamp}`. Grayscale PNG with free cells white (254), occupied black (0), unknown grey (205); free/occupied thresholds 25/65 %. Image row 0 is the top of the map (grid rows are flipped). The PNG is encoded once per received map message.
+- map topic: `{png_b64, width, height, resolution, origin: {x, y, yaw}, frame_id, stamp}`. Grayscale PNG with free cells white (254), occupied black (0), unknown grey (205); free/occupied thresholds 25/65 %. Image row 0 is the top of the map (grid rows are flipped). Encoded once per received map message.
+- costmap role (`local_costmap_topic`): same shape, but an RGBA PNG (`serialize_costmap`): free, unknown and out-of-range cells are fully transparent, inflation cost 1..98 is interpolated between a low and a high colour, inscribed (99) and lethal (100) cells get their own colours. The costmap origin is transformed with TF into `map_frame` (the rolling local costmap is published in `odom`), so the image lines up with the SLAM map; if the transform is unavailable the message is not shown.
 - plan topics: `{frame_id, points: [[x, y], ...]}`, downsampled to at most 500 points (first and last kept).
 - goal topic: `{frame_id, x, y, yaw}`.
-- `{"topic": <topic>, "data": null}`: the backend dropped its cached value of that topic (sent once, after a successful map reset for the map topic or a successful stop for the goal topic); the tab removes the map image / goal marker. Clients that connect later simply receive no value for the topic until new data arrives.
-- `/web_ui/robot_pose` (synthetic topic, not on ROS): `{x, y, yaw, frame_id, stamp}` from TF, looked up at the broadcast rate but sent only when the pose changes or the TF stamp advances. If the transform is unavailable (e.g. SLAM not running) or its stamp is more than 2 s (`ROBOT_POSE_STALE_S`) older than the node clock, nothing is sent and the cached pose is dropped, so newly connected clients never get a stale pose.
+- `{"topic": <topic>, "data": null}`: the backend dropped its cached value of that topic (after a successful map reset for the map topic, a successful stop for the goal topic, or a withdrawn GPS anchor); the tab removes the image / marker. Clients that connect later receive no value until new data arrives.
+- `/web_ui/robot_pose` (synthetic topic, not on ROS): `{x, y, yaw, frame_id, stamp}` from TF, sent only when the pose changes or the TF stamp advances. If the transform is unavailable or its stamp is more than 2 s (`ROBOT_POSE_STALE_S`) older than the node clock, nothing is sent and the cached pose is dropped.
+- `/web_ui/gps_anchor` (synthetic): `{lat, lon, heading_rad, residual_m, n_points}`, see below.
 
-Plans and goals (the map_nav `global_plan_topic`, `local_plan_topic` and `goal_topic`) in another frame (e.g. a local plan in `odom`) are transformed into `map_frame` with TF; if that transform is unavailable the message is not shown. The transform is chosen by the topic's map_nav role, not by payload keys: all other topics (e.g. `/controller/odom` for nav_local) are passed through unchanged.
+Map roles (`path`, `goal`, `footprint`, `costmap`) in another frame are transformed into `map_frame` with TF (`MAP_FRAME_ROLES` in `bridge.py`); the transform is chosen by the topic's map_nav role, not by payload keys, so all other topics are passed through unchanged.
 
-Controls:
-- Drag to pan; mouse wheel or two-finger pinch zooms about the cursor / fingers. **Fit map** and **Center on robot** reset the view.
-- **Set goal**, then press on the map: the press point is the goal position. Dragging before release sets the heading along the drag; a plain click faces from the robot to the goal. The goal is published once as `geometry_msgs/PoseStamped` (frame `map_frame`, stamped by the backend) and the tab returns to pan mode.
-- The toolbar above the map wraps on narrow screens; **Center on robot**, **Fit map** and the legend toggle are icon buttons (the legend starts hidden on phones). Action results (save, reset, stop) appear as a snackbar at the bottom of the map.
-- **Stop** (red) calls `POST /api/nav/stop?tab=<tab id>`: Nav2 cancels the goal and stops the robot itself (the tab never publishes `cmd_vel`).
-- **Save map** calls `POST /api/map/save?tab=<tab id>`; the result message is shown next to the buttons.
-- **Reset map** needs two clicks: the first arms it (the button reads **Confirm reset** for 4 s), the second calls `POST /api/map/reset?tab=<tab id>`. No browser dialog is used.
+**GPS anchor auto-fit** (`web_ui/gps_anchor.py`, pure numpy). Each valid fix (status >= 0) is paired with the robot's map-frame position from TF, used only when the TF stamp is within `GPS_TF_MAX_SKEW_S` of the fix. A sample is kept once the robot moved at least 0.2 m from the last kept one (at most 500 samples, oldest dropped). Fixes are projected to local East/North metres and a 2D rigid transform (rotation + translation, no scale, Kabsch least squares) from map frame to ENU is fitted. The anchor is published only when all gates pass: at least `gps_anchor_min_points` samples, track spread at least `gps_anchor_min_spread_m`, RMS residual at most `gps_anchor_max_residual_m`. `lat`/`lon` are the WGS84 position of the **map origin**; `heading_rad` is the angle of the map +x axis measured counter-clockwise from East. If a later refit stops passing, a previously published anchor is withdrawn (`data: null`). **Reset map** also clears all samples and the anchor, since the new map has a new origin. The GPS layer shows nothing until an anchor exists.
+
+**Tile proxy** `GET /api/tiles/{z}/{x}/{y}.png` (`web_ui/tiles.py`). The browser never contacts the tile provider; the backend fetches from `tile_url` (rotating `{s}` over `tile_subdomains`, 5 s timeout, identifying User-Agent), stores the tile in `tile_cache_dir` and serves it with `Cache-Control: public, max-age=86400`. Cached tiles are served without touching the network, so previously viewed areas keep working offline; uncached tiles while offline return 504. When the cache exceeds `tile_cache_max_mb`, the oldest-written tiles are evicted. Out-of-range coordinates return 400, and 404 is returned when no map_nav tab configures tiles. Because tiles come from the same origin, the Content-Security-Policy keeps `img-src 'self' data: blob:` and needs no external image hosts.
+
+`POST /api/arm/home?tab=<tab id>` and `POST /api/arm/set_home?tab=<tab id>` call the tab's `arm_home_service` / `arm_set_home_service` (`std_srvs/Trigger`, served by the mcp_server node as `/arm/home` and `/arm/set_home`: move to the stored home pose, store the measured pose as home) and return `{"ok", "message"}` with the service's own message. 200 on success, 404 for an unknown tab, 500 when the service reports failure, 503 when the ROS bridge or service is unavailable (mcp_server not running), 504 after 10 s.
 
 `POST /api/map/save?tab=<tab id>` calls `/slam_toolbox/serialize_map` (`slam_toolbox/srv/SerializePoseGraph`, `filename` = the tab's `map_save_path`) without blocking the server and returns `{"ok": bool, "message": str}`:
 
@@ -118,7 +146,7 @@ Controls:
 
 Config file: `/etc/ros2/web_ui/config.yaml` (managed by Ansible).
 
-Key fields:
+Key fields (map_nav fields are listed in the Map tab section):
 - `http_port` (default: 8080)
 - `ws_broadcast_hz` (default: 20)
 - `tabs`: list of tab configs
@@ -154,7 +182,7 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 # Python tests
 cd nodes/web_ui && poetry install && poetry run pytest tests/ -v
 
-# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/tabSelection.test.ts)
+# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/map3d/*.test.ts, src/tabSelection.test.ts)
 cd nodes/web_ui/frontend && npx tsc --noEmit && npm test
 
 # Frontend dev server (hot reload, proxies /api and /ws to localhost:8080)

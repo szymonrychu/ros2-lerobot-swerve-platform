@@ -10,21 +10,21 @@ A ROS2-based robotics platform with leader–follower teleop, RTK GPS, IMU, came
 
 **Browser-based robot dashboard** — real-time sensor visualization, 3D URDF model, GPS map, and navigation — all from any device on the LAN.
 
-- 7 live tabs: RGBD camera, IMU 3D, servo graphs, local/GPS maps, 3D scene, robot status
+- Live tabs: merged 3D map (SLAM map, costmap, GPS tiles, plans, robot URDF, interactive arm), gripper camera, RGBD camera, IMU
 - FastAPI + React + Three.js, served from the onboard RPi
 - WebSocket bridge at 20 Hz for all ROS2 topics
 
 </td>
 <td width="50%">
 
-<img src="docs/screenshots/web-ui-robot-status.png" alt="Robot Status — 3D URDF model with SO-101 arm" width="100%"/>
+<img src="docs/screenshots/web-ui-robot-status.png" alt="3D URDF model with SO-101 arm" width="100%"/>
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-<img src="docs/screenshots/web-ui-gps-map.png" alt="GPS Map — live RTK position on OpenStreetMap" width="100%"/>
+<img src="docs/screenshots/web-ui-gps-map.png" alt="Live RTK position on a map" width="100%"/>
 
 </td>
 <td width="50%">
@@ -41,7 +41,7 @@ A ROS2-based robotics platform with leader–follower teleop, RTK GPS, IMU, came
 </td>
 <td width="50%">
 
-<img src="docs/screenshots/web-ui-arm-servos.png" alt="Arm Servos — real-time joint position graphs" width="100%"/>
+<img src="docs/screenshots/web-ui-arm-servos.png" alt="Real-time joint position graphs" width="100%"/>
 
 </td>
 </tr>
@@ -122,11 +122,11 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 |------|------|-------------|----------|
 | `ros2-master` | ros2_master | DDS daemon | — |
 | `master2master` | master2master | Proxies `/leader/joint_states` → `/filter/input_joint_updates` | — |
-| `filter_node` | filter_node | `/filter/input_joint_updates` (sub) → `/follower/joint_commands` (pub) | — |
+| `filter_node` | filter_node | `/filter/input_joint_updates`, `/filter/web_ui_joint_commands`, `/filter/autonomy_joint_commands` (sub) → `/follower/joint_commands` (pub); `/filter/autonomy_release` (sub), `/filter/active_source` (pub). Arbitrates sources, priority autonomy > web_ui > leader; the autonomy lease is sticky (no timeout) until released | — |
 | `lerobot_follower` | feetech_servos | `/follower/joint_commands` (sub), `/follower/joint_states` (pub) | SO-101 arm (USB serial, shared with the swerve servos) |
 | `gps_rtk_rover` | gps_rtk | `/client/gps/fix` (pub), RTCM3 from Server :5016 | LC29H-DA HAT (`/dev/ttyAMA0`) |
 | `bno055_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
-| `gripper_uvc_camera` | uvc_camera | `/camera_0/image_compressed` (pub, `sensor_msgs/CompressedImage`) | USB camera |
+| `gripper_uvc_camera` | uvc_camera | `/camera_0/image_raw/compressed` (pub, `sensor_msgs/CompressedImage`) | USB camera |
 | `lerobot_follower` (group `swerve_drive`) | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 swerve servos (IDs 32-39) on the follower arm bus |
 | `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub); TF off (EKF owns odom→base_link) | — |
 | `static_tf_publisher` | static_tf_publisher | TF base_link → imu_link, laser_frame | — |
@@ -137,7 +137,8 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `realsense_d435i` | realsense_d435i | `/camera/*` (color, depth, pointcloud, `/camera/imu`) | RealSense D435i (USB 3.0) |
 | `test_joint_api` | test_joint_api | REST :18080 → `/filter/input_joint_updates` (pub) | — |
 | `topic_scraper_api` | topic_scraper_api | HTTP :18100 | — |
-| `web_ui` | web_ui | HTTP :8080, WS `/ws` (20 Hz topic broadcast) | — |
+| `web_ui` | web_ui | HTTP :8080, WS `/ws` (20 Hz topic broadcast). Tabs: 3D Map (SLAM map, costmap, GPS tiles, plans, goal, robot URDF, interactive arm), gripper camera, RGBD camera, IMU; calls `/arm/home`, `/arm/set_home` | — |
+| `mcp_server` | mcp_server | MCP Streamable HTTP :18200 `/mcp` (bearer token). Tools: robot/arm state, camera images, map summary, `navigate_to_pose` (Nav2 action), `move_relative`, `drive`, `stop`, arm joint/cartesian moves, gripper, arm home. Arm setpoints go to `/filter/autonomy_joint_commands`; serves `/arm/home`, `/arm/set_home`; reads `/camera_0/image_raw/compressed` and `/camera/camera/color/image_raw` | — |
 | `haptic_controller` | haptic_controller | Disabled (`mode: off`) | — |
 
 ### Topic flow (leader–follower path)
@@ -155,15 +156,29 @@ Client: master2master   →  /filter/input_joint_updates  ← test_joint_api (RE
 ### Topic flow (swerve + SLAM + Nav2)
 
 ```
-web_ui Map tab (click+drag)  →  /goal_pose  →  Nav2 bt_navigator
+web_ui 3D Map tab (Top view, click+drag)  →  /goal_pose  →  Nav2 bt_navigator
 Nav2: planner_server → /plan (global), controller_server MPPI → /optimal_trajectory (local)
       → cmd_vel_nav → velocity_smoother → collision_monitor → /cmd_vel
         swerve_controller → /swerve_drive/joint_commands  →  lerobot_follower bridge, swerve_drive group (8 servos)
         swerve_controller → /odom
 robot_localization_ekf fuses /odom + /imu/data → /odometry/filtered + TF odom→base_link
-slam_toolbox: /scan + TF → /map + TF map→odom  →  Nav2 global costmap static layer, web_ui Map tab
-web_ui Map tab shows /map, robot pose (TF map→base_link), /plan, /optimal_trajectory, /goal_pose; "Save map" → /slam_toolbox/serialize_map
+slam_toolbox: /scan + TF → /map + TF map→odom  →  Nav2 global costmap static layer, web_ui 3D Map tab
+web_ui 3D Map tab shows /map, the local costmap, GPS tiles (anchor auto-fitted from /client/gps/fix + TF), robot URDF at the TF map→base_link pose, /plan, /optimal_trajectory, /goal_pose; "Save map" → /slam_toolbox/serialize_map
+mcp_server (Claude Code via MCP): navigate_to_pose → Nav2 navigate_to_pose action; drive → /cmd_vel_nav
+Arm sources: leader (via master2master) | web_ui (/filter/web_ui_joint_commands) | mcp_server (/filter/autonomy_joint_commands, sticky lease)
+  → filter_node arbitration (autonomy > web_ui > leader), active source on /filter/active_source
 ```
+
+## Controlling the robot from Claude Code (MCP)
+
+The `mcp_server` node on the client RPi exposes the robot as MCP tools at `http://client.ros2.lan:18200/mcp`, protected by a bearer token that Ansible generates once on the robot (`/etc/ros2/mcp_server/token`, never in git). The repo-root `.mcp.json` registers it as server `robot` and reads the token from `ROBOT_MCP_TOKEN`:
+
+```bash
+eval "$(./scripts/robot_mcp_token.sh)"   # ssh to client.ros2.lan, exports ROBOT_MCP_TOKEN
+claude                                   # start Claude Code in this repo, approve the project server "robot"
+```
+
+`ROBOT_SSH_TARGET=user@host` overrides the ssh target. Arm motion goes through filter_node's autonomy lease, base motion through Nav2. See [nodes/mcp_server/README.md](nodes/mcp_server/README.md) for the tool list and safety model.
 
 ## Hardware components
 
@@ -202,6 +217,7 @@ web_ui Map tab shows /map, robot pose (TF map→base_link), /plan, /optimal_traj
 │   ├── robot_localization_ekf/ EKF fuse odom+IMU
 │   ├── nav2_bringup/       Nav2 navigation stack
 │   ├── web_ui/             Browser dashboard (FastAPI + React + Three.js)
+│   ├── mcp_server/         Robot MCP server for LLM agents (Claude Code)
 │   ├── steamdeck_ui/       SteamDeck Electron UI + Python bridge (legacy)
 │   └── bridges/
 │       ├── bno055_imu/     BNO055 IMU bridge
@@ -286,4 +302,5 @@ See [ansible/README.md](ansible/README.md) for full details on roles, node confi
 | robot_localization_ekf | [nodes/robot_localization_ekf/README.md](nodes/robot_localization_ekf/README.md) |
 | nav2_bringup | [nodes/nav2_bringup/README.md](nodes/nav2_bringup/README.md) |
 | web_ui | [nodes/web_ui/README.md](nodes/web_ui/README.md) |
+| mcp_server | [nodes/mcp_server/README.md](nodes/mcp_server/README.md) |
 | steamdeck_ui | [nodes/steamdeck_ui/README.md](nodes/steamdeck_ui/README.md) |
