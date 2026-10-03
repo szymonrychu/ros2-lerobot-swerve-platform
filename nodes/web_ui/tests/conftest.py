@@ -27,6 +27,8 @@ def _install_ros2_stubs() -> None:
         "tf2_ros",
         "slam_toolbox",
         "slam_toolbox.srv",
+        "action_msgs",
+        "action_msgs.srv",
     ]
     for mod_name in ros2_modules:
         if mod_name not in sys.modules:
@@ -65,6 +67,29 @@ def _install_ros2_stubs() -> None:
     slam_srv_mod = sys.modules["slam_toolbox.srv"]
     if not hasattr(slam_srv_mod, "SerializePoseGraph"):
         slam_srv_mod.SerializePoseGraph = MagicMock()  # type: ignore[attr-defined]
+    if not hasattr(slam_srv_mod, "Reset"):
+
+        class _StubResetRequest:
+            """slam_toolbox/srv/Reset request; None until the bridge sets it."""
+
+            def __init__(self) -> None:
+                self.pause_new_measurements: bool | None = None
+
+        slam_srv_mod.Reset = types.SimpleNamespace(Request=_StubResetRequest)  # type: ignore[attr-defined]
+
+    action_srv_mod = sys.modules["action_msgs.srv"]
+    if not hasattr(action_srv_mod, "CancelGoal"):
+
+        class _StubCancelGoalRequest:
+            """action_msgs/srv/CancelGoal request; goal id and stamp are None until the bridge sets them."""
+
+            def __init__(self) -> None:
+                self.goal_info = types.SimpleNamespace(
+                    goal_id=types.SimpleNamespace(uuid=None),
+                    stamp=types.SimpleNamespace(sec=None, nanosec=None),
+                )
+
+        action_srv_mod.CancelGoal = types.SimpleNamespace(Request=_StubCancelGoalRequest)  # type: ignore[attr-defined]
 
     node_mod = sys.modules["rclpy.node"]
     if not hasattr(node_mod, "Node"):

@@ -94,6 +94,9 @@ def make_bridge(**attrs: Any) -> Any:
     node._robot_pose_frames = None
     node._frame_id_defaults = {}
     node._serialize_map_client = None
+    node._reset_map_clients = {}
+    node._cancel_goal_clients = {}
+    node._cleared = set()
     node.get_clock = lambda: fake_clock(3.5)
     for key, value in attrs.items():
         setattr(node, key, value)
@@ -126,6 +129,32 @@ def test_map_nav_defaults(tmp_path: Path) -> None:
     assert tab.map_frame == "map"
     assert tab.base_frame == "base_link"
     assert tab.map_save_path == "/var/lib/ros2/maps/slam_map"
+    assert tab.map_reset_service == "/slam_toolbox/reset"
+    assert tab.navigate_action == "/navigate_to_pose"
+
+
+def test_map_nav_reset_and_navigate_overrides_kept() -> None:
+    tab = TabConfig(id="m", type="map_nav", label="Map", map_reset_service="/slam/reset", navigate_action="/nav")
+    assert tab.map_reset_service == "/slam/reset"
+    assert tab.navigate_action == "/nav"
+
+
+def test_reset_and_navigate_not_defaulted_for_other_tabs() -> None:
+    tab = TabConfig(id="n", type="nav_local", label="Nav")
+    assert tab.map_reset_service is None
+    assert tab.navigate_action is None
+
+
+def test_app_config_lists_reset_services_and_navigate_actions() -> None:
+    cfg = AppConfig(
+        tabs=[
+            TabConfig(id="a", type="map_nav", label="A"),
+            TabConfig(id="b", type="map_nav", label="B", map_reset_service="/r2", navigate_action="/n2"),
+            TabConfig(id="c", type="nav_local", label="C"),
+        ]
+    )
+    assert cfg.map_reset_services() == ["/r2", "/slam_toolbox/reset"]
+    assert cfg.navigate_actions() == ["/n2", "/navigate_to_pose"]
 
 
 def test_map_nav_overrides_kept() -> None:
@@ -889,6 +918,231 @@ def test_save_map_no_bridge(map_app: Any) -> None:
     assert resp.json()["ok"] is False
 
 
+# ---------------------------------------------------------------------------
+# Reset map / stop navigation
+# ---------------------------------------------------------------------------
+
+
+def ready_client(ready: bool = True) -> MagicMock:
+    """Return a service client mock whose service_is_ready() returns ready."""
+    client = MagicMock()
+    client.service_is_ready.return_value = ready
+    return client
+
+
+def test_bridge_init_creates_reset_and_cancel_clients() -> None:
+    created: list[tuple[Any, str]] = []
+    node = make_bridge()
+    node.create_client = lambda srv, name: created.append((srv, name)) or ready_client()
+    node.create_service_clients(["/slam_toolbox/reset"], ["/navigate_to_pose"])
+    names = [name for _, name in created]
+    assert names == ["/slam_toolbox/reset", "/navigate_to_pose/_action/cancel_goal"]
+    assert set(node._reset_map_clients) == {"/slam_toolbox/reset"}
+    assert set(node._cancel_goal_clients) == {"/navigate_to_pose"}
+
+
+def test_reset_map_async_unavailable_returns_none() -> None:
+    client = ready_client(False)
+    node = make_bridge(_reset_map_clients={"/slam_toolbox/reset": client})
+    assert node.reset_map_async("/slam_toolbox/reset") is None
+    assert node.reset_map_async("/unknown/reset") is None
+    client.call_async.assert_not_called()
+
+
+def test_reset_map_async_does_not_pause_measurements() -> None:
+    client = ready_client()
+    node = make_bridge(_reset_map_clients={"/slam_toolbox/reset": client})
+    fut = node.reset_map_async("/slam_toolbox/reset")
+    assert fut is client.call_async.return_value
+    request = client.call_async.call_args[0][0]
+    assert request.pause_new_measurements is False
+
+
+def test_cancel_all_goals_async_unavailable_returns_none() -> None:
+    client = ready_client(False)
+    node = make_bridge(_cancel_goal_clients={"/navigate_to_pose": client})
+    assert node.cancel_all_goals_async("/navigate_to_pose") is None
+    assert node.cancel_all_goals_async("/other") is None
+    client.call_async.assert_not_called()
+
+
+def test_cancel_all_goals_request_is_zero_uuid_and_zero_stamp() -> None:
+    client = ready_client()
+    node = make_bridge(_cancel_goal_clients={"/navigate_to_pose": client})
+    fut = node.cancel_all_goals_async("/navigate_to_pose")
+    assert fut is client.call_async.return_value
+    info = client.call_async.call_args[0][0].goal_info
+    assert list(info.goal_id.uuid) == [0] * 16
+    assert info.stamp.sec == 0
+    assert info.stamp.nanosec == 0
+
+
+def test_clear_and_notify_drops_cache_and_broadcasts_null_once() -> None:
+    node = make_bridge()
+    node.store("/map", {"png_b64": "abc"})
+    node.clear_and_notify("/map")
+    assert node.latest_envelopes() == []
+    assert node.flush_dirty() == [{"topic": "/map", "data": None}]
+    assert node.flush_dirty() == []
+
+
+def test_new_data_after_clear_replaces_pending_clear() -> None:
+    node = make_bridge()
+    node.clear_and_notify("/map")
+    node.store("/map", {"png_b64": "new"})
+    assert node.flush_dirty() == [{"topic": "/map", "data": {"png_b64": "new"}}]
+
+
+@pytest.fixture
+def nav_app(tmp_path: Path, urdf_dir: Path) -> Any:
+    """Return an app factory with a map_nav tab using custom reset service and navigate action."""
+    from web_ui.server import build_app
+
+    config = AppConfig(
+        tabs=[
+            TabConfig(
+                id="map",
+                type="map_nav",
+                label="Map",
+                map_topic="/slam/map",
+                goal_topic="/goal",
+                map_reset_service="/slam/reset",
+                navigate_action="/nav",
+            )
+        ]
+    )
+
+    def factory(bridge: Any) -> TestClient:
+        return TestClient(build_app(config=config, urdf_dir=urdf_dir, static_dir=tmp_path / "none", bridge_node=bridge))
+
+    return factory
+
+
+def test_reset_map_success_clears_cached_map(nav_app: Any) -> None:
+    bridge = MagicMock()
+    bridge.reset_map_async.return_value = FakeFuture(SimpleNamespace(result=0))
+    resp = nav_app(bridge).post("/api/map/reset?tab=map")
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    bridge.reset_map_async.assert_called_once_with("/slam/reset")
+    bridge.clear_and_notify.assert_called_once_with("/slam/map")
+
+
+def test_reset_map_slam_failure_keeps_map(nav_app: Any) -> None:
+    bridge = MagicMock()
+    bridge.reset_map_async.return_value = FakeFuture(SimpleNamespace(result=255))
+    resp = nav_app(bridge).post("/api/map/reset?tab=map")
+    assert resp.status_code == 500
+    assert resp.json()["ok"] is False
+    assert "255" in resp.json()["message"]
+    bridge.clear_and_notify.assert_not_called()
+
+
+def test_reset_map_service_unavailable(nav_app: Any) -> None:
+    bridge = MagicMock()
+    bridge.reset_map_async.return_value = None
+    resp = nav_app(bridge).post("/api/map/reset?tab=map")
+    assert resp.status_code == 503
+    assert resp.json()["ok"] is False
+    assert "/slam/reset unavailable" in resp.json()["message"]
+    bridge.clear_and_notify.assert_not_called()
+
+
+def test_reset_map_timeout(nav_app: Any) -> None:
+    bridge = MagicMock()
+    fut = FakeFuture(resolve=False)
+    bridge.reset_map_async.return_value = fut
+    with patch("web_ui.server.RESET_MAP_TIMEOUT_S", 0.05):
+        resp = nav_app(bridge).post("/api/map/reset?tab=map")
+    assert resp.status_code == 504
+    assert "timed out" in resp.json()["message"]
+    assert fut.cancelled
+    bridge.clear_and_notify.assert_not_called()
+
+
+def test_reset_map_unknown_tab(nav_app: Any) -> None:
+    resp = nav_app(MagicMock()).post("/api/map/reset?tab=nope")
+    assert resp.status_code == 404
+    assert resp.json()["ok"] is False
+
+
+def test_reset_map_no_bridge(nav_app: Any) -> None:
+    resp = nav_app(None).post("/api/map/reset?tab=map")
+    assert resp.status_code == 503
+    assert resp.json()["ok"] is False
+
+
+def test_reset_map_does_not_touch_saved_posegraph(map_app: Any, tmp_path: Path) -> None:
+    saved = tmp_path / "slam_map.posegraph"
+    saved.write_text("graph")
+    bridge = MagicMock()
+    bridge.reset_map_async.return_value = FakeFuture(SimpleNamespace(result=0))
+    resp = map_app(bridge).post("/api/map/reset?tab=map")
+    assert resp.status_code == 200
+    assert saved.read_text() == "graph"
+    bridge.serialize_map_async.assert_not_called()
+    bridge.reset_map_async.assert_called_once_with("/slam_toolbox/reset")
+
+
+def test_stop_nav_success_clears_cached_goal(nav_app: Any) -> None:
+    bridge = MagicMock()
+    bridge.cancel_all_goals_async.return_value = FakeFuture(SimpleNamespace(return_code=0, goals_canceling=[1, 2]))
+    resp = nav_app(bridge).post("/api/nav/stop?tab=map")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert "2 goal" in body["message"]
+    bridge.cancel_all_goals_async.assert_called_once_with("/nav")
+    bridge.clear_and_notify.assert_called_once_with("/goal")
+
+
+def test_stop_nav_no_active_goal_still_ok(nav_app: Any) -> None:
+    bridge = MagicMock()
+    bridge.cancel_all_goals_async.return_value = FakeFuture(SimpleNamespace(return_code=0, goals_canceling=[]))
+    resp = nav_app(bridge).post("/api/nav/stop?tab=map")
+    assert resp.status_code == 200
+    assert "no active goal" in resp.json()["message"]
+    bridge.clear_and_notify.assert_called_once_with("/goal")
+
+
+def test_stop_nav_rejected(nav_app: Any) -> None:
+    bridge = MagicMock()
+    bridge.cancel_all_goals_async.return_value = FakeFuture(SimpleNamespace(return_code=1, goals_canceling=[]))
+    resp = nav_app(bridge).post("/api/nav/stop?tab=map")
+    assert resp.status_code == 500
+    assert resp.json()["ok"] is False
+    assert "rejected" in resp.json()["message"]
+    bridge.clear_and_notify.assert_not_called()
+
+
+def test_stop_nav_unavailable(nav_app: Any) -> None:
+    bridge = MagicMock()
+    bridge.cancel_all_goals_async.return_value = None
+    resp = nav_app(bridge).post("/api/nav/stop?tab=map")
+    assert resp.status_code == 503
+    assert "/nav/_action/cancel_goal unavailable" in resp.json()["message"]
+    bridge.clear_and_notify.assert_not_called()
+
+
+def test_stop_nav_timeout(nav_app: Any) -> None:
+    bridge = MagicMock()
+    fut = FakeFuture(resolve=False)
+    bridge.cancel_all_goals_async.return_value = fut
+    with patch("web_ui.server.NAV_STOP_TIMEOUT_S", 0.05):
+        resp = nav_app(bridge).post("/api/nav/stop?tab=map")
+    assert resp.status_code == 504
+    assert "timed out" in resp.json()["message"]
+    assert fut.cancelled
+    bridge.clear_and_notify.assert_not_called()
+
+
+def test_stop_nav_unknown_tab_and_no_bridge(nav_app: Any) -> None:
+    assert nav_app(MagicMock()).post("/api/nav/stop?tab=nope").status_code == 404
+    resp = nav_app(None).post("/api/nav/stop?tab=map")
+    assert resp.status_code == 503
+    assert resp.json()["ok"] is False
+
+
 def test_ws_connect_sends_cached_snapshot(map_app: Any) -> None:
     bridge = MagicMock()
     bridge.latest_envelopes.return_value = [{"topic": "/map", "data": {"png_b64": "abc"}}]
@@ -903,6 +1157,8 @@ def test_default_config_has_map_nav_tab() -> None:
     assert tab.map_topic == "/map"
     assert "/goal_pose" in cfg.publish_topics()
     assert cfg.robot_pose_frames() == ("map", "base_link")
+    assert tab.map_reset_service == "/slam_toolbox/reset"
+    assert tab.navigate_action == "/navigate_to_pose"
 
 
 def test_default_yaml_map_tab_uses_nav2_local_plan_topic() -> None:

@@ -42,6 +42,8 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "map_frame": "map",
     "base_frame": "base_link",
     "map_save_path": "/var/lib/ros2/maps/slam_map",
+    "map_reset_service": "/slam_toolbox/reset",
+    "navigate_action": "/navigate_to_pose",
 }
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
@@ -126,6 +128,8 @@ class TabConfig(BaseModel):
     map_frame: str | None = None  # map_nav: fixed frame for display and goals
     base_frame: str | None = None  # map_nav: robot frame looked up in TF for the pose arrow
     map_save_path: str | None = None  # map_nav: slam_toolbox serialize_map filename (no extension)
+    map_reset_service: str | None = None  # map_nav: slam_toolbox/srv/Reset service cleared by "Reset map"
+    navigate_action: str | None = None  # map_nav: Nav2 NavigateToPose action whose goals "Stop" cancels
 
     @field_validator("type")
     @classmethod
@@ -197,6 +201,22 @@ class AppConfig(BaseModel):
             list[TabConfig]: Tabs whose type is map_nav, in config order.
         """
         return [tab for tab in self.tabs if tab.type == MAP_NAV_TAB_TYPE]
+
+    def map_reset_services(self) -> list[str]:
+        """Return the slam_toolbox Reset services of all map_nav tabs.
+
+        Returns:
+            list[str]: Sorted unique service names.
+        """
+        return sorted({tab.map_reset_service for tab in self.map_nav_tabs() if tab.map_reset_service})
+
+    def navigate_actions(self) -> list[str]:
+        """Return the Nav2 NavigateToPose action names of all map_nav tabs.
+
+        Returns:
+            list[str]: Sorted unique action names.
+        """
+        return sorted({tab.navigate_action for tab in self.map_nav_tabs() if tab.navigate_action})
 
     def topic_roles(self) -> dict[str, str]:
         """Map each map_nav topic to its bridge subscription role.

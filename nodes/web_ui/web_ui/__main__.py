@@ -47,6 +47,8 @@ def main() -> None:
         robot_pose_frames=config.robot_pose_frames(),
         frame_id_defaults=config.frame_id_defaults(),
         pose_rate_hz=config.ws_broadcast_hz,
+        map_reset_services=config.map_reset_services(),
+        navigate_actions=config.navigate_actions(),
     )
     executor = create_bridge_executor(node)
 

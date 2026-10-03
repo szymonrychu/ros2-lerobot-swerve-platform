@@ -1,7 +1,7 @@
 """ROS2 bridge node: subscribes to topics, stores latest value, broadcasts at 20 Hz.
 
-Also tracks the robot pose in the map frame via TF and calls slam_toolbox's serialize_map service
-for the map_nav tab.
+Also tracks the robot pose in the map frame via TF and, for the map_nav tab, calls slam_toolbox's
+serialize_map and reset services and cancels Nav2 NavigateToPose goals.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import Any
 
 import rclpy  # noqa: F401  # kept as module attribute for test patching
 import structlog
+from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rclpy.executors import MultiThreadedExecutor
@@ -21,7 +22,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
-from slam_toolbox.srv import SerializePoseGraph
+from slam_toolbox.srv import Reset, SerializePoseGraph
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .msg_serializer import (
@@ -88,6 +89,10 @@ DEFAULT_SUB_QOS_DEPTH = 10
 # Synthetic WS topic carrying the map_frame -> base_frame TF pose (not a ROS topic).
 ROBOT_POSE_TOPIC = "/web_ui/robot_pose"
 SERIALIZE_MAP_SERVICE = "/slam_toolbox/serialize_map"
+# Appended to an action name to get its cancel service (action_msgs/srv/CancelGoal).
+CANCEL_GOAL_SERVICE_SUFFIX = "/_action/cancel_goal"
+# A zero goal id with a zero stamp asks the action server to cancel all of its goals.
+CANCEL_ALL_GOAL_UUID: tuple[int, ...] = (0,) * 16
 TOPIC_STALE_S = 10.0
 # A robot pose whose TF stamp is older than this (vs the node clock) is dropped, never replayed to late joiners.
 ROBOT_POSE_STALE_S = 2.0
@@ -141,6 +146,8 @@ class BridgeNode(Node):
         robot_pose_frames: tuple[str, str] | None = None,
         frame_id_defaults: dict[str, str] | None = None,
         pose_rate_hz: float = 20.0,
+        map_reset_services: list[str] | None = None,
+        navigate_actions: list[str] | None = None,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -153,10 +160,13 @@ class BridgeNode(Node):
             frame_id_defaults (dict[str, str] | None): Publish topic -> header.frame_id used when the
                 client sends an empty frame_id.
             pose_rate_hz (float): Robot pose lookup rate (the WS broadcast rate).
+            map_reset_services (list[str] | None): slam_toolbox Reset services to create clients for.
+            navigate_actions (list[str] | None): NavigateToPose actions whose cancel services get clients.
         """
         super().__init__("web_ui_bridge")
         self._latest: dict[str, dict[str, Any]] = {}
         self._dirty: set[str] = set()
+        self._cleared: set[str] = set()
         self._lock = threading.Lock()
         self.publishers_: dict[str, tuple[Any, type]] = {}
         self._allowed_publish_topics = allowed_publish_topics
@@ -165,6 +175,8 @@ class BridgeNode(Node):
         self._robot_pose_frames = robot_pose_frames
         self._tf_buffer: Any = None
         self._serialize_map_client: Any = None
+        self._reset_map_clients: dict[str, Any] = {}
+        self._cancel_goal_clients: dict[str, Any] = {}
         roles = topic_roles or {}
 
         for topic in topics:
@@ -181,6 +193,7 @@ class BridgeNode(Node):
             self._tf_listener = TransformListener(self._tf_buffer, self)
             self.create_timer(1.0 / pose_rate_hz, self.update_robot_pose)
             self._serialize_map_client = self.create_client(SerializePoseGraph, SERIALIZE_MAP_SERVICE)
+        self.create_service_clients(map_reset_services or [], navigate_actions or [])
 
         log.info("ros2_node_ready", node_name="web_ui_bridge", topics_subscribed=len(self._topic_last_rx))
         self.create_timer(TOPIC_STALE_S, self._check_topic_health)
@@ -225,6 +238,7 @@ class BridgeNode(Node):
         with self._lock:
             self._latest[topic] = {"topic": topic, "data": data}
             self._dirty.add(topic)
+            self._cleared.discard(topic)
             self._topic_last_rx[topic] = time.monotonic()
 
     def to_map_frame(self, data: dict[str, Any], role: str | None) -> dict[str, Any] | None:
@@ -305,6 +319,68 @@ class BridgeNode(Node):
             self._latest.pop(topic, None)
             self._dirty.discard(topic)
 
+    def clear_and_notify(self, topic: str) -> None:
+        """Drop the cached envelope of topic and tell connected clients it is gone.
+
+        The next flush_dirty returns {"topic": topic, "data": None} once (unless new data arrives first);
+        late joiners simply get no envelope for the topic.
+
+        Args:
+            topic (str): WS topic name.
+        """
+        with self._lock:
+            self._latest.pop(topic, None)
+            self._dirty.discard(topic)
+            self._cleared.add(topic)
+
+    def create_service_clients(self, map_reset_services: list[str], navigate_actions: list[str]) -> None:
+        """Create clients for slam_toolbox Reset services and NavigateToPose cancel services.
+
+        Args:
+            map_reset_services (list[str]): slam_toolbox/srv/Reset service names.
+            navigate_actions (list[str]): Action names; each gets a client for <action>/_action/cancel_goal.
+        """
+        for service in map_reset_services:
+            self._reset_map_clients[service] = self.create_client(Reset, service)
+        for action in navigate_actions:
+            self._cancel_goal_clients[action] = self.create_client(CancelGoal, action + CANCEL_GOAL_SERVICE_SUFFIX)
+
+    def reset_map_async(self, service: str) -> Any:
+        """Ask slam_toolbox to drop its current map and pose graph (saved posegraph files are untouched).
+
+        Args:
+            service (str): slam_toolbox/srv/Reset service name.
+
+        Returns:
+            Any: rclpy Future resolving to Reset.Response, or None if the service is unknown or unavailable.
+        """
+        client = self._reset_map_clients.get(service)
+        if client is None or not client.service_is_ready():
+            return None
+        request = Reset.Request()
+        request.pause_new_measurements = False
+        log.info("reset_map_requested", service=service)
+        return client.call_async(request)
+
+    def cancel_all_goals_async(self, action: str) -> Any:
+        """Cancel every goal of a NavigateToPose action server (zero goal id and zero stamp = all goals).
+
+        Args:
+            action (str): Action name, e.g. /navigate_to_pose.
+
+        Returns:
+            Any: rclpy Future resolving to CancelGoal.Response, or None if the service is unknown or unavailable.
+        """
+        client = self._cancel_goal_clients.get(action)
+        if client is None or not client.service_is_ready():
+            return None
+        request = CancelGoal.Request()
+        request.goal_info.goal_id.uuid = list(CANCEL_ALL_GOAL_UUID)
+        request.goal_info.stamp.sec = 0
+        request.goal_info.stamp.nanosec = 0
+        log.info("cancel_all_goals_requested", action=action)
+        return client.call_async(request)
+
     def serialize_map_async(self, filename: str) -> Any:
         """Request slam_toolbox to serialize its pose graph and map to filename.
 
@@ -333,14 +409,18 @@ class BridgeNode(Node):
         log.warning(msg)
 
     def flush_dirty(self) -> list[dict[str, Any]]:
-        """Return envelopes for all topics updated since last call; clear dirty set.
+        """Return envelopes for all topics updated or cleared since last call; clear the pending sets.
+
+        Cleared topics yield {"topic": topic, "data": None}.
 
         Returns:
             list[dict[str, Any]]: Envelopes ready to broadcast.
         """
         with self._lock:
             envelopes = [self._latest[t] for t in self._dirty if t in self._latest]
+            envelopes.extend({"topic": t, "data": None} for t in self._cleared)
             self._dirty.clear()
+            self._cleared.clear()
         return envelopes
 
     def latest_envelopes(self) -> list[dict[str, Any]]:

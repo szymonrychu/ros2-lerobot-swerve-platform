@@ -39,6 +39,8 @@ export interface TabConfig {
   map_frame?: string
   base_frame?: string
   map_save_path?: string
+  map_reset_service?: string // default /slam_toolbox/reset
+  navigate_action?: string // default /navigate_to_pose (Stop cancels <action>/_action/cancel_goal)
 }
 
 export interface OverlayItem {

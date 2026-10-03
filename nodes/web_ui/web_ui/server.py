@@ -17,7 +17,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from .config import AppConfig
+from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
+from .config import AppConfig, TabConfig
 from .urdf_scanner import scan_urdf_directory
 
 log = structlog.get_logger(__name__)
@@ -26,6 +27,20 @@ log = structlog.get_logger(__name__)
 SAVE_MAP_TIMEOUT_S = 15.0
 # slam_toolbox SerializePoseGraph.Response.RESULT_SUCCESS.
 SERIALIZE_MAP_RESULT_SUCCESS = 0
+# Seconds to wait for slam_toolbox's reset response before reporting a timeout.
+RESET_MAP_TIMEOUT_S = 10.0
+# slam_toolbox Reset.Response.RESULT_SUCCESS.
+RESET_MAP_RESULT_SUCCESS = 0
+# Seconds to wait for the NavigateToPose cancel_goal response before reporting a timeout.
+NAV_STOP_TIMEOUT_S = 5.0
+# action_msgs/srv/CancelGoal.Response return codes.
+CANCEL_GOAL_RETURN_CODES: dict[int, str] = {
+    0: "none",
+    1: "rejected",
+    2: "unknown goal id",
+    3: "goal terminated",
+}
+CANCEL_GOAL_ERROR_NONE = 0
 
 
 async def await_ros_future(future: Any, timeout_s: float) -> Any:
@@ -62,19 +77,42 @@ async def await_ros_future(future: Any, timeout_s: float) -> Any:
         raise
 
 
-def map_save_response(ok: bool, message: str, status_code: int) -> JSONResponse:
-    """Build the JSON body returned by POST /api/map/save.
+def action_response(action: str, ok: bool, message: str, status_code: int) -> JSONResponse:
+    """Build the JSON body returned by the map_nav action endpoints (save, reset, stop).
 
     Args:
-        ok (bool): Whether the map was saved.
+        action (str): Action name used in the log event (e.g. "map_save").
+        ok (bool): Whether the action succeeded.
         message (str): Human-readable result.
         status_code (int): HTTP status code.
 
     Returns:
         JSONResponse: {"ok": bool, "message": str}.
     """
-    log.info("map_save_result", ok=ok, message=message)
+    log.info(f"{action}_result", ok=ok, message=message)
     return JSONResponse({"ok": ok, "message": message}, status_code=status_code)
+
+
+async def call_ros_service(action: str, future: Any, service: str, timeout_s: float) -> tuple[Any, JSONResponse | None]:
+    """Await a ROS service call future, mapping unavailability, timeouts and errors to action responses.
+
+    Args:
+        action (str): Action name for responses and logs.
+        future (Any): rclpy Future from the bridge, or None when the service is unavailable.
+        service (str): Service name, for messages.
+        timeout_s (float): Maximum seconds to wait.
+
+    Returns:
+        tuple[Any, JSONResponse | None]: (service response, None) on completion, or (None, error response).
+    """
+    if future is None:
+        return None, action_response(action, False, f"service {service} unavailable (is it running?)", 503)
+    try:
+        return await await_ros_future(future, timeout_s), None
+    except TimeoutError:
+        return None, action_response(action, False, f"{service} timed out after {timeout_s:g} s", 504)
+    except Exception as exc:
+        return None, action_response(action, False, f"{service} failed: {exc}", 500)
 
 
 class ClientConnection:
@@ -216,28 +254,76 @@ def build_app(
         log.debug("urdf_file_served", path=path, size_bytes=requested.stat().st_size)
         return FileResponse(requested)
 
+    def find_map_nav_tab(tab: str) -> TabConfig | None:
+        return next((t for t in config.map_nav_tabs() if t.id == tab), None)
+
     @app.post("/api/map/save")
     async def save_map(tab: str) -> JSONResponse:
-        tab_cfg = next((t for t in config.map_nav_tabs() if t.id == tab), None)
+        tab_cfg = find_map_nav_tab(tab)
         if tab_cfg is None or not tab_cfg.map_save_path:
-            return map_save_response(False, f"no map_nav tab {tab!r}", 404)
+            return action_response("map_save", False, f"no map_nav tab {tab!r}", 404)
         if bridge_node is None:
-            return map_save_response(False, "ROS bridge unavailable", 503)
-        future = bridge_node.serialize_map_async(tab_cfg.map_save_path)
-        if future is None:
-            return map_save_response(False, "service /slam_toolbox/serialize_map unavailable (is SLAM running?)", 503)
-        try:
-            response = await await_ros_future(future, SAVE_MAP_TIMEOUT_S)
-        except TimeoutError:
-            return map_save_response(False, f"serialize_map timed out after {SAVE_MAP_TIMEOUT_S:g} s", 504)
-        except Exception as exc:
-            return map_save_response(False, f"serialize_map failed: {exc}", 500)
+            return action_response("map_save", False, "ROS bridge unavailable", 503)
+        response, error = await call_ros_service(
+            "map_save",
+            bridge_node.serialize_map_async(tab_cfg.map_save_path),
+            SERIALIZE_MAP_SERVICE,
+            SAVE_MAP_TIMEOUT_S,
+        )
+        if error is not None:
+            return error
         if response is None or response.result != SERIALIZE_MAP_RESULT_SUCCESS:
             code = getattr(response, "result", None)
-            return map_save_response(
-                False, f"slam_toolbox could not write {tab_cfg.map_save_path} (result {code})", 500
+            return action_response(
+                "map_save", False, f"slam_toolbox could not write {tab_cfg.map_save_path} (result {code})", 500
             )
-        return map_save_response(True, f"map saved to {tab_cfg.map_save_path}", 200)
+        return action_response("map_save", True, f"map saved to {tab_cfg.map_save_path}", 200)
+
+    @app.post("/api/map/reset")
+    async def reset_map(tab: str) -> JSONResponse:
+        tab_cfg = find_map_nav_tab(tab)
+        if tab_cfg is None or not tab_cfg.map_reset_service:
+            return action_response("map_reset", False, f"no map_nav tab {tab!r}", 404)
+        if bridge_node is None:
+            return action_response("map_reset", False, "ROS bridge unavailable", 503)
+        service = tab_cfg.map_reset_service
+        response, error = await call_ros_service(
+            "map_reset", bridge_node.reset_map_async(service), service, RESET_MAP_TIMEOUT_S
+        )
+        if error is not None:
+            return error
+        if response is None or response.result != RESET_MAP_RESULT_SUCCESS:
+            code = getattr(response, "result", None)
+            return action_response("map_reset", False, f"slam_toolbox could not reset the map (result {code})", 500)
+        if tab_cfg.map_topic:
+            bridge_node.clear_and_notify(tab_cfg.map_topic)
+        return action_response("map_reset", True, "map reset; SLAM is building a new map", 200)
+
+    @app.post("/api/nav/stop")
+    async def stop_nav(tab: str) -> JSONResponse:
+        tab_cfg = find_map_nav_tab(tab)
+        if tab_cfg is None or not tab_cfg.navigate_action:
+            return action_response("nav_stop", False, f"no map_nav tab {tab!r}", 404)
+        if bridge_node is None:
+            return action_response("nav_stop", False, "ROS bridge unavailable", 503)
+        action = tab_cfg.navigate_action
+        response, error = await call_ros_service(
+            "nav_stop",
+            bridge_node.cancel_all_goals_async(action),
+            action + CANCEL_GOAL_SERVICE_SUFFIX,
+            NAV_STOP_TIMEOUT_S,
+        )
+        if error is not None:
+            return error
+        code = getattr(response, "return_code", None)
+        if code != CANCEL_GOAL_ERROR_NONE:
+            reason = CANCEL_GOAL_RETURN_CODES.get(code, "unknown error") if isinstance(code, int) else "no response"
+            return action_response("nav_stop", False, f"cancel {reason} (return code {code})", 500)
+        if tab_cfg.goal_topic:
+            bridge_node.clear_and_notify(tab_cfg.goal_topic)
+        count = len(response.goals_canceling)
+        message = f"stopped: canceling {count} goal(s)" if count else "stopped: no active goal to cancel"
+        return action_response("nav_stop", True, message, 200)
 
     app.router.add_event_handler("startup", _make_start_broadcaster(app, clients, bridge_node, broadcast_interval, log))
 

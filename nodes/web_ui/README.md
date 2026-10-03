@@ -12,7 +12,7 @@ Runs as a native service on the client RPi. Accessible at `http://client.ros2.la
 | IMU | `sensor_graph` | Rolling time-series for acceleration + gyro |
 | Arm Servos | `effector_graph` | Rolling time-series for follower joint positions |
 | Local Map | `nav_local` | Canvas: costmap + lidar scan + robot pose + tap-to-navigate |
-| Map | `map_nav` | SLAM occupancy map + TF robot pose + global/local plans + goal setting + save map (see below) |
+| Map | `map_nav` | SLAM occupancy map + TF robot pose + global/local plans + goal setting + stop navigation + save/reset map (see below) |
 | GPS Map | `nav_gps` | Leaflet map with live GPS fix + tap-to-navigate |
 | 3D Scene | `scene3d` | @react-three/fiber: URDF model + lidar + costmap |
 | Robot Status | `robot_status` | URDF load status + joint state table + embedded 3D preview |
@@ -25,6 +25,8 @@ Single Python process: FastAPI (uvicorn) on port 8080 serves:
 - `GET /api/urdf/{path}` — URDF and mesh files
 - `GET /api/urdf/status` — URDF directory scan result
 - `POST /api/map/save?tab=<tab id>` - ask slam_toolbox to save the map of a `map_nav` tab (see below)
+- `POST /api/map/reset?tab=<tab id>` - ask slam_toolbox to drop the current map and start a new one (see below)
+- `POST /api/nav/stop?tab=<tab id>` - cancel all Nav2 NavigateToPose goals (see below)
 - `WS /ws` — WebSocket bridge: 20 Hz topic broadcast + publish commands
 
 A `rclpy` node (`web_ui_bridge`) subscribes to ROS2 topics and stores the latest value per topic. A single shared 20 Hz asyncio loop broadcasts dirty topics to all connected clients. A newly connected client first receives the latest cached value of every topic, so latched data such as the SLAM map shows up immediately. Sends to one client are serialized by a per-client lock: broadcast frames queue behind the snapshot and never write to the same WebSocket concurrently.
@@ -44,6 +46,10 @@ Shows the live SLAM map with the robot, the Nav2 plans and the current goal, and
 | `map_frame` | `map` | Fixed frame for drawing and for published goals |
 | `base_frame` | `base_link` | Robot frame; the bridge looks up `map_frame -> base_frame` in TF |
 | `map_save_path` | `/var/lib/ros2/maps/slam_map` | Filename (no extension) passed to `/slam_toolbox/serialize_map` |
+| `map_reset_service` | `/slam_toolbox/reset` | `slam_toolbox/srv/Reset` service called by **Reset map** |
+| `navigate_action` | `/navigate_to_pose` | Nav2 `NavigateToPose` action; **Stop** calls `<navigate_action>/_action/cancel_goal` |
+
+All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected).
 
 Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`.
 
@@ -51,6 +57,7 @@ WebSocket payloads produced by the backend:
 - map topic: `{png_b64, width, height, resolution, origin: {x, y, yaw}, frame_id, stamp}`. Grayscale PNG with free cells white (254), occupied black (0), unknown grey (205); free/occupied thresholds 25/65 %. Image row 0 is the top of the map (grid rows are flipped). The PNG is encoded once per received map message.
 - plan topics: `{frame_id, points: [[x, y], ...]}`, downsampled to at most 500 points (first and last kept).
 - goal topic: `{frame_id, x, y, yaw}`.
+- `{"topic": <topic>, "data": null}`: the backend dropped its cached value of that topic (sent once, after a successful map reset for the map topic or a successful stop for the goal topic); the tab removes the map image / goal marker. Clients that connect later simply receive no value for the topic until new data arrives.
 - `/web_ui/robot_pose` (synthetic topic, not on ROS): `{x, y, yaw, frame_id, stamp}` from TF, looked up at the broadcast rate but sent only when the pose changes or the TF stamp advances. If the transform is unavailable (e.g. SLAM not running) or its stamp is more than 2 s (`ROBOT_POSE_STALE_S`) older than the node clock, nothing is sent and the cached pose is dropped, so newly connected clients never get a stale pose.
 
 Plans and goals (the map_nav `global_plan_topic`, `local_plan_topic` and `goal_topic`) in another frame (e.g. a local plan in `odom`) are transformed into `map_frame` with TF; if that transform is unavailable the message is not shown. The transform is chosen by the topic's map_nav role, not by payload keys: all other topics (e.g. `/controller/odom` for nav_local) are passed through unchanged.
@@ -58,7 +65,9 @@ Plans and goals (the map_nav `global_plan_topic`, `local_plan_topic` and `goal_t
 Controls:
 - Drag to pan; mouse wheel or two-finger pinch zooms about the cursor / fingers. **Fit map** and **Center on robot** reset the view.
 - **Set goal**, then press on the map: the press point is the goal position. Dragging before release sets the heading along the drag; a plain click faces from the robot to the goal. The goal is published once as `geometry_msgs/PoseStamped` (frame `map_frame`, stamped by the backend) and the tab returns to pan mode.
+- **Stop** (red) calls `POST /api/nav/stop?tab=<tab id>`: Nav2 cancels the goal and stops the robot itself (the tab never publishes `cmd_vel`).
 - **Save map** calls `POST /api/map/save?tab=<tab id>`; the result message is shown next to the buttons.
+- **Reset map** needs two clicks: the first arms it (the button reads **Confirm reset** for 4 s), the second calls `POST /api/map/reset?tab=<tab id>`. No browser dialog is used.
 
 `POST /api/map/save?tab=<tab id>` calls `/slam_toolbox/serialize_map` (`slam_toolbox/srv/SerializePoseGraph`, `filename` = the tab's `map_save_path`) without blocking the server and returns `{"ok": bool, "message": str}`:
 
@@ -69,6 +78,26 @@ Controls:
 | 500 | slam_toolbox returned a failure result (e.g. directory not writable) |
 | 503 | ROS bridge or the serialize_map service is unavailable (SLAM not running) |
 | 504 | No response within 15 s |
+
+`POST /api/map/reset?tab=<tab id>` calls the tab's `map_reset_service` (`slam_toolbox/srv/Reset`, `pause_new_measurements=false`, so mapping continues from scratch) and returns `{"ok", "message"}`. On success the cached map is dropped and clients get a `data: null` event, so the old map disappears until slam_toolbox publishes a new one. The saved posegraph at `map_save_path` is not touched (the next start can still load it).
+
+| Status | Meaning |
+|---|---|
+| 200 | Map reset |
+| 404 | No `map_nav` tab with that id |
+| 500 | slam_toolbox returned a non-success result, or the call failed |
+| 503 | ROS bridge or the reset service is unavailable |
+| 504 | No response within 10 s |
+
+`POST /api/nav/stop?tab=<tab id>` calls `<navigate_action>/_action/cancel_goal` (`action_msgs/srv/CancelGoal` with a zero goal id and zero stamp, which cancels every goal) and returns `{"ok", "message"}`; the message says how many goals were canceling. On success the cached goal (`goal_topic`) is dropped and clients get a `data: null` event, so the goal marker disappears for everyone.
+
+| Status | Meaning |
+|---|---|
+| 200 | Cancel accepted (also when no goal was active) |
+| 404 | No `map_nav` tab with that id |
+| 500 | The action server rejected the cancel (non-zero `return_code`), or the call failed |
+| 503 | ROS bridge or the cancel service is unavailable (Nav2 not running) |
+| 504 | No response within 5 s |
 
 ## Configuration
 

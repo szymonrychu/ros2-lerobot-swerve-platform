@@ -18,6 +18,7 @@ import {
   yawToQuaternion,
   zoomAboutPoint,
 } from '../map/mapMath'
+import { ActionResult, confirmClick, isCleared, parseActionResult, RESET_CONFIRM_MS } from '../map/mapActions'
 import { TabConfig } from '../types'
 
 interface Props {
@@ -52,8 +53,6 @@ interface DraftGoal {
   current: Vec2 // world
   dragPx: number
 }
-
-type SaveState = { state: 'idle' | 'saving' | 'ok' | 'error'; message: string }
 
 const ROBOT_POSE_TOPIC = '/web_ui/robot_pose'
 const DEFAULT_SCALE = 50 // px per metre before a map arrives
@@ -91,6 +90,17 @@ const buttonStyle: CSSProperties = {
   fontSize: 13,
   cursor: 'pointer',
 }
+
+const stopButtonStyle: CSSProperties = {
+  ...buttonStyle,
+  background: '#b10e1e',
+  borderColor: '#ff4136',
+  color: '#fff',
+  fontWeight: 'bold',
+  padding: '4px 16px',
+}
+
+const armedButtonStyle: CSSProperties = { ...buttonStyle, background: '#7a1f00', borderColor: '#ff851b', color: '#fff' }
 
 function inFrame(data: { frame_id?: string } | undefined, mapFrame: string): boolean {
   return Boolean(data) && (!data!.frame_id || data!.frame_id === mapFrame)
@@ -190,14 +200,16 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
   const [mapLayer, setMapLayer] = useState<MapLayer | null>(null)
   const [goalMode, setGoalMode] = useState(false)
   const [draft, setDraft] = useState<DraftGoal | null>(null)
-  const [save, setSave] = useState<SaveState>({ state: 'idle', message: '' })
+  const [action, setAction] = useState<ActionResult>({ state: 'idle', message: '' })
+  const [resetArmedAt, setResetArmedAt] = useState<number | null>(null)
 
   const mapFrame = tab.map_frame ?? 'map'
   // Each entry keeps its identity until its own topic updates, so effects below skip unrelated traffic.
-  const mapMsg = topicData[tab.map_topic ?? ''] as MapMsg | undefined
+  // null = the backend cleared its cache (map reset / navigation stopped); undefined = nothing received yet.
+  const mapMsg = topicData[tab.map_topic ?? ''] as MapMsg | null | undefined
   const globalPath = topicData[tab.global_plan_topic ?? ''] as PathMsg | undefined
   const localPath = topicData[tab.local_plan_topic ?? ''] as PathMsg | undefined
-  const goalMsg = topicData[tab.goal_topic ?? ''] as FramedPose | undefined
+  const goalMsg = topicData[tab.goal_topic ?? ''] as FramedPose | null | undefined
   const poseMsg = topicData[ROBOT_POSE_TOPIC] as FramedPose | undefined
   const robotPose = inFrame(poseMsg, mapFrame) ? poseMsg! : null
 
@@ -243,6 +255,21 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
       cancelled = true
     }
   }, [pngB64, mapW, mapH, mapRes, originX, originY, originYaw])
+
+  // Map reset: drop the old image and fit the next map that arrives.
+  useEffect(() => {
+    if (!isCleared(mapMsg)) return
+    log.info('[map] map cleared by backend')
+    fittedRef.current = false
+    setMapLayer(null)
+  }, [mapMsg])
+
+  // An armed Reset map button disarms itself after the confirm window.
+  useEffect(() => {
+    if (resetArmedAt === null) return
+    const timer = setTimeout(() => setResetArmedAt(null), RESET_CONFIRM_MS)
+    return () => clearTimeout(timer)
+  }, [resetArmedAt])
 
   // Initial view: fit the map once it is known, otherwise centre the world origin.
   useEffect(() => {
@@ -381,18 +408,24 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
     setDraft(null)
   }
 
-  const saveMap = async () => {
-    setSave({ state: 'saving', message: 'Saving map...' })
+  const runAction = async (path: string, busyMessage: string) => {
+    setAction({ state: 'busy', message: busyMessage })
     try {
-      const resp = await fetch(`/api/map/save?tab=${encodeURIComponent(tab.id)}`, { method: 'POST' })
-      const body = (await resp.json()) as { ok?: boolean; message?: string }
-      setSave({ state: body.ok ? 'ok' : 'error', message: body.message ?? `HTTP ${resp.status}` })
+      const resp = await fetch(`${path}?tab=${encodeURIComponent(tab.id)}`, { method: 'POST' })
+      setAction(parseActionResult(resp.status, await resp.json()))
     } catch (err) {
-      setSave({ state: 'error', message: `Save failed: ${String(err)}` })
+      setAction({ state: 'error', message: `Request failed: ${String(err)}` })
     }
   }
 
-  const saveColor = save.state === 'ok' ? '#2ecc40' : save.state === 'error' ? '#ff4136' : '#aaa'
+  const onResetClick = () => {
+    const next = confirmClick(resetArmedAt, Date.now())
+    setResetArmedAt(next.armedAt)
+    if (next.fire) void runAction('/api/map/reset', 'Resetting map...')
+  }
+
+  const busy = action.state === 'busy'
+  const actionColor = action.state === 'ok' ? '#2ecc40' : action.state === 'error' ? '#ff4136' : '#aaa'
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
@@ -413,6 +446,14 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
       />
 
       <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: '70%' }}>
+        <button
+          type="button"
+          style={stopButtonStyle}
+          onClick={() => void runAction('/api/nav/stop', 'Stopping...')}
+          title="Cancel the current Nav2 goal; Nav2 stops the robot"
+        >
+          Stop
+        </button>
         <button
           type="button"
           style={{ ...buttonStyle, ...(goalMode ? { background: '#7a5c00', borderColor: COLORS.draft } : {}) }}
@@ -438,10 +479,26 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
         >
           Fit map
         </button>
-        <button type="button" style={buttonStyle} disabled={save.state === 'saving'} onClick={saveMap}>
+        <button
+          type="button"
+          style={buttonStyle}
+          disabled={busy}
+          onClick={() => void runAction('/api/map/save', 'Saving map...')}
+        >
           Save map
         </button>
-        {save.message && <span style={{ color: saveColor, fontSize: 12, alignSelf: 'center' }}>{save.message}</span>}
+        <button
+          type="button"
+          style={resetArmedAt !== null ? armedButtonStyle : buttonStyle}
+          disabled={busy}
+          onClick={onResetClick}
+          title="Discard the current SLAM map and start a new one (the saved map file is kept). Click twice to confirm."
+        >
+          {resetArmedAt !== null ? 'Confirm reset' : 'Reset map'}
+        </button>
+        {action.message && (
+          <span style={{ color: actionColor, fontSize: 12, alignSelf: 'center' }}>{action.message}</span>
+        )}
       </div>
 
       <div

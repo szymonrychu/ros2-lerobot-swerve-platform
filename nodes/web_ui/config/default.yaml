@@ -64,6 +64,10 @@ tabs:
     map_frame: map
     base_frame: base_link
     map_save_path: /var/lib/ros2/maps/slam_map
+    # Optional (defaults shown): slam_toolbox Reset service behind "Reset map", and the
+    # Nav2 NavigateToPose action whose goals "Stop" cancels (<action>/_action/cancel_goal).
+    # map_reset_service: /slam_toolbox/reset
+    # navigate_action: /navigate_to_pose
 
   - id: gps_nav
     type: nav_gps

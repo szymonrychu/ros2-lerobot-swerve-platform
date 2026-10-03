@@ -16,6 +16,7 @@ def _make_bridge_node(topics=None, publish_topics=None):
         node = BridgeNode.__new__(BridgeNode)
         node._latest = {}
         node._dirty = set()
+        node._cleared = set()
         node._lock = threading.Lock()
         node.publishers_ = {}
         node._allowed_publish_topics = set(publish_topics)
