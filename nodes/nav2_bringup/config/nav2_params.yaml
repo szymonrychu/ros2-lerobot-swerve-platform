@@ -47,7 +47,7 @@ controller_server:
       movement_time_allowance: 15.0
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.08
+      xy_goal_tolerance: 0.10   # margin for the rotation shim's in-tolerance check (see README)
       yaw_goal_tolerance: 0.15
       stateful: true
     FollowPath:
@@ -110,10 +110,10 @@ controller_server:
       GoalCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 5.0
+        cost_weight: 8.0
         threshold_to_consider: 1.0
       GoalAngleCritic:
-        enabled: true
+        enabled: false   # the rotation shim turns to the goal heading; this critic fought it near the goal
         cost_power: 1
         cost_weight: 3.0
         threshold_to_consider: 0.5

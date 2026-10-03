@@ -649,9 +649,11 @@ def test_node_apt_install_refreshes_stale_cache() -> None:
 
 
 def test_nav2_goal_tolerance_tight_enough_for_swerve() -> None:
-    """15 cm let a 0.4 m goal finish 13.6 cm short on the robot; a holonomic base can stop much closer."""
+    """15 cm let a 0.4 m goal finish 13.6 cm short. 10 cm (not tighter): the rotation shim turns to the goal heading
+    only while inside this tolerance and its check is not latched, so it needs margin for the small base_link shift
+    of an in-place turn (at 8 cm a turn drifted out, MPPI took over and overshot 58 deg on the robot)."""
     checker = ros_params(nav2(), "controller_server")["general_goal_checker"]
-    assert checker["xy_goal_tolerance"] == pytest.approx(0.08)
+    assert checker["xy_goal_tolerance"] == pytest.approx(0.10)
     assert checker["yaw_goal_tolerance"] == pytest.approx(0.15)
 
 
@@ -675,3 +677,6 @@ def test_nav2_rotates_toward_path_first_and_keeps_front_leading() -> None:
     assert follow["rotate_to_goal_heading"] is True
     angle = follow["PathAngleCritic"]
     assert angle["enabled"] is True and angle["mode"] == 0
+    # The shim alone turns to the goal heading; MPPI's GoalAngleCritic fought it near the goal.
+    assert follow["GoalAngleCritic"]["enabled"] is False
+    assert follow["GoalCritic"]["cost_weight"] >= 8.0

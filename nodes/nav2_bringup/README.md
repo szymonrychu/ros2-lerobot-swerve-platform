@@ -44,7 +44,7 @@ collision_monitor -> `/cmd_vel` (unstamped Twist) -> swerve_drive_controller.
 
 ## Rotate first, drive front-first
 
-`FollowPath` is the `RotationShimController` wrapping MPPI. When a new path points more than 45 deg away from the robot heading, it first rotates in place (0.5 rad/s) until within about 17 deg, then MPPI follows the path. At the end it rotates to the goal heading. MPPI's `PathAngleCritic` runs in mode 0 (forward preference, weight 4.0), so the robot keeps its front toward the direction of travel instead of strafing. Why: the lidar is partly covered at the back and on the right, so it sees best ahead.
+`FollowPath` is the `RotationShimController` wrapping MPPI. When a new path points more than 45 deg away from the robot heading, it first rotates in place (0.5 rad/s) until within about 17 deg, then MPPI follows the path. At the end, once inside the 0.10 m goal tolerance, the shim alone turns to the goal heading. MPPI's `GoalAngleCritic` is off because the two fought: with 8 cm tolerance an in-place turn drifted out of tolerance, MPPI took over and overshot by 58 deg. `GoalCritic` (weight 8) brings the robot close before the turn. MPPI's `PathAngleCritic` runs in mode 0 (forward preference, weight 4.0), so the robot keeps its front toward the direction of travel instead of strafing. Why: the lidar is partly covered at the back and on the right, so it sees best ahead.
 
 ## Collision monitor
 
