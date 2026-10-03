@@ -50,3 +50,19 @@ def test_set_startup_torque_state_reports_failed_servo() -> None:
     assert failed == [2]
     assert attempts_per_sid[1] == 1
     assert attempts_per_sid[2] == 3
+
+
+def test_hold_current_positions_writes_present_as_goal() -> None:
+    """Before torque-on, goal_position is set to present_position so position servos do not jump."""
+    from feetech_servos.startup_torque import hold_current_positions
+
+    present = {33: 2050, 34: 1990, 37: None}
+    writes: list[tuple[int, int]] = []
+
+    def fake_write(sid: int, value: int) -> bool:
+        writes.append((sid, value))
+        return True
+
+    failed = hold_current_positions([33, 34, 37], lambda sid: present[sid], fake_write)
+    assert writes == [(33, 2050), (34, 1990)]
+    assert failed == [37]

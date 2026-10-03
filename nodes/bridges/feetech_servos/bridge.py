@@ -33,7 +33,7 @@ from .register_dump import RegisterDumpScheduler
 from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers
 from .registers import read_register as read_register_raw
 from .registers import write_register
-from .startup_torque import set_startup_torque_state
+from .startup_torque import hold_current_positions, set_startup_torque_state
 from .sync_read import PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH, read_positions_and_speeds
 from .velocity_watchdog import apply_velocity_command, expired_velocity_joints
 
@@ -146,6 +146,16 @@ def run_bridge(config: BridgeConfig) -> None:
             if torque_entry is not None:
                 torque_value = 1 if config.enable_torque_on_start else 0
                 joint_ids = [joint.id for joint in all_joints]
+                if torque_value == 1 and goal_entry is not None and pos_entry is not None:
+                    # goal_position may hold a stale value (e.g. 0): hold present position before torque-on.
+                    unheld = hold_current_positions(
+                        [j.id for j in all_joints if j.mode == "position"],
+                        lambda sid: read_register_raw(servo, sid, pos_entry),
+                        lambda sid, value: write_register(servo, sid, goal_entry, value, last_written[sid]),
+                    )
+                    if unheld:
+                        node.get_logger().error(f"Could not hold position of servos {unheld}; torque left off.")
+                        joint_ids = [sid for sid in joint_ids if sid not in unheld]
                 failed_ids = set_startup_torque_state(
                     joint_ids=joint_ids,
                     torque_value=torque_value,

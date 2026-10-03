@@ -39,3 +39,26 @@ def set_startup_torque_state(
         if not ok:
             failed_ids.append(sid)
     return failed_ids
+
+
+def hold_current_positions(
+    joint_ids: list[int],
+    read_position: Callable[[int], int | None],
+    write_goal: Callable[[int, int], bool],
+) -> list[int]:
+    """Set goal_position to the present position for each servo, so enabling torque does not move it.
+
+    Args:
+        joint_ids: Position-mode servo IDs.
+        read_position: Callback (servo_id) -> present position steps, or None on read failure.
+        write_goal: Callback (servo_id, steps) -> write success.
+
+    Returns:
+        list[int]: Servo IDs whose goal could not be set (torque must not be enabled for them).
+    """
+    failed: list[int] = []
+    for sid in joint_ids:
+        present = read_position(sid)
+        if present is None or not write_goal(sid, present):
+            failed.append(sid)
+    return failed
