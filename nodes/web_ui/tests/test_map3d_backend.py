@@ -973,12 +973,35 @@ def test_arm_service_timeout_default_is_30s() -> None:
 
 
 @pytest.mark.parametrize("endpoint", ["home", "set_home"])
-def test_arm_endpoints_use_configured_timeout(arm_app: Any, endpoint: str) -> None:
+@pytest.mark.parametrize(("tab_kwargs", "expected"), [({}, 30.0), ({"arm_service_timeout_s": 45.5}, 45.5)])
+def test_arm_endpoints_pass_timeout_to_service_call(
+    arm_app: Any, monkeypatch: pytest.MonkeyPatch, endpoint: str, tab_kwargs: dict[str, Any], expected: float
+) -> None:
+    import web_ui.server as server
+
+    seen: list[float] = []
+
+    async def fake_call(action: str, future: Any, service: str, timeout_s: float) -> tuple[Any, None]:
+        seen.append(timeout_s)
+        return SimpleNamespace(success=True, message="ok"), None
+
+    monkeypatch.setattr(server, "call_ros_service", fake_call)
+    bridge = MagicMock()
+    assert arm_app(bridge, **tab_kwargs).post(f"/api/arm/{endpoint}?tab=map").status_code == 200
+    assert seen == [expected]
+
+
+@pytest.mark.parametrize("endpoint", ["home", "set_home"])
+def test_arm_endpoints_time_out_at_configured_value(arm_app: Any, endpoint: str) -> None:
+    import time
+
     bridge = MagicMock()
     bridge.trigger_async.return_value = FakeFuture(resolve=False)
-    resp = arm_app(bridge, arm_service_timeout_s=0.05).post(f"/api/arm/{endpoint}?tab=map")
+    start = time.monotonic()
+    resp = arm_app(bridge, arm_service_timeout_s=0.2).post(f"/api/arm/{endpoint}?tab=map")
+    assert time.monotonic() - start < 5.0
     assert resp.status_code == 504
-    assert "timed out" in resp.json()["message"]
+    assert "timed out after 0.2 s" in resp.json()["message"]
 
 
 def test_anchor_concurrent_reset_and_add_sample_do_not_raise() -> None:
