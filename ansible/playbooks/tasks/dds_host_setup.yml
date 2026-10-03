@@ -15,6 +15,14 @@
 # Nodes run as a regular user; with logind's default RemoveIPC=yes every SSH logout of that user deletes
 # its POSIX shared memory, i.e. the FastDDS SHM segments of all running nodes (data silently stops while
 # discovery still works). Keep IPC, and restart the nodes once when this is first applied.
+- name: Ensure logind drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/logind.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
 - name: Keep node user IPC when sessions end (logind RemoveIPC=no)
   ansible.builtin.copy:
     dest: /etc/systemd/logind.conf.d/ros2-keep-ipc.conf
