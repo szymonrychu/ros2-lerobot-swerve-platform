@@ -1,6 +1,7 @@
 """Unit tests for filter algorithm registry and Kalman implementation."""
 
 import pytest
+
 from filter_node.algorithms import get_algorithm
 from filter_node.algorithms.kalman import KalmanFilterAlgorithm
 
