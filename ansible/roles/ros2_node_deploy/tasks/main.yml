@@ -105,7 +105,8 @@
       ansible.builtin.apt:
         name: "{{ node_apt_packages | default([]) }}"
         state: present
-        update_cache: false
+        update_cache: true
+        cache_valid_time: 3600
       become: true
       when: (node_apt_packages | default([])) | length > 0
 

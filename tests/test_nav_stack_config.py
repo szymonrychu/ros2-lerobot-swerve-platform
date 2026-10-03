@@ -632,3 +632,16 @@ def test_laser_filter_ansible_wiring() -> None:
     assert (PLAYBOOKS_DIR / "nodes" / "client" / "laser_filter.yml").is_file()
     tasks = yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"]
     assert "laser_filter" in [t.get("vars", {}).get("_deploy_node_name") for t in tasks]
+
+
+def test_node_apt_install_refreshes_stale_cache() -> None:
+    """A stale apt index 404s on new packages (laser_filters deploy, 2026-10-03): refresh it, at most hourly."""
+    tasks = yaml.safe_load((ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "main.yml").read_text())
+    apt = [
+        t["ansible.builtin.apt"]
+        for block in tasks
+        for t in block.get("block", [block])
+        if isinstance(t, dict) and "ansible.builtin.apt" in t
+    ]
+    assert apt, "apt install task not found"
+    assert apt[0]["update_cache"] is True and apt[0]["cache_valid_time"] == 3600
