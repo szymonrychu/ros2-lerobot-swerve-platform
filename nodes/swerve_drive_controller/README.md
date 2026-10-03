@@ -1,6 +1,6 @@
 # Swerve drive controller
 
-ROS2 node that drives the 4-wheel independent-steering (swerve) platform from `geometry_msgs/Twist` on `/cmd_vel`. It runs inverse kinematics to produce steering positions and in-wheel velocities for the feetech bridge, and forward kinematics on the measured wheel states to publish `nav_msgs/Odometry` plus the `odom` -> `base_link` TF.
+ROS2 node that drives the 4-wheel independent-steering (swerve) platform from `geometry_msgs/Twist` on `/cmd_vel`. It runs inverse kinematics to produce steering positions and in-wheel velocities for the feetech bridge, and forward kinematics on the measured wheel states to publish `nav_msgs/Odometry` plus (optionally) the `odom` -> `base_link` TF.
 
 **Audience:** Mid-level Python dev with ROS2 (rclpy, Twist, Odometry, JointState).
 
@@ -21,7 +21,11 @@ ROS2 node that drives the 4-wheel independent-steering (swerve) platform from `g
 ## Topics
 
 - **Subscribes:** `/cmd_vel` (Twist: `linear.x` forward m/s, `linear.y` left m/s, `angular.z` CCW rad/s), `/swerve_drive/joint_states` (JointState from the bridge: steer positions in rad, drive velocities in rad/s).
-- **Publishes:** `/swerve_drive/joint_commands` (two JointState messages per cycle: steering joints with `position` only, drive joints with `velocity` only), `/odom` (Odometry), TF `odom` -> `base_link`.
+- **Publishes:** `/swerve_drive/joint_commands` (exactly one JointState per control cycle, see below), `/odom` (Odometry), TF `odom` -> `base_link` (unless `publish_tf: false`).
+
+**Combined command format:** `name` lists all 8 joints in config order. `position[i]` is the steering target (rad) for steer joints and `NaN` for drive joints. `velocity[i]` is the drive angular velocity (rad/s) for drive joints and `NaN` for steer joints.
+
+**Pacing:** an rclpy timer runs the control step at exactly `control_loop_hz` (default 50 Hz). Subscription callbacks only store the latest message and never trigger extra cycles. The per-cycle logic lives in `control.py` (no rclpy imports, unit-tested).
 
 Nothing is published until every steering and drive joint has been reported and the joint states are fresher than `joint_states_timeout_s`. If they go stale, publishing stops and the bridge's velocity watchdog stops the wheels.
 
@@ -45,7 +49,8 @@ YAML config (path via `SWERVE_DRIVE_CONTROLLER_CONFIG` or `/etc/ros2/swerve_driv
 - `cmd_vel_timeout_s` (default 0.5): the twist is zeroed when `/cmd_vel` goes quiet. `joint_states_timeout_s` (default 0.5).
 - `joint_names`: 8 names in order fl_drive, fl_steer, fr_drive, fr_steer, rl_drive, rl_steer, rr_drive, rr_steer.
 - `cmd_vel_topic`, `joint_states_topic`, `joint_commands_topic`, `odom_topic`, `odom_frame_id`, `base_frame_id`.
-- `control_loop_hz`, `steer_error_threshold_rad`, `max_steer_angular_velocity_rad_s` (ST3215 is about 4.71 rad/s, for tuning).
+- `publish_tf` (default true): set false to publish only `/odom` and leave the `odom` -> `base_link` TF to another node (e.g. a localization stack).
+- `control_loop_hz` (default 50), `steer_error_threshold_rad`, `max_steer_angular_velocity_rad_s` (ST3215 is about 4.71 rad/s, for tuning).
 
 ## Driving manually
 

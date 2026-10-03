@@ -74,3 +74,27 @@ def test_motion_limits_parsed(tmp_path: Path) -> None:
     assert cfg is not None
     assert (cfg.max_steer_angle_rad, cfg.max_wheel_angular_velocity_rad_s) == (1.4, 2.0)
     assert (cfg.cmd_vel_timeout_s, cfg.joint_states_timeout_s) == (0.3, 0.25)
+
+
+def _load(tmp_path: Path, text: str):
+    path = tmp_path / "config.yaml"
+    path.write_text(text)
+    return load_config(path)
+
+
+def test_publish_tf_defaults_true(tmp_path: Path) -> None:
+    cfg = _load(tmp_path, "{}\n")
+    assert cfg is not None
+    assert cfg.publish_tf is True
+
+
+def test_publish_tf_explicit_false(tmp_path: Path) -> None:
+    cfg = _load(tmp_path, "publish_tf: false\n")
+    assert cfg is not None
+    assert cfg.publish_tf is False
+
+
+def test_publish_tf_explicit_true(tmp_path: Path) -> None:
+    cfg = _load(tmp_path, "publish_tf: true\n")
+    assert cfg is not None
+    assert cfg.publish_tf is True

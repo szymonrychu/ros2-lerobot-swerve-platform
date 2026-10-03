@@ -49,6 +49,7 @@ class SwerveControllerConfig:
         max_wheel_angular_velocity_rad_s: Drive speed limit; all wheels are scaled together above it, rad/s.
         cmd_vel_timeout_s: Commanded twist is zeroed when no cmd_vel arrives for this long, s.
         joint_states_timeout_s: No commands/odometry are published when joint states are older than this, s.
+        publish_tf: Broadcast the odom -> base_link TF (False: only /odom is published).
         imu_offset_xyyaw: Optional [x, y, yaw] offset of IMU from base_link (default 0,0,0).
         rplidar_offset_xyyaw: Optional [x, y, yaw] offset of lidar from base_link (default 0,0,0).
     """
@@ -70,6 +71,7 @@ class SwerveControllerConfig:
     max_wheel_angular_velocity_rad_s: float
     cmd_vel_timeout_s: float
     joint_states_timeout_s: float
+    publish_tf: bool
     imu_offset_xyyaw: tuple[float, float, float]
     rplidar_offset_xyyaw: tuple[float, float, float]
 
@@ -141,6 +143,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
     )
     cmd_vel_timeout_s = max(0.05, flt("cmd_vel_timeout_s", DEFAULT_CMD_VEL_TIMEOUT_S))
     joint_states_timeout_s = max(0.05, flt("joint_states_timeout_s", DEFAULT_JOINT_STATES_TIMEOUT_S))
+    publish_tf = bool(data.get("publish_tf", True))
     imu_offset_xyyaw = _parse_offset(data.get("imu_offset_xyyaw"))
     rplidar_offset_xyyaw = _parse_offset(data.get("rplidar_offset_xyyaw"))
 
@@ -162,6 +165,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
         max_wheel_angular_velocity_rad_s=max_wheel_angular_velocity_rad_s,
         cmd_vel_timeout_s=cmd_vel_timeout_s,
         joint_states_timeout_s=joint_states_timeout_s,
+        publish_tf=publish_tf,
         imu_offset_xyyaw=imu_offset_xyyaw,
         rplidar_offset_xyyaw=rplidar_offset_xyyaw,
     )
