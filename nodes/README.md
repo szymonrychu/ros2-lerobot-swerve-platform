@@ -19,6 +19,7 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **swerve_drive_controller/** — Swerve controller: cmd_vel → steer positions + wheel velocities (IK, +-90 deg steering), odometry from FK (Client only).
 - **static_tf_publisher/** — Static TF base_link → sensor frames (Client only).
 - **robot_localization_ekf/** — EKF fuses swerve `/odom` + BNO055 `/imu/data` → `/odometry/filtered` and the odom → base_link TF (Client only).
+- **laser_filter/** — laser_filters box filter removing lidar returns on the robot body: `/scan` → `/scan_filtered` for SLAM, costmaps and collision monitor (Client only).
 - **slam_toolbox/** — slam_toolbox online async SLAM from `/scan` + odometry TF: publishes `/map` and map → odom; saved posegraph in `/var/lib/ros2/maps` is reloaded at start (Client only).
 - **nav2_bringup/** — Nav2 2D navigation stack with repo params: NavFn global planner on the SLAM map, MPPI Omni controller for the swerve base (Client only).
 - **haptic_controller/** — Force-feedback (resistance) and zero-G hold mode for leader gripper; gripper-only pilot (Client only).

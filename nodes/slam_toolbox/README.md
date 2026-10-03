@@ -8,7 +8,7 @@ robot in it, providing the `map` frame that Nav2's global costmap and the web UI
 
 | Direction | Name | Type | Notes |
 |---|---|---|---|
-| sub | `/scan` | `sensor_msgs/LaserScan` | frame `laser_frame` (static TF child of `base_link`). |
+| sub | `/scan_filtered` (footprint-filtered by `nodes/laser_filter`) | `sensor_msgs/LaserScan` | frame `laser_frame` (static TF child of `base_link`). |
 | TF in | `odom -> base_link` | | from robot_localization_ekf. |
 | TF out | `map -> odom` | | published every 50 ms (`transform_publish_period`). |
 | pub | `/map` | `nav_msgs/OccupancyGrid` | reliable + transient_local, depth 1; re-rastered every 5 s (`map_update_interval`). |

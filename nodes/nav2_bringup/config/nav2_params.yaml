@@ -154,7 +154,7 @@ local_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scan_filtered   # footprint-filtered (nodes/laser_filter)
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -192,7 +192,7 @@ global_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scan
+          topic: /scan_filtered   # footprint-filtered (nodes/laser_filter)
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -338,7 +338,7 @@ collision_monitor:
     observation_sources: ["scan"]
     scan:
       type: "scan"
-      topic: /scan
+      topic: "/scan_filtered"
       enabled: true
 
 # No docks are defined (no dock_database / docks): docking_server configures with an empty database and only

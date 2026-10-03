@@ -137,6 +137,11 @@
     - name: SLAM maps directory
       ansible.builtin.include_tasks: tasks/slam_maps_dir.yml
 
+    - name: Deploy laser_filter
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: laser_filter
+
     - name: Deploy slam_toolbox
       ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
       vars:

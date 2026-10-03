@@ -24,6 +24,10 @@ SLAM_DIR = REPO_ROOT / "nodes" / "slam_toolbox"
 SLAM_PARAMS = SLAM_DIR / "config" / "slam_params.yaml"
 SLAM_LAUNCH = SLAM_DIR / "launch" / "slam.launch.py"
 NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yaml"
+LASER_FILTER_PARAMS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
+# The lidar sees the robot body (returns 0.22-0.24 m from the sensor, inside the footprint); laser_filter removes the
+# footprint box from /scan and every consumer (SLAM, costmaps, collision monitor) reads the filtered topic.
+FILTERED_SCAN = "/scan_filtered"
 NAV2_README = REPO_ROOT / "nodes" / "nav2_bringup" / "README.md"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
 
@@ -263,7 +267,7 @@ def test_slam_params_frames_and_topics() -> None:
     assert p["base_frame"] == "base_link"
     assert p["odom_frame"] == "odom"
     assert p["map_frame"] == "map"
-    assert p["scan_topic"] == "/scan"
+    assert p["scan_topic"] == FILTERED_SCAN
     assert p["mode"] == "mapping"
     assert p["resolution"] == pytest.approx(0.05)
     assert "map_file_name" not in p, "posegraph loading is decided by the launch file"
@@ -462,7 +466,7 @@ def test_nav2_costmap_layers_and_footprint(costmap: str) -> None:
     obstacle = p["obstacle_layer"]
     assert obstacle["plugin"] == "nav2_costmap_2d::ObstacleLayer"
     sources = obstacle["observation_sources"].split()
-    assert any(obstacle[s]["topic"] == "/scan" and obstacle[s]["data_type"] == "LaserScan" for s in sources)
+    assert any(obstacle[s]["topic"] == FILTERED_SCAN and obstacle[s]["data_type"] == "LaserScan" for s in sources)
     assert p["inflation_layer"]["plugin"] == "nav2_costmap_2d::InflationLayer"
     if costmap == "global_costmap":
         assert p["plugins"][0] == "static_layer"
@@ -513,7 +517,9 @@ def test_nav2_collision_monitor_uses_scan() -> None:
             assert polygon["radius"] > 0
         assert isinstance(polygon["min_points"], int) and polygon["min_points"] > 0
     sources = cm["observation_sources"]
-    assert any(cm[s]["type"] == "scan" and cm[s]["topic"] == "/scan" and cm[s]["enabled"] is True for s in sources)
+    assert any(
+        cm[s]["type"] == "scan" and cm[s]["topic"] == FILTERED_SCAN and cm[s]["enabled"] is True for s in sources
+    )
 
 
 def test_nav2_collision_monitor_stays_in_cmd_vel_chain_with_stopbox_disabled() -> None:
@@ -596,3 +602,33 @@ def test_lidar_static_tf_mounted_backwards() -> None:
     laser = next(f for f in frames if f["child"] == LASER_FRAME)
     assert (laser["x"], laser["y"], laser["z"]) == (0.15, 0.04, 0.20)
     assert laser["yaw"] == pytest.approx(math.pi, abs=1e-4)
+
+
+def test_laser_filter_box_covers_footprint() -> None:
+    doc = yaml.safe_load(LASER_FILTER_PARAMS.read_text())
+    filters = doc["scan_to_scan_filter_chain"]["ros__parameters"]
+    box = next(f for f in filters.values() if f["type"] == "laser_filters/LaserScanBoxFilter")
+    params = box["params"]
+    assert params["box_frame"] == "base_link"
+    assert params["invert"] is False
+    xs = [x for x, _y in expected_footprint()]
+    ys = [y for _x, y in expected_footprint()]
+    assert params["min_x"] <= min(xs) and params["max_x"] >= max(xs)
+    assert params["min_y"] <= min(ys) and params["max_y"] >= max(ys)
+    assert params["max_x"] - max(xs) <= 0.05 and min(xs) - params["min_x"] <= 0.05, "margin stays small"
+    assert params["min_z"] < 0 < params["max_z"]
+
+
+def test_laser_filter_ansible_wiring() -> None:
+    group = client_vars()
+    defaults = group["ros2_node_type_defaults"]["laser_filter"]
+    assert "ros-jazzy-laser-filters" in defaults["apt_packages"]
+    cmd = defaults["node_launch_command"]
+    assert "laser_filters scan_to_scan_filter_chain" in cmd
+    assert "{{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml" in cmd
+    assert "scan:=/scan" in cmd and f"scan_filtered:={FILTERED_SCAN}" in cmd
+    entry = node_entry("laser_filter")
+    assert entry["present"] is True and entry["enabled"] is True
+    assert (PLAYBOOKS_DIR / "nodes" / "client" / "laser_filter.yml").is_file()
+    tasks = yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"]
+    assert "laser_filter" in [t.get("vars", {}).get("_deploy_node_name") for t in tasks]

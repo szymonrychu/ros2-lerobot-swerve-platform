@@ -1,0 +1,18 @@
+# laser_filters scan_to_scan_filter_chain: drop RPLidar returns that hit the robot itself.
+# The lidar sees the robot body 0.22-0.24 m from the sensor (inside the 470 x 386 mm outer footprint); left in /scan
+# those points become obstacles in the SLAM map and costmaps and the planner sees the robot boxed in by itself.
+# Box = outer footprint (+-0.235 x, +-0.193 y in base_link) plus 2 cm margin. Output: /scan_filtered.
+scan_to_scan_filter_chain:
+  ros__parameters:
+    filter1:
+      name: footprint_box
+      type: laser_filters/LaserScanBoxFilter
+      params:
+        box_frame: base_link
+        min_x: -0.255
+        max_x: 0.255
+        min_y: -0.213
+        max_y: 0.213
+        min_z: -1.0
+        max_z: 1.0
+        invert: false

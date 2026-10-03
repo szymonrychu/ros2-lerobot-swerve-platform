@@ -135,6 +135,14 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/swerve_drive_controller
     env:
       - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_drive_controller/config.yaml
+  laser_filter:
+    deploy_mode: native
+    node_launch_command: "ros2 run laser_filters scan_to_scan_filter_chain --ros-args --params-file {{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml -r scan:=/scan -r scan_filtered:=/scan_filtered"
+    node_src_dir: ""
+    cpu_quota: "20%"
+    memory_max: "128M"
+    apt_packages:
+      - ros-jazzy-laser-filters
   static_tf_publisher:
     deploy_mode: native
     node_launch_command: "python3 -m static_tf_publisher"
@@ -571,6 +579,11 @@ ros2_nodes:
           imu0_relative: false
           use_control: false
           print_diagnostics: false
+  # Removes lidar returns on the robot body: /scan -> /scan_filtered (consumed by SLAM, costmaps, collision monitor).
+  - name: laser_filter
+    node_type: laser_filter
+    present: true
+    enabled: true
   - name: slam_toolbox
     node_type: slam_toolbox
     present: true
