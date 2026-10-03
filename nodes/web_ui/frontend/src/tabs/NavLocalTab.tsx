@@ -1,6 +1,13 @@
 import { useEffect, useRef } from 'react'
+import Box from '@mui/material/Box'
 import log from '../logging'
+import { CANVAS_BG, SANS_FONT } from '../theme'
 import { TabConfig } from '../types'
+
+const FREE_COLOR = '#161b22'
+const OCCUPIED_COLOR = '#56606c'
+const SCAN_COLOR = '#66bb6a'
+const ROBOT_COLOR = '#4fc3f7'
 
 interface Props {
   tab: TabConfig
@@ -48,15 +55,15 @@ export default function NavLocalTab({ tab, topicData, publish }: Props) {
 
     const W = canvas.width
     const H = canvas.height
-    ctx.fillStyle = '#050505'
+    ctx.fillStyle = CANVAS_BG
     ctx.fillRect(0, 0, W, H)
 
     const hasCostmap = Boolean(costmapData?.info && costmapData.data)
     const hasScan = Boolean(scanData?.ranges?.length)
 
     if (!hasCostmap && !hasScan) {
-      ctx.fillStyle = '#444'
-      ctx.font = '14px monospace'
+      ctx.fillStyle = '#9da7b3'
+      ctx.font = `14px ${SANS_FONT}`
       ctx.textAlign = 'center'
       ctx.fillText('Waiting for data…', W / 2, H / 2)
       return
@@ -69,7 +76,7 @@ export default function NavLocalTab({ tab, topicData, publish }: Props) {
       const oy = (H - gh * cellPx) / 2
       for (let i = 0; i < costmapData.data.length; i++) {
         const val = costmapData.data[i]
-        ctx.fillStyle = val > 50 ? '#444' : '#111'
+        ctx.fillStyle = val > 50 ? OCCUPIED_COLOR : FREE_COLOR
         const gx = i % gw
         const gy = Math.floor(i / gw)
         ctx.fillRect(ox + gx * cellPx, oy + (gh - 1 - gy) * cellPx, cellPx, cellPx)
@@ -77,7 +84,7 @@ export default function NavLocalTab({ tab, topicData, publish }: Props) {
     }
 
     if (hasScan && scanData?.ranges) {
-      ctx.fillStyle = '#0f0'
+      ctx.fillStyle = SCAN_COLOR
       const cx = W / 2, cy = H / 2
       const scale = costmapData?.info ? 1 / costmapData.info.resolution * Math.min(W, H) / (costmapData.info.width ?? 100) : 10
       for (let i = 0; i < scanData.ranges.length; i++) {
@@ -93,7 +100,7 @@ export default function NavLocalTab({ tab, topicData, publish }: Props) {
       const yaw = orientation ? 2 * Math.atan2(orientation.z, orientation.w) : 0
       const cx = W / 2, cy = H / 2
       const arrowLen = 14
-      ctx.strokeStyle = '#fff'
+      ctx.strokeStyle = ROBOT_COLOR
       ctx.lineWidth = 2
       ctx.beginPath()
       ctx.moveTo(cx, cy)
@@ -119,12 +126,12 @@ export default function NavLocalTab({ tab, topicData, publish }: Props) {
   }
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <Box ref={containerRef} sx={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden', bgcolor: CANVAS_BG }}>
       <canvas
         ref={canvasRef}
         style={{ display: 'block', width: '100%', height: '100%', cursor: 'crosshair' }}
         onClick={handleClick}
       />
-    </div>
+    </Box>
   )
 }

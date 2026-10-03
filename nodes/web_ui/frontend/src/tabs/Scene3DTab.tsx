@@ -2,6 +2,8 @@ import { RobotScene } from '../components3d/RobotScene'
 import { RobotModel } from '../components3d/RobotModel'
 import { LaserScanLayer } from '../components3d/LaserScanLayer'
 import { CostmapLayer } from '../components3d/CostmapLayer'
+import Box from '@mui/material/Box'
+import { CANVAS_BG } from '../theme'
 import { TabConfig } from '../types'
 import { Suspense } from 'react'
 
@@ -24,7 +26,7 @@ export default function Scene3DTab({ tab, topicData }: Props) {
   const costmapData = tab.costmap_topic ? (topicData[tab.costmap_topic] as Parameters<typeof CostmapLayer>[0]['data']) : undefined
 
   return (
-    <div style={{ width: '100%', height: '100%' }}>
+    <Box sx={{ width: '100%', height: '100%', overflow: 'hidden', bgcolor: CANVAS_BG }}>
       <RobotScene urdfFile={tab.urdf_file ?? 'robot.urdf'} jointStates={jointStates}>
         {tab.arm_urdf_file && (
           <Suspense fallback={null}>
@@ -38,6 +40,6 @@ export default function Scene3DTab({ tab, topicData }: Props) {
         <LaserScanLayer data={scanData} />
         <CostmapLayer data={costmapData} />
       </RobotScene>
-    </div>
+    </Box>
   )
 }

@@ -5,7 +5,22 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import { RobotModel } from '../components3d/RobotModel'
 import { InteractiveArm } from '../components3d/InteractiveArm'
 import { TabConfig } from '../types'
+import Box from '@mui/material/Box'
+import Card from '@mui/material/Card'
+import CardContent from '@mui/material/CardContent'
+import Checkbox from '@mui/material/Checkbox'
+import Chip from '@mui/material/Chip'
+import FormControlLabel from '@mui/material/FormControlLabel'
+import Paper from '@mui/material/Paper'
+import Stack from '@mui/material/Stack'
+import Table from '@mui/material/Table'
+import TableBody from '@mui/material/TableBody'
+import TableCell from '@mui/material/TableCell'
+import TableHead from '@mui/material/TableHead'
+import TableRow from '@mui/material/TableRow'
+import Typography from '@mui/material/Typography'
 import log from '../logging'
+import { CANVAS_BG, MONO_FONT } from '../theme'
 
 interface MeshStatus {
   [path: string]: 'ok' | 'missing'
@@ -24,6 +39,12 @@ interface UrdfFileStatus {
 
 interface UrdfStatusResponse {
   files: UrdfFileStatus[]
+}
+
+const STATUS_COLOR: Record<UrdfFileStatus['status'], 'success' | 'error' | 'warning'> = {
+  ok: 'success',
+  parse_error: 'error',
+  missing: 'warning',
 }
 
 interface Props {
@@ -69,83 +90,115 @@ export default function RobotStatusTab({ tab, topicData, publish }: Props) {
     ? (topicData[tab.arm_joint_topic] as { name?: string[]; position?: number[] } | undefined)
     : undefined
 
-  const statusColor = (s: string) => ({ ok: '#4a4', parse_error: '#c44', missing: '#664' }[s] ?? '#888')
-
   return (
-    <div style={{ display: 'flex', height: '100%', gap: 0 }}>
-      <div style={{ width: 380, padding: 20, overflowY: 'auto', borderRight: '1px solid #222', flexShrink: 0 }}>
-        <div style={{ color: '#888', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>
+    <Stack direction={{ xs: 'column', md: 'row' }} sx={{ height: '100%', minHeight: 0 }}>
+      <Paper
+        square
+        elevation={0}
+        sx={{
+          width: { xs: '100%', md: 380 },
+          maxHeight: { xs: '45%', md: 'none' },
+          flexShrink: 0,
+          overflowY: 'auto',
+          p: { xs: 1.5, sm: 2.5 },
+          borderRight: { md: 1 },
+          borderBottom: { xs: 1, md: 0 },
+          borderColor: 'divider',
+        }}
+      >
+        <Typography variant="overline" color="text.secondary" component="h2" sx={{ display: 'block', mb: 1 }}>
           URDF Status
-        </div>
-        {loading && <div style={{ color: '#555' }}>Loading…</div>}
-        {urdfStatus.map((f) => (
-          <div key={f.name} style={{ marginBottom: 16, padding: 12, border: '1px solid #222', background: '#0a0a0a' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={!hiddenUrdfs.has(f.name)}
-                  onChange={() => toggleUrdfVisibility(f.name)}
-                  style={{ accentColor: '#4a4' }}
-                />
-                <span style={{ color: '#ccc', fontWeight: 'bold' }}>{f.name}</span>
-              </label>
-              <span style={{ color: statusColor(f.status), fontSize: 11 }}>{f.status.toUpperCase()}</span>
-            </div>
-            {f.status === 'ok' && (
-              <div style={{ color: '#666', fontSize: 12, lineHeight: 1.8 }}>
-                <div>Links: {f.link_count} · Joints: {f.joint_count}</div>
-                {f.has_meshes && (
-                  <div>
-                    Meshes:{' '}
-                    {Object.entries(f.mesh_status).map(([path, stat]) => (
-                      <span key={path} style={{ color: stat === 'ok' ? '#4a4' : '#c44', marginRight: 6, fontSize: 11 }}>
-                        {path.split('/').pop()} {stat === 'ok' ? '✓' : '✗'}
-                      </span>
-                    ))}
-                  </div>
+        </Typography>
+        {loading && <Typography color="text.secondary">Loading…</Typography>}
+        <Stack spacing={1.5}>
+          {urdfStatus.map((f) => (
+            <Card key={f.name} variant="outlined">
+              <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                  <FormControlLabel
+                    sx={{ minWidth: 0, mr: 0 }}
+                    control={
+                      <Checkbox
+                        color="success"
+                        checked={!hiddenUrdfs.has(f.name)}
+                        onChange={() => toggleUrdfVisibility(f.name)}
+                      />
+                    }
+                    label={
+                      <Typography sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{f.name}</Typography>
+                    }
+                  />
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    color={STATUS_COLOR[f.status] ?? 'default'}
+                    label={f.status.toUpperCase()}
+                  />
+                </Box>
+                {f.status === 'ok' && (
+                  <Box sx={{ color: 'text.secondary', fontSize: 13, lineHeight: 1.8 }}>
+                    <div>Links: {f.link_count} · Joints: {f.joint_count}</div>
+                    {f.has_meshes && (
+                      <div>
+                        Meshes:{' '}
+                        {Object.entries(f.mesh_status).map(([path, stat]) => (
+                          <Box
+                            component="span"
+                            key={path}
+                            sx={{ color: stat === 'ok' ? 'success.main' : 'error.main', mr: 0.75, fontSize: 12 }}
+                          >
+                            {path.split('/').pop()} {stat === 'ok' ? '✓' : '✗'}
+                          </Box>
+                        ))}
+                      </div>
+                    )}
+                  </Box>
                 )}
-              </div>
-            )}
-            {f.error && <div style={{ color: '#c44', fontSize: 11, marginTop: 4 }}>{f.error}</div>}
-          </div>
-        ))}
+                {f.error && (
+                  <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
+                    {f.error}
+                  </Typography>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </Stack>
 
         {jointStates?.name && (
-          <div style={{ marginTop: 16 }}>
-            <div style={{ color: '#888', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="overline" color="text.secondary" component="h2" sx={{ display: 'block' }}>
               Live Joint States
-            </div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-              <thead>
-                <tr>
-                  <th style={{ color: '#555', textAlign: 'left', padding: '4px 8px' }}>Joint</th>
-                  <th style={{ color: '#555', textAlign: 'right', padding: '4px 8px' }}>Position (rad)</th>
-                </tr>
-              </thead>
-              <tbody>
+            </Typography>
+            <Table size="small" aria-label="Live joint states">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Joint</TableCell>
+                  <TableCell align="right">Position (rad)</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {jointStates.name.map((name, i) => (
-                  <tr key={name} style={{ borderTop: '1px solid #1a1a1a' }}>
-                    <td style={{ color: '#888', padding: '4px 8px' }}>{name}</td>
-                    <td style={{ color: '#ccc', textAlign: 'right', padding: '4px 8px' }}>
+                  <TableRow key={name}>
+                    <TableCell sx={{ color: 'text.secondary', overflowWrap: 'anywhere' }}>{name}</TableCell>
+                    <TableCell align="right" sx={{ fontFamily: MONO_FONT }}>
                       {jointStates.position?.[i]?.toFixed(3) ?? '—'}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </Box>
         )}
 
         {tab.arm_command_topic && (
-          <div style={{ marginTop: 16, fontSize: 11, color: armReady ? '#4a4' : '#885500' }}>
+          <Typography variant="body2" color={armReady ? 'success.main' : 'warning.main'} sx={{ mt: 2 }}>
             {armReady ? 'Drag arm joints to command position' : 'Waiting for servo positions…'}
-          </div>
+          </Typography>
         )}
-      </div>
+      </Paper>
 
-      <div style={{ flex: 1 }}>
-        <Canvas camera={{ position: [1, 1, 1.5], fov: 50 }} style={{ background: '#050505' }}>
+      <Box sx={{ flex: 1, minHeight: 0, minWidth: 0, bgcolor: CANVAS_BG }}>
+        <Canvas camera={{ position: [1, 1, 1.5], fov: 50 }} style={{ background: CANVAS_BG }}>
           <ambientLight intensity={0.7} />
           <directionalLight position={[3, 5, 3]} intensity={1} />
           {!hiddenUrdfs.has(tab.urdf_file ?? 'robot.urdf') && (
@@ -178,7 +231,7 @@ export default function RobotStatusTab({ tab, topicData, publish }: Props) {
           )}
           <OrbitControls ref={orbitRef} />
         </Canvas>
-      </div>
-    </div>
+      </Box>
+    </Stack>
   )
 }

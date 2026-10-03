@@ -8,16 +8,28 @@ Runs as a native service on the client RPi. Accessible at `http://client.ros2.la
 
 | Tab | Type | Description |
 |---|---|---|
+| Map | `map_nav` | Primary tab, listed first and opened by default. SLAM occupancy map + TF robot pose + global/local plans + goal setting + stop navigation + save/reset map (see below) |
 | Gripper Cam | `camera` | Live JPEG from arm camera |
 | IMU | `sensor_graph` | Rolling time-series for acceleration + gyro |
 | Arm Servos | `effector_graph` | Rolling time-series for follower joint positions |
 | Local Map | `nav_local` | Canvas: costmap + lidar scan + robot pose + tap-to-navigate |
-| Map | `map_nav` | SLAM occupancy map + TF robot pose + global/local plans + goal setting + stop navigation + save/reset map (see below) |
 | GPS Map | `nav_gps` | Leaflet map with live GPS fix + tap-to-navigate |
 | 3D Scene | `scene3d` | @react-three/fiber: URDF model + lidar + costmap |
 | Robot Status | `robot_status` | URDF load status + joint state table + embedded 3D preview |
 
 - **Robot footprint:** the robot is drawn as the footprint Nav2 uses (`footprint_topic`, default `/local_costmap/published_footprint`, `geometry_msgs/PolygonStamped` re-expressed in `map_frame` by the backend) with the front edge highlighted in yellow. Until a footprint arrives (e.g. Nav2 not running) a small arrow at the TF pose is shown instead.
+
+## UI
+
+The frontend uses Material Design via [MUI](https://mui.com/) (`@mui/material`, `@mui/icons-material`, Emotion). One dark theme (`frontend/src/theme.ts`) sets the palette, the system font stack (no web-font download, works offline and under the CSP) and touch-sized controls (buttons and icon buttons at least 44 px). `main.tsx` applies it with `ThemeProvider` + `CssBaseline`.
+
+Responsive behaviour (phones from 360x640 to 1920x1080+ screens, portrait and landscape):
+- The shell is an `AppBar` with scrollable MUI `Tabs` (scroll buttons appear when the tabs do not fit, so any number of tabs works). Below the `sm` breakpoint (600 px) a menu button opens a drawer listing every tab, the title is hidden and tab icons are dropped to save width.
+- The active tab fills the remaining viewport height exactly (`100vh`, then `100dvh` where supported, so mobile browser chrome is excluded); the page itself never scrolls. Canvases, uPlot graphs, Leaflet and 3D views follow their container with `ResizeObserver` (or react-three-fiber's own resize handling).
+- The overlay bar (configured `overlays`) wraps onto more lines when needed; below `sm` the values collapse behind a toggle so the bar stays one line high.
+- Panels stack vertically on narrow screens: the Robot Status side panel moves above the 3D view (below `md`), the RGBD previews stack (below `sm`), and the map tab's toolbar wraps.
+
+Tab selection: the app opens on the first `map_nav` tab, and `map_nav` tabs are always listed first whatever the config order (`frontend/src/tabSelection.ts`). The last tab the viewer selected is remembered in `localStorage` (key `web_ui.activeTabId`) and restored on reload only while a tab with that id still exists; otherwise the map tab (or the first tab, if no map tab is configured) is shown. Storage errors (private mode, blocked site data) are ignored.
 
 ## Architecture
 
@@ -67,6 +79,7 @@ Plans and goals (the map_nav `global_plan_topic`, `local_plan_topic` and `goal_t
 Controls:
 - Drag to pan; mouse wheel or two-finger pinch zooms about the cursor / fingers. **Fit map** and **Center on robot** reset the view.
 - **Set goal**, then press on the map: the press point is the goal position. Dragging before release sets the heading along the drag; a plain click faces from the robot to the goal. The goal is published once as `geometry_msgs/PoseStamped` (frame `map_frame`, stamped by the backend) and the tab returns to pan mode.
+- The toolbar above the map wraps on narrow screens; **Center on robot**, **Fit map** and the legend toggle are icon buttons (the legend starts hidden on phones). Action results (save, reset, stop) appear as a snackbar at the bottom of the map.
 - **Stop** (red) calls `POST /api/nav/stop?tab=<tab id>`: Nav2 cancels the goal and stops the robot itself (the tab never publishes `cmd_vel`).
 - **Save map** calls `POST /api/map/save?tab=<tab id>`; the result message is shown next to the buttons.
 - **Reset map** needs two clicks: the first arms it (the button reads **Confirm reset** for 4 s), the second calls `POST /api/map/reset?tab=<tab id>`. No browser dialog is used.
@@ -141,7 +154,7 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 # Python tests
 cd nodes/web_ui && poetry install && poetry run pytest tests/ -v
 
-# Frontend type check + unit tests (vitest, node environment: src/map/mapMath.test.ts)
+# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/tabSelection.test.ts)
 cd nodes/web_ui/frontend && npx tsc --noEmit && npm test
 
 # Frontend dev server (hot reload, proxies /api and /ws to localhost:8080)

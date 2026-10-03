@@ -4,6 +4,7 @@ import 'leaflet/dist/leaflet.css'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
+import Box from '@mui/material/Box'
 import { TabConfig } from '../types'
 
 // Use locally bundled marker images instead of CDN URLs (which are blocked by CSP and unavailable offline)
@@ -52,7 +53,11 @@ export default function NavGpsTab({ tab, topicData, publish }: Props) {
       })
     }
 
-    return () => { map.remove(); mapRef.current = null }
+    // Leaflet caches its size: re-measure when the tab area changes (rotation, window resize, wrapping bars).
+    const ro = new ResizeObserver(() => map.invalidateSize())
+    ro.observe(containerRef.current)
+
+    return () => { ro.disconnect(); map.remove(); mapRef.current = null }
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -71,5 +76,5 @@ export default function NavGpsTab({ tab, topicData, publish }: Props) {
     }
   }, [topicData, tab.fix_topic])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+  return <Box ref={containerRef} sx={{ width: '100%', height: '100%', bgcolor: 'background.default' }} />
 }

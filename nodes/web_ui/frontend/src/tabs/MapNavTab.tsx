@@ -1,5 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
+import Alert from '@mui/material/Alert'
+import Box from '@mui/material/Box'
+import Button from '@mui/material/Button'
+import ButtonGroup from '@mui/material/ButtonGroup'
+import IconButton from '@mui/material/IconButton'
+import Paper from '@mui/material/Paper'
+import Snackbar from '@mui/material/Snackbar'
+import Stack from '@mui/material/Stack'
+import Tooltip from '@mui/material/Tooltip'
+import Typography from '@mui/material/Typography'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { useTheme } from '@mui/material/styles'
+import StopCircleIcon from '@mui/icons-material/StopCircle'
+import PlaceIcon from '@mui/icons-material/Place'
+import MyLocationIcon from '@mui/icons-material/MyLocation'
+import FitScreenIcon from '@mui/icons-material/FitScreen'
+import SaveIcon from '@mui/icons-material/Save'
+import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import LayersIcon from '@mui/icons-material/Layers'
 import log from '../logging'
 import {
   centerOn,
@@ -20,6 +39,7 @@ import {
   zoomAboutPoint,
 } from '../map/mapMath'
 import { ActionResult, confirmClick, isCleared, parseActionResult, RESET_CONFIRM_MS } from '../map/mapActions'
+import { CANVAS_BG, MONO_FONT, SANS_FONT } from '../theme'
 import { TabConfig } from '../types'
 
 interface Props {
@@ -58,9 +78,10 @@ interface DraftGoal {
 const ROBOT_POSE_TOPIC = '/web_ui/robot_pose'
 const DEFAULT_SCALE = 50 // px per metre before a map arrives
 const WHEEL_ZOOM_BASE = 1.0015 // zoom factor per wheel delta pixel
+const SNACKBAR_MS: Record<ActionResult['state'], number | null> = { idle: null, busy: null, ok: 4000, error: 10000 }
 
 const COLORS = {
-  background: '#1a1a1a',
+  background: CANVAS_BG,
   free: '#fefefe',
   occupied: '#000000',
   unknown: '#cdcdcd',
@@ -83,27 +104,6 @@ const LEGEND: [string, string][] = [
   ['Local path', COLORS.localPath],
   ['Goal', COLORS.goal],
 ]
-
-const buttonStyle: CSSProperties = {
-  background: '#2a2a2a',
-  color: '#ddd',
-  border: '1px solid #444',
-  borderRadius: 4,
-  padding: '4px 10px',
-  fontSize: 13,
-  cursor: 'pointer',
-}
-
-const stopButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  background: '#b10e1e',
-  borderColor: '#ff4136',
-  color: '#fff',
-  fontWeight: 'bold',
-  padding: '4px 16px',
-}
-
-const armedButtonStyle: CSSProperties = { ...buttonStyle, background: '#7a1f00', borderColor: '#ff851b', color: '#fff' }
 
 function inFrame(data: { frame_id?: string } | undefined, mapFrame: string): boolean {
   return Boolean(data) && (!data!.frame_id || data!.frame_id === mapFrame)
@@ -203,6 +203,10 @@ function drawScaleBar(ctx: CanvasRenderingContext2D, view: View, height: number)
   const bar = niceScaleBar(view.scale, 120)
   const x0 = 16
   const y0 = height - 18
+  const label = bar.meters >= 1 ? `${bar.meters} m` : `${Math.round(bar.meters * 100)} cm`
+  // Dark backing keeps the bar readable over white free space.
+  ctx.fillStyle = 'rgba(14, 17, 22, 0.75)'
+  ctx.fillRect(x0 - 8, y0 - 28, bar.px + 16, 36)
   ctx.strokeStyle = COLORS.text
   ctx.fillStyle = COLORS.text
   ctx.lineWidth = 2
@@ -212,10 +216,9 @@ function drawScaleBar(ctx: CanvasRenderingContext2D, view: View, height: number)
   ctx.lineTo(x0 + bar.px, y0)
   ctx.lineTo(x0 + bar.px, y0 - 5)
   ctx.stroke()
-  ctx.font = '12px monospace'
+  ctx.font = `600 13px ${SANS_FONT}`
   ctx.textAlign = 'left'
-  const label = bar.meters >= 1 ? `${bar.meters} m` : `${Math.round(bar.meters * 100)} cm`
-  ctx.fillText(label, x0 + 4, y0 - 8)
+  ctx.fillText(label, x0 + 4, y0 - 9)
 }
 
 export default function MapNavTab({ tab, topicData, publish }: Props) {
@@ -232,6 +235,10 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
   const [draft, setDraft] = useState<DraftGoal | null>(null)
   const [action, setAction] = useState<ActionResult>({ state: 'idle', message: '' })
   const [resetArmedAt, setResetArmedAt] = useState<number | null>(null)
+  const muiTheme = useTheme()
+  const narrow = useMediaQuery(muiTheme.breakpoints.down('sm'))
+  const [legendOpen, setLegendOpen] = useState<boolean | null>(null) // null = follow screen size
+  const showLegend = legendOpen ?? !narrow
 
   const mapFrame = tab.map_frame ?? 'map'
   // Each entry keeps its identity until its own topic updates, so effects below skip unrelated traffic.
@@ -351,8 +358,8 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
       ctx.drawImage(mapLayer.img, 0, 0)
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     } else {
-      ctx.fillStyle = '#777'
-      ctx.font = '14px monospace'
+      ctx.fillStyle = '#9da7b3'
+      ctx.font = `14px ${SANS_FONT}`
       ctx.textAlign = 'center'
       ctx.fillText(`Waiting for map on ${tab.map_topic ?? '?'}...`, size.w / 2, 24)
     }
@@ -462,105 +469,164 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
   }
 
   const busy = action.state === 'busy'
-  const actionColor = action.state === 'ok' ? '#2ecc40' : action.state === 'error' ? '#ff4136' : '#aaa'
+  const armed = resetArmedAt !== null
+  const snackbarOpen = action.state !== 'idle' && action.message !== ''
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
-      <canvas
-        ref={canvasRef}
-        style={{
-          display: 'block',
-          width: '100%',
-          height: '100%',
-          touchAction: 'none',
-          cursor: goalMode ? 'crosshair' : 'grab',
-        }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={(e) => endPointer(e, true)}
-        onPointerCancel={(e) => endPointer(e, false)}
-        onContextMenu={(e) => e.preventDefault()}
-      />
-
-      <div style={{ position: 'absolute', top: 8, left: 8, display: 'flex', gap: 6, flexWrap: 'wrap', maxWidth: '70%' }}>
-        <button
-          type="button"
-          style={stopButtonStyle}
-          onClick={() => void runAction('/api/nav/stop', 'Stopping...')}
-          title="Cancel the current Nav2 goal; Nav2 stops the robot"
-        >
-          Stop
-        </button>
-        <button
-          type="button"
-          style={{ ...buttonStyle, ...(goalMode ? { background: '#7a5c00', borderColor: COLORS.draft } : {}) }}
-          onClick={() => setGoalMode((m) => !m)}
-          disabled={!tab.goal_topic}
-          title="Press on the map to set the goal position; drag to set its heading"
-        >
-          {goalMode ? 'Click map to set goal' : 'Set goal'}
-        </button>
-        <button
-          type="button"
-          style={buttonStyle}
-          disabled={!robotPose || !view}
-          onClick={() => robotPose && view && setView(centerOn(view, robotPose, size.w, size.h))}
-        >
-          Center on robot
-        </button>
-        <button
-          type="button"
-          style={buttonStyle}
-          disabled={!mapLayer}
-          onClick={() => mapLayer && setView(fitView(mapLayer.meta, size.w, size.h))}
-        >
-          Fit map
-        </button>
-        <button
-          type="button"
-          style={buttonStyle}
-          disabled={busy}
-          onClick={() => void runAction('/api/map/save', 'Saving map...')}
-        >
-          Save map
-        </button>
-        <button
-          type="button"
-          style={resetArmedAt !== null ? armedButtonStyle : buttonStyle}
-          disabled={busy}
-          onClick={onResetClick}
-          title="Discard the current SLAM map and start a new one (the saved map file is kept). Click twice to confirm."
-        >
-          {resetArmedAt !== null ? 'Confirm reset' : 'Reset map'}
-        </button>
-        {action.message && (
-          <span style={{ color: actionColor, fontSize: 12, alignSelf: 'center' }}>{action.message}</span>
-        )}
-      </div>
-
-      <div
-        style={{
-          position: 'absolute',
-          top: 8,
-          right: 8,
-          background: 'rgba(20,20,20,0.85)',
-          border: '1px solid #333',
-          borderRadius: 4,
-          padding: '6px 8px',
-          fontSize: 12,
-          color: COLORS.text,
-        }}
+    <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Paper
+        square
+        elevation={0}
+        sx={{ flexShrink: 0, px: { xs: 1, sm: 1.5 }, py: 1, borderBottom: 1, borderColor: 'divider' }}
       >
-        {LEGEND.map(([label, color]) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: '18px' }}>
-            <span style={{ width: 12, height: 12, background: color, border: '1px solid #555', display: 'inline-block' }} />
-            {label}
-          </div>
-        ))}
-        <div style={{ marginTop: 4, color: '#888' }}>
-          {robotPose ? `Robot ${robotPose.x.toFixed(2)}, ${robotPose.y.toFixed(2)}` : `No ${mapFrame} pose`}
-        </div>
-      </div>
-    </div>
+        <Stack direction="row" useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', gap: 1 }}>
+          <Button
+            variant="contained"
+            color="error"
+            size="large"
+            startIcon={<StopCircleIcon />}
+            onClick={() => void runAction('/api/nav/stop', 'Stopping...')}
+            title="Cancel the current Nav2 goal; Nav2 stops the robot"
+            sx={{ px: 3, fontWeight: 800, letterSpacing: '0.05em' }}
+          >
+            STOP
+          </Button>
+          <Button
+            variant={goalMode ? 'contained' : 'outlined'}
+            color="secondary"
+            startIcon={<PlaceIcon />}
+            onClick={() => setGoalMode((m) => !m)}
+            disabled={!tab.goal_topic}
+            aria-pressed={goalMode}
+            title="Press on the map to set the goal position; drag to set its heading"
+          >
+            {goalMode ? 'Tap map to set goal' : 'Set goal'}
+          </Button>
+          <Stack
+            direction="row"
+            role="group"
+            aria-label="Map view"
+            sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}
+          >
+            <Tooltip title="Center on robot">
+              <span>
+                <IconButton
+                  aria-label="Center on robot"
+                  disabled={!robotPose || !view}
+                  onClick={() => robotPose && view && setView(centerOn(view, robotPose, size.w, size.h))}
+                >
+                  <MyLocationIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Fit map">
+              <span>
+                <IconButton
+                  aria-label="Fit map"
+                  disabled={!mapLayer}
+                  onClick={() => mapLayer && setView(fitView(mapLayer.meta, size.w, size.h))}
+                >
+                  <FitScreenIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title={showLegend ? 'Hide legend' : 'Show legend'}>
+              <IconButton
+                aria-label={showLegend ? 'Hide legend' : 'Show legend'}
+                aria-pressed={showLegend}
+                color={showLegend ? 'primary' : 'default'}
+                onClick={() => setLegendOpen(!showLegend)}
+              >
+                <LayersIcon />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+          <ButtonGroup variant="outlined" aria-label="Map file">
+            <Button
+              startIcon={<SaveIcon />}
+              disabled={busy}
+              onClick={() => void runAction('/api/map/save', 'Saving map...')}
+            >
+              Save map
+            </Button>
+            <Button
+              variant={armed ? 'contained' : 'outlined'}
+              color={armed ? 'warning' : 'primary'}
+              startIcon={<RestartAltIcon />}
+              disabled={busy}
+              onClick={onResetClick}
+              title="Discard the current SLAM map and start a new one (the saved map file is kept). Click twice to confirm."
+            >
+              {armed ? 'Confirm reset' : 'Reset map'}
+            </Button>
+          </ButtonGroup>
+        </Stack>
+      </Paper>
+
+      <Box ref={containerRef} sx={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+        <canvas
+          ref={canvasRef}
+          style={{
+            display: 'block',
+            width: '100%',
+            height: '100%',
+            touchAction: 'none',
+            cursor: goalMode ? 'crosshair' : 'grab',
+          }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={(e) => endPointer(e, true)}
+          onPointerCancel={(e) => endPointer(e, false)}
+          onContextMenu={(e) => e.preventDefault()}
+        />
+
+        {showLegend && (
+          <Paper
+            variant="outlined"
+            sx={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              maxWidth: 'calc(100% - 16px)',
+              maxHeight: 'calc(100% - 72px)',
+              overflowY: 'auto',
+              px: 1.5,
+              py: 1,
+              bgcolor: 'rgba(22, 27, 34, 0.9)',
+            }}
+          >
+            {LEGEND.map(([label, color]) => (
+              <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1, lineHeight: '22px' }}>
+                <Box
+                  component="span"
+                  sx={{ width: 14, height: 14, bgcolor: color, border: 1, borderColor: 'grey.600', flexShrink: 0 }}
+                />
+                <Typography variant="body2">{label}</Typography>
+              </Box>
+            ))}
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontFamily: MONO_FONT }}>
+              {robotPose ? `Robot ${robotPose.x.toFixed(2)}, ${robotPose.y.toFixed(2)}` : `No ${mapFrame} pose`}
+            </Typography>
+          </Paper>
+        )}
+
+        <Snackbar
+          open={snackbarOpen}
+          autoHideDuration={SNACKBAR_MS[action.state]}
+          onClose={(_e, reason) => reason !== 'clickaway' && setAction({ state: 'idle', message: '' })}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+          sx={{ position: 'absolute' }}
+        >
+          <Alert
+            variant="filled"
+            severity={action.state === 'ok' ? 'success' : action.state === 'error' ? 'error' : 'info'}
+            onClose={busy ? undefined : () => setAction({ state: 'idle', message: '' })}
+            sx={{ width: '100%' }}
+          >
+            {action.message}
+          </Alert>
+        </Snackbar>
+      </Box>
+    </Box>
   )
 }

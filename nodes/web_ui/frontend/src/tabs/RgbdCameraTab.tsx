@@ -1,7 +1,11 @@
 import { Suspense, useMemo } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
+import Box from '@mui/material/Box'
+import Stack from '@mui/material/Stack'
+import { CANVAS_BG } from '../theme'
 import { TabConfig } from '../types'
+import { WaitingMessage } from './WaitingMessage'
 import DepthMesh from '../components3d/DepthMesh'
 
 interface ColorData {
@@ -24,6 +28,16 @@ interface CameraInfoData {
   width: number
   height: number
 }
+
+const PREVIEW_SX = {
+  flex: 1,
+  minWidth: 0,
+  minHeight: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  overflow: 'hidden',
+} as const
 
 interface Props {
   tab: TabConfig
@@ -64,17 +78,14 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
     stableIntrinsics != null
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#000' }}>
-      {/* Top row: RGB preview + Depth preview side by side */}
-      <div style={{ display: 'flex', height: '25%', minHeight: 120, borderBottom: '1px solid #1a1a1a' }}>
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          borderRight: '1px solid #1a1a1a',
-          overflow: 'hidden',
-        }}>
+    <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', bgcolor: CANVAS_BG }}>
+      {/* Top: RGB + depth previews, side by side (stacked on phones) */}
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        divider={<Box sx={{ flexShrink: 0, bgcolor: 'divider', width: { xs: '100%', sm: '1px' }, height: { xs: '1px', sm: 'auto' } }} />}
+        sx={{ height: { xs: '40%', sm: '25%' }, minHeight: 120, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Box sx={PREVIEW_SX}>
           {colorData?.jpeg_b64 ? (
             <img
               src={`data:image/jpeg;base64,${colorData.jpeg_b64}`}
@@ -82,16 +93,10 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
               style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
             />
           ) : (
-            <span style={{ color: '#444', fontSize: 11 }}>Waiting for {tab.color_topic}…</span>
+            <WaitingMessage>Waiting for {tab.color_topic}…</WaitingMessage>
           )}
-        </div>
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'hidden',
-        }}>
+        </Box>
+        <Box sx={PREVIEW_SX}>
           {depthData?.depth_preview_b64 ? (
             <img
               src={`data:image/jpeg;base64,${depthData.depth_preview_b64}`}
@@ -99,17 +104,17 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
               style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
             />
           ) : (
-            <span style={{ color: '#444', fontSize: 11 }}>Waiting for {tab.depth_topic}…</span>
+            <WaitingMessage>Waiting for {tab.depth_topic}…</WaitingMessage>
           )}
-        </div>
-      </div>
+        </Box>
+      </Stack>
 
       {/* Bottom: 3D RGBD mesh */}
-      <div style={{ flex: 1 }}>
+      <Box sx={{ flex: 1, minHeight: 0 }}>
         {hasMesh ? (
           <Canvas
             camera={{ position: [0, 0, 0.5], fov: 60, near: 0.01, far: 20 }}
-            style={{ background: '#0a0a0a' }}
+            style={{ background: CANVAS_BG }}
           >
             <Suspense fallback={null}>
               <DepthMesh
@@ -123,11 +128,9 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
             <OrbitControls makeDefault />
           </Canvas>
         ) : (
-          <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ color: '#444', fontSize: 11 }}>Waiting for depth + color + camera info…</span>
-          </div>
+          <WaitingMessage>Waiting for depth + color + camera info…</WaitingMessage>
         )}
-      </div>
-    </div>
+      </Box>
+    </Box>
   )
 }

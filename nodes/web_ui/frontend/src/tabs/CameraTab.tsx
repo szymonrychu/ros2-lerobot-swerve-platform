@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
+import Box from '@mui/material/Box'
+import { CANVAS_BG } from '../theme'
 import { TabConfig } from '../types'
+import { WaitingMessage } from './WaitingMessage'
 
 interface Props {
   tab: TabConfig
@@ -24,20 +27,16 @@ export default function CameraTab({ tab, topicData }: Props) {
   }, [topicData, tab.topic])
 
   if (!src) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#444' }}>
-        Waiting for {tab.topic}…
-      </div>
-    )
+    return <WaitingMessage>Waiting for {tab.topic}…</WaitingMessage>
   }
 
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+    <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: CANVAS_BG }}>
       <img
         src={src}
         alt="camera feed"
         style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
       />
-    </div>
+    </Box>
   )
 }

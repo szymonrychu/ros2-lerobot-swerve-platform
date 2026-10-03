@@ -1,7 +1,36 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import type { ReactElement, ReactNode } from 'react'
+import AppBar from '@mui/material/AppBar'
+import Box from '@mui/material/Box'
+import CircularProgress from '@mui/material/CircularProgress'
+import Drawer from '@mui/material/Drawer'
+import IconButton from '@mui/material/IconButton'
+import List from '@mui/material/List'
+import ListItemButton from '@mui/material/ListItemButton'
+import ListItemIcon from '@mui/material/ListItemIcon'
+import ListItemText from '@mui/material/ListItemText'
+import ListSubheader from '@mui/material/ListSubheader'
+import Tab from '@mui/material/Tab'
+import Tabs from '@mui/material/Tabs'
+import Toolbar from '@mui/material/Toolbar'
+import Typography from '@mui/material/Typography'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { useTheme } from '@mui/material/styles'
+import MenuIcon from '@mui/icons-material/Menu'
+import MapIcon from '@mui/icons-material/Map'
+import VideocamIcon from '@mui/icons-material/Videocam'
+import ShowChartIcon from '@mui/icons-material/ShowChart'
+import ThreeDRotationIcon from '@mui/icons-material/ThreeDRotation'
+import RadarIcon from '@mui/icons-material/Radar'
+import PublicIcon from '@mui/icons-material/Public'
+import ViewInArIcon from '@mui/icons-material/ViewInAr'
+import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing'
+import CameraIcon from '@mui/icons-material/Camera'
+import TabIcon from '@mui/icons-material/Tab'
 import log from './logging'
 import { useRosBridge } from './hooks/useRosBridge'
 import { OverlayBar } from './overlays/OverlayBar'
+import { browserStorage, initialTabIndex, orderTabs, readStoredTabId, writeStoredTabId } from './tabSelection'
 import { AppConfig, TabConfig } from './types'
 import { feedAllGraphBuffers } from './utils/graphBuffers'
 
@@ -16,6 +45,33 @@ const RobotStatusTab = lazy(() => import('./tabs/RobotStatusTab'))
 const RgbdCameraTab = lazy(() => import('./tabs/RgbdCameraTab'))
 const MapNavTab = lazy(() => import('./tabs/MapNavTab'))
 
+const APP_TITLE = 'Robot'
+
+const TAB_ICONS: Record<string, ReactElement> = {
+  map_nav: <MapIcon />,
+  camera: <VideocamIcon />,
+  rgbd_camera: <CameraIcon />,
+  sensor_graph: <ShowChartIcon />,
+  effector_graph: <ShowChartIcon />,
+  imu_orientation: <ThreeDRotationIcon />,
+  nav_local: <RadarIcon />,
+  nav_gps: <PublicIcon />,
+  scene3d: <ViewInArIcon />,
+  robot_status: <PrecisionManufacturingIcon />,
+}
+
+function tabIcon(type: string): ReactElement {
+  return TAB_ICONS[type] ?? <TabIcon />
+}
+
+function Centered({ children }: { children: ReactNode }) {
+  return (
+    <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, p: 2 }}>
+      {children}
+    </Box>
+  )
+}
+
 function renderTab(tab: TabConfig, topicData: Record<string, unknown>, publish: (t: string, mt: string, d: unknown) => void) {
   const props = { tab, topicData, publish }
   switch (tab.type) {
@@ -29,19 +85,31 @@ function renderTab(tab: TabConfig, topicData: Record<string, unknown>, publish: 
     case 'robot_status': return <RobotStatusTab {...props} />
     case 'rgbd_camera': return <RgbdCameraTab {...props} />
     case 'map_nav': return <MapNavTab {...props} />
-    default: return <div style={{ padding: 20, color: '#555' }}>Unknown tab type: {tab.type}</div>
+    default:
+      return (
+        <Centered>
+          <Typography color="text.secondary">Unknown tab type: {tab.type}</Typography>
+        </Centered>
+      )
   }
 }
 
 export default function App() {
+  const theme = useTheme()
+  const narrow = useMediaQuery(theme.breakpoints.down('sm'))
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [activeTab, setActiveTab] = useState(0)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  // Map tabs first: the map is the primary view whatever order the config lists tabs in.
+  const tabs = useMemo(() => (config ? orderTabs(config.tabs) : []), [config])
 
   useEffect(() => {
     fetch('/api/config')
       .then((r) => r.json())
       .then((data: AppConfig) => {
         log.info('[app] Config loaded —', data.tabs.length, 'tabs,', data.overlays.length, 'overlay items')
+        setActiveTab(initialTabIndex(orderTabs(data.tabs), readStoredTabId(browserStorage())))
         setConfig(data)
       })
       .catch((e) => log.warn('[app] Failed to load config:', e))
@@ -71,33 +139,86 @@ export default function App() {
   }, [topicData])  // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!config) {
-    return <div style={{ padding: 40, color: '#555' }}>Loading config…</div>
+    return (
+      <Centered>
+        <CircularProgress size={24} />
+        <Typography color="text.secondary">Loading config…</Typography>
+      </Centered>
+    )
   }
 
-  const tab = config.tabs[activeTab]
+  const selectTab = (i: number) => {
+    const t = tabs[i]
+    if (!t) return
+    log.info('[app] Tab activated:', t.label)
+    setActiveTab(i)
+    writeStoredTabId(browserStorage(), t.id)
+    setDrawerOpen(false)
+  }
+
+  const tab = tabs[activeTab]
 
   return (
     <>
-      <nav className="tab-bar">
-        {config.tabs.map((t, i) => (
-          <button
-            key={t.id}
-            className={`tab-btn${i === activeTab ? ' active' : ''}`}
-            onClick={() => {
-              log.info('[app] Tab activated:', t.label)
-              setActiveTab(i)
-            }}
+      <AppBar position="static">
+        <Toolbar variant="dense" disableGutters sx={{ px: { xs: 0.5, sm: 1.5 }, gap: 1, minHeight: 48 }}>
+          {narrow && (
+            <IconButton aria-label="Open tab list" onClick={() => setDrawerOpen(true)} edge="start">
+              <MenuIcon />
+            </IconButton>
+          )}
+          {!narrow && (
+            <Typography variant="subtitle1" component="h1" sx={{ fontWeight: 700, mr: 1, whiteSpace: 'nowrap' }}>
+              {APP_TITLE}
+            </Typography>
+          )}
+          <Tabs
+            value={tabs.length > 0 ? Math.min(activeTab, tabs.length - 1) : false}
+            onChange={(_e, i: number) => selectTab(i)}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+            aria-label="Dashboard tabs"
+            sx={{ flex: 1, minWidth: 0 }}
           >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+            {tabs.map((t) => (
+              <Tab
+                key={t.id}
+                label={t.label}
+                icon={narrow ? undefined : tabIcon(t.type)}
+                iconPosition="start"
+                sx={{ px: { xs: 1.5, sm: 2 }, minWidth: { xs: 72, sm: 90 } }}
+              />
+            ))}
+          </Tabs>
+        </Toolbar>
+      </AppBar>
 
-      <main className="tab-content">
-        <Suspense fallback={<div style={{ padding: 20, color: '#555' }}>Loading…</div>}>
+      <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
+        <List
+          sx={{ width: 260, maxWidth: '85vw' }}
+          subheader={<ListSubheader sx={{ bgcolor: 'background.paper' }}>{APP_TITLE} tabs</ListSubheader>}
+        >
+          {tabs.map((t, i) => (
+            <ListItemButton key={t.id} selected={i === activeTab} onClick={() => selectTab(i)} sx={{ minHeight: 48 }}>
+              <ListItemIcon>{tabIcon(t.type)}</ListItemIcon>
+              <ListItemText primary={t.label} />
+            </ListItemButton>
+          ))}
+        </List>
+      </Drawer>
+
+      <Box component="main" sx={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+        <Suspense
+          fallback={
+            <Centered>
+              <CircularProgress size={24} />
+            </Centered>
+          }
+        >
           {tab && renderTab(tab, topicData, publish)}
         </Suspense>
-      </main>
+      </Box>
 
       <OverlayBar overlays={config.overlays} topicData={topicData} connected={connected} />
     </>

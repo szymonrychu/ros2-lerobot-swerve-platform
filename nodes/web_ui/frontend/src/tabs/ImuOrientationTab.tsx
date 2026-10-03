@@ -9,6 +9,10 @@ import { useEffect, useRef } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Line } from '@react-three/drei'
 import * as THREE from 'three'
+import Box from '@mui/material/Box'
+import Paper from '@mui/material/Paper'
+import Typography from '@mui/material/Typography'
+import { CANVAS_BG } from '../theme'
 import { TabConfig } from '../types'
 
 interface Quaternion {
@@ -90,27 +94,31 @@ export default function ImuOrientationTab({ tab, topicData }: Props) {
   }, [topicData, imuTopic])
 
   return (
-    <div style={{ width: '100%', height: '100%', background: '#050505', position: 'relative' }}>
-      <Canvas camera={{ position: [1.5, 1.5, 1.5], fov: 45 }} style={{ background: '#050505' }}>
+    <Box sx={{ width: '100%', height: '100%', bgcolor: CANVAS_BG, position: 'relative' }}>
+      <Canvas camera={{ position: [1.5, 1.5, 1.5], fov: 45 }} style={{ background: CANVAS_BG }}>
         <ambientLight intensity={0.8} />
         <directionalLight position={[3, 5, 3]} intensity={0.8} />
         <OrientationArrows quatRef={quatRef} />
         {/* Reference grid floor */}
-        <gridHelper args={[2, 10, '#1a1a1a', '#111']} position={[0, -0.01, 0]} />
+        <gridHelper args={[2, 10, '#2a313b', '#1a1f26']} position={[0, -0.01, 0]} />
         <OrbitControls enableDamping dampingFactor={0.1} />
       </Canvas>
       {/* Axis legend */}
-      <div style={{
-        position: 'absolute', bottom: 16, left: 16,
-        display: 'flex', flexDirection: 'column', gap: 4, pointerEvents: 'none',
-      }}>
+      <Paper
+        variant="outlined"
+        sx={{
+          position: 'absolute', bottom: 12, left: 12, px: 1.5, py: 1,
+          display: 'flex', flexDirection: 'column', gap: 0.5, pointerEvents: 'none',
+          bgcolor: 'rgba(22, 27, 34, 0.85)',
+        }}
+      >
         {[['#e06c75', 'X (forward)'], ['#98c379', 'Y (left)'], ['#61afef', 'Z (up)']].map(([color, label]) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 24, height: 3, background: color, borderRadius: 2 }} />
-            <span style={{ color: '#888', fontSize: 11, fontFamily: 'monospace' }}>{label}</span>
-          </div>
+          <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ width: 24, height: 3, bgcolor: color, borderRadius: 1 }} />
+            <Typography variant="body2" color="text.secondary">{label}</Typography>
+          </Box>
         ))}
-      </div>
-    </div>
+      </Paper>
+    </Box>
   )
 }

@@ -613,6 +613,17 @@ ros2_nodes:
         host: localhost
         port: 9090
       tabs:
+        - id: map
+          type: map_nav
+          label: "Map"
+          map_topic: /map
+          global_plan_topic: /plan
+          # MPPI optimal trajectory (nav_msgs/Path in the odom frame), see nodes/nav2_bringup/README.md.
+          local_plan_topic: /optimal_trajectory
+          goal_topic: /goal_pose
+          map_frame: map
+          base_frame: base_link
+          map_save_path: /var/lib/ros2/maps/slam_map
         - id: rgbd_camera
           type: rgbd_camera
           label: "RGBD Cam"
@@ -682,17 +693,6 @@ ros2_nodes:
           arm_urdf_file: so101_arm.urdf
           arm_joint_topic: /controller/follower/joint_states
           arm_command_topic: /filter/web_ui_joint_commands
-        - id: map
-          type: map_nav
-          label: "Map"
-          map_topic: /map
-          global_plan_topic: /plan
-          # MPPI optimal trajectory (nav_msgs/Path in the odom frame), see nodes/nav2_bringup/README.md.
-          local_plan_topic: /optimal_trajectory
-          goal_topic: /goal_pose
-          map_frame: map
-          base_frame: base_link
-          map_save_path: /var/lib/ros2/maps/slam_map
       overlays:
         - topic: /controller/gps/fix
           field: "latitude"

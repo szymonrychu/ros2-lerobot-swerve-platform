@@ -6,6 +6,22 @@ bridge:
   port: 9090
 
 tabs:
+  - id: slam_map
+    type: map_nav
+    label: "Map"
+    map_topic: /map
+    global_plan_topic: /plan
+    local_plan_topic: /optimal_trajectory
+    footprint_topic: /local_costmap/published_footprint
+    goal_topic: /goal_pose
+    map_frame: map
+    base_frame: base_link
+    map_save_path: /var/lib/ros2/maps/slam_map
+    # Optional (defaults shown): slam_toolbox Reset service behind "Reset map", and the
+    # Nav2 NavigateToPose action whose goals "Stop" cancels (<action>/_action/cancel_goal).
+    # map_reset_service: /slam_toolbox/reset
+    # navigate_action: /navigate_to_pose
+
   - id: rgbd_camera
     type: rgbd_camera
     label: "RGBD Cam"
@@ -53,22 +69,6 @@ tabs:
     costmap_topic: /controller/local_costmap
     odom_topic: /controller/odom
     goal_topic: /controller/goal_pose
-
-  - id: slam_map
-    type: map_nav
-    label: "Map"
-    map_topic: /map
-    global_plan_topic: /plan
-    local_plan_topic: /optimal_trajectory
-    footprint_topic: /local_costmap/published_footprint
-    goal_topic: /goal_pose
-    map_frame: map
-    base_frame: base_link
-    map_save_path: /var/lib/ros2/maps/slam_map
-    # Optional (defaults shown): slam_toolbox Reset service behind "Reset map", and the
-    # Nav2 NavigateToPose action whose goals "Stop" cancels (<action>/_action/cancel_goal).
-    # map_reset_service: /slam_toolbox/reset
-    # navigate_action: /navigate_to_pose
 
   - id: gps_nav
     type: nav_gps
