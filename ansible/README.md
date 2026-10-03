@@ -283,6 +283,10 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 - **Shared memory:** nodes run as a regular user, and logind's default `RemoveIPC=yes` deletes that user's POSIX shared memory (the FastDDS SHM segments) on every SSH logout. Data then silently stops for processes started afterwards. `dds_host_setup.yml` installs `/etc/systemd/logind.conf.d/ros2-keep-ipc.conf` (`RemoveIPC=no`) and restarts running `ros2-*` services once when it is first applied.
 - **History:** a FastDDS discovery server per host was tried (2026-10-03) and removed: launch_ros' one-shot lifecycle and component-loading service calls (slam_toolbox configure, Nav2 composable nodes) hung intermittently through it on the busy client. The `fastdds_discovery_server` node stays `present: false` so deploys uninstall it.
 
+## Deploy load management
+
+Every deploy playbook (`--all` and per-node) starts with `playbooks/tasks/stop_ros_nodes.yml`, which stops all running `ros2-*` services, so installs and builds run on an otherwise idle Pi. It ends with `playbooks/tasks/start_ros_nodes.yml`, which starts every present and enabled node that isn't running yet, one at a time with `ros2_node_start_interval_s` (default 5 s, `group_vars/all.yml`) between starts. During `--all` the role also starts each node as it is deployed. web_ui, the heaviest build, is deployed first.
+
 ## web_ui frontend build
 
 The web_ui frontend is built on the client during deploy (`npm ci`, `npm run build`). Both steps run in a transient systemd scope capped to one of the four cores (`systemd-run --scope -p CPUQuota=100% -p IOWeight=10`) under `nice -n 19 ionice -c 3`. That limits the heat the build generates and keeps the running ROS nodes first in line. On 2026-10-03 a full-priority build next to Nav2, SLAM and the bridges overheated the Pi 5 until it stopped responding.

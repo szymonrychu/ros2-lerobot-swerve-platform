@@ -1,0 +1,25 @@
+---
+# Last step of every deploy: start every present and enabled ROS2 node that is not running yet, one at a time with
+# ros2_node_start_interval_s between starts, so the stack ramps up gradually instead of all at once.
+- name: List enabled ROS2 nodes to start
+  ansible.builtin.set_fact:
+    ros2_nodes_to_start: >-
+      {{ ros2_nodes
+         | selectattr('present', 'undefined') | list
+         + ros2_nodes | selectattr('present', 'defined') | selectattr('present') | list }}
+
+- name: Start enabled ROS2 nodes one by one
+  ansible.builtin.shell: |
+    set -o pipefail
+    for n in {{ ros2_nodes_to_start | rejectattr('enabled', 'defined') | map(attribute='name') | list | join(' ') }} \
+             {{ ros2_nodes_to_start | selectattr('enabled', 'defined') | selectattr('enabled') | map(attribute='name') | list | join(' ') }}; do
+      if ! systemctl is-active -q "ros2-$n"; then
+        systemctl start "ros2-$n" && echo "started ros2-$n"
+        sleep {{ ros2_node_start_interval_s | default(5) }}
+      fi
+    done
+  args:
+    executable: /bin/bash
+  become: true
+  register: ros2_nodes_started
+  changed_when: "'started' in ros2_nodes_started.stdout"

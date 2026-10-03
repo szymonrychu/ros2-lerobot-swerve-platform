@@ -24,6 +24,9 @@ ros2_hosts_entries:
 ros2_dds_env:
   - "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
 
+# Seconds between node starts when a deploy brings the stack back up (playbooks/tasks/start_ros_nodes.yml).
+ros2_node_start_interval_s: 5
+
 # Repo to clone on each node for local container builds (deploy playbooks).
 ros2_repo_url: https://github.com/szymonrychu/ros2-lerobot-swerve-platform
 ros2_repo_revision: main  # branch, tag, or commit

@@ -3,6 +3,9 @@
   hosts: client
   become: true
   pre_tasks:
+    - name: Stop all ROS2 nodes before deploying
+      ansible.builtin.include_tasks: ../../tasks/stop_ros_nodes.yml
+
     - name: Stop swerve_drive_servos service before deploy (safety)
       ansible.builtin.service:
         name: ros2-swerve_drive_servos
@@ -16,3 +19,7 @@
       ansible.builtin.include_tasks: ../../tasks/resolve_and_deploy.yml
       vars:
         _deploy_node_name: swerve_drive_servos
+
+  post_tasks:
+    - name: Start enabled ROS2 nodes gradually
+      ansible.builtin.include_tasks: ../../tasks/start_ros_nodes.yml

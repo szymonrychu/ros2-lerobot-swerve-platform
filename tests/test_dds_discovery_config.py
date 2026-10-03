@@ -136,3 +136,36 @@ def test_ros_packages_synced_before_node_deploys(host: str) -> None:
     assert "ros-jazzy-" in text and "only_upgrade: true" in text and "cache_valid_time" in text
     restart = [t for t in tasks if "systemctl" in str(t.get("ansible.builtin.shell", ""))]
     assert restart and "when" in restart[0]
+
+
+def _deploy_playbooks() -> list[Path]:
+    """Every deploy playbook: the --all playbooks and each per-node playbook."""
+    pbs = [ANSIBLE_DIR / "playbooks" / f"deploy_nodes_{h}.yml" for h in ("client", "server")]
+    return pbs + sorted((ANSIBLE_DIR / "playbooks" / "nodes").glob("*/*.yml"))
+
+
+@pytest.mark.parametrize("playbook", _deploy_playbooks(), ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_deploy_stops_all_nodes_first_and_starts_them_gradually(playbook: Path) -> None:
+    """Builds on the client overheated it next to the running stack (2026-10-03): every deploy first stops all ROS
+    nodes and finally starts the enabled ones one by one."""
+    play = yaml.safe_load(playbook.read_text())[0]
+    pre = [t.get("ansible.builtin.include_tasks", "") for t in play["pre_tasks"]]
+    stop = [i for i, inc in enumerate(pre) if inc.endswith("tasks/stop_ros_nodes.yml")]
+    assert stop and stop[0] == 0, f"stop_ros_nodes must be the first pre_task: {pre}"
+    post = [t.get("ansible.builtin.include_tasks", "") for t in play.get("post_tasks", [])]
+    assert post and post[-1].endswith("tasks/start_ros_nodes.yml"), post
+
+
+def test_start_ros_nodes_is_gradual_and_respects_present_enabled() -> None:
+    tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "tasks" / "start_ros_nodes.yml").read_text())
+    text = yaml.safe_dump(tasks)
+    assert "present" in text and "enabled" in text
+    assert "sleep {{ ros2_node_start_interval_s" in text
+    assert load_vars("all")["ros2_node_start_interval_s"] == 5
+
+
+def test_web_ui_deployed_first_in_client_all() -> None:
+    """The web_ui frontend build is the heaviest step: run it while almost nothing else has been started."""
+    tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "deploy_nodes_client.yml").read_text())[0]["tasks"]
+    order = [t.get("vars", {}).get("_deploy_node_name") for t in tasks if t.get("vars", {}).get("_deploy_node_name")]
+    assert order[0] == "web_ui", order[:3]

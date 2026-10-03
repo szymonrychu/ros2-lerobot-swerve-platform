@@ -7,6 +7,9 @@
   hosts: server
   become: true
   pre_tasks:
+    - name: Stop all ROS2 nodes before deploying
+      ansible.builtin.include_tasks: tasks/stop_ros_nodes.yml
+
     - name: Ensure UART enabled for GPS RTK base station (enable_uart=1)
       when: ros2_nodes | selectattr('node_type', 'equalto', 'gps_rtk') | list | length > 0
       ansible.builtin.lineinfile:
@@ -59,3 +62,7 @@
     - name: Verify all ROS2 node services are active and stable
       ansible.builtin.include_role:
         name: ros2_node_verify
+
+  post_tasks:
+    - name: Start enabled ROS2 nodes gradually
+      ansible.builtin.include_tasks: tasks/start_ros_nodes.yml
