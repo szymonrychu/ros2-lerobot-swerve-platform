@@ -437,35 +437,39 @@ ros2_nodes:
           source_min_steps: 2045
           source_max_steps: 3289
           command_min_steps: 1900
+      # Swerve platform servos share this bus (IDs 32-39), served as /swerve_drive/* from the same process.
+      # Steering servos (33, 34, 37, 38): centred with `calibrate_servos.py center` (2048 = straight ahead,
+      # limits 1024..3072 = +-90 deg); position commands in rad, positive = CCW seen from above.
+      # In-wheel servos (32, 35, 39, 36): wheel mode, velocity commands in rad/s, positive = forward.
+      velocity_command_timeout_s: 0.3
+      extra_groups:
+        - namespace: swerve_drive
+          joint_names:
+            - name: fl_drive
+              id: 32
+              mode: velocity
+            - name: fl_steer
+              id: 33
+            - name: fr_drive
+              id: 35
+              mode: velocity
+            - name: fr_steer
+              id: 34
+            - name: rl_drive
+              id: 39
+              mode: velocity
+            - name: rl_steer
+              id: 38
+            - name: rr_drive
+              id: 36
+              mode: velocity
+            - name: rr_steer
+              id: 37
+  # Swerve servos moved onto the lerobot_follower bus (single serial port); this service is uninstalled.
   - name: swerve_drive_servos
     node_type: feetech_servos
-    present: true
-    enabled: true
-    env:
-      - FEETECH_SERVOS_CONFIG=/etc/ros2/swerve_drive_servos/config.yaml
-    config: |
-      device: /dev/ttyUSB1
-      namespace: swerve_drive
-      log_joint_updates: false
-      enable_torque_on_start: true
-      register_publish_interval_s: 10
-      joint_names:
-        - name: fl_drive
-          id: 1
-        - name: fl_steer
-          id: 2
-        - name: fr_drive
-          id: 3
-        - name: fr_steer
-          id: 4
-        - name: rl_drive
-          id: 5
-        - name: rl_steer
-          id: 6
-        - name: rr_drive
-          id: 7
-        - name: rr_steer
-          id: 8
+    present: false
+    enabled: false
   - name: swerve_controller
     node_type: swerve_controller
     present: true
@@ -473,9 +477,14 @@ ros2_nodes:
     env:
       - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_controller/config.yaml
     config: |
-      half_length_m: 0.2
-      half_width_m: 0.15
-      wheel_radius_m: 0.15
+      # Platform dimensions.md: steering yaw axes 305 x 266.6 mm, wheel radius 60 mm, steer +-90 deg.
+      half_length_m: 0.1525
+      half_width_m: 0.1333
+      wheel_radius_m: 0.06
+      max_steer_angle_rad: 1.5708
+      max_wheel_angular_velocity_rad_s: 4.71
+      cmd_vel_timeout_s: 0.5
+      joint_states_timeout_s: 0.5
       cmd_vel_topic: /cmd_vel
       joint_states_topic: /swerve_drive/joint_states
       joint_commands_topic: /swerve_drive/joint_commands
@@ -508,10 +517,11 @@ ros2_nodes:
           roll: 0.0
           pitch: 0.0
           yaw: 0.0
+        # RPLidar A1: measured from the ground-projected centre between the wheels (Platform dimensions.md).
         - child: laser_frame
-          x: 0.10
-          y: 0.0
-          z: 0.12
+          x: 0.15
+          y: 0.04
+          z: 0.20
           roll: 0.0
           pitch: 0.0
           yaw: 0.0
