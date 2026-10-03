@@ -134,6 +134,14 @@
       vars:
         _deploy_node_name: robot_localization_ekf
 
+    - name: SLAM maps directory
+      ansible.builtin.include_tasks: tasks/slam_maps_dir.yml
+
+    - name: Deploy slam_toolbox
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: slam_toolbox
+
     - name: Deploy nav2_bringup
       ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
       vars:

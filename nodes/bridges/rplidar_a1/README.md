@@ -10,8 +10,9 @@ Uses [rplidar_ros](https://github.com/Slamtec/rplidar_ros) (Slamtec, BSD-2-Claus
 
 - **Topic**: `sensor_msgs/LaserScan` on `/scan` (default).
 - **Device**: USB serial (e.g. `/dev/ttyUSB0`). The device path is configured in `group_vars/client.yml` via `extra_args`; with native install the process runs as the ansible_user who has system group membership.
-- **Launch args**: `serial_port`, `serial_baudrate` (115200 for A1), `frame_id` (default `laser`), `angle_compensate`, `scan_mode`, `inverted`.
-- **Env**: `RPLIDAR_SERIAL_PORT` overrides default serial port at launch.
+- **Launch args**: `serial_port`, `serial_baudrate` (115200 for A1), `frame_id` (default `laser_frame`), `angle_compensate`, `inverted`.
+- **Env**: `RPLIDAR_SERIAL_PORT` overrides the default serial port, `RPLIDAR_FRAME_ID` the default `frame_id`.
+- **Frame**: `/scan` is stamped `laser_frame`, the child of the static TF `base_link -> laser_frame` published by `static_tf_publisher` (`group_vars/client.yml`). The two must match, otherwise slam_toolbox, the Nav2 costmaps and the collision monitor cannot transform the scan and drop it. `tests/test_nav_stack_config.py` checks this.
 
 ## Build and run
 

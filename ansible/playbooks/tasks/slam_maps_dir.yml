@@ -1,0 +1,9 @@
+---
+# slam_toolbox saves and reloads its posegraph (slam_map.posegraph/.data) here; the node runs as ansible_user.
+- name: Ensure SLAM maps directory exists (owned by the node user)
+  ansible.builtin.file:
+    path: /var/lib/ros2/maps
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"

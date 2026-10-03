@@ -1,5 +1,7 @@
-# EKF: fuse /odom (swerve) + /imu/data (BNO055) and optionally /camera/imu (RealSense).
-# Output: /odometry/filtered, TF odom -> base_link
+# EKF: fuse /odom (swerve wheel odometry) + /imu/data (BNO055) into /odometry/filtered (robot_localization default output).
+# This node is the only odom -> base_link TF publisher (swerve_controller runs with publish_tf: false).
+# Keep identical in content to the robot_localization_ekf `config: |` block in ansible/group_vars/client.yml.
+# State order: x y z roll pitch yaw vx vy vz vroll vpitch vyaw ax ay az
 ekf_filter_node:
   ros__parameters:
     frequency: 50.0
@@ -11,18 +13,19 @@ ekf_filter_node:
     base_link_frame: base_link
     world_frame: odom
 
+    # Wheel odometry: body-frame velocities only (holonomic vx, vy and yaw rate); poses are integrated by the EKF.
     odom0: /odom
-    odom0_config: [true, true, false, false, false, false, true, true, false, false, false, true, false, false, false]
+    odom0_config: [false, false, false, false, false, false, true, true, false, false, false, true, false, false, false]
     odom0_queue_size: 10
     odom0_differential: false
     odom0_relative: false
 
+    # BNO055 in IMUPLUS mode: heading is relative (arbitrary zero), so only the gyro yaw rate is fused.
     imu0: /imu/data
-    imu0_config: [false, false, false, true, true, true, false, false, false, true, true, true, true, true, true]
-    imu0_differential: false
-    imu0_relative: true
+    imu0_config: [false, false, false, false, false, false, false, false, false, false, false, true, false, false, false]
     imu0_queue_size: 10
-    imu0_remove_gravitational_acceleration: true
+    imu0_differential: false
+    imu0_relative: false
 
     use_control: false
     print_diagnostics: false

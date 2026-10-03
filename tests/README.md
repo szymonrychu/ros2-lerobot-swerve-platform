@@ -150,3 +150,32 @@ The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `n
 ### test_dds_discovery_config.py
 
 Static checks of the FastDDS Discovery Server setup in Ansible: no legacy discovery variables (`ROS_AUTOMATIC_DISCOVERY_RANGE`, `ROS_STATIC_PEERS`, `ROS_LOCALHOST_ONLY`) in client/server env; `fastdds_discovery_server` is the first, present and enabled node with the ID and port templated; server IDs client 0 / server 1; shared `ros2_dds_env` and the `;`-padded `ros2_dds_local_discovery`; introspection node types are super clients; client `master2master` lists both servers in ID order; the unit template renders shared env before node env and orders units after the discovery server; Steam Deck defaults point at the client discovery server.
+
+### test_nav_stack_config.py
+
+Static checks of the mapping/navigation stack from the repo files (YAML via `yaml.safe_load`, launch files via `ast`; no ROS needed).
+
+| Test (group) | Description |
+|------|-------------|
+| `test_rplidar_default_frame_matches_static_tf_child` | RPLidar launch default `frame_id` (`DEFAULT_FRAME_ID`, env `RPLIDAR_FRAME_ID`) is `laser_frame`, a static TF child of `base_link`. |
+| `test_ekf_repo_config_matches_ansible_block` | `nodes/robot_localization_ekf/config/ekf.yaml` equals the Ansible `config: \|` block. |
+| `test_ekf_frames_inputs_and_tf` | Both EKF configs: 2D, `publish_tf`, odom/base_link frames, `/odom` fuses vx/vy/vyaw, `/imu/data` fuses yaw rate (absolute yaw only with `imu0_relative: true`). |
+| `test_ekf_launch_uses_repo_launch_and_deployed_config` | Ansible launches the repo EKF launch file, which reads `ROBOT_LOCALIZATION_EKF_CONFIG` (default the deployed config path). |
+| `test_swerve_controller_does_not_publish_odom_tf` | swerve_controller config sets `publish_tf: false` (EKF owns `odom -> base_link`). |
+| `test_slam_params_frames_and_topics` | slam_toolbox params: base_link/odom/map frames, `/scan`, mapping mode, 0.05 m resolution, no hard-coded `map_file_name`. |
+| `test_slam_launch_starts_async_lifecycle_node` | Launch starts `async_slam_toolbox_node` as a lifecycle node with configure + activate transitions. |
+| `test_slam_launch_resumes_only_when_posegraph_exists` | `map_resume_parameters` (compiled out of the launch file) returns `map_file_name` + `map_start_at_dock` only when `<base>.posegraph` exists. |
+| `test_slam_toolbox_ansible_wiring` | Node type defaults (native, apt package, repo launch, budget) and an enabled `ros2_nodes` entry after `fastdds_discovery_server`. |
+| `test_slam_playbooks_deploy_node_and_create_maps_dir` | `deploy_nodes_client.yml` and `nodes/client/slam_toolbox.yml` deploy slam_toolbox and create `/var/lib/ros2/maps` (owner `ansible_user`, 0755). |
+| `test_slam_deployed_after_discovery_server_in_client_playbook` | slam_toolbox is deployed after the discovery server. |
+| `test_nav2_launch_passes_repo_params_without_localization` | Nav2 launch passes the repo `params_file`, keeps `use_localization:=False`. |
+| `test_nav2_has_every_server_section` | `nav2_params.yaml` has a section for every server started by Jazzy `navigation_launch.py`. |
+| `test_nav2_frames` | bt_navigator, costmaps, collision_monitor, behavior_server, docking_server and route_server frames/topics. |
+| `test_nav2_costmap_layers_and_footprint` | Both costmaps: 470 x 386 mm footprint, obstacle layer on `/scan`, inflation; global static layer on `/map` (transient local). |
+| `test_nav2_mppi_omni_with_swerve_limits` | MPPI Omni, vx +-0.25, vy 0.25, wz 0.5, `visualize: true` (local plan on `/optimal_trajectory`). |
+| `test_nav2_planner_navfn_allows_unknown` | NavFn with `allow_unknown: true`. |
+| `test_nav2_velocity_smoother_matches_swerve` | Smoother limits `[0.25, 0.25, 0.5]`, odom `/odometry/filtered`. |
+| `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) and a `/scan` observation source. |
+| `test_nav2_docking_server_configures_without_docks` | Non-empty `dock_plugins`, no docks. |
+| `test_nav2_readme_documents_plan_topics` | Nav2 README names `/plan` and `/optimal_trajectory`. |
+| `test_web_ui_has_map_nav_tab` | web_ui config has the `map` tab of type `map_nav` with exactly the expected fields. |

@@ -318,8 +318,15 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | swerve_controller | 30% | 128M |
 | static_tf_publisher | 10% | 64M |
 | robot_localization_ekf | 25% | 128M |
+| slam_toolbox | 75% | 512M |
 | nav2_bringup | 75% | 512M |
 | web_ui | 30% | 256M |
+
+### SLAM maps directory
+
+`playbooks/tasks/slam_maps_dir.yml` creates `/var/lib/ros2/maps` (owner `ansible_user`, mode `0755`) before
+`slam_toolbox` is deployed, both in `deploy_nodes_client.yml` and in `nodes/client/slam_toolbox.yml`.
+slam_toolbox saves and reloads its posegraph there (`slam_map.posegraph` / `slam_map.data`).
 
 ## Connection tuning
 
