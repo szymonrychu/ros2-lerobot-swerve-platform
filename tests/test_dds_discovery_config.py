@@ -109,3 +109,15 @@ def test_host_setup_keeps_ipc_of_node_user() -> None:
     assert logind and "RemoveIPC=no" in logind[0]["ansible.builtin.copy"]["content"]
     restarts = [t for t in tasks if "ros2-" in str(t.get("ansible.builtin.shell", ""))]
     assert restarts and "when" in restarts[0]
+
+
+@pytest.mark.parametrize("host", ["client", "server"])
+def test_env_keys_are_lists_when_present(host: str) -> None:
+    """An `env:` key with no items parses as None and breaks env concatenation in resolve_and_deploy.yml."""
+    group = load_vars(host)
+    for name, defaults in group["ros2_node_type_defaults"].items():
+        if "env" in defaults:
+            assert isinstance(defaults["env"], list), f"{host}: node type {name} env is {defaults['env']!r}"
+    for node in group["ros2_nodes"]:
+        if "env" in node:
+            assert isinstance(node["env"], list), f"{host}: node {node['name']} env is {node['env']!r}"

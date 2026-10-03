@@ -27,7 +27,6 @@ ros2_node_type_defaults:
     node_src_dir: ""
     cpu_quota: "20%"
     memory_max: "128M"
-    env:
   master2master:
     deploy_mode: native
     node_launch_command: "python3 -m master2master"
