@@ -317,7 +317,16 @@ collision_monitor:
     source_timeout: 1.0
     base_shift_correction: true
     stop_pub_timeout: 2.0
-    # Stop when any scan point enters a box 5 cm beyond the footprint on every side.
+    # StopBox: stop when scan points enter a box 5 cm beyond the footprint on every side.
+    # DISABLED BY DEFAULT (self-hit risk): the box is only ~5 cm larger than the footprint, the source is raw /scan
+    # with no minimum range (slam_toolbox drops returns < 0.15 m, collision_monitor does not), and 4 points stop the
+    # robot. Lidar returns from the robot's own frame, wheels or cables can land inside the box, and collision_monitor
+    # would then publish zero cmd_vel permanently, so Nav2 goals never move the robot.
+    # The polygon stays declared (collision_monitor needs a non-empty polygon list to configure) and collision_monitor
+    # stays in the chain (cmd_vel_smoothed -> cmd_vel), passing velocities through unchanged while StopBox is off.
+    # Re-enable only after checking on the robot that /scan has no returns inside the box while it stands in open
+    # space (see nodes/nav2_bringup/README.md, "Collision monitor"); then set enabled: true here, or at runtime with
+    # `ros2 param set /collision_monitor StopBox.enabled true`.
     polygons: ["StopBox"]
     StopBox:
       type: "polygon"
@@ -325,7 +334,7 @@ collision_monitor:
       action_type: "stop"
       min_points: 4
       visualize: false
-      enabled: true
+      enabled: false
     observation_sources: ["scan"]
     scan:
       type: "scan"

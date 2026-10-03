@@ -2,7 +2,8 @@
 
 No ROS is available on the dev machine, so these tests read the repo files directly: YAML via
 yaml.safe_load, launch files via ast. They pin the frame chain map -> odom -> base_link -> laser_frame,
-the single odom->base_link publisher (EKF), and the Ansible wiring of the slam_toolbox node.
+the single odom->base_link publisher (EKF), the Ansible wiring and config overrides of the slam_toolbox node,
+and the disabled-by-default collision_monitor StopBox.
 """
 
 import ast
@@ -28,6 +29,8 @@ NAV2_README = REPO_ROOT / "nodes" / "nav2_bringup" / "README.md"
 LASER_FRAME = "laser_frame"
 MAPS_DIR = "/var/lib/ros2/maps"
 MAP_BASE = "/var/lib/ros2/maps/slam_map"
+SLAM_CONFIG_DIR = "/etc/ros2/slam_toolbox"
+SLAM_CONFIG_FILE = "/etc/ros2/slam_toolbox/config.yaml"
 LOCAL_PLAN_TOPIC = "/optimal_trajectory"
 # Outer frame 470 x 386 mm, centred on base_link.
 FOOTPRINT_HALF_X = 0.235
@@ -277,9 +280,48 @@ def test_slam_launch_starts_async_lifecycle_node() -> None:
 def test_slam_launch_resumes_only_when_posegraph_exists(tmp_path: Path) -> None:
     resume = load_function(SLAM_LAUNCH, "map_resume_parameters", {"Path": Path})
     base = tmp_path / "slam_map"
-    assert resume(base) == {}
+    # Missing posegraph: map_file_name is blanked explicitly, so a map_file_name from a params file cannot make
+    # slam_toolbox try to load a file that does not exist.
+    assert resume(base) == {"map_file_name": ""}
     base.with_suffix(".posegraph").write_bytes(b"x")
     assert resume(base) == {"map_file_name": str(base), "map_start_at_dock": True}
+
+
+def test_slam_launch_appends_override_params_only_when_present(tmp_path: Path) -> None:
+    params_files = load_function(SLAM_LAUNCH, "params_files", {"Path": Path})
+    defaults = tmp_path / "slam_params.yaml"
+    defaults.write_text("slam_toolbox:\n  ros__parameters:\n    resolution: 0.05\n")
+    override = tmp_path / "config.yaml"
+    assert params_files(defaults, override) == [str(defaults)]
+    override.write_text("")
+    assert params_files(defaults, override) == [str(defaults)], "an empty deployed config is skipped"
+    override.write_text("slam_toolbox:\n  ros__parameters:\n    max_laser_range: 8.0\n")
+    # ROS params files: later wins, so the deployed overrides come after the repo defaults.
+    assert params_files(defaults, override) == [str(defaults), str(override)]
+
+
+def test_slam_launch_override_defaults_and_env() -> None:
+    constants = module_constants(SLAM_LAUNCH)
+    assert constants["CONFIG_ENV"] == "SLAM_TOOLBOX_CONFIG"
+    assert constants["DEFAULT_CONFIG_PATH"] == SLAM_CONFIG_FILE
+    source = SLAM_LAUNCH.read_text()
+    assert "os.environ.get(CONFIG_ENV, DEFAULT_CONFIG_PATH)" in source
+
+
+def test_slam_launch_map_base_from_configuration(tmp_path: Path) -> None:
+    namespace = {"Path": Path, "yaml": yaml, **module_constants(SLAM_LAUNCH)}
+    map_base = load_function(SLAM_LAUNCH, "configured_map_base", namespace)
+    defaults = tmp_path / "slam_params.yaml"
+    defaults.write_text("slam_toolbox:\n  ros__parameters:\n    resolution: 0.05\n")
+    assert map_base([str(defaults)], None) == Path(MAP_BASE)
+    override = tmp_path / "config.yaml"
+    override.write_text("slam_toolbox:\n  ros__parameters:\n    map_file_name: /data/maps/garage\n")
+    assert map_base([str(defaults), str(override)], None) == Path("/data/maps/garage")
+    later = tmp_path / "later.yaml"
+    later.write_text("/**:\n  ros__parameters:\n    map_file_name: /data/maps/yard\n")
+    assert map_base([str(defaults), str(override), str(later)], None) == Path("/data/maps/yard"), "later file wins"
+    # An explicit env override (SLAM_TOOLBOX_MAP_BASE) beats the params files.
+    assert map_base([str(defaults), str(override)], "/tmp/env_map") == Path("/tmp/env_map")
 
 
 def test_slam_toolbox_ansible_wiring() -> None:
@@ -291,12 +333,28 @@ def test_slam_toolbox_ansible_wiring() -> None:
         "ros2 launch {{ ros2_repo_dest }}/nodes/slam_toolbox/launch/slam.launch.py"
     )
     assert defaults["cpu_quota"] and defaults["memory_max"]
+    assert defaults["config_path"] == SLAM_CONFIG_DIR
+    assert f"SLAM_TOOLBOX_CONFIG={SLAM_CONFIG_FILE}" in defaults["env"]
     names = [n["name"] for n in group["ros2_nodes"]]
     assert names[0] == "fastdds_discovery_server"
     assert names.index("slam_toolbox") > names.index("fastdds_discovery_server")
     entry = node_entry("slam_toolbox")
     assert entry["node_type"] == "slam_toolbox"
     assert entry["present"] is True and entry["enabled"] is True
+
+
+def test_slam_toolbox_ansible_config_overrides() -> None:
+    doc = node_config("slam_toolbox")
+    p = doc["slam_toolbox"]["ros__parameters"]
+    assert p["map_file_name"] == MAP_BASE
+    assert p["min_laser_range"] == pytest.approx(0.15)
+    assert p["max_laser_range"] == pytest.approx(12.0)
+    defaults = yaml.safe_load(SLAM_PARAMS.read_text())["slam_toolbox"]["ros__parameters"]
+    overridable = set(defaults) | {"map_file_name"}
+    assert set(p) <= overridable, f"unknown slam_toolbox params in the Ansible block: {set(p) - overridable}"
+    # The web UI saves the posegraph where slam_toolbox resumes it from.
+    web_map = next(t for t in node_config("web_ui")["tabs"] if t["id"] == "map")
+    assert web_map["map_save_path"] == p["map_file_name"]
 
 
 def maps_dir_tasks(tasks: list[dict]) -> list[dict]:
@@ -460,8 +518,35 @@ def test_nav2_collision_monitor_uses_scan() -> None:
         polygon = cm[name]
         assert polygon["type"] in ("polygon", "circle")
         assert polygon["action_type"] in ("stop", "slowdown", "approach", "limit")
+        if polygon["type"] == "polygon":
+            assert len(yaml.safe_load(polygon["points"])) >= 3
+        else:
+            assert polygon["radius"] > 0
+        assert isinstance(polygon["min_points"], int) and polygon["min_points"] > 0
     sources = cm["observation_sources"]
-    assert any(cm[s]["type"] == "scan" and cm[s]["topic"] == "/scan" for s in sources)
+    assert any(cm[s]["type"] == "scan" and cm[s]["topic"] == "/scan" and cm[s]["enabled"] is True for s in sources)
+
+
+def test_nav2_collision_monitor_stays_in_cmd_vel_chain_with_stopbox_disabled() -> None:
+    """StopBox is ~5 cm outside the footprint on raw /scan: self-hits would zero cmd_vel forever, so it ships off."""
+    cm = ros_params(nav2(), "collision_monitor")
+    assert (cm["cmd_vel_in_topic"], cm["cmd_vel_out_topic"]) == ("cmd_vel_smoothed", "cmd_vel")
+    assert cm["base_frame_id"] == "base_link" and cm["odom_frame_id"] == "odom"
+    for key in ("state_topic", "transform_tolerance", "source_timeout", "stop_pub_timeout"):
+        assert key in cm, key
+    assert "StopBox" in cm["polygons"], "the polygon stays declared so collision_monitor configures"
+    stop = cm["StopBox"]
+    assert stop["enabled"] is False
+    assert stop["action_type"] == "stop"
+    assert stop["type"] == "polygon"
+    assert "self-hit" in NAV2_PARAMS.read_text().lower()
+
+
+def test_nav2_readme_documents_collision_monitor_validation() -> None:
+    text = NAV2_README.read_text()
+    assert "StopBox" in text
+    assert "enabled: false" in text
+    assert "/scan" in text and "collision_monitor_state" in text
 
 
 def test_nav2_docking_server_configures_without_docks() -> None:
