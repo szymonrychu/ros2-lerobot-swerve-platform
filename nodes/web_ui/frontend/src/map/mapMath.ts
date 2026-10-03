@@ -175,3 +175,26 @@ export function niceScaleBar(scale: number, targetPx = 100): { meters: number; p
   }
   return { meters, px: meters * scale }
 }
+
+/**
+ * Index i of the polygon edge (points[i] -> points[i+1], wrapping) that faces the robot heading: the edge whose
+ * midpoint lies furthest ahead of the robot along its yaw. Used to highlight the front of the footprint.
+ * Returns -1 for fewer than two points.
+ */
+export function frontEdgeIndex(points: [number, number][], pose: Pose2D): number {
+  if (points.length < 2) return -1
+  const hx = Math.cos(pose.yaw)
+  const hy = Math.sin(pose.yaw)
+  let best = -1
+  let bestAhead = -Infinity
+  for (let i = 0; i < points.length; i++) {
+    const [ax, ay] = points[i]
+    const [bx, by] = points[(i + 1) % points.length]
+    const ahead = ((ax + bx) / 2 - pose.x) * hx + ((ay + by) / 2 - pose.y) * hy
+    if (ahead > bestAhead) {
+      bestAhead = ahead
+      best = i
+    }
+  }
+  return best
+}

@@ -36,6 +36,7 @@ export interface TabConfig {
   map_topic?: string
   global_plan_topic?: string
   local_plan_topic?: string
+  footprint_topic?: string // default /local_costmap/published_footprint (Nav2 robot footprint)
   map_frame?: string
   base_frame?: string
   map_save_path?: string

@@ -60,6 +60,7 @@ tabs:
     map_topic: /map
     global_plan_topic: /plan
     local_plan_topic: /optimal_trajectory
+    footprint_topic: /local_costmap/published_footprint
     goal_topic: /goal_pose
     map_frame: map
     base_frame: base_link

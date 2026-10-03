@@ -337,6 +337,18 @@ def serialize_path(msg: Any, max_points: int = PATH_MAX_POINTS) -> dict[str, Any
     return {"frame_id": msg.header.frame_id, "points": downsample_points(points, max_points)}
 
 
+def serialize_polygon(msg: Any) -> dict[str, Any]:
+    """Serialize a geometry_msgs/PolygonStamped (e.g. Nav2's published robot footprint) to 2D points.
+
+    Args:
+        msg (Any): geometry_msgs/PolygonStamped message.
+
+    Returns:
+        dict[str, Any]: {"frame_id": str, "points": [[x, y], ...]}.
+    """
+    return {"frame_id": msg.header.frame_id, "points": [[float(p.x), float(p.y)] for p in msg.polygon.points]}
+
+
 def serialize_goal_pose(msg: Any) -> dict[str, Any]:
     """Serialize a geometry_msgs/PoseStamped goal to a planar pose.
 

@@ -191,7 +191,13 @@ def test_publish_topics_include_map_nav_goal() -> None:
 
 def test_topic_roles_from_map_nav_tabs() -> None:
     cfg = AppConfig(tabs=[TabConfig(id="m", type="map_nav", label="Map", map_topic="/m", local_plan_topic="/lp")])
-    assert cfg.topic_roles() == {"/m": "map", "/plan": "path", "/lp": "path", "/goal_pose": "goal"}
+    assert cfg.topic_roles() == {
+        "/m": "map",
+        "/plan": "path",
+        "/lp": "path",
+        "/goal_pose": "goal",
+        "/local_costmap/published_footprint": "footprint",
+    }
 
 
 def test_robot_pose_frames_and_frame_defaults() -> None:
@@ -1167,3 +1173,50 @@ def test_default_yaml_map_tab_uses_nav2_local_plan_topic() -> None:
     map_tabs = [t for t in cfg.tabs if t.type == "map_nav"]
     assert map_tabs
     assert all(t.local_plan_topic == "/optimal_trajectory" for t in map_tabs)
+
+
+# --- robot footprint (Nav2 published footprint drawn instead of the robot arrow) ---
+
+
+def make_polygon(points: list[tuple[float, float]], frame_id: str = "odom") -> MagicMock:
+    msg = MagicMock()
+    msg.header.frame_id = frame_id
+    msg.polygon.points = [MagicMock(x=x, y=y, z=0.0) for x, y in points]
+    return msg
+
+
+def test_map_nav_footprint_topic_default_and_role() -> None:
+    tab = TabConfig(id="m", type="map_nav", label="Map")
+    assert tab.footprint_topic == "/local_costmap/published_footprint"
+    cfg = AppConfig(tabs=[tab])
+    assert "/local_costmap/published_footprint" in cfg.all_subscribed_topics()
+    assert cfg.topic_roles()["/local_costmap/published_footprint"] == "footprint"
+
+
+def test_footprint_not_defaulted_for_other_tabs() -> None:
+    assert TabConfig(id="n", type="nav_local", label="Nav").footprint_topic is None
+
+
+def test_serialize_polygon_points() -> None:
+    from web_ui.msg_serializer import serialize_polygon
+
+    data = serialize_polygon(make_polygon([(0.235, 0.193), (0.235, -0.193), (-0.235, -0.193), (-0.235, 0.193)]))
+    assert data == {
+        "frame_id": "odom",
+        "points": [[0.235, 0.193], [0.235, -0.193], [-0.235, -0.193], [-0.235, 0.193]],
+    }
+
+
+def test_footprint_role_uses_polygon_stamped_and_map_frame_transform() -> None:
+    from web_ui.bridge import ROLE_SPECS
+    from web_ui.msg_serializer import serialize_polygon
+
+    msg_type, _qos, serializer = ROLE_SPECS["footprint"]
+    assert msg_type.__name__ == "PolygonStamped" and serializer is serialize_polygon
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.return_value = make_transform(10.0, 0.0, 0.0)
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
+    cb = node._make_callback("/local_costmap/published_footprint", serialize_polygon, "footprint")
+    cb(make_polygon([(1.0, 0.0), (0.0, 1.0)]))
+    data = node.flush_dirty()[0]["data"]
+    assert data == {"frame_id": "map", "points": [[11.0, 0.0], [10.0, 1.0]]}

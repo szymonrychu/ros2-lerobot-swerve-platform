@@ -44,6 +44,7 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "map_save_path": "/var/lib/ros2/maps/slam_map",
     "map_reset_service": "/slam_toolbox/reset",
     "navigate_action": "/navigate_to_pose",
+    "footprint_topic": "/local_costmap/published_footprint",
 }
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
@@ -64,6 +65,7 @@ MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
     ("global_plan_topic", "path"),
     ("local_plan_topic", "path"),
     ("goal_topic", "goal"),
+    ("footprint_topic", "footprint"),
 )
 
 
@@ -124,6 +126,7 @@ class TabConfig(BaseModel):
     camera_info_topic: str | None = None
     map_topic: str | None = None  # map_nav: nav_msgs/OccupancyGrid (latched SLAM map)
     global_plan_topic: str | None = None  # map_nav: nav_msgs/Path from the planner
+    footprint_topic: str | None = None  # map_nav: geometry_msgs/PolygonStamped robot footprint (Nav2)
     local_plan_topic: str | None = None  # map_nav: nav_msgs/Path from the controller
     map_frame: str | None = None  # map_nav: fixed frame for display and goals
     base_frame: str | None = None  # map_nav: robot frame looked up in TF for the pose arrow

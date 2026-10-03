@@ -116,6 +116,8 @@ def _install_ros2_stubs() -> None:
     geo_mod = sys.modules["geometry_msgs.msg"]
     if not hasattr(geo_mod, "PoseStamped"):
         geo_mod.PoseStamped = MagicMock()  # type: ignore[attr-defined]
+    if not hasattr(geo_mod, "PolygonStamped"):
+        geo_mod.PolygonStamped = type("PolygonStamped", (), {})  # type: ignore[attr-defined]
 
 
 _install_ros2_stubs()

@@ -4,6 +4,7 @@ import {
   centerOn,
   DRAG_THRESHOLD_PX,
   fitView,
+  frontEdgeIndex,
   goalFromGesture,
   MapMeta,
   mapImageTransform,
@@ -172,5 +173,26 @@ describe('scale bar', () => {
 
   it('handles sub-metre scales', () => {
     expect(niceScaleBar(2000, 100)).toEqual({ meters: 0.05, px: 100 })
+  })
+})
+
+describe('frontEdgeIndex', () => {
+  const rect: [number, number][] = [
+    [0.235, 0.193],
+    [0.235, -0.193],
+    [-0.235, -0.193],
+    [-0.235, 0.193],
+  ]
+  it('picks the edge facing the robot heading', () => {
+    expect(frontEdgeIndex(rect, { x: 0, y: 0, yaw: 0 })).toBe(0)
+    expect(frontEdgeIndex(rect, { x: 0, y: 0, yaw: Math.PI })).toBe(2)
+    expect(frontEdgeIndex(rect, { x: 0, y: 0, yaw: Math.PI / 2 })).toBe(3)
+  })
+  it('works for a footprint placed away from the origin', () => {
+    const moved = rect.map(([x, y]) => [x + 5, y - 2] as [number, number])
+    expect(frontEdgeIndex(moved, { x: 5, y: -2, yaw: -Math.PI / 2 })).toBe(1)
+  })
+  it('returns -1 for fewer than two points', () => {
+    expect(frontEdgeIndex([[1, 1]], { x: 0, y: 0, yaw: 0 })).toBe(-1)
   })
 })

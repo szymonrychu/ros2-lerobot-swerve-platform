@@ -15,7 +15,7 @@ from typing import Any
 import rclpy  # noqa: F401  # kept as module attribute for test patching
 import structlog
 from action_msgs.srv import CancelGoal
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PolygonStamped, PoseStamped
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -31,6 +31,7 @@ from .msg_serializer import (
     serialize_goal_pose,
     serialize_occupancy_grid,
     serialize_path,
+    serialize_polygon,
     transform_points_2d,
     transform_to_pose_dict,
 )
@@ -96,8 +97,8 @@ CANCEL_ALL_GOAL_UUID: tuple[int, ...] = (0,) * 16
 TOPIC_STALE_S = 10.0
 # A robot pose whose TF stamp is older than this (vs the node clock) is dropped, never replayed to late joiners.
 ROBOT_POSE_STALE_S = 2.0
-# map_nav roles whose messages are re-expressed in map_frame (plans and goals); every other topic passes through.
-MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal"})
+# map_nav roles whose messages are re-expressed in map_frame (plans, goals, robot footprint); every other topic passes through.
+MAP_FRAME_ROLES: frozenset[str] = frozenset({"path", "goal", "footprint"})
 
 Serializer = Callable[[Any], dict[str, Any]]
 
@@ -106,6 +107,7 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     "map": (OccupancyGrid, MAP_SUB_QOS, serialize_occupancy_grid),
     "path": (Path, DEFAULT_SUB_QOS_DEPTH, serialize_path),
     "goal": (PoseStamped, DEFAULT_SUB_QOS_DEPTH, serialize_goal_pose),
+    "footprint": (PolygonStamped, DEFAULT_SUB_QOS_DEPTH, serialize_polygon),
 }
 
 
@@ -242,7 +244,7 @@ class BridgeNode(Node):
             self._topic_last_rx[topic] = time.monotonic()
 
     def to_map_frame(self, data: dict[str, Any], role: str | None) -> dict[str, Any] | None:
-        """Re-express a serialized path ("points") or goal ("x", "y", "yaw") in the map frame.
+        """Re-express a serialized path or footprint ("points") or goal ("x", "y", "yaw") in the map frame.
 
         Only the plan ("path") and goal ("goal") roles are transformed; other roles and topics without a
         role are returned as is, whatever keys they carry. Data without a frame_id, already in the map
@@ -269,7 +271,7 @@ class BridgeNode(Node):
         q = tf.transform.rotation
         yaw = quaternion_to_yaw(q.x, q.y, q.z, q.w)
         out = dict(data, frame_id=map_frame)
-        if role == "path":
+        if role in ("path", "footprint"):
             out["points"] = transform_points_2d(data["points"], t.x, t.y, yaw)
         else:
             (x, y), *_ = transform_points_2d([[data["x"], data["y"]]], t.x, t.y, yaw)

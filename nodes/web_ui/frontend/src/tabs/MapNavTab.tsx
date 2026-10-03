@@ -4,6 +4,7 @@ import log from '../logging'
 import {
   centerOn,
   fitView,
+  frontEdgeIndex,
   goalFromGesture,
   MapMeta,
   mapImageTransform,
@@ -64,6 +65,7 @@ const COLORS = {
   occupied: '#000000',
   unknown: '#cdcdcd',
   robot: '#2f9bff',
+  robotFront: '#ffdc00',
   globalPath: '#2ecc40',
   localPath: '#ff851b',
   goal: '#ff4136',
@@ -75,7 +77,8 @@ const LEGEND: [string, string][] = [
   ['Free', COLORS.free],
   ['Occupied', COLORS.occupied],
   ['Unknown', COLORS.unknown],
-  ['Robot', COLORS.robot],
+  ['Robot (Nav2 footprint)', COLORS.robot],
+  ['Robot front', COLORS.robotFront],
   ['Global path', COLORS.globalPath],
   ['Local path', COLORS.localPath],
   ['Goal', COLORS.goal],
@@ -147,6 +150,33 @@ function drawGoal(ctx: CanvasRenderingContext2D, view: View, goal: Pose2D, color
   ctx.setLineDash([])
 }
 
+/** Robot as the footprint Nav2 uses (polygon in the map frame), with the front edge highlighted. */
+function drawFootprint(ctx: CanvasRenderingContext2D, view: View, footprint: PathMsg, pose: Pose2D) {
+  const pts = footprint.points.map(([x, y]) => worldToScreen(view, { x, y }))
+  if (pts.length < 3) return
+  ctx.setLineDash([])
+  ctx.fillStyle = 'rgba(47, 155, 255, 0.35)'
+  ctx.strokeStyle = COLORS.robot
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)))
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+  const front = frontEdgeIndex(footprint.points, pose)
+  if (front >= 0) {
+    const a = pts[front]
+    const b = pts[(front + 1) % pts.length]
+    ctx.strokeStyle = COLORS.robotFront
+    ctx.lineWidth = 4
+    ctx.beginPath()
+    ctx.moveTo(a.x, a.y)
+    ctx.lineTo(b.x, b.y)
+    ctx.stroke()
+  }
+}
+
+/** Fallback marker when no footprint has been received (e.g. Nav2 not running). */
 function drawRobot(ctx: CanvasRenderingContext2D, view: View, pose: Pose2D) {
   const s = worldToScreen(view, pose)
   const size = 12
@@ -211,6 +241,7 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
   const localPath = topicData[tab.local_plan_topic ?? ''] as PathMsg | undefined
   const goalMsg = topicData[tab.goal_topic ?? ''] as FramedPose | null | undefined
   const poseMsg = topicData[ROBOT_POSE_TOPIC] as FramedPose | undefined
+  const footprint = topicData[tab.footprint_topic ?? ''] as PathMsg | undefined
   const robotPose = inFrame(poseMsg, mapFrame) ? poseMsg! : null
 
   // Canvas backing store follows the CSS size and device pixel ratio.
@@ -333,9 +364,15 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
       const dragged = goalFromGesture(draft.press, draft.current, draft.dragPx, robotPose)
       drawGoal(ctx, view, dragged, COLORS.draft, true)
     }
-    if (robotPose) drawRobot(ctx, view, robotPose)
+    if (robotPose) {
+      if (footprint && inFrame(footprint, mapFrame) && footprint.points.length >= 3) {
+        drawFootprint(ctx, view, footprint, robotPose)
+      } else {
+        drawRobot(ctx, view, robotPose)
+      }
+    }
     drawScaleBar(ctx, view, size.h)
-  }, [mapLayer, globalPath, localPath, goalMsg, robotPose, view, draft, size, mapFrame, tab.map_topic])
+  }, [mapLayer, globalPath, localPath, goalMsg, robotPose, footprint, view, draft, size, mapFrame, tab.map_topic])
 
   const toCanvas = (e: ReactPointerEvent<HTMLCanvasElement>): Vec2 => {
     const rect = e.currentTarget.getBoundingClientRect()

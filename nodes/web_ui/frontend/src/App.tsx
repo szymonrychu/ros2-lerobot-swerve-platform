@@ -54,7 +54,7 @@ export default function App() {
           ...(t.topics?.map((ts) => ts.topic) ?? []),
           t.scan_topic, t.costmap_topic, t.odom_topic, t.fix_topic, t.arm_joint_topic,
           t.color_topic, t.depth_topic, t.camera_info_topic,
-          t.map_topic, t.global_plan_topic, t.local_plan_topic,
+          t.map_topic, t.global_plan_topic, t.local_plan_topic, t.footprint_topic,
           ...(t.type === 'map_nav' ? [t.goal_topic] : []),
         ]),
         ...config.overlays.map((o) => o.topic),

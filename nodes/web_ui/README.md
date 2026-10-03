@@ -17,6 +17,8 @@ Runs as a native service on the client RPi. Accessible at `http://client.ros2.la
 | 3D Scene | `scene3d` | @react-three/fiber: URDF model + lidar + costmap |
 | Robot Status | `robot_status` | URDF load status + joint state table + embedded 3D preview |
 
+- **Robot footprint:** the robot is drawn as the footprint Nav2 uses (`footprint_topic`, default `/local_costmap/published_footprint`, `geometry_msgs/PolygonStamped` re-expressed in `map_frame` by the backend) with the front edge highlighted in yellow. Until a footprint arrives (e.g. Nav2 not running) a small arrow at the TF pose is shown instead.
+
 ## Architecture
 
 Single Python process: FastAPI (uvicorn) on port 8080 serves:
