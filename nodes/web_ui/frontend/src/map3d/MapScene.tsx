@@ -266,8 +266,8 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
       {layers.gpsMap && props.anchor && (
         <GpsTilesLayer
           anchor={props.anchor}
-          aroundX={props.robotPose?.x ?? props.anchor.x}
-          aroundY={props.robotPose?.y ?? props.anchor.y}
+          aroundX={props.robotPose?.x ?? 0}
+          aroundY={props.robotPose?.y ?? 0}
         />
       )}
       <GridImageLayer msg={props.map} lift={LIFT.map} opacity={1} visible={layers.slamMap} />

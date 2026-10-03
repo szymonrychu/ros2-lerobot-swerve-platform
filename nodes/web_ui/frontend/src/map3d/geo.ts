@@ -1,10 +1,11 @@
 /**
  * GPS map layer math: Web Mercator (slippy map) tiles and placement of lat/lon in the ROS map frame.
  *
- * The backend publishes '/web_ui/gps_anchor': one GPS fix (latitude, longitude) paired with the map-frame point
- * (x, y) where the robot was at that fix, plus `heading`, the direction of the map +x axis in ENU (radians,
- * counter-clockwise from east). Around the anchor a local tangent plane (equirectangular) approximation is used,
- * which is accurate to centimetres over the few hundred metres the layer covers.
+ * The backend publishes '/web_ui/gps_anchor' as {lat, lon, heading_rad, residual_m, n_points} (or null while no fit
+ * is available): (lat, lon) is the GPS position of the map origin (0, 0) and heading_rad is the angle of the map +x
+ * axis measured counter-clockwise from East, i.e. enu = R(heading_rad) * map. Around the anchor a local tangent plane
+ * (equirectangular) approximation is used, which is accurate to centimetres over the few hundred metres the layer
+ * covers.
  */
 import { Vec2 } from '../map/mapMath'
 
@@ -12,14 +13,13 @@ export const EARTH_RADIUS_M = 6378137
 export const EARTH_CIRCUMFERENCE_M = 2 * Math.PI * EARTH_RADIUS_M // 40075016.686 m
 export const MAX_MERCATOR_LAT = 85.0511287798
 
-/** Map-frame placement of a GPS fix (payload of /web_ui/gps_anchor). */
+/** GPS placement of the map frame (payload of /web_ui/gps_anchor). */
 export interface GpsAnchor {
-  latitude: number
-  longitude: number
-  x: number
-  y: number
-  heading: number
-  frame_id?: string
+  lat: number // degrees, latitude of map (0, 0)
+  lon: number // degrees, longitude of map (0, 0)
+  heading_rad: number // map +x axis, counter-clockwise from East
+  residual_m?: number // fit residual (diagnostic)
+  n_points?: number // samples used by the fit (diagnostic)
 }
 
 export interface LatLon {
@@ -46,18 +46,19 @@ const DEG = Math.PI / 180
 /**
  * Validate an anchor payload.
  *
- * @param raw - topic payload (any shape; null when the backend has no fix)
- * @returns a GpsAnchor (heading defaults to 0), or null when anything required is missing or not finite
+ * @param raw - topic payload (any shape; null when the backend has no fit yet)
+ * @returns a GpsAnchor, or null when lat, lon or heading_rad is missing, not finite or out of range; residual_m and
+ *   n_points are kept only when they are finite numbers
  */
 export function validAnchor(raw: unknown): GpsAnchor | null {
   if (!raw || typeof raw !== 'object') return null
   const a = raw as Record<string, unknown>
   const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
-  if (!num(a.latitude) || !num(a.longitude) || !num(a.x) || !num(a.y)) return null
-  const heading = a.heading === undefined ? 0 : a.heading
-  if (!num(heading)) return null
-  const out: GpsAnchor = { latitude: a.latitude, longitude: a.longitude, x: a.x, y: a.y, heading }
-  if (typeof a.frame_id === 'string') out.frame_id = a.frame_id
+  if (!num(a.lat) || !num(a.lon) || !num(a.heading_rad)) return null
+  if (Math.abs(a.lat) > 90 || Math.abs(a.lon) > 180) return null
+  const out: GpsAnchor = { lat: a.lat, lon: a.lon, heading_rad: a.heading_rad }
+  if (num(a.residual_m)) out.residual_m = a.residual_m
+  if (num(a.n_points)) out.n_points = a.n_points
   return out
 }
 
@@ -152,11 +153,11 @@ export function enuToLatLon(east: number, north: number, refLat: number, refLon:
  * @returns map point {x, y} in metres
  */
 export function latLonToMap(anchor: GpsAnchor, latitude: number, longitude: number): Vec2 {
-  const enu = latLonToEnu(latitude, longitude, anchor.latitude, anchor.longitude)
+  const enu = latLonToEnu(latitude, longitude, anchor.lat, anchor.lon)
   // ENU = R(heading) * map  =>  map = R(-heading) * ENU
-  const c = Math.cos(anchor.heading)
-  const s = Math.sin(anchor.heading)
-  return { x: anchor.x + c * enu.x + s * enu.y, y: anchor.y - s * enu.x + c * enu.y }
+  const c = Math.cos(anchor.heading_rad)
+  const s = Math.sin(anchor.heading_rad)
+  return { x: c * enu.x + s * enu.y, y: -s * enu.x + c * enu.y }
 }
 
 /**
@@ -168,11 +169,9 @@ export function latLonToMap(anchor: GpsAnchor, latitude: number, longitude: numb
  * @returns latitude/longitude in degrees
  */
 export function mapToLatLon(anchor: GpsAnchor, x: number, y: number): LatLon {
-  const dx = x - anchor.x
-  const dy = y - anchor.y
-  const c = Math.cos(anchor.heading)
-  const s = Math.sin(anchor.heading)
-  return enuToLatLon(c * dx - s * dy, s * dx + c * dy, anchor.latitude, anchor.longitude)
+  const c = Math.cos(anchor.heading_rad)
+  const s = Math.sin(anchor.heading_rad)
+  return enuToLatLon(c * x - s * y, s * x + c * y, anchor.lat, anchor.lon)
 }
 
 /**
@@ -212,7 +211,7 @@ export function tilesAround(anchor: GpsAnchor, around: Vec2, zoom: number, radiu
         center: mid,
         width: Math.hypot(ne.x - nw.x, ne.y - nw.y),
         height: Math.hypot(se.x - ne.x, se.y - ne.y),
-        yaw: -anchor.heading,
+        yaw: -anchor.heading_rad,
       })
     }
   }

@@ -12,7 +12,8 @@ import {
   validAnchor,
 } from './geo'
 
-const ANCHOR = { latitude: 52.2297, longitude: 21.0122, x: 10, y: -5, heading: 0, frame_id: 'map' }
+// Exact payload shape of '/web_ui/gps_anchor' (web_ui backend GpsAnchorEstimator): map (0, 0) sits at (lat, lon).
+const ANCHOR = { lat: 52.2297, lon: 21.0122, heading_rad: 0, residual_m: 0.12, n_points: 42 }
 
 describe('Web Mercator tile math', () => {
   it('puts lat/lon (0, 0) in the middle of the world', () => {
@@ -66,59 +67,78 @@ describe('local ENU <-> lat/lon', () => {
 })
 
 describe('anchor placement (map frame <-> lat/lon)', () => {
-  it('the anchor lat/lon lands on the anchor map point', () => {
-    const p = latLonToMap(ANCHOR, ANCHOR.latitude, ANCHOR.longitude)
-    expect(p.x).toBeCloseTo(10)
-    expect(p.y).toBeCloseTo(-5)
+  it('the anchor lat/lon lands on the map origin (0, 0)', () => {
+    const p = latLonToMap(ANCHOR, ANCHOR.lat, ANCHOR.lon)
+    expect(p.x).toBeCloseTo(0)
+    expect(p.y).toBeCloseTo(0)
+    const ll = mapToLatLon(ANCHOR, 0, 0)
+    expect(ll.latitude).toBeCloseTo(ANCHOR.lat, 10)
+    expect(ll.longitude).toBeCloseTo(ANCHOR.lon, 10)
   })
 
   it('with heading 0 the map +x axis points east and +y north', () => {
-    const east = mapToLatLon(ANCHOR, 20, -5)
-    expect(east.latitude).toBeCloseTo(ANCHOR.latitude, 8)
-    expect(east.longitude).toBeGreaterThan(ANCHOR.longitude)
-    const north = mapToLatLon(ANCHOR, 10, 5)
-    expect(north.latitude).toBeGreaterThan(ANCHOR.latitude)
+    const east = mapToLatLon(ANCHOR, 10, 0)
+    expect(east.latitude).toBeCloseTo(ANCHOR.lat, 8)
+    expect(east.longitude).toBeGreaterThan(ANCHOR.lon)
+    const north = mapToLatLon(ANCHOR, 0, 10)
+    expect(north.latitude).toBeGreaterThan(ANCHOR.lat)
   })
 
   it('heading rotates the map frame: heading +90 deg means map +x points north', () => {
-    const a = { ...ANCHOR, heading: Math.PI / 2 }
-    const ll = mapToLatLon(a, 20, -5) // 10 m along map +x
-    const enu = latLonToEnu(ll.latitude, ll.longitude, a.latitude, a.longitude)
+    const a = { ...ANCHOR, heading_rad: Math.PI / 2 }
+    const ll = mapToLatLon(a, 10, 0) // 10 m along map +x
+    const enu = latLonToEnu(ll.latitude, ll.longitude, a.lat, a.lon)
     expect(enu.x).toBeCloseTo(0, 6)
     expect(enu.y).toBeCloseTo(10, 6)
     const back = latLonToMap(a, ll.latitude, ll.longitude)
-    expect(back.x).toBeCloseTo(20, 6)
-    expect(back.y).toBeCloseTo(-5, 6)
+    expect(back.x).toBeCloseTo(10, 6)
+    expect(back.y).toBeCloseTo(0, 6)
   })
 })
 
 describe('validAnchor', () => {
-  it('accepts a full anchor and rejects missing or non-finite ones', () => {
+  it('accepts the backend payload {lat, lon, heading_rad, residual_m, n_points}', () => {
     expect(validAnchor(ANCHOR)).toEqual(ANCHOR)
-    expect(validAnchor(null)).toBeNull()
-    expect(validAnchor(undefined)).toBeNull()
-    expect(validAnchor({ ...ANCHOR, latitude: NaN })).toBeNull()
-    expect(validAnchor({ latitude: 1, longitude: 2 })).toBeNull()
   })
 
-  it('defaults a missing heading to 0', () => {
-    const { heading: _h, ...noHeading } = ANCHOR
-    expect(validAnchor(noHeading)!.heading).toBe(0)
+  it('rejects null (no fix yet), missing and non-finite fields', () => {
+    expect(validAnchor(null)).toBeNull()
+    expect(validAnchor(undefined)).toBeNull()
+    expect(validAnchor({ ...ANCHOR, lat: NaN })).toBeNull()
+    expect(validAnchor({ ...ANCHOR, lon: '21' })).toBeNull()
+    expect(validAnchor({ ...ANCHOR, heading_rad: Infinity })).toBeNull()
+    const { heading_rad: _h, ...noHeading } = ANCHOR
+    expect(validAnchor(noHeading)).toBeNull()
+    expect(validAnchor({ lat: 1, lon: 2 })).toBeNull()
+  })
+
+  it('rejects latitudes outside [-90, 90] and longitudes outside [-180, 180]', () => {
+    expect(validAnchor({ ...ANCHOR, lat: 91 })).toBeNull()
+    expect(validAnchor({ ...ANCHOR, lon: -181 })).toBeNull()
+  })
+
+  it('treats residual_m and n_points as optional diagnostics', () => {
+    expect(validAnchor({ lat: 1, lon: 2, heading_rad: 0.5 })).toEqual({ lat: 1, lon: 2, heading_rad: 0.5 })
+    expect(validAnchor({ ...ANCHOR, residual_m: 'x', n_points: null })).toEqual({ lat: ANCHOR.lat, lon: ANCHOR.lon, heading_rad: 0 })
+  })
+
+  it('does not accept the old invented {latitude, longitude, x, y, heading} shape', () => {
+    expect(validAnchor({ latitude: 52.2, longitude: 21.0, x: 0, y: 0, heading: 0 })).toBeNull()
   })
 })
 
 describe('tilesAround', () => {
   it('returns (2r+1)^2 tiles centred on the tile under the point', () => {
-    const tiles = tilesAround(ANCHOR, { x: 10, y: -5 }, 19, 1)
+    const tiles = tilesAround(ANCHOR, { x: 0, y: 0 }, 19, 1)
     expect(tiles).toHaveLength(9)
-    const centre = latLonToTile(ANCHOR.latitude, ANCHOR.longitude, 19)
+    const centre = latLonToTile(ANCHOR.lat, ANCHOR.lon, 19)
     const mid = tiles.find((t) => t.x === Math.floor(centre.x) && t.y === Math.floor(centre.y))
     expect(mid).toBeDefined()
     expect(mid!.url).toBe(`/api/tiles/19/${mid!.x}/${mid!.y}.png`)
   })
 
   it('places each tile so that its centre maps back to the tile centre lat/lon', () => {
-    const tiles = tilesAround(ANCHOR, { x: 10, y: -5 }, 19, 1)
+    const tiles = tilesAround(ANCHOR, { x: 0, y: 0 }, 19, 1)
     for (const t of tiles) {
       const ll = mapToLatLon(ANCHOR, t.center.x, t.center.y)
       const expected = tileToLatLon(t.x + 0.5, t.y + 0.5, 19)
@@ -128,9 +148,9 @@ describe('tilesAround', () => {
   })
 
   it('tiles are about tileSizeMeters wide, adjacent, and rotated by -heading', () => {
-    const a = { ...ANCHOR, heading: 0.3 }
-    const tiles = tilesAround(a, { x: 10, y: -5 }, 19, 1)
-    const size = tileSizeMeters(a.latitude, 19)
+    const a = { ...ANCHOR, heading_rad: 0.3 }
+    const tiles = tilesAround(a, { x: 0, y: 0 }, 19, 1)
+    const size = tileSizeMeters(a.lat, 19)
     for (const t of tiles) {
       expect(t.width).toBeCloseTo(size, 0)
       expect(t.height).toBeCloseTo(size, 0)
@@ -142,8 +162,8 @@ describe('tilesAround', () => {
   })
 
   it('clamps tile indices to the world', () => {
-    const polar = { ...ANCHOR, latitude: 0, longitude: -179.9999 }
-    const tiles = tilesAround(polar, { x: 10, y: -5 }, 2, 1)
+    const polar = { ...ANCHOR, lat: 0, lon: -179.9999 }
+    const tiles = tilesAround(polar, { x: 0, y: 0 }, 2, 1)
     for (const t of tiles) {
       expect(t.x).toBeGreaterThanOrEqual(0)
       expect(t.x).toBeLessThan(4)

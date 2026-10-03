@@ -146,7 +146,8 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
   const robotPose = inFrame(poseMsg, mapFrame) ? poseMsg : null
   const goal = inFrame(goalMsg, mapFrame) ? goalMsg : null
   const anchor = useMemo(() => validAnchor(anchorMsg), [anchorMsg])
-  const gpsAvailable = anchor !== null && (!anchor.frame_id || anchor.frame_id === mapFrame)
+  // The anchor is the GPS placement of the map frame origin itself, so it needs no frame check.
+  const gpsAvailable = anchor !== null
   const map = isCleared(mapMsg) ? null : mapMsg
   const mapBox = useMemo<Bounds | null>(() => (map ? mapBounds(map) : null), [map])
 
@@ -449,7 +450,7 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
             robotPose={robotPose}
             baseJoints={baseJoints}
             armJoints={armJoints}
-            anchor={gpsAvailable ? anchor : null}
+            anchor={anchor}
             layers={layers}
             topView={topView}
             goalMode={goalMode}
