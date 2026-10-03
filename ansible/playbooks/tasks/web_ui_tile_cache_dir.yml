@@ -1,0 +1,13 @@
+---
+# web_ui's /api/tiles proxy caches map tiles here (map_nav tile_cache_dir default) and serves them offline;
+# the node runs as ansible_user, so the directory must be writable by it.
+- name: Ensure web_ui tile cache directory exists (owned by the node user)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+  loop:
+    - /var/cache/web_ui
+    - /var/cache/web_ui/tiles

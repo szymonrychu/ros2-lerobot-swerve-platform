@@ -9,6 +9,9 @@
     - name: Sync repository
       ansible.builtin.include_tasks: ../../tasks/repo_sync.yml
   tasks:
+    - name: Web UI tile cache directory
+      ansible.builtin.include_tasks: ../../tasks/web_ui_tile_cache_dir.yml
+
     - name: Deploy web_ui
       ansible.builtin.include_tasks: ../../tasks/resolve_and_deploy.yml
       vars:

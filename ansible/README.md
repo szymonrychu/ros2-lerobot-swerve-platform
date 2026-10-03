@@ -346,6 +346,12 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 `slam_toolbox` is deployed, both in `deploy_nodes_client.yml` and in `nodes/client/slam_toolbox.yml`.
 slam_toolbox saves and reloads its posegraph there (`slam_map.posegraph` / `slam_map.data`).
 
+### web_ui tile cache directory
+
+`playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui/tiles` (and its parent, owner `ansible_user`,
+mode `0755`) before `web_ui` is deployed, both in `deploy_nodes_client.yml` and in `nodes/client/web_ui.yml`. The
+map tab's `/api/tiles` proxy caches map tiles there (`tile_cache_dir` default) and serves them when offline.
+
 ### MCP server token and arm home directory
 
 `playbooks/tasks/mcp_server_setup.yml` runs before `mcp_server` is deployed (in `deploy_nodes_client.yml` and in

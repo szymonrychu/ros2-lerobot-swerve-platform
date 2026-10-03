@@ -574,14 +574,16 @@ def test_web_ui_has_map_nav_tab() -> None:
         "map_frame": "map",
         "base_frame": "base_link",
         "map_save_path": MAP_BASE,
-        # Merged 3D view: lidar, local costmap, swerve base and the interactive arm on the client-local topics.
-        "scan_topic": FILTERED_SCAN,
-        "costmap_topic": "/local_costmap/costmap",
-        "urdf_file": "robot.urdf",
-        "topic": "/swerve_drive/joint_states",
-        "arm_urdf_file": "so101_arm.urdf",
-        "arm_joint_topic": "/follower/joint_states",
+        # Merged 3D view: local costmap, swerve base and the interactive arm on the client-local topics.
+        "local_costmap_topic": "/local_costmap/costmap",
+        "base_urdf": "robot.urdf",
+        "base_joint_states_topic": "/swerve_drive/joint_states",
+        "arm_urdf": "so101_arm.urdf",
+        "arm_joint_states_topic": "/follower/joint_states",
         "arm_command_topic": "/filter/web_ui_joint_commands",
+        # Home / Set home buttons call the std_srvs/Trigger services served by mcp_server.
+        "arm_home_service": "/arm/home",
+        "arm_set_home_service": "/arm/set_home",
     }
 
 

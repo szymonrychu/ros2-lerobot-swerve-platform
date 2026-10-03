@@ -40,6 +40,10 @@ AUTONOMY = {
     "autonomy_release_topic": "/filter/autonomy_release",
     "active_source_topic": "/filter/active_source",
 }
+TILE_CACHE_DIR = "/var/cache/web_ui/tiles"
+TILE_CACHE_TASKS = PLAYBOOKS_DIR / "tasks" / "web_ui_tile_cache_dir.yml"
+WEB_UI_PLAYBOOK = PLAYBOOKS_DIR / "nodes" / "client" / "web_ui.yml"
+LEGACY_MAP_KEYS = {"urdf_file", "topic", "arm_urdf_file", "arm_joint_topic", "scan_topic", "costmap_topic"}
 WEB_UI_TABS = ["map", "camera", "rgbd_camera", "imu_graphs"]
 REMOVED_WEB_UI_TABS = {"arm_servos", "local_nav", "gps_nav", "scene3d", "robot_status"}
 
@@ -176,6 +180,40 @@ def test_web_ui_tab_set() -> None:
     assert camera["topic"] == "/camera_0/image_raw/compressed"
     assert tabs[2]["type"] == "rgbd_camera"
     assert tabs[3]["type"] == "imu_orientation"
+
+
+def test_web_ui_map_tab_uses_contract_fields() -> None:
+    """The map tab names the frontend contract fields and the arm Trigger services mcp_server actually serves."""
+    tab = node_config("web_ui")["tabs"][0]
+    assert not LEGACY_MAP_KEYS & tab.keys(), f"legacy map tab keys: {sorted(LEGACY_MAP_KEYS & tab.keys())}"
+    assert tab["base_urdf"] == "robot.urdf"
+    assert tab["arm_urdf"] == "so101_arm.urdf"
+    assert tab["base_joint_states_topic"] == "/swerve_drive/joint_states"
+    assert tab["arm_joint_states_topic"] == "/follower/joint_states"
+    assert tab["local_costmap_topic"] == "/local_costmap/costmap"
+    topics = node_config("mcp_server").get("topics", {})
+    assert tab["arm_home_service"] == topics.get("home_service", "/arm/home") == "/arm/home"
+    assert tab["arm_set_home_service"] == topics.get("set_home_service", "/arm/set_home") == "/arm/set_home"
+    assert tab.get("tile_cache_dir", TILE_CACHE_DIR) == TILE_CACHE_DIR
+
+
+def test_web_ui_tile_cache_dir_task_owned_by_node_user() -> None:
+    tasks = yaml.safe_load(TILE_CACHE_TASKS.read_text())
+    file_task = next(t for t in tasks if "ansible.builtin.file" in t)
+    args = file_task["ansible.builtin.file"]
+    paths = file_task.get("loop", [args["path"]])
+    assert TILE_CACHE_DIR in paths and "/var/cache/web_ui" in paths
+    assert args["state"] == "directory"
+    assert args["owner"] == "{{ ansible_user }}" and args["group"] == "{{ ansible_user }}"
+
+
+@pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml", "nodes/client/web_ui.yml"])
+def test_playbooks_create_tile_cache_before_deploying_web_ui(playbook: str) -> None:
+    _, tasks, _ = play_tasks(PLAYBOOKS_DIR / playbook)
+    deploy = deploy_index(tasks, "web_ui")
+    setup = include_index(tasks, "web_ui_tile_cache_dir.yml")
+    assert deploy >= 0, f"{playbook} does not deploy web_ui"
+    assert 0 <= setup < deploy, f"{playbook}: the tile cache dir must exist before web_ui starts"
 
 
 def test_mcp_server_setup_tasks_create_token_and_arm_dir() -> None:
