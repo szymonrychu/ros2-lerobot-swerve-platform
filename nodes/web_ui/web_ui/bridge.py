@@ -370,12 +370,13 @@ class BridgeNode(Node):
             log.debug("gps_anchor_tf_skew", skew_s=round(pose["stamp"] - fix["stamp"], 3))
             return
         anchor = self._gps_anchor.add_sample(fix["latitude"], fix["longitude"], pose["x"], pose["y"])
-        if anchor is not None:
-            self.store(GPS_ANCHOR_TOPIC, anchor)
-            return
         with self._lock:
-            published = GPS_ANCHOR_TOPIC in self._latest
-        if published:
+            cached = self._latest.get(GPS_ANCHOR_TOPIC)
+        if anchor is not None:
+            if cached is None or cached["data"] != anchor:
+                self.store(GPS_ANCHOR_TOPIC, anchor)
+            return
+        if cached is not None:
             self.clear_and_notify(GPS_ANCHOR_TOPIC)
 
     def reset_gps_anchor(self) -> None:

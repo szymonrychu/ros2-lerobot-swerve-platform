@@ -715,15 +715,19 @@ def arm_app(tmp_path: Path, urdf_dir: Path) -> Any:
     """Return an app factory with a map_nav tab using custom arm services."""
     from web_ui.server import build_app
 
-    config = AppConfig(
-        tabs=[
-            TabConfig(
-                id="map", type="map_nav", label="Map", arm_home_service="/arm/home", arm_set_home_service="/arm/set"
-            )
-        ]
-    )
-
-    def factory(bridge: Any) -> TestClient:
+    def factory(bridge: Any, **tab_kwargs: Any) -> TestClient:
+        config = AppConfig(
+            tabs=[
+                TabConfig(
+                    id="map",
+                    type="map_nav",
+                    label="Map",
+                    arm_home_service="/arm/home",
+                    arm_set_home_service="/arm/set",
+                    **tab_kwargs,
+                )
+            ]
+        )
         return TestClient(build_app(config=config, urdf_dir=urdf_dir, static_dir=tmp_path / "none", bridge_node=bridge))
 
     return factory
@@ -760,8 +764,7 @@ def test_arm_endpoint_timeout(arm_app: Any) -> None:
     bridge = MagicMock()
     fut = FakeFuture(resolve=False)
     bridge.trigger_async.return_value = fut
-    with patch("web_ui.server.ARM_SERVICE_TIMEOUT_S", 0.05):
-        resp = arm_app(bridge).post("/api/arm/home?tab=map")
+    resp = arm_app(bridge, arm_service_timeout_s=0.05).post("/api/arm/home?tab=map")
     assert resp.status_code == 504
     assert "timed out" in resp.json()["message"]
     assert fut.cancelled
@@ -958,3 +961,139 @@ def test_tile_without_map_nav_tab_is_404(tmp_path: Path, urdf_dir: Path) -> None
     resp = tile_client(tmp_path, urdf_dir, upstream, tabs=[]).get("/api/tiles/1/0/0.png")
     assert resp.status_code == 404
     assert upstream.requests == []
+
+
+# ---------------------------------------------------------------------------
+# F3: arm timeout config, GPS anchor thread safety/caching, tile eviction low-water mark
+# ---------------------------------------------------------------------------
+
+
+def test_arm_service_timeout_default_is_30s() -> None:
+    assert TabConfig(id="map", type="map_nav", label="Map").arm_service_timeout_s == 30.0
+
+
+@pytest.mark.parametrize("endpoint", ["home", "set_home"])
+def test_arm_endpoints_use_configured_timeout(arm_app: Any, endpoint: str) -> None:
+    bridge = MagicMock()
+    bridge.trigger_async.return_value = FakeFuture(resolve=False)
+    resp = arm_app(bridge, arm_service_timeout_s=0.05).post(f"/api/arm/{endpoint}?tab=map")
+    assert resp.status_code == 504
+    assert "timed out" in resp.json()["message"]
+
+
+def test_anchor_concurrent_reset_and_add_sample_do_not_raise() -> None:
+    import threading
+
+    from web_ui.gps_anchor import GpsAnchorEstimator
+
+    est = GpsAnchorEstimator(min_points=3, min_spread_m=0.0, max_residual_m=1e9, min_sample_spacing_m=0.0)
+    errors: list[BaseException] = []
+    stop = threading.Event()
+
+    def writer() -> None:
+        i = 0
+        try:
+            while not stop.is_set():
+                i += 1
+                est.add_sample(ANCHOR_LAT + i * 1e-7, ANCHOR_LON, float(i % 50), float(i % 7))
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    def resetter() -> None:
+        try:
+            for _ in range(3000):
+                est.reset()
+                est.fit()
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=writer) for _ in range(2)]
+    for t in threads:
+        t.start()
+    r = threading.Thread(target=resetter)
+    r.start()
+    r.join()
+    stop.set()
+    for t in threads:
+        t.join()
+    assert errors == []
+
+
+def test_anchor_rejected_sample_returns_cached_result_without_refit() -> None:
+    from unittest.mock import patch as _patch
+
+    from web_ui.gps_anchor import GpsAnchorEstimator
+
+    track = l_track()
+    est = GpsAnchorEstimator(min_points=10, min_spread_m=5.0, max_residual_m=1.0, min_sample_spacing_m=0.5)
+    first = feed(est, track, track_fixes(track, heading=0.7))
+    assert first is not None
+    last_x, last_y = track[-1]
+    with _patch("web_ui.gps_anchor.fit_rigid_2d") as fit_mock:
+        again = est.add_sample(ANCHOR_LAT, ANCHOR_LON, float(last_x), float(last_y))
+    fit_mock.assert_not_called()
+    assert again == first
+
+
+def test_bridge_gps_anchor_not_rebroadcast_when_unchanged() -> None:
+    from web_ui.bridge import GPS_ANCHOR_TOPIC
+
+    anchor = {"lat": 1.0, "lon": 2.0, "heading_rad": 0.0, "residual_m": 0.1, "n_points": 10}
+    est = MagicMock()
+    est.add_sample.return_value = dict(anchor)
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.return_value = make_transform(0.0, 0.0, 0.0, sec=100)
+    node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"), _gps_anchor=est)
+    node.feed_gps_anchor({"latitude": 1.0, "longitude": 2.0, "stamp": 100.0})
+    assert any(e["topic"] == GPS_ANCHOR_TOPIC for e in node.flush_dirty())
+    node.feed_gps_anchor({"latitude": 1.0, "longitude": 2.0, "stamp": 100.0})
+    assert not any(e["topic"] == GPS_ANCHOR_TOPIC for e in node.flush_dirty())
+
+
+def test_tile_cache_evicts_to_low_water_mark(tmp_path: Path) -> None:
+    from web_ui.tiles import TileCache
+
+    cache = TileCache(tmp_path / "tiles", max_bytes=100)
+    for i in range(11):
+        cache.put(1, 0, i, b"x" * 10)
+    # 110 > 100 triggers eviction down to 90% of the cap (90), not to exactly 100
+    assert cache.total_bytes() <= 90
+
+
+def test_tile_cache_does_not_rescan_on_every_write_under_the_mark(tmp_path: Path) -> None:
+    from unittest.mock import patch as _patch
+
+    from web_ui.tiles import TileCache
+
+    cache = TileCache(tmp_path / "tiles", max_bytes=100)
+    for i in range(11):
+        cache.put(1, 0, i, b"x" * 10)
+    with _patch.object(TileCache, "files", wraps=cache.files) as files_mock:
+        for i in range(11, 12):  # 90 -> 100 bytes, not over the cap
+            cache.put(1, 0, i, b"x" * 10)
+    files_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tile_proxy_writes_cache_off_the_event_loop(tmp_path: Path) -> None:
+    import threading
+
+    from web_ui.tiles import TileCache, TileProxy
+
+    cache = TileCache(tmp_path / "tiles", max_bytes=1000)
+    put_threads: list[int] = []
+    real_put = cache.put
+
+    def spy(*args: Any) -> None:
+        put_threads.append(threading.get_ident())
+        real_put(*args)
+
+    cache.put = spy  # type: ignore[method-assign]
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(200, content=b"png", headers={"content-type": "image/png"})
+    )
+    proxy = TileProxy("https://t.example.com/{z}/{x}/{y}.png", "", cache, transport=transport)
+    status, _ = await proxy.get(1, 0, 0)
+    await proxy.aclose()
+    assert status == 200
+    assert put_threads and put_threads[0] != threading.get_ident()

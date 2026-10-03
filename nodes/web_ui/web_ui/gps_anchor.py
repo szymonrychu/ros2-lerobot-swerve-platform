@@ -14,6 +14,7 @@ plus heading_rad, the angle of the map +x axis measured counter-clockwise from E
 from __future__ import annotations
 
 import math
+import threading
 from collections import deque
 from typing import Any
 
@@ -119,6 +120,8 @@ class GpsAnchorEstimator:
         self.min_sample_spacing_m = min_sample_spacing_m
         self.ref: tuple[float, float] | None = None
         self.samples: deque[tuple[float, float, float, float]] = deque(maxlen=max_samples)
+        self.lock = threading.Lock()
+        self.last_result: dict[str, Any] | None = None
 
     @property
     def n_points(self) -> int:
@@ -127,15 +130,21 @@ class GpsAnchorEstimator:
         Returns:
             int: Sample count.
         """
-        return len(self.samples)
+        with self.lock:
+            return len(self.samples)
 
     def reset(self) -> None:
-        """Drop all samples and the ENU reference (call when the SLAM map is reset)."""
-        self.samples.clear()
-        self.ref = None
+        """Drop all samples, the ENU reference and the cached result (call when the SLAM map is reset)."""
+        with self.lock:
+            self.samples.clear()
+            self.ref = None
+            self.last_result = None
 
     def add_sample(self, lat: float, lon: float, map_x: float, map_y: float) -> dict[str, Any] | None:
         """Add a fix paired with the robot's map-frame position and refit.
+
+        A fix rejected by the sample-spacing gate changes nothing and returns the cached last result
+        without refitting. Thread-safe.
 
         Args:
             lat (float): Fix latitude in degrees.
@@ -147,18 +156,30 @@ class GpsAnchorEstimator:
             dict[str, Any] | None: Anchor {lat, lon, heading_rad, residual_m, n_points} when every gate
                 passes, otherwise None.
         """
-        if self.samples:
-            last = self.samples[-1]
-            if math.hypot(map_x - last[0], map_y - last[1]) < self.min_sample_spacing_m:
-                return self.fit()
-        if self.ref is None:
-            self.ref = (lat, lon)
-        east, north = latlon_to_enu(lat, lon, *self.ref)
-        self.samples.append((map_x, map_y, east, north))
-        return self.fit()
+        with self.lock:
+            if self.samples:
+                last = self.samples[-1]
+                if math.hypot(map_x - last[0], map_y - last[1]) < self.min_sample_spacing_m:
+                    return self.last_result
+            if self.ref is None:
+                self.ref = (lat, lon)
+            east, north = latlon_to_enu(lat, lon, *self.ref)
+            self.samples.append((map_x, map_y, east, north))
+            self.last_result = self.compute_fit()
+            return self.last_result
 
     def fit(self) -> dict[str, Any] | None:
-        """Fit the anchor from the current samples.
+        """Fit the anchor from a snapshot of the current samples. Thread-safe.
+
+        Returns:
+            dict[str, Any] | None: Anchor dict when all gates pass, otherwise None.
+        """
+        with self.lock:
+            self.last_result = self.compute_fit()
+            return self.last_result
+
+    def compute_fit(self) -> dict[str, Any] | None:
+        """Fit the anchor from the current samples; the caller holds self.lock.
 
         Returns:
             dict[str, Any] | None: Anchor dict when all gates pass, otherwise None.

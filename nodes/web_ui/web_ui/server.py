@@ -51,8 +51,6 @@ CANCEL_GOAL_RETURN_CODES: dict[int, str] = {
     3: "goal terminated",
 }
 CANCEL_GOAL_ERROR_NONE = 0
-# Seconds to wait for an arm home / set home std_srvs/Trigger response before reporting a timeout.
-ARM_SERVICE_TIMEOUT_S = 10.0
 # Browser cache lifetime of URDF and mesh files (meshes are tens of MB, e.g. wheel.stl 78.7 MB).
 URDF_CACHE_CONTROL = "public, max-age=86400"
 # Map tiles reach the browser only through /api/tiles (same origin), so img-src needs no external hosts.
@@ -385,7 +383,7 @@ def build_app(
         if bridge_node is None:
             return action_response(action, False, "ROS bridge unavailable", 503)
         response, error = await call_ros_service(
-            action, bridge_node.trigger_async(service), service, ARM_SERVICE_TIMEOUT_S
+            action, bridge_node.trigger_async(service), service, tab_cfg.arm_service_timeout_s
         )
         if error is not None:
             return error

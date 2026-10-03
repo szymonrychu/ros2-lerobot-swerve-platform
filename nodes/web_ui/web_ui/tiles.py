@@ -8,7 +8,9 @@ when it grows past the cap the oldest-written tiles are evicted first.
 
 from __future__ import annotations
 
+import asyncio
 import os
+import threading
 from pathlib import Path
 
 import httpx
@@ -29,6 +31,8 @@ HTTP_OK = 200
 HTTP_NOT_FOUND = 404
 HTTP_GATEWAY_TIMEOUT = 504
 BYTES_PER_MB = 1024 * 1024
+# Eviction deletes oldest tiles down to this fraction of the cap, so the full scan runs rarely.
+TILE_CACHE_LOW_WATER_FRACTION = 0.9
 
 
 def validate_tile(z: int, x: int, y: int) -> bool:
@@ -90,6 +94,7 @@ class TileCache:
         self.root = root
         self.max_bytes = max_bytes
         self.total: int | None = None
+        self.lock = threading.Lock()
 
     def path(self, z: int, x: int, y: int) -> Path:
         """Return the cache file path of a tile.
@@ -121,7 +126,8 @@ class TileCache:
             return None
 
     def put(self, z: int, x: int, y: int, data: bytes) -> None:
-        """Store a tile (atomic rename), then evict the oldest tiles while the cache exceeds max_bytes.
+        """Store a tile (atomic rename), then, when the running size estimate exceeds max_bytes, evict the oldest
+        tiles down to the low-water mark. Blocking: call from a worker thread in async code.
 
         Args:
             z (int): Zoom level.
@@ -138,9 +144,10 @@ class TileCache:
         except OSError as exc:
             log.warning("tile_cache_write_failed", path=str(target), error=str(exc))
             return
-        self.total = self.total_bytes() if self.total is None else self.total + len(data)
-        if self.total > self.max_bytes:
-            self.evict()
+        with self.lock:
+            self.total = self.total_bytes() if self.total is None else self.total + len(data)
+            if self.total > self.max_bytes:
+                self.evict()
 
     def files(self) -> list[tuple[float, int, Path]]:
         """List cached tiles.
@@ -166,11 +173,12 @@ class TileCache:
         return sum(size for _, size, _ in self.files())
 
     def evict(self) -> None:
-        """Delete the oldest-written tiles until the cache is within max_bytes."""
+        """Delete the oldest-written tiles until the cache is within the low-water mark (90% of max_bytes)."""
         entries = self.files()
         total = sum(size for _, size, _ in entries)
+        target = int(self.max_bytes * TILE_CACHE_LOW_WATER_FRACTION)
         for _, size, path in entries:
-            if total <= self.max_bytes:
+            if total <= target:
                 break
             try:
                 path.unlink()
@@ -221,7 +229,7 @@ class TileProxy:
             tuple[int, bytes | None]: (200, png bytes); (404, None) when the upstream has no such tile or
                 answers with a non-image; (504, None) when the upstream times out or is unreachable.
         """
-        cached = self.cache.get(z, x, y)
+        cached = await asyncio.to_thread(self.cache.get, z, x, y)
         if cached is not None:
             return HTTP_OK, cached
         url = build_tile_url(self.tile_url, self.subdomains, z, x, y)
@@ -241,7 +249,7 @@ class TileProxy:
         if resp.status_code != HTTP_OK or not content_type.startswith("image/"):
             log.info("tile_unavailable", url=url, status=resp.status_code, content_type=content_type)
             return HTTP_NOT_FOUND, None
-        self.cache.put(z, x, y, resp.content)
+        await asyncio.to_thread(self.cache.put, z, x, y, resp.content)
         return HTTP_OK, resp.content
 
     async def aclose(self) -> None:

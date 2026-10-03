@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .gps_anchor import (
     DEFAULT_MAX_RESIDUAL_M,
@@ -63,6 +63,8 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
 }
 # Default disk cache cap for proxied map tiles (MiB).
 DEFAULT_TILE_CACHE_MAX_MB = 256
+# Seconds to wait for an arm home / set home std_srvs/Trigger response (a home motion can take 12+ s).
+DEFAULT_ARM_SERVICE_TIMEOUT_S = 30.0
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
 GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
@@ -161,6 +163,9 @@ class TabConfig(BaseModel):
     gps_fix_topic: str | None = None  # map_nav: sensor_msgs/NavSatFix of the rover
     arm_home_service: str | None = None  # map_nav: std_srvs/Trigger moving the arm to its home pose
     arm_set_home_service: str | None = None  # map_nav: std_srvs/Trigger storing the current arm pose as home
+    arm_service_timeout_s: float = Field(
+        default=DEFAULT_ARM_SERVICE_TIMEOUT_S, gt=0
+    )  # map_nav: seconds to wait for arm home / set home
     gps_anchor_min_points: int = DEFAULT_MIN_POINTS  # map_nav: samples needed before the GPS anchor is published
     gps_anchor_min_spread_m: float = DEFAULT_MIN_SPREAD_M  # map_nav: minimum map-frame track extent for the fit
     gps_anchor_max_residual_m: float = DEFAULT_MAX_RESIDUAL_M  # map_nav: maximum RMS fit residual
