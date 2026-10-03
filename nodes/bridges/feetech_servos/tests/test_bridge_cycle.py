@@ -111,7 +111,8 @@ def simulate(
     """Run the bridge loop against a controller publishing steer/drive pairs faster than the loop.
 
     Messages land in a KEEP_LAST(QOS_DEPTH) queue (oldest dropped on overflow), like the rclpy subscription.
-    Each loop iteration drains callbacks via drain_callbacks, then runs the velocity watchdog.
+    Each loop iteration drains callbacks via drain_callbacks, writes the coalesced targets once, then runs the
+    velocity watchdog (same order as bridge.py).
     """
     queue: deque[tuple[list[str], list[float], list[float]]] = deque(maxlen=QOS_DEPTH)
     publish_period = 1.0 / CONTROLLER_HZ
@@ -133,6 +134,7 @@ def simulate(
             next_publish += publish_period
         clock.now = now
         drain_callbacks(spin_ready)
+        cycle.write_pending_commands()
         cycle.stop_expired()
         tick += 1
 
@@ -163,9 +165,11 @@ def test_watchdog_stops_wheels_when_drive_commands_cease_but_steer_continues() -
 def test_watchdog_is_per_wheel() -> None:
     cycle, servo, clock = make_cycle()
     cycle.handle_command(SWERVE, *drive_msg(1.0))
+    cycle.write_pending_commands()
     for step in range(1, 40):
         clock.now = step * 0.02
         cycle.handle_command(SWERVE, *drive_msg(1.0, joints=[DRIVE[0]]))
+        cycle.write_pending_commands()
         cycle.stop_expired()
     assert [v for _t, v in servo.speed_writes(32)].count(0) == 0
     for sid in DRIVE_IDS - {32}:
@@ -175,10 +179,12 @@ def test_watchdog_is_per_wheel() -> None:
 def test_received_drive_command_keeps_watchdog_fed_even_if_write_fails() -> None:
     cycle, servo, clock = make_cycle([DRIVE[0]])
     cycle.handle_command(SWERVE, *drive_msg(1.0, joints=[DRIVE[0]]))
+    cycle.write_pending_commands()
     servo.fail_writes = True
     for step in range(1, 30):  # new commanded value keeps failing to write, but commands keep arriving
         clock.now = step * 0.02
         cycle.handle_command(SWERVE, *drive_msg(2.0, joints=[DRIVE[0]]))
+        cycle.write_pending_commands()
         assert cycle.stop_expired() == []
     servo.fail_writes = False
     clock.now += TIMEOUT_S + 0.01  # commands stop: the wheel (still at the last applied speed) is stopped
@@ -189,13 +195,118 @@ def test_received_drive_command_keeps_watchdog_fed_even_if_write_fails() -> None
 def test_failed_zero_command_is_retried_by_watchdog_after_commands_stop() -> None:
     cycle, servo, clock = make_cycle([DRIVE[0]])
     cycle.handle_command(SWERVE, *drive_msg(1.0, joints=[DRIVE[0]]))
+    cycle.write_pending_commands()
     servo.fail_writes = True
     clock.now = 0.05
     cycle.handle_command(SWERVE, *drive_msg(0.0, joints=[DRIVE[0]]))  # stop request lost on the bus
+    cycle.write_pending_commands()
     servo.fail_writes = False
     clock.now = 0.05 + TIMEOUT_S + 0.01
     assert cycle.stop_expired() == [32]
     assert servo.speed_writes(32)[-1][1] == 0
+
+
+# --- coalescing: callbacks only record targets, one write per joint per cycle ---
+
+
+def test_command_callback_never_writes_to_the_bus() -> None:
+    cycle, servo, _clock = make_cycle(ARM.joints + DRIVE)
+    cycle.handle_command(ARM, ["gripper", "wrist_roll"], [0.1, -0.1], [])
+    cycle.handle_command(SWERVE, *drive_msg(1.0))
+    assert servo.writes == []
+
+
+def test_many_queued_messages_for_one_joint_write_once_with_newest_value() -> None:
+    cycle, servo, _clock = make_cycle(ARM.joints + DRIVE)
+    for value in (0.1, 0.2, 0.3, 0.4, 0.5):
+        cycle.handle_command(ARM, ["gripper"], [value], [])
+        cycle.handle_command(SWERVE, *drive_msg(value * 4, joints=[DRIVE[0]]))
+    cycle.write_pending_commands()
+    assert servo.position_writes(6) == [2048 + round(0.5 * 4096 / (2 * math.pi))]
+    assert [v for _t, v in servo.speed_writes(32)] == [round(2.0 * 4096 / (2 * math.pi))]
+    assert len(servo.writes) == 2
+
+
+def test_stale_superseded_target_is_never_written() -> None:
+    cycle, servo, _clock = make_cycle(ARM.joints + DRIVE)
+    stale_steps = 2048 + round(0.3 * 4096 / (2 * math.pi))
+    stale_speed = round(3.0 * 4096 / (2 * math.pi))
+    cycle.handle_command(ARM, ["gripper"], [0.3], [])
+    cycle.handle_command(SWERVE, *drive_msg(3.0, joints=[DRIVE[0]]))
+    cycle.handle_command(ARM, ["gripper"], [0.0], [])
+    cycle.handle_command(SWERVE, *drive_msg(0.5, joints=[DRIVE[0]]))
+    cycle.write_pending_commands()
+    cycle.write_pending_commands()  # a second cycle with no new message writes nothing
+    assert stale_steps not in servo.position_writes(6)
+    assert stale_speed not in [v for _t, v in servo.speed_writes(32)]
+    assert servo.position_writes(6) == [2048]
+    assert len(servo.writes) == 2
+
+
+def test_non_finite_entry_does_not_replace_pending_finite_target() -> None:
+    cycle, servo, _clock = make_cycle(ARM.joints + DRIVE)
+    cycle.handle_command(ARM, ["gripper"], [0.1], [])
+    cycle.handle_command(ARM, ["gripper"], [NAN], [])
+    cycle.handle_command(SWERVE, *drive_msg(1.0, joints=[DRIVE[0]]))
+    cycle.handle_command(SWERVE, ["fl_drive"], [], [NAN])
+    cycle.write_pending_commands()
+    assert servo.position_writes(6) == [2048 + round(0.1 * 4096 / (2 * math.pi))]
+    assert [v for _t, v in servo.speed_writes(32)] == [round(4096 / (2 * math.pi))]
+
+
+def test_unchanged_target_is_not_rewritten() -> None:
+    cycle, servo, _clock = make_cycle(ARM.joints)
+    cycle.handle_command(ARM, ["gripper"], [0.1], [])
+    cycle.write_pending_commands()
+    cycle.handle_command(ARM, ["gripper"], [0.1], [])
+    cycle.write_pending_commands()
+    assert len(servo.position_writes(6)) == 1
+
+
+def test_watchdog_is_fed_by_receive_time_not_write_time() -> None:
+    cycle, servo, clock = make_cycle([DRIVE[0]])
+    cycle.handle_command(SWERVE, *drive_msg(1.0, joints=[DRIVE[0]]))  # received at t=0
+    clock.now = 0.25  # the loop only gets to write it late
+    cycle.write_pending_commands()
+    assert cycle.last_velocity_commands[32][0] == 0.0
+    clock.now = TIMEOUT_S + 0.01  # 0.31 s after receipt, only 0.06 s after the write
+    assert cycle.stop_expired() == [32]
+    assert servo.speed_writes(32)[-1][1] == 0
+
+
+def test_stale_pending_drive_target_does_not_restart_wheel_after_watchdog_stop() -> None:
+    cycle, servo, clock = make_cycle([DRIVE[0]])
+    cycle.handle_command(SWERVE, *drive_msg(1.0, joints=[DRIVE[0]]))
+    cycle.write_pending_commands()
+    clock.now = TIMEOUT_S + 0.01
+    assert cycle.stop_expired() == [32]
+    for step in range(1, 5):
+        clock.now = TIMEOUT_S + 0.01 + step * 0.02
+        cycle.write_pending_commands()
+        assert cycle.stop_expired() == []
+    assert [v for _t, v in servo.speed_writes(32)] == [round(4096 / (2 * math.pi)), 0]
+
+
+def test_many_messages_after_hiccup_write_each_joint_at_most_once() -> None:
+    cycle, servo, clock = make_cycle()
+    queue = deque()
+    for i in range(32):  # a burst well beyond one cycle's worth of steer/drive pairs
+        queue.append(steer_msg(0.01 * i))
+        queue.append(drive_msg(0.1 * (i + 1)))
+
+    def spin_ready() -> bool:
+        if not queue:
+            return False
+        cycle.handle_command(SWERVE, *queue.popleft())
+        return True
+
+    drain_callbacks(spin_ready)
+    cycle.write_pending_commands()
+    assert len(servo.writes) == len(STEER) + len(DRIVE)
+    for joint in STEER:
+        assert servo.position_writes(joint.id) == [2048 + round(0.31 * 4096 / (2 * math.pi))]
+    for joint in DRIVE:
+        assert [v for _t, v in servo.speed_writes(joint.id)] == [round(3.2 * 4096 / (2 * math.pi))]
 
 
 # --- drain_callbacks / remaining_sleep_s ---
@@ -250,6 +361,7 @@ def test_combined_message_with_nan_placeholders_drives_steer_and_wheels() -> Non
     positions = [0.5] * len(STEER) + [NAN] * len(DRIVE)
     velocities = [NAN] * len(STEER) + [1.0] * len(DRIVE)
     cycle.handle_command(SWERVE, names, positions, velocities)
+    cycle.write_pending_commands()
     for joint in STEER:
         assert servo.position_writes(joint.id) == [2048 + round(0.5 * 4096 / (2 * math.pi))]
         assert servo.speed_writes(joint.id) == []
@@ -262,10 +374,12 @@ def test_combined_message_with_nan_placeholders_drives_steer_and_wheels() -> Non
 def test_non_finite_velocity_is_ignored_and_does_not_feed_watchdog(bad: float) -> None:
     cycle, servo, clock = make_cycle([DRIVE[0]])
     cycle.handle_command(SWERVE, *drive_msg(1.0, joints=[DRIVE[0]]))
+    cycle.write_pending_commands()
     writes_before = list(servo.writes)
     for step in range(1, 20):
         clock.now = step * 0.02
         cycle.handle_command(SWERVE, ["fl_drive"], [], [bad])
+        cycle.write_pending_commands()
     assert servo.writes == writes_before
     assert cycle.stop_expired() == [32]  # NaN is not a command: the wheel goes stale and is stopped
 
@@ -274,6 +388,7 @@ def test_non_finite_velocity_is_ignored_and_does_not_feed_watchdog(bad: float) -
 def test_non_finite_position_is_ignored(bad: float) -> None:
     cycle, servo, _clock = make_cycle(ARM.joints)
     cycle.handle_command(ARM, ["gripper", "wrist_roll"], [bad, 0.0], [])
+    cycle.write_pending_commands()
     assert servo.position_writes(6) == []
     assert servo.position_writes(5) == [2048]
 
@@ -281,6 +396,7 @@ def test_non_finite_position_is_ignored(bad: float) -> None:
 def test_arm_position_only_message_still_works() -> None:
     cycle, servo, _clock = make_cycle(ARM.joints)
     cycle.handle_command(ARM, ["gripper", "wrist_roll"], [0.1, -0.1], [])
+    cycle.write_pending_commands()
     assert servo.position_writes(6) == [2048 + round(0.1 * 4096 / (2 * math.pi))]
     assert servo.position_writes(5) == [2048 - round(0.1 * 4096 / (2 * math.pi))]
 
@@ -289,6 +405,7 @@ def test_separate_steer_and_drive_messages_still_work() -> None:
     cycle, servo, _clock = make_cycle()
     cycle.handle_command(SWERVE, *steer_msg(0.0))
     cycle.handle_command(SWERVE, *drive_msg(-1.0))
+    cycle.write_pending_commands()
     for joint in STEER:
         assert servo.position_writes(joint.id) == [2048]
     for joint in DRIVE:

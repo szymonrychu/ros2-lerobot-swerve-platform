@@ -7,8 +7,9 @@ EPROM writes use unlock -> write -> lock; writes are skipped when value unchange
 When device is not set or cannot be opened: nothing is published (no placeholder joint_states).
 Multiple namespaces (extra_groups) can share one bus; velocity-mode joints run in wheel mode.
 Filtering/smoothing of joint_commands is handled by a separate filter node; this bridge applies commands directly.
-Every loop iteration drains all pending ROS callbacks (bounded), then runs the watchdog and state reads, then sleeps
-the remainder of the control period. Per-cycle logic lives in bridge_cycle.BridgeCycle (no rclpy).
+Every loop iteration drains all pending ROS callbacks (bounded; command callbacks only record the latest target per
+joint), writes each changed target once, then runs the watchdog and state reads, then sleeps the remainder of the
+control period. Per-cycle logic lives in bridge_cycle.BridgeCycle (no rclpy).
 """
 
 import json
@@ -279,6 +280,8 @@ def run_bridge(config: BridgeConfig) -> None:
             # Drain every pending callback so no command is starved behind another (see bridge_cycle).
             drain_callbacks(spin_ready)
             if servo is not None:
+                # One write per joint per cycle with its newest target; superseded targets never reach the bus.
+                cycle.write_pending_commands()
                 # Velocity watchdog: stop wheels with no drive command within velocity_command_timeout_s.
                 cycle.stop_expired()
                 readings = read_positions_and_speeds(expected_ids, make_sync_group, fallback_read)

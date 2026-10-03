@@ -1,11 +1,15 @@
 """Per-cycle bridge logic without rclpy: command handling, velocity watchdog, write decisions, callback draining.
 
+Command callbacks only record the latest finite target per joint (handle_command); the loop writes each pending
+target once per iteration (write_pending_commands), so targets superseded within one cycle never reach the bus.
+
 bridge.py wires this to ROS (subscriptions, executor, publishers); tests drive it with a fake servo and a
 simulated message queue.
 """
 
 import time
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from .command_mapping import is_finite_command, map_position_to_steps, position_to_raw_steps, velocity_to_speed_register
@@ -51,11 +55,28 @@ def remaining_sleep_s(period_s: float, elapsed_s: float) -> float:
     return max(0.0, period_s - elapsed_s)
 
 
+@dataclass
+class PendingTarget:
+    """Latest finite command for one joint, not yet written to the bus.
+
+    Attributes:
+        joint: Joint the target is for.
+        value: goal_position steps (position joints) or velocity in rad/s (velocity joints).
+        received_at: Monotonic time the command was received, seconds (feeds the velocity watchdog).
+    """
+
+    joint: JointEntry
+    value: float
+    received_at: float
+
+
 class BridgeCycle:
     """Command handling and velocity watchdog for one serial bus, independent of rclpy.
 
     Attributes:
-        last_velocity_commands: servo_id -> (monotonic time, rad/s) used by the velocity watchdog.
+        last_velocity_commands: servo_id -> (receive time of last drive command, applied rad/s) for the watchdog.
+        pending_positions: servo_id -> latest unwritten position target (value in goal_position steps).
+        pending_velocities: servo_id -> latest unwritten velocity target (value in rad/s).
     """
 
     def __init__(
@@ -92,14 +113,17 @@ class BridgeCycle:
         self.velocity_command_timeout_s = velocity_command_timeout_s
         self.clock = clock
         self.last_velocity_commands: dict[int, tuple[float, float]] = {}
+        self.pending_positions: dict[int, PendingTarget] = {}
+        self.pending_velocities: dict[int, PendingTarget] = {}
 
-    def write_velocity(self, joint: JointEntry, velocity: float, received: bool = False) -> bool:
+    def write_velocity(self, joint: JointEntry, velocity: float, received_at: float | None = None) -> bool:
         """Write goal_speed for a wheel joint and record it for the watchdog.
 
         Args:
             joint: Velocity-mode joint.
             velocity: Commanded velocity, rad/s (finite).
-            received: True for a drive command from joint_commands (feeds the watchdog even if the write fails).
+            received_at: Receive time of the drive command from joint_commands (feeds the watchdog even if the
+                write fails); None for a watchdog / shutdown stop.
 
         Returns:
             bool: True if the write succeeded (or was skipped as unchanged).
@@ -110,9 +134,9 @@ class BridgeCycle:
             lambda: write_register(self.servo, joint.id, self.speed_goal_entry, raw, cache),
             joint.id,
             velocity,
-            self.clock(),
+            received_at if received_at is not None else self.clock(),
             self.last_velocity_commands,
-            received=received,
+            received=received_at is not None,
         )
 
     def position_target_steps(self, joint: JointEntry, position: float) -> int:
@@ -147,11 +171,12 @@ class BridgeCycle:
         positions: Sequence[float],
         velocities: Sequence[float],
     ) -> None:
-        """Apply one joint_commands message to the servos of a group.
+        """Record one joint_commands message as the latest target per joint; never writes to the bus.
 
         Accepts separate steer-only / drive-only messages, position-only arm messages, and the combined format
         (all joints in one message, position NaN for velocity-mode joints, velocity NaN for position-mode
-        joints). Non-finite entries are ignored and never written to a servo.
+        joints). Non-finite entries are ignored and never replace a pending target. A newer finite target for a
+        joint replaces the pending one, so superseded targets are never written. write_pending_commands writes them.
 
         Args:
             group: Joint group the message was received for.
@@ -161,24 +186,45 @@ class BridgeCycle:
         """
         if self.servo is None or self.goal_entry is None:
             return
+        now = self.clock()
         for i, name in enumerate(names):
             joint = group.joint_entry_by_name(name)
             if joint is None:
                 continue
             if joint.mode == "velocity":
                 if joint.id in self.velocity_ids and i < len(velocities) and is_finite_command(velocities[i]):
-                    self.write_velocity(joint, float(velocities[i]), received=True)
+                    self.pending_velocities[joint.id] = PendingTarget(joint, float(velocities[i]), now)
                 continue
             if i >= len(positions) or not is_finite_command(positions[i]):
                 continue
             target = self.position_target_steps(joint, float(positions[i]))
+            self.pending_positions[joint.id] = PendingTarget(joint, target, now)
+
+    def write_pending_commands(self) -> int:
+        """Write every pending target once (call once per loop iteration, after draining callbacks).
+
+        write_register skips a value equal to the last written one, so only changed targets reach the bus. Pending
+        targets are consumed whether or not the write succeeds (a failed write is not retried with a stale value;
+        the next message brings a fresh one). Drive targets feed the watchdog with their receive time.
+
+        Returns:
+            int: Number of pending targets processed.
+        """
+        positions, self.pending_positions = self.pending_positions, {}
+        velocities, self.pending_velocities = self.pending_velocities, {}
+        if self.servo is None or self.goal_entry is None:
+            return 0
+        for target in positions.values():
             write_register(
                 self.servo,
-                joint.id,
+                target.joint.id,
                 self.goal_entry,
-                target,
-                self.last_written.setdefault(joint.id, {}),
+                int(target.value),
+                self.last_written.setdefault(target.joint.id, {}),
             )
+        for target in velocities.values():
+            self.write_velocity(target.joint, target.value, received_at=target.received_at)
+        return len(positions) + len(velocities)
 
     def stop_expired(self) -> list[int]:
         """Velocity watchdog: stop wheels whose drive commands went stale.
@@ -193,8 +239,11 @@ class BridgeCycle:
     def stop(self, joints: Sequence[JointEntry]) -> None:
         """Command zero velocity on the given wheel joints.
 
+        Any pending (unwritten) velocity target for these joints is dropped so it cannot restart them.
+
         Args:
             joints: Velocity-mode joints to stop.
         """
         for joint in joints:
+            self.pending_velocities.pop(joint.id, None)
             self.write_velocity(joint, 0.0)
