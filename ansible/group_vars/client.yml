@@ -197,6 +197,9 @@ ros2_node_type_defaults:
     cpu_quota: "30%"
     memory_max: "256M"
     config_path: /etc/ros2/web_ui
+    # web_ui imports slam_toolbox.srv (map save) at module top; install it here so web_ui deploys standalone.
+    apt_packages:
+      - ros-jazzy-slam-toolbox
     env:
       - ROS_SUPER_CLIENT=TRUE
       - WEB_UI_CONFIG=/etc/ros2/web_ui/config.yaml

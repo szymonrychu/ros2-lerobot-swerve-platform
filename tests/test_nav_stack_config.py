@@ -494,3 +494,9 @@ def test_web_ui_has_map_nav_tab() -> None:
         "base_frame": "base_link",
         "map_save_path": MAP_BASE,
     }
+
+
+def test_web_ui_installs_slam_toolbox_for_its_service_imports() -> None:
+    """web_ui imports slam_toolbox.srv at module top, so deploying it alone must install the package."""
+    defaults = client_vars()["ros2_node_type_defaults"]["web_ui"]
+    assert "ros-jazzy-slam-toolbox" in defaults.get("apt_packages", [])

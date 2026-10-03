@@ -46,6 +46,8 @@ Env overrides (unit `env`): `SLAM_TOOLBOX_PARAMS` (params file path), `SLAM_TOOL
 
 Ansible node type `slam_toolbox` in `ansible/group_vars/client.yml` (native, apt `ros-jazzy-slam-toolbox`,
 CPU 75 % / 512 MB). `playbooks/tasks/slam_maps_dir.yml` creates `/var/lib/ros2/maps` owned by the node user.
+The `web_ui` node type also lists `ros-jazzy-slam-toolbox` in its `apt_packages`, because web_ui imports
+`slam_toolbox.srv` for the map-save call; web_ui can therefore be deployed before or without this node.
 
 ```bash
 mkdir -p .logs

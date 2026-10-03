@@ -179,3 +179,4 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_docking_server_configures_without_docks` | Non-empty `dock_plugins`, no docks. |
 | `test_nav2_readme_documents_plan_topics` | Nav2 README names `/plan` and `/optimal_trajectory`. |
 | `test_web_ui_has_map_nav_tab` | web_ui config has the `map` tab of type `map_nav` with exactly the expected fields. |
+| `test_web_ui_installs_slam_toolbox_for_its_service_imports` | web_ui node type installs `ros-jazzy-slam-toolbox` (it imports `slam_toolbox.srv`), so deploying web_ui alone does not fail with ImportError. |
