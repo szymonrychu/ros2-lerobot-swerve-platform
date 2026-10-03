@@ -128,10 +128,11 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `bno055_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
 | `gripper_uvc_camera` | uvc_camera | `/camera_0/image_compressed` (pub, `sensor_msgs/CompressedImage`) | USB camera |
 | `lerobot_follower` (group `swerve_drive`) | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 swerve servos (IDs 32-39) on the follower arm bus |
-| `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub) | — |
+| `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub); TF off (EKF owns odom→base_link) | — |
 | `static_tf_publisher` | static_tf_publisher | TF base_link → imu_link, laser_frame | — |
-| `robot_localization_ekf` | robot_localization_ekf | `/odom` (sub), `/imu/data` (sub), `/odometry/filtered` (pub) | — |
-| `nav2_bringup` | nav2_bringup | `/cmd_vel` (pub), `/odom` or `/odometry/filtered`, `/scan`, `navigate_to_pose` (action) | — |
+| `robot_localization_ekf` | robot_localization_ekf | `/odom` (sub), `/imu/data` (sub), `/odometry/filtered` (pub), TF odom→base_link | — |
+| `slam_toolbox` | slam_toolbox | `/scan` (sub), `/map` (pub), TF map→odom; posegraph in `/var/lib/ros2/maps` | — |
+| `nav2_bringup` | nav2_bringup | `/goal_pose` (sub), `/plan`, `/optimal_trajectory` (pub), `/cmd_vel` (pub), `/odometry/filtered`, `/map`, `/scan`, `navigate_to_pose` (action) | — |
 | `rplidar_a1` | rplidar_a1 | `/scan` (pub, `sensor_msgs/LaserScan`) | RPLidar A1 (`/dev/ttyUSB0`) |
 | `realsense_d435i` | realsense_d435i | `/camera/*` (color, depth, pointcloud, `/camera/imu`) | RealSense D435i (USB 3.0) |
 | `test_joint_api` | test_joint_api | REST :18080 → `/filter/input_joint_updates` (pub) | — |
@@ -151,16 +152,17 @@ Client: master2master   →  /filter/input_joint_updates  ← test_joint_api (RE
         lerobot_follower → servos
 ```
 
-### Topic flow (swerve + Nav2)
+### Topic flow (swerve + SLAM + Nav2)
 
 ```
-Nav2 (nav2_bringup)     →  /cmd_vel
-                              ↓
+web_ui Map tab (click+drag)  →  /goal_pose  →  Nav2 bt_navigator
+Nav2: planner_server → /plan (global), controller_server MPPI → /optimal_trajectory (local)
+      → cmd_vel_nav → velocity_smoother → collision_monitor → /cmd_vel
         swerve_controller → /swerve_drive/joint_commands  →  lerobot_follower bridge, swerve_drive group (8 servos)
-        swerve_controller → /odom (and odom→base_link TF)
-                              ↓
-        robot_localization_ekf (optional) fuses /odom + /imu/data → /odometry/filtered
-Nav2 reads: /odom or /odometry/filtered, /scan, /imu/data; goal via navigate_to_pose action.
+        swerve_controller → /odom
+robot_localization_ekf fuses /odom + /imu/data → /odometry/filtered + TF odom→base_link
+slam_toolbox: /scan + TF → /map + TF map→odom  →  Nav2 global costmap static layer, web_ui Map tab
+web_ui Map tab shows /map, robot pose (TF map→base_link), /plan, /optimal_trajectory, /goal_pose; "Save map" → /slam_toolbox/serialize_map
 ```
 
 ## Hardware components
