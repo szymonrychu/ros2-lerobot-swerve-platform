@@ -186,6 +186,27 @@ def test_release_then_leader_only_after_proximity() -> None:
     assert not arb.on_leader_input(LEADER_FAR, now=1000.2).resumed_after_release
 
 
+def test_release_web_ui_timeout_far_leader_rejected_then_near_accepted() -> None:
+    arb = make_arbiter()
+    arb.on_autonomy_command()
+    arb.on_autonomy_release(True)
+    assert arb.on_web_ui_command(now=10.0)
+    # Timeout elapsed: far leader must still be rejected and the filtered output must stay muted.
+    assert not arb.on_leader_input(LEADER_FAR, now=20.0).accepted
+    assert not arb.should_publish_filtered(now=20.0)
+    # web_ui keeps working, and its timeout restarts the same guard.
+    assert arb.on_web_ui_command(now=21.0)
+    assert not arb.on_leader_input(LEADER_FAR, now=100.0).accepted
+    decision = arb.on_leader_input(LEADER_CLOSE, now=100.1)
+    assert decision.accepted
+    assert decision.resumed_after_release
+    assert arb.active_source == SOURCE_LEADER
+    assert arb.should_publish_filtered(now=100.1)
+    # Guard is cleared: later web_ui interjection follows the legacy timeout rule.
+    assert arb.on_web_ui_command(now=200.0)
+    assert arb.on_leader_input(LEADER_FAR, now=201.0).accepted
+
+
 def test_release_then_leader_blocked_without_follower_feedback() -> None:
     arb = make_arbiter(proximity=False)
     arb.on_autonomy_command()

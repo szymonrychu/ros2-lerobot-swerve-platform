@@ -32,12 +32,12 @@ Priority is **autonomy > web_ui > leader**. The logic lives in `filter_node/arbi
 | Active source | Leader input | Web UI input | Autonomy input | Kalman output published |
 |---|---|---|---|---|
 | `leader` | accepted | takes over (`web_ui`) | takes lease (`autonomy`) | yes |
-| `web_ui` | accepted after `web_ui_timeout_s`, or earlier via proximity rule | accepted | takes lease | only after `web_ui_timeout_s` |
+| `web_ui` | accepted after `web_ui_timeout_s`, or earlier via proximity rule (proximity only, if reached after an autonomy release and the leader has not yet resumed) | accepted | takes lease | only after `web_ui_timeout_s` |
 | `autonomy` | ignored | ignored | accepted | no |
 | `none` (after release) | accepted only via proximity rule | takes over immediately | takes lease again | no |
 
 - **Sticky autonomy lease:** the first autonomy command takes the lease and it has **no timeout**. While held, web UI and leader messages are dropped. Only `true` on `autonomy_release_topic` ends it.
-- **Proximity rule:** the leader takes over only when every joint in its message is within `takeover_threshold_rad` of the latest follower feedback. After an autonomy release this is the **only** way back to the leader (no timeout fallback), so the follower never snaps to the leader pose. Without `follower_feedback_topic` the leader cannot resume after a release (a warning is logged at startup); web UI still works.
+- **Proximity rule:** the leader takes over only when every joint in its message is within `takeover_threshold_rad` of the latest follower feedback. After an autonomy release this is the **only** way back to the leader (no timeout fallback), so the follower never snaps to the leader pose. The requirement persists through any web UI command and its `web_ui_timeout_s` until the leader has been accepted via proximity (the filtered output stays unpublished meanwhile). Without `follower_feedback_topic` the leader cannot resume after a release (a warning is logged at startup); web UI still works.
 - When the leader resumes after a release, the Kalman state is reset to the new leader measurement so stale pre-lease estimates are never published.
 - When no autonomy command ever arrives, leader / web UI behaviour is unchanged.
 

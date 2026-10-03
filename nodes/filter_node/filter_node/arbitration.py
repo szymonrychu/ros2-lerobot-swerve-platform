@@ -7,6 +7,8 @@ Priority is autonomy > web_ui > leader:
 - After a release the active source is ``none``: web UI commands take over immediately; the leader resumes
   only when every joint is within ``takeover_threshold_rad`` of the follower feedback, so the follower never
   snaps to the leader pose. Without follower feedback the leader cannot resume after a release.
+  This proximity requirement persists through any web UI interjection (and its timeout) until the leader
+  has actually been accepted via proximity.
 - **web_ui**: active for ``web_ui_timeout_s`` after its last command; meanwhile the leader takes over only
   via the proximity rule. After the timeout the leader resumes (legacy behaviour).
 """
@@ -75,6 +77,7 @@ class SourceArbiter:
         self.proximity_check_enabled = proximity_check_enabled
         self.active_source: str = SOURCE_LEADER
         self.last_web_ui_time = 0.0
+        self.proximity_required = False  # set by an autonomy release, cleared when the leader is accepted
         self.follower_positions: dict[str, float] = {}
 
     @property
@@ -128,6 +131,7 @@ class SourceArbiter:
         if not release or not self.autonomy_held:
             return False
         self.active_source = SOURCE_NONE
+        self.proximity_required = True
         return True
 
     def on_web_ui_command(self, now: float) -> bool:
@@ -159,10 +163,11 @@ class SourceArbiter:
             return LeaderDecision(accepted=True)
         if self.autonomy_held:
             return LeaderDecision(accepted=False)
-        if self.active_source == SOURCE_NONE:
+        if self.proximity_required:
             if not self.leader_close_to_follower(leader_positions):
                 return LeaderDecision(accepted=False)
             self.active_source = SOURCE_LEADER
+            self.proximity_required = False
             return LeaderDecision(accepted=True, resumed_after_release=True)
         # web_ui
         if now - self.last_web_ui_time >= self.web_ui_timeout_s or self.leader_close_to_follower(leader_positions):
@@ -178,8 +183,11 @@ class SourceArbiter:
 
         Returns:
             bool: False while autonomy holds the lease, after a release until the leader resumes, and while
-            the web UI is active; True otherwise.
+            the web UI is active; True otherwise. Stays False
+            while the post-release proximity requirement is pending, even after a web UI timeout.
         """
+        if self.proximity_required:
+            return False
         if self.active_source == SOURCE_WEB_UI:
             return now - self.last_web_ui_time >= self.web_ui_timeout_s
         return self.active_source == SOURCE_LEADER
