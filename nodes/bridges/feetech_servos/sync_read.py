@@ -5,7 +5,6 @@ from typing import Any
 
 # present_position (2 bytes) is immediately followed by present_speed (2 bytes).
 PRESENT_POSITION_ADDRESS = 56
-PRESENT_SPEED_ADDRESS = 58
 SYNC_READ_LENGTH = 4
 COMM_SUCCESS = 0
 
@@ -37,10 +36,9 @@ def read_positions_and_speeds(
         for sid in servo_ids:
             available, _error = group.isAvailable(sid, PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH)
             if available:
-                result[sid] = (
-                    group.getData(sid, PRESENT_POSITION_ADDRESS, 2),
-                    group.getData(sid, PRESENT_SPEED_ADDRESS, 2),
-                )
+                # Decode bytes directly: st3215 GroupSyncRead.getData calls a non-existent scs_makeword.
+                _err, pos_lo, pos_hi, spd_lo, spd_hi = group.data_dict[sid][: SYNC_READ_LENGTH + 1]
+                result[sid] = (pos_lo | (pos_hi << 8), spd_lo | (spd_hi << 8))
     for sid in servo_ids:
         if sid not in result:
             single = fallback_read(sid)

@@ -86,28 +86,33 @@ def test_position_roundtrip_inverted() -> None:
 
 
 class FakeGroupSyncRead:
-    """Mimics st3215.GroupSyncRead: data_dict[id] = [error, pos_lo, pos_hi, spd_lo, spd_hi]."""
+    """Mimics st3215.GroupSyncRead: data_dict[id] = [error, pos_lo, pos_hi, spd_lo, spd_hi].
+
+    getData raises AttributeError like the real library (it calls a non-existent scs_makeword).
+    """
 
     def __init__(self, replies: dict[int, tuple[int, int]], comm_result: int = 0) -> None:
         self.replies = replies
         self.comm_result = comm_result
         self.params: list[int] = []
+        self.data_dict: dict[int, list[int]] = {}
 
     def addParam(self, sts_id: int) -> bool:  # noqa: N802 - st3215 API
         self.params.append(sts_id)
+        self.data_dict[sts_id] = []
         return True
 
     def txRxPacket(self) -> int:  # noqa: N802 - st3215 API
+        for sid, (pos, spd) in self.replies.items():
+            self.data_dict[sid] = [0, pos & 0xFF, pos >> 8, spd & 0xFF, spd >> 8]
         return self.comm_result
 
     def isAvailable(self, sts_id: int, address: int, data_length: int) -> tuple[bool, int]:  # noqa: N802
         assert address == PRESENT_POSITION_ADDRESS and data_length == 4
-        return (sts_id in self.replies, 0)
+        return (len(self.data_dict.get(sts_id, [])) >= data_length + 1, 0)
 
     def getData(self, sts_id: int, address: int, data_length: int) -> int:  # noqa: N802 - st3215 API
-        assert data_length == 2
-        pos, spd = self.replies[sts_id]
-        return pos if address == PRESENT_POSITION_ADDRESS else spd
+        raise AttributeError("'ST3215' object has no attribute 'scs_makeword'")
 
 
 def test_sync_read_returns_all_servos() -> None:

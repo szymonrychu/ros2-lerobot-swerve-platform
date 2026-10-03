@@ -47,7 +47,9 @@ ssh_cmd() {
 section_services() {
   echo "--- Services ($CLIENT) ---"
   for svc in ros2-lerobot_follower ros2-swerve_controller ros2-swerve_drive_servos; do
-    echo "  $svc: $(ssh_cmd "systemctl is-active $svc 2>/dev/null" || echo "inactive/absent")"
+    local state
+    state=$(ssh_cmd "systemctl is-active $svc 2>/dev/null") || true
+    echo "  $svc: ${state:-absent}"
   done
   echo "  (ros2-swerve_drive_servos is expected to be absent: swerve servos run inside lerobot_follower)"
 }
