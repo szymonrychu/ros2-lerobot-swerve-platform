@@ -13,9 +13,10 @@ from sensor_msgs.msg import JointState
 from tf2_ros import TransformBroadcaster
 
 from .config import SwerveControllerConfig
-from .kinematics import forward_kinematics, inverse_kinematics, optimize_wheel_angle, should_zero_drive
+from .kinematics import compute_wheel_commands, forward_kinematics, integrate_odometry, should_zero_drive, wheel_states
 
 CMD_VEL_DEADBAND = 0.005  # m/s and rad/s
+WAIT_LOG_INTERVAL_S = 5.0
 
 CONTROL_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -24,31 +25,34 @@ CONTROL_QOS = QoSProfile(
 )
 
 
-def _joint_map(msg: JointState) -> dict[str, float]:
-    """Build name -> position map; name -> velocity if present."""
-    out: dict[str, float] = {}
-    for i, name in enumerate(msg.name):
-        if i < len(msg.position):
-            out[name] = float(msg.position[i])
-    return out
+def joint_maps(msg: JointState) -> tuple[dict[str, float], dict[str, float]]:
+    """Build name -> position and name -> velocity maps from a JointState (only fields actually present).
 
+    Args:
+        msg: JointState from the feetech bridge.
 
-def _joint_map_velocity(msg: JointState) -> dict[str, float]:
-    """Build name -> velocity map (0.0 if not in message)."""
-    out: dict[str, float] = {}
-    for i, name in enumerate(msg.name):
-        if i < len(msg.velocity):
-            out[name] = float(msg.velocity[i])
-        else:
-            out[name] = 0.0
-    return out
+    Returns:
+        tuple[dict[str, float], dict[str, float]]: (positions rad, velocities rad/s).
+    """
+    positions = {name: float(msg.position[i]) for i, name in enumerate(msg.name) if i < len(msg.position)}
+    velocities = {name: float(msg.velocity[i]) for i, name in enumerate(msg.name) if i < len(msg.velocity)}
+    return positions, velocities
 
 
 def run_swerve_controller(config: SwerveControllerConfig) -> None:
-    """Run the swerve controller node."""
+    """Run the swerve controller node.
+
+    Each control cycle (only while joint states are fresh and complete): IK for the latest cmd_vel ->
+    steering positions (JointState.position) and drive velocities (JointState.velocity) to the bridge;
+    FK of the measured wheel states -> /odom and the odom -> base_link TF.
+
+    Args:
+        config: Controller configuration.
+    """
     rclpy.init()
     node = Node("swerve_drive_controller")
     clock = node.get_clock()
+    logger = node.get_logger()
     lx = config.half_length_m
     ly = config.half_width_m
     R = config.wheel_radius_m
@@ -63,17 +67,14 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
 
     latest_cmd: list[float] = [0.0, 0.0, 0.0]  # vx, vy, omega
     latest_cmd_time: float = 0.0
-    cmd_timeout_s = 0.5
-
     joint_positions: dict[str, float] = {}
     joint_velocities: dict[str, float] = {}
     last_joint_states_time: float = 0.0
+    steer_targets: list[float] | None = None  # last commanded steer; held while stopped
 
-    # Pose integration (odom frame)
-    pose_x = 0.0
-    pose_y = 0.0
-    pose_theta = 0.0
+    pose = (0.0, 0.0, 0.0)  # x, y, theta in odom frame
     last_odom_time: float | None = None
+    last_wait_log = 0.0
 
     def on_cmd_vel(msg: Twist) -> None:
         nonlocal latest_cmd, latest_cmd_time
@@ -81,138 +82,127 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
         latest_cmd_time = time.monotonic()
 
     def on_joint_states(msg: JointState) -> None:
-        nonlocal joint_positions, joint_velocities, last_joint_states_time
-        joint_positions = _joint_map(msg)
-        joint_velocities = _joint_map_velocity(msg)
+        nonlocal last_joint_states_time
+        positions, velocities = joint_maps(msg)
+        joint_positions.update(positions)
+        joint_velocities.update(velocities)
         last_joint_states_time = time.monotonic()
 
     node.create_subscription(Twist, config.cmd_vel_topic, on_cmd_vel, CONTROL_QOS)
     node.create_subscription(JointState, config.joint_states_topic, on_joint_states, CONTROL_QOS)
 
     control_period_s = 1.0 / max(1.0, config.control_loop_hz)
-    node.get_logger().info(
-        "Swerve controller: %s -> %s, odom -> %s"
-        % (config.cmd_vel_topic, config.joint_commands_topic, config.odom_topic)
+    logger.info(
+        "Swerve controller: %s -> %s, odom -> %s (Lx=%.4f Ly=%.4f R=%.3f, steer limit %.2f rad, wheel max %.2f rad/s)"
+        % (
+            config.cmd_vel_topic,
+            config.joint_commands_topic,
+            config.odom_topic,
+            lx,
+            ly,
+            R,
+            config.max_steer_angle_rad,
+            config.max_wheel_angular_velocity_rad_s,
+        )
     )
 
     executor = SingleThreadedExecutor()
     executor.add_node(node)
 
     while rclpy.ok():
+        executor.spin_once(timeout_sec=control_period_s)
         now = time.monotonic()
-        stamp = clock.now()
+        measured = wheel_states(joint_positions, joint_velocities, steer_joints, drive_joints)
+        if measured is None or now - last_joint_states_time > config.joint_states_timeout_s:
+            # No fresh, complete wheel state: publish nothing (bridge watchdog stops the wheels).
+            if now - last_wait_log > WAIT_LOG_INTERVAL_S:
+                last_wait_log = now
+                logger.warn("Waiting for fresh joint states on %s" % config.joint_states_topic)
+            last_odom_time = None
+            continue
+        steer_angles, drive_velocities = measured
+        stamp = clock.now().to_msg()
 
-        # Timeout cmd_vel: stop if no command recently
-        if now - latest_cmd_time > cmd_timeout_s:
-            latest_cmd = [0.0, 0.0, 0.0]
-
-        vx, vy, omega = latest_cmd[0], latest_cmd[1], latest_cmd[2]
-
+        vx, vy, omega = latest_cmd if now - latest_cmd_time <= config.cmd_vel_timeout_s else (0.0, 0.0, 0.0)
         # Velocity deadband: suppress tiny commands to avoid servo jitter
         if abs(vx) < CMD_VEL_DEADBAND and abs(vy) < CMD_VEL_DEADBAND and abs(omega) < CMD_VEL_DEADBAND:
             vx, vy, omega = 0.0, 0.0, 0.0
 
-        # Build current steer angles and drive velocities from joint_states (for FK and safeguard)
-        steer_angles: list[float] = []
-        drive_velocities: list[float] = []
+        if steer_targets is None:
+            steer_targets = list(steer_angles)
+        desired_steer, desired_drive = compute_wheel_commands(
+            vx,
+            vy,
+            omega,
+            steer_targets,
+            lx,
+            ly,
+            R,
+            config.max_steer_angle_rad,
+            config.max_wheel_angular_velocity_rad_s,
+        )
+        steer_targets = desired_steer
+        # No-propulsion safeguard: zero drive for a wheel until its steering has caught up.
         for i in range(4):
-            steer_angles.append(joint_positions.get(steer_joints[i], 0.0))
-            drive_velocities.append(joint_velocities.get(drive_joints[i], 0.0))
+            if should_zero_drive(steer_angles[i], desired_steer[i], config.steer_error_threshold_rad):
+                desired_drive[i] = 0.0
 
-        # Inverse kinematics: desired steer and drive
-        desired_steer, desired_drive_angular = inverse_kinematics(vx, vy, omega, lx, ly, R)
+        steer_cmd = JointState()
+        steer_cmd.header.stamp = stamp
+        steer_cmd.name = list(steer_joints)
+        steer_cmd.position = list(desired_steer)
+        pub_cmd.publish(steer_cmd)
+        drive_cmd = JointState()
+        drive_cmd.header.stamp = stamp
+        drive_cmd.name = list(drive_joints)
+        drive_cmd.velocity = list(desired_drive)
+        pub_cmd.publish(drive_cmd)
 
-        # Wheel direction optimization: flip steer+negate drive if it reduces travel angle
-        for i in range(4):
-            desired_steer[i], desired_drive_angular[i] = optimize_wheel_angle(
-                steer_angles[i], desired_steer[i], desired_drive_angular[i]
-            )
+        # Forward kinematics and odometry from measured wheel states.
+        vx_fk, vy_fk, omega_fk = forward_kinematics(steer_angles, drive_velocities, lx, ly, R)
+        if last_odom_time is not None:
+            pose = integrate_odometry(pose, (vx_fk, vy_fk, omega_fk), now - last_odom_time)
+        last_odom_time = now
+        pose_x, pose_y, pose_theta = pose
 
-        # No-propulsion safeguard: zero drive for a wheel if steer error too large
-        for i in range(4):
-            if should_zero_drive(
-                steer_angles[i],
-                desired_steer[i],
-                config.steer_error_threshold_rad,
-            ):
-                desired_drive_angular[i] = 0.0
+        odom = Odometry()
+        odom.header.stamp = stamp
+        odom.header.frame_id = config.odom_frame_id
+        odom.child_frame_id = config.base_frame_id
+        odom.pose.pose.position.x = pose_x
+        odom.pose.pose.position.y = pose_y
+        odom.pose.pose.position.z = 0.0
+        q = _yaw_to_quaternion(pose_theta)
+        odom.pose.pose.orientation.x = q[0]
+        odom.pose.pose.orientation.y = q[1]
+        odom.pose.pose.orientation.z = q[2]
+        odom.pose.pose.orientation.w = q[3]
+        odom.twist.twist.linear.x = vx_fk
+        odom.twist.twist.linear.y = vy_fk
+        odom.twist.twist.angular.z = omega_fk
+        is_moving = abs(vx) > CMD_VEL_DEADBAND or abs(vy) > CMD_VEL_DEADBAND or abs(omega) > CMD_VEL_DEADBAND
+        cov_xy = 0.01 if is_moving else 0.001
+        cov_yaw = 0.01 if is_moving else 0.0001
+        odom.pose.covariance[0] = cov_xy
+        odom.pose.covariance[7] = cov_xy
+        odom.pose.covariance[35] = cov_yaw
+        odom.twist.covariance[0] = cov_xy
+        odom.twist.covariance[7] = cov_xy
+        odom.twist.covariance[35] = cov_yaw
+        pub_odom.publish(odom)
 
-        # Publish joint commands: positions for steer (rad), positions for drive (integrated from velocity)
-        # Feetech bridge expects position in rad. For drive we send target position; the bridge will
-        # move toward it. So we can send current_position + velocity * dt for drive, or just
-        # position setpoints. Actually the bridge only accepts position (goal_position in steps).
-        # So we need to convert desired_drive_angular to position delta: we integrate.
-        # For simplicity: publish steer target (desired_steer) and drive target as current + omega_drive * dt.
-        # Skip publishing when all commands are zero and drives are already near zero (avoid jitter).
-        all_drive_near_zero = all(abs(joint_velocities.get(j, 0.0)) < CMD_VEL_DEADBAND for j in drive_joints)
-        if vx != 0.0 or vy != 0.0 or omega != 0.0 or not all_drive_near_zero:
-            out = JointState()
-            out.header.stamp = stamp.to_msg()
-            out.header.frame_id = ""
-            out.name = list(joint_names)
-            out.position = []
-            out.velocity = []
-            out.effort = []
-            dt = control_period_s
-            for i in range(4):
-                drive_pos = joint_positions.get(drive_joints[i], 0.0) + desired_drive_angular[i] * dt
-                out.position.append(drive_pos)
-                out.position.append(desired_steer[i])
-            pub_cmd.publish(out)
-
-        # Forward kinematics and odometry
-        if len(steer_angles) == 4 and len(drive_velocities) == 4:
-            vx_fk, vy_fk, omega_fk = forward_kinematics(steer_angles, drive_velocities, lx, ly, R)
-            if last_odom_time is not None:
-                dt_odom = now - last_odom_time
-                pose_theta += omega_fk * dt_odom
-                pose_x += (vx_fk * math.cos(pose_theta) - vy_fk * math.sin(pose_theta)) * dt_odom
-                pose_y += (vx_fk * math.sin(pose_theta) + vy_fk * math.cos(pose_theta)) * dt_odom
-            last_odom_time = now
-
-            odom = Odometry()
-            odom.header.stamp = stamp.to_msg()
-            odom.header.frame_id = config.odom_frame_id
-            odom.child_frame_id = config.base_frame_id
-            odom.pose.pose.position.x = pose_x
-            odom.pose.pose.position.y = pose_y
-            odom.pose.pose.position.z = 0.0
-            q = _yaw_to_quaternion(pose_theta)
-            odom.pose.pose.orientation.x = q[0]
-            odom.pose.pose.orientation.y = q[1]
-            odom.pose.pose.orientation.z = q[2]
-            odom.pose.pose.orientation.w = q[3]
-            odom.twist.twist.linear.x = vx_fk
-            odom.twist.twist.linear.y = vy_fk
-            odom.twist.twist.linear.z = 0.0
-            odom.twist.twist.angular.x = 0.0
-            odom.twist.twist.angular.y = 0.0
-            odom.twist.twist.angular.z = omega_fk
-            is_moving = abs(vx) > CMD_VEL_DEADBAND or abs(vy) > CMD_VEL_DEADBAND or abs(omega) > CMD_VEL_DEADBAND
-            cov_xy = 0.01 if is_moving else 0.001
-            cov_yaw = 0.01 if is_moving else 0.0001
-            odom.pose.covariance[0] = cov_xy
-            odom.pose.covariance[7] = cov_xy
-            odom.pose.covariance[35] = cov_yaw
-            odom.twist.covariance[0] = cov_xy
-            odom.twist.covariance[7] = cov_xy
-            odom.twist.covariance[35] = cov_yaw
-            pub_odom.publish(odom)
-
-            t = TransformStamped()
-            t.header.stamp = stamp.to_msg()
-            t.header.frame_id = config.odom_frame_id
-            t.child_frame_id = config.base_frame_id
-            t.transform.translation.x = pose_x
-            t.transform.translation.y = pose_y
-            t.transform.translation.z = 0.0
-            t.transform.rotation.x = q[0]
-            t.transform.rotation.y = q[1]
-            t.transform.rotation.z = q[2]
-            t.transform.rotation.w = q[3]
-            tf_broadcaster.sendTransform(t)
-
-        executor.spin_once(timeout_sec=control_period_s)
+        t = TransformStamped()
+        t.header.stamp = stamp
+        t.header.frame_id = config.odom_frame_id
+        t.child_frame_id = config.base_frame_id
+        t.transform.translation.x = pose_x
+        t.transform.translation.y = pose_y
+        t.transform.translation.z = 0.0
+        t.transform.rotation.x = q[0]
+        t.transform.rotation.y = q[1]
+        t.transform.rotation.z = q[2]
+        t.transform.rotation.w = q[3]
+        tf_broadcaster.sendTransform(t)
 
     node.destroy_node()
     rclpy.shutdown()

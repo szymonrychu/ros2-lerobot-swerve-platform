@@ -1,5 +1,6 @@
 """Configuration loading for swerve drive controller (geometry, topics, frame_ids, safeguard)."""
 
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,10 +11,16 @@ import yaml
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/swerve_drive_controller/config.yaml")
 ENV_CONFIG_PATH_KEY = "SWERVE_DRIVE_CONTROLLER_CONFIG"
 
-# Default geometry: 40 cm length (wheel axis to axis), 30 cm width, 15 cm wheel radius.
-DEFAULT_HALF_LENGTH_M = 0.2
-DEFAULT_HALF_WIDTH_M = 0.15
-DEFAULT_WHEEL_RADIUS_M = 0.15
+# Default geometry (Platform dimensions.md): steering yaw axes 305 mm long x 266.6 mm wide, 60 mm wheel radius.
+DEFAULT_HALF_LENGTH_M = 0.1525
+DEFAULT_HALF_WIDTH_M = 0.1333
+DEFAULT_WHEEL_RADIUS_M = 0.06
+# Steering servos travel -90..+90 deg around straight-ahead.
+DEFAULT_MAX_STEER_ANGLE_RAD = math.pi / 2
+# In-wheel ST3215 no-load speed ~4.71 rad/s -> ~0.28 m/s with 60 mm wheels.
+DEFAULT_MAX_WHEEL_ANGULAR_VELOCITY_RAD_S = 4.71
+DEFAULT_CMD_VEL_TIMEOUT_S = 0.5
+DEFAULT_JOINT_STATES_TIMEOUT_S = 0.5
 # ST3215: 0.222 s/60 deg -> ~4.71 rad/s max steering rate.
 DEFAULT_MAX_STEER_ANGULAR_VELOCITY_RAD_S = 4.71
 # No-propulsion when steer error exceeds this (rad). ~20 deg.
@@ -38,6 +45,10 @@ class SwerveControllerConfig:
         control_loop_hz: Main loop frequency.
         steer_error_threshold_rad: Max steer error (rad) before drive is zeroed (no-propulsion).
         max_steer_angular_velocity_rad_s: Max steering rate for tuning/docs.
+        max_steer_angle_rad: Steering limit (absolute) around straight-ahead, rad.
+        max_wheel_angular_velocity_rad_s: Drive speed limit; all wheels are scaled together above it, rad/s.
+        cmd_vel_timeout_s: Commanded twist is zeroed when no cmd_vel arrives for this long, s.
+        joint_states_timeout_s: No commands/odometry are published when joint states are older than this, s.
         imu_offset_xyyaw: Optional [x, y, yaw] offset of IMU from base_link (default 0,0,0).
         rplidar_offset_xyyaw: Optional [x, y, yaw] offset of lidar from base_link (default 0,0,0).
     """
@@ -55,6 +66,10 @@ class SwerveControllerConfig:
     control_loop_hz: float
     steer_error_threshold_rad: float
     max_steer_angular_velocity_rad_s: float
+    max_steer_angle_rad: float
+    max_wheel_angular_velocity_rad_s: float
+    cmd_vel_timeout_s: float
+    joint_states_timeout_s: float
     imu_offset_xyyaw: tuple[float, float, float]
     rplidar_offset_xyyaw: tuple[float, float, float]
 
@@ -120,6 +135,12 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
     max_steer_angular_velocity_rad_s = max(
         0.1, flt("max_steer_angular_velocity_rad_s", DEFAULT_MAX_STEER_ANGULAR_VELOCITY_RAD_S)
     )
+    max_steer_angle_rad = min(math.pi, max(0.1, flt("max_steer_angle_rad", DEFAULT_MAX_STEER_ANGLE_RAD)))
+    max_wheel_angular_velocity_rad_s = max(
+        0.1, flt("max_wheel_angular_velocity_rad_s", DEFAULT_MAX_WHEEL_ANGULAR_VELOCITY_RAD_S)
+    )
+    cmd_vel_timeout_s = max(0.05, flt("cmd_vel_timeout_s", DEFAULT_CMD_VEL_TIMEOUT_S))
+    joint_states_timeout_s = max(0.05, flt("joint_states_timeout_s", DEFAULT_JOINT_STATES_TIMEOUT_S))
     imu_offset_xyyaw = _parse_offset(data.get("imu_offset_xyyaw"))
     rplidar_offset_xyyaw = _parse_offset(data.get("rplidar_offset_xyyaw"))
 
@@ -137,6 +158,10 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
         control_loop_hz=control_loop_hz,
         steer_error_threshold_rad=steer_error_threshold_rad,
         max_steer_angular_velocity_rad_s=max_steer_angular_velocity_rad_s,
+        max_steer_angle_rad=max_steer_angle_rad,
+        max_wheel_angular_velocity_rad_s=max_wheel_angular_velocity_rad_s,
+        cmd_vel_timeout_s=cmd_vel_timeout_s,
+        joint_states_timeout_s=joint_states_timeout_s,
         imu_offset_xyyaw=imu_offset_xyyaw,
         rplidar_offset_xyyaw=rplidar_offset_xyyaw,
     )

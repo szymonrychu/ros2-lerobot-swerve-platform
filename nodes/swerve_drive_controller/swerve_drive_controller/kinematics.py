@@ -7,6 +7,9 @@ import numpy as np
 # Wheel positions in body frame (x forward, y left): fl, fr, rl, rr.
 # Order matches joint_names: fl_drive, fl_steer, fr_drive, fr_steer, rl_drive, rl_steer, rr_drive, rr_steer.
 WHEEL_ORDER = ("fl", "fr", "rl", "rr")
+# Headings up to this far past the steering limit keep the wheel on its current side (clamped to the limit)
+# instead of swinging 180 deg to the other side; avoids flip-flopping during sideways motion.
+STEER_LIMIT_HYSTERESIS_RAD = 0.1
 
 
 def wheel_positions(lx: float, ly: float) -> np.ndarray:
@@ -151,29 +154,143 @@ def normalize_angle(angle: float) -> float:
     return angle
 
 
-def optimize_wheel_angle(
+def fold_to_steer_range(
+    steer: float,
+    drive: float,
     current_steer: float,
-    desired_steer: float,
-    desired_drive: float,
+    limit: float,
 ) -> tuple[float, float]:
-    """Optimize steer command to minimize rotation distance.
+    """Map a wheel heading into the steering range [-limit, limit] (limit >= pi/2).
 
-    If rotating the steer wheel by pi (reversing drive direction) results in a
-    smaller angular travel than the direct path, use the flipped configuration.
-    This avoids slow 180-degree steer rotations.
+    A wheel at heading a driving at speed s is equivalent to heading a + pi driving at -s. With a
+    +-90 deg steering range every heading has at least one reachable equivalent; when both are reachable
+    (exactly at the boundary) the one closer to current_steer is used.
 
     Args:
-        current_steer: Current steering angle in body frame, rad.
-        desired_steer: Desired steering angle from IK, rad.
-        desired_drive: Desired drive angular velocity, rad/s.
+        steer: Desired wheel heading from IK, rad (any value).
+        drive: Desired drive angular velocity, rad/s.
+        current_steer: Current measured steering angle, rad.
+        limit: Steering limit (absolute), rad.
 
     Returns:
-        tuple: (optimized_steer_rad, optimized_drive_rad_per_s).
+        tuple[float, float]: (steer_rad within [-limit, limit], drive_rad_per_s).
     """
-    diff = steer_angle_difference(current_steer, desired_steer)
-    if abs(diff) > math.pi / 2:
-        return normalize_angle(desired_steer + math.pi), -desired_drive
-    return desired_steer, desired_drive
+    candidates = [(normalize_angle(steer), drive), (normalize_angle(steer + math.pi), -drive)]
+    reachable = [c for c in candidates if abs(c[0]) <= limit + 1e-9]
+    # Hysteresis: a candidate slightly past the limit on the wheel's current side is acceptable (clamped below).
+    reachable += [
+        c for c in candidates if limit < abs(c[0]) <= limit + STEER_LIMIT_HYSTERESIS_RAD and c[0] * current_steer > 0
+    ]
+    if not reachable:
+        # Only possible when limit < pi/2: clamp the closer candidate (drive kept, direction approximate).
+        reachable = [min(candidates, key=lambda c: abs(c[0]))]
+        reachable = [(max(-limit, min(limit, reachable[0][0])), reachable[0][1])]
+    best = min(reachable, key=lambda c: abs(steer_angle_difference(current_steer, c[0])))
+    return (max(-limit, min(limit, best[0])), best[1])
+
+
+def desaturate_wheel_speeds(drives: list[float], max_speed: float) -> list[float]:
+    """Scale all wheel speeds by a common factor so none exceeds max_speed (keeps the motion direction).
+
+    Args:
+        drives: Wheel drive angular velocities, rad/s.
+        max_speed: Maximum allowed magnitude, rad/s.
+
+    Returns:
+        list[float]: Scaled wheel speeds, rad/s.
+    """
+    peak = max((abs(d) for d in drives), default=0.0)
+    if peak <= max_speed or peak == 0.0:
+        return list(drives)
+    scale = max_speed / peak
+    return [d * scale for d in drives]
+
+
+def compute_wheel_commands(
+    vx: float,
+    vy: float,
+    omega: float,
+    current_steer: list[float],
+    lx: float,
+    ly: float,
+    wheel_radius: float,
+    steer_limit: float,
+    max_wheel_speed: float,
+) -> tuple[list[float], list[float]]:
+    """Full swerve command: IK, fold into steering range, hold steer when stopped, desaturate.
+
+    Args:
+        vx: Forward body velocity, m/s.
+        vy: Leftward body velocity, m/s.
+        omega: Yaw rate (CCW positive), rad/s.
+        current_steer: Current steering angle per wheel (fl, fr, rl, rr), rad.
+        lx: Half-length (center to front/rear yaw axis), m.
+        ly: Half-width (center to left/right yaw axis), m.
+        wheel_radius: Wheel radius, m.
+        steer_limit: Steering limit (absolute), rad.
+        max_wheel_speed: Maximum drive angular velocity, rad/s.
+
+    Returns:
+        tuple[list[float], list[float]]: (steer angles rad, drive angular velocities rad/s), order fl, fr, rl, rr.
+    """
+    ik_steer, ik_drive = inverse_kinematics(vx, vy, omega, lx, ly, wheel_radius)
+    steer_out: list[float] = []
+    drive_out: list[float] = []
+    for i in range(4):
+        if ik_drive[i] == 0.0:
+            # Stopped wheel: keep its current heading instead of swinging back to centre.
+            steer_out.append(max(-steer_limit, min(steer_limit, current_steer[i])))
+            drive_out.append(0.0)
+            continue
+        steer, drive = fold_to_steer_range(ik_steer[i], ik_drive[i], current_steer[i], steer_limit)
+        steer_out.append(steer)
+        drive_out.append(drive)
+    return steer_out, desaturate_wheel_speeds(drive_out, max_wheel_speed)
+
+
+def wheel_states(
+    joint_positions: dict[str, float],
+    joint_velocities: dict[str, float],
+    steer_joints: list[str],
+    drive_joints: list[str],
+) -> tuple[list[float], list[float]] | None:
+    """Collect measured steer angles and drive velocities; None unless every joint has been reported.
+
+    Args:
+        joint_positions: Latest joint name -> position (rad).
+        joint_velocities: Latest joint name -> velocity (rad/s).
+        steer_joints: Steering joint names, order fl, fr, rl, rr.
+        drive_joints: Drive joint names, order fl, fr, rl, rr.
+
+    Returns:
+        tuple[list[float], list[float]] | None: (steer angles, drive velocities), or None if any is missing.
+    """
+    if any(j not in joint_positions for j in steer_joints) or any(j not in joint_velocities for j in drive_joints):
+        return None
+    return [joint_positions[j] for j in steer_joints], [joint_velocities[j] for j in drive_joints]
+
+
+def integrate_odometry(
+    pose: tuple[float, float, float],
+    twist: tuple[float, float, float],
+    dt: float,
+) -> tuple[float, float, float]:
+    """Integrate a body twist into an odom-frame pose using the midpoint heading.
+
+    Args:
+        pose: (x m, y m, theta rad) in the odom frame.
+        twist: (vx m/s, vy m/s, omega rad/s) in the body frame.
+        dt: Time step, s.
+
+    Returns:
+        tuple[float, float, float]: New (x, y, theta), theta normalized to [-pi, pi].
+    """
+    x, y, theta = pose
+    vx, vy, omega = twist
+    mid = theta + 0.5 * omega * dt
+    x += (vx * math.cos(mid) - vy * math.sin(mid)) * dt
+    y += (vx * math.sin(mid) + vy * math.cos(mid)) * dt
+    return (x, y, normalize_angle(theta + omega * dt))
 
 
 def should_zero_drive(

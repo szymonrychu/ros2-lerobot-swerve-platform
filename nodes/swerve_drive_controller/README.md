@@ -1,34 +1,76 @@
 # Swerve drive controller
 
-ROS2 node that subscribes to `geometry_msgs/Twist` (cmd_vel), computes inverse kinematics for a symmetric 4-wheel swerve drive, publishes `sensor_msgs/JointState` commands to the swerve feetech bridge, and publishes `nav_msgs/Odometry` (and `odom` → `base_link` TF) from forward kinematics.
+ROS2 node that drives the 4-wheel independent-steering (swerve) platform from `geometry_msgs/Twist` on `/cmd_vel`. It runs inverse kinematics to produce steering positions and in-wheel velocities for the feetech bridge, and forward kinematics on the measured wheel states to publish `nav_msgs/Odometry` plus the `odom` -> `base_link` TF.
 
 **Audience:** Mid-level Python dev with ROS2 (rclpy, Twist, Odometry, JointState).
 
+## Platform (see `Platform dimensions.md`)
+
+| Wheel | In-wheel (drive) servo | Steering servo |
+|---|---|---|
+| front left (`fl`) | 32 | 33 |
+| front right (`fr`) | 35 | 34 |
+| back left (`rl`) | 39 | 38 |
+| back right (`rr`) | 36 | 37 |
+
+- Steering yaw axes: 305 mm long x 266.6 mm wide, so `half_length_m: 0.1525` and `half_width_m: 0.1333`. Wheel radius is 60 mm.
+- Steering range is -90..+90 deg around straight ahead (servo limits 1024..3072 steps after `calibrate_servos.py center`).
+- In-wheel servos have no angle limit and run in wheel (continuous rotation) mode.
+- All 8 servos share the follower-arm serial bus. The `lerobot_follower` feetech bridge serves them as the `swerve_drive` extra group (see `nodes/bridges/feetech_servos/README.md`).
+
 ## Topics
 
-- **Subscribes:** `/cmd_vel` (Twist), `/swerve_drive/joint_states` (JointState from feetech bridge).
-- **Publishes:** `/swerve_drive/joint_commands` (JointState), `/odom` (Odometry), TF `odom` → `base_link`.
+- **Subscribes:** `/cmd_vel` (Twist: `linear.x` forward m/s, `linear.y` left m/s, `angular.z` CCW rad/s), `/swerve_drive/joint_states` (JointState from the bridge: steer positions in rad, drive velocities in rad/s).
+- **Publishes:** `/swerve_drive/joint_commands` (two JointState messages per cycle: steering joints with `position` only, drive joints with `velocity` only), `/odom` (Odometry), TF `odom` -> `base_link`.
 
-## Kinematics
+Nothing is published until every steering and drive joint has been reported and the joint states are fresher than `joint_states_timeout_s`. If they go stale, publishing stops and the bridge's velocity watchdog stops the wheels.
 
-- **Inverse kinematics (IK):** Body twist (vx, vy, omega) → per-wheel steering angle and drive angular velocity. Symmetric layout: half-length Lx, half-width Ly, wheel radius R.
-- **Forward kinematics (FK):** Current wheel steer angles and drive velocities → body vx, vy, omega. Used for odometry integration.
-- **No-propulsion safeguard:** When the difference between current and desired steering angle for a wheel exceeds `steer_error_threshold_rad`, that wheel’s drive command is set to zero until steering catches up, to avoid straining the mechanism.
+## Kinematics (`kinematics.py`)
+
+Body frame: x forward, y left, yaw CCW positive. Wheel `i` sits at `(x_i, y_i)` = (+-Lx, +-Ly).
+
+- **Inverse kinematics:** wheel velocity `v_i = (vx - omega * y_i, vy + omega * x_i)`, so the heading is `atan2(v_i)` and the drive speed is `|v_i| / R`.
+- **Steering range fold (`fold_to_steer_range`):** heading `a` at speed `s` is the same as `a + pi` at `-s`. With +-90 deg of steering, every heading has a reachable equivalent. Near +-90 deg the side closer to the current angle is used. A heading up to 0.1 rad past the limit keeps the wheel on its current side (clamped), so sideways driving does not flip the wheels back and forth. Driving backwards keeps the wheels straight and reverses the drive.
+- **Stopped wheels hold their heading** instead of swinging back to center (`compute_wheel_commands`).
+- **Desaturation:** if any wheel would exceed `max_wheel_angular_velocity_rad_s`, all wheels are scaled by the same factor, so the motion direction is kept.
+- **No-propulsion safeguard:** a wheel's drive is zero while its steering error is above `steer_error_threshold_rad`.
+- **Forward kinematics:** least-squares solution of the 8 wheel-velocity equations for `(vx, vy, omega)`, integrated with the midpoint heading (`integrate_odometry`).
 
 ## Configuration
 
 YAML config (path via `SWERVE_DRIVE_CONTROLLER_CONFIG` or `/etc/ros2/swerve_drive_controller/config.yaml`):
 
-- `half_length_m`, `half_width_m`, `wheel_radius_m`: Geometry (defaults 0.2, 0.15, 0.15).
-- `joint_names`: List of 8 names (default: fl_drive, fl_steer, fr_drive, fr_steer, rl_drive, rl_steer, rr_drive, rr_steer).
+- `half_length_m`, `half_width_m`, `wheel_radius_m`: Geometry (defaults 0.1525, 0.1333, 0.06).
+- `max_steer_angle_rad` (default pi/2), `max_wheel_angular_velocity_rad_s` (default 4.71, which is about 0.28 m/s).
+- `cmd_vel_timeout_s` (default 0.5): the twist is zeroed when `/cmd_vel` goes quiet. `joint_states_timeout_s` (default 0.5).
+- `joint_names`: 8 names in order fl_drive, fl_steer, fr_drive, fr_steer, rl_drive, rl_steer, rr_drive, rr_steer.
 - `cmd_vel_topic`, `joint_states_topic`, `joint_commands_topic`, `odom_topic`, `odom_frame_id`, `base_frame_id`.
-- `control_loop_hz`, `steer_error_threshold_rad`, `max_steer_angular_velocity_rad_s` (ST3215 ~4.71 rad/s for path tuning).
-- Optional `imu_offset_xyyaw`, `rplidar_offset_xyyaw` for static TF / docs.
+- `control_loop_hz`, `steer_error_threshold_rad`, `max_steer_angular_velocity_rad_s` (ST3215 is about 4.71 rad/s, for tuning).
 
-## Servo limits
+## Driving manually
 
-ST3215: 0.222 s/60° → ~4.71 rad/s max steering rate. Use `max_steer_angular_velocity_rad_s` and Nav2 tuning (max angular velocity, goal tolerance) so the platform does not command impossible motions.
+From any host on the client's ROS2 graph (for example on the client itself, with `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`):
+
+```bash
+# keyboard teleop (holonomic: hold Shift for strafing keys)
+ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p speed:=0.1 -p turn:=0.3
+
+# or single commands (repeat faster than cmd_vel_timeout_s, here 10 Hz)
+ros2 topic pub -r 10 /cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.1, y: 0.0}, angular: {z: 0.0}}"
+```
+
+Health check: `./scripts/swerve_diag.sh`.
+
+## Steering calibration
+
+With the wheel pointing exactly straight ahead (bridge stopped so the bus is free):
+
+```bash
+cd nodes/bridges/feetech_servos
+poetry run python scripts/calibrate_servos.py center --device /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00 --id 33
+# repeat for --id 34, 37, 38
+```
 
 ## Build and run
 
-From repo root, Ansible deploys this node on the client. Locally: `cd nodes/swerve_drive_controller && poetry install && poetry run python -m swerve_drive_controller` (with config and ROS2 sourced).
+Ansible deploys this node on the client as `swerve_controller`. Locally: `cd nodes/swerve_drive_controller && poetry install && poetry run python -m swerve_drive_controller` (with config and ROS2 sourced). Tests: `poetry run pytest tests/ -v`.
