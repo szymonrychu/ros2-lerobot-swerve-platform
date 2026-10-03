@@ -112,7 +112,8 @@ ros2_node_type_defaults:
       - GPS_RTK_CONFIG=/etc/ros2/gps_rtk/config.yaml
   rplidar_a1:
     deploy_mode: native
-    node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/bridges/rplidar_a1/launch/rplidar_a1.launch.py"
+    # Supervisor runs the launch file and exits 1 (systemd restarts it) when /scan never starts or goes silent.
+    node_launch_command: "python3 {{ ros2_repo_dest }}/nodes/bridges/rplidar_a1/scan_supervisor.py"
     node_src_dir: ""
     cpu_quota: "30%"
     memory_max: "128M"

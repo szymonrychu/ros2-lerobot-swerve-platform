@@ -522,8 +522,9 @@ def test_nav2_collision_monitor_uses_scan() -> None:
     )
 
 
-def test_nav2_collision_monitor_stays_in_cmd_vel_chain_with_stopbox_disabled() -> None:
-    """StopBox is ~5 cm outside the footprint on raw /scan: self-hits would zero cmd_vel forever, so it ships off."""
+def test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan() -> None:
+    """StopBox (5 cm outside the footprint) is enabled: on /scan_filtered the robot body is removed and a 20 s
+    stationary sample on the robot (2026-10-03) had 0 returns in the 5 cm band (min_points 4)."""
     cm = ros_params(nav2(), "collision_monitor")
     assert (cm["cmd_vel_in_topic"], cm["cmd_vel_out_topic"]) == ("cmd_vel_smoothed", "cmd_vel")
     assert cm["base_frame_id"] == "base_link" and cm["odom_frame_id"] == "odom"
@@ -531,17 +532,17 @@ def test_nav2_collision_monitor_stays_in_cmd_vel_chain_with_stopbox_disabled() -
         assert key in cm, key
     assert "StopBox" in cm["polygons"], "the polygon stays declared so collision_monitor configures"
     stop = cm["StopBox"]
-    assert stop["enabled"] is False
+    assert stop["enabled"] is True
     assert stop["action_type"] == "stop"
     assert stop["type"] == "polygon"
-    assert "self-hit" in NAV2_PARAMS.read_text().lower()
+    assert stop["min_points"] >= 4
 
 
 def test_nav2_readme_documents_collision_monitor_validation() -> None:
     text = NAV2_README.read_text()
     assert "StopBox" in text
-    assert "enabled: false" in text
-    assert "/scan" in text and "collision_monitor_state" in text
+    assert "enabled: true" in text
+    assert "/scan_filtered" in text and "collision_monitor_state" in text
 
 
 def test_nav2_docking_server_configures_without_docks() -> None:
@@ -645,3 +646,18 @@ def test_node_apt_install_refreshes_stale_cache() -> None:
     ]
     assert apt, "apt install task not found"
     assert apt[0]["update_cache"] is True and apt[0]["cache_valid_time"] == 3600
+
+
+def test_nav2_goal_tolerance_tight_enough_for_swerve() -> None:
+    """15 cm let a 0.4 m goal finish 13.6 cm short on the robot; a holonomic base can stop much closer."""
+    checker = ros_params(nav2(), "controller_server")["general_goal_checker"]
+    assert checker["xy_goal_tolerance"] == pytest.approx(0.08)
+    assert checker["yaw_goal_tolerance"] == pytest.approx(0.15)
+
+
+def test_rplidar_runs_under_scan_supervisor() -> None:
+    """The A1 driver can wedge without publishing /scan; the supervisor restarts it through systemd."""
+    defaults = client_vars()["ros2_node_type_defaults"]["rplidar_a1"]
+    assert defaults["node_launch_command"] == "python3 {{ ros2_repo_dest }}/nodes/bridges/rplidar_a1/scan_supervisor.py"
+    supervisor = (REPO_ROOT / "nodes" / "bridges" / "rplidar_a1" / "scan_supervisor.py").read_text()
+    assert "rplidar_a1.launch.py" in supervisor and "EXIT_RESTART" in supervisor

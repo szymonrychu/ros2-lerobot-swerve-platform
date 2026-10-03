@@ -44,17 +44,14 @@ collision_monitor -> `/cmd_vel` (unstamped Twist) -> swerve_drive_controller.
 
 ## Collision monitor
 
-collision_monitor always runs and always sits in the velocity chain (`cmd_vel_smoothed -> cmd_vel`), but its only
-polygon, `StopBox`, is declared with `enabled: false`. The polygon has to stay declared: collision_monitor needs a
-non-empty `polygons` list to configure (Jazzy 1.3.x), and a disabled polygon is skipped in every check, so the node
-forwards `cmd_vel_smoothed` to `/cmd_vel` unchanged.
+collision_monitor always runs and sits in the velocity chain (`cmd_vel_smoothed -> cmd_vel`). Its only polygon,
+`StopBox` (5 cm beyond the footprint, stop on 4+ points), is `enabled: true`: it reads `/scan_filtered`, where
+`nodes/laser_filter` has removed the lidar returns on the robot body. A 20 s stationary sample on the robot
+(2026-10-03) found 0 returns in the 5 cm band. Without the filter the raw `/scan` had ~130 self-hits inside the
+footprint, which would have zeroed `cmd_vel` permanently. Disable at runtime with
+`ros2 param set /collision_monitor StopBox.enabled false`.
 
-Why it is off by default: `StopBox` is only ~5 cm larger than the footprint on every side, it reads raw `/scan` with
-no minimum range (slam_toolbox ignores returns closer than 0.15 m, collision_monitor does not), and 4 points inside it
-trigger a stop. Lidar returns from the robot's own frame, wheels, mast or cables can fall inside the box; then
-collision_monitor publishes zero `cmd_vel` permanently and Nav2 goals never move the robot.
-
-### Validating and re-enabling StopBox on the robot
+### Validating StopBox on the robot (after changing the lidar, filter or footprint)
 
 1. Put the robot in open space (nothing within ~0.5 m) with rplidar_a1, static_tf_publisher and nav2_bringup running.
 2. Check that `/scan` has no returns inside the StopBox. The lidar sits at `x=0.15, y=0.04, yaw=0` in `base_link`
