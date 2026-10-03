@@ -51,7 +51,18 @@ controller_server:
       yaw_goal_tolerance: 0.15
       stateful: true
     FollowPath:
-      plugin: "nav2_mppi_controller::MPPIController"
+      # RotationShimController wraps MPPI: at the start of a move it turns the robot in place to face the path
+      # (front first: the lidar is partly covered at the back and on the right), then hands over to MPPI; at the
+      # end it turns to the goal heading. MPPI parameters below are read from this same FollowPath namespace.
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "nav2_mppi_controller::MPPIController"
+      angular_dist_threshold: 0.785       # rotate first when the path heading is > 45 deg off
+      angular_disengage_threshold: 0.3    # hand over to MPPI once within ~17 deg
+      forward_sampling_distance: 0.5
+      rotate_to_heading_angular_vel: 0.5  # = swerve wz limit
+      max_angular_accel: 1.0
+      simulate_ahead_time: 1.0
+      rotate_to_goal_heading: true
       time_steps: 30
       model_dt: 0.1
       batch_size: 1000
@@ -124,12 +135,12 @@ controller_server:
       PathAngleCritic:
         enabled: true
         cost_power: 1
-        cost_weight: 2.0
+        cost_weight: 4.0
         offset_from_furthest: 4
         threshold_to_consider: 0.5
         max_angle_to_furthest: 1.0
-        # 1 = no direction preference (holonomic base may drive any direction).
-        mode: 1
+        # 0 = forward preference: drive front-first (lidar view is best ahead; back and right are partly covered).
+        mode: 0
       TwirlingCritic:
         enabled: true
         cost_power: 1

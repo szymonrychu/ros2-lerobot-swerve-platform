@@ -42,6 +42,10 @@ params (notably collision_monitor and docking_server) fails to configure and abo
 Velocity chain: controller/behaviors -> `cmd_vel_nav` -> velocity_smoother -> `cmd_vel_smoothed` ->
 collision_monitor -> `/cmd_vel` (unstamped Twist) -> swerve_drive_controller.
 
+## Rotate first, drive front-first
+
+`FollowPath` is the `RotationShimController` wrapping MPPI. When a new path points more than 45 deg away from the robot heading, it first rotates in place (0.5 rad/s) until within about 17 deg, then MPPI follows the path. At the end it rotates to the goal heading. MPPI's `PathAngleCritic` runs in mode 0 (forward preference, weight 4.0), so the robot keeps its front toward the direction of travel instead of strafing. Why: the lidar is partly covered at the back and on the right, so it sees best ahead.
+
 ## Collision monitor
 
 collision_monitor always runs and sits in the velocity chain (`cmd_vel_smoothed -> cmd_vel`). Its only polygon,

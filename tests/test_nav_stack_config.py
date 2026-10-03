@@ -479,7 +479,7 @@ def test_nav2_costmap_layers_and_footprint(costmap: str) -> None:
 def test_nav2_mppi_omni_with_swerve_limits() -> None:
     ctrl = ros_params(nav2(), "controller_server")
     follow = ctrl[ctrl["controller_plugins"][0]]
-    assert follow["plugin"] == "nav2_mppi_controller::MPPIController"
+    assert follow["primary_controller"] == "nav2_mppi_controller::MPPIController"
     assert follow["motion_model"] == "Omni"
     assert follow["vx_max"] == pytest.approx(0.25)
     assert follow["vx_min"] == pytest.approx(-0.25)
@@ -661,3 +661,17 @@ def test_rplidar_runs_under_scan_supervisor() -> None:
     assert defaults["node_launch_command"] == "python3 {{ ros2_repo_dest }}/nodes/bridges/rplidar_a1/scan_supervisor.py"
     supervisor = (REPO_ROOT / "nodes" / "bridges" / "rplidar_a1" / "scan_supervisor.py").read_text()
     assert "rplidar_a1.launch.py" in supervisor and "EXIT_RESTART" in supervisor
+
+
+def test_nav2_rotates_toward_path_first_and_keeps_front_leading() -> None:
+    """The lidar is partly covered at the back and right: the robot turns to face the path at the start of a move
+    (RotationShimController around MPPI) and MPPI prefers driving front-first (PathAngleCritic forward preference)."""
+    ctrl = ros_params(nav2(), "controller_server")
+    follow = ctrl[ctrl["controller_plugins"][0]]
+    assert follow["plugin"] == "nav2_rotation_shim_controller::RotationShimController"
+    assert follow["primary_controller"] == "nav2_mppi_controller::MPPIController"
+    assert 0.3 <= follow["angular_dist_threshold"] <= 1.0
+    assert follow["rotate_to_heading_angular_vel"] <= follow["wz_max"]
+    assert follow["rotate_to_goal_heading"] is True
+    angle = follow["PathAngleCritic"]
+    assert angle["enabled"] is True and angle["mode"] == 0
