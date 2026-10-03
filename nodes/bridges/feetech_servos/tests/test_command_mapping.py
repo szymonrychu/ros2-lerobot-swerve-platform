@@ -3,6 +3,7 @@
 import math
 
 import pytest
+
 from feetech_servos.command_mapping import (
     STEP_CENTER,
     STEPS_PER_RADIAN,

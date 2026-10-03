@@ -80,3 +80,7 @@ def main() -> int:
 
     print(f"Servo ID changed from {current_id} to {args.new_id}.")
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

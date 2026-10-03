@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+
 from feetech_servos.config import BridgeConfig, load_config, load_config_from_env
 
 
