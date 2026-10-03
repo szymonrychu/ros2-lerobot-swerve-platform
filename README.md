@@ -123,11 +123,11 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `ros2-master` | ros2_master | DDS daemon | — |
 | `master2master` | master2master | Proxies `/leader/joint_states` → `/filter/input_joint_updates` | — |
 | `filter_node` | filter_node | `/filter/input_joint_updates` (sub) → `/follower/joint_commands` (pub) | — |
-| `lerobot_follower` | feetech_servos | `/follower/joint_commands` (sub), `/follower/joint_states` (pub) | SO-101 arm (USB serial) |
+| `lerobot_follower` | feetech_servos | `/follower/joint_commands` (sub), `/follower/joint_states` (pub) | SO-101 arm (USB serial, shared with the swerve servos) |
 | `gps_rtk_rover` | gps_rtk | `/client/gps/fix` (pub), RTCM3 from Server :5016 | LC29H-DA HAT (`/dev/ttyAMA0`) |
 | `bno055_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
 | `gripper_uvc_camera` | uvc_camera | `/camera_0/image_compressed` (pub, `sensor_msgs/CompressedImage`) | USB camera |
-| `swerve_drive_servos` | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 (e.g. `/dev/ttyUSB1`) |
+| `lerobot_follower` (group `swerve_drive`) | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 swerve servos (IDs 32-39) on the follower arm bus |
 | `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub) | — |
 | `static_tf_publisher` | static_tf_publisher | TF base_link → imu_link, laser_frame | — |
 | `robot_localization_ekf` | robot_localization_ekf | `/odom` (sub), `/imu/data` (sub), `/odometry/filtered` (pub) | — |
@@ -156,7 +156,7 @@ Client: master2master   →  /filter/input_joint_updates  ← test_joint_api (RE
 ```
 Nav2 (nav2_bringup)     →  /cmd_vel
                               ↓
-        swerve_controller → /swerve_drive/joint_commands  →  swerve_drive_servos (8 servos)
+        swerve_controller → /swerve_drive/joint_commands  →  lerobot_follower bridge, swerve_drive group (8 servos)
         swerve_controller → /odom (and odom→base_link TF)
                               ↓
         robot_localization_ekf (optional) fuses /odom + /imu/data → /odometry/filtered

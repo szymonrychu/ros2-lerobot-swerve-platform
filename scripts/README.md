@@ -139,3 +139,12 @@ python scripts/topic_scraper_collect.py \
 
 - **calibrate_rtk_base.py** — Low-level calibration script (run on the machine that has the base serial port). Used by `rtk_calibrate.sh` when not using `--local`.
 - **topic_scraper_collect.py** — Generic NDJSON collector for topic_scraper_api; used by `rtk_verify.sh`.
+
+## swerve_diag.sh
+
+Read-only health check of the swerve drive on the client: service states (`lerobot_follower` hosts the swerve servos, `swerve_controller`), rates of `/swerve_drive/joint_states`, `/swerve_drive/joint_commands`, `/odom`, `/cmd_vel`, one joint-state / odom sample, and recent warnings from both services.
+
+```bash
+./scripts/swerve_diag.sh
+./scripts/swerve_diag.sh --logs-only --lines 40
+```

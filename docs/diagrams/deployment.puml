@@ -24,7 +24,7 @@ node "Client (RPi 5)\nclient.ros2.lan" as client {
   component "gripper_uvc_camera" as cc <<Docker>> #64B5F6
   component "rplidar_a1" as cr <<Docker>> #64B5F6
   component "realsense_d435i" as cre <<Docker>> #64B5F6
-  component "swerve_drive_servos\n(feetech_servos)" as css <<Docker>> #64B5F6
+  component "lerobot_follower bridge\nswerve_drive group" as css <<Docker>> #64B5F6
   component "swerve_controller" as csc <<Docker>> #90CAF9
   component "static_tf_publisher" as ctf <<Docker>> #BBDEFB
   component "robot_localization_ekf" as cekf <<Docker>> #90CAF9

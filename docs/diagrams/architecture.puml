@@ -33,7 +33,7 @@ package "Client — Raspberry Pi 5" as client #E3F2FD {
   component "gripper_uvc_camera" as c_cam #64B5F6
   component "rplidar_a1" as c_rplidar #64B5F6
   component "realsense_d435i" as c_realsense #64B5F6
-  component "swerve_drive_servos\n(feetech_servos)" as c_swerve_servos #64B5F6
+  component "lerobot_follower bridge\nswerve_drive group\n(feetech_servos, shared bus)" as c_swerve_servos #64B5F6
   component "swerve_controller\n(IK/FK/odom)" as c_swerve_ctrl #90CAF9
   component "static_tf_publisher" as c_tf #BBDEFB
   component "robot_localization_ekf\n(EKF)" as c_ekf #90CAF9

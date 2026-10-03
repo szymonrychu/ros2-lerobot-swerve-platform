@@ -85,8 +85,8 @@ in parallel with other nodes.
 | `gripper_uvc_camera` | USB camera bridge |
 | `rplidar_a1` | LiDAR bridge (USB) |
 | `realsense_d435i` | RealSense depth camera |
-| `lerobot_follower` | SO-101 follower arm (feetech servos, USB) |
-| `swerve_drive_servos` | Swerve drive servos (feetech, USB) |
+| `lerobot_follower` | SO-101 follower arm + swerve servos group `swerve_drive` (feetech, one USB bus) |
+| `swerve_drive_servos` | Removed (present: false): swerve servos now run inside `lerobot_follower` (shared bus) |
 | `swerve_controller` | Swerve drive kinematics |
 | `static_tf_publisher` | TF frame publisher |
 | `robot_localization_ekf` | EKF odometry fusion |

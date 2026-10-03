@@ -312,7 +312,6 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | rplidar_a1 | 30% | 128M |
 | realsense_d435i | 50% | 512M |
 | lerobot_follower | 50% | 128M |
-| swerve_drive_servos | 50% | 128M |
 | swerve_controller | 30% | 128M |
 | static_tf_publisher | 10% | 64M |
 | robot_localization_ekf | 25% | 128M |

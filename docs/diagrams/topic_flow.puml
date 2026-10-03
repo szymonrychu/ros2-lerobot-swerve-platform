@@ -28,7 +28,7 @@ testapi -> filter : /filter/input_joint_updates\n(JointState, via REST POST)
 
 participant "nav2_bringup\n(Client)" as nav2 #90CAF9
 participant "swerve_controller\n(Client)" as swerve_ctrl #90CAF9
-participant "swerve_drive_servos\n(Client)" as swerve_servos #64B5F6
+participant "lerobot_follower bridge\nswerve_drive group (Client)" as swerve_servos #64B5F6
 
 nav2 -> swerve_ctrl : /cmd_vel\n(geometry_msgs/Twist)
 swerve_ctrl -> swerve_servos : /swerve_drive/joint_commands\n(JointState — 8 servos)
