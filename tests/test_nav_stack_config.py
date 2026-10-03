@@ -584,3 +584,15 @@ def test_every_test_is_documented_in_tests_readme() -> None:
     names = [n.name for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")]
     missing = [name for name in names if f"`{name}`" not in section]
     assert not missing, f"undocumented in tests/README.md: {missing}"
+
+
+def test_lidar_static_tf_mounted_backwards() -> None:
+    """RPLidar A1 is mounted rotated 180 deg (bench test 2026-10-03: driving 9.3 cm forward shortened the 180 deg range
+    by 9.4 cm), so base_link -> laser_frame carries yaw = pi; position from Platform dimensions.md."""
+    import math
+
+    entry = node_entry("static_tf_publisher")
+    frames = yaml.safe_load(entry["config"])["frames"]
+    laser = next(f for f in frames if f["child"] == LASER_FRAME)
+    assert (laser["x"], laser["y"], laser["z"]) == (0.15, 0.04, 0.20)
+    assert laser["yaw"] == pytest.approx(math.pi, abs=1e-4)

@@ -534,7 +534,8 @@ ros2_nodes:
           z: 0.20
           roll: 0.0
           pitch: 0.0
-          yaw: 0.0
+          # Lidar is mounted rotated 180 deg (bench test 2026-10-03: forward motion shortened the 180 deg range).
+          yaw: 3.14159265
         - child: camera_link
           x: 0.10
           y: 0.0
