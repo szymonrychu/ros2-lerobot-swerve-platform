@@ -169,3 +169,33 @@ def test_web_ui_deployed_first_in_client_all() -> None:
     tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "deploy_nodes_client.yml").read_text())[0]["tasks"]
     order = [t.get("vars", {}).get("_deploy_node_name") for t in tasks if t.get("vars", {}).get("_deploy_node_name")]
     assert order[0] == "web_ui", order[:3]
+
+
+def test_netplan_secondary_ethernet_is_optional() -> None:
+    """An unplugged secondary ethernet (eth0 when the primary is Wi-Fi) made systemd-networkd-wait-online hold every
+    ROS service for its 2-minute timeout at boot (2026-10-03)."""
+    jinja2 = pytest.importorskip("jinja2")
+    template = (ANSIBLE_DIR / "roles" / "network" / "templates" / "netplan.yaml.j2").read_text()
+    rendered = jinja2.Template(template).render(
+        _network_interface="wlan0",
+        _network_interface_is_wlan=True,
+        _other_ethernets=["eth0"],
+        network_address="192.168.1.34/24",
+        network_gateway="192.168.1.1",
+        network_nameservers=["192.168.1.1"],
+        network_wifi_ssid="main",
+        network_wifi_password="x",
+    )
+    eth0 = yaml.safe_load(rendered)["network"]["ethernets"]["eth0"]
+    assert eth0["optional"] is True
+
+
+@pytest.mark.parametrize("host", ["client", "server"])
+def test_boot_does_not_wait_for_every_interface(host: str) -> None:
+    """Deploys install a wait-online drop-in (any interface, 30 s cap) without touching netplan."""
+    play = yaml.safe_load((ANSIBLE_DIR / "playbooks" / f"deploy_nodes_{host}.yml").read_text())[0]
+    includes = [t.get("ansible.builtin.include_tasks", "") for t in play["pre_tasks"]]
+    assert "tasks/network_wait_online.yml" in includes
+    text = (ANSIBLE_DIR / "playbooks" / "tasks" / "network_wait_online.yml").read_text()
+    assert "systemd-networkd-wait-online.service.d" in text
+    assert "--any" in text and "--timeout=30" in text

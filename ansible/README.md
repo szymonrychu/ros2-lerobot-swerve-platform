@@ -283,6 +283,10 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 - **Shared memory:** nodes run as a regular user, and logind's default `RemoveIPC=yes` deletes that user's POSIX shared memory (the FastDDS SHM segments) on every SSH logout. Data then silently stops for processes started afterwards. `dds_host_setup.yml` installs `/etc/systemd/logind.conf.d/ros2-keep-ipc.conf` (`RemoveIPC=no`) and restarts running `ros2-*` services once when it is first applied.
 - **History:** a FastDDS discovery server per host was tried (2026-10-03) and removed: launch_ros' one-shot lifecycle and component-loading service calls (slam_toolbox configure, Nav2 composable nodes) hung intermittently through it on the busy client. The `fastdds_discovery_server` node stays `present: false` so deploys uninstall it.
 
+## Boot network wait
+
+`--all` deploys install `/etc/systemd/system/systemd-networkd-wait-online.service.d/any-interface.conf` (`playbooks/tasks/network_wait_online.yml`): boot waits for any one interface for at most 30 s. The netplan template also marks secondary Ethernet ports `optional: true` (applied when the network role runs). Without this, an unplugged `eth0` held every ROS node for the 2-minute wait-online timeout.
+
 ## Deploy load management
 
 Every deploy playbook (`--all` and per-node) starts with `playbooks/tasks/stop_ros_nodes.yml`, which stops all running `ros2-*` services, so installs and builds run on an otherwise idle Pi. It ends with `playbooks/tasks/start_ros_nodes.yml`, which starts every present and enabled node that isn't running yet, one at a time with `ros2_node_start_interval_s` (default 5 s, `group_vars/all.yml`) between starts. During `--all` the role also starts each node as it is deployed. web_ui, the heaviest build, is deployed first.

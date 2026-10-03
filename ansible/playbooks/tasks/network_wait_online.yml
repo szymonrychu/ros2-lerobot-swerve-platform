@@ -1,0 +1,32 @@
+---
+# Boot must not wait for every network interface: with the primary on Wi-Fi, an unplugged eth0 made
+# systemd-networkd-wait-online hold network-online.target (and every ROS2 node unit ordered after it) for its full
+# 2-minute timeout. Wait for any one interface, at most 30 s. Applied without touching netplan, so no link drop.
+- name: Ensure systemd-networkd-wait-online drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/systemd-networkd-wait-online.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Wait for any interface at boot (30 s cap)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/systemd-networkd-wait-online.service.d/any-interface.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (playbooks/tasks/network_wait_online.yml).
+      [Service]
+      ExecStart=
+      ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any --timeout=30
+  become: true
+  register: ros2_wait_online_dropin
+
+- name: Reload systemd after wait-online drop-in change
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+  when: ros2_wait_online_dropin.changed

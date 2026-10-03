@@ -26,6 +26,8 @@ network:
     {{ iface }}:
       dhcp4: true
       dhcp6: false
+      # Optional: an unplugged secondary port must not hold boot (systemd-networkd-wait-online timeout).
+      optional: true
 {% endfor %}
 {% endif %}
 {% if _network_interface_is_wlan %}

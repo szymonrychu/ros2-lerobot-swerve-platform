@@ -50,6 +50,9 @@
     - name: Sync ROS 2 Jazzy packages to one release
       ansible.builtin.include_tasks: tasks/ros_packages_sync.yml
 
+    - name: Boot waits for any network interface only
+      ansible.builtin.include_tasks: tasks/network_wait_online.yml
+
   tasks:
     - name: Deploy web_ui
       ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
