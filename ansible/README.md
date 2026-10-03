@@ -285,7 +285,7 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 
 ## web_ui frontend build
 
-The web_ui frontend is built on the client during deploy (`npm ci`, `npm run build`). Both steps run under `nice -n 19 ionice -c 3`, the lowest CPU and I/O priority, so the running ROS nodes keep priority. On 2026-10-03 a full-priority build next to Nav2, SLAM and the bridges overheated the Pi 5 until it stopped responding.
+The web_ui frontend is built on the client during deploy (`npm ci`, `npm run build`). Both steps run in a transient systemd scope capped to one of the four cores (`systemd-run --scope -p CPUQuota=100% -p IOWeight=10`) under `nice -n 19 ionice -c 3`. That limits the heat the build generates and keeps the running ROS nodes first in line. On 2026-10-03 a full-priority build next to Nav2, SLAM and the bridges overheated the Pi 5 until it stopped responding.
 
 ## ROS package sync
 

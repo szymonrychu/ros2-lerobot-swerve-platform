@@ -684,7 +684,8 @@ def test_nav2_rotates_toward_path_first_and_keeps_front_leading() -> None:
 
 def test_web_ui_frontend_build_runs_at_lowest_priority() -> None:
     """npm ci / npm run build on the Pi overheated and froze it next to the running ROS stack (2026-10-03):
-    run them at the lowest CPU (nice 19) and I/O (ionice idle class) priority."""
+    run them in a cgroup capped to one core with low IO weight, at the lowest CPU (nice 19) and I/O (ionice idle
+    class) priority."""
     tasks = yaml.safe_load((ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "main.yml").read_text())
     cmds = [
         t["ansible.builtin.command"]["cmd"]
@@ -694,7 +695,9 @@ def test_web_ui_frontend_build_runs_at_lowest_priority() -> None:
     ]
     assert len(cmds) == 2, cmds
     for cmd in cmds:
-        assert cmd.startswith("nice -n 19 ionice -c 3 npm "), cmd
+        # cgroup cap (one core of four, low IO weight) plus lowest CPU and IO scheduling priority.
+        assert cmd.startswith("systemd-run --quiet --scope -p CPUQuota=100% -p IOWeight=10 "), cmd
+        assert "nice -n 19 ionice -c 3 npm " in cmd, cmd
 
 
 def test_restart_handler_skips_disabled_nodes() -> None:
