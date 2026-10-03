@@ -22,6 +22,10 @@ class FakeArmBackend:
         self.stale_after: float | None = None
         self.no_samples = False
         self.on_sleep: Callable[[FakeArmBackend], None] | None = None
+        self.on_active_source: Callable[[FakeArmBackend], None] | None = None
+        self.on_publish_command: Callable[[FakeArmBackend], None] | None = None
+        # Ordered log of everything published on the autonomy topics: ("command", positions) / ("release", None).
+        self.events: list[tuple[str, dict[str, float] | None]] = []
 
     def joint_sample(self) -> JointSample | None:
         if self.no_samples:
@@ -30,14 +34,22 @@ class FakeArmBackend:
         return JointSample(positions=dict(self.positions), efforts=dict(self.efforts), stamp=stamp)
 
     def publish_command(self, positions: dict[str, float]) -> None:
+        if self.on_publish_command is not None:
+            hook, self.on_publish_command = self.on_publish_command, None
+            hook(self)
         self.commands.append(dict(positions))
+        self.events.append(("command", dict(positions)))
         if self.follow and (self.stale_after is None or self.t < self.stale_after):
             self.positions.update(positions)
 
     def publish_release(self) -> None:
         self.releases += 1
+        self.events.append(("release", None))
 
     def active_source(self) -> Stamped[str] | None:
+        if self.on_active_source is not None:
+            hook, self.on_active_source = self.on_active_source, None
+            hook(self)
         return None if self.source is None else Stamped(value=self.source, stamp=self.t)
 
     def now(self) -> float:

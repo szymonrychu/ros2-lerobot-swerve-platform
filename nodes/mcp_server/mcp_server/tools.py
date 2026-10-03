@@ -53,7 +53,9 @@ INSTRUCTIONS = """Controls a swerve-drive mobile robot with an SO101 5-DOF arm a
 Frames: 'map' is the SLAM map (x/y metres, yaw radians CCW); 'base_link' is the robot (x forward, y left).
 Look before moving: call get_robot_state, get_map_summary and get_camera_image first. Prefer navigate_to_pose /
 move_relative (Nav2 plans around obstacles) over drive. Arm motions are slow, clamped to joint limits and abort on
-stale feedback or tracking error. Call stop at once if anything looks wrong; it is always available."""
+stale feedback or tracking error. Arm control (the autonomy lease) is sticky: once taken (acquire_control or any arm
+motion) the leader arm and web UI are ignored until you call release_control, so release it as soon as you are done
+with the arm. Call stop at once if anything looks wrong; it is always available."""
 
 Camera = Literal["gripper", "realsense"]
 
@@ -88,7 +90,7 @@ class RobotApi(Protocol):
         ...
 
     def stop(self) -> StopResult:
-        """Cancel navigation, zero the base, hold the arm."""
+        """Cancel navigation, zero the base, hold the arm only if this server controls it."""
         ...
 
 
@@ -266,8 +268,10 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
 
     @tool()
     def stop() -> StopResult:
-        """Emergency stop, always available: cancels every Nav2 navigation goal, publishes a zero velocity and
-        freezes the arm at its measured pose (aborting any arm motion). Call it whenever anything looks wrong."""
+        """Emergency stop, always available: cancels every Nav2 navigation goal and publishes a zero velocity. The
+        arm is frozen at its measured pose (aborting any arm motion) only if this server holds arm control or an arm
+        motion is running; if it does not hold control the arm is not touched (arm_held false), so a human driving
+        it with the leader arm or web UI keeps it. Call it whenever anything looks wrong."""
         with tool_errors():
             return robot.stop()
 
@@ -282,13 +286,16 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
     @tool()
     def acquire_control() -> ControlResult:
         """Take arm control (autonomy lease) by commanding the current measured pose, so the arm does not move.
-        Motion tools acquire implicitly; the leader arm or web UI can take over again, which ends the lease."""
+        Motion tools acquire implicitly. The lease is sticky: while it is held the leader arm and web UI are
+        ignored, and it is not handed back automatically - release it explicitly with release_control when done."""
         with tool_errors():
             return robot.arm.acquire()
 
     @tool()
     def release_control() -> ControlResult:
-        """Give arm control back to the other sources (leader arm / web UI) and stop streaming setpoints."""
+        """Give arm control back to the other sources (leader arm / web UI): aborts any running arm motion, stops
+        the setpoint keepalive and publishes the autonomy release. Call release_control whenever you are done with
+        the arm; control taken by acquire_control or an arm motion is otherwise kept indefinitely."""
         with tool_errors():
             return robot.arm.release()
 
@@ -309,7 +316,7 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
         """Move arm joints to targets along a smooth (quintic) trajectory streamed at 25 Hz. Targets are clamped
         to the URDF limits minus a margin (reported in `clamped`). Blocks until converged or timed out; aborts and
         holds the measured pose if joint feedback goes stale (>0.3 s), the tracking error grows too large, or stop
-        is called."""
+        is called. Takes arm control if not already held and keeps it afterwards: call release_control when done."""
         with tool_errors():
             return robot.arm.move_joints(targets, speed_scale)
 
@@ -327,7 +334,8 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
         """Move the gripper tool point to (x, y, z) in the arm's base_link frame (arm URDF root: x forward along
         the arm at shoulder_pan=0, z up), optionally with an approach pitch. Solves inverse kinematics on the arm
         URDF (5-DOF: position + pitch, wrist_roll kept) and streams the joint motion like move_arm_joints. Returns
-        status 'unreachable' without moving when no solution exists within joint limits."""
+        status 'unreachable' without moving when no solution exists within joint limits. Keeps arm control afterwards
+        like move_arm_joints: call release_control when done."""
         del frame  # the only supported frame
         with tool_errors():
             return robot.arm.move_cartesian(x, y, z, pitch, speed_scale)
@@ -344,16 +352,18 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
     ) -> ArmMotionResult:
         """Open the gripper to a fraction, or close it until it grips something (status 'grasped' and the gripper
         holds that position; 'closed_no_contact' if it closed fully without touching anything). Give exactly one of
-        open_fraction or close_until_effort=true."""
+        open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done."""
         with tool_errors():
             return robot.arm.set_gripper(open_fraction, close_until_effort, effort_threshold)
 
     @tool()
     def arm_home() -> ArmMotionResult:
-        """Move the arm to its stored home pose (same as the /arm/home ROS service). Fails if no home pose has been
-        stored yet with arm_set_home."""
+        """Move the arm to its stored home pose. Afterwards (also after a failed motion) arm control is kept only if
+        it was already held before this call; otherwise it is released so the leader arm and web UI work again. (The
+        /arm/home ROS service, used by the web UI, always releases.) Fails if no home pose has been stored yet with
+        arm_set_home."""
         with tool_errors():
-            return robot.arm.home()
+            return robot.arm.home(keep_prior_control=True)
 
     @tool()
     def arm_set_home() -> HomeSetResult:

@@ -20,16 +20,16 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `navigate_to_pose(x, y, yaw, frame='map', timeout_s)` | Nav2 `NavigateToPose`; blocks until result/timeout (goal cancelled on timeout or stop); returns result and final pose. |
 | `move_relative(dx, dy, dyaw)` | Same, goal given in base_link (converted to a map goal via TF). |
 | `drive(vx, vy, wz, duration_s<=2)` | 20 Hz on `/cmd_vel_nav` (through velocity smoother + collision monitor), clamped to 0.25 m/s / 0.5 rad/s, then zero. |
-| `stop` | Always available: cancels all NavigateToPose goals, zero twist, aborts any arm motion and holds the arm at its measured pose. |
+| `stop` | Always available: cancels all NavigateToPose goals and publishes a zero twist. Aborts any arm motion and holds the arm at its measured pose only if this server holds arm control (or a motion is running); otherwise the arm is not touched (`arm_held: false`). |
 | `get_arm_state` | Joint positions/efforts, gripper effort, tool point pose (x, y, z, pitch), active source, lease, home stored. |
-| `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). |
+| `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
 | `move_arm_joints(targets, speed_scale<=0.5)` | Interpolated motion to joint targets. |
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link')` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch, wrist_roll kept); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount). |
 | `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). |
-| `arm_home` / `arm_set_home` | Move to / store the home pose (same logic as the ROS services). |
+| `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
 
-ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose) and `/arm/set_home` (store the measured
-pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
+ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
+after a failed motion; used by the web UI "Arm home" button) and `/arm/set_home` (store the measured pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
 directory created by Ansible, owned by the node user), written atomically.
 
 ## Safety model
@@ -42,6 +42,19 @@ directory created by Ansible, owned by the node user), written atomically.
   source on `/filter/active_source`. Motion tools acquire the lease implicitly; if filter_node switches to another
   source (after a 0.5 s grace) the lease is dropped and the motion stops without fighting the new source. While the
   lease is held and idle, the last setpoint is republished at `hold_republish_hz` (5 Hz) as a keepalive.
+- **Lease is sticky**: filter_node ignores the leader arm and the web UI while the autonomy lease is held, so the lease
+  is only ended by an explicit `release_control` (the MCP client is told so in the tool descriptions), by `/arm/home`
+  (always releases), by `arm_home` when control was not held before it, or on shutdown.
+- **Release is final**: every autonomy publish (setpoint, hold, keepalive, release) runs under one lock and setpoints
+  are published only while the lease is held. `release_control` aborts the stream, stops the keepalive and then
+  publishes the release, so no setpoint can follow the release and silently re-take the lease.
+- **Stop does not grab the arm**: `stop` always cancels Nav2 goals and zeroes the base, but holds the arm only when
+  this server holds arm control or an arm motion is running. A base-only stop leaves a human teleoperating with the
+  leader arm or web UI in control.
+- **Orphaned lease after a crash**: on startup the server watches `/filter/active_source` for
+  `ORPHAN_LEASE_WINDOW_S` (3 s). If filter_node reports `autonomy` while this process does not hold control (a
+  previous run crashed or was OOM-killed holding the lease), it publishes the autonomy release and logs a warning,
+  returning the arm to normal arbitration.
 - **Arm motions**: targets clamped to URDF limits minus `arm_limit_margin_rad` (0.05); synchronised quintic trajectory
   with per-joint velocity <= 0.5 rad/s (`speed_scale` 0.5 = that maximum, lower is proportionally slower) streamed at
   25 Hz; blocks until converged (`arm_converge_tolerance_rad`) or `arm_converge_timeout_s` after the trajectory.
@@ -57,7 +70,7 @@ directory created by Ansible, owned by the node user), written atomically.
 | `trajectory.py` | no | quintic interpolation, limit clamping, tracking error |
 | `ik.py` | no | URDF limits, ikpy FK/IK with verification |
 | `arm.py` | no | `ArmController`: lease, streaming, aborts, gripper, home |
-| `base_motion.py` | no | timed clamped drive loop |
+| `base_motion.py` | no | timed clamped drive loop, stop sequence (`run_stop`) |
 | `perception.py` | no | scan sectors, map stats/PNG, image encoding |
 | `home_store.py`, `staleness.py`, `geometry.py`, `models.py` | no | home YAML, data age, pose math, result models |
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |

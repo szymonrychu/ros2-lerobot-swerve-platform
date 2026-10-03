@@ -29,7 +29,7 @@ from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .arm import ArmController, ArmError, JointSample
-from .base_motion import DriveError, DriveOutcome, run_drive
+from .base_motion import DriveError, DriveOutcome, run_drive, run_stop
 from .config import McpServerConfig
 from .geometry import compose_relative, quaternion_from_yaw, yaw_from_quaternion
 from .ik import ArmKinematics, load_joint_limits
@@ -73,6 +73,8 @@ CANCEL_SUFFIX = "/_action/cancel_goal"
 STATUS_SUFFIX = "/_action/status"
 CANCEL_WAIT_S = 1.0
 NAV_POLL_S = 0.05
+# Startup orphan-lease check cadence (the window itself is arm.ORPHAN_LEASE_WINDOW_S).
+ORPHAN_CHECK_PERIOD_S = 0.2
 GOAL_STATUS_NAMES = {
     GoalStatus.STATUS_UNKNOWN: "unknown",
     GoalStatus.STATUS_ACCEPTED: "accepted",
@@ -146,6 +148,10 @@ class RosRobot:
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
         self.node.create_timer(
             1.0 / config.limits.hold_republish_hz, self.arm.keepalive_tick, callback_group=self.group
+        )
+        self.orphan_started = time.monotonic()
+        self.orphan_timer = self.node.create_timer(
+            ORPHAN_CHECK_PERIOD_S, self.check_orphan_lease, callback_group=self.group
         )
         self.log.info(f"mcp_server ROS interface ready (URDF {urdf}, home file {config.arm.home_file})")
 
@@ -289,10 +295,21 @@ class RosRobot:
         """
         time.sleep(seconds)
 
+    def check_orphan_lease(self) -> None:
+        """Startup timer: release an autonomy lease orphaned by a crashed predecessor, then cancel itself."""
+        outcome = self.arm.check_orphan_lease(self.orphan_started)
+        if outcome == "released":
+            self.log.warning(
+                f"{self.cfg.topics.active_source} reports '{self.cfg.arm.autonomy_source_name}' but this process "
+                "does not hold arm control (orphaned lease from a previous run); published the autonomy release"
+            )
+        if outcome != "pending":
+            self.orphan_timer.cancel()
+
     # --- ROS services ---------------------------------------------------------------------------------------------
 
     def on_home(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
-        """/arm/home: move to the stored home pose.
+        """/arm/home: move to the stored home pose, then release arm control (also after a failed motion).
 
         Args:
             _request (Trigger.Request): Empty request.
@@ -301,13 +318,7 @@ class RosRobot:
         Returns:
             Trigger.Response: success and message.
         """
-        try:
-            result = self.arm.home()
-            response.success = result.status == "converged"
-            response.message = f"{result.status}: {result.message}"
-        except ArmError as exc:
-            response.success = False
-            response.message = str(exc)
+        response.success, response.message = self.arm.home_service_call()
         return response
 
     def on_set_home(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
@@ -656,23 +667,12 @@ class RosRobot:
         return wait_future(self.cancel_client.call_async(request), CANCEL_WAIT_S)
 
     def stop(self) -> StopResult:
-        """Cancel navigation, zero the base and hold the arm; each part is attempted regardless of the others.
+        """Cancel navigation and zero the base always; hold the arm only if this server controls it.
 
         Returns:
             StopResult: What succeeded.
         """
-        self.base_stop.set()
-        self.arm.request_stop()
-        self.publish_twist(0.0, 0.0, 0.0)
-        arm_held = self.arm.hold()
-        cancelled = self.cancel_all_goals()
-        self.publish_twist(0.0, 0.0, 0.0)
-        notes = []
-        if not cancelled:
-            notes.append("Nav2 cancel service unavailable")
-        if not arm_held:
-            notes.append("arm not held: no fresh joint states")
-        return StopResult(nav_goals_cancelled=cancelled, base_zeroed=True, arm_held=arm_held, message="; ".join(notes))
+        return run_stop(self.base_stop.set, self.publish_twist, self.cancel_all_goals, self.arm.stop_hold)
 
     def shutdown(self) -> None:
         """Hand the arm back (release the lease if held) and destroy the node."""

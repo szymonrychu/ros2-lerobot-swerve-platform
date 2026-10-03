@@ -86,7 +86,8 @@ class FakeRobot:
 
     def stop(self) -> StopResult:
         self.calls.append(("stop", ()))
-        return StopResult(nav_goals_cancelled=True, base_zeroed=True, arm_held=self.arm.hold())
+        held, note = self.arm.stop_hold()
+        return StopResult(nav_goals_cancelled=True, base_zeroed=True, arm_held=held, message=note)
 
 
 def call(server: Any, name: str, args: dict[str, Any]) -> Any:
@@ -216,6 +217,46 @@ def test_move_arm_joints_rejects_fast_speed(server: Any) -> None:
 def test_move_arm_cartesian_reports_unreachable(server: Any) -> None:
     res = call(server, "move_arm_cartesian", {"x": 2.0, "y": 0.0, "z": 0.2})
     assert res.structured_content["status"] == "unreachable"
+
+
+def tool_descriptions(server: Any) -> dict[str, str]:
+    async def run() -> Any:
+        return await server.list_tools()
+
+    return {t.name: t.description or "" for t in anyio.run(run)}
+
+
+def test_lease_tool_descriptions_require_explicit_release(server: Any) -> None:
+    docs = tool_descriptions(server)
+    for name in ("acquire_control", "release_control", "move_arm_joints"):
+        assert "release_control" in docs[name], name
+    assert "ignored" in docs["acquire_control"]
+    assert "can take over" not in docs["acquire_control"]
+    assert "explicitly" in docs["acquire_control"]
+    assert "already held" in docs["arm_home"]
+    assert "not hold" in docs["stop"] or "only if" in docs["stop"]
+
+
+def test_arm_home_tool_releases_control_it_did_not_hold(server: Any, robot: FakeRobot) -> None:
+    call(server, "arm_set_home", {})
+    res = call(server, "arm_home", {})
+    assert res.structured_content["status"] == "converged"
+    assert robot.arm.control_held is False
+    assert robot.arm_backend.releases == 1
+
+
+def test_arm_home_tool_keeps_control_it_held(server: Any, robot: FakeRobot) -> None:
+    call(server, "arm_set_home", {})
+    call(server, "acquire_control", {})
+    call(server, "arm_home", {})
+    assert robot.arm.control_held is True
+    assert robot.arm_backend.releases == 0
+
+
+def test_stop_tool_leaves_uncontrolled_arm_alone(server: Any, robot: FakeRobot) -> None:
+    res = call(server, "stop", {})
+    assert res.structured_content["arm_held"] is False
+    assert robot.arm_backend.commands == []
 
 
 def test_arm_home_without_stored_pose_errors(server: Any) -> None:

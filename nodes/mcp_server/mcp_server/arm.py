@@ -6,7 +6,7 @@ All commands go to filter_node's autonomy input; filter_node arbitrates against 
 import math
 import threading
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from .config import McpServerConfig
 from .home_store import HomeStoreError, load_home, save_home
@@ -18,10 +18,19 @@ from .trajectory import JointLimits, clamp_to_limits, max_abs_error, plan_trajec
 # Grace after acquiring before a different active source counts as losing the lease (filter_node needs a cycle).
 LEASE_GRACE_S = 0.5
 CHANGED_EPS = 1e-9
+# After a restart, an 'autonomy' active source seen within this window (s) while not holding control is an orphaned
+# lease from a crashed predecessor and gets released.
+ORPHAN_LEASE_WINDOW_S = 3.0
+
+OrphanCheck = Literal["pending", "released", "clear"]
 
 
 class ArmError(RuntimeError):
     """Raised for a rejected arm request (bad arguments, no fresh joint states, no home pose, busy)."""
+
+
+class ArmBusyError(ArmError):
+    """Raised when another arm motion is already running."""
 
 
 @dataclass(frozen=True)
@@ -62,7 +71,11 @@ class ArmBackend(Protocol):
 
 
 class ArmController:
-    """Streams safe arm motions on the autonomy topic and keeps the lease alive."""
+    """Streams safe arm motions on the autonomy topic and keeps the lease alive.
+
+    Every autonomy publish (setpoint or release) happens under `_lock` and setpoints only while `_held`, so once
+    release() has started no stream, hold or keepalive can publish a setpoint that would re-take the lease.
+    """
 
     def __init__(
         self, backend: ArmBackend, kinematics: ArmKinematics, limits: JointLimits, config: McpServerConfig
@@ -87,7 +100,8 @@ class ArmController:
         self._streaming = False
         self._stop = threading.Event()
         self._motion_lock = threading.Lock()
-        self._state_lock = threading.Lock()
+        # Guards _held, _acquired_at, _last_setpoint, _streaming and every autonomy publish.
+        self._lock = threading.Lock()
 
     @property
     def control_held(self) -> bool:
@@ -136,15 +150,40 @@ class ArmController:
         """
         return {j: sample.positions[j] for j in self.joint_names if j in sample.positions}
 
-    def command(self, setpoint: dict[str, float]) -> None:
-        """Publish a setpoint and remember it for keepalive and tracking checks.
+    def command(self, setpoint: dict[str, float]) -> bool:
+        """Publish a setpoint and remember it for keepalive and tracking checks, only while holding the lease.
+
+        Args:
+            setpoint (dict[str, float]): Joint name -> rad.
+
+        Returns:
+            bool: True when published; False when the lease is not held (e.g. released meanwhile).
+        """
+        with self._lock:
+            if not self._held:
+                return False
+            self.backend.publish_command(setpoint)
+            self._last_setpoint = dict(setpoint)
+        return True
+
+    def take_lease(self, setpoint: dict[str, float]) -> None:
+        """Mark the lease held (keeping the original acquire time if already held) and publish a setpoint.
 
         Args:
             setpoint (dict[str, float]): Joint name -> rad.
         """
-        self.backend.publish_command(setpoint)
-        with self._state_lock:
+        with self._lock:
+            if not self._held:
+                self._held = True
+                self._acquired_at = self.backend.now()
+            self.backend.publish_command(setpoint)
             self._last_setpoint = dict(setpoint)
+
+    def drop_lease(self) -> None:
+        """Forget the lease without publishing (another source took over)."""
+        with self._lock:
+            self._held = False
+            self._last_setpoint = None
 
     def acquire(self) -> ControlResult:
         """Start the autonomy lease by commanding the measured pose (the arm does not move).
@@ -153,25 +192,50 @@ class ArmController:
             ControlResult: Lease state and the pose it holds.
         """
         positions = self.measured(self.require_sample())
-        self.command(positions)
-        self._held = True
-        self._acquired_at = self.backend.now()
+        self.take_lease(positions)
         return ControlResult(
             control_held=True, message="autonomy lease acquired at the measured pose", positions=positions
         )
 
     def release(self) -> ControlResult:
-        """End the lease: abort any motion and hand the arm back to filter_node's other sources.
+        """End the lease: abort any motion, stop the keepalive, then hand the arm back to filter_node's other sources.
 
         Returns:
             ControlResult: Lease state.
         """
         self._stop.set()
-        self.backend.publish_release()
-        self._held = False
-        with self._state_lock:
+        with self._lock:
+            self._held = False
             self._last_setpoint = None
+            self.backend.publish_release()
         return ControlResult(control_held=False, message="autonomy lease released")
+
+    def check_orphan_lease(self, started_at: float) -> OrphanCheck:
+        """Startup check (call periodically): release a lease orphaned by a crashed predecessor of this server.
+
+        Args:
+            started_at (float): Monotonic time (s) the check started (process startup).
+
+        Returns:
+            OrphanCheck: "released" when filter_node reported 'autonomy' while this process does not hold control
+                (a release was published), "clear" when the window passed without that (or this process holds
+                control itself), "pending" while still watching.
+        """
+        now = self.backend.now()
+        src = self.backend.active_source()
+        if (
+            src is not None
+            and src.stamp >= started_at
+            and src.fresh(now, self.cfg.timeouts.state_stale_s)
+            and src.value == self.cfg.arm.autonomy_source_name
+        ):
+            with self._lock:
+                if self._held:
+                    return "clear"
+                self._last_setpoint = None
+                self.backend.publish_release()
+            return "released"
+        return "clear" if now - started_at >= ORPHAN_LEASE_WINDOW_S else "pending"
 
     def request_stop(self) -> None:
         """Ask the running motion (if any) to abort and hold."""
@@ -186,11 +250,23 @@ class ArmController:
         sample = self.fresh_sample()
         if sample is None:
             return False
-        self.command(self.measured(sample))
-        if not self._held:
-            self._held = True
-            self._acquired_at = self.backend.now()
+        self.take_lease(self.measured(sample))
         return True
+
+    def stop_hold(self) -> tuple[bool, str]:
+        """Stop tool's arm part: abort any motion and hold the arm, but only if this server controls it.
+
+        A base-only stop must not take the arm from a human teleoperating with the leader or the web UI.
+
+        Returns:
+            tuple[bool, str]: Whether the arm was held, and a note ("" when held).
+        """
+        self.request_stop()
+        if not (self._held or self._motion_lock.locked()):
+            return False, "arm not touched: mcp_server does not hold arm control"
+        if self.hold():
+            return True, ""
+        return False, "arm not held: no fresh joint states"
 
     def lease_lost_to(self) -> str | None:
         """Name of another source filter_node switched to after the grace period, if any.
@@ -214,15 +290,15 @@ class ArmController:
         if not self._held:
             return
         other = self.lease_lost_to()
-        if other is not None:
-            self._held = False
-            with self._state_lock:
+        with self._lock:
+            if not self._held:
+                return
+            if other is not None:
+                self._held = False
                 self._last_setpoint = None
-            return
-        with self._state_lock:
-            setpoint = None if self._streaming else self._last_setpoint
-        if setpoint is not None:
-            self.backend.publish_command(setpoint)
+                return
+            if not self._streaming and self._last_setpoint is not None:
+                self.backend.publish_command(self._last_setpoint)
 
     def validate_targets(self, targets: dict[str, float]) -> None:
         """Reject empty, unknown or non-finite joint targets.
@@ -333,8 +409,15 @@ class ArmController:
             return result.model_copy(update={"status": "closed_no_contact", "message": "closed without contact"})
         return result
 
-    def home(self) -> ArmMotionResult:
-        """Move to the stored home pose.
+    def home(self, keep_prior_control: bool = True) -> ArmMotionResult:
+        """Move to the stored home pose, then release control unless it is to be kept.
+
+        Control is released after the motion completes or fails (any result, or an error once the motion was
+        attempted). With keep_prior_control it is kept only when it was already held before the call; without it
+        (the /arm/home service) it is always released. A missing home pose or a busy arm changes nothing.
+
+        Args:
+            keep_prior_control (bool): Keep control afterwards if it was held before the call.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -345,7 +428,30 @@ class ArmController:
             raise ArmError(f"home pose file unreadable: {exc}") from exc
         if pose is None:
             raise ArmError(f"no home pose stored at {self.cfg.arm.home_file}; call arm_set_home first")
-        return self.move_joints({j: v for j, v in pose.items() if j in self.joint_names})
+        keep = keep_prior_control and self._held
+        try:
+            result = self.move_joints({j: v for j, v in pose.items() if j in self.joint_names})
+        except ArmBusyError:
+            raise
+        except ArmError:
+            if not keep and self._held:
+                self.release()
+            raise
+        if not keep and self._held:
+            self.release()
+        return result
+
+    def home_service_call(self) -> tuple[bool, str]:
+        """/arm/home service body: move home and always release control afterwards.
+
+        Returns:
+            tuple[bool, str]: success (converged) and message.
+        """
+        try:
+            result = self.home(keep_prior_control=False)
+        except ArmError as exc:
+            return False, str(exc)
+        return result.status == "converged", f"{result.status}: {result.message}"
 
     def set_home(self) -> dict[str, float]:
         """Store the measured pose as the home pose.
@@ -430,7 +536,7 @@ class ArmController:
         """
         positions = None if sample is None else self.measured(sample)
         if hold and positions:
-            self.command(positions)
+            self.command(positions)  # no-op once released
         return ArmMotionResult(
             status=status,
             message=message,
@@ -457,13 +563,13 @@ class ArmController:
             return "stopped", "stop requested"
         other = self.lease_lost_to()
         if other is not None:
-            self._held = False
+            self.drop_lease()
             return "stopped", f"filter_node switched the arm source to {other!r}"
         now = self.backend.now()
         stale = self.cfg.timeouts.follower_stale_s
         if sample is None or not is_fresh(sample.stamp, now, stale) or any(j not in sample.positions for j in tracked):
             return "aborted_stale", f"/follower/joint_states older than {stale} s"
-        with self._state_lock:
+        with self._lock:
             setpoint = self._last_setpoint
         if setpoint is not None:
             error = max_abs_error(setpoint, sample.positions, [j for j in tracked if j in setpoint])
@@ -502,7 +608,7 @@ class ArmController:
         period = 1.0 / rate
         tracked = [j for j in moving if j != self.gripper]
         started = self.backend.now()
-        with self._state_lock:
+        with self._lock:
             self._streaming = True
         try:
             sample: JointSample | None = None
@@ -512,7 +618,8 @@ class ArmController:
                 verdict = self.check(latest, tracked, effort_threshold)
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
-                self.command(point)
+                if not self.command(point):
+                    return self.finish("stopped", "control released", goal, sample, clamped, started, hold=False)
                 self.backend.sleep(period)
             deadline = self.backend.now() + self.cfg.timeouts.arm_converge_timeout_s
             while True:
@@ -534,10 +641,11 @@ class ArmController:
                         started,
                         hold=True,
                     )
-                self.command(goal)
+                if not self.command(goal):
+                    return self.finish("stopped", "control released", goal, sample, clamped, started, hold=False)
                 self.backend.sleep(period)
         finally:
-            with self._state_lock:
+            with self._lock:
                 self._streaming = False
 
 
@@ -555,7 +663,7 @@ class MotionGuard:
     def __enter__(self) -> None:
         """Take the motion lock or refuse."""
         if not self.controller._motion_lock.acquire(blocking=False):
-            raise ArmError("another arm motion is running; call stop first")
+            raise ArmBusyError("another arm motion is running; call stop first")
         self.controller._stop.clear()
 
     def __exit__(self, *exc: object) -> None:

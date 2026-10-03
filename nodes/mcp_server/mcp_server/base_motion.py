@@ -1,4 +1,5 @@
-"""Timed base velocity streaming (drive tool): clamp, publish at a fixed rate, always finish with a zero twist."""
+"""Timed base velocity streaming (drive tool) and the stop sequence: clamp, publish at a fixed rate, always finish
+with a zero twist."""
 
 import math
 from collections.abc import Callable
@@ -6,6 +7,7 @@ from collections.abc import Callable
 from pydantic import BaseModel
 
 from .geometry import clamp_twist
+from .models import StopResult
 
 
 class DriveError(ValueError):
@@ -79,3 +81,31 @@ def run_drive(
         publish(0.0, 0.0, 0.0)
         published += 1
     return DriveOutcome(commanded=cmd, clamped=cmd != (vx, vy, wz), aborted=aborted, published=published)
+
+
+def run_stop(
+    signal_base_stop: Callable[[], None],
+    publish: Callable[[float, float, float], None],
+    cancel_all_goals: Callable[[], bool],
+    stop_arm: Callable[[], tuple[bool, str]],
+) -> StopResult:
+    """Stop tool sequence: every part is attempted regardless of the others; the base is always zeroed.
+
+    Args:
+        signal_base_stop (Callable[[], None]): Tells running navigate/drive calls to abort.
+        publish (Callable[[float, float, float], None]): Sends one twist (vx, vy, wz).
+        cancel_all_goals (Callable[[], bool]): Cancels every Nav2 goal; True when the cancel service answered.
+        stop_arm (Callable[[], tuple[bool, str]]): Arm part (ArmController.stop_hold): held flag and note.
+
+    Returns:
+        StopResult: What succeeded.
+    """
+    signal_base_stop()
+    publish(0.0, 0.0, 0.0)
+    arm_held, arm_note = stop_arm()
+    cancelled = cancel_all_goals()
+    publish(0.0, 0.0, 0.0)
+    notes = [] if cancelled else ["Nav2 cancel service unavailable"]
+    if arm_note:
+        notes.append(arm_note)
+    return StopResult(nav_goals_cancelled=cancelled, base_zeroed=True, arm_held=arm_held, message="; ".join(notes))
