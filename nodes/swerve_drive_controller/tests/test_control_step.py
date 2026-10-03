@@ -4,7 +4,14 @@ import math
 from pathlib import Path
 
 from swerve_drive_controller.config import SwerveControllerConfig, load_config
-from swerve_drive_controller.control import CmdVelSample, ControlState, JointSample, build_joint_command, control_step
+from swerve_drive_controller.control import (
+    CmdVelSample,
+    ControlOutput,
+    ControlState,
+    JointSample,
+    build_joint_command,
+    control_step,
+)
 
 NAMES = ["fl_drive", "fl_steer", "fr_drive", "fr_steer", "rl_drive", "rl_steer", "rr_drive", "rr_steer"]
 STEER = [NAMES[1], NAMES[3], NAMES[5], NAMES[7]]
@@ -120,3 +127,53 @@ def test_odometry_integrates_and_reports_twist(tmp_path: Path) -> None:
     assert out is not None
     assert math.isclose(out.odom_twist[0], 0.1, rel_tol=1e-6)
     assert math.isclose(state.pose[0], 0.1, rel_tol=1e-6)
+
+
+def steer_of(out: ControlOutput) -> list[float]:
+    return [out.positions[i] for i in (1, 3, 5, 7)]
+
+
+def drive_of(out: ControlOutput) -> list[float]:
+    return [out.velocities[i] for i in (0, 2, 4, 6)]
+
+
+def test_group_flip_carried_across_cycles(tmp_path: Path) -> None:
+    """Sweeping the travel direction through 90 deg while turning: the group side lives in ControlState and
+    the wheels never split across +-90 deg nor swing one at a time."""
+    cfg = make_config(tmp_path)
+    state = ControlState()
+    assert state.steer_flip is None
+    measured = [0.0] * 4
+    previous: list[float] | None = None
+    group_flips = 0
+    t = 10.0
+    for deg in range(60, 121):
+        theta = math.radians(deg)
+        joints = JointSample(positions=dict(zip(STEER, measured)), velocities={j: 0.0 for j in DRIVE}, time_s=t)
+        cmd = CmdVelSample((0.1 * math.cos(theta), 0.1 * math.sin(theta), 0.02), t)
+        out, state = control_step(cfg, state, cmd, joints, t)
+        assert out is not None
+        assert state.steer_flip is not None
+        steer = steer_of(out)
+        assert len({math.copysign(1.0, s) for s in steer}) == 1
+        jumps = [previous is not None and abs(s - p) > 1.0 for s, p in zip(steer, previous or steer)]
+        assert not any(jumps) or all(jumps)
+        if all(jumps):
+            group_flips += 1
+            # The whole set swings together; the safeguard holds every drive until steering catches up.
+            assert all(d == 0.0 for d in drive_of(out))
+        elif previous is not None:
+            assert all(d != 0.0 for d in drive_of(out))
+        previous = steer
+        measured = steer  # steering tracks the command
+        t += 0.02
+    assert group_flips == 1
+
+
+def test_group_flip_kept_when_joint_states_stale(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    state = ControlState(steer_targets=[1.5] * 4, steer_flip=True)
+    out, new_state = control_step(cfg, state, CmdVelSample((0.0, 0.1, 0.0), 10.0), make_joints(1.0), 10.0)
+    assert out is None
+    assert new_state.steer_flip is True
+    assert new_state.steer_targets == [1.5] * 4

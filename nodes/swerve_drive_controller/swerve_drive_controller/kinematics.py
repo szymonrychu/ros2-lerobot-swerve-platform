@@ -10,6 +10,9 @@ WHEEL_ORDER = ("fl", "fr", "rl", "rr")
 # Headings up to this far past the steering limit keep the wheel on its current side (clamped to the limit)
 # instead of swinging 180 deg to the other side; avoids flip-flopping during sideways motion.
 STEER_LIMIT_HYSTERESIS_RAD = 0.1
+# Group-level hysteresis: when both common sides (all wheels unflipped / all flipped) are feasible, the previous
+# side is kept unless the other one reduces the summed steering travel of the moving wheels by more than this.
+GROUP_FLIP_HYSTERESIS_RAD = 0.2
 
 
 def wheel_positions(lx: float, ly: float) -> np.ndarray:
@@ -206,6 +209,81 @@ def desaturate_wheel_speeds(drives: list[float], max_speed: float) -> list[float
     return [d * scale for d in drives]
 
 
+def flip_candidate(steer: float, drive: float, flip: bool) -> tuple[float, float]:
+    """Return one of the two equivalent wheel states: (heading, drive) or (heading + pi, -drive).
+
+    Args:
+        steer: Wheel heading from IK, rad (any value).
+        drive: Drive angular velocity from IK, rad/s.
+        flip: True for the flipped equivalent (heading + pi, reversed drive).
+
+    Returns:
+        tuple[float, float]: (heading normalized to [-pi, pi], drive), rad and rad/s.
+    """
+    if flip:
+        return normalize_angle(steer + math.pi), -drive
+    return normalize_angle(steer), drive
+
+
+def candidate_feasible(candidate: float, current_steer: float, limit: float) -> bool:
+    """Return True if a candidate heading is reachable: within the limit, or up to STEER_LIMIT_HYSTERESIS_RAD past
+    it on the side the wheel is currently on (a centred wheel counts as being on both sides).
+
+    Args:
+        candidate: Candidate heading, rad, in [-pi, pi].
+        current_steer: Current steering target of the wheel, rad.
+        limit: Steering limit (absolute), rad.
+
+    Returns:
+        bool: True if the candidate may be used (clamped to the limit).
+    """
+    if abs(candidate) <= limit + 1e-9:
+        return True
+    return abs(candidate) <= limit + STEER_LIMIT_HYSTERESIS_RAD and candidate * current_steer >= 0.0
+
+
+def choose_common_flip(
+    ik_steer: list[float],
+    moving: list[bool],
+    current_steer: list[float],
+    limit: float,
+    previous_flip: bool | None,
+) -> bool | None:
+    """Choose one side (all wheels unflipped or all flipped) for the whole set of moving wheels.
+
+    A side is feasible when its candidate heading is reachable for every moving wheel (see candidate_feasible).
+    Among feasible sides the one with the smaller summed steering travel from current_steer wins, except that the
+    previous side is kept unless the other one saves more than GROUP_FLIP_HYSTERESIS_RAD of travel.
+
+    Args:
+        ik_steer: IK heading per wheel, rad.
+        moving: Per wheel, True when it has a non-zero drive command (stopped wheels are ignored).
+        current_steer: Current steering target per wheel, rad.
+        limit: Steering limit (absolute), rad.
+        previous_flip: Side chosen in the previous cycle, or None if it used the per-wheel fallback.
+
+    Returns:
+        bool | None: False = all unflipped, True = all flipped, None = no common side is feasible. With no moving
+        wheel the previous choice is returned unchanged.
+    """
+    wheels = [i for i in range(len(ik_steer)) if moving[i]]
+    if not wheels:
+        return previous_flip
+    travel: dict[bool, float] = {}
+    for flip in (False, True):
+        candidates = [flip_candidate(ik_steer[i], 1.0, flip)[0] for i in wheels]
+        if all(candidate_feasible(c, current_steer[i], limit) for c, i in zip(candidates, wheels)):
+            travel[flip] = sum(abs(max(-limit, min(limit, c)) - current_steer[i]) for c, i in zip(candidates, wheels))
+    if not travel:
+        return None
+    if len(travel) == 1:
+        return next(iter(travel))
+    best = min(travel, key=lambda flip: (travel[flip], flip))
+    if previous_flip is not None and travel[previous_flip] - travel[best] <= GROUP_FLIP_HYSTERESIS_RAD:
+        return previous_flip
+    return best
+
+
 def compute_wheel_commands(
     vx: float,
     vy: float,
@@ -216,8 +294,13 @@ def compute_wheel_commands(
     wheel_radius: float,
     steer_limit: float,
     max_wheel_speed: float,
-) -> tuple[list[float], list[float]]:
-    """Full swerve command: IK, fold into steering range, hold steer when stopped, desaturate.
+    previous_flip: bool | None = None,
+) -> tuple[list[float], list[float], bool | None]:
+    """Full swerve command: IK, common side choice (or per-wheel fold), hold steer when stopped, desaturate.
+
+    All moving wheels use the same equivalent (all unflipped or all flipped, see choose_common_flip) so they stay
+    aligned at the +-90 deg limit; only when no common side is feasible (e.g. rotation in place) each wheel is
+    folded on its own with fold_to_steer_range.
 
     Args:
         vx: Forward body velocity, m/s.
@@ -229,23 +312,30 @@ def compute_wheel_commands(
         wheel_radius: Wheel radius, m.
         steer_limit: Steering limit (absolute), rad.
         max_wheel_speed: Maximum drive angular velocity, rad/s.
+        previous_flip: Common side chosen in the previous cycle (None if none / per-wheel fallback).
 
     Returns:
-        tuple[list[float], list[float]]: (steer angles rad, drive angular velocities rad/s), order fl, fr, rl, rr.
+        tuple[list[float], list[float], bool | None]: (steer angles rad, drive angular velocities rad/s, common
+        side: False unflipped, True flipped, None per-wheel fallback), wheel order fl, fr, rl, rr.
     """
     ik_steer, ik_drive = inverse_kinematics(vx, vy, omega, lx, ly, wheel_radius)
+    moving = [d != 0.0 for d in ik_drive]
+    flip = choose_common_flip(ik_steer, moving, current_steer, steer_limit, previous_flip)
     steer_out: list[float] = []
     drive_out: list[float] = []
     for i in range(4):
-        if ik_drive[i] == 0.0:
+        if not moving[i]:
             # Stopped wheel: keep its current heading instead of swinging back to centre.
             steer_out.append(max(-steer_limit, min(steer_limit, current_steer[i])))
             drive_out.append(0.0)
             continue
-        steer, drive = fold_to_steer_range(ik_steer[i], ik_drive[i], current_steer[i], steer_limit)
-        steer_out.append(steer)
+        if flip is None:
+            steer, drive = fold_to_steer_range(ik_steer[i], ik_drive[i], current_steer[i], steer_limit)
+        else:
+            steer, drive = flip_candidate(ik_steer[i], ik_drive[i], flip)
+        steer_out.append(max(-steer_limit, min(steer_limit, steer)))
         drive_out.append(drive)
-    return steer_out, desaturate_wheel_speeds(drive_out, max_wheel_speed)
+    return steer_out, desaturate_wheel_speeds(drive_out, max_wheel_speed), flip
 
 
 def wheel_states(

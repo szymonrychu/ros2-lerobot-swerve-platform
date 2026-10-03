@@ -1,6 +1,6 @@
 """Pure per-cycle control logic for the swerve controller (no rclpy imports, unit-testable)."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .config import SwerveControllerConfig
 from .kinematics import compute_wheel_commands, forward_kinematics, integrate_odometry, should_zero_drive, wheel_states
@@ -45,11 +45,14 @@ class ControlState:
         steer_targets: Last commanded steering angles (held while stopped), or None before the first cycle.
         pose: (x, y, theta) in the odom frame.
         last_odom_time: Monotonic time of the previous odometry step, or None after a gap.
+        steer_flip: Common steering side of the last cycle (False all unflipped, True all flipped), or None when
+            the per-wheel fold was used or before the first cycle.
     """
 
     steer_targets: list[float] | None = None
     pose: tuple[float, float, float] = (0.0, 0.0, 0.0)
     last_odom_time: float | None = None
+    steer_flip: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -118,7 +121,7 @@ def control_step(
     drive_joints = [names[0], names[2], names[4], names[6]]
     measured = wheel_states(joints.positions, joints.velocities, steer_joints, drive_joints)
     if measured is None or now - joints.time_s > config.joint_states_timeout_s:
-        return None, ControlState(steer_targets=state.steer_targets, pose=state.pose, last_odom_time=None)
+        return None, replace(state, last_odom_time=None)
     steer_angles, drive_velocities = measured
 
     vx, vy, omega = cmd.twist if now - cmd.time_s <= config.cmd_vel_timeout_s else (0.0, 0.0, 0.0)
@@ -126,7 +129,7 @@ def control_step(
         vx, vy, omega = 0.0, 0.0, 0.0
 
     steer_targets = state.steer_targets if state.steer_targets is not None else list(steer_angles)
-    desired_steer, desired_drive = compute_wheel_commands(
+    desired_steer, desired_drive, steer_flip = compute_wheel_commands(
         vx,
         vy,
         omega,
@@ -136,6 +139,7 @@ def control_step(
         config.wheel_radius_m,
         config.max_steer_angle_rad,
         config.max_wheel_angular_velocity_rad_s,
+        previous_flip=state.steer_flip,
     )
     # No-propulsion safeguard: zero drive for a wheel until its steering has caught up.
     for i in range(4):
@@ -157,4 +161,4 @@ def control_step(
         odom_twist=twist,
         moving=abs(vx) > CMD_VEL_DEADBAND or abs(vy) > CMD_VEL_DEADBAND or abs(omega) > CMD_VEL_DEADBAND,
     )
-    return output, ControlState(steer_targets=list(desired_steer), pose=pose, last_odom_time=now)
+    return output, ControlState(steer_targets=list(desired_steer), pose=pose, last_odom_time=now, steer_flip=steer_flip)
