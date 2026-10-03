@@ -336,9 +336,6 @@ def test_slam_toolbox_ansible_wiring() -> None:
     assert defaults["cpu_quota"] and defaults["memory_max"]
     assert defaults["config_path"] == SLAM_CONFIG_DIR
     assert f"SLAM_TOOLBOX_CONFIG={SLAM_CONFIG_FILE}" in defaults["env"]
-    names = [n["name"] for n in group["ros2_nodes"]]
-    assert names[0] == "fastdds_discovery_server"
-    assert names.index("slam_toolbox") > names.index("fastdds_discovery_server")
     entry = node_entry("slam_toolbox")
     assert entry["node_type"] == "slam_toolbox"
     assert entry["present"] is True and entry["enabled"] is True
@@ -406,15 +403,6 @@ def test_slam_playbooks_deploy_node_and_create_maps_dir(playbook: str) -> None:
     assert args["state"] == "directory"
     assert args["owner"] == "{{ ansible_user }}"
     assert args["mode"] == "0755"
-
-
-def test_slam_deployed_after_discovery_server_in_client_playbook() -> None:
-    tasks = yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"]
-    order = [t.get("vars", {}).get("_deploy_node_name") for t in tasks]
-    assert order.index("slam_toolbox") > order.index("fastdds_discovery_server")
-
-
-# --- Nav2 ----------------------------------------------------------------------------------------
 
 
 def test_nav2_launch_passes_repo_params_without_localization() -> None:

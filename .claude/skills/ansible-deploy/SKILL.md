@@ -74,7 +74,7 @@ in parallel with other nodes.
 ### Client nodes (RPi5)
 | Node | Notes |
 |------|-------|
-| `fastdds_discovery_server` | FastDDS discovery server (ID 0); all client nodes connect to it |
+| `fastdds_discovery_server` | Removed (present: false); deploys uninstall the old discovery server |
 | `ros2-master` | ROS2 DDS master |
 | `master2master` | Cross-host topic bridge |
 | `filter_node` | Kalman filter for arm joints |
@@ -97,7 +97,7 @@ in parallel with other nodes.
 ### Server nodes (RPi4b)
 | Node | Notes |
 |------|-------|
-| `fastdds_discovery_server` | FastDDS discovery server (ID 1); all server nodes connect to it |
+| `fastdds_discovery_server` | Removed (present: false); deploys uninstall the old discovery server |
 | `ros2-master` | ROS2 DDS master |
 | `lerobot_leader` | SO-101 leader arm (feetech servos, USB) |
 | `topic_scraper_api` | Telemetry / observation API |

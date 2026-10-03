@@ -1,8 +1,10 @@
-"""Invariants of the FastDDS Discovery Server setup in Ansible group_vars and templates.
+"""Invariants of the DDS discovery setup in Ansible group_vars and templates.
 
-Every ROS2 node gets ROS_DISCOVERY_SERVER from the shared ros2_dds_env (rendered by the unit template);
-no node may fall back to the old mesh discovery variables, each host runs one discovery server with a
-unique ID, and the cross-host bridge points at both servers in ID order.
+All ROS2 nodes use simple discovery restricted to the host (ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST from the shared
+ros2_dds_env rendered by the unit template). Only the client's master2master adds the server as a static peer, so it
+is the single process bridging the two hosts; server nodes list no static peers (that caused every client node to mesh
+with the server over Wi-Fi). The former FastDDS discovery server is uninstalled (present: false): launch_ros' one-shot
+lifecycle/component service calls hung intermittently through it. logind must keep the node user's shared memory.
 """
 
 from pathlib import Path
@@ -13,13 +15,8 @@ import yaml
 ANSIBLE_DIR = Path(__file__).resolve().parent.parent / "ansible"
 GROUP_VARS = ANSIBLE_DIR / "group_vars"
 SERVICE_TEMPLATE = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "templates" / "ros2-node-native.service.j2"
-LEGACY_DISCOVERY_VARS = (
-    "ROS_AUTOMATIC_DISCOVERY_RANGE",
-    "ROS_STATIC_PEERS",
-    "ROS_LOCALHOST_ONLY",
-)
-DISCOVERY_NODE_TYPE = "fastdds_discovery_server"
-SUPER_CLIENT_TYPES = ("ros2_master", "topic_scraper_api", "web_ui", "master2master")
+FORBIDDEN_NODE_ENV = ("ROS_DISCOVERY_SERVER", "ROS_SUPER_CLIENT", "ROS_LOCALHOST_ONLY", "ROS_AUTOMATIC_DISCOVERY_RANGE")
+DISCOVERY_NODE = "fastdds_discovery_server"
 
 
 def load_vars(name: str) -> dict:
@@ -52,65 +49,55 @@ def all_env_entries(group: dict) -> list[str]:
 
 
 @pytest.mark.parametrize("host", ["client", "server"])
-def test_no_legacy_discovery_variables(host: str) -> None:
-    for entry in all_env_entries(load_vars(host)):
-        assert not entry.startswith(LEGACY_DISCOVERY_VARS), f"{host}: legacy discovery env {entry}"
-
-
-@pytest.mark.parametrize("host", ["client", "server"])
-def test_discovery_server_node_is_first_and_present(host: str) -> None:
+def test_nodes_do_not_override_discovery_except_master2master_peer(host: str) -> None:
     group = load_vars(host)
-    first = group["ros2_nodes"][0]
-    assert first["node_type"] == DISCOVERY_NODE_TYPE
-    assert first["name"] == "fastdds_discovery_server"
-    assert first.get("present", True) and first.get("enabled", True)
-    command = group["ros2_node_type_defaults"][DISCOVERY_NODE_TYPE]["node_launch_command"]
-    assert "fastdds discovery" in command
-    assert "-i {{ ros2_dds_server_id }}" in command
-    assert "-p {{ ros2_dds_discovery_port }}" in command
+    for entry in all_env_entries(group):
+        assert not entry.startswith(FORBIDDEN_NODE_ENV), f"{host}: {entry}"
+    peers = [
+        (node_type, entry)
+        for node_type, defaults in group["ros2_node_type_defaults"].items()
+        for entry in defaults.get("env", []) or []
+        if entry.startswith("ROS_STATIC_PEERS")
+    ]
+    peers += [
+        (n["name"], e) for n in group["ros2_nodes"] for e in n.get("env", []) or [] if e.startswith("ROS_STATIC_PEERS")
+    ]
+    expected = [("master2master", "ROS_STATIC_PEERS={{ ros2_server_hostname }}")] if host == "client" else []
+    assert peers == expected
 
 
-def test_server_ids_unique_and_ordered() -> None:
-    assert load_vars("client")["ros2_dds_server_id"] == 0
-    assert load_vars("server")["ros2_dds_server_id"] == 1
-
-
-def test_shared_env_sets_local_discovery_server() -> None:
+def test_shared_env_is_localhost_simple_discovery() -> None:
     common = load_vars("all")
-    assert common["ros2_dds_discovery_port"] == 11811
-    # Position in ROS_DISCOVERY_SERVER must equal the server ID: pad with one ';' per ID.
-    assert common["ros2_dds_local_discovery"] == "{{ ';' * ros2_dds_server_id }}127.0.0.1:{{ ros2_dds_discovery_port }}"
-    assert common["ros2_dds_env"] == ["ROS_DISCOVERY_SERVER={{ ros2_dds_local_discovery }}"]
+    assert common["ros2_dds_env"] == ["ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"]
+    for removed in ("ros2_dds_discovery_port", "ros2_dds_local_discovery"):
+        assert removed not in common
 
 
 @pytest.mark.parametrize("host", ["client", "server"])
-def test_introspection_nodes_are_super_clients(host: str) -> None:
-    defaults = load_vars(host)["ros2_node_type_defaults"]
-    for node_type in SUPER_CLIENT_TYPES:
-        if node_type in defaults:
-            assert "ROS_SUPER_CLIENT=TRUE" in defaults[node_type].get("env", []), f"{host}:{node_type}"
+def test_discovery_server_uninstalled(host: str) -> None:
+    group = load_vars(host)
+    node = next(n for n in group["ros2_nodes"] if n["name"] == DISCOVERY_NODE)
+    assert node["present"] is False and node["enabled"] is False
+    assert "ros2_dds_server_id" not in group
 
 
-def test_master2master_uses_both_servers_in_id_order() -> None:
-    env = load_vars("client")["ros2_node_type_defaults"]["master2master"]["env"]
-    assert (
-        "ROS_DISCOVERY_SERVER=127.0.0.1:{{ ros2_dds_discovery_port }};"
-        "{{ ros2_server_hostname }}:{{ ros2_dds_discovery_port }}"
-    ) in env
-
-
-def test_service_template_emits_shared_env_before_node_env_and_orders_after_server() -> None:
+def test_service_template_emits_shared_env_first_without_discovery_server_ordering() -> None:
     text = SERVICE_TEMPLATE.read_text()
-    assert "ros2_dds_env" in text
     assert text.index("ros2_dds_env") < text.index("node_env")
-    assert "After=network-online.target ros2-fastdds_discovery_server.service" in text
-    assert "node_type != 'fastdds_discovery_server'" in text
+    assert "fastdds_discovery_server" not in text
 
 
-def test_steamdeck_points_at_client_discovery_server() -> None:
+def test_steamdeck_uses_client_static_peer() -> None:
     defaults = yaml.safe_load((ANSIBLE_DIR / "roles" / "steamdeck_ui" / "defaults" / "main.yml").read_text())
-    assert defaults["steamdeck_ros2_discovery_server"] == "{{ ros2_client_hostname }}:11811"
-    assert "steamdeck_ros2_static_peers" not in defaults
+    assert defaults["steamdeck_ros2_static_peers"] == "{{ ros2_client_hostname }}"
+
+
+def test_shell_env_uses_localhost_discovery() -> None:
+    tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "tasks" / "dds_host_setup.yml").read_text())
+    profile = next(t for t in tasks if t.get("ansible.builtin.copy", {}).get("dest") == "/etc/profile.d/ros2_dds.sh")
+    content = profile["ansible.builtin.copy"]["content"]
+    assert "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST" in content
+    assert "unset ROS_DISCOVERY_SERVER ROS_SUPER_CLIENT" in content
 
 
 def test_host_setup_keeps_ipc_of_node_user() -> None:

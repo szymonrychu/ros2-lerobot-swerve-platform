@@ -12,16 +12,12 @@ hostname: "server-rpi4"
 
 # ROS2 node types: default settings per type (used by ros2_node_deploy).
 # Server ROS2 master binds to all interfaces (0.0.0.0) so Client can connect; other nodes use localhost only.
-# FastDDS discovery server ID of this host (see ros2_dds_* in all.yml).
-ros2_dds_server_id: 1
-
 ros2_node_type_defaults:
   fastdds_discovery_server:
+    # Uninstalled (see ros2_dds_env in all.yml); kept so deploys remove the old service.
     deploy_mode: native
-    node_launch_command: "fastdds discovery -i {{ ros2_dds_server_id }} -l 0.0.0.0 -p {{ ros2_dds_discovery_port }}"
+    node_launch_command: "true"
     node_src_dir: ""
-    cpu_quota: "20%"
-    memory_max: "128M"
   ros2_master:
     deploy_mode: native
     node_launch_command: "ros2 daemon start && sleep infinity"
@@ -29,7 +25,6 @@ ros2_node_type_defaults:
     cpu_quota: "20%"
     memory_max: "128M"
     env:
-      - ROS_SUPER_CLIENT=TRUE
   feetech_servos:
     deploy_mode: native
     node_launch_command: "python3 -m feetech_servos"
@@ -48,7 +43,6 @@ ros2_node_type_defaults:
     memory_max: "128M"
     config_path: /etc/ros2/topic_scraper_api
     env:
-      - ROS_SUPER_CLIENT=TRUE
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   gps_rtk:
     deploy_mode: native
@@ -64,8 +58,8 @@ ros2_node_type_defaults:
 ros2_nodes:
   - name: fastdds_discovery_server
     node_type: fastdds_discovery_server
-    present: true
-    enabled: true
+    present: false
+    enabled: false
   - name: ros2-master
     node_type: ros2_master
     present: true

@@ -156,7 +156,7 @@ The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `n
 
 ### test_dds_discovery_config.py
 
-Static checks of the FastDDS Discovery Server setup in Ansible: no legacy discovery variables (`ROS_AUTOMATIC_DISCOVERY_RANGE`, `ROS_STATIC_PEERS`, `ROS_LOCALHOST_ONLY`) in client/server env; `fastdds_discovery_server` is the first, present and enabled node with the ID and port templated; server IDs client 0 / server 1; shared `ros2_dds_env` and the `;`-padded `ros2_dds_local_discovery`; introspection node types are super clients; client `master2master` lists both servers in ID order; the unit template renders shared env before node env and orders units after the discovery server; Steam Deck defaults point at the client discovery server.
+Static checks of the DDS discovery setup in Ansible: the shared `ros2_dds_env` is `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` and the discovery-server variables are gone; no node env overrides discovery (`ROS_DISCOVERY_SERVER`, `ROS_SUPER_CLIENT`, `ROS_LOCALHOST_ONLY`, `ROS_AUTOMATIC_DISCOVERY_RANGE`) and the only `ROS_STATIC_PEERS` is the client `master2master` pointing at the server (server nodes have none); the former `fastdds_discovery_server` node is `present: false` / `enabled: false` on both hosts; the unit template renders the shared env before node env with no discovery-server ordering; Steam Deck uses the client as static peer; `/etc/profile.d/ros2_dds.sh` sets localhost discovery for shells; logind keeps the node user's shared memory (`RemoveIPC=no`) and running `ros2-*` services restart once when that is first applied.
 
 ### test_nav_stack_config.py
 
@@ -175,10 +175,9 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_slam_launch_appends_override_params_only_when_present` | `params_files` returns the repo `slam_params.yaml` first and appends the deployed config only when it exists and is non-empty (ROS params files: later wins). |
 | `test_slam_launch_override_defaults_and_env` | Launch reads the override path from `SLAM_TOOLBOX_CONFIG`, defaulting to `/etc/ros2/slam_toolbox/config.yaml`. |
 | `test_slam_launch_map_base_from_configuration` | `configured_map_base` takes `map_file_name` from the last params file that sets it (falls back to `/var/lib/ros2/maps/slam_map`); an explicit `SLAM_TOOLBOX_MAP_BASE` value wins over the files. |
-| `test_slam_toolbox_ansible_wiring` | Node type defaults (native, apt package, repo launch, budget, `config_path: /etc/ros2/slam_toolbox`, env `SLAM_TOOLBOX_CONFIG`) and an enabled `ros2_nodes` entry after `fastdds_discovery_server`. |
+| `test_slam_toolbox_ansible_wiring` | Node type defaults (native, apt package, repo launch, budget, `config_path: /etc/ros2/slam_toolbox`, env `SLAM_TOOLBOX_CONFIG`) and an enabled `ros2_nodes` entry. |
 | `test_slam_toolbox_ansible_config_overrides` | The `ros2_nodes` slam_toolbox `config: \|` block parses as YAML with `map_file_name` (`/var/lib/ros2/maps/slam_map`), `min_laser_range` 0.15 and `max_laser_range` 12.0, only known slam_toolbox params, and the same map path as the web_ui Map tab `map_save_path`. |
 | `test_slam_playbooks_deploy_node_and_create_maps_dir` | `deploy_nodes_client.yml` and `nodes/client/slam_toolbox.yml` deploy slam_toolbox and create `/var/lib/ros2/maps` (owner `ansible_user`, 0755). |
-| `test_slam_deployed_after_discovery_server_in_client_playbook` | slam_toolbox is deployed after the discovery server. |
 | `test_nav2_launch_passes_repo_params_without_localization` | Nav2 launch passes the repo `params_file`, keeps `use_localization:=False`. |
 | `test_nav2_has_every_server_section` | `nav2_params.yaml` has a section for every server started by Jazzy `navigation_launch.py`. |
 | `test_nav2_frames` | bt_navigator, costmaps, collision_monitor, behavior_server, docking_server and route_server frames/topics. |

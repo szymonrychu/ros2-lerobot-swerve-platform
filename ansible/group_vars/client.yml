@@ -14,18 +14,13 @@ hostname: "client-rpi5"
 # Server hostname for master2master, rtcm, and ROS2 DDS (resolved via /etc/hosts).
 ros2_server_host: "{{ ros2_server_hostname }}"
 
-# FastDDS discovery server ID of this host (see ros2_dds_* in all.yml).
-ros2_dds_server_id: 0
-
-# ROS2 node types. All nodes discover via the local FastDDS discovery server; master2master also uses the
-# server host's discovery server to bridge both graphs.
+# ROS2 node types. All nodes use localhost-only simple discovery; master2master adds the server as a static peer.
 ros2_node_type_defaults:
   fastdds_discovery_server:
+    # Uninstalled (see ros2_dds_env in all.yml); kept so deploys remove the old service.
     deploy_mode: native
-    node_launch_command: "fastdds discovery -i {{ ros2_dds_server_id }} -l 0.0.0.0 -p {{ ros2_dds_discovery_port }}"
+    node_launch_command: "true"
     node_src_dir: ""
-    cpu_quota: "20%"
-    memory_max: "128M"
   ros2_master:
     deploy_mode: native
     node_launch_command: "ros2 daemon start && sleep infinity"
@@ -33,7 +28,6 @@ ros2_node_type_defaults:
     cpu_quota: "20%"
     memory_max: "128M"
     env:
-      - ROS_SUPER_CLIENT=TRUE
   master2master:
     deploy_mode: native
     node_launch_command: "python3 -m master2master"
@@ -42,8 +36,7 @@ ros2_node_type_defaults:
     memory_max: "128M"
     config_path: /etc/ros2/master2master
     env:
-      - ROS_SUPER_CLIENT=TRUE
-      - "ROS_DISCOVERY_SERVER=127.0.0.1:{{ ros2_dds_discovery_port }};{{ ros2_server_hostname }}:{{ ros2_dds_discovery_port }}"
+      - "ROS_STATIC_PEERS={{ ros2_server_hostname }}"
       - MASTER2MASTER_CONFIG=/etc/ros2/master2master/config.yaml
       # ROS2_SERVER_HOST passed per-node below so master2master can connect to Server's ROS2 master
   feetech_servos:
@@ -89,7 +82,6 @@ ros2_node_type_defaults:
     memory_max: "128M"
     config_path: /etc/ros2/topic_scraper_api
     env:
-      - ROS_SUPER_CLIENT=TRUE
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
   bno055_imu:
     deploy_mode: native
@@ -206,15 +198,14 @@ ros2_node_type_defaults:
     apt_packages:
       - ros-jazzy-slam-toolbox
     env:
-      - ROS_SUPER_CLIENT=TRUE
       - WEB_UI_CONFIG=/etc/ros2/web_ui/config.yaml
 
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
 ros2_nodes:
   - name: fastdds_discovery_server
     node_type: fastdds_discovery_server
-    present: true
-    enabled: true
+    present: false
+    enabled: false
   - name: ros2-master
     node_type: ros2_master
     present: true

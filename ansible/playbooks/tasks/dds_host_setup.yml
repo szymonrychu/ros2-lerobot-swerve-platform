@@ -1,6 +1,5 @@
 ---
-# Login shells (SSH, ros2 CLI, diag scripts) join the local FastDDS discovery server as super clients,
-# so `ros2 topic list/echo` sees the whole graph like the ros2 daemon does.
+# Login shells (SSH, ros2 CLI, diag scripts) use the same localhost-only simple discovery as the nodes.
 - name: Install /etc/profile.d/ros2_dds.sh
   ansible.builtin.copy:
     dest: /etc/profile.d/ros2_dds.sh
@@ -8,9 +7,9 @@
     group: root
     mode: "0644"
     content: |
-      # Managed by Ansible (playbooks/tasks/dds_host_setup.yml). FastDDS discovery server client settings.
-      export ROS_DISCOVERY_SERVER="{{ ros2_dds_local_discovery }}"
-      export ROS_SUPER_CLIENT=TRUE
+      # Managed by Ansible (playbooks/tasks/dds_host_setup.yml). DDS discovery settings matching the ROS2 nodes.
+      unset ROS_DISCOVERY_SERVER ROS_SUPER_CLIENT
+      export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
 
 # Nodes run as a regular user; with logind's default RemoveIPC=yes every SSH logout of that user deletes
 # its POSIX shared memory, i.e. the FastDDS SHM segments of all running nodes (data silently stops while
