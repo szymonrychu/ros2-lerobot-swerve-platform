@@ -142,14 +142,14 @@
 
     - name: Run npm ci for web_ui frontend
       ansible.builtin.command:
-        cmd: npm ci
+        cmd: nice -n 19 ionice -c 3 npm ci
         chdir: "{{ repo_dest }}/nodes/web_ui/frontend"
       when: node_name == 'web_ui'
       changed_when: true
 
     - name: Run npm run build for web_ui frontend
       ansible.builtin.command:
-        cmd: npm run build
+        cmd: nice -n 19 ionice -c 3 npm run build
         chdir: "{{ repo_dest }}/nodes/web_ui/frontend"
       when: node_name == 'web_ui'
       changed_when: true

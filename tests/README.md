@@ -174,6 +174,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_laser_filter_ansible_wiring` | laser_filter node type (apt `ros-jazzy-laser-filters`, `scan_to_scan_filter_chain` with the repo params, `/scan` -> `/scan_filtered`), enabled node entry, per-node playbook and inclusion in `deploy_nodes_client.yml`. |
 | `test_node_apt_install_refreshes_stale_cache` | The ros2_node_deploy apt install refreshes the package index (`update_cache: true`, `cache_valid_time: 3600`) so new packages do not 404 on a stale cache. |
 | `test_rplidar_runs_under_scan_supervisor` | rplidar_a1 is launched through `scan_supervisor.py` (runs the launch file, exits 1 for a systemd restart when `/scan` never starts or goes silent). |
+| `test_web_ui_frontend_build_runs_at_lowest_priority` | The web_ui `npm ci` / `npm run build` deploy steps run under `nice -n 19 ionice -c 3` (the build overheated and froze the Pi next to the running ROS stack). |
 | `test_ekf_repo_config_matches_ansible_block` | `nodes/robot_localization_ekf/config/ekf.yaml` equals the Ansible `config: \|` block. |
 | `test_ekf_frames_inputs_and_tf` | Both EKF configs: 2D, `publish_tf`, odom/base_link frames, `/odom` fuses vx/vy/vyaw, `/imu/data` fuses yaw rate (absolute yaw only with `imu0_relative: true`). |
 | `test_ekf_launch_uses_repo_launch_and_deployed_config` | Ansible launches the repo EKF launch file, which reads `ROBOT_LOCALIZATION_EKF_CONFIG` (default the deployed config path). |

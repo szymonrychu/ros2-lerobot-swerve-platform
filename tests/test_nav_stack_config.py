@@ -680,3 +680,18 @@ def test_nav2_rotates_toward_path_first_and_keeps_front_leading() -> None:
     # The shim alone turns to the goal heading; MPPI's GoalAngleCritic fought it near the goal.
     assert follow["GoalAngleCritic"]["enabled"] is False
     assert follow["GoalCritic"]["cost_weight"] >= 8.0
+
+
+def test_web_ui_frontend_build_runs_at_lowest_priority() -> None:
+    """npm ci / npm run build on the Pi overheated and froze it next to the running ROS stack (2026-10-03):
+    run them at the lowest CPU (nice 19) and I/O (ionice idle class) priority."""
+    tasks = yaml.safe_load((ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "main.yml").read_text())
+    cmds = [
+        t["ansible.builtin.command"]["cmd"]
+        for block in tasks
+        for t in block.get("block", [block])
+        if isinstance(t, dict) and "npm" in str(t.get("ansible.builtin.command", {}).get("cmd", ""))
+    ]
+    assert len(cmds) == 2, cmds
+    for cmd in cmds:
+        assert cmd.startswith("nice -n 19 ionice -c 3 npm "), cmd
