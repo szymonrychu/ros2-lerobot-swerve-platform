@@ -17,6 +17,32 @@ SPEED_SIGN_BIT = 1 << 15
 SPEED_MAGNITUDE_MASK = SPEED_SIGN_BIT - 1
 
 
+def is_finite_command(value: float) -> bool:
+    """Return True if a JointState command entry carries a real value.
+
+    NaN marks "no command for this joint" in the combined command format (position NaN for velocity-mode
+    joints, velocity NaN for position-mode joints); inf is never a valid command either.
+
+    Args:
+        value: JointState position or velocity entry.
+
+    Returns:
+        bool: True if value is finite.
+    """
+    return math.isfinite(value)
+
+
+def require_finite(value: float, what: str) -> None:
+    """Raise ValueError for a non-finite command value so it can never reach a servo register.
+
+    Args:
+        value: Command value to check.
+        what: Name of the value for the error message.
+    """
+    if not math.isfinite(value):
+        raise ValueError(f"{what} must be finite, got {value}")
+
+
 def steps_to_radians(ticks: int, inverted: bool = False) -> float:
     """Convert raw servo ticks to centred radians.
 
@@ -40,7 +66,11 @@ def position_to_raw_steps(radians: float, inverted: bool = False) -> int:
 
     Returns:
         int: Raw servo step value clamped to [0, 4095].
+
+    Raises:
+        ValueError: If radians is NaN or infinite.
     """
+    require_finite(radians, "position")
     if inverted:
         radians = -radians
     return max(0, min(4095, int(round(radians * STEPS_PER_RADIAN + STEP_CENTER))))
@@ -56,7 +86,11 @@ def velocity_to_speed_register(radians_per_s: float, max_velocity_rad_s: float, 
 
     Returns:
         int: Raw goal_speed value (bit 15 set for negative direction, low bits in steps/s).
+
+    Raises:
+        ValueError: If radians_per_s is NaN or infinite (NaN would otherwise clamp to full speed).
     """
+    require_finite(radians_per_s, "velocity")
     velocity = -radians_per_s if inverted else radians_per_s
     limit = max(0.0, max_velocity_rad_s)
     velocity = max(-limit, min(limit, velocity))
@@ -107,7 +141,11 @@ def map_position_to_steps(
 
     Returns:
         int: Target servo step clamped to [cmd_min, cmd_max].
+
+    Raises:
+        ValueError: If radians is NaN or infinite.
     """
+    require_finite(radians, "position")
     raw_steps = radians * STEPS_PER_RADIAN + STEP_CENTER
     if source_max == source_min:
         return cmd_min

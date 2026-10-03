@@ -8,6 +8,8 @@ from feetech_servos.command_mapping import (
     SPEED_SIGN_BIT,
     STEP_CENTER,
     STEPS_PER_RADIAN,
+    is_finite_command,
+    map_position_to_steps,
     position_to_raw_steps,
     speed_register_to_velocity,
     steps_to_radians,
@@ -41,6 +43,40 @@ def test_velocity_inverted_flips_sign() -> None:
 def test_velocity_clamped_to_max() -> None:
     raw = velocity_to_speed_register(-100.0, max_velocity_rad_s=2.0)
     assert raw == SPEED_SIGN_BIT | round(2.0 * STEPS_PER_RADIAN)
+
+
+# --- non-finite (NaN / inf) command values ---
+
+NON_FINITE = [float("nan"), float("inf"), float("-inf")]
+
+
+@pytest.mark.parametrize("value", NON_FINITE)
+def test_is_finite_command_rejects_non_finite(value: float) -> None:
+    assert is_finite_command(value) is False
+
+
+def test_is_finite_command_accepts_numbers() -> None:
+    assert is_finite_command(0.0) is True
+    assert is_finite_command(-3.5) is True
+
+
+@pytest.mark.parametrize("value", NON_FINITE)
+def test_velocity_to_speed_register_refuses_non_finite(value: float) -> None:
+    # Unchecked, NaN used to clamp to full speed (min(limit, nan) == limit).
+    with pytest.raises(ValueError):
+        velocity_to_speed_register(value, max_velocity_rad_s=4.0)
+
+
+@pytest.mark.parametrize("value", NON_FINITE)
+def test_position_to_raw_steps_refuses_non_finite(value: float) -> None:
+    with pytest.raises(ValueError):
+        position_to_raw_steps(value)
+
+
+@pytest.mark.parametrize("value", NON_FINITE)
+def test_map_position_to_steps_refuses_non_finite(value: float) -> None:
+    with pytest.raises(ValueError):
+        map_position_to_steps(value, 0, 4095, 1000, 3000)
 
 
 # --- speed_register_to_velocity ---
@@ -158,6 +194,24 @@ def test_apply_velocity_command_records_only_successful_writes() -> None:
     assert expired_velocity_joints(last, now=10.0, timeout_s=0.3) == [32]
     assert apply_velocity_command(lambda: True, 32, 0.0, 10.1, last) is True
     assert last[32] == (10.1, 0.0)
+
+
+def test_apply_received_command_refreshes_time_but_keeps_applied_velocity_on_failed_write() -> None:
+    from feetech_servos.velocity_watchdog import apply_velocity_command
+
+    last: dict[int, tuple[float, float]] = {32: (1.0, 0.5)}
+    assert apply_velocity_command(lambda: False, 32, 2.0, 1.2, last, received=True) is False
+    assert last[32] == (1.2, 0.5)  # command arrived (watchdog fed) but the servo still runs at 0.5
+    assert expired_velocity_joints(last, now=1.4, timeout_s=0.3) == []
+    assert expired_velocity_joints(last, now=1.6, timeout_s=0.3) == [32]
+
+
+def test_apply_received_command_without_history_records_commanded_velocity_on_failed_write() -> None:
+    from feetech_servos.velocity_watchdog import apply_velocity_command
+
+    last: dict[int, tuple[float, float]] = {}
+    assert apply_velocity_command(lambda: False, 32, 2.0, 1.0, last, received=True) is False
+    assert last[32] == (1.0, 2.0)
 
 
 # --- RegisterDumpScheduler ---

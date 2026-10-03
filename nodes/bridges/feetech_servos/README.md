@@ -42,7 +42,23 @@ When `device` is set, the bridge connects to hardware and:
 
 - **Startup:** Reads all Feetech STS registers for each configured joint and prints one compact JSON line per servo to stdout (for debugging): `{"servo_id":1,"joint_name":"shoulder_pan","registers":{...}}`.
 - **Publish:** `joint_states` from present position/speed; `servo_registers` (std_msgs/String) as JSON `{ "<joint_name>": { "<register_name>": <value>, ... }, ... }` at ~1 Hz.
-- **Subscribe:** `joint_commands` (JointState) writes goal_position (RAM) per joint; `set_register` (std_msgs/String) expects JSON `{"joint_name":"<name>","register":"<name>","value":<int>}`. **At runtime only RAM registers are accepted** (e.g. `torque_enable`, `goal_position`, `acceleration`, `goal_speed`, `goal_time`). EPROM registers (PID, current limits, angle limits, etc.) are **rejected** from ROS; set them once via `calibrate_servos.py load-config` on the host to avoid constant EEPROM wear.
+- **Subscribe:** `joint_commands` (JointState) writes goal_position (position joints) or goal_speed (velocity joints) per joint, see [Command formats](#command-formats-joint_commands); `set_register` (std_msgs/String) expects JSON `{"joint_name":"<name>","register":"<name>","value":<int>}`. **At runtime only RAM registers are accepted** (e.g. `torque_enable`, `goal_position`, `acceleration`, `goal_speed`, `goal_time`). EPROM registers (PID, current limits, angle limits, etc.) are **rejected** from ROS; set them once via `calibrate_servos.py load-config` on the host to avoid constant EEPROM wear.
+
+### Command formats (`joint_commands`)
+
+All of these are accepted on any group's `joint_commands`, matched by joint name:
+
+- **Separate messages** (what `swerve_drive_controller` publishes today): a steer-only `JointState` (names + `position`) and a drive-only one (names + `velocity`, rad/s). Arm commands are position-only (`velocity` empty).
+- **Combined message:** one `JointState` naming all joints, with `position[i] = NaN` for velocity-mode joints and `velocity[i] = NaN` for position-mode joints.
+- **NaN / inf entries are ignored** and never written to a servo (no goal_position / goal_speed write, and a NaN velocity does not feed the wheel watchdog). `command_mapping` additionally refuses non-finite values with `ValueError`; before this check a NaN velocity clamped to full speed.
+
+### Control loop, callback draining and the wheel watchdog
+
+Each loop iteration (`control_loop_hz`): drain **all** pending ROS callbacks (`executor.spin_once(timeout_sec=0)` repeated until no callback ran, at most `MAX_CALLBACKS_PER_CYCLE` = 64), run the velocity watchdog, sync-read and publish state, then sleep the remainder of the period. The per-cycle logic (command handling, NaN filtering, watchdog, write decisions) is in `bridge_cycle.py` (`BridgeCycle`, `drain_callbacks`) and has no rclpy dependency, so `tests/test_bridge_cycle.py` drives it with a fake servo and a simulated KEEP_LAST(10) queue.
+
+The watchdog stops a wheel (goal_speed = 0) only when it is moving and **no drive command for that wheel** was received within `velocity_command_timeout_s`. A received command feeds the watchdog even if its register write fails (the record keeps the last velocity actually written, so a still-moving wheel is stopped once commands stop); a failed watchdog stop is retried every cycle.
+
+**Root cause of the periodic wheel stops (fixed):** the loop used to process only one callback per iteration (`spin_once` at the end of the loop, ~85 Hz). `swerve_drive_controller` publishes a steer message and a drive message back to back (~215 msg/s), so the subscription queue (depth 10) was always full, and after each new pair arrived its oldest entry - the one processed next - was always a steer message. Drive commands were only handled when loop jitter let one through; when none got through for 0.3 s the watchdog wrote goal_speed = 0 to all four wheels, which then stood still for 0.4-0.8 s until the next drive message slipped through.
 
 ## Build and run
 

@@ -1,0 +1,200 @@
+"""Per-cycle bridge logic without rclpy: command handling, velocity watchdog, write decisions, callback draining.
+
+bridge.py wires this to ROS (subscriptions, executor, publishers); tests drive it with a fake servo and a
+simulated message queue.
+"""
+
+import time
+from collections.abc import Callable, Sequence
+from typing import Any
+
+from .command_mapping import is_finite_command, map_position_to_steps, position_to_raw_steps, velocity_to_speed_register
+from .config import JointEntry, JointGroup
+from .registers import RegisterEntry, write_register
+from .velocity_watchdog import apply_velocity_command, expired_velocity_joints
+
+MIN_STEPS = 0
+MAX_STEPS = 4095
+MAX_CALLBACKS_PER_CYCLE = 64
+
+
+def drain_callbacks(spin_ready: Callable[[], bool], max_callbacks: int = MAX_CALLBACKS_PER_CYCLE) -> int:
+    """Process all pending ROS callbacks for this loop iteration (bounded).
+
+    Handling only one callback per iteration starves drive commands: the swerve controller publishes a steer
+    and a drive message back to back, faster than the loop runs, so the KEEP_LAST queue is always full and its
+    oldest entry (the one processed) is always a steer message; the watchdog then stops the wheels.
+
+    Args:
+        spin_ready: Processes at most one ready callback without blocking; returns True if one ran.
+        max_callbacks: Upper bound on callbacks processed per call.
+
+    Returns:
+        int: Number of callbacks processed.
+    """
+    processed = 0
+    while processed < max_callbacks and spin_ready():
+        processed += 1
+    return processed
+
+
+def remaining_sleep_s(period_s: float, elapsed_s: float) -> float:
+    """Return how long to sleep so one loop iteration lasts period_s.
+
+    Args:
+        period_s: Target loop period in seconds.
+        elapsed_s: Time already spent in this iteration, seconds.
+
+    Returns:
+        float: Seconds to sleep (never negative).
+    """
+    return max(0.0, period_s - elapsed_s)
+
+
+class BridgeCycle:
+    """Command handling and velocity watchdog for one serial bus, independent of rclpy.
+
+    Attributes:
+        last_velocity_commands: servo_id -> (monotonic time, rad/s) used by the velocity watchdog.
+    """
+
+    def __init__(
+        self,
+        servo: Any,
+        goal_entry: RegisterEntry | None,
+        speed_goal_entry: RegisterEntry | None,
+        velocity_joints: Sequence[JointEntry],
+        command_limits: dict[int, tuple[int, int]],
+        last_written: dict[int, dict[str, int]],
+        velocity_command_timeout_s: float,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        """Create the per-cycle logic.
+
+        Args:
+            servo: ST3215-compatible servo bus (write1ByteTxRx / write2ByteTxRx), or None when no bus is open.
+            goal_entry: goal_position register entry.
+            speed_goal_entry: goal_speed register entry.
+            velocity_joints: Joints running in wheel mode that accept velocity commands.
+            command_limits: servo_id -> (cmd_min, cmd_max) step range for position joints.
+            last_written: servo_id -> register cache shared with write_register (updated in place).
+            velocity_command_timeout_s: A wheel is stopped when no drive command arrived for this long.
+            clock: Monotonic time source in seconds.
+        """
+        self.servo = servo
+        self.goal_entry = goal_entry
+        self.speed_goal_entry = speed_goal_entry
+        self.velocity_joints = list(velocity_joints)
+        self.velocity_ids = {j.id for j in self.velocity_joints}
+        self.joint_by_id = {j.id: j for j in self.velocity_joints}
+        self.command_limits = command_limits
+        self.last_written = last_written
+        self.velocity_command_timeout_s = velocity_command_timeout_s
+        self.clock = clock
+        self.last_velocity_commands: dict[int, tuple[float, float]] = {}
+
+    def write_velocity(self, joint: JointEntry, velocity: float, received: bool = False) -> bool:
+        """Write goal_speed for a wheel joint and record it for the watchdog.
+
+        Args:
+            joint: Velocity-mode joint.
+            velocity: Commanded velocity, rad/s (finite).
+            received: True for a drive command from joint_commands (feeds the watchdog even if the write fails).
+
+        Returns:
+            bool: True if the write succeeded (or was skipped as unchanged).
+        """
+        raw = velocity_to_speed_register(velocity, joint.max_velocity_rad_s, inverted=joint.inverted)
+        cache = self.last_written.setdefault(joint.id, {})
+        return apply_velocity_command(
+            lambda: write_register(self.servo, joint.id, self.speed_goal_entry, raw, cache),
+            joint.id,
+            velocity,
+            self.clock(),
+            self.last_velocity_commands,
+            received=received,
+        )
+
+    def position_target_steps(self, joint: JointEntry, position: float) -> int:
+        """Map a position command (radians) to goal_position steps within the joint's command range.
+
+        Args:
+            joint: Position-mode joint.
+            position: Commanded position, centred radians.
+
+        Returns:
+            int: Target goal_position steps.
+        """
+        cmd_min, cmd_max = self.command_limits.get(joint.id, (MIN_STEPS, MAX_STEPS))
+        # Backward-compatible default: if source range is not configured, keep raw pass-through behavior.
+        if joint.source_min_steps is None and joint.source_max_steps is None:
+            return max(cmd_min, min(cmd_max, position_to_raw_steps(position, joint.inverted)))
+        source_min = joint.source_min_steps if joint.source_min_steps is not None else MIN_STEPS
+        source_max = joint.source_max_steps if joint.source_max_steps is not None else MAX_STEPS
+        return map_position_to_steps(
+            position,
+            source_min,
+            source_max,
+            cmd_min,
+            cmd_max,
+            source_inverted=joint.source_inverted,
+        )
+
+    def handle_command(
+        self,
+        group: JointGroup,
+        names: Sequence[str],
+        positions: Sequence[float],
+        velocities: Sequence[float],
+    ) -> None:
+        """Apply one joint_commands message to the servos of a group.
+
+        Accepts separate steer-only / drive-only messages, position-only arm messages, and the combined format
+        (all joints in one message, position NaN for velocity-mode joints, velocity NaN for position-mode
+        joints). Non-finite entries are ignored and never written to a servo.
+
+        Args:
+            group: Joint group the message was received for.
+            names: JointState.name.
+            positions: JointState.position (drives position-mode joints).
+            velocities: JointState.velocity (drives velocity-mode joints, rad/s).
+        """
+        if self.servo is None or self.goal_entry is None:
+            return
+        for i, name in enumerate(names):
+            joint = group.joint_entry_by_name(name)
+            if joint is None:
+                continue
+            if joint.mode == "velocity":
+                if joint.id in self.velocity_ids and i < len(velocities) and is_finite_command(velocities[i]):
+                    self.write_velocity(joint, float(velocities[i]), received=True)
+                continue
+            if i >= len(positions) or not is_finite_command(positions[i]):
+                continue
+            target = self.position_target_steps(joint, float(positions[i]))
+            write_register(
+                self.servo,
+                joint.id,
+                self.goal_entry,
+                target,
+                self.last_written.setdefault(joint.id, {}),
+            )
+
+    def stop_expired(self) -> list[int]:
+        """Velocity watchdog: stop wheels whose drive commands went stale.
+
+        Returns:
+            list[int]: Servo IDs a stop was issued for.
+        """
+        expired = expired_velocity_joints(self.last_velocity_commands, self.clock(), self.velocity_command_timeout_s)
+        self.stop([self.joint_by_id[sid] for sid in expired if sid in self.joint_by_id])
+        return expired
+
+    def stop(self, joints: Sequence[JointEntry]) -> None:
+        """Command zero velocity on the given wheel joints.
+
+        Args:
+            joints: Velocity-mode joints to stop.
+        """
+        for joint in joints:
+            self.write_velocity(joint, 0.0)

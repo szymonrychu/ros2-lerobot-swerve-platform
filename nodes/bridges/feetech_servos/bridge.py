@@ -7,6 +7,8 @@ EPROM writes use unlock -> write -> lock; writes are skipped when value unchange
 When device is not set or cannot be opened: nothing is published (no placeholder joint_states).
 Multiple namespaces (extra_groups) can share one bus; velocity-mode joints run in wheel mode.
 Filtering/smoothing of joint_commands is handled by a separate filter node; this bridge applies commands directly.
+Every loop iteration drains all pending ROS callbacks (bounded), then runs the watchdog and state reads, then sleeps
+the remainder of the control period. Per-cycle logic lives in bridge_cycle.BridgeCycle (no rclpy).
 """
 
 import json
@@ -20,14 +22,9 @@ from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
-from .command_mapping import (
-    map_position_to_steps,
-    position_to_raw_steps,
-    speed_register_to_velocity,
-    steps_to_radians,
-    velocity_to_speed_register,
-)
-from .config import BridgeConfig, JointEntry, JointGroup, load_config_from_env
+from .bridge_cycle import MAX_STEPS, MIN_STEPS, BridgeCycle, drain_callbacks, remaining_sleep_s
+from .command_mapping import speed_register_to_velocity, steps_to_radians
+from .config import BridgeConfig, JointGroup, load_config_from_env
 from .joint_updates import get_position_updates
 from .register_dump import RegisterDumpScheduler
 from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers
@@ -35,14 +32,11 @@ from .registers import read_register as read_register_raw
 from .registers import write_register
 from .startup_torque import hold_current_positions, set_startup_torque_state
 from .sync_read import PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH, read_positions_and_speeds
-from .velocity_watchdog import apply_velocity_command, expired_velocity_joints
 
 DEFAULT_QOS_DEPTH = 10
 SERVO_WAIT_INTERVAL_S = 1.0
 TORQUE_WRITE_ATTEMPTS = 8
 TORQUE_VERIFY_SLEEP_S = 0.02
-MIN_STEPS = 0
-MAX_STEPS = 4095
 WHEEL_MODE = 1  # STS mode register: 0 = position servo, 1 = continuous rotation (wheel)
 MISSING_READ_LOG_INTERVAL_S = 5.0
 
@@ -80,10 +74,9 @@ def run_bridge(config: BridgeConfig) -> None:
     """
     rclpy.init()
     node = Node("feetech_servos_bridge")
-    control_loop_sleep_s = 1.0 / max(1.0, config.control_loop_hz)
+    control_loop_period_s = 1.0 / max(1.0, config.control_loop_hz)
     groups = config.groups
     all_joints = config.all_joints
-    joint_by_id = {j.id: j for j in all_joints}
     velocity_joints = [j for j in all_joints if j.mode == "velocity"]
 
     pub_state = {
@@ -96,7 +89,6 @@ def run_bridge(config: BridgeConfig) -> None:
     last_published_positions: dict[str, float] = {}  # for publish_only_on_change gate
     last_written: dict[int, dict[str, int]] = {}  # servo_id -> { register_name: value }
     command_limits: dict[int, tuple[int, int]] = {}  # servo_id -> (cmd_min, cmd_max)
-    last_velocity_commands: dict[int, tuple[float, float]] = {}  # servo_id -> (time, rad/s) of last good write
     servo: Any = None
 
     if config.device:
@@ -191,55 +183,26 @@ def run_bridge(config: BridgeConfig) -> None:
             else:
                 command_limits[joint.id] = (MIN_STEPS, MAX_STEPS)
 
-    velocity_ids = {j.id for j in velocity_joints}
-
-    def write_velocity(joint: JointEntry, velocity: float) -> None:
-        raw = velocity_to_speed_register(velocity, joint.max_velocity_rad_s, inverted=joint.inverted)
-        cache = last_written.setdefault(joint.id, {})
-        apply_velocity_command(
-            lambda: write_register(servo, joint.id, speed_goal_entry, raw, cache),
-            joint.id,
-            velocity,
-            time.monotonic(),
-            last_velocity_commands,
-        )
+    cycle = BridgeCycle(
+        servo=servo,
+        goal_entry=goal_entry,
+        speed_goal_entry=speed_goal_entry,
+        velocity_joints=velocity_joints,
+        command_limits=command_limits,
+        last_written=last_written,
+        velocity_command_timeout_s=config.velocity_command_timeout_s,
+    )
+    callbacks_run = [0]  # incremented by every subscription callback; lets the loop tell when the queue is empty
 
     def make_on_command(group: JointGroup) -> Any:
         def on_command(msg: JointState) -> None:
-            if servo is None or goal_entry is None:
-                return
-            for i, name in enumerate(msg.name):
-                joint_entry = group.joint_entry_by_name(name)
-                if joint_entry is None:
-                    continue
-                if joint_entry.mode == "velocity":
-                    if joint_entry.id in velocity_ids and i < len(msg.velocity):
-                        write_velocity(joint_entry, float(msg.velocity[i]))
-                    continue
-                if i >= len(msg.position):
-                    continue
-                sid = joint_entry.id
-                position_val = float(msg.position[i])
-                cmd_min, cmd_max = command_limits.get(sid, (MIN_STEPS, MAX_STEPS))
-                # Backward-compatible default: if source range is not configured, keep raw pass-through behavior.
-                if joint_entry.source_min_steps is None and joint_entry.source_max_steps is None:
-                    target_steps = max(cmd_min, min(cmd_max, position_to_raw_steps(position_val, joint_entry.inverted)))
-                else:
-                    source_min = joint_entry.source_min_steps if joint_entry.source_min_steps is not None else 0
-                    source_max = joint_entry.source_max_steps if joint_entry.source_max_steps is not None else 4095
-                    target_steps = map_position_to_steps(
-                        position_val,
-                        source_min,
-                        source_max,
-                        cmd_min,
-                        cmd_max,
-                        source_inverted=joint_entry.source_inverted,
-                    )
-                write_register(servo, sid, goal_entry, target_steps, last_written.setdefault(sid, {}))
+            callbacks_run[0] += 1
+            cycle.handle_command(group, msg.name, msg.position, msg.velocity)
 
         return on_command
 
     def on_set_register(msg: String) -> None:
+        callbacks_run[0] += 1
         if servo is None:
             return
         try:
@@ -297,10 +260,6 @@ def run_bridge(config: BridgeConfig) -> None:
 
         return GroupSyncRead(servo, PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH)
 
-    def stop_velocity_joints(joints: list[JointEntry]) -> None:
-        for joint in joints:
-            write_velocity(joint, 0.0)
-
     register_dump = RegisterDumpScheduler([(j.name, j.id) for j in all_joints], config.register_publish_interval_s)
     last_missing_log = 0.0
     if servo is None:
@@ -309,15 +268,19 @@ def run_bridge(config: BridgeConfig) -> None:
     executor = SingleThreadedExecutor()
     executor.add_node(node)
 
+    def spin_ready() -> bool:
+        before = callbacks_run[0]
+        executor.spin_once(timeout_sec=0.0)
+        return callbacks_run[0] != before
+
     try:
         while rclpy.ok():
+            cycle_start = time.monotonic()
+            # Drain every pending callback so no command is starved behind another (see bridge_cycle).
+            drain_callbacks(spin_ready)
             if servo is not None:
-                # Velocity watchdog: stop wheels whose commands went stale.
-                expired = expired_velocity_joints(
-                    last_velocity_commands, time.monotonic(), config.velocity_command_timeout_s
-                )
-                if expired:
-                    stop_velocity_joints([joint_by_id[sid] for sid in expired])
+                # Velocity watchdog: stop wheels with no drive command within velocity_command_timeout_s.
+                cycle.stop_expired()
                 readings = read_positions_and_speeds(expected_ids, make_sync_group, fallback_read)
                 stamp = node.get_clock().now().to_msg()
                 for group in groups:
@@ -364,10 +327,10 @@ def run_bridge(config: BridgeConfig) -> None:
                 if dump is not None:
                     pub_registers.publish(String(data=json.dumps(dump, separators=(",", ":"))))
 
-            executor.spin_once(timeout_sec=control_loop_sleep_s)
+            time.sleep(remaining_sleep_s(control_loop_period_s, time.monotonic() - cycle_start))
     finally:
         if servo is not None:
-            stop_velocity_joints(velocity_joints)
+            cycle.stop(velocity_joints)
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
