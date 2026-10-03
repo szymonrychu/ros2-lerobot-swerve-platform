@@ -41,6 +41,12 @@ LIMIT_MIN_STEPS = 0
 LIMIT_MAX_STEPS = 4095
 LIMITS_CLEAR_MIN = 0
 LIMITS_CLEAR_MAX = 4095
+# center: +-1024 steps = +-90 deg (swerve steering range); settle/verify after the EEPROM offset write.
+DEFAULT_CENTER_RANGE_STEPS = 1024
+CENTER_TOLERANCE_STEPS = 3
+CENTER_SETTLE_S = 0.5
+CENTER_READ_ATTEMPTS = 10
+CENTER_RETRY_SLEEP_S = 0.1
 
 
 def _add_connection_args(parser: argparse.ArgumentParser) -> None:
@@ -285,6 +291,61 @@ def cmd_limits_clear(servo: Any, args: argparse.Namespace) -> int:
         print("Error: failed to write max_angle_limit", file=sys.stderr)
         return 1
     print("OK")
+    return 0
+
+
+def cmd_center(servo: Any, args: argparse.Namespace) -> int:
+    """Store the servo's current physical position as centre (step 2048), then set limits 2048 +/- range.
+
+    Uses the STS "torque_enable = 128" calibration command (st3215 DefineMiddle), which rewrites the EEPROM
+    position offset. Limits are written only after the servo is verified to read ~2048. Prints a JSON summary
+    {"id", "before", "after", "min", "max"}.
+    """
+    range_steps = args.range_steps
+    min_pos = DEFAULT_CENTER - range_steps
+    max_pos = DEFAULT_CENTER + range_steps
+    if range_steps <= 0 or min_pos < LIMIT_MIN_STEPS or max_pos > LIMIT_MAX_STEPS:
+        print(
+            f"Error: --range-steps must keep 2048 +/- range inside [{LIMIT_MIN_STEPS}, {LIMIT_MAX_STEPS}]",
+            file=sys.stderr,
+        )
+        return 1
+    pos_entry = get_register_entry_by_name("present_position")
+    min_entry = get_register_entry_by_name("min_angle_limit")
+    max_entry = get_register_entry_by_name("max_angle_limit")
+    if not pos_entry or not min_entry or not max_entry:
+        print("Error: position/limit registers not found", file=sys.stderr)
+        return 1
+    sid = args.servo_id
+    before = read_register(servo, sid, pos_entry)
+    servo.UnLockEprom(sid)
+    try:
+        if not servo.DefineMiddle(sid):
+            print("Error: DefineMiddle (torque_enable=128) failed", file=sys.stderr)
+            return 1
+        time.sleep(CENTER_SETTLE_S)
+    finally:
+        servo.LockEprom(sid)
+    after = None
+    for _ in range(CENTER_READ_ATTEMPTS):
+        after = read_register(servo, sid, pos_entry)
+        if after is not None and abs(after - DEFAULT_CENTER) <= CENTER_TOLERANCE_STEPS:
+            break
+        time.sleep(CENTER_RETRY_SLEEP_S)
+    if after is None or abs(after - DEFAULT_CENTER) > CENTER_TOLERANCE_STEPS:
+        print(
+            f"Error: servo reads {after} after centring, expected ~{DEFAULT_CENTER}; limits not written",
+            file=sys.stderr,
+        )
+        return 1
+    last_written: dict[str, int] = {}
+    if not write_register(servo, sid, min_entry, min_pos, last_written):
+        print("Error: failed to write min_angle_limit", file=sys.stderr)
+        return 1
+    if not write_register(servo, sid, max_entry, max_pos, last_written):
+        print("Error: failed to write max_angle_limit", file=sys.stderr)
+        return 1
+    print(json.dumps({"id": sid, "before": before, "after": after, "min": min_pos, "max": max_pos}))
     return 0
 
 
@@ -592,6 +653,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_connection_args(p_limits_clear)
     p_limits_clear.set_defaults(_cmd=cmd_limits_clear)
+
+    # center
+    p_center = subparsers.add_parser(
+        "center",
+        help="Store the current position as centre (2048) and set limits 2048 +/- range (e.g. swerve steering).",
+        description=(
+            "Align the joint to its physical zero first (e.g. swerve wheel pointing straight forward). Rewrites "
+            "the EEPROM position offset so the current position reads 2048, then writes min/max_angle_limit "
+            "to 2048 -/+ --range-steps (default 1024 = +/-90 deg). Prints a JSON summary."
+        ),
+    )
+    _add_connection_args(p_center)
+    p_center.add_argument(
+        "--range-steps",
+        type=int,
+        default=DEFAULT_CENTER_RANGE_STEPS,
+        help="Half-range in steps around 2048 for the angle limits (default: 1024 = +/-90 deg).",
+    )
+    p_center.set_defaults(_cmd=cmd_center)
 
     # load-config
     p_load = subparsers.add_parser(

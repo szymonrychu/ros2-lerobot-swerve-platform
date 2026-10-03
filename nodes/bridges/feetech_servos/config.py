@@ -1,7 +1,7 @@
 """Configuration loading for Feetech servos bridge (namespace, joints with name+id, device)."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -16,6 +16,11 @@ SERVO_ID_MAX = 253
 # Valid step range for position/limit config (Feetech STS 0-4095).
 STEPS_MIN = 0
 STEPS_MAX = 4095
+
+JOINT_MODES = ("position", "velocity")
+# ST3215 no-load speed at 12 V: 0.222 s / 60 deg -> ~4.71 rad/s.
+DEFAULT_MAX_VELOCITY_RAD_S = 4.71
+DEFAULT_VELOCITY_COMMAND_TIMEOUT_S = 0.3
 
 
 def _parse_optional_steps(value: object) -> int | None:
@@ -43,6 +48,11 @@ class JointEntry:
         source_inverted: Optional; if True, invert source progress before mapping to command range.
         command_min_steps: Optional; follower command range min. None => read from servo.
         command_max_steps: Optional; follower command range max. None => read from servo.
+        mode: "position" (goal_position from JointState.position) or "velocity" (wheel mode,
+            goal_speed from JointState.velocity in rad/s).
+        inverted: If True, joint positive direction is opposite to the servo's (positions without
+            source range mapping, and velocities).
+        max_velocity_rad_s: Velocity command magnitude limit for velocity-mode joints, rad/s.
     """
 
     name: str
@@ -52,6 +62,34 @@ class JointEntry:
     source_inverted: bool = False
     command_min_steps: int | None = None
     command_max_steps: int | None = None
+    mode: str = "position"
+    inverted: bool = False
+    max_velocity_rad_s: float = DEFAULT_MAX_VELOCITY_RAD_S
+
+
+@dataclass
+class JointGroup:
+    """Joints published under one topic namespace.
+
+    Attributes:
+        namespace: Topic prefix (e.g. "swerve_drive" -> /swerve_drive/joint_states).
+        joints: Ordered joints of this group.
+    """
+
+    namespace: str
+    joints: list[JointEntry]
+
+    @property
+    def joint_names(self) -> list[str]:
+        """Ordered joint names for JointState (same order as joints)."""
+        return [j.name for j in self.joints]
+
+    def joint_entry_by_name(self, name: str) -> JointEntry | None:
+        """Return the JointEntry for a joint name in this group, or None if not found."""
+        for j in self.joints:
+            if j.name == name:
+                return j
+        return None
 
 
 @dataclass
@@ -76,6 +114,9 @@ class BridgeConfig:
             flooding the bus with identical messages and conflicting with external command sources.
         publish_change_epsilon: Minimum absolute position delta (radians) to count as a change.
             Only used when publish_only_on_change is True. Default 1e-3 (~0.06 degrees).
+        extra_groups: Further namespaces served from the same serial bus (e.g. swerve drive servos
+            sharing the follower arm bus). Each has its own joint_states / joint_commands topics.
+        velocity_command_timeout_s: Velocity-mode joints are stopped when no command arrives for this long.
     """
 
     namespace: str
@@ -90,6 +131,18 @@ class BridgeConfig:
     publish_effort_joints: list[str] = ()
     publish_only_on_change: bool = False
     publish_change_epsilon: float = 1e-3
+    extra_groups: list[JointGroup] = field(default_factory=list)
+    velocity_command_timeout_s: float = DEFAULT_VELOCITY_COMMAND_TIMEOUT_S
+
+    @property
+    def groups(self) -> list[JointGroup]:
+        """All joint groups: the primary namespace first, then extra_groups."""
+        return [JointGroup(namespace=self.namespace, joints=self.joints), *self.extra_groups]
+
+    @property
+    def all_joints(self) -> list[JointEntry]:
+        """Joints of every group, in group order."""
+        return [j for g in self.groups for j in g.joints]
 
     @property
     def joint_names(self) -> list[str]:
@@ -97,8 +150,8 @@ class BridgeConfig:
         return [j.name for j in self.joints]
 
     def servo_id_for_joint_name(self, name: str) -> int | None:
-        """Return servo ID for a joint name, or None if not found."""
-        for j in self.joints:
+        """Return servo ID for a joint name in any group, or None if not found."""
+        for j in self.all_joints:
             if j.name == name:
                 return j.id
         return None
@@ -109,6 +162,107 @@ class BridgeConfig:
             if j.name == name:
                 return j
         return None
+
+
+def parse_joints(raw_joints: object, seen_ids: set[int]) -> list[JointEntry] | None:
+    """Parse a joint_names list of { name, id, ... } entries.
+
+    Args:
+        raw_joints: Raw YAML value of joint_names.
+        seen_ids: Servo IDs already used (across groups); updated in place.
+
+    Returns:
+        list[JointEntry] | None: Parsed joints, or None if any entry is invalid, an ID is duplicated
+            or a joint name repeats within the list.
+    """
+    if not isinstance(raw_joints, list) or not raw_joints:
+        return None
+    joints: list[JointEntry] = []
+    for item in raw_joints:
+        if not isinstance(item, dict):
+            return None
+        name = (item.get("name") or "").strip()
+        if not name:
+            return None
+        raw_id = item.get("id")
+        if raw_id is None:
+            return None
+        try:
+            sid = int(raw_id)
+        except (TypeError, ValueError):
+            return None
+        if not (SERVO_ID_MIN <= sid <= SERVO_ID_MAX):
+            return None
+        if sid in seen_ids:
+            return None  # duplicate servo id
+        seen_ids.add(sid)
+        # Optional range-mapping: source (leader) and command (follower) steps; invalid => ignore, use None.
+        source_min = _parse_optional_steps(item.get("source_min_steps"))
+        source_max = _parse_optional_steps(item.get("source_max_steps"))
+        source_inverted = bool(item.get("source_inverted", False))
+        cmd_min = _parse_optional_steps(item.get("command_min_steps"))
+        cmd_max = _parse_optional_steps(item.get("command_max_steps"))
+        mode = str(item.get("mode", "position")).strip().lower()
+        if mode not in JOINT_MODES:
+            return None
+        try:
+            max_velocity = float(item.get("max_velocity_rad_s", DEFAULT_MAX_VELOCITY_RAD_S))
+        except (TypeError, ValueError):
+            return None
+        if max_velocity <= 0:
+            return None
+        if source_min is not None and source_max is not None and source_min > source_max:
+            source_min, source_max = None, None
+        if cmd_min is not None and cmd_max is not None and cmd_min > cmd_max:
+            cmd_min, cmd_max = None, None
+        joints.append(
+            JointEntry(
+                name=name,
+                id=sid,
+                source_min_steps=source_min,
+                source_max_steps=source_max,
+                source_inverted=source_inverted,
+                command_min_steps=cmd_min,
+                command_max_steps=cmd_max,
+                mode=mode,
+                inverted=bool(item.get("inverted", False)),
+                max_velocity_rad_s=max_velocity,
+            )
+        )
+    if len({j.name for j in joints}) != len(joints):
+        return None
+    return joints
+
+
+def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set[int]) -> list[JointGroup] | None:
+    """Parse extra_groups: list of { namespace, joint_names } sharing the bus with the primary group.
+
+    Args:
+        raw_groups: Raw YAML value of extra_groups (None or list).
+        primary_namespace: Namespace of the primary group (must not be reused).
+        seen_ids: Servo IDs already used; updated in place.
+
+    Returns:
+        list[JointGroup] | None: Parsed groups ([] when absent), or None if invalid.
+    """
+    if raw_groups is None:
+        return []
+    if not isinstance(raw_groups, list):
+        return None
+    groups: list[JointGroup] = []
+    namespaces = {primary_namespace}
+    for item in raw_groups:
+        if not isinstance(item, dict):
+            return None
+        namespace = str(item.get("namespace") or "").strip()
+        if not namespace or "/" in namespace or namespace in namespaces:
+            return None
+        namespaces.add(namespace)
+        joints = parse_joints(item.get("joint_names"), seen_ids)
+        if joints is None:
+            return None
+        groups.append(JointGroup(namespace=namespace, joints=joints))
+    return groups
 
 
 def load_config(path: Path | None = None) -> BridgeConfig | None:
@@ -139,47 +293,10 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         return None  # namespace is a topic segment, not a path
     if not isinstance(raw_joints, list):
         return None
-    joints: list[JointEntry] = []
     seen_ids: set[int] = set()
-    for item in raw_joints:
-        if not isinstance(item, dict):
-            return None
-        name = (item.get("name") or "").strip()
-        if not name:
-            return None
-        raw_id = item.get("id")
-        if raw_id is None:
-            return None
-        try:
-            sid = int(raw_id)
-        except (TypeError, ValueError):
-            return None
-        if not (SERVO_ID_MIN <= sid <= SERVO_ID_MAX):
-            return None
-        if sid in seen_ids:
-            return None  # duplicate servo id
-        seen_ids.add(sid)
-        # Optional range-mapping: source (leader) and command (follower) steps; invalid => ignore, use None.
-        source_min = _parse_optional_steps(item.get("source_min_steps"))
-        source_max = _parse_optional_steps(item.get("source_max_steps"))
-        source_inverted = bool(item.get("source_inverted", False))
-        cmd_min = _parse_optional_steps(item.get("command_min_steps"))
-        cmd_max = _parse_optional_steps(item.get("command_max_steps"))
-        if source_min is not None and source_max is not None and source_min > source_max:
-            source_min, source_max = None, None
-        if cmd_min is not None and cmd_max is not None and cmd_min > cmd_max:
-            cmd_min, cmd_max = None, None
-        joints.append(
-            JointEntry(
-                name=name,
-                id=sid,
-                source_min_steps=source_min,
-                source_max_steps=source_max,
-                source_inverted=source_inverted,
-                command_min_steps=cmd_min,
-                command_max_steps=cmd_max,
-            )
-        )
+    joints = parse_joints(raw_joints, seen_ids)
+    if joints is None:
+        return None
     if not joints:
         return None
     device = data.get("device")
@@ -225,6 +342,14 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         publish_change_epsilon = max(0.0, float(raw_change_epsilon))
     except (TypeError, ValueError):
         publish_change_epsilon = 1e-3
+    extra_groups = parse_extra_groups(data.get("extra_groups"), namespace, seen_ids)
+    if extra_groups is None:
+        return None
+    raw_timeout = data.get("velocity_command_timeout_s", DEFAULT_VELOCITY_COMMAND_TIMEOUT_S)
+    try:
+        velocity_command_timeout_s = max(0.05, float(raw_timeout))
+    except (TypeError, ValueError):
+        velocity_command_timeout_s = DEFAULT_VELOCITY_COMMAND_TIMEOUT_S
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -238,6 +363,8 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         publish_effort_joints=publish_effort_joints,
         publish_only_on_change=publish_only_on_change,
         publish_change_epsilon=publish_change_epsilon,
+        extra_groups=extra_groups,
+        velocity_command_timeout_s=velocity_command_timeout_s,
     )
 
 

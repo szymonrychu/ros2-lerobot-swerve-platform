@@ -359,3 +359,78 @@ def test_load_config_publish_only_on_change_explicit(tmp_path: Path) -> None:
     assert cfg is not None
     assert cfg.publish_only_on_change is True
     assert cfg.publish_change_epsilon == pytest.approx(0.005)
+
+
+def test_load_config_joint_mode_and_inverted(tmp_path: Path) -> None:
+    """Per-joint mode (position/velocity), inverted flag and max_velocity_rad_s are parsed."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: swerve_drive\n"
+        "velocity_command_timeout_s: 0.5\n"
+        "joint_names:\n"
+        "  - name: fl_drive\n    id: 32\n    mode: velocity\n    inverted: true\n    max_velocity_rad_s: 3.0\n"
+        "  - name: fl_steer\n    id: 33\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.velocity_command_timeout_s == 0.5
+    drive, steer = cfg.joints
+    assert (drive.mode, drive.inverted, drive.max_velocity_rad_s) == ("velocity", True, 3.0)
+    assert (steer.mode, steer.inverted) == ("position", False)
+    assert steer.max_velocity_rad_s > 0
+
+
+def test_load_config_invalid_mode_rejected(tmp_path: Path) -> None:
+    """Unknown joint mode makes the config invalid (never guess a drive mode)."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: a\njoint_names:\n  - name: x\n    id: 1\n    mode: pwm\n")
+    assert load_config(p) is None
+
+
+def test_load_config_extra_groups(tmp_path: Path) -> None:
+    """extra_groups adds further namespaces served from the same serial bus."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: follower\n"
+        "joint_names:\n  - name: gripper\n    id: 6\n"
+        "extra_groups:\n"
+        "  - namespace: swerve_drive\n"
+        "    joint_names:\n      - name: fl_drive\n        id: 32\n        mode: velocity\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert [g.namespace for g in cfg.groups] == ["follower", "swerve_drive"]
+    assert [j.id for j in cfg.all_joints] == [6, 32]
+    assert cfg.groups[1].joints[0].mode == "velocity"
+
+
+def test_load_config_extra_groups_duplicate_id_rejected(tmp_path: Path) -> None:
+    """A servo ID may appear only once across all groups."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: follower\njoint_names:\n  - name: gripper\n    id: 6\n"
+        "extra_groups:\n  - namespace: swerve_drive\n    joint_names:\n      - name: fl_drive\n        id: 6\n"
+    )
+    assert load_config(p) is None
+
+
+def test_load_config_extra_groups_duplicate_namespace_rejected(tmp_path: Path) -> None:
+    """Group namespaces must be unique."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: follower\njoint_names:\n  - name: gripper\n    id: 6\n"
+        "extra_groups:\n  - namespace: follower\n    joint_names:\n      - name: x\n        id: 7\n"
+    )
+    assert load_config(p) is None
+
+
+def test_servo_id_for_joint_name_searches_extra_groups(tmp_path: Path) -> None:
+    """set_register lookups find joints in extra groups too."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: follower\njoint_names:\n  - name: gripper\n    id: 6\n"
+        "extra_groups:\n  - namespace: swerve_drive\n    joint_names:\n      - name: fl_drive\n        id: 32\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.servo_id_for_joint_name("fl_drive") == 32

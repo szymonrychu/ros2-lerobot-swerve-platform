@@ -250,3 +250,56 @@ def test_calibrate_missing_joint_exits(tmp_path: Path) -> None:
             ],
         ):
             assert m.main() == 1
+
+
+def test_center_defines_middle_sets_symmetric_limits(capsys) -> None:
+    """center: stores current position as 2048, then writes limits 2048 -/+ range; prints JSON summary."""
+    import calibrate_servos as m
+
+    mock_servo = MagicMock()
+    mock_servo.DefineMiddle.return_value = True
+    written: list[tuple[str, int]] = []
+
+    def fake_write(_servo, _sid, entry, value, _cache) -> bool:
+        written.append((entry.name, value))
+        return True
+
+    with patch.object(m, "ST3215", return_value=mock_servo), patch.object(m, "time") as mock_time:
+        mock_time.sleep = MagicMock()
+        with patch.object(m, "read_register", side_effect=[123, 2048]), patch.object(m, "write_register", fake_write):
+            with patch.object(
+                sys,
+                "argv",
+                ["calibrate_servos", "center", "--device", "/dev/tty", "--id", "33", "--range-steps", "1024"],
+            ):
+                assert m.main() == 0
+    mock_servo.UnLockEprom.assert_called_with(33)
+    mock_servo.DefineMiddle.assert_called_once_with(33)
+    assert written == [("min_angle_limit", 1024), ("max_angle_limit", 3072)]
+    data = json.loads(capsys.readouterr().out.strip())
+    assert data == {"id": 33, "before": 123, "after": 2048, "min": 1024, "max": 3072}
+
+
+def test_center_fails_when_position_not_centred(capsys) -> None:
+    """center exits 1 and writes no limits when the servo does not read ~2048 after DefineMiddle."""
+    import calibrate_servos as m
+
+    mock_servo = MagicMock()
+    mock_servo.DefineMiddle.return_value = True
+    write = MagicMock(return_value=True)
+    with patch.object(m, "ST3215", return_value=mock_servo), patch.object(m, "time"):
+        with patch.object(m, "read_register", side_effect=[123] + [500] * 20), patch.object(m, "write_register", write):
+            with patch.object(sys, "argv", ["calibrate_servos", "center", "--device", "/dev/tty", "--id", "33"]):
+                assert m.main() == 1
+    write.assert_not_called()
+
+
+def test_center_rejects_out_of_range_span() -> None:
+    """center exits 1 for a range that would exceed 0..4095."""
+    import calibrate_servos as m
+
+    with patch.object(m, "ST3215", return_value=MagicMock()):
+        with patch.object(
+            sys, "argv", ["calibrate_servos", "center", "--device", "/dev/tty", "--id", "33", "--range-steps", "3000"]
+        ):
+            assert m.main() == 1
