@@ -154,6 +154,9 @@ local_costmap:
       global_frame: odom
       robot_base_frame: base_link
       transform_tolerance: 0.3
+      # A deploy restarts nav2 before the gradual ramp brings up the servos and EKF (odom TF): wait for the whole
+      # ramp instead of the default 60 s, which aborted the bringup.
+      initial_transform_timeout: 300.0
       rolling_window: true
       width: 3
       height: 3
@@ -193,6 +196,9 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_link
       transform_tolerance: 0.3
+      # A deploy restarts nav2 before the gradual ramp brings up the servos and EKF (odom TF): wait for the whole
+      # ramp instead of the default 60 s, which aborted the bringup.
+      initial_transform_timeout: 300.0
       resolution: 0.05
       track_unknown_space: true
       footprint: "[[0.185, 0.143], [0.185, -0.143], [-0.185, -0.143], [-0.185, 0.143]]"

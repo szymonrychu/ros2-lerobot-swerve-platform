@@ -758,3 +758,10 @@ def test_safety_boxes_hug_the_given_dimensions() -> None:
     ys = [abs(y) for _, y in yaml.safe_load(stop["points"])]
     assert max(xs) == pytest.approx(0.255) and max(ys) == pytest.approx(0.213)
     assert min(xs) > box["max_x"] and min(ys) > box["max_y"]
+
+
+@pytest.mark.parametrize("costmap", ["global_costmap", "local_costmap"])
+def test_costmaps_wait_for_odom_through_a_gradual_restart(costmap: str) -> None:
+    """A deploy restarts nav2_bringup before the gradual ramp brings up the servos and EKF (odom TF); the default 60 s
+    initial_transform_timeout aborted the bringup, so the costmaps wait long enough for the whole ramp."""
+    assert ros_params(nav2(), costmap)["initial_transform_timeout"] >= 300.0
