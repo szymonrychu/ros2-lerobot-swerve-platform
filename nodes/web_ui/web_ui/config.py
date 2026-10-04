@@ -66,6 +66,14 @@ DEFAULT_TILE_CACHE_MAX_MB = 256
 # Seconds to wait for an arm home / set home std_srvs/Trigger response (a home motion can take 12+ s).
 DEFAULT_ARM_SERVICE_TIMEOUT_S = 30.0
 
+# Battery defaults: 3-cell pack, cut-off 2.8 V/cell (8.4 V), commands resume above 2.9 V/cell (8.7 V).
+DEFAULT_BATTERY_TOPIC = "/battery_state"
+DEFAULT_BATTERY_CELLS = 3
+DEFAULT_BATTERY_CUTOFF_CELL_V = 2.8
+DEFAULT_BATTERY_RESUME_CELL_V = 2.9
+DEFAULT_BATTERY_STALE_S = 5.0
+BATTERY_ROLE = "battery"
+
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
 GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
     "scan_topic",
@@ -203,6 +211,27 @@ class TabConfig(BaseModel):
         return self
 
 
+class BatteryConfig(BaseModel):
+    """Battery pack monitoring and command cut-off (sensor_msgs/BatteryState topic)."""
+
+    topic: str = DEFAULT_BATTERY_TOPIC
+    cells: int = Field(default=DEFAULT_BATTERY_CELLS, ge=1)
+    cutoff_cell_v: float = Field(default=DEFAULT_BATTERY_CUTOFF_CELL_V, gt=0)
+    resume_cell_v: float = Field(default=DEFAULT_BATTERY_RESUME_CELL_V, gt=0)
+    stale_s: float = Field(default=DEFAULT_BATTERY_STALE_S, gt=0)
+
+    @model_validator(mode="after")
+    def check_hysteresis(self) -> BatteryConfig:
+        """Require resume_cell_v >= cutoff_cell_v.
+
+        Returns:
+            BatteryConfig: This config when valid.
+        """
+        if self.resume_cell_v < self.cutoff_cell_v:
+            raise ValueError("battery resume_cell_v must be >= cutoff_cell_v")
+        return self
+
+
 class AppConfig(BaseModel):
     """Full web_ui application configuration."""
 
@@ -211,6 +240,7 @@ class AppConfig(BaseModel):
     bridge: BridgeConfig = BridgeConfig()
     tabs: list[TabConfig] = []
     overlays: list[OverlayItem] = []
+    battery: BatteryConfig | None = None  # absent: battery features off, nothing blocked
 
     def all_subscribed_topics(self) -> list[str]:
         """Return unique ROS2 topics the bridge must subscribe to.
@@ -287,7 +317,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped) and "gps" (NavSatFix); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix) and "battery" (BatteryState); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -299,6 +329,8 @@ class AppConfig(BaseModel):
                 topic = getattr(tab, attr)
                 if topic:
                     roles[topic] = role
+        if self.battery is not None:
+            roles[self.battery.topic] = BATTERY_ROLE
         return roles
 
     def robot_pose_frames(self) -> tuple[str, str] | None:

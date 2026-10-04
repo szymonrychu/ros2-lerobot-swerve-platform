@@ -22,15 +22,18 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
-from sensor_msgs.msg import CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
+from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
 from slam_toolbox.srv import Reset, SerializePoseGraph
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from .battery_guard import BatteryGuard
+from .config import BATTERY_ROLE
 from .gps_anchor import GpsAnchorEstimator
 from .msg_serializer import (
     msg_to_dict,
     quaternion_to_yaw,
+    serialize_battery,
     serialize_costmap,
     serialize_goal_pose,
     serialize_navsatfix,
@@ -170,6 +173,7 @@ class BridgeNode(Node):
         navigate_actions: list[str] | None = None,
         trigger_services: list[str] | None = None,
         gps_anchor: GpsAnchorEstimator | None = None,
+        battery_guard: BatteryGuard | None = None,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -186,6 +190,8 @@ class BridgeNode(Node):
             navigate_actions (list[str] | None): NavigateToPose actions whose cancel services get clients.
             trigger_services (list[str] | None): std_srvs/Trigger services (arm home / set home) to create clients for.
             gps_anchor (GpsAnchorEstimator | None): Estimator fed with "gps" role fixes, or None to disable the anchor.
+            battery_guard (BatteryGuard | None): Guard fed with "battery" role readings, or None when battery
+                features are off.
         """
         super().__init__("web_ui_bridge")
         self._latest: dict[str, dict[str, Any]] = {}
@@ -203,9 +209,17 @@ class BridgeNode(Node):
         self._cancel_goal_clients: dict[str, Any] = {}
         self._trigger_clients: dict[str, Any] = {}
         self._gps_anchor = gps_anchor
+        self._battery_guard = battery_guard
         roles = topic_roles or {}
 
         for topic in topics:
+            if roles.get(topic) == BATTERY_ROLE:
+                if battery_guard is not None:
+                    self.create_subscription(
+                        BatteryState, topic, lambda msg, t=topic: self.on_battery(t, msg), SENSOR_SUB_QOS
+                    )
+                    self._topic_last_rx[topic] = time.monotonic()
+                continue
             spec = subscription_spec(topic, roles.get(topic))
             if spec is None:
                 self.get_logger().warning(f"Unknown msg type for topic {topic!r} - skipping")
@@ -261,6 +275,28 @@ class BridgeNode(Node):
                 self.feed_gps_anchor(data)
 
         return callback
+
+    def on_battery(self, topic: str, msg: Any) -> None:
+        """Feed a BatteryState to the guard and cache the serialized reading with the guard state.
+
+        Readings without a finite positive voltage are dropped (no placeholder data).
+
+        Args:
+            topic (str): Battery topic.
+            msg (Any): sensor_msgs/BatteryState message.
+        """
+        guard = self._battery_guard
+        if guard is None:
+            return
+        try:
+            data = serialize_battery(msg, guard.cells)
+        except Exception as exc:
+            log.warning("serialize_error", topic=topic, error=str(exc))
+            return
+        if not guard.update(data["voltage"]):
+            log.debug("battery_invalid_voltage_dropped", topic=topic, voltage=data["voltage"])
+            return
+        self.store(topic, {**data, **guard.state()})
 
     def store(self, topic: str, data: dict[str, Any]) -> None:
         """Cache data as the latest envelope for topic and mark it for broadcast.

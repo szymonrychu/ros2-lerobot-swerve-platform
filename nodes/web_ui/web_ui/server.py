@@ -18,6 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from .battery_guard import BatteryGuard
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
 from .config import AppConfig, TabConfig
 from .tiles import (
@@ -247,6 +248,7 @@ def build_app(
     static_dir: Path,
     bridge_node: Any = None,
     tile_transport: httpx.AsyncBaseTransport | None = None,
+    battery_guard: BatteryGuard | None = None,
 ) -> FastAPI:
     """Build and return the FastAPI application.
 
@@ -256,6 +258,8 @@ def build_app(
         static_dir: Directory containing pre-built React static files.
         bridge_node: Optional BridgeNode instance for WebSocket broadcasting.
         tile_transport: Optional httpx transport for the tile proxy (tests); None fetches from the network.
+        battery_guard: Optional guard; while it reports cut-off, WebSocket publishes and the map save/reset and
+            arm home/set home endpoints are rejected (nav stop stays allowed). None disables the check.
 
     Returns:
         FastAPI: Configured application instance.
@@ -268,6 +272,21 @@ def build_app(
 
     broadcast_interval = 1.0 / config.ws_broadcast_hz
     clients: dict[str, ClientConnection] = {}
+
+    def battery_block(action: str) -> JSONResponse | None:
+        """Reject a command while the battery is below cut-off.
+
+        Args:
+            action (str): Action name for the response and the log.
+
+        Returns:
+            JSONResponse | None: 503 action response in cut-off, otherwise None.
+        """
+        if battery_guard is None or not battery_guard.is_cutoff():
+            return None
+        message = battery_guard.rejection_message()
+        log.warning("command_rejected_battery_cutoff", action=action, message=message)
+        return action_response(action, False, message, 503)
 
     @app.get("/api/config")
     async def get_config() -> JSONResponse:
@@ -308,6 +327,8 @@ def build_app(
 
     @app.post("/api/map/save")
     async def save_map(tab: str) -> JSONResponse:
+        if (blocked := battery_block("map_save")) is not None:
+            return blocked
         tab_cfg = find_map_nav_tab(tab)
         if tab_cfg is None or not tab_cfg.map_save_path:
             return action_response("map_save", False, f"no map_nav tab {tab!r}", 404)
@@ -330,6 +351,8 @@ def build_app(
 
     @app.post("/api/map/reset")
     async def reset_map(tab: str) -> JSONResponse:
+        if (blocked := battery_block("map_reset")) is not None:
+            return blocked
         tab_cfg = find_map_nav_tab(tab)
         if tab_cfg is None or not tab_cfg.map_reset_service:
             return action_response("map_reset", False, f"no map_nav tab {tab!r}", 404)
@@ -376,6 +399,8 @@ def build_app(
         return action_response("nav_stop", True, message, 200)
 
     async def call_arm_trigger(action: str, tab: str, service_attr: str) -> JSONResponse:
+        if (blocked := battery_block(action)) is not None:
+            return blocked
         tab_cfg = find_map_nav_tab(tab)
         service = getattr(tab_cfg, service_attr) if tab_cfg is not None else None
         if not service:
@@ -420,7 +445,13 @@ def build_app(
                 log.debug("ws_msg_recv", client_id=client_id, raw=raw[:200])
                 try:
                     msg = json.loads(raw)
-                    if msg.get("type") == "publish" and bridge_node is not None:
+                    if msg.get("type") == "publish" and battery_guard is not None and battery_guard.is_cutoff():
+                        error = battery_guard.rejection_message()
+                        log.warning(
+                            "ws_publish_rejected_battery_cutoff", client_id=client_id, topic=msg.get("topic", "")
+                        )
+                        await conn.send_text(json.dumps({"type": "error", "source": "battery", "message": error}))
+                    elif msg.get("type") == "publish" and bridge_node is not None:
                         topic = msg.get("topic", "")
                         msg_type = msg.get("msg_type", "")
                         bridge_node.create_publisher_for(topic, msg_type)

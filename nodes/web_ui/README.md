@@ -39,11 +39,29 @@ Single Python process: FastAPI (uvicorn) on port 8080 serves:
 - `POST /api/nav/stop?tab=<tab id>` - cancel all Nav2 NavigateToPose goals (see below)
 - `POST /api/arm/home?tab=<tab id>` and `POST /api/arm/set_home?tab=<tab id>` - call the mcp_server arm Trigger services (see below)
 - `GET /api/tiles/{z}/{x}/{y}.png` - cached map tile proxy (see below)
-- `WS /ws` — WebSocket bridge: 20 Hz topic broadcast + publish commands
+- `WS /ws` — WebSocket bridge: 20 Hz topic broadcast + publish commands (rejected with an error frame while the battery is below cut-off, see [Battery](#battery-optional-battery-section))
 
 A `rclpy` node (`web_ui_bridge`) subscribes to ROS2 topics and stores the latest value per topic. A single shared 20 Hz asyncio loop broadcasts dirty topics to all connected clients. A newly connected client first receives the latest cached value of every topic, so latched data such as the SLAM map shows up immediately. Sends to one client are serialized by a per-client lock: broadcast frames queue behind the snapshot and never write to the same WebSocket concurrently.
 
 Inbound publish frames (`{"type": "publish", "topic", "msg_type", "data"}`) are only accepted for allowlisted topics (tab `goal_topic` / `arm_command_topic`). JSON values are converted to each message field's type (int fields such as `header.stamp.sec` get ints, float fields get floats, numeric arrays are converted element-wise); a value that does not fit its field is rejected and logged, not silently dropped. A zero `header.stamp` is filled with the node clock, and an empty `header.frame_id` on a `map_nav` goal topic is filled with the tab's `map_frame`.
+
+## Battery (optional `battery` section)
+
+The robot is powered by a 3-cell pack; the `lerobot_follower` feetech bridge publishes its voltage as `sensor_msgs/BatteryState` on `/battery_state`. With a top-level `battery:` section web_ui subscribes to it, shows it in the AppBar and rejects commands from the web UI when the pack is empty. Without the section nothing is subscribed and nothing is blocked.
+
+```yaml
+battery:
+  topic: /battery_state   # sensor_msgs/BatteryState
+  cells: 3                # >= 1
+  cutoff_cell_v: 2.8      # cut-off: cells x cutoff_cell_v = 8.4 V
+  resume_cell_v: 2.9      # resume: cells x resume_cell_v = 8.7 V (must be >= cutoff_cell_v)
+  stale_s: 5.0            # a reading older than this counts as unknown
+```
+
+- **Guard (`battery_guard.py`, `BatteryGuard`):** enters cut-off when the voltage is below `cells * cutoff_cell_v` and leaves it only above `cells * resume_cell_v` (hysteresis). With no reading, or a reading older than `stale_s`, the state is unknown and **nothing is blocked**. Thread-safe: the ROS callback thread updates it, the asyncio server reads it.
+- **Broadcast:** the reading is serialized (`voltage`, `cells`, `cell_voltage` = voltage / cells, `stamp`, `frame_id`) together with the guard state (`cutoff`, `stale`, `cutoff_v`, `resume_v`, thresholds) and sent to clients as a normal envelope on the battery topic. `/api/config` carries the `battery` section so the frontend knows topic and thresholds.
+- **In cut-off, rejected:** WebSocket `publish` frames (nothing is published; the client gets `{"type":"error","source":"battery","message":"battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); commands rejected"}`) and `POST /api/map/save`, `/api/map/reset`, `/api/arm/home`, `/api/arm/set_home` with HTTP **503** and `{"ok": false, "message": "battery below cut-off ..."}`. `POST /api/nav/stop` stays allowed (safety). Rejections are logged.
+- **Frontend:** a voltage chip in the AppBar (e.g. `11.4 V`, per-cell in the tooltip): green above the resume threshold, amber between cut-off and resume, red in cut-off, grey `--` without a recent reading. In cut-off a red banner under the AppBar reads "Battery below cut-off (x.xx V/cell) - commands are disabled"; everything else keeps rendering. Error frames from the WebSocket appear as a toast; the 503 message of a failed Map tab action appears in the existing action snackbar. Level/colour logic is in `frontend/src/battery/batteryStatus.ts` (vitest `batteryStatus.test.ts`).
 
 ## Map tab (`map_nav`)
 

@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import log from '../logging'
+import { parseWsFrame } from './wsFrames'
 
 export interface TopicData {
   [topic: string]: unknown
+}
+
+/** Error frame sent by the backend when it rejects a command ({"type":"error","source","message"}). */
+export interface BridgeError {
+  source?: string
+  message: string
 }
 
 export interface UseRosBridgeReturn {
@@ -13,12 +20,14 @@ export interface UseRosBridgeReturn {
 
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]
 
-export function useRosBridge(_topics: string[]): UseRosBridgeReturn {
+export function useRosBridge(_topics: string[], onError?: (error: BridgeError) => void): UseRosBridgeReturn {
   const [topicData, setTopicData] = useState<TopicData>({})
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectAttempt = useRef(0)
   const unmounted = useRef(false)
+  const onErrorRef = useRef(onError)
+  onErrorRef.current = onError
 
   const connect = useCallback(() => {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
@@ -36,14 +45,13 @@ export function useRosBridge(_topics: string[]): UseRosBridgeReturn {
 
     ws.onmessage = (evt) => {
       log.debug('[bridge] ←', evt.data.length, 'bytes')
-      try {
-        const envelope = JSON.parse(evt.data as string) as { topic: string; data: unknown }
-        if (envelope.topic) {
-          log.debug('[bridge] topic updated:', envelope.topic)
-          setTopicData((prev) => ({ ...prev, [envelope.topic]: envelope.data }))
-        }
-      } catch {
-        // ignore malformed frames
+      const frame = parseWsFrame(evt.data as string)
+      if (frame?.kind === 'envelope') {
+        log.debug('[bridge] topic updated:', frame.topic)
+        setTopicData((prev) => ({ ...prev, [frame.topic]: frame.data }))
+      } else if (frame?.kind === 'error') {
+        log.warn('[bridge] error frame:', frame.message)
+        onErrorRef.current?.({ source: frame.source, message: frame.message })
       }
     }
 

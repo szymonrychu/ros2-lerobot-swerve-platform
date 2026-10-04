@@ -11,6 +11,7 @@ import rclpy
 import structlog
 import uvicorn
 
+from .battery_guard import BatteryGuard
 from .bridge import BridgeNode, create_bridge_executor
 from .config import load_config
 from .logging_setup import configure_logging
@@ -39,6 +40,7 @@ def main() -> None:
         urdf_dir=str(URDF_DIR),
     )
 
+    battery_guard = BatteryGuard.from_config(config.battery) if config.battery is not None else None
     rclpy.init()
     node = BridgeNode(
         topics=config.all_subscribed_topics(),
@@ -51,6 +53,7 @@ def main() -> None:
         navigate_actions=config.navigate_actions(),
         trigger_services=config.trigger_services(),
         gps_anchor=config.gps_anchor_estimator(),
+        battery_guard=battery_guard,
     )
     executor = create_bridge_executor(node)
 
@@ -63,7 +66,9 @@ def main() -> None:
     ros_thread = threading.Thread(target=spin_ros, daemon=True, name="rclpy-spin")
     ros_thread.start()
 
-    app = build_app(config=config, urdf_dir=URDF_DIR, static_dir=STATIC_DIR, bridge_node=node)
+    app = build_app(
+        config=config, urdf_dir=URDF_DIR, static_dir=STATIC_DIR, bridge_node=node, battery_guard=battery_guard
+    )
 
     def handle_shutdown(signum: int, frame: object) -> None:
         log.info("shutdown", reason=f"signal {signum}")

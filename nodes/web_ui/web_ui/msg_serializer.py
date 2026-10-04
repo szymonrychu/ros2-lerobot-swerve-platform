@@ -402,6 +402,26 @@ def serialize_navsatfix(msg: Any) -> dict[str, Any]:
     }
 
 
+def serialize_battery(msg: Any, cells: int) -> dict[str, Any]:
+    """Serialize a sensor_msgs/BatteryState for the battery chip.
+
+    Args:
+        msg (Any): sensor_msgs/BatteryState message.
+        cells (int): Number of series cells; the per-cell voltage is the pack voltage divided by it.
+
+    Returns:
+        dict[str, Any]: voltage (V), cells, cell_voltage (V/cell), frame_id, stamp (s).
+    """
+    voltage = float(msg.voltage)
+    return {
+        "voltage": voltage,
+        "cells": cells,
+        "cell_voltage": voltage / cells,
+        "frame_id": msg.header.frame_id,
+        "stamp": stamp_to_seconds(msg.header.stamp),
+    }
+
+
 def downsample_points(points: list[list[float]], max_points: int) -> list[list[float]]:
     """Evenly downsample a polyline, always keeping the first and last point.
 

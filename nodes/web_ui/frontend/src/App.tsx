@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
+import Alert from '@mui/material/Alert'
 import AppBar from '@mui/material/AppBar'
 import Box from '@mui/material/Box'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -10,6 +11,7 @@ import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
 import ListSubheader from '@mui/material/ListSubheader'
+import Snackbar from '@mui/material/Snackbar'
 import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
 import Toolbar from '@mui/material/Toolbar'
@@ -24,6 +26,9 @@ import ThreeDRotationIcon from '@mui/icons-material/ThreeDRotation'
 import CameraIcon from '@mui/icons-material/Camera'
 import TabIcon from '@mui/icons-material/Tab'
 import log from './logging'
+import { batteryStatus, cutoffBanner } from './battery/batteryStatus'
+import type { BatteryPayload } from './battery/batteryStatus'
+import { BatteryChip } from './components/BatteryChip'
 import { useRosBridge } from './hooks/useRosBridge'
 import { OverlayBar } from './overlays/OverlayBar'
 import { browserStorage, initialTabIndex, orderTabs, readStoredTabId, supportedTabs, writeStoredTabId } from './tabSelection'
@@ -37,6 +42,10 @@ const RgbdCameraTab = lazy(() => import('./tabs/RgbdCameraTab'))
 const MapNavTab = lazy(() => import('./tabs/MapNavTab'))
 
 const APP_TITLE = 'Robot'
+// How often the battery chip re-evaluates staleness (ms).
+const BATTERY_TICK_MS = 1000
+// How long a command-rejected toast stays visible (ms).
+const ERROR_TOAST_MS = 8000
 
 const TAB_ICONS: Record<string, ReactElement> = {
   map_nav: <MapIcon />,
@@ -81,6 +90,9 @@ export default function App() {
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [activeTab, setActiveTab] = useState(0)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [errorToast, setErrorToast] = useState<string | null>(null)
+  const [batteryRxAt, setBatteryRxAt] = useState<number | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
   // Map tabs first: the map is the primary view whatever order the config lists tabs in.
   // Tab types merged into the 3D map (or removed) are dropped so a stale config shows no dead tabs.
@@ -111,7 +123,21 @@ export default function App() {
       ].filter((t): t is string => Boolean(t))
     : []
 
-  const { topicData, connected, publish } = useRosBridge(allTopics)
+  const { topicData, connected, publish } = useRosBridge(allTopics, (e) => setErrorToast(e.message))
+
+  const batteryCfg = config?.battery ?? null
+  const batteryData = batteryCfg ? (topicData[batteryCfg.topic] as BatteryPayload | null | undefined) : undefined
+  // Receipt time (not the message stamp) drives staleness, so robot/browser clock offsets do not matter.
+  useEffect(() => {
+    setBatteryRxAt(batteryData ? Date.now() : null)
+  }, [batteryData])
+  useEffect(() => {
+    if (!batteryCfg) return
+    const id = setInterval(() => setNowMs(Date.now()), BATTERY_TICK_MS)
+    return () => clearInterval(id)
+  }, [batteryCfg])
+  const battery = batteryStatus(batteryData, batteryCfg, nowMs, batteryRxAt)
+  const banner = cutoffBanner(battery)
 
   // Feed all graph-type tabs' buffers on every WebSocket update, regardless of active tab.
   // This ensures opening any graph tab shows a pre-filled rolling window of data.
@@ -173,8 +199,14 @@ export default function App() {
               />
             ))}
           </Tabs>
+          {batteryCfg && <BatteryChip status={battery} />}
         </Toolbar>
       </AppBar>
+      {banner && (
+        <Alert severity="error" variant="filled" square role="alert">
+          {banner}
+        </Alert>
+      )}
 
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <List
@@ -201,6 +233,17 @@ export default function App() {
           {tab && renderTab(tab, topicData, publish)}
         </Suspense>
       </Box>
+
+      <Snackbar
+        open={errorToast !== null}
+        autoHideDuration={ERROR_TOAST_MS}
+        onClose={(_e, reason) => reason !== 'clickaway' && setErrorToast(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" variant="filled" onClose={() => setErrorToast(null)} sx={{ width: '100%' }}>
+          {errorToast}
+        </Alert>
+      </Snackbar>
 
       <OverlayBar overlays={config.overlays} topicData={topicData} connected={connected} />
     </>

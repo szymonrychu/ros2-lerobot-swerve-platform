@@ -113,7 +113,16 @@ def _install_ros2_stubs() -> None:
     if not hasattr(exec_mod, "MultiThreadedExecutor"):
         exec_mod.MultiThreadedExecutor = MagicMock  # type: ignore[attr-defined]
 
-    for msg_class in ("Imu", "JointState", "NavSatFix", "LaserScan", "Image", "CompressedImage", "CameraInfo"):
+    for msg_class in (
+        "BatteryState",
+        "Imu",
+        "JointState",
+        "NavSatFix",
+        "LaserScan",
+        "Image",
+        "CompressedImage",
+        "CameraInfo",
+    ):
         sensor_mod = sys.modules["sensor_msgs.msg"]
         if not hasattr(sensor_mod, msg_class):
             setattr(sensor_mod, msg_class, MagicMock())

@@ -1,3 +1,5 @@
+import type { BatteryConfig } from './battery/batteryStatus'
+
 export interface TabFieldSpec {
   path: string
   label: string
@@ -50,6 +52,7 @@ export interface OverlayItem {
 }
 
 export interface AppConfig {
+  battery?: BatteryConfig | null // absent/null: battery chip and cut-off banner are off
   http_port: number
   ws_broadcast_hz: number
   tabs: TabConfig[]
