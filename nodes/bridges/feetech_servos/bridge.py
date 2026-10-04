@@ -20,9 +20,10 @@ from typing import Any
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import BatteryState, JointState
 from std_msgs.msg import String
 
+from .battery import BatteryMonitor, battery_fields
 from .bridge_cycle import MAX_STEPS, MIN_STEPS, BridgeCycle, drain_callbacks, remaining_sleep_s
 from .command_mapping import speed_register_to_velocity, steps_to_radians
 from .config import BridgeConfig, JointGroup, load_config_from_env
@@ -86,6 +87,8 @@ def run_bridge(config: BridgeConfig) -> None:
     }
     pub_registers = node.create_publisher(String, f"/{config.namespace}/servo_registers", DEFAULT_QOS_DEPTH)
 
+    pub_battery = node.create_publisher(BatteryState, config.battery_topic, DEFAULT_QOS_DEPTH)
+
     last_positions: dict[str, float] = {}
     last_published_positions: dict[str, float] = {}  # for publish_only_on_change gate
     last_written: dict[int, dict[str, int]] = {}  # servo_id -> { register_name: value }
@@ -107,6 +110,7 @@ def run_bridge(config: BridgeConfig) -> None:
     pos_entry = get_register_entry_by_name("present_position")
     speed_entry = get_register_entry_by_name("present_speed")
     load_entry = get_register_entry_by_name("present_load")
+    voltage_entry = get_register_entry_by_name("present_voltage")
     effort_joint_set = set(config.publish_effort_joints) if config.publish_effort_joints else set()
 
     if servo is not None:
@@ -262,6 +266,7 @@ def run_bridge(config: BridgeConfig) -> None:
         return GroupSyncRead(servo, PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH)
 
     register_dump = RegisterDumpScheduler([(j.name, j.id) for j in all_joints], config.register_publish_interval_s)
+    battery = BatteryMonitor([j.id for j in all_joints], config.battery_interval_s, config.battery_stale_s)
     last_missing_log = 0.0
     if servo is None:
         node.get_logger().error("No servo bus available: not publishing joint_states (no placeholder data).")
@@ -329,6 +334,19 @@ def run_bridge(config: BridgeConfig) -> None:
                 dump = register_dump.step(time.monotonic(), lambda sid: read_all_registers(servo, sid))
                 if dump is not None:
                     pub_registers.publish(String(data=json.dumps(dump, separators=(",", ":"))))
+
+                # Pack voltage: one servo per interval; nothing is published without a fresh reading.
+                if voltage_entry is not None:
+                    pack_voltage = battery.step(
+                        time.monotonic(), lambda sid: read_register_raw(servo, sid, voltage_entry)
+                    )
+                    if pack_voltage is not None:
+                        battery_msg = BatteryState()
+                        battery_msg.header.stamp = node.get_clock().now().to_msg()
+                        battery_msg.header.frame_id = config.battery_frame_id
+                        for name, value in battery_fields(pack_voltage, config.battery_cells).items():
+                            setattr(battery_msg, name, value)
+                        pub_battery.publish(battery_msg)
 
             time.sleep(remaining_sleep_s(control_loop_period_s, time.monotonic() - cycle_start))
     finally:

@@ -434,3 +434,34 @@ def test_servo_id_for_joint_name_searches_extra_groups(tmp_path: Path) -> None:
     cfg = load_config(p)
     assert cfg is not None
     assert cfg.servo_id_for_joint_name("fl_drive") == 32
+
+
+def test_battery_config_defaults(tmp_path: Path) -> None:
+    """Battery fields default to the standard topic, 1 s interval and 3 cells."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: follower\njoint_names:\n  - name: a\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.battery_topic == "/battery_state"
+    assert cfg.battery_interval_s == 1.0
+    assert cfg.battery_cells == 3
+    assert cfg.battery_frame_id == "base_link"
+    assert cfg.battery_stale_s == 30.0
+
+
+def test_battery_config_overrides(tmp_path: Path) -> None:
+    """Battery fields are read from YAML; invalid values fall back to defaults."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: follower\njoint_names:\n  - name: a\n    id: 1\n"
+        "battery_topic: /pack\nbattery_interval_s: 0\nbattery_cells: 4\n"
+        "battery_frame_id: chassis\nbattery_stale_s: 12\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert (cfg.battery_topic, cfg.battery_interval_s, cfg.battery_cells) == ("/pack", 0.0, 4)
+    assert (cfg.battery_frame_id, cfg.battery_stale_s) == ("chassis", 12.0)
+    p.write_text("namespace: follower\njoint_names:\n  - name: a\n    id: 1\nbattery_cells: 0\nbattery_interval_s: x\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.battery_cells == 3 and cfg.battery_interval_s == 1.0

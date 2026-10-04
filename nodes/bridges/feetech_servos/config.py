@@ -21,6 +21,12 @@ JOINT_MODES = ("position", "velocity")
 # ST3215 no-load speed at 12 V: 0.222 s / 60 deg -> ~4.71 rad/s.
 DEFAULT_MAX_VELOCITY_RAD_S = 4.71
 DEFAULT_VELOCITY_COMMAND_TIMEOUT_S = 0.3
+DEFAULT_BATTERY_TOPIC = "/battery_state"
+DEFAULT_BATTERY_INTERVAL_S = 1.0
+DEFAULT_BATTERY_CELLS = 3
+DEFAULT_BATTERY_FRAME_ID = "base_link"
+# One servo is read per interval, so a full round over ~14 servos takes ~14 s at 1 Hz.
+DEFAULT_BATTERY_STALE_S = 30.0
 
 
 def _parse_optional_steps(value: object) -> int | None:
@@ -117,6 +123,11 @@ class BridgeConfig:
         extra_groups: Further namespaces served from the same serial bus (e.g. swerve drive servos
             sharing the follower arm bus). Each has its own joint_states / joint_commands topics.
         velocity_command_timeout_s: Velocity-mode joints are stopped when no command arrives for this long.
+        battery_topic: Global (not namespaced) sensor_msgs/BatteryState topic for the pack voltage.
+        battery_interval_s: Seconds between battery reads (one servo per read, round-robin); 0 = disabled.
+        battery_cells: Number of series cells of the pack (length of BatteryState.cell_voltage).
+        battery_frame_id: header.frame_id of BatteryState.
+        battery_stale_s: Per-servo voltage readings older than this are ignored.
     """
 
     namespace: str
@@ -133,6 +144,11 @@ class BridgeConfig:
     publish_change_epsilon: float = 1e-3
     extra_groups: list[JointGroup] = field(default_factory=list)
     velocity_command_timeout_s: float = DEFAULT_VELOCITY_COMMAND_TIMEOUT_S
+    battery_topic: str = DEFAULT_BATTERY_TOPIC
+    battery_interval_s: float = DEFAULT_BATTERY_INTERVAL_S
+    battery_cells: int = DEFAULT_BATTERY_CELLS
+    battery_frame_id: str = DEFAULT_BATTERY_FRAME_ID
+    battery_stale_s: float = DEFAULT_BATTERY_STALE_S
 
     @property
     def groups(self) -> list[JointGroup]:
@@ -350,6 +366,24 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         velocity_command_timeout_s = max(0.05, float(raw_timeout))
     except (TypeError, ValueError):
         velocity_command_timeout_s = DEFAULT_VELOCITY_COMMAND_TIMEOUT_S
+    battery_topic = str(data.get("battery_topic") or DEFAULT_BATTERY_TOPIC).strip()
+    try:
+        battery_interval_s = max(0.0, float(data.get("battery_interval_s", DEFAULT_BATTERY_INTERVAL_S)))
+    except (TypeError, ValueError):
+        battery_interval_s = DEFAULT_BATTERY_INTERVAL_S
+    try:
+        battery_cells = int(data.get("battery_cells", DEFAULT_BATTERY_CELLS))
+    except (TypeError, ValueError):
+        battery_cells = DEFAULT_BATTERY_CELLS
+    if battery_cells < 1:
+        battery_cells = DEFAULT_BATTERY_CELLS
+    battery_frame_id = str(data.get("battery_frame_id") or DEFAULT_BATTERY_FRAME_ID).strip()
+    try:
+        battery_stale_s = float(data.get("battery_stale_s", DEFAULT_BATTERY_STALE_S))
+    except (TypeError, ValueError):
+        battery_stale_s = DEFAULT_BATTERY_STALE_S
+    if battery_stale_s <= 0:
+        battery_stale_s = DEFAULT_BATTERY_STALE_S
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -365,6 +399,11 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         publish_change_epsilon=publish_change_epsilon,
         extra_groups=extra_groups,
         velocity_command_timeout_s=velocity_command_timeout_s,
+        battery_topic=battery_topic,
+        battery_interval_s=battery_interval_s,
+        battery_cells=battery_cells,
+        battery_frame_id=battery_frame_id,
+        battery_stale_s=battery_stale_s,
     )
 
 
