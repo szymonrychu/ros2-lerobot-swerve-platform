@@ -28,8 +28,8 @@ params (notably collision_monitor and docking_server) fails to configure and abo
 | bt_navigator | `global_frame: map`, `robot_base_frame: base_link`, `odom_topic: /odometry/filtered`. |
 | controller_server | MPPI, `motion_model: Omni`, `vx` +-0.25, `vy_max` 0.25 (symmetric in Jazzy), `wz_max` 0.5 rad/s, 10 Hz, `model_dt` 0.1, 30 steps, 1000 samples; holonomic critics (PathAngleCritic mode 1, TwirlingCritic, no PreferForwardCritic). |
 | planner_server | NavFn, `allow_unknown: true` (plans into unexplored space while mapping). |
-| global_costmap | `map` frame; static layer on `/map` (`map_subscribe_transient_local: true`), obstacle layer from `/scan_filtered`, inflation 0.45 m. |
-| local_costmap | `odom` frame, 3 x 3 m rolling window; obstacle layer from `/scan_filtered`, inflation 0.45 m. |
+| global_costmap | `map` frame; static layer on `/map` (`map_subscribe_transient_local: true`), obstacle layer from `/scan_filtered`, inflation 0.31 m (circumscribed radius, steep falloff), no footprint padding. |
+| local_costmap | `odom` frame, 3 x 3 m rolling window; obstacle layer from `/scan_filtered`, inflation 0.31 m (circumscribed radius, steep falloff), no footprint padding. |
 | footprint | `[[0.235, 0.193], [0.235, -0.193], [-0.235, -0.193], [-0.235, 0.193]]` (outer frame 470 x 386 mm) in both costmaps. |
 | behavior_server | spin / backup / drive_on_heading / assisted_teleop / wait; `local_frame: odom`, `global_frame: map`, rotation <= 0.5 rad/s. |
 | smoother_server | SimpleSmoother. |

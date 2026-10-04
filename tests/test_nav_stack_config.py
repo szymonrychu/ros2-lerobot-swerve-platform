@@ -724,3 +724,17 @@ def test_restart_handler_skips_disabled_nodes() -> None:
         if "ros2_node_restart_now" in str(t.get("ansible.builtin.set_fact"))
     )
     assert "node_enabled" in facts["ros2_node_restart_enabled"]
+
+
+@pytest.mark.parametrize("costmap", ["global_costmap", "local_costmap"])
+def test_costmaps_add_no_margin_beyond_given_dimensions(costmap: str) -> None:
+    """The 470 x 386 mm outer dimensions already include 5 cm for the worst wheel position: no footprint padding, and
+    inflation only up to the circumscribed radius (needed for footprint collision costs) with a steep falloff."""
+    import math
+
+    p = ros_params(nav2(), costmap)
+    assert p["footprint_padding"] == 0.0
+    circumscribed = math.hypot(0.235, 0.193)
+    inflation = p["inflation_layer"]
+    assert circumscribed <= inflation["inflation_radius"] <= circumscribed + 0.01
+    assert inflation["cost_scaling_factor"] >= 10.0
