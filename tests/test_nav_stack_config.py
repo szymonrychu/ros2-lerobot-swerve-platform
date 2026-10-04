@@ -40,6 +40,10 @@ LOCAL_PLAN_TOPIC = "/optimal_trajectory"
 # Outer frame 470 x 386 mm, centred on base_link.
 FOOTPRINT_HALF_X = 0.235
 FOOTPRINT_HALF_Y = 0.193
+# Planner (costmap) footprint: the outer frame minus the 5 cm worst-wheel margin on every side (370 x 286 mm). The
+# self-filter and StopBox stay sized from the outer frame.
+PLANNER_HALF_X = 0.185
+PLANNER_HALF_Y = 0.143
 # robot_localization 15-element config order.
 EKF_INDEX = {
     "x": 0,
@@ -460,7 +464,8 @@ def test_nav2_frames() -> None:
 @pytest.mark.parametrize("costmap", ["global_costmap", "local_costmap"])
 def test_nav2_costmap_layers_and_footprint(costmap: str) -> None:
     p = ros_params(nav2(), costmap)
-    assert yaml.safe_load(p["footprint"]) == expected_footprint()
+    x, y = PLANNER_HALF_X, PLANNER_HALF_Y
+    assert yaml.safe_load(p["footprint"]) == [[x, y], [x, -y], [-x, -y], [-x, y]]
     assert "robot_radius" not in p
     assert "obstacle_layer" in p["plugins"] and "inflation_layer" in p["plugins"]
     obstacle = p["obstacle_layer"]
@@ -728,13 +733,14 @@ def test_restart_handler_skips_disabled_nodes() -> None:
 
 @pytest.mark.parametrize("costmap", ["global_costmap", "local_costmap"])
 def test_costmaps_add_no_margin_beyond_given_dimensions(costmap: str) -> None:
-    """The 470 x 386 mm outer dimensions already include 5 cm for the worst wheel position: no footprint padding, and
-    inflation only up to the circumscribed radius (needed for footprint collision costs) with a steep falloff."""
+    """The planner footprint drops the 5 cm worst-wheel margin of the 470 x 386 mm outer dimensions: no footprint
+    padding, and inflation only up to its circumscribed radius (needed for footprint collision costs) with a steep
+    falloff."""
     import math
 
     p = ros_params(nav2(), costmap)
     assert p["footprint_padding"] == 0.0
-    circumscribed = math.hypot(0.235, 0.193)
+    circumscribed = math.hypot(PLANNER_HALF_X, PLANNER_HALF_Y)
     inflation = p["inflation_layer"]
     assert circumscribed <= inflation["inflation_radius"] <= circumscribed + 0.01
     assert inflation["cost_scaling_factor"] >= 10.0
