@@ -336,14 +336,15 @@ collision_monitor:
     source_timeout: 1.0
     base_shift_correction: true
     stop_pub_timeout: 2.0
-    # StopBox: stop when 4+ scan points enter a box 5 cm beyond the footprint on every side.
-    # Enabled: the source is /scan_filtered (robot body removed by nodes/laser_filter); a 20 s stationary sample on the
-    # robot (2026-10-03) had 0 returns in the 5 cm band. To disable at runtime:
+    # StopBox: stop when 4+ scan points enter a box 2 cm beyond the footprint on every side (the outer dimensions already
+    # include the wheel margin). It must stay outside the laser_filter self box (footprint + 1 cm), whose returns are
+    # removed from /scan_filtered. A 20 s stationary sample on the robot (2026-10-03) had 0 returns within 5 cm of the
+    # footprint. To disable at runtime:
     # `ros2 param set /collision_monitor StopBox.enabled false`.
     polygons: ["StopBox"]
     StopBox:
       type: "polygon"
-      points: "[[0.285, 0.243], [0.285, -0.243], [-0.285, -0.243], [-0.285, 0.243]]"
+      points: "[[0.255, 0.213], [0.255, -0.213], [-0.255, -0.213], [-0.255, 0.213]]"
       action_type: "stop"
       min_points: 4
       visualize: false

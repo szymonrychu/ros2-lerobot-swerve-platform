@@ -738,3 +738,17 @@ def test_costmaps_add_no_margin_beyond_given_dimensions(costmap: str) -> None:
     inflation = p["inflation_layer"]
     assert circumscribed <= inflation["inflation_radius"] <= circumscribed + 0.01
     assert inflation["cost_scaling_factor"] >= 10.0
+
+
+def test_safety_boxes_hug_the_given_dimensions() -> None:
+    """Outer dimensions already include the wheel margin: the self-filter box is footprint + 1 cm and the
+    collision-monitor StopBox is footprint + 2 cm, strictly outside the filter box so it can still see obstacles."""
+    params = yaml.safe_load(LASER_FILTER_PARAMS.read_text())["scan_to_scan_filter_chain"]["ros__parameters"]
+    box = next(f for f in params.values() if f["type"] == "laser_filters/LaserScanBoxFilter")["params"]
+    assert (box["max_x"], box["max_y"]) == pytest.approx((0.245, 0.203))
+    assert (box["min_x"], box["min_y"]) == pytest.approx((-0.245, -0.203))
+    stop = ros_params(nav2(), "collision_monitor")["StopBox"]
+    xs = [abs(x) for x, _ in yaml.safe_load(stop["points"])]
+    ys = [abs(y) for _, y in yaml.safe_load(stop["points"])]
+    assert max(xs) == pytest.approx(0.255) and max(ys) == pytest.approx(0.213)
+    assert min(xs) > box["max_x"] and min(ys) > box["max_y"]

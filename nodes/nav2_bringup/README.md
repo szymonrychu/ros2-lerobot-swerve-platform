@@ -34,7 +34,7 @@ params (notably collision_monitor and docking_server) fails to configure and abo
 | behavior_server | spin / backup / drive_on_heading / assisted_teleop / wait; `local_frame: odom`, `global_frame: map`, rotation <= 0.5 rad/s. |
 | smoother_server | SimpleSmoother. |
 | velocity_smoother | open loop, `max_velocity [0.25, 0.25, 0.5]`, `min_velocity [-0.25, -0.25, -0.5]`, accel 1.0 m/s^2, 2.0 rad/s^2. |
-| collision_monitor | `base_link` / `odom`, `cmd_vel_smoothed -> cmd_vel`; one `stop` polygon `StopBox` 5 cm outside the footprint, source `/scan_filtered`. **`StopBox` ships with `enabled: false`** (self-hit risk, see [Collision monitor](#collision-monitor)), so velocities pass through unchanged until it is validated on the robot. |
+| collision_monitor | `base_link` / `odom`, `cmd_vel_smoothed -> cmd_vel`; one `stop` polygon `StopBox` 2 cm outside the footprint, source `/scan_filtered`. `StopBox` is enabled (validated on the robot, see [Collision monitor](#collision-monitor)). |
 | docking_server | One `SimpleChargingDock` plugin (a non-empty plugin list is mandatory) and no docks: it configures with an empty dock database and only accepts requests that carry an explicit dock pose. |
 | waypoint_follower | WaitAtWaypoint. |
 | route_server | `graph_filepath: ""`: configures with an empty graph ("No graph file provided to load yet"); a graph can be loaded later through its `set_route_graph` service. |
@@ -49,7 +49,7 @@ collision_monitor -> `/cmd_vel` (unstamped Twist) -> swerve_drive_controller.
 ## Collision monitor
 
 collision_monitor always runs and sits in the velocity chain (`cmd_vel_smoothed -> cmd_vel`). Its only polygon,
-`StopBox` (5 cm beyond the footprint, stop on 4+ points), is `enabled: true`: it reads `/scan_filtered`, where
+`StopBox` (2 cm beyond the footprint, stop on 4+ points), is `enabled: true`: it reads `/scan_filtered`, where
 `nodes/laser_filter` has removed the lidar returns on the robot body. A 20 s stationary sample on the robot
 (2026-10-03) found 0 returns in the 5 cm band. Without the filter the raw `/scan` had ~130 self-hits inside the
 footprint, which would have zeroed `cmd_vel` permanently. Disable at runtime with
