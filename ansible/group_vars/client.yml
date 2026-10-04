@@ -449,6 +449,10 @@ ros2_nodes:
       log_joint_updates: true
       enable_torque_on_start: true
       register_publish_interval_s: 10
+      # Pack voltage (3-cell) read from the servos, one servo per second, published as sensor_msgs/BatteryState.
+      battery_topic: /battery_state
+      battery_interval_s: 1.0
+      battery_cells: 3
       publish_effort_joints:
         - wrist_roll
         - gripper
@@ -629,6 +633,13 @@ ros2_nodes:
       bridge:
         host: localhost
         port: 9090
+      # Pack voltage chip; below cells x cutoff_cell_v (3 x 2.8 = 8.4 V) web UI commands are rejected.
+      battery:
+        topic: /battery_state
+        cells: 3
+        cutoff_cell_v: 2.8
+        resume_cell_v: 2.9
+        stale_s: 5.0
       tabs:
         - id: map
           type: map_nav

@@ -174,6 +174,8 @@ ros2_nodes:
       - UVC_TOPIC=/camera_0/image_raw
 ```
 
+Battery voltage wiring (client): `lerobot_follower` sets `battery_topic: /battery_state`, `battery_interval_s: 1.0`, `battery_cells: 3` and publishes the pack voltage read from the servos; the `web_ui` config has a `battery:` block (same topic and cells, `cutoff_cell_v: 2.8`, `resume_cell_v: 2.9`, `stale_s: 5.0`) that shows the voltage and rejects web UI commands below 3 x 2.8 = 8.4 V. The server's `lerobot_leader` sets `battery_interval_s: 0` (its bus is not the robot pack) and the server runs no web_ui, so it gets no `battery:` block. `tests/test_battery_config.py` pins this wiring.
+
 When you add, remove, or reconfigure ROS2 nodes, update these vars and re-run the deploy playbook.
 
 ### Joint command topic flow (client)

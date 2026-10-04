@@ -75,6 +75,8 @@ ros2_nodes:
       log_joint_updates: true
       enable_torque_on_start: false
       disable_torque_on_start: true
+      # The leader arm is not the robot pack: only the follower publishes /battery_state.
+      battery_interval_s: 0
       interpolation_enabled: false
       publish_only_on_change: true
       publish_change_epsilon: 0.01
