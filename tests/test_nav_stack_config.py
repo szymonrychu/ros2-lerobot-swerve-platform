@@ -827,7 +827,7 @@ def test_ekf_fuses_rf2o_and_rejects_outlying_wheel_odometry(source: str) -> None
     assert p["odom1_differential"] is False
     assert p["odom1_relative"] is False
     assert p["odom1_queue_size"] >= 2
-    assert p["odom0_twist_rejection_threshold"] == 1.5
+    assert p["odom0_twist_rejection_threshold"] == 3.0
     assert not any(k.startswith(("odom1_twist_rejection", "odom1_pose_rejection", "imu0_")) and "rejection" in k for k in p)
     assert fused(p["imu0_config"]) == {"vyaw"}
 
@@ -840,6 +840,8 @@ def test_rf2o_node_type_builds_a_pinned_source_workspace() -> None:
     assert "ros2 run rf2o_laser_odometry rf2o_laser_odometry_node" in cmd
     assert "{{ ros2_repo_dest }}/nodes/rf2o_laser_odometry/config/rf2o.yaml" in cmd
     assert "-r __node:=rf2o_laser_odometry" in cmd
+    # rf2o logs "Waiting for laser_scans...." at WARN on every idle loop: only errors are kept.
+    assert "--log-level rf2o_laser_odometry:=error" in cmd
     source = defaults["colcon_source"]
     assert source["repo"] == "https://github.com/MAPIRlab/rf2o_laser_odometry.git"
     assert re.fullmatch(r"[0-9a-f]{40}", source["commit"]), "pin a full commit SHA"
@@ -903,7 +905,8 @@ def test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit() 
     assert "--merge-install" in cmd and "--parallel-workers 1" in cmd
     assert "-DCMAKE_BUILD_TYPE=Release" in cmd
     assert build["environment"]["MAKEFLAGS"] == "-j2"
-    assert "node_colcon_source.commit" in build["ansible.builtin.command"]["creates"]
+    assert "_colcon_patch_key" in build["ansible.builtin.command"]["creates"]
+    assert "_colcon_patch_key" in cmd
     assert build["notify"] == "Restart ROS2 node"
     main = (ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "main.yml").read_text()
     assert "colcon_source_build.yml" in main
@@ -916,3 +919,43 @@ def test_launcher_sources_the_colcon_workspace_after_ros() -> None:
     )
     resolve = (PLAYBOOKS_DIR / "tasks" / "resolve_and_deploy.yml").read_text()
     assert "node_colcon_source:" in resolve and "colcon_source" in resolve
+
+
+RF2O_PATCH = REPO_ROOT / "nodes" / "rf2o_laser_odometry" / "patches" / "0001-retry-laser-tf.patch"
+
+
+def test_colcon_source_build_applies_patches_and_keys_the_stamp_on_their_content() -> None:
+    """Upstream rf2o ignores a missing base_link -> laser TF on its first scan (identity laser pose for the whole
+    session, sign-inverted vx/vy with the 180 deg lidar): the repo patch is applied after the checkout, and the
+    stamp includes the patch content hash so a patch change rebuilds. The stamp is dropped when install/setup.bash
+    is missing."""
+    path = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "colcon_source_build.yml"
+    tasks = yaml.safe_load(path.read_text())
+    names = [next(k for k in t if k not in ("name", "loop", "when", "become", "notify", "environment", "register", "loop_control", "vars")) for t in tasks]
+    clone = names.index("ansible.builtin.git")
+    patch = next(i for i, t in enumerate(tasks) if "ansible.builtin.patch" in t)
+    build = next(i for i, t in enumerate(tasks) if "colcon build" in str(t.get("ansible.builtin.command", "")))
+    assert clone < patch < build
+    assert tasks[clone]["ansible.builtin.git"]["force"] is True, "re-clone must discard the previous patch"
+    patch_args = tasks[patch]["ansible.builtin.patch"]
+    assert patch_args["remote_src"] is True and patch_args["strip"] == 1
+    assert patch_args["basedir"].endswith("/src/{{ node_colcon_source.package }}")
+    assert "item" in patch_args["src"]
+    assert tasks[patch]["loop"] == "{{ node_colcon_source.patches | default([]) }}"
+    text = path.read_text()
+    assert "ansible.builtin.stat" in text and "checksum" in text and "_colcon_patch_key" in text
+    assert "install/setup.bash" in text
+
+
+def test_rf2o_retry_laser_tf_patch_exists_and_is_wired() -> None:
+    source = client_vars()["ros2_node_type_defaults"]["rf2o_laser_odometry"]["colcon_source"]
+    assert any(p.endswith("/nodes/rf2o_laser_odometry/patches/0001-retry-laser-tf.patch") for p in source["patches"])
+    text = RF2O_PATCH.read_text()
+    assert "--- a/src/CLaserOdometry2DNode.cpp" in text and "+++ b/src/CLaserOdometry2DNode.cpp" in text
+    assert "+      if (!setLaserPoseFromTf())" in text
+    assert "RCLCPP_INFO_THROTTLE" in text and "+        return;" in text
+
+
+def test_rf2o_odom_relay_declares_numpy() -> None:
+    pyproject = (REPO_ROOT / "nodes" / "rf2o_odom_relay" / "pyproject.toml").read_text()
+    assert re.search(r"^numpy\s*=", pyproject, re.M)

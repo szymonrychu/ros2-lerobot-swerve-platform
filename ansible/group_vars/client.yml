@@ -159,6 +159,7 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: >-
       ros2 run rf2o_laser_odometry rf2o_laser_odometry_node --ros-args
+      --log-level rf2o_laser_odometry:=error
       --params-file {{ ros2_repo_dest }}/nodes/rf2o_laser_odometry/config/rf2o.yaml
       -r __node:=rf2o_laser_odometry
     node_src_dir: ""
@@ -169,6 +170,10 @@ ros2_node_type_defaults:
       commit: b38c68e46387b98845ecbfeb6660292f967a00d3
       package: rf2o_laser_odometry
       workspace: /opt/ros2-ws
+      # Repo patches applied after the checkout: retry the base_link -> laser TF lookup instead of keeping an identity
+      # laser pose for the whole session (the 180 deg yawed lidar would invert vx/vy).
+      patches:
+        - "{{ ros2_repo_dest }}/nodes/rf2o_laser_odometry/patches/0001-retry-laser-tf.patch"
     apt_packages:
       - git
       - build-essential
@@ -633,7 +638,7 @@ ros2_nodes:
     config: |
       input_topic: /odom_rf2o
       output_topic: /odom_rf2o_twist
-      # No quality figure from rf2o: conservative fixed variances (wheel odometry floor is 0.01 (m/s)^2).
+      # No quality figure from rf2o: conservative fixed variances (wheel odometry floor is 0.002 (m/s)^2).
       var_vx_vy: 0.02
       var_vyaw: 0.05
       max_dt_s: 1.0
@@ -659,7 +664,7 @@ ros2_nodes:
           odom0_differential: false
           odom0_relative: false
           # Mahalanobis gate on the wheel twist only; rationale in nodes/robot_localization_ekf/config/ekf.yaml.
-          odom0_twist_rejection_threshold: 1.5
+          odom0_twist_rejection_threshold: 3.0
           odom1: /odom_rf2o_twist
           odom1_config: [false, false, false, false, false, false, true, true, false, false, false, false, false, false, false]
           odom1_queue_size: 5

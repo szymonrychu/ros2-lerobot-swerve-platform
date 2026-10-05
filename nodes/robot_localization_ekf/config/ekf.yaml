@@ -19,12 +19,14 @@ ekf_filter_node:
     odom0_queue_size: 10
     odom0_differential: false
     odom0_relative: false
-    # Mahalanobis gate on the wheel twist (distance in sigmas, squared against the innovation). Wheels that spin or
-    # stall on a small object still report motion; once the lidar odometry below disagrees, the wheel twist is
-    # dropped. S is about R (>= 0.01 (m/s)^2 + slip residual^2) + P, so 1.5 rejects wheel-vs-state disagreements
-    # above roughly 0.18 m/s (threshold 3+ would never trigger below the 0.28 m/s top speed). Rejection is only on
-    # the wheels: the lidar odometry and the IMU are never gated.
-    odom0_twist_rejection_threshold: 1.5
+    # Mahalanobis gate on the wheel twist (robot_localization compares the squared distance with threshold^2). The
+    # gate covers the 3 fused dof (vx, vy, vyaw), so the squared distance of a healthy measurement is chi-square
+    # with 3 dof: threshold 3.0 means d^2 > 9, which rejects only ~3% of normal measurements (1.5 gave d^2 > 2.25,
+    # i.e. about half of them, and a wheel yaw rate disagreeing with the gyro also dropped wheel vx/vy). A full stall
+    # (wheels say ~0.25 m/s, lidar says 0) stays far beyond 3 sigma because swerve_drive_controller floors the wheel
+    # xy variance at only 0.002 (m/s)^2. Rejection is only on the wheels: the lidar odometry and the IMU are never
+    # gated. Tune from recorded /odom vs /odom_rf2o_twist data.
+    odom0_twist_rejection_threshold: 3.0
 
     # Lidar odometry (rf2o via rf2o_odom_relay): body-frame vx, vy only. rf2o itself publishes zero covariance, a
     # laser-frame x speed and vy = 0, so the relay re-derives the body twist from its pose and adds a real
