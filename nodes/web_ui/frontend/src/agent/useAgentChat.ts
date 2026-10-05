@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import log from '../logging'
 import { fetchAgentState } from './agentApi'
-import { applyFrame, applyStateSnapshot, emptyChat, parseAgentFrame } from './agentModel'
+import { applyFrame, applyStateSnapshot, emptyChat } from './agentModel'
+import { runAgentSocket } from './agentSocket'
+import type { SocketLike } from './agentSocket'
 import type { AgentInfo, ChatState } from './agentModel'
-
-export const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 15000]
 
 export interface UseAgentChat {
   chat: ChatState
@@ -15,7 +15,8 @@ export interface UseAgentChat {
 
 /**
  * Subscribe to /ws/agent: the history is replayed on every connect (deduplicated by seq), then events stream in.
- * The socket reconnects with backoff when it drops or the proxy reports the agent as disconnected.
+ * The socket reconnects with backoff (1 s up to 30 s) when it drops or the proxy reports the agent as disconnected;
+ * the backoff resets only after the first real frame arrives (see runAgentSocket).
  * @returns transcript state, last agent state snapshot, connection flag and a state refresh trigger
  */
 export function useAgentChat(): UseAgentChat {
@@ -34,43 +35,32 @@ export function useAgentChat(): UseAgentChat {
 
   useEffect(() => {
     unmounted.current = false
-    let ws: WebSocket | null = null
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let attempt = 0
-
-    const connect = () => {
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(`${proto}://${location.host}/ws/agent`)
-      ws.onopen = () => {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+    const stop = runAgentSocket({
+      makeSocket: () => new WebSocket(`${proto}://${location.host}/ws/agent`) as unknown as SocketLike,
+      schedule: (fn, ms) => setTimeout(fn, ms),
+      cancel: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+      onOpen: () => {
         log.info('[agent] WebSocket connected')
-        attempt = 0
         setConnected(true)
         refreshInfo()
-      }
-      ws.onmessage = (evt) => {
-        const parsed = parseAgentFrame(evt.data as string)
-        if (parsed?.kind === 'frame') setChat((prev) => applyFrame(prev, parsed.frame))
-        else if (parsed?.kind === 'proxy_error') {
+      },
+      onFrame: (parsed) => {
+        if (parsed.kind === 'frame') setChat((prev) => applyFrame(prev, parsed.frame))
+        else {
           log.warn('[agent] proxy error:', parsed.message)
           setConnected(false)
         }
-      }
-      ws.onclose = () => {
+      },
+      onClose: () => {
         if (unmounted.current) return
         setConnected(false)
-        const delay = RECONNECT_DELAYS_MS[Math.min(attempt, RECONNECT_DELAYS_MS.length - 1)]
-        attempt++
-        log.info('[agent] WebSocket closed, reconnecting in', delay, 'ms')
-        timer = setTimeout(connect, delay)
-      }
-      ws.onerror = () => ws?.close()
-    }
-
-    connect()
+        log.info('[agent] WebSocket closed, reconnecting with backoff')
+      },
+    })
     return () => {
       unmounted.current = true
-      clearTimeout(timer)
-      ws?.close()
+      stop()
     }
   }, [refreshInfo])
 
