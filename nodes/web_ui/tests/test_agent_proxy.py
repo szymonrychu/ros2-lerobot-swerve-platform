@@ -13,10 +13,11 @@ from typing import Any
 import httpx
 import pytest
 import uvicorn
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from ros2_common.battery import BatteryConfig, BatteryGuard
+from websockets.sync.client import connect as ws_connect
 
 from web_ui.config import DEFAULT_AGENT_URL, AppConfig, TabConfig
 from web_ui.server import build_app
@@ -226,6 +227,7 @@ class Upstream:
         self.frames: list[dict[str, Any]] = [{"type": "history", "events": [HISTORY_EVENT]}]
         self.keep_open = False
         self.connections = 0
+        self.closed = threading.Event()
         app = FastAPI()
 
         @app.websocket("/ws/events")
@@ -234,9 +236,14 @@ class Upstream:
             self.connections += 1
             for frame in self.frames:
                 await ws.send_text(json.dumps(frame))
-            if self.keep_open:
-                await ws.receive_text()
-            await ws.close()
+            try:
+                if self.keep_open:
+                    await ws.receive_text()
+                await ws.close()
+            except WebSocketDisconnect:
+                pass
+            finally:
+                self.closed.set()
 
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
@@ -297,3 +304,38 @@ def test_ws_without_agent_tab_sends_error(tmp_path: Path, urdf_dir: Path) -> Non
     client = TestClient(build_app(config=AppConfig(), urdf_dir=urdf_dir, static_dir=tmp_path / "none"))
     with client.websocket_connect("/ws/agent") as ws:
         assert ws.receive_json()["type"] == "error"
+
+
+def test_ws_browser_disconnect_closes_upstream_socket(tmp_path: Path, urdf_dir: Path, upstream: Upstream) -> None:
+    """Real uvicorn for the proxy too: a TestClient cancels the handler on exit and would hide the leak."""
+    upstream.keep_open = True
+    config = AppConfig(
+        tabs=[TabConfig(id="agent", type="agent_chat", label="Agent", agent_url=f"http://127.0.0.1:{upstream.port}")]
+    )
+    app = build_app(config=config, urdf_dir=urdf_dir, static_dir=tmp_path / "none")
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + SERVER_STARTUP_TIMEOUT_S
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.02)
+        with ws_connect(f"ws://127.0.0.1:{port}/ws/agent") as browser:
+            assert json.loads(browser.recv())["type"] == "history"
+            assert not upstream.closed.is_set()
+        assert upstream.closed.wait(timeout=SERVER_STARTUP_TIMEOUT_S), "upstream socket leaked after the browser left"
+    finally:
+        server.should_exit = True
+        thread.join(timeout=SERVER_STARTUP_TIMEOUT_S)
+
+
+def test_ws_upstream_drop_closes_browser_socket(tmp_path: Path, urdf_dir: Path, upstream: Upstream) -> None:
+    client = ws_client(tmp_path, urdf_dir, f"http://127.0.0.1:{upstream.port}")
+    with client.websocket_connect("/ws/agent") as ws:
+        assert ws.receive_json()["type"] == "history"
+        assert ws.receive_json() == {"type": "error", "message": "agent disconnected"}
+        with pytest.raises(WebSocketDisconnect):
+            ws.receive_json()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import Callable
 
 import httpx
@@ -10,7 +12,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 from starlette.responses import Response
-from websockets.asyncio.client import connect
+from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import WebSocketException
 
 from .config import AppConfig
@@ -62,6 +64,72 @@ def agent_ws_url(agent_url: str) -> str:
     base = agent_url.rstrip("/")
     scheme_swapped = "ws" + base[len("http") :] if base.startswith("http") else base
     return scheme_swapped + AGENT_WS_PATH
+
+
+async def forward_upstream(ws: WebSocket, upstream: ClientConnection) -> None:
+    """Copy every upstream frame to the browser until the upstream closes or the browser is gone.
+
+    Args:
+        ws (WebSocket): Browser socket.
+        upstream (ClientConnection): Connection to claude_agent.
+    """
+    async for frame in upstream:
+        await ws.send_text(frame if isinstance(frame, str) else frame.decode())
+
+
+async def wait_for_browser_disconnect(ws: WebSocket) -> None:
+    """Read (and drop) browser frames until the browser disconnects.
+
+    Args:
+        ws (WebSocket): Browser socket.
+    """
+    while (await ws.receive())["type"] != "websocket.disconnect":
+        pass
+
+
+async def pump_until_either_ends(ws: WebSocket, upstream: ClientConnection) -> bool:
+    """Bridge both directions concurrently and cancel the other one when either ends.
+
+    Args:
+        ws (WebSocket): Browser socket.
+        upstream (ClientConnection): Connection to claude_agent.
+
+    Returns:
+        bool: True when the browser side ended first (nothing more should be sent to it).
+    """
+    forward = asyncio.create_task(forward_upstream(ws, upstream))
+    watch = asyncio.create_task(wait_for_browser_disconnect(ws))
+    await asyncio.wait({forward, watch}, return_when=asyncio.FIRST_COMPLETED)
+    browser_left = watch.done()
+    for task in (forward, watch):
+        task.cancel()
+    results = await asyncio.gather(forward, watch, return_exceptions=True)
+    browser_errors = (WebSocketDisconnect, RuntimeError)
+    for result in results:
+        if isinstance(result, Exception) and not isinstance(result, browser_errors):
+            raise result
+    return browser_left or any(isinstance(result, browser_errors) for result in results)
+
+
+async def send_quietly(ws: WebSocket, payload: dict[str, str]) -> None:
+    """Send JSON to the browser, ignoring a socket that is already closed.
+
+    Args:
+        ws (WebSocket): Browser socket.
+        payload (dict[str, str]): JSON body.
+    """
+    with contextlib.suppress(WebSocketDisconnect, RuntimeError):
+        await ws.send_json(payload)
+
+
+async def close_quietly(ws: WebSocket) -> None:
+    """Close the browser socket, ignoring one that is already closed.
+
+    Args:
+        ws (WebSocket): Browser socket.
+    """
+    with contextlib.suppress(WebSocketDisconnect, RuntimeError):
+        await ws.close()
 
 
 def register_agent_routes(
@@ -116,19 +184,18 @@ def register_agent_routes(
     async def agent_events(ws: WebSocket) -> None:
         await ws.accept()
         tab = config.agent_chat_tab()
-        try:
-            if tab is None:
-                await ws.send_json({"type": "error", "message": NO_AGENT_TAB_MESSAGE})
-                return
-            try:
-                async with connect(
-                    agent_ws_url(tab.agent_url), open_timeout=AGENT_WS_OPEN_TIMEOUT_S, max_size=AGENT_WS_MAX_FRAME_BYTES
-                ) as upstream:
-                    async for frame in upstream:
-                        await ws.send_text(frame if isinstance(frame, str) else frame.decode())
-            except (OSError, WebSocketException, TimeoutError) as exc:
-                log.warning("agent_ws_upstream_failed", error=repr(exc))
-            await ws.send_json({"type": "error", "message": AGENT_DISCONNECTED_MESSAGE})
-        except WebSocketDisconnect:
+        if tab is None:
+            await send_quietly(ws, {"type": "error", "message": NO_AGENT_TAB_MESSAGE})
+            await close_quietly(ws)
             return
-        await ws.close()
+        browser_left = False
+        try:
+            async with connect(
+                agent_ws_url(tab.agent_url), open_timeout=AGENT_WS_OPEN_TIMEOUT_S, max_size=AGENT_WS_MAX_FRAME_BYTES
+            ) as upstream:
+                browser_left = await pump_until_either_ends(ws, upstream)
+        except (OSError, WebSocketException, TimeoutError) as exc:
+            log.warning("agent_ws_upstream_failed", error=repr(exc))
+        if not browser_left:
+            await send_quietly(ws, {"type": "error", "message": AGENT_DISCONNECTED_MESSAGE})
+            await close_quietly(ws)
