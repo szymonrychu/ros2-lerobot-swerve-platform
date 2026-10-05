@@ -16,7 +16,12 @@ Client only. Not in the Jazzy apt distribution, so Ansible builds it from source
 - Build: `ansible/roles/ros2_node_deploy/tasks/colcon_source_build.yml` clones into `/opt/ros2-ws/src/rf2o_laser_odometry`
   and runs `colcon build --merge-install --parallel-workers 1 --cmake-args -DCMAKE_BUILD_TYPE=Release` with
   `MAKEFLAGS=-j2` under `systemd-run --scope -p CPUQuota=100% -p IOWeight=10 nice -n 19 ionice -c 3` (the Pi overheats
-  otherwise). Only rebuilt when the pinned commit changes (stamp file). See `ansible/README.md`.
+  otherwise). Only rebuilt when the pinned commit or a patch changes, or when `install/setup.bash` is missing (stamp file). See
+  `ansible/README.md`.
+- Patch: `patches/0001-retry-laser-tf.patch` is applied after the checkout (`colcon_source.patches`). Upstream calls
+  `setLaserPoseFromTf()` once on the first scan and ignores a failed lookup, keeping an identity laser pose for the
+  whole session; with the lidar yawed 180 deg that sign-inverts vx/vy. The patch skips scans (throttled info log)
+  until the `base_link -> laser_frame` TF is available and retries on each scan.
 
 ## Parameters (`config/rf2o.yaml`)
 
@@ -32,7 +37,8 @@ Verified against upstream `CLaserOdometry2DNode.cpp`.
 | `freq` | `10.0` | Processing loop; the RPLidar A1 gives about 7-10 scans/s and rf2o only processes new scans. |
 
 The launch command is `ros2 run rf2o_laser_odometry rf2o_laser_odometry_node --ros-args --params-file config/rf2o.yaml
--r __node:=rf2o_laser_odometry` (no launch file needed).
+-r __node:=rf2o_laser_odometry --log-level rf2o_laser_odometry:=error` (no launch file needed). The log level
+silences upstream's `Waiting for laser_scans....` WARN on every idle loop; errors (e.g. TF lookup failures) stay visible.
 
 ## What rf2o publishes (and why the EKF does not read it directly)
 

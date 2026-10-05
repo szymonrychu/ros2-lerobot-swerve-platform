@@ -1,0 +1,20 @@
+diff --git a/src/CLaserOdometry2DNode.cpp b/src/CLaserOdometry2DNode.cpp
+index 2206777..77f2879 100644
+--- a/src/CLaserOdometry2DNode.cpp
++++ b/src/CLaserOdometry2DNode.cpp
+@@ -97,8 +97,13 @@ void CLaserOdometry2DNode::LaserCallBack(const sensor_msgs::msg::LaserScan::Shar
+     }
+     else
+     {
+-      // Initialize module on first scan (from laser params)
+-      setLaserPoseFromTf();
++      // Initialize module on first scan (from laser params). Without the base_link -> laser TF the laser pose would
++      // stay identity for the whole session: skip the scan and retry on the next one.
++      if (!setLaserPoseFromTf())
++      {
++        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "Waiting for the laser TF, skipping scan");
++        return;
++      }
+       rf2o_ref.init(last_scan, initial_robot_pose.pose.pose);
+       rf2o_ref.first_laser_scan = false;
+     }
