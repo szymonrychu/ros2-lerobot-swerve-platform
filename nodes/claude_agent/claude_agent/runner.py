@@ -24,7 +24,7 @@ from .events import (
 )
 from .prompt import build_system_prompt
 from .robot_stop import STOP_TOOL_NAME, RobotStopResult, call_robot_stop
-from .tools import BUILTIN_TOOLS, KIND_UNCAPPED, MCP_SERVER_NAME, ROBOT_PREFIX, EffectorGate
+from .tools import BUILTIN_TOOLS, KIND_UNCAPPED, MCP_SERVER_NAME, NOTES_TOOLS, ROBOT_PREFIX, EffectorGate
 
 REMOVED_ENV_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 # Sources of the stop call shown in the chat (the `source` field of its tool_call/tool_result events).
@@ -70,25 +70,30 @@ def build_child_env(base_env: Mapping[str, str]) -> dict[str, str]:
 def build_options(
     config: ClaudeAgentConfig, token: str, gate: EffectorGate, env: dict[str, str], system_prompt: str
 ) -> ClaudeAgentOptions:
-    """Build the SDK options: only the robot MCP tools, every permission decided by the gate.
+    """Build the SDK options: the robot MCP tools plus the five notes file tools, permissions decided by the gate.
 
     Args:
-        config (ClaudeAgentConfig): Model, turn limit, MCP URL, work dir.
+        config (ClaudeAgentConfig): Model, turn limit, MCP URL, workdir.
         token (str): MCP bearer token (never logged).
         gate (EffectorGate): Permission callback.
         env (dict[str, str]): Child environment from build_child_env.
         system_prompt (str): System prompt text.
 
     Returns:
-        ClaudeAgentOptions: Options with built-in tools disabled and no allow rules, so every call reaches the gate,
-        and strict_mcp_config so only the robot MCP server above loads.
+        ClaudeAgentOptions: Options whose built-in tools are exactly Read/Write/Edit/Glob/Grep (the gate confines them to
+        the workdir, which is the CLI's cwd) with no allow rules, so calls reach the gate, and strict_mcp_config so
+        only the robot MCP server above loads.
     """
-    work_dir = Path(config.work_dir)
+    work_dir = Path(config.workdir)
+    try:
+        work_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:  # Ansible creates it on the robot; a dev machine without /var/lib access runs without a cwd
+        pass
     return ClaudeAgentOptions(
         model=config.model,
         max_turns=config.max_turns,
         system_prompt=system_prompt,
-        tools=[],
+        tools=list(NOTES_TOOLS),
         allowed_tools=[],
         disallowed_tools=list(BUILTIN_TOOLS),
         permission_mode="default",
@@ -422,7 +427,7 @@ class AgentRunner:
         return True
 
     async def reset(self) -> bool:
-        """Start a fresh session: stop the robot and disconnect the old client.
+        """Start a fresh session: stop the robot, disconnect the old client and clear the session log (notes stay).
 
         Returns:
             bool: False while an instruction is running or another reset is in progress.
@@ -434,6 +439,7 @@ class AgentRunner:
             await self.stop_robot(STOP_SOURCE_RESET)
             await self.drop_client()
             self.gate.reset()
+            self.events.reset()
             self.session_started_at = time.time()
             self.emit_state()
         finally:

@@ -20,6 +20,18 @@ DEFAULT_EFFECTOR_TOOLS = [
 ]
 DEFAULT_UNCAPPED_TOOLS = ["stop", "acquire_control", "release_control"]
 DEFAULT_SENSOR_TOOLS = ["get_robot_state", "get_camera_image", "get_map_summary", "get_arm_state"]
+# Approximate maximum horizontal reach of the SO-101 from the shoulder_lift axis, in cm: the straight-line sum of the link
+# offsets in nodes/web_ui/urdf/so101_arm.urdf (shoulder_lift -> elbow_flex 11.6 + elbow_flex -> wrist_flex 13.5 +
+# wrist_flex -> wrist_roll 6.4 + wrist_roll -> gripper tip 9.8 = 41.3 cm), an upper bound with the arm fully stretched.
+ARM_REACH_CM = 41.0
+DEFAULT_ARM_BASE_HEIGHT_M = 0.165
+DEFAULT_CAMERA_NOTE = (
+    "The gripper camera is mounted at an angle on the arm and looks slightly from left to right; "
+    "its images are delivered upright (rotated 180 degrees in software)."
+)
+DEFAULT_STATE_DIR = "/var/lib/claude_agent"
+DEFAULT_WORKDIR = "/var/lib/claude_agent/workspace"
+DEFAULT_SESSION_LOG_MAX_BYTES = 50 * 1024 * 1024
 
 
 class MissingTokenError(RuntimeError):
@@ -40,10 +52,16 @@ class ClaudeAgentConfig(BaseModel):
         mcp_token_file: File holding the MCP bearer token (``MCP_SERVER_TOKEN=<token>`` or the bare token); read at each session start.
         http_host: Bind address of the API (loopback only; the web UI proxies it).
         http_port: Port of the HTTP/WebSocket API.
-        history_size: Number of events kept in the ring buffer.
+        history_size: Number of most recent events kept in RAM (older ones are read from the session log on demand).
         image_thumbnail_max_px: Longest edge of image thumbnails in tool_result events.
         system_prompt_extra: Optional text appended to the system prompt.
-        work_dir: Working directory of the Claude CLI child process.
+        workdir: The agent's persistent workspace (notes, NOTES.md): cwd of the Claude CLI and the only place its file
+            tools may touch. Survives deploys and session resets.
+        state_dir: Directory of the node's state; the session log is ``<state_dir>/session/events.jsonl``.
+        session_log_max_bytes: Size at which the session log is rotated (the oldest half of the events is dropped).
+        arm_reach_cm: Approximate maximum horizontal reach of the arm from the shoulder_lift axis, stated in the prompt.
+        arm_base_height_m: Height of the arm base above the floor in metres, stated in the prompt.
+        camera_note: Description of the gripper camera mounting and image orientation, stated in the prompt.
         instruction_timeout_s: Watchdog per instruction; on expiry the model is interrupted, the robot stopped and the turn ends as "timeout".
         connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
         stop_timeout_s: Bound for the robot ``stop`` call and for the model interrupt, each.
@@ -64,7 +82,12 @@ class ClaudeAgentConfig(BaseModel):
     history_size: int = Field(default=500, ge=1)
     image_thumbnail_max_px: int = Field(default=480, ge=16)
     system_prompt_extra: str = ""
-    work_dir: str = "/var/lib/claude_agent"
+    workdir: str = DEFAULT_WORKDIR
+    state_dir: str = DEFAULT_STATE_DIR
+    session_log_max_bytes: int = Field(default=DEFAULT_SESSION_LOG_MAX_BYTES, ge=1024)
+    arm_reach_cm: float = Field(default=ARM_REACH_CM, gt=0)
+    arm_base_height_m: float = Field(default=DEFAULT_ARM_BASE_HEIGHT_M, ge=0)
+    camera_note: str = DEFAULT_CAMERA_NOTE
     instruction_timeout_s: float = Field(default=900.0, gt=0)
     connect_timeout_s: float = Field(default=240.0, gt=0)
     stop_timeout_s: float = Field(default=5.0, gt=0)

@@ -40,6 +40,16 @@
     group: claude_agent
     mode: "0750"
 
+# The workdir is the agent's persistent volume: its notes (NOTES.md) live here. It is created if missing and NEVER removed
+# or emptied by a deploy; the node's session log (/var/lib/claude_agent/session) is kept the same way.
+- name: Ensure the claude_agent persistent workdir exists (notes volume, owned by the service user, never deleted)
+  ansible.builtin.file:
+    path: /var/lib/claude_agent/workspace
+    state: directory
+    owner: claude_agent
+    group: claude_agent
+    mode: "0750"
+
 - name: Ensure claude_agent config directory exists
   ansible.builtin.file:
     path: /etc/ros2/claude_agent

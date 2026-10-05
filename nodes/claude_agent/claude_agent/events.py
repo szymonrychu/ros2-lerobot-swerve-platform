@@ -1,11 +1,14 @@
-"""Event ring buffer and normalization of Agent SDK messages into the web UI event contract."""
+"""Persisted event log and normalization of Agent SDK messages into the web UI event contract."""
 
 import asyncio
 import base64
 import binascii
 import io
+import json
+import logging
 import time
 from collections import deque
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import (
@@ -19,7 +22,7 @@ from claude_agent_sdk import (
 )
 from PIL import Image, UnidentifiedImageError
 
-from .config import ClaudeAgentConfig
+from .config import DEFAULT_SESSION_LOG_MAX_BYTES, ClaudeAgentConfig
 from .tools import KIND_UNCAPPED, classify_tool, short_name
 
 TEXT_TRUNCATE_CHARS = 4000
@@ -43,20 +46,104 @@ STATUS_TIMEOUT = "timeout"
 
 
 class EventLog:
-    """Ring buffer of numbered events with live subscribers (single asyncio loop)."""
+    """Numbered events with live subscribers, persisted as JSON lines (single asyncio loop).
 
-    def __init__(self, size: int) -> None:
-        """Create the log.
+    Every event is appended to ``path`` (one JSON object per line). Only the last ``size`` events stay in RAM; older
+    ones are read back from the file by page(). When the file exceeds ``max_bytes`` its oldest half is dropped.
+
+    Attributes:
+        path (Path | None): The JSONL file, or None for a memory-only log.
+        seq (int): Sequence number of the newest event (0 when empty).
+        first_seq (int): Sequence number of the oldest retained event (0 when empty).
+    """
+
+    def __init__(self, size: int, path: Path | None = None, max_bytes: int = DEFAULT_SESSION_LOG_MAX_BYTES) -> None:
+        """Create the log and load the existing file, if any (seq continues after the last stored event).
 
         Args:
-            size (int): Maximum number of events kept.
+            size (int): Maximum number of events kept in RAM.
+            path (Path | None): JSONL file, or None to keep events in memory only.
+            max_bytes (int): File size that triggers the rotation.
         """
+        self.size = size
+        self.path = path
+        self.max_bytes = max_bytes
         self.events: deque[dict[str, Any]] = deque(maxlen=size)
         self.seq = 0
+        self.first_seq = 0
+        self.file_bytes = 0
         self.subscribers: list[asyncio.Queue[dict[str, Any]]] = []
+        self.write_failed = False
+        if path is not None:
+            self.load()
+
+    def read_file(self) -> list[dict[str, Any]]:
+        """Read every stored event (corrupt lines are skipped).
+
+        Returns:
+            list[dict[str, Any]]: Events in file order; empty when there is no readable file.
+        """
+        if self.path is None:
+            return []
+        try:
+            lines = self.path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return []
+        out: list[dict[str, Any]] = []
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(event, dict) and isinstance(event.get("seq"), int):
+                out.append(event)
+        return out
+
+    def load(self) -> None:
+        """Load the stored events: the last ``size`` go to RAM and the sequence continues."""
+        stored = self.read_file()
+        self.events.extend(stored[-self.size :])
+        if stored:
+            self.first_seq, self.seq = stored[0]["seq"], stored[-1]["seq"]
+        try:
+            self.file_bytes = self.path.stat().st_size  # type: ignore[union-attr]
+        except OSError:
+            self.file_bytes = 0
+
+    def persist(self, event: dict[str, Any]) -> None:
+        """Append an event to the file and rotate when it grew past the limit; a failing disk never breaks the agent.
+
+        Args:
+            event (dict[str, Any]): The event to store.
+        """
+        if self.path is None:
+            return
+        line = json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n"
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(line)
+            self.file_bytes += len(line.encode("utf-8"))
+            if self.file_bytes > self.max_bytes:
+                self.rotate()
+        except OSError as exc:
+            if not self.write_failed:
+                logging.getLogger("claude_agent").warning(f"session log not writable ({self.path}): {exc}")
+            self.write_failed = True
+
+    def rotate(self) -> None:
+        """Drop the oldest half of the stored events (atomic rewrite)."""
+        stored = self.read_file()
+        kept = stored[len(stored) // 2 :]
+        tmp = self.path.with_suffix(".tmp")  # type: ignore[union-attr]
+        data = "".join(json.dumps(e, ensure_ascii=False, separators=(",", ":")) + "\n" for e in kept)
+        tmp.write_text(data, encoding="utf-8")
+        tmp.replace(self.path)  # type: ignore[arg-type]
+        self.file_bytes = len(data.encode("utf-8"))
+        self.first_seq = kept[0]["seq"] if kept else 0
 
     def append(self, event_type: str, **fields: Any) -> dict[str, Any]:
-        """Add an event and fan it out to subscribers.
+        """Add an event, store it and fan it out to subscribers.
 
         Args:
             event_type (str): Event type, e.g. "assistant_text".
@@ -67,18 +154,48 @@ class EventLog:
         """
         self.seq += 1
         event = {"seq": self.seq, "ts": time.time(), "type": event_type, **fields}
+        if not self.first_seq:
+            self.first_seq = self.seq
         self.events.append(event)
+        if self.path is None and len(self.events) == self.size:
+            self.first_seq = self.events[0]["seq"]
+        self.persist(event)
         for queue in self.subscribers:
             queue.put_nowait(event)
         return event
 
     def history(self) -> list[dict[str, Any]]:
-        """Return the buffered events, oldest first.
+        """Return the events held in RAM, oldest first.
 
         Returns:
-            list[dict[str, Any]]: Copy of the buffer.
+            list[dict[str, Any]]: Copy of the buffer (the last ``size`` events).
         """
         return list(self.events)
+
+    def page(self, before_seq: int | None, limit: int) -> tuple[list[dict[str, Any]], bool]:
+        """Return the newest ``limit`` events older than ``before_seq`` (the newest overall without it).
+
+        Args:
+            before_seq (int | None): Only events with a smaller seq; None for no bound.
+            limit (int): Maximum number of events.
+
+        Returns:
+            tuple[list[dict[str, Any]], bool]: (events with ascending seq, whether older events exist).
+        """
+        ram = [e for e in self.events if before_seq is None or e["seq"] < before_seq]
+        if len(ram) >= limit or self.path is None or (self.events and self.events[0]["seq"] <= self.first_seq):
+            chosen = ram[-limit:]
+        else:
+            stored = [e for e in self.read_file() if before_seq is None or e["seq"] < before_seq]
+            chosen = stored[-limit:]
+        return chosen, bool(chosen) and chosen[0]["seq"] > self.first_seq
+
+    def reset(self) -> None:
+        """Forget everything: delete the file, empty the buffer and restart the sequence at 0 (subscribers stay)."""
+        self.events.clear()
+        self.seq = self.first_seq = self.file_bytes = 0
+        if self.path is not None:
+            self.path.unlink(missing_ok=True)
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
         """Register a live subscriber.

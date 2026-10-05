@@ -374,7 +374,7 @@ reads the token through `EnvironmentFile=`; the token never enters git. Fetch it
 
 `playbooks/tasks/claude_agent_setup.yml` runs before `claude_agent` is deployed (in `deploy_nodes_client.yml` and in
 `nodes/client/claude_agent.yml`, after `mcp_server_setup.yml`). It creates the system user `claude_agent` (no login
-shell, home `/var/lib/claude_agent`), the directories `/etc/ros2/claude_agent` and `/var/lib/claude_agent`, and writes
+shell, home `/var/lib/claude_agent`), the directories `/etc/ros2/claude_agent`, `/var/lib/claude_agent` (HOME, session log) and `/var/lib/claude_agent/workspace` (the agent's persistent volume: its `NOTES.md` and notes; `0750`, owner `claude_agent`, created if missing and never deleted or emptied by a deploy), and writes
 `/etc/ros2/claude_agent/env` containing `CLAUDE_CODE_OAUTH_TOKEN=<token>` (mode `0600`, owner `claude_agent`,
 `no_log: true`). The token is read on the controller with `lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN')`, so deploy with:
 

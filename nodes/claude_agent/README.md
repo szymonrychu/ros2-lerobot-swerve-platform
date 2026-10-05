@@ -18,14 +18,42 @@ web_ui (later: proxy)  --HTTP/WS-->  claude_agent (127.0.0.1:18300)
   unauthenticated by design; the web UI is the only client.
 - `runner.py`: one `ClaudeSDKClient` session (fresh on service start, created at the first instruction; `POST /api/reset`
   starts a new one), one instruction at a time. The MCP token file is read when a session is created and never logged.
-- `tools.py`: `EffectorGate`, the `can_use_tool` callback. Built-in tools are disabled (`tools=[]`, plus a deny list for
-  Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Task/Agent, TodoWrite, NotebookEdit, AskUserQuestion, plan
-  mode, ...) and no allow rules exist, so every tool call reaches the gate: `mcp__robot__*` is allowed, everything else
-  denied.
+- `tools.py`: `EffectorGate`, the `can_use_tool` callback. The only built-in tools are the five notes file tools
+  (`tools=[Read, Write, Edit, Glob, Grep]`, see "Workdir and notes"); everything else is disabled (a deny list for Bash,
+  WebFetch, WebSearch, Task/Agent, TodoWrite, NotebookEdit, AskUserQuestion, plan mode, ...) and no allow rules exist, so
+  calls reach the gate: `mcp__robot__*` and the sandboxed file tools are allowed, everything else denied.
 - `robot_stop.py`: calls the robot MCP `stop` tool directly with the official `mcp` client (Streamable HTTP, bearer token
   from the token file; `mcp` is pinned in `pyproject.toml`). It never raises: failures come back as an error result.
-- `events.py`: ring buffer of events plus normalization of SDK messages (thumbnails with Pillow, text truncation).
-- `prompt.py`: robot persona and safety rules, built from the config values.
+- `events.py`: persisted event log (see "Session log and paged history") plus normalization of SDK messages (thumbnails
+  with Pillow, text truncation).
+- `prompt.py`: robot persona, working method, notes instructions, hardware facts and safety rules, built from the config values.
+
+## Workdir and notes
+
+`workdir` (default `/var/lib/claude_agent/workspace`) is the agent's persistent volume. Ansible
+(`playbooks/tasks/claude_agent_setup.yml`) creates it owned by `claude_agent` (`0750`) and never deletes or empties it, so
+the notes survive deploys, restarts and `POST /api/reset`. It is the CLI's cwd; `HOME` (`/var/lib/claude_agent`, the CLI's
+credentials and caches) is a separate, parent directory that the agent cannot reach. The system prompt tells the agent to
+keep `NOTES.md` there (read at the start of each instruction, updated before finishing, never with secrets).
+
+File tools: the built-in `Read`, `Write`, `Edit`, `Glob` and `Grep` are enabled and sandboxed by the gate. `can_use_tool`
+checks `file_path` (Read/Write/Edit) or `path` (Glob/Grep; absent means the workdir), resolves relative paths against the
+workdir and symlinks with `os.path.realpath`, and denies anything outside with a `tool_denied` event (absolute paths,
+`../`, `~`, symlink escapes; Glob `pattern` and Grep `glob` must be relative without `..`). These tools are never counted
+against the effector cap. (The CLI may auto-allow in-cwd reads without asking the gate, which is within the workdir
+anyway.) Their `tool_call` events have `kind: "notes"` and the tool name as `name` (`Read`, `Write`, ...); the web UI shows
+them like other tool calls.
+
+## Session log and paged history
+
+Every event is appended as one JSON line to `<state_dir>/session/events.jsonl` (`state_dir` default `/var/lib/claude_agent`).
+On service start the log is loaded and `seq` continues, so a restart keeps the transcript; the Claude conversation itself
+starts fresh (the model does not remember earlier instructions, only what it wrote to its notes). Only the last
+`history_size` events are held in RAM; older ones are read from the file on demand. Image payloads in the log are the same
+thumbnails as in the events (no full-size images). When the file exceeds `session_log_max_bytes` (50 MB) the oldest half of
+the events is dropped. `POST /api/reset` deletes the file and the buffer entirely and restarts `seq` at 0 (the first
+event after a reset is a `state` with `seq` 1, so clients should clear their transcript when `seq` goes backwards); the
+workdir is not touched.
 
 ## Caps
 
@@ -87,10 +115,15 @@ unknown keys are rejected.
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |
 | `mcp_token_file` | `/etc/ros2/mcp_server/token` | `MCP_SERVER_TOKEN=<token>` (or the bare token), read per session |
 | `http_host` / `http_port` | `127.0.0.1` / `18300` | API bind |
-| `history_size` | `500` | Event ring buffer length |
+| `history_size` | `500` | Events kept in RAM (older ones are read from the session log) |
 | `image_thumbnail_max_px` | `480` | Longest edge of image thumbnails |
 | `system_prompt_extra` | empty | Appended to the system prompt |
-| `work_dir` | `/var/lib/claude_agent` | Working directory of the CLI (used when it exists) |
+| `workdir` | `/var/lib/claude_agent/workspace` | Persistent workspace: CLI cwd, notes, only place the file tools may touch |
+| `state_dir` | `/var/lib/claude_agent` | State directory; the session log is `<state_dir>/session/events.jsonl` |
+| `session_log_max_bytes` | `52428800` | Log size that triggers dropping the oldest half |
+| `arm_reach_cm` | `41` | Approximate max horizontal reach from the shoulder_lift axis, stated in the prompt. Computed from `nodes/web_ui/urdf/so101_arm.urdf`: 11.6 + 13.5 + 6.4 + 9.8 cm link offsets, an upper bound |
+| `arm_base_height_m` | `0.165` | Arm base height above the floor (stated as 16.5 cm) |
+| `camera_note` | see `config.py` | Camera mounting (angled, looks slightly from left to right) and upright images |
 | `instruction_timeout_s` | `900` | Watchdog per instruction |
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |
 | `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |
@@ -102,11 +135,11 @@ The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this
 | Route | Result |
 |---|---|
 | `GET /api/state` | `{busy, model, max_turns, effector_call_cap, effector_calls_used, session_started_at}` |
-| `GET /api/history` | `{events: [...]}` (ring buffer, oldest first) |
+| `GET /api/history?before_seq=<int>&limit=<int>` | `{events: [...], has_more}`: the newest `limit` events (default 100, max 500) with `seq < before_seq` (the newest overall without it), ascending `seq`; `has_more` is true when older events exist |
 | `POST /api/message` `{text}` | `202 {ok: true}`; `409 {ok: false, message: "busy"}`; `400` on empty or invalid text |
 | `POST /api/stop` | `{ok, message}`; stops the robot (MCP `stop`) and interrupts the current instruction (`client.interrupt()`) |
-| `POST /api/reset` | `{ok: true}` new session; `409` while busy or resetting; also stops the robot |
-| `WS /ws/events` | on connect `{type: "history", events: [...]}`, then each event as it happens |
+| `POST /api/reset` | `{ok: true}` new session; `409` while busy or resetting; stops the robot and deletes the session log (seq restarts at 0); notes in the workdir are kept |
+| `WS /ws/events` | on connect `{type: "history", events: [last 100], has_more}`, then each event as it happens |
 
 Every event is `{seq: int, ts: float, type, ...}`:
 
@@ -114,7 +147,7 @@ Every event is `{seq: int, ts: float, type, ...}`:
 |---|---|
 | `user_message` | `text` |
 | `assistant_text` | `text` |
-| `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped`), `input`; `source` only on the node's own `stop` call (see above) |
+| `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped` / `notes`), `input`; `source` only on the node's own `stop` call (see above) |
 | `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated`; `source` only on the node's own `stop` call |
 | `tool_denied` | `id` (may be null), `name`, `reason` |
 | `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` |
@@ -125,6 +158,8 @@ Text in tool results is cut at 4000 characters (`truncated: true`); images are d
 and re-encoded as JPEG.
 
 ## Authentication and deployment
+
+System prompt summary: persona and tone; the tool lists and caps; the working method (top-level view first, then gentle exploration with small moves, then the task); notes in `NOTES.md`; hardware facts (SO-101, small reach from `arm_reach_cm`, base `arm_base_height_m` above the floor, angled gripper camera, upright images); the safety rules.
 
 The agent authenticates with a Claude subscription OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`),
 read by the service from the systemd `EnvironmentFile=/etc/ros2/claude_agent/env`. `ANTHROPIC_API_KEY` and
@@ -158,5 +193,5 @@ The MCP bearer token is passed to the Claude CLI child in its argv (`--mcp-confi
 from `/proc/<pid>/cmdline`. The unit therefore (this node only; Ansible variables `protect_proc`, `proc_subset`,
 `no_new_privileges`, `private_tmp` of the node type, off for every other node) sets `ProtectProc=invisible`,
 `ProcSubset=pid`, `NoNewPrivileges=yes` and `PrivateTmp=yes`, and runs as the dedicated non-root user `claude_agent`.
-`ProtectSystem` and `ProtectHome` are deliberately not set: the CLI writes under its home and `work_dir`. The API listens
+`ProtectSystem` and `ProtectHome` are deliberately not set: the CLI writes under its home and the workdir. The API listens
 on 127.0.0.1 only and is unauthenticated by design.

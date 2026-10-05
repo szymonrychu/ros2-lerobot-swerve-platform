@@ -33,6 +33,7 @@ class FakeRunner:
         if self.busy:
             return False
         self.resets += 1
+        self.events.reset()
         return True
 
 
@@ -58,7 +59,7 @@ def test_state(setup) -> None:
 
 def test_history(setup) -> None:
     client, _, events = setup
-    assert client.get("/api/history").json() == {"events": []}
+    assert client.get("/api/history").json() == {"events": [], "has_more": False}
     events.append("user_message", text="hi")
     body = client.get("/api/history").json()
     assert body["events"][0]["text"] == "hi" and body["events"][0]["seq"] == 1
@@ -136,3 +137,60 @@ def test_shutdown_hook_runs_on_lifespan_exit() -> None:
     with TestClient(create_app(FakeRunner(events), events, ClaudeAgentConfig(), on_shutdown=on_shutdown)):
         assert calls == []
     assert calls == ["closed"]
+
+
+def fill(events: EventLog, count: int) -> None:
+    for i in range(count):
+        events.append("assistant_text", text=f"m{i + 1}")
+
+
+def test_history_paging(setup) -> None:
+    client, _, events = setup
+    fill(events, 40)
+    body = client.get("/api/history", params={"limit": 10}).json()
+    assert [e["seq"] for e in body["events"]] == list(range(31, 41)) and body["has_more"] is True
+    body = client.get("/api/history", params={"limit": 10, "before_seq": 31}).json()
+    assert [e["seq"] for e in body["events"]] == list(range(21, 31)) and body["has_more"] is True
+    body = client.get("/api/history", params={"limit": 100, "before_seq": 6}).json()
+    assert [e["seq"] for e in body["events"]] == [1, 2, 3, 4, 5] and body["has_more"] is False
+
+
+def test_history_default_limit_100_and_max_500(setup) -> None:
+    client, _, events = setup
+    fill(events, 30)
+    assert len(client.get("/api/history").json()["events"]) == 30
+    assert client.get("/api/history", params={"limit": 0}).status_code == 422
+    assert client.get("/api/history", params={"before_seq": "x"}).status_code == 422
+    big = EventLog(1000)
+    fill(big, 600)
+    app_client = TestClient(create_app(FakeRunner(big), big, ClaudeAgentConfig()))
+    assert len(app_client.get("/api/history").json()["events"]) == 100
+    assert len(app_client.get("/api/history", params={"limit": 9999}).json()["events"]) == 500
+
+
+def test_history_default_is_100_newest(tmp_path) -> None:
+    log = EventLog(20, path=tmp_path / "e.jsonl")
+    fill(log, 250)
+    client = TestClient(create_app(FakeRunner(log), log, ClaudeAgentConfig()))
+    body = client.get("/api/history").json()
+    assert [e["seq"] for e in body["events"]] == list(range(151, 251)) and body["has_more"] is True
+    body = client.get("/api/history", params={"limit": 500}).json()
+    assert len(body["events"]) == 250 and body["has_more"] is False
+
+
+def test_ws_history_is_last_100_with_has_more(tmp_path) -> None:
+    log = EventLog(20, path=tmp_path / "e.jsonl")
+    fill(log, 150)
+    client = TestClient(create_app(FakeRunner(log), log, ClaudeAgentConfig()))
+    with client.websocket_connect("/ws/events") as ws:
+        first = ws.receive_json()
+        assert first["type"] == "history" and first["has_more"] is True
+        assert [e["seq"] for e in first["events"]] == list(range(51, 151))
+
+
+def test_reset_clears_history_and_seq(setup) -> None:
+    client, runner, events = setup
+    fill(events, 5)
+    assert client.post("/api/reset").json() == {"ok": True}
+    assert client.get("/api/history").json() == {"events": [], "has_more": False}
+    assert events.append("state")["seq"] == 1

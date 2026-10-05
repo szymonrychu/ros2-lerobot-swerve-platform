@@ -131,9 +131,11 @@ def test_build_options(tmp_path: Path, config: ClaudeAgentConfig) -> None:
     assert opts.model == "opus"
     assert opts.max_turns == 50
     assert opts.system_prompt == "SYS"
-    assert opts.tools == []
+    assert opts.tools == ["Read", "Write", "Edit", "Glob", "Grep"]
     assert opts.allowed_tools == []
     assert set(BUILTIN_TOOLS) <= set(opts.disallowed_tools)
+    assert not {"Read", "Write", "Edit", "Glob", "Grep"} & set(opts.disallowed_tools)
+    assert opts.strict_mcp_config is True
     assert opts.permission_mode == "default"
     assert opts.can_use_tool == gate.can_use_tool
     assert opts.setting_sources == []
@@ -141,6 +143,13 @@ def test_build_options(tmp_path: Path, config: ClaudeAgentConfig) -> None:
         "robot": {"type": "http", "url": "http://127.0.0.1:18200/mcp", "headers": {"Authorization": "Bearer tok"}}
     }
     assert opts.env == {"A": "b"}
+
+
+def test_build_options_cwd_is_workdir(tmp_path: Path) -> None:
+    workdir = tmp_path / "ws"
+    cfg = ClaudeAgentConfig(workdir=str(workdir))
+    opts = build_options(cfg, "tok", EffectorGate(cfg), {}, "SYS")
+    assert opts.cwd == workdir and workdir.is_dir()
 
 
 async def test_instruction_flow_emits_events(tmp_path: Path) -> None:
@@ -361,7 +370,19 @@ async def test_reset_stops_the_robot(tmp_path: Path) -> None:
     await runner.wait_idle()
     await runner.reset()
     assert stopper.calls == 1
-    assert stop_events(events)[0]["source"] == "reset"
+    assert stop_events(events) == []
+
+
+async def test_reset_clears_the_event_log_and_restarts_seq(tmp_path: Path) -> None:
+    log_path = tmp_path / "session" / "events.jsonl"
+    runner, events, _ = make_runner(tmp_path, script=[make_result()])
+    events.path = log_path
+    await runner.start_instruction("one")
+    await runner.wait_idle()
+    assert events.seq > 0
+    await runner.reset()
+    assert types_of(events) == ["state"] and events.history()[0]["seq"] == 1
+    assert not log_path.exists() or log_path.read_text().count("\n") == 1
 
 
 async def test_close_stops_the_robot(tmp_path: Path) -> None:

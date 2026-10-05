@@ -1,6 +1,8 @@
-"""Tool classification and the permission gate that caps effector calls per instruction."""
+"""Tool classification and the permission gate: caps effector calls, sandboxes the notes file tools to the workdir."""
 
+import os
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import PermissionResult, PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
@@ -14,17 +16,19 @@ NOT_AVAILABLE_MESSAGE = "tool {name} is not available: only the robot tools (mcp
 KIND_SENSOR = "sensor"
 KIND_EFFECTOR = "effector"
 KIND_UNCAPPED = "uncapped"
+KIND_NOTES = "notes"
+OUTSIDE_WORKDIR_MESSAGE = "{name} denied: {detail}; file tools only work inside the workdir {workdir}"
+# Built-in file tools allowed for the agent's notes, with the input field naming the path (Glob/Grep: optional, default cwd).
+NOTES_PATH_FIELDS = {"Read": "file_path", "Write": "file_path", "Edit": "file_path", "Glob": "path", "Grep": "path"}
+NOTES_TOOLS = list(NOTES_PATH_FIELDS)
+# Input fields holding a glob pattern/filter, which must stay relative and inside the workdir.
+NOTES_GLOB_FIELDS = {"Glob": "pattern", "Grep": "glob"}
 # Every Claude Code built-in tool that must stay off (also denied by the gate as a second layer).
 BUILTIN_TOOLS = [
     "Bash",
     "BashOutput",
     "KillShell",
-    "Read",
-    "Write",
-    "Edit",
     "MultiEdit",
-    "Glob",
-    "Grep",
     "WebFetch",
     "WebSearch",
     "Task",
@@ -61,9 +65,11 @@ def classify_tool(config: ClaudeAgentConfig, full_name: str) -> str | None:
         full_name (str): Full tool name.
 
     Returns:
-        str | None: "effector", "uncapped" or "sensor" for robot tools (a robot tool in no list is treated as an
-        effector, so a new motion tool is capped by default); None for any other tool.
+        str | None: "notes" for the five file tools, "effector", "uncapped" or "sensor" for robot tools (a robot tool in
+        no list is treated as an effector, so a new motion tool is capped by default); None for any other tool.
     """
+    if full_name in NOTES_PATH_FIELDS:
+        return KIND_NOTES
     if not full_name.startswith(ROBOT_PREFIX):
         return None
     name = short_name(full_name)
@@ -72,6 +78,42 @@ def classify_tool(config: ClaudeAgentConfig, full_name: str) -> str | None:
     if name in config.sensor_tools:
         return KIND_SENSOR
     return KIND_EFFECTOR
+
+
+def check_notes_input(workdir: str, tool_name: str, tool_input: dict[str, Any]) -> str | None:
+    """Check that a file tool call stays inside the workdir.
+
+    Relative paths resolve against the workdir, symlinks are resolved (os.path.realpath) before the comparison, and
+    Glob/Grep without a path default to the workdir (the CLI's cwd).
+
+    Args:
+        workdir (str): The sandbox directory.
+        tool_name (str): One of NOTES_TOOLS.
+        tool_input (dict[str, Any]): The tool arguments (file_path for Read/Write/Edit, path for Glob/Grep).
+
+    Returns:
+        str | None: None when allowed, otherwise the reason (what is wrong with the input).
+    """
+    root = os.path.realpath(workdir)
+    field = NOTES_PATH_FIELDS[tool_name]
+    raw = tool_input.get(field)
+    if raw is None and tool_name in NOTES_GLOB_FIELDS:
+        raw = "."
+    if not isinstance(raw, str) or not raw.strip():
+        return f"{field} must be a non-empty path"
+    if raw.startswith("~"):
+        return f"{field} {raw!r} is outside the workdir"
+    resolved = os.path.realpath(os.path.join(root, raw))
+    if resolved != root and not resolved.startswith(root + os.sep):
+        return f"{field} {raw!r} resolves outside the workdir"
+    glob_field = NOTES_GLOB_FIELDS.get(tool_name)
+    pattern = tool_input.get(glob_field) if glob_field else None
+    if pattern is not None:
+        if not isinstance(pattern, str):
+            return f"{glob_field} must be a string"
+        if pattern.startswith(("/", "~")) or ".." in Path(pattern).parts:
+            return f"{glob_field} {pattern!r} reaches outside the workdir"
+    return None
 
 
 class EffectorGate:
@@ -119,19 +161,26 @@ class EffectorGate:
         return PermissionResultDeny(message=reason)
 
     async def can_use_tool(
-        self, tool_name: str, _tool_input: dict[str, Any], context: ToolPermissionContext
+        self, tool_name: str, tool_input: dict[str, Any], context: ToolPermissionContext
     ) -> PermissionResult:
         """Decide whether a tool call may run.
 
         Args:
             tool_name (str): Full tool name.
-            _tool_input (dict[str, Any]): Tool arguments (unused).
+            tool_input (dict[str, Any]): Tool arguments (paths of the notes file tools are checked).
             context (ToolPermissionContext): Carries the tool_use_id.
 
         Returns:
-            PermissionResult: Allow for sensor/uncapped tools and effector calls under the cap; Deny otherwise.
+            PermissionResult: Allow for sensor/uncapped tools, notes tools inside the workdir (never counted) and effector
+            calls under the cap; Deny otherwise.
         """
         kind = classify_tool(self.config, tool_name)
+        if kind == KIND_NOTES:
+            problem = check_notes_input(self.config.workdir, tool_name, tool_input)
+            if problem:
+                reason = OUTSIDE_WORKDIR_MESSAGE.format(name=tool_name, detail=problem, workdir=self.config.workdir)
+                return self.deny(context.tool_use_id, tool_name, reason)
+            return PermissionResultAllow()
         if kind is None:
             return self.deny(context.tool_use_id, tool_name, NOT_AVAILABLE_MESSAGE.format(name=tool_name))
         if kind == KIND_EFFECTOR:

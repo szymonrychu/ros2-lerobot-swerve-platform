@@ -197,6 +197,12 @@ Covers:
 - events (`test_events.py`): ring buffer and sequence numbers, subscribers, normalization of assistant text / tool calls /
   tool results from SDK objects, image thumbnails (size, no upscaling, RGBA, undecodable), 4000-char truncation flag,
   turn_end statuses (done, interrupted, max_turns, error) and auth-error detection
+- session log (`test_session_log.py`): JSONL append, load on start (seq continues, last `history_size` events in RAM), corrupt
+  lines skipped, paging with `before_seq` / `has_more` (RAM and disk), reset deletes file and restarts seq, rotation drops
+  the oldest half, unwritable path tolerated; the API paging, WS history and reset live in `test_api.py`
+- file tool sandbox (`test_tools.py`): Read/Write/Edit/Glob/Grep allowed only inside the workdir (relative and absolute,
+  default path), denied for absolute / `../` / `~` / symlink escapes and escaping glob patterns, kind `notes`, never counted,
+  every other built-in still denied; prompt (`test_prompt.py`) working method, notes, hardware facts from config, reach vs URDF
 - env (`test_env.py`): `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` removed from the child env, `DISABLE_AUTOUPDATER=1`, input untouched
 - runner (`test_runner.py`): SDK options (robot HTTP MCP server with bearer header, `tools=[]`, no allow rules, `can_use_tool`), event
   flow with a fake client, token never in events, busy refusal, interrupt, effector counter reset per instruction, denial events,
@@ -391,6 +397,9 @@ layout; no ROS needed).
 | `test_role_defaults_keep_hardening_off` | `ros2_node_deploy` defaults leave all four hardening variables empty/false. |
 | `test_service_template_hardening_is_optional` | Unit template (jinja2 when installed): no hardening lines by default or with empty values (identical output); the four lines and no ProtectSystem/ProtectHome when set. |
 | `test_claude_agent_config_has_watchdog_and_sdk_initialize_timeout` | The entry's config sets `instruction_timeout_s: 900` and the node env raises the SDK initialize timeout (`CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=180000`). |
+| `test_setup_tasks_create_persistent_workdir_owned_0750` | `claude_agent_setup.yml` creates `/var/lib/claude_agent/workspace` (the agent's persistent notes volume) as a directory owned by `claude_agent`, mode 0750, after its parent HOME directory. |
+| `test_ansible_never_removes_the_workdir_or_state_dir` | No Ansible task (file `state: absent`, `rm` in command/shell) deletes anything under `/var/lib/claude_agent`, so notes and the session log survive deploys. |
+| `test_claude_agent_config_workdir_state_dir_and_hardware_facts` | The entry's config sets `workdir`, `state_dir`, `arm_base_height_m` 0.165 and `arm_reach_cm`; the service `HOME` stays `/var/lib/claude_agent`, separate from the workdir. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_claude_agent_config.py` is listed in this section. |
 
 ### test_web_ui_agent_tab.py

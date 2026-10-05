@@ -411,3 +411,47 @@ def test_claude_agent_config_has_watchdog_and_sdk_initialize_timeout() -> None:
     assert cfg["instruction_timeout_s"] == 900
     env = client_vars()["ros2_node_type_defaults"]["claude_agent"]["env"]
     assert "CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=180000" in env
+
+
+WORKDIR = "/var/lib/claude_agent/workspace"
+STATE_DIR = "/var/lib/claude_agent"
+
+
+def test_setup_tasks_create_persistent_workdir_owned_0750() -> None:
+    tasks = setup_tasks()
+    dirs = {t["ansible.builtin.file"]["path"]: t["ansible.builtin.file"] for t in tasks if "ansible.builtin.file" in t}
+    spec = dirs[WORKDIR]
+    assert spec["state"] == "directory"
+    assert spec["owner"] == SERVICE_USER and spec["group"] == SERVICE_USER and spec["mode"] == "0750"
+    names = [t["ansible.builtin.file"]["path"] for t in tasks if "ansible.builtin.file" in t]
+    assert names.index(STATE_DIR) < names.index(WORKDIR), "HOME must exist before the workdir inside it"
+    assert "persistent" in SETUP_TASKS.read_text().lower()
+
+
+def test_ansible_never_removes_the_workdir_or_state_dir() -> None:
+    """The workdir is the agent's persistent volume (NOTES.md): no task may delete it, recurse-reset it or purge it."""
+    offenders = []
+    for path in sorted(ANSIBLE_DIR.rglob("*.yml")):
+        text = path.read_text()
+        if "claude_agent" not in text and "/var/lib" not in text:
+            continue
+        for task in yaml.safe_load(text) or []:
+            if not isinstance(task, dict):
+                continue
+            for module in ("ansible.builtin.file", "ansible.builtin.command", "ansible.builtin.shell"):
+                body = task.get(module)
+                rendered = str(body)
+                if body and "/var/lib/claude_agent" in rendered and ("absent" in rendered or "rm " in rendered):
+                    offenders.append(f"{path.name}: {task.get('name')}")
+    assert offenders == []
+
+
+def test_claude_agent_config_workdir_state_dir_and_hardware_facts() -> None:
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    assert raw["workdir"] == WORKDIR and "work_dir" not in raw
+    assert raw["state_dir"] == STATE_DIR
+    assert raw["arm_base_height_m"] == 0.165
+    assert "arm_reach_cm" in raw
+    home = [e for e in client_vars()["ros2_node_type_defaults"]["claude_agent"]["env"] if e.startswith("HOME=")]
+    assert home == [f"HOME={STATE_DIR}"], "HOME stays separate from (and above) the workdir"
+    assert raw["workdir"] != home[0].split("=", 1)[1]

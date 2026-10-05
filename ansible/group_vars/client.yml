@@ -846,7 +846,13 @@ ros2_nodes:
       mcp_token_file: /etc/ros2/mcp_server/token
       history_size: 500
       image_thumbnail_max_px: 480
-      work_dir: /var/lib/claude_agent
+      # Persistent volume of the agent (NOTES.md; created by claude_agent_setup.yml, never deleted by a deploy).
+      workdir: /var/lib/claude_agent/workspace
+      # Session log: <state_dir>/session/events.jsonl (paged history for the web UI; POST /api/reset deletes it).
+      state_dir: /var/lib/claude_agent
+      # Hardware facts stated in the system prompt (SO-101: reach from the shoulder_lift axis, base height above floor).
+      arm_reach_cm: 41
+      arm_base_height_m: 0.165
       instruction_timeout_s: 900
       effector_tools:
         - navigate_to_pose

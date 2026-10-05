@@ -41,7 +41,7 @@ def stubs(monkeypatch, tmp_path):
     monkeypatch.setattr(entry, "Node", StubNode)
     monkeypatch.setattr(entry.uvicorn, "run", lambda app, **kw: calls.update(run=kw, app=app))
     cfg = tmp_path / "c.yaml"
-    cfg.write_text("http_port: 18999\nhistory_size: 5\n")
+    cfg.write_text(f"http_port: 18999\nhistory_size: 5\nstate_dir: {tmp_path / 'state'}\nworkdir: {tmp_path / 'ws'}\n")
     monkeypatch.setenv("CLAUDE_AGENT_CONFIG", str(cfg))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
     return calls

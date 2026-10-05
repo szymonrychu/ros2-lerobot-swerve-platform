@@ -2,6 +2,7 @@
 
 import os
 import sys
+from pathlib import Path
 
 import rclpy
 import uvicorn
@@ -14,6 +15,7 @@ from .events import EventLog
 from .runner import REMOVED_ENV_KEYS, AgentRunner
 
 NODE_NAME = "claude_agent"
+SESSION_LOG_RELPATH = Path("session") / "events.jsonl"
 
 
 def main() -> int:
@@ -33,7 +35,11 @@ def main() -> int:
     node = Node(NODE_NAME)
     logger = node.get_logger()
     try:
-        events = EventLog(config.history_size)
+        events = EventLog(
+            config.history_size,
+            path=Path(config.state_dir) / SESSION_LOG_RELPATH,
+            max_bytes=config.session_log_max_bytes,
+        )
         runner = AgentRunner(config, events, logger=logger)
         app = create_app(runner, events, config, on_shutdown=runner.close)
         logger.info(f"serving the agent API on http://{config.http_host}:{config.http_port} (model {config.model})")

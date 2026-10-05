@@ -5,11 +5,14 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any, Protocol
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from .config import ClaudeAgentConfig
 from .events import EventLog
+
+HISTORY_DEFAULT_LIMIT = 100
+HISTORY_MAX_LIMIT = 500
 
 
 class RunnerLike(Protocol):
@@ -34,7 +37,7 @@ def create_app(
 
     Args:
         runner (RunnerLike): Agent runner.
-        events (EventLog): Event ring buffer.
+        events (EventLog): Persisted event log.
         config (ClaudeAgentConfig): Reported in /api/state.
         on_shutdown (Callable[[], Awaitable[None]] | None): Awaited when the server stops (closes the agent session).
 
@@ -62,8 +65,11 @@ def create_app(
         }
 
     @app.get("/api/history")
-    async def get_history() -> dict[str, Any]:
-        return {"events": events.history()}
+    async def get_history(
+        before_seq: int | None = None, limit: int = Query(default=HISTORY_DEFAULT_LIMIT, ge=1)
+    ) -> dict[str, Any]:
+        page, has_more = await asyncio.to_thread(events.page, before_seq, min(limit, HISTORY_MAX_LIMIT))
+        return {"events": page, "has_more": has_more}
 
     @app.post("/api/message")
     async def post_message(request: Request) -> JSONResponse:
@@ -95,9 +101,9 @@ def create_app(
         await websocket.accept()
         queue = events.subscribe()
         try:
-            history = events.history()
-            last_seq = history[-1]["seq"] if history else 0
-            await websocket.send_json({"type": "history", "events": history})
+            history, has_more = events.page(None, HISTORY_DEFAULT_LIMIT)
+            last_seq = events.seq
+            await websocket.send_json({"type": "history", "events": history, "has_more": has_more})
             while True:
                 event = await queue.get()
                 if event["seq"] > last_seq:
