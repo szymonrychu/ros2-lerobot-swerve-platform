@@ -219,3 +219,21 @@ def test_idle_recenter_disabled_with_zero(tmp_path: Path) -> None:
     cfg = replace(make_config(tmp_path), idle_recenter_s=0.0)
     late = _sideways_then_stop(cfg, [10.02, 60.0])[-1]
     assert all(abs(s) > 1.0 for s in late)
+
+
+def test_control_step_reports_fk_residual_and_drops_slipping_wheel(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    speed = 0.1 / cfg.wheel_radius_m
+    joints = make_joints(10.0, 0.0, speed)
+    joints.velocities[DRIVE[0]] = speed + 0.2 / cfg.wheel_radius_m  # front-left wheel spins on a lego
+    out, _ = control_step(cfg, ControlState(), CmdVelSample((0.1, 0.0, 0.0), 10.0), joints, 10.0)
+    assert out is not None
+    assert out.odom_twist == pytest.approx((0.1, 0.0, 0.0), abs=1e-6)
+    assert out.odom_residual_mps == pytest.approx(0.0, abs=1e-6)
+
+
+def test_control_step_residual_is_zero_for_consistent_wheels(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    out, _ = control_step(cfg, ControlState(), CmdVelSample((0.1, 0.0, 0.0), 10.0), make_joints(10.0, 0.0, 1.0), 10.0)
+    assert out is not None
+    assert out.odom_residual_mps == pytest.approx(0.0, abs=1e-9)

@@ -148,3 +148,13 @@ def test_idle_recenter_s_parsed_and_clamped(tmp_path: Path) -> None:
     p.write_text("idle_recenter_s: -1\n")
     cfg = load_config(p)
     assert cfg is not None and cfg.idle_recenter_s == 0.0
+
+
+def test_slip_residual_threshold_default_and_override(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    path.write_text("{}\n")
+    cfg = load_config(path)
+    assert cfg is not None and cfg.slip_residual_threshold_mps == 0.05
+    path.write_text("slip_residual_threshold_mps: 0.08\n")
+    cfg = load_config(path)
+    assert cfg is not None and cfg.slip_residual_threshold_mps == 0.08

@@ -13,6 +13,10 @@ STEER_LIMIT_HYSTERESIS_RAD = 0.1
 # Group-level hysteresis: when both common sides (all wheels unflipped / all flipped) are feasible, the previous
 # side is kept unless the other one reduces the summed steering travel of the moving wheels by more than this.
 GROUP_FLIP_HYSTERESIS_RAD = 0.2
+# A leave-one-wheel-out solution replaces the full one only when its residual is below this fraction of it.
+SLIP_DROP_IMPROVEMENT = 0.5
+# Baseline odometry twist variance (m/s)^2 and (rad/s)^2 before the slip residual is added.
+TWIST_VARIANCE_FLOOR = 0.01
 
 
 def wheel_positions(lx: float, ly: float) -> np.ndarray:
@@ -78,6 +82,85 @@ def inverse_kinematics(
     return steer_angles, drive_angular
 
 
+def fk_system(
+    steer_angles: list[float],
+    drive_angular_velocities: list[float],
+    lx: float,
+    ly: float,
+    wheel_radius: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build the 8x3 least-squares system A @ [vx, vy, omega] = b of the wheel states.
+
+    Each wheel i: vx_i = s_i*cos(alpha_i), vy_i = s_i*sin(alpha_i) with s_i = drive_angular_i * R, and
+    body: vx_i = vx - omega*y_i, vy_i = vy + omega*x_i. Rows 2i and 2i+1 belong to wheel i.
+
+    Args:
+        steer_angles: Steering angle per wheel (rad), order fl, fr, rl, rr.
+        drive_angular_velocities: Drive angular velocity per wheel (rad/s), order fl, fr, rl, rr.
+        lx: Half-length, m.
+        ly: Half-width, m.
+        wheel_radius: Wheel radius, m.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: (A with shape (8, 3), b with shape (8,)).
+    """
+    positions = wheel_positions(lx, ly)
+    A = np.zeros((8, 3))
+    b = np.zeros(8)
+    for i in range(4):
+        x_i, y_i = positions[i, 0], positions[i, 1]
+        alpha = steer_angles[i] if i < len(steer_angles) else 0.0
+        drive = drive_angular_velocities[i] if i < len(drive_angular_velocities) else 0.0
+        s_i = drive * wheel_radius
+        A[2 * i, :] = [1, 0, -y_i]
+        A[2 * i + 1, :] = [0, 1, x_i]
+        b[2 * i] = s_i * math.cos(alpha)
+        b[2 * i + 1] = s_i * math.sin(alpha)
+    return A, b
+
+
+def solve_twist(A: np.ndarray, b: np.ndarray) -> tuple[tuple[float, float, float], float]:
+    """Least-squares twist of a stacked wheel system and its residual.
+
+    Args:
+        A: Coefficient matrix with shape (n, 3), n even (two rows per wheel).
+        b: Right-hand side with shape (n,).
+
+    Returns:
+        tuple: ((vx, vy, omega), residual) with residual = ||A x - b|| / sqrt(n / 2 + 1), m/s. The divisor is
+        sqrt(5) for the full 8-equation system and sqrt(4) for a leave-one-wheel-out 6-equation system.
+    """
+    x, _residuals, _rank, _s = np.linalg.lstsq(A, b, rcond=None)
+    residual = float(np.linalg.norm(A @ x - b) / math.sqrt(len(b) / 2 + 1))
+    return (float(x[0]), float(x[1]), float(x[2])), residual
+
+
+def forward_kinematics_with_residual(
+    steer_angles: list[float],
+    drive_angular_velocities: list[float],
+    lx: float,
+    ly: float,
+    wheel_radius: float,
+) -> tuple[tuple[float, float, float], float]:
+    """Compute body twist (vx, vy, omega) from wheel states plus the least-squares residual.
+
+    The residual r = ||A x - b|| / sqrt(5) (m/s; 8 equations, 3 unknowns) is ~0 when the four wheels agree on a
+    single rigid-body twist and grows when a wheel slips or stalls.
+
+    Args:
+        steer_angles: Steering angle per wheel (rad), order fl, fr, rl, rr.
+        drive_angular_velocities: Drive angular velocity per wheel (rad/s), order fl, fr, rl, rr.
+        lx: Half-length, m.
+        ly: Half-width, m.
+        wheel_radius: Wheel radius, m.
+
+    Returns:
+        tuple: ((vx, vy, omega) in body frame (m/s, m/s, rad/s), residual in m/s).
+    """
+    A, b = fk_system(steer_angles, drive_angular_velocities, lx, ly, wheel_radius)
+    return solve_twist(A, b)
+
+
 def forward_kinematics(
     steer_angles: list[float],
     drive_angular_velocities: list[float],
@@ -85,9 +168,7 @@ def forward_kinematics(
     ly: float,
     wheel_radius: float,
 ) -> tuple[float, float, float]:
-    """Compute body twist (vx, vy, omega) from wheel states.
-
-    Uses least-squares: wheel velocities must be consistent with a single body twist.
+    """Compute body twist (vx, vy, omega) from wheel states (least squares over all four wheels).
 
     Args:
         steer_angles: Steering angle per wheel (rad), order fl, fr, rl, rr.
@@ -99,28 +180,65 @@ def forward_kinematics(
     Returns:
         tuple: (vx, vy, omega) in body frame (m/s, m/s, rad/s).
     """
-    positions = wheel_positions(lx, ly)
-    # Each wheel i: vx_i = s_i*cos(alpha_i), vy_i = s_i*sin(alpha_i) with s_i = drive_angular_i * R.
-    # Body: vx_i = vx - omega*y_i, vy_i = vy + omega*x_i.
-    # So we have 8 equations: for i in 0..3, [vx_i, vy_i] = [vx - omega*y_i, vy + omega*x_i].
-    # Stack as A @ [vx, vy, omega] = b, where b = [vx_0, vy_0, vx_1, vy_1, ...].
-    A = np.zeros((8, 3))
-    b = np.zeros(8)
-    for i in range(4):
-        x_i, y_i = positions[i, 0], positions[i, 1]
-        alpha = steer_angles[i] if i < len(steer_angles) else 0.0
-        drive = drive_angular_velocities[i] if i < len(drive_angular_velocities) else 0.0
-        s_i = drive * wheel_radius
-        vx_i = s_i * math.cos(alpha)
-        vy_i = s_i * math.sin(alpha)
-        row_vx = 2 * i
-        row_vy = 2 * i + 1
-        A[row_vx, :] = [1, 0, -y_i]
-        A[row_vy, :] = [0, 1, x_i]
-        b[row_vx] = vx_i
-        b[row_vy] = vy_i
-    x, _residuals, _rank, _s = np.linalg.lstsq(A, b, rcond=None)
-    return (float(x[0]), float(x[1]), float(x[2]))
+    return forward_kinematics_with_residual(steer_angles, drive_angular_velocities, lx, ly, wheel_radius)[0]
+
+
+def robust_forward_kinematics(
+    steer_angles: list[float],
+    drive_angular_velocities: list[float],
+    lx: float,
+    ly: float,
+    wheel_radius: float,
+    slip_residual_threshold_mps: float,
+) -> tuple[tuple[float, float, float], float]:
+    """Forward kinematics that drops a single slipping wheel.
+
+    When the full residual exceeds the threshold, the four leave-one-wheel-out 6x3 least-squares problems are
+    solved; if the best one has a residual below half the full residual, its twist is used (the odd wheel is
+    ignored) and its residual reported. Otherwise (several wheels disagree) the full solution is kept.
+
+    Args:
+        steer_angles: Steering angle per wheel (rad), order fl, fr, rl, rr.
+        drive_angular_velocities: Drive angular velocity per wheel (rad/s), order fl, fr, rl, rr.
+        lx: Half-length, m.
+        ly: Half-width, m.
+        wheel_radius: Wheel radius, m.
+        slip_residual_threshold_mps: Full-system residual above which wheel dropping is attempted, m/s.
+
+    Returns:
+        tuple: ((vx, vy, omega) in body frame, residual in m/s of the solution that was used).
+    """
+    A, b = fk_system(steer_angles, drive_angular_velocities, lx, ly, wheel_radius)
+    twist, residual = solve_twist(A, b)
+    if residual <= slip_residual_threshold_mps:
+        return twist, residual
+    best_twist, best_residual = twist, residual
+    for dropped in range(4):
+        keep = [row for row in range(8) if row // 2 != dropped]
+        candidate, candidate_residual = solve_twist(A[keep], b[keep])
+        if candidate_residual < best_residual:
+            best_twist, best_residual = candidate, candidate_residual
+    if best_residual < SLIP_DROP_IMPROVEMENT * residual:
+        return best_twist, best_residual
+    return twist, residual
+
+
+def odometry_twist_variances(residual: float, lx: float, ly: float) -> tuple[float, float]:
+    """Odometry twist variances that grow with the wheel-consistency residual.
+
+    Args:
+        residual: Forward-kinematics residual, m/s.
+        lx: Half-length, m.
+        ly: Half-width, m.
+
+    Returns:
+        tuple[float, float]: (var_xy in (m/s)^2, var_yaw in (rad/s)^2). The yaw term converts the residual to a
+        rate through the largest module radius hypot(lx, ly).
+    """
+    return (
+        TWIST_VARIANCE_FLOOR + residual**2,
+        TWIST_VARIANCE_FLOOR + (residual / math.hypot(lx, ly)) ** 2,
+    )
 
 
 def steer_angle_difference(current: float, desired: float) -> float:

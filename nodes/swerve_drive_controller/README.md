@@ -40,7 +40,9 @@ Body frame: x forward, y left, yaw CCW positive. Wheel `i` sits at `(x_i, y_i)` 
 - **Idle recentering:** after the commanded twist has been zero for `idle_recenter_s` (default 3 s), all steering targets return to 0 rad (straight ahead). Any new motion resets the timer; `idle_recenter_s: 0` disables it.
 - **Desaturation:** if any wheel would exceed `max_wheel_angular_velocity_rad_s`, all wheels are scaled by the same factor, so the motion direction is kept.
 - **No-propulsion safeguard:** a wheel's drive is zero while its steering error is above `steer_error_threshold_rad`.
-- **Forward kinematics:** least-squares solution of the 8 wheel-velocity equations for `(vx, vy, omega)`, integrated with the midpoint heading (`integrate_odometry`).
+- **Forward kinematics:** least-squares solution of the 8 wheel-velocity equations for `(vx, vy, omega)`, integrated with the midpoint heading (`integrate_odometry`). `forward_kinematics_with_residual` also returns the residual `r = ||A x - b|| / sqrt(5)` (m/s; 8 equations, 3 unknowns), about 0 when the four wheels agree on one rigid-body twist.
+- **Slip handling (`robust_forward_kinematics`):** when `r` exceeds `slip_residual_threshold_mps` (default 0.05), the four leave-one-wheel-out 6x3 least-squares problems are solved; if the best one has a residual below half of `r`, its twist is used (the one slipping or stalled wheel is dropped) and its residual is reported, otherwise the full solution is kept. A wheel spinning on a small object therefore does not corrupt the odometry.
+- **Odometry covariance:** the published twist covariance is `var_xy = 0.01 + r^2` and `var_yaw = 0.01 + (r / hypot(lx, ly))^2` (largest module radius), whether moving or stopped, so the EKF trusts the wheels less exactly when they disagree.
 
 ## Configuration
 
@@ -48,6 +50,7 @@ YAML config (path via `SWERVE_DRIVE_CONTROLLER_CONFIG` or `/etc/ros2/swerve_driv
 
 - `half_length_m`, `half_width_m`, `wheel_radius_m`: Geometry (defaults 0.1525, 0.1333, 0.06).
 - `max_steer_angle_rad` (default pi/2), `max_wheel_angular_velocity_rad_s` (default 4.71, which is about 0.28 m/s).
+- `slip_residual_threshold_mps` (default 0.05): forward-kinematics residual above which one slipping wheel is dropped (see Kinematics).
 - `idle_recenter_s` (default 3.0): steer back to straight ahead after this long without motion (0 disables).
 - `cmd_vel_timeout_s` (default 0.5): the twist is zeroed when `/cmd_vel` goes quiet. `joint_states_timeout_s` (default 0.5).
 - `joint_names`: 8 names in order fl_drive, fl_steer, fr_drive, fr_steer, rl_drive, rl_steer, rr_drive, rr_steer.

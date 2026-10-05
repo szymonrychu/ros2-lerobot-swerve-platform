@@ -27,6 +27,8 @@ DEFAULT_IDLE_RECENTER_S = 3.0
 DEFAULT_MAX_STEER_ANGULAR_VELOCITY_RAD_S = 4.71
 # No-propulsion when steer error exceeds this (rad). ~20 deg.
 DEFAULT_STEER_ERROR_THRESHOLD_RAD = 0.35
+# Wheel-consistency residual (m/s) above which a single slipping wheel is dropped from the forward kinematics.
+DEFAULT_SLIP_RESIDUAL_THRESHOLD_MPS = 0.05
 # Accepted string spellings for boolean options (compared lower-case).
 BOOL_TRUE_STRINGS = frozenset({"true", "yes", "on", "1"})
 BOOL_FALSE_STRINGS = frozenset({"false", "no", "off", "0"})
@@ -56,6 +58,7 @@ class SwerveControllerConfig:
         joint_states_timeout_s: No commands/odometry are published when joint states are older than this, s.
         idle_recenter_s: Steering targets return to 0 rad after the commanded twist has been zero this long, s
             (0 disables recentering; stopped wheels then keep their heading).
+        slip_residual_threshold_mps: Forward-kinematics residual above which one slipping wheel is dropped, m/s.
         publish_tf: Broadcast the odom -> base_link TF (False: only /odom is published).
         imu_offset_xyyaw: Optional [x, y, yaw] offset of IMU from base_link (default 0,0,0).
         rplidar_offset_xyyaw: Optional [x, y, yaw] offset of lidar from base_link (default 0,0,0).
@@ -79,6 +82,7 @@ class SwerveControllerConfig:
     cmd_vel_timeout_s: float
     joint_states_timeout_s: float
     idle_recenter_s: float
+    slip_residual_threshold_mps: float
     publish_tf: bool
     imu_offset_xyyaw: tuple[float, float, float]
     rplidar_offset_xyyaw: tuple[float, float, float]
@@ -180,6 +184,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
     cmd_vel_timeout_s = max(0.05, flt("cmd_vel_timeout_s", DEFAULT_CMD_VEL_TIMEOUT_S))
     joint_states_timeout_s = max(0.05, flt("joint_states_timeout_s", DEFAULT_JOINT_STATES_TIMEOUT_S))
     idle_recenter_s = max(0.0, flt("idle_recenter_s", DEFAULT_IDLE_RECENTER_S))
+    slip_residual_threshold_mps = max(0.0, flt("slip_residual_threshold_mps", DEFAULT_SLIP_RESIDUAL_THRESHOLD_MPS))
     publish_tf = parse_bool(data.get("publish_tf"), True)
     imu_offset_xyyaw = _parse_offset(data.get("imu_offset_xyyaw"))
     rplidar_offset_xyyaw = _parse_offset(data.get("rplidar_offset_xyyaw"))
@@ -203,6 +208,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
         cmd_vel_timeout_s=cmd_vel_timeout_s,
         joint_states_timeout_s=joint_states_timeout_s,
         idle_recenter_s=idle_recenter_s,
+        slip_residual_threshold_mps=slip_residual_threshold_mps,
         publish_tf=publish_tf,
         imu_offset_xyyaw=imu_offset_xyyaw,
         rplidar_offset_xyyaw=rplidar_offset_xyyaw,

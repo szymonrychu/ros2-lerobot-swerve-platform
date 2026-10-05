@@ -12,9 +12,12 @@ from swerve_drive_controller.kinematics import (
     desaturate_wheel_speeds,
     fold_to_steer_range,
     forward_kinematics,
+    forward_kinematics_with_residual,
     integrate_odometry,
     inverse_kinematics,
     normalize_angle,
+    odometry_twist_variances,
+    robust_forward_kinematics,
     should_zero_drive,
     steer_angle_difference,
     wheel_positions,
@@ -403,3 +406,67 @@ def test_coordinated_desaturation_keeps_common_side() -> None:
     assert flip is False
     assert max(abs(d) for d in drive) == pytest.approx(4.0)
     assert all(d > 0.0 for d in drive)
+
+
+SLIP_TWIST = (0.2, -0.1, 0.3)
+
+
+def slipping_wheel_states(wheel: int, extra_speed_mps: float) -> tuple[list[float], list[float]]:
+    """Consistent wheel states for SLIP_TWIST with one wheel's ground speed offset (spinning on a lego)."""
+    steer, drive = inverse_kinematics(*SLIP_TWIST, LX, LY, R)
+    drive = list(drive)
+    drive[wheel] += extra_speed_mps / R
+    return steer, drive
+
+
+def test_forward_kinematics_residual_is_zero_for_consistent_wheels() -> None:
+    steer, drive = inverse_kinematics(*SLIP_TWIST, LX, LY, R)
+    twist, residual = forward_kinematics_with_residual(steer, drive, LX, LY, R)
+    assert twist == pytest.approx(SLIP_TWIST, abs=1e-9)
+    assert residual == pytest.approx(0.0, abs=1e-9)
+
+
+def test_forward_kinematics_residual_grows_with_a_slipping_wheel() -> None:
+    small = forward_kinematics_with_residual(*slipping_wheel_states(0, 0.05), LX, LY, R)[1]
+    large = forward_kinematics_with_residual(*slipping_wheel_states(0, 0.20), LX, LY, R)[1]
+    assert 0.0 < small < large
+
+
+def test_robust_fk_keeps_full_solution_when_residual_is_small() -> None:
+    steer, drive = slipping_wheel_states(1, 0.01)
+    expected = forward_kinematics_with_residual(steer, drive, LX, LY, R)
+    twist, residual = robust_forward_kinematics(steer, drive, LX, LY, R, 0.05)
+    assert twist == pytest.approx(expected[0], abs=1e-12)
+    assert residual == pytest.approx(expected[1], abs=1e-12)
+
+
+@pytest.mark.parametrize("wheel", range(4))
+def test_robust_fk_drops_a_single_slipping_wheel(wheel: int) -> None:
+    steer, drive = slipping_wheel_states(wheel, 0.3)
+    full_twist, full_residual = forward_kinematics_with_residual(steer, drive, LX, LY, R)
+    assert full_residual > 0.05
+    assert full_twist != pytest.approx(SLIP_TWIST, abs=1e-3)
+    twist, residual = robust_forward_kinematics(steer, drive, LX, LY, R, 0.05)
+    assert twist == pytest.approx(SLIP_TWIST, abs=1e-9)
+    assert residual == pytest.approx(0.0, abs=1e-9)
+
+
+def test_robust_fk_keeps_full_solution_when_two_wheels_slip() -> None:
+    steer, drive = inverse_kinematics(*SLIP_TWIST, LX, LY, R)
+    drive = list(drive)
+    drive[0] += 0.15 / R
+    drive[3] -= 0.15 / R
+    full = forward_kinematics_with_residual(steer, drive, LX, LY, R)
+    twist, residual = robust_forward_kinematics(steer, drive, LX, LY, R, 0.05)
+    assert twist == pytest.approx(full[0], abs=1e-9)
+    assert residual == pytest.approx(full[1], abs=1e-9)
+
+
+def test_odometry_twist_variances_grow_with_residual() -> None:
+    base_xy, base_yaw = odometry_twist_variances(0.0, LX, LY)
+    assert base_xy == pytest.approx(0.01)
+    assert base_yaw == pytest.approx(0.01)
+    var_xy, var_yaw = odometry_twist_variances(0.1, LX, LY)
+    assert var_xy == pytest.approx(0.01 + 0.1**2)
+    assert var_yaw == pytest.approx(0.01 + (0.1 / math.hypot(LX, LY)) ** 2)
+    assert var_xy > base_xy and var_yaw > base_yaw

@@ -3,7 +3,13 @@
 from dataclasses import dataclass, field, replace
 
 from .config import SwerveControllerConfig
-from .kinematics import compute_wheel_commands, forward_kinematics, integrate_odometry, should_zero_drive, wheel_states
+from .kinematics import (
+    compute_wheel_commands,
+    integrate_odometry,
+    robust_forward_kinematics,
+    should_zero_drive,
+    wheel_states,
+)
 
 CMD_VEL_DEADBAND = 0.005  # m/s and rad/s
 NAN = float("nan")
@@ -67,6 +73,7 @@ class ControlOutput:
         velocities: Drive angular velocity (rad/s) for drive joints, NaN for steer joints.
         odom_twist: Measured body twist (vx, vy, omega) from forward kinematics.
         moving: True when the (deadbanded) commanded twist is non-zero.
+        odom_residual_mps: Wheel-consistency residual of the measured twist (m/s); drives the twist covariance.
     """
 
     names: list[str]
@@ -74,6 +81,7 @@ class ControlOutput:
     velocities: list[float]
     odom_twist: tuple[float, float, float]
     moving: bool
+    odom_residual_mps: float = 0.0
 
 
 def build_joint_command(
@@ -154,8 +162,13 @@ def control_step(
         if should_zero_drive(steer_angles[i], desired_steer[i], config.steer_error_threshold_rad):
             desired_drive[i] = 0.0
 
-    twist = forward_kinematics(
-        steer_angles, drive_velocities, config.half_length_m, config.half_width_m, config.wheel_radius_m
+    twist, residual = robust_forward_kinematics(
+        steer_angles,
+        drive_velocities,
+        config.half_length_m,
+        config.half_width_m,
+        config.wheel_radius_m,
+        config.slip_residual_threshold_mps,
     )
     pose = state.pose
     if state.last_odom_time is not None:
@@ -168,6 +181,7 @@ def control_step(
         velocities=velocities,
         odom_twist=twist,
         moving=abs(vx) > CMD_VEL_DEADBAND or abs(vy) > CMD_VEL_DEADBAND or abs(omega) > CMD_VEL_DEADBAND,
+        odom_residual_mps=residual,
     )
     return output, ControlState(
         steer_targets=list(desired_steer),
