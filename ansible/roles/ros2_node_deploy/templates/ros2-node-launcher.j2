@@ -3,7 +3,7 @@
 # Installed by Ansible. Do not edit manually.
 source /opt/ros/jazzy/setup.bash
 {% if node_colcon_source is defined and node_colcon_source | length > 0 %}
-source {{ node_colcon_source.workspace }}/install/setup.bash
+source {{ (node_colcon_source if node_colcon_source is mapping else node_colcon_source[0]).workspace }}/install/setup.bash
 {% endif %}
 {% if node_src_dir is defined and node_src_dir | length > 0 %}
 source /opt/ros2-nodes/{{ node_name }}/venv/bin/activate

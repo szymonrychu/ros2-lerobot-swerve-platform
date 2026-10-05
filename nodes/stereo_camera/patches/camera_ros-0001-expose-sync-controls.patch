@@ -1,0 +1,15 @@
+diff --git a/src/type_extent.cpp b/src/type_extent.cpp
+index f122d57..fb1a861 100644
+--- a/src/type_extent.cpp
++++ b/src/type_extent.cpp
+@@ -115,6 +115,10 @@ get_extent(const libcamera::ControlId *const id)
+   IF(AnalogueGainMode)
+ #ifdef LIBCAMERA_HAS_RPI_VENDOR_CONTROLS
+   IF(rpi::PispStatsOutput)
++  // Camera synchronisation (libcamera rpi vendor controls): SyncMode is an enum (0 off, 1 server, 2 client),
++  // SyncFrames the number of frames until the ready time. SyncReady and SyncTimer are outputs and stay unexposed.
++  IF(rpi::SyncMode)
++  IF(rpi::SyncFrames)
+ #endif
+ #endif
+ 

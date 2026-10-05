@@ -3,7 +3,7 @@
 # Expects from resolve_and_deploy.yml:
 #   node_name, node_present, node_enabled, node_deploy_mode
 #   Native: node_launch_command, node_src_dir (optional), node_apt_packages, node_cpu_quota, node_memory_max,
-#     node_colcon_source (optional {repo, commit, package, workspace}: built from source, see colcon_source_build.yml)
+#     node_colcon_source (optional {repo, commit, package, workspace} or a list of them: built from source, see colcon_source_build.yml)
 #   Both: node_config_path, node_config, node_env, repo_dest
 
 - name: Validate required variables

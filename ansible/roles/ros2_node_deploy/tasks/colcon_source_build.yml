@@ -1,75 +1,17 @@
 ---
-# Build one ROS2 package from a pinned git commit into a colcon workspace (packages that are not in the apt distribution).
-# Expects node_colcon_source: {repo, commit, package, workspace, patches (optional list of unified diffs, strip 1)}.
-# Build dependencies come from the node type's apt_packages.
-# Idempotent: the stamp file is named after the pinned commit and the content hash of the patches, so the build only
-# reruns when either changes (or when install/setup.bash is gone: the stamp is then removed).
-# The Pi overheats under a full build next to the running stack: one colcon worker, make -j2, one core, low IO weight,
-# lowest CPU (nice 19) and IO (ionice idle) priority.
+# Build the pinned source packages of a node type into a colcon workspace (packages that are not in the apt
+# distribution). node_colcon_source is either ONE source dict (rf2o_laser_odometry) or a LIST of them, built in list
+# order so dependencies come first (libcamera before camera_ros). Each source is {repo, commit, package, workspace,
+# patches, cmake_args, meson_args}: see colcon_source_package.yml for the fields, the stamp logic and the build limits.
 
-- name: Create colcon workspace source directory
-  ansible.builtin.file:
-    path: "{{ node_colcon_source.workspace }}/src"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  become: true
-
-# force: discard the previously applied patches so they are re-applied on a clean checkout of the pinned commit.
-- name: Clone the pinned source commit
-  ansible.builtin.git:
-    repo: "{{ node_colcon_source.repo }}"
-    dest: "{{ node_colcon_source.workspace }}/src/{{ node_colcon_source.package }}"
-    version: "{{ node_colcon_source.commit }}"
-    force: true
-  become: true
-
-- name: Apply the repo patches to the checkout
-  ansible.builtin.patch:
-    src: "{{ item }}"
-    basedir: "{{ node_colcon_source.workspace }}/src/{{ node_colcon_source.package }}"
-    strip: 1
-    remote_src: true
-  loop: "{{ node_colcon_source.patches | default([]) }}"
-  become: true
-
-- name: Checksum the patches
-  ansible.builtin.stat:
-    path: "{{ item }}"
-    checksum_algorithm: sha1
-  register: _colcon_patch_stats
-  loop: "{{ node_colcon_source.patches | default([]) }}"
-  become: true
-
-- name: Derive the build stamp key from the commit and the patch contents
+- name: Normalise the colcon sources to a list
   ansible.builtin.set_fact:
-    _colcon_patch_key: "{{ (node_colcon_source.commit ~ (_colcon_patch_stats.results | map(attribute='stat.checksum') | join(''))) | hash('sha1') }}"
+    _colcon_sources: "{{ [node_colcon_source] if node_colcon_source is mapping else node_colcon_source }}"
+    _colcon_chain_key: ""
 
-- name: Look for the installed workspace
-  ansible.builtin.stat:
-    path: "{{ node_colcon_source.workspace }}/install/setup.bash"
-  register: _colcon_setup_stat
-  become: true
-
-- name: Drop the build stamp when the installed workspace is missing
-  ansible.builtin.file:
-    path: "{{ node_colcon_source.workspace }}/.built-{{ node_colcon_source.package }}-{{ _colcon_patch_key }}"
-    state: absent
-  when: not _colcon_setup_stat.stat.exists
-  become: true
-
-- name: Build the workspace for the pinned commit and patches
-  ansible.builtin.command:
-    cmd: >-
-      systemd-run --quiet --scope -p CPUQuota=100% -p IOWeight=10 nice -n 19 ionice -c 3
-      bash -c 'source /opt/ros/jazzy/setup.bash &&
-      colcon build --merge-install --parallel-workers 1 --packages-select {{ node_colcon_source.package }}
-      --cmake-args -DCMAKE_BUILD_TYPE=Release &&
-      touch {{ node_colcon_source.workspace }}/.built-{{ node_colcon_source.package }}-{{ _colcon_patch_key }}'
-    chdir: "{{ node_colcon_source.workspace }}"
-    creates: "{{ node_colcon_source.workspace }}/.built-{{ node_colcon_source.package }}-{{ _colcon_patch_key }}"
-  environment:
-    MAKEFLAGS: "-j2"
-  become: true
-  notify: "Restart ROS2 node"
+- name: Build each pinned source in order
+  ansible.builtin.include_tasks: colcon_source_package.yml
+  loop: "{{ _colcon_sources }}"
+  loop_control:
+    loop_var: colcon_src
+    label: "{{ colcon_src.package }}"

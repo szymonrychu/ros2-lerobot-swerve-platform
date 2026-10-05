@@ -1,0 +1,19 @@
+diff --git a/package.xml b/package.xml
+new file mode 100644
+index 0000000..c345570
+--- /dev/null
++++ b/package.xml
+@@ -0,0 +1,13 @@
++<?xml version="1.0"?>
++<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
++<package format="3">
++  <name>libcamera</name>
++  <version>0.7.2</version>
++  <description>Raspberry Pi fork of libcamera, built with colcon-meson for the camera_ros stereo pipeline</description>
++  <maintainer email="noreply@example.com">stereo_camera</maintainer>
++  <license>LGPL-2.1-or-later</license>
++
++  <export>
++    <build_type>meson</build_type>
++  </export>
++</package>

@@ -15,7 +15,8 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **bridges/bno055_imu/** — BNO055 IMU bridge; publishes `sensor_msgs/Imu` on `/imu/data` with covariance for Nav2 (Client only).
 - **bridges/gps_rtk/** — GPS RTK bridge for LC29H-BS (base, Server) and LC29H-DA (rover, Client); publishes `sensor_msgs/NavSatFix`, streams RTCM3 over TCP.
 - **bridges/rplidar_a1/** — RPLidar A1 bridge; publishes `sensor_msgs/LaserScan` on `/scan` (Client only).
-- **bridges/realsense_d435i/** — RealSense D435i bridge; color, depth, point cloud, unified IMU `/camera/imu` (Client only).
+- **bridges/realsense_d435i/** — RealSense D435i bridge (retired: the Ansible node is `present: false`, replaced by `stereo_camera/`).
+- **stereo_camera/** — Launch-only node: two IMX219 cameras (CSI cam0/cam1, camera_ros on a source-built libcamera fork) in one component container; `/stereo/{left,right}/image_raw`, plus rectified images and `/stereo/disparity` only when both calibration files exist (Client only).
 - **swerve_drive_controller/** — Swerve controller: cmd_vel → steer positions + wheel velocities (IK, +-90 deg steering), odometry from FK with slip-aware wheel dropping and residual-based covariance (Client only).
 - **static_tf_publisher/** — Static TF base_link → sensor frames (Client only).
 - **robot_localization_ekf/** — EKF fuses swerve `/odom` + lidar `/odom_rf2o_twist` + BNO055 `/imu/data` → `/odometry/filtered` and the odom → base_link TF (Client only).

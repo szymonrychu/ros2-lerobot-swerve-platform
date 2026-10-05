@@ -914,11 +914,11 @@ def test_rf2o_relay_wiring_matches_ekf_input() -> None:
 def test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit() -> None:
     """colcon on the Pi next to the running stack overheats it: one worker, make -j2, one core, low IO weight,
     nice 19, idle IO class; a stamp file named after the pinned commit makes it idempotent."""
-    path = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "colcon_source_build.yml"
+    path = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "colcon_source_package.yml"
     tasks = yaml.safe_load(path.read_text())
     git = next(t for t in tasks if "ansible.builtin.git" in t)["ansible.builtin.git"]
-    assert git["version"] == "{{ node_colcon_source.commit }}"
-    assert git["dest"].endswith("/src/{{ node_colcon_source.package }}")
+    assert git["version"] == "{{ colcon_src.commit }}"
+    assert git["dest"].endswith("/src/{{ colcon_src.package }}")
     build = next(t for t in tasks if "colcon build" in str(t.get("ansible.builtin.command", "")))
     cmd = build["ansible.builtin.command"]["cmd"]
     assert cmd.startswith("systemd-run --quiet --scope -p CPUQuota=100% -p IOWeight=10 nice -n 19 ionice -c 3 ")
@@ -930,12 +930,13 @@ def test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit() 
     assert build["notify"] == "Restart ROS2 node"
     main = (ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "main.yml").read_text()
     assert "colcon_source_build.yml" in main
+    assert "colcon_source_package.yml" in (path.parent / "colcon_source_build.yml").read_text()
 
 
 def test_launcher_sources_the_colcon_workspace_after_ros() -> None:
     template = (ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "templates" / "ros2-node-launcher.j2").read_text()
     assert template.index("source /opt/ros/jazzy/setup.bash") < template.index(
-        "source {{ node_colcon_source.workspace }}/install/setup.bash"
+        "source {{ (node_colcon_source if node_colcon_source is mapping else node_colcon_source[0]).workspace }}/install/setup.bash"
     )
     resolve = (PLAYBOOKS_DIR / "tasks" / "resolve_and_deploy.yml").read_text()
     assert "node_colcon_source:" in resolve and "colcon_source" in resolve
@@ -949,7 +950,7 @@ def test_colcon_source_build_applies_patches_and_keys_the_stamp_on_their_content
     session, sign-inverted vx/vy with the 180 deg lidar): the repo patch is applied after the checkout, and the
     stamp includes the patch content hash so a patch change rebuilds. The stamp is dropped when install/setup.bash
     is missing."""
-    path = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "colcon_source_build.yml"
+    path = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "colcon_source_package.yml"
     tasks = yaml.safe_load(path.read_text())
     names = [next(k for k in t if k not in ("name", "loop", "when", "become", "notify", "environment", "register", "loop_control", "vars")) for t in tasks]
     clone = names.index("ansible.builtin.git")
@@ -959,9 +960,9 @@ def test_colcon_source_build_applies_patches_and_keys_the_stamp_on_their_content
     assert tasks[clone]["ansible.builtin.git"]["force"] is True, "re-clone must discard the previous patch"
     patch_args = tasks[patch]["ansible.builtin.patch"]
     assert patch_args["remote_src"] is True and patch_args["strip"] == 1
-    assert patch_args["basedir"].endswith("/src/{{ node_colcon_source.package }}")
+    assert patch_args["basedir"].endswith("/src/{{ colcon_src.package }}")
     assert "item" in patch_args["src"]
-    assert tasks[patch]["loop"] == "{{ node_colcon_source.patches | default([]) }}"
+    assert tasks[patch]["loop"] == "{{ colcon_src.patches | default([]) }}"
     text = path.read_text()
     assert "ansible.builtin.stat" in text and "checksum" in text and "_colcon_patch_key" in text
     assert "install/setup.bash" in text

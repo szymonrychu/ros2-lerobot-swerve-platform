@@ -1,0 +1,39 @@
+---
+# Boot config for the two Arducam B0184 (IMX219) cameras on the Pi 5 CSI ports cam0 (left) and cam1 (right): auto
+# detection off, one explicit imx219 overlay per port. The firmware reads config.txt at boot, so the client reboots
+# when (and only when) one of the lines was added or changed. Same pattern as the UART overlay in
+# deploy_nodes_client.yml. Included from pre_tasks (after the stop-all) by the full client playbook and by
+# nodes/client/stereo_camera.yml.
+- name: Disable camera auto detection (the imx219 overlays are explicit)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    line: "camera_auto_detect=0"
+    regexp: "^camera_auto_detect="
+    create: true
+  when: ansible_machine == "aarch64"
+  register: camera_auto_detect_result
+
+- name: Enable the IMX219 overlay on CSI cam0 (left camera)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    line: "dtoverlay=imx219,cam0"
+    regexp: "^dtoverlay=imx219,cam0$"
+    insertafter: "^camera_auto_detect="
+    create: true
+  when: ansible_machine == "aarch64"
+  register: imx219_cam0_result
+
+- name: Enable the IMX219 overlay on CSI cam1 (right camera)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    line: "dtoverlay=imx219,cam1"
+    regexp: "^dtoverlay=imx219,cam1$"
+    insertafter: "^dtoverlay=imx219,cam0$"
+    create: true
+  when: ansible_machine == "aarch64"
+  register: imx219_cam1_result
+
+- name: Reboot client if a camera boot overlay changed
+  when: camera_auto_detect_result.changed or imx219_cam0_result.changed or imx219_cam1_result.changed
+  ansible.builtin.reboot:
+    reboot_timeout: 120

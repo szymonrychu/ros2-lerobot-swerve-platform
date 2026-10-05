@@ -85,7 +85,8 @@ in parallel with other nodes.
 | `haptic_controller` | Haptic feedback (disabled by default) |
 | `gripper_uvc_camera` | USB camera bridge |
 | `rplidar_a1` | LiDAR bridge (USB) |
-| `realsense_d435i` | RealSense depth camera |
+| `realsense_d435i` | Removed (present: false): replaced by `stereo_camera` |
+| `stereo_camera` | Two IMX219 CSI cameras (cam0/cam1), libcamera fork + camera_ros built from source into `/opt/ros2-ws` (first deploy compiles for a long time at lowest priority); adds `camera_auto_detect=0` + `dtoverlay=imx219,cam0/cam1` to `/boot/firmware/config.txt` and reboots the client only when they changed; publishes `/stereo/{left,right}/image_raw`, rectified images + `/stereo/disparity` once `nodes/stereo_camera/calibration/{left,right}.yaml` exist |
 | `lerobot_follower` | SO-101 follower arm + swerve servos group `swerve_drive` (feetech, one USB bus) |
 | `swerve_drive_servos` | Removed (present: false): swerve servos now run inside `lerobot_follower` (shared bus) |
 | `swerve_controller` | Swerve drive kinematics |

@@ -127,6 +127,72 @@ ros2_node_type_defaults:
     memory_max: "512M"
     apt_packages:
       - ros-jazzy-realsense2-camera
+  # Two Arducam B0184 (IMX219) on CSI cam0/cam1: Raspberry Pi libcamera fork + camera_ros built from pinned sources into
+  # /opt/ros2-ws (libcamera first), launched with image_proc / stereo_image_proc in one component container. The apt
+  # ros-jazzy-camera-ros / ros-jazzy-libcamera packages must NOT be installed: they would shadow the fork. Boot
+  # overlays: playbooks/tasks/stereo_camera_boot_config.yml. See nodes/stereo_camera/README.md.
+  stereo_camera:
+    deploy_mode: native
+    node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/stereo_camera/launch/stereo_camera.launch.py"
+    node_src_dir: ""
+    cpu_quota: "150%"
+    memory_max: "384M"
+    nice: 5
+    config_path: /etc/ros2/stereo_camera
+    env:
+      - STEREO_CAMERA_CONFIG=/etc/ros2/stereo_camera/config.yaml
+    colcon_source:
+      - repo: https://github.com/raspberrypi/libcamera.git
+        commit: v0.7.2+rpt20260817
+        package: libcamera
+        workspace: /opt/ros2-ws
+        # colcon-meson needs a package.xml (build_type meson); libpisp comes from its meson wrap (needs network).
+        patches:
+          - "{{ ros2_repo_dest }}/nodes/stereo_camera/patches/libcamera-0001-add-package-xml.patch"
+        meson_args:
+          - -Dpipelines=rpi/pisp
+          - -Dipas=rpi/pisp
+          - -Dcam=enabled
+          - -Dqcam=disabled
+          - -Dgstreamer=disabled
+          - -Dv4l2=false
+          - -Dtest=false
+          - -Ddocumentation=disabled
+          - -Dpycamera=disabled
+          # Release build, libraries in install/lib (where the colcon library path hook and pkg-config look).
+          - -Dbuildtype=release
+          - -Dlibdir=lib
+      - repo: https://github.com/christianrauch/camera_ros.git
+        commit: 8f792e27a6dbc81e4943a75765fc1b7b7d37b301
+        package: camera_ros
+        workspace: /opt/ros2-ws
+        # Exposes the libcamera rpi SyncMode / SyncFrames controls as ROS parameters (stereo frame sync).
+        patches:
+          - "{{ ros2_repo_dest }}/nodes/stereo_camera/patches/camera_ros-0001-expose-sync-controls.patch"
+    apt_packages:
+      - git
+      - build-essential
+      - cmake
+      - pkg-config
+      - python3-colcon-common-extensions
+      - python3-colcon-meson
+      - meson
+      - ninja-build
+      - python3-ply
+      - python3-jinja2
+      - python3-yaml
+      - libyaml-dev
+      - libgnutls28-dev
+      - ros-jazzy-ament-cmake
+      - ros-jazzy-rclcpp
+      - ros-jazzy-rclcpp-components
+      - ros-jazzy-sensor-msgs
+      - ros-jazzy-diagnostic-msgs
+      - ros-jazzy-camera-info-manager
+      - ros-jazzy-cv-bridge
+      - ros-jazzy-image-proc
+      - ros-jazzy-stereo-image-proc
+      - ros-jazzy-camera-calibration
   swerve_controller:
     deploy_mode: native
     node_launch_command: "python3 -m swerve_drive_controller"
@@ -515,10 +581,21 @@ ros2_nodes:
     node_type: rplidar_a1
     present: true
     enabled: true
+  # Replaced by the stereo_camera pair: present false uninstalls the unit on the next deploy.
   - name: realsense_d435i
     node_type: realsense_d435i
+    present: false
+    enabled: false
+  # Stereo pair: no stereo TF yet (mount pose not measured). Camera IDs: `cam -l` on the client, see the README.
+  - name: stereo_camera
+    node_type: stereo_camera
     present: true
     enabled: true
+    config: |
+      # libcamera IDs of the cameras (`cam -l`); empty selects camera index 0 / 1 and logs a warning.
+      left_camera_id: ""
+      right_camera_id: ""
+      publish_points: false
   - name: lerobot_follower
     node_type: feetech_servos
     present: true
@@ -659,13 +736,8 @@ ros2_nodes:
           pitch: 0.0
           # Lidar is mounted rotated 180 deg (bench test 2026-10-03: forward motion shortened the 180 deg range).
           yaw: 3.14159265
-        - child: camera_link
-          x: 0.10
-          y: 0.0
-          z: 0.08
-          roll: 0.0
-          pitch: 0.0
-          yaw: 0.0
+        # No stereo camera frames here on purpose: the stereo pair's mount pose is not measured yet, so no guessed
+        # base_link -> stereo_*_optical_frame transform is published (see nodes/stereo_camera/README.md).
   # Lidar odometry for the EKF (see nodes/rf2o_laser_odometry/README.md); must start before the EKF fuses /odom_rf2o_twist.
   - name: rf2o_laser_odometry
     node_type: rf2o_laser_odometry
