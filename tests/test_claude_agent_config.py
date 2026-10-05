@@ -325,3 +325,61 @@ def test_every_test_is_documented_in_tests_readme() -> None:
     names = [n.name for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")]
     missing = [name for name in names if f"`{name}`" not in section]
     assert not missing, f"undocumented in tests/README.md: {missing}"
+
+
+HARDENING_LINES = ("ProtectProc=invisible", "ProcSubset=pid", "NoNewPrivileges=yes", "PrivateTmp=yes")
+HARDENING_VARS = ("node_protect_proc", "node_proc_subset", "node_no_new_privileges", "node_private_tmp")
+
+
+def test_claude_agent_hardening_in_group_vars_without_filesystem_protection() -> None:
+    d = client_vars()["ros2_node_type_defaults"]["claude_agent"]
+    assert d["protect_proc"] == "invisible" and d["proc_subset"] == "pid"
+    assert d["no_new_privileges"] is True and d["private_tmp"] is True
+    assert "protect_system" not in d and "protect_home" not in d
+
+
+def test_only_claude_agent_sets_hardening_in_group_vars() -> None:
+    keys = {"protect_proc", "proc_subset", "no_new_privileges", "private_tmp"}
+    for group_vars in (CLIENT_VARS, CLIENT_VARS.with_name("server.yml")):
+        for name, defaults in yaml.safe_load(group_vars.read_text()).get("ros2_node_type_defaults", {}).items():
+            if name != "claude_agent":
+                assert not keys & set(defaults), f"{name} must keep the default unit"
+
+
+def test_resolve_and_deploy_passes_hardening_with_empty_defaults() -> None:
+    tasks = yaml.safe_load(RESOLVE_TASKS.read_text())
+    role_vars = next(t for t in tasks if "ansible.builtin.include_role" in t)["vars"]
+    for var, key in zip(HARDENING_VARS, ("protect_proc", "proc_subset", "no_new_privileges", "private_tmp")):
+        assert f".{key}" in role_vars[var] and "default(" in role_vars[var]
+
+
+def test_role_defaults_keep_hardening_off() -> None:
+    defaults = yaml.safe_load((ROLE_DIR / "defaults" / "main.yml").read_text())
+    for var in HARDENING_VARS:
+        assert var in defaults and defaults[var] in ("", False)
+
+
+def test_service_template_hardening_is_optional() -> None:
+    jinja2 = pytest.importorskip("jinja2")
+    template = jinja2.Template(SERVICE_TEMPLATE.read_text())
+    base = {"node_name": "x", "ansible_user": "ubuntu"}
+    default = template.render(**base)
+    for needle in ("ProtectProc", "ProcSubset", "NoNewPrivileges", "PrivateTmp", "ProtectSystem", "ProtectHome"):
+        assert needle not in default
+    hardened = template.render(
+        **base, node_protect_proc="invisible", node_proc_subset="pid", node_no_new_privileges=True, node_private_tmp=True
+    )
+    for line in HARDENING_LINES:
+        assert f"{line}\n" in hardened
+    assert "ProtectSystem" not in hardened and "ProtectHome" not in hardened
+    off = template.render(
+        **base, node_protect_proc="", node_proc_subset="", node_no_new_privileges=False, node_private_tmp=False
+    )
+    assert off == default
+
+
+def test_claude_agent_config_has_watchdog_and_sdk_initialize_timeout() -> None:
+    cfg = yaml.safe_load(node_entry("claude_agent")["config"])
+    assert cfg["instruction_timeout_s"] == 900
+    env = client_vars()["ros2_node_type_defaults"]["claude_agent"]["env"]
+    assert "CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=180000" in env

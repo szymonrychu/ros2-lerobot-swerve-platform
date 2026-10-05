@@ -381,6 +381,12 @@ layout; no ROS needed).
 | `test_claude_agent_readme_documents_api_and_token_deploy` | The node README lists every API route, the cap and the `export CLAUDE_CODE_OAUTH_TOKEN` deploy command. |
 | `test_docs_and_lint_scripts_list_claude_agent` | `nodes/README.md`, `ansible/README.md`, the ansible-deploy skill, `scripts/lint-all-nodes.sh` and root `lint-nodes` mention the node. |
 | `test_deploy_script_discovers_node_playbook` | `playbooks/nodes/client/claude_agent.yml` exists, which is how `deploy-nodes.sh` finds the node. |
+| `test_claude_agent_hardening_in_group_vars_without_filesystem_protection` | The `claude_agent` node type sets `protect_proc: invisible`, `proc_subset: pid`, `no_new_privileges`, `private_tmp` and no ProtectSystem/ProtectHome (the bearer token is in the CLI child's argv). |
+| `test_only_claude_agent_sets_hardening_in_group_vars` | No other node type in client.yml / server.yml sets any of the hardening keys, so their units are unchanged. |
+| `test_resolve_and_deploy_passes_hardening_with_empty_defaults` | `resolve_and_deploy.yml` hands the four hardening keys to the role, each with a `default(...)`. |
+| `test_role_defaults_keep_hardening_off` | `ros2_node_deploy` defaults leave all four hardening variables empty/false. |
+| `test_service_template_hardening_is_optional` | Unit template (jinja2 when installed): no hardening lines by default or with empty values (identical output); the four lines and no ProtectSystem/ProtectHome when set. |
+| `test_claude_agent_config_has_watchdog_and_sdk_initialize_timeout` | The entry's config sets `instruction_timeout_s: 900` and the node env raises the SDK initialize timeout (`CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=180000`). |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_claude_agent_config.py` is listed in this section. |
 
 ### test_web_ui_agent_tab.py

@@ -277,6 +277,12 @@ ros2_node_type_defaults:
     memory_max: "1G"
     nice: 10
     user: claude_agent
+    # Hardening (claude_agent only): the MCP bearer token is in the CLI child's argv (--mcp-config), so hide other
+    # processes' /proc entries from it. No ProtectSystem/ProtectHome: the CLI writes under its home and work_dir.
+    protect_proc: invisible
+    proc_subset: pid
+    no_new_privileges: true
+    private_tmp: true
     # Group that may read the mcp_server bearer token (created by playbooks/tasks/mcp_server_setup.yml).
     supplementary_groups:
       - mcp-token
@@ -285,6 +291,8 @@ ros2_node_type_defaults:
       - CLAUDE_AGENT_CONFIG=/etc/ros2/claude_agent/config.yaml
       - DISABLE_AUTOUPDATER=1
       - HOME=/var/lib/claude_agent
+      # SDK initialize timeout in ms (default 60 s): the CLI starts slowly on the Pi under CPUQuota=50%.
+      - CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=180000
       # The agent needs no DDS data; UDP only avoids FastDDS shared-memory permission clashes between users.
       - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
     # CLAUDE_CODE_OAUTH_TOKEN=<token>, written by playbooks/tasks/claude_agent_setup.yml from the deployer's env (never in git).
@@ -835,6 +843,7 @@ ros2_nodes:
       history_size: 500
       image_thumbnail_max_px: 480
       work_dir: /var/lib/claude_agent
+      instruction_timeout_s: 900
       effector_tools:
         - navigate_to_pose
         - move_relative

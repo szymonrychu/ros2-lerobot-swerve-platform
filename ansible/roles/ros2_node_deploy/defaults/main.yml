@@ -7,6 +7,13 @@
 #   node_user (optional): systemd User= (default: ansible_user), node_supplementary_groups (optional list),
 #   node_nice (optional): systemd Nice=.
 #   node_environment_file (optional): systemd EnvironmentFile= for secrets kept out of the unit (e.g. mcp_server token).
+#   node_protect_proc / node_proc_subset (optional): systemd ProtectProc= / ProcSubset= (empty: not set).
+#   node_no_new_privileges / node_private_tmp (optional bool): systemd NoNewPrivileges=yes / PrivateTmp=yes.
 
 ros2_node_config_dir: /etc/ros2
 ros2_node_restart_on_change: true
+
+node_protect_proc: ""
+node_proc_subset: ""
+node_no_new_privileges: false
+node_private_tmp: false

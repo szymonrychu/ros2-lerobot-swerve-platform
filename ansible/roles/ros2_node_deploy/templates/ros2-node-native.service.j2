@@ -17,6 +17,18 @@ MemoryMax={{ node_memory_max | default('256M') }}
 {% if node_nice | default('') | string | length > 0 %}
 Nice={{ node_nice }}
 {% endif %}
+{% if node_protect_proc | default('') | length > 0 %}
+ProtectProc={{ node_protect_proc }}
+{% endif %}
+{% if node_proc_subset | default('') | length > 0 %}
+ProcSubset={{ node_proc_subset }}
+{% endif %}
+{% if node_no_new_privileges | default(false) | string | lower == 'true' %}
+NoNewPrivileges=yes
+{% endif %}
+{% if node_private_tmp | default(false) | string | lower == 'true' %}
+PrivateTmp=yes
+{% endif %}
 {% for env in ros2_dds_env | default([]) %}
 Environment={{ env }}
 {% endfor %}

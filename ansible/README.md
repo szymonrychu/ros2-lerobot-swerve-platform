@@ -386,7 +386,10 @@ export CLAUDE_CODE_OAUTH_TOKEN=...   # from `claude setup-token`
 With the variable unset an existing env file on the robot is kept; with neither the deploy fails with that hint. The
 unit reads the file through `EnvironmentFile=` (never `Environment=`). The service runs as `claude_agent` through the
 optional per-node role variables `node_user` (`user:` in `ros2_node_type_defaults`, default `ansible_user`),
-`node_supplementary_groups` (`supplementary_groups:`) and `node_nice` (`nice:`); other nodes are unchanged.
+`node_supplementary_groups` (`supplementary_groups:`) and `node_nice` (`nice:`); other nodes are unchanged. Because the MCP
+bearer token is in the CLI child's argv, the claude_agent unit is also hardened through the optional variables
+`node_protect_proc`, `node_proc_subset`, `node_no_new_privileges`, `node_private_tmp` (`protect_proc: invisible`,
+`proc_subset: pid`, `no_new_privileges: true`, `private_tmp: true`; defaults off, so other units are unchanged).
 `mcp_server_setup.yml` now creates the system group `mcp-token` and makes the MCP token group-readable
 (`0640`, owner `ansible_user`, group `mcp-token`); `claude_agent` joins that group through `SupplementaryGroups=`.
 The Claude Code CLI is the native binary bundled in the pinned `claude-agent-sdk` wheel (installed by Poetry), so no

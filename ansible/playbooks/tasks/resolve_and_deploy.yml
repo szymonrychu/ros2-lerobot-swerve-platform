@@ -33,4 +33,8 @@
     node_user: "{{ ros2_node_type_defaults[_node.node_type].user | default('') }}"
     node_supplementary_groups: "{{ ros2_node_type_defaults[_node.node_type].supplementary_groups | default([]) }}"
     node_nice: "{{ ros2_node_type_defaults[_node.node_type].nice | default('') }}"
+    node_protect_proc: "{{ ros2_node_type_defaults[_node.node_type].protect_proc | default('') }}"
+    node_proc_subset: "{{ ros2_node_type_defaults[_node.node_type].proc_subset | default('') }}"
+    node_no_new_privileges: "{{ ros2_node_type_defaults[_node.node_type].no_new_privileges | default(false) }}"
+    node_private_tmp: "{{ ros2_node_type_defaults[_node.node_type].private_tmp | default(false) }}"
     node_extra_args: "{{ _node.extra_args | default('') }}"
