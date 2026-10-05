@@ -21,10 +21,10 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `move_relative(dx, dy, dyaw)` | Same, goal given in base_link (converted to a map goal via TF). |
 | `drive(vx, vy, wz, duration_s<=2)` | 20 Hz on `/cmd_vel_nav` (through velocity smoother + collision monitor), clamped to 0.25 m/s / 0.5 rad/s, then zero. |
 | `stop` | Always available: cancels all NavigateToPose goals and publishes a zero twist. Aborts any arm motion and holds the arm at its measured pose only if this server holds arm control (or a motion is running); otherwise the arm is not touched (`arm_held: false`). |
-| `get_arm_state` | Joint positions/efforts, gripper effort, tool point pose (x, y, z, pitch), active source, lease, home stored. |
+| `get_arm_state` | Joint positions/efforts, gripper effort, tool point pose (x, y, z, pitch), `floor_z_m` (floor height in the base_link frame), active source, lease, home stored. |
 | `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
 | `move_arm_joints(targets, speed_scale<=0.5)` | Interpolated motion to joint targets. |
-| `move_arm_cartesian(x, y, z, pitch=None, frame='base_link')` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch, wrist_roll kept); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount). |
+| `move_arm_cartesian(x, y, z, pitch=None, frame='base_link')` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch, wrist_roll kept); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.165, measured 16.5 cm); the tool descriptions and `get_arm_state.floor_z_m` state it. No motion restriction is derived from it. |
 | `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
 
@@ -109,6 +109,7 @@ server:
 arm:
   urdf_path: nodes/web_ui/urdf/so101_arm.urdf   # relative paths resolve against the repo root
   home_file: /var/lib/ros2/arm/home.yaml
+  arm_base_height_m: 0.165   # arm mount plane height above the floor (m); floor_z_m = -this
   gripper_open_rad: 1.5
   gripper_closed_rad: 0.0
 limits:

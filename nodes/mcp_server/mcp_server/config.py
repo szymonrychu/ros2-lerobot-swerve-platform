@@ -125,6 +125,17 @@ class ArmSettings(StrictModel):
     gripper_open_rad: float = 1.5
     gripper_closed_rad: float = 0.0
     autonomy_source_name: str = "autonomy"
+    # Height of the arm mount plane (the URDF base_link origin) above the floor, measured on the robot.
+    arm_base_height_m: float = Field(default=0.165, gt=0.0, le=1.0)
+
+    @property
+    def floor_z_m(self) -> float:
+        """Floor height (m) in the arm base_link frame: z = 0 is the mount plane, so the floor is below it.
+
+        Returns:
+            float: Negative z of the floor.
+        """
+        return -self.arm_base_height_m
 
     @field_validator("urdf_path")
     @classmethod

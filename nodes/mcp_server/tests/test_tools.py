@@ -308,3 +308,10 @@ def test_http_app_serves_configured_path(robot: FakeRobot) -> None:
     good = HEADERS | {"Authorization": f"Bearer {TOKEN}"}
     with TestClient(app) as client:
         assert client.post("/robot", json=init_body(), headers=good).status_code == 200
+
+
+def test_cartesian_and_arm_state_descriptions_state_the_floor_height(server: Any) -> None:
+    docs = tool_descriptions(server)
+    for name in ("move_arm_cartesian", "get_arm_state"):
+        assert "floor is at z = -0.165 m" in docs[name], name
+    assert "floor_z_m" in docs["get_arm_state"]

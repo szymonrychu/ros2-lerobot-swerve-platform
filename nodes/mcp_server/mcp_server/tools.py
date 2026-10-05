@@ -215,6 +215,10 @@ def register_tools(
     tool: Callable[..., Callable[[Callable[..., object]], Callable[..., object]]] = server.tool
     nav_default = config.timeouts.nav_default_timeout_s
     nav_max = config.timeouts.nav_max_timeout_s
+    floor_note = (
+        f"The floor is at z = {config.arm.floor_z_m:.3f} m in this frame "
+        f"(the arm mount is {config.arm.arm_base_height_m * 100:.1f} cm above it)."
+    )
 
     def battery_gate(tool_name: str) -> None:
         """Refuse a motion tool while the battery is below cut-off, before the robot is touched."""
@@ -321,11 +325,16 @@ def register_tools(
         with tool_errors():
             return robot.stop()
 
-    @tool()
+    @tool(
+        description=(
+            "Arm joint positions (rad) and efforts, gripper effort, gripper tool point pose (x, y, z, pitch in the "
+            "arm base_link), the filter_node active source, whether this server holds the autonomy lease, whether a "
+            "home pose is stored, and the joint_states age. Positions are omitted when the feedback is stale. "
+            f"{floor_note} It is also returned as floor_z_m."
+        )
+    )
     def get_arm_state() -> ArmState:
-        """Arm joint positions (rad) and efforts, gripper effort, gripper tool point pose (x, y, z, pitch in the
-        arm base_link), the filter_node active source, whether this server holds the autonomy lease, whether a home
-        pose is stored, and the joint_states age. Positions are omitted when the feedback is stale."""
+        """Current arm state; the tool description is passed to the decorator so it can state the floor height."""
         with tool_errors():
             return robot.arm.state()
 
@@ -367,7 +376,16 @@ def register_tools(
         with tool_errors():
             return robot.arm.move_joints(targets, speed_scale)
 
-    @tool()
+    @tool(
+        description=(
+            "Move the gripper tool point to (x, y, z) in the arm's base_link frame (arm URDF root: x forward "
+            "along the arm at shoulder_pan=0, z up), optionally with an approach pitch. Solves inverse "
+            "kinematics on the arm URDF (5-DOF: position + pitch, wrist_roll kept) and streams the joint motion "
+            "like move_arm_joints. Returns status 'unreachable' without moving when no solution exists within "
+            "joint limits. Keeps arm control afterwards like move_arm_joints: call release_control when done. "
+            f"{floor_note}"
+        )
+    )
     def move_arm_cartesian(
         x: Annotated[float, Field(description="Gripper tool point x (m), forward of the arm base")],
         y: Annotated[float, Field(description="Tool point y (m), left of the arm base")],
@@ -378,11 +396,7 @@ def register_tools(
         frame: Annotated[Literal["base_link"], Field(description="Arm URDF base_link (the arm mount)")] = "base_link",
         speed_scale: Annotated[float, Field(gt=0.0, le=HARD_MAX_SPEED_SCALE)] = HARD_MAX_SPEED_SCALE,
     ) -> ArmMotionResult:
-        """Move the gripper tool point to (x, y, z) in the arm's base_link frame (arm URDF root: x forward along
-        the arm at shoulder_pan=0, z up), optionally with an approach pitch. Solves inverse kinematics on the arm
-        URDF (5-DOF: position + pitch, wrist_roll kept) and streams the joint motion like move_arm_joints. Returns
-        status 'unreachable' without moving when no solution exists within joint limits. Keeps arm control afterwards
-        like move_arm_joints: call release_control when done."""
+        """Move the tool point; the tool description is passed to the decorator so it can state the floor."""
         battery_gate("move_arm_cartesian")
         del frame  # the only supported frame
         with tool_errors():

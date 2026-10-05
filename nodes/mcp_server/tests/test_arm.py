@@ -316,3 +316,16 @@ def test_state_omits_stale_joint_data(tmp_path: Path) -> None:
     st = arm.state()
     assert st.positions is None and st.efforts is None
     assert st.joint_states_age_s == pytest.approx(5.0)
+
+
+def test_state_reports_floor_z_below_the_arm_base(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path)
+    assert arm.state().floor_z_m == pytest.approx(-0.165)
+
+
+def test_state_floor_z_follows_configured_base_height(tmp_path: Path) -> None:
+    cfg = CONFIG.model_copy(deep=True)
+    cfg.arm.arm_base_height_m = 0.2
+    cfg.arm.home_file = tmp_path / "home.yaml"
+    arm = ArmController(FakeArmBackend(), KIN, load_joint_limits(cfg.arm.urdf_path), cfg)
+    assert arm.state().floor_z_m == pytest.approx(-0.2)

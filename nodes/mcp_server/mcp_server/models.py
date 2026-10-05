@@ -100,6 +100,9 @@ class ArmState(BaseModel):
     tool_pose: dict[str, float] | None = Field(
         default=None, description="Gripper tool point x, y, z (m) and pitch (rad, + down) in the arm base_link"
     )
+    floor_z_m: float | None = Field(
+        default=None, description="Floor height (m) in the arm base_link frame (negative: below the arm mount)"
+    )
 
 
 class RobotState(BaseModel):

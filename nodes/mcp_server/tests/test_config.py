@@ -127,3 +127,14 @@ def test_token_from_env_refuses_short_tokens(monkeypatch: pytest.MonkeyPatch) ->
 def test_token_from_env_strips(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MCP_SERVER_TOKEN", "  " + "a" * 48 + "\n")
     assert token_from_env() == "a" * 48
+
+
+def test_arm_base_height_defaults_to_measured_16_5_cm_and_gives_floor_z() -> None:
+    arm = McpServerConfig().arm
+    assert arm.arm_base_height_m == 0.165
+    assert arm.floor_z_m == pytest.approx(-0.165)
+
+
+def test_arm_base_height_must_be_positive() -> None:
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"arm": {"arm_base_height_m": 0.0}})

@@ -493,6 +493,7 @@ class ArmController:
             active_source_age_s=None if src is None else src.age(now),
             control_held=self._held,
             home_stored=self.home_stored(),
+            floor_z_m=self.cfg.arm.floor_z_m,
         )
         if sample is not None:
             pose = self.kin.forward(sample.positions)
