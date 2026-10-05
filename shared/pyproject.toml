@@ -1,0 +1,14 @@
+[tool.poetry]
+name = "ros2-common"
+version = "0.1.0"
+description = "Shared helpers for the ROS2 nodes (battery cut-off guard and config)"
+readme = "README.md"
+packages = [{ include = "ros2_common" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.15"
+pydantic = ">=2.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
