@@ -93,6 +93,7 @@ in parallel with other nodes.
 | `static_tf_publisher` | TF frame publisher |
 | `rf2o_laser_odometry` | rf2o lidar odometry (source-built colcon workspace `/opt/ros2-ws`, pinned commit; first deploy compiles at lowest priority) |
 | `rf2o_odom_relay` | rf2o pose -> body twist with covariance for the EKF |
+| `stereo_depth` | stereo_image_proc disparity -> 16UC1 depth (mm) + camera_info |
 | `robot_localization_ekf` | EKF odometry fusion |
 | `nav2_bringup` | Nav2 navigation stack |
 | `web_ui` | Browser dashboard (FastAPI + React) |

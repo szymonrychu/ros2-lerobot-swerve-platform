@@ -133,6 +133,10 @@
       ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
       vars:
         _deploy_node_name: stereo_camera
+    - name: Deploy stereo_depth
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: stereo_depth
 
     - name: Deploy lerobot_follower
       ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml

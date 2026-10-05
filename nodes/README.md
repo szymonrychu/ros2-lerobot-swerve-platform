@@ -21,6 +21,7 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **static_tf_publisher/** — Static TF base_link → sensor frames (Client only).
 - **robot_localization_ekf/** — EKF fuses swerve `/odom` + lidar `/odom_rf2o_twist` + BNO055 `/imu/data` → `/odometry/filtered` and the odom → base_link TF (Client only).
 - **rf2o_laser_odometry/** — rf2o lidar odometry (source-built from a pinned upstream commit) on `/scan_filtered` → `/odom_rf2o`; no TF (Client only).
+- **stereo_depth/** — Converts the `stereo_image_proc` disparity (`/stereo/disparity`) to 16UC1 depth in mm on `/stereo/depth/image_rect` plus `/stereo/depth/camera_info` (Client only).
 - **rf2o_odom_relay/** — Re-publishes rf2o as a body-frame twist with a real covariance on `/odom_rf2o_twist` for the EKF (Client only).
 - **laser_filter/** — laser_filters box filter removing lidar returns on the robot body: `/scan` → `/scan_filtered` for SLAM, costmaps and collision monitor (Client only).
 - **slam_toolbox/** — slam_toolbox online async SLAM from `/scan` + odometry TF: publishes `/map` and map → odom; saved posegraph in `/var/lib/ros2/maps` is reloaded at start (Client only).

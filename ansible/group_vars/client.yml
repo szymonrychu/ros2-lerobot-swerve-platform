@@ -267,6 +267,16 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/rf2o_odom_relay
     env:
       - RF2O_ODOM_RELAY_CONFIG=/etc/ros2/rf2o_odom_relay/config.yaml
+  # stereo_image_proc disparity -> 16UC1 depth (mm) + camera_info for depth consumers.
+  stereo_depth:
+    deploy_mode: native
+    node_launch_command: "python3 -m stereo_depth"
+    node_src_dir: "nodes/stereo_depth"
+    cpu_quota: "25%"
+    memory_max: "128M"
+    config_path: /etc/ros2/stereo_depth
+    env:
+      - STEREO_DEPTH_CONFIG=/etc/ros2/stereo_depth/config.yaml
   robot_localization_ekf:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/robot_localization_ekf/launch/ekf.launch.py"
@@ -596,6 +606,17 @@ ros2_nodes:
       left_camera_id: ""
       right_camera_id: ""
       publish_points: false
+  - name: stereo_depth
+    node_type: stereo_depth
+    present: true
+    enabled: true
+    config: |
+      disparity_topic: /stereo/disparity
+      camera_info_topic: /stereo/left/camera_info
+      depth_topic: /stereo/depth/image_rect
+      depth_camera_info_topic: /stereo/depth/camera_info
+      min_depth_m: 0.2
+      max_depth_m: 4.0
   - name: lerobot_follower
     node_type: feetech_servos
     present: true

@@ -345,6 +345,7 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | static_tf_publisher | 10% | 64M |
 | rf2o_laser_odometry | 25% | 128M |
 | rf2o_odom_relay | 10% | 64M |
+| stereo_depth | 25% | 128M |
 | robot_localization_ekf | 25% | 128M |
 | slam_toolbox | 75% | 512M |
 | nav2_bringup | 75% | 512M |
