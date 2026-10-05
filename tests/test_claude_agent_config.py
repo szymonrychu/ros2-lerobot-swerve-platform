@@ -162,18 +162,26 @@ def test_claude_agent_config_valid_and_consistent_with_mcp_server() -> None:
     assert "stop" in cfg.uncapped_tools and "stop" not in cfg.effector_tools
 
 
-def test_effector_tools_match_mcp_server_motion_tools_when_defined() -> None:
-    pytest.importorskip("pydantic")
-    source = "\n".join(p.read_text() for p in (REPO_ROOT / "nodes" / "mcp_server" / "mcp_server").glob("*.py"))
-    match = re.search(r"^MOTION_TOOLS\b[^=]*=\s*(.+?)$", source, re.M)
-    if not match:
-        pytest.skip("mcp_server defines no MOTION_TOOLS yet")
-    try:
-        motion = set(ast.literal_eval(match.group(1).strip()))
-    except (ValueError, SyntaxError):
-        pytest.skip("MOTION_TOOLS is not a plain literal")
+def mcp_server_motion_tools() -> set[str]:
+    """Read MOTION_TOOLS from nodes/mcp_server/mcp_server/tools.py without importing the node.
+
+    Returns:
+        set[str]: Tool names in the MOTION_TOOLS set literal (optionally wrapped in frozenset(...)).
+    """
+    tree = ast.parse((REPO_ROOT / "nodes" / "mcp_server" / "mcp_server" / "tools.py").read_text())
+    for node in ast.walk(tree):
+        target = node.targets[0] if isinstance(node, ast.Assign) else getattr(node, "target", None)
+        if isinstance(target, ast.Name) and target.id == "MOTION_TOOLS" and node.value is not None:
+            value = node.value
+            if isinstance(value, ast.Call) and value.args:
+                value = value.args[0]
+            return set(ast.literal_eval(value))
+    raise AssertionError("mcp_server tools.py defines no MOTION_TOOLS")
+
+
+def test_effector_tools_match_mcp_server_motion_tools() -> None:
     cfg = yaml.safe_load(node_entry("claude_agent")["config"])
-    assert set(cfg["effector_tools"]) == motion
+    assert set(cfg["effector_tools"]) == mcp_server_motion_tools()
 
 
 def test_service_template_user_groups_and_nice_are_optional() -> None:

@@ -366,7 +366,7 @@ layout; no ROS needed).
 | `test_claude_agent_node_type_defaults` | `claude_agent` node type: native, `nodes/claude_agent`, `python3 -m claude_agent`, 50% / 1G, nice, user `claude_agent`, group `mcp-token`, `environment_file` `/etc/ros2/claude_agent/env`, `DISABLE_AUTOUPDATER=1`, no secret in `env`. |
 | `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `mcp_server`. |
 | `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
-| `test_effector_tools_match_mcp_server_motion_tools_when_defined` | When mcp_server defines a `MOTION_TOOLS` literal, `effector_tools` equals it (skipped until then). |
+| `test_effector_tools_match_mcp_server_motion_tools` | `effector_tools` in the claude_agent config equals mcp_server `MOTION_TOOLS` (parsed from tools.py with `ast`), so the effector cap and the battery gate cover the same tools. |
 | `test_service_template_user_groups_and_nice_are_optional` | Unit template: `User=` defaults to `ansible_user`; `node_user`, `SupplementaryGroups=` and `Nice=` only when set. |
 | `test_resolve_and_deploy_passes_user_groups_and_nice` | `resolve_and_deploy.yml` hands `user`, `supplementary_groups` and `nice` of the node type to the role. |
 | `test_setup_tasks_read_token_from_controller_env_and_fail_clearly` | `claude_agent_setup.yml` uses `lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN')`; a fail task (before the write, without `no_log`, without touching the token) tells the user to `export CLAUDE_CODE_OAUTH_TOKEN=...` and run `deploy-nodes.sh client claude_agent`. |
