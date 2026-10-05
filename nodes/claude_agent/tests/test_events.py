@@ -188,3 +188,26 @@ def test_detect_auth_error() -> None:
     assert detect_auth_error(result(is_error=True, result="authentication_error"))
     assert not detect_auth_error(result(is_error=True, api_error_status=529, result="overloaded"))
     assert not detect_auth_error(result(is_error=False, result="401 is a number"))
+
+
+def test_detect_auth_error_ignores_incidental_matches() -> None:
+    for text in (
+        "Robot reached waypoint 401 of 500",
+        "authentication of the web UI is out of scope",
+        "pose 4012 unreachable",
+        "unauthorized area on the map",
+        "see /login page notes",
+    ):
+        assert not detect_auth_error(result(is_error=True, result=text)), text
+
+
+def test_detect_auth_error_matches_specific_patterns() -> None:
+    for text in (
+        "API Error: 401 something",
+        'API Error: 401 {"type":"error","error":{"type":"authentication_error"}}',
+        "invalid x-api-key",
+        "OAuth token has expired",
+        "Invalid API key - Please run /login",
+    ):
+        assert detect_auth_error(result(is_error=True, result=text)), text
+    assert detect_auth_error(result(is_error=True, errors=["API Error: 401 nope"]))

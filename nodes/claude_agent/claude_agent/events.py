@@ -25,11 +25,21 @@ from .tools import KIND_UNCAPPED, classify_tool, short_name
 TEXT_TRUNCATE_CHARS = 4000
 THUMBNAIL_QUALITY = 70
 THUMBNAIL_MEDIA_TYPE = "image/jpeg"
-AUTH_MARKERS = ("401", "authentication", "invalid api key", "oauth", "/login", "unauthorized", "invalid x-api-key")
+# Specific wording of Claude Code authentication failures; a bare "401" or "authentication" is not enough (tool or
+# model text can mention them).
+AUTH_MARKERS = (
+    "api error: 401",
+    "authentication_error",
+    "invalid x-api-key",
+    "invalid api key",
+    "oauth token",
+    "please run /login",
+)
 STATUS_DONE = "done"
 STATUS_ERROR = "error"
 STATUS_INTERRUPTED = "interrupted"
 STATUS_MAX_TURNS = "max_turns"
+STATUS_TIMEOUT = "timeout"
 
 
 class EventLog:
@@ -208,13 +218,13 @@ def result_to_turn_end(result: ResultMessage, interrupted: bool, effector_calls:
 
 
 def detect_auth_error(result: ResultMessage) -> bool:
-    """Tell whether a failed result is an authentication failure (HTTP 401 or login/OAuth wording).
+    """Tell whether a failed result is clearly an authentication failure (HTTP 401 status or Claude Code's auth wording).
 
     Args:
         result (ResultMessage): Final message.
 
     Returns:
-        bool: True when is_error and the status is 401 or the text mentions authentication.
+        bool: True when is_error and the status is 401 or the text matches AUTH_MARKERS.
     """
     if not result.is_error:
         return False
