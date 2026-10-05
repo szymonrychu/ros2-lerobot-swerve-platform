@@ -21,7 +21,7 @@ import SendIcon from '@mui/icons-material/Send'
 import StopIcon from '@mui/icons-material/Stop'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { postAgent } from '../agent/agentApi'
-import { composerBlockReason, headerStatus, statusLabel } from '../agent/agentModel'
+import { composerBlockReason, headerStatus, isNearBottom, statusLabel } from '../agent/agentModel'
 import type { ChatItem, ToolContent, ToolKind } from '../agent/agentModel'
 import { useAgentChat } from '../agent/useAgentChat'
 import { cutoffBanner } from '../battery/batteryStatus'
@@ -173,6 +173,7 @@ export default function AgentChatTab({ battery }: Props) {
   const [confirmReset, setConfirmReset] = useState(false)
   const [viewImage, setViewImage] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
 
   const header = headerStatus(info, chat)
@@ -183,13 +184,24 @@ export default function AgentChatTab({ battery }: Props) {
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current
-    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX
+    if (el) stick.current = isNearBottom(el, STICK_THRESHOLD_PX)
   }, [])
 
-  useLayoutEffect(() => {
+  const followEnd = useCallback(() => {
     const el = scrollRef.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [chat.items])
+  }, [])
+
+  useLayoutEffect(followEnd, [chat.items, followEnd])
+
+  useEffect(() => {
+    // Content also grows after an event is rendered (camera thumbnails load, tool cards expand): keep following it.
+    const content = contentRef.current
+    if (!content || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(followEnd)
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [followEnd])
 
   useEffect(() => {
     // A new session starts at the top of an empty transcript: follow it again.
@@ -229,7 +241,8 @@ export default function AgentChatTab({ battery }: Props) {
   }
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
+    // Absolutely fill the (position: relative) main area so the transcript, not the page, is what scrolls.
+    <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
       <Box sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', borderBottom: 1, borderColor: 'divider' }}>
         <Chip size="small" label={header.model ?? 'model unknown'} variant="outlined" />
         <Chip size="small" color={header.busy ? 'warning' : connected ? 'success' : 'default'} label={header.busy ? 'working' : connected ? 'idle' : 'disconnected'} />
@@ -248,14 +261,18 @@ export default function AgentChatTab({ battery }: Props) {
       <Box
         ref={scrollRef}
         onScroll={onScroll}
-        sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', px: 2, py: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}
+        sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}
       >
-        {chat.items.length === 0 && (
-          <Typography color="text.secondary" sx={{ m: 'auto', textAlign: 'center' }}>
-            {connected ? 'Ask the robot agent to do something.' : 'Connecting to the agent...'}
-          </Typography>
-        )}
-        {chat.items.map((item) => renderItem(item, setViewImage))}
+        {/* Separate content box: items keep their natural height (in the scroll box itself, flex items with
+            overflow: hidden would shrink to fit instead of overflowing) and its size changes drive followEnd. */}
+        <Box ref={contentRef} sx={{ px: 2, py: 1.5, display: 'flex', flexDirection: 'column', gap: 1, minHeight: '100%' }}>
+          {chat.items.length === 0 && (
+            <Typography color="text.secondary" sx={{ m: 'auto', textAlign: 'center' }}>
+              {connected ? 'Ask the robot agent to do something.' : 'Connecting to the agent...'}
+            </Typography>
+          )}
+          {chat.items.map((item) => renderItem(item, setViewImage))}
+        </Box>
       </Box>
 
       <Box sx={{ px: 2, py: 1, borderTop: 1, borderColor: 'divider' }}>

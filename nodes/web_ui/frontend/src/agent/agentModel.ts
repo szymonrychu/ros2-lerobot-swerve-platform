@@ -262,3 +262,21 @@ export function composerBlockReason(s: ComposerState): string | null {
   if (s.busy) return 'Agent is working'
   return null
 }
+
+/** Scroll geometry of the transcript container (a subset of HTMLElement). */
+export interface ScrollGeometry {
+  scrollHeight: number
+  scrollTop: number
+  clientHeight: number
+}
+
+/**
+ * Whether the transcript view is at (or within thresholdPx of) its end, i.e. it should keep following new content.
+ *
+ * @param el - Current scroll geometry.
+ * @param thresholdPx - Distance from the end still treated as "at the bottom".
+ * @returns True when the view should stick to the newest content.
+ */
+export function isNearBottom(el: ScrollGeometry, thresholdPx: number): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight < thresholdPx
+}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isNearBottom,
   applyFrame,
   applyStateSnapshot,
   composerBlockReason,
@@ -159,5 +160,17 @@ describe('composerBlockReason', () => {
   })
   it('battery wins over busy', () => {
     expect(composerBlockReason({ busy: true, connected: true, batteryCutoff: true, batteryMessage: 'low' })).toBe('low')
+  })
+})
+
+describe('isNearBottom', () => {
+  it('sticks when the view is within the threshold of the end', () => {
+    expect(isNearBottom({ scrollHeight: 1000, scrollTop: 560, clientHeight: 400 }, 48)).toBe(true)
+  })
+  it('does not stick once the user scrolled up beyond the threshold', () => {
+    expect(isNearBottom({ scrollHeight: 1000, scrollTop: 300, clientHeight: 400 }, 48)).toBe(false)
+  })
+  it('sticks when the content fits without scrolling', () => {
+    expect(isNearBottom({ scrollHeight: 300, scrollTop: 0, clientHeight: 400 }, 48)).toBe(true)
   })
 })
