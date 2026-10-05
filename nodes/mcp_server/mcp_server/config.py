@@ -129,8 +129,11 @@ class ArmSettings(StrictModel):
     home_file: Path = DEFAULT_HOME_FILE
     joint_names: tuple[str, ...] = ARM_JOINTS
     gripper_joint: str = "gripper"
+    # Follower gripper joint positions (as in /follower/joint_states; the leader-only source range mapping in the
+    # follower bridge does not apply to autonomy commands). Measured closed: -0.172 rad (URDF lower limit -0.1745);
+    # -0.12 is the closest target the URDF limit margin (0.05) allows.
     gripper_open_rad: float = 1.5
-    gripper_closed_rad: float = 0.0
+    gripper_closed_rad: float = -0.12
     autonomy_source_name: str = "autonomy"
     # Height of the arm mount plane (the URDF base_link origin) above the floor, measured on the robot.
     arm_base_height_m: float = Field(default=0.165, gt=0.0, le=1.0)

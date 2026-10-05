@@ -25,7 +25,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
 | `move_arm_joints(targets, speed_scale<=0.5)` | Interpolated motion to joint targets. |
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link')` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch, wrist_roll kept); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.165, measured 16.5 cm); the tool descriptions and `get_arm_state.floor_z_m` state it. No motion restriction is derived from it. |
-| `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). |
+| `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.12 / 1.5 rad; measured fully closed is -0.172 rad, the URDF limit margin allows -0.1245). |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
@@ -110,8 +110,8 @@ arm:
   urdf_path: nodes/web_ui/urdf/so101_arm.urdf   # relative paths resolve against the repo root
   home_file: /var/lib/ros2/arm/home.yaml
   arm_base_height_m: 0.165   # arm mount plane height above the floor (m); floor_z_m = -this
-  gripper_open_rad: 1.5
-  gripper_closed_rad: 0.0
+  gripper_open_rad: 1.5       # follower gripper joint positions (rad)
+  gripper_closed_rad: -0.12
 limits:
   arm_max_joint_velocity_rps: 0.5
   gripper_effort_threshold: 300.0

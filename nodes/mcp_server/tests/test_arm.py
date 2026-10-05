@@ -329,3 +329,13 @@ def test_state_floor_z_follows_configured_base_height(tmp_path: Path) -> None:
     cfg.arm.home_file = tmp_path / "home.yaml"
     arm = ArmController(FakeArmBackend(), KIN, load_joint_limits(cfg.arm.urdf_path), cfg)
     assert arm.state().floor_z_m == pytest.approx(-0.2)
+
+
+def test_gripper_closed_default_is_a_follower_joint_position(tmp_path: Path) -> None:
+    """Gripper targets are follower joint radians (as in /follower/joint_states): closed is near the URDF lower
+    limit (measured closed: -0.172 rad), not 0.0 (which is ~10 deg open on the follower)."""
+    arm, be = make(tmp_path)
+    lo = load_joint_limits(CONFIG.arm.urdf_path)["gripper"][0] + CONFIG.limits.arm_limit_margin_rad
+    arm.set_gripper(open_fraction=0.0)
+    assert be.commands[-1]["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)
+    assert lo <= CONFIG.arm.gripper_closed_rad < -0.1
