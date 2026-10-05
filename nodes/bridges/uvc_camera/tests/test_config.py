@@ -1,7 +1,14 @@
 """Unit tests for UVC camera bridge config (env-based)."""
 
 import pytest
-from config import DEFAULT_DEVICE, DEFAULT_FRAME_ID, DEFAULT_TOPIC, get_config
+from config import (
+    DEFAULT_DEVICE,
+    DEFAULT_FRAME_ID,
+    DEFAULT_ROTATE_DEG,
+    DEFAULT_TOPIC,
+    get_config,
+    get_rotate_deg,
+)
 
 
 def test_get_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,3 +54,24 @@ def test_get_config_strips_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
     _, topic2, frame_id2 = get_config()
     assert topic2 == DEFAULT_TOPIC
     assert frame_id2 == DEFAULT_FRAME_ID
+
+
+def test_rotate_deg_defaults_to_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without UVC_ROTATE_DEG no rotation is applied."""
+    monkeypatch.delenv("UVC_ROTATE_DEG", raising=False)
+    assert get_rotate_deg() == DEFAULT_ROTATE_DEG == 0
+
+
+@pytest.mark.parametrize("value", [0, 90, 180, 270])
+def test_rotate_deg_accepts_allowed_values(monkeypatch: pytest.MonkeyPatch, value: int) -> None:
+    """0/90/180/270 are accepted (whitespace tolerated)."""
+    monkeypatch.setenv("UVC_ROTATE_DEG", f" {value} ")
+    assert get_rotate_deg() == value
+
+
+@pytest.mark.parametrize("value", ["45", "-90", "360", "abc", "180.5"])
+def test_rotate_deg_rejects_invalid_values(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    """Anything but 0/90/180/270 fails fast."""
+    monkeypatch.setenv("UVC_ROTATE_DEG", value)
+    with pytest.raises(ValueError, match="UVC_ROTATE_DEG"):
+        get_rotate_deg()
