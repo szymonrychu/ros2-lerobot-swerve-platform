@@ -98,7 +98,7 @@ async def test_missing_token_file_is_error(tmp_path: Path) -> None:
 
 
 async def test_timeout_is_bounded(tmp_path: Path) -> None:
-    async def hang(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def hang(*_: object) -> None:
         await asyncio.sleep(30)
 
     srv = await asyncio.start_server(hang, "127.0.0.1", 0)
