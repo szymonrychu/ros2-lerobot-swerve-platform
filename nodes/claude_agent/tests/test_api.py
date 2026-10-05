@@ -194,3 +194,19 @@ def test_reset_clears_history_and_seq(setup) -> None:
     assert client.post("/api/reset").json() == {"ok": True}
     assert client.get("/api/history").json() == {"events": [], "has_more": False}
     assert events.append("state")["seq"] == 1
+
+
+def test_ws_keeps_streaming_after_reset(setup) -> None:
+    client, _, events = setup
+    for i in range(5):
+        events.append("assistant_text", text=f"old{i}")
+    with client.websocket_connect("/ws/events") as ws:
+        assert ws.receive_json()["type"] == "history"
+        assert client.post("/api/reset").json() == {"ok": True}
+        cleared = ws.receive_json()
+        assert cleared == {"type": "history", "events": [], "has_more": False}
+        events.append("state", busy=False)
+        live = ws.receive_json()
+        assert live["type"] == "state" and live["seq"] == 1
+        events.append("assistant_text", text="new")
+        assert ws.receive_json()["seq"] == 2

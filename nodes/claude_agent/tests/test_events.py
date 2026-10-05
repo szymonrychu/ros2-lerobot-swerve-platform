@@ -8,6 +8,7 @@ from PIL import Image
 
 from claude_agent.config import ClaudeAgentConfig
 from claude_agent.events import (
+    RESET_MARKER,
     TEXT_TRUNCATE_CHARS,
     EventLog,
     detect_auth_error,
@@ -211,3 +212,12 @@ def test_detect_auth_error_matches_specific_patterns() -> None:
     ):
         assert detect_auth_error(result(is_error=True, result=text)), text
     assert detect_auth_error(result(is_error=True, errors=["API Error: 401 nope"]))
+
+
+def test_reset_notifies_subscribers_with_marker() -> None:
+    log = EventLog(10)
+    queue = log.subscribe()
+    log.append("state", busy=False)
+    log.reset()
+    assert queue.get_nowait()["type"] == "state"
+    assert queue.get_nowait() == RESET_MARKER

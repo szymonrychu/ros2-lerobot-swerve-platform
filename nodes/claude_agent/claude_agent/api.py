@@ -9,7 +9,7 @@ from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from .config import ClaudeAgentConfig
-from .events import EventLog
+from .events import RESET_MARKER, EventLog
 
 HISTORY_DEFAULT_LIMIT = 100
 HISTORY_MAX_LIMIT = 500
@@ -106,7 +106,11 @@ def create_app(
             await websocket.send_json({"type": "history", "events": history, "has_more": has_more})
             while True:
                 event = await queue.get()
-                if event["seq"] > last_seq:
+                if event is RESET_MARKER:
+                    # New session: the sequence restarts at 0, so the client view is emptied and tracking restarts.
+                    last_seq = 0
+                    await websocket.send_json({"type": "history", "events": [], "has_more": False})
+                elif event["seq"] > last_seq:
                     await websocket.send_json(event)
         except (WebSocketDisconnect, asyncio.CancelledError, RuntimeError):
             pass

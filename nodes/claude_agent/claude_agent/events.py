@@ -38,6 +38,8 @@ AUTH_MARKERS = (
     "oauth token",
     "please run /login",
 )
+# Put on subscriber queues by EventLog.reset() so live consumers drop their stale view (never stored or sent as-is).
+RESET_MARKER: dict[str, Any] = {"type": "reset"}
 STATUS_DONE = "done"
 STATUS_ERROR = "error"
 STATUS_INTERRUPTED = "interrupted"
@@ -191,11 +193,13 @@ class EventLog:
         return chosen, bool(chosen) and chosen[0]["seq"] > self.first_seq
 
     def reset(self) -> None:
-        """Forget everything: delete the file, empty the buffer and restart the sequence at 0 (subscribers stay)."""
+        """Forget everything: delete the file, empty the buffer and restart the sequence at 0 (subscribers stay and get RESET_MARKER)."""
         self.events.clear()
         self.seq = self.first_seq = self.file_bytes = 0
         if self.path is not None:
             self.path.unlink(missing_ok=True)
+        for queue in self.subscribers:
+            queue.put_nowait(RESET_MARKER)
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
         """Register a live subscriber.

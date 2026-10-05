@@ -52,7 +52,7 @@ starts fresh (the model does not remember earlier instructions, only what it wro
 `history_size` events are held in RAM; older ones are read from the file on demand. Image payloads in the log are the same
 thumbnails as in the events (no full-size images). When the file exceeds `session_log_max_bytes` (50 MB) the oldest half of
 the events is dropped. `POST /api/reset` deletes the file and the buffer entirely and restarts `seq` at 0 (the first
-event after a reset is a `state` with `seq` 1, so clients should clear their transcript when `seq` goes backwards); the
+event after a reset is a `state` with `seq` 1, so clients should clear their transcript when `seq` goes backwards; connected `/ws/events` clients additionally receive an empty `{type:"history", events:[]}` frame at the reset, after which new events stream normally); the
 workdir is not touched.
 
 ## Caps
