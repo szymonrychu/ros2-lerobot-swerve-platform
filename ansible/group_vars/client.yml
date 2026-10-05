@@ -538,6 +538,12 @@ ros2_nodes:
       publish_effort_joints:
         - wrist_roll
         - gripper
+      # filter_node tags /follower/joint_commands with its source in header.frame_id. web_ui and autonomy
+      # (mcp_server) positions are follower joint radians (as in /follower/joint_states): the gripper's
+      # leader -> follower source range mapping below applies only to leader (and untagged) commands.
+      direct_command_sources:
+        - web_ui
+        - autonomy
       joint_names:
         - name: shoulder_pan
           id: 1

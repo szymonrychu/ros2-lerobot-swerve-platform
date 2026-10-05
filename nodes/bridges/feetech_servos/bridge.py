@@ -196,13 +196,14 @@ def run_bridge(config: BridgeConfig) -> None:
         command_limits=command_limits,
         last_written=last_written,
         velocity_command_timeout_s=config.velocity_command_timeout_s,
+        direct_command_sources=config.direct_command_sources,
     )
     callbacks_run = [0]  # incremented by every subscription callback; lets the loop tell when the queue is empty
 
     def make_on_command(group: JointGroup) -> Any:
         def on_command(msg: JointState) -> None:
             callbacks_run[0] += 1
-            cycle.handle_command(group, msg.name, msg.position, msg.velocity)
+            cycle.handle_command(group, msg.name, msg.position, msg.velocity, source=msg.header.frame_id)
 
         return on_command
 

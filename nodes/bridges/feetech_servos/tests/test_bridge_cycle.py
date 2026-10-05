@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from feetech_servos.bridge_cycle import BridgeCycle, drain_callbacks, remaining_sleep_s
+from feetech_servos.command_mapping import map_position_to_steps
 from feetech_servos.config import JointEntry, JointGroup
 from feetech_servos.registers import STS_GOAL_POSITION_L, STS_GOAL_SPEED_L, get_register_entry_by_name
 
@@ -410,3 +411,86 @@ def test_separate_steer_and_drive_messages_still_work() -> None:
         assert servo.position_writes(joint.id) == [2048]
     for joint in DRIVE:
         assert [v for _t, v in servo.speed_writes(joint.id)] == [0x8000 | round(4096 / (2 * math.pi))]
+
+
+# --- gripper source range mapping applies only to leader commands (direct sources carry follower radians) ---
+
+# lerobot_follower gripper: leader range 2045..3289 mapped onto the follower command range (servo angle limits).
+GRIPPER_MAPPED = JointEntry("gripper", 6, source_min_steps=2045, source_max_steps=3289)
+MAPPED_ARM = JointGroup("follower", [GRIPPER_MAPPED, JointEntry("wrist_roll", 5)])
+GRIPPER_LIMITS = (1934, 3186)
+DIRECT_SOURCES = ("web_ui", "autonomy")
+LEADER_SWEEP_RAD = [-0.5, -0.172, -0.0046, 0.0, 0.1, 0.5, 1.0, 1.5, 1.909, 2.5]
+
+
+def make_mapped_cycle(direct_sources: tuple[str, ...] = DIRECT_SOURCES) -> tuple[BridgeCycle, FakeServo]:
+    """Arm cycle with the gripper source range mapping and its command range (servo limits)."""
+    clock = FakeClock()
+    servo = FakeServo(clock)
+    cycle = BridgeCycle(
+        servo=servo,
+        goal_entry=get_register_entry_by_name("goal_position"),
+        speed_goal_entry=get_register_entry_by_name("goal_speed"),
+        velocity_joints=[],
+        command_limits={6: GRIPPER_LIMITS},
+        last_written={},
+        velocity_command_timeout_s=TIMEOUT_S,
+        clock=clock,
+        direct_command_sources=direct_sources,
+    )
+    return cycle, servo
+
+
+def gripper_steps_for(cycle: BridgeCycle, servo: FakeServo, position: float, source: str) -> int:
+    """goal_position written for one gripper command from a source."""
+    cycle.last_written.clear()
+    cycle.handle_command(MAPPED_ARM, ["gripper"], [position], [], source=source)
+    cycle.write_pending_commands()
+    return servo.position_writes(6)[-1]
+
+
+@pytest.mark.parametrize("source", ["web_ui", "autonomy"])
+def test_direct_source_gripper_target_reaches_servo_as_follower_position(source: str) -> None:
+    """Regression: move_arm_joints {gripper: 0.0} was remapped as leader progress and clamped near closed."""
+    cycle, servo = make_mapped_cycle()
+    assert gripper_steps_for(cycle, servo, 0.0, source) == 2048
+    assert gripper_steps_for(cycle, servo, -0.1, source) == 2048 - round(0.1 * 4096 / (2 * math.pi))
+    assert gripper_steps_for(cycle, servo, 1.5, source) == 2048 + round(1.5 * 4096 / (2 * math.pi))
+
+
+def test_direct_source_gripper_target_is_clamped_to_command_range() -> None:
+    cycle, servo = make_mapped_cycle()
+    assert gripper_steps_for(cycle, servo, -0.5, "autonomy") == GRIPPER_LIMITS[0]
+    assert gripper_steps_for(cycle, servo, 2.5, "autonomy") == GRIPPER_LIMITS[1]
+
+
+@pytest.mark.parametrize("source", ["leader", ""])
+def test_leader_and_untagged_gripper_steps_are_unchanged(source: str) -> None:
+    """Leader (and untagged legacy) commands keep the exact source range mapping."""
+    cycle, servo = make_mapped_cycle()
+    for position in LEADER_SWEEP_RAD:
+        expected = map_position_to_steps(position, 2045, 3289, *GRIPPER_LIMITS)
+        assert gripper_steps_for(cycle, servo, position, source) == expected, position
+
+
+def test_leader_gripper_steps_match_cycle_without_direct_sources() -> None:
+    """Configuring direct sources does not change a single step of the leader -> follower gripper output."""
+    with_direct, servo_a = make_mapped_cycle()
+    legacy, servo_b = make_mapped_cycle(direct_sources=())
+    for position in LEADER_SWEEP_RAD:
+        assert gripper_steps_for(with_direct, servo_a, position, "leader") == gripper_steps_for(
+            legacy, servo_b, position, "leader"
+        )
+
+
+def test_without_direct_sources_every_source_is_mapped() -> None:
+    """Default (no direct_command_sources): legacy behaviour, the mapping applies to every message."""
+    cycle, servo = make_mapped_cycle(direct_sources=())
+    assert gripper_steps_for(cycle, servo, 0.0, "autonomy") == map_position_to_steps(0.0, 2045, 3289, *GRIPPER_LIMITS)
+
+
+def test_direct_source_does_not_change_joints_without_mapping() -> None:
+    cycle, servo = make_mapped_cycle()
+    cycle.handle_command(MAPPED_ARM, ["wrist_roll"], [0.1], [], source="autonomy")
+    cycle.write_pending_commands()
+    assert servo.position_writes(5) == [2048 + round(0.1 * 4096 / (2 * math.pi))]

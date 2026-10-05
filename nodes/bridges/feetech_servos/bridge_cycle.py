@@ -8,7 +8,7 @@ simulated message queue.
 """
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -89,6 +89,7 @@ class BridgeCycle:
         last_written: dict[int, dict[str, int]],
         velocity_command_timeout_s: float,
         clock: Callable[[], float] = time.monotonic,
+        direct_command_sources: Collection[str] = (),
     ) -> None:
         """Create the per-cycle logic.
 
@@ -101,6 +102,8 @@ class BridgeCycle:
             last_written: servo_id -> register cache shared with write_register (updated in place).
             velocity_command_timeout_s: A wheel is stopped when no drive command arrived for this long.
             clock: Monotonic time source in seconds.
+            direct_command_sources: joint_commands header.frame_id values whose positions are follower joint
+                radians: the source range mapping (source_min/max_steps) is skipped for them.
         """
         self.servo = servo
         self.goal_entry = goal_entry
@@ -112,6 +115,7 @@ class BridgeCycle:
         self.last_written = last_written
         self.velocity_command_timeout_s = velocity_command_timeout_s
         self.clock = clock
+        self.direct_command_sources = frozenset(direct_command_sources)
         self.last_velocity_commands: dict[int, tuple[float, float]] = {}
         self.pending_positions: dict[int, PendingTarget] = {}
         self.pending_velocities: dict[int, PendingTarget] = {}
@@ -139,19 +143,21 @@ class BridgeCycle:
             received=received_at is not None,
         )
 
-    def position_target_steps(self, joint: JointEntry, position: float) -> int:
+    def position_target_steps(self, joint: JointEntry, position: float, direct: bool = False) -> int:
         """Map a position command (radians) to goal_position steps within the joint's command range.
 
         Args:
             joint: Position-mode joint.
             position: Commanded position, centred radians.
+            direct: True when the command already is a follower joint position (a direct command source):
+                the source range mapping is skipped.
 
         Returns:
             int: Target goal_position steps.
         """
         cmd_min, cmd_max = self.command_limits.get(joint.id, (MIN_STEPS, MAX_STEPS))
-        # Backward-compatible default: if source range is not configured, keep raw pass-through behavior.
-        if joint.source_min_steps is None and joint.source_max_steps is None:
+        # Pass-through for direct sources and for joints without a source range (backward-compatible default).
+        if direct or (joint.source_min_steps is None and joint.source_max_steps is None):
             return max(cmd_min, min(cmd_max, position_to_raw_steps(position, joint.inverted)))
         source_min = joint.source_min_steps if joint.source_min_steps is not None else MIN_STEPS
         source_max = joint.source_max_steps if joint.source_max_steps is not None else MAX_STEPS
@@ -170,6 +176,7 @@ class BridgeCycle:
         names: Sequence[str],
         positions: Sequence[float],
         velocities: Sequence[float],
+        source: str = "",
     ) -> None:
         """Record one joint_commands message as the latest target per joint; never writes to the bus.
 
@@ -183,10 +190,12 @@ class BridgeCycle:
             names: JointState.name.
             positions: JointState.position (drives position-mode joints).
             velocities: JointState.velocity (drives velocity-mode joints, rad/s).
+            source: JointState.header.frame_id (command source tag set by filter_node, e.g. leader / autonomy).
         """
         if self.servo is None or self.goal_entry is None:
             return
         now = self.clock()
+        direct = source in self.direct_command_sources
         for i, name in enumerate(names):
             joint = group.joint_entry_by_name(name)
             if joint is None:
@@ -197,7 +206,7 @@ class BridgeCycle:
                 continue
             if i >= len(positions) or not is_finite_command(positions[i]):
                 continue
-            target = self.position_target_steps(joint, float(positions[i]))
+            target = self.position_target_steps(joint, float(positions[i]), direct)
             self.pending_positions[joint.id] = PendingTarget(joint, target, now)
 
     def write_pending_commands(self) -> int:

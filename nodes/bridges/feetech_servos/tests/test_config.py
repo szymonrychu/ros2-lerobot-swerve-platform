@@ -465,3 +465,29 @@ def test_battery_config_overrides(tmp_path: Path) -> None:
     cfg = load_config(p)
     assert cfg is not None
     assert cfg.battery_cells == 3 and cfg.battery_interval_s == 1.0
+
+
+def test_load_config_direct_command_sources(tmp_path: Path) -> None:
+    """direct_command_sources lists header.frame_id values whose commands skip the source range mapping."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n"
+        "direct_command_sources:\n  - web_ui\n  - ' autonomy '\n  - ''\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.direct_command_sources == ["web_ui", "autonomy"]
+
+
+def test_load_config_direct_command_sources_default_empty(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.direct_command_sources == []
+
+
+def test_load_config_direct_command_sources_invalid_rejected(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\ndirect_command_sources: autonomy\n")
+    assert load_config(p) is None

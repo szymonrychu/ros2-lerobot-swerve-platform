@@ -128,6 +128,9 @@ class BridgeConfig:
         battery_cells: Number of series cells of the pack (length of BatteryState.cell_voltage).
         battery_frame_id: header.frame_id of BatteryState.
         battery_stale_s: Per-servo voltage readings older than this are ignored.
+        direct_command_sources: joint_commands header.frame_id values (filter_node source tags) whose positions
+            are follower joint radians; joints with a source range mapping pass them through unmapped. Empty
+            (default): the mapping applies to every command.
     """
 
     namespace: str
@@ -149,6 +152,7 @@ class BridgeConfig:
     battery_cells: int = DEFAULT_BATTERY_CELLS
     battery_frame_id: str = DEFAULT_BATTERY_FRAME_ID
     battery_stale_s: float = DEFAULT_BATTERY_STALE_S
+    direct_command_sources: list[str] = field(default_factory=list)
 
     @property
     def groups(self) -> list[JointGroup]:
@@ -384,6 +388,10 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         battery_stale_s = DEFAULT_BATTERY_STALE_S
     if battery_stale_s <= 0:
         battery_stale_s = DEFAULT_BATTERY_STALE_S
+    raw_direct_sources = data.get("direct_command_sources") or []
+    if not isinstance(raw_direct_sources, list):
+        return None
+    direct_command_sources = [str(s).strip() for s in raw_direct_sources if str(s).strip()]
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -404,6 +412,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         battery_cells=battery_cells,
         battery_frame_id=battery_frame_id,
         battery_stale_s=battery_stale_s,
+        direct_command_sources=direct_command_sources,
     )
 
 
