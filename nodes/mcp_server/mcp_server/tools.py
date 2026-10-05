@@ -444,7 +444,9 @@ def register_tools(
         ] = None,
     ) -> ArmMotionResult:
         """Open the gripper to a fraction, or close it until it grips something (status 'grasped' and the gripper
-        holds that position; 'closed_no_contact' if it closed fully without touching anything). Give exactly one of
+        holds that position; 'closed_no_contact' if it closed fully without touching anything). Closing (also
+        open_fraction=0) reports 'grasped' too when the jaw stalls before the closed position: contact is inferred
+        from the stall and the gripper holds the stall position plus a small squeeze. Give exactly one of
         open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done."""
         battery_gate("set_gripper")
         with tool_errors():

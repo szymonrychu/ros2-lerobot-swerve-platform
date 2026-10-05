@@ -545,3 +545,53 @@ def test_intent_and_pending_relax_cleared_when_lease_ends(tmp_path: Path, end: s
     n = len(be.commands)
     arm.move_joints({"elbow_flex": 0.2}, speed_scale=0.5)
     assert be.commands[n]["shoulder_lift"] == pytest.approx(measured)
+
+
+# --- gripper stall on an object counts as a grasp ---
+
+JAW_STALL = -0.07  # jaw stops on an object 0.05 rad before the closed target (within the settle tolerance)
+
+
+def stall_jaw_at(stop: float) -> FakeArmBackend:
+    """Follower whose jaw cannot close beyond `stop` (an object between the fingers, no load reported)."""
+    be = FakeArmBackend()
+    be.positions["gripper"] = 0.5
+
+    def blocked(b: FakeArmBackend) -> None:
+        b.positions["gripper"] = max(b.positions["gripper"], stop)
+
+    be.on_sleep = blocked
+    return be
+
+
+@pytest.mark.parametrize("close_until_effort", [True, False])
+def test_gripper_stall_before_closed_is_reported_as_grasp(tmp_path: Path, close_until_effort: bool) -> None:
+    arm, be = make(tmp_path, stall_jaw_at(JAW_STALL))
+    if close_until_effort:
+        res = arm.set_gripper(close_until_effort=True, effort_threshold=300.0)
+    else:
+        res = arm.set_gripper(open_fraction=0.0)
+    assert res.status == "grasped", res.message
+    assert "stalled" in res.message
+    squeeze = CONFIG.limits.gripper_grasp_squeeze_rad
+    # Hold at the stall position plus a small squeeze toward closed, not at the full closed target.
+    assert be.commands[-1]["gripper"] == pytest.approx(JAW_STALL - squeeze)
+    be.t += HOLD_S + 1.0
+    arm.keepalive_tick()
+    assert be.commands[-1]["gripper"] == pytest.approx(JAW_STALL - squeeze)
+
+
+def test_gripper_grasp_squeeze_never_passes_closed(tmp_path: Path) -> None:
+    be = stall_jaw_at(-0.085)
+    arm, be = make(tmp_path, be)
+    arm.cfg.limits.gripper_grasp_squeeze_rad = 0.1
+    res = arm.set_gripper(open_fraction=0.0)
+    assert res.status == "grasped", res.message
+    assert be.commands[-1]["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)
+
+
+def test_partial_open_fraction_stall_is_not_a_grasp(tmp_path: Path) -> None:
+    arm, be = make(tmp_path, stall_jaw_at(0.6))
+    be.positions["gripper"] = 1.0
+    res = arm.set_gripper(open_fraction=0.3)
+    assert res.status != "grasped"

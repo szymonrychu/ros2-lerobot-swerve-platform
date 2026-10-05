@@ -453,12 +453,24 @@ class ArmController:
         self.validate_targets(targets)
         vmax = self.velocity_for(speed_scale)
         with self.exclusive_motion():
-            if not self._held:
-                self.acquire()
-            start = self.command_base(self.require_sample())
-            safe = clamp_to_limits(targets, self.limits, self.cfg.limits.arm_limit_margin_rad)
-            clamped = sorted(j for j in targets if abs(safe[j] - targets[j]) > CHANGED_EPS)
-            return self.stream(start, start | safe, vmax, list(targets), clamped)
+            return self.stream_to(targets, vmax)
+
+    def stream_to(self, targets: dict[str, float], vmax: float) -> ArmMotionResult:
+        """Motion body of move_joints; the caller holds the motion guard.
+
+        Args:
+            targets (dict[str, float]): Validated joint targets (rad).
+            vmax (float): Per-joint velocity cap (rad/s).
+
+        Returns:
+            ArmMotionResult: Outcome.
+        """
+        if not self._held:
+            self.acquire()
+        start = self.command_base(self.require_sample())
+        safe = clamp_to_limits(targets, self.limits, self.cfg.limits.arm_limit_margin_rad)
+        clamped = sorted(j for j in targets if abs(safe[j] - targets[j]) > CHANGED_EPS)
+        return self.stream(start, start | safe, vmax, list(targets), clamped)
 
     def move_cartesian(
         self, x: float, y: float, z: float, pitch: float | None, speed_scale: float | None = None
@@ -505,7 +517,10 @@ class ArmController:
         if open_fraction is not None:
             if not 0.0 <= open_fraction <= 1.0:
                 raise ArmError(f"open_fraction must be in [0, 1], got {open_fraction}")
-            return self.move_joints({self.gripper: closed + open_fraction * (opened - closed)})
+            if open_fraction > 0.0:
+                return self.move_joints({self.gripper: closed + open_fraction * (opened - closed)})
+            with self.exclusive_motion():
+                return self.grasp_from_stall(self.stream_to({self.gripper: closed}, self.velocity_for(None)))
         threshold = self.cfg.limits.gripper_effort_threshold if effort_threshold is None else effort_threshold
         if not math.isfinite(threshold) or threshold <= 0.0:
             raise ArmError("effort_threshold must be positive")
@@ -514,10 +529,48 @@ class ArmController:
                 self.acquire()
             start = self.command_base(self.require_sample())
             goal = start | clamp_to_limits({self.gripper: closed}, self.limits, self.cfg.limits.arm_limit_margin_rad)
-            result = self.stream(start, goal, self.cfg.limits.gripper_velocity_rps, [self.gripper], [], threshold)
+            result = self.grasp_from_stall(
+                self.stream(start, goal, self.cfg.limits.gripper_velocity_rps, [self.gripper], [], threshold)
+            )
         if result.status == "converged":
             return result.model_copy(update={"status": "closed_no_contact", "message": "closed without contact"})
         return result
+
+    def grasp_from_stall(self, result: ArmMotionResult) -> ArmMotionResult:
+        """Treat a closing jaw that settled before the closed target as a grasp (caller holds the motion guard).
+
+        Without this the full closed target would stay commanded and the servo would keep squeezing the object.
+        The hold becomes the stalled position plus gripper_grasp_squeeze_rad toward closed (never past closed).
+
+        Args:
+            result (ArmMotionResult): Outcome of a close motion.
+
+        Returns:
+            ArmMotionResult: 'grasped' (contact inferred from the stall) with the hold published, or result unchanged.
+        """
+        residual = result.residual_error.get(self.gripper)
+        if result.status != "converged" or residual is None or result.positions is None:
+            return result
+        closed = self.cfg.arm.gripper_closed_rad
+        stalled = result.positions[self.gripper]
+        toward_closed = closed - stalled
+        if toward_closed * (self.cfg.arm.gripper_open_rad - closed) >= 0.0:
+            return result  # not short of closed (overshoot past it): nothing gripped
+        with self._lock:
+            intent = dict(self._last_target) if self._last_target is not None else None
+        if intent is None:
+            return result
+        squeeze = min(self.cfg.limits.gripper_grasp_squeeze_rad, abs(toward_closed))
+        hold = stalled + math.copysign(squeeze, toward_closed)
+        if not self.command(intent | {self.gripper: hold}):
+            return result
+        return result.model_copy(
+            update={
+                "status": "grasped",
+                "message": f"contact inferred: jaw stalled {abs(toward_closed):.3f} rad before closed; "
+                f"holding {hold:.3f} rad ({squeeze:.3f} rad squeeze)",
+            }
+        )
 
     def home(self, keep_prior_control: bool = True) -> ArmMotionResult:
         """Move to the stored home pose, then release control unless it is to be kept.

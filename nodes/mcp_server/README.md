@@ -94,6 +94,10 @@ partition every tool):
   obstacle or the floor is not pushed at the torque limit indefinitely (only wrist_roll and gripper publish effort).
   The intended target is kept separately and still seeds the next motion (unnamed joints, IK seed), so the sag
   ratchet stays fixed. Any new setpoint, release, lease loss or stop cancels the pending relax.
+- **Grasp from stall**: when closing (`close_until_effort` or `open_fraction=0`) the jaw settles before the closed
+  position (residual outside the converge tolerance), the result is `grasped` with "contact inferred: jaw stalled
+  ..." and the gripper holds the stall position plus `gripper_grasp_squeeze_rad` (0.03) toward closed (never past
+  closed) instead of squeezing to the full closed target. The effort-threshold path is unchanged.
 - **No gravity lead**: a feed-forward offset (target + k in the lift direction) is not applied: whether a joint
   works against gravity depends on the whole arm pose (needs a mass model), a motion-direction lead overshoots when
   lowering, and the result cannot be checked without the robot.

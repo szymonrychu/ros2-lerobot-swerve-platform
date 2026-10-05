@@ -239,7 +239,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   commanded gripper / wrist_roll, a new lease falls back to the measured pose, larger or still-moving errors time out
   and hold the measured pose, tracking aborts still hold the measured pose; bounded residual hold: target held within
   `arm_settle_hold_s`, relaxed to the measured pose after it (only joints still off target), the next motion starts
-  from the intended target, intent and pending relax cleared on release / drop_lease / lease loss
+  from the intended target, intent and pending relax cleared on release / drop_lease / lease loss; grasp from stall:
+  a jaw stalling before closed (close_until_effort and open_fraction=0) reports `grasped` and holds stall + squeeze
+  (also after the hold window), the squeeze never passes closed, a partial open_fraction stall is not a grasp
 - drive (`test_base_motion.py`): rate, clamping, duration cap, abort always ends with a zero twist
 - tools (`test_tools.py`): all 15 tools registered with real descriptions (arm motion tools explain `residual_error`
   and the commanded hold), structured outputs, camera JPEG + stamp,

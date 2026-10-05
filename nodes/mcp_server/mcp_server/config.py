@@ -104,6 +104,8 @@ class LimitSettings(StrictModel):
     arm_settle_hold_s: float = Field(default=2.0, gt=0.0)
     gripper_velocity_rps: float = Field(default=0.5, gt=0.0, le=1.5)
     gripper_effort_threshold: float = Field(default=300.0, gt=0.0)
+    # A closing jaw that stalls before the closed target grips an object: hold the stall position this far toward closed.
+    gripper_grasp_squeeze_rad: float = Field(default=0.03, ge=0.0, le=0.2)
     hold_republish_hz: float = Field(default=5.0, gt=0.0, le=25.0)
     max_image_px: int = Field(default=HARD_MAX_IMAGE_PX, ge=32, le=HARD_MAX_IMAGE_PX)
     jpeg_quality: int = Field(default=80, ge=10, le=100)
