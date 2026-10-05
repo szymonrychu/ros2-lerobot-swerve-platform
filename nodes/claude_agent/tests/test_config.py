@@ -103,3 +103,11 @@ def test_missing_token_error_never_contains_token(tmp_path: Path) -> None:
     with pytest.raises(MissingTokenError) as exc:
         read_mcp_token(path)
     assert str(path) in str(exc.value)
+
+
+def test_watchdog_and_stop_timeouts_defaults_and_bounds() -> None:
+    cfg = ClaudeAgentConfig()
+    assert (cfg.instruction_timeout_s, cfg.connect_timeout_s, cfg.stop_timeout_s) == (900, 240, 5)
+    for key in ("instruction_timeout_s", "connect_timeout_s", "stop_timeout_s"):
+        with pytest.raises(ValidationError):
+            ClaudeAgentConfig(**{key: 0})

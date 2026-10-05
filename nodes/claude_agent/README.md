@@ -22,6 +22,8 @@ web_ui (later: proxy)  --HTTP/WS-->  claude_agent (127.0.0.1:18300)
   Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Task/Agent, TodoWrite, NotebookEdit, AskUserQuestion, plan
   mode, ...) and no allow rules exist, so every tool call reaches the gate: `mcp__robot__*` is allowed, everything else
   denied.
+- `robot_stop.py`: calls the robot MCP `stop` tool directly with the official `mcp` client (Streamable HTTP, bearer token
+  from the token file; `mcp` is pinned in `pyproject.toml`). It never raises: failures come back as an error result.
 - `events.py`: ring buffer of events plus normalization of SDK messages (thumbnails with Pillow, text truncation).
 - `prompt.py`: robot persona and safety rules, built from the config values.
 
@@ -41,6 +43,36 @@ motion tool is safe by default. `max_turns` (50) bounds the model turns per inst
 the motion classification of `nodes/mcp_server` (`MOTION_TOOLS` once defined there; `tests/test_claude_agent_config.py`
 checks it).
 
+## Stopping the robot
+
+Interrupting the model does not stop a motion already sent, so the node calls the robot's `stop` itself (mcp_server `stop`:
+sets the base stop flag that aborts running `navigate_to_pose` / `move_relative` / `drive`, cancels every Nav2 goal,
+zeroes the velocity, and aborts any arm motion and holds the arm when this server holds arm control). The call is made
+directly through MCP, concurrently with the model interrupt (each bounded by `stop_timeout_s`), so a hung CLI cannot delay it:
+
+| When | `source` of the events |
+|---|---|
+| `POST /api/stop` (interrupt) | `user_stop` |
+| `POST /api/reset` | `reset` |
+| service shutdown | `shutdown` |
+| instruction watchdog expired | `timeout` |
+| instruction ended `max_turns` / `error` (or the session failed) after effector calls | `max_turns` / `error` |
+
+Each stop appears in the chat as a `tool_call` (`name: "stop"`, `kind: "uncapped"`) plus its `tool_result`, both carrying
+`source`; `is_error: true` when the robot could not be reached.
+
+## Watchdog and session start
+
+Each instruction runs under `instruction_timeout_s` (900): on expiry the model is interrupted, the robot stopped, the
+session discarded, an `error` event and `turn_end` status `timeout` are emitted and `busy` is cleared. Starting the
+Claude session is bounded by `connect_timeout_s` (240); a failure or timeout is an `error` event and clears `busy`. The
+SDK's own initialize timeout is 60 s unless `CLAUDE_CODE_STREAM_CLOSE_TIMEOUT` (ms) is set in the service environment;
+Ansible sets 180000 because the CLI starts slowly on the Pi under `CPUQuota=50%`. A reset is refused with 409 while it is
+in progress, as is a message.
+
+Only the robot MCP server loads: `strict_mcp_config=True` (`--strict-mcp-config`) and `ENABLE_CLAUDEAI_MCP_SERVERS=false`
+in the child environment keep the subscription account's claude.ai connectors out.
+
 ## Configuration
 
 YAML file named by the environment variable `CLAUDE_AGENT_CONFIG` (Ansible: `/etc/ros2/claude_agent/config.yaml`);
@@ -59,6 +91,9 @@ unknown keys are rejected.
 | `image_thumbnail_max_px` | `480` | Longest edge of image thumbnails |
 | `system_prompt_extra` | empty | Appended to the system prompt |
 | `work_dir` | `/var/lib/claude_agent` | Working directory of the CLI (used when it exists) |
+| `instruction_timeout_s` | `900` | Watchdog per instruction |
+| `connect_timeout_s` | `240` | Bound for starting the Claude session |
+| `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |
 
 ## API (contract for the web UI)
 
@@ -69,8 +104,8 @@ The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this
 | `GET /api/state` | `{busy, model, max_turns, effector_call_cap, effector_calls_used, session_started_at}` |
 | `GET /api/history` | `{events: [...]}` (ring buffer, oldest first) |
 | `POST /api/message` `{text}` | `202 {ok: true}`; `409 {ok: false, message: "busy"}`; `400` on empty or invalid text |
-| `POST /api/stop` | `{ok, message}`; interrupts the current instruction (`client.interrupt()`) |
-| `POST /api/reset` | `{ok: true}` new session; `409` while busy |
+| `POST /api/stop` | `{ok, message}`; stops the robot (MCP `stop`) and interrupts the current instruction (`client.interrupt()`) |
+| `POST /api/reset` | `{ok: true}` new session; `409` while busy or resetting; also stops the robot |
 | `WS /ws/events` | on connect `{type: "history", events: [...]}`, then each event as it happens |
 
 Every event is `{seq: int, ts: float, type, ...}`:
@@ -79,10 +114,10 @@ Every event is `{seq: int, ts: float, type, ...}`:
 |---|---|
 | `user_message` | `text` |
 | `assistant_text` | `text` |
-| `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped`), `input` |
-| `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated` |
+| `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped`), `input`; `source` only on the node's own `stop` call (see above) |
+| `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated`; `source` only on the node's own `stop` call |
 | `tool_denied` | `id` (may be null), `name`, `reason` |
-| `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns`), `cost_usd`, `num_turns`, `effector_calls` |
+| `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` |
 | `error` | `message` (authentication failures, missing token file, session failures) |
 | `state` | `busy`, `effector_calls_used` |
 
@@ -93,8 +128,7 @@ and re-encoded as JPEG.
 
 The agent authenticates with a Claude subscription OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`),
 read by the service from the systemd `EnvironmentFile=/etc/ros2/claude_agent/env`. `ANTHROPIC_API_KEY` and
-`ANTHROPIC_AUTH_TOKEN` are removed from the process and child environment, `DISABLE_AUTOUPDATER=1` is set. A 401 or
-login error becomes an `error` event naming the token. Deploy (the deploy fails with this hint when the variable is unset
+`ANTHROPIC_AUTH_TOKEN` are removed from the process and child environment, `DISABLE_AUTOUPDATER=1` is set. A clear authentication failure (HTTP 401 status, `API Error: 401`, `authentication_error`, `invalid x-api-key`, `OAuth token`, `/login` prompt; not any text that merely contains "401") becomes an `error` event naming the token. Deploy (the deploy fails with this hint when the variable is unset
 and the robot has no token file yet; an existing file is kept when unset):
 
 ```bash
@@ -117,3 +151,12 @@ poetry install
 poetry run poe test    # pytest, no network and no real Claude calls
 poetry run poe lint    # ruff, ruff format --check, vulture
 ```
+
+## Security
+
+The MCP bearer token is passed to the Claude CLI child in its argv (`--mcp-config`), so other local users could read it
+from `/proc/<pid>/cmdline`. The unit therefore (this node only; Ansible variables `protect_proc`, `proc_subset`,
+`no_new_privileges`, `private_tmp` of the node type, off for every other node) sets `ProtectProc=invisible`,
+`ProcSubset=pid`, `NoNewPrivileges=yes` and `PrivateTmp=yes`, and runs as the dedicated non-root user `claude_agent`.
+`ProtectSystem` and `ProtectHome` are deliberately not set: the CLI writes under its home and `work_dir`. The API listens
+on 127.0.0.1 only and is unauthenticated by design.

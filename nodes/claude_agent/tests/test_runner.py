@@ -15,7 +15,8 @@ from claude_agent_sdk import (
 
 from claude_agent.config import ClaudeAgentConfig, MissingTokenError
 from claude_agent.events import EventLog
-from claude_agent.runner import AgentRunner, build_options
+from claude_agent.robot_stop import RobotStopResult
+from claude_agent.runner import AgentRunner, build_child_env, build_options
 from claude_agent.tools import BUILTIN_TOOLS, EffectorGate
 
 
@@ -48,9 +49,16 @@ class FakeClient:
         self.disconnected = False
         self.block = False
         self.raise_on_query: Exception | None = None
+        self.hang_interrupt = False
+        self.hang_connect = False
+        self.raise_on_connect: Exception | None = None
         FakeClient.instances.append(self)
 
     async def connect(self) -> None:
+        if self.hang_connect:
+            await asyncio.sleep(3600)
+        if self.raise_on_connect:
+            raise self.raise_on_connect
         self.connected = True
 
     async def disconnect(self) -> None:
@@ -62,6 +70,8 @@ class FakeClient:
         self.queries.append(text)
 
     async def interrupt(self) -> None:
+        if self.hang_interrupt:
+            await asyncio.sleep(3600)
         self.interrupted.set()
 
     async def receive_response(self):
@@ -76,7 +86,19 @@ class FakeClient:
                 yield item
 
 
-def make_runner(tmp_path: Path, config: ClaudeAgentConfig | None = None, script=None, block=False):
+class FakeStopper:
+    """Records robot stop calls."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.result = RobotStopResult(False, "stopped")
+
+    async def __call__(self) -> RobotStopResult:
+        self.calls += 1
+        return self.result
+
+
+def make_runner(tmp_path: Path, config: ClaudeAgentConfig | None = None, script=None, block=False, stopper=None):
     FakeClient.instances.clear()
     token = tmp_path / "token"
     token.write_text("MCP_SERVER_TOKEN=secret-mcp\n")
@@ -90,7 +112,11 @@ def make_runner(tmp_path: Path, config: ClaudeAgentConfig | None = None, script=
         return client
 
     runner = AgentRunner(
-        cfg, events, client_factory=factory, base_env={"ANTHROPIC_API_KEY": "sk", "CLAUDE_CODE_OAUTH_TOKEN": "oa"}
+        cfg,
+        events,
+        client_factory=factory,
+        base_env={"ANTHROPIC_API_KEY": "sk", "CLAUDE_CODE_OAUTH_TOKEN": "oa"},
+        robot_stopper=stopper or FakeStopper(),
     )
     return runner, events, cfg
 
@@ -262,3 +288,227 @@ async def test_reset_new_session(tmp_path: Path) -> None:
     await runner.start_instruction("two")
     await runner.wait_idle()
     assert len(FakeClient.instances) == 2
+
+
+def stop_events(events: EventLog) -> list[dict]:
+    return [e for e in events.history() if e["type"] in ("tool_call", "tool_result") and e.get("source")]
+
+
+async def use_effector(client: FakeClient) -> None:
+    from claude_agent_sdk import ToolPermissionContext
+
+    await client.options.can_use_tool("mcp__robot__drive", {}, ToolPermissionContext(tool_use_id="x"))
+
+
+def test_build_options_loads_only_the_robot_mcp_server(config: ClaudeAgentConfig) -> None:
+    opts = build_options(config, "tok", EffectorGate(config), {}, "SYS")
+    assert opts.strict_mcp_config is True
+
+
+def test_child_env_disables_claudeai_mcp_servers() -> None:
+    assert build_child_env({})["ENABLE_CLAUDEAI_MCP_SERVERS"] == "false"
+
+
+async def test_interrupt_stops_the_robot_and_emits_events(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    runner, events, _ = make_runner(tmp_path, block=True, stopper=stopper)
+    await runner.start_instruction("go")
+    await asyncio.sleep(0)
+    assert await runner.interrupt() is True
+    await runner.wait_idle()
+    assert stopper.calls == 1
+    call, result = stop_events(events)
+    assert call["type"] == "tool_call" and call["name"] == "stop" and call["kind"] == "uncapped"
+    assert call["source"] == "user_stop" and call["full_name"] == "mcp__robot__stop"
+    assert result["type"] == "tool_result" and result["id"] == call["id"] and result["is_error"] is False
+    assert result["source"] == "user_stop" and result["content"] == [{"type": "text", "text": "stopped"}]
+
+
+async def test_interrupt_stops_robot_even_if_model_interrupt_hangs(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    cfg = ClaudeAgentConfig(mcp_token_file=str(tmp_path / "token"), stop_timeout_s=0.2)
+    runner, events, _ = make_runner(tmp_path, config=cfg, block=True, stopper=stopper)
+    await runner.start_instruction("go")
+    await asyncio.sleep(0)
+    FakeClient.instances[0].hang_interrupt = True
+    assert await asyncio.wait_for(runner.interrupt(), timeout=3) is True
+    assert stopper.calls == 1
+    await runner.close()
+
+
+async def test_failed_robot_stop_is_reported_as_error_result(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    stopper.result = RobotStopResult(True, "mcp down")
+    runner, events, _ = make_runner(tmp_path, block=True, stopper=stopper)
+    await runner.start_instruction("go")
+    await asyncio.sleep(0)
+    await runner.interrupt()
+    await runner.wait_idle()
+    assert stop_events(events)[1]["is_error"] is True and "mcp down" in stop_events(events)[1]["content"][0]["text"]
+
+
+async def test_interrupt_when_idle_does_not_stop_robot(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    runner, _, _ = make_runner(tmp_path, stopper=stopper)
+    await runner.interrupt()
+    assert stopper.calls == 0
+
+
+async def test_reset_stops_the_robot(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    runner, events, _ = make_runner(tmp_path, script=[make_result()], stopper=stopper)
+    await runner.start_instruction("one")
+    await runner.wait_idle()
+    await runner.reset()
+    assert stopper.calls == 1
+    assert stop_events(events)[0]["source"] == "reset"
+
+
+async def test_close_stops_the_robot(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    runner, _, _ = make_runner(tmp_path, block=True, stopper=stopper)
+    await runner.start_instruction("go")
+    await asyncio.sleep(0)
+    await runner.close()
+    assert stopper.calls == 1
+
+
+async def test_close_stops_the_robot_when_idle(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    runner, _, _ = make_runner(tmp_path, stopper=stopper)
+    await runner.close()
+    assert stopper.calls == 1
+
+
+async def test_max_turns_after_effector_calls_stops_the_robot(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    script = [use_effector, make_result(subtype="error_max_turns", is_error=True)]
+    runner, events, _ = make_runner(tmp_path, script=script, stopper=stopper)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    assert stopper.calls == 1
+    assert stop_events(events)[0]["source"] == "max_turns"
+    assert types_of(events)[-4:] == ["turn_end", "tool_call", "tool_result", "state"]
+
+
+async def test_error_after_effector_calls_stops_the_robot(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    script = [use_effector, make_result(is_error=True, result="boom")]
+    runner, events, _ = make_runner(tmp_path, script=script, stopper=stopper)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    assert stopper.calls == 1 and stop_events(events)[0]["source"] == "error"
+
+
+async def test_exception_after_effector_calls_stops_the_robot(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+
+    async def explode(client: FakeClient) -> None:
+        raise RuntimeError("cli died")
+
+    runner, _, _ = make_runner(tmp_path, script=[use_effector, explode], stopper=stopper)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    assert stopper.calls == 1
+
+
+async def test_max_turns_or_error_without_effector_calls_does_not_stop(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    runner, _, _ = make_runner(
+        tmp_path, script=[make_result(subtype="error_max_turns", is_error=True)], stopper=stopper
+    )
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    runner2, _, _ = make_runner(tmp_path, script=[make_result(is_error=True, result="x")], stopper=stopper)
+    await runner2.start_instruction("go")
+    await runner2.wait_idle()
+    assert stopper.calls == 0
+
+
+async def test_done_after_effector_calls_does_not_stop(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    runner, _, _ = make_runner(tmp_path, script=[use_effector, make_result()], stopper=stopper)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    assert stopper.calls == 0
+
+
+async def test_start_instruction_refused_while_resetting(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[make_result()])
+    await runner.start_instruction("one")
+    await runner.wait_idle()
+    gate = asyncio.Event()
+    client = runner.client
+    original = client.disconnect
+
+    async def slow_disconnect() -> None:
+        await gate.wait()
+        await original()
+
+    client.disconnect = slow_disconnect
+    reset_task = asyncio.create_task(runner.reset())
+    await asyncio.sleep(0.01)
+    assert await runner.start_instruction("two") is False
+    assert await runner.reset() is False
+    gate.set()
+    assert await reset_task is True
+    assert await runner.start_instruction("three") is True
+    await runner.wait_idle()
+
+
+async def test_instruction_timeout_interrupts_stops_robot_and_clears_busy(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    cfg = ClaudeAgentConfig(mcp_token_file=str(tmp_path / "token"), instruction_timeout_s=0.2)
+    runner, events, _ = make_runner(tmp_path, config=cfg, stopper=stopper)
+
+    async def never_finish(client: FakeClient) -> None:
+        await asyncio.sleep(3600)
+
+    runner.client_factory = lambda options: _scripted(options, [never_finish])
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    assert runner.busy is False
+    assert stopper.calls == 1 and stop_events(events)[0]["source"] == "timeout"
+    turn_end = [e for e in events.history() if e["type"] == "turn_end"][0]
+    assert turn_end["status"] == "timeout"
+    assert FakeClient.instances[0].interrupted.is_set()
+    assert FakeClient.instances[0].disconnected
+    assert events.history()[-1] == {**events.history()[-1], "type": "state", "busy": False}
+
+
+def _scripted(options: ClaudeAgentOptions, script: list) -> FakeClient:
+    client = FakeClient(options)
+    client.script = script
+    return client
+
+
+async def test_connect_failure_surfaces_error_and_clears_busy(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path)
+
+    def factory(options: ClaudeAgentOptions) -> FakeClient:
+        client = FakeClient(options)
+        client.raise_on_connect = RuntimeError("initialize failed")
+        return client
+
+    runner.client_factory = factory
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    assert any(e["type"] == "error" and "initialize failed" in e["message"] for e in events.history())
+    assert runner.busy is False and runner.client is None
+
+
+async def test_connect_timeout_surfaces_error_and_clears_busy(tmp_path: Path) -> None:
+    cfg = ClaudeAgentConfig(mcp_token_file=str(tmp_path / "token"), connect_timeout_s=0.2)
+    runner, events, _ = make_runner(tmp_path, config=cfg)
+
+    def factory(options: ClaudeAgentOptions) -> FakeClient:
+        client = FakeClient(options)
+        client.hang_connect = True
+        return client
+
+    runner.client_factory = factory
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    assert any(e["type"] == "error" and "timed out" in e["message"] for e in events.history())
+    assert runner.busy is False and runner.client is None
+    assert FakeClient.instances[0].disconnected

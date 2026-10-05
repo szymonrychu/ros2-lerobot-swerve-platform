@@ -9,6 +9,8 @@ packages = [{ include = "claude_agent", from = "." }]
 python = ">=3.12,<3.15"
 # The wheel bundles the Claude Code CLI (native binary, version in claude_agent_sdk/_cli_version.py): pinning the SDK pins the CLI.
 claude-agent-sdk = "0.2.163"
+# Official MCP client: the node calls the robot `stop` tool itself (robot_stop.py); same pin as mcp_server.
+mcp = "2.3.0"
 fastapi = "0.142.2"
 uvicorn = { version = "0.54.0", extras = ["standard"] }
 pillow = "12.3.0"

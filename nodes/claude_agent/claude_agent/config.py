@@ -44,6 +44,9 @@ class ClaudeAgentConfig(BaseModel):
         image_thumbnail_max_px: Longest edge of image thumbnails in tool_result events.
         system_prompt_extra: Optional text appended to the system prompt.
         work_dir: Working directory of the Claude CLI child process.
+        instruction_timeout_s: Watchdog per instruction; on expiry the model is interrupted, the robot stopped and the turn ends as "timeout".
+        connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
+        stop_timeout_s: Bound for the robot ``stop`` call and for the model interrupt, each.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -62,6 +65,9 @@ class ClaudeAgentConfig(BaseModel):
     image_thumbnail_max_px: int = Field(default=480, ge=16)
     system_prompt_extra: str = ""
     work_dir: str = "/var/lib/claude_agent"
+    instruction_timeout_s: float = Field(default=900.0, gt=0)
+    connect_timeout_s: float = Field(default=240.0, gt=0)
+    stop_timeout_s: float = Field(default=5.0, gt=0)
 
     @model_validator(mode="after")
     def check_tool_lists(self) -> "ClaudeAgentConfig":
