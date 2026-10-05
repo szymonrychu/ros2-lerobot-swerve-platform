@@ -219,7 +219,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 
 - config (`test_config.py`): defaults (0.0.0.0:18200 `/mcp`, topics, conservative limits, timeouts), repo-relative URDF
   path resolution, YAML overrides, empty file, unknown keys rejected, hard caps (0.25 m/s, speed scale 0.5, 1024 px),
-  `MCP_SERVER_CONFIG` lookup, `MCP_SERVER_TOKEN` refused when missing/blank/short and stripped otherwise
+  `MCP_SERVER_CONFIG` lookup, `MCP_SERVER_TOKEN` refused when missing/blank/short and stripped otherwise, settle
+  tolerance default 0.08 and validated between the converge tolerance and the tracking abort
 - trajectory (`test_trajectory.py`): quintic blend endpoints/monotonicity, limit clamping with margin, duration from the
   quintic peak velocity, sampled trajectory ends exactly at the goal without exceeding the velocity cap, tracking error
 - staleness (`test_staleness.py`), home store (`test_home_store.py`: missing file, atomic round trip, corrupt file,
@@ -231,9 +232,15 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - arm controller (`test_arm.py`): lease acquire/release, streamed motion with implicit acquire and velocity cap, speed
   scale, clamping, argument validation, abort + hold on stale feedback / tracking error / stop, no hold after filter_node
   switches source, convergence timeout, Cartesian moves (unreachable reported without motion), gripper open fraction
-  and close-until-effort, home/set_home, keepalive and lease loss, state with stale data omitted
+  and close-until-effort, home/set_home, keepalive and lease loss, state with stale data omitted; gripper closed default
+  is a follower joint position; sag ratchet (fake backend `sag`): a small steady-state error settles as `converged`
+  with `residual_error` before the timeout and keeps the target commanded (also for home), unnamed joints keep the
+  last commanded target over repeated motions, trajectories start at the commanded pose, Cartesian moves keep the
+  commanded gripper / wrist_roll, a new lease falls back to the measured pose, larger or still-moving errors time out
+  and hold the measured pose, tracking aborts still hold the measured pose
 - drive (`test_base_motion.py`): rate, clamping, duration cap, abort always ends with a zero twist
-- tools (`test_tools.py`): all 15 tools registered with real descriptions, structured outputs, camera JPEG + stamp,
+- tools (`test_tools.py`): all 15 tools registered with real descriptions (arm motion tools explain `residual_error`
+  and the commanded hold), structured outputs, camera JPEG + stamp,
   argument validation, robot errors as tool errors, map PNG, arm tool round trip, bearer-token auth on the Streamable
   HTTP app (401 without/with a wrong token, 200 with the right one) and the configured path
 - battery gate (`test_battery_gate.py`): `MOTION_TOOLS` and `ALWAYS_ALLOWED_TOOLS` partition all tools; each motion tool

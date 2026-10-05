@@ -145,3 +145,16 @@ def test_nav_goal_tolerance_defaults_and_validation() -> None:
     assert nav.goal_xy_tolerance_m == 0.01 and nav.goal_yaw_tolerance_deg == 2.0
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"nav": {"goal_xy_tolerance_m": 0.0}})
+
+
+def test_settle_tolerance_defaults_between_converge_tolerance_and_tracking_abort() -> None:
+    lim = McpServerConfig().limits
+    assert lim.arm_settle_tolerance_rad == pytest.approx(0.08)
+    assert lim.arm_converge_tolerance_rad < lim.arm_settle_tolerance_rad < lim.arm_tracking_error_rad
+
+
+def test_settle_tolerance_must_stay_below_tracking_abort() -> None:
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"limits": {"arm_settle_tolerance_rad": 0.4}})
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"limits": {"arm_settle_tolerance_rad": 0.01}})

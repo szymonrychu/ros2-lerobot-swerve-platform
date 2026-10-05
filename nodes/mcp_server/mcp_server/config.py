@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
 
 CONFIG_ENV = "MCP_SERVER_CONFIG"
@@ -91,6 +91,13 @@ class LimitSettings(StrictModel):
     arm_limit_margin_rad: float = Field(default=0.05, ge=0.0, le=0.3)
     arm_tracking_error_rad: float = Field(default=0.35, gt=0.0)
     arm_converge_tolerance_rad: float = Field(default=0.03, gt=0.0)
+    # Steady-state error band (position servo under gravity load): a joint that stopped moving (less than
+    # arm_settle_motion_rad over arm_settle_window_s) within this error of its target has settled; its target stays
+    # commanded and the motion reports 'converged' with residual_error. Must lie between the converge tolerance and
+    # the tracking-error abort threshold.
+    arm_settle_tolerance_rad: float = Field(default=0.08, gt=0.0)
+    arm_settle_window_s: float = Field(default=0.5, gt=0.0)
+    arm_settle_motion_rad: float = Field(default=0.005, gt=0.0)
     gripper_velocity_rps: float = Field(default=0.5, gt=0.0, le=1.5)
     gripper_effort_threshold: float = Field(default=300.0, gt=0.0)
     hold_republish_hz: float = Field(default=5.0, gt=0.0, le=25.0)
@@ -98,6 +105,19 @@ class LimitSettings(StrictModel):
     jpeg_quality: int = Field(default=80, ge=10, le=100)
     map_png_max_px: int = Field(default=256, ge=32, le=HARD_MAX_IMAGE_PX)
     scan_sectors: int = Field(default=8, ge=8, le=8)
+
+    @model_validator(mode="after")
+    def settle_band_inside_abort(self) -> "LimitSettings":
+        """Keep the settle tolerance above the converge tolerance and below the tracking-error abort.
+
+        Returns:
+            LimitSettings: The validated settings.
+        """
+        if not self.arm_converge_tolerance_rad < self.arm_settle_tolerance_rad < self.arm_tracking_error_rad:
+            raise ValueError(
+                "arm_settle_tolerance_rad must lie between arm_converge_tolerance_rad and arm_tracking_error_rad"
+            )
+        return self
 
 
 class TimeoutSettings(StrictModel):

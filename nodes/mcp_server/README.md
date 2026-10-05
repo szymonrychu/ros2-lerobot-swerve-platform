@@ -23,7 +23,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `stop` | Always available: cancels all NavigateToPose goals and publishes a zero twist. Aborts any arm motion and holds the arm at its measured pose only if this server holds arm control (or a motion is running); otherwise the arm is not touched (`arm_held: false`). |
 | `get_arm_state` | Joint positions/efforts, gripper effort, tool point pose (x, y, z, pitch), `floor_z_m` (floor height in the base_link frame), active source, lease, home stored. |
 | `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
-| `move_arm_joints(targets, speed_scale<=0.5)` | Interpolated motion to joint targets. |
+| `move_arm_joints(targets, speed_scale<=0.5)` | Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `converged` results may carry `residual_error` (see Safety model). |
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link')` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch, wrist_roll kept); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.165, measured 16.5 cm); the tool descriptions and `get_arm_state.floor_z_m` state it. No motion restriction is derived from it. |
 | `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.12 / 1.5 rad; measured fully closed is -0.172 rad, the URDF limit margin allows -0.1245). |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
@@ -79,6 +79,19 @@ partition every tool):
   25 Hz; blocks until converged (`arm_converge_tolerance_rad`) or `arm_converge_timeout_s` after the trajectory.
   Aborts and holds the measured pose when `/follower/joint_states` is older than 0.3 s, the tracking error (setpoint vs
   measured, gripper excluded) exceeds `arm_tracking_error_rad` (0.35), or `stop` is called. One arm motion at a time.
+- **No sag ratchet**: while the lease is held, a motion starts from the last commanded pose and joints it does not name
+  keep their last commanded target (the measured pose is used only right after acquiring). Re-commanding the measured
+  pose would lock gravity sag in and let it accumulate over calls.
+- **Settled residual error**: the position servos stop short of the target under gravity load (0.05-0.06 rad when
+  lifting the shoulder slowly). When every moved joint is within `arm_settle_tolerance_rad` (0.08, must lie between
+  the converge tolerance and the tracking abort) and moved less than `arm_settle_motion_rad` (0.005) over
+  `arm_settle_window_s` (0.5 s), the motion returns `converged` with message `settled with residual error (...)` and
+  `residual_error` = target - measured (rad) per joint outside the converge tolerance; the target stays commanded (no
+  hold at the sagged pose). A joint still moving or further off ends in `timeout` and holds the measured pose as
+  before.
+- **No gravity lead**: a feed-forward offset (target + k in the lift direction) is not applied: whether a joint
+  works against gravity depends on the whole arm pose (needs a mass model), a motion-direction lead overshoots when
+  lowering, and the result cannot be checked without the robot.
 - **No placeholder data**: nothing is published without fresh measured joint states; state tools omit stale sources.
 
 ## Code layout
@@ -114,6 +127,7 @@ arm:
   gripper_closed_rad: -0.12
 limits:
   arm_max_joint_velocity_rps: 0.5
+  arm_settle_tolerance_rad: 0.08   # steady-state error reported as residual_error instead of a timeout
   gripper_effort_threshold: 300.0
 timeouts:
   follower_stale_s: 0.3

@@ -332,3 +332,11 @@ def test_navigation_tool_descriptions_default_to_one_cm_two_deg(server: Any) -> 
     docs = tool_descriptions(server)
     assert "within 1 cm and 2 deg" in docs["navigate_to_pose"]
     assert "within 1 cm and 2 deg" in docs["move_relative"]
+
+
+def test_arm_motion_descriptions_explain_residual_error_and_commanded_hold(server: Any) -> None:
+    docs = tool_descriptions(server)
+    for name in ("move_arm_joints", "move_arm_cartesian", "arm_home"):
+        assert "residual_error" in docs[name], name
+    assert "last commanded" in docs["move_arm_joints"]
+    assert "follower" in docs["set_gripper"] or "follower" in docs["move_arm_joints"]

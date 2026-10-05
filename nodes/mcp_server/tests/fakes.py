@@ -19,6 +19,8 @@ class FakeArmBackend:
         self.releases = 0
         self.source: str | None = "autonomy"
         self.follow = True
+        # Steady-state error per joint while following (e.g. gravity sag: measured = command + sag).
+        self.sag: dict[str, float] = {}
         self.stale_after: float | None = None
         self.no_samples = False
         self.on_sleep: Callable[[FakeArmBackend], None] | None = None
@@ -40,7 +42,7 @@ class FakeArmBackend:
         self.commands.append(dict(positions))
         self.events.append(("command", dict(positions)))
         if self.follow and (self.stale_after is None or self.t < self.stale_after):
-            self.positions.update(positions)
+            self.positions.update({j: v + self.sag.get(j, 0.0) for j, v in positions.items()})
 
     def publish_release(self) -> None:
         self.releases += 1

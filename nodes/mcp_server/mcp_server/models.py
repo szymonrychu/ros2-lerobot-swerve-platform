@@ -125,6 +125,11 @@ class ArmMotionResult(BaseModel):
     target: dict[str, float] | None = None
     positions: dict[str, float] | None = Field(default=None, description="Measured joint positions at the end")
     clamped: list[str] = Field(default_factory=list, description="Joints whose target was clamped to limits")
+    residual_error: dict[str, float] = Field(
+        default_factory=dict,
+        description="Joints that settled (stopped moving) short of the converge tolerance but within the settle "
+        "tolerance: target - measured (rad). Their target stays commanded.",
+    )
     duration_s: float = 0.0
 
 

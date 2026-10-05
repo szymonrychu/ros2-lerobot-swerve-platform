@@ -225,6 +225,14 @@ def register_tools(
         f"The floor is at z = {config.arm.floor_z_m:.3f} m in this frame "
         f"(the arm mount is {config.arm.arm_base_height_m * 100:.1f} cm above it)."
     )
+    settle_note = (
+        "Joints you do not name keep their last commanded target (not their measured, gravity-sagged position). "
+        f"Status 'converged' means every moved joint is within {config.limits.arm_converge_tolerance_rad} rad of its "
+        "target, or stopped short of it under load (servo steady-state error) by at most "
+        f"{config.limits.arm_settle_tolerance_rad} rad: then residual_error lists target - measured (rad) per joint "
+        "and the target stays commanded, so do not re-send it to compensate. Gripper targets are follower gripper "
+        "joint positions (rad, as in get_arm_state)."
+    )
 
     def battery_gate(tool_name: str) -> None:
         """Refuse a motion tool while the battery is below cut-off, before the robot is touched."""
@@ -370,13 +378,21 @@ def register_tools(
         with tool_errors():
             return robot.arm.release()
 
-    @tool()
+    @tool(
+        description=(
+            "Move arm joints to targets along a smooth (quintic) trajectory streamed at 25 Hz. Targets are clamped "
+            "to the URDF limits minus a margin (reported in `clamped`). Blocks until converged or timed out; aborts "
+            "and holds the measured pose if joint feedback goes stale (>0.3 s), the tracking error grows too large, "
+            "the joints do not settle near the target (status 'timeout'), or stop is called. Takes arm control if "
+            f"not already held and keeps it afterwards: call release_control when done. {settle_note}"
+        )
+    )
     def move_arm_joints(
         targets: Annotated[
             dict[str, float],
             Field(
                 description="Joint name -> target rad; joints: shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, "
-                "wrist_roll, gripper. Unnamed joints stay where they are."
+                "wrist_roll, gripper. Unnamed joints keep their last commanded target."
             ),
         ],
         speed_scale: Annotated[
@@ -384,10 +400,7 @@ def register_tools(
             Field(gt=0.0, le=HARD_MAX_SPEED_SCALE, description="0.5 = max joint speed (0.5 rad/s); lower is slower"),
         ] = HARD_MAX_SPEED_SCALE,
     ) -> ArmMotionResult:
-        """Move arm joints to targets along a smooth (quintic) trajectory streamed at 25 Hz. Targets are clamped
-        to the URDF limits minus a margin (reported in `clamped`). Blocks until converged or timed out; aborts and
-        holds the measured pose if joint feedback goes stale (>0.3 s), the tracking error grows too large, or stop
-        is called. Takes arm control if not already held and keeps it afterwards: call release_control when done."""
+        """Move arm joints; the tool description is passed to the decorator so it can state the tolerances."""
         battery_gate("move_arm_joints")
         with tool_errors():
             return robot.arm.move_joints(targets, speed_scale)
@@ -399,7 +412,7 @@ def register_tools(
             "kinematics on the arm URDF (5-DOF: position + pitch, wrist_roll kept) and streams the joint motion "
             "like move_arm_joints. Returns status 'unreachable' without moving when no solution exists within "
             "joint limits. Keeps arm control afterwards like move_arm_joints: call release_control when done. "
-            f"{floor_note}"
+            f"{floor_note} {settle_note}"
         )
     )
     def move_arm_cartesian(
@@ -435,12 +448,17 @@ def register_tools(
         with tool_errors():
             return robot.arm.set_gripper(open_fraction, close_until_effort, effort_threshold)
 
-    @tool()
+    @tool(
+        description=(
+            "Move the arm to its stored home pose. Afterwards (also after a failed motion) arm control is kept only "
+            "if it was already held before this call; otherwise it is released so the leader arm and web UI work "
+            "again. (The /arm/home ROS service, used by the web UI, always releases.) Fails if no home pose has been "
+            "stored yet with arm_set_home. Reports 'converged' with residual_error (target - measured, rad) when "
+            f"joints settled short of the home pose by at most {config.limits.arm_settle_tolerance_rad} rad."
+        )
+    )
     def arm_home() -> ArmMotionResult:
-        """Move the arm to its stored home pose. Afterwards (also after a failed motion) arm control is kept only if
-        it was already held before this call; otherwise it is released so the leader arm and web UI work again. (The
-        /arm/home ROS service, used by the web UI, always releases.) Fails if no home pose has been stored yet with
-        arm_set_home."""
+        """Move home; the tool description is passed to the decorator so it can state the settle tolerance."""
         battery_gate("arm_home")
         with tool_errors():
             return robot.arm.home(keep_prior_control=True)

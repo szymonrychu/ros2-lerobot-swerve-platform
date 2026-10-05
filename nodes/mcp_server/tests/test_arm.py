@@ -331,6 +331,11 @@ def test_state_floor_z_follows_configured_base_height(tmp_path: Path) -> None:
     assert arm.state().floor_z_m == pytest.approx(-0.2)
 
 
+# --- sag ratchet: unnamed joints keep the commanded target; small steady-state errors settle, not time out ---
+
+SAG = -0.05  # shoulder_lift ends 0.05 rad short of its command under gravity load (on-robot: 0.05-0.06)
+
+
 def test_gripper_closed_default_is_a_follower_joint_position(tmp_path: Path) -> None:
     """Gripper targets are follower joint radians (as in /follower/joint_states): closed is near the URDF lower
     limit (measured closed: -0.172 rad), not 0.0 (which is ~10 deg open on the follower)."""
@@ -339,3 +344,134 @@ def test_gripper_closed_default_is_a_follower_joint_position(tmp_path: Path) -> 
     arm.set_gripper(open_fraction=0.0)
     assert be.commands[-1]["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)
     assert lo <= CONFIG.arm.gripper_closed_rad < -0.1
+
+
+def test_small_steady_state_error_settles_as_converged_with_residual(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": SAG}
+    res = arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
+    assert res.status == "converged", res.message
+    assert "settled with residual error" in res.message
+    assert res.residual_error == {"shoulder_lift": pytest.approx(-SAG)}
+    # The target stays commanded (no hold at the sagged measured pose) and the keepalive keeps republishing it.
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(0.5)
+    arm.keepalive_tick()
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(0.5)
+
+
+def test_settled_motion_returns_before_the_converge_timeout(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": SAG}
+    res = arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
+    assert res.status == "converged"
+    assert res.duration_s < 1.0 + CONFIG.timeouts.arm_converge_timeout_s / 2
+
+
+def test_exact_convergence_reports_no_residual(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path)
+    res = arm.move_joints({"elbow_flex": 0.3}, speed_scale=0.5)
+    assert res.status == "converged"
+    assert res.residual_error == {}
+    assert res.message == "reached target"
+
+
+def test_unnamed_joints_keep_last_commanded_target_not_sagged_measured(tmp_path: Path) -> None:
+    """Regression (sag ratchet): a second motion must not lock the sagged measured shoulder_lift in."""
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": SAG}
+    arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
+    n = len(be.commands)
+    res = arm.move_joints({"elbow_flex": 0.3}, speed_scale=0.5)
+    assert res.status == "converged", res.message
+    assert all(c["shoulder_lift"] == pytest.approx(0.5) for c in be.commands[n:])
+    assert be.commands[-1]["elbow_flex"] == pytest.approx(0.3)
+
+
+def test_repeated_motions_do_not_accumulate_sag(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": SAG, "elbow_flex": SAG}
+    arm.move_joints({"shoulder_lift": 0.5, "elbow_flex": 0.4}, speed_scale=0.5)
+    for i in range(5):
+        arm.move_joints({"wrist_flex": 0.1 * (i % 2)}, speed_scale=0.5)
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(0.5)
+    assert be.commands[-1]["elbow_flex"] == pytest.approx(0.4)
+    assert be.positions["shoulder_lift"] == pytest.approx(0.5 + SAG)
+
+
+def test_named_joint_trajectory_starts_at_commanded_not_measured(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": SAG}
+    arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
+    n = len(be.commands)
+    arm.move_joints({"shoulder_lift": 0.6}, speed_scale=0.5)
+    assert all(c["shoulder_lift"] >= 0.5 - 1e-9 for c in be.commands[n:])
+
+
+def test_cartesian_keeps_commanded_gripper_and_wrist_roll(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.sag = {"gripper": -0.03, "wrist_roll": -0.03}
+    arm.move_joints({"gripper": 0.5, "wrist_roll": 0.2}, speed_scale=0.5)
+    n = len(be.commands)
+    q = {"shoulder_pan": 0.1, "shoulder_lift": -0.2, "elbow_flex": 0.4, "wrist_flex": 0.5, "wrist_roll": 0.2}
+    target = KIN.forward(q)
+    res = arm.move_cartesian(target.x, target.y, target.z, target.pitch)
+    assert res.status == "converged", res.message
+    assert all(c["gripper"] == pytest.approx(0.5) for c in be.commands[n:])
+    assert all(c["wrist_roll"] == pytest.approx(0.2) for c in be.commands[n:])
+
+
+def test_new_lease_falls_back_to_measured_pose(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": SAG}
+    arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
+    arm.release()
+    n = len(be.commands)
+    arm.move_joints({"elbow_flex": 0.2}, speed_scale=0.5)
+    # Nothing commanded in the new lease yet: unnamed joints start from the measured pose.
+    assert be.commands[n]["shoulder_lift"] == pytest.approx(0.5 + SAG)
+
+
+def test_large_steady_state_error_still_times_out_and_holds_measured(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": -(CONFIG.limits.arm_settle_tolerance_rad + 0.02)}
+    res = arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
+    assert res.status == "timeout"
+    assert be.commands[-1] == res.positions  # held at the measured pose (the fake then sags further)
+    assert res.residual_error == {}
+
+
+def test_moving_joint_within_settle_band_is_not_settled(tmp_path: Path) -> None:
+    """A joint still moving (here oscillating) inside the settle band is not a steady-state error."""
+    arm, be = make(tmp_path)
+    arm.acquire()
+    be.follow = False
+    ticks = [0]
+
+    def wobble(b: FakeArmBackend) -> None:
+        ticks[0] += 1
+        last = b.commands[-1]["elbow_flex"]
+        b.positions["elbow_flex"] = last - 0.055 + (0.015 if ticks[0] % 2 else -0.015)  # error 0.04 / 0.07
+
+    be.on_sleep = wobble
+    res = arm.move_joints({"elbow_flex": 0.3}, speed_scale=0.5)
+    assert res.status == "timeout"
+
+
+def test_tracking_abort_still_holds_measured_with_settle_enabled(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": -(CONFIG.limits.arm_tracking_error_rad + 0.05)}
+    res = arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
+    assert res.status == "aborted_tracking"
+    assert be.commands[-1] == res.positions
+
+
+def test_home_settles_with_residual_and_keeps_target(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.positions.update({"shoulder_lift": 0.4})
+    arm.set_home()
+    be.positions.update({"shoulder_lift": 0.0})
+    be.sag = {"shoulder_lift": -0.047}
+    arm.acquire()
+    res = arm.home()
+    assert res.status == "converged", res.message
+    assert res.residual_error == {"shoulder_lift": pytest.approx(0.047)}
