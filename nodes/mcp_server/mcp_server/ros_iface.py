@@ -403,7 +403,7 @@ class RosRobot:
         """Grab one fresh frame through a one-shot subscription.
 
         Args:
-            camera (str): 'gripper' (compressed) or 'realsense' (raw).
+            camera (str): 'gripper' (compressed) or 'front' (raw stereo left image).
             max_px (int): Longest side.
 
         Returns:
@@ -411,7 +411,7 @@ class RosRobot:
         """
         topics = {
             "gripper": (self.cfg.topics.gripper_camera, CompressedImage),
-            "realsense": (self.cfg.topics.realsense_camera, Image),
+            "front": (self.cfg.topics.front_camera, Image),
         }
         if camera not in topics:
             raise RobotError(f"unknown camera {camera!r}")

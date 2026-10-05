@@ -71,9 +71,9 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/controller/camera_0/image_raw": Image,
     "/controller/camera_0/image_compressed": CompressedImage,
     "/controller/goal_pose": PoseStamped,
-    "/camera/camera/color/image_raw": Image,
-    "/camera/camera/depth/image_rect_raw": Image,
-    "/camera/camera/depth/camera_info": CameraInfo,
+    "/stereo/left/image_rect": Image,
+    "/stereo/depth/image_rect": Image,
+    "/stereo/depth/camera_info": CameraInfo,
     # Local (client-side) topics shown by the map tab and the default camera/IMU tabs.
     "/follower/joint_states": JointState,
     "/swerve_drive/joint_states": JointState,

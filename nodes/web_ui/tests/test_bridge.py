@@ -57,3 +57,14 @@ def test_publish_dict_rejects_non_allowlisted() -> None:
         node.publish_dict("/evil_topic", {})
     mock_warn.assert_called_once()
     assert "/evil_topic" not in node.publishers_
+
+
+def test_stereo_topics_have_type_hints() -> None:
+    """The stereo RGBD tab topics resolve to Image/CameraInfo subscriptions without a role."""
+    from sensor_msgs.msg import CameraInfo, Image
+
+    from web_ui.bridge import subscription_spec
+
+    assert subscription_spec("/stereo/left/image_rect", None)[0] is Image
+    assert subscription_spec("/stereo/depth/image_rect", None)[0] is Image
+    assert subscription_spec("/stereo/depth/camera_info", None)[0] is CameraInfo

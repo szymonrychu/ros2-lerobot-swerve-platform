@@ -126,3 +126,13 @@ overlays: []
     assert "/camera/camera/color/image_raw" in topics
     assert "/camera/camera/depth/image_rect_raw" in topics
     assert "/camera/camera/depth/camera_info" in topics
+
+
+def test_default_yaml_rgbd_tab_uses_stereo_topics() -> None:
+    """The shipped default config points the RGBD tab at the stereo outputs."""
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
+    tab = next(t for t in cfg.tabs if t.type == "rgbd_camera")
+    assert tab.color_topic == "/stereo/left/image_rect"
+    assert tab.depth_topic == "/stereo/depth/image_rect"
+    assert tab.camera_info_topic == "/stereo/depth/camera_info"
+    assert tab.label == "Stereo depth"

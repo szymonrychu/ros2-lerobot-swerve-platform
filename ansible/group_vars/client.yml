@@ -883,10 +883,10 @@ ros2_nodes:
           topic: /camera_0/image_raw/compressed
         - id: rgbd_camera
           type: rgbd_camera
-          label: "RGBD Cam"
-          color_topic: /camera/camera/color/image_raw
-          depth_topic: /camera/camera/depth/image_rect_raw
-          camera_info_topic: /camera/camera/depth/camera_info
+          label: "Stereo depth"
+          color_topic: /stereo/left/image_rect
+          depth_topic: /stereo/depth/image_rect
+          camera_info_topic: /stereo/depth/camera_info
         - id: imu_graphs
           type: imu_orientation
           label: "IMU"
@@ -921,6 +921,9 @@ ros2_nodes:
         host: "0.0.0.0"
         port: 18200
         path: /mcp
+      topics:
+        # Front camera: rectified left colour image of the stereo pair (sensor_msgs/Image, 320x240).
+        front_camera: /stereo/left/image_rect
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml

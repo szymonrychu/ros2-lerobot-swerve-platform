@@ -1,5 +1,6 @@
 """Tests for mcp_server.tools: tool registry, argument validation, structured outputs and bearer-token auth."""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -161,7 +162,7 @@ def test_get_camera_image_validates_arguments(server: Any) -> None:
 def test_camera_failure_is_a_tool_error(server: Any, robot: FakeRobot) -> None:
     robot.camera_error = "no frame within 2.0 s"
     with pytest.raises(ToolError, match="no frame"):
-        call(server, "get_camera_image", {"camera": "realsense"})
+        call(server, "get_camera_image", {"camera": "front"})
 
 
 def test_map_summary_with_png(server: Any) -> None:
@@ -342,3 +343,16 @@ def test_arm_motion_descriptions_explain_residual_error_and_commanded_hold(serve
     assert "relax" in docs["move_arm_joints"]
     assert "stall" in docs["set_gripper"]
     assert "follower" in docs["set_gripper"] or "follower" in docs["move_arm_joints"]
+
+
+def test_camera_tool_offers_front_stereo_not_realsense(server: Any) -> None:
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tool = next(t for t in anyio.run(run) if t.name == "get_camera_image")
+    schema = json.dumps(tool.input_schema)
+    assert "front" in schema and "realsense" not in schema.lower()
+    text = (tool.description or "") + schema
+    assert "320x240" in text and "/stereo/depth/image_rect" in text
+    with pytest.raises(ToolError):
+        call(server, "get_camera_image", {"camera": "realsense"})

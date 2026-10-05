@@ -71,7 +71,7 @@ class TopicSettings(StrictModel):
     collision_monitor_state: str = "/collision_monitor_state"
     navigate_action: str = "/navigate_to_pose"
     gripper_camera: str = "/camera_0/image_raw/compressed"
-    realsense_camera: str = "/camera/camera/color/image_raw"
+    front_camera: str = "/stereo/left/image_rect"
     map_frame: str = "map"
     base_frame: str = "base_link"
     home_service: str = "/arm/home"

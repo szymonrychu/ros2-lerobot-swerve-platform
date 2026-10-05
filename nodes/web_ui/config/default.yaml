@@ -50,10 +50,10 @@ tabs:
 
   - id: rgbd_camera
     type: rgbd_camera
-    label: "RGBD Cam"
-    color_topic: /camera/camera/color/image_raw
-    depth_topic: /camera/camera/depth/image_rect_raw
-    camera_info_topic: /camera/camera/depth/camera_info
+    label: "Stereo depth"
+    color_topic: /stereo/left/image_rect
+    depth_topic: /stereo/depth/image_rect
+    camera_info_topic: /stereo/depth/camera_info
 
   - id: imu_graphs
     type: imu_orientation

@@ -191,7 +191,12 @@ def test_web_ui_tab_set() -> None:
     camera = tabs[2]
     assert camera["type"] == "camera"
     assert camera["topic"] == "/camera_0/image_raw/compressed"
-    assert tabs[3]["type"] == "rgbd_camera"
+    rgbd = tabs[3]
+    assert rgbd["type"] == "rgbd_camera"
+    assert rgbd["label"] == "Stereo depth"
+    assert rgbd["color_topic"] == "/stereo/left/image_rect"
+    assert rgbd["depth_topic"] == "/stereo/depth/image_rect"
+    assert rgbd["camera_info_topic"] == "/stereo/depth/camera_info"
     assert tabs[4]["type"] == "imu_orientation"
 
 
@@ -363,3 +368,10 @@ def test_claude_agent_nav_tolerances_match_mcp_server() -> None:
     nav = node_config("mcp_server")["nav"]
     assert agent["nav_goal_xy_tolerance_cm"] == pytest.approx(nav["goal_xy_tolerance_m"] * 100)
     assert agent["nav_goal_yaw_tolerance_deg"] == pytest.approx(nav["goal_yaw_tolerance_deg"])
+
+
+def test_mcp_server_front_camera_is_stereo_left_rect() -> None:
+    """mcp_server's `front` camera reads the rectified left stereo image (raw sensor_msgs/Image)."""
+    topics = node_config("mcp_server").get("topics", {})
+    assert topics["front_camera"] == "/stereo/left/image_rect"
+    assert "realsense_camera" not in topics

@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 # Topics that produce downscaled color alongside the full-res JPEG (for RGBD mesh coloring).
-RGBD_COLOR_TOPICS: frozenset[str] = frozenset({"/camera/camera/color/image_raw"})
+RGBD_COLOR_TOPICS: frozenset[str] = frozenset({"/stereo/left/image_rect"})
 
 # Mesh downscale target resolution.
 _MESH_W = 160

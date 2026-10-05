@@ -117,7 +117,7 @@ def test_serialize_camera_info() -> None:
 
 def test_color_image_rgbd_topic_includes_color_small() -> None:
     """Color image on RGBD color topic includes color_small_b64."""
-    result = msg_to_dict(_make_rgb_image_msg(), topic="/camera/camera/color/image_raw")
+    result = msg_to_dict(_make_rgb_image_msg(), topic="/stereo/left/image_rect")
     assert "jpeg_b64" in result
     assert "color_small_b64" in result
     assert result["color_small_b64"] is not None
@@ -137,3 +137,45 @@ def test_serialize_depth_image_zero_depth_preserved_in_bytes() -> None:
     raw = base64.b64decode(result["depth_b64"])
     arr = np.frombuffer(raw, dtype=np.uint16)
     assert int(arr[0]) == 0
+
+
+STEREO_COLOR = "/stereo/left/image_rect"
+STEREO_DEPTH = "/stereo/depth/image_rect"
+STEREO_INFO = "/stereo/depth/camera_info"
+
+
+def _bgr_image_msg(width: int = 320, height: int = 240) -> MagicMock:
+    """Return a mock raw bgr8 Image message."""
+    arr = np.zeros((height, width, 3), dtype=np.uint8)
+    arr[:, :, 2] = 200
+    msg = MagicMock()
+    msg.__class__.__name__ = "Image"
+    msg.encoding = "bgr8"
+    msg.width = width
+    msg.height = height
+    msg.step = width * 3
+    msg.data = arr.tobytes()
+    return msg
+
+
+def test_stereo_color_topic_includes_color_small() -> None:
+    """The stereo left colour topic feeds the RGBD mesh with a downscaled colour frame (rgb8, 320x240)."""
+    result = msg_to_dict(_make_rgb_image_msg(320, 240), topic=STEREO_COLOR)
+    assert result["jpeg_b64"] is not None
+    assert result["color_small_b64"] is not None
+
+
+def test_stereo_color_bgr8_raw_image_serializes() -> None:
+    """A raw bgr8 Image at 320x240 serializes to JPEG with the colour mesh frame."""
+    result = msg_to_dict(_bgr_image_msg(), topic=STEREO_COLOR)
+    assert result["jpeg_b64"] is not None
+    assert result["color_small_b64"] is not None
+    assert "error" not in result
+
+
+def test_stereo_depth_16uc1_320x240_serializes() -> None:
+    """The 16UC1 stereo depth at 320x240 yields the preview and the 160x120 mesh grid."""
+    result = msg_to_dict(_make_depth_image_msg(width=320, height=240), topic=STEREO_DEPTH)
+    assert result["depth_preview_b64"] is not None
+    assert (result["depth_width"], result["depth_height"]) == (160, 120)
+    assert len(base64.b64decode(result["depth_b64"])) == 160 * 120 * 2

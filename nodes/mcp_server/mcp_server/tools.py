@@ -87,7 +87,7 @@ stale feedback or tracking error. Arm control (the autonomy lease) is sticky: on
 motion) the leader arm and web UI are ignored until you call release_control, so release it as soon as you are done
 with the arm. Call stop at once if anything looks wrong; it is always available."""
 
-Camera = Literal["gripper", "realsense"]
+Camera = Literal["gripper", "front"]
 
 
 class RobotApi(Protocol):
@@ -261,11 +261,13 @@ def register_tools(
 
     @tool(structured_output=False)
     def get_camera_image(
-        camera: Annotated[Camera, Field(description="'gripper' (USB camera on the gripper) or 'realsense' (RGB-D)")],
+        camera: Annotated[
+            Camera, Field(description="'gripper' (USB camera on the gripper) or 'front' (front stereo camera, 320x240)")
+        ],
         max_px: Annotated[int, Field(ge=32, le=HARD_MAX_IMAGE_PX, description="Longest image side in pixels")] = 768,
     ) -> list[ImageContent | TextContent]:
         """Take one fresh photo from a robot camera and return it as a JPEG image plus its capture timestamp.
-        'gripper' looks out of the gripper (use it to aim grasps); 'realsense' is the forward RGB-D colour camera.
+        'gripper' looks out of the gripper (use it to aim grasps); 'front' is the front stereo camera (320x240, the left camera of a stereo pair), forward-looking; the matching depth image exists on /stereo/depth/image_rect but is not returned by this tool.
         Fails (instead of returning an old picture) when no frame arrives within the timeout or the newest frame is
         older than 1 s."""
         with tool_errors():
