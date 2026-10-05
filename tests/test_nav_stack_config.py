@@ -667,12 +667,28 @@ def test_node_apt_install_refreshes_stale_cache() -> None:
 
 
 def test_nav2_goal_tolerance_tight_enough_for_swerve() -> None:
-    """15 cm let a 0.4 m goal finish 13.6 cm short. 10 cm (not tighter): the rotation shim turns to the goal heading
-    only while inside this tolerance and its check is not latched, so it needs margin for the small base_link shift
-    of an in-place turn (at 8 cm a turn drifted out, MPPI took over and overshot 58 deg on the robot)."""
+    """Goals finish within 1 cm / 2 deg (user requirement). The default BT replanned at 1 Hz and every replan reset
+    the goal checker latch and the rotation shim's position check, so the shim lost the in-tolerance state and MPPI
+    took over mid-turn (58 deg overshoot on the robot). With replanning only on an invalid path the stateful
+    checker latches reliably."""
     checker = ros_params(nav2(), "controller_server")["general_goal_checker"]
-    assert checker["xy_goal_tolerance"] == pytest.approx(0.10)
-    assert checker["yaw_goal_tolerance"] == pytest.approx(0.15)
+    assert checker["xy_goal_tolerance"] == pytest.approx(0.01)
+    assert checker["yaw_goal_tolerance"] == pytest.approx(0.035)
+    assert checker["stateful"] is True
+
+
+def test_nav2_replans_only_when_path_invalid() -> None:
+    """Periodic replanning resets the goal checker latch; replan only if the path becomes invalid."""
+    bt = ros_params(nav2(), "bt_navigator")["default_nav_to_pose_bt_xml"]
+    assert bt.endswith("/navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml")
+
+
+def test_nav2_progress_checker_counts_rotation() -> None:
+    """In-place rotation is progress: PoseProgressChecker counts angle too, and a small radius suits cm-scale goals."""
+    checker = ros_params(nav2(), "controller_server")["progress_checker"]
+    assert checker["plugin"] == "nav2_controller::PoseProgressChecker"
+    assert checker["required_movement_radius"] <= 0.05
+    assert checker["required_movement_angle"] > 0
 
 
 def test_rplidar_runs_under_scan_supervisor() -> None:
@@ -693,6 +709,8 @@ def test_nav2_rotates_toward_path_first_and_keeps_front_leading() -> None:
     assert 0.3 <= follow["angular_dist_threshold"] <= 1.0
     assert follow["rotate_to_heading_angular_vel"] <= follow["wz_max"]
     assert follow["rotate_to_goal_heading"] is True
+    assert follow["max_angular_accel"] <= 0.5
+    assert follow["rotate_to_heading_once"] is True
     angle = follow["PathAngleCritic"]
     assert angle["enabled"] is True and angle["mode"] == 0
     # The shim alone turns to the goal heading; MPPI's GoalAngleCritic fought it near the goal.

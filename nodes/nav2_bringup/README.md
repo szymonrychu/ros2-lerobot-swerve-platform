@@ -44,7 +44,11 @@ collision_monitor -> `/cmd_vel` (unstamped Twist) -> swerve_drive_controller.
 
 ## Rotate first, drive front-first
 
-`FollowPath` is the `RotationShimController` wrapping MPPI. When a new path points more than 45 deg away from the robot heading, it first rotates in place (0.5 rad/s) until within about 17 deg, then MPPI follows the path. At the end, once inside the 0.10 m goal tolerance, the shim alone turns to the goal heading. MPPI's `GoalAngleCritic` is off because the two fought: with 8 cm tolerance an in-place turn drifted out of tolerance, MPPI took over and overshot by 58 deg. `GoalCritic` (weight 8) brings the robot close before the turn. MPPI's `PathAngleCritic` runs in mode 0 (forward preference, weight 4.0), so the robot keeps its front toward the direction of travel instead of strafing. Why: the lidar is partly covered at the back and on the right, so it sees best ahead.
+`FollowPath` is the `RotationShimController` wrapping MPPI. When a new path points more than 45 deg away from the robot heading, it first rotates in place (0.5 rad/s) until within about 17 deg, then MPPI follows the path. At the end, once inside the goal tolerance, the shim alone turns to the goal heading (`rotate_to_heading_once`, `max_angular_accel` 0.5). MPPI's `GoalAngleCritic` is off because the two fought. The measured 58 deg overshoot had one cause: the default BT replans at 1 Hz and every replan resets the goal checker latch and the shim's position check, so the shim lost the in-tolerance state mid-turn and MPPI took over. `GoalCritic` (weight 8) brings the robot close before the turn. MPPI's `PathAngleCritic` runs in mode 0 (forward preference, weight 4.0), so the robot keeps its front toward the direction of travel instead of strafing. Why: the lidar is partly covered at the back and on the right, so it sees best ahead.
+
+## Goal tolerance
+
+Goals finish within 1 cm and 2 deg (`xy_goal_tolerance` 0.01, `yaw_goal_tolerance` 0.035, stateful). This needs three things together: the BT `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml` (mid-route replanning only on an invalid path, so the latch holds), `PoseProgressChecker` (rotation counts as progress; radius 0.05 m, angle 0.3 rad, 20 s allowance), and the shim settings above. Short sideways goals (a few cm) rotate 90 deg toward the path first (front leading) and then turn back to the goal heading.
 
 ## Collision monitor
 
