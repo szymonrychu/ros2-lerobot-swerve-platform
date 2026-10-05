@@ -2,6 +2,7 @@
 
 import math
 
+import numpy as np
 import pytest
 
 from swerve_drive_controller.kinematics import (
@@ -10,6 +11,7 @@ from swerve_drive_controller.kinematics import (
     choose_common_flip,
     compute_wheel_commands,
     desaturate_wheel_speeds,
+    fk_system,
     fold_to_steer_range,
     forward_kinematics,
     forward_kinematics_with_residual,
@@ -19,9 +21,11 @@ from swerve_drive_controller.kinematics import (
     odometry_twist_variances,
     robust_forward_kinematics,
     should_zero_drive,
+    solve_twist,
     steer_angle_difference,
     wheel_positions,
     wheel_states,
+    wheels_parked,
 )
 
 
@@ -464,9 +468,38 @@ def test_robust_fk_keeps_full_solution_when_two_wheels_slip() -> None:
 
 def test_odometry_twist_variances_grow_with_residual() -> None:
     base_xy, base_yaw = odometry_twist_variances(0.0, LX, LY)
-    assert base_xy == pytest.approx(0.01)
+    assert base_xy == pytest.approx(0.002)
     assert base_yaw == pytest.approx(0.01)
     var_xy, var_yaw = odometry_twist_variances(0.1, LX, LY)
-    assert var_xy == pytest.approx(0.01 + 0.1**2)
+    assert var_xy == pytest.approx(0.002 + 0.1**2)
     assert var_yaw == pytest.approx(0.01 + (0.1 / math.hypot(LX, LY)) ** 2)
     assert var_xy > base_xy and var_yaw > base_yaw
+
+
+def test_odometry_twist_variances_pin_heading_when_parked() -> None:
+    var_xy, var_yaw = odometry_twist_variances(0.0, LX, LY, parked=True)
+    assert var_xy == pytest.approx(1e-3)
+    assert var_yaw == pytest.approx(1e-4)
+
+
+def test_wheels_parked_uses_measured_speeds() -> None:
+    assert wheels_parked([0.0, 0.0, 0.0, 0.0], R)
+    assert wheels_parked([0.01, -0.01, 0.0, 0.0], R)
+    assert not wheels_parked([0.0, 0.0, 0.0, 1.0], R)
+
+
+def test_stalled_wheels_are_far_beyond_three_sigma_of_a_still_lidar() -> None:
+    """Wheels say 0.25 m/s while the lidar says 0: with the xy floor the wheel variance alone puts it well past the
+    3.0 threshold (squared distance 0.25^2 / var against 3.0^2)."""
+    var_xy, _ = odometry_twist_variances(0.0, LX, LY)
+    assert 0.25**2 / var_xy > 3.0**2 * 3
+
+
+def test_solve_twist_residual_is_normalised_by_sqrt_of_degrees_of_freedom() -> None:
+    steer, drive = slipping_wheel_states(0, 0.2)
+    A, b = fk_system(steer, drive, LX, LY, R)
+    twist, residual = solve_twist(A, b)
+    assert residual == pytest.approx(np.linalg.norm(A @ np.array(twist) - b) / math.sqrt(5))
+    keep = [row for row in range(8) if row // 2 != 0]
+    sub_twist, sub_residual = solve_twist(A[keep], b[keep])
+    assert sub_residual == pytest.approx(np.linalg.norm(A[keep] @ np.array(sub_twist) - b[keep]) / math.sqrt(3))

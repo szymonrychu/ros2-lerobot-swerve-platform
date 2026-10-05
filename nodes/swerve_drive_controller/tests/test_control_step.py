@@ -237,3 +237,15 @@ def test_control_step_residual_is_zero_for_consistent_wheels(tmp_path: Path) -> 
     out, _ = control_step(cfg, ControlState(), CmdVelSample((0.1, 0.0, 0.0), 10.0), make_joints(10.0, 0.0, 1.0), 10.0)
     assert out is not None
     assert out.odom_residual_mps == pytest.approx(0.0, abs=1e-9)
+
+
+def test_control_step_flags_parked_from_measured_wheel_speeds(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    stop = CmdVelSample((0.0, 0.0, 0.0), 10.0)
+    still, _ = control_step(cfg, ControlState(), stop, make_joints(10.0, 0.0, 0.0), 10.0)
+    assert still is not None and still.parked
+    rolling, _ = control_step(cfg, ControlState(), stop, make_joints(10.0, 0.0, 1.0), 10.0)
+    assert rolling is not None and not rolling.parked
+    go = CmdVelSample((0.1, 0.0, 0.0), 10.0)
+    commanded, _ = control_step(cfg, ControlState(), go, make_joints(10.0, 0.0, 0.0), 10.0)
+    assert commanded is not None and commanded.parked, "measured, not commanded, speeds decide"

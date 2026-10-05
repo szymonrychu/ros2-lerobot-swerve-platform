@@ -70,7 +70,9 @@ def build_odometry(
     odom.twist.twist.linear.x = output.odom_twist[0]
     odom.twist.twist.linear.y = output.odom_twist[1]
     odom.twist.twist.angular.z = output.odom_twist[2]
-    cov_xy, cov_yaw = odometry_twist_variances(output.odom_residual_mps, config.half_length_m, config.half_width_m)
+    cov_xy, cov_yaw = odometry_twist_variances(
+        output.odom_residual_mps, config.half_length_m, config.half_width_m, output.parked
+    )
     odom.pose.covariance[0] = cov_xy
     odom.pose.covariance[7] = cov_xy
     odom.pose.covariance[35] = cov_yaw

@@ -9,6 +9,7 @@ from .kinematics import (
     robust_forward_kinematics,
     should_zero_drive,
     wheel_states,
+    wheels_parked,
 )
 
 CMD_VEL_DEADBAND = 0.005  # m/s and rad/s
@@ -74,6 +75,7 @@ class ControlOutput:
         odom_twist: Measured body twist (vx, vy, omega) from forward kinematics.
         moving: True when the (deadbanded) commanded twist is non-zero.
         odom_residual_mps: Wheel-consistency residual of the measured twist (m/s); drives the twist covariance.
+        parked: True when every measured wheel speed is ~0 (pins the heading through a tight covariance).
     """
 
     names: list[str]
@@ -82,6 +84,7 @@ class ControlOutput:
     odom_twist: tuple[float, float, float]
     moving: bool
     odom_residual_mps: float = 0.0
+    parked: bool = False
 
 
 def build_joint_command(
@@ -182,6 +185,7 @@ def control_step(
         odom_twist=twist,
         moving=abs(vx) > CMD_VEL_DEADBAND or abs(vy) > CMD_VEL_DEADBAND or abs(omega) > CMD_VEL_DEADBAND,
         odom_residual_mps=residual,
+        parked=wheels_parked(drive_velocities, config.wheel_radius_m),
     )
     return output, ControlState(
         steer_targets=list(desired_steer),

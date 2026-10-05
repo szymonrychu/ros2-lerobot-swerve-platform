@@ -15,8 +15,16 @@ STEER_LIMIT_HYSTERESIS_RAD = 0.1
 GROUP_FLIP_HYSTERESIS_RAD = 0.2
 # A leave-one-wheel-out solution replaces the full one only when its residual is below this fraction of it.
 SLIP_DROP_IMPROVEMENT = 0.5
-# Baseline odometry twist variance (m/s)^2 and (rad/s)^2 before the slip residual is added.
-TWIST_VARIANCE_FLOOR = 0.01
+# Baseline odometry twist variances before the slip residual is added: translation (m/s)^2 and yaw rate (rad/s)^2.
+# The translation floor is small so that a full stall (wheels say ~0.25 m/s, lidar says 0) is far beyond 3 sigma
+# of the EKF's Mahalanobis gate; the yaw floor stays larger because the gyro is the preferred yaw-rate source.
+TWIST_XY_VARIANCE_FLOOR = 0.002
+TWIST_YAW_VARIANCE_FLOOR = 0.01
+# Measured wheel ground speed below which every wheel counts as parked, m/s.
+PARKED_SPEED_EPSILON_MPS = 0.005
+# Variances published while parked: the wheels are a trustworthy zero, which pins the heading against gyro bias.
+PARKED_XY_VARIANCE = 1e-3
+PARKED_YAW_VARIANCE = 1e-4
 
 
 def wheel_positions(lx: float, ly: float) -> np.ndarray:
@@ -127,11 +135,12 @@ def solve_twist(A: np.ndarray, b: np.ndarray) -> tuple[tuple[float, float, float
         b: Right-hand side with shape (n,).
 
     Returns:
-        tuple: ((vx, vy, omega), residual) with residual = ||A x - b|| / sqrt(n / 2 + 1), m/s. The divisor is
-        sqrt(5) for the full 8-equation system and sqrt(4) for a leave-one-wheel-out 6-equation system.
+        tuple: ((vx, vy, omega), residual) with residual = ||A x - b|| / sqrt(n - 3), m/s. The divisor is the
+        square root of the degrees of freedom: sqrt(5) for the full 8-equation system and sqrt(3) for a
+        leave-one-wheel-out 6-equation system, so the two are comparable.
     """
     x, _residuals, _rank, _s = np.linalg.lstsq(A, b, rcond=None)
-    residual = float(np.linalg.norm(A @ x - b) / math.sqrt(len(b) / 2 + 1))
+    residual = float(np.linalg.norm(A @ x - b) / math.sqrt(len(b) - 3))
     return (float(x[0]), float(x[1]), float(x[2])), residual
 
 
@@ -144,8 +153,8 @@ def forward_kinematics_with_residual(
 ) -> tuple[tuple[float, float, float], float]:
     """Compute body twist (vx, vy, omega) from wheel states plus the least-squares residual.
 
-    The residual r = ||A x - b|| / sqrt(5) (m/s; 8 equations, 3 unknowns) is ~0 when the four wheels agree on a
-    single rigid-body twist and grows when a wheel slips or stalls.
+    The residual r = ||A x - b|| / sqrt(5) (m/s; 8 equations - 3 unknowns = 5 degrees of freedom) is ~0 when the
+    four wheels agree on a single rigid-body twist and grows when a wheel slips or stalls.
 
     Args:
         steer_angles: Steering angle per wheel (rad), order fl, fr, rl, rr.
@@ -223,21 +232,38 @@ def robust_forward_kinematics(
     return twist, residual
 
 
-def odometry_twist_variances(residual: float, lx: float, ly: float) -> tuple[float, float]:
+def wheels_parked(drive_angular_velocities: list[float], wheel_radius: float) -> bool:
+    """Return True when every measured wheel ground speed is below PARKED_SPEED_EPSILON_MPS.
+
+    Args:
+        drive_angular_velocities: Measured drive angular velocity per wheel, rad/s.
+        wheel_radius: Wheel radius, m.
+
+    Returns:
+        bool: True if all wheels are (nearly) still.
+    """
+    return all(abs(v) * wheel_radius < PARKED_SPEED_EPSILON_MPS for v in drive_angular_velocities)
+
+
+def odometry_twist_variances(residual: float, lx: float, ly: float, parked: bool = False) -> tuple[float, float]:
     """Odometry twist variances that grow with the wheel-consistency residual.
 
     Args:
         residual: Forward-kinematics residual, m/s.
         lx: Half-length, m.
         ly: Half-width, m.
+        parked: True when the measured wheel speeds are all ~0; the wheels then pin the heading.
 
     Returns:
-        tuple[float, float]: (var_xy in (m/s)^2, var_yaw in (rad/s)^2). The yaw term converts the residual to a
-        rate through the largest module radius hypot(lx, ly).
+        tuple[float, float]: (var_xy in (m/s)^2, var_yaw in (rad/s)^2). While parked the fixed PARKED_* values;
+        otherwise floor plus residual^2, the yaw term converting the residual to a rate through the largest
+        module radius hypot(lx, ly).
     """
+    if parked:
+        return PARKED_XY_VARIANCE, PARKED_YAW_VARIANCE
     return (
-        TWIST_VARIANCE_FLOOR + residual**2,
-        TWIST_VARIANCE_FLOOR + (residual / math.hypot(lx, ly)) ** 2,
+        TWIST_XY_VARIANCE_FLOOR + residual**2,
+        TWIST_YAW_VARIANCE_FLOOR + (residual / math.hypot(lx, ly)) ** 2,
     )
 
 
