@@ -1,0 +1,11 @@
+# rf2o_laser_odometry (MAPIRlab, ROS2 branch) parameters, verified against the upstream CLaserOdometry2DNode.cpp.
+# Passed with: ros2 run rf2o_laser_odometry rf2o_laser_odometry_node --ros-args --params-file <this> -r __node:=rf2o_laser_odometry
+rf2o_laser_odometry:
+  ros__parameters:
+    laser_scan_topic: /scan_filtered   # footprint-filtered scan (non-finite ranges are skipped by rf2o)
+    odom_topic: /odom_rf2o             # raw rf2o odometry; fused by the EKF only through rf2o_odom_relay
+    publish_tf: false                  # robot_localization_ekf owns odom -> base_link
+    base_frame_id: base_link
+    odom_frame_id: odom
+    init_pose_from_topic: ""           # start at the origin, do not wait for a ground-truth pose topic
+    freq: 10.0                         # processing loop (Hz); RPLidar A1 delivers ~7-10 scans/s, rf2o skips repeats

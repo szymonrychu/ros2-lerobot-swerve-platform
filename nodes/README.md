@@ -16,9 +16,11 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **bridges/gps_rtk/** — GPS RTK bridge for LC29H-BS (base, Server) and LC29H-DA (rover, Client); publishes `sensor_msgs/NavSatFix`, streams RTCM3 over TCP.
 - **bridges/rplidar_a1/** — RPLidar A1 bridge; publishes `sensor_msgs/LaserScan` on `/scan` (Client only).
 - **bridges/realsense_d435i/** — RealSense D435i bridge; color, depth, point cloud, unified IMU `/camera/imu` (Client only).
-- **swerve_drive_controller/** — Swerve controller: cmd_vel → steer positions + wheel velocities (IK, +-90 deg steering), odometry from FK (Client only).
+- **swerve_drive_controller/** — Swerve controller: cmd_vel → steer positions + wheel velocities (IK, +-90 deg steering), odometry from FK with slip-aware wheel dropping and residual-based covariance (Client only).
 - **static_tf_publisher/** — Static TF base_link → sensor frames (Client only).
-- **robot_localization_ekf/** — EKF fuses swerve `/odom` + BNO055 `/imu/data` → `/odometry/filtered` and the odom → base_link TF (Client only).
+- **robot_localization_ekf/** — EKF fuses swerve `/odom` + lidar `/odom_rf2o_twist` + BNO055 `/imu/data` → `/odometry/filtered` and the odom → base_link TF (Client only).
+- **rf2o_laser_odometry/** — rf2o lidar odometry (source-built from a pinned upstream commit) on `/scan_filtered` → `/odom_rf2o`; no TF (Client only).
+- **rf2o_odom_relay/** — Re-publishes rf2o as a body-frame twist with a real covariance on `/odom_rf2o_twist` for the EKF (Client only).
 - **laser_filter/** — laser_filters box filter removing lidar returns on the robot body: `/scan` → `/scan_filtered` for SLAM, costmaps and collision monitor (Client only).
 - **slam_toolbox/** — slam_toolbox online async SLAM from `/scan` + odometry TF: publishes `/map` and map → odom; saved posegraph in `/var/lib/ros2/maps` is reloaded at start (Client only).
 - **nav2_bringup/** — Nav2 2D navigation stack with repo params: NavFn global planner on the SLAM map, MPPI Omni controller for the swerve base (Client only).

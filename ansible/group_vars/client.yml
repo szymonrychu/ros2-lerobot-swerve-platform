@@ -153,6 +153,49 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/static_tf_publisher
     env:
       - STATIC_TF_PUBLISHER_CONFIG=/etc/ros2/static_tf_publisher/config.yaml
+  # rf2o_laser_odometry is not in the Jazzy apt distribution: built from the pinned upstream commit (ROS2 branch,
+  # tip 2023-04-28) into /opt/ros2-ws by the ros2_node_deploy role (colcon_source_build.yml) at lowest priority.
+  rf2o_laser_odometry:
+    deploy_mode: native
+    node_launch_command: >-
+      ros2 run rf2o_laser_odometry rf2o_laser_odometry_node --ros-args
+      --params-file {{ ros2_repo_dest }}/nodes/rf2o_laser_odometry/config/rf2o.yaml
+      -r __node:=rf2o_laser_odometry
+    node_src_dir: ""
+    cpu_quota: "25%"
+    memory_max: "128M"
+    colcon_source:
+      repo: https://github.com/MAPIRlab/rf2o_laser_odometry.git
+      commit: b38c68e46387b98845ecbfeb6660292f967a00d3
+      package: rf2o_laser_odometry
+      workspace: /opt/ros2-ws
+    apt_packages:
+      - git
+      - build-essential
+      - cmake
+      - python3-colcon-common-extensions
+      - libboost-dev
+      - libeigen3-dev
+      - ros-jazzy-ament-cmake
+      - ros-jazzy-eigen3-cmake-module
+      - ros-jazzy-rclcpp
+      - ros-jazzy-std-msgs
+      - ros-jazzy-geometry-msgs
+      - ros-jazzy-sensor-msgs
+      - ros-jazzy-nav-msgs
+      - ros-jazzy-tf2
+      - ros-jazzy-tf2-ros
+      - ros-jazzy-tf2-geometry-msgs
+  # rf2o publishes zero covariance, a laser-frame x speed and vy = 0: this relay turns its pose into a body twist with a real covariance.
+  rf2o_odom_relay:
+    deploy_mode: native
+    node_launch_command: "python3 -m rf2o_odom_relay"
+    node_src_dir: "nodes/rf2o_odom_relay"
+    cpu_quota: "10%"
+    memory_max: "64M"
+    config_path: /etc/ros2/rf2o_odom_relay
+    env:
+      - RF2O_ODOM_RELAY_CONFIG=/etc/ros2/rf2o_odom_relay/config.yaml
   robot_localization_ekf:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/robot_localization_ekf/launch/ekf.launch.py"
@@ -373,9 +416,11 @@ ros2_nodes:
       i2c_bus: 1
       i2c_address: 0x28
       orientation_covariance: 0.01
-      angular_velocity_covariance: 0.01
+      # Fixed small gyro covariance: the rolling-variance estimate inflated the yaw rate exactly while turning, so the
+      # EKF preferred the slip-prone wheel yaw rate over the gyro.
+      angular_velocity_covariance: 0.0004
       linear_acceleration_covariance: 0.04
-      compute_covariance: true
+      compute_covariance: false
       covariance_window: 100      # rolling window size (samples, ~2 s at 50 Hz)
       covariance_min_samples: 20  # samples before estimated covariance replaces config values
   # RPi 5: GPIO UART0 (pins 14/15) needs dtoverlay=uart0-pi5; creates /dev/ttyAMA0
@@ -534,6 +579,8 @@ ros2_nodes:
       publish_tf: false
       control_loop_hz: 50
       steer_error_threshold_rad: 0.35
+      # Forward-kinematics residual (m/s) above which one slipping wheel is dropped from the odometry twist.
+      slip_residual_threshold_mps: 0.05
       joint_names:
         - fl_drive
         - fl_steer
@@ -574,6 +621,22 @@ ros2_nodes:
           roll: 0.0
           pitch: 0.0
           yaw: 0.0
+  # Lidar odometry for the EKF (see nodes/rf2o_laser_odometry/README.md); must start before the EKF fuses /odom_rf2o_twist.
+  - name: rf2o_laser_odometry
+    node_type: rf2o_laser_odometry
+    present: true
+    enabled: true
+  - name: rf2o_odom_relay
+    node_type: rf2o_odom_relay
+    present: true
+    enabled: true
+    config: |
+      input_topic: /odom_rf2o
+      output_topic: /odom_rf2o_twist
+      # No quality figure from rf2o: conservative fixed variances (wheel odometry floor is 0.01 (m/s)^2).
+      var_vx_vy: 0.02
+      var_vyaw: 0.05
+      max_dt_s: 1.0
   - name: robot_localization_ekf
     node_type: robot_localization_ekf
     present: true
@@ -595,6 +658,13 @@ ros2_nodes:
           odom0_queue_size: 10
           odom0_differential: false
           odom0_relative: false
+          # Mahalanobis gate on the wheel twist only; rationale in nodes/robot_localization_ekf/config/ekf.yaml.
+          odom0_twist_rejection_threshold: 1.5
+          odom1: /odom_rf2o_twist
+          odom1_config: [false, false, false, false, false, false, true, true, false, false, false, false, false, false, false]
+          odom1_queue_size: 5
+          odom1_differential: false
+          odom1_relative: false
           imu0: /imu/data
           imu0_config: [false, false, false, false, false, false, false, false, false, false, false, true, false, false, false]
           imu0_queue_size: 10

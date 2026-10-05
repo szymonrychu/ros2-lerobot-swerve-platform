@@ -90,6 +90,8 @@ in parallel with other nodes.
 | `swerve_drive_servos` | Removed (present: false): swerve servos now run inside `lerobot_follower` (shared bus) |
 | `swerve_controller` | Swerve drive kinematics |
 | `static_tf_publisher` | TF frame publisher |
+| `rf2o_laser_odometry` | rf2o lidar odometry (source-built colcon workspace `/opt/ros2-ws`, pinned commit; first deploy compiles at lowest priority) |
+| `rf2o_odom_relay` | rf2o pose -> body twist with covariance for the EKF |
 | `robot_localization_ekf` | EKF odometry fusion |
 | `nav2_bringup` | Nav2 navigation stack |
 | `web_ui` | Browser dashboard (FastAPI + React) |

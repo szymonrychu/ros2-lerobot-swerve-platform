@@ -130,7 +130,9 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `lerobot_follower` (group `swerve_drive`) | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 swerve servos (IDs 32-39) on the follower arm bus |
 | `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub); TF off (EKF owns odom→base_link) | — |
 | `static_tf_publisher` | static_tf_publisher | TF base_link → imu_link, laser_frame | — |
-| `robot_localization_ekf` | robot_localization_ekf | `/odom` (sub), `/imu/data` (sub), `/odometry/filtered` (pub), TF odom→base_link | — |
+| `rf2o_laser_odometry` | rf2o_laser_odometry (source build) | `/scan_filtered` (sub), `/odom_rf2o` (pub) | — |
+| `rf2o_odom_relay` | rf2o_odom_relay | `/odom_rf2o` (sub), `/odom_rf2o_twist` (pub) | — |
+| `robot_localization_ekf` | robot_localization_ekf | `/odom` (sub), `/odom_rf2o_twist` (sub), `/imu/data` (sub), `/odometry/filtered` (pub), TF odom→base_link | — |
 | `slam_toolbox` | slam_toolbox | `/scan` (sub), `/map` (pub), TF map→odom; posegraph in `/var/lib/ros2/maps` | — |
 | `nav2_bringup` | nav2_bringup | `/goal_pose` (sub), `/plan`, `/optimal_trajectory` (pub), `/cmd_vel` (pub), `/odometry/filtered`, `/map`, `/scan`, `navigate_to_pose` (action) | — |
 | `rplidar_a1` | rplidar_a1 | `/scan` (pub, `sensor_msgs/LaserScan`) | RPLidar A1 (`/dev/ttyUSB0`) |
@@ -161,7 +163,7 @@ Nav2: planner_server → /plan (global), controller_server MPPI → /optimal_tra
       → cmd_vel_nav → velocity_smoother → collision_monitor → /cmd_vel
         swerve_controller → /swerve_drive/joint_commands  →  lerobot_follower bridge, swerve_drive group (8 servos)
         swerve_controller → /odom
-robot_localization_ekf fuses /odom + /imu/data → /odometry/filtered + TF odom→base_link
+robot_localization_ekf fuses /odom + /odom_rf2o_twist + /imu/data → /odometry/filtered + TF odom→base_link
 slam_toolbox: /scan + TF → /map + TF map→odom  →  Nav2 global costmap static layer, web_ui 3D Map tab
 web_ui 3D Map tab shows /map, the local costmap, GPS tiles (anchor auto-fitted from /client/gps/fix + TF), robot URDF at the TF map→base_link pose, /plan, /optimal_trajectory, /goal_pose; "Save map" → /slam_toolbox/serialize_map
 mcp_server (Claude Code via MCP): navigate_to_pose → Nav2 navigate_to_pose action; drive → /cmd_vel_nav

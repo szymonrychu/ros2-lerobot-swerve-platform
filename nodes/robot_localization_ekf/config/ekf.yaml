@@ -1,4 +1,4 @@
-# EKF: fuse /odom (swerve wheel odometry) + /imu/data (BNO055) into /odometry/filtered (robot_localization default output).
+# EKF: fuse /odom (swerve wheel odometry) + /odom_rf2o_twist (lidar odometry) + /imu/data (BNO055) into /odometry/filtered (robot_localization default output).
 # This node is the only odom -> base_link TF publisher (swerve_controller runs with publish_tf: false).
 # Keep identical in content to the robot_localization_ekf `config: |` block in ansible/group_vars/client.yml.
 # State order: x y z roll pitch yaw vx vy vz vroll vpitch vyaw ax ay az
@@ -19,6 +19,22 @@ ekf_filter_node:
     odom0_queue_size: 10
     odom0_differential: false
     odom0_relative: false
+    # Mahalanobis gate on the wheel twist (distance in sigmas, squared against the innovation). Wheels that spin or
+    # stall on a small object still report motion; once the lidar odometry below disagrees, the wheel twist is
+    # dropped. S is about R (>= 0.01 (m/s)^2 + slip residual^2) + P, so 1.5 rejects wheel-vs-state disagreements
+    # above roughly 0.18 m/s (threshold 3+ would never trigger below the 0.28 m/s top speed). Rejection is only on
+    # the wheels: the lidar odometry and the IMU are never gated.
+    odom0_twist_rejection_threshold: 1.5
+
+    # Lidar odometry (rf2o via rf2o_odom_relay): body-frame vx, vy only. rf2o itself publishes zero covariance, a
+    # laser-frame x speed and vy = 0, so the relay re-derives the body twist from its pose and adds a real
+    # covariance. Yaw rate is not fused: the IMU gyro stays the yaw-rate source (rf2o yaw rate is noisy and its
+    # scan matching degrades when rotating in featureless surroundings).
+    odom1: /odom_rf2o_twist
+    odom1_config: [false, false, false, false, false, false, true, true, false, false, false, false, false, false, false]
+    odom1_queue_size: 5
+    odom1_differential: false
+    odom1_relative: false
 
     # BNO055 in IMUPLUS mode: heading is relative (arbitrary zero), so only the gyro yaw rate is fused.
     imu0: /imu/data

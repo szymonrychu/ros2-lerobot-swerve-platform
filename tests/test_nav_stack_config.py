@@ -7,6 +7,7 @@ and the disabled-by-default collision_monitor StopBox.
 """
 
 import ast
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,8 @@ LASER_FILTER_PARAMS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footpri
 # The lidar sees the robot body (returns 0.22-0.24 m from the sensor, inside the footprint); laser_filter removes the
 # footprint box from /scan and every consumer (SLAM, costmaps, collision monitor) reads the filtered topic.
 FILTERED_SCAN = "/scan_filtered"
+RF2O_FUSED_TOPIC = "/odom_rf2o_twist"
+RF2O_PARAMS = REPO_ROOT / "nodes" / "rf2o_laser_odometry" / "config" / "rf2o.yaml"
 NAV2_README = REPO_ROOT / "nodes" / "nav2_bringup" / "README.md"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
 
@@ -765,3 +768,151 @@ def test_costmaps_wait_for_odom_through_a_gradual_restart(costmap: str) -> None:
     """A deploy restarts nav2_bringup before the gradual ramp brings up the servos and EKF (odom TF); the default 60 s
     initial_transform_timeout aborted the bringup, so the costmaps wait long enough for the whole ramp."""
     assert ros_params(nav2(), costmap)["initial_transform_timeout"] >= 300.0
+
+
+# --- slip resilience (traction loss, bumps, low obstacles, transient objects) -----------------------
+
+
+def test_slam_scan_matcher_is_resilient_to_slip_and_transients() -> None:
+    """Wheel slip on small objects shifted the map: a wider scan-matcher window absorbs odometry error, a pure
+    rotation inserts a scan, a Huber loss limits the pull of outlier constraints, and a stricter occupancy
+    threshold / pass-through count lets briefly visible objects be cleared."""
+    p = yaml.safe_load(SLAM_PARAMS.read_text())["slam_toolbox"]["ros__parameters"]
+    assert p["correlation_search_space_dimension"] == 0.8
+    # slam_toolbox requires the search space to be a whole number of grid cells.
+    cells = p["correlation_search_space_dimension"] / p["correlation_search_space_resolution"]
+    assert cells == pytest.approx(round(cells))
+    assert p["check_min_dist_and_heading_precisely"] is True
+    assert p["ceres_loss_function"] == "HuberLoss"
+    assert p["occupancy_threshold"] == 0.25
+    assert p["min_pass_through"] == 3
+    # Values that stay as they were.
+    assert p["minimum_travel_distance"] == 0.3 and p["minimum_travel_heading"] == 0.3
+    assert p["do_loop_closing"] is True
+
+
+def test_slam_ansible_block_does_not_override_slip_resilience_keys() -> None:
+    p = node_config("slam_toolbox")["slam_toolbox"]["ros__parameters"]
+    for key in (
+        "correlation_search_space_dimension",
+        "check_min_dist_and_heading_precisely",
+        "ceres_loss_function",
+        "occupancy_threshold",
+        "min_pass_through",
+    ):
+        assert key not in p, f"{key} is overridden in the Ansible block, hiding the repo default"
+
+
+def test_imu_angular_velocity_covariance_is_fixed_and_small() -> None:
+    """The rolling-variance mode inflated the yaw-rate covariance exactly while turning, so the EKF trusted the
+    slip-prone wheel yaw rate over the gyro: use a fixed, small gyro covariance."""
+    cfg = node_config("bno055_imu")
+    assert cfg["compute_covariance"] is False
+    assert cfg["angular_velocity_covariance"] == 0.0004
+
+
+def test_swerve_controller_slip_residual_threshold_configured() -> None:
+    assert node_config("swerve_controller")["slip_residual_threshold_mps"] == 0.05
+
+
+@pytest.mark.parametrize("source", ["repo", "ansible"])
+def test_ekf_fuses_rf2o_and_rejects_outlying_wheel_odometry(source: str) -> None:
+    """rf2o (relayed with a real covariance) is the second translation source, so the wheel odometry can be
+    rejected by Mahalanobis distance when the wheels report motion the lidar does not see (full stall). No
+    rejection on rf2o or the IMU; the gyro stays the only yaw-rate source besides the wheels."""
+    doc = yaml.safe_load(EKF_CONFIG.read_text()) if source == "repo" else node_config("robot_localization_ekf")
+    p = ekf_params(doc)
+    assert p["odom1"] == RF2O_FUSED_TOPIC
+    assert fused(p["odom1_config"]) == {"vx", "vy"}
+    assert p["odom1_differential"] is False
+    assert p["odom1_relative"] is False
+    assert p["odom1_queue_size"] >= 2
+    assert p["odom0_twist_rejection_threshold"] == 1.5
+    assert not any(k.startswith(("odom1_twist_rejection", "odom1_pose_rejection", "imu0_")) and "rejection" in k for k in p)
+    assert fused(p["imu0_config"]) == {"vyaw"}
+
+
+def test_rf2o_node_type_builds_a_pinned_source_workspace() -> None:
+    defaults = client_vars()["ros2_node_type_defaults"]["rf2o_laser_odometry"]
+    assert defaults["deploy_mode"] == "native"
+    assert defaults["node_src_dir"] == ""
+    cmd = defaults["node_launch_command"]
+    assert "ros2 run rf2o_laser_odometry rf2o_laser_odometry_node" in cmd
+    assert "{{ ros2_repo_dest }}/nodes/rf2o_laser_odometry/config/rf2o.yaml" in cmd
+    assert "-r __node:=rf2o_laser_odometry" in cmd
+    source = defaults["colcon_source"]
+    assert source["repo"] == "https://github.com/MAPIRlab/rf2o_laser_odometry.git"
+    assert re.fullmatch(r"[0-9a-f]{40}", source["commit"]), "pin a full commit SHA"
+    assert source["workspace"] == "/opt/ros2-ws"
+    assert source["package"] == "rf2o_laser_odometry"
+    for pkg in ("python3-colcon-common-extensions", "git", "libboost-dev", "libeigen3-dev", "ros-jazzy-eigen3-cmake-module"):
+        assert pkg in defaults["apt_packages"], pkg
+
+
+def test_rf2o_params_match_the_stack() -> None:
+    params = yaml.safe_load(RF2O_PARAMS.read_text())["rf2o_laser_odometry"]["ros__parameters"]
+    assert params["laser_scan_topic"] == FILTERED_SCAN
+    assert params["odom_topic"] == "/odom_rf2o"
+    assert params["publish_tf"] is False, "the EKF owns odom -> base_link"
+    assert params["base_frame_id"] == "base_link" and params["odom_frame_id"] == "odom"
+    assert params["init_pose_from_topic"] == ""
+    assert 7.0 <= params["freq"] <= 10.0
+
+
+def test_rf2o_nodes_are_deployed_before_the_ekf() -> None:
+    names = [n["name"] for n in client_vars()["ros2_nodes"]]
+    ekf = names.index("robot_localization_ekf")
+    for name in ("rf2o_laser_odometry", "rf2o_odom_relay"):
+        entry = node_entry(name)
+        assert entry["present"] is True and entry["enabled"] is True
+        assert names.index(name) < ekf
+        assert (PLAYBOOKS_DIR / "nodes" / "client" / f"{name}.yml").is_file()
+    assert names.index("rf2o_laser_odometry") < names.index("rf2o_odom_relay")
+    tasks = yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"]
+    deployed = [t.get("vars", {}).get("_deploy_node_name") for t in tasks]
+    assert deployed.index("rf2o_laser_odometry") < deployed.index("rf2o_odom_relay") < deployed.index(
+        "robot_localization_ekf"
+    )
+    per_node = yaml.safe_load((PLAYBOOKS_DIR / "nodes" / "client" / "rf2o_laser_odometry.yml").read_text())[0]
+    assert [t["vars"]["_deploy_node_name"] for t in per_node["tasks"]] == ["rf2o_laser_odometry", "rf2o_odom_relay"]
+
+
+def test_rf2o_relay_wiring_matches_ekf_input() -> None:
+    """rf2o publishes no covariance, a laser-frame x speed and vy = 0: the relay derives the body twist from the
+    pose and adds the covariance. Its output topic is what the EKF fuses."""
+    defaults = client_vars()["ros2_node_type_defaults"]["rf2o_odom_relay"]
+    assert defaults["node_launch_command"] == "python3 -m rf2o_odom_relay"
+    assert defaults["node_src_dir"] == "nodes/rf2o_odom_relay"
+    cfg = node_config("rf2o_odom_relay")
+    assert cfg["input_topic"] == "/odom_rf2o"
+    assert cfg["output_topic"] == RF2O_FUSED_TOPIC
+    assert cfg["var_vx_vy"] > 0 and cfg["var_vyaw"] > 0
+
+
+def test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit() -> None:
+    """colcon on the Pi next to the running stack overheats it: one worker, make -j2, one core, low IO weight,
+    nice 19, idle IO class; a stamp file named after the pinned commit makes it idempotent."""
+    path = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "colcon_source_build.yml"
+    tasks = yaml.safe_load(path.read_text())
+    git = next(t for t in tasks if "ansible.builtin.git" in t)["ansible.builtin.git"]
+    assert git["version"] == "{{ node_colcon_source.commit }}"
+    assert git["dest"].endswith("/src/{{ node_colcon_source.package }}")
+    build = next(t for t in tasks if "colcon build" in str(t.get("ansible.builtin.command", "")))
+    cmd = build["ansible.builtin.command"]["cmd"]
+    assert cmd.startswith("systemd-run --quiet --scope -p CPUQuota=100% -p IOWeight=10 nice -n 19 ionice -c 3 ")
+    assert "--merge-install" in cmd and "--parallel-workers 1" in cmd
+    assert "-DCMAKE_BUILD_TYPE=Release" in cmd
+    assert build["environment"]["MAKEFLAGS"] == "-j2"
+    assert "node_colcon_source.commit" in build["ansible.builtin.command"]["creates"]
+    assert build["notify"] == "Restart ROS2 node"
+    main = (ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "main.yml").read_text()
+    assert "colcon_source_build.yml" in main
+
+
+def test_launcher_sources_the_colcon_workspace_after_ros() -> None:
+    template = (ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "templates" / "ros2-node-launcher.j2").read_text()
+    assert template.index("source /opt/ros/jazzy/setup.bash") < template.index(
+        "source {{ node_colcon_source.workspace }}/install/setup.bash"
+    )
+    resolve = (PLAYBOOKS_DIR / "tasks" / "resolve_and_deploy.yml").read_text()
+    assert "node_colcon_source:" in resolve and "colcon_source" in resolve

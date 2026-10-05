@@ -1,0 +1,37 @@
+---
+# Build one ROS2 package from a pinned git commit into a colcon workspace (packages that are not in the apt distribution).
+# Expects node_colcon_source: {repo, commit, package, workspace}. Build dependencies come from the node type's apt_packages.
+# Idempotent: the stamp file is named after the pinned commit, so the build only reruns when the commit changes.
+# The Pi overheats under a full build next to the running stack: one colcon worker, make -j2, one core, low IO weight,
+# lowest CPU (nice 19) and IO (ionice idle) priority.
+
+- name: Create colcon workspace source directory
+  ansible.builtin.file:
+    path: "{{ node_colcon_source.workspace }}/src"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Clone the pinned source commit
+  ansible.builtin.git:
+    repo: "{{ node_colcon_source.repo }}"
+    dest: "{{ node_colcon_source.workspace }}/src/{{ node_colcon_source.package }}"
+    version: "{{ node_colcon_source.commit }}"
+  become: true
+
+- name: Build the workspace for the pinned commit
+  ansible.builtin.command:
+    cmd: >-
+      systemd-run --quiet --scope -p CPUQuota=100% -p IOWeight=10 nice -n 19 ionice -c 3
+      bash -c 'source /opt/ros/jazzy/setup.bash &&
+      colcon build --merge-install --parallel-workers 1 --packages-select {{ node_colcon_source.package }}
+      --cmake-args -DCMAKE_BUILD_TYPE=Release &&
+      touch {{ node_colcon_source.workspace }}/.built-{{ node_colcon_source.package }}-{{ node_colcon_source.commit }}'
+    chdir: "{{ node_colcon_source.workspace }}"
+    creates: "{{ node_colcon_source.workspace }}/.built-{{ node_colcon_source.package }}-{{ node_colcon_source.commit }}"
+  environment:
+    MAKEFLAGS: "-j2"
+  become: true
+  notify: "Restart ROS2 node"

@@ -146,6 +146,16 @@
       vars:
         _deploy_node_name: static_tf_publisher
 
+    - name: Deploy rf2o_laser_odometry
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: rf2o_laser_odometry
+
+    - name: Deploy rf2o_odom_relay
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: rf2o_odom_relay
+
     - name: Deploy robot_localization_ekf
       ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
       vars:

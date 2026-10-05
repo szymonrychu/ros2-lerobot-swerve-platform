@@ -301,6 +301,10 @@ Every deploy playbook (`--all` and per-node) starts with `playbooks/tasks/stop_r
 
 The web_ui frontend is built on the client during deploy (`npm ci`, `npm run build`). Both steps run in a transient systemd scope capped to one of the four cores (`systemd-run --scope -p CPUQuota=100% -p IOWeight=10`) under `nice -n 19 ionice -c 3`. That limits the heat the build generates and keeps the running ROS nodes first in line. On 2026-10-03 a full-priority build next to Nav2, SLAM and the bridges overheated the Pi 5 until it stopped responding.
 
+### Source-built ROS packages (colcon)
+
+Packages missing from the Jazzy apt distribution are built from a pinned git commit. A node type with a `colcon_source` block (`repo`, `commit`, `package`, `workspace`) gets `roles/ros2_node_deploy/tasks/colcon_source_build.yml`: the commit is cloned to `<workspace>/src/<package>` and built with `colcon build --merge-install --parallel-workers 1` (`MAKEFLAGS=-j2`, Release) inside the same `systemd-run --scope -p CPUQuota=100% -p IOWeight=10 nice -n 19 ionice -c 3` wrapper as the web_ui build. A stamp file `<workspace>/.built-<package>-<commit>` makes it idempotent: the build only reruns, and the node restarts, when the pinned commit changes. The launcher script then sources `<workspace>/install/setup.bash` after `/opt/ros/jazzy/setup.bash`. Currently used by `rf2o_laser_odometry` (workspace `/opt/ros2-ws`); the first deploy compiles on the Pi, so expect a slow, low-priority build. Build dependencies come from the node type's `apt_packages`.
+
 ## ROS package sync
 
 `--all` deploys (`deploy_nodes_client.yml`, `deploy_nodes_server.yml`) run `playbooks/tasks/ros_packages_sync.yml` right after the repo sync. It refreshes the apt index (at most hourly), upgrades every installed `ros-jazzy-*` package that has an update, and restarts the running `ros2-*` services when anything was upgraded. Mixing packages from different packages.ros.org syncs breaks ABI: on 2026-10-03 a freshly installed `laser_filters` failed with an undefined `diagnostic_updater` symbol.
@@ -336,6 +340,8 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | lerobot_follower | 50% | 128M |
 | swerve_controller | 30% | 128M |
 | static_tf_publisher | 10% | 64M |
+| rf2o_laser_odometry | 25% | 128M |
+| rf2o_odom_relay | 10% | 64M |
 | robot_localization_ekf | 25% | 128M |
 | slam_toolbox | 75% | 512M |
 | nav2_bringup | 75% | 512M |

@@ -2,7 +2,8 @@
 # Deploy or uninstall a ROS2 node as a native systemd service (deploy_mode: native).
 # Expects from resolve_and_deploy.yml:
 #   node_name, node_present, node_enabled, node_deploy_mode
-#   Native: node_launch_command, node_src_dir (optional), node_apt_packages, node_cpu_quota, node_memory_max
+#   Native: node_launch_command, node_src_dir (optional), node_apt_packages, node_cpu_quota, node_memory_max,
+#     node_colcon_source (optional {repo, commit, package, workspace}: built from source, see colcon_source_build.yml)
 #   Both: node_config_path, node_config, node_env, repo_dest
 
 - name: Validate required variables
@@ -110,6 +111,10 @@
         cache_valid_time: 3600
       become: true
       when: (node_apt_packages | default([])) | length > 0
+
+    - name: Build the pinned source workspace (colcon)
+      ansible.builtin.include_tasks: colcon_source_build.yml
+      when: (node_colcon_source | default({})) | length > 0
 
     - name: Create node venv directory
       ansible.builtin.file:
