@@ -109,7 +109,7 @@ The **static_tf_publisher** node has tests under `nodes/static_tf_publisher/test
 
 ### Per-node tests (filter_node)
 
-The **filter_node** node has tests under `nodes/filter_node/tests/`. Run from `nodes/filter_node`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`: input/output topic, algorithm, params, joint_names); algorithm registry and Kalman (`test_algorithms.py`: get_algorithm, Kalman create_state/update/predict).
+The **filter_node** node has tests under `nodes/filter_node/tests/`. Run from `nodes/filter_node`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`: input/output topic, algorithm, params, joint_names); algorithm registry and Kalman (`test_algorithms.py`: get_algorithm, Kalman create_state/update/predict); output command filling (`test_command.py`: `header.frame_id` carries the command source leader / web_ui / autonomy, positions copied, velocity/effort cleared).
 
 ### Per-node tests (test_joint_api)
 

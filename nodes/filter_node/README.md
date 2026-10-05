@@ -18,6 +18,7 @@ The Kalman algorithm outputs a short-horizon **prediction** ahead of the last me
 
 - **Input:** `sensor_msgs/JointState` on `input_topic`. Each message updates per-joint filter state.
 - **Output:** `sensor_msgs/JointState` on `output_topic` at `control_loop_hz`, with filtered positions (and empty velocity/effort).
+- **Source tag:** every output message carries its command source in `header.frame_id`: `leader` (filtered leader output), `web_ui` or `autonomy` (republished directly). The follower bridge (`direct_command_sources` in its config) applies its leader -> follower gripper range mapping only to `leader` commands; web UI and autonomy positions are follower joint radians. Built by `filter_node/command.py` (`fill_command`, rclpy-free, tested in `tests/test_command.py`).
 
 - **Web UI input (optional):** `sensor_msgs/JointState` on `web_ui_input_topic`, republished directly (no Kalman).
 - **Autonomy input:** `sensor_msgs/JointState` on `autonomy_input_topic` (robot MCP server), republished directly; the MCP server already streams smooth, rate-limited setpoints.

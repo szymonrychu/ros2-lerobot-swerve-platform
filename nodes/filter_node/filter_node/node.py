@@ -11,7 +11,8 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 
 from .algorithms import get_algorithm
-from .arbitration import ActiveSourceReporter, SourceArbiter
+from .arbitration import SOURCE_AUTONOMY, SOURCE_LEADER, SOURCE_WEB_UI, ActiveSourceReporter, SourceArbiter
+from .command import fill_command
 from .config import FilterConfig
 
 FILTER_QOS = QoSProfile(
@@ -62,16 +63,9 @@ def run_filter_node(config: FilterConfig) -> None:
     )
     log = node.get_logger()
 
-    def publish_direct(msg: JointState) -> None:
-        """Republish a clean command (web UI / autonomy) unfiltered on the output topic."""
-        out = JointState()
-        out.header.stamp = clock.now().to_msg()
-        out.header.frame_id = ""
-        out.name = list(msg.name)
-        out.position = list(msg.position)
-        out.velocity = []
-        out.effort = []
-        pub.publish(out)
+    def publish_direct(msg: JointState, source: str) -> None:
+        """Republish a clean command (web UI / autonomy) unfiltered on the output topic, tagged with its source."""
+        pub.publish(fill_command(JointState(), clock.now().to_msg(), msg.name, msg.position, source))
 
     def report_source() -> None:
         """Publish the active source when it changed or the 1 Hz period elapsed."""
@@ -115,7 +109,7 @@ def run_filter_node(config: FilterConfig) -> None:
     def on_web_ui_input(msg: JointState) -> None:
         # Web UI sends clean data, no Kalman needed; ignored while autonomy holds the lease
         if arbiter.on_web_ui_command(time.monotonic()):
-            publish_direct(msg)
+            publish_direct(msg, SOURCE_WEB_UI)
             report_source()
 
     def on_autonomy_input(msg: JointState) -> None:
@@ -123,7 +117,7 @@ def run_filter_node(config: FilterConfig) -> None:
         if not arbiter.autonomy_held:
             log.info("Autonomy lease taken: web UI and leader input ignored until release")
         arbiter.on_autonomy_command()
-        publish_direct(msg)
+        publish_direct(msg, SOURCE_AUTONOMY)
         report_source()
 
     def on_autonomy_release(msg: Bool) -> None:
@@ -194,14 +188,7 @@ def run_filter_node(config: FilterConfig) -> None:
                 pos = algorithm.predict(st, n, now, last_t)
                 positions.append(pos)
             if names and len(positions) == len(names):
-                out = JointState()
-                out.header.stamp = clock.now().to_msg()
-                out.header.frame_id = ""
-                out.name = names
-                out.position = positions
-                out.velocity = []
-                out.effort = []
-                pub.publish(out)
+                pub.publish(fill_command(JointState(), clock.now().to_msg(), names, positions, SOURCE_LEADER))
         executor.spin_once(timeout_sec=control_period_s)
 
     node.destroy_node()
