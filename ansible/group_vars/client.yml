@@ -642,10 +642,12 @@ ros2_nodes:
           roll: 0.0
           pitch: 0.0
           yaw: 0.0
-        # RPLidar A1: measured from the ground-projected centre between the wheels (Platform dimensions.md).
+        # RPLidar A1: measured from the ground-projected centre between the wheels (Platform dimensions.md: 0.15, 0.04),
+        # corrected by the in-place turn test 2026-10-05: 90 deg turns showed 3.1-3.6 cm of map translation with none in
+        # the EKF odometry; both turns fit one lidar offset error of (+0.8, +2.0) cm.
         - child: laser_frame
-          x: 0.15
-          y: 0.04
+          x: 0.158
+          y: 0.06
           z: 0.20
           roll: 0.0
           pitch: 0.0

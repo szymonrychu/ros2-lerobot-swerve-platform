@@ -619,7 +619,9 @@ def test_lidar_static_tf_mounted_backwards() -> None:
     entry = node_entry("static_tf_publisher")
     frames = yaml.safe_load(entry["config"])["frames"]
     laser = next(f for f in frames if f["child"] == LASER_FRAME)
-    assert (laser["x"], laser["y"], laser["z"]) == (0.15, 0.04, 0.20)
+    # Platform dimensions.md gave (0.15, 0.04); the in-place turn test 2026-10-05 (90 deg turns: 3.1-3.6 cm of map
+    # translation, none in the EKF odometry) fits one lidar offset error of (+0.8, +2.0) cm.
+    assert (laser["x"], laser["y"], laser["z"]) == (0.158, 0.06, 0.20)
     assert laser["yaw"] == pytest.approx(math.pi, abs=1e-4)
 
 
