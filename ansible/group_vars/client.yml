@@ -267,6 +267,28 @@ ros2_node_type_defaults:
       - MCP_SERVER_CONFIG=/etc/ros2/mcp_server/config.yaml
     # MCP_SERVER_TOKEN=<48 random chars>, created once on the robot by playbooks/tasks/mcp_server_setup.yml (never in git).
     environment_file: /etc/ros2/mcp_server/token
+  claude_agent:
+    # Claude (Agent SDK, bundled pinned Claude Code CLI) chat agent that drives the robot through mcp_server:
+    # see nodes/claude_agent/README.md. Runs as its own non-root user; resource-capped and niced.
+    deploy_mode: native
+    node_launch_command: "python3 -m claude_agent"
+    node_src_dir: "nodes/claude_agent"
+    cpu_quota: "50%"
+    memory_max: "1G"
+    nice: 10
+    user: claude_agent
+    # Group that may read the mcp_server bearer token (created by playbooks/tasks/mcp_server_setup.yml).
+    supplementary_groups:
+      - mcp-token
+    config_path: /etc/ros2/claude_agent
+    env:
+      - CLAUDE_AGENT_CONFIG=/etc/ros2/claude_agent/config.yaml
+      - DISABLE_AUTOUPDATER=1
+      - HOME=/var/lib/claude_agent
+      # The agent needs no DDS data; UDP only avoids FastDDS shared-memory permission clashes between users.
+      - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
+    # CLAUDE_CODE_OAUTH_TOKEN=<token>, written by playbooks/tasks/claude_agent_setup.yml from the deployer's env (never in git).
+    environment_file: /etc/ros2/claude_agent/env
 
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
 ros2_nodes:
@@ -793,3 +815,36 @@ ros2_nodes:
         cutoff_cell_v: 2.8
         resume_cell_v: 2.9
         stale_s: 5.0
+  - name: claude_agent
+    node_type: claude_agent
+    present: true
+    enabled: true
+    config: |
+      model: opus
+      max_turns: 50
+      effector_call_cap: 30
+      http_host: "127.0.0.1"
+      http_port: 18300
+      mcp_url: http://127.0.0.1:18200/mcp
+      mcp_token_file: /etc/ros2/mcp_server/token
+      history_size: 500
+      image_thumbnail_max_px: 480
+      work_dir: /var/lib/claude_agent
+      effector_tools:
+        - navigate_to_pose
+        - move_relative
+        - drive
+        - move_arm_joints
+        - move_arm_cartesian
+        - set_gripper
+        - arm_home
+        - arm_set_home
+      uncapped_tools:
+        - stop
+        - acquire_control
+        - release_control
+      sensor_tools:
+        - get_robot_state
+        - get_camera_image
+        - get_map_summary
+        - get_arm_state

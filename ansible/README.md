@@ -347,6 +347,7 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | nav2_bringup | 75% | 512M |
 | web_ui | 30% | 256M |
 | mcp_server | 25% | 256M |
+| claude_agent | 50% (Nice=10) | 1G |
 
 ### SLAM maps directory
 
@@ -368,6 +369,28 @@ map tab's `/api/tiles` proxy caches map tiles there (`tile_cache_dir` default) a
 token, `no_log: true`), and `/var/lib/ros2/arm` (owner `ansible_user`) for the arm home pose (`home.yaml`). The unit
 reads the token through `EnvironmentFile=`; the token never enters git. Fetch it on the dev machine with
 `eval "$(./scripts/robot_mcp_token.sh)"` (see `nodes/mcp_server/README.md`).
+
+### claude_agent user and OAuth token
+
+`playbooks/tasks/claude_agent_setup.yml` runs before `claude_agent` is deployed (in `deploy_nodes_client.yml` and in
+`nodes/client/claude_agent.yml`, after `mcp_server_setup.yml`). It creates the system user `claude_agent` (no login
+shell, home `/var/lib/claude_agent`), the directories `/etc/ros2/claude_agent` and `/var/lib/claude_agent`, and writes
+`/etc/ros2/claude_agent/env` containing `CLAUDE_CODE_OAUTH_TOKEN=<token>` (mode `0600`, owner `claude_agent`,
+`no_log: true`). The token is read on the controller with `lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN')`, so deploy with:
+
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN=...   # from `claude setup-token`
+./scripts/deploy-nodes.sh client claude_agent
+```
+
+With the variable unset an existing env file on the robot is kept; with neither the deploy fails with that hint. The
+unit reads the file through `EnvironmentFile=` (never `Environment=`). The service runs as `claude_agent` through the
+optional per-node role variables `node_user` (`user:` in `ros2_node_type_defaults`, default `ansible_user`),
+`node_supplementary_groups` (`supplementary_groups:`) and `node_nice` (`nice:`); other nodes are unchanged.
+`mcp_server_setup.yml` now creates the system group `mcp-token` and makes the MCP token group-readable
+(`0640`, owner `ansible_user`, group `mcp-token`); `claude_agent` joins that group through `SupplementaryGroups=`.
+The Claude Code CLI is the native binary bundled in the pinned `claude-agent-sdk` wheel (installed by Poetry), so no
+npm install is needed; `DISABLE_AUTOUPDATER=1` is set in the unit environment.
 
 ## Connection tuning
 

@@ -91,6 +91,7 @@ lint-nodes = { shell = """
   (cd nodes/topic_scraper_api && poetry run poe lint)
   (cd nodes/swerve_drive_controller && poetry run poe lint)
   (cd nodes/web_ui && poetry run poe lint)
+  (cd nodes/claude_agent && poetry run poe lint)
   (cd nodes/static_tf_publisher && poetry run poe lint)
   (cd nodes/steamdeck_ui/bridge && poetry run poe lint)
 """ }

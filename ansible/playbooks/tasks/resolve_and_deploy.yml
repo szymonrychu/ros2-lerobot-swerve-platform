@@ -30,4 +30,7 @@
     node_config_path: "{{ ros2_node_type_defaults[_node.node_type].config_path | default(omit) }}"
     node_env: "{{ (ros2_node_type_defaults[_node.node_type].env | default([])) + (_node.env | default([])) + (_extra_env | default([])) }}"
     node_environment_file: "{{ ros2_node_type_defaults[_node.node_type].environment_file | default('') }}"
+    node_user: "{{ ros2_node_type_defaults[_node.node_type].user | default('') }}"
+    node_supplementary_groups: "{{ ros2_node_type_defaults[_node.node_type].supplementary_groups | default([]) }}"
+    node_nice: "{{ ros2_node_type_defaults[_node.node_type].nice | default('') }}"
     node_extra_args: "{{ _node.extra_args | default('') }}"

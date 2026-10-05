@@ -1,0 +1,73 @@
+---
+# claude_agent prerequisites, run before its deploy: the service user, its directories and the OAuth token EnvironmentFile.
+# The token is read on the CONTROLLER from CLAUDE_CODE_OAUTH_TOKEN (create it with `claude setup-token`) and written to
+# /etc/ros2/claude_agent/env (0600, owned by the service user). It never enters git, logs or the unit: every task that
+# touches it has no_log. With the variable unset an existing file is kept; with no file either the deploy fails here.
+- name: Remember whether the controller has CLAUDE_CODE_OAUTH_TOKEN set
+  ansible.builtin.set_fact:
+    claude_agent_token_given: "{{ (lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN') | length) > 0 }}"
+  no_log: true
+
+- name: Look for an existing claude_agent env file
+  ansible.builtin.stat:
+    path: /etc/ros2/claude_agent/env
+  register: claude_agent_env_file
+
+- name: Fail without a token to deploy or keep
+  ansible.builtin.fail:
+    msg: >-
+      CLAUDE_CODE_OAUTH_TOKEN is not set and /etc/ros2/claude_agent/env does not exist on the robot.
+      Run `claude setup-token`, then `export CLAUDE_CODE_OAUTH_TOKEN=<token>` and re-run
+      `./scripts/deploy-nodes.sh client claude_agent`.
+  when:
+    - not claude_agent_token_given | bool
+    - not claude_agent_env_file.stat.exists
+
+- name: Create the claude_agent service user (non-root, no login shell)
+  ansible.builtin.user:
+    name: claude_agent
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/claude_agent
+    create_home: false
+    comment: Claude agent service
+
+- name: Ensure claude_agent state and HOME directory exists (owned by the service user)
+  ansible.builtin.file:
+    path: /var/lib/claude_agent
+    state: directory
+    owner: claude_agent
+    group: claude_agent
+    mode: "0750"
+
+- name: Ensure claude_agent config directory exists
+  ansible.builtin.file:
+    path: /etc/ros2/claude_agent
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Name the node whose restart the token change triggers
+  ansible.builtin.set_fact:
+    ros2_node_restart_now: claude_agent
+    ros2_node_restart_enabled: true
+
+- name: Write the claude_agent OAuth token env file
+  ansible.builtin.copy:
+    dest: /etc/ros2/claude_agent/env
+    content: "CLAUDE_CODE_OAUTH_TOKEN={{ lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN') }}\n"
+    owner: claude_agent
+    group: claude_agent
+    mode: "0600"
+  when: (lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN') | length) > 0
+  no_log: true
+  notify: Restart ROS2 node
+
+- name: Keep the existing claude_agent env file private to the service user
+  ansible.builtin.file:
+    path: /etc/ros2/claude_agent/env
+    owner: claude_agent
+    group: claude_agent
+    mode: "0600"
+  when: claude_agent_env_file.stat.exists

@@ -1,0 +1,134 @@
+"""Pydantic configuration for the claude_agent node, loaded from a YAML file named by CLAUDE_AGENT_CONFIG."""
+
+from collections.abc import Mapping
+from pathlib import Path
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+CONFIG_ENV_VAR = "CLAUDE_AGENT_CONFIG"
+TOKEN_KEY = "MCP_SERVER_TOKEN"
+DEFAULT_EFFECTOR_TOOLS = [
+    "navigate_to_pose",
+    "move_relative",
+    "drive",
+    "move_arm_joints",
+    "move_arm_cartesian",
+    "set_gripper",
+    "arm_home",
+    "arm_set_home",
+]
+DEFAULT_UNCAPPED_TOOLS = ["stop", "acquire_control", "release_control"]
+DEFAULT_SENSOR_TOOLS = ["get_robot_state", "get_camera_image", "get_map_summary", "get_arm_state"]
+
+
+class MissingTokenError(RuntimeError):
+    """The MCP token file is missing, unreadable or empty."""
+
+
+class ClaudeAgentConfig(BaseModel):
+    """Settings of the claude_agent node.
+
+    Attributes:
+        model: Claude model alias or id passed to the Agent SDK.
+        max_turns: Maximum model turns per instruction.
+        effector_call_cap: Maximum effector (motion) tool calls per instruction; sensor and uncapped tools never count.
+        effector_tools: Short names (no mcp__robot__ prefix) of the motion tools; keep in sync with mcp_server MOTION_TOOLS.
+        uncapped_tools: Short names of safety/control tools that are never capped (stop never counts).
+        sensor_tools: Short names of read-only tools (never capped).
+        mcp_url: Robot MCP server Streamable HTTP URL.
+        mcp_token_file: File holding the MCP bearer token (``MCP_SERVER_TOKEN=<token>`` or the bare token); read at each session start.
+        http_host: Bind address of the API (loopback only; the web UI proxies it).
+        http_port: Port of the HTTP/WebSocket API.
+        history_size: Number of events kept in the ring buffer.
+        image_thumbnail_max_px: Longest edge of image thumbnails in tool_result events.
+        system_prompt_extra: Optional text appended to the system prompt.
+        work_dir: Working directory of the Claude CLI child process.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = "opus"
+    max_turns: int = Field(default=50, ge=1)
+    effector_call_cap: int = Field(default=30, ge=0)
+    effector_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_EFFECTOR_TOOLS))
+    uncapped_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_UNCAPPED_TOOLS))
+    sensor_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_SENSOR_TOOLS))
+    mcp_url: str = "http://127.0.0.1:18200/mcp"
+    mcp_token_file: str = "/etc/ros2/mcp_server/token"
+    http_host: str = "127.0.0.1"
+    http_port: int = Field(default=18300, ge=1, le=65535)
+    history_size: int = Field(default=500, ge=1)
+    image_thumbnail_max_px: int = Field(default=480, ge=16)
+    system_prompt_extra: str = ""
+    work_dir: str = "/var/lib/claude_agent"
+
+    @model_validator(mode="after")
+    def check_tool_lists(self) -> "ClaudeAgentConfig":
+        """Reject a tool listed in more than one class (stop must never be capped).
+
+        Returns:
+            ClaudeAgentConfig: The validated config.
+        """
+        lists = {
+            "effector_tools": self.effector_tools,
+            "uncapped_tools": self.uncapped_tools,
+            "sensor_tools": self.sensor_tools,
+        }
+        names = list(lists)
+        for i, first in enumerate(names):
+            for second in names[i + 1 :]:
+                overlap = set(lists[first]) & set(lists[second])
+                if overlap:
+                    raise ValueError(f"{sorted(overlap)} listed in both {first} and {second}")
+        return self
+
+
+def config_path_from_env(env: Mapping[str, str]) -> Path | None:
+    """Read the config file path from the environment.
+
+    Args:
+        env (Mapping[str, str]): Environment mapping.
+
+    Returns:
+        Path | None: Path named by CLAUDE_AGENT_CONFIG, or None when unset or empty.
+    """
+    value = env.get(CONFIG_ENV_VAR, "")
+    return Path(value) if value else None
+
+
+def load_config(path: Path | None) -> ClaudeAgentConfig:
+    """Load and validate the YAML config.
+
+    Args:
+        path (Path | None): YAML file, or None for all defaults.
+
+    Returns:
+        ClaudeAgentConfig: Validated config (an empty file means defaults).
+    """
+    if path is None:
+        return ClaudeAgentConfig()
+    data = yaml.safe_load(path.read_text()) or {}
+    return ClaudeAgentConfig.model_validate(data)
+
+
+def read_mcp_token(path: Path | str) -> str:
+    """Read the MCP bearer token; the value is never logged.
+
+    Args:
+        path (Path | str): Token file, ``MCP_SERVER_TOKEN=<token>`` line or the bare token.
+
+    Returns:
+        str: The token.
+
+    Raises:
+        MissingTokenError: When the file cannot be read or holds no token (message names the path only).
+    """
+    try:
+        raw = Path(path).read_text().strip()
+    except OSError as exc:
+        raise MissingTokenError(f"cannot read MCP token file {path}: {exc.strerror}") from exc
+    token = raw.split("=", 1)[1].strip() if raw.startswith(f"{TOKEN_KEY}=") else raw
+    if not token:
+        raise MissingTokenError(f"MCP token file {path} is empty")
+    return token

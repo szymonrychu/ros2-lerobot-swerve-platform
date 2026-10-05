@@ -1,7 +1,7 @@
 ---
 # mcp_server prerequisites, run before its deploy: the bearer token EnvironmentFile and the arm home pose directory.
 # The token is generated once on the robot and never overwritten (force: false); it never enters git.
-# Fetch it on the dev machine with scripts/robot_mcp_token.sh.
+# Group mcp-token (read-only) lets other services, e.g. claude_agent, use it. Fetch it on the dev machine with scripts/robot_mcp_token.sh.
 - name: Ensure mcp_server config directory exists
   ansible.builtin.file:
     path: /etc/ros2/mcp_server
@@ -10,13 +10,18 @@
     group: root
     mode: "0755"
 
+- name: Ensure the group that may read the mcp_server token exists
+  ansible.builtin.group:
+    name: mcp-token
+    system: true
+
 - name: Create mcp_server bearer token if absent
   ansible.builtin.copy:
     dest: /etc/ros2/mcp_server/token
     content: "MCP_SERVER_TOKEN={{ lookup('ansible.builtin.password', '/dev/null', length=48, chars=['ascii_letters', 'digits']) }}\n"
     owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-    mode: "0600"
+    group: mcp-token
+    mode: "0640"
     force: false
   no_log: true
 

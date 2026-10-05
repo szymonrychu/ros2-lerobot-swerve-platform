@@ -187,6 +187,14 @@
       vars:
         _deploy_node_name: mcp_server
 
+    - name: Claude agent user, directories and OAuth token
+      ansible.builtin.include_tasks: tasks/claude_agent_setup.yml
+
+    - name: Deploy claude_agent
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: claude_agent
+
     - name: Verify all ROS2 node services are active and stable
       ansible.builtin.include_role:
         name: ros2_node_verify

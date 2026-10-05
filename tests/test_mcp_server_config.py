@@ -226,8 +226,8 @@ def test_mcp_server_setup_tasks_create_token_and_arm_dir() -> None:
     token_task = next(t for t in tasks if t.get("ansible.builtin.copy", {}).get("dest") == TOKEN_FILE)
     copy = token_task["ansible.builtin.copy"]
     assert copy["force"] is False, "an existing token must never be overwritten"
-    assert copy["mode"] == "0600"
-    assert copy["owner"] == "{{ ansible_user }}"
+    assert copy["mode"] == "0640", "group-readable so claude_agent (group mcp-token) can use it; never world-readable"
+    assert copy["owner"] == "{{ ansible_user }}" and copy["group"] == "mcp-token"
     assert token_task["no_log"] is True
     content = copy["content"]
     assert content.startswith("MCP_SERVER_TOKEN=")

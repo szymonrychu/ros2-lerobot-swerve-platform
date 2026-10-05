@@ -180,6 +180,31 @@ The **web_ui** node has tests under `nodes/web_ui/tests/`. Run from `nodes/web_u
 - Map tab backend (`test_map_nav.py`): `map_nav` tab type, defaults (`/map`, `/plan`, `/optimal_trajectory`, `/goal_pose`, `map`, `base_link`, save path) and overrides, empty frame rejected, subscribed topics and publish allowlist, topic roles; OccupancyGrid -> PNG grey levels, thresholds, row orientation (y up), metadata, size mismatch; Path serialization and downsampling to 500 points keeping the ends, paths in another frame transformed to `map` (dropped without TF); goal PoseStamped serialization; quaternion/transform helpers; latched (reliable + transient_local) map subscription; robot pose from TF published when available and omitted otherwise; typed `_dict_to_ros_msg` (ints vs floats, errors raised); goal publishing fills stamp and frame; `POST /api/map/save` success, slam failure, service unavailable, timeout, unknown tab, no bridge; cached snapshot sent on WS connect; default config has the map tab. Reset/Stop: `map_reset_service` and `navigate_action` defaults; `POST /api/map/reset` (slam_toolbox `/slam_toolbox/reset`) success, non-success result, unavailable, timeout, unknown tab, no bridge, cached map cleared only on success (cleared-map event); `POST /api/nav/stop` cancels all `NavigateToPose` goals (zero goal id and stamp), unavailable, timeout, cached goal cleared on success (cleared-goal event). Robot footprint: `footprint_topic` default and `footprint` role, PolygonStamped serialized to points and re-expressed in the map frame.
 - Map tab frontend (`frontend/src/map/mapMath.test.ts` and `mapActions.test.ts`, vitest, `npm test`): Reset/Stop action helpers, front edge of the footprint polygon (`frontEdgeIndex`) and world <-> screen (y up), map image placement with origin and yaw, pan, zoom about the cursor with clamping, pinch zoom/pan, fit and centre view, yaw/quaternion helpers and angle normalization, goal heading from drag or plain click (towards goal, robot heading fallback), scale-bar length choice.
 
+### Per-node tests (claude_agent)
+
+The **claude_agent** node has tests under `nodes/claude_agent/tests/` (no network, no real Claude calls; rclpy is stubbed in
+`conftest.py`, the Agent SDK dataclasses are built directly). Run from `nodes/claude_agent`: `poetry run pytest tests -q`.
+Covers:
+
+- config (`test_config.py`): defaults (opus, 50 turns, cap 30, MCP URL/token file, port 18300, history 500, thumbnail 480),
+  tool lists disjoint (stop can never be an effector), invalid numbers and unknown keys rejected, YAML loading,
+  `CLAUDE_AGENT_CONFIG` lookup, MCP token read (env-file line or bare token, missing/empty refused, token never in the error)
+- system prompt (`test_prompt.py`): built from the config caps and turn limit, lists every tool by kind, safety rules, persona,
+  `system_prompt_extra` appended
+- tools (`test_tools.py`): classification (sensor / effector / uncapped, unknown robot tool capped, non-robot unclassified),
+  built-in tool deny list, sensor and `stop` calls never counted, effector calls counted then denied with the exact cap
+  message, counter reset, everything outside `mcp__robot__*` denied, count and denial callbacks
+- events (`test_events.py`): ring buffer and sequence numbers, subscribers, normalization of assistant text / tool calls /
+  tool results from SDK objects, image thumbnails (size, no upscaling, RGBA, undecodable), 4000-char truncation flag,
+  turn_end statuses (done, interrupted, max_turns, error) and auth-error detection
+- env (`test_env.py`): `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` removed from the child env, `DISABLE_AUTOUPDATER=1`, input untouched
+- runner (`test_runner.py`): SDK options (robot HTTP MCP server with bearer header, `tools=[]`, no allow rules, `can_use_tool`), event
+  flow with a fake client, token never in events, busy refusal, interrupt, effector counter reset per instruction, denial events,
+  auth error, session failure and missing token become error events, reset starts a new session
+- API (`test_api.py`): `/api/state`, `/api/history`, `/api/message` (202 / 409 busy / 400 empty or invalid), `/api/stop`,
+  `/api/reset` (409 while busy), `/ws/events` history on connect then live events, shutdown hook
+- entry point (`test_main.py`): loopback bind and port from config, ROS2 logger, API key removed from the process env, invalid config exits 1
+
 ### Per-node tests (mcp_server)
 
 The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed: rclpy is imported only by
@@ -305,7 +330,7 @@ fake `ssh`; no ROS needed).
 | `test_web_ui_map_tab_uses_contract_fields` | The map tab carries no legacy keys (`urdf_file`, `topic`, `arm_urdf_file`, `arm_joint_topic`, `scan_topic`, `costmap_topic`), uses the frontend contract names, points `arm_home_service` / `arm_set_home_service` at the services mcp_server serves, and keeps the tile cache at `/var/cache/web_ui/tiles`. |
 | `test_web_ui_tile_cache_dir_task_owned_by_node_user` | `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui` and `/var/cache/web_ui/tiles` as directories owned by `ansible_user`. |
 | `test_playbooks_create_tile_cache_before_deploying_web_ui` | `deploy_nodes_client.yml` and `nodes/client/web_ui.yml` include the tile cache task before deploying web_ui. |
-| `test_mcp_server_setup_tasks_create_token_and_arm_dir` | `tasks/mcp_server_setup.yml` creates `/etc/ros2/mcp_server`, the token (`MCP_SERVER_TOKEN=` + 48-char password lookup, `force: false`, 0600, owner `ansible_user`, `no_log`) and `/var/lib/ros2/arm` owned by the node user. |
+| `test_mcp_server_setup_tasks_create_token_and_arm_dir` | `tasks/mcp_server_setup.yml` creates `/etc/ros2/mcp_server`, the token (`MCP_SERVER_TOKEN=` + 48-char password lookup, `force: false`, 0640, owner `ansible_user`, group `mcp-token`, `no_log`) and `/var/lib/ros2/arm` owned by the node user. |
 | `test_playbooks_run_setup_before_deploying_mcp_server` | `deploy_nodes_client.yml` and `nodes/client/mcp_server.yml` deploy mcp_server and include the setup tasks before it. |
 | `test_node_playbook_stops_first_and_starts_last` | The per-node playbook targets the client, starts with `stop_ros_nodes.yml`, syncs the repo and ends with `start_ros_nodes.yml`. |
 | `test_unit_template_renders_environment_file_only_when_set` | The native unit template renders `EnvironmentFile=` (before `ExecStart=`) only when `node_environment_file` is non-empty. |
@@ -330,3 +355,30 @@ Static invariants of the battery voltage chain in Ansible `group_vars` (follower
 | `test_mcp_server_battery_matches_web_ui` | mcp_server `battery` block is identical to web_ui's (topic `/battery_state`, 3 cells, 2.8/2.9 V per cell, `stale_s` 5.0; 8.4 V cut-off). |
 | `test_leader_does_not_publish_battery` | Server `lerobot_leader` has `battery_interval_s: 0`, so only the robot's follower bus publishes `/battery_state`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_battery_config.py` is listed in this section. |
+
+### test_claude_agent_config.py
+
+Static checks of the claude_agent wiring (YAML, the unit template rendered with jinja2 when installed, the node package
+layout; no ROS needed).
+
+| Test (group) | Description |
+|---|---|
+| `test_claude_agent_node_type_defaults` | `claude_agent` node type: native, `nodes/claude_agent`, `python3 -m claude_agent`, 50% / 1G, nice, user `claude_agent`, group `mcp-token`, `environment_file` `/etc/ros2/claude_agent/env`, `DISABLE_AUTOUPDATER=1`, no secret in `env`. |
+| `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `mcp_server`. |
+| `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
+| `test_effector_tools_match_mcp_server_motion_tools_when_defined` | When mcp_server defines a `MOTION_TOOLS` literal, `effector_tools` equals it (skipped until then). |
+| `test_service_template_user_groups_and_nice_are_optional` | Unit template: `User=` defaults to `ansible_user`; `node_user`, `SupplementaryGroups=` and `Nice=` only when set. |
+| `test_resolve_and_deploy_passes_user_groups_and_nice` | `resolve_and_deploy.yml` hands `user`, `supplementary_groups` and `nice` of the node type to the role. |
+| `test_setup_tasks_read_token_from_controller_env_and_fail_clearly` | `claude_agent_setup.yml` uses `lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN')`; a fail task (before the write, without `no_log`, without touching the token) tells the user to `export CLAUDE_CODE_OAUTH_TOKEN=...` and run `deploy-nodes.sh client claude_agent`. |
+| `test_setup_tasks_write_env_file_0600_no_log_and_restart` | The env file task: `CLAUDE_CODE_OAUTH_TOKEN=` content, mode 0600, owner `claude_agent`, `no_log`, notifies the restart handler, only when the variable is non-empty. |
+| `test_setup_tasks_no_log_on_every_task_touching_the_token` | Every task using the lookup or writing the token has `no_log: true`. |
+| `test_setup_tasks_create_user_and_dirs_and_keep_existing_file` | System user `claude_agent` (nologin, home `/var/lib/claude_agent`), its directories, and a stat of the existing env file so an unset variable keeps it. |
+| `test_mcp_token_readable_by_group_not_world` | `mcp_server_setup.yml` creates group `mcp-token` before the token, which is `0640` with that group. |
+| `test_playbooks_run_setup_before_deploying_claude_agent_after_mcp_server` | `deploy_nodes_client.yml` and `nodes/client/claude_agent.yml`: mcp setup, then agent setup, then the deploy (after mcp_server in the full playbook). |
+| `test_node_playbook_stops_first_and_starts_last` | The per-node playbook stops nodes first, starts them last, targets `client`. |
+| `test_oauth_token_never_in_repo` | No tracked file contains a literal `CLAUDE_CODE_OAUTH_TOKEN=<token>`. |
+| `test_claude_agent_package_layout_and_pinned_sdk` | Poetry project with the SDK pinned to an exact version, FastAPI/uvicorn/Pillow/pydantic, lock file, README, `__main__.py`, tests. |
+| `test_claude_agent_readme_documents_api_and_token_deploy` | The node README lists every API route, the cap and the `export CLAUDE_CODE_OAUTH_TOKEN` deploy command. |
+| `test_docs_and_lint_scripts_list_claude_agent` | `nodes/README.md`, `ansible/README.md`, the ansible-deploy skill, `scripts/lint-all-nodes.sh` and root `lint-nodes` mention the node. |
+| `test_deploy_script_discovers_node_playbook` | `playbooks/nodes/client/claude_agent.yml` exists, which is how `deploy-nodes.sh` finds the node. |
+| `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_claude_agent_config.py` is listed in this section. |
