@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
+import { Virtuoso } from 'react-virtuoso'
+import type { VirtuosoHandle } from 'react-virtuoso'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -11,6 +13,7 @@ import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
 import IconButton from '@mui/material/IconButton'
+import CircularProgress from '@mui/material/CircularProgress'
 import LinearProgress from '@mui/material/LinearProgress'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
@@ -21,7 +24,7 @@ import SendIcon from '@mui/icons-material/Send'
 import StopIcon from '@mui/icons-material/Stop'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { postAgent } from '../agent/agentApi'
-import { composerBlockReason, headerStatus, isNearBottom, statusLabel } from '../agent/agentModel'
+import { composerBlockReason, headerStatus, statusLabel } from '../agent/agentModel'
 import type { ChatItem, ToolContent, ToolKind } from '../agent/agentModel'
 import { useAgentChat } from '../agent/useAgentChat'
 import { cutoffBanner } from '../battery/batteryStatus'
@@ -38,7 +41,12 @@ interface Props {
 
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>
 
-const KIND_COLORS: Record<ToolKind, 'info' | 'warning' | 'default'> = { sensor: 'info', effector: 'warning', uncapped: 'default' }
+const KIND_COLORS: Record<ToolKind, 'info' | 'warning' | 'default' | 'secondary'> = {
+  sensor: 'info',
+  effector: 'warning',
+  uncapped: 'default',
+  notes: 'secondary',
+}
 // Distance from the bottom (px) within which the transcript keeps following new messages.
 const STICK_THRESHOLD_PX = 48
 const RESULT_MAX_HEIGHT_PX = 220
@@ -70,9 +78,9 @@ function ToolCard({ item, onOpenImage }: { item: ToolItem; onOpenImage: (src: st
         sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, minHeight: TOUCH_TARGET_PX, cursor: 'pointer', flexWrap: 'wrap', py: 0.5 }}
       >
         <Typography variant="body2" sx={{ fontFamily: MONO_FONT, fontWeight: 600, wordBreak: 'break-all' }}>
-          {item.name}
+          {item.orphan ? `result of call ${item.id}` : item.name}
         </Typography>
-        <Chip size="small" label={item.toolKind} color={KIND_COLORS[item.toolKind]} variant={item.toolKind === 'uncapped' ? 'outlined' : 'filled'} />
+        {!item.orphan && <Chip size="small" label={item.toolKind} color={KIND_COLORS[item.toolKind]} variant={item.toolKind === 'uncapped' ? 'outlined' : 'filled'} />}
         <Chip size="small" label={status.label} color={status.color} variant="outlined" />
         <Box sx={{ flex: 1 }} />
         <IconButton size="small" aria-label={open ? 'Collapse tool call' : 'Expand tool call'} sx={{ transform: open ? 'rotate(180deg)' : 'none' }}>
@@ -88,10 +96,14 @@ function ToolCard({ item, onOpenImage }: { item: ToolItem; onOpenImage: (src: st
       )}
       <Collapse in={open} unmountOnExit>
         <Box sx={{ px: 1.5, pb: 1.5 }}>
-          <Typography variant="overline" color="text.secondary">Input</Typography>
-          <Box component="pre" sx={{ m: 0, p: 1, bgcolor: 'background.default', borderRadius: 1, fontFamily: MONO_FONT, fontSize: 12, overflow: 'auto', maxHeight: RESULT_MAX_HEIGHT_PX }}>
-            {JSON.stringify(item.input, null, 2)}
-          </Box>
+          {!item.orphan && (
+            <>
+              <Typography variant="overline" color="text.secondary">Input</Typography>
+              <Box component="pre" sx={{ m: 0, p: 1, bgcolor: 'background.default', borderRadius: 1, fontFamily: MONO_FONT, fontSize: 12, overflow: 'auto', maxHeight: RESULT_MAX_HEIGHT_PX }}>
+                {JSON.stringify(item.input, null, 2)}
+              </Box>
+            </>
+          )}
           {texts.length > 0 && (
             <>
               <Typography variant="overline" color="text.secondary">Output</Typography>
@@ -137,19 +149,19 @@ function renderItem(item: ChatItem, onOpenImage: (src: string) => void) {
   switch (item.kind) {
     case 'user':
     case 'assistant':
-      return <Bubble key={item.key} item={item} />
+      return <Bubble item={item} />
     case 'tool':
-      return <ToolCard key={item.key} item={item} onOpenImage={onOpenImage} />
+      return <ToolCard item={item} onOpenImage={onOpenImage} />
     case 'denied':
       return (
-        <Alert key={item.key} severity="warning" sx={{ alignSelf: 'stretch' }}>
+        <Alert severity="warning" sx={{ alignSelf: 'stretch' }}>
           Tool denied: <b>{item.name}</b> - {item.reason}
         </Alert>
       )
     case 'turn_end': {
       const s = statusLabel(item.status)
       return (
-        <Stack key={item.key} direction="row" gap={1} alignItems="center" flexWrap="wrap" justifyContent="center" sx={{ py: 0.5 }}>
+        <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" justifyContent="center" sx={{ py: 0.5 }}>
           <Chip size="small" label={s.label} color={s.color} />
           <Typography variant="caption" color="text.secondary">
             {item.numTurns} turns, {item.effectorCalls} effector calls, ${item.costUsd.toFixed(4)}
@@ -159,22 +171,47 @@ function renderItem(item: ChatItem, onOpenImage: (src: string) => void) {
     }
     case 'error':
       return (
-        <Alert key={item.key} severity="error" sx={{ alignSelf: 'stretch' }}>
+        <Alert severity="error" sx={{ alignSelf: 'stretch' }}>
           {item.message}
         </Alert>
       )
   }
 }
 
+interface ListContext {
+  loadingOlder: boolean
+  hasMore: boolean
+}
+
+function ListHeader({ context }: { context?: ListContext }) {
+  if (!context) return null
+  return (
+    <Box sx={{ pt: 1.5, pb: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
+      {context.loadingOlder ? (
+        <>
+          <CircularProgress size={14} />
+          <Typography variant="caption" color="text.secondary">Loading older messages...</Typography>
+        </>
+      ) : (
+        !context.hasMore && <Typography variant="caption" color="text.secondary">Start of session</Typography>
+      )}
+    </Box>
+  )
+}
+
+function ListFooter() {
+  return <Box sx={{ height: 12 }} />
+}
+
+const LIST_COMPONENTS = { Header: ListHeader, Footer: ListFooter }
+
 export default function AgentChatTab({ battery }: Props) {
-  const { chat, info, connected, refreshInfo } = useAgentChat()
+  const { chat, info, connected, refreshInfo, loadOlder, loadingOlder, setFollowing, clearCache } = useAgentChat()
   const [text, setText] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
   const [viewImage, setViewImage] = useState<string | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
-  const stick = useRef(true)
+  const listRef = useRef<VirtuosoHandle>(null)
 
   const header = headerStatus(info, chat)
   const batteryMessage = battery ? cutoffBanner(battery) : null
@@ -182,31 +219,9 @@ export default function AgentChatTab({ battery }: Props) {
   const canSend = blockReason === null && text.trim().length > 0
   const resetBlocked = chat.busy || batteryMessage !== null
 
-  const onScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (el) stick.current = isNearBottom(el, STICK_THRESHOLD_PX)
-  }, [])
+  const scrollToEnd = useCallback(() => listRef.current?.scrollToIndex({ index: 'LAST', align: 'end' }), [])
 
-  const followEnd = useCallback(() => {
-    const el = scrollRef.current
-    if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [])
-
-  useLayoutEffect(followEnd, [chat.items, followEnd])
-
-  useEffect(() => {
-    // Content also grows after an event is rendered (camera thumbnails load, tool cards expand): keep following it.
-    const content = contentRef.current
-    if (!content || typeof ResizeObserver === 'undefined') return undefined
-    const observer = new ResizeObserver(followEnd)
-    observer.observe(content)
-    return () => observer.disconnect()
-  }, [followEnd])
-
-  useEffect(() => {
-    // A new session starts at the top of an empty transcript: follow it again.
-    if (chat.items.length === 0) stick.current = true
-  }, [chat.items.length])
+  const listContext = { loadingOlder, hasMore: chat.hasMore }
 
   const send = async () => {
     if (!canSend) return
@@ -214,7 +229,8 @@ export default function AgentChatTab({ battery }: Props) {
     const res = await postAgent('message', { text: text.trim() })
     if (res.ok) {
       setText('')
-      stick.current = true
+      setFollowing(true)
+      scrollToEnd()
     } else setActionError(res.message || 'Message rejected')
     refreshInfo()
   }
@@ -236,7 +252,8 @@ export default function AgentChatTab({ battery }: Props) {
     setConfirmReset(false)
     setActionError(null)
     const res = await postAgent('reset')
-    if (!res.ok) setActionError(res.message || 'Reset failed')
+    if (res.ok) clearCache()
+    else setActionError(res.message || 'Reset failed')
     refreshInfo()
   }
 
@@ -258,21 +275,30 @@ export default function AgentChatTab({ battery }: Props) {
       </Box>
       {chat.busy && <LinearProgress />}
 
-      <Box
-        ref={scrollRef}
-        onScroll={onScroll}
-        sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}
-      >
-        {/* Separate content box: items keep their natural height (in the scroll box itself, flex items with
-            overflow: hidden would shrink to fit instead of overflowing) and its size changes drive followEnd. */}
-        <Box ref={contentRef} sx={{ px: 2, py: 1.5, display: 'flex', flexDirection: 'column', gap: 1, minHeight: '100%' }}>
-          {chat.items.length === 0 && (
-            <Typography color="text.secondary" sx={{ m: 'auto', textAlign: 'center' }}>
-              {connected ? 'Ask the robot agent to do something.' : 'Connecting to the agent...'}
-            </Typography>
+      <Box sx={{ flex: 1, minHeight: 0, position: 'relative' }}>
+        {chat.items.length === 0 && (
+          <Typography color="text.secondary" sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', px: 2 }}>
+            {connected ? 'Ask the robot agent to do something.' : 'Connecting to the agent...'}
+          </Typography>
+        )}
+        <Virtuoso
+          ref={listRef}
+          style={{ height: '100%' }}
+          data={chat.items}
+          firstItemIndex={chat.firstItemIndex}
+          initialTopMostItemIndex={Math.max(chat.items.length - 1, 0)}
+          computeItemKey={(_, item) => item.key}
+          followOutput={(atBottom) => (atBottom ? 'auto' : false)}
+          atBottomThreshold={STICK_THRESHOLD_PX}
+          atBottomStateChange={setFollowing}
+          startReached={loadOlder}
+          context={listContext}
+          components={LIST_COMPONENTS}
+          itemContent={(_, item) => (
+            // Padding, not margin: Virtuoso measures the wrapper and margins would not count.
+            <Box sx={{ px: 2, pb: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>{renderItem(item, setViewImage)}</Box>
           )}
-          {chat.items.map((item) => renderItem(item, setViewImage))}
-        </Box>
+        />
       </Box>
 
       <Box sx={{ px: 2, py: 1, borderTop: 1, borderColor: 'divider' }}>

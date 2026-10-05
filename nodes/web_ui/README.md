@@ -82,12 +82,13 @@ tabs:
 | Route | Proxies | Battery cut-off |
 |---|---|---|
 | `GET /api/agent/state` | `GET /api/state` | allowed |
-| `GET /api/agent/history` | `GET /api/history` | allowed |
+| `GET /api/agent/history?before_seq=&limit=` | `GET /api/history` | allowed |
 | `POST /api/agent/message` `{text}` | `POST /api/message` | rejected, 503 |
 | `POST /api/agent/stop` | `POST /api/stop` | always allowed |
 | `POST /api/agent/reset` | `POST /api/reset` | rejected, 503 |
 | `WS /ws/agent` | `WS /ws/events` | allowed |
 
+- `history` forwards `before_seq` and `limit` (both must be integers, else 400; `limit` is clamped to 1..500) so the browser can page back through the log; the reply is `{events, has_more}`.
 - The agent's status code and JSON body are passed through (for example `409 {"ok": false, "message": "busy"}`). If the agent is down or times out (10 s, 3 s to connect) the answer is `503 {"ok": false, "message": "claude_agent unreachable at <url>"}`; without an `agent_chat` tab it is 404. The URL comes from the first `agent_chat` tab.
 - Rejection in cut-off uses the same 503 body as the other commands (`battery below cut-off: ...`, see [Battery](#battery-optional-battery-section)).
 - `WS /ws/agent` forwards every upstream frame unchanged (history on connect, then events). Nothing is forwarded from the browser, but the proxy keeps reading the browser socket: when the browser leaves, the upstream connection is closed at once (and when either side ends, the other direction is cancelled; sends to an already closed socket are ignored quietly). When the upstream connection fails or drops, the proxy sends `{"type": "error", "message": "agent disconnected"}` and closes, so the frontend reconnects.
@@ -98,7 +99,10 @@ tabs:
 - Transcript: user bubbles on the right, assistant bubbles on the left (line breaks kept), collapsible tool cards (short name, kind chip `sensor` / `effector` / `uncapped`, pretty-printed input, status ok / error / running, monospace output with a truncation note, clickable image thumbnails), warning cards for denied tools, a line per turn end (status, turns, effector calls, cost in USD) and alerts for errors. The transcript (not the page) scrolls and follows every new step, including content that grows later (thumbnails loading, cards expanding, via `ResizeObserver`), unless you scrolled up more than 48 px; scrolling back to the end resumes following.
 - Composer: Enter sends, Shift+Enter inserts a new line. It is disabled while the agent is busy, disconnected, or the battery is in cut-off (the reason is shown).
 - The WebSocket reconnects with backoff (1 s up to 30 s; the attempt counter resets only after the first frame, the history, arrives, so a down agent keeps backing off); the history replayed on every connect is deduplicated by event `seq`.
-- Event reduction (pairing tool calls and results by id, dedupe, status text, composer block reason) is pure logic in `frontend/src/agent/agentModel.ts` (vitest `agentModel.test.ts`).
+- Transcript: a virtualized list (`react-virtuoso`, exact version pinned in `package.json`), so only the visible items are in the DOM and a long log stays fast. It follows new items while the view is within 48 px of the bottom, stops following once you scroll up and resumes at the bottom; items that grow after rendering (thumbnails loading, cards expanding) are handled by Virtuoso. Tool cards carry a kind chip (`sensor`, `effector`, `uncapped`, `notes`).
+- Paging and bounded memory: the WebSocket sends only the newest page (`history` frame with `has_more`). Scrolling to the top fetches `/api/agent/history?before_seq=<oldest loaded seq>&limit=100` and prepends it (deduplicated by `seq`; a result whose call is on another page is paired when that page loads, until then it shows as a standalone result card). A spinner shows while fetching and "Start of session" when `has_more` is false. At most 400 items are kept in memory: while following, the oldest are dropped (they stay loadable from the agent).
+- New session: after `POST /api/agent/reset` succeeds the tab clears all its cached state (items, paging cursor, `has_more`, and every `web_ui.agent.*` localStorage/sessionStorage key) and shows an empty transcript; the history frame that follows is the new session.
+- Event reduction (pairing tool calls and results by id, dedupe, window trimming, older-page merge, status text, composer block reason) is pure logic in `frontend/src/agent/agentModel.ts` (vitest `agentModel.test.ts`); cache clearing is in `agentCache.ts` (`agentCache.test.ts`).
 
 ## Map tab (`map_nav`)
 

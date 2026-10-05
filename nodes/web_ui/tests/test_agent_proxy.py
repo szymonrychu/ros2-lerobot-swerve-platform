@@ -128,6 +128,36 @@ def test_get_state_and_history_proxied(make_client: Callable[..., TestClient], r
     ]
 
 
+def test_history_forwards_before_seq_and_limit(make_client: Callable[..., TestClient], recorder: Recorder) -> None:
+    resp = make_client().get("/api/agent/history", params={"before_seq": 42, "limit": 100})
+    assert resp.status_code == 200
+    assert dict(recorder.requests[0].url.params) == {"before_seq": "42", "limit": "100"}
+
+
+@pytest.mark.parametrize(("sent", "expected"), [("0", "1"), ("-5", "1"), ("9999", "500"), ("500", "500"), ("7", "7")])
+def test_history_limit_clamped(
+    make_client: Callable[..., TestClient], recorder: Recorder, sent: str, expected: str
+) -> None:
+    make_client().get("/api/agent/history", params={"limit": sent})
+    assert recorder.requests[0].url.params["limit"] == expected
+    assert "before_seq" not in recorder.requests[0].url.params
+
+
+def test_history_without_params_sends_none(make_client: Callable[..., TestClient], recorder: Recorder) -> None:
+    make_client().get("/api/agent/history")
+    assert dict(recorder.requests[0].url.params) == {}
+
+
+@pytest.mark.parametrize("query", ["before_seq=abc", "limit=x", "before_seq=1.5", "limit="])
+def test_history_rejects_non_integer_params(
+    make_client: Callable[..., TestClient], recorder: Recorder, query: str
+) -> None:
+    resp = make_client().get(f"/api/agent/history?{query}")
+    assert resp.status_code == 400
+    assert resp.json()["ok"] is False
+    assert recorder.requests == []
+
+
 def test_post_message_forwards_body_and_status(make_client: Callable[..., TestClient], recorder: Recorder) -> None:
     resp = make_client().post("/api/agent/message", json={"text": "go"})
     assert resp.status_code == 202

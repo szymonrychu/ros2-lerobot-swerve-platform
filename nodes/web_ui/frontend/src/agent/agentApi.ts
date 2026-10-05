@@ -1,5 +1,6 @@
 /** Calls of the backend's claude_agent proxy (/api/agent/*). */
-import type { AgentInfo } from './agentModel'
+import { historyQuery } from './agentModel'
+import type { AgentEvent, AgentInfo } from './agentModel'
 
 export interface AgentActionResult {
   ok: boolean
@@ -35,6 +36,28 @@ export async function fetchAgentState(): Promise<AgentInfo | null> {
   try {
     const resp = await fetch('/api/agent/state')
     return resp.ok ? ((await resp.json()) as AgentInfo) : null
+  } catch {
+    return null
+  }
+}
+
+export interface HistoryPage {
+  events: AgentEvent[]
+  has_more: boolean
+}
+
+/**
+ * GET /api/agent/history: one page of events older than a cursor.
+ * @param beforeSeq only events with a lower seq (the oldest loaded seq)
+ * @param limit page size
+ * @returns the page (ascending seq), or null when the agent is unreachable or answers with an error
+ */
+export async function fetchAgentHistory(beforeSeq: number, limit: number): Promise<HistoryPage | null> {
+  try {
+    const resp = await fetch(historyQuery(beforeSeq, limit))
+    if (!resp.ok) return null
+    const data = (await resp.json()) as Partial<HistoryPage>
+    return Array.isArray(data.events) ? { events: data.events, has_more: data.has_more === true } : null
   } catch {
     return null
   }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import httpx
 import structlog
@@ -26,6 +26,10 @@ AGENT_HTTP_CONNECT_TIMEOUT_S = 3.0
 AGENT_WS_OPEN_TIMEOUT_S = 5.0
 # Largest upstream WebSocket frame accepted (history replay carries thumbnails); websockets default is 1 MiB.
 AGENT_WS_MAX_FRAME_BYTES = 32 * 1024 * 1024
+# Bounds of the history page size (claude_agent GET /api/history accepts 1..500).
+HISTORY_LIMIT_MIN = 1
+HISTORY_LIMIT_MAX = 500
+HISTORY_INT_PARAMS = ("before_seq", "limit")
 AGENT_WS_PATH = "/ws/events"
 AGENT_DISCONNECTED_MESSAGE = "agent disconnected"
 NO_AGENT_TAB_MESSAGE = "no agent_chat tab configured"
@@ -50,6 +54,24 @@ def agent_error(message: str, status_code: int) -> JSONResponse:
         JSONResponse: {"ok": False, "message": message}.
     """
     return JSONResponse({"ok": False, "message": message}, status_code=status_code)
+
+
+def history_params(query: Mapping[str, str]) -> dict[str, int]:
+    """Validate the history paging query: integers only, limit clamped to 1..500.
+
+    Args:
+        query (Mapping[str, str]): Browser query parameters.
+
+    Returns:
+        dict[str, int]: Only the params that were sent (before_seq, limit), as ints.
+
+    Raises:
+        ValueError: A sent param is not an integer.
+    """
+    params = {name: int(query[name]) for name in HISTORY_INT_PARAMS if name in query}
+    if "limit" in params:
+        params["limit"] = max(HISTORY_LIMIT_MIN, min(HISTORY_LIMIT_MAX, params["limit"]))
+    return params
 
 
 def agent_ws_url(agent_url: str) -> str:
@@ -158,13 +180,17 @@ def register_agent_routes(
             tab = config.agent_chat_tab()
             if tab is None:
                 return agent_error(NO_AGENT_TAB_MESSAGE, 404)
+            try:
+                params = history_params(request.query_params) if suffix == "history" else None
+            except ValueError:
+                return agent_error("before_seq and limit must be integers", 400)
             body = await request.body() if method == "POST" else None
             headers = (
                 {"content-type": request.headers["content-type"]} if body and "content-type" in request.headers else {}
             )
             try:
                 upstream = await client.request(
-                    method, tab.agent_url.rstrip("/") + upstream_path, content=body, headers=headers
+                    method, tab.agent_url.rstrip("/") + upstream_path, content=body, headers=headers, params=params
                 )
             except httpx.HTTPError as exc:
                 log.warning("agent_unreachable", route=suffix, error=repr(exc))
