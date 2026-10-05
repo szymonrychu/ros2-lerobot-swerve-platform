@@ -475,3 +475,73 @@ def test_home_settles_with_residual_and_keeps_target(tmp_path: Path) -> None:
     res = arm.home()
     assert res.status == "converged", res.message
     assert res.residual_error == {"shoulder_lift": pytest.approx(0.047)}
+
+
+# --- bounded residual hold: a stalled joint is not pushed at its target forever ---
+
+HOLD_S = CONFIG.limits.arm_settle_hold_s
+
+
+def settle_shoulder(tmp_path: Path) -> tuple[ArmController, FakeArmBackend]:
+    """Move shoulder_lift to 0.5 with 0.05 rad sag: settles with a residual error."""
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": SAG}
+    res = arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
+    assert res.residual_error, res.message
+    return arm, be
+
+
+def test_residual_hold_keeps_target_within_hold_window(tmp_path: Path) -> None:
+    arm, be = settle_shoulder(tmp_path)
+    be.t += HOLD_S * 0.5
+    arm.keepalive_tick()
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(0.5)
+
+
+def test_residual_hold_relaxes_to_measured_after_hold_window(tmp_path: Path) -> None:
+    arm, be = settle_shoulder(tmp_path)
+    measured = be.positions["shoulder_lift"]
+    be.t += HOLD_S + 0.1
+    arm.keepalive_tick()
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(measured)
+    assert be.commands[-1]["elbow_flex"] == pytest.approx(0.0)  # joints without residual keep their target
+    arm.keepalive_tick()
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(measured)  # relaxed once, not ratcheting further
+
+
+def test_residual_hold_not_relaxed_when_joint_reached_target_meanwhile(tmp_path: Path) -> None:
+    arm, be = settle_shoulder(tmp_path)
+    be.sag = {}
+    be.positions["shoulder_lift"] = 0.5
+    be.t += HOLD_S + 0.1
+    arm.keepalive_tick()
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(0.5)
+
+
+def test_next_motion_starts_from_intended_target_after_relax(tmp_path: Path) -> None:
+    arm, be = settle_shoulder(tmp_path)
+    be.t += HOLD_S + 0.1
+    arm.keepalive_tick()
+    n = len(be.commands)
+    arm.move_joints({"elbow_flex": 0.3}, speed_scale=0.5)
+    assert all(c["shoulder_lift"] == pytest.approx(0.5) for c in be.commands[n:])
+
+
+@pytest.mark.parametrize("end", ["release", "drop_lease", "lease_lost"])
+def test_intent_and_pending_relax_cleared_when_lease_ends(tmp_path: Path, end: str) -> None:
+    arm, be = settle_shoulder(tmp_path)
+    if end == "release":
+        arm.release()
+    elif end == "drop_lease":
+        arm.drop_lease()
+    else:
+        be.source = "leader"
+        be.t += 1.0
+        arm.keepalive_tick()
+        assert not arm.control_held
+        be.source = "autonomy"
+    assert arm._last_target is None and arm._relax_hold is None
+    measured = be.positions["shoulder_lift"]
+    n = len(be.commands)
+    arm.move_joints({"elbow_flex": 0.2}, speed_scale=0.5)
+    assert be.commands[n]["shoulder_lift"] == pytest.approx(measured)

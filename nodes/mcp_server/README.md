@@ -89,6 +89,11 @@ partition every tool):
   `residual_error` = target - measured (rad) per joint outside the converge tolerance; the target stays commanded (no
   hold at the sagged pose). A joint still moving or further off ends in `timeout` and holds the measured pose as
   before.
+- **Bounded residual hold**: a settled target is held for `arm_settle_hold_s` (2.0 s). Then the keepalive relaxes the
+  hold setpoint of joints still outside the converge tolerance to their measured pose, so a joint stalled against an
+  obstacle or the floor is not pushed at the torque limit indefinitely (only wrist_roll and gripper publish effort).
+  The intended target is kept separately and still seeds the next motion (unnamed joints, IK seed), so the sag
+  ratchet stays fixed. Any new setpoint, release, lease loss or stop cancels the pending relax.
 - **No gravity lead**: a feed-forward offset (target + k in the lift direction) is not applied: whether a joint
   works against gravity depends on the whole arm pose (needs a mass model), a motion-direction lead overshoots when
   lowering, and the result cannot be checked without the robot.

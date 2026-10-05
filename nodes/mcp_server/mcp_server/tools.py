@@ -230,8 +230,10 @@ def register_tools(
         f"Status 'converged' means every moved joint is within {config.limits.arm_converge_tolerance_rad} rad of its "
         "target, or stopped short of it under load (servo steady-state error) by at most "
         f"{config.limits.arm_settle_tolerance_rad} rad: then residual_error lists target - measured (rad) per joint "
-        "and the target stays commanded, so do not re-send it to compensate. Gripper targets are follower gripper "
-        "joint positions (rad, as in get_arm_state)."
+        f"and the target stays commanded for {config.limits.arm_settle_hold_s} s; after that the hold of joints still "
+        "off target relaxes to their measured pose (a stall against an obstacle is not pushed indefinitely) while "
+        "the intended target is kept for later motions, so do not re-send it to compensate. Gripper targets are "
+        "follower gripper joint positions (rad, as in get_arm_state)."
     )
 
     def battery_gate(tool_name: str) -> None:

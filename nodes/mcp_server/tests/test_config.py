@@ -158,3 +158,8 @@ def test_settle_tolerance_must_stay_below_tracking_abort() -> None:
         McpServerConfig.model_validate({"limits": {"arm_settle_tolerance_rad": 0.4}})
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"limits": {"arm_settle_tolerance_rad": 0.01}})
+
+
+def test_settle_hold_and_grasp_squeeze_defaults() -> None:
+    lim = McpServerConfig().limits
+    assert lim.arm_settle_hold_s == pytest.approx(2.0)

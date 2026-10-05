@@ -98,6 +98,10 @@ class LimitSettings(StrictModel):
     arm_settle_tolerance_rad: float = Field(default=0.08, gt=0.0)
     arm_settle_window_s: float = Field(default=0.5, gt=0.0)
     arm_settle_motion_rad: float = Field(default=0.005, gt=0.0)
+    # A settled residual is a stall against load: its target is held for arm_settle_hold_s, then the hold setpoint of
+    # joints still outside the converge tolerance relaxes to the measured pose (no pushing at the torque limit
+    # indefinitely). The intended target is kept for the next motion's unnamed joints and IK seed.
+    arm_settle_hold_s: float = Field(default=2.0, gt=0.0)
     gripper_velocity_rps: float = Field(default=0.5, gt=0.0, le=1.5)
     gripper_effort_threshold: float = Field(default=300.0, gt=0.0)
     hold_republish_hz: float = Field(default=5.0, gt=0.0, le=25.0)

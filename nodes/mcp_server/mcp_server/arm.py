@@ -135,11 +135,16 @@ class ArmController:
         self.gripper = config.arm.gripper_joint
         self._held = False
         self._acquired_at = -math.inf
+        # Last published setpoint (keepalive, tracking check) and the intended target behind it: they differ only
+        # after a settled residual hold relaxed to the measured pose. The intent seeds the next motion.
         self._last_setpoint: dict[str, float] | None = None
+        self._last_target: dict[str, float] | None = None
+        # Pending relax of a settled residual hold: (monotonic due time, joints settled outside the tolerance).
+        self._relax_hold: tuple[float, list[str]] | None = None
         self._streaming = False
         self._stop = threading.Event()
         self._motion_lock = threading.Lock()
-        # Guards _held, _acquired_at, _last_setpoint, _streaming and every autonomy publish.
+        # Guards _held, _acquired_at, _last_setpoint, _last_target, _relax_hold, _streaming and every autonomy publish.
         self._lock = threading.Lock()
 
     @property
@@ -190,10 +195,10 @@ class ArmController:
         return {j: sample.positions[j] for j in self.joint_names if j in sample.positions}
 
     def command_base(self, sample: JointSample) -> dict[str, float]:
-        """Pose that joints a motion does not name keep: the last commanded setpoint while the lease is held.
+        """Pose that joints a motion does not name keep: the last intended target while the lease is held.
 
         Re-commanding the measured pose would lock gravity sag in (and accumulate it over motions), so the measured
-        pose is used only when nothing was commanded yet in this lease.
+        pose is used only when nothing was commanded yet in this lease. The intent survives a relaxed residual hold.
 
         Args:
             sample (JointSample): Fresh joint sample (fallback).
@@ -202,7 +207,7 @@ class ArmController:
             dict[str, float]: Joint name -> rad for every arm joint.
         """
         with self._lock:
-            setpoint = dict(self._last_setpoint) if self._held and self._last_setpoint is not None else None
+            setpoint = dict(self._last_target) if self._held and self._last_target is not None else None
         if setpoint is None or any(j not in setpoint for j in self.joint_names):
             return self.measured(sample)
         return {j: setpoint[j] for j in self.joint_names}
@@ -220,8 +225,52 @@ class ArmController:
             if not self._held:
                 return False
             self.backend.publish_command(setpoint)
-            self._last_setpoint = dict(setpoint)
+            self.remember_locked(setpoint)
         return True
+
+    def remember_locked(self, setpoint: dict[str, float]) -> None:
+        """Record a published setpoint as the last setpoint and the intent; cancels a pending relax (lock held).
+
+        Args:
+            setpoint (dict[str, float]): Joint name -> rad.
+        """
+        self._last_setpoint = dict(setpoint)
+        self._last_target = dict(setpoint)
+        self._relax_hold = None
+
+    def forget_locked(self) -> None:
+        """Forget setpoint, intent and any pending relax when the lease ends (lock held)."""
+        self._last_setpoint = None
+        self._last_target = None
+        self._relax_hold = None
+
+    def schedule_relax(self, joints: list[str]) -> None:
+        """Hold the settled target for arm_settle_hold_s, then relax these joints to their measured pose.
+
+        Args:
+            joints (list[str]): Joints that settled outside the converge tolerance.
+        """
+        with self._lock:
+            if self._held:
+                self._relax_hold = (self.backend.now() + self.cfg.limits.arm_settle_hold_s, list(joints))
+
+    def relax_due_locked(self) -> None:
+        """Relax a due residual hold (lock held): joints still outside the converge tolerance get the measured pose
+        as hold setpoint, so a joint stalled against an obstacle is not pushed at the torque limit indefinitely. The
+        intent (_last_target) is kept. Without fresh joint states nothing changes and the relax is retried."""
+        if self._relax_hold is None or self._last_setpoint is None or self._last_target is None:
+            return
+        due, joints = self._relax_hold
+        if self.backend.now() < due:
+            return
+        sample = self.fresh_sample()
+        if sample is None:
+            return
+        tolerance = self.cfg.limits.arm_converge_tolerance_rad
+        for j in joints:
+            if j in self._last_target and abs(self._last_target[j] - sample.positions[j]) > tolerance:
+                self._last_setpoint[j] = sample.positions[j]
+        self._relax_hold = None
 
     def take_lease(self, setpoint: dict[str, float]) -> None:
         """Mark the lease held (keeping the original acquire time if already held) and publish a setpoint.
@@ -234,13 +283,13 @@ class ArmController:
                 self._held = True
                 self._acquired_at = self.backend.now()
             self.backend.publish_command(setpoint)
-            self._last_setpoint = dict(setpoint)
+            self.remember_locked(setpoint)
 
     def drop_lease(self) -> None:
         """Forget the lease without publishing (another source took over)."""
         with self._lock:
             self._held = False
-            self._last_setpoint = None
+            self.forget_locked()
 
     def acquire(self) -> ControlResult:
         """Start the autonomy lease by commanding the measured pose (the arm does not move).
@@ -263,7 +312,7 @@ class ArmController:
         self._stop.set()
         with self._lock:
             self._held = False
-            self._last_setpoint = None
+            self.forget_locked()
             self.backend.publish_release()
         return ControlResult(control_held=False, message="autonomy lease released")
 
@@ -289,7 +338,7 @@ class ArmController:
             with self._lock:
                 if self._held:
                     return "clear"
-                self._last_setpoint = None
+                self.forget_locked()
                 self.backend.publish_release()
             return "released"
         return "clear" if now - started_at >= ORPHAN_LEASE_WINDOW_S else "pending"
@@ -352,9 +401,10 @@ class ArmController:
                 return
             if other is not None:
                 self._held = False
-                self._last_setpoint = None
+                self.forget_locked()
                 return
             if not self._streaming and self._last_setpoint is not None:
+                self.relax_due_locked()
                 self.backend.publish_command(self._last_setpoint)
 
     def validate_targets(self, targets: dict[str, float]) -> None:
@@ -702,10 +752,12 @@ class ArmController:
                 history.append((sample.stamp, {j: sample.positions[j] for j in moving}))
                 residual = settled_residual(goal, history, moving, self.cfg.limits)
                 if residual is not None:
+                    self.schedule_relax(list(residual))
                     errors = ", ".join(f"{j} {e:+.3f} rad" for j, e in residual.items())
                     return self.finish(
                         "converged",
-                        f"settled with residual error ({errors}); target kept commanded",
+                        f"settled with residual error ({errors}); target kept commanded for "
+                        f"{self.cfg.limits.arm_settle_hold_s} s, then relaxed to the measured pose",
                         goal,
                         sample,
                         clamped,

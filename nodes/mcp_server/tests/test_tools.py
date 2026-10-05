@@ -339,4 +339,5 @@ def test_arm_motion_descriptions_explain_residual_error_and_commanded_hold(serve
     for name in ("move_arm_joints", "move_arm_cartesian", "arm_home"):
         assert "residual_error" in docs[name], name
     assert "last commanded" in docs["move_arm_joints"]
+    assert "relax" in docs["move_arm_joints"]
     assert "follower" in docs["set_gripper"] or "follower" in docs["move_arm_joints"]
