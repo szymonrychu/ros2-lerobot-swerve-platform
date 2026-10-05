@@ -1094,6 +1094,23 @@ rpds-py = ">=0.7.0"
 typing-extensions = {version = ">=4.4.0", markers = "python_version < \"3.13\""}
 
 [[package]]
+name = "ros2-common"
+version = "0.1.0"
+description = "Shared helpers for the ROS2 nodes (battery cut-off guard and config)"
+optional = false
+python-versions = ">=3.11,<3.15"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+pydantic = ">=2.0"
+
+[package.source]
+type = "directory"
+url = "../../shared"
+
+[[package]]
 name = "rpds-py"
 version = "2026.6.3"
 description = "Python bindings to Rust's persistent data structures (rpds)"
@@ -1460,4 +1477,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.15"
-content-hash = "e16ea484722d8b5add8ed9b95561cd07465a1aeae0dda4c926db13e750650a39"
+content-hash = "9305af2602cfa361b118f0b1971be43c6d09999f75dccbac8338bcab6d8790f3"

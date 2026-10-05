@@ -23,7 +23,8 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
-from sensor_msgs.msg import CompressedImage, Image, JointState, LaserScan
+from ros2_common.battery import BatteryGuard
+from sensor_msgs.msg import BatteryState, CompressedImage, Image, JointState, LaserScan
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
@@ -105,11 +106,12 @@ def wait_future(future: Any, timeout_s: float) -> bool:
 class RosRobot:
     """RobotApi + ArmBackend implementation on rclpy (spun by a MultiThreadedExecutor in a background thread)."""
 
-    def __init__(self, config: McpServerConfig) -> None:
+    def __init__(self, config: McpServerConfig, battery_guard: BatteryGuard | None = None) -> None:
         """Create the node, its subscriptions, publishers, clients, services and the arm controller.
 
         Args:
             config (McpServerConfig): Node configuration.
+            battery_guard (BatteryGuard | None): Guard fed from config.battery.topic; None leaves the battery unread.
         """
         self.cfg = config
         t = config.topics
@@ -131,6 +133,15 @@ class RosRobot:
         self.cache(OccupancyGrid, t.map, "map", MAP_QOS)
         self.cache(CollisionMonitorState, t.collision_monitor_state, "collision_monitor", SENSOR_QOS)
         self.cache(GoalStatusArray, t.navigate_action + STATUS_SUFFIX, "nav_status", SENSOR_QOS)
+
+        if config.battery is not None and battery_guard is not None:
+            self.node.create_subscription(
+                BatteryState,
+                config.battery.topic,
+                lambda msg: battery_guard.update(float(msg.voltage)),
+                SENSOR_QOS,
+                callback_group=self.group,
+            )
 
         self.cmd_pub = self.node.create_publisher(JointState, t.autonomy_command, COMMAND_QOS)
         self.release_pub = self.node.create_publisher(Bool, t.autonomy_release, COMMAND_QOS)

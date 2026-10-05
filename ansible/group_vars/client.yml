@@ -786,3 +786,10 @@ ros2_nodes:
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml
+      # Below cells x cutoff_cell_v (3 x 2.8 = 8.4 V) motion/effector tools are refused; stop and sensors keep working.
+      battery:
+        topic: /battery_state
+        cells: 3
+        cutoff_cell_v: 2.8
+        resume_cell_v: 2.9
+        stale_s: 5.0

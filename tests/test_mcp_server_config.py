@@ -143,7 +143,7 @@ def test_mcp_server_node_entry_and_config() -> None:
     assert entry["node_type"] == "mcp_server"
     assert entry["present"] is True and entry["enabled"] is True
     cfg = node_config("mcp_server")
-    assert set(cfg) <= {"server", "topics", "limits", "timeouts", "arm"}
+    assert set(cfg) <= {"server", "topics", "limits", "timeouts", "arm", "battery"}
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
     assert cfg["arm"]["urdf_path"] == "nodes/web_ui/urdf/so101_arm.urdf"

@@ -40,6 +40,34 @@ Unit tests for the shared library `shared/ros2_common/_utils.py`. Imports from r
 | `test_clamp_equal_bounds` | `clamp` with low == high returns that bound. |
 | `test_clamp_at_bounds` | `clamp` returns value when value equals low or high. |
 
+### `test_shared_battery.py`
+
+Pure-logic tests of `shared/ros2_common/battery.py` (`BatteryConfig`, `BatteryGuard`), run by the root pytest.
+
+| Test | Description |
+|------|-------------|
+| `test_battery_config_defaults` | Defaults: `/battery_state`, 3 cells, 2.8 / 2.9 V per cell, `stale_s` 5.0. |
+| `test_battery_config_rejects_resume_below_cutoff` | `resume_cell_v < cutoff_cell_v` fails validation. |
+| `test_battery_config_allows_equal_thresholds` | Equal cut-off and resume thresholds are valid. |
+| `test_battery_config_rejects_bad_cells` | `cells` 0 and -1 fail validation. |
+| `test_guard_unknown_without_reading` | No reading: not in cut-off, voltage `None`. |
+| `test_guard_enters_cutoff_below_threshold` | Cut-off starts strictly below 8.4 V (3 cells). |
+| `test_guard_hysteresis_leaves_only_above_resume` | Cut-off is released only strictly above 8.7 V and stays released between thresholds. |
+| `test_guard_stale_reading_is_not_blocked` | A reading older than `stale_s` counts as unknown and is not blocked. |
+| `test_guard_ignores_invalid_voltage` | NaN, inf, 0 and negative readings are ignored. |
+| `test_guard_state_and_rejection_message` | `state()` snapshot and the `...; motion refused` error text. |
+| `test_guard_is_thread_safe` | Concurrent updates and reads leave a consistent state. |
+| `test_guard_from_config` | `from_config` applies the config thresholds. |
+
+### `test_shared_package.py`
+
+Packaging of `shared/` as the installable Poetry package `ros2-common`.
+
+| Test | Description |
+|------|-------------|
+| `test_shared_pyproject_defines_ros2_common` | `shared/pyproject.toml` is named `ros2-common` and ships the `ros2_common` module. |
+| `test_nodes_depend_on_shared_by_relative_develop_path` | Consumer nodes (mcp_server) declare a `develop = true` path dependency whose relative path resolves to `shared/`; the same layout holds on the Pi (whole repo in `ros2_repo_dest`, `poetry install` run in `nodes/<node>`). |
+
 ### `test_topic_scraper_collect.py`
 
 Unit tests for `scripts/topic_scraper_collect.py` parser/format helpers.
@@ -177,6 +205,10 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - tools (`test_tools.py`): all 15 tools registered with real descriptions, structured outputs, camera JPEG + stamp,
   argument validation, robot errors as tool errors, map PNG, arm tool round trip, bearer-token auth on the Streamable
   HTTP app (401 without/with a wrong token, 200 with the right one) and the configured path
+- battery gate (`test_battery_gate.py`): `MOTION_TOOLS` and `ALWAYS_ALLOWED_TOOLS` partition all tools; each motion tool
+  is refused in cut-off with the exact message, a logged warning and no robot call; `stop`, sensor, state and
+  acquire/release tools still work in cut-off; motion works with a good or unknown battery, without a guard and after
+  recovery; optional `battery` config section (absent = off, validated)
 - rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
 
 ### Per-node tests (gps_rtk)
@@ -295,5 +327,6 @@ Static invariants of the battery voltage chain in Ansible `group_vars` (follower
 | `test_follower_publishes_battery_state` | `lerobot_follower` config sets `battery_topic: /battery_state`, `battery_interval_s: 1.0` and `battery_cells: 3`. |
 | `test_web_ui_battery_matches_follower` | web_ui `battery.topic` and `battery.cells` equal the follower's `battery_topic` and `battery_cells`. |
 | `test_web_ui_cutoff_is_8v4_for_three_cells` | web_ui `battery` block: cut-off 2.8 V/cell x 3 cells = 8.4 V, resume 2.9 V/cell (>= cut-off), `stale_s` 5.0. |
+| `test_mcp_server_battery_matches_web_ui` | mcp_server `battery` block is identical to web_ui's (topic `/battery_state`, 3 cells, 2.8/2.9 V per cell, `stale_s` 5.0; 8.4 V cut-off). |
 | `test_leader_does_not_publish_battery` | Server `lerobot_leader` has `battery_interval_s: 0`, so only the robot's follower bus publishes `/battery_state`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_battery_config.py` is listed in this section. |

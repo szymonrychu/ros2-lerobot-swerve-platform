@@ -8,6 +8,7 @@ import rclpy
 import uvicorn
 from pydantic import ValidationError
 from rclpy.executors import MultiThreadedExecutor
+from ros2_common.battery import BatteryGuard
 
 from .config import MissingTokenError, config_path_from_env, load_config, token_from_env
 from .ros_iface import RosRobot, init_ros
@@ -36,12 +37,15 @@ def main() -> int:
         LOGGER.error("invalid or missing config %s: %s", path, exc)
         return 1
     init_ros()
-    robot = RosRobot(config)
+    guard = BatteryGuard.from_config(config.battery) if config.battery is not None else None
+    robot = RosRobot(config, guard)
     executor = MultiThreadedExecutor(num_threads=EXECUTOR_THREADS)
     executor.add_node(robot.node)
     spinner = threading.Thread(target=executor.spin, name="ros-executor", daemon=True)
     spinner.start()
-    app = build_app(build_mcp_server(robot, config, token), config)
+    app = build_app(build_mcp_server(robot, config, token, guard), config)
+    if config.battery is not None:
+        LOGGER.info("battery cut-off gate on %s (%d cells)", config.battery.topic, config.battery.cells)
     LOGGER.info("serving MCP on http://%s:%d%s", config.server.host, config.server.port, config.server.path)
     try:
         uvicorn.run(app, host=config.server.host, port=config.server.port, log_level="info")

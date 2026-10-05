@@ -32,6 +32,25 @@ ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, th
 after a failed motion; used by the web UI "Arm home" button) and `/arm/set_home` (store the measured pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
 directory created by Ansible, owned by the node user), written atomically.
 
+## Battery cut-off gate
+
+Optional `battery` config section (the shared `ros2_common.battery.BatteryConfig`: `topic`, `cells`, `cutoff_cell_v`,
+`resume_cell_v`, `stale_s`). When present, the node subscribes to the `sensor_msgs/BatteryState` topic and feeds a
+`ros2_common.battery.BatteryGuard`. Cut-off starts below `cells * cutoff_cell_v` and ends only above
+`cells * resume_cell_v` (hysteresis); no reading, or one older than `stale_s`, means unknown and nothing is refused.
+While in cut-off every motion tool raises an MCP tool error without touching the robot (and logs a warning), e.g.
+`battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused`. Without a `battery` section the gate is off.
+
+The classification lives in one place, `mcp_server/tools.py` (`MOTION_TOOLS`, `ALWAYS_ALLOWED_TOOLS`; a test checks they
+partition every tool):
+
+| Class | Tools |
+|---|---|
+| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home` |
+| `ALWAYS_ALLOWED_TOOLS` | `stop`, `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `acquire_control`, `release_control` |
+
+`arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
+
 ## Safety model
 
 - **Base**: navigation goes through Nav2 (planner, controller, velocity smoother, collision monitor). `drive` publishes
@@ -98,6 +117,12 @@ limits:
 timeouts:
   follower_stale_s: 0.3
   image_max_age_s: 1.0
+battery:                  # optional; absent = battery gate off
+  topic: /battery_state
+  cells: 3
+  cutoff_cell_v: 2.8
+  resume_cell_v: 2.9
+  stale_s: 5.0
 ```
 
 ## Claude Code setup
@@ -121,7 +146,7 @@ claude mcp add --transport http robot http://client.ros2.lan:18200/mcp \
 
 ```bash
 cd nodes/mcp_server
-poetry install
+poetry install    # also installs the shared `ros2-common` package (path dependency ../../shared, develop mode)
 poetry run pytest tests -q   # rclpy-free unit tests (rclpy is only imported by ros_iface.py / __main__.py)
 poetry run poe lint          # ruff check, ruff format --check, vulture
 ```

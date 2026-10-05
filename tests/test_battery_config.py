@@ -59,6 +59,15 @@ def test_web_ui_cutoff_is_8v4_for_three_cells() -> None:
     assert battery["resume_cell_v"] >= battery["cutoff_cell_v"]
 
 
+def test_mcp_server_battery_matches_web_ui() -> None:
+    """mcp_server gates motion on the same topic and thresholds as web_ui rejects commands."""
+    web_ui = node_config(CLIENT_VARS, "web_ui")["battery"]
+    mcp = node_config(CLIENT_VARS, "mcp_server")["battery"]
+    assert mcp == web_ui
+    assert mcp["topic"] == BATTERY_TOPIC
+    assert mcp["cells"] * mcp["cutoff_cell_v"] == pytest.approx(EXPECTED_CUTOFF_V)
+
+
 def test_leader_does_not_publish_battery() -> None:
     """The leader arm bus is not the robot pack: its bridge has battery reading disabled."""
     assert node_config(SERVER_VARS, "lerobot_leader")["battery_interval_s"] == 0

@@ -2,6 +2,7 @@
 
 import base64
 import hmac
+import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Annotated, Literal, Protocol
@@ -12,6 +13,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
+from ros2_common.battery import BatteryGuard
 from starlette.applications import Starlette
 
 from .arm import ArmController, ArmError
@@ -49,6 +51,34 @@ TOOL_NAMES = (
     "arm_home",
     "arm_set_home",
 )
+# Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
+# MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
+# arm_home drives to) and are refused while the battery is below cut-off. ALWAYS_ALLOWED_TOOLS (stop, sensors, state,
+# acquire/release control) keep working so the robot can always be stopped, inspected and handed back.
+MOTION_TOOLS = frozenset(
+    {
+        "navigate_to_pose",
+        "move_relative",
+        "drive",
+        "move_arm_joints",
+        "move_arm_cartesian",
+        "set_gripper",
+        "arm_home",
+        "arm_set_home",
+    }
+)
+ALWAYS_ALLOWED_TOOLS = frozenset(
+    {
+        "get_robot_state",
+        "get_camera_image",
+        "get_map_summary",
+        "stop",
+        "get_arm_state",
+        "acquire_control",
+        "release_control",
+    }
+)
+LOGGER = logging.getLogger("mcp_server.tools")
 INSTRUCTIONS = """Controls a swerve-drive mobile robot with an SO101 5-DOF arm and gripper (ROS 2 Jazzy, Nav2, SLAM).
 Frames: 'map' is the SLAM map (x/y metres, yaw radians CCW); 'base_link' is the robot (x forward, y left).
 Look before moving: call get_robot_state, get_map_summary and get_camera_image first. Prefer navigate_to_pose /
@@ -145,13 +175,16 @@ def image_content(data: bytes, mime_type: str) -> ImageContent:
     return ImageContent(type="image", data=base64.b64encode(data).decode(), mime_type=mime_type)
 
 
-def build_mcp_server(robot: RobotApi, config: McpServerConfig, token: str) -> MCPServer:
+def build_mcp_server(
+    robot: RobotApi, config: McpServerConfig, token: str, guard: BatteryGuard | None = None
+) -> MCPServer:
     """Create the MCP server with every robot tool, protected by a static bearer token.
 
     Args:
         robot (RobotApi): Robot implementation.
         config (McpServerConfig): Node configuration.
         token (str): Bearer token clients must send.
+        guard (BatteryGuard | None): Battery cut-off guard; None disables the gate.
 
     Returns:
         MCPServer: Configured server.
@@ -164,21 +197,31 @@ def build_mcp_server(robot: RobotApi, config: McpServerConfig, token: str) -> MC
         required_scopes=[],
     )
     server = MCPServer(SERVER_NAME, instructions=INSTRUCTIONS, token_verifier=StaticTokenVerifier(token), auth=auth)
-    register_tools(server, robot, config)
+    register_tools(server, robot, config, guard)
     return server
 
 
-def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) -> None:
+def register_tools(
+    server: MCPServer, robot: RobotApi, config: McpServerConfig, guard: BatteryGuard | None = None
+) -> None:
     """Register all robot tools on a server.
 
     Args:
         server (MCPServer): Target server.
         robot (RobotApi): Robot implementation.
         config (McpServerConfig): Node configuration.
+        guard (BatteryGuard | None): Battery cut-off guard; motion tools are refused while it is in cut-off.
     """
     tool: Callable[..., Callable[[Callable[..., object]], Callable[..., object]]] = server.tool
     nav_default = config.timeouts.nav_default_timeout_s
     nav_max = config.timeouts.nav_max_timeout_s
+
+    def battery_gate(tool_name: str) -> None:
+        """Refuse a motion tool while the battery is below cut-off, before the robot is touched."""
+        if guard is not None and guard.is_cutoff():
+            message = guard.rejection_message()
+            LOGGER.warning("%s refused: %s", tool_name, message)
+            raise ToolError(message)
 
     def nav_timeout(timeout_s: float | None) -> float:
         value = nav_default if timeout_s is None else timeout_s
@@ -237,6 +280,7 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
         """Drive the base to a pose with Nav2 (path planning, obstacle avoidance, velocity smoothing, collision
         monitor). Blocks until Nav2 reports a result or the timeout expires (the goal is then cancelled), and
         returns the result and the final pose. Use get_map_summary first to pick a reachable free-space goal."""
+        battery_gate("navigate_to_pose")
         with tool_errors():
             return robot.navigate(x, y, yaw, frame, nav_timeout(timeout_s))
 
@@ -250,6 +294,7 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
         """Move relative to the robot's current pose (base_link frame) through Nav2, e.g. dx=0.5 drives half a
         metre forward, dyaw=1.57 turns left 90 degrees. Same blocking/obstacle-avoiding behaviour as
         navigate_to_pose."""
+        battery_gate("move_relative")
         with tool_errors():
             return robot.move_relative(dx, dy, dyaw, nav_timeout(timeout_s))
 
@@ -263,6 +308,7 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
         """Nudge the base with a direct velocity for at most 2 s (20 Hz on /cmd_vel_nav, then zero). Commands still
         pass the velocity smoother and the collision monitor, but there is no path planning: prefer move_relative
         for anything beyond small adjustments."""
+        battery_gate("drive")
         with tool_errors():
             return robot.drive(vx, vy, wz, duration_s)
 
@@ -317,6 +363,7 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
         to the URDF limits minus a margin (reported in `clamped`). Blocks until converged or timed out; aborts and
         holds the measured pose if joint feedback goes stale (>0.3 s), the tracking error grows too large, or stop
         is called. Takes arm control if not already held and keeps it afterwards: call release_control when done."""
+        battery_gate("move_arm_joints")
         with tool_errors():
             return robot.arm.move_joints(targets, speed_scale)
 
@@ -336,6 +383,7 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
         URDF (5-DOF: position + pitch, wrist_roll kept) and streams the joint motion like move_arm_joints. Returns
         status 'unreachable' without moving when no solution exists within joint limits. Keeps arm control afterwards
         like move_arm_joints: call release_control when done."""
+        battery_gate("move_arm_cartesian")
         del frame  # the only supported frame
         with tool_errors():
             return robot.arm.move_cartesian(x, y, z, pitch, speed_scale)
@@ -353,6 +401,7 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
         """Open the gripper to a fraction, or close it until it grips something (status 'grasped' and the gripper
         holds that position; 'closed_no_contact' if it closed fully without touching anything). Give exactly one of
         open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done."""
+        battery_gate("set_gripper")
         with tool_errors():
             return robot.arm.set_gripper(open_fraction, close_until_effort, effort_threshold)
 
@@ -362,12 +411,14 @@ def register_tools(server: MCPServer, robot: RobotApi, config: McpServerConfig) 
         it was already held before this call; otherwise it is released so the leader arm and web UI work again. (The
         /arm/home ROS service, used by the web UI, always releases.) Fails if no home pose has been stored yet with
         arm_set_home."""
+        battery_gate("arm_home")
         with tool_errors():
             return robot.arm.home(keep_prior_control=True)
 
     @tool()
     def arm_set_home() -> HomeSetResult:
         """Store the arm's current measured pose as the home pose (same as the /arm/set_home ROS service)."""
+        battery_gate("arm_set_home")
         with tool_errors():
             pose = robot.arm.set_home()
         return HomeSetResult(home=pose, path=str(config.arm.home_file))

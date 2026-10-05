@@ -14,6 +14,7 @@ opencv-python-headless = "4.13.0.92"
 pydantic = "2.13.5"
 uvicorn = "0.54.0"
 pyyaml = "6.0.3"
+ros2-common = { path = "../../shared", develop = true }
 
 [tool.poetry.group.dev.dependencies]
 ruff = "0.16.10"

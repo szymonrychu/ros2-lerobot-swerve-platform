@@ -5,6 +5,7 @@ from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from ros2_common.battery import BatteryConfig
 
 CONFIG_ENV = "MCP_SERVER_CONFIG"
 TOKEN_ENV = "MCP_SERVER_TOKEN"
@@ -147,6 +148,7 @@ class McpServerConfig(StrictModel):
     limits: LimitSettings = LimitSettings()
     timeouts: TimeoutSettings = TimeoutSettings()
     arm: ArmSettings = ArmSettings()
+    battery: BatteryConfig | None = None  # absent: battery cut-off gate off, nothing refused
 
 
 def load_config(path: Path) -> McpServerConfig:
