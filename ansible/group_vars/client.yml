@@ -825,6 +825,10 @@ ros2_nodes:
         home_file: /var/lib/ros2/arm/home.yaml
         # Arm mount plane (URDF base_link origin) height above the floor, measured: 16.5 cm.
         arm_base_height_m: 0.165
+      # Nav2 goal precision stated in the navigation tool descriptions (nav2_params.yaml goal checker: 0.01 m, 0.035 rad).
+      nav:
+        goal_xy_tolerance_m: 0.01
+        goal_yaw_tolerance_deg: 2.0
       # Below cells x cutoff_cell_v (3 x 2.8 = 8.4 V) motion/effector tools are refused; stop and sensors keep working.
       battery:
         topic: /battery_state
@@ -853,6 +857,9 @@ ros2_nodes:
       # Hardware facts stated in the system prompt (SO-101: reach from the shoulder_lift axis, base height above floor).
       arm_reach_cm: 41
       arm_base_height_m: 0.165
+      # Nav2 goal precision stated in the system prompt (same values as mcp_server nav and the Nav2 goal checker).
+      nav_goal_xy_tolerance_cm: 1.0
+      nav_goal_yaw_tolerance_deg: 2.0
       instruction_timeout_s: 900
       effector_tools:
         - navigate_to_pose

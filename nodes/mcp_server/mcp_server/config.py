@@ -115,6 +115,13 @@ class TimeoutSettings(StrictModel):
     action_server_wait_s: float = Field(default=2.0, gt=0.0)
 
 
+class NavSettings(StrictModel):
+    """Nav2 goal precision stated in the navigation tool descriptions (must match nav2_params.yaml goal checker)."""
+
+    goal_xy_tolerance_m: float = Field(default=0.01, gt=0.0)
+    goal_yaw_tolerance_deg: float = Field(default=2.0, gt=0.0)
+
+
 class ArmSettings(StrictModel):
     """Arm model, home pose storage and gripper mapping."""
 
@@ -158,6 +165,7 @@ class McpServerConfig(StrictModel):
     topics: TopicSettings = TopicSettings()
     limits: LimitSettings = LimitSettings()
     timeouts: TimeoutSettings = TimeoutSettings()
+    nav: NavSettings = NavSettings()
     arm: ArmSettings = ArmSettings()
     battery: BatteryConfig | None = None  # absent: battery cut-off gate off, nothing refused
 

@@ -7,6 +7,7 @@ and the repo-root .mcp.json expands ${ROBOT_MCP_TOKEN}.
 
 import ast
 import json
+import math
 import os
 import re
 import subprocess
@@ -27,6 +28,7 @@ NODE_PLAYBOOK = PLAYBOOKS_DIR / "nodes" / "client" / "mcp_server.yml"
 MCP_JSON = REPO_ROOT / ".mcp.json"
 TOKEN_SCRIPT = REPO_ROOT / "scripts" / "robot_mcp_token.sh"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
+NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yaml"
 NODE_DIR = REPO_ROOT / "nodes" / "mcp_server"
 NODES_README = REPO_ROOT / "nodes" / "README.md"
 
@@ -143,7 +145,7 @@ def test_mcp_server_node_entry_and_config() -> None:
     assert entry["node_type"] == "mcp_server"
     assert entry["present"] is True and entry["enabled"] is True
     cfg = node_config("mcp_server")
-    assert set(cfg) <= {"server", "topics", "limits", "timeouts", "arm", "battery"}
+    assert set(cfg) <= {"server", "topics", "limits", "timeouts", "nav", "arm", "battery"}
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
     assert cfg["arm"]["urdf_path"] == "nodes/web_ui/urdf/so101_arm.urdf"
@@ -346,3 +348,18 @@ def test_every_test_is_documented_in_tests_readme() -> None:
     names = [n.name for n in tree.body if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")]
     missing = [name for name in names if f"`{name}`" not in section]
     assert not missing, f"undocumented in tests/README.md: {missing}"
+
+
+def test_mcp_server_nav_tolerances_match_nav2_goal_checker() -> None:
+    """The precision the agent is told must equal the Nav2 goal checker (0.01 m, 0.035 rad ~ 2 deg)."""
+    nav = node_config("mcp_server")["nav"]
+    checker = yaml.safe_load(NAV2_PARAMS.read_text())["controller_server"]["ros__parameters"]["general_goal_checker"]
+    assert nav["goal_xy_tolerance_m"] == pytest.approx(checker["xy_goal_tolerance"])
+    assert nav["goal_yaw_tolerance_deg"] == pytest.approx(math.degrees(checker["yaw_goal_tolerance"]), abs=0.05)
+
+
+def test_claude_agent_nav_tolerances_match_mcp_server() -> None:
+    agent = node_config("claude_agent")
+    nav = node_config("mcp_server")["nav"]
+    assert agent["nav_goal_xy_tolerance_cm"] == pytest.approx(nav["goal_xy_tolerance_m"] * 100)
+    assert agent["nav_goal_yaw_tolerance_deg"] == pytest.approx(nav["goal_yaw_tolerance_deg"])

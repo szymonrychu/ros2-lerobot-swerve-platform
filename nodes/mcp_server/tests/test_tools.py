@@ -315,3 +315,20 @@ def test_cartesian_and_arm_state_descriptions_state_the_floor_height(server: Any
     for name in ("move_arm_cartesian", "get_arm_state"):
         assert "floor is at z = -0.165 m" in docs[name], name
     assert "floor_z_m" in docs["get_arm_state"]
+
+
+def test_navigation_tool_descriptions_state_goal_precision_from_config(robot: FakeRobot) -> None:
+    custom = McpServerConfig.model_validate({"nav": {"goal_xy_tolerance_m": 0.03, "goal_yaw_tolerance_deg": 5.0}})
+    docs = tool_descriptions(build_mcp_server(robot, custom, TOKEN))
+    for name in ("navigate_to_pose", "move_relative"):
+        text = docs[name]
+        assert "within 3 cm and 5 deg" in text, name
+        assert "front" in text and "turns back" in text, name
+        assert "1 cm" not in text, name
+    assert "a few cm" in docs["move_relative"]
+
+
+def test_navigation_tool_descriptions_default_to_one_cm_two_deg(server: Any) -> None:
+    docs = tool_descriptions(server)
+    assert "within 1 cm and 2 deg" in docs["navigate_to_pose"]
+    assert "within 1 cm and 2 deg" in docs["move_relative"]

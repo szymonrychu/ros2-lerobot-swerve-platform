@@ -215,6 +215,12 @@ def register_tools(
     tool: Callable[..., Callable[[Callable[..., object]], Callable[..., object]]] = server.tool
     nav_default = config.timeouts.nav_default_timeout_s
     nav_max = config.timeouts.nav_max_timeout_s
+    nav_note = (
+        f"Nav2 goals finish within {config.nav.goal_xy_tolerance_m * 100:g} cm and "
+        f"{config.nav.goal_yaw_tolerance_deg:g} deg of the target. If the goal is to the side or behind, the robot "
+        "first turns toward the path (front leading, because the lidar sees best ahead) and then turns back to the "
+        "goal heading at the end."
+    )
     floor_note = (
         f"The floor is at z = {config.arm.floor_z_m:.3f} m in this frame "
         f"(the arm mount is {config.arm.arm_base_height_m * 100:.1f} cm above it)."
@@ -273,7 +279,14 @@ def register_tools(
             content.append(image_content(png, "image/png"))
         return CallToolResult(content=content, structured_content=summary.model_dump(mode="json"))
 
-    @tool()
+    @tool(
+        description=(
+            "Drive the base to a pose with Nav2 (path planning, obstacle avoidance, velocity smoothing, collision "
+            "monitor). Blocks until Nav2 reports a result or the timeout expires (the goal is then cancelled), and "
+            "returns the result and the final pose. Use get_map_summary first to pick a reachable free-space goal. "
+            f"{nav_note}"
+        )
+    )
     def navigate_to_pose(
         x: Annotated[float, Field(description="Goal x (m) in `frame`")],
         y: Annotated[float, Field(description="Goal y (m) in `frame`")],
@@ -281,23 +294,26 @@ def register_tools(
         frame: Annotated[str, Field(description="Frame of the goal, normally 'map'")] = "map",
         timeout_s: Annotated[float | None, Field(gt=0.0, description="Give up after this many seconds")] = None,
     ) -> NavigationResult:
-        """Drive the base to a pose with Nav2 (path planning, obstacle avoidance, velocity smoothing, collision
-        monitor). Blocks until Nav2 reports a result or the timeout expires (the goal is then cancelled), and
-        returns the result and the final pose. Use get_map_summary first to pick a reachable free-space goal."""
+        """Nav2 NavigateToPose; the tool description is passed to the decorator (it states the goal precision)."""
         battery_gate("navigate_to_pose")
         with tool_errors():
             return robot.navigate(x, y, yaw, frame, nav_timeout(timeout_s))
 
-    @tool()
+    @tool(
+        description=(
+            "Move relative to the robot's current pose (base_link frame) through Nav2, e.g. dx=0.5 drives half a "
+            "metre forward, dyaw=1.57 turns left 90 degrees. Same blocking/obstacle-avoiding behaviour as "
+            "navigate_to_pose. Small relative moves (a few cm) now really move the robot. "
+            f"{nav_note}"
+        )
+    )
     def move_relative(
         dx: Annotated[float, Field(description="Forward displacement (m), negative = backwards")],
         dy: Annotated[float, Field(description="Leftward displacement (m), negative = right")] = 0.0,
         dyaw: Annotated[float, Field(description="Heading change (rad), positive = turn left")] = 0.0,
         timeout_s: Annotated[float | None, Field(gt=0.0, description="Give up after this many seconds")] = None,
     ) -> NavigationResult:
-        """Move relative to the robot's current pose (base_link frame) through Nav2, e.g. dx=0.5 drives half a
-        metre forward, dyaw=1.57 turns left 90 degrees. Same blocking/obstacle-avoiding behaviour as
-        navigate_to_pose."""
+        """Nav2 NavigateToPose relative to base_link; the tool description is passed to the decorator."""
         battery_gate("move_relative")
         with tool_errors():
             return robot.move_relative(dx, dy, dyaw, nav_timeout(timeout_s))

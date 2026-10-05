@@ -335,6 +335,8 @@ fake `ssh`; no ROS needed).
 | `test_filter_node_autonomy_params` | filter_node config sets `autonomy_input_topic`, `autonomy_release_topic`, `active_source_topic`. |
 | `test_gripper_camera_enabled` | `gripper_uvc_camera` is present and enabled again. |
 | `test_gripper_camera_rotated_180_at_source` | `gripper_uvc_camera` env sets `UVC_ROTATE_DEG=180` exactly once (the wrist image is upside down at wrist roll 0; rotation happens in the camera node, not downstream). |
+| `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
+| `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` in client.yml equal the mcp_server `nav` values. |
 | `test_mcp_server_arm_base_height_is_16_5_cm` | mcp_server config `arm.arm_base_height_m` is 0.165 (measured mount height above the floor). |
 | `test_web_ui_tab_set` | web_ui tabs are exactly map (map_nav, first), agent (agent_chat), camera (`/camera_0/image_raw/compressed`), rgbd_camera, imu_graphs; arm_servos, local_nav, gps_nav, scene3d and robot_status are gone. |
 | `test_web_ui_map_tab_uses_contract_fields` | The map tab carries no legacy keys (`urdf_file`, `topic`, `arm_urdf_file`, `arm_joint_topic`, `scan_topic`, `costmap_topic`), uses the frontend contract names, points `arm_home_service` / `arm_set_home_service` at the services mcp_server serves, and keeps the tile cache at `/var/cache/web_ui/tiles`. |

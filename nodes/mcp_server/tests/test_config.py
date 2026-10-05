@@ -138,3 +138,10 @@ def test_arm_base_height_defaults_to_measured_16_5_cm_and_gives_floor_z() -> Non
 def test_arm_base_height_must_be_positive() -> None:
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"arm": {"arm_base_height_m": 0.0}})
+
+
+def test_nav_goal_tolerance_defaults_and_validation() -> None:
+    nav = McpServerConfig().nav
+    assert nav.goal_xy_tolerance_m == 0.01 and nav.goal_yaw_tolerance_deg == 2.0
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"nav": {"goal_xy_tolerance_m": 0.0}})
