@@ -6,7 +6,7 @@ readme = "README.md"
 packages = [{ include = "web_ui", from = "." }]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.11,<3.15"
 fastapi = ">=0.111.0"
 uvicorn = { version = ">=0.30.0", extras = ["standard"] }
 structlog = ">=24.1.0"
@@ -16,6 +16,7 @@ opencv-python-headless = ">=4.9.0"
 numpy = ">=1.26.0"
 websockets = ">=12.0"
 httpx = ">=0.27.0"
+ros2-common = { path = "../../shared", develop = true }
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.4.0"

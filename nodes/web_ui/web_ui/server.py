@@ -14,11 +14,12 @@ import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from ros2_common.battery import BatteryGuard
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from .battery_guard import BatteryGuard
+from .agent_proxy import register_agent_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
 from .config import AppConfig, TabConfig
 from .tiles import (
@@ -249,6 +250,7 @@ def build_app(
     bridge_node: Any = None,
     tile_transport: httpx.AsyncBaseTransport | None = None,
     battery_guard: BatteryGuard | None = None,
+    agent_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Build and return the FastAPI application.
 
@@ -259,7 +261,9 @@ def build_app(
         bridge_node: Optional BridgeNode instance for WebSocket broadcasting.
         tile_transport: Optional httpx transport for the tile proxy (tests); None fetches from the network.
         battery_guard: Optional guard; while it reports cut-off, WebSocket publishes and the map save/reset and
-            arm home/set home endpoints are rejected (nav stop stays allowed). None disables the check.
+            arm home/set home endpoints and the agent message/reset proxies are rejected (nav stop and agent stop stay
+            allowed). None disables the check.
+        agent_transport: Optional httpx transport for the claude_agent proxy (tests); None uses the network.
 
     Returns:
         FastAPI: Configured application instance.
@@ -287,6 +291,8 @@ def build_app(
         message = battery_guard.rejection_message()
         log.warning("command_rejected_battery_cutoff", action=action, message=message)
         return action_response(action, False, message, 503)
+
+    register_agent_routes(app, config, battery_block, agent_transport)
 
     @app.get("/api/config")
     async def get_config() -> JSONResponse:

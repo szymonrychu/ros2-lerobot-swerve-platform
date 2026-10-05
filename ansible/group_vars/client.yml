@@ -761,6 +761,11 @@ ros2_nodes:
           arm_set_home_service: /arm/set_home
           # Proxied map tiles are cached in /var/cache/web_ui/tiles (default tile_cache_dir, created by
           # playbooks/tasks/web_ui_tile_cache_dir.yml).
+        # Chat with the claude_agent node (127.0.0.1:18300, its http_port); the backend proxies /api/agent and /ws/agent.
+        - id: agent
+          type: agent_chat
+          label: "Agent"
+          agent_url: http://127.0.0.1:18300
         - id: camera
           type: camera
           label: "Gripper Cam"

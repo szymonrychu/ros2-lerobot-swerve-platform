@@ -9,6 +9,7 @@ Runs as a native service on the client RPi. Accessible at `http://client.ros2.la
 | Tab | Type | Description |
 |---|---|---|
 | Map | `map_nav` | Primary tab, listed first and opened by default. One 3D view: SLAM map, local costmap, GPS tiles, Nav2 plans, goal, footprint, the robot URDF at its TF pose and an interactive arm, plus stop / save / reset / arm home (see below) |
+| Agent | `agent_chat` | Chat with the `claude_agent` node (Claude with the robot MCP tools): see [Agent tab](#agent-tab-agent_chat) |
 | Gripper Cam | `camera` | Live JPEG from the arm camera (`/camera_0/image_raw/compressed`) |
 | RGBD Cam | `rgbd_camera` | RealSense color + depth previews |
 | IMU | `imu_orientation` | Orientation and rolling acceleration / gyro graphs from `/imu/data` |
@@ -39,6 +40,7 @@ Single Python process: FastAPI (uvicorn) on port 8080 serves:
 - `POST /api/nav/stop?tab=<tab id>` - cancel all Nav2 NavigateToPose goals (see below)
 - `POST /api/arm/home?tab=<tab id>` and `POST /api/arm/set_home?tab=<tab id>` - call the mcp_server arm Trigger services (see below)
 - `GET /api/tiles/{z}/{x}/{y}.png` - cached map tile proxy (see below)
+- `GET /api/agent/state`, `GET /api/agent/history`, `POST /api/agent/message`, `POST /api/agent/stop`, `POST /api/agent/reset` and `WS /ws/agent` - proxy of the claude_agent API (see [Agent tab](#agent-tab-agent_chat))
 - `WS /ws` — WebSocket bridge: 20 Hz topic broadcast + publish commands (rejected with an error frame while the battery is below cut-off, see [Battery](#battery-optional-battery-section))
 
 A `rclpy` node (`web_ui_bridge`) subscribes to ROS2 topics and stores the latest value per topic. A single shared 20 Hz asyncio loop broadcasts dirty topics to all connected clients. A newly connected client first receives the latest cached value of every topic, so latched data such as the SLAM map shows up immediately. Sends to one client are serialized by a per-client lock: broadcast frames queue behind the snapshot and never write to the same WebSocket concurrently.
@@ -58,10 +60,45 @@ battery:
   stale_s: 5.0            # a reading older than this counts as unknown
 ```
 
-- **Guard (`battery_guard.py`, `BatteryGuard`):** enters cut-off when the voltage is below `cells * cutoff_cell_v` and leaves it only above `cells * resume_cell_v` (hysteresis). With no reading, or a reading older than `stale_s`, the state is unknown and **nothing is blocked**. Thread-safe: the ROS callback thread updates it, the asyncio server reads it.
+- **Guard (`ros2_common.battery.BatteryGuard`, shared package `shared/`, also used by mcp_server):** enters cut-off when the voltage is below `cells * cutoff_cell_v` and leaves it only above `cells * resume_cell_v` (hysteresis). With no reading, or a reading older than `stale_s`, the state is unknown and **nothing is blocked**. Thread-safe: the ROS callback thread updates it, the asyncio server reads it.
 - **Broadcast:** the reading is serialized (`voltage`, `cells`, `cell_voltage` = voltage / cells, `stamp`, `frame_id`) together with the guard state (`cutoff`, `stale`, `cutoff_v`, `resume_v`, thresholds) and sent to clients as a normal envelope on the battery topic. `/api/config` carries the `battery` section so the frontend knows topic and thresholds.
-- **In cut-off, rejected:** WebSocket `publish` frames (nothing is published; the client gets `{"type":"error","source":"battery","message":"battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); commands rejected"}`) and `POST /api/map/save`, `/api/map/reset`, `/api/arm/home`, `/api/arm/set_home` with HTTP **503** and `{"ok": false, "message": "battery below cut-off ..."}`. `POST /api/nav/stop` stays allowed (safety). Rejections are logged.
+- **In cut-off, rejected:** WebSocket `publish` frames (nothing is published; the client gets `{"type":"error","source":"battery","message":"battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused"}`) and `POST /api/map/save`, `/api/map/reset`, `/api/arm/home`, `/api/arm/set_home`, `/api/agent/message` and `/api/agent/reset` with HTTP **503** and `{"ok": false, "message": "battery below cut-off ..."}`. `POST /api/nav/stop` and `POST /api/agent/stop` stay allowed (safety), as do `/api/agent/state`, `/api/agent/history` and `/ws/agent`. Rejections are logged.
 - **Frontend:** a voltage chip in the AppBar (e.g. `11.4 V`, per-cell in the tooltip): green above the resume threshold, amber between cut-off and resume, red in cut-off, grey `--` without a recent reading. In cut-off a red banner under the AppBar reads "Battery below cut-off (x.xx V/cell) - commands are disabled"; everything else keeps rendering. Error frames from the WebSocket appear as a toast; the 503 message of a failed Map tab action appears in the existing action snackbar. Level/colour logic is in `frontend/src/battery/batteryStatus.ts` (vitest `batteryStatus.test.ts`).
+
+## Agent tab (`agent_chat`)
+
+Chat with the [`claude_agent`](../claude_agent/README.md) node, which runs Claude with the robot MCP tools. web_ui does not talk to Claude itself: the backend proxies the claude_agent API (contract: "API (contract for the web UI)" in `nodes/claude_agent/README.md`), so the browser only needs web_ui's port.
+
+```yaml
+tabs:
+  - id: agent
+    type: agent_chat
+    label: "Agent"
+    agent_url: http://127.0.0.1:18300   # claude_agent http_port; the default
+```
+
+### Backend (`web_ui/agent_proxy.py`)
+
+| Route | Proxies | Battery cut-off |
+|---|---|---|
+| `GET /api/agent/state` | `GET /api/state` | allowed |
+| `GET /api/agent/history` | `GET /api/history` | allowed |
+| `POST /api/agent/message` `{text}` | `POST /api/message` | rejected, 503 |
+| `POST /api/agent/stop` | `POST /api/stop` | always allowed |
+| `POST /api/agent/reset` | `POST /api/reset` | rejected, 503 |
+| `WS /ws/agent` | `WS /ws/events` | allowed |
+
+- The agent's status code and JSON body are passed through (for example `409 {"ok": false, "message": "busy"}`). If the agent is down or times out (10 s, 3 s to connect) the answer is `503 {"ok": false, "message": "claude_agent unreachable at <url>"}`; without an `agent_chat` tab it is 404. The URL comes from the first `agent_chat` tab.
+- Rejection in cut-off uses the same 503 body as the other commands (`battery below cut-off: ...`, see [Battery](#battery-optional-battery-section)).
+- `WS /ws/agent` forwards every upstream frame unchanged (history on connect, then events). Nothing is forwarded from the browser. When the upstream connection fails or drops, the proxy sends `{"type": "error", "message": "agent disconnected"}` and closes, so the frontend reconnects.
+
+### Frontend (`frontend/src/tabs/AgentChatTab.tsx`)
+
+- Header strip: model, working/idle/disconnected chip, effector calls used / cap and turn cap (from `/api/agent/state` and `state` events), a Stop button (enabled while busy) and a New session button (confirmation dialog, disabled while busy or in cut-off).
+- Transcript: user bubbles on the right, assistant bubbles on the left (line breaks kept), collapsible tool cards (short name, kind chip `sensor` / `effector` / `uncapped`, pretty-printed input, status ok / error / running, monospace output with a truncation note, clickable image thumbnails), warning cards for denied tools, a line per turn end (status, turns, effector calls, cost in USD) and alerts for errors. It follows new messages unless you scrolled up.
+- Composer: Enter sends, Shift+Enter inserts a new line. It is disabled while the agent is busy, disconnected, or the battery is in cut-off (the reason is shown).
+- The WebSocket reconnects with backoff (1 s up to 15 s); the history replayed on every connect is deduplicated by event `seq`.
+- Event reduction (pairing tool calls and results by id, dedupe, status text, composer block reason) is pure logic in `frontend/src/agent/agentModel.ts` (vitest `agentModel.test.ts`).
 
 ## Map tab (`map_nav`)
 
@@ -201,7 +238,7 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 # Python tests
 cd nodes/web_ui && poetry install && poetry run pytest tests/ -v
 
-# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/map3d/*.test.ts, src/tabSelection.test.ts)
+# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/map3d/*.test.ts, src/tabSelection.test.ts, src/agent/*.test.ts)
 cd nodes/web_ui/frontend && npx tsc --noEmit && npm test
 
 # Frontend dev server (hot reload, proxies /api and /ws to localhost:8080)

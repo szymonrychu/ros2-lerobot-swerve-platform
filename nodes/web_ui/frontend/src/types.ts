@@ -41,6 +41,7 @@ export interface TabConfig {
   arm_joint_states_topic?: string // sensor_msgs/JointState driving the arm URDF (follower positions)
   arm_offset?: [number, number, number] // arm mount in the base frame (ROS x, y, z metres)
   arm_command_topic?: string // sensor_msgs/JointState published by the draggable arm
+  agent_url?: string // agent_chat tab: claude_agent API base URL proxied by the backend (default http://127.0.0.1:18300)
 }
 
 export interface OverlayItem {

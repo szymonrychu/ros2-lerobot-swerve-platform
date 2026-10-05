@@ -24,10 +24,11 @@ import VideocamIcon from '@mui/icons-material/Videocam'
 import ShowChartIcon from '@mui/icons-material/ShowChart'
 import ThreeDRotationIcon from '@mui/icons-material/ThreeDRotation'
 import CameraIcon from '@mui/icons-material/Camera'
+import SmartToyIcon from '@mui/icons-material/SmartToy'
 import TabIcon from '@mui/icons-material/Tab'
 import log from './logging'
 import { batteryStatus, cutoffBanner } from './battery/batteryStatus'
-import type { BatteryPayload } from './battery/batteryStatus'
+import type { BatteryPayload, BatteryStatus } from './battery/batteryStatus'
 import { BatteryChip } from './components/BatteryChip'
 import { useRosBridge } from './hooks/useRosBridge'
 import { OverlayBar } from './overlays/OverlayBar'
@@ -40,6 +41,7 @@ const SensorGraphTab = lazy(() => import('./tabs/SensorGraphTab'))
 const ImuOrientationTab = lazy(() => import('./tabs/ImuOrientationTab'))
 const RgbdCameraTab = lazy(() => import('./tabs/RgbdCameraTab'))
 const MapNavTab = lazy(() => import('./tabs/MapNavTab'))
+const AgentChatTab = lazy(() => import('./tabs/AgentChatTab'))
 
 const APP_TITLE = 'Robot'
 // How often the battery chip re-evaluates staleness (ms).
@@ -53,6 +55,7 @@ const TAB_ICONS: Record<string, ReactElement> = {
   rgbd_camera: <CameraIcon />,
   sensor_graph: <ShowChartIcon />,
   imu_orientation: <ThreeDRotationIcon />,
+  agent_chat: <SmartToyIcon />,
 }
 
 function tabIcon(type: string): ReactElement {
@@ -67,7 +70,12 @@ function Centered({ children }: { children: ReactNode }) {
   )
 }
 
-function renderTab(tab: TabConfig, topicData: Record<string, unknown>, publish: (t: string, mt: string, d: unknown) => void) {
+function renderTab(
+  tab: TabConfig,
+  topicData: Record<string, unknown>,
+  publish: (t: string, mt: string, d: unknown) => void,
+  battery: BatteryStatus,
+) {
   const props = { tab, topicData, publish }
   switch (tab.type) {
     case 'camera': return <CameraTab {...props} />
@@ -75,6 +83,7 @@ function renderTab(tab: TabConfig, topicData: Record<string, unknown>, publish: 
     case 'imu_orientation': return <ImuOrientationTab {...props} />
     case 'rgbd_camera': return <RgbdCameraTab {...props} />
     case 'map_nav': return <MapNavTab {...props} />
+    case 'agent_chat': return <AgentChatTab {...props} battery={battery} />
     default:
       return (
         <Centered>
@@ -230,7 +239,7 @@ export default function App() {
             </Centered>
           }
         >
-          {tab && renderTab(tab, topicData, publish)}
+          {tab && renderTab(tab, topicData, publish, battery)}
         </Suspense>
       </Box>
 

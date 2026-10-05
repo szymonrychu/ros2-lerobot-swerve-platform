@@ -12,9 +12,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from ros2_common.battery import BatteryConfig, BatteryGuard
 
-from web_ui.battery_guard import BatteryGuard
-from web_ui.config import AppConfig, BatteryConfig, TabConfig, load_config
+from web_ui.config import AppConfig, TabConfig, load_config
 from web_ui.msg_serializer import serialize_battery
 
 CELLS = 3
@@ -172,7 +172,7 @@ def test_guard_state_and_rejection_message() -> None:
     assert state["cell_voltage"] == pytest.approx(LOW_V / CELLS)
     assert state["cutoff_cell_v"] == CUTOFF_CELL_V and state["resume_cell_v"] == RESUME_CELL_V
     assert state["cutoff_v"] == pytest.approx(8.4) and state["resume_v"] == pytest.approx(8.7)
-    assert guard.rejection_message() == ("battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); commands rejected")
+    assert guard.rejection_message() == ("battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused")
 
 
 def test_guard_is_thread_safe() -> None:
@@ -277,7 +277,7 @@ def test_ws_publish_rejected_in_cutoff(make_client: Any) -> None:
     assert frame == {
         "type": "error",
         "source": "battery",
-        "message": "battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); commands rejected",
+        "message": "battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused",
     }
     bridge.create_publisher_for.assert_not_called()
     bridge.publish_dict.assert_not_called()

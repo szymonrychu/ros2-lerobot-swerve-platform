@@ -62,6 +62,8 @@ unknown keys are rejected.
 
 ## API (contract for the web UI)
 
+The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this API through web_ui's backend proxy (`/api/agent/*`, `/ws/agent`), which also rejects messages and resets while the battery is below cut-off.
+
 | Route | Result |
 |---|---|
 | `GET /api/state` | `{busy, model, max_turns, effector_call_cap, effector_calls_used, session_started_at}` |

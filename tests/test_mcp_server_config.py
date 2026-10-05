@@ -44,7 +44,7 @@ TILE_CACHE_DIR = "/var/cache/web_ui/tiles"
 TILE_CACHE_TASKS = PLAYBOOKS_DIR / "tasks" / "web_ui_tile_cache_dir.yml"
 WEB_UI_PLAYBOOK = PLAYBOOKS_DIR / "nodes" / "client" / "web_ui.yml"
 LEGACY_MAP_KEYS = {"urdf_file", "topic", "arm_urdf_file", "arm_joint_topic", "scan_topic", "costmap_topic"}
-WEB_UI_TABS = ["map", "camera", "rgbd_camera", "imu_graphs"]
+WEB_UI_TABS = ["map", "agent", "camera", "rgbd_camera", "imu_graphs"]
 REMOVED_WEB_UI_TABS = {"arm_servos", "local_nav", "gps_nav", "scene3d", "robot_status"}
 
 
@@ -175,11 +175,12 @@ def test_web_ui_tab_set() -> None:
     assert [t["id"] for t in tabs] == WEB_UI_TABS
     assert not REMOVED_WEB_UI_TABS & {t["id"] for t in tabs}
     assert tabs[0]["type"] == "map_nav"
-    camera = tabs[1]
+    assert tabs[1]["type"] == "agent_chat"
+    camera = tabs[2]
     assert camera["type"] == "camera"
     assert camera["topic"] == "/camera_0/image_raw/compressed"
-    assert tabs[2]["type"] == "rgbd_camera"
-    assert tabs[3]["type"] == "imu_orientation"
+    assert tabs[3]["type"] == "rgbd_camera"
+    assert tabs[4]["type"] == "imu_orientation"
 
 
 def test_web_ui_map_tab_uses_contract_fields() -> None:

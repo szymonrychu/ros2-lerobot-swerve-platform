@@ -26,7 +26,7 @@ same `../../shared` path resolves there; nothing extra is needed in Ansible. A n
 | `ros2_common._utils` | `clamp(value, low, high)` |
 | `ros2_common.battery` | `BatteryConfig` (pydantic: `topic` `/battery_state`, `cells` 3, `cutoff_cell_v` 2.8, `resume_cell_v` 2.9, `stale_s` 5.0; `resume_cell_v >= cutoff_cell_v`, `cells >= 1`) and `BatteryGuard` (thread-safe cut-off hysteresis: enter below `cells * cutoff_cell_v`, leave only above `cells * resume_cell_v`; no reading or older than `stale_s` = unknown = not blocked) |
 
-Used by: `nodes/mcp_server` (motion tools refused in cut-off). `nodes/web_ui` still has its own copy of the guard.
+Used by: `nodes/mcp_server` (motion tools refused in cut-off) and `nodes/web_ui` (commands rejected in cut-off; Poetry path dependency `ros2-common = { path = "../../shared", develop = true }`).
 
 ## Tests
 

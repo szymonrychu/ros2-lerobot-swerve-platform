@@ -10,8 +10,8 @@ from pathlib import Path
 import rclpy
 import structlog
 import uvicorn
+from ros2_common.battery import BatteryGuard
 
-from .battery_guard import BatteryGuard
 from .bridge import BridgeNode, create_bridge_executor
 from .config import load_config
 from .logging_setup import configure_logging

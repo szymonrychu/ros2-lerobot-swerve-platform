@@ -720,6 +720,23 @@ files = [
 ]
 
 [[package]]
+name = "ros2-common"
+version = "0.1.0"
+description = "Shared helpers for the ROS2 nodes (battery cut-off guard and config)"
+optional = false
+python-versions = ">=3.11,<3.15"
+groups = ["main"]
+files = []
+develop = true
+
+[package.dependencies]
+pydantic = ">=2.0"
+
+[package.source]
+type = "directory"
+url = "../../shared"
+
+[[package]]
 name = "ruff"
 version = "0.4.10"
 description = "An extremely fast Python linter and code formatter, written in Rust."
@@ -1114,5 +1131,5 @@ files = [
 
 [metadata]
 lock-version = "2.1"
-python-versions = "^3.11"
-content-hash = "8ee7d9e57557ea8a17b9755ff78c7f517be3beaa84567f82a1dacc3c9b452825"
+python-versions = ">=3.11,<3.15"
+content-hash = "cad388cc94c51ca8595558e7734b8007319ac120c2743eab58830de9a9676b34"

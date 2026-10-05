@@ -13,6 +13,7 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
+from ros2_common.battery import BatteryConfig
 
 from .gps_anchor import (
     DEFAULT_MAX_RESIDUAL_M,
@@ -31,10 +32,14 @@ VALID_TAB_TYPES: frozenset[str] = frozenset(
         "imu_orientation",
         "rgbd_camera",
         "map_nav",
+        "agent_chat",
     }
 )
 
 MAP_NAV_TAB_TYPE = "map_nav"
+AGENT_CHAT_TAB_TYPE = "agent_chat"
+# Default claude_agent API base URL proxied by the agent_chat tab (claude_agent http_port in client.yml).
+DEFAULT_AGENT_URL = "http://127.0.0.1:18300"
 
 # Defaults filled into map_nav tabs for fields left unset (other tab types keep None).
 MAP_NAV_DEFAULTS: dict[str, str] = {
@@ -66,12 +71,6 @@ DEFAULT_TILE_CACHE_MAX_MB = 256
 # Seconds to wait for an arm home / set home std_srvs/Trigger response (a home motion can take 12+ s).
 DEFAULT_ARM_SERVICE_TIMEOUT_S = 30.0
 
-# Battery defaults: 3-cell pack, cut-off 2.8 V/cell (8.4 V), commands resume above 2.9 V/cell (8.7 V).
-DEFAULT_BATTERY_TOPIC = "/battery_state"
-DEFAULT_BATTERY_CELLS = 3
-DEFAULT_BATTERY_CUTOFF_CELL_V = 2.8
-DEFAULT_BATTERY_RESUME_CELL_V = 2.9
-DEFAULT_BATTERY_STALE_S = 5.0
 BATTERY_ROLE = "battery"
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
@@ -149,6 +148,9 @@ class TabConfig(BaseModel):
     tile_cache_dir: str | None = None  # map_nav: disk cache directory of proxied tiles
     tile_cache_max_mb: int = DEFAULT_TILE_CACHE_MAX_MB  # map_nav: tile cache size cap; oldest tiles evicted first
     default_zoom: int = 18
+    agent_url: str = (
+        DEFAULT_AGENT_URL  # agent_chat: base URL of the claude_agent API proxied under /api/agent and /ws/agent
+    )
     base_urdf: str | None = None  # map_nav: swerve base URDF under the URDF directory (/api/urdf/)
     base_joint_states_topic: str | None = None  # map_nav: sensor_msgs/JointState driving the base URDF
     arm_urdf: str | None = None  # map_nav: arm URDF under the URDF directory (/api/urdf/)
@@ -211,27 +213,6 @@ class TabConfig(BaseModel):
         return self
 
 
-class BatteryConfig(BaseModel):
-    """Battery pack monitoring and command cut-off (sensor_msgs/BatteryState topic)."""
-
-    topic: str = DEFAULT_BATTERY_TOPIC
-    cells: int = Field(default=DEFAULT_BATTERY_CELLS, ge=1)
-    cutoff_cell_v: float = Field(default=DEFAULT_BATTERY_CUTOFF_CELL_V, gt=0)
-    resume_cell_v: float = Field(default=DEFAULT_BATTERY_RESUME_CELL_V, gt=0)
-    stale_s: float = Field(default=DEFAULT_BATTERY_STALE_S, gt=0)
-
-    @model_validator(mode="after")
-    def check_hysteresis(self) -> BatteryConfig:
-        """Require resume_cell_v >= cutoff_cell_v.
-
-        Returns:
-            BatteryConfig: This config when valid.
-        """
-        if self.resume_cell_v < self.cutoff_cell_v:
-            raise ValueError("battery resume_cell_v must be >= cutoff_cell_v")
-        return self
-
-
 class AppConfig(BaseModel):
     """Full web_ui application configuration."""
 
@@ -262,6 +243,14 @@ class AppConfig(BaseModel):
         for overlay in self.overlays:
             topics.add(overlay.topic)
         return sorted(topics)
+
+    def agent_chat_tab(self) -> TabConfig | None:
+        """Return the first agent_chat tab.
+
+        Returns:
+            TabConfig | None: The tab whose agent_url the agent proxy uses, or None when none is configured.
+        """
+        return next((t for t in self.tabs if t.type == AGENT_CHAT_TAB_TYPE), None)
 
     def map_nav_tabs(self) -> list[TabConfig]:
         """Return all map_nav tabs.
