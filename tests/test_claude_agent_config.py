@@ -207,6 +207,19 @@ def test_resolve_and_deploy_passes_user_groups_and_nice() -> None:
     assert ".nice" in role_vars["node_nice"]
 
 
+def test_playbook_level_task_files_notify_no_role_handlers() -> None:
+    """Task files under playbooks/tasks/ are included at playbook level, where the ros2_node_deploy role's handlers
+    are not visible ("The requested handler 'Restart ROS2 node' was not found"). Deploys stop every node first and
+    start them last, so these files never need to restart a service."""
+    offenders = [
+        f"{path.name}: {task.get('name')}"
+        for path in sorted((PLAYBOOKS_DIR / "tasks").glob("*.yml"))
+        for task in yaml.safe_load(path.read_text()) or []
+        if isinstance(task, dict) and "notify" in task
+    ]
+    assert offenders == []
+
+
 def test_setup_tasks_read_token_from_controller_env_and_fail_clearly() -> None:
     tasks = setup_tasks()
     text = SETUP_TASKS.read_text()
@@ -219,14 +232,13 @@ def test_setup_tasks_read_token_from_controller_env_and_fail_clearly() -> None:
     assert tasks.index(fail) < next(i for i, t in enumerate(tasks) if "ansible.builtin.copy" in t)
 
 
-def test_setup_tasks_write_env_file_0600_no_log_and_restart() -> None:
+def test_setup_tasks_write_env_file_0600_no_log() -> None:
     tasks = setup_tasks()
     write = next(t for t in tasks if t.get("ansible.builtin.copy", {}).get("dest") == ENV_FILE)
     copy = write["ansible.builtin.copy"]
     assert copy["mode"] == "0600" and copy["owner"] == SERVICE_USER
     assert copy["content"].startswith(f"{TOKEN_VAR}=")
     assert write["no_log"] is True
-    assert "Restart ROS2 node" in str(write["notify"])
     assert "length" in str(write["when"]), "an empty env var must keep the existing file"
 
 
