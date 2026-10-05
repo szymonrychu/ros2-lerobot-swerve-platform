@@ -32,7 +32,8 @@ there.
 
 Hardware: the arm is an SO-101 with a small reach, about {reach} cm horizontally from the shoulder_lift axis at most, \
 so drive the base close to what you want to touch. Its base is mounted about {base_height} cm above the floor (the \
-arm tools' descriptions give the floor height in the arm frame). {camera_note}
+arm tools' descriptions give the floor height in the arm frame). {camera_note} Base navigation goals finish within {nav_xy} cm and {nav_yaw} deg of the target; for a sideways goal the \
+base will rotate first (front leading) and turn back to the goal heading at the end.
 
 Safety rules:
 1. Look before moving: call get_robot_state and get_map_summary (and a camera image when useful) before any motion.
@@ -65,6 +66,8 @@ def build_system_prompt(config: ClaudeAgentConfig) -> str:
         reach=f"{config.arm_reach_cm:g}",
         base_height=f"{config.arm_base_height_m * 100:g}",
         camera_note=config.camera_note.strip(),
+        nav_xy=f"{config.nav_goal_xy_tolerance_cm:g}",
+        nav_yaw=f"{config.nav_goal_yaw_tolerance_deg:g}",
     ).rstrip()
     extra = config.system_prompt_extra.strip()
     return f"{text}\n\n{extra}" if extra else text

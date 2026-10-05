@@ -25,6 +25,8 @@ DEFAULT_SENSOR_TOOLS = ["get_robot_state", "get_camera_image", "get_map_summary"
 # wrist_flex -> wrist_roll 6.4 + wrist_roll -> gripper tip 9.8 = 41.3 cm), an upper bound with the arm fully stretched.
 ARM_REACH_CM = 41.0
 DEFAULT_ARM_BASE_HEIGHT_M = 0.165
+DEFAULT_NAV_GOAL_XY_TOLERANCE_CM = 1.0
+DEFAULT_NAV_GOAL_YAW_TOLERANCE_DEG = 2.0
 DEFAULT_CAMERA_NOTE = (
     "The gripper camera is mounted at an angle on the arm and looks slightly from left to right; "
     "its images are delivered upright (rotated 180 degrees in software)."
@@ -61,6 +63,8 @@ class ClaudeAgentConfig(BaseModel):
         session_log_max_bytes: Size at which the session log is rotated (the oldest half of the events is dropped).
         arm_reach_cm: Approximate maximum horizontal reach of the arm from the shoulder_lift axis, stated in the prompt.
         arm_base_height_m: Height of the arm base above the floor in metres, stated in the prompt.
+        nav_goal_xy_tolerance_cm: Nav2 goal position precision in cm, stated in the prompt (keep equal to the Nav2 goal checker).
+        nav_goal_yaw_tolerance_deg: Nav2 goal heading precision in degrees, stated in the prompt.
         camera_note: Description of the gripper camera mounting and image orientation, stated in the prompt.
         instruction_timeout_s: Watchdog per instruction; on expiry the model is interrupted, the robot stopped and the turn ends as "timeout".
         connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
@@ -87,6 +91,8 @@ class ClaudeAgentConfig(BaseModel):
     session_log_max_bytes: int = Field(default=DEFAULT_SESSION_LOG_MAX_BYTES, ge=1024)
     arm_reach_cm: float = Field(default=ARM_REACH_CM, gt=0)
     arm_base_height_m: float = Field(default=DEFAULT_ARM_BASE_HEIGHT_M, ge=0)
+    nav_goal_xy_tolerance_cm: float = Field(default=DEFAULT_NAV_GOAL_XY_TOLERANCE_CM, gt=0)
+    nav_goal_yaw_tolerance_deg: float = Field(default=DEFAULT_NAV_GOAL_YAW_TOLERANCE_DEG, gt=0)
     camera_note: str = DEFAULT_CAMERA_NOTE
     instruction_timeout_s: float = Field(default=900.0, gt=0)
     connect_timeout_s: float = Field(default=240.0, gt=0)

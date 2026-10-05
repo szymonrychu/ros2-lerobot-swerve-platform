@@ -122,3 +122,10 @@ def test_watchdog_and_stop_timeouts_defaults_and_bounds() -> None:
     for key in ("instruction_timeout_s", "connect_timeout_s", "stop_timeout_s"):
         with pytest.raises(ValidationError):
             ClaudeAgentConfig(**{key: 0})
+
+
+def test_nav_goal_precision_defaults_and_validation() -> None:
+    cfg = ClaudeAgentConfig()
+    assert cfg.nav_goal_xy_tolerance_cm == 1.0 and cfg.nav_goal_yaw_tolerance_deg == 2.0
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig(nav_goal_xy_tolerance_cm=0)

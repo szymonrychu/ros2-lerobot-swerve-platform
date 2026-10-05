@@ -77,3 +77,12 @@ def test_arm_reach_default_matches_urdf_link_lengths() -> None:
     total = offset("elbow_flex") + offset("wrist_flex") + offset("wrist_roll") + offset("gripper_frame_joint")
     assert abs(total * 100 - ARM_REACH_CM) < 1.0
     assert ClaudeAgentConfig().arm_reach_cm == ARM_REACH_CM
+
+
+def test_prompt_states_nav_goal_precision_from_config() -> None:
+    default = build_system_prompt(ClaudeAgentConfig())
+    assert "within 1 cm and 2 deg" in default
+    assert "sideways" in default and "rotate first" in default
+    custom = build_system_prompt(ClaudeAgentConfig(nav_goal_xy_tolerance_cm=2.5, nav_goal_yaw_tolerance_deg=4))
+    assert "within 2.5 cm and 4 deg" in custom
+    assert "within 1 cm" not in custom

@@ -123,6 +123,7 @@ unknown keys are rejected.
 | `session_log_max_bytes` | `52428800` | Log size that triggers dropping the oldest half |
 | `arm_reach_cm` | `41` | Approximate max horizontal reach from the shoulder_lift axis, stated in the prompt. Computed from `nodes/web_ui/urdf/so101_arm.urdf`: 11.6 + 13.5 + 6.4 + 9.8 cm link offsets, an upper bound |
 | `arm_base_height_m` | `0.165` | Arm base height above the floor (stated as 16.5 cm) |
+| `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` | `1.0` / `2.0` | Nav2 goal precision stated in the prompt (keep equal to the Nav2 goal checker and mcp_server `nav`) |
 | `camera_note` | see `config.py` | Camera mounting (angled, looks slightly from left to right) and upright images |
 | `instruction_timeout_s` | `900` | Watchdog per instruction |
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |
@@ -159,7 +160,7 @@ and re-encoded as JPEG.
 
 ## Authentication and deployment
 
-System prompt summary: persona and tone; the tool lists and caps; the working method (top-level view first, then gentle exploration with small moves, then the task); notes in `NOTES.md`; hardware facts (SO-101, small reach from `arm_reach_cm`, base `arm_base_height_m` above the floor, angled gripper camera, upright images); the safety rules.
+System prompt summary: persona and tone; the tool lists and caps; the working method (top-level view first, then gentle exploration with small moves, then the task); notes in `NOTES.md`; hardware facts (SO-101, small reach from `arm_reach_cm`, base `arm_base_height_m` above the floor, angled gripper camera, upright images, base goals finishing within the nav tolerances and sideways goals rotating first); the safety rules.
 
 The agent authenticates with a Claude subscription OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`),
 read by the service from the systemd `EnvironmentFile=/etc/ros2/claude_agent/env`. `ANTHROPIC_API_KEY` and
