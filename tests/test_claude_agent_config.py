@@ -271,6 +271,22 @@ def test_mcp_token_readable_by_group_not_world() -> None:
     assert copy["group"] == MCP_TOKEN_GROUP and copy["mode"] == "0640"
 
 
+def test_existing_mcp_token_gets_group_read_permissions() -> None:
+    """The create task uses force: false, which leaves an existing token untouched (owner-only 0600 from before the
+    mcp-token group existed); a file task after it must enforce group mcp-token and 0640 on that file."""
+    tasks = yaml.safe_load(MCP_SETUP_TASKS.read_text())
+    create = next(i for i, t in enumerate(tasks) if t.get("ansible.builtin.copy", {}).get("dest") == MCP_TOKEN_FILE)
+    enforce = [
+        (i, t["ansible.builtin.file"])
+        for i, t in enumerate(tasks)
+        if t.get("ansible.builtin.file", {}).get("path") == MCP_TOKEN_FILE
+    ]
+    assert enforce, "no task enforces permissions on an existing token"
+    index, spec = enforce[0]
+    assert index > create
+    assert spec["group"] == MCP_TOKEN_GROUP and spec["mode"] == "0640"
+
+
 @pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml", "nodes/client/claude_agent.yml"])
 def test_playbooks_run_setup_before_deploying_claude_agent_after_mcp_server(playbook: str) -> None:
     _, tasks, _ = play_tasks(PLAYBOOKS_DIR / playbook)

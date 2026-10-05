@@ -25,6 +25,14 @@
     force: false
   no_log: true
 
+# force: false leaves an existing token untouched, including owner-only 0600 from before the mcp-token group existed.
+- name: Let group mcp-token read the existing mcp_server token
+  ansible.builtin.file:
+    path: /etc/ros2/mcp_server/token
+    owner: "{{ ansible_user }}"
+    group: mcp-token
+    mode: "0640"
+
 - name: Ensure arm home pose directory exists (owned by the node user)
   ansible.builtin.file:
     path: /var/lib/ros2/arm
