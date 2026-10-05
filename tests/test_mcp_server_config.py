@@ -170,6 +170,16 @@ def test_gripper_camera_enabled() -> None:
     assert entry["present"] is True and entry["enabled"] is True
 
 
+def test_gripper_camera_rotated_180_at_source() -> None:
+    env = node_entry("gripper_uvc_camera")["env"]
+    assert "UVC_ROTATE_DEG=180" in env
+    assert sum(e.startswith("UVC_ROTATE_DEG=") for e in env) == 1
+
+
+def test_mcp_server_arm_base_height_is_16_5_cm() -> None:
+    assert node_config("mcp_server")["arm"]["arm_base_height_m"] == 0.165
+
+
 def test_web_ui_tab_set() -> None:
     tabs = node_config("web_ui")["tabs"]
     assert [t["id"] for t in tabs] == WEB_UI_TABS

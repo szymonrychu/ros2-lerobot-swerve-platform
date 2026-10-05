@@ -326,6 +326,8 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_topics_match_filter_node_lease` | mcp_server autonomy command/release/active source and follower feedback topics equal filter_node's. |
 | `test_filter_node_autonomy_params` | filter_node config sets `autonomy_input_topic`, `autonomy_release_topic`, `active_source_topic`. |
 | `test_gripper_camera_enabled` | `gripper_uvc_camera` is present and enabled again. |
+| `test_gripper_camera_rotated_180_at_source` | `gripper_uvc_camera` env sets `UVC_ROTATE_DEG=180` exactly once (the wrist image is upside down at wrist roll 0; rotation happens in the camera node, not downstream). |
+| `test_mcp_server_arm_base_height_is_16_5_cm` | mcp_server config `arm.arm_base_height_m` is 0.165 (measured mount height above the floor). |
 | `test_web_ui_tab_set` | web_ui tabs are exactly map (map_nav, first), agent (agent_chat), camera (`/camera_0/image_raw/compressed`), rgbd_camera, imu_graphs; arm_servos, local_nav, gps_nav, scene3d and robot_status are gone. |
 | `test_web_ui_map_tab_uses_contract_fields` | The map tab carries no legacy keys (`urdf_file`, `topic`, `arm_urdf_file`, `arm_joint_topic`, `scan_topic`, `costmap_topic`), uses the frontend contract names, points `arm_home_service` / `arm_set_home_service` at the services mcp_server serves, and keeps the tile cache at `/var/cache/web_ui/tiles`. |
 | `test_web_ui_tile_cache_dir_task_owned_by_node_user` | `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui` and `/var/cache/web_ui/tiles` as directories owned by `ansible_user`. |

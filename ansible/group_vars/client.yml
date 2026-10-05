@@ -509,6 +509,8 @@ ros2_nodes:
     env:
       - UVC_DEVICE=/dev/video0
       - UVC_TOPIC=/camera_0/image_raw
+      # Image is upside down at wrist roll 0 (confirmed by the agent): rotate every published frame 180 deg at source.
+      - UVC_ROTATE_DEG=180
   - name: rplidar_a1
     node_type: rplidar_a1
     present: true
@@ -821,6 +823,8 @@ ros2_nodes:
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml
+        # Arm mount plane (URDF base_link origin) height above the floor, measured: 16.5 cm.
+        arm_base_height_m: 0.165
       # Below cells x cutoff_cell_v (3 x 2.8 = 8.4 V) motion/effector tools are refused; stop and sensors keep working.
       battery:
         topic: /battery_state
