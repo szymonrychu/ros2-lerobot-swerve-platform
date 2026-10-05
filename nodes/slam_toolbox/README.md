@@ -53,6 +53,21 @@ config: |
 the launch file always sets `map_file_name` itself (see below). Keep it equal to `map_save_path` of the web UI Map tab,
 so maps saved from the UI are the ones slam_toolbox resumes; `tests/test_nav_stack_config.py` checks this.
 
+## Slip and transient resilience
+
+The robot can lose traction (small objects such as legos, bumps by people, hitting objects below the lidar), which
+shifted the map. The defaults in `config/slam_params.yaml` counter that, together with the rest of the stack:
+
+- `correlation_search_space_dimension: 0.8` (was 0.5, a multiple of the 0.01 resolution): the scan matcher can
+  recover a larger odometry error before a scan is placed wrongly.
+- `check_min_dist_and_heading_precisely: true`: a pure rotation over `minimum_travel_heading` inserts a scan.
+- `ceres_loss_function: HuberLoss`: a wrong constraint pulls the pose graph linearly instead of quadratically.
+- `occupancy_threshold: 0.25` (was 0.1) and `min_pass_through: 3` (was 2): briefly visible things (a person walking
+  past) clear from the map once they are seen through.
+- Upstream of SLAM: the IMU gyro is the yaw-rate source with a fixed small covariance, the swerve forward kinematics
+  drops one slipping wheel, and the EKF fuses rf2o lidar odometry and gates the wheel twist (see
+  `nodes/robot_localization_ekf/README.md`).
+
 ## Continuing a saved map
 
 At launch, `slam.launch.py` resolves the map base: env `SLAM_TOOLBOX_MAP_BASE` if set, else `map_file_name` from the

@@ -13,7 +13,8 @@ slam_toolbox:
     ceres_preconditioner: SCHUR_JACOBI
     ceres_trust_strategy: LEVENBERG_MARQUARDT
     ceres_dogleg_type: TRADITIONAL_DOGLEG
-    ceres_loss_function: None
+    # HuberLoss: a wrong (slip-corrupted) constraint pulls the pose graph linearly instead of quadratically.
+    ceres_loss_function: HuberLoss
 
     # ROS parameters
     odom_frame: odom
@@ -41,6 +42,8 @@ slam_toolbox:
     use_scan_barycenter: true
     minimum_travel_distance: 0.3
     minimum_travel_heading: 0.3
+    # A pure rotation over minimum_travel_heading inserts a scan (the cheap distance/heading check alone skipped it).
+    check_min_dist_and_heading_precisely: true
     scan_buffer_size: 10
     scan_buffer_maximum_scan_distance: 10.0
     link_match_minimum_response_fine: 0.1
@@ -53,7 +56,9 @@ slam_toolbox:
     loop_match_minimum_response_fine: 0.45
 
     # Correlation parameters
-    correlation_search_space_dimension: 0.5
+    # 0.8 m (multiple of the 0.01 resolution) window: wheels that slip or stall on small objects leave the odometry
+    # prior off by more than the old 0.5 m window could recover.
+    correlation_search_space_dimension: 0.8
     correlation_search_space_resolution: 0.01
     correlation_search_space_smear_deviation: 0.1
 
@@ -71,5 +76,7 @@ slam_toolbox:
     minimum_angle_penalty: 0.9
     minimum_distance_penalty: 0.5
     use_response_expansion: true
-    min_pass_through: 2
-    occupancy_threshold: 0.1
+    # Transient objects (people, a passing leg) must be seen through 3 times and the cell must exceed 0.25 occupancy
+    # before it is kept, so briefly visible things clear from the map.
+    min_pass_through: 3
+    occupancy_threshold: 0.25
