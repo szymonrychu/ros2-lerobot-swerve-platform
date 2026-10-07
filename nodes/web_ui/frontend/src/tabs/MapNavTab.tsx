@@ -32,6 +32,10 @@ import LayersIcon from '@mui/icons-material/Layers'
 import VerticalAlignBottomIcon from '@mui/icons-material/VerticalAlignBottom'
 import ThreeDRotationIcon from '@mui/icons-material/ThreeDRotation'
 import HomeIcon from '@mui/icons-material/Home'
+import AddLocationAltIcon from '@mui/icons-material/AddLocationAlt'
+import PolylineIcon from '@mui/icons-material/Polyline'
+import CheckIcon from '@mui/icons-material/Check'
+import CloseIcon from '@mui/icons-material/Close'
 import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd'
 import log from '../logging'
 import { Pose2D, Vec2, yawToQuaternion } from '../map/mapMath'
@@ -45,6 +49,10 @@ import type { GridImageMsg, PathMsg } from '../map3d/sceneLayers'
 import { browserStorage } from '../tabSelection'
 import { CANVAS_BG, MONO_FONT } from '../theme'
 import { TabConfig } from '../types'
+import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
+import { canFinishArea } from '../poi/editor'
+import { usePoiEditor } from '../poi/usePoiEditor'
+import type { PoiResult } from '../poi/types'
 
 const MapScene = lazy(() => import('../map3d/MapScene'))
 
@@ -60,6 +68,7 @@ const LAYER_SWATCH: Partial<Record<LayerKey, string>> = {
   localPlan: '#ff851b',
   goal: '#ff4136',
   footprint: '#2f9bff',
+  pois: '#ffb000',
 }
 
 const MAP_LEGEND: [string, string][] = [
@@ -74,6 +83,7 @@ const LAYER_GROUPS: { title: string; keys: LayerKey[] }[] = [
   { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap'] },
   { title: 'Navigation', keys: ['globalPlan', 'localPlan', 'goal', 'footprint'] },
   { title: 'Robot model', keys: ['robotBase', 'robotWheels', 'robotArm'] },
+  { title: 'Points of interest', keys: ['pois'] },
 ]
 
 interface Props {
@@ -128,7 +138,9 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
   const muiTheme = useTheme()
   const narrow = useMediaQuery(muiTheme.breakpoints.down('sm'))
   const [panelOpen, setPanelOpen] = useState<boolean | null>(null) // null = follow screen size
+  const [poiListOpen, setPoiListOpen] = useState<boolean | null>(null) // null = open on wide screens only
   const showPanel = panelOpen ?? !narrow
+  const showPoiList = poiListOpen ?? !narrow
 
   const mapFrame = tab.map_frame ?? 'map'
   // Each value keeps its identity until its own topic updates, so the memoised scene skips unrelated traffic.
@@ -195,6 +207,30 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
       setDraft(null)
     }
   }, [goalMode])
+
+  const onPoiResult = useCallback((result: PoiResult, what: string) => {
+    setAction(result.ok ? { state: 'ok', message: what } : { state: 'error', message: `POI: ${result.message}` })
+  }, [])
+  const poi = usePoiEditor({
+    tabId: tab.id,
+    listTopic: tab.poi_list_topic,
+    commandAvailable: Boolean(tab.poi_command_topic),
+    topicData,
+    containerRef,
+    controllerRef,
+    topView,
+    visible: layers.pois,
+    onResult: onPoiResult,
+  })
+  const poiAdding = poi.mode !== 'none'
+  // On a phone the layers panel would cover the editor: close it when a POI is selected.
+  useEffect(() => {
+    if (narrow && poi.selectedId) setPanelOpen(false)
+  }, [narrow, poi.selectedId])
+  // Goal setting and POI adding both own the one-finger gesture: only one at a time.
+  useEffect(() => {
+    if (poiAdding) setGoalMode(false)
+  }, [poiAdding])
 
   const robotPoseRef = useRef(robotPose)
   robotPoseRef.current = robotPose
@@ -338,7 +374,10 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
                 variant={goalMode ? 'contained' : 'outlined'}
                 color="secondary"
                 startIcon={<PlaceIcon />}
-                onClick={() => setGoalMode((m) => !m)}
+                onClick={() => {
+                  poi.setMode('none')
+                  setGoalMode((m) => !m)
+                }}
                 disabled={!tab.goal_topic || !topView}
                 aria-pressed={goalMode}
                 title="Press on the map to set the goal position; drag to set its heading"
@@ -347,6 +386,56 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
               </Button>
             </span>
           </Tooltip>
+          {tab.poi_command_topic && (
+            <ButtonGroup variant="outlined" aria-label="Points of interest">
+              <Tooltip title={topView ? '' : 'Switch to Top view to add POIs'}>
+                <span>
+                  <Button
+                    variant={poi.mode === 'add_point' ? 'contained' : 'outlined'}
+                    startIcon={<AddLocationAltIcon />}
+                    disabled={!topView}
+                    aria-pressed={poi.mode === 'add_point'}
+                    onClick={() => {
+                      setGoalMode(false)
+                      setLayers((s) => ({ ...s, pois: true }))
+                      poi.setMode(poi.mode === 'add_point' ? 'none' : 'add_point')
+                    }}
+                    title="Click the map to place a point of interest"
+                  >
+                    {poi.mode === 'add_point' ? 'Click map' : 'Add point'}
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={topView ? '' : 'Switch to Top view to add POIs'}>
+                <span>
+                  <Button
+                    variant={poi.mode === 'add_area' ? 'contained' : 'outlined'}
+                    startIcon={<PolylineIcon />}
+                    disabled={!topView}
+                    aria-pressed={poi.mode === 'add_area'}
+                    onClick={() => {
+                      setGoalMode(false)
+                      setLayers((s) => ({ ...s, pois: true }))
+                      poi.setMode(poi.mode === 'add_area' ? 'none' : 'add_area')
+                    }}
+                    title="Click the vertices of the area; double-click or Enter finishes"
+                  >
+                    {poi.mode === 'add_area' ? `Area: ${poi.draft.length} vertices` : 'Add area'}
+                  </Button>
+                </span>
+              </Tooltip>
+              {poi.mode === 'add_area' && (
+                <Button startIcon={<CheckIcon />} disabled={!canFinishArea(poi.draft)} onClick={poi.finishArea}>
+                  Finish
+                </Button>
+              )}
+              {poiAdding && (
+                <Button startIcon={<CloseIcon />} color="inherit" onClick={poi.cancelDraft}>
+                  Cancel
+                </Button>
+              )}
+            </ButtonGroup>
+          )}
           <Stack direction="row" role="group" aria-label="Map view" sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
             <Tooltip title="Center on robot">
               <span>
@@ -421,7 +510,7 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
           position: 'relative',
           overflow: 'hidden',
           bgcolor: CANVAS_BG,
-          cursor: goalMode ? 'crosshair' : 'default',
+          cursor: goalMode || poiAdding ? 'crosshair' : poi.dragging ? 'grabbing' : 'default',
           touchAction: 'none',
         }}
         onContextMenu={(e) => e.preventDefault()}
@@ -453,7 +542,10 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
             anchor={anchor}
             layers={layers}
             topView={topView}
-            goalMode={goalMode}
+            goalMode={goalMode || poiAdding}
+            pois={poi.pois}
+            selectedPoiId={poi.selectedId}
+            poiDraft={poi.draft}
             controllerRef={controllerRef}
             mapFrame={mapFrame}
           />
@@ -467,6 +559,41 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
           >
             Waiting for map on {tab.map_topic ?? '?'}...
           </Typography>
+        )}
+
+        {tab.poi_list_topic && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 8,
+              left: 8,
+              width: { xs: showPanel ? 0 : 'calc(100% - 16px)', sm: 300 },
+              maxWidth: 'calc(100% - 16px)',
+              display: { xs: showPanel ? 'none' : 'flex', sm: 'flex' },
+              flexDirection: 'column',
+              gap: 1,
+              zIndex: 1,
+              pointerEvents: 'none',
+              '& > *': { pointerEvents: 'auto' },
+            }}
+          >
+            <PoiListPanel
+              pois={poi.pois}
+              selectedId={poi.selectedId}
+              open={showPoiList}
+              onToggle={() => setPoiListOpen(!showPoiList)}
+              onFocus={poi.focus}
+            />
+            {poi.selected && (
+              <PoiEditorPanel
+                key={poi.selected.id}
+                poi={poi.selected}
+                busy={poi.busy}
+                onClose={() => poi.select(null)}
+                onSend={poi.send}
+              />
+            )}
+          </Box>
         )}
 
         <Collapse

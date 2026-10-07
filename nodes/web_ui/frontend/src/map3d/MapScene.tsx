@@ -17,6 +17,8 @@ import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor } from './geo'
 import { Bounds, classifyBaseLink, fitDistance } from './groundMath'
 import { LayerState } from './layers'
+import { PoiLayer } from '../poi/PoiLayer'
+import type { Poi } from '../poi/types'
 import { pickGround } from './picking'
 import {
   FootprintLayer,
@@ -67,7 +69,11 @@ export interface MapSceneProps {
   anchor: GpsAnchor | null
   layers: LayerState
   topView: boolean
+  /** A one-finger/left-button gesture belongs to the app (goal setting, adding a POI), not to camera panning. */
   goalMode: boolean
+  pois: Poi[]
+  selectedPoiId: string | null
+  poiDraft: Vec2[]
   controllerRef: MutableRefObject<SceneController | null>
 }
 
@@ -288,6 +294,7 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
       {layers.footprint && inMapFrame(props.footprint, props.mapFrame) && (
         <FootprintLayer footprint={props.footprint} pose={props.robotPose} />
       )}
+      <PoiLayer pois={props.pois} selectedId={props.selectedPoiId} draft={props.poiDraft} visible={layers.pois} />
       <Suspense fallback={null}>
         <RobotLayer
           pose={props.robotPose}

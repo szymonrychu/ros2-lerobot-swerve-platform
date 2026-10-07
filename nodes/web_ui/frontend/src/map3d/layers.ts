@@ -14,6 +14,7 @@ export const LAYER_KEYS = [
   'robotBase',
   'robotWheels',
   'robotArm',
+  'pois',
 ] as const
 
 export type LayerKey = (typeof LAYER_KEYS)[number]
@@ -36,6 +37,7 @@ export const LAYER_LABELS: Record<LayerKey, string> = {
   robotBase: 'Robot body',
   robotWheels: 'Wheels',
   robotArm: 'Arm',
+  pois: 'POIs',
 }
 
 /**

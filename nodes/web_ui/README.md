@@ -62,7 +62,7 @@ battery:
 
 - **Guard (`ros2_common.battery.BatteryGuard`, shared package `shared/`, also used by mcp_server):** enters cut-off when the voltage is below `cells * cutoff_cell_v` and leaves it only above `cells * resume_cell_v` (hysteresis). With no reading, or a reading older than `stale_s`, the state is unknown and **nothing is blocked**. Thread-safe: the ROS callback thread updates it, the asyncio server reads it.
 - **Broadcast:** the reading is serialized (`voltage`, `cells`, `cell_voltage` = voltage / cells, `stamp`, `frame_id`) together with the guard state (`cutoff`, `stale`, `cutoff_v`, `resume_v`, thresholds) and sent to clients as a normal envelope on the battery topic. `/api/config` carries the `battery` section so the frontend knows topic and thresholds.
-- **In cut-off, rejected:** WebSocket `publish` frames (nothing is published; the client gets `{"type":"error","source":"battery","message":"battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused"}`) and `POST /api/map/save`, `/api/map/reset`, `/api/arm/home`, `/api/arm/set_home`, `/api/agent/message` and `/api/agent/reset` with HTTP **503** and `{"ok": false, "message": "battery below cut-off ..."}`. `POST /api/nav/stop` and `POST /api/agent/stop` stay allowed (safety), as do `/api/agent/state`, `/api/agent/history` and `/ws/agent`. Rejections are logged.
+- **In cut-off, rejected:** WebSocket `publish` frames (nothing is published; the client gets `{"type":"error","source":"battery","message":"battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused"}`) and `POST /api/map/save`, `/api/map/reset`, `/api/arm/home`, `/api/arm/set_home`, `/api/agent/message` and `/api/agent/reset` with HTTP **503** and `{"ok": false, "message": "battery below cut-off ..."}`. `POST /api/nav/stop` and `POST /api/agent/stop` stay allowed (safety), as do `/api/agent/state`, `/api/agent/history` and `/ws/agent`. `POST /api/poi` is also allowed: POI edits are not robot motion. Rejections are logged.
 - **Frontend:** a voltage chip in the AppBar (e.g. `11.4 V`, per-cell in the tooltip): green above the resume threshold, amber between cut-off and resume, red in cut-off, grey `--` without a recent reading. In cut-off a red banner under the AppBar reads "Battery below cut-off (x.xx V/cell) - commands are disabled"; everything else keeps rendering. Error frames from the WebSocket appear as a toast; the 503 message of a failed Map tab action appears in the existing action snackbar. Level/colour logic is in `frontend/src/battery/batteryStatus.ts` (vitest `batteryStatus.test.ts`).
 
 ## Agent tab (`agent_chat`)
@@ -111,12 +111,18 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
 ### In the browser
 
 - **Robot:** `base_urdf` (default `robot.urdf`) is placed at the synthetic `/web_ui/robot_pose` (TF `map_frame -> base_frame`), with `arm_urdf` (`so101_arm.urdf`) mounted on it. Wheels follow `base_joint_states_topic`, the arm follows `arm_joint_states_topic`. Without a map pose the robot is drawn at the map origin, so arm control still works without SLAM.
-- **Layers panel** (toggle button in the toolbar, also holds the legend): SLAM map, Local costmap, GPS map, Global plan, Local plan, Goal, Footprint, Robot body, Wheels, Arm. Everything is on by default except GPS map (it needs an anchor and fetches tiles). The state is stored per browser in `localStorage` (key `web_ui.map3d.layers`, see `map3d/layers.ts`); storage errors are ignored.
+- **Layers panel** (toggle button in the toolbar, also holds the legend): SLAM map, Local costmap, GPS map, Global plan, Local plan, Goal, Footprint, Robot body, Wheels, Arm, POIs. Everything is on by default except GPS map (it needs an anchor and fetches tiles). The state is stored per browser in `localStorage` (key `web_ui.map3d.layers`, see `map3d/layers.ts`); storage errors are ignored.
 - **Footprint:** the Nav2 footprint (`footprint_topic`, `geometry_msgs/PolygonStamped` re-expressed in `map_frame` by the backend) is drawn with the front edge highlighted; until one arrives a small arrow at the pose is shown.
 - **Camera:** free orbit by default (drag rotates, right button or two fingers pan, wheel or pinch zooms). **Top view** locks the camera straight down (drag pans, wheel zooms). The toolbar also has **Center on robot** and **Fit map**.
 - **Goal setting only in Top view.** **Set goal** is disabled in orbit mode (tooltip: switch to Top view). In Top view, press **Set goal**, then press on the map: the press point is the goal position, dragging before release sets the heading (a plain click faces from the robot to the goal). The goal is published once as `geometry_msgs/PoseStamped` (frame `map_frame`, stamped by the backend) and the tab leaves goal mode.
 - **Interactive arm:** drag the rings and handles on the arm model to move it. Setpoints are published on `arm_command_topic` (default `/filter/web_ui_joint_commands`, an allowlisted publish topic) and arbitrated by filter_node. Dragging starts only once live arm joint states have arrived ("Waiting for arm servo positions..." until then).
 - **Arm home / Set home** (shown when `arm_command_topic` is set): **Home** calls `POST /api/arm/home`; **Set home** stores the current pose as home and needs two clicks (the button reads **Confirm home** for 4 s, no browser dialog).
+- **Points of interest (POIs):** the **POIs** layer draws the list served by poi_store (`nodes/poi_store/README.md`, map frame): a point is a disc of its `radius_m`, an area a translucent filled polygon with an outline, each with a name label. Fill colour is the status (open amber, done green, cancelled grey and fainter); the outline shows who created it (agent: blue dashed, user: white solid, also an A/U prefix in the label). The selected POI has a magenta outline; the selected area shows white vertex handles.
+  - **Add point** / **Add area** (toolbar group, Top view only, like goals): after **Add point**, a click places a point (radius 0.2 m, named "Point n") and selects it. After **Add area**, click the vertices; double-click, Enter or **Finish** closes the area (at least 3 vertices); **Cancel** or Escape aborts. Two fingers / wheel / right button still pan and zoom.
+  - **Select and edit:** press a POI (any view) to select it; a panel (top left, full width on a phone) edits name (60 chars), note (2000 chars), status and, for a point, radius. **Save** sends the changes; **Delete** asks in an MUI dialog first (no browser dialog).
+  - **Move:** in Top view press the selected point/area and drag it (an area moves as a whole; its vertex handles move single vertices). The POI is shown at the drop position until the store's next list arrives. A press on an unselected POI only selects it, so the map still pans under normal drags.
+  - **List:** a collapsible panel "Points of interest (n)" lists name, kind, creator, status and age (newest first); clicking a row selects the POI and centres the view on it. Open by default on wide screens, collapsed on a phone.
+  - All edits go through `POST /api/poi` and are visible to the agent and other browsers via the latched `/poi/list`. The code is in `frontend/src/poi/` (pure logic: `geometry.ts`, `editor.ts`, `style.ts`, `api.ts`; React: `PoiLayer.tsx`, `PoiPanels.tsx`, `usePoiEditor.ts`).
 - **STOP** (red) calls `POST /api/nav/stop`. **Save map** calls `POST /api/map/save`. **Reset map** needs two clicks like Set home (**Confirm reset**). Results appear as a snackbar.
 
 ### Fields
@@ -142,6 +148,9 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
 | `arm_home_service` | `/arm/home` | `std_srvs/Trigger` behind **Home** |
 | `arm_service_timeout_s` | `30` | Seconds to wait for the Home / Set home service response |
 | `arm_set_home_service` | `/arm/set_home` | `std_srvs/Trigger` behind **Set home** |
+| `poi_list_topic` | `/poi/list` | `std_msgs/String` JSON `{"pois": [...], "revision": n}` from poi_store, subscribed reliable + transient_local (latched) and forwarded to clients like any topic |
+| `poi_command_topic` | `/poi/command` | `std_msgs/String` JSON commands published by `POST /api/poi` (not a client-publishable topic) |
+| `poi_result_topic` | `/poi/result` | `std_msgs/String` JSON results, matched to the pending request by `request_id` (not forwarded to clients) |
 | `gps_fix_topic` | `/client/gps/fix` | `sensor_msgs/NavSatFix` used for the GPS layer and the anchor fit |
 | `gps_anchor_min_points` | `10` | Samples needed before an anchor is published |
 | `gps_anchor_min_spread_m` | `5.0` | Minimum map-frame track extent (bounding-box diagonal, m) |
@@ -154,6 +163,8 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
 All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected). `arm_offset` (optional, `[x, y, z]` in metres) places the arm URDF root on the base model. Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`.
 
 ### Backend
+
+`POST /api/poi?tab=<tab id>` with JSON `{"op": "add"|"update"|"delete", "poi": {...}}` (the poi_store command without `request_id`; `update` carries `id` plus changed fields, `delete` just `id`) publishes the command on `poi_command_topic` with a generated `request_id` and waits up to 3 s for the matching `/poi/result`, which it returns as `{"request_id", "ok", "message", "poi"}`. 200 when the store accepted it, 400 when the store rejected it (validation, unknown id), 404 unknown tab, 422 malformed body, 503 when the bridge or poi_store is not running (nothing subscribes to the command topic), 504 when the store did not answer in time. **POI edits are not robot motion, so this endpoint is deliberately NOT blocked by the battery cut-off** (they stay possible while motion is refused).
 
 WebSocket payloads produced by the backend:
 - map topic: `{png_b64, width, height, resolution, origin: {x, y, yaw}, frame_id, stamp}`. Grayscale PNG with free cells white (254), occupied black (0), unknown grey (205); free/occupied thresholds 25/65 %. Image row 0 is the top of the map (grid rows are flipped). Encoded once per received map message.
@@ -242,7 +253,7 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 # Python tests
 cd nodes/web_ui && poetry install && poetry run pytest tests/ -v
 
-# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/map3d/*.test.ts, src/tabSelection.test.ts, src/agent/*.test.ts)
+# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/map3d/*.test.ts, src/poi/*.test.ts, src/tabSelection.test.ts, src/agent/*.test.ts)
 cd nodes/web_ui/frontend && npx tsc --noEmit && npm test
 
 # Frontend dev server (hot reload, proxies /api and /ws to localhost:8080)
