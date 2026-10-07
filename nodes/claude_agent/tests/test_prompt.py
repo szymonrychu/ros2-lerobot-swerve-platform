@@ -100,3 +100,41 @@ def test_prompt_states_nav_goal_precision_from_config() -> None:
     custom = build_system_prompt(ClaudeAgentConfig(nav_goal_xy_tolerance_cm=2.5, nav_goal_yaw_tolerance_deg=4))
     assert "within 2.5 cm and 4 deg" in custom
     assert "within 1 cm" not in custom
+
+
+def test_prompt_teaches_body_awareness() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    for needle in ("robot_events_since_last_call", "vitals", "get_body_state", "interrupted_by", "ROBOT EVENT"):
+        assert needle in text, needle
+
+
+def test_prompt_teaches_spatial_perception_workflow() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    for needle in (
+        "get_topdown_view",
+        "look_around",
+        "get_annotated_camera_image",
+        "mark_candidate_points",
+        "resolve_candidate",
+        "pixel_to_ground",
+        "not calibrated",
+    ):
+        assert needle in text, needle
+    section = text[text.index("Spatial perception:") :]
+    assert section.index("get_topdown_view") < section.index("mark_candidate_points")
+
+
+def test_prompt_teaches_memory_pois_and_calibration() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    for needle in ("remember_object", "list_objects", "list_pois", "add_poi", "update_poi", "NOTES.md"):
+        assert needle in text, needle
+    lower = text.lower()
+    assert "calibrat" in lower and "only when the person asks" in lower
+    assert "capture_calibration_sample" in text and "solve_camera_calibration" in text
+
+
+def test_every_default_tool_is_named_in_the_prompt() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    cfg = ClaudeAgentConfig()
+    for name in cfg.sensor_tools + cfg.effector_tools:
+        assert name in text

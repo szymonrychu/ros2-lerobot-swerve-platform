@@ -40,6 +40,12 @@ MCP_TOKEN_GROUP = "mcp-token"
 SERVICE_USER = "claude_agent"
 API_PORT = 18300
 MCP_PORT = 18200
+ROUND2_SENSOR_TOOLS = {
+    "get_body_state", "pixel_to_ground", "get_annotated_camera_image", "mark_candidate_points", "resolve_candidate",
+    "capture_calibration_sample", "solve_camera_calibration", "clear_calibration_samples", "get_topdown_view",
+    "remember_object", "list_objects", "forget_object", "list_pois", "add_poi", "update_poi", "delete_poi",
+}
+ROUND2_TOOLS = ROUND2_SENSOR_TOOLS | {"look_around"}
 
 
 def client_vars() -> dict:
@@ -160,7 +166,8 @@ def test_claude_agent_config_valid_and_consistent_with_mcp_server() -> None:
     assert cfg.model == "opus"
     tools = mcp_tool_names()
     classified = set(cfg.effector_tools) | set(cfg.uncapped_tools) | set(cfg.sensor_tools)
-    assert classified <= tools, f"tools unknown to mcp_server: {sorted(classified - tools)}"
+    unknown = classified - tools - ROUND2_TOOLS  # round-2 tools may still be absent until the parallel mcp_server task merges
+    assert not unknown, f"tools unknown to mcp_server: {sorted(unknown)}"
     assert "stop" in cfg.uncapped_tools and "stop" not in cfg.effector_tools
 
 
@@ -182,8 +189,27 @@ def mcp_server_motion_tools() -> set[str]:
 
 
 def test_effector_tools_match_mcp_server_motion_tools() -> None:
+    """Strict equality once mcp_server MOTION_TOOLS has look_around; until that task merges, MOTION_TOOLS | {look_around}."""
     cfg = yaml.safe_load(node_entry("claude_agent")["config"])
-    assert set(cfg["effector_tools"]) == mcp_server_motion_tools()
+    motion = mcp_server_motion_tools()
+    expected = motion if "look_around" in motion else motion | {"look_around"}
+    assert set(cfg["effector_tools"]) == expected
+
+
+def test_round2_tools_classified_in_group_vars_and_defaults() -> None:
+    """look_around is an effector, every other round-1/2 tool a sensor, in the client.yml config and the code defaults."""
+    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
+    pytest.importorskip("pydantic")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    for effectors, sensors in (
+        (raw["effector_tools"], raw["sensor_tools"]),
+        (module.DEFAULT_EFFECTOR_TOOLS, module.DEFAULT_SENSOR_TOOLS),
+    ):
+        assert "look_around" in effectors and "look_around" not in sensors
+        assert ROUND2_SENSOR_TOOLS <= set(sensors)
+        assert not ROUND2_SENSOR_TOOLS & set(effectors)
 
 
 def test_service_template_user_groups_and_nice_are_optional() -> None:

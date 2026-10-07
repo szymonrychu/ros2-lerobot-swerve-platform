@@ -35,6 +35,10 @@ def test_defaults() -> None:
     )
     assert {"set_gripper", "arm_home", "arm_set_home"} <= set(cfg.effector_tools)
     assert {"stop", "acquire_control", "release_control"} <= set(cfg.uncapped_tools)
+    assert "look_around" in cfg.effector_tools
+    assert {"get_body_state", "get_topdown_view", "list_pois", "add_poi", "remember_object", "pixel_to_ground"} <= set(
+        cfg.sensor_tools
+    )
     assert not set(cfg.effector_tools) & set(cfg.uncapped_tools)
     assert not set(cfg.effector_tools) & set(cfg.sensor_tools)
 

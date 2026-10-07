@@ -57,6 +57,15 @@ the events is dropped. `POST /api/reset` deletes the file and the buffer entirel
 event after a reset is a `state` with `seq` 1, so clients should clear their transcript when `seq` goes backwards; connected `/ws/events` clients additionally receive an empty `{type:"history", events:[]}` frame at the reset, after which new events stream normally); the
 workdir is not touched.
 
+## Prompt sections
+
+Besides the budget and working method, the system prompt (`prompt.py`) has compact sections (about 1.4 k characters
+added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
+interrupts), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
+`mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), memory
+(`remember_object`/`list_objects`, POIs via `list_pois`/`add_poi`/`update_poi`, `NOTES.md`) and the calibration tools
+(only when the person asks).
+
 ## Task budget
 
 There are no static per-instruction caps. For each instruction the agent judges the task and sets its own budget, then
@@ -64,8 +73,8 @@ starts working at once (no approval step). The budget has three counters, all re
 
 | Counter | Counts | Hard maximum (config) |
 |---|---|---|
-| `ro` (read-only) | robot sensor calls (kind `sensor`: `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`) | `max_ro_cap` (300) |
-| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`; a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (100) |
+| `ro` (read-only) | robot sensor calls (kind `sensor`: `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools and the POI tools; all of them listed in `sensor_tools`, because an unlisted robot tool counts as an effector) | `max_ro_cap` (300) |
+| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`; a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (100) |
 | turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (150) |
 
 Not counted: the notes file tools, `set_task_budget`, and the control tools `stop`, `acquire_control`, `release_control`

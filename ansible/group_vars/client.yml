@@ -1054,3 +1054,19 @@ ros2_nodes:
         - get_camera_image
         - get_map_summary
         - get_arm_state
+        - get_body_state
+        - pixel_to_ground
+        - get_annotated_camera_image
+        - mark_candidate_points
+        - resolve_candidate
+        - capture_calibration_sample
+        - solve_camera_calibration
+        - clear_calibration_samples
+        - get_topdown_view
+        - remember_object
+        - list_objects
+        - forget_object
+        - list_pois
+        - add_poi
+        - update_poi
+        - delete_poi

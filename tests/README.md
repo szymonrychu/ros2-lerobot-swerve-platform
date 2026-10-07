@@ -217,7 +217,7 @@ Covers:
 - config (`test_config.py`): defaults (opus, hard maxima ro 300 / rw 100 / turns 150, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
   tool lists disjoint (stop can never be an effector), invalid numbers and unknown keys rejected, YAML loading,
   `CLAUDE_AGENT_CONFIG` lookup, MCP token read (env-file line or bare token, missing/empty refused, token never in the error)
-- system prompt (`test_prompt.py`): the budget workflow (judge complexity first, `set_task_budget`, guidance ranges, hard maxima from the config, single raise, no waiting for approval, no old fixed caps), lists every tool by kind, safety rules, persona,
+- system prompt (`test_prompt.py`): the budget workflow (judge complexity first, `set_task_budget`, guidance ranges, hard maxima from the config, single raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections, safety rules, persona,
   `system_prompt_extra` appended
 - budget (`test_budget.py`): `BudgetTracker` validation (complexity enum, integer caps, rw 0 allowed), clamping to the hard maxima
   with the clamped names reported, the single raise (needs a rationale, a second raise refused, usage kept), ro/rw counting and the exact
@@ -523,7 +523,8 @@ layout; no ROS needed).
 | `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `poi_store` (which follows `mcp_server`). |
 | `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
 | `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (300 / 100 / 150) and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`. |
-| `test_effector_tools_match_mcp_server_motion_tools` | `effector_tools` in the claude_agent config equals mcp_server `MOTION_TOOLS` (parsed from tools.py with `ast`), so the effector cap and the battery gate cover the same tools. |
+| `test_effector_tools_match_mcp_server_motion_tools` | `effector_tools` in the claude_agent config equals mcp_server `MOTION_TOOLS` (parsed from tools.py with `ast`), so the effector cap and the battery gate cover the same tools. Tolerant until the `look_around` task merges: while `MOTION_TOOLS` lacks `look_around` the expected set is `MOTION_TOOLS \| {look_around}`; afterwards strict equality. |
+| `test_round2_tools_classified_in_group_vars_and_defaults` | `look_around` is an effector and `get_body_state` plus the round-2 sensor tools (pixel_to_ground, annotated image, candidates, calibration, topdown view, objects, POIs) are sensors, in both the client.yml config and the code defaults. |
 | `test_service_template_user_groups_and_nice_are_optional` | Unit template: `User=` defaults to `ansible_user`; `node_user`, `SupplementaryGroups=` and `Nice=` only when set. |
 | `test_resolve_and_deploy_passes_user_groups_and_nice` | `resolve_and_deploy.yml` hands `user`, `supplementary_groups` and `nice` of the node type to the role. |
 | `test_setup_tasks_read_token_from_controller_env_and_fail_clearly` | `claude_agent_setup.yml` uses `lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN')`; a fail task (before the write, without `no_log`, without touching the token) tells the user to `export CLAUDE_CODE_OAUTH_TOKEN=...` and run `deploy-nodes.sh client claude_agent`. |

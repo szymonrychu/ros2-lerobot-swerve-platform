@@ -17,9 +17,31 @@ DEFAULT_EFFECTOR_TOOLS = [
     "set_gripper",
     "arm_home",
     "arm_set_home",
+    "look_around",
 ]
 DEFAULT_UNCAPPED_TOOLS = ["stop", "acquire_control", "release_control"]
-DEFAULT_SENSOR_TOOLS = ["get_robot_state", "get_camera_image", "get_map_summary", "get_arm_state"]
+DEFAULT_SENSOR_TOOLS = [
+    "get_robot_state",
+    "get_camera_image",
+    "get_map_summary",
+    "get_arm_state",
+    "get_body_state",
+    "pixel_to_ground",
+    "get_annotated_camera_image",
+    "mark_candidate_points",
+    "resolve_candidate",
+    "capture_calibration_sample",
+    "solve_camera_calibration",
+    "clear_calibration_samples",
+    "get_topdown_view",
+    "remember_object",
+    "list_objects",
+    "forget_object",
+    "list_pois",
+    "add_poi",
+    "update_poi",
+    "delete_poi",
+]
 # Approximate maximum horizontal reach of the SO-101 from the shoulder_lift axis, in cm: the straight-line sum of the link
 # offsets in nodes/web_ui/urdf/so101_arm.urdf (shoulder_lift -> elbow_flex 11.6 + elbow_flex -> wrist_flex 13.5 +
 # wrist_flex -> wrist_roll 6.4 + wrist_roll -> gripper tip 9.8 = 41.3 cm), an upper bound with the arm fully stretched.
