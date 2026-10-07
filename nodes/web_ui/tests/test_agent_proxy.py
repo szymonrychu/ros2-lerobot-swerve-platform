@@ -25,9 +25,11 @@ from web_ui.server import build_app
 AGENT_STATE = {
     "busy": False,
     "model": "claude-opus",
-    "max_turns": 30,
-    "effector_call_cap": 20,
-    "effector_calls_used": 2,
+    "max_turns": 160,
+    "ro_used": 3,
+    "rw_used": 2,
+    "turns_used": 4,
+    "budget": None,
     "session_started_at": 1.0,
 }
 LOW_V = 8.21
