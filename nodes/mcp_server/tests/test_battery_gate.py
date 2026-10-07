@@ -33,6 +33,7 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_arm_state": {},
     "acquire_control": {},
     "release_control": {},
+    "get_body_state": {},
 }
 
 

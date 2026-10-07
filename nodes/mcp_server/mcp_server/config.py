@@ -66,6 +66,11 @@ class TopicSettings(StrictModel):
     follower_joint_states: str = "/follower/joint_states"
     cmd_vel: str = "/cmd_vel_nav"
     odom: str = "/odometry/filtered"
+    swerve_odom: str = "/odom"  # swerve_drive_controller odometry: its twist covariance encodes the slip residual
+    rf2o_twist: str = "/odom_rf2o_twist"
+    imu: str = "/imu/data"
+    servo_registers: str = "/follower/servo_registers"  # JSON dump, all servos incl. the swerve ones
+    robot_events: str = "/robot_events"
     scan: str = "/scan_filtered"
     map: str = "/map"
     collision_monitor_state: str = "/collision_monitor_state"
@@ -187,6 +192,61 @@ class ArmSettings(StrictModel):
         return v if v.is_absolute() else REPO_ROOT / v
 
 
+class MonitorSettings(StrictModel):
+    """Body monitor thresholds (RobotMonitor): events on /robot_events, the get_body_state tool, digest on tool results."""
+
+    servo_temp_warn_c: float = Field(default=60.0, gt=0.0)
+    servo_temp_critical_c: float = Field(default=70.0, gt=0.0)
+    cpu_temp_warn_c: float = Field(default=75.0, gt=0.0)
+    cpu_temp_critical_c: float = Field(default=82.0, gt=0.0)
+    temp_hysteresis_c: float = Field(default=2.0, ge=0.0)  # a temperature event clears this far below its threshold
+    cpu_poll_s: float = Field(default=5.0, gt=0.0)
+    cpu_temp_path: Path = Path("/sys/class/thermal/thermal_zone0/temp")
+    # Firmware throttling bits (Raspberry Pi get_throttled); unreadable -> throttled is null.
+    throttled_paths: tuple[Path, ...] = (
+        Path("/sys/devices/platform/soc/soc:firmware/get_throttled"),
+        Path("/sys/devices/platform/soc/soc:firmware/raspberrypi-hwmon/get_throttled"),
+    )
+    battery_warn_margin_cell_v: float = Field(default=0.2, gt=0.0)  # warning below cells * (cutoff_cell_v + this)
+    stall_s: float = Field(default=1.0, gt=0.0)
+    stall_cmd_min_mps: float = Field(default=0.05, gt=0.0)  # commanded linear speed that must be moving
+    stall_cmd_min_rps: float = Field(default=0.1, gt=0.0)
+    stall_measured_max_mps: float = Field(default=0.01, gt=0.0)  # measured ~0 below this
+    stall_measured_max_rps: float = Field(default=0.03, gt=0.0)
+    cmd_fresh_s: float = Field(default=0.5, gt=0.0)
+    odom_fresh_s: float = Field(default=1.0, gt=0.0)
+    collision_state_max_age_s: float = Field(default=2.0, gt=0.0)
+    slip_residual_warn_mps: float = Field(default=0.1, gt=0.0)
+    bump_warn_mps2: float = Field(default=4.0, gt=0.0)  # horizontal accel spike after baseline (gravity) removal
+    bump_critical_mps2: float = Field(default=9.0, gt=0.0)
+    imu_baseline_alpha: float = Field(default=0.02, gt=0.0, lt=1.0)  # EMA weight of the acceleration baseline
+    tilt_warn_deg: float = Field(default=10.0, gt=0.0)
+    tilt_hysteresis_deg: float = Field(default=2.0, ge=0.0)
+    debounce_default_s: float = Field(default=30.0, ge=0.0)  # min time between repeats of one (type, source) event
+    debounce_s: dict[str, float] = Field(
+        default_factory=lambda: {"bump": 2.0, "collision_stop": 5.0, "stall": 5.0, "human_takeover": 5.0}
+    )
+    history_size: int = Field(default=200, ge=10)
+    digest_max_events: int = Field(default=20, ge=1)
+
+    @model_validator(mode="after")
+    def thresholds_in_order(self) -> "MonitorSettings":
+        """Require every critical threshold above its warning threshold.
+
+        Returns:
+            MonitorSettings: The validated settings.
+        """
+        pairs = (
+            (self.servo_temp_warn_c, self.servo_temp_critical_c, "servo_temp"),
+            (self.cpu_temp_warn_c, self.cpu_temp_critical_c, "cpu_temp"),
+            (self.bump_warn_mps2, self.bump_critical_mps2, "bump"),
+        )
+        for warn, critical, name in pairs:
+            if not warn < critical:
+                raise ValueError(f"monitor {name}: critical threshold must be above the warning threshold")
+        return self
+
+
 class McpServerConfig(StrictModel):
     """Top-level mcp_server configuration."""
 
@@ -197,6 +257,7 @@ class McpServerConfig(StrictModel):
     nav: NavSettings = NavSettings()
     arm: ArmSettings = ArmSettings()
     battery: BatteryConfig | None = None  # absent: battery cut-off gate off, nothing refused
+    monitor: MonitorSettings = MonitorSettings()
 
 
 def load_config(path: Path) -> McpServerConfig:

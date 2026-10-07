@@ -130,6 +130,7 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "set_gripper",
         "arm_home",
         "arm_set_home",
+        "get_body_state",
     }
     for t in tools:
         assert t.description and len(t.description) > 60, t.name

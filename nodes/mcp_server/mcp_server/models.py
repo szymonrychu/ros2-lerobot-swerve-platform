@@ -1,6 +1,6 @@
 """Pydantic result models returned by the robot interface and exposed as MCP structured tool outputs."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,7 @@ ArmMotionStatus = Literal[
     "unreachable",
     "grasped",
     "closed_no_contact",
+    "interrupted",
 ]
 
 
@@ -131,6 +132,21 @@ class ArmMotionResult(BaseModel):
         "tolerance: target - measured (rad). Their target stays commanded.",
     )
     duration_s: float = 0.0
+    interrupted_by: str | None = Field(
+        default=None,
+        description="Critical robot event type that ended the motion early (status 'interrupted'; also set on "
+        "'aborted_tracking' as 'stall'); null otherwise",
+    )
+    expected: dict[str, float] | None = Field(default=None, description="Goal joint positions (rad), same as target")
+    achieved: dict[str, float] | None = Field(
+        default=None, description="Final measured joint positions (rad), same as positions"
+    )
+    expected_tool_pose: dict[str, float] | None = Field(
+        default=None, description="Requested tool point (move_arm_cartesian): x, y, z (m) and pitch (rad) if given"
+    )
+    achieved_tool_pose: dict[str, float] | None = Field(
+        default=None, description="Tool point x, y, z (m), pitch (rad) from the final measured joints (move_arm_cartesian)"
+    )
 
 
 class ControlResult(BaseModel):
@@ -163,10 +179,18 @@ class CameraFrame(BaseModel):
 class NavigationResult(BaseModel):
     """Outcome of a NavigateToPose goal."""
 
-    status: str = Field(description="succeeded, aborted, canceled, rejected, timeout or unknown")
+    status: str = Field(
+        description="succeeded, aborted, canceled, rejected, timeout, interrupted or unknown"
+    )
     message: str = ""
     goal: BasePose | None = None
     final_pose: BasePose | None = None
+    interrupted_by: str | None = Field(
+        default=None, description="Critical robot event type that cancelled the goal (status 'interrupted')"
+    )
+    expected: BasePose | None = Field(default=None, description="Goal pose (same as goal)")
+    achieved: BasePose | None = Field(default=None, description="Final measured pose (same as final_pose)")
+    duration_s: float = 0.0
 
 
 class StopResult(BaseModel):
@@ -176,3 +200,138 @@ class StopResult(BaseModel):
     base_zeroed: bool
     arm_held: bool
     message: str = ""
+
+
+EventSeverity = Literal["info", "warning", "critical"]
+
+
+class RobotEvent(BaseModel):
+    """One robot body event, published as JSON on /robot_events (contract consumed by claude_agent)."""
+
+    model_config = {"frozen": True}
+
+    seq: int = Field(description="Monotonic sequence number, starts at 1 per mcp_server process")
+    ts: float = Field(description="Wall-clock epoch seconds")
+    type: str = Field(description="Event type, e.g. overheat, servo_error, battery_low, collision_stop, stall, bump")
+    severity: EventSeverity
+    source: str = Field(description="What raised it: servo joint name, polygon, 'battery', 'imu', 'cpu', ...")
+    message: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class ServoVitals(BaseModel):
+    """Latest register dump values of one servo (units: raw register values unless named otherwise)."""
+
+    temperature_c: int | None = None
+    load_raw: int | None = Field(default=None, description="present_load register (raw, sign-magnitude as dumped)")
+    current_raw: int | None = Field(default=None, description="present_current register (raw)")
+    voltage_v: float | None = Field(default=None, description="present_voltage register x 0.1 V")
+    status: int | None = Field(default=None, description="status register (0 = no error)")
+    status_flags: list[str] = Field(default_factory=list)
+    age_s: float
+
+
+class HottestServo(BaseModel):
+    """The servo with the highest temperature."""
+
+    joint: str
+    temperature_c: int
+
+
+class BatteryVitals(BaseModel):
+    """Battery pack voltage against the cut-off."""
+
+    voltage_v: float | None = None
+    cell_v: float | None = None
+    cells: int
+    cutoff_v: float
+    warn_v: float
+    margin_to_cutoff_v: float | None = None
+    cutoff: bool | None = Field(default=None, description="Cut-off state (null when the reading is stale/unknown)")
+    stale: bool
+    age_s: float | None = None
+
+
+class BumpInfo(BaseModel):
+    """Last detected IMU bump."""
+
+    ts: float
+    magnitude_mps2: float
+    severity: EventSeverity
+    age_s: float
+
+
+class ImuVitals(BaseModel):
+    """IMU attitude and last bump."""
+
+    roll_deg: float
+    pitch_deg: float
+    tilt_deg: float
+    age_s: float
+    last_bump: BumpInfo | None = None
+
+
+class WheelSlipVitals(BaseModel):
+    """Swerve forward-kinematics residual decoded from the /odom twist covariance."""
+
+    residual_mps: float | None = Field(default=None, description="null while parked (fixed covariance)")
+    parked: bool
+    age_s: float
+
+
+class CommandedSpeed(BaseModel):
+    """Latest velocity command on cmd_vel."""
+
+    vx: float
+    vy: float
+    wz: float
+    linear_mps: float
+    age_s: float
+
+
+class MeasuredSpeed(BaseModel):
+    """Measured base speed from the fresh odometry sources (null per source when stale/missing)."""
+
+    odom_mps: float | None = None
+    rf2o_mps: float | None = None
+    odom_wz: float | None = None
+    rf2o_wz: float | None = None
+
+
+class BaseSpeed(BaseModel):
+    """Commanded versus measured base speed."""
+
+    commanded: CommandedSpeed | None = None
+    measured: MeasuredSpeed | None = None
+    base_motion_running: bool = False
+
+
+class CpuVitals(BaseModel):
+    """RPi CPU temperature and throttling."""
+
+    temp_c: float | None = None
+    throttled: bool | None = Field(default=None, description="Firmware throttling/under-voltage now; null if unreadable")
+    throttled_raw: int | None = None
+
+
+class ControlVitals(BaseModel):
+    """Arm source arbitration."""
+
+    active_source: str | None = None
+    active_source_age_s: float | None = None
+    control_held: bool = Field(description="Whether this server holds the autonomy lease")
+
+
+class BodyState(BaseModel):
+    """Body vitals; missing data is null (never fabricated), with notes."""
+
+    servos: dict[str, ServoVitals] = Field(default_factory=dict)
+    hottest_servo: HottestServo | None = None
+    battery: BatteryVitals | None = None
+    imu: ImuVitals | None = None
+    wheel_slip: WheelSlipVitals | None = None
+    base_speed: BaseSpeed
+    cpu: CpuVitals
+    control: ControlVitals
+    recent_events: list[RobotEvent] = Field(default_factory=list, description="Last 10 events, oldest first")
+    notes: list[str] = Field(default_factory=list)

@@ -2,21 +2,23 @@
 
 import base64
 import hmac
+import json
 import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Any, Literal
 
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
-from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 from ros2_common.battery import BatteryGuard
 from starlette.applications import Starlette
 
-from .arm import ArmController, ArmError
+from . import body_tools
+from .arm import ArmError
 from .base_motion import DriveError, DriveOutcome
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, McpServerConfig
 from .models import (
@@ -31,6 +33,8 @@ from .models import (
     RobotState,
     StopResult,
 )
+from .monitor import RobotMonitor
+from .tool_context import RobotApi, ToolContext
 
 SERVER_NAME = "robot"
 TOKEN_CLIENT_ID = "robot-mcp-client"
@@ -50,6 +54,7 @@ TOOL_NAMES = (
     "set_gripper",
     "arm_home",
     "arm_set_home",
+    "get_body_state",
 )
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
 # MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
@@ -76,8 +81,11 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         "get_arm_state",
         "acquire_control",
         "release_control",
+        "get_body_state",
     }
 )
+DIGEST_EVENTS_KEY = "robot_events_since_last_call"
+DIGEST_VITALS_KEY = "vitals"
 LOGGER = logging.getLogger("mcp_server.tools")
 INSTRUCTIONS = """Controls a swerve-drive mobile robot with an SO101 5-DOF arm and gripper (ROS 2 Jazzy, Nav2, SLAM).
 Frames: 'map' is the SLAM map (x/y metres, yaw radians CCW); 'base_link' is the robot (x forward, y left).
@@ -85,43 +93,13 @@ Look before moving: call get_robot_state, get_map_summary and get_camera_image f
 move_relative (Nav2 plans around obstacles) over drive. Arm motions are slow, clamped to joint limits and abort on
 stale feedback or tracking error. Arm control (the autonomy lease) is sticky: once taken (acquire_control or any arm
 motion) the leader arm and web UI are ignored until you call release_control, so release it as soon as you are done
-with the arm. Call stop at once if anything looks wrong; it is always available."""
+with the arm. Call stop at once if anything looks wrong; it is always available. Every tool result ends with
+robot_events_since_last_call (body events such as overheat, collision_stop, stall, bump, battery_low raised since the
+previous tool call) and a vitals one-liner (battery V, hottest servo C, CPU C); get_body_state gives the full picture.
+A motion that ends with status 'interrupted' was stopped safely because of a critical event (interrupted_by): read
+the event, check get_body_state and decide before moving again. Motion results compare expected with achieved."""
 
 Camera = Literal["gripper", "front"]
-
-
-class RobotApi(Protocol):
-    """Robot operations the tools call (implemented by ros_iface.RosRobot, faked in tests)."""
-
-    arm: ArmController
-
-    def robot_state(self) -> RobotState:
-        """Robot snapshot."""
-        ...
-
-    def camera_image(self, camera: str, max_px: int) -> CameraFrame:
-        """One fresh camera frame."""
-        ...
-
-    def map_summary(self, include_png: bool, radius_m: float, png_max_px: int) -> tuple[MapSummary, bytes | None]:
-        """Obstacle sectors, map stats and optional PNG crop."""
-        ...
-
-    def navigate(self, x: float, y: float, yaw: float, frame: str, timeout_s: float) -> NavigationResult:
-        """Blocking NavigateToPose."""
-        ...
-
-    def move_relative(self, dx: float, dy: float, dyaw: float, timeout_s: float) -> NavigationResult:
-        """Blocking NavigateToPose relative to base_link."""
-        ...
-
-    def drive(self, vx: float, vy: float, wz: float, duration_s: float) -> DriveOutcome:
-        """Timed velocity command."""
-        ...
-
-    def stop(self) -> StopResult:
-        """Cancel navigation, zero the base, hold the arm only if this server controls it."""
-        ...
 
 
 class StaticTokenVerifier:
@@ -175,9 +153,63 @@ def image_content(data: bytes, mime_type: str) -> ImageContent:
     return ImageContent(type="image", data=base64.b64encode(data).decode(), mime_type=mime_type)
 
 
+class RobotMCPServer(MCPServer):
+    """MCPServer that appends the robot event digest and vitals to the result of EVERY tool call.
+
+    Overriding call_tool (the single entry the MCP request handler goes through) covers all current and future tools
+    without any per-tool code. The digest holds the events raised since the previous tool call on this server (one
+    global cursor, not per MCP session) and a one-line vitals summary.
+    """
+
+    def __init__(self, *args: Any, monitor: RobotMonitor, **kwargs: Any) -> None:
+        """Create the server.
+
+        Args:
+            *args (Any): MCPServer positional arguments.
+            monitor (RobotMonitor): Source of the digest.
+            **kwargs (Any): MCPServer keyword arguments.
+        """
+        super().__init__(*args, **kwargs)
+        self.monitor = monitor
+
+    async def call_tool(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
+        """Run a tool, then attach the digest to its result (or to its error message).
+
+        Args:
+            name (str): Tool name.
+            arguments (dict[str, Any]): Tool arguments.
+            context (Any): Request context passed through to MCPServer.
+
+        Returns:
+            Any: The tool result with robot_events_since_last_call and vitals added.
+        """
+        try:
+            result = await super().call_tool(name, arguments, context)
+        except UnexpectedToolError:
+            raise
+        except ToolError as exc:
+            events, vitals = self.monitor.digest()
+            raise ToolError(f"{exc}\n{json.dumps({DIGEST_EVENTS_KEY: events, DIGEST_VITALS_KEY: vitals})}") from exc
+        if not isinstance(result, CallToolResult):
+            return result
+        events, vitals = self.monitor.digest()
+        payload = {DIGEST_EVENTS_KEY: events, DIGEST_VITALS_KEY: vitals}
+        update: dict[str, Any] = {"content": [*result.content, TextContent(type="text", text=json.dumps(payload))]}
+        if result.structured_content is not None:
+            update["structured_content"] = {**result.structured_content, **payload}
+        else:  # unstructured (image) tools stay unstructured so clients keep rendering their content
+            update["meta"] = {**(result.meta or {}), **payload}
+        return result.model_copy(update=update)
+
+
 def build_mcp_server(
-    robot: RobotApi, config: McpServerConfig, token: str, guard: BatteryGuard | None = None
-) -> MCPServer:
+    robot: RobotApi,
+    config: McpServerConfig,
+    token: str,
+    guard: BatteryGuard | None = None,
+    monitor: RobotMonitor | None = None,
+    extra_modules: tuple[Callable[[ToolContext], None], ...] = (),
+) -> RobotMCPServer:
     """Create the MCP server with every robot tool, protected by a static bearer token.
 
     Args:
@@ -185,9 +217,11 @@ def build_mcp_server(
         config (McpServerConfig): Node configuration.
         token (str): Bearer token clients must send.
         guard (BatteryGuard | None): Battery cut-off guard; None disables the gate.
+        monitor (RobotMonitor | None): Body monitor (digest, get_body_state); a standalone one when None.
+        extra_modules (tuple[Callable[[ToolContext], None], ...]): Additional tool modules (tests).
 
     Returns:
-        MCPServer: Configured server.
+        RobotMCPServer: Configured server.
     """
     if not token:
         raise ValueError("a bearer token is required")
@@ -196,22 +230,49 @@ def build_mcp_server(
         resource_server_url=None,
         required_scopes=[],
     )
-    server = MCPServer(SERVER_NAME, instructions=INSTRUCTIONS, token_verifier=StaticTokenVerifier(token), auth=auth)
-    register_tools(server, robot, config, guard)
+    monitor = monitor or RobotMonitor(config.monitor, guard, autonomy_source=config.arm.autonomy_source_name)
+    server = RobotMCPServer(
+        SERVER_NAME,
+        instructions=INSTRUCTIONS,
+        token_verifier=StaticTokenVerifier(token),
+        auth=auth,
+        monitor=monitor,
+    )
+    register_tools(server, robot, config, guard, monitor, extra_modules)
     return server
 
 
 def register_tools(
-    server: MCPServer, robot: RobotApi, config: McpServerConfig, guard: BatteryGuard | None = None
+    server: MCPServer,
+    robot: RobotApi,
+    config: McpServerConfig,
+    guard: BatteryGuard | None = None,
+    monitor: RobotMonitor | None = None,
+    extra_modules: tuple[Callable[[ToolContext], None], ...] = (),
 ) -> None:
-    """Register all robot tools on a server.
+    """Register every tool module (TOOL_MODULES plus extra_modules) with one shared ToolContext.
 
     Args:
         server (MCPServer): Target server.
         robot (RobotApi): Robot implementation.
         config (McpServerConfig): Node configuration.
         guard (BatteryGuard | None): Battery cut-off guard; motion tools are refused while it is in cut-off.
+        monitor (RobotMonitor | None): Body monitor; a standalone one when None.
+        extra_modules (tuple[Callable[[ToolContext], None], ...]): Additional tool modules.
     """
+    monitor = monitor or RobotMonitor(config.monitor, guard, autonomy_source=config.arm.autonomy_source_name)
+    ctx = ToolContext(server=server, robot=robot, config=config, guard=guard, monitor=monitor)
+    for module in (*TOOL_MODULES, *extra_modules):
+        module(ctx)
+
+
+def register_core_tools(ctx: ToolContext) -> None:
+    """Register the base, arm, camera and map tools.
+
+    Args:
+        ctx (ToolContext): Shared registration context.
+    """
+    server, robot, config, guard = ctx.server, ctx.robot, ctx.config, ctx.guard
     tool: Callable[..., Callable[[Callable[..., object]], Callable[..., object]]] = server.tool
     nav_default = config.timeouts.nav_default_timeout_s
     nav_max = config.timeouts.nav_max_timeout_s
@@ -478,6 +539,11 @@ def register_tools(
         with tool_errors():
             pose = robot.arm.set_home()
         return HomeSetResult(home=pose, path=str(config.arm.home_file))
+
+
+# The one place tool modules are registered: a new module (e.g. perception tools) is one function taking a ToolContext
+# and one entry here.
+TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (register_core_tools, body_tools.register)
 
 
 def build_app(server: MCPServer, config: McpServerConfig) -> Starlette:
