@@ -328,7 +328,7 @@ def test_claude_agent_package_layout_and_pinned_sdk() -> None:
 
 def test_claude_agent_readme_documents_api_and_token_deploy() -> None:
     text = (NODE_DIR / "README.md").read_text()
-    for needle in ("/api/state", "/api/message", "/api/stop", "/api/reset", "/ws/events", "effector_call_cap"):
+    for needle in ("/api/state", "/api/message", "/api/stop", "/api/reset", "/ws/events", "set_task_budget", "max_ro_cap", "/robot_events"):
         assert needle in text, needle
     assert f"export {TOKEN_VAR}=" in text and "./scripts/deploy-nodes.sh client claude_agent" in text
 
@@ -455,3 +455,11 @@ def test_claude_agent_config_workdir_state_dir_and_hardware_facts() -> None:
     home = [e for e in client_vars()["ros2_node_type_defaults"]["claude_agent"]["env"] if e.startswith("HOME=")]
     assert home == [f"HOME={STATE_DIR}"], "HOME stays separate from (and above) the workdir"
     assert raw["workdir"] != home[0].split("=", 1)[1]
+
+
+def test_claude_agent_config_has_budget_maxima_and_robot_events_topic() -> None:
+    """The agent picks its own ro/rw/turn budget under hard maxima; the static caps are gone; events come from /robot_events."""
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    assert (raw["max_ro_cap"], raw["max_rw_cap"], raw["max_turn_cap"]) == (300, 100, 150)
+    assert "effector_call_cap" not in raw and "max_turns" not in raw
+    assert raw["robot_events_topic"] == "/robot_events"

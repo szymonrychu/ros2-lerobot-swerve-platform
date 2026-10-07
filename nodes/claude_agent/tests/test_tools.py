@@ -1,4 +1,4 @@
-"""Tool classification, effector cap counting and permission denial."""
+"""Tool classification, budget gating (ro/rw counting) and permission denial."""
 
 from pathlib import Path
 
@@ -8,7 +8,6 @@ from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny, ToolPe
 from claude_agent.config import ClaudeAgentConfig
 from claude_agent.tools import (
     BUILTIN_TOOLS,
-    CAP_MESSAGE,
     NOTES_TOOLS,
     EffectorGate,
     classify_tool,
@@ -57,40 +56,96 @@ def test_builtin_tools_cover_the_dangerous_ones() -> None:
         assert name in BUILTIN_TOOLS
 
 
-async def test_sensor_and_uncapped_never_counted(config: ClaudeAgentConfig) -> None:
-    gate = EffectorGate(ClaudeAgentConfig(effector_call_cap=1))
-    for _ in range(50):
-        assert isinstance(await gate.can_use_tool("mcp__robot__get_camera_image", {}, ctx()), PermissionResultAllow)
-        assert isinstance(await gate.can_use_tool("mcp__robot__stop", {}, ctx()), PermissionResultAllow)
-    assert gate.used == 0
+SET_BUDGET = "mcp__agent__set_task_budget"
 
 
-async def test_effector_calls_counted_then_denied() -> None:
+def gate_with_budget(ro: int = 3, rw: int = 2, turns: int = 20, **kwargs) -> EffectorGate:
+    gate = EffectorGate(ClaudeAgentConfig(), **kwargs)
+    gate.budget.set_budget("simple", ro, rw, turns, "test")
+    return gate
+
+
+def test_classify_set_task_budget(config: ClaudeAgentConfig) -> None:
+    assert classify_tool(config, SET_BUDGET) == "budget"
+    assert short_name(SET_BUDGET) == "set_task_budget"
+    assert classify_tool(config, "mcp__agent__other") is None
+
+
+async def test_every_robot_tool_denied_until_a_budget_is_set() -> None:
     denied: list[dict] = []
-    gate = EffectorGate(ClaudeAgentConfig(effector_call_cap=2), on_denied=denied.append)
-    assert isinstance(await gate.can_use_tool("mcp__robot__drive", {"x": 0.1}, ctx("a")), PermissionResultAllow)
-    assert isinstance(await gate.can_use_tool("mcp__robot__set_gripper", {}, ctx("b")), PermissionResultAllow)
-    assert gate.used == 2
-    result = await gate.can_use_tool("mcp__robot__drive", {}, ctx("c"))
+    gate = EffectorGate(ClaudeAgentConfig(), on_denied=denied.append)
+    for name in ("get_robot_state", "get_camera_image", "drive", "move_arm_joints"):
+        result = await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx("t"))
+        assert isinstance(result, PermissionResultDeny)
+        assert result.message == "call agent.set_task_budget first"
+    assert len(denied) == 4 and denied[0] == {"id": "t", "name": "get_robot_state", "reason": result.message}
+    assert gate.budget.ro_used == 0 and gate.budget.rw_used == 0
+
+
+async def test_set_task_budget_and_notes_tools_allowed_without_a_budget(workdir: Path) -> None:
+    gate = EffectorGate(ClaudeAgentConfig(workdir=str(workdir)))
+    assert isinstance(await gate.can_use_tool(SET_BUDGET, {}, ctx()), PermissionResultAllow)
+    assert isinstance(await gate.can_use_tool("Read", {"file_path": "NOTES.md"}, ctx()), PermissionResultAllow)
+
+
+async def test_stop_and_control_tools_always_allowed_and_never_counted() -> None:
+    gate = EffectorGate(ClaudeAgentConfig())
+    for name in ("stop", "acquire_control", "release_control"):
+        assert isinstance(await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx()), PermissionResultAllow)
+    gate.budget.set_budget("simple", 1, 1, 5, "x")
+    for _ in range(20):
+        assert isinstance(await gate.can_use_tool("mcp__robot__stop", {}, ctx()), PermissionResultAllow)
+    assert (gate.budget.ro_used, gate.budget.rw_used) == (0, 0)
+
+
+async def test_ro_and_rw_counted_separately_then_denied() -> None:
+    denied: list[dict] = []
+    gate = gate_with_budget(ro=2, rw=1, on_denied=denied.append)
+    for name in ("get_robot_state", "get_arm_state"):
+        assert isinstance(await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx()), PermissionResultAllow)
+    result = await gate.can_use_tool("mcp__robot__get_camera_image", {}, ctx("c"))
     assert isinstance(result, PermissionResultDeny)
-    assert result.message == "effector call cap reached (2 per instruction); stop and report to the user"
-    assert gate.used == 2
-    assert denied == [{"id": "c", "name": "drive", "reason": result.message}]
-    # stop still allowed at the cap
+    assert result.message == (
+        "ro budget exhausted (2/2); stop and report or raise the budget once with set_task_budget giving a reason"
+    )
+    assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
+    result = await gate.can_use_tool("mcp__robot__set_gripper", {}, ctx("d"))
+    assert isinstance(result, PermissionResultDeny) and result.message.startswith("rw budget exhausted (1/1)")
+    assert (gate.budget.ro_used, gate.budget.rw_used) == (2, 1)
+    assert denied[0]["id"] == "c" and denied[0]["name"] == "get_camera_image"
     assert isinstance(await gate.can_use_tool("mcp__robot__stop", {}, ctx()), PermissionResultAllow)
 
 
-def test_cap_message_default_text() -> None:
-    assert CAP_MESSAGE.format(cap=30) == "effector call cap reached (30 per instruction); stop and report to the user"
+async def test_unknown_robot_tool_counts_as_rw() -> None:
+    gate = gate_with_budget(rw=1)
+    assert isinstance(await gate.can_use_tool("mcp__robot__new_motion_tool", {}, ctx()), PermissionResultAllow)
+    assert gate.budget.rw_used == 1
 
 
-async def test_reset_clears_counter() -> None:
-    gate = EffectorGate(ClaudeAgentConfig(effector_call_cap=1))
+async def test_notes_tools_are_not_counted(workdir: Path) -> None:
+    gate = EffectorGate(ClaudeAgentConfig(workdir=str(workdir)))
+    gate.budget.set_budget("simple", 1, 1, 5, "x")
+    for _ in range(10):
+        assert isinstance(await gate.can_use_tool("Read", {"file_path": "NOTES.md"}, ctx()), PermissionResultAllow)
+    assert (gate.budget.ro_used, gate.budget.rw_used) == (0, 0)
+
+
+async def test_budget_raise_allowed_once_then_denied_by_the_gate() -> None:
+    gate = gate_with_budget()
+    assert isinstance(await gate.can_use_tool(SET_BUDGET, {}, ctx()), PermissionResultAllow)
+    gate.budget.set_budget("moderate", 10, 5, 30, "raise")
+    result = await gate.can_use_tool(SET_BUDGET, {}, ctx("r"))
+    assert isinstance(result, PermissionResultDeny) and "already raised" in result.message
+
+
+async def test_reset_clears_the_budget_and_counters() -> None:
+    gate = gate_with_budget(rw=1)
     await gate.can_use_tool("mcp__robot__drive", {}, ctx())
     assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultDeny)
     gate.reset()
-    assert gate.used == 0
-    assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
+    assert gate.budget.budget is None and gate.budget.rw_used == 0
+    result = await gate.can_use_tool("mcp__robot__drive", {}, ctx())
+    assert isinstance(result, PermissionResultDeny) and result.message == "call agent.set_task_budget first"
 
 
 @pytest.mark.parametrize("name", ["Bash", "WebFetch", "Task", "mcp__other__thing", "mcp__claude_ai__x"])
@@ -101,15 +156,17 @@ async def test_everything_else_denied(name: str) -> None:
     assert isinstance(result, PermissionResultDeny)
     assert "not available" in result.message
     assert denied[0]["name"] == name and denied[0]["id"] == "z"
-    assert gate.used == 0
+    assert gate.budget.rw_used == 0
 
 
 async def test_count_change_callback() -> None:
-    seen: list[int] = []
-    gate = EffectorGate(ClaudeAgentConfig(), on_count=seen.append)
+    seen: list[None] = []
+    gate = EffectorGate(ClaudeAgentConfig(), on_count=lambda: seen.append(None))
+    gate.budget.set_budget("simple", 5, 5, 5, "x")
+    seen.clear()
     await gate.can_use_tool("mcp__robot__drive", {}, ctx())
-    await gate.can_use_tool("mcp__robot__drive", {}, ctx())
-    assert seen == [1, 2]
+    await gate.can_use_tool("mcp__robot__get_robot_state", {}, ctx())
+    assert len(seen) == 2
 
 
 # --- file tools for notes, sandboxed to the workdir ---------------------------------------------------------------
@@ -123,7 +180,7 @@ def workdir(tmp_path: Path) -> Path:
 
 
 def notes_gate(workdir: Path, **kwargs) -> EffectorGate:
-    return EffectorGate(ClaudeAgentConfig(workdir=str(workdir), effector_call_cap=1), **kwargs)
+    return EffectorGate(ClaudeAgentConfig(workdir=str(workdir)), **kwargs)
 
 
 def test_notes_tools_constant_and_builtin_list() -> None:
@@ -166,10 +223,11 @@ async def test_glob_grep_without_path_default_to_workdir(workdir: Path, tool: st
 
 async def test_notes_tools_never_counted(workdir: Path) -> None:
     gate = notes_gate(workdir)
+    gate.budget.set_budget("simple", 5, 5, 20, "x")
     for _ in range(20):
         for tool in NOTES_TOOLS:
             await gate.can_use_tool(tool, {"file_path": "NOTES.md", "path": "."}, ctx())
-    assert gate.used == 0
+    assert gate.budget.rw_used == 0
     assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
 
 
@@ -192,7 +250,7 @@ async def test_notes_outside_workdir_denied(workdir: Path, tmp_path: Path, tool:
         assert isinstance(result, PermissionResultDeny), bad
         assert "workdir" in result.message
     assert denied[0]["id"] == "t9" and denied[0]["name"] == tool
-    assert gate.used == 0
+    assert gate.budget.rw_used == 0
 
 
 async def test_notes_symlink_escape_denied(workdir: Path, tmp_path: Path) -> None:

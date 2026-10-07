@@ -4,13 +4,25 @@ from claude_agent.config import ClaudeAgentConfig
 from claude_agent.prompt import build_system_prompt
 
 
-def test_prompt_states_caps_from_config() -> None:
-    text = build_system_prompt(ClaudeAgentConfig(max_turns=17, effector_call_cap=9))
-    assert "9 effector" in text
-    assert "17 turns" in text
-    assert "unlimited" in text.lower()
-    assert "30 effector" not in text
-    assert "50 turns" not in text
+def test_prompt_explains_the_budget_workflow() -> None:
+    text = build_system_prompt(ClaudeAgentConfig(max_ro_cap=200, max_rw_cap=60, max_turn_cap=90))
+    lower = text.lower()
+    assert "set_task_budget" in text and "agent" in text
+    first = lower.index("first judge")
+    assert first < lower.index("working method")
+    for phrase in ("trivial", "simple", "moderate", "complex", "very_complex", "without waiting for approval"):
+        assert phrase in lower
+    for guidance in ("ro 5-10", "rw 0", "ro 10-20", "rw 3-8", "ro 40-80", "rw 25-50", "turns 40-80"):
+        assert guidance in lower
+    assert "200" in text and "60" in text and "90" in text
+    assert "once" in lower and "raise" in lower
+    assert "call agent.set_task_budget first" in lower or "refused until" in lower
+
+
+def test_prompt_has_no_old_static_caps() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    assert "30 effector" not in text and "50 turns" not in text
+    assert "unlimited" not in text.lower()
 
 
 def test_prompt_lists_tools_by_kind(config: ClaudeAgentConfig) -> None:

@@ -13,15 +13,17 @@ web_ui (later: proxy)  --HTTP/WS-->  claude_agent (127.0.0.1:18300)
                                   mcp_server  http://127.0.0.1:18200/mcp  (bearer token)  ->  robot
 ```
 
-- `__main__.py`: starts an rclpy node (`claude_agent`, used for ROS2 logging and shutdown only; the agent needs no ROS
-  topics, robot access is through MCP) and runs FastAPI on uvicorn, bound to **127.0.0.1** only. The API is
+- `__main__.py`: starts an rclpy node (`claude_agent`, used for ROS2 logging and the `/robot_events` subscription, spun by a
+  background executor thread; robot access is through MCP) and runs FastAPI on uvicorn, bound to **127.0.0.1** only. The API is
   unauthenticated by design; the web UI is the only client.
 - `runner.py`: one `ClaudeSDKClient` session (fresh on service start, created at the first instruction; `POST /api/reset`
   starts a new one), one instruction at a time. The MCP token file is read when a session is created and never logged.
+- `budget.py`: the agent-chosen task budget (`BudgetTracker`, hard maxima, the single raise) and the in-process SDK MCP server `agent` with the tool `set_task_budget` (see "Task budget").
+- `robot_events.py`: parsing of the `/robot_events` JSON and the follow-up text (see "Robot events and interrupts").
 - `tools.py`: `EffectorGate`, the `can_use_tool` callback. The only built-in tools are the five notes file tools
   (`tools=[Read, Write, Edit, Glob, Grep]`, see "Workdir and notes"); everything else is disabled (a deny list for Bash,
   WebFetch, WebSearch, Task/Agent, TodoWrite, NotebookEdit, AskUserQuestion, plan mode, ...) and no allow rules exist, so
-  calls reach the gate: `mcp__robot__*` and the sandboxed file tools are allowed, everything else denied.
+  calls reach the gate: `mcp__robot__*` (within the budget), `mcp__agent__set_task_budget` and the sandboxed file tools are allowed, everything else denied.
 - `robot_stop.py`: calls the robot MCP `stop` tool directly with the official `mcp` client (Streamable HTTP, bearer token
   from the token file; `mcp` is pinned in `pyproject.toml`). It never raises: failures come back as an error result.
 - `events.py`: persisted event log (see "Session log and paged history") plus normalization of SDK messages (thumbnails
@@ -40,7 +42,7 @@ File tools: the built-in `Read`, `Write`, `Edit`, `Glob` and `Grep` are enabled 
 checks `file_path` (Read/Write/Edit) or `path` (Glob/Grep; absent means the workdir), resolves relative paths against the
 workdir and symlinks with `os.path.realpath`, and denies anything outside with a `tool_denied` event (absolute paths,
 `../`, `~`, symlink escapes; Glob `pattern` and Grep `glob` must be relative without `..`). These tools are never counted
-against the effector cap. (The CLI may auto-allow in-cwd reads without asking the gate, which is within the workdir
+against the budget. (The CLI may auto-allow in-cwd reads without asking the gate, which is within the workdir
 anyway.) Their `tool_call` events have `kind: "notes"` and the tool name as `name` (`Read`, `Write`, ...); the web UI shows
 them like other tool calls.
 
@@ -55,21 +57,59 @@ the events is dropped. `POST /api/reset` deletes the file and the buffer entirel
 event after a reset is a `state` with `seq` 1, so clients should clear their transcript when `seq` goes backwards; connected `/ws/events` clients additionally receive an empty `{type:"history", events:[]}` frame at the reset, after which new events stream normally); the
 workdir is not touched.
 
-## Caps
+## Task budget
 
-Per instruction (reset at each `POST /api/message`):
+There are no static per-instruction caps. For each instruction the agent judges the task and sets its own budget, then
+starts working at once (no approval step). The budget has three counters, all reset at each `POST /api/message`:
 
-| Class | Tools (default) | Cap |
+| Counter | Counts | Hard maximum (config) |
 |---|---|---|
-| sensor | `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state` | none |
-| uncapped | `stop`, `acquire_control`, `release_control` | none, never counted |
-| effector | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home` | `effector_call_cap` (30) |
+| `ro` (read-only) | robot sensor calls (kind `sensor`: `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`) | `max_ro_cap` (300) |
+| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`; a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (100) |
+| turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (150) |
 
-Past the cap an effector call is denied with `effector call cap reached (30 per instruction); stop and report to the
-user` (a `tool_denied` event). A robot tool that is in none of the lists is treated as an effector (capped), so a new
-motion tool is safe by default. `max_turns` (50) bounds the model turns per instruction. Keep `effector_tools` equal to
-the motion classification of `nodes/mcp_server` (`MOTION_TOOLS` once defined there; `tests/test_claude_agent_config.py`
-checks it).
+Not counted: the notes file tools, `set_task_budget`, and the control tools `stop`, `acquire_control`, `release_control`
+(`stop` must always work). Keep `effector_tools` equal to the motion classification of `nodes/mcp_server` (`MOTION_TOOLS`;
+`tests/test_claude_agent_config.py` checks it).
+
+The in-process SDK MCP server `agent` (`claude_agent_sdk.create_sdk_mcp_server`) offers one tool,
+`mcp__agent__set_task_budget(complexity, ro_cap, rw_cap, turn_cap, rationale)`:
+
+- `complexity` is `trivial`, `simple`, `moderate`, `complex` or `very_complex`; `ro_cap` and `turn_cap` are integers >= 1, `rw_cap`
+  an integer >= 0 (0 for a task where nothing moves); values above the hard maxima are clamped and the result says which.
+- The gate (`tools.py`, `can_use_tool`) denies every sensor and effector tool with `call agent.set_task_budget first` until a
+  budget is set for the instruction. The notes tools (so the agent can read `NOTES.md` first), `set_task_budget` and the
+  control tools stay allowed.
+- After that every call is counted and denied past its cap: `ro budget exhausted (N/N); stop and report or raise the budget
+  once with set_task_budget giving a reason` (a `tool_denied` event).
+- The budget can be raised once per instruction: a second `set_task_budget` call needs a non-empty `rationale` (still within the
+  hard maxima, usage is kept) and is reported with `raised: true`; a third call is denied.
+- Turn cap: the runner counts model turns. When the agent-set `turn_cap` is used up (checked when the tool results of the cap-th
+  turn arrive, so that turn's calls complete) it interrupts the model, stops the robot (`robot_stop`, source `turn_cap`) and ends the
+  instruction with `turn_end` status `turn_cap`. Before a budget is set only the SDK's absolute `max_turns` applies.
+- The SDK `max_turns` is not a config key any more: it is `max_turn_cap + 10` (`TURN_MARGIN`), a backstop above the hard maximum.
+  The old keys `max_turns` and `effector_call_cap` are rejected as unknown.
+
+The system prompt tells the agent to judge the complexity first, call `set_task_budget` and start immediately, with this
+guidance: trivial look or answer ro 5-10, rw 0; simple single move ro 10-20, rw 3-8; pick-and-place ro 40-80, rw 25-50, turns
+40-80; exploration larger; plus the hard maxima and the single raise.
+
+## Robot events and interrupts
+
+The node subscribes to `robot_events_topic` (`/robot_events`, `std_msgs/String`, BEST_EFFORT + VOLATILE QoS, published by the
+mcp_server event monitor). Payload JSON: `{seq, ts, type, severity: info|warning|critical, source, message, data}`;
+critical types include `collision_stop`, `battery_cutoff`, `overheat`, `servo_error`, `stall`, `human_takeover`, `bump`.
+A background `SingleThreadedExecutor` thread runs the callback, which hands the raw text to the asyncio loop with
+`loop.call_soon_threadsafe` (`AgentRunner.post_robot_event`); invalid payloads are dropped.
+
+- Every event is kept (last `robot_events_history`, 50) and emitted as a `robot_event` chat event (also while idle).
+- While an instruction is being worked on, a **critical** event interrupts the current model step (`client.interrupt()`) and the
+  runner continues the same instruction in the same session by sending the follow-up user message `ROBOT EVENT (critical):
+  <type>: <message>. The robot reacted on its own (reflexes). Re-check state with sensors before continuing; adapt the plan or
+  stop and report.` The robot is not stopped by the node (the reflexes already acted), no `turn_end` is emitted for the
+  interrupted segment, and the budget and turn count carry over. A critical event within `robot_event_debounce_s` (2 s) of the
+  last interrupt does not interrupt again (while the follow-up is still pending its text is extended with the new event).
+- Never interrupts while idle, during session start, after a user stop or after the turn cap.
 
 ## Stopping the robot
 
@@ -84,6 +124,7 @@ directly through MCP, concurrently with the model interrupt (each bounded by `st
 | `POST /api/reset` | `reset` |
 | service shutdown | `shutdown` |
 | instruction watchdog expired | `timeout` |
+| agent-set turn cap reached | `turn_cap` |
 | instruction ended `max_turns` / `error` (or the session failed) after effector calls | `max_turns` / `error` |
 
 Each stop appears in the chat as a `tool_call` (`name: "stop"`, `kind: "uncapped"`) plus its `tool_result`, both carrying
@@ -109,8 +150,7 @@ unknown keys are rejected.
 | Key | Default | Meaning |
 |---|---|---|
 | `model` | `opus` | Model alias or id |
-| `max_turns` | `50` | Turns per instruction |
-| `effector_call_cap` | `30` | Effector calls per instruction |
+| `max_ro_cap` / `max_rw_cap` / `max_turn_cap` | `300` / `100` / `150` | Hard maxima of the budget the agent sets per instruction (SDK `max_turns` = `max_turn_cap` + 10) |
 | `effector_tools` / `uncapped_tools` / `sensor_tools` | see above | Short tool names (no `mcp__robot__`) |
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |
 | `mcp_token_file` | `/etc/ros2/mcp_server/token` | `MCP_SERVER_TOKEN=<token>` (or the bare token), read per session |
@@ -128,6 +168,9 @@ unknown keys are rejected.
 | `instruction_timeout_s` | `900` | Watchdog per instruction |
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |
 | `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |
+| `robot_events_topic` | `/robot_events` | std_msgs/String JSON events of the mcp_server monitor |
+| `robot_events_history` | `50` | Robot events kept in memory |
+| `robot_event_debounce_s` | `2` | A critical event does not interrupt again within this window |
 
 ## API (contract for the web UI)
 
@@ -135,7 +178,7 @@ The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this
 
 | Route | Result |
 |---|---|
-| `GET /api/state` | `{busy, model, max_turns, effector_call_cap, effector_calls_used, session_started_at}` |
+| `GET /api/state` | `{busy, model, max_turns, hard_max: {ro_cap, rw_cap, turn_cap}, ro_used, rw_used, turns_used, effector_calls_used (= rw_used), budget, session_started_at}`; `budget` is `{complexity, ro_cap, rw_cap, turn_cap, rationale, raised}` or `null` until the agent set one |
 | `GET /api/history?before_seq=<int>&limit=<int>` | `{events: [...], has_more}`: the newest `limit` events (default 100, max 500) with `seq < before_seq` (the newest overall without it), ascending `seq`; `has_more` is true when older events exist |
 | `POST /api/message` `{text}` | `202 {ok: true}`; `409 {ok: false, message: "busy"}`; `400` on empty or invalid text |
 | `POST /api/stop` | `{ok, message}`; stops the robot (MCP `stop`) and interrupts the current instruction (`client.interrupt()`) |
@@ -148,19 +191,21 @@ Every event is `{seq: int, ts: float, type, ...}`:
 |---|---|
 | `user_message` | `text` |
 | `assistant_text` | `text` |
-| `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped` / `notes`), `input`; `source` only on the node's own `stop` call (see above) |
+| `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped` / `notes` / `budget`), `input`; `source` only on the node's own `stop` call (see above) |
 | `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated`; `source` only on the node's own `stop` call |
 | `tool_denied` | `id` (may be null), `name`, `reason` |
-| `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` |
+| `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls) |
 | `error` | `message` (authentication failures, missing token file, session failures) |
-| `state` | `busy`, `effector_calls_used` |
+| `budget` | `complexity`, `ro_cap`, `rw_cap`, `turn_cap`, `rationale`, `raised` (true for the single raise); emitted whenever the agent sets or raises its budget |
+| `robot_event` | `event_seq`, `event_ts`, `event_type`, `severity` (`info` / `warning` / `critical`), `source`, `message`, `data` (the `/robot_events` fields, renamed so they do not clash with the event's own `seq` / `ts` / `type`) |
+| `state` | `busy`, `ro_used`, `rw_used`, `turns_used`, `effector_calls_used` (= `rw_used`), `budget` (object or `null`); emitted at each instruction start (counters 0, budget `null`), after each counted call and each model turn |
 
 Text in tool results is cut at 4000 characters (`truncated: true`); images are downscaled to `image_thumbnail_max_px`
 and re-encoded as JPEG.
 
 ## Authentication and deployment
 
-System prompt summary: persona and tone; the tool lists and caps; the working method (top-level view first, then gentle exploration with small moves, then the task); notes in `NOTES.md`; hardware facts (SO-101, small reach from `arm_reach_cm`, base `arm_base_height_m` above the floor, angled gripper camera, upright images, base goals finishing within the nav tolerances and sideways goals rotating first); the safety rules.
+System prompt summary: persona and tone; the tool lists; the task budget workflow (judge complexity, `set_task_budget`, guidance, hard maxima, single raise); the working method (top-level view first, then gentle exploration with small moves, then the task); notes in `NOTES.md`; hardware facts (SO-101, small reach from `arm_reach_cm`, base `arm_base_height_m` above the floor, angled gripper camera, upright images, base goals finishing within the nav tolerances and sideways goals rotating first); the safety rules.
 
 The agent authenticates with a Claude subscription OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`),
 read by the service from the systemd `EnvironmentFile=/etc/ros2/claude_agent/env`. `ANTHROPIC_API_KEY` and

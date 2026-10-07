@@ -19,6 +19,7 @@ class StubLogger:
 
 class StubNode:
     created: list[str] = []
+    subscriptions: list[tuple] = []
     logger = StubLogger()
 
     def __init__(self, name: str) -> None:
@@ -30,9 +31,13 @@ class StubNode:
     def destroy_node(self) -> None:
         pass
 
+    def create_subscription(self, msg_type, topic, callback, qos) -> None:
+        StubNode.subscriptions.append((msg_type, topic, callback, qos))
+
 
 @pytest.fixture
 def stubs(monkeypatch, tmp_path):
+    StubNode.subscriptions.clear()
     calls: dict = {"init": 0, "shutdown": 0}
     monkeypatch.setattr(entry.rclpy, "init", lambda: calls.__setitem__("init", calls["init"] + 1), raising=False)
     monkeypatch.setattr(
@@ -66,8 +71,29 @@ def test_main_removes_api_key_from_process_env(stubs) -> None:
 
 def test_main_invalid_config_returns_1(monkeypatch, tmp_path, stubs) -> None:
     bad = tmp_path / "bad.yaml"
-    bad.write_text("max_turns: 0\n")
+    bad.write_text("max_turn_cap: 0\n")
     monkeypatch.setenv("CLAUDE_AGENT_CONFIG", str(bad))
     assert entry.main() == 1
     assert "run" not in stubs
     assert "claude_agent.__main__" in sys.modules
+
+
+def test_main_subscribes_to_robot_events_with_volatile_qos(stubs) -> None:
+    entry.main()
+    [(msg_type, topic, callback, qos)] = StubNode.subscriptions
+    assert topic == "/robot_events" and msg_type is entry.String
+    assert qos.durability == "volatile"
+    assert callable(callback)
+
+
+def test_robot_event_callback_hands_the_payload_to_the_runner() -> None:
+    posted: list[str] = []
+
+    class Runner:
+        def post_robot_event(self, raw: str) -> None:
+            posted.append(raw)
+
+    msg = entry.String()
+    msg.data = '{"type": "x"}'
+    entry.make_robot_event_callback(Runner())(msg)
+    assert posted == ['{"type": "x"}']

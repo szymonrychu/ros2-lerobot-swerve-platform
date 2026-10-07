@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from claude_agent.api import create_app
-from claude_agent.config import ClaudeAgentConfig
+from claude_agent.config import TURN_MARGIN, ClaudeAgentConfig
 from claude_agent.events import EventLog
 
 
@@ -14,11 +14,27 @@ class FakeRunner:
     def __init__(self, events: EventLog) -> None:
         self.events = events
         self.busy = False
-        self.effector_calls_used = 2
+        self.usage = {
+            "ro_used": 3,
+            "rw_used": 2,
+            "turns_used": 4,
+            "effector_calls_used": 2,
+            "budget": {
+                "complexity": "simple",
+                "ro_cap": 10,
+                "rw_cap": 5,
+                "turn_cap": 20,
+                "rationale": "r",
+                "raised": False,
+            },
+        }
         self.session_started_at = 1234.5
         self.started: list[str] = []
         self.interrupt_result = True
         self.resets = 0
+
+    def usage_fields(self) -> dict:
+        return dict(self.usage)
 
     async def start_instruction(self, text: str) -> bool:
         if self.busy:
@@ -39,7 +55,7 @@ class FakeRunner:
 
 @pytest.fixture
 def setup():
-    cfg = ClaudeAgentConfig(max_turns=12, effector_call_cap=5)
+    cfg = ClaudeAgentConfig(max_ro_cap=77, max_rw_cap=33, max_turn_cap=12)
     events = EventLog(50)
     runner = FakeRunner(events)
     return TestClient(create_app(runner, events, cfg)), runner, events
@@ -50,9 +66,20 @@ def test_state(setup) -> None:
     assert client.get("/api/state").json() == {
         "busy": False,
         "model": "opus",
-        "max_turns": 12,
-        "effector_call_cap": 5,
+        "max_turns": 12 + TURN_MARGIN,
+        "hard_max": {"ro_cap": 77, "rw_cap": 33, "turn_cap": 12},
+        "ro_used": 3,
+        "rw_used": 2,
+        "turns_used": 4,
         "effector_calls_used": 2,
+        "budget": {
+            "complexity": "simple",
+            "ro_cap": 10,
+            "rw_cap": 5,
+            "turn_cap": 20,
+            "rationale": "r",
+            "raised": False,
+        },
         "session_started_at": 1234.5,
     }
 

@@ -3,10 +3,10 @@
  *
  * Events are `{seq, ts, type, ...}` (see nodes/claude_agent/README.md). tool_call and tool_result are paired by id,
  * events are deduplicated by seq (the WebSocket replays the history on every connect), and the busy flag and
- * effector counter follow `state` events.
+ * usage counters and agent-chosen budget follow `state` events.
  */
 
-export type ToolKind = 'sensor' | 'effector' | 'uncapped' | 'notes'
+export type ToolKind = 'sensor' | 'effector' | 'uncapped' | 'notes' | 'budget'
 
 export type ToolContent =
   | { type: 'text'; text: string }
@@ -19,15 +19,41 @@ export interface AgentEvent {
   [field: string]: unknown
 }
 
+/** The budget the agent chose for the running instruction (camelCase of the `budget` event / state payload). */
+export interface BudgetInfo {
+  complexity: string
+  roCap: number
+  rwCap: number
+  turnCap: number
+  rationale: string
+  raised: boolean
+}
+
+/** Wire form of the budget (claude_agent `budget` event fields and the `budget` object of state/API). */
+export interface BudgetPayload {
+  complexity: string
+  ro_cap: number
+  rw_cap: number
+  turn_cap: number
+  rationale: string
+  raised: boolean
+}
+
 /** GET /api/agent/state (claude_agent GET /api/state). */
 export interface AgentInfo {
   busy: boolean
   model: string
   max_turns: number
-  effector_call_cap: number
-  effector_calls_used: number
+  hard_max?: { ro_cap: number; rw_cap: number; turn_cap: number }
+  ro_used: number
+  rw_used: number
+  turns_used: number
+  effector_calls_used?: number
+  budget: BudgetPayload | null
   session_started_at: number | null
 }
+
+export type RobotEventSeverity = 'info' | 'warning' | 'critical'
 
 export interface ToolResult {
   isError: boolean
@@ -54,12 +80,28 @@ export type ChatItem =
   | { key: string; kind: 'denied'; seq: number; id: string | null; name: string; reason: string }
   | { key: string; kind: 'turn_end'; seq: number; status: string; costUsd: number; numTurns: number; effectorCalls: number }
   | { key: string; kind: 'error'; seq: number; message: string }
+  | ({ key: string; kind: 'budget'; seq: number } & BudgetInfo)
+  | {
+      key: string
+      kind: 'robot_event'
+      seq: number
+      eventType: string
+      severity: RobotEventSeverity
+      source: string
+      message: string
+    }
 
 export interface ChatState {
   items: ChatItem[]
   lastSeq: number
   busy: boolean
-  effectorCallsUsed: number
+  /** Sensor (read-only) robot calls used in the current instruction. */
+  roUsed: number
+  /** Effector (read-write) robot calls used in the current instruction. */
+  rwUsed: number
+  turnsUsed: number
+  /** The budget the agent set for the current instruction; null until it did. */
+  budget: BudgetInfo | null
   /** Lowest event seq held in memory: the `before_seq` cursor of the next older page; null while nothing is loaded. */
   firstSeq: number | null
   /** Whether older events exist on the agent beyond firstSeq. */
@@ -80,11 +122,19 @@ export type ParsedFrame = { kind: 'frame'; frame: AgentFrame } | { kind: 'proxy_
 
 export type StatusColor = 'success' | 'warning' | 'error' | 'default'
 
+export type UsageLevel = 'ok' | 'warn' | 'full'
+
+export interface UsageChip {
+  key: 'ro' | 'rw' | 'turns'
+  label: string
+  level: UsageLevel
+}
+
 export interface HeaderStatus {
   model: string | null
   busy: boolean
-  effectorLabel: string
-  maxTurns: number | null
+  complexity: string | null
+  chips: UsageChip[]
 }
 
 export interface ComposerState {
@@ -98,8 +148,13 @@ const TURN_STATUS: Record<string, { label: string; color: StatusColor }> = {
   done: { label: 'Done', color: 'success' },
   interrupted: { label: 'Interrupted', color: 'warning' },
   max_turns: { label: 'Turn cap reached', color: 'warning' },
+  turn_cap: { label: 'Turn budget used up', color: 'warning' },
   error: { label: 'Error', color: 'error' },
 }
+
+/** Fraction of a cap from which a usage chip turns amber. */
+const WARN_FRACTION = 0.8
+const SEVERITIES: RobotEventSeverity[] = ['info', 'warning', 'critical']
 
 /** Most items kept in memory; older ones are dropped and stay loadable from the agent. */
 export const MAX_ITEMS = 400
@@ -109,7 +164,10 @@ export const HISTORY_PAGE_SIZE = 100
 export const FIRST_ITEM_INDEX = 1_000_000
 
 export function emptyChat(): ChatState {
-  return { items: [], lastSeq: 0, busy: false, effectorCallsUsed: 0, firstSeq: null, hasMore: false, firstItemIndex: FIRST_ITEM_INDEX }
+  return {
+    items: [], lastSeq: 0, busy: false, roUsed: 0, rwUsed: 0, turnsUsed: 0, budget: null, firstSeq: null, hasMore: false,
+    firstItemIndex: FIRST_ITEM_INDEX,
+  }
 }
 
 function str(value: unknown, fallback = ''): string {
@@ -118,6 +176,25 @@ function str(value: unknown, fallback = ''): string {
 
 function num(value: unknown, fallback = 0): number {
   return typeof value === 'number' ? value : fallback
+}
+
+/**
+ * Read a budget object from an event or API payload.
+ * @param raw the `budget` field (or the fields of a `budget` event)
+ * @returns the budget, or null when raw is not an object with a complexity
+ */
+export function parseBudget(raw: unknown): BudgetInfo | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const b = raw as Record<string, unknown>
+  if (typeof b.complexity !== 'string') return null
+  return {
+    complexity: b.complexity,
+    roCap: num(b.ro_cap),
+    rwCap: num(b.rw_cap),
+    turnCap: num(b.turn_cap),
+    rationale: str(b.rationale),
+    raised: b.raised === true,
+  }
 }
 
 /**
@@ -195,7 +272,25 @@ export function reduceEvent(state: ChatState, event: AgentEvent): ChatState {
     case 'error':
       return { ...next, items: [...state.items, { ...base, kind: 'error', message: str(event.message) }] }
     case 'state':
-      return { ...next, busy: event.busy === true, effectorCallsUsed: num(event.effector_calls_used, state.effectorCallsUsed) }
+      return {
+        ...next,
+        busy: event.busy === true,
+        roUsed: num(event.ro_used, state.roUsed),
+        rwUsed: num(event.rw_used, state.rwUsed),
+        turnsUsed: num(event.turns_used, state.turnsUsed),
+        budget: 'budget' in event ? parseBudget(event.budget) : state.budget,
+      }
+    case 'budget': {
+      const budget = parseBudget(event)
+      return budget ? { ...next, budget, items: [...state.items, { ...base, kind: 'budget', ...budget }] } : next
+    }
+    case 'robot_event': {
+      const severity = SEVERITIES.find((s) => s === event.severity) ?? 'info'
+      const item: ChatItem = {
+        ...base, kind: 'robot_event', eventType: str(event.event_type), severity, source: str(event.source), message: str(event.message),
+      }
+      return { ...next, items: [...state.items, item] }
+    }
     default:
       return next
   }
@@ -221,7 +316,9 @@ export function applyFrame(state: ChatState, frame: AgentFrame, maxItems: number
   const replayed = frame.events.reduce(reduceEvent, emptyChat())
   const paged = { ...replayed, firstSeq: frame.events[0]?.seq ?? null, hasMore: frame.has_more === true }
   const hasState = frame.events.some((e) => e.type === 'state')
-  return hasState ? paged : { ...paged, busy: state.busy, effectorCallsUsed: state.effectorCallsUsed }
+  return hasState
+    ? paged
+    : { ...paged, busy: state.busy, roUsed: state.roUsed, rwUsed: state.rwUsed, turnsUsed: state.turnsUsed, budget: state.budget }
 }
 
 /**
@@ -307,13 +404,20 @@ export function parseAgentFrame(raw: string): ParsedFrame | null {
 }
 
 /**
- * Take busy and the effector counter from a /api/agent/state snapshot.
+ * Take busy, the usage counters and the budget from a /api/agent/state snapshot.
  * @param state current state
  * @param info state snapshot
  * @returns the next state
  */
 export function applyStateSnapshot(state: ChatState, info: AgentInfo): ChatState {
-  return { ...state, busy: info.busy, effectorCallsUsed: info.effector_calls_used }
+  return {
+    ...state,
+    busy: info.busy,
+    roUsed: info.ro_used,
+    rwUsed: info.rw_used,
+    turnsUsed: info.turns_used,
+    budget: parseBudget(info.budget),
+  }
 }
 
 /**
@@ -326,17 +430,39 @@ export function statusLabel(status: string): { label: string; color: StatusColor
 }
 
 /**
+ * Colour level of a usage chip.
+ * @param used calls or turns used
+ * @param cap the agent-set cap, null while no budget is set
+ * @returns "full" at or above the cap, "warn" from 80 percent of it, else "ok" (also without a cap or with a zero cap)
+ */
+export function usageLevel(used: number, cap: number | null): UsageLevel {
+  if (cap === null || cap <= 0) return 'ok'
+  if (used >= cap) return 'full'
+  return used >= cap * WARN_FRACTION ? 'warn' : 'ok'
+}
+
+function usageChip(key: UsageChip['key'], name: string, used: number, cap: number | null): UsageChip {
+  return { key, label: cap === null ? `${name} ${used}` : `${name} ${used} / ${cap}`, level: usageLevel(used, cap) }
+}
+
+/**
  * Values of the header strip.
  * @param info last /api/agent/state snapshot, null until loaded
- * @param state live chat state (busy and counter follow state events)
- * @returns model, busy flag, "used / cap" label (just "used" without the cap) and turn cap
+ * @param state live chat state (busy, counters and budget follow state events)
+ * @returns model, busy flag, the complexity the agent judged (null before it set a budget) and the ro / rw / turns
+ *   chips ("used / cap" once a budget is set, else just "used")
  */
 export function headerStatus(info: AgentInfo | null, state: ChatState): HeaderStatus {
+  const budget = state.budget
   return {
     model: info?.model ?? null,
     busy: state.busy,
-    effectorLabel: info ? `${state.effectorCallsUsed} / ${info.effector_call_cap}` : `${state.effectorCallsUsed}`,
-    maxTurns: info?.max_turns ?? null,
+    complexity: budget?.complexity ?? null,
+    chips: [
+      usageChip('ro', 'ro', state.roUsed, budget?.roCap ?? null),
+      usageChip('rw', 'rw', state.rwUsed, budget?.rwCap ?? null),
+      usageChip('turns', 'turns', state.turnsUsed, budget?.turnCap ?? null),
+    ],
   }
 }
 

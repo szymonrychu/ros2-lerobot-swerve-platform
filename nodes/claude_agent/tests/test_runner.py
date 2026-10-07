@@ -13,7 +13,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from claude_agent.config import ClaudeAgentConfig, MissingTokenError
+from claude_agent.config import TURN_MARGIN, ClaudeAgentConfig, MissingTokenError
 from claude_agent.events import EventLog
 from claude_agent.robot_stop import RobotStopResult
 from claude_agent.runner import AgentRunner, build_child_env, build_options
@@ -129,7 +129,7 @@ def test_build_options(tmp_path: Path, config: ClaudeAgentConfig) -> None:
     gate = EffectorGate(config)
     opts = build_options(config, "tok", gate, {"A": "b"}, "SYS")
     assert opts.model == "opus"
-    assert opts.max_turns == 50
+    assert opts.max_turns == config.max_turn_cap + TURN_MARGIN
     assert opts.system_prompt == "SYS"
     assert opts.tools == ["Read", "Write", "Edit", "Glob", "Grep"]
     assert opts.allowed_tools == []
@@ -139,9 +139,13 @@ def test_build_options(tmp_path: Path, config: ClaudeAgentConfig) -> None:
     assert opts.permission_mode == "default"
     assert opts.can_use_tool == gate.can_use_tool
     assert opts.setting_sources == []
-    assert opts.mcp_servers == {
-        "robot": {"type": "http", "url": "http://127.0.0.1:18200/mcp", "headers": {"Authorization": "Bearer tok"}}
+    assert opts.mcp_servers["robot"] == {
+        "type": "http",
+        "url": "http://127.0.0.1:18200/mcp",
+        "headers": {"Authorization": "Bearer tok"},
     }
+    assert set(opts.mcp_servers) == {"robot", "agent"}
+    assert opts.mcp_servers["agent"]["type"] == "sdk" and opts.mcp_servers["agent"]["name"] == "agent"
     assert opts.env == {"A": "b"}
 
 
@@ -170,14 +174,23 @@ async def test_instruction_flow_emits_events(tmp_path: Path) -> None:
         "state",
         "assistant_text",
         "tool_call",
+        "state",
         "tool_result",
         "assistant_text",
+        "state",
         "turn_end",
         "state",
     ]
     turn_end = events.history()[-2]
     assert turn_end["status"] == "done" and turn_end["cost_usd"] == 0.01 and turn_end["num_turns"] == 2
-    assert events.history()[1] == {**events.history()[1], "busy": True, "effector_calls_used": 0}
+    assert events.history()[1] == {
+        **events.history()[1],
+        "busy": True,
+        "ro_used": 0,
+        "rw_used": 0,
+        "turns_used": 0,
+        "budget": None,
+    }
     assert events.history()[-1]["busy"] is False
     assert runner.busy is False
     assert FakeClient.instances[0].queries == ["hello"]
@@ -213,16 +226,11 @@ async def test_interrupt_when_idle(tmp_path: Path) -> None:
 
 
 async def test_effector_counter_resets_each_instruction(tmp_path: Path) -> None:
-    async def use_effector(client: FakeClient) -> None:
-        from claude_agent_sdk import ToolPermissionContext
-
-        await client.options.can_use_tool("mcp__robot__drive", {}, ToolPermissionContext(tool_use_id="x"))
-
     runner, events, _ = make_runner(tmp_path, script=[use_effector, make_result()])
     await runner.start_instruction("a")
     await runner.wait_idle()
     assert events.history()[-2]["effector_calls"] == 1
-    assert runner.effector_calls_used == 1
+    assert runner.usage_fields()["rw_used"] == 1
     await runner.start_instruction("b")
     await runner.wait_idle()
     assert events.history()[-2]["effector_calls"] == 1
@@ -303,9 +311,14 @@ def stop_events(events: EventLog) -> list[dict]:
     return [e for e in events.history() if e["type"] in ("tool_call", "tool_result") and e.get("source")]
 
 
+def gate_of(client: FakeClient) -> EffectorGate:
+    return client.options.can_use_tool.__self__
+
+
 async def use_effector(client: FakeClient) -> None:
     from claude_agent_sdk import ToolPermissionContext
 
+    gate_of(client).budget.set_budget("simple", 10, 10, 20, "test")
     await client.options.can_use_tool("mcp__robot__drive", {}, ToolPermissionContext(tool_use_id="x"))
 
 
@@ -533,3 +546,115 @@ async def test_connect_timeout_surfaces_error_and_clears_busy(tmp_path: Path) ->
     assert any(e["type"] == "error" and "timed out" in e["message"] for e in events.history())
     assert runner.busy is False and runner.client is None
     assert FakeClient.instances[0].disconnected
+
+
+# --- agent-chosen budget, turn cap ----------------------------------------------------------------------------------
+
+
+def assistant(*blocks) -> AssistantMessage:
+    return AssistantMessage(content=list(blocks), model="opus")
+
+
+def tool_results() -> UserMessage:
+    return UserMessage(content=[ToolResultBlock(tool_use_id="t", content=[{"type": "text", "text": "ok"}])])
+
+
+def setter(complexity: str = "simple", ro: int = 10, rw: int = 5, turns: int = 20, rationale: str = "why"):
+    async def run(client: FakeClient) -> None:
+        gate_of(client).budget.set_budget(complexity, ro, rw, turns, rationale)
+
+    return run
+
+
+async def test_budget_event_and_state_fields(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[setter(), make_result()])
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    budget = [e for e in events.history() if e["type"] == "budget"]
+    assert len(budget) == 1
+    assert {k: budget[0][k] for k in ("complexity", "ro_cap", "rw_cap", "turn_cap", "rationale", "raised")} == {
+        "complexity": "simple",
+        "ro_cap": 10,
+        "rw_cap": 5,
+        "turn_cap": 20,
+        "rationale": "why",
+        "raised": False,
+    }
+    states = [e for e in events.history() if e["type"] == "state"]
+    assert any(e["budget"] and e["budget"]["ro_cap"] == 10 for e in states)
+    assert states[-1]["busy"] is False and states[-1]["budget"]["turn_cap"] == 20
+
+
+async def test_usage_fields_and_new_instruction_clears_the_budget(tmp_path: Path) -> None:
+    async def read_sensor(client: FakeClient) -> None:
+        from claude_agent_sdk import ToolPermissionContext
+
+        await client.options.can_use_tool("mcp__robot__get_robot_state", {}, ToolPermissionContext(tool_use_id="s"))
+
+    runner, events, _ = make_runner(
+        tmp_path, script=[setter(), read_sensor, assistant(TextBlock(text="x")), make_result()]
+    )
+    await runner.start_instruction("a")
+    await runner.wait_idle()
+    usage = runner.usage_fields()
+    assert (usage["ro_used"], usage["rw_used"], usage["turns_used"]) == (1, 0, 1)
+    assert usage["effector_calls_used"] == 0 and usage["budget"]["complexity"] == "simple"
+    await runner.start_instruction("b")
+    assert runner.usage_fields() == {
+        "ro_used": 0,
+        "rw_used": 0,
+        "turns_used": 0,
+        "effector_calls_used": 0,
+        "budget": None,
+    }
+    await runner.wait_idle()
+
+
+async def wait_for_interrupt(client: FakeClient) -> None:
+    await client.interrupted.wait()
+
+
+async def test_turn_cap_interrupts_stops_the_robot_and_ends_turn_cap(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    script = [
+        setter(turns=2),
+        assistant(TextBlock(text="one")),
+        assistant(ToolUseBlock(id="t", name="mcp__robot__get_robot_state", input={})),
+        tool_results(),
+        wait_for_interrupt,
+        make_result(terminal_reason="aborted_streaming"),
+    ]
+    runner, events, _ = make_runner(tmp_path, script=script, stopper=stopper)
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    turn_end = [e for e in events.history() if e["type"] == "turn_end"]
+    assert len(turn_end) == 1 and turn_end[0]["status"] == "turn_cap"
+    assert FakeClient.instances[0].interrupted.is_set()
+    assert stopper.calls == 1 and stop_events(events)[0]["source"] == "turn_cap"
+    assert runner.busy is False
+
+
+async def test_turn_cap_not_hit_when_the_instruction_finishes_within_it(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    script = [setter(turns=3), assistant(TextBlock(text="a")), assistant(TextBlock(text="b")), make_result()]
+    runner, events, _ = make_runner(tmp_path, script=script, stopper=stopper)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    assert [e for e in events.history() if e["type"] == "turn_end"][0]["status"] == "done"
+    assert stopper.calls == 0 and not FakeClient.instances[0].interrupted.is_set()
+
+
+async def test_no_turn_cap_before_a_budget_is_set(tmp_path: Path) -> None:
+    script = [assistant(TextBlock(text=str(i))) for i in range(5)] + [tool_results(), make_result()]
+    runner, events, _ = make_runner(tmp_path, script=script)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    assert [e for e in events.history() if e["type"] == "turn_end"][0]["status"] == "done"
+    assert runner.usage_fields()["turns_used"] == 5
+
+
+async def test_turn_count_emitted_in_state_events(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[assistant(TextBlock(text="a")), make_result()])
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    assert max(e["turns_used"] for e in events.history() if e["type"] == "state") == 1

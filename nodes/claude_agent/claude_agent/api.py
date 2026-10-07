@@ -19,8 +19,9 @@ class RunnerLike(Protocol):
     """What the API needs from the agent runner."""
 
     busy: bool
-    effector_calls_used: int
     session_started_at: float
+
+    def usage_fields(self) -> dict[str, Any]: ...
 
     async def start_instruction(self, text: str) -> bool: ...
     async def interrupt(self) -> bool: ...
@@ -32,6 +33,7 @@ def create_app(
     events: EventLog,
     config: ClaudeAgentConfig,
     on_shutdown: Callable[[], Awaitable[None]] | None = None,
+    on_startup: Callable[[], None] | None = None,
 ) -> FastAPI:
     """Build the API app.
 
@@ -40,6 +42,7 @@ def create_app(
         events (EventLog): Persisted event log.
         config (ClaudeAgentConfig): Reported in /api/state.
         on_shutdown (Callable[[], Awaitable[None]] | None): Awaited when the server stops (closes the agent session).
+        on_startup (Callable[[], None] | None): Called on the server's event loop when it starts (binds the runner to it).
 
     Returns:
         FastAPI: App with /api/state, /api/history, /api/message, /api/stop, /api/reset and /ws/events.
@@ -47,6 +50,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if on_startup:
+            on_startup()
         yield
         if on_shutdown:
             await on_shutdown()
@@ -59,8 +64,8 @@ def create_app(
             "busy": runner.busy,
             "model": config.model,
             "max_turns": config.max_turns,
-            "effector_call_cap": config.effector_call_cap,
-            "effector_calls_used": runner.effector_calls_used,
+            "hard_max": {"ro_cap": config.max_ro_cap, "rw_cap": config.max_rw_cap, "turn_cap": config.max_turn_cap},
+            **runner.usage_fields(),
             "session_started_at": runner.session_started_at,
         }
 

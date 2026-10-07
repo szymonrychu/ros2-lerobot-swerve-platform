@@ -10,6 +10,7 @@ import {
   historyQuery,
   prependHistory,
   trimWindow,
+  usageLevel,
   parseAgentFrame,
   reduceEvent,
   statusLabel,
@@ -80,11 +81,49 @@ describe('reduceEvent', () => {
     expect(s.items[1]).toMatchObject({ status: 'done', costUsd: 0.1234, numTurns: 3, effectorCalls: 2 })
   })
 
-  it('state events update busy and effector calls without adding items', () => {
-    const s = run([ev(1, 'state', { busy: true, effector_calls_used: 4 })])
+  it('state events update busy, usage and budget without adding items', () => {
+    const budget = { complexity: 'simple', ro_cap: 10, rw_cap: 5, turn_cap: 20, rationale: 'r', raised: false }
+    const s = run([ev(1, 'state', { busy: true, ro_used: 3, rw_used: 4, turns_used: 2, budget })])
     expect(s.items).toHaveLength(0)
     expect(s.busy).toBe(true)
-    expect(s.effectorCallsUsed).toBe(4)
+    expect([s.roUsed, s.rwUsed, s.turnsUsed]).toEqual([3, 4, 2])
+    expect(s.budget).toEqual({ complexity: 'simple', roCap: 10, rwCap: 5, turnCap: 20, rationale: 'r', raised: false })
+  })
+
+  it('a state event with a null budget clears it (new instruction)', () => {
+    const budget = { complexity: 'simple', ro_cap: 10, rw_cap: 5, turn_cap: 20, rationale: 'r', raised: false }
+    const s = run([ev(1, 'state', { busy: true, budget }), ev(2, 'state', { busy: true, ro_used: 0, budget: null })])
+    expect(s.budget).toBeNull()
+  })
+
+  it('a budget event adds a card and sets the budget', () => {
+    const s = run([
+      ev(1, 'budget', { complexity: 'complex', ro_cap: 60, rw_cap: 40, turn_cap: 80, rationale: 'pick and place', raised: true }),
+    ])
+    expect(s.items).toHaveLength(1)
+    expect(s.items[0]).toMatchObject({
+      kind: 'budget', complexity: 'complex', roCap: 60, rwCap: 40, turnCap: 80, rationale: 'pick and place', raised: true,
+    })
+    expect(s.budget).toMatchObject({ complexity: 'complex', roCap: 60 })
+  })
+
+  it('maps the budget tool kind', () => {
+    const s = run([ev(1, 'tool_call', { id: 'b', name: 'set_task_budget', kind: 'budget', input: {} })])
+    expect(s.items[0]).toMatchObject({ toolKind: 'budget' })
+  })
+
+  it('robot_event adds a coloured alert item', () => {
+    const s = run([
+      ev(1, 'robot_event', { event_seq: 3, event_ts: 1, event_type: 'bump', severity: 'critical', source: 'mcp_server', message: 'hit', data: {} }),
+    ])
+    expect(s.items[0]).toEqual({
+      key: 'e1', seq: 1, kind: 'robot_event', eventType: 'bump', severity: 'critical', source: 'mcp_server', message: 'hit',
+    })
+  })
+
+  it('robot_event with an unknown severity is shown as info', () => {
+    const s = run([ev(1, 'robot_event', { event_type: 'x', severity: 'odd', message: 'm' })])
+    expect(s.items[0]).toMatchObject({ severity: 'info' })
   })
 
   it('does not mutate the previous state', () => {
@@ -112,9 +151,9 @@ describe('applyFrame', () => {
   })
 
   it('history derives busy from state events inside it', () => {
-    const s = applyFrame(emptyChat(), { type: 'history', events: [ev(1, 'state', { busy: true, effector_calls_used: 1 })] })
+    const s = applyFrame(emptyChat(), { type: 'history', events: [ev(1, 'state', { busy: true, rw_used: 1 })] })
     expect(s.busy).toBe(true)
-    expect(s.effectorCallsUsed).toBe(1)
+    expect(s.rwUsed).toBe(1)
   })
 })
 
@@ -132,13 +171,42 @@ describe('parseAgentFrame', () => {
   })
 })
 
+const BUDGET_PAYLOAD = { complexity: 'moderate', ro_cap: 40, rw_cap: 25, turn_cap: 60, rationale: 'r', raised: false }
+const INFO = {
+  busy: false, model: 'opus', max_turns: 160, hard_max: { ro_cap: 300, rw_cap: 100, turn_cap: 150 },
+  ro_used: 0, rw_used: 0, turns_used: 0, effector_calls_used: 0, budget: null, session_started_at: 1,
+}
+
 describe('applyStateSnapshot', () => {
-  it('copies busy and effector calls', () => {
-    const s = applyStateSnapshot(emptyChat(), {
-      busy: true, model: 'm', max_turns: 30, effector_call_cap: 20, effector_calls_used: 3, session_started_at: 1,
-    })
+  it('copies busy, usage and budget', () => {
+    const s = applyStateSnapshot(emptyChat(), { ...INFO, busy: true, ro_used: 7, rw_used: 3, turns_used: 5, budget: BUDGET_PAYLOAD })
     expect(s.busy).toBe(true)
-    expect(s.effectorCallsUsed).toBe(3)
+    expect([s.roUsed, s.rwUsed, s.turnsUsed]).toEqual([7, 3, 5])
+    expect(s.budget).toMatchObject({ complexity: 'moderate', turnCap: 60 })
+  })
+})
+
+describe('history frames keep the live usage when they hold no state event', () => {
+  it('keeps budget and counters', () => {
+    const live = run([ev(1, 'state', { busy: true, ro_used: 2, rw_used: 1, turns_used: 3, budget: BUDGET_PAYLOAD })])
+    const s = applyFrame(live, { type: 'history', events: [ev(1, 'user_message', { text: 'a' })] })
+    expect([s.roUsed, s.rwUsed, s.turnsUsed]).toEqual([2, 1, 3])
+    expect(s.budget).not.toBeNull()
+  })
+})
+
+describe('usageLevel', () => {
+  it('is ok below 80 percent, warn from 80 percent and full at the cap', () => {
+    expect(usageLevel(7, 10)).toBe('ok')
+    expect(usageLevel(8, 10)).toBe('warn')
+    expect(usageLevel(9, 10)).toBe('warn')
+    expect(usageLevel(10, 10)).toBe('full')
+    expect(usageLevel(11, 10)).toBe('full')
+  })
+
+  it('has no level without a cap and for a zero cap', () => {
+    expect(usageLevel(5, null)).toBe('ok')
+    expect(usageLevel(0, 0)).toBe('ok')
   })
 })
 
@@ -147,18 +215,38 @@ describe('statusLabel / headerStatus', () => {
     expect(statusLabel('done')).toEqual({ label: 'Done', color: 'success' })
     expect(statusLabel('interrupted')).toEqual({ label: 'Interrupted', color: 'warning' })
     expect(statusLabel('max_turns')).toEqual({ label: 'Turn cap reached', color: 'warning' })
+    expect(statusLabel('turn_cap')).toEqual({ label: 'Turn budget used up', color: 'warning' })
     expect(statusLabel('error')).toEqual({ label: 'Error', color: 'error' })
     expect(statusLabel('weird')).toEqual({ label: 'weird', color: 'default' })
   })
 
-  it('combines info and live state', () => {
-    const info = { busy: false, model: 'opus', max_turns: 30, effector_call_cap: 20, effector_calls_used: 0, session_started_at: 1 }
-    const s = { ...emptyChat(), busy: true, effectorCallsUsed: 5 }
-    expect(headerStatus(info, s)).toEqual({ model: 'opus', busy: true, effectorLabel: '5 / 20', maxTurns: 30 })
-    expect(headerStatus(null, s)).toEqual({ model: null, busy: true, effectorLabel: '5', maxTurns: null })
+  it('shows no caps until the agent set a budget', () => {
+    const s = { ...emptyChat(), busy: true, roUsed: 2, rwUsed: 1, turnsUsed: 3 }
+    expect(headerStatus(INFO, s)).toEqual({
+      model: 'opus',
+      busy: true,
+      complexity: null,
+      chips: [
+        { key: 'ro', label: 'ro 2', level: 'ok' },
+        { key: 'rw', label: 'rw 1', level: 'ok' },
+        { key: 'turns', label: 'turns 3', level: 'ok' },
+      ],
+    })
+    expect(headerStatus(null, s).model).toBeNull()
+  })
+
+  it('shows used / cap chips with amber at 80 percent and red at the cap', () => {
+    const budget = { complexity: 'moderate', roCap: 10, rwCap: 5, turnCap: 20, rationale: 'r', raised: false }
+    const s = { ...emptyChat(), budget, roUsed: 8, rwUsed: 5, turnsUsed: 3 }
+    const h = headerStatus(INFO, s)
+    expect(h.complexity).toBe('moderate')
+    expect(h.chips).toEqual([
+      { key: 'ro', label: 'ro 8 / 10', level: 'warn' },
+      { key: 'rw', label: 'rw 5 / 5', level: 'full' },
+      { key: 'turns', label: 'turns 3 / 20', level: 'ok' },
+    ])
   })
 })
-
 describe('composerBlockReason', () => {
   it('returns null when sending is allowed', () => {
     expect(composerBlockReason({ busy: false, connected: true, batteryCutoff: false, batteryMessage: null })).toBeNull()

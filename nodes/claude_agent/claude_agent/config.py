@@ -35,6 +35,10 @@ DEFAULT_CAMERA_NOTE = (
     "distance and the gripper position relative to the object from it before aiming with the gripper camera. "
     "It has no depth; judge distances from the image."
 )
+# Model turns on top of max_turn_cap that the SDK's absolute max_turns allows: the runner enforces the agent-set turn_cap
+# itself, so this only backstops a runner that failed to.
+TURN_MARGIN = 10
+DEFAULT_ROBOT_EVENTS_TOPIC = "/robot_events"
 DEFAULT_STATE_DIR = "/var/lib/claude_agent"
 DEFAULT_WORKDIR = "/var/lib/claude_agent/workspace"
 DEFAULT_SESSION_LOG_MAX_BYTES = 50 * 1024 * 1024
@@ -49,8 +53,10 @@ class ClaudeAgentConfig(BaseModel):
 
     Attributes:
         model: Claude model alias or id passed to the Agent SDK.
-        max_turns: Maximum model turns per instruction.
-        effector_call_cap: Maximum effector (motion) tool calls per instruction; sensor and uncapped tools never count.
+        max_ro_cap: Hard maximum of the agent-chosen read-only (sensor) call budget per instruction.
+        max_rw_cap: Hard maximum of the agent-chosen read-write (effector) call budget per instruction.
+        max_turn_cap: Hard maximum of the agent-chosen model-turn budget per instruction (SDK ``max_turns`` is this plus
+            TURN_MARGIN, see the ``max_turns`` property).
         effector_tools: Short names (no mcp__robot__ prefix) of the motion tools; keep in sync with mcp_server MOTION_TOOLS.
         uncapped_tools: Short names of safety/control tools that are never capped (stop never counts).
         sensor_tools: Short names of read-only tools (never capped).
@@ -73,13 +79,17 @@ class ClaudeAgentConfig(BaseModel):
         instruction_timeout_s: Watchdog per instruction; on expiry the model is interrupted, the robot stopped and the turn ends as "timeout".
         connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
         stop_timeout_s: Bound for the robot ``stop`` call and for the model interrupt, each.
+        robot_events_topic: ROS2 topic (std_msgs/String JSON) of the mcp_server event monitor.
+        robot_events_history: Number of most recent robot events kept in memory.
+        robot_event_debounce_s: A critical event does not interrupt the model again within this many seconds of the last interrupt.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     model: str = "opus"
-    max_turns: int = Field(default=50, ge=1)
-    effector_call_cap: int = Field(default=30, ge=0)
+    max_ro_cap: int = Field(default=300, ge=1)
+    max_rw_cap: int = Field(default=100, ge=1)
+    max_turn_cap: int = Field(default=150, ge=1)
     effector_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_EFFECTOR_TOOLS))
     uncapped_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_UNCAPPED_TOOLS))
     sensor_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_SENSOR_TOOLS))
@@ -101,6 +111,18 @@ class ClaudeAgentConfig(BaseModel):
     instruction_timeout_s: float = Field(default=900.0, gt=0)
     connect_timeout_s: float = Field(default=240.0, gt=0)
     stop_timeout_s: float = Field(default=5.0, gt=0)
+    robot_events_topic: str = DEFAULT_ROBOT_EVENTS_TOPIC
+    robot_events_history: int = Field(default=50, ge=1)
+    robot_event_debounce_s: float = Field(default=2.0, ge=0)
+
+    @property
+    def max_turns(self) -> int:
+        """Absolute SDK ``max_turns``: the hard turn-cap maximum plus a small margin.
+
+        Returns:
+            int: ``max_turn_cap + TURN_MARGIN``.
+        """
+        return self.max_turn_cap + TURN_MARGIN
 
     @model_validator(mode="after")
     def check_tool_lists(self) -> "ClaudeAgentConfig":

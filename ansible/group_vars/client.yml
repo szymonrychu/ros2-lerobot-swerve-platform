@@ -939,8 +939,13 @@ ros2_nodes:
     enabled: true
     config: |
       model: opus
-      max_turns: 50
-      effector_call_cap: 30
+      # The agent judges each task and sets its own ro (sensor calls) / rw (effector calls) / turn budget via
+      # agent.set_task_budget; these are the hard maxima it cannot exceed.
+      max_ro_cap: 300
+      max_rw_cap: 100
+      max_turn_cap: 150
+      # Event monitor of mcp_server: critical events interrupt the running model step (see nodes/claude_agent/README.md).
+      robot_events_topic: /robot_events
       http_host: "127.0.0.1"
       http_port: 18300
       mcp_url: http://127.0.0.1:18200/mcp

@@ -45,6 +45,7 @@ STATUS_ERROR = "error"
 STATUS_INTERRUPTED = "interrupted"
 STATUS_MAX_TURNS = "max_turns"
 STATUS_TIMEOUT = "timeout"
+STATUS_TURN_CAP = "turn_cap"
 
 
 class EventLog:
@@ -144,7 +145,7 @@ class EventLog:
         self.file_bytes = len(data.encode("utf-8"))
         self.first_seq = kept[0]["seq"] if kept else 0
 
-    def append(self, event_type: str, **fields: Any) -> dict[str, Any]:
+    def append(self, event_type: str, /, **fields: Any) -> dict[str, Any]:
         """Add an event, store it and fan it out to subscribers.
 
         Args:

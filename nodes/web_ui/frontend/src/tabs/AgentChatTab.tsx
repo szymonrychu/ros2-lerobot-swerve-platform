@@ -25,7 +25,7 @@ import StopIcon from '@mui/icons-material/Stop'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { postAgent } from '../agent/agentApi'
 import { composerBlockReason, headerStatus, statusLabel } from '../agent/agentModel'
-import type { ChatItem, ToolContent, ToolKind } from '../agent/agentModel'
+import type { ChatItem, RobotEventSeverity, ToolContent, ToolKind, UsageChip, UsageLevel } from '../agent/agentModel'
 import { useAgentChat } from '../agent/useAgentChat'
 import { cutoffBanner } from '../battery/batteryStatus'
 import type { BatteryStatus } from '../battery/batteryStatus'
@@ -40,13 +40,17 @@ interface Props {
 }
 
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>
+type BudgetItem = Extract<ChatItem, { kind: 'budget' }>
 
 const KIND_COLORS: Record<ToolKind, 'info' | 'warning' | 'default' | 'secondary'> = {
   sensor: 'info',
   effector: 'warning',
   uncapped: 'default',
   notes: 'secondary',
+  budget: 'secondary',
 }
+const USAGE_COLORS: Record<UsageLevel, 'default' | 'warning' | 'error'> = { ok: 'default', warn: 'warning', full: 'error' }
+const EVENT_SEVERITY: Record<RobotEventSeverity, 'info' | 'warning' | 'error'> = { info: 'info', warning: 'warning', critical: 'error' }
 // Distance from the bottom (px) within which the transcript keeps following new messages.
 const STICK_THRESHOLD_PX = 48
 const RESULT_MAX_HEIGHT_PX = 220
@@ -122,6 +126,30 @@ function ToolCard({ item, onOpenImage }: { item: ToolItem; onOpenImage: (src: st
   )
 }
 
+function UsageChipView({ chip }: { chip: UsageChip }) {
+  const color = USAGE_COLORS[chip.level]
+  return <Chip size="small" variant={chip.level === 'ok' ? 'outlined' : 'filled'} color={color} label={chip.label} data-testid={`usage-${chip.key}`} />
+}
+
+function BudgetCard({ item }: { item: BudgetItem }) {
+  return (
+    <Paper variant="outlined" sx={{ alignSelf: 'stretch', px: 1.5, py: 1, borderColor: 'secondary.main' }}>
+      <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.raised ? 'Budget raised' : 'Task budget'}</Typography>
+        <Chip size="small" color="secondary" label={item.complexity.replace('_', ' ')} />
+        <Chip size="small" variant="outlined" label={`ro ${item.roCap}`} />
+        <Chip size="small" variant="outlined" label={`rw ${item.rwCap}`} />
+        <Chip size="small" variant="outlined" label={`turns ${item.turnCap}`} />
+      </Stack>
+      {item.rationale && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+          {item.rationale}
+        </Typography>
+      )}
+    </Paper>
+  )
+}
+
 function Bubble({ item }: { item: Extract<ChatItem, { kind: 'user' | 'assistant' }> }) {
   const user = item.kind === 'user'
   return (
@@ -164,11 +192,20 @@ function renderItem(item: ChatItem, onOpenImage: (src: string) => void) {
         <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" justifyContent="center" sx={{ py: 0.5 }}>
           <Chip size="small" label={s.label} color={s.color} />
           <Typography variant="caption" color="text.secondary">
-            {item.numTurns} turns, {item.effectorCalls} effector calls, ${item.costUsd.toFixed(4)}
+            {item.numTurns} turns, {item.effectorCalls} rw calls, ${item.costUsd.toFixed(4)}
           </Typography>
         </Stack>
       )
     }
+    case 'budget':
+      return <BudgetCard item={item} />
+    case 'robot_event':
+      return (
+        <Alert severity={EVENT_SEVERITY[item.severity]} sx={{ alignSelf: 'stretch' }}>
+          Robot event (<b>{item.severity}</b>) <b>{item.eventType}</b>
+          {item.source ? ` from ${item.source}` : ''}: {item.message}
+        </Alert>
+      )
     case 'error':
       return (
         <Alert severity="error" sx={{ alignSelf: 'stretch' }}>
@@ -263,8 +300,10 @@ export default function AgentChatTab({ battery }: Props) {
       <Box sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', borderBottom: 1, borderColor: 'divider' }}>
         <Chip size="small" label={header.model ?? 'model unknown'} variant="outlined" />
         <Chip size="small" color={header.busy ? 'warning' : connected ? 'success' : 'default'} label={header.busy ? 'working' : connected ? 'idle' : 'disconnected'} />
-        <Chip size="small" variant="outlined" label={`effector ${header.effectorLabel}`} />
-        {header.maxTurns !== null && <Chip size="small" variant="outlined" label={`turn cap ${header.maxTurns}`} />}
+        {header.complexity !== null && <Chip size="small" color="secondary" label={header.complexity.replace('_', ' ')} />}
+        {header.chips.map((chip) => (
+          <UsageChipView key={chip.key} chip={chip} />
+        ))}
         <Box sx={{ flex: 1 }} />
         <Button size="small" startIcon={<StopIcon />} color="error" variant="outlined" disabled={!chat.busy} onClick={() => void stop()} sx={{ minHeight: 36 }}>
           Stop
@@ -334,7 +373,7 @@ export default function AgentChatTab({ battery }: Props) {
       <Dialog open={confirmReset} onClose={() => setConfirmReset(false)}>
         <DialogTitle>Start a new session?</DialogTitle>
         <DialogContent>
-          <DialogContentText>The conversation and the effector call count are cleared.</DialogContentText>
+          <DialogContentText>The conversation, the usage counters and the task budget are cleared.</DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setConfirmReset(false)}>Cancel</Button>
