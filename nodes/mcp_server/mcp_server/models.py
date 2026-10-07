@@ -145,7 +145,8 @@ class ArmMotionResult(BaseModel):
         default=None, description="Requested tool point (move_arm_cartesian): x, y, z (m) and pitch (rad) if given"
     )
     achieved_tool_pose: dict[str, float] | None = Field(
-        default=None, description="Tool point x, y, z (m), pitch (rad) from the final measured joints (move_arm_cartesian)"
+        default=None,
+        description="Tool point x, y, z (m), pitch (rad) from the final measured joints (move_arm_cartesian)",
     )
 
 
@@ -179,9 +180,7 @@ class CameraFrame(BaseModel):
 class NavigationResult(BaseModel):
     """Outcome of a NavigateToPose goal."""
 
-    status: str = Field(
-        description="succeeded, aborted, canceled, rejected, timeout, interrupted or unknown"
-    )
+    status: str = Field(description="succeeded, aborted, canceled, rejected, timeout, interrupted or unknown")
     message: str = ""
     goal: BasePose | None = None
     final_pose: BasePose | None = None
@@ -310,7 +309,9 @@ class CpuVitals(BaseModel):
     """RPi CPU temperature and throttling."""
 
     temp_c: float | None = None
-    throttled: bool | None = Field(default=None, description="Firmware throttling/under-voltage now; null if unreadable")
+    throttled: bool | None = Field(
+        default=None, description="Firmware throttling/under-voltage now; null if unreadable"
+    )
     throttled_raw: int | None = None
 
 

@@ -12,6 +12,7 @@ from .config import LimitSettings, McpServerConfig
 from .home_store import HomeStoreError, load_home, save_home
 from .ik import ArmKinematics, UnreachableError
 from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult
+from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .staleness import Stamped, is_fresh
 from .trajectory import JointLimits, clamp_to_limits, max_abs_error, plan_trajectory
 
@@ -117,7 +118,12 @@ class ArmController:
     """
 
     def __init__(
-        self, backend: ArmBackend, kinematics: ArmKinematics, limits: JointLimits, config: McpServerConfig
+        self,
+        backend: ArmBackend,
+        kinematics: ArmKinematics,
+        limits: JointLimits,
+        config: McpServerConfig,
+        monitor: RobotMonitor | None = None,
     ) -> None:
         """Create the controller.
 
@@ -126,7 +132,11 @@ class ArmController:
             kinematics (ArmKinematics): IK/FK on the arm URDF.
             limits (JointLimits): URDF joint limits for every arm joint (incl. gripper).
             config (McpServerConfig): Node configuration.
+            monitor (RobotMonitor | None): Body monitor: critical events end a motion early ('interrupted').
         """
+        self.monitor = monitor
+        self._watch: MotionWatch | None = None
+        self._interrupted_by: str | None = None
         self.backend = backend
         self.kin = kinematics
         self.limits = limits
@@ -489,11 +499,23 @@ class ArmController:
         """
         self.velocity_for(speed_scale)
         sample = self.require_sample()
+        expected = {"x": x, "y": y, "z": z} | ({} if pitch is None else {"pitch": pitch})
         try:
             solution = self.kin.inverse(x, y, z, pitch, seed=self.command_base(sample))
         except UnreachableError as exc:
-            return ArmMotionResult(status="unreachable", message=str(exc), positions=self.measured(sample))
-        return self.move_joints(solution, speed_scale)
+            return ArmMotionResult(
+                status="unreachable",
+                message=str(exc),
+                positions=self.measured(sample),
+                achieved=self.measured(sample),
+                expected_tool_pose=expected,
+            )
+        result = self.move_joints(solution, speed_scale)
+        achieved = None
+        if result.positions is not None and all(j in result.positions for j in self.kin.joint_names):
+            pose = self.kin.forward(result.positions)
+            achieved = {"x": pose.x, "y": pose.y, "z": pose.z, "pitch": pose.pitch}
+        return result.model_copy(update={"expected_tool_pose": expected, "achieved_tool_pose": achieved})
 
     def set_gripper(
         self,
@@ -711,6 +733,9 @@ class ArmController:
             clamped=clamped,
             residual_error=residual or {},
             duration_s=round(self.backend.now() - started, 3),
+            interrupted_by=self._interrupted_by,
+            expected=goal,
+            achieved=positions,
         )
 
     def check(
@@ -728,9 +753,19 @@ class ArmController:
         """
         if self._stop.is_set():
             return "stopped", "stop requested"
+        event = self._watch.check() if self._watch is not None else None
+        if event is not None:
+            self._interrupted_by = event
+            if event == "human_takeover":
+                self.drop_lease()  # never hold against the human who took over
+            return "interrupted", f"stopped early: critical event {event}; holding the measured pose"
         other = self.lease_lost_to()
         if other is not None:
             self.drop_lease()
+            if self.monitor is not None:
+                self.monitor.report_lease_lost(other)
+                self._interrupted_by = "human_takeover"
+                return "interrupted", f"filter_node switched the arm source to {other!r}"
             return "stopped", f"filter_node switched the arm source to {other!r}"
         now = self.backend.now()
         stale = self.cfg.timeouts.follower_stale_s
@@ -741,6 +776,12 @@ class ArmController:
         if setpoint is not None:
             error = max_abs_error(setpoint, sample.positions, [j for j in tracked if j in setpoint])
             if error > self.cfg.limits.arm_tracking_error_rad:
+                self._interrupted_by = "stall"
+                if self.monitor is not None:
+                    self.monitor.report_arm_stall(
+                        f"arm tracking error {error:.3f} rad exceeds {self.cfg.limits.arm_tracking_error_rad}",
+                        {"tracking_error_rad": round(error, 4)},
+                    )
                 return (
                     "aborted_tracking",
                     f"tracking error {error:.3f} rad exceeds {self.cfg.limits.arm_tracking_error_rad}",
@@ -853,7 +894,11 @@ class MotionGuard:
         if not self.controller._motion_lock.acquire(blocking=False):
             raise ArmBusyError("another arm motion is running; call stop first")
         self.controller._stop.clear()
+        self.controller._interrupted_by = None
+        monitor = self.controller.monitor
+        self.controller._watch = None if monitor is None else monitor.watch(ARM_INTERRUPTS)
 
     def __exit__(self, *exc: object) -> None:
         """Release the motion lock."""
+        self.controller._watch = None
         self.controller._motion_lock.release()

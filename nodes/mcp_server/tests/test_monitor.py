@@ -4,11 +4,11 @@ import math
 from typing import Any
 
 import pytest
-from mcp_server.monitor import ARM_INTERRUPTS, BASE_INTERRUPTS, RobotMonitor
 from ros2_common.battery import BatteryConfig, BatteryGuard
 
 from mcp_server.config import McpServerConfig, MonitorSettings
 from mcp_server.models import RobotEvent
+from mcp_server.monitor import ARM_INTERRUPTS, BASE_INTERRUPTS, RobotMonitor
 
 
 class Clock:

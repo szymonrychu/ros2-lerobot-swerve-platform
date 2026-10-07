@@ -4,9 +4,11 @@ Only this module and __main__ import rclpy; all decision logic lives in the rclp
 perception, trajectory, ik, home_store, staleness, geometry).
 """
 
+import json
 import math
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 import rclpy
@@ -24,15 +26,15 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
-from sensor_msgs.msg import BatteryState, CompressedImage, JointState, LaserScan
+from sensor_msgs.msg import BatteryState, CompressedImage, Imu, JointState, LaserScan
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .arm import ArmController, ArmError, JointSample
-from .base_motion import DriveError, DriveOutcome, run_drive, run_stop
+from .base_motion import DriveError, DriveOutcome, NavPort, run_drive, run_nav, run_stop
 from .config import McpServerConfig
-from .geometry import compose_relative, quaternion_from_yaw, yaw_from_quaternion
+from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
 from .ik import ArmKinematics, load_joint_limits
 from .models import (
     BasePose,
@@ -42,10 +44,12 @@ from .models import (
     NavGoalStatus,
     NavigationResult,
     RobotError,
+    RobotEvent,
     RobotState,
     StopResult,
     Twist2D,
 )
+from .monitor import BASE_INTERRUPTS, RobotMonitor
 from .perception import (
     ImageEncodingError,
     map_stats,
@@ -67,6 +71,9 @@ MAP_QOS = QoSProfile(
 )
 # filter_node subscribes reliable, depth 10.
 COMMAND_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
+# /robot_events: reliable so a consumer never misses an event.
+EVENT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=50)
+MONITOR_TICK_S = 0.25
 CANCEL_SUFFIX = "/_action/cancel_goal"
 STATUS_SUFFIX = "/_action/status"
 CANCEL_WAIT_S = 1.0
@@ -85,6 +92,19 @@ GOAL_STATUS_NAMES = {
 COLLISION_ACTIONS = {0: "do_nothing", 1: "stop", 2: "slowdown", 3: "approach", 4: "limit"}
 
 
+def twist_xyw(msg: Odometry) -> tuple[float, float, float]:
+    """Planar twist (vx, vy, wz) of an Odometry message.
+
+    Args:
+        msg (Odometry): Message.
+
+    Returns:
+        tuple[float, float, float]: Forward, left (m/s) and yaw rate (rad/s).
+    """
+    tw = msg.twist.twist
+    return tw.linear.x, tw.linear.y, tw.angular.z
+
+
 def wait_future(future: Any, timeout_s: float) -> bool:
     """Block the calling (non-executor) thread until an rclpy future completes.
 
@@ -100,15 +120,101 @@ def wait_future(future: Any, timeout_s: float) -> bool:
     return done.wait(timeout_s) or future.done()
 
 
+class RosNavPort(NavPort):
+    """NavPort over the rclpy NavigateToPose action client and cancel service of a RosRobot."""
+
+    def __init__(self, robot: "RosRobot") -> None:
+        """Bind to the robot.
+
+        Args:
+            robot (RosRobot): ROS interface.
+        """
+        self.robot = robot
+        self.handle: Any = None
+        self.result_future: Any = None
+
+    def server_ready(self) -> bool:
+        """Whether the Nav2 action server answers within action_server_wait_s.
+
+        Returns:
+            bool: True when available.
+        """
+        return self.robot.nav_client.wait_for_server(timeout_sec=self.robot.cfg.timeouts.action_server_wait_s)
+
+    def send_goal(self, pose: BasePose) -> bool | None:
+        """Send the goal.
+
+        Args:
+            pose (BasePose): Goal.
+
+        Returns:
+            bool | None: True accepted, False rejected, None when Nav2 did not answer.
+        """
+        goal = NavigateToPose.Goal()
+        goal.pose = PoseStamped()
+        goal.pose.header.frame_id = pose.frame
+        goal.pose.pose.position.x, goal.pose.pose.position.y = pose.x, pose.y
+        qx, qy, qz, qw = quaternion_from_yaw(pose.yaw)
+        o = goal.pose.pose.orientation
+        o.x, o.y, o.z, o.w = qx, qy, qz, qw
+        send = self.robot.nav_client.send_goal_async(goal)
+        if not wait_future(send, self.robot.cfg.timeouts.action_server_wait_s):
+            return None
+        self.handle = send.result()
+        if self.handle is None or not self.handle.accepted:
+            return False
+        self.result_future = self.handle.get_result_async()
+        return True
+
+    def result_ready(self) -> bool:
+        """Whether the goal finished.
+
+        Returns:
+            bool: True when a result arrived.
+        """
+        return bool(self.result_future.done())
+
+    def result(self) -> tuple[str, str]:
+        """Final status name and error message.
+
+        Returns:
+            tuple[str, str]: Status and message.
+        """
+        res = self.result_future.result()
+        if res is None:
+            return "unknown", ""
+        return GOAL_STATUS_NAMES.get(res.status, str(res.status)), getattr(res.result, "error_msg", "")
+
+    def cancel(self) -> None:
+        """Cancel the goal and wait briefly for the result."""
+        wait_future(self.handle.cancel_goal_async(), CANCEL_WAIT_S)
+        wait_future(self.result_future, CANCEL_WAIT_S)
+
+    def zero_velocity(self) -> None:
+        """Publish a zero twist."""
+        self.robot.publish_twist(0.0, 0.0, 0.0)
+
+    def pose(self) -> BasePose | None:
+        """Fresh map pose.
+
+        Returns:
+            BasePose | None: Pose or None.
+        """
+        return self.robot.robot_pose()
+
+
 class RosRobot:
     """RobotApi + ArmBackend implementation on rclpy (spun by a MultiThreadedExecutor in a background thread)."""
 
-    def __init__(self, config: McpServerConfig, battery_guard: BatteryGuard | None = None) -> None:
+    def __init__(
+        self, config: McpServerConfig, battery_guard: BatteryGuard | None = None, monitor: RobotMonitor | None = None
+    ) -> None:
         """Create the node, its subscriptions, publishers, clients, services and the arm controller.
 
         Args:
             config (McpServerConfig): Node configuration.
             battery_guard (BatteryGuard | None): Guard fed from config.battery.topic; None leaves the battery unread.
+            monitor (RobotMonitor | None): Body monitor fed from the sensor topics and publishing /robot_events.
         """
         self.cfg = config
         t = config.topics
@@ -123,22 +229,52 @@ class RosRobot:
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node, spin_thread=False)
 
+        self.monitor = monitor or RobotMonitor(
+            config.monitor, battery_guard, autonomy_source=config.arm.autonomy_source_name
+        )
         self.cache(JointState, t.follower_joint_states, "joint_states", SENSOR_QOS)
-        self.cache(String, t.active_source, "active_source", SENSOR_QOS)
-        self.cache(Odometry, t.odom, "odom", SENSOR_QOS)
+        self.cache(
+            String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
+        )
+        self.cache(Odometry, t.odom, "odom", SENSOR_QOS, lambda msg: self.monitor.on_odom(*twist_xyw(msg)))
         self.cache(LaserScan, t.scan, "scan", SENSOR_QOS)
         self.cache(OccupancyGrid, t.map, "map", MAP_QOS)
-        self.cache(CollisionMonitorState, t.collision_monitor_state, "collision_monitor", SENSOR_QOS)
+        self.cache(
+            CollisionMonitorState,
+            t.collision_monitor_state,
+            "collision_monitor",
+            SENSOR_QOS,
+            lambda msg: self.monitor.on_collision(int(msg.action_type), msg.polygon_name),
+        )
         self.cache(GoalStatusArray, t.navigate_action + STATUS_SUFFIX, "nav_status", SENSOR_QOS)
+        self.subscribe(Odometry, t.swerve_odom, lambda msg: self.monitor.on_swerve_odom(msg.twist.covariance[0]))
+        self.subscribe(Odometry, t.rf2o_twist, lambda msg: self.monitor.on_rf2o(*twist_xyw(msg)))
+        self.subscribe(
+            Imu,
+            t.imu,
+            lambda m: self.monitor.on_imu(
+                m.linear_acceleration.x,
+                m.linear_acceleration.y,
+                m.linear_acceleration.z,
+                m.orientation.x,
+                m.orientation.y,
+                m.orientation.z,
+                m.orientation.w,
+            ),
+        )
+        self.subscribe(Twist, t.cmd_vel, lambda m: self.monitor.on_cmd_vel(m.linear.x, m.linear.y, m.angular.z))
+        self.subscribe(String, t.servo_registers, self.on_servo_registers)
 
         if config.battery is not None and battery_guard is not None:
-            self.node.create_subscription(
-                BatteryState,
-                config.battery.topic,
-                lambda msg: battery_guard.update(float(msg.voltage)),
-                SENSOR_QOS,
-                callback_group=self.group,
-            )
+
+            def on_battery(msg: BatteryState) -> None:
+                battery_guard.update(float(msg.voltage))
+                self.monitor.on_battery()
+
+            self.subscribe(BatteryState, config.battery.topic, on_battery)
+
+        self.events_pub = self.node.create_publisher(String, t.robot_events, EVENT_QOS)
+        self.monitor.set_sink(self.publish_event)
 
         self.cmd_pub = self.node.create_publisher(JointState, t.autonomy_command, COMMAND_QOS)
         self.release_pub = self.node.create_publisher(Bool, t.autonomy_release, COMMAND_QOS)
@@ -150,8 +286,14 @@ class RosRobot:
 
         urdf = config.arm.urdf_path
         self.arm = ArmController(
-            self, ArmKinematics(urdf, margin=config.limits.arm_limit_margin_rad), load_joint_limits(urdf), config
+            self,
+            ArmKinematics(urdf, margin=config.limits.arm_limit_margin_rad),
+            load_joint_limits(urdf),
+            config,
+            self.monitor,
         )
+        self.monitor.lease_held = lambda: self.arm.control_held
+        self.node.create_timer(MONITOR_TICK_S, self.monitor.tick, callback_group=self.group)
         self.node.create_service(Trigger, t.home_service, self.on_home, callback_group=self.group)
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
         self.node.create_timer(
@@ -165,7 +307,9 @@ class RosRobot:
 
     # --- data cache -------------------------------------------------------------------------------------------
 
-    def cache(self, msg_type: type, topic: str, key: str, qos: QoSProfile) -> None:
+    def cache(
+        self, msg_type: type, topic: str, key: str, qos: QoSProfile, hook: Callable[[Any], None] | None = None
+    ) -> None:
         """Subscribe and keep the latest message with its monotonic receive time.
 
         Args:
@@ -173,13 +317,51 @@ class RosRobot:
             topic (str): Topic name.
             key (str): Cache key.
             qos (QoSProfile): Subscription QoS.
+            hook (Callable[[Any], None] | None): Called with every message after it is cached (monitor feed).
         """
 
         def store(msg: Any) -> None:
             with self.lock:
                 self.latest[key] = Stamped(value=msg, stamp=time.monotonic())
+            if hook is not None:
+                hook(msg)
 
         self.node.create_subscription(msg_type, topic, store, qos, callback_group=self.group)
+
+    def subscribe(
+        self, msg_type: type, topic: str, callback: Callable[[Any], None], qos: QoSProfile = SENSOR_QOS
+    ) -> None:
+        """Subscribe a monitor feed (no caching).
+
+        Args:
+            msg_type (type): Message class.
+            topic (str): Topic name.
+            callback (Callable[[Any], None]): Message handler.
+            qos (QoSProfile): Subscription QoS.
+        """
+        self.node.create_subscription(msg_type, topic, callback, qos, callback_group=self.group)
+
+    def on_servo_registers(self, msg: String) -> None:
+        """Feed a /follower/servo_registers JSON dump to the monitor (bad JSON is logged and dropped).
+
+        Args:
+            msg (String): JSON {joint: {register: value}}.
+        """
+        try:
+            dump = json.loads(msg.data)
+        except ValueError:
+            self.log.warning("servo_registers: invalid JSON dropped")
+            return
+        if isinstance(dump, dict):
+            self.monitor.on_servo_registers(dump)
+
+    def publish_event(self, event: RobotEvent) -> None:
+        """Publish one robot event on /robot_events.
+
+        Args:
+            event (RobotEvent): Event (JSON contract: seq, ts, type, severity, source, message, data).
+        """
+        self.events_pub.publish(String(data=event.model_dump_json()))
 
     def get(self, key: str, max_age_s: float | None = None) -> Stamped[Any] | None:
         """Latest cached message, optionally only when fresh.
@@ -518,7 +700,7 @@ class RosRobot:
         return summary, png
 
     def navigate(self, x: float, y: float, yaw: float, frame: str, timeout_s: float) -> NavigationResult:
-        """Send a NavigateToPose goal and block until it finishes, times out or stop is called.
+        """Send a NavigateToPose goal and block until it finishes, times out, stop is called or a critical event fires.
 
         Args:
             x (float): Goal x (m).
@@ -528,7 +710,7 @@ class RosRobot:
             timeout_s (float): Timeout (s); the goal is cancelled when it expires.
 
         Returns:
-            NavigationResult: Outcome and final pose.
+            NavigationResult: Outcome (status 'interrupted' + interrupted_by on a critical event) and final pose.
         """
         if not all(math.isfinite(v) for v in (x, y, yaw)):
             raise RobotError("goal must be finite")
@@ -536,57 +718,20 @@ class RosRobot:
             raise RobotError("another base motion is running; call stop first")
         try:
             self.base_stop.clear()
-            return self.run_nav_goal(x, y, yaw, frame, timeout_s)
+            with self.monitor.base_motion():
+                watch = self.monitor.watch(BASE_INTERRUPTS)
+                return run_nav(
+                    RosNavPort(self),
+                    BasePose(frame=frame, x=x, y=y, yaw=yaw),
+                    timeout_s,
+                    self.base_stop.is_set,
+                    watch.check,
+                    time.monotonic,
+                    time.sleep,
+                    NAV_POLL_S,
+                )
         finally:
             self.base_motion.release()
-
-    def run_nav_goal(self, x: float, y: float, yaw: float, frame: str, timeout_s: float) -> NavigationResult:
-        """Body of navigate (base motion lock held).
-
-        Args:
-            x (float): Goal x (m).
-            y (float): Goal y (m).
-            yaw (float): Goal yaw (rad).
-            frame (str): Goal frame.
-            timeout_s (float): Timeout (s).
-
-        Returns:
-            NavigationResult: Outcome and final pose.
-        """
-        goal_pose = BasePose(frame=frame, x=x, y=y, yaw=yaw)
-        if not self.nav_client.wait_for_server(timeout_sec=self.cfg.timeouts.action_server_wait_s):
-            raise RobotError(f"Nav2 action server {self.cfg.topics.navigate_action} not available")
-        goal = NavigateToPose.Goal()
-        goal.pose = PoseStamped()
-        goal.pose.header.frame_id = frame
-        goal.pose.pose.position.x, goal.pose.pose.position.y = x, y
-        qx, qy, qz, qw = quaternion_from_yaw(yaw)
-        o = goal.pose.pose.orientation
-        o.x, o.y, o.z, o.w = qx, qy, qz, qw
-        send = self.nav_client.send_goal_async(goal)
-        if not wait_future(send, self.cfg.timeouts.action_server_wait_s):
-            raise RobotError("Nav2 did not answer the goal request")
-        handle = send.result()
-        if handle is None or not handle.accepted:
-            return NavigationResult(status="rejected", message="Nav2 rejected the goal", goal=goal_pose)
-        result_future = handle.get_result_async()
-        deadline = time.monotonic() + timeout_s
-        while not result_future.done():
-            if self.base_stop.is_set() or time.monotonic() >= deadline:
-                wait_future(handle.cancel_goal_async(), CANCEL_WAIT_S)
-                wait_future(result_future, CANCEL_WAIT_S)
-                reason = "stop requested" if self.base_stop.is_set() else f"timeout after {timeout_s:.0f} s"
-                return NavigationResult(
-                    status="canceled" if self.base_stop.is_set() else "timeout",
-                    message=f"{reason}; goal cancelled",
-                    goal=goal_pose,
-                    final_pose=self.robot_pose(),
-                )
-            time.sleep(NAV_POLL_S)
-        res = result_future.result()
-        status = GOAL_STATUS_NAMES.get(res.status, str(res.status)) if res is not None else "unknown"
-        error = getattr(res.result, "error_msg", "") if res is not None else ""
-        return NavigationResult(status=status, message=error, goal=goal_pose, final_pose=self.robot_pose())
 
     def move_relative(self, dx: float, dy: float, dyaw: float, timeout_s: float) -> NavigationResult:
         """Navigate to a displacement expressed in base_link (converted to a map goal via TF).
@@ -623,20 +768,31 @@ class RosRobot:
             raise RobotError("another base motion is running; call stop first")
         try:
             self.base_stop.clear()
-            return run_drive(
-                self.publish_twist,
-                time.monotonic,
-                time.sleep,
-                self.base_stop.is_set,
-                vx,
-                vy,
-                wz,
-                duration_s,
-                lim.drive_rate_hz,
-                lim.max_linear_mps,
-                lim.max_angular_rps,
-                lim.max_drive_duration_s,
-            )
+            start = self.robot_pose()
+            with self.monitor.base_motion():
+                watch = self.monitor.watch(BASE_INTERRUPTS)
+                outcome = run_drive(
+                    self.publish_twist,
+                    time.monotonic,
+                    time.sleep,
+                    self.base_stop.is_set,
+                    vx,
+                    vy,
+                    wz,
+                    duration_s,
+                    lim.drive_rate_hz,
+                    lim.max_linear_mps,
+                    lim.max_angular_rps,
+                    lim.max_drive_duration_s,
+                    watch.check,
+                )
+            expected = dict(zip(("dx", "dy", "dyaw"), integrate_twist(*outcome.commanded, duration_s), strict=True))
+            end = self.robot_pose()
+            achieved = None
+            if start is not None and end is not None:
+                rel = relative_pose(start.x, start.y, start.yaw, end.x, end.y, end.yaw)
+                achieved = dict(zip(("dx", "dy", "dyaw"), rel, strict=True))
+            return outcome.model_copy(update={"expected": expected, "achieved": achieved})
         except DriveError as exc:
             raise RobotError(str(exc)) from exc
         finally:

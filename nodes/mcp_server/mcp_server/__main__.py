@@ -11,6 +11,7 @@ from rclpy.executors import MultiThreadedExecutor
 from ros2_common.battery import BatteryGuard
 
 from .config import MissingTokenError, config_path_from_env, load_config, token_from_env
+from .monitor import RobotMonitor
 from .ros_iface import RosRobot, init_ros
 from .tools import build_app, build_mcp_server
 
@@ -38,12 +39,13 @@ def main() -> int:
         return 1
     init_ros()
     guard = BatteryGuard.from_config(config.battery) if config.battery is not None else None
-    robot = RosRobot(config, guard)
+    monitor = RobotMonitor(config.monitor, guard, autonomy_source=config.arm.autonomy_source_name)
+    robot = RosRobot(config, guard, monitor)
     executor = MultiThreadedExecutor(num_threads=EXECUTOR_THREADS)
     executor.add_node(robot.node)
     spinner = threading.Thread(target=executor.spin, name="ros-executor", daemon=True)
     spinner.start()
-    app = build_app(build_mcp_server(robot, config, token, guard), config)
+    app = build_app(build_mcp_server(robot, config, token, guard, monitor), config)
     if config.battery is not None:
         LOGGER.info("battery cut-off gate on %s (%d cells)", config.battery.topic, config.battery.cells)
     LOGGER.info("serving MCP on http://%s:%d%s", config.server.host, config.server.port, config.server.path)

@@ -24,10 +24,8 @@ from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, M
 from .models import (
     ArmMotionResult,
     ArmState,
-    CameraFrame,
     ControlResult,
     HomeSetResult,
-    MapSummary,
     NavigationResult,
     RobotError,
     RobotState,
