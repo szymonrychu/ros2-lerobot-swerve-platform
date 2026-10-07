@@ -65,6 +65,9 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "base_joint_states_topic": "/swerve_drive/joint_states",
     "arm_joint_states_topic": "/follower/joint_states",
     "arm_command_topic": "/filter/web_ui_joint_commands",
+    "poi_list_topic": "/poi/list",
+    "poi_command_topic": "/poi/command",
+    "poi_result_topic": "/poi/result",
 }
 # Default disk cache cap for proxied map tiles (MiB).
 DEFAULT_TILE_CACHE_MAX_MB = 256
@@ -72,6 +75,7 @@ DEFAULT_TILE_CACHE_MAX_MB = 256
 DEFAULT_ARM_SERVICE_TIMEOUT_S = 30.0
 
 BATTERY_ROLE = "battery"
+POI_RESULT_ROLE = "poi_result"
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
 GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
@@ -95,6 +99,8 @@ MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
     ("footprint_topic", "footprint"),
     ("local_costmap_topic", "costmap"),
     ("gps_fix_topic", "gps"),
+    ("poi_list_topic", "poi_list"),
+    ("poi_result_topic", "poi_result"),
 )
 
 
@@ -171,6 +177,9 @@ class TabConfig(BaseModel):
     navigate_action: str | None = None  # map_nav: Nav2 NavigateToPose action whose goals "Stop" cancels
     local_costmap_topic: str | None = None  # map_nav: Nav2 local costmap (nav_msgs/OccupancyGrid, odom frame)
     gps_fix_topic: str | None = None  # map_nav: sensor_msgs/NavSatFix of the rover
+    poi_list_topic: str | None = None  # map_nav: std_msgs/String JSON POI list (latched, from poi_store)
+    poi_command_topic: str | None = None  # map_nav: std_msgs/String JSON POI add/update/delete commands
+    poi_result_topic: str | None = None  # map_nav: std_msgs/String JSON command results (matched by request_id)
     arm_home_service: str | None = None  # map_nav: std_srvs/Trigger moving the arm to its home pose
     arm_set_home_service: str | None = None  # map_nav: std_srvs/Trigger storing the current arm pose as home
     arm_service_timeout_s: float = Field(
@@ -306,7 +315,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix) and "battery" (BatteryState); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list" and "poi_result" (std_msgs/String JSON) and "battery" (BatteryState); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -321,6 +330,15 @@ class AppConfig(BaseModel):
         if self.battery is not None:
             roles[self.battery.topic] = BATTERY_ROLE
         return roles
+
+    def poi_command_topic(self) -> str | None:
+        """Return the POI command topic of the first map_nav tab.
+
+        Returns:
+            str | None: Topic the bridge publishes POI commands on, or None without a map_nav tab.
+        """
+        tab = next(iter(self.map_nav_tabs()), None)
+        return tab.poi_command_topic if tab is not None else None
 
     def robot_pose_frames(self) -> tuple[str, str] | None:
         """Return (map_frame, base_frame) of the first map_nav tab for the robot pose TF lookup.

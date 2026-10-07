@@ -350,7 +350,13 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | nav2_bringup | 75% | 512M |
 | web_ui | 30% | 256M |
 | mcp_server | 25% | 256M |
+| poi_store | 10% | 128M |
 | claude_agent | 50% (Nice=10) | 1G |
+
+### POI store directory
+
+`playbooks/tasks/poi_store_dir.yml` creates `/var/lib/ros2/poi` (owner `ansible_user`, mode `0755`) before `poi_store` is
+deployed, both in `deploy_nodes_client.yml` and in `nodes/client/poi_store.yml`. The node keeps `poi.json` there.
 
 ### SLAM maps directory
 

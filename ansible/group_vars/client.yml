@@ -331,6 +331,16 @@ ros2_node_type_defaults:
       - MCP_SERVER_CONFIG=/etc/ros2/mcp_server/config.yaml
     # MCP_SERVER_TOKEN=<48 random chars>, created once on the robot by playbooks/tasks/mcp_server_setup.yml (never in git).
     environment_file: /etc/ros2/mcp_server/token
+  poi_store:
+    # Points/areas of interest on the map (JSON file, /poi/* topics): see nodes/poi_store/README.md.
+    deploy_mode: native
+    node_launch_command: "python3 -m poi_store"
+    node_src_dir: "nodes/poi_store"
+    cpu_quota: "10%"
+    memory_max: "128M"
+    config_path: /etc/ros2/poi_store
+    env:
+      - POI_STORE_CONFIG=/etc/ros2/poi_store/config.yaml
   claude_agent:
     # Claude (Agent SDK, bundled pinned Claude Code CLI) chat agent that drives the robot through mcp_server:
     # see nodes/claude_agent/README.md. Runs as its own non-root user; resource-capped and niced.
@@ -845,6 +855,10 @@ ros2_nodes:
           # Home / Set home buttons: std_srvs/Trigger services served by mcp_server.
           arm_home_service: /arm/home
           arm_set_home_service: /arm/set_home
+          # Points of interest from poi_store (list is latched; edits go through POST /api/poi).
+          poi_list_topic: /poi/list
+          poi_command_topic: /poi/command
+          poi_result_topic: /poi/result
           # Proxied map tiles are cached in /var/cache/web_ui/tiles (default tile_cache_dir, created by
           # playbooks/tasks/web_ui_tile_cache_dir.yml).
         # Chat with the claude_agent node (127.0.0.1:18300, its http_port); the backend proxies /api/agent and /ws/agent.
@@ -933,6 +947,15 @@ ros2_nodes:
         bump_critical_mps2: 9.0
         tilt_warn_deg: 10
         debounce_default_s: 30
+  - name: poi_store
+    node_type: poi_store
+    present: true
+    enabled: true
+    config: |
+      store_path: /var/lib/ros2/poi/poi.json
+      list_topic: /poi/list
+      command_topic: /poi/command
+      result_topic: /poi/result
   - name: claude_agent
     node_type: claude_agent
     present: true

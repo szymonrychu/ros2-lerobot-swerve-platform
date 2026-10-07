@@ -8,9 +8,12 @@ fits the GPS anchor of the map frame from GPS fixes paired with TF robot positio
 from __future__ import annotations
 
 import array
+import json
 import threading
 import time
+import uuid
 from collections.abc import Callable
+from concurrent.futures import Future, InvalidStateError
 from typing import Any
 
 import rclpy  # noqa: F401  # kept as module attribute for test patching
@@ -25,10 +28,11 @@ from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
 from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
 from slam_toolbox.srv import Reset, SerializePoseGraph
+from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from .config import BATTERY_ROLE
+from .config import BATTERY_ROLE, POI_RESULT_ROLE
 from .gps_anchor import GpsAnchorEstimator
 from .msg_serializer import (
     msg_to_dict,
@@ -39,6 +43,7 @@ from .msg_serializer import (
     serialize_navsatfix,
     serialize_occupancy_grid,
     serialize_path,
+    serialize_poi_list,
     serialize_polygon,
     transform_points_2d,
     transform_to_pose_dict,
@@ -130,6 +135,8 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     # Nav2 publishes costmaps reliable + transient_local: match it so a (re)connecting UI gets the last one.
     "costmap": (OccupancyGrid, MAP_SUB_QOS, serialize_costmap),
     "gps": (NavSatFix, SENSOR_SUB_QOS, serialize_navsatfix),
+    # poi_store publishes the list reliable + transient_local (latched): match it so a (re)connecting UI gets it.
+    "poi_list": (String, MAP_SUB_QOS, serialize_poi_list),
 }
 
 
@@ -175,6 +182,7 @@ class BridgeNode(Node):
         trigger_services: list[str] | None = None,
         gps_anchor: GpsAnchorEstimator | None = None,
         battery_guard: BatteryGuard | None = None,
+        poi_command_topic: str | None = None,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -193,6 +201,7 @@ class BridgeNode(Node):
             gps_anchor (GpsAnchorEstimator | None): Estimator fed with "gps" role fixes, or None to disable the anchor.
             battery_guard (BatteryGuard | None): Guard fed with "battery" role readings, or None when battery
                 features are off.
+            poi_command_topic (str | None): std_msgs/String topic POI commands are published on, or None to disable.
         """
         super().__init__("web_ui_bridge")
         self._latest: dict[str, dict[str, Any]] = {}
@@ -211,6 +220,10 @@ class BridgeNode(Node):
         self._trigger_clients: dict[str, Any] = {}
         self._gps_anchor = gps_anchor
         self._battery_guard = battery_guard
+        self._poi_pending: dict[str, Future] = {}
+        self._poi_command_pub = (
+            self.create_publisher(String, poi_command_topic, DEFAULT_SUB_QOS_DEPTH) if poi_command_topic else None
+        )
         roles = topic_roles or {}
 
         for topic in topics:
@@ -220,6 +233,9 @@ class BridgeNode(Node):
                         BatteryState, topic, lambda msg, t=topic: self.on_battery(t, msg), SENSOR_SUB_QOS
                     )
                     self._topic_last_rx[topic] = time.monotonic()
+                continue
+            if roles.get(topic) == POI_RESULT_ROLE:
+                self.create_subscription(String, topic, self.on_poi_result, DEFAULT_SUB_QOS_DEPTH)
                 continue
             spec = subscription_spec(topic, roles.get(topic))
             if spec is None:
@@ -298,6 +314,45 @@ class BridgeNode(Node):
             log.debug("battery_invalid_voltage_dropped", topic=topic, voltage=data["voltage"])
             return
         self.store(topic, {**data, **guard.state()})
+
+    def poi_request_async(self, payload: dict[str, Any]) -> Future | None:
+        """Publish a POI command with a fresh request_id; the future resolves with the matching /poi/result.
+
+        Args:
+            payload (dict[str, Any]): {"op": ..., "poi": {...}} (request_id is added here).
+
+        Returns:
+            Future | None: Resolves to the result dict {request_id, ok, message, poi}; None when no poi_store
+                subscribes to the command topic.
+        """
+        pub = self._poi_command_pub
+        if pub is None or pub.get_subscription_count() == 0:
+            return None
+        request_id = uuid.uuid4().hex
+        future: Future = Future()
+        future.add_done_callback(lambda _fut: self._poi_pending.pop(request_id, None))
+        self._poi_pending[request_id] = future
+        pub.publish(String(data=json.dumps({**payload, "request_id": request_id})))
+        return future
+
+    def on_poi_result(self, msg: Any) -> None:
+        """Resolve the pending POI request a /poi/result message answers.
+
+        Args:
+            msg (Any): std_msgs/String with the result JSON.
+        """
+        try:
+            result = json.loads(msg.data)
+            future = self._poi_pending.pop(result["request_id"], None)
+        except (ValueError, KeyError, TypeError):
+            log.warning("poi_result_malformed")
+            return
+        if future is None:
+            return
+        try:
+            future.set_result(result)
+        except InvalidStateError:
+            log.debug("poi_result_after_cancel")
 
     def store(self, topic: str, data: dict[str, Any]) -> None:
         """Cache data as the latest envelope for topic and mark it for broadcast.

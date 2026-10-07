@@ -96,6 +96,7 @@ in parallel with other nodes.
 | `robot_localization_ekf` | EKF odometry fusion |
 | `nav2_bringup` | Nav2 navigation stack |
 | `web_ui` | Browser dashboard (FastAPI + React) |
+| `poi_store` | Points/areas of interest store on the map (`/var/lib/ros2/poi/poi.json`, `/poi/*` topics) |
 | `claude_agent` | Claude (Agent SDK, Opus) chat agent driving the robot via mcp_server; needs `export CLAUDE_CODE_OAUTH_TOKEN=...` on first deploy (the deploy fails without it unless the robot already has the token) |
 
 ### Server nodes (RPi4b)

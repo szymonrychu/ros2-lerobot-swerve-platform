@@ -31,6 +31,8 @@ def _install_ros2_stubs() -> None:
         "action_msgs.srv",
         "std_srvs",
         "std_srvs.srv",
+        "std_msgs",
+        "std_msgs.msg",
     ]
     for mod_name in ros2_modules:
         if mod_name not in sys.modules:
@@ -100,6 +102,17 @@ def _install_ros2_stubs() -> None:
             """std_srvs/srv/Trigger request (no fields)."""
 
         std_srv_mod.Trigger = types.SimpleNamespace(Request=_StubTriggerRequest)  # type: ignore[attr-defined]
+
+    std_msgs_mod = sys.modules["std_msgs.msg"]
+    if not hasattr(std_msgs_mod, "String"):
+
+        class _StubString:
+            """std_msgs/msg/String."""
+
+            def __init__(self, data: str = "") -> None:
+                self.data = data
+
+        std_msgs_mod.String = _StubString  # type: ignore[attr-defined]
 
     node_mod = sys.modules["rclpy.node"]
     if not hasattr(node_mod, "Node"):

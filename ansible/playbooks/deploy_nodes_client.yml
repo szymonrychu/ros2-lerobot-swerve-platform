@@ -195,6 +195,14 @@
       vars:
         _deploy_node_name: mcp_server
 
+    - name: POI store directory
+      ansible.builtin.include_tasks: tasks/poi_store_dir.yml
+
+    - name: Deploy poi_store
+      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: poi_store
+
     - name: Claude agent user, directories and OAuth token
       ansible.builtin.include_tasks: tasks/claude_agent_setup.yml
 

@@ -1,0 +1,8 @@
+# poi_store prerequisite, run before its deploy: the POI store directory, owned by the node user.
+- name: Ensure POI store directory exists (owned by the node user)
+  ansible.builtin.file:
+    path: /var/lib/ros2/poi
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"

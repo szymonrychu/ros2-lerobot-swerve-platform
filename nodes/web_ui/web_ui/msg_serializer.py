@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import array
 import base64
+import json
 import math
 from typing import Any
 
@@ -569,3 +570,25 @@ def _bytes_per_pixel(encoding: str) -> int:
     if encoding in ("rgb8", "bgr8"):
         return 3
     return 1
+
+
+def serialize_poi_list(msg: Any) -> dict[str, Any]:
+    """Parse the poi_store /poi/list std_msgs/String JSON.
+
+    Args:
+        msg (Any): std_msgs/String whose data is {"pois": [...], "revision": int}.
+
+    Returns:
+        dict[str, Any]: {"pois": list, "revision": int}.
+
+    Raises:
+        ValueError: If the data is not JSON of that shape.
+    """
+    data = json.loads(msg.data)
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("pois"), list)
+        or not isinstance(data.get("revision"), int)
+    ):
+        raise ValueError("POI list must be an object with a pois list and an integer revision")
+    return {"pois": data["pois"], "revision": data["revision"]}

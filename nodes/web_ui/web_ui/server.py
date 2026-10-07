@@ -53,6 +53,9 @@ CANCEL_GOAL_RETURN_CODES: dict[int, str] = {
     3: "goal terminated",
 }
 CANCEL_GOAL_ERROR_NONE = 0
+# Seconds to wait for poi_store's /poi/result after a POI command.
+POI_TIMEOUT_S = 3.0
+POI_OPS = frozenset({"add", "update", "delete"})
 # Browser cache lifetime of URDF and mesh files (meshes are tens of MB, e.g. wheel.stl 78.7 MB).
 URDF_CACHE_CONTROL = "public, max-age=86400"
 # Map tiles reach the browser only through /api/tiles (same origin), so img-src needs no external hosts.
@@ -429,6 +432,29 @@ def build_app(
     @app.post("/api/arm/set_home")
     async def arm_set_home(tab: str) -> JSONResponse:
         return await call_arm_trigger("arm_set_home", tab, "arm_set_home_service")
+
+    @app.post("/api/poi")
+    async def poi_command(tab: str, request: Request) -> JSONResponse:
+        # Not robot motion: deliberately not blocked by the battery guard.
+        if find_map_nav_tab(tab) is None:
+            return action_response("poi", False, f"no map_nav tab {tab!r}", 404)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        if not isinstance(body, dict) or body.get("op") not in POI_OPS or not isinstance(body.get("poi"), dict):
+            return action_response("poi", False, 'body must be {"op": "add"|"update"|"delete", "poi": {...}}', 422)
+        if bridge_node is None:
+            return action_response("poi", False, "ROS bridge unavailable", 503)
+        future = bridge_node.poi_request_async({"op": body["op"], "poi": body["poi"]})
+        if future is None:
+            return action_response("poi", False, "poi_store is not running", 503)
+        try:
+            result = await await_ros_future(future, POI_TIMEOUT_S)
+        except TimeoutError:
+            return action_response("poi", False, f"poi_store did not answer within {POI_TIMEOUT_S:g} s", 504)
+        log.info("poi_result", op=body["op"], ok=result.get("ok"), message=result.get("message"))
+        return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
     app.router.add_event_handler("startup", _make_start_broadcaster(app, clients, bridge_node, broadcast_interval, log))
 

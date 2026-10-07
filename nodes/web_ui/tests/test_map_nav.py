@@ -199,6 +199,8 @@ def test_topic_roles_from_map_nav_tabs() -> None:
         "/local_costmap/published_footprint": "footprint",
         "/local_costmap/costmap": "costmap",
         "/client/gps/fix": "gps",
+        "/poi/list": "poi_list",
+        "/poi/result": "poi_result",
     }
 
 

@@ -1,0 +1,22 @@
+---
+- name: Deploy poi_store on client
+  hosts: client
+  become: true
+  pre_tasks:
+    - name: Stop all ROS2 nodes before deploying
+      ansible.builtin.include_tasks: ../../tasks/stop_ros_nodes.yml
+
+    - name: Sync repository
+      ansible.builtin.include_tasks: ../../tasks/repo_sync.yml
+  tasks:
+    - name: POI store directory
+      ansible.builtin.include_tasks: ../../tasks/poi_store_dir.yml
+
+    - name: Deploy poi_store
+      ansible.builtin.include_tasks: ../../tasks/resolve_and_deploy.yml
+      vars:
+        _deploy_node_name: poi_store
+
+  post_tasks:
+    - name: Start enabled ROS2 nodes gradually
+      ansible.builtin.include_tasks: ../../tasks/start_ros_nodes.yml

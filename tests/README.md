@@ -386,6 +386,21 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_launcher_sources_the_colcon_workspace_after_ros` | The launcher template sources the colcon `install/setup.bash` after `/opt/ros/jazzy/setup.bash`, and `resolve_and_deploy.yml` passes `colcon_source`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_nav_stack_config.py` is listed in this section. |
 
+### test_poi_store_config.py
+
+Static wiring invariants of the poi_store node (Ansible, playbooks, lint script, docs).
+
+| Test | What it covers |
+|---|---|
+| `test_poi_store_node_type_defaults` | `poi_store` node type: native, `nodes/poi_store`, `python3 -m poi_store`, `config_path` `/etc/ros2/poi_store`, env `POI_STORE_CONFIG`. |
+| `test_poi_store_entry_after_mcp_server_with_config` | Present + enabled `ros2_nodes` entry directly after `mcp_server`; config has `store_path` `/var/lib/ros2/poi/poi.json` and the `/poi/list`, `/poi/command`, `/poi/result` topics. |
+| `test_poi_directory_task_owned_by_node_user` | `poi_store_dir.yml` creates `/var/lib/ros2/poi` owned by `ansible_user`. |
+| `test_poi_playbooks_deploy_node_and_create_directory` | Per-node playbook and `deploy_nodes_client.yml` create the directory and deploy `poi_store` (after `mcp_server`). |
+| `test_lint_script_and_node_files` | `scripts/lint-all-nodes.sh` lists the node; pyproject, poetry.lock, README and tests exist. |
+| `test_docs_mention_poi_store` | nodes/README.md, ansible/README.md and the ansible-deploy skill mention `poi_store`. |
+
+The node's own tests (store, models, config) live in `nodes/poi_store/tests/` and need no ROS: `cd nodes/poi_store && poetry run pytest tests -q`.
+
 ### test_mcp_server_config.py
 
 Static checks of the robot MCP server wiring (YAML, the unit template rendered with jinja2, the token script run with a

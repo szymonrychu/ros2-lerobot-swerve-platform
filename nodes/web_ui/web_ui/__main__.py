@@ -54,6 +54,7 @@ def main() -> None:
         trigger_services=config.trigger_services(),
         gps_anchor=config.gps_anchor_estimator(),
         battery_guard=battery_guard,
+        poi_command_topic=config.poi_command_topic(),
     )
     executor = create_bridge_executor(node)
 

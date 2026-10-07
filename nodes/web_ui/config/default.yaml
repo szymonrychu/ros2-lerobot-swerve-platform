@@ -32,6 +32,10 @@ tabs:
     # std_srvs/Trigger services behind the "Home" and "Set home" buttons.
     arm_home_service: /arm/home
     arm_set_home_service: /arm/set_home
+    # Points of interest from poi_store (latched list, commands and their results).
+    poi_list_topic: /poi/list
+    poi_command_topic: /poi/command
+    poi_result_topic: /poi/result
     # GPS fix and the anchor fit gates (samples, map-frame track extent in m, RMS residual in m).
     gps_fix_topic: /client/gps/fix
     gps_anchor_min_points: 10
