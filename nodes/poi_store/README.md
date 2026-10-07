@@ -36,6 +36,9 @@ All numbers must be finite.
 - `delete`: `poi` holds `id`; the result carries the deleted POI. Unknown id gives `ok: false`.
 - Invalid input (validation, bad JSON) gives `ok: false` with the reason; the store is untouched and `revision` does
   not change.
+- A failed write of the store file (`OSError`, e.g. disk full or read-only filesystem) rolls the in-memory change and the
+  `revision` back, logs the error and answers `ok: false` with the reason, so memory and file never diverge and the node
+  keeps running; no `/poi/list` is published for it.
 
 ## Persistence
 

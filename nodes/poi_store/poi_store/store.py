@@ -85,7 +85,7 @@ class PoiStore:
         self.save()
 
     def apply(self, command: Command) -> tuple[bool, str, dict[str, Any] | None]:
-        """Execute one command.
+        """Execute one command; when persisting fails (OSError) the in-memory change and revision are rolled back.
 
         Args:
             command: Parsed command.
@@ -93,10 +93,15 @@ class PoiStore:
         Returns:
             tuple[bool, str, dict[str, Any] | None]: ok, message, the resulting (add/update) or deleted POI.
         """
+        pois_before, revision_before = dict(self.pois), self.revision
         try:
             return getattr(self, "op_" + command.op)(command.poi)
         except ValidationError as exc:
             return False, "; ".join("%s: %s" % (".".join(map(str, e["loc"])), e["msg"]) for e in exc.errors()), None
+        except OSError as exc:
+            self.pois, self.revision = pois_before, revision_before
+            LOGGER.error("could not save %s (%s); %s rolled back", self.path, exc, command.op)
+            return False, "could not save POI store %s: %s" % (self.path, exc), None
 
     def op_add(self, fields: dict[str, Any]) -> tuple[bool, str, dict[str, Any] | None]:
         """Add a POI, assigning id and timestamps when absent.

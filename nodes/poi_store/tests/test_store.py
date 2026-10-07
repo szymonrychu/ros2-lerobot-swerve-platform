@@ -164,3 +164,42 @@ def test_handle_message_roundtrip(store):
 def test_handle_message_validation_error_is_ok_false(store):
     out = json.loads(store.handle_message(json.dumps({"op": "add", "request_id": "abc", "poi": point(name="x" * 99)})))
     assert out["ok"] is False and out["request_id"] == "abc"
+
+
+# --- save failure (disk full, read-only filesystem) rolls the change back ------------------------------------------
+
+
+def fail_save(store: PoiStore, monkeypatch) -> None:
+    def broken() -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(store, "save", broken)
+
+
+def test_add_save_failure_rolls_back_memory_and_revision(store, monkeypatch):
+    fail_save(store, monkeypatch)
+    ok, message, poi = store.apply(Command(op="add", poi=point()))
+    assert ok is False and poi is None and "No space left" in message
+    assert store.pois == {} and store.revision == 0
+
+
+def test_update_save_failure_restores_the_previous_poi(store, monkeypatch):
+    _, _, added = store.apply(Command(op="add", poi=point()))
+    fail_save(store, monkeypatch)
+    ok, message, _ = store.apply(Command(op="update", poi={"id": added["id"], "name": "renamed"}))
+    assert ok is False and "No space left" in message
+    assert store.pois[added["id"]].name == "a" and store.revision == 1
+
+
+def test_delete_save_failure_keeps_the_poi(store, monkeypatch):
+    _, _, added = store.apply(Command(op="add", poi=point()))
+    fail_save(store, monkeypatch)
+    ok, _, _ = store.apply(Command(op="delete", poi={"id": added["id"]}))
+    assert ok is False and added["id"] in store.pois and store.revision == 1
+
+
+def test_save_failure_is_an_ok_false_result_not_an_exception(store, monkeypatch):
+    fail_save(store, monkeypatch)
+    out = json.loads(store.handle_message(json.dumps({"op": "add", "request_id": "r1", "poi": point()})))
+    assert out["ok"] is False and out["request_id"] == "r1" and "No space left" in out["message"]
+    assert json.loads(store.list_json()) == {"pois": [], "revision": 0}
