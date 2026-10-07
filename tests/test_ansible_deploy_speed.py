@@ -456,6 +456,7 @@ def render_start_script(tmp_path: Path, nodes: list[str], scope: list[str]) -> s
     return render_probe(
         script,
         ros2_restart_queue=str(tmp_path / "pending-restart"),
+        ros2_stopped_for_build_file=str(tmp_path / "stopped-for-build"),
         **{
             "ros2_scope_nodes | default(ros2_nodes_to_start) | join(' ')": " ".join(scope),
             "ros2_nodes_to_start | join(' ')": " ".join(nodes),
@@ -481,6 +482,7 @@ def run_start(tmp_path: Path, script: str, active: list[str], failing: str = "")
     fake.write_text(
         "#!/bin/bash\n"
         'if [ "$1" = is-active ]; then grep -qx -- "$3" "$ACTIVE"; exit $?; fi\n'
+        '[ "$1" = daemon-reload ] && exit 0\n'
         '[ "$2" = "$FAILING" ] && exit 1\n'
         'echo "$1 $2" >> "$LOG"\n'
     )
@@ -558,11 +560,13 @@ def test_deploy_tasks_run_in_a_block_whose_rescue_starts_nodes_and_still_fails_t
     play = load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]
     assert len(play["tasks"]) == 1 and "block" in play["tasks"][0]
     rescue = play["tasks"][0]["rescue"]
-    start, fail = rescue
+    start, unlock, fail = rescue
     assert start["ignore_errors"] is True, "a failing start must not mask the original failure"
     assert "start_ros_nodes.yml" in str(start["block"])
-    assert "ansible.builtin.fail" in fail and "ansible_failed_task" in fail["ansible.builtin.fail"]["msg"]
-    assert "always" in start["tags"] and "always" in fail["tags"]
+    assert unlock["ansible.builtin.file"]["path"] == "{{ ros2_deploy_lock }}" and unlock["ansible.builtin.file"]["state"] == "absent"
+    msg = fail["ansible.builtin.fail"]["msg"]
+    assert "ansible_failed_task" in msg and "ansible_failed_result.stderr" in msg and "ansible_failed_result.rc" in msg
+    assert all("always" in t["tags"] for t in (start, unlock, fail))
     assert any("start_ros_nodes.yml" in str(t) for t in play["post_tasks"]), "success path starts nodes too"
 
 
@@ -596,6 +600,8 @@ def test_every_present_node_resolves_to_existing_source_paths(target: str) -> No
         if entry.get("present", True) is False:
             continue
         paths = node_type_paths(group, entry)
+        if group["ros2_node_type_defaults"][entry["node_type"]].get("src_paths") == []:
+            continue  # nothing in the repo to watch: constant key, restarts only for config/unit changes
         assert paths, f"{entry['name']} has no source paths"
         for path in paths:
             assert (REPO_ROOT / path).exists(), f"{entry['name']}: {path} is not in the repo"
@@ -654,4 +660,166 @@ def test_verify_runs_after_the_end_of_play_restarts(target: str) -> None:
     flat_play = play["pre_tasks"] + flat(play["tasks"]) + play["post_tasks"]
     start = next(i for i, t in enumerate(flat_play) if "start_ros_nodes.yml" in str(t.get("ansible.builtin.include_tasks", "")))
     verify = next(i for i, t in enumerate(flat_play) if "ansible.builtin.include_role" in t)
-    assert start < verify and verify == len(flat_play) - 1, "verify is the last step of the play"
+    assert start < verify and verify == len(flat_play) - 2, "verify is the last step, followed only by the lock release"
+    assert flat_play[-1]["ansible.builtin.file"]["state"] == "absent"
+
+
+def task_by_name(tasks: list[dict], name: str) -> dict:
+    """Find a task by name in a flattened task list.
+
+    Args:
+        tasks: Parsed tasks.
+        name: Task name.
+
+    Returns:
+        dict: The task.
+    """
+    return next(t for t in tasks if t.get("name") == name)
+
+
+def test_every_restart_causing_task_is_followed_directly_by_a_queue_task() -> None:
+    """The restart intent must reach the host file the moment a change is applied, not at the late handler flush
+    (a failure in between lost the restart forever)."""
+    for path in (ROLE_DIR / "tasks" / "main.yml", ROLE_DIR / "tasks" / "colcon_source_package.yml"):
+        flat_tasks = [t for t, _ in effective_tasks(load(path))]
+        causing = [i for i, t in enumerate(flat_tasks) if t.get("notify") == "Restart ROS2 node" or "Restart ROS2 node" in t.get("notify", [])]
+        assert causing, path.name
+        for i in causing:
+            task, nxt = flat_tasks[i], flat_tasks[i + 1]
+            assert task.get("register"), f"{task['name']} needs a register"
+            queue = nxt["ansible.builtin.lineinfile"]
+            assert queue["path"] == "{{ ros2_restart_queue }}" and queue["line"] == "{{ node_name }}", task["name"]
+            assert f"{task['register']} is changed" in str(nxt["when"]), task["name"]
+            assert "node_enabled | default(true) | bool" in str(nxt["when"]), "disabled nodes are never queued"
+
+
+def test_source_stamp_is_written_after_config_launcher_and_unit() -> None:
+    names = [t["name"] for t, _ in effective_tasks(load(ROLE_DIR / "tasks" / "main.yml"))]
+    stamp = names.index("Record the deployed node source (restart when it changed)")
+    for before in ("Deploy node config file (native)", "Deploy launcher script", "Create native systemd unit for ROS2 node"):
+        assert names.index(before) < stamp, before
+    assert names.index("Flush handlers (native)") > stamp
+
+
+def render_stop_script(tmp_path: Path) -> str:
+    """Render the stop_for_build.yml shell script.
+
+    Args:
+        tmp_path: Directory for the stopped-for-build file.
+
+    Returns:
+        str: Script ready for bash.
+    """
+    task = load(ROLE_DIR / "tasks" / "stop_for_build.yml")[0]
+    return render_probe(task["ansible.builtin.shell"], ros2_stopped_for_build_file=str(tmp_path / "stopped-for-build"))
+
+
+def test_stop_for_build_records_the_stopped_units_before_stopping_them(tmp_path: Path) -> None:
+    fake = tmp_path / "bin" / "systemctl"
+    fake.parent.mkdir()
+    fake.write_text(
+        "#!/bin/bash\n"
+        'if [ "$1" = list-units ]; then echo "ros2-a.service loaded active running x"; echo "ros2-b.service loaded active running y"; exit 0; fi\n'
+        'echo "$@" >> "$LOG"\n'
+    )
+    fake.chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake.parent}:{os.environ['PATH']}", "LOG": str(tmp_path / "log")}
+    result = subprocess.run(["bash", "-c", render_stop_script(tmp_path)], capture_output=True, text=True, env=env, check=False)
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "stopped-for-build").read_text().split() == ["ros2-a.service", "ros2-b.service"]
+    assert (tmp_path / "log").read_text().split() == ["stop", "ros2-a.service", "ros2-b.service"]
+    script = render_stop_script(tmp_path)
+    assert script.index("stopped-for-build") < script.index("xargs systemctl stop"), "recorded before the stop"
+
+
+def test_start_script_starts_every_unit_stopped_for_a_build_whatever_the_scope(tmp_path: Path) -> None:
+    (tmp_path / "stopped-for-build").write_text("ros2-a.service\nros2-c.service\n")
+    script = render_start_script(tmp_path, ["a", "b", "c"], scope=["b"])
+    result = run_start(tmp_path, script, active=[])
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split("\n")[:-1] == ["started ros2-a", "started ros2-b", "started ros2-c"]
+    assert (tmp_path / "stopped-for-build").read_text() == "", "cleared after success"
+
+
+def test_start_script_keeps_the_stopped_list_when_a_start_fails_and_reloads_systemd_first(tmp_path: Path) -> None:
+    (tmp_path / "stopped-for-build").write_text("ros2-a.service\n")
+    script = render_start_script(tmp_path, ["a"], scope=["a"])
+    assert run_start(tmp_path, script, active=[], failing="a").returncode != 0
+    assert (tmp_path / "stopped-for-build").read_text() == "ros2-a.service\n"
+    assert script.index("daemon-reload") < script.index("for n in"), "queued unit/launcher changes need a reload first"
+
+
+RECOVER_SCRIPT = PLAYBOOKS_DIR / "files" / "ros2-deploy-recover.sh"
+
+
+def run_recover(tmp_path: Path, file_age_min: float | None, lock_age_min: float | None) -> list[str]:
+    """Run the recovery script in a temp state dir.
+
+    Args:
+        tmp_path: Work directory.
+        file_age_min: Age of the stopped-for-build file in minutes (None: absent).
+        lock_age_min: Age of the deploy lock in minutes (None: absent).
+
+    Returns:
+        list[str]: systemctl calls made.
+    """
+    import time
+
+    state = tmp_path / "state"
+    state.mkdir(exist_ok=True)
+    for name, age, text in (("stopped-for-build", file_age_min, "ros2-b.service\nros2-a.service\nros2-b.service\n"), ("deploy.lock", lock_age_min, "")):
+        path = state / name
+        path.unlink(missing_ok=True)
+        if age is not None:
+            path.write_text(text)
+            stamp = time.time() - age * 60
+            os.utime(path, (stamp, stamp))
+    fake = tmp_path / "bin" / "systemctl"
+    fake.parent.mkdir(exist_ok=True)
+    fake.write_text('#!/bin/bash\necho "$@" >> "$LOG"\n')
+    fake.chmod(0o755)
+    log = tmp_path / "log"
+    log.unlink(missing_ok=True)
+    env = {**os.environ, "PATH": f"{fake.parent}:{os.environ['PATH']}", "LOG": str(log), "ROS2_DEPLOY_DIR": str(state), "ROS2_RECOVER_SLEEP": "0"}
+    result = subprocess.run(["bash", str(RECOVER_SCRIPT), "15", "240"], capture_output=True, text=True, env=env, check=False)
+    assert result.returncode == 0, result.stderr
+    return log.read_text().split("\n")[:-1] if log.exists() else []
+
+
+def test_recover_script_starts_the_stopped_units_only_when_the_list_is_old_and_no_deploy_is_running(tmp_path: Path) -> None:
+    assert run_recover(tmp_path, None, None) == [], "nothing recorded"
+    assert run_recover(tmp_path, 5, None) == [], "recent: a deploy may still be building"
+    assert run_recover(tmp_path, 30, 10) == [], "a live deploy lock (fresh) blocks recovery"
+    calls = run_recover(tmp_path, 30, None)
+    assert calls == ["start ros2-a.service", "start ros2-b.service"], "unique, sorted, started one by one"
+    assert (tmp_path / "state" / "stopped-for-build").read_text() == "", "cleared"
+    assert run_recover(tmp_path, 30, 300) == ["start ros2-a.service", "start ros2-b.service"], "a stale lock is ignored"
+
+
+def test_recover_timer_is_installed_by_the_deploy_playbooks_with_lock_taken_and_released() -> None:
+    install = load(TASKS_DIR / "deploy_guard.yml")
+    text = (TASKS_DIR / "deploy_guard.yml").read_text()
+    assert "ros2-deploy-recover.timer" in text and "OnUnitActiveSec=2min" in text and "ros2-deploy-recover.service" in text
+    assert "ros2_recover_after_min" in text and "ros2_deploy_lock_max_age_min" in text
+    timer = next(t for t in install if "ansible.builtin.systemd" in t and t["ansible.builtin.systemd"].get("name") == "ros2-deploy-recover.timer")
+    assert timer["ansible.builtin.systemd"]["enabled"] is True and timer["ansible.builtin.systemd"]["state"] == "started"
+    all_vars = load(ANSIBLE_DIR / "group_vars" / "all.yml")
+    assert all_vars["ros2_deploy_lock"] == "{{ ros2_deploy_state_dir }}/deploy.lock"
+    assert all_vars["ros2_stopped_for_build_file"] == "{{ ros2_deploy_state_dir }}/stopped-for-build"
+    for target in TARGETS:
+        play = load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]
+        pre = play["pre_tasks"]
+        guard = next(i for i, t in enumerate(pre) if "deploy_guard.yml" in str(t.get("ansible.builtin.include_tasks", "")))
+        lock = next(i for i, t in enumerate(pre) if t.get("ansible.builtin.file", {}).get("path") == "{{ ros2_deploy_lock }}")
+        assert guard < lock == len(pre) - 1, "guard installed first, lock taken last in pre_tasks"
+        assert pre[lock]["ansible.builtin.file"]["state"] == "touch" and "always" in pre[lock]["tags"]
+        last = play["post_tasks"][-1]
+        assert last["ansible.builtin.file"]["state"] == "absent" and "always" in last["tags"], "released after verify"
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_ros2_master_and_fastdds_watch_no_repo_path(target: str) -> None:
+    """They run no repo code: a constant source key (restart only for config/unit changes), not a README-only dir."""
+    types = load(ANSIBLE_DIR / "group_vars" / f"{target}.yml")["ros2_node_type_defaults"]
+    for name in ("ros2_master", "fastdds_discovery_server"):
+        assert types[name]["src_paths"] == [], name

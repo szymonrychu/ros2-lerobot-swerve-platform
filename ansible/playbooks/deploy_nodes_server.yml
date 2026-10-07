@@ -55,6 +55,17 @@
       ansible.builtin.include_tasks: tasks/network_wait_online.yml
       tags: [boot]
 
+    - name: Install the self-healing recovery timer for stopped nodes
+      ansible.builtin.include_tasks: tasks/deploy_guard.yml
+      tags: [config, always]
+
+    - name: Take the deploy lock (the recovery timer leaves the stopped nodes to this run)
+      ansible.builtin.file:
+        path: "{{ ros2_deploy_lock }}"
+        state: touch
+        mode: "0644"
+      tags: [always]
+
   tasks:
     - name: Deploy the nodes
       block:
@@ -117,11 +128,19 @@
             - name: Restart the queued and start the stopped ROS2 nodes
               ansible.builtin.include_tasks: tasks/start_ros_nodes.yml
 
+        - name: Release the deploy lock
+          ansible.builtin.file:
+            path: "{{ ros2_deploy_lock }}"
+            state: absent
+          ignore_errors: true
+          tags: [always]
+
         - name: Fail the run with the original error
           ansible.builtin.fail:
             msg: >-
               Deploy failed at task "{{ ansible_failed_task.name | default('unknown') }}":
-              {{ ansible_failed_result.msg | default('see the output above') }}.
+              {{ ansible_failed_result.msg | default('see the output above') }}
+              (rc={{ ansible_failed_result.rc | default('n/a') }}) {{ ansible_failed_result.stderr | default('') }}
               Queued restarts and stopped nodes were handled in the rescue path.
           tags: [always]
 
@@ -134,3 +153,9 @@
       ansible.builtin.include_role:
         name: ros2_node_verify
       tags: [verify, always]
+
+    - name: Release the deploy lock
+      ansible.builtin.file:
+        path: "{{ ros2_deploy_lock }}"
+        state: absent
+      tags: [always]

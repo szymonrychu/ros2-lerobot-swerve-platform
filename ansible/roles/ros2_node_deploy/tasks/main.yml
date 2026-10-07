@@ -209,21 +209,20 @@
         - node_src_dir is defined and node_src_dir | length > 0
         - node_deps_stale | bool
       notify: "Restart ROS2 node"
+      register: node_poetry_install
       tags: [python]
 
-    # The node runs from the repo checkout (PYTHONPATH, launch and config files), so a changed source tree needs a restart
-    # but no install. The stamp holds the hash of the node's source paths; a different hash changes the file, which queues
-    # the restart (persistently, see the handler).
-    - name: Record the deployed node source (restart when it changed)
-      ansible.builtin.copy:
-        dest: "{{ ros2_deploy_state_dir }}/stamps/{{ node_name }}.src"
-        content: "{{ node_src_key }}\n"
-        owner: root
-        group: root
+    - name: Queue a restart (Python dependencies installed)
+      ansible.builtin.lineinfile:
+        path: "{{ ros2_restart_queue }}"
+        line: "{{ node_name }}"
+        create: true
         mode: "0644"
       become: true
-      notify: "Restart ROS2 node"
-      tags: [python, config]
+      when:
+        - node_poetry_install is changed
+        - node_enabled | default(true) | bool
+      tags: [python]
 
     # web_ui frontend: npm ci only when package.json / package-lock.json changed (or node_modules is gone), npm run build
     # only when the tracked frontend sources changed (git tree hash), after npm ci, or when the build output is gone.
@@ -285,6 +284,18 @@
       notify: "Restart ROS2 node"
       tags: [build]
 
+    - name: Queue a restart (web_ui frontend built)
+      ansible.builtin.lineinfile:
+        path: "{{ ros2_restart_queue }}"
+        line: "{{ node_name }}"
+        create: true
+        mode: "0644"
+      become: true
+      when:
+        - web_ui_npm_build is changed
+        - node_enabled | default(true) | bool
+      tags: [build]
+
     - name: Copy built web_ui frontend to static dir
       ansible.builtin.copy:
         src: "{{ repo_dest }}/nodes/web_ui/frontend/dist/"
@@ -294,6 +305,19 @@
       become: true
       when: web_ui_npm_build is changed
       notify: "Restart ROS2 node"
+      register: web_ui_static_copy
+      tags: [build]
+
+    - name: Queue a restart (web_ui static files changed)
+      ansible.builtin.lineinfile:
+        path: "{{ ros2_restart_queue }}"
+        line: "{{ node_name }}"
+        create: true
+        mode: "0644"
+      become: true
+      when:
+        - web_ui_static_copy is changed
+        - node_enabled | default(true) | bool
       tags: [build]
 
     # Written last, after build and copy succeeded, so a failed deploy rebuilds on the next run.
@@ -332,6 +356,19 @@
       become: true
       when: node_config_path is defined and node_config_path is string and (node_config_path | length > 0)
       notify: "Restart ROS2 node"
+      register: node_config_result
+      tags: [config]
+
+    - name: Queue a restart (node config changed)
+      ansible.builtin.lineinfile:
+        path: "{{ ros2_restart_queue }}"
+        line: "{{ node_name }}"
+        create: true
+        mode: "0644"
+      become: true
+      when:
+        - node_config_result is changed
+        - node_enabled | default(true) | bool
       tags: [config]
 
     - name: Deploy launcher script
@@ -345,6 +382,19 @@
       notify:
         - "Reload systemd"
         - "Restart ROS2 node"
+      register: node_launcher_result
+      tags: [config]
+
+    - name: Queue a restart (launcher changed)
+      ansible.builtin.lineinfile:
+        path: "{{ ros2_restart_queue }}"
+        line: "{{ node_name }}"
+        create: true
+        mode: "0644"
+      become: true
+      when:
+        - node_launcher_result is changed
+        - node_enabled | default(true) | bool
       tags: [config]
 
     - name: Create native systemd unit for ROS2 node
@@ -356,7 +406,48 @@
       notify:
         - "Reload systemd"
         - "Restart ROS2 node"
+      register: node_unit_result
       tags: [config]
+
+    - name: Queue a restart (unit changed)
+      ansible.builtin.lineinfile:
+        path: "{{ ros2_restart_queue }}"
+        line: "{{ node_name }}"
+        create: true
+        mode: "0644"
+      become: true
+      when:
+        - node_unit_result is changed
+        - node_enabled | default(true) | bool
+      tags: [config]
+
+    # Written LAST (after config, launcher and unit succeeded): a failed deploy re-detects the change next run, and the
+    # queue task right after it has already recorded the restart. The node runs from the repo checkout (PYTHONPATH, launch
+    # and config files), so a changed source needs a restart but no install. The stamp holds the hash of the node's source
+    # paths; a different hash changes the file.
+    - name: Record the deployed node source (restart when it changed)
+      ansible.builtin.copy:
+        dest: "{{ ros2_deploy_state_dir }}/stamps/{{ node_name }}.src"
+        content: "{{ node_src_key }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+      notify: "Restart ROS2 node"
+      register: node_source_stamp
+      tags: [python, config]
+
+    - name: Queue a restart (source changed)
+      ansible.builtin.lineinfile:
+        path: "{{ ros2_restart_queue }}"
+        line: "{{ node_name }}"
+        create: true
+        mode: "0644"
+      become: true
+      when:
+        - node_source_stamp is changed
+        - node_enabled | default(true) | bool
+      tags: [python, config]
 
 # Handlers run here: systemd is reloaded (unit changed) before the enable below, and this node's restart is queued.
 - name: Flush handlers (native)

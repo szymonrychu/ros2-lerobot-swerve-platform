@@ -46,3 +46,12 @@ ros2_build_jobs: 4
 # start_ros_nodes.yml (which also runs in the rescue path of a failed run).
 ros2_deploy_state_dir: /var/lib/ros2-deploy
 ros2_restart_queue: "{{ ros2_deploy_state_dir }}/pending-restart"
+ros2_deploy_lock: "{{ ros2_deploy_state_dir }}/deploy.lock"
+# Units a heavy step stopped (one per line). start_ros_nodes.yml starts all of them whatever the run's scope and clears
+# the file; if the run dies without doing so (controller lost), the on-host timer ros2-deploy-recover starts them.
+ros2_stopped_for_build_file: "{{ ros2_deploy_state_dir }}/stopped-for-build"
+# Self-healing guard: units listed in the file for this many minutes with no live deploy lock are started by the timer.
+ros2_recover_after_min: 15
+# A deploy lock older than this is stale (controller died mid-run) and no longer blocks the recovery. Must exceed the
+# longest single task (a source build).
+ros2_deploy_lock_max_age_min: 240

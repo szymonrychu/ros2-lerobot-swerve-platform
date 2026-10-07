@@ -1,0 +1,59 @@
+---
+# Self-healing guard against a deploy that is lost while nodes are stopped for a build (SSH drop, controller closed:
+# the rescue path never runs for an unreachable host). Installs ros2-deploy-recover.timer, which every 2 minutes starts
+# the units listed in the stopped-for-build file once the list is older than ros2_recover_after_min and no deploy lock
+# younger than ros2_deploy_lock_max_age_min exists. Installed at the start of every deploy, before anything is stopped.
+- name: Install the deploy recovery script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/files/ros2-deploy-recover.sh"
+    dest: /usr/local/sbin/ros2-deploy-recover
+    owner: root
+    group: root
+    mode: "0755"
+  register: ros2_recover_script
+  tags: [config, always]
+
+- name: Install the deploy recovery service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/ros2-deploy-recover.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (playbooks/tasks/deploy_guard.yml).
+      [Unit]
+      Description=Start ROS2 units a lost ansible deploy left stopped
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/ros2-deploy-recover {{ ros2_recover_after_min }} {{ ros2_deploy_lock_max_age_min }}
+  register: ros2_recover_service
+  tags: [config, always]
+
+- name: Install the deploy recovery timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/ros2-deploy-recover.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by Ansible (playbooks/tasks/deploy_guard.yml).
+      [Unit]
+      Description=Check for ROS2 units a lost ansible deploy left stopped
+
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=2min
+
+      [Install]
+      WantedBy=timers.target
+  register: ros2_recover_timer
+  tags: [config, always]
+
+- name: Enable the deploy recovery timer
+  ansible.builtin.systemd:
+    name: ros2-deploy-recover.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ ros2_recover_service is changed or ros2_recover_timer is changed }}"
+  tags: [config, always]

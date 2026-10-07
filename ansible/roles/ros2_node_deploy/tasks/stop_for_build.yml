@@ -1,12 +1,15 @@
 ---
 # Stop every running ROS2 node service before a heavy step (npm, colcon, Poetry install), once per play. The client
 # overheated and froze when a build ran next to the full stack (2026-10-03). A deploy with nothing to build never gets
-# here, so nothing is stopped; the stopped nodes are started again, gradually, by playbooks/tasks/start_ros_nodes.yml.
+# here, so nothing is stopped. The units are recorded in ros2_stopped_for_build_file BEFORE they are stopped; the stopped
+# nodes are started again, gradually, by playbooks/tasks/start_ros_nodes.yml (every listed unit, whatever the run's scope),
+# or by the on-host recovery timer if the run is lost.
 - name: Stop all running ROS2 node services before the heavy step
   ansible.builtin.shell: |
     set -o pipefail
     units=$(systemctl list-units --type=service --state=running --no-legend 'ros2-*' | awk '{print $1}')
     [ -z "$units" ] && exit 0
+    echo "$units" >> "{{ ros2_stopped_for_build_file }}"
     echo "$units" | xargs systemctl stop
     echo "stopped: $(echo $units)"
   args:

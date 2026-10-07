@@ -105,7 +105,20 @@
     MAKEFLAGS: "-j{{ ros2_build_jobs }}"
   become: true
   when: not _colcon_stamp_stat.stat.exists
+  register: _colcon_build_result
   notify: "Restart ROS2 node"
+  tags: [build]
+
+- name: Queue a restart (source package built)
+  ansible.builtin.lineinfile:
+    path: "{{ ros2_restart_queue }}"
+    line: "{{ node_name }}"
+    create: true
+    mode: "0644"
+  become: true
+  when:
+    - _colcon_build_result is changed
+    - node_enabled | default(true) | bool
   tags: [build]
 
 # The next source depends on this one: its stamp changes whenever this source's did.

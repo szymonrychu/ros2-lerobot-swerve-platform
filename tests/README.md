@@ -644,7 +644,7 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_start_script_without_a_queue_file_acts_only_on_stopped_nodes` | No queue file: only stopped nodes start. |
 | `test_start_ros_nodes_keeps_deploy_order_and_sleeps_only_after_acting` | `set -euo pipefail`, `ros2_nodes` order, skip before restart/start, sleep only after acting, restarted nodes remembered for verify. |
 | `test_restart_queue_is_a_host_file_written_by_the_handler_and_claude_agent_setup` | The queue is `/var/lib/ros2-deploy/pending-restart`; the handler and the claude_agent token change append to it; nothing uses the old in-memory queue; the playbooks create the state dirs. |
-| `test_deploy_tasks_run_in_a_block_whose_rescue_starts_nodes_and_still_fails_the_run` | (client, server) the node tasks are one block; its rescue runs the start step with ignored errors, then fails the run naming the original failed task; the success path still starts nodes. |
+| `test_deploy_tasks_run_in_a_block_whose_rescue_starts_nodes_and_still_fails_the_run` | (client, server) the node tasks are one block; its rescue runs the start step with ignored errors, releases the deploy lock, then fails the run naming the original failed task with rc and stderr; the success path still starts nodes. |
 | `test_scope_facts_limit_start_and_verify_to_the_selected_nodes` | `ros2_scope_nodes` is set by `select_run.yml` and used by verify together with the restarted nodes. |
 | `test_every_present_node_resolves_to_existing_source_paths` | (client, server) every present node resolves to a non-empty list of source paths that exist in the repo (`node_src_dir` or `src_paths`, extras, `shared`). |
 | `test_mcp_server_restarts_when_the_web_ui_urdf_it_loads_changes` | mcp_server's source paths include `nodes/web_ui/urdf`. |
@@ -653,4 +653,13 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_apt_packages_are_installed_in_one_batched_task` | (client, server) the playbook sets `ros2_apt_batched`, includes `apt_nodes.yml` (one apt call, hourly cache) and the role's per-node apt is skipped then. |
 | `test_verify_role_checks_all_units_in_one_command_per_round` | The verify role runs one `systemctl is-active` over all units per round instead of looping per node. |
 
-| `test_verify_runs_after_the_end_of_play_restarts` | (client, server) the `start_ros_nodes.yml` include comes before the verify role, which is the last step of the play. |
+| `test_verify_runs_after_the_end_of_play_restarts` | (client, server) the `start_ros_nodes.yml` include comes before the verify role, followed only by the lock release. |
+| `test_every_restart_causing_task_is_followed_directly_by_a_queue_task` | Every role/colcon task that notifies the restart handler registers its result and is followed at once by a lineinfile task appending the node to the persistent queue (only when changed and the node is enabled). |
+| `test_source_stamp_is_written_after_config_launcher_and_unit` | The source stamp task comes after the config, launcher and unit tasks and before the handler flush. |
+| `test_stop_for_build_records_the_stopped_units_before_stopping_them` | Runs the stop script against a fake `systemctl`: the running units land in `stopped-for-build` before `systemctl stop`. |
+| `test_start_script_starts_every_unit_stopped_for_a_build_whatever_the_scope` | Units in `stopped-for-build` are started although outside the run's scope; the file is cleared. |
+| `test_start_script_keeps_the_stopped_list_when_a_start_fails_and_reloads_systemd_first` | A failed start keeps the list; `systemctl daemon-reload` runs before the loop. |
+| `test_recover_script_starts_the_stopped_units_only_when_the_list_is_old_and_no_deploy_is_running` | Runs `ros2-deploy-recover.sh` with file/lock mtimes: nothing for no list, a young list or a fresh lock; unique sorted starts and a cleared list when old; a stale lock is ignored. |
+| `test_recover_timer_is_installed_by_the_deploy_playbooks_with_lock_taken_and_released` | `deploy_guard.yml` installs the script, service and a 2-minute enabled timer; both playbooks install it first, take the lock as the last pre-task and release it last. |
+| `test_ros2_master_and_fastdds_watch_no_repo_path` | (client, server) the ros2_master and fastdds types have `src_paths: []` (constant key). |
+

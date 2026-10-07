@@ -2,9 +2,10 @@
 # End of every deploy, and the rescue path of a failed one, once, in ros2_nodes order:
 #  - restart every node in the persistent queue (ros2_restart_queue, one name per line: changed config, unit, launcher,
 #    source, dependencies, build output; written when the change was applied, so it survives a failed run),
-#  - start the enabled nodes of the run's scope (all of them, or the ones named by --tags) that are not running,
+#  - start every unit a heavy step stopped (ros2_stopped_for_build_file, whatever the scope) and the enabled nodes of the
+#    run's scope (all of them, or the ones named by --tags) that are not running,
 # one at a time with ros2_node_start_interval_s between them. Running nodes nothing changed for cost no sleep. The task
-# fails when a restart or start fails, and the queue is cleared only after every one succeeded.
+# fails when a restart or start fails, and the queue and the stopped list are cleared only after every one succeeded.
 - name: List present and enabled ROS2 nodes in deploy order
   ansible.builtin.set_fact:
     ros2_nodes_to_start: >-
@@ -21,12 +22,15 @@
   ansible.builtin.shell: |
     set -euo pipefail
     queue="{{ ros2_restart_queue }}"
+    stopped_file="{{ ros2_stopped_for_build_file }}"
     pending=" $( [ -r "$queue" ] && tr '\n' ' ' < "$queue" || true ) "
+    stopped=" $( [ -r "$stopped_file" ] && sed 's/\.service$//' "$stopped_file" | tr '\n' ' ' || true ) "
+    systemctl daemon-reload
     scope=" {{ ros2_scope_nodes | default(ros2_nodes_to_start) | join(' ') }} "
     for n in {{ ros2_nodes_to_start | join(' ') }}; do
       if [[ "$pending" == *" $n "* ]]; then
         verb=restart
-      elif [[ "$scope" == *" $n "* ]] && ! systemctl is-active -q "ros2-$n"; then
+      elif [[ "$stopped" == *" ros2-$n "* || "$scope" == *" $n "* ]] && ! systemctl is-active -q "ros2-$n"; then
         verb=start
       else
         continue
@@ -36,6 +40,7 @@
       sleep {{ ros2_node_start_interval_s | default(5) }}
     done
     if [ -e "$queue" ]; then : > "$queue"; fi
+    if [ -e "$stopped_file" ]; then : > "$stopped_file"; fi
   args:
     executable: /bin/bash
   become: true

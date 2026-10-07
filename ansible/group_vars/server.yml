@@ -18,14 +18,14 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "true"
     node_src_dir: ""
-    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
-    src_paths: [nodes/ros2_master]
+    # No repo path to watch (runs no repo code): constant source key, restarts only for config/unit changes.
+    src_paths: []
   ros2_master:
     deploy_mode: native
     node_launch_command: "ros2 daemon start && sleep infinity"
     node_src_dir: ""
-    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
-    src_paths: [nodes/ros2_master]
+    # No repo path to watch (runs no repo code): constant source key, restarts only for config/unit changes.
+    src_paths: []
     cpu_quota: "20%"
     memory_max: "128M"
   feetech_servos:
