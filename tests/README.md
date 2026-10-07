@@ -269,7 +269,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   a jaw stalling before closed (close_until_effort and open_fraction=0) reports `grasped` and holds stall + squeeze
   (also after the hold window), the squeeze never passes closed, a partial open_fraction stall is not a grasp
 - drive (`test_base_motion.py`): rate, clamping, duration cap, abort always ends with a zero twist
-- tools (`test_tools.py`): all 15 tools registered with real descriptions (arm motion tools explain `residual_error`
+- tools (`test_tools.py`): all 16 tools registered with real descriptions (arm motion tools explain `residual_error`
   and the commanded hold), structured outputs, camera JPEG + stamp,
   argument validation, robot errors as tool errors, map PNG, arm tool round trip, bearer-token auth on the Streamable
   HTTP app (401 without/with a wrong token, 200 with the right one) and the configured path
@@ -277,6 +277,23 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   is refused in cut-off with the exact message, a logged warning and no robot call; `stop`, sensor, state and
   acquire/release tools still work in cut-off; motion works with a good or unknown battery, without a guard and after
   recovery; optional `battery` config section (absent = off, validated)
+- monitor (`test_monitor.py`): servo overheat warning/critical with hysteresis, debounce and `_cleared` info events, status
+  error bits decoded (critical), battery low/cut-off from the shared guard, IMU bump (baseline removed, debounce,
+  warning/critical) and tilt, wheel slip from the swerve twist covariance (parked = no residual), base stall (needs a
+  running base motion, commanded speed and fresh ~0 odometry for 1 s), collision STOP only during a base motion (also
+  latched), human takeover only while the lease is held, CPU temperature, digest cursor/cap/vitals line, `MotionWatch`
+  (only relevant critical events after creation, live battery cut-off), body state nulls and notes, last 10 events,
+  failing sink tolerated, threshold validation
+- digest + body state (`test_digest.py`): every tool result carries `robot_events_since_last_call` and `vitals` (text,
+  structured content, `_meta` for image tools, appended to tool errors), events reported once, events raised during the
+  call included, a tool registered by a later module gets it for free, `get_body_state` content/nulls, never refused in
+  cut-off
+- early return (`test_early_return.py`): arm motions end `interrupted` with `interrupted_by` on overheat / servo error /
+  battery cut-off mid-motion / human takeover (lease dropped, nothing published against the human) and hold the
+  measured pose, warnings do not interrupt, tracking abort is a `stall` event, gripper and `arm_home` interrupts,
+  expected/achieved/duration and Cartesian tool poses; drive interrupt (zero twist, status, duration), twist
+  integration and relative pose; navigation via a fake Nav port (success, interrupt cancels goal and zeroes the base,
+  stop, timeout, rejected, unavailable, real monitor collision stop)
 - rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
 
 ### Per-node tests (gps_rtk)
@@ -375,6 +392,9 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
 | `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` in client.yml equal the mcp_server `nav` values. |
 | `test_mcp_server_arm_base_height_is_16_5_cm` | mcp_server config `arm.arm_base_height_m` is 0.165 (measured mount height above the floor). |
+| `test_mcp_server_monitor_block_has_ordered_thresholds` | mcp_server `monitor` block: servo 60/70 C, CPU 75/82 C, bump warning below critical, stall 1.0 s, tilt 10 deg, battery warning margin 0.2 V/cell. |
+| `test_mcp_server_monitor_topics_match_their_producers` | mcp_server monitor topics: `/follower/servo_registers`, `/imu/data`, `/robot_events`, `swerve_odom` equals the swerve controller `odom_topic`, `rf2o_twist` equals the rf2o relay `output_topic`. |
+| `test_mcp_server_readme_documents_monitor_and_events_contract` | `nodes/mcp_server/README.md` documents get_body_state, the per-call digest, the `/robot_events` contract, early-return (`interrupted_by`, expected/achieved), event types and the `monitor` thresholds. |
 | `test_web_ui_tab_set` | web_ui tabs are exactly map (map_nav, first), agent (agent_chat), camera (`/camera_0/image_raw/compressed`), overview_camera (type `camera`, label `Overview`, `/overview_camera/image_raw/compressed`), imu_graphs; arm_servos, local_nav, gps_nav, scene3d and robot_status are gone. |
 | `test_mcp_server_front_camera_is_the_compressed_overview_camera` | mcp_server `topics.front_camera` is `/overview_camera/image_raw/compressed` and no `realsense_camera` key remains. |
 | `test_web_ui_map_tab_uses_contract_fields` | The map tab carries no legacy keys (`urdf_file`, `topic`, `arm_urdf_file`, `arm_joint_topic`, `scan_topic`, `costmap_topic`), uses the frontend contract names, points `arm_home_service` / `arm_set_home_service` at the services mcp_server serves, and keeps the tile cache at `/var/cache/web_ui/tiles`. |

@@ -16,6 +16,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 |---|---|
 | `get_robot_state` | map -> base_link pose (TF), odometry twist, latest Nav2 goal status, collision monitor action (if published), arm joints/efforts, gripper effort, filter_node active source, lease state, data age per source. Stale data is omitted and listed in `notes`. |
 | `get_camera_image(camera, max_px<=1024)` | One-shot subscription with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.front_camera` (default `/overview_camera/image_raw/compressed`, 640x480 overhead Camera Module 3 looking down at the front of the robot, the arm and the floor in front; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + capture stamp; error if no frame within `image_timeout_s` or the frame is older than 1 s. |
+| `get_body_state` | Body vitals (sensor, always allowed): per-servo latest temperature / load / current / voltage / status flags with data age, hottest servo, battery V, per-cell V, margin to cut-off and cut-off state, IMU roll/pitch/tilt and last bump, wheel slip residual, commanded vs measured base speed, CPU temperature and firmware throttling flag, active source + lease, last 10 events. Missing data is `null` with a reason in `notes`. |
 | `get_map_summary(include_png, radius_m)` | Nearest `/scan_filtered` obstacle in 8 sectors around base_link, `/map` size and known/occupied/free cells, robot pose, optional small PNG of the map around the robot. |
 | `navigate_to_pose(x, y, yaw, frame='map', timeout_s)` | Nav2 `NavigateToPose`; blocks until result/timeout (goal cancelled on timeout or stop); returns result and final pose. The description states the goal precision from `nav.goal_xy_tolerance_m` / `nav.goal_yaw_tolerance_deg` (default 1 cm / 2 deg, keep equal to the Nav2 goal checker) and that a sideways goal first turns the robot toward the path (front leading) and turns back to the goal heading at the end. |
 | `move_relative(dx, dy, dyaw)` | Same, goal given in base_link (converted to a map goal via TF). Small moves (a few cm) really move. |
@@ -32,6 +33,58 @@ ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, th
 after a failed motion; used by the web UI "Arm home" button) and `/arm/set_home` (store the measured pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
 directory created by Ansible, owned by the node user), written atomically.
 
+## Body awareness: monitor, events, digest, early return
+
+`RobotMonitor` (`monitor.py`, pure logic, unit tested) is fed by thin ROS callbacks in `ros_iface.py`: `/follower/servo_registers`
+(JSON dump of every servo incl. swerve, about every 10 s: `present_temperature` C, `present_load`, `present_current` raw,
+`present_voltage` x 0.1 V, `status` bits), `/imu/data`, the swerve `/odom` twist covariance, `/odometry/filtered`,
+`/odom_rf2o_twist`, `/cmd_vel_nav`, `/collision_monitor_state`, `/filter/active_source`, the battery guard and the CPU
+temperature (`/sys/class/thermal/thermal_zone0/temp`, throttling from the firmware sysfs `get_throttled`, null if
+missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresholds are the `monitor` config section
+(`MonitorSettings`, also in `ansible/group_vars/client.yml`).
+
+| Event `type` | Severity | Condition (default threshold) |
+|---|---|---|
+| `overheat` (source = joint) | warning / critical | servo temperature >= `servo_temp_warn_c` 60 / `servo_temp_critical_c` 70 C |
+| `servo_error` | critical | servo `status` register != 0; bits decoded: voltage, sensor, overheat, overcurrent, overload |
+| `battery_low` | warning | pack < cells x (cutoff_cell_v + `battery_warn_margin_cell_v` 0.2 V) |
+| `battery_cutoff` | critical | the shared `BatteryGuard` cut-off (hysteresis as in the gate) |
+| `collision_stop` | critical | collision monitor STOP while a base motion runs |
+| `stall` | critical | base: commanded speed (> 0.05 m/s or 0.1 rad/s) but measured odometry/rf2o ~0 for > `stall_s` 1.0 s while a base motion runs; arm: tracking-error abort |
+| `wheel_slip` | warning | swerve residual (decoded from the twist covariance `var_xy = 0.002 + r^2`; parked fixed value = none) > `slip_residual_warn_mps` 0.1 |
+| `bump` | warning / critical | horizontal acceleration spike after baseline removal >= `bump_warn_mps2` 4 / `bump_critical_mps2` 9 m/s^2 |
+| `tilt` | warning | tilt from the IMU orientation > `tilt_warn_deg` 10 deg |
+| `human_takeover` | critical | active source leaves `autonomy` while this server holds the lease |
+| `cpu_overheat` | warning / critical | CPU >= 75 / 82 C |
+| `<type>_cleared` | info | a level condition (overheat, servo_error, battery_*, tilt, wheel_slip, stall, cpu_overheat) ended |
+
+Events are debounced per (type, source) (`debounce_default_s` 30 s, shorter for bump / collision_stop / stall /
+human_takeover; an escalation always passes). Each event is published on **`/robot_events`** (`std_msgs/String`, reliable,
+depth 50) as JSON `{"seq": int, "ts": float (epoch s), "type": str, "severity": "info"|"warning"|"critical",
+"source": str, "message": str, "data": object}`; `seq` starts at 1 per process.
+
+**Digest on every tool result.** `RobotMCPServer.call_tool` (one override, so every current and future tool gets it)
+adds `robot_events_since_last_call` (events since the previous tool call on this server: one global cursor, not per MCP
+session; newest `digest_max_events` 20 kept) and `vitals` (`battery 11.40 V, hottest servo 41 C (elbow_flex), CPU 52 C`,
+`n/a` when unknown) as a text block and, when the result is structured, as structured-content keys (image tools stay
+unstructured: text block plus `_meta`). Tool errors get the same JSON appended to the message. The tool output schemas do
+not list these two keys.
+
+**Early return.** `navigate_to_pose`, `move_relative`, `drive` and the arm tools (`move_arm_joints`, `move_arm_cartesian`,
+`set_gripper`, `arm_home`) end early with status `interrupted` and `interrupted_by` = the critical event type fired during
+the call: base `collision_stop`, `stall`, `battery_cutoff`, `overheat`, `cpu_overheat`, `servo_error`, `human_takeover`,
+`bump`; arm `overheat`, `cpu_overheat`, `servo_error`, `battery_cutoff`, `human_takeover` (the lease is dropped, nothing is
+published against the human) and `stall` (a tracking abort keeps status `aborted_tracking` and carries
+`interrupted_by: stall`). The base cancels the Nav2 goal and publishes a zero twist; the arm holds its measured pose.
+The battery cut-off is also re-read live from the guard during every motion. Warnings never interrupt, and only events
+raised after the motion started count. Every motion result carries `expected` (goal) vs `achieved` (final measured
+pose / joints; for `drive` the integrated command vs the measured displacement in the start frame; for
+`move_arm_cartesian` also `expected_tool_pose` / `achieved_tool_pose`) and `duration_s`; the older `goal` / `final_pose`
+/ `target` / `positions` fields stay.
+
+New tool modules (e.g. perception) are registered in one place: a function taking a `ToolContext` added to
+`tools.TOOL_MODULES`.
+
 ## Battery cut-off gate
 
 Optional `battery` config section (the shared `ros2_common.battery.BatteryConfig`: `topic`, `cells`, `cutoff_cell_v`,
@@ -47,7 +100,7 @@ partition every tool):
 | Class | Tools |
 |---|---|
 | `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home` |
-| `ALWAYS_ALLOWED_TOOLS` | `stop`, `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `acquire_control`, `release_control` |
+| `ALWAYS_ALLOWED_TOOLS` | `stop`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `acquire_control`, `release_control` |
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
 
@@ -114,6 +167,8 @@ partition every tool):
 | `base_motion.py` | no | timed clamped drive loop, stop sequence (`run_stop`) |
 | `perception.py` | no | scan sectors, map stats/PNG, image encoding |
 | `home_store.py`, `staleness.py`, `geometry.py`, `models.py` | no | home YAML, data age, pose math, result models |
+| `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
+| `tool_context.py`, `body_tools.py` | no | `ToolContext` / `RobotApi`; the `get_body_state` module |
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |
 | `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services |
 | `__main__.py` | yes | entry point: executor thread + uvicorn |
@@ -147,6 +202,15 @@ battery:                  # optional; absent = battery gate off
   cutoff_cell_v: 2.8
   resume_cell_v: 2.9
   stale_s: 5.0
+monitor:                  # all optional; thresholds of the body monitor (see Body awareness)
+  servo_temp_warn_c: 60
+  servo_temp_critical_c: 70
+  cpu_temp_warn_c: 75
+  cpu_temp_critical_c: 82
+  stall_s: 1.0
+  bump_warn_mps2: 4.0
+  bump_critical_mps2: 9.0
+  tilt_warn_deg: 10
 ```
 
 ## Claude Code setup

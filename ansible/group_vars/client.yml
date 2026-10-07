@@ -897,6 +897,13 @@ ros2_nodes:
       topics:
         # Front camera: overhead Camera Module 3 looking down at the front of the robot (CompressedImage, 640x480).
         front_camera: /overview_camera/image_raw/compressed
+        # Body monitor feeds (get_body_state, /robot_events): servo register dump, swerve odom (twist covariance = slip
+        # residual), rf2o twist, BNO055 IMU.
+        servo_registers: /follower/servo_registers
+        swerve_odom: /odom
+        rf2o_twist: /odom_rf2o_twist
+        imu: /imu/data
+        robot_events: /robot_events
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml
@@ -913,6 +920,19 @@ ros2_nodes:
         cutoff_cell_v: 2.8
         resume_cell_v: 2.9
         stale_s: 5.0
+      # Body monitor thresholds: events on /robot_events, get_body_state, digest on every tool result, early-return motion.
+      monitor:
+        servo_temp_warn_c: 60
+        servo_temp_critical_c: 70
+        cpu_temp_warn_c: 75
+        cpu_temp_critical_c: 82
+        battery_warn_margin_cell_v: 0.2
+        stall_s: 1.0
+        slip_residual_warn_mps: 0.1
+        bump_warn_mps2: 4.0
+        bump_critical_mps2: 9.0
+        tilt_warn_deg: 10
+        debounce_default_s: 30
   - name: claude_agent
     node_type: claude_agent
     present: true

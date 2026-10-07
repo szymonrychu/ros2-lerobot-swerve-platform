@@ -145,7 +145,7 @@ def test_mcp_server_node_entry_and_config() -> None:
     assert entry["node_type"] == "mcp_server"
     assert entry["present"] is True and entry["enabled"] is True
     cfg = node_config("mcp_server")
-    assert set(cfg) <= {"server", "topics", "limits", "timeouts", "nav", "arm", "battery"}
+    assert set(cfg) <= {"server", "topics", "limits", "timeouts", "nav", "arm", "battery", "monitor"}
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
     assert cfg["arm"]["urdf_path"] == "nodes/web_ui/urdf/so101_arm.urdf"
@@ -180,6 +180,40 @@ def test_gripper_camera_rotated_180_at_source() -> None:
 
 def test_mcp_server_arm_base_height_is_16_5_cm() -> None:
     assert node_config("mcp_server")["arm"]["arm_base_height_m"] == 0.165
+
+
+def test_mcp_server_monitor_block_has_ordered_thresholds() -> None:
+    mon = node_config("mcp_server")["monitor"]
+    assert (mon["servo_temp_warn_c"], mon["servo_temp_critical_c"]) == (60, 70)
+    assert (mon["cpu_temp_warn_c"], mon["cpu_temp_critical_c"]) == (75, 82)
+    assert mon["bump_warn_mps2"] < mon["bump_critical_mps2"]
+    assert mon["stall_s"] == 1.0 and mon["tilt_warn_deg"] == 10
+    assert mon["battery_warn_margin_cell_v"] == 0.2
+
+
+def test_mcp_server_monitor_topics_match_their_producers() -> None:
+    topics = node_config("mcp_server")["topics"]
+    assert topics["servo_registers"] == "/follower/servo_registers"
+    assert topics["imu"] == "/imu/data"
+    assert topics["robot_events"] == "/robot_events"
+    assert topics["swerve_odom"] == node_config("swerve_controller")["odom_topic"]
+    assert topics["rf2o_twist"] == node_config("rf2o_odom_relay")["output_topic"]
+
+
+def test_mcp_server_readme_documents_monitor_and_events_contract() -> None:
+    text = (NODE_DIR / "README.md").read_text()
+    for needle in (
+        "get_body_state",
+        "robot_events_since_last_call",
+        "/robot_events",
+        "interrupted_by",
+        "collision_stop",
+        "human_takeover",
+        "servo_temp_critical_c",
+        "expected",
+        "achieved",
+    ):
+        assert needle in text, needle
 
 
 def test_web_ui_tab_set() -> None:
