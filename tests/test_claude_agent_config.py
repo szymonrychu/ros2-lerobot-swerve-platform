@@ -45,7 +45,6 @@ ROUND2_SENSOR_TOOLS = {
     "capture_calibration_sample", "solve_camera_calibration", "clear_calibration_samples", "get_topdown_view",
     "remember_object", "list_objects", "forget_object", "list_pois", "add_poi", "update_poi", "delete_poi",
 }
-ROUND2_TOOLS = ROUND2_SENSOR_TOOLS | {"look_around"}
 
 
 def client_vars() -> dict:
@@ -166,7 +165,7 @@ def test_claude_agent_config_valid_and_consistent_with_mcp_server() -> None:
     assert cfg.model == "opus"
     tools = mcp_tool_names()
     classified = set(cfg.effector_tools) | set(cfg.uncapped_tools) | set(cfg.sensor_tools)
-    unknown = classified - tools - ROUND2_TOOLS  # round-2 tools may still be absent until the parallel mcp_server task merges
+    unknown = classified - tools
     assert not unknown, f"tools unknown to mcp_server: {sorted(unknown)}"
     assert "stop" in cfg.uncapped_tools and "stop" not in cfg.effector_tools
 
@@ -189,11 +188,11 @@ def mcp_server_motion_tools() -> set[str]:
 
 
 def test_effector_tools_match_mcp_server_motion_tools() -> None:
-    """Strict equality once mcp_server MOTION_TOOLS has look_around; until that task merges, MOTION_TOOLS | {look_around}."""
+    """claude_agent effector_tools equal mcp_server MOTION_TOOLS exactly (look_around included)."""
     cfg = yaml.safe_load(node_entry("claude_agent")["config"])
     motion = mcp_server_motion_tools()
-    expected = motion if "look_around" in motion else motion | {"look_around"}
-    assert set(cfg["effector_tools"]) == expected
+    assert "look_around" in motion
+    assert set(cfg["effector_tools"]) == motion
 
 
 def test_round2_tools_classified_in_group_vars_and_defaults() -> None:
