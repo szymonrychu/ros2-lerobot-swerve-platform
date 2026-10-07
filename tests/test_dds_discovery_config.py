@@ -150,7 +150,7 @@ def test_deploy_restarts_changed_nodes_gradually_last(playbook: Path) -> None:
     play = yaml.safe_load(playbook.read_text())[0]
     assert "stop_ros_nodes" not in playbook.read_text()
     post = [t.get("ansible.builtin.include_tasks", "") for t in play.get("post_tasks", [])]
-    assert post and post[-1].endswith("tasks/start_ros_nodes.yml"), post
+    assert post and post[0].endswith("tasks/start_ros_nodes.yml"), post
 
 
 def test_start_ros_nodes_is_gradual_and_respects_present_enabled() -> None:

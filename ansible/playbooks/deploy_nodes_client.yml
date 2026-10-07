@@ -343,12 +343,12 @@
         _deploy_node_name: claude_agent
       tags: [claude_agent, apt, python, build, config]
 
-    - name: Verify all ROS2 node services are active and stable
-      ansible.builtin.include_role:
-        name: ros2_node_verify
-      tags: [verify, always]
-
   post_tasks:
     - name: Restart changed and start stopped ROS2 nodes gradually
       ansible.builtin.include_tasks: tasks/start_ros_nodes.yml
       tags: [restart, always]
+
+    - name: Verify all ROS2 node services are active and stable
+      ansible.builtin.include_role:
+        name: ros2_node_verify
+      tags: [verify, always]

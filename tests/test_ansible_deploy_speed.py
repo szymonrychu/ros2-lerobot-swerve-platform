@@ -173,7 +173,7 @@ def test_shared_steps_run_under_any_node_filter(target: str) -> None:
     }
     for filename in ("select_run.yml", "repo_sync.yml", "ros_packages_sync.yml", "apt_nodes.yml", "start_ros_nodes.yml"):
         assert "always" in by_file[filename]["tags"], filename
-    assert "always" in next(t for t in play["tasks"] if t.get("ansible.builtin.include_role"))["tags"]
+    assert "always" in next(t for t in play["post_tasks"] if t.get("ansible.builtin.include_role"))["tags"]
     assert "when" in by_file["apt_nodes.yml"] and "ros2_run_apt" in by_file["apt_nodes.yml"]["when"]
 
 
@@ -449,3 +449,13 @@ def test_verify_role_checks_all_units_in_one_command_per_round() -> None:
     assert len(checks) == 2
     for check in checks:
         assert "loop" not in check and "_ros2_verify_units | join(' ')" in check["ansible.builtin.command"]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_verify_runs_after_the_end_of_play_restarts(target: str) -> None:
+    """Verify must see the restarted/started nodes: the start_ros_nodes include comes before the verify role."""
+    play = load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]
+    flat = play["pre_tasks"] + play["tasks"] + play["post_tasks"]
+    start = next(i for i, t in enumerate(flat) if "start_ros_nodes.yml" in str(t.get("ansible.builtin.include_tasks", "")))
+    verify = next(i for i, t in enumerate(flat) if "ansible.builtin.include_role" in t)
+    assert start < verify and verify == len(flat) - 1, "verify is the last step of the play"
