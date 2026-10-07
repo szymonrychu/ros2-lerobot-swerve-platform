@@ -18,6 +18,7 @@ DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the gripper camera is mounted on
 FRONT_CAMERA_PARENT = "base_link"
+DEFAULT_OBJECTS_FILE = Path("/var/lib/ros2/objects/objects.json")
 MIN_TOKEN_LENGTH = 24
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 # Hard caps no config may exceed (match the Nav2 velocity smoother and the swerve controller).
@@ -81,6 +82,11 @@ class TopicSettings(StrictModel):
     navigate_action: str = "/navigate_to_pose"
     gripper_camera: str = "/camera_0/image_raw/compressed"
     front_camera: str = "/overview_camera/image_raw/compressed"
+    local_costmap: str = "/local_costmap/costmap"  # subscribed lazily by get_topdown_view, latest message only
+    plan: str = "/plan"  # Nav2 global plan (nav_msgs/Path)
+    poi_list: str = "/poi/list"  # poi_store, latched JSON {pois, revision}
+    poi_command: str = "/poi/command"
+    poi_result: str = "/poi/result"
     map_frame: str = "map"
     base_frame: str = "base_link"
     home_service: str = "/arm/home"
@@ -347,6 +353,62 @@ class CamerasSettings(StrictModel):
         return self
 
 
+class FootprintSettings(StrictModel):
+    """Robot outer frame (m), centred on base_link: drawn by get_topdown_view, sets look_around's rotation clearance."""
+
+    length_m: float = Field(default=0.47, gt=0.0)  # along base_link x
+    width_m: float = Field(default=0.386, gt=0.0)  # along base_link y
+
+
+class TopdownSettings(StrictModel):
+    """get_topdown_view defaults and data freshness limits."""
+
+    default_radius_m: float = Field(default=2.5, ge=0.5, le=10.0)
+    default_px: int = Field(default=480, ge=64, le=HARD_MAX_IMAGE_PX)
+    arm_reach_m: float = Field(default=0.41, gt=0.0)  # horizontal reach of the arm, drawn as a circle
+    arm_mount_x_m: float = 0.0  # reach circle centre in base_link (arm shoulder position)
+    arm_mount_y_m: float = 0.0
+    plan_max_age_s: float = Field(default=30.0, gt=0.0)  # an older /plan is a finished navigation: not drawn
+    costmap_stale_s: float = Field(default=5.0, gt=0.0)
+    costmap_wait_s: float = Field(default=1.5, gt=0.0)  # wait for the first costmap after the lazy subscription
+
+
+class ObjectSettings(StrictModel):
+    """Object memory (remember_object / list_objects / forget_object)."""
+
+    store_path: Path = DEFAULT_OBJECTS_FILE
+    merge_radius_m: float = Field(default=0.25, gt=0.0)  # same label within this distance is the same object
+
+
+class LookAroundSettings(StrictModel):
+    """look_around: rotate in place in equal steps, capture at each stop."""
+
+    default_captures: int = Field(default=4, ge=3, le=12)
+    min_captures: int = Field(default=3, ge=3)
+    max_captures: int = Field(default=12, ge=3, le=24)
+    clearance_margin_m: float = Field(default=0.10, ge=0.0)  # added to the footprint circumscribed radius
+    step_timeout_s: float = Field(default=30.0, gt=0.0)
+    frame_max_px: int = Field(default=320, ge=32, le=HARD_MAX_IMAGE_PX)  # camera frame size per montage tile
+
+    @model_validator(mode="after")
+    def captures_in_range(self) -> "LookAroundSettings":
+        """Keep the default number of captures inside [min_captures, max_captures].
+
+        Returns:
+            LookAroundSettings: The validated settings.
+        """
+        if not self.min_captures <= self.default_captures <= self.max_captures:
+            raise ValueError("look_around.default_captures must lie within min_captures..max_captures")
+        return self
+
+
+class PoiSettings(StrictModel):
+    """POI tools talking to poi_store."""
+
+    request_timeout_s: float = Field(default=3.0, gt=0.0)  # wait for /poi/result
+    near_radius_m: float = Field(default=5.0, gt=0.0)  # list_pois(near=True) keeps POIs within this distance
+
+
 class McpServerConfig(StrictModel):
     """Top-level mcp_server configuration."""
 
@@ -359,6 +421,11 @@ class McpServerConfig(StrictModel):
     battery: BatteryConfig | None = None  # absent: battery cut-off gate off, nothing refused
     monitor: MonitorSettings = MonitorSettings()
     cameras: CamerasSettings = CamerasSettings()
+    footprint: FootprintSettings = FootprintSettings()
+    topdown: TopdownSettings = TopdownSettings()
+    objects: ObjectSettings = ObjectSettings()
+    look_around: LookAroundSettings = LookAroundSettings()
+    poi: PoiSettings = PoiSettings()
 
 
 def load_config(path: Path) -> McpServerConfig:

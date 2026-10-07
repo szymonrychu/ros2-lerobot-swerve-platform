@@ -1,16 +1,21 @@
 """Shared context handed to every tool module (one place to register modules, see tools.TOOL_MODULES)."""
 
+import logging
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryGuard
 
 from .arm import ArmController
 from .base_motion import DriveOutcome
 from .config import McpServerConfig
-from .models import CameraFrame, MapSummary, NavigationResult, RobotState, ScanPoints, StopResult
+from .models import BasePose, CameraFrame, MapSummary, NavigationResult, RobotState, ScanPoints, StopResult
 from .monitor import RobotMonitor
+from .topdown import TopdownInputs
+
+LOGGER = logging.getLogger("mcp_server.tools")
 
 
 class RobotApi(Protocol):
@@ -50,6 +55,26 @@ class RobotApi(Protocol):
         """Cancel navigation, zero the base, hold the arm only if this server controls it."""
         ...
 
+    def robot_pose(self) -> BasePose | None:
+        """Fresh map -> base_link pose, None when missing or stale."""
+        ...
+
+    def stop_count(self) -> int:
+        """Number of stop() calls so far (lets a multi-step tool notice a stop issued between its motions)."""
+        ...
+
+    def topdown_inputs(self) -> TopdownInputs:
+        """Snapshot of the map, local costmap, lidar points, plan and pose for the top-down view."""
+        ...
+
+    def poi_list(self) -> tuple[list[dict[str, Any]], int]:
+        """Latest /poi/list (POIs, revision); RobotError when poi_store never published."""
+        ...
+
+    def poi_request(self, op: str, poi: dict[str, Any]) -> dict[str, Any]:
+        """Send a /poi/command and wait for its /poi/result; RobotError when poi_store is down, slow or rejects."""
+        ...
+
 
 @dataclass(frozen=True)
 class ToolContext:
@@ -60,3 +85,14 @@ class ToolContext:
     config: McpServerConfig
     guard: BatteryGuard | None
     monitor: RobotMonitor
+
+    def battery_gate(self, tool_name: str) -> None:
+        """Refuse a motion tool while the battery is below cut-off, before the robot is touched.
+
+        Args:
+            tool_name (str): Tool being called (logged with the refusal).
+        """
+        if self.guard is not None and self.guard.is_cutoff():
+            message = self.guard.rejection_message()
+            LOGGER.warning("%s refused: %s", tool_name, message)
+            raise ToolError(message)

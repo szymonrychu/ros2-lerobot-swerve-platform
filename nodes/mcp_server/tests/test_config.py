@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from mcp_server.config import (
@@ -164,3 +165,35 @@ def test_settle_hold_and_grasp_squeeze_defaults() -> None:
     lim = McpServerConfig().limits
     assert lim.arm_settle_hold_s == pytest.approx(2.0)
     assert lim.gripper_grasp_squeeze_rad == pytest.approx(0.03)
+
+
+def test_perception_config_defaults() -> None:
+    cfg = McpServerConfig()
+    assert cfg.topics.local_costmap == "/local_costmap/costmap" and cfg.topics.plan == "/plan"
+    assert (cfg.topics.poi_list, cfg.topics.poi_command, cfg.topics.poi_result) == (
+        "/poi/list",
+        "/poi/command",
+        "/poi/result",
+    )
+    assert cfg.objects.store_path == Path("/var/lib/ros2/objects/objects.json")
+    assert cfg.objects.merge_radius_m == 0.25
+    assert (cfg.footprint.length_m, cfg.footprint.width_m) == (0.47, 0.386)
+    assert cfg.topdown.default_radius_m == 2.5 and cfg.topdown.default_px == 480
+    assert cfg.look_around.default_captures == 4 and cfg.look_around.clearance_margin_m > 0
+    assert cfg.poi.request_timeout_s == 3.0
+
+
+def test_perception_config_rejects_unknown_keys_and_bad_values(tmp_path: Path) -> None:
+    for text in ("objects:\n  nope: 1\n", "look_around:\n  default_captures: 2\n", "poi:\n  request_timeout_s: 0\n"):
+        path = tmp_path / "c.yaml"
+        path.write_text(text)
+        with pytest.raises(ValidationError):
+            load_config(path)
+
+
+def test_deployed_ansible_config_validates_against_the_model() -> None:
+    nodes = yaml.safe_load((REPO_ROOT / "ansible" / "group_vars" / "client.yml").read_text())["ros2_nodes"]
+    entry = next(n for n in nodes if n["name"] == "mcp_server")
+    cfg = McpServerConfig.model_validate(yaml.safe_load(entry["config"]))
+    assert cfg.objects.store_path == Path("/var/lib/ros2/objects/objects.json")
+    assert cfg.topics.poi_command == "/poi/command"

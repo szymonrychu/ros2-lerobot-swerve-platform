@@ -375,9 +375,9 @@ map tab's `/api/tiles` proxy caches map tiles there (`tile_cache_dir` default) a
 `playbooks/tasks/mcp_server_setup.yml` runs before `mcp_server` is deployed (in `deploy_nodes_client.yml` and in
 `nodes/client/mcp_server.yml`). It creates `/etc/ros2/mcp_server/token` once, containing
 `MCP_SERVER_TOKEN=<48 random letters/digits>` (mode `0600`, owner `ansible_user`, `force: false` so redeploys keep the
-token, `no_log: true`), and `/var/lib/ros2/arm` (owner `ansible_user`) for the arm home pose (`home.yaml`), and
+token, `no_log: true`), and `/var/lib/ros2/arm` (owner `ansible_user`) for the arm home pose (`home.yaml`),
 `/var/lib/ros2/camera_calibration` (owner `ansible_user`) for the camera calibration samples of the mcp_server camera
-tools. The unit
+tools, and `/var/lib/ros2/objects` (owner `ansible_user`) for the object memory (`objects.json`). The unit
 reads the token through `EnvironmentFile=`; the token never enters git. Fetch it on the dev machine with
 `eval "$(./scripts/robot_mcp_token.sh)"` (see `nodes/mcp_server/README.md`).
 

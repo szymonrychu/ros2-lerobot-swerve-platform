@@ -2,8 +2,12 @@
 
 from collections.abc import Callable
 
+import numpy as np
+
 from mcp_server.arm import JointSample
+from mcp_server.models import BasePose, RobotError
 from mcp_server.staleness import Stamped
+from mcp_server.topdown import TopdownInputs
 
 JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 
@@ -61,3 +65,52 @@ class FakeArmBackend:
         self.t += seconds
         if self.on_sleep is not None:
             self.on_sleep(self)
+
+
+class PerceptionFakeMixin:
+    """RobotApi perception/memory/POI methods for the tool tests (state is set up by init_perception)."""
+
+    def init_perception(self) -> None:
+        self.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=0.5, age_s=0.05)
+        self.stops = 0
+        self.poi_store_up = True
+        self.pois: list[dict] = []
+        self.poi_commands: list[tuple[str, dict]] = []
+        self.topdown = TopdownInputs(
+            pose=(1.0, 2.0, 0.5),
+            scan_points=np.array([[1.0, 0.0], [0.0, 1.0]]),
+            plan=np.array([[1.0, 2.0], [2.0, 2.0]]),
+            ages={"scan": 0.1, "plan": 2.0},
+            missing={"costmap": "no /local_costmap/costmap message within 1.5 s"},
+        )
+
+    def robot_pose(self) -> BasePose | None:
+        return self.pose
+
+    def stop_count(self) -> int:
+        return self.stops
+
+    def topdown_inputs(self) -> TopdownInputs:
+        return self.topdown
+
+    def poi_list(self) -> tuple[list[dict], int]:
+        if not self.poi_store_up:
+            raise RobotError("poi_store is not running (no /poi/list received)")
+        return list(self.pois), len(self.poi_commands)
+
+    def poi_request(self, op: str, poi: dict) -> dict:
+        if not self.poi_store_up:
+            raise RobotError("poi_store is not running (no subscriber on /poi/command)")
+        self.poi_commands.append((op, dict(poi)))
+        if op == "add":
+            stored = {"id": f"id{len(self.pois)}", "status": "open", "polygon": [], "radius_m": 0.2, **poi}
+            self.pois.append(stored)
+            return {"ok": True, "message": "added", "poi": stored}
+        match = next((p for p in self.pois if p["id"] == poi.get("id")), None)
+        if match is None:
+            raise RobotError(f"unknown poi id {poi.get('id')}")
+        if op == "update":
+            match.update(poi)
+        else:
+            self.pois.remove(match)
+        return {"ok": True, "message": op, "poi": match}

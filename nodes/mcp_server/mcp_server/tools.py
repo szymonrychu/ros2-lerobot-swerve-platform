@@ -3,7 +3,6 @@
 import base64
 import hmac
 import json
-import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Annotated, Any, Literal
@@ -17,7 +16,7 @@ from pydantic import Field
 from ros2_common.battery import BatteryGuard
 from starlette.applications import Starlette
 
-from . import body_tools, camera_tools
+from . import body_tools, camera_tools, perception_tools
 from .arm import ArmError
 from .base_motion import DriveError, DriveOutcome
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, McpServerConfig
@@ -54,6 +53,7 @@ TOOL_NAMES = (
     "arm_set_home",
     "get_body_state",
     *camera_tools.TOOL_NAMES,
+    *perception_tools.TOOL_NAMES,
 )
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
 # MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
@@ -69,6 +69,7 @@ MOTION_TOOLS = frozenset(
         "set_gripper",
         "arm_home",
         "arm_set_home",
+        "look_around",
     }
 )
 ALWAYS_ALLOWED_TOOLS = frozenset(
@@ -82,11 +83,11 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         "release_control",
         "get_body_state",
         *camera_tools.TOOL_NAMES,
+        *perception_tools.SENSOR_TOOL_NAMES,
     }
 )
 DIGEST_EVENTS_KEY = "robot_events_since_last_call"
 DIGEST_VITALS_KEY = "vitals"
-LOGGER = logging.getLogger("mcp_server.tools")
 INSTRUCTIONS = """Controls a swerve-drive mobile robot with an SO101 5-DOF arm and gripper (ROS 2 Jazzy, Nav2, SLAM).
 Frames: 'map' is the SLAM map (x/y metres, yaw radians CCW); 'base_link' is the robot (x forward, y left).
 Look before moving: call get_robot_state, get_map_summary and get_camera_image first. Prefer navigate_to_pose /
@@ -272,7 +273,7 @@ def register_core_tools(ctx: ToolContext) -> None:
     Args:
         ctx (ToolContext): Shared registration context.
     """
-    server, robot, config, guard = ctx.server, ctx.robot, ctx.config, ctx.guard
+    server, robot, config = ctx.server, ctx.robot, ctx.config
     tool: Callable[..., Callable[[Callable[..., object]], Callable[..., object]]] = server.tool
     nav_default = config.timeouts.nav_default_timeout_s
     nav_max = config.timeouts.nav_max_timeout_s
@@ -297,12 +298,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         "follower gripper joint positions (rad, as in get_arm_state)."
     )
 
-    def battery_gate(tool_name: str) -> None:
-        """Refuse a motion tool while the battery is below cut-off, before the robot is touched."""
-        if guard is not None and guard.is_cutoff():
-            message = guard.rejection_message()
-            LOGGER.warning("%s refused: %s", tool_name, message)
-            raise ToolError(message)
+    battery_gate = ctx.battery_gate
 
     def nav_timeout(timeout_s: float | None) -> float:
         value = nav_default if timeout_s is None else timeout_s
@@ -547,6 +543,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     register_core_tools,
     body_tools.register,
     camera_tools.register,
+    perception_tools.register,
 )
 
 

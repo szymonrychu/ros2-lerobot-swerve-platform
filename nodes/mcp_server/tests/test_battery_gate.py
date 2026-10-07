@@ -25,6 +25,7 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
     "set_gripper": {"open_fraction": 0.5},
     "arm_home": {},
     "arm_set_home": {},
+    "look_around": {},
 }
 ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_robot_state": {},
@@ -42,6 +43,14 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "capture_calibration_sample": {"camera": "front", "u": 100.0, "v": 100.0, "ground_x": 1.0, "ground_y": 0.0},
     "solve_camera_calibration": {"camera": "front"},
     "clear_calibration_samples": {"camera": "front"},
+    "get_topdown_view": {},
+    "remember_object": {"label": "cup", "x": 1.0, "y": 1.0},
+    "list_objects": {},
+    "forget_object": {"id": "placeholder"},
+    "list_pois": {},
+    "add_poi": {"kind": "point", "name": "dock"},
+    "update_poi": {"id": "id0", "note": "n"},
+    "delete_poi": {"id": "id0"},
 }
 
 
@@ -54,7 +63,7 @@ def make_guard(voltage: float | None) -> BatteryGuard:
 
 
 def make_server(robot: FakeRobot, guard: BatteryGuard | None) -> Any:
-    cfg = McpServerConfig()
+    cfg = McpServerConfig(objects={"store_path": robot.arm.cfg.arm.home_file.parent / "objects.json"})
     cfg.cameras.calibration_dir = robot.arm.cfg.arm.home_file.parent / "calibration"
     return build_mcp_server(robot, cfg, TOKEN, guard)
 
@@ -89,9 +98,13 @@ def test_refusal_message_is_exact(tmp_path: Path) -> None:
 @pytest.mark.parametrize("name", sorted(ALLOWED_ARGS))
 def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> None:
     robot = FakeRobot(tmp_path)
+    robot.pois.append({"id": "id0", "name": "dock", "kind": "point", "x": 0.0, "y": 0.0, "status": "open"})
     server = make_server(robot, make_guard(LOW_V))
+    args = dict(ALLOWED_ARGS[name])
+    if name == "forget_object":
+        args["id"] = call(server, "remember_object", ALLOWED_ARGS["remember_object"]).structured_content["id"]
     try:
-        call(server, name, ALLOWED_ARGS[name])
+        call(server, name, args)
     except ToolError as exc:  # uncalibrated cameras fail on their own terms, never on the battery
         assert "battery below cut-off" not in str(exc)
         assert name in CAMERA_TOOL_NAMES

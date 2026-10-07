@@ -267,6 +267,31 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   pitch and position only, wrist_roll kept from the seed, solutions inside limits minus margin, unreachable targets
 - perception (`test_perception.py`): 8 scan sectors in base_link (lidar mounted backwards), invalid returns ignored, map
   stats, map PNG crop size, image fitting, JPEG encoding, `sensor_msgs/Image` encodings, JPEG pass-through/downscale
+- top-down view (`test_topdown.py`): base_link -> pixel transform (robot-up: forward is image up, left is image left),
+  map -> base_link rotation by the robot yaw, pixel-level checks that the footprint outline (front/rear/side edges and
+  corners, nothing outside) and the heading arrow (up from the centre, none to the rear) land where the 470 x 386 mm
+  frame is, lidar points placed in base_link, the map crop turning with the robot yaw, grid sampling with a rotated and
+  offset grid frame (local costmap in `odom`), costmap tint only on non-free cells, plan/object placement, POI points
+  and areas drawn, missing layers listed with a reason and never drawn, map-frame layers missing without a pose,
+  PNG round trip, scan points into base_link, OccupancyGrid field conversion, point transform
+- object memory (`test_object_memory.py`): new object fields, same-label merge within 0.25 m (case-insensitive,
+  nearest candidate, weighted average, times_seen, max confidence, note kept unless given), different label or too far
+  = new object, atomic persistence (no temp file, failed `os.replace` keeps the old file), corrupt file moved aside,
+  forget, input validation, distance/bearing from the robot heading, label / near-point filters, no pose = no distance
+- look_around (`test_look_around.py`): equal-step plan covering 360 deg and its limits, clearance = footprint
+  circumscribed radius + margin, refusal on a close obstacle or a missing lidar (robot not moved), the rotate-capture
+  loop (3 rotations between 4 stops plus the closing step, camera and lidar at every stop, expected vs achieved
+  rotation and heading error), interrupted / failed steps end the sequence with `interrupted_by` and no return
+  rotation, `stop` between steps, an obstacle appearing mid-turn, a camera failure recorded (not fabricated), montage
+- POI client (`test_poi_client.py`): request published with op, poi and a fresh `request_id`; the result is matched by
+  id (other ids ignored, answer from another thread), timeout, store not running (nothing published), store rejection,
+  malformed results dropped, `/poi/list` parsing
+- perception tools (`test_perception_tools.py`): the nine new tools registered and classified (`look_around` in
+  `MOTION_TOOLS`, the rest always allowed), `get_topdown_view` PNG + metadata (pose, scale, layers present/missing,
+  data ages), layer selection and validation, POI/object layers, object tools round trip and merge, POI tools
+  (point defaults to the robot position, area polygon, `created_by` agent, argument errors, store not running),
+  `list_pois` distance/bearing/status/near, `look_around` (montage + top-down images, summary, config default
+  captures, argument validation, refusal does not move)
 - arm controller (`test_arm.py`): lease acquire/release, streamed motion with implicit acquire and velocity cap, speed
   scale, clamping, argument validation, abort + hold on stale feedback / tracking error / stop, no hold after filter_node
   switches source, convergence timeout, Cartesian moves (unreachable reported without motion), gripper open fraction
@@ -281,7 +306,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   a jaw stalling before closed (close_until_effort and open_fraction=0) reports `grasped` and holds stall + squeeze
   (also after the hold window), the squeeze never passes closed, a partial open_fraction stall is not a grasp
 - drive (`test_base_motion.py`): rate, clamping, duration cap, abort always ends with a zero twist
-- tools (`test_tools.py`): all 23 tools registered with real descriptions (arm motion tools explain `residual_error`
+- tools (`test_tools.py`): all 32 tools registered with real descriptions (arm motion tools explain `residual_error`
   and the commanded hold), structured outputs, camera JPEG + stamp,
   argument validation, robot errors as tool errors, map PNG, arm tool round trip, bearer-token auth on the Streamable
   HTTP app (401 without/with a wrong token, 200 with the right one) and the configured path
@@ -457,6 +482,10 @@ fake `ssh`; no ROS needed).
 | `test_web_ui_map_tab_uses_contract_fields` | The map tab carries no legacy keys (`urdf_file`, `topic`, `arm_urdf_file`, `arm_joint_topic`, `scan_topic`, `costmap_topic`), uses the frontend contract names, points `arm_home_service` / `arm_set_home_service` at the services mcp_server serves, and keeps the tile cache at `/var/cache/web_ui/tiles`. |
 | `test_web_ui_tile_cache_dir_task_owned_by_node_user` | `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui` and `/var/cache/web_ui/tiles` as directories owned by `ansible_user`. |
 | `test_playbooks_create_tile_cache_before_deploying_web_ui` | `deploy_nodes_client.yml` and `nodes/client/web_ui.yml` include the tile cache task before deploying web_ui. |
+| `test_mcp_server_perception_topics_match_their_producers` | mcp_server `topics` `local_costmap` `/local_costmap/costmap`, `plan` `/plan` and `poi_list` / `poi_command` / `poi_result` equal the poi_store entry's topics. |
+| `test_mcp_server_perception_config_sections` | mcp_server config carries `objects` (`/var/lib/ros2/objects/objects.json`, merge radius 0.25 m), `footprint` 0.47 x 0.386 m, `look_around` defaults (4 captures, positive clearance margin), `topdown` defaults and `poi.request_timeout_s` 3 s. |
+| `test_mcp_server_readme_documents_perception_tools` | `nodes/mcp_server/README.md` documents get_topdown_view, the object memory tools, look_around, the POI tools, the objects file, the robot-up convention, `layers_missing` and the `MOTION_TOOLS` classification. |
+| `test_mcp_server_setup_tasks_create_objects_dir_owned_by_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/objects` owned by `ansible_user`. |
 | `test_mcp_server_setup_tasks_create_token_and_arm_dir` | `tasks/mcp_server_setup.yml` creates `/etc/ros2/mcp_server`, the token (`MCP_SERVER_TOKEN=` + 48-char password lookup, `force: false`, 0640, owner `ansible_user`, group `mcp-token`, `no_log`) and `/var/lib/ros2/arm` owned by the node user. |
 | `test_playbooks_run_setup_before_deploying_mcp_server` | `deploy_nodes_client.yml` and `nodes/client/mcp_server.yml` deploy mcp_server and include the setup tasks before it. |
 | `test_node_playbook_stops_first_and_starts_last` | The per-node playbook targets the client, starts with `stop_ros_nodes.yml`, syncs the repo and ends with `start_ros_nodes.yml`. |

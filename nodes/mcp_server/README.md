@@ -35,6 +35,10 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z=0.0)` | Store one marker sample (pixel + measured floor point + parent-link pose) in `cameras.calibration_dir`. |
 | `solve_camera_calibration(camera, initial)` | Fit the mount pose to the stored samples; returns `rms_px` and a YAML snippet for `client.yml` (never edits the config). |
 | `clear_calibration_samples(camera)` | Delete the stored samples of a camera. |
+| `get_topdown_view(radius_m=2.5, layers=all, px=480)` | Robot-up PNG centred on the robot (see Perception and memory) plus metadata `pose`, `scale_m_per_px`, `layers_present`, `layers_missing` (reason each), `data_ages`. Sensor. |
+| `remember_object` / `list_objects` / `forget_object` | Persistent object memory in map coordinates (merge, distance/bearing from the robot). Sensor. |
+| `look_around(captures=4, camera='front')` | Effector, ONE motion call: full in-place turn in equal steps with a camera frame and lidar summary per stop. |
+| `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. |
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
 after a failed motion; used by the web UI "Arm home" button) and `/arm/set_home` (store the measured pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
@@ -158,6 +162,56 @@ pose / joints; for `drive` the integrated command vs the measured displacement i
 New tool modules (e.g. perception) are registered in one place: a function taking a `ToolContext` added to
 `tools.TOOL_MODULES`.
 
+## Perception and memory
+
+Module `perception_tools.py` (one entry in `tools.TOOL_MODULES`); the logic is in rclpy-free modules (`topdown.py`,
+`object_memory.py`, `look_around.py`, `poi_client.py`) that only use OpenCV/numpy and render on demand (the service has
+a 25 % CPU quota).
+
+**`get_topdown_view`.** PNG, `px` x `px` (default 480), centred on the robot and **robot-up**: base_link +x (the
+heading) is the top of the image, +y (left) is the left; one pixel is `2 * radius_m / px` metres (`scale_m_per_px` in
+the metadata). A red arrow marks the heading, the blue rectangle is the footprint (`footprint.length_m` x `width_m`,
+470 x 386 mm), a 0.5 m scale bar sits bottom left and a legend top left lists the drawn layers. Layers (`layers`,
+default all): `map` (SLAM map crop sampled through the map -> base_link pose: white free, black wall, grey unknown),
+`costmap` (`/local_costmap/costmap`, subscribed lazily on the first call, latest message only, placed through the TF of
+its frame, orange tint), `lidar` (`/scan_filtered` points), `footprint`, `reach` (circle of `topdown.arm_reach_m` about
+`arm_mount_x_m`/`arm_mount_y_m` in base_link), `path` (latest `/plan`, only when younger than
+`topdown.plan_max_age_s`), `pois` (points as circles with their radius, areas as polygons, names; orange open, green
+done, grey cancelled) and `objects` (remembered objects as diamonds with labels). A layer without data is **never
+fabricated**: it is listed in `layers_missing` with the reason (no TF, stale, poi_store down, ...); layers that live in
+the map frame also need the robot pose.
+
+**Object memory.** `remember_object(label, x, y, frame='map', note='', confidence=0.7)` stores objects in
+`objects.store_path` (`/var/lib/ros2/objects/objects.json`, directory created by Ansible, written to a temp file and
+`os.replace`d; an unreadable file is moved to `objects.json.corrupt-<ts>`). A sighting with the same label (case
+insensitive) within `objects.merge_radius_m` (0.25 m) of a remembered object updates the nearest one instead: position
+= average weighted by `times_seen x confidence` (old) and `confidence` (new), `times_seen + 1`, `last_seen`, the higher
+confidence, and the note only if a new one is given. Records: `{id, label, x, y, note, confidence, first_seen,
+last_seen, times_seen}`. `list_objects(label_contains, near_x, near_y, radius_m)` sorts by distance to the robot and
+adds `distance_m` and `bearing_deg` (0 ahead, + left); `near_x`/`near_y` go together (radius default 1 m).
+`forget_object(id)` removes one.
+
+**`look_around(captures=4, camera='front')`.** Counts as ONE motion call and is in `MOTION_TOOLS` (battery gate;
+early return). It checks the lidar first and is **refused without moving** when the nearest return is closer than the
+footprint circumscribed radius plus `look_around.clearance_margin_m` (10 cm), or when there is no fresh scan. Then it
+rotates the base in place in `captures` equal steps (3 to 12; steps of 360 / captures degrees through
+`move_relative(0, 0, step)`), at each stop it grabs a camera frame and the lidar sector summary, and a last step
+returns to the start heading. A step that ends `interrupted` (critical body event), failed, a `stop` call between
+steps, or an obstacle inside the rotation circle ends the sequence at once (no return rotation) with `status`
+`interrupted` (+ `interrupted_by`) / `failed` / `stopped` / `aborted_obstacle`. Result: a montage JPEG (tiles labelled
+with the heading in degrees counter-clockwise from the start; a missing frame is a grey "no frame" tile), a top-down PNG,
+and structured `headings` (nearest obstacle overall and per sector at each stop), `steps`, `expected` (360 deg, stops)
+vs `achieved` (`rotation_deg`, `final_pose`, `heading_error_deg`), `returned_to_start`, `notes`.
+
+**POI tools** (`poi_store`, see `nodes/poi_store/README.md`). `list_pois(status, near)` reads the latched `/poi/list`
+and adds `distance_m`, `bearing_deg` (areas: centroid, plus `inside`); `near=true` keeps POIs within
+`poi.near_radius_m` (5 m), nearest first. `add_poi(kind, name, note, x, y, polygon, radius_m)` publishes
+`/poi/command` `{op: "add", request_id, poi}` with `created_by: "agent"`; a point without x/y is placed at the robot's
+current position, an area needs `polygon` (>= 3 vertices). `update_poi(id, name, note, status, x, y, polygon)` sends only
+the given fields; `delete_poi(id)`. Each call waits up to `poi.request_timeout_s` (3 s) for the `/poi/result` with the
+same `request_id`; the tool errors when poi_store is not running (no subscriber on `/poi/command`), does not answer
+or rejects the change.
+
 ## Battery cut-off gate
 
 Optional `battery` config section (the shared `ros2_common.battery.BatteryConfig`: `topic`, `cells`, `cutoff_cell_v`,
@@ -172,8 +226,8 @@ partition every tool):
 
 | Class | Tools |
 |---|---|
-| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home` |
-| `ALWAYS_ALLOWED_TOOLS` | `stop`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `acquire_control`, `release_control` |
+| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around` |
+| `ALWAYS_ALLOWED_TOOLS` | `stop`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `acquire_control`, `release_control`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi` |
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
 
@@ -238,7 +292,10 @@ partition every tool):
 | `ik.py` | no | URDF limits, ikpy FK/IK with verification |
 | `arm.py` | no | `ArmController`: lease, streaming, aborts, gripper, home |
 | `base_motion.py` | no | timed clamped drive loop, stop sequence (`run_stop`) |
-| `perception.py` | no | scan sectors, map stats/PNG, image encoding |
+| `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
+| `topdown.py`, `perception_models.py` | no | robot-up top-down renderer (layers, transforms); perception result models |
+| `object_memory.py`, `look_around.py`, `poi_client.py` | no | object store + merge, look_around plan/loop/montage, POI request matching |
+| `perception_tools.py` | no | the perception, memory, look_around and POI tools (one `TOOL_MODULES` entry) |
 | `home_store.py`, `staleness.py`, `geometry.py`, `models.py` | no | home YAML, data age, pose math, result models |
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
 | `tool_context.py`, `body_tools.py` | no | `ToolContext` / `RobotApi`; the `get_body_state` module |
@@ -284,6 +341,17 @@ battery:                  # optional; absent = battery gate off
   cutoff_cell_v: 2.8
   resume_cell_v: 2.9
   stale_s: 5.0
+topics:                   # perception additions (defaults shown)
+  local_costmap: /local_costmap/costmap
+  plan: /plan
+  poi_list: /poi/list
+  poi_command: /poi/command
+  poi_result: /poi/result
+footprint: {length_m: 0.47, width_m: 0.386}
+topdown: {default_radius_m: 2.5, default_px: 480, arm_reach_m: 0.41, plan_max_age_s: 30}
+objects: {store_path: /var/lib/ros2/objects/objects.json, merge_radius_m: 0.25}
+look_around: {default_captures: 4, clearance_margin_m: 0.10, step_timeout_s: 30}
+poi: {request_timeout_s: 3.0, near_radius_m: 5.0}
 monitor:                  # all optional; thresholds of the body monitor (see Body awareness)
   servo_temp_warn_c: 60
   servo_temp_critical_c: 70

@@ -918,6 +918,13 @@ ros2_nodes:
         rf2o_twist: /odom_rf2o_twist
         imu: /imu/data
         robot_events: /robot_events
+        # get_topdown_view: local costmap (subscribed lazily, latest message only) and the current Nav2 plan.
+        local_costmap: /local_costmap/costmap
+        plan: /plan
+        # POI tools talk to poi_store (same topics as its entry below).
+        poi_list: /poi/list
+        poi_command: /poi/command
+        poi_result: /poi/result
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml
@@ -969,6 +976,26 @@ ros2_nodes:
         bump_critical_mps2: 9.0
         tilt_warn_deg: 10
         debounce_default_s: 30
+      # Robot outer frame (m, centred on base_link): drawn by get_topdown_view, sets look_around's rotation clearance.
+      footprint:
+        length_m: 0.47
+        width_m: 0.386
+      topdown:
+        default_radius_m: 2.5
+        default_px: 480
+        arm_reach_m: 0.41
+      # Object memory (remember_object / list_objects / forget_object), directory created by mcp_server_setup.yml.
+      objects:
+        store_path: /var/lib/ros2/objects/objects.json
+        merge_radius_m: 0.25
+      # look_around: equal in-place rotation steps; refused when an obstacle is inside footprint radius + margin.
+      look_around:
+        default_captures: 4
+        clearance_margin_m: 0.10
+        step_timeout_s: 30
+      poi:
+        request_timeout_s: 3.0
+        near_radius_m: 5.0
   - name: poi_store
     node_type: poi_store
     present: true
@@ -1017,6 +1044,7 @@ ros2_nodes:
         - set_gripper
         - arm_home
         - arm_set_home
+        - look_around
       uncapped_tools:
         - stop
         - acquire_control

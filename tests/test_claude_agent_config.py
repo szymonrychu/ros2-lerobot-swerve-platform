@@ -105,19 +105,21 @@ def setup_tasks() -> list[dict]:
 
 
 def mcp_tool_names() -> set[str]:
-    """Names of the tools registered in mcp_server/tools.py (functions decorated with @tool).
+    """Names of the tools registered by the mcp_server modules (functions decorated with @tool / @server.tool).
 
     Returns:
         set[str]: Tool function names.
     """
-    tree = ast.parse(MCP_TOOLS.read_text())
     names = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef):
-            for deco in node.decorator_list:
-                target = deco.func if isinstance(deco, ast.Call) else deco
-                if isinstance(target, ast.Name) and target.id == "tool":
-                    names.add(node.name)
+    for module in MCP_TOOLS.parent.glob("*.py"):
+        for node in ast.walk(ast.parse(module.read_text())):
+            if isinstance(node, ast.FunctionDef):
+                for deco in node.decorator_list:
+                    target = deco.func if isinstance(deco, ast.Call) else deco
+                    if (isinstance(target, ast.Name) and target.id == "tool") or (
+                        isinstance(target, ast.Attribute) and target.attr == "tool"
+                    ):
+                        names.add(node.name)
     return names
 
 

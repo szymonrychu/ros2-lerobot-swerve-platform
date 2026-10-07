@@ -35,6 +35,19 @@ NODES_README = REPO_ROOT / "nodes" / "README.md"
 CONFIG_DIR = "/etc/ros2/mcp_server"
 TOKEN_FILE = "/etc/ros2/mcp_server/token"
 ARM_DIR = "/var/lib/ros2/arm"
+OBJECTS_DIR = "/var/lib/ros2/objects"
+OBJECTS_FILE = "/var/lib/ros2/objects/objects.json"
+PERCEPTION_TOOLS = (
+    "get_topdown_view",
+    "remember_object",
+    "list_objects",
+    "forget_object",
+    "look_around",
+    "list_pois",
+    "add_poi",
+    "update_poi",
+    "delete_poi",
+)
 PORT = 18200
 MCP_URL = "http://client.ros2.lan:18200/mcp"
 AUTONOMY = {
@@ -145,7 +158,22 @@ def test_mcp_server_node_entry_and_config() -> None:
     assert entry["node_type"] == "mcp_server"
     assert entry["present"] is True and entry["enabled"] is True
     cfg = node_config("mcp_server")
-    assert set(cfg) <= {"server", "topics", "limits", "timeouts", "nav", "arm", "battery", "monitor", "cameras"}
+    assert set(cfg) <= {
+        "server",
+        "topics",
+        "limits",
+        "timeouts",
+        "nav",
+        "arm",
+        "battery",
+        "monitor",
+        "footprint",
+        "topdown",
+        "objects",
+        "look_around",
+        "poi",
+        "cameras",
+    }
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
     assert cfg["arm"]["urdf_path"] == "nodes/web_ui/urdf/so101_arm.urdf"
@@ -198,6 +226,35 @@ def test_mcp_server_monitor_topics_match_their_producers() -> None:
     assert topics["robot_events"] == "/robot_events"
     assert topics["swerve_odom"] == node_config("swerve_controller")["odom_topic"]
     assert topics["rf2o_twist"] == node_config("rf2o_odom_relay")["output_topic"]
+
+
+def test_mcp_server_perception_topics_match_their_producers() -> None:
+    cfg = node_config("mcp_server")
+    poi = node_config("poi_store")
+    assert cfg["topics"]["local_costmap"] == "/local_costmap/costmap"
+    assert cfg["topics"]["plan"] == "/plan"
+    assert cfg["topics"]["poi_list"] == poi["list_topic"]
+    assert cfg["topics"]["poi_command"] == poi["command_topic"]
+    assert cfg["topics"]["poi_result"] == poi["result_topic"]
+
+
+def test_mcp_server_perception_config_sections() -> None:
+    cfg = node_config("mcp_server")
+    assert cfg["objects"]["store_path"] == OBJECTS_FILE
+    assert cfg["objects"]["merge_radius_m"] == 0.25
+    assert cfg["footprint"] == {"length_m": 0.47, "width_m": 0.386}
+    assert cfg["look_around"]["default_captures"] == 4
+    assert cfg["look_around"]["clearance_margin_m"] > 0
+    assert cfg["topdown"]["default_radius_m"] == 2.5 and cfg["topdown"]["default_px"] == 480
+    assert cfg["poi"]["request_timeout_s"] == 3.0
+
+
+def test_mcp_server_readme_documents_perception_tools() -> None:
+    text = (NODE_DIR / "README.md").read_text()
+    for tool in PERCEPTION_TOOLS:
+        assert tool in text, tool
+    for needle in (OBJECTS_FILE, "robot-up", "layers_missing", "look_around", "MOTION_TOOLS"):
+        assert needle in text, needle
 
 
 def test_mcp_server_readme_documents_monitor_and_events_contract() -> None:
@@ -265,6 +322,14 @@ def test_playbooks_create_tile_cache_before_deploying_web_ui(playbook: str) -> N
     setup = include_index(tasks, "web_ui_tile_cache_dir.yml")
     assert deploy >= 0, f"{playbook} does not deploy web_ui"
     assert 0 <= setup < deploy, f"{playbook}: the tile cache dir must exist before web_ui starts"
+
+
+def test_mcp_server_setup_tasks_create_objects_dir_owned_by_node_user() -> None:
+    tasks = yaml.safe_load(SETUP_TASKS.read_text())
+    dirs = {t["ansible.builtin.file"]["path"]: t["ansible.builtin.file"] for t in tasks if "ansible.builtin.file" in t}
+    objects = dirs[OBJECTS_DIR]
+    assert objects["state"] == "directory"
+    assert objects["owner"] == "{{ ansible_user }}" and objects["group"] == "{{ ansible_user }}"
 
 
 def test_mcp_server_setup_tasks_create_token_and_arm_dir() -> None:

@@ -18,7 +18,7 @@ from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.msg import CollisionMonitorState
-from nav_msgs.msg import OccupancyGrid, Odometry
+from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
@@ -58,9 +58,12 @@ from .perception import (
     map_stats,
     recompress_jpeg,
     render_map_crop,
+    scan_points,
     summarize_scan,
 )
+from .poi_client import PoiRequests, parse_poi_list
 from .staleness import Stamped
+from .topdown import TopdownInputs, grid_layer, transform_points
 
 NODE_NAME = "mcp_server"
 # Best effort subscribers match both reliable and best-effort publishers.
@@ -250,6 +253,10 @@ class RosRobot:
             lambda msg: self.monitor.on_collision(int(msg.action_type), msg.polygon_name),
         )
         self.cache(GoalStatusArray, t.navigate_action + STATUS_SUFFIX, "nav_status", SENSOR_QOS)
+        self.cache(Path, t.plan, "plan", SENSOR_QOS)
+        self.cache(String, t.poi_list, "poi_list", MAP_QOS)  # poi_store latches it (reliable + transient_local)
+        self.costmap_subscribed = False  # /local_costmap/costmap is subscribed on the first get_topdown_view
+        self.stops = 0
         self.subscribe(Odometry, t.swerve_odom, lambda msg: self.monitor.on_swerve_odom(msg.twist.covariance[0]))
         self.subscribe(Odometry, t.rf2o_twist, lambda msg: self.monitor.on_rf2o(*twist_xyw(msg)))
         self.subscribe(
@@ -282,6 +289,13 @@ class RosRobot:
         self.cmd_pub = self.node.create_publisher(JointState, t.autonomy_command, COMMAND_QOS)
         self.release_pub = self.node.create_publisher(Bool, t.autonomy_release, COMMAND_QOS)
         self.twist_pub = self.node.create_publisher(Twist, t.cmd_vel, COMMAND_QOS)
+        self.poi_command_pub = self.node.create_publisher(String, t.poi_command, COMMAND_QOS)
+        self.poi = PoiRequests(
+            lambda payload: self.poi_command_pub.publish(String(data=payload)),
+            lambda: self.poi_command_pub.get_subscription_count() > 0,
+            config.poi.request_timeout_s,
+        )
+        self.subscribe(String, t.poi_result, lambda msg: self.poi.on_result(msg.data), COMMAND_QOS)
         self.nav_client = ActionClient(self.node, NavigateToPose, t.navigate_action, callback_group=self.group)
         self.cancel_client = self.node.create_client(
             CancelGoal, t.navigate_action + CANCEL_SUFFIX, callback_group=self.group
@@ -732,6 +746,156 @@ class RosRobot:
                     )
         return summary, png
 
+    def stop_count(self) -> int:
+        """Number of stop() calls so far.
+
+        Returns:
+            int: Counter; a change between two reads means stop was called in between.
+        """
+        return self.stops
+
+    def ensure_costmap(self) -> None:
+        """Subscribe /local_costmap/costmap on first use (latest message only)."""
+        with self.lock:
+            if self.costmap_subscribed:
+                return
+            self.costmap_subscribed = True
+        self.cache(OccupancyGrid, self.cfg.topics.local_costmap, "costmap", SENSOR_QOS)
+
+    def grid_inputs(self, key: str, max_age_s: float, label: str, inputs: TopdownInputs) -> None:
+        """Fill inputs.map / inputs.costmap from a cached OccupancyGrid, or record why it is missing.
+
+        Args:
+            key (str): Cache key, "map" or "costmap".
+            max_age_s (float): Freshness bound (s).
+            label (str): Name used in the missing-layer reason.
+            inputs (TopdownInputs): Filled in place.
+        """
+        item = self.get(key, max_age_s)
+        if item is None:
+            inputs.missing[key] = f"no {label} message within {max_age_s:g} s"
+            return
+        msg = item.value
+        frame = msg.header.frame_id or self.cfg.topics.map_frame
+        if frame == self.cfg.topics.map_frame:
+            frame_pose: tuple[float, float, float] | None = (0.0, 0.0, 0.0)
+        else:
+            tf = self.lookup_pose(self.cfg.topics.map_frame, frame)
+            frame_pose = None if tf is None else (tf.x, tf.y, tf.yaw)
+        if frame_pose is None:
+            inputs.missing[key] = f"no TF {self.cfg.topics.map_frame} <- {frame}"
+            return
+        o = msg.info.origin
+        age = item.age(time.monotonic())
+        layer = grid_layer(
+            msg.data,
+            msg.info.width,
+            msg.info.height,
+            msg.info.resolution,
+            o.position.x,
+            o.position.y,
+            yaw_from_quaternion(o.orientation.x, o.orientation.y, o.orientation.z, o.orientation.w),
+            frame_pose,
+            round(age, 3),
+        )
+        if key == "map":
+            inputs.map = layer
+        else:
+            inputs.costmap = layer
+        inputs.ages[key] = round(age, 3)
+
+    def topdown_inputs(self) -> TopdownInputs:
+        """Snapshot for get_topdown_view: pose, SLAM map, local costmap (lazy subscription), lidar points and plan.
+
+        Returns:
+            TopdownInputs: Available data; what is missing is listed in `missing` with the reason.
+        """
+        t, td = self.cfg.topics, self.cfg.topdown
+        base = self.robot_pose()
+        inputs = TopdownInputs(pose=None if base is None else (base.x, base.y, base.yaw))
+        self.grid_inputs("map", self.cfg.timeouts.map_stale_s, t.map, inputs)
+        self.ensure_costmap()
+        deadline = time.monotonic() + td.costmap_wait_s
+        while self.get("costmap", td.costmap_stale_s) is None and time.monotonic() < deadline:
+            time.sleep(NAV_POLL_S)
+        self.grid_inputs("costmap", td.costmap_stale_s, t.local_costmap, inputs)
+        scan = self.get("scan", self.cfg.timeouts.state_stale_s)
+        if scan is None:
+            inputs.missing["lidar"] = "lidar scan missing or stale"
+        else:
+            msg = scan.value
+            laser = self.lookup_pose(t.base_frame, msg.header.frame_id)
+            if laser is None:
+                inputs.missing["lidar"] = f"no TF {t.base_frame} <- {msg.header.frame_id}"
+            else:
+                inputs.scan_points = scan_points(
+                    list(msg.ranges),
+                    msg.angle_min,
+                    msg.angle_increment,
+                    msg.range_min,
+                    msg.range_max,
+                    laser.x,
+                    laser.y,
+                    laser.yaw,
+                )
+                inputs.ages["scan"] = round(scan.age(time.monotonic()), 3)
+        self.plan_inputs(inputs)
+        return inputs
+
+    def plan_inputs(self, inputs: TopdownInputs) -> None:
+        """Fill inputs.plan from the latest /plan (map frame), or record why there is none.
+
+        Args:
+            inputs (TopdownInputs): Filled in place.
+        """
+        plan = self.get("plan", self.cfg.topdown.plan_max_age_s)
+        if plan is None:
+            inputs.missing["path"] = f"no {self.cfg.topics.plan} message within {self.cfg.topdown.plan_max_age_s:g} s"
+            return
+        msg = plan.value
+        points = [[p.pose.position.x, p.pose.position.y] for p in msg.poses]
+        if not points:
+            inputs.missing["path"] = "the latest plan is empty (no active navigation)"
+            return
+        frame = msg.header.frame_id or self.cfg.topics.map_frame
+        array = np.asarray(points, dtype=float)
+        if frame != self.cfg.topics.map_frame:
+            tf = self.lookup_pose(self.cfg.topics.map_frame, frame)
+            if tf is None:
+                inputs.missing["path"] = f"no TF {self.cfg.topics.map_frame} <- {frame}"
+                return
+            array = transform_points(array, (tf.x, tf.y, tf.yaw))
+        inputs.plan = array
+        inputs.ages["plan"] = round(plan.age(time.monotonic()), 3)
+
+    def poi_list(self) -> tuple[list[dict[str, Any]], int]:
+        """Latest /poi/list from poi_store.
+
+        Returns:
+            tuple[list[dict[str, Any]], int]: POIs and the store revision.
+        """
+        if self.poi_command_pub.get_subscription_count() == 0:
+            raise RobotError("poi_store is not running (nothing listens on /poi/command)")
+        item = self.get("poi_list")
+        if item is None:
+            raise RobotError("poi_store has not published /poi/list yet")
+        try:
+            return parse_poi_list(item.value.data)
+        except ValueError as exc:
+            raise RobotError(f"unreadable /poi/list: {exc}") from exc
+
+    def poi_request(self, op: str, poi: dict[str, Any]) -> dict[str, Any]:
+        """Send a /poi/command and wait for the matching /poi/result.
+
+        Args:
+            op (str): "add", "update" or "delete".
+            poi (dict[str, Any]): POI payload.
+
+        Returns:
+            dict[str, Any]: The accepted result.
+        """
+        return self.poi.request(op, poi)
+
     def navigate(self, x: float, y: float, yaw: float, frame: str, timeout_s: float) -> NavigationResult:
         """Send a NavigateToPose goal and block until it finishes, times out, stop is called or a critical event fires.
 
@@ -861,6 +1025,7 @@ class RosRobot:
         Returns:
             StopResult: What succeeded.
         """
+        self.stops += 1
         return run_stop(self.base_stop.set, self.publish_twist, self.cancel_all_goals, self.arm.stop_hold)
 
     def shutdown(self) -> None:

@@ -23,6 +23,40 @@ class ImageEncodingError(ValueError):
     """Raised for an image buffer that cannot be decoded or converted."""
 
 
+def scan_points(
+    ranges: Sequence[float],
+    angle_min: float,
+    angle_increment: float,
+    range_min: float,
+    range_max: float,
+    laser_x: float,
+    laser_y: float,
+    laser_yaw: float,
+) -> np.ndarray:
+    """Valid laser returns as points in base_link.
+
+    Args:
+        ranges (Sequence[float]): LaserScan ranges (m).
+        angle_min (float): Angle of the first range in the laser frame (rad).
+        angle_increment (float): Angle step (rad).
+        range_min (float): Minimum valid range (m).
+        range_max (float): Maximum valid range (m).
+        laser_x (float): Laser origin x in base_link (m).
+        laser_y (float): Laser origin y in base_link (m).
+        laser_yaw (float): Laser yaw in base_link (rad).
+
+    Returns:
+        np.ndarray: Nx2 (forward, left) points in metres; invalid returns are dropped.
+    """
+    r = np.asarray(ranges, dtype=float)
+    angles = angle_min + angle_increment * np.arange(r.size)
+    valid = np.isfinite(r) & (r >= range_min) & (r <= range_max)
+    r, angles = r[valid], angles[valid]
+    c, s = math.cos(laser_yaw), math.sin(laser_yaw)
+    lx, ly = r * np.cos(angles), r * np.sin(angles)
+    return np.stack([laser_x + c * lx - s * ly, laser_y + s * lx + c * ly], axis=1)
+
+
 def summarize_scan(
     ranges: Sequence[float],
     angle_min: float,
@@ -48,14 +82,8 @@ def summarize_scan(
     Returns:
         list[SectorObstacle]: One entry per SECTOR_NAMES item; nearest_m is None when the sector has no return.
     """
-    r = np.asarray(ranges, dtype=float)
-    angles = angle_min + angle_increment * np.arange(r.size)
-    valid = np.isfinite(r) & (r >= range_min) & (r <= range_max)
-    r, angles = r[valid], angles[valid]
-    c, s = math.cos(laser_yaw), math.sin(laser_yaw)
-    lx, ly = r * np.cos(angles), r * np.sin(angles)
-    bx = laser_x + c * lx - s * ly
-    by = laser_y + s * lx + c * ly
+    points = scan_points(ranges, angle_min, angle_increment, range_min, range_max, laser_x, laser_y, laser_yaw)
+    bx, by = points[:, 0], points[:, 1]
     dist = np.hypot(bx, by)
     bearing = np.arctan2(by, bx)
     width = 2 * math.pi / len(SECTOR_NAMES)

@@ -27,12 +27,23 @@ from mcp_server.models import (
 )
 from mcp_server.tools import TOOL_NAMES, StaticTokenVerifier, build_app, build_mcp_server
 
-from .fakes import FakeArmBackend
+from .fakes import FakeArmBackend, PerceptionFakeMixin
 
 TOKEN = "t" * 48
+PERCEPTION_TOOLS = (
+    "get_topdown_view",
+    "remember_object",
+    "list_objects",
+    "forget_object",
+    "look_around",
+    "list_pois",
+    "add_poi",
+    "update_poi",
+    "delete_poi",
+)
 
 
-class FakeRobot:
+class FakeRobot(PerceptionFakeMixin):
     """RobotApi double recording calls."""
 
     def __init__(self, tmp_path: Path) -> None:
@@ -47,6 +58,7 @@ class FakeRobot:
         )
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.camera_error: str | None = None
+        self.init_perception()
 
     def robot_state(self) -> RobotState:
         self.calls.append(("robot_state", ()))
@@ -138,6 +150,7 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "capture_calibration_sample",
         "solve_camera_calibration",
         "clear_calibration_samples",
+        *PERCEPTION_TOOLS,
     }
     for t in tools:
         assert t.description and len(t.description) > 60, t.name
