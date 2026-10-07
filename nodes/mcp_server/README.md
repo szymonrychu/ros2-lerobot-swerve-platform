@@ -127,22 +127,24 @@ missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresho
 | `battery_low` | warning | pack < cells x (cutoff_cell_v + `battery_warn_margin_cell_v` 0.2 V) |
 | `battery_cutoff` | critical | the shared `BatteryGuard` cut-off (hysteresis as in the gate) |
 | `collision_stop` | critical | collision monitor STOP while a base motion runs |
-| `stall` | critical | base: commanded speed (> 0.05 m/s or 0.1 rad/s) but measured odometry/rf2o ~0 for > `stall_s` 1.0 s while a base motion runs; arm: tracking-error abort |
+| `stall` | critical | base: commanded speed (> 0.05 m/s or 0.1 rad/s) but measured odometry/rf2o ~0 for > `stall_s` 1.0 s while a base motion runs (the arm's tracking abort is its own `arm_tracking_abort` event) |
+| `arm_tracking_abort` | warning | arm: setpoint vs measured tracking error above `limits.arm_tracking_error_rad`; never interrupts the model's turn or a base motion (not in `BASE_INTERRUPTS`) |
 | `wheel_slip` | warning | swerve residual (decoded from the twist covariance `var_xy = 0.002 + r^2`; parked fixed value = none) > `slip_residual_warn_mps` 0.1 |
-| `bump` | warning / critical | horizontal acceleration spike after baseline removal >= `bump_warn_mps2` 4 / `bump_critical_mps2` 9 m/s^2 |
+| `bump` | warning / critical | horizontal acceleration spike after baseline removal >= `bump_warn_mps2` 4 / `bump_critical_mps2` 9 m/s^2 for `bump_min_samples` (2) consecutive IMU samples; one glitchy sample is ignored and the severity follows the weakest sample of the run |
 | `tilt` | warning | tilt from the IMU orientation > `tilt_warn_deg` 10 deg |
 | `human_takeover` | critical | active source leaves `autonomy` while this server holds the lease |
 | `cpu_overheat` | warning / critical | CPU >= 75 / 82 C |
 | `<type>_cleared` | info | a level condition (overheat, servo_error, battery_*, tilt, wheel_slip, stall, cpu_overheat) ended |
 
-Events are debounced per (type, source) (`debounce_default_s` 30 s, shorter for bump / collision_stop / stall /
-human_takeover; an escalation always passes). Each event is published on **`/robot_events`** (`std_msgs/String`, reliable,
+Events are debounced per (type, source) (`debounce_default_s` 30 s, shorter for bump 2 s / collision_stop 1.5 s / stall 1.5 s /
+human_takeover 5 s, so a repeat during a retried motion is not hidden; an escalation always passes). Each event is published on **`/robot_events`** (`std_msgs/String`, reliable,
 depth 50) as JSON `{"seq": int, "ts": float (epoch s), "type": str, "severity": "info"|"warning"|"critical",
 "source": str, "message": str, "data": object}`; `seq` starts at 1 per process.
 
 **Digest on every tool result.** `RobotMCPServer.call_tool` (one override, so every current and future tool gets it)
-adds `robot_events_since_last_call` (events since the previous tool call on this server: one global cursor, not per MCP
-session; newest `digest_max_events` 20 kept) and `vitals` (`battery 11.40 V, hottest servo 41 C (elbow_flex), CPU 52 C`,
+adds `robot_events_since_last_call` (events since the previous tool call of the same MCP session: one cursor per `Mcp-Session-Id`, so
+claude_agent's own `robot_stop` session never consumes the model's events; a new session sees the retained history, at most
+16 sessions are tracked (LRU), calls without a session id share one cursor; newest `digest_max_events` 20 kept) and `vitals` (`battery 11.40 V, hottest servo 41 C (elbow_flex), CPU 52 C`,
 `n/a` when unknown) as a text block and, when the result is structured, as structured-content keys (image tools stay
 unstructured: text block plus `_meta`). Tool errors get the same JSON appended to the message. The tool output schemas do
 not list these two keys.
@@ -151,8 +153,8 @@ not list these two keys.
 `set_gripper`, `arm_home`) end early with status `interrupted` and `interrupted_by` = the critical event type fired during
 the call: base `collision_stop`, `stall`, `battery_cutoff`, `overheat`, `cpu_overheat`, `servo_error`, `human_takeover`,
 `bump`; arm `overheat`, `cpu_overheat`, `servo_error`, `battery_cutoff`, `human_takeover` (the lease is dropped, nothing is
-published against the human) and `stall` (a tracking abort keeps status `aborted_tracking` and carries
-`interrupted_by: stall`). The base cancels the Nav2 goal and publishes a zero twist; the arm holds its measured pose.
+published against the human) and `arm_tracking_abort` (a warning event, not a critical one: the arm result keeps status `aborted_tracking` and carries
+`interrupted_by: arm_tracking_abort`). The base cancels the Nav2 goal and publishes a zero twist; the arm holds its measured pose.
 The battery cut-off is also re-read live from the guard during every motion. Warnings never interrupt, and only events
 raised after the motion started count. Every motion result carries `expected` (goal) vs `achieved` (final measured
 pose / joints; for `drive` the integrated command vs the measured displacement in the start frame; for
@@ -360,6 +362,7 @@ monitor:                  # all optional; thresholds of the body monitor (see Bo
   stall_s: 1.0
   bump_warn_mps2: 4.0
   bump_critical_mps2: 9.0
+  bump_min_samples: 2
   tilt_warn_deg: 10
 ```
 

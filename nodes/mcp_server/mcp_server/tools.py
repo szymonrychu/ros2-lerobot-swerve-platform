@@ -11,6 +11,7 @@ from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
+from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 from ros2_common.battery import BatteryGuard
@@ -30,7 +31,7 @@ from .models import (
     RobotState,
     StopResult,
 )
-from .monitor import RobotMonitor
+from .monitor import DIGEST_DEFAULT_SESSION, RobotMonitor
 from .tool_context import RobotApi, ToolContext
 
 SERVER_NAME = "robot"
@@ -154,12 +155,29 @@ def image_content(data: bytes, mime_type: str) -> ImageContent:
     return ImageContent(type="image", data=base64.b64encode(data).decode(), mime_type=mime_type)
 
 
+def session_key(context: Any) -> str:
+    """Digest cursor key of a request: its Mcp-Session-Id header, DIGEST_DEFAULT_SESSION when there is none.
+
+    Args:
+        context (Any): Request context handed to call_tool (None outside a request).
+
+    Returns:
+        str: Session id.
+    """
+    try:
+        headers = None if context is None else context.headers
+    except (AttributeError, ValueError):  # no request attached (direct call_tool)
+        headers = None
+    return (headers.get(MCP_SESSION_ID_HEADER) if headers else None) or DIGEST_DEFAULT_SESSION
+
+
 class RobotMCPServer(MCPServer):
     """MCPServer that appends the robot event digest and vitals to the result of EVERY tool call.
 
     Overriding call_tool (the single entry the MCP request handler goes through) covers all current and future tools
-    without any per-tool code. The digest holds the events raised since the previous tool call on this server (one
-    global cursor, not per MCP session) and a one-line vitals summary.
+    without any per-tool code. The digest holds the events raised since the previous tool call of the same MCP session
+    (cursor per Mcp-Session-Id, at most RobotMonitor.max_digest_sessions tracked, LRU; calls without a session id share
+    one cursor) and a one-line vitals summary.
     """
 
     def __init__(self, *args: Any, monitor: RobotMonitor, **kwargs: Any) -> None:
@@ -189,11 +207,11 @@ class RobotMCPServer(MCPServer):
         except UnexpectedToolError:
             raise
         except ToolError as exc:
-            events, vitals = self.monitor.digest()
+            events, vitals = self.monitor.digest(session_key(context))
             raise ToolError(f"{exc}\n{json.dumps({DIGEST_EVENTS_KEY: events, DIGEST_VITALS_KEY: vitals})}") from exc
         if not isinstance(result, CallToolResult):
             return result
-        events, vitals = self.monitor.digest()
+        events, vitals = self.monitor.digest(session_key(context))
         payload = {DIGEST_EVENTS_KEY: events, DIGEST_VITALS_KEY: vitals}
         update: dict[str, Any] = {"content": [*result.content, TextContent(type="text", text=json.dumps(payload))]}
         if result.structured_content is not None:

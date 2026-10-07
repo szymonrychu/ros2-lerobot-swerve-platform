@@ -156,14 +156,65 @@ def test_imu_bump_warning_critical_and_debounce() -> None:
     feed_imu(mon, clock, 0.0, 0.0, 100)
     feed_imu(mon, clock, 0.5, 0.0, 5)  # gentle: no event
     assert seen == []
-    feed_imu(mon, clock, 5.0, 0.0)
+    feed_imu(mon, clock, 5.0, 0.0, 2)
     assert types(seen) == [("bump", "warning")]
     feed_imu(mon, clock, 5.0, 0.0, 3)  # debounced
     assert len(seen) == 1
-    feed_imu(mon, clock, 12.0, 5.0)
+    feed_imu(mon, clock, 12.0, 5.0, 2)
     assert types(seen)[-1] == ("bump", "critical")
     assert mon.body_state().imu.last_bump.severity == "critical"
     assert mon.body_state().imu.last_bump.magnitude_mps2 > 9.0
+
+
+def test_imu_single_spike_sample_is_not_a_bump() -> None:
+    mon, clock, seen = make()
+    feed_imu(mon, clock, 0.0, 0.0, 100)
+    feed_imu(mon, clock, 15.0, 0.0)  # one glitchy sample above the critical threshold
+    feed_imu(mon, clock, 0.0, 0.0, 5)
+    feed_imu(mon, clock, 15.0, 0.0)  # isolated again: the run restarts, never accumulates
+    feed_imu(mon, clock, 0.0, 0.0, 5)
+    assert seen == []
+
+
+def test_imu_two_consecutive_spike_samples_emit_the_bump() -> None:
+    mon, clock, seen = make()
+    feed_imu(mon, clock, 0.0, 0.0, 100)
+    feed_imu(mon, clock, 15.0, 0.0, 2)
+    assert types(seen) == [("bump", "critical")]
+
+
+def test_imu_severity_follows_the_weakest_sample_of_the_run() -> None:
+    mon, clock, seen = make()
+    feed_imu(mon, clock, 0.0, 0.0, 100)
+    feed_imu(mon, clock, 15.0, 0.0)
+    feed_imu(mon, clock, 5.0, 0.0)  # sustained only at warning level
+    assert types(seen) == [("bump", "warning")]
+
+
+def test_imu_bump_min_samples_is_configurable() -> None:
+    mon, clock, seen = make(MonitorSettings(bump_min_samples=1))
+    feed_imu(mon, clock, 0.0, 0.0, 100)
+    feed_imu(mon, clock, 15.0, 0.0)
+    assert types(seen) == [("bump", "critical")]
+    with pytest.raises(ValueError):
+        MonitorSettings(bump_min_samples=0)
+
+
+def test_collision_and_stall_debounce_default_to_1_5_s() -> None:
+    cfg = MonitorSettings()
+    assert cfg.debounce_s["collision_stop"] == 1.5 and cfg.debounce_s["stall"] == 1.5
+
+
+def test_collision_stop_repeats_after_1_5_s_during_a_retried_motion() -> None:
+    mon, clock, seen = make()
+    with mon.base_motion():
+        mon.on_collision(1, "PolygonStop")
+        clock.t += 1.0
+        mon.on_collision(1, "PolygonStop")
+        assert len(seen) == 1
+        clock.t += 1.0
+        mon.on_collision(1, "PolygonStop")
+    assert len(seen) == 2
 
 
 def test_imu_gravity_baseline_removed() -> None:
@@ -385,9 +436,9 @@ def test_bump_warning_does_not_interrupt_but_critical_does() -> None:
     mon, clock, _ = make()
     watch = mon.watch(BASE_INTERRUPTS)
     feed_imu(mon, clock, 0.0, 0.0, 50)
-    feed_imu(mon, clock, 5.0, 0.0)
+    feed_imu(mon, clock, 5.0, 0.0, 2)
     assert watch.check() is None
-    feed_imu(mon, clock, 15.0, 0.0)
+    feed_imu(mon, clock, 15.0, 0.0, 2)
     assert watch.check() == "bump"
 
 

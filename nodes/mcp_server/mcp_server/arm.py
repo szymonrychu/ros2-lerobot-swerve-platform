@@ -776,9 +776,9 @@ class ArmController:
         if setpoint is not None:
             error = max_abs_error(setpoint, sample.positions, [j for j in tracked if j in setpoint])
             if error > self.cfg.limits.arm_tracking_error_rad:
-                self._interrupted_by = "stall"
+                self._interrupted_by = "arm_tracking_abort"
                 if self.monitor is not None:
-                    self.monitor.report_arm_stall(
+                    self.monitor.report_arm_tracking_abort(
                         f"arm tracking error {error:.3f} rad exceeds {self.cfg.limits.arm_tracking_error_rad}",
                         {"tracking_error_rad": round(error, 4)},
                     )

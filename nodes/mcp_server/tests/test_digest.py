@@ -2,10 +2,13 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import anyio
 import pytest
-from mcp.server.mcpserver import MCPServer
+from mcp.server.context import ServerRequestContext
+from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryConfig, BatteryGuard
 
@@ -74,6 +77,53 @@ def test_events_are_reported_once_in_text_and_structured_content(server: Any, mo
     assert digest_in_text(res)[DIGEST_KEY] == events
     assert res.structured_content["pose"]["x"] == 1.0  # the tool's own fields are untouched
     assert call(server, "get_robot_state", {}).structured_content[DIGEST_KEY] == []
+
+
+def session_call(server: Any, session_id: str | None, name: str = "get_robot_state") -> Any:
+    """Call a tool as one MCP session (the Mcp-Session-Id header of a real streamable HTTP request)."""
+    headers = {} if session_id is None else {"mcp-session-id": session_id}
+    request_context = ServerRequestContext(
+        session=None,  # type: ignore[arg-type]
+        lifespan_context={},
+        protocol_version="2025-11-25",
+        method="tools/call",
+        request=SimpleNamespace(headers=headers),
+    )
+    context = Context(request_context=request_context, mcp_server=server)
+
+    async def run() -> Any:
+        return await server.call_tool(name, {}, context)
+
+    return anyio.run(run)
+
+
+def test_each_mcp_session_sees_every_event_once(server: Any, monitor: RobotMonitor) -> None:
+    overheat(monitor)
+    first = session_call(server, "model")
+    assert [e["type"] for e in first.structured_content[DIGEST_KEY]] == ["overheat"]
+    # Another session (claude_agent's own robot_stop client) calling in between must not consume the model's events.
+    overheat(monitor, "wrist_flex", 70)
+    other = session_call(server, "agent-stop")
+    assert [e["type"] for e in other.structured_content[DIGEST_KEY]] == ["overheat", "overheat"]
+    second = session_call(server, "model")
+    assert [e["source"] for e in second.structured_content[DIGEST_KEY]] == ["wrist_flex"]
+    assert session_call(server, "model").structured_content[DIGEST_KEY] == []
+    assert session_call(server, "agent-stop").structured_content[DIGEST_KEY] == []
+
+
+def test_calls_without_a_session_id_share_one_cursor(server: Any, monitor: RobotMonitor) -> None:
+    overheat(monitor)
+    assert len(session_call(server, None).structured_content[DIGEST_KEY]) == 1
+    assert session_call(server, None).structured_content[DIGEST_KEY] == []
+    assert call(server, "get_robot_state", {}).structured_content[DIGEST_KEY] == []  # no context at all: same cursor
+
+
+def test_tracked_sessions_are_bounded_lru(monitor: RobotMonitor) -> None:
+    for i in range(monitor.max_digest_sessions + 5):
+        monitor.digest(f"s{i}")
+    assert len(monitor.digest_cursors) == monitor.max_digest_sessions
+    assert "s0" not in monitor.digest_cursors and f"s{monitor.max_digest_sessions + 4}" in monitor.digest_cursors
+    assert monitor.max_digest_sessions == 16
 
 
 def test_digest_covers_events_raised_during_the_call(server: Any, monitor: RobotMonitor, robot: FakeRobot) -> None:

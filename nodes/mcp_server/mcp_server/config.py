@@ -261,12 +261,13 @@ class MonitorSettings(StrictModel):
     slip_residual_warn_mps: float = Field(default=0.1, gt=0.0)
     bump_warn_mps2: float = Field(default=4.0, gt=0.0)  # horizontal accel spike after baseline (gravity) removal
     bump_critical_mps2: float = Field(default=9.0, gt=0.0)
+    bump_min_samples: int = Field(default=2, ge=1)  # consecutive IMU samples >= warn needed before a bump is emitted
     imu_baseline_alpha: float = Field(default=0.02, gt=0.0, lt=1.0)  # EMA weight of the acceleration baseline
     tilt_warn_deg: float = Field(default=10.0, gt=0.0)
     tilt_hysteresis_deg: float = Field(default=2.0, ge=0.0)
     debounce_default_s: float = Field(default=30.0, ge=0.0)  # min time between repeats of one (type, source) event
     debounce_s: dict[str, float] = Field(
-        default_factory=lambda: {"bump": 2.0, "collision_stop": 5.0, "stall": 5.0, "human_takeover": 5.0}
+        default_factory=lambda: {"bump": 2.0, "collision_stop": 1.5, "stall": 1.5, "human_takeover": 5.0}
     )
     history_size: int = Field(default=200, ge=10)
     digest_max_events: int = Field(default=20, ge=1)

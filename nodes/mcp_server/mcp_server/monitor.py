@@ -10,7 +10,7 @@ import logging
 import math
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -54,6 +54,8 @@ BATTERY_CLEAR_HYSTERESIS_V = 0.1
 RECENT_EVENTS = 10
 THROTTLE_NOW_MASK = 0xF  # get_throttled bits 0-3: under-voltage, freq capped, throttled, soft temp limit (now)
 STALL_SOURCE = "base"
+DIGEST_DEFAULT_SESSION = ""  # digest key of callers without an MCP session id
+MAX_DIGEST_SESSIONS = 16
 MIN_QUATERNION_NORM = 0.5
 
 
@@ -207,13 +209,15 @@ class RobotMonitor:
         self.sink: Callable[[RobotEvent], None] | None = None
         self.events: deque[RobotEvent] = deque(maxlen=settings.history_size)
         self.seq = 0
-        self.digest_cursor = 0
+        self.digest_cursors: OrderedDict[str, int] = OrderedDict()  # LRU: session id -> last seq already digested
+        self.max_digest_sessions = MAX_DIGEST_SESSIONS
         self.last_emit: dict[tuple[str, str], tuple[float, EventSeverity]] = {}
         self.levels: dict[tuple[str, str], EventSeverity] = {}
         self.servos: dict[str, tuple[float, dict[str, int]]] = {}
         self.battery_at: float | None = None
         self.imu: tuple[float, float, float, float] | None = None  # (t, roll_deg, pitch_deg, tilt_deg)
         self.imu_baseline: tuple[float, float] | None = None
+        self.bump_run: list[float] = []  # spike magnitudes of the current run of consecutive samples >= bump_warn
         self.last_bump: tuple[float, float, float, EventSeverity] | None = None  # (t, wall, magnitude, severity)
         self.slip: tuple[float, float | None] | None = None  # (t, residual m/s or None while parked)
         self.cmd: tuple[float, float, float, float] | None = None  # (t, vx, vy, wz)
@@ -450,17 +454,22 @@ class RobotMonitor:
         if spike < cfg.bump_warn_mps2:  # outliers must not drag the gravity/offset baseline
             a = cfg.imu_baseline_alpha
             self.imu_baseline = (bx + a * (ax - bx), by + a * (ay - by))
+            self.bump_run.clear()
         else:
-            severity: EventSeverity = "critical" if spike >= cfg.bump_critical_mps2 else "warning"
-            event = self.emit(
-                "bump",
-                severity,
-                "imu",
-                f"bump: {spike:.1f} m/s^2 horizontal acceleration spike",
-                {"magnitude_mps2": round(spike, 2), "warn_mps2": cfg.bump_warn_mps2},
-            )
-            if event is not None:
-                self.last_bump = (now, event.ts, spike, severity)
+            self.bump_run.append(spike)
+            del self.bump_run[: -cfg.bump_min_samples]
+            if len(self.bump_run) >= cfg.bump_min_samples:  # a single glitchy sample is not a bump
+                sustained = min(self.bump_run)  # severity follows the weakest sample of the run
+                severity: EventSeverity = "critical" if sustained >= cfg.bump_critical_mps2 else "warning"
+                event = self.emit(
+                    "bump",
+                    severity,
+                    "imu",
+                    f"bump: {sustained:.1f} m/s^2 horizontal acceleration spike",
+                    {"magnitude_mps2": round(sustained, 2), "warn_mps2": cfg.bump_warn_mps2},
+                )
+                if event is not None:
+                    self.last_bump = (now, event.ts, sustained, severity)
         norm = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
         if norm < MIN_QUATERNION_NORM:
             return
@@ -601,14 +610,16 @@ class RobotMonitor:
         )
 
     @delivers
-    def report_arm_stall(self, message: str, data: dict[str, Any] | None = None) -> None:
+    def report_arm_tracking_abort(self, message: str, data: dict[str, Any] | None = None) -> None:
         """The arm tracking error exceeded its limit (setpoint vs measured): the arm is stalled or blocked.
+
+        A warning of its own type (not the base 'stall'): it must not interrupt the model's turn or a base motion.
 
         Args:
             message (str): Description.
             data (dict[str, Any] | None): Extra fields.
         """
-        self.emit("stall", "critical", "arm", message, data)
+        self.emit("arm_tracking_abort", "warning", "arm", message, data)
 
     @contextmanager
     def base_motion(self) -> Iterator[None]:
@@ -743,15 +754,26 @@ class RobotMonitor:
         """
         return MotionWatch(self, types)
 
-    def digest(self) -> tuple[list[dict[str, Any]], str]:
-        """Events since the previous digest call (global cursor, newest digest_max_events kept) and the vitals line.
+    def digest(self, session: str = DIGEST_DEFAULT_SESSION) -> tuple[list[dict[str, Any]], str]:
+        """Events since the previous digest call of the same session (newest digest_max_events kept) and the vitals line.
+
+        Every session has its own cursor, so one MCP client (e.g. claude_agent's robot_stop calls) never consumes the
+        events another client (the model) has not seen yet. A session seen for the first time gets the retained
+        history; at most `max_digest_sessions` cursors are kept (least recently used evicted, an evicted session that
+        returns is treated as new).
+
+        Args:
+            session (str): MCP session id; calls without one share DIGEST_DEFAULT_SESSION.
 
         Returns:
             tuple[list[dict[str, Any]], str]: Event dicts (the /robot_events contract) and the vitals one-liner.
         """
         with self.lock:
-            fresh = [e for e in self.events if e.seq > self.digest_cursor]
-            self.digest_cursor = self.seq
+            cursor = self.digest_cursors.pop(session, 0)
+            fresh = [e for e in self.events if e.seq > cursor]
+            self.digest_cursors[session] = self.seq
+            while len(self.digest_cursors) > self.max_digest_sessions:
+                self.digest_cursors.popitem(last=False)
         events = [e.model_dump(mode="json") for e in fresh[-self.cfg.digest_max_events :]]
         return events, self.vitals_line()
 

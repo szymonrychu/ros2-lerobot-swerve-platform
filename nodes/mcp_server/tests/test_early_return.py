@@ -12,7 +12,7 @@ from mcp_server.config import McpServerConfig, MonitorSettings
 from mcp_server.geometry import integrate_twist, relative_pose
 from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import BasePose, RobotError
-from mcp_server.monitor import BASE_INTERRUPTS, RobotMonitor
+from mcp_server.monitor import ARM_INTERRUPTS, BASE_INTERRUPTS, RobotMonitor
 
 from .fakes import FakeArmBackend
 
@@ -109,14 +109,18 @@ def test_arm_lease_lost_to_other_source_reports_takeover(tmp_path: Path) -> None
     assert not arm.control_held
 
 
-def test_arm_tracking_abort_is_a_stall_event(tmp_path: Path) -> None:
+def test_arm_tracking_abort_is_a_warning_that_cannot_stop_the_base(tmp_path: Path) -> None:
     arm, be, monitor = make_arm(tmp_path)
+    base_watch = monitor.watch(BASE_INTERRUPTS)
     arm.acquire()
     be.follow = False
     res = arm.move_joints({"shoulder_lift": 1.0}, speed_scale=0.5)
-    assert res.status == "aborted_tracking" and res.interrupted_by == "stall"
+    assert res.status == "aborted_tracking" and res.interrupted_by == "arm_tracking_abort"
     events = monitor.digest()[0]
-    assert events[0]["type"] == "stall" and events[0]["source"] == "arm" and events[0]["severity"] == "critical"
+    assert events[0]["type"] == "arm_tracking_abort" and events[0]["source"] == "arm"
+    assert events[0]["severity"] == "warning"
+    assert "arm_tracking_abort" not in BASE_INTERRUPTS and "arm_tracking_abort" not in ARM_INTERRUPTS
+    assert base_watch.check() is None
 
 
 def test_gripper_close_interrupted(tmp_path: Path) -> None:
