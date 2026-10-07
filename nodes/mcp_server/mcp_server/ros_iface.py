@@ -39,6 +39,7 @@ from .config import McpServerConfig
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
 from .ik import ArmKinematics, load_joint_limits
 from .models import (
+    BaseMotionBusyError,
     BasePose,
     CameraFrame,
     CollisionMonitorInfo,
@@ -746,6 +747,25 @@ class RosRobot:
                     )
         return summary, png
 
+    def event_seq(self) -> int:
+        """Sequence number of the newest robot event.
+
+        Returns:
+            int: seq (0 before the first event).
+        """
+        return self.monitor.last_seq()
+
+    def interrupt_since(self, seq: int) -> str | None:
+        """Critical event that interrupts a base motion, raised after `seq` (also the live battery cut-off).
+
+        Args:
+            seq (int): Mark taken with event_seq().
+
+        Returns:
+            str | None: Event type, or None.
+        """
+        return self.monitor.interrupt_for(seq, BASE_INTERRUPTS)
+
     def stop_count(self) -> int:
         """Number of stop() calls so far.
 
@@ -912,7 +932,7 @@ class RosRobot:
         if not all(math.isfinite(v) for v in (x, y, yaw)):
             raise RobotError("goal must be finite")
         if not self.base_motion.acquire(blocking=False):
-            raise RobotError("another base motion is running; call stop first")
+            raise BaseMotionBusyError("another base motion is running; call stop first")
         try:
             self.base_stop.clear()
             with self.monitor.base_motion():
@@ -962,7 +982,7 @@ class RosRobot:
         """
         lim = self.cfg.limits
         if not self.base_motion.acquire(blocking=False):
-            raise RobotError("another base motion is running; call stop first")
+            raise BaseMotionBusyError("another base motion is running; call stop first")
         try:
             self.base_stop.clear()
             start = self.robot_pose()

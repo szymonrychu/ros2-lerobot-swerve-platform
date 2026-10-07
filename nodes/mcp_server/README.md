@@ -198,9 +198,15 @@ early return). It checks the lidar first and is **refused without moving** when 
 footprint circumscribed radius plus `look_around.clearance_margin_m` (10 cm), or when there is no fresh scan. Then it
 rotates the base in place in `captures` equal steps (3 to 12; steps of 360 / captures degrees through
 `move_relative(0, 0, step)`), at each stop it grabs a camera frame and the lidar sector summary, and a last step
-returns to the start heading. A step that ends `interrupted` (critical body event), failed, a `stop` call between
-steps, or an obstacle inside the rotation circle ends the sequence at once (no return rotation) with `status`
-`interrupted` (+ `interrupted_by`) / `failed` / `stopped` / `aborted_obstacle`. Result: a montage JPEG (tiles labelled
+returns to the start heading. One event mark covers the whole run and is checked before every rotation, so a critical
+body event raised while capturing between steps also ends it: `interrupted` + `interrupted_by`, the frames captured so
+far are kept, no further rotation and **no return to the start** (the message says so). A step that ends `interrupted`
+or failed, a `stop` call between steps, or an obstacle inside the rotation circle likewise ends the sequence at once.
+A `RobotError` from a step (stale map pose, ...) no longer escapes: status `failed` with the message and the frames so
+far, and one corrective rotation back to the start heading is attempted unless the error was that another base motion is
+running. `returned_to_start` is true only when the closing rotation succeeded and the measured final heading is within
+`nav.goal_yaw_tolerance_deg` (2 deg) of the start heading; otherwise a note reports the heading error.
+Result: a montage JPEG (tiles labelled
 with the heading in degrees counter-clockwise from the start; a missing frame is a grey "no frame" tile), a top-down PNG,
 and structured `headings` (nearest obstacle overall and per sector at each stop), `steps`, `expected` (360 deg, stops)
 vs `achieved` (`rotation_deg`, `final_pose`, `heading_error_deg`), `returned_to_start`, `notes`.

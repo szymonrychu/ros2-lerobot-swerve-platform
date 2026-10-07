@@ -63,6 +63,14 @@ class RobotApi(Protocol):
         """Number of stop() calls so far (lets a multi-step tool notice a stop issued between its motions)."""
         ...
 
+    def event_seq(self) -> int:
+        """Sequence number of the newest robot event (mark for interrupt_since)."""
+        ...
+
+    def interrupt_since(self, seq: int) -> str | None:
+        """Type of a critical event that interrupts a base motion, raised after `seq`; None when there is none."""
+        ...
+
     def topdown_inputs(self) -> TopdownInputs:
         """Snapshot of the map, local costmap, lidar points, plan and pose for the top-down view."""
         ...

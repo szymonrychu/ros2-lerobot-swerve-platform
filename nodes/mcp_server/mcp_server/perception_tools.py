@@ -292,7 +292,7 @@ def register(ctx: ToolContext) -> None:
         """Rotate through captures stops; the tool description is passed to the decorator."""
         ctx.battery_gate("look_around")
         with tool_errors():
-            run = run_look_around(robot, la, config.footprint, captures, camera)
+            run = run_look_around(robot, la, config.footprint, captures, camera, config.nav.goal_yaw_tolerance_deg)
             result: LookAroundResult = run.result
             montage = montage_jpeg(run.frames, la.frame_max_px)
             content: list[TextContent | ImageContent] = [image_block(montage, "image/jpeg")]

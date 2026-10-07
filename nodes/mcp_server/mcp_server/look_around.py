@@ -9,7 +9,7 @@ import numpy as np
 
 from .config import FootprintSettings, LookAroundSettings
 from .geometry import normalize_angle
-from .models import MapSummary, NavigationResult, RobotError, SectorObstacle
+from .models import BaseMotionBusyError, MapSummary, NavigationResult, RobotError, SectorObstacle
 from .perception import encode_jpeg
 from .perception_models import HeadingSummary, LookAroundResult, StepRecord
 from .tool_context import RobotApi
@@ -19,6 +19,7 @@ TILE_LABEL_H = 18
 TILE_TEXT_COLOR = (255, 255, 255)
 SCAN_RADIUS_M = 1.0  # the PNG crop is not requested; the radius is a required argument only
 SCAN_PNG_PX = 32
+DEFAULT_YAW_TOLERANCE_DEG = 2.0  # nav.goal_yaw_tolerance_deg default
 
 
 @dataclass(frozen=True)
@@ -223,14 +224,26 @@ def yaw_delta_deg(previous: float, current: float) -> float:
 
 
 def run_look_around(
-    robot: RobotApi, settings: LookAroundSettings, footprint: FootprintSettings, captures: int, camera: str
+    robot: RobotApi,
+    settings: LookAroundSettings,
+    footprint: FootprintSettings,
+    captures: int,
+    camera: str,
+    yaw_tolerance_deg: float = DEFAULT_YAW_TOLERANCE_DEG,
 ) -> LookAroundRun:
     """Turn in place through `captures` equal steps (full circle), capturing at each stop, then return to the start.
 
-    Uses the robot's normal base motion (move_relative with only dyaw), so early return on critical events applies:
-    an interrupted or failed step ends the sequence at once (no further rotation, no return attempt). Before every
-    rotation the lidar is checked against the footprint's circumscribed radius plus a margin; a stop() issued while
-    the tool runs ends it before the next rotation.
+    Uses the robot's normal base motion (move_relative with only dyaw), so early return on critical events applies
+    within a step. One event mark is taken for the whole run and checked before every rotation, so a critical event
+    raised while capturing between two steps ends the run too: no further rotation and no return to the start (the
+    robot stays where the event found it). An interrupted or failed step likewise ends the sequence at once. A
+    RobotError from a step (stale pose, ...) ends it as status 'failed' with the frames captured so far; a single
+    corrective rotation back to the start heading is then attempted, except when another base motion was running
+    (nothing is sent against it). Before every rotation the lidar is checked against the footprint's circumscribed
+    radius plus a margin; a stop() issued while the tool runs ends it before the next rotation.
+
+    `returned_to_start` is true only when the closing rotation (or the corrective one) succeeded and the measured final
+    heading is within `yaw_tolerance_deg` of the start heading; `achieved.heading_error_deg` always carries the error.
 
     Args:
         robot (RobotApi): Robot.
@@ -238,6 +251,7 @@ def run_look_around(
         footprint (FootprintSettings): Robot outer frame.
         captures (int): Number of stops.
         camera (str): 'front' or 'gripper'.
+        yaw_tolerance_deg (float): Largest final heading error still counted as back at the start (nav.goal_yaw_tolerance_deg).
 
     Returns:
         LookAroundRun: Result and frames. RobotError is raised (robot untouched) when rotation is not safe.
@@ -253,6 +267,7 @@ def run_look_around(
         raise RobotError("robot pose (map->base_link) unavailable; look_around needs it to verify the turn")
     started = time.monotonic()
     stop_mark = robot.stop_count()
+    event_mark = robot.event_seq()
     result = LookAroundResult(
         status="completed",
         expected={
@@ -265,22 +280,18 @@ def run_look_around(
     run = LookAroundRun(result=result)
     last_yaw = start.yaw
     rotated_deg = 0.0
+    closed = False  # the closing (or corrective) rotation succeeded
 
-    def rotate(index: int, heading_rad: float) -> NavigationResult | None:
-        """One rotation step; records it and ends the run when it did not succeed."""
+    def record(index: int, heading_rad: float, nav: NavigationResult) -> None:
+        """Append the step record and account for the rotation actually achieved."""
         nonlocal last_yaw, rotated_deg
-        if robot.stop_count() != stop_mark:
-            result.status, result.message = "stopped", "stop was called; look_around ended before the next rotation"
-            return None
-        nav = robot.move_relative(0.0, 0.0, plan.step_rad, settings.step_timeout_s)
-        expected_yaw = normalize_angle(start.yaw + heading_rad)
         achieved_yaw = nav.final_pose.yaw if nav.final_pose is not None else None
         result.steps.append(
             StepRecord(
                 index=index,
                 heading_deg=round(math.degrees(heading_rad)) % 360,
                 status=nav.status,
-                expected_yaw=expected_yaw,
+                expected_yaw=normalize_angle(start.yaw + heading_rad),
                 achieved_yaw=achieved_yaw,
                 message=nav.message,
             )
@@ -288,6 +299,47 @@ def run_look_around(
         if achieved_yaw is not None:
             rotated_deg += yaw_delta_deg(last_yaw, achieved_yaw)
             last_yaw = achieved_yaw
+
+    def return_to_start(index: int) -> None:
+        """One corrective rotation back to the start heading after a failed step."""
+        nonlocal closed
+        delta = normalize_angle(start.yaw - last_yaw)
+        if abs(math.degrees(delta)) <= yaw_tolerance_deg:
+            return
+        try:
+            nav = robot.move_relative(0.0, 0.0, delta, settings.step_timeout_s)
+        except RobotError as exc:
+            result.notes.append(f"return to start failed: {exc}")
+            return
+        record(index, 2 * math.pi, nav)
+        closed = nav.status == "succeeded"
+        if not closed:
+            result.notes.append(f"return to start ended with status {nav.status}: {nav.message}")
+
+    def rotate(index: int, heading_rad: float) -> NavigationResult | None:
+        """One rotation step; records it and ends the run when it did not succeed."""
+        interrupt = robot.interrupt_since(event_mark)
+        if interrupt is not None:
+            result.status, result.interrupted_by = "interrupted", interrupt
+            result.message = (
+                f"critical event {interrupt} raised before rotation step {index}; look_around ended without "
+                "rotating further and did NOT return to the start heading (the robot stayed where it was)"
+            )
+            return None
+        if robot.stop_count() != stop_mark:
+            result.status, result.message = "stopped", "stop was called; look_around ended before the next rotation"
+            return None
+        try:
+            nav = robot.move_relative(0.0, 0.0, plan.step_rad, settings.step_timeout_s)
+        except RobotError as exc:
+            result.status = "failed"
+            result.message = f"rotation step {index} could not start: {exc}"
+            if isinstance(exc, BaseMotionBusyError):
+                result.message += "; no corrective rotation sent while another base motion runs"
+            else:
+                return_to_start(index + 1)
+            return None
+        record(index, heading_rad, nav)
         if nav.status == "interrupted":
             result.status, result.interrupted_by = "interrupted", nav.interrupted_by
             result.message = f"rotation interrupted by {nav.interrupted_by}; robot stopped where it was"
@@ -320,13 +372,21 @@ def run_look_around(
             break
     else:
         # All stops captured: close the circle back to the start heading.
-        if rotate(plan.captures, 2 * math.pi) is not None:
-            result.returned_to_start = True
+        closed = rotate(plan.captures, 2 * math.pi) is not None
     end = robot.robot_pose()
+    heading_error = None if end is None else yaw_delta_deg(start.yaw, end.yaw)
+    result.returned_to_start = closed and heading_error is not None and abs(heading_error) <= yaw_tolerance_deg
+    if closed and not result.returned_to_start:
+        result.notes.append(
+            "final heading unknown: not confirmed back at the start"
+            if heading_error is None
+            else f"heading error {heading_error:.1f} deg exceeds the {yaw_tolerance_deg:g} deg tolerance: "
+            "not back at the start heading"
+        )
     result.achieved = {
         "rotation_deg": round(rotated_deg, 3),
         "final_pose": end.model_dump() if end else None,
-        "heading_error_deg": None if end is None else round(yaw_delta_deg(start.yaw, end.yaw), 3),
+        "heading_error_deg": None if heading_error is None else round(heading_error, 3),
     }
     result.duration_s = round(time.monotonic() - started, 3)
     return run

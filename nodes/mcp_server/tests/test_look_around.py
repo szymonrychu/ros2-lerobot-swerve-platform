@@ -15,7 +15,15 @@ from mcp_server.look_around import (
     required_clearance_m,
     run_look_around,
 )
-from mcp_server.models import BasePose, CameraFrame, MapSummary, NavigationResult, RobotError, SectorObstacle
+from mcp_server.models import (
+    BaseMotionBusyError,
+    BasePose,
+    CameraFrame,
+    MapSummary,
+    NavigationResult,
+    RobotError,
+    SectorObstacle,
+)
 
 FOOTPRINT = FootprintSettings()
 SETTINGS = LookAroundSettings()
@@ -45,12 +53,24 @@ class ScriptRobot:
         self.stop_after_moves: int | None = None
         self.camera_fail_at: set[int] = set()
         self.frames = 0
+        self.event_after_cameras: tuple[int, str] | None = None  # (camera calls so far, critical event type)
+        self.move_errors: dict[int, RobotError] = {}  # 1-based move_relative call number -> raised error
+        self.yaw_error_rad = 0.0  # added to every successful rotation (a controller that stops short or long)
 
     def robot_pose(self) -> BasePose | None:
         return self.pose
 
     def stop_count(self) -> int:
         return self.stops
+
+    def event_seq(self) -> int:
+        return 0
+
+    def interrupt_since(self, seq: int) -> str | None:
+        assert seq == 0
+        if self.event_after_cameras is not None and self.frames >= self.event_after_cameras[0]:
+            return self.event_after_cameras[1]
+        return None
 
     def map_summary(self, include_png: bool, radius_m: float, png_max_px: int) -> tuple[MapSummary, bytes | None]:
         self.calls.append(("scan",))
@@ -69,12 +89,14 @@ class ScriptRobot:
 
     def move_relative(self, dx: float, dy: float, dyaw: float, timeout_s: float) -> NavigationResult:
         self.calls.append(("move", dx, dy, round(dyaw, 6), timeout_s))
-        status = self.statuses.pop(0) if self.statuses else "succeeded"
         moves = sum(1 for c in self.calls if c[0] == "move")
+        if moves in self.move_errors:
+            raise self.move_errors[moves]
+        status = self.statuses.pop(0) if self.statuses else "succeeded"
         if self.stop_after_moves == moves:
             self.stops += 1
         if status == "succeeded":
-            self.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=self.pose.yaw + dyaw)
+            self.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=self.pose.yaw + dyaw + self.yaw_error_rad)
         interrupted_by = "collision_stop" if status == "interrupted" else None
         return NavigationResult(status=status, final_pose=self.pose, interrupted_by=interrupted_by)
 
@@ -208,3 +230,101 @@ def test_camera_failure_is_recorded_not_fabricated() -> None:
     assert run.frames[1][1] is None
     assert any("no frame" in n for n in run.result.notes)
     assert run.result.headings[1].image_captured is False
+
+
+# --- a critical event raised between rotations (not during a navigate call) ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("cameras_before_event", "expected_moves", "expected_frames"), [(1, 0, 1), (2, 1, 2), (4, 3, 4)]
+)
+def test_critical_event_during_capture_stops_before_the_next_rotation(
+    cameras_before_event: int, expected_moves: int, expected_frames: int
+) -> None:
+    robot = ScriptRobot()
+    robot.event_after_cameras = (cameras_before_event, "bump")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    res = run.result
+    assert res.status == "interrupted" and res.interrupted_by == "bump"
+    assert len([c for c in robot.calls if c[0] == "move"]) == expected_moves  # no rotation, no return rotation
+    assert len(run.frames) == expected_frames  # frames captured so far are kept
+    assert not res.returned_to_start
+    assert "bump" in res.message and "NOT return" in res.message
+
+
+# --- RobotError from a rotation step ---------------------------------------------------------------------------
+
+
+def test_robot_error_in_a_step_returns_failed_with_the_frames_and_tries_to_return_to_start() -> None:
+    robot = ScriptRobot()
+    robot.move_errors = {2: RobotError("robot pose (map->base_link) unavailable; cannot plan a relative move")}
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")  # must not raise
+    res = run.result
+    assert res.status == "failed" and "pose" in res.message and "step 2" in res.message
+    assert len(run.frames) == 2
+    moves = [c for c in robot.calls if c[0] == "move"]
+    assert [m[3] for m in moves] == [round(math.pi / 2, 6), round(math.pi / 2, 6), round(-math.pi / 2, 6)]
+    assert res.returned_to_start  # the return step succeeded and the heading is back within tolerance
+    assert res.achieved["heading_error_deg"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_robot_error_because_another_motion_runs_attempts_no_return_rotation() -> None:
+    robot = ScriptRobot()
+    robot.move_errors = {2: BaseMotionBusyError("another base motion is running; call stop first")}
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    res = run.result
+    assert res.status == "failed" and "another base motion" in res.message
+    assert len([c for c in robot.calls if c[0] == "move"]) == 2  # nothing sent while someone else drives
+    assert len(run.frames) == 2 and not res.returned_to_start
+
+
+def test_failed_return_attempt_is_reported_not_raised() -> None:
+    robot = ScriptRobot()
+    robot.move_errors = {2: RobotError("pose stale"), 3: RobotError("still stale")}
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    assert run.result.status == "failed" and not run.result.returned_to_start
+    assert any("return to start failed" in n and "still stale" in n for n in run.result.notes)
+
+
+def test_robot_error_on_the_first_step_leaves_the_robot_where_it_is() -> None:
+    robot = ScriptRobot()
+    robot.move_errors = {1: RobotError("pose stale")}
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    assert run.result.status == "failed" and len(run.frames) == 1
+    assert len([c for c in robot.calls if c[0] == "move"]) == 1  # already at the start heading: no return step
+
+
+# --- returned_to_start is verified against the measured heading --------------------------------------------------
+
+
+def test_returned_to_start_requires_the_final_heading_within_the_yaw_tolerance() -> None:
+    robot = ScriptRobot()
+    robot.yaw_error_rad = math.radians(1.5)  # every step stops 1.5 deg long: 6 deg off after four steps
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    res = run.result
+    assert res.status == "completed" and not res.returned_to_start
+    assert res.achieved["heading_error_deg"] == pytest.approx(6.0)
+    assert any("heading error" in n and "2" in n for n in res.notes)
+
+
+def test_returned_to_start_within_tolerance_and_tolerance_is_configurable() -> None:
+    robot = ScriptRobot()
+    robot.yaw_error_rad = math.radians(0.4)  # 1.6 deg in total
+    assert run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front").result.returned_to_start
+    robot = ScriptRobot()
+    robot.yaw_error_rad = math.radians(0.4)
+    strict = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front", yaw_tolerance_deg=1.0)
+    assert not strict.result.returned_to_start
+
+
+def test_returned_to_start_is_false_when_the_final_pose_is_unknown() -> None:
+    robot = ScriptRobot()
+    poses = [robot.pose]
+
+    def pose_then_none() -> BasePose | None:
+        return poses.pop(0) if poses else None
+
+    robot.robot_pose = pose_then_none  # type: ignore[method-assign]
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    assert run.result.status == "completed" and not run.result.returned_to_start
+    assert run.result.achieved["heading_error_deg"] is None

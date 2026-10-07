@@ -90,6 +90,12 @@ class PerceptionFakeMixin:
     def stop_count(self) -> int:
         return self.stops
 
+    def event_seq(self) -> int:
+        return 0
+
+    def interrupt_since(self, seq: int) -> str | None:
+        return None
+
     def topdown_inputs(self) -> TopdownInputs:
         return self.topdown
 

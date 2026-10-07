@@ -21,6 +21,10 @@ class RobotError(RuntimeError):
     """A robot request failed (no data, timeout, server unavailable); surfaced to the MCP client as a tool error."""
 
 
+class BaseMotionBusyError(RobotError):
+    """Another base motion is already running, so nothing was sent (callers must not send a corrective motion)."""
+
+
 class SectorObstacle(BaseModel):
     """Nearest lidar return in one 45 deg sector around base_link."""
 
