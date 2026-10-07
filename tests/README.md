@@ -40,6 +40,32 @@ Unit tests for the shared library `shared/ros2_common/_utils.py`. Imports from r
 | `test_clamp_equal_bounds` | `clamp` with low == high returns that bound. |
 | `test_clamp_at_bounds` | `clamp` returns value when value equals low or high. |
 
+### `test_shared_camera_geometry.py`
+
+Tests of `shared/ros2_common/camera_geometry.py` and `scripts/solve_camera_mount.py` with synthetic cameras.
+
+| Test | Description |
+|------|-------------|
+| `test_from_hfov_fx` | `from_hfov` gives fx = (w/2)/tan(hfov/2), square pixels, centred principal point. |
+| `test_mount_to_matrix_identity_and_translation` | Zero RPY gives identity rotation and translation is copied. |
+| `test_mount_yaw_rotates_x_to_y` | Fixed-axis RPY: yaw pi/2 maps x to y. |
+| `test_optical_from_mount_convention` | Optical z/x/y equal body x/-y/-z (REP-103). |
+| `test_camera_model_calibrated` | `calibrated` needs intrinsics and mount. |
+| `test_center_pixel_ray_is_optical_z` | Principal point ray is +z. |
+| `test_ray_is_unit_and_right_down` | Rays are unit; right/below pixels have positive x/y. |
+| `test_undistort_without_distortion` | Normalized coordinates without distortion. |
+| `test_undistort_inverts_plumb_bob` | Undistortion inverts a plumb_bob distortion. |
+| `test_intersect_ground_basic` | 45 degree ray from 1 m hits 1 m ahead. |
+| `test_intersect_ground_parallel_and_behind` | Parallel or upward rays return None. |
+| `test_camera_ray_in_frame_origin` | Ray origin is the camera translation. |
+| `test_pixel_ground_roundtrip` | pixel -> ground -> pixel within 1e-6 px, with and without distortion. |
+| `test_pixel_above_horizon_gives_none` | Sky pixel has no ground point. |
+| `test_project_behind_camera_and_outside_image` | Behind-camera or off-image points project to None. |
+| `test_from_calibration_yaml` | Loads a camera_calibration yaml. |
+| `test_solver_recovers_known_mount` | Noisy samples recover the mount (< 5 mm, < 0.5 deg, rms < 0.5 px). |
+| `test_solver_needs_three_samples` | Fewer than 3 samples raises ValueError. |
+| `test_solve_camera_mount_script` | The CLI prints the solved mount as YAML plus rms. |
+
 ### `test_shared_battery.py`
 
 Pure-logic tests of `shared/ros2_common/battery.py` (`BatteryConfig`, `BatteryGuard`), run by the root pytest.
