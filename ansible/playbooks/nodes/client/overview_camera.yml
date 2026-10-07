@@ -1,21 +1,21 @@
 ---
-- name: Deploy stereo_camera on client
+- name: Deploy overview_camera on client
   hosts: client
   become: true
   pre_tasks:
     - name: Stop all ROS2 nodes before deploying
       ansible.builtin.include_tasks: ../../tasks/stop_ros_nodes.yml
 
-    - name: Camera boot overlays (cam0 / cam1 IMX219), reboot only when changed
-      ansible.builtin.include_tasks: ../../tasks/stereo_camera_boot_config.yml
+    - name: Camera boot overlay (cam0 IMX708), reboot only when changed
+      ansible.builtin.include_tasks: ../../tasks/overview_camera_boot_config.yml
 
     - name: Sync repository
       ansible.builtin.include_tasks: ../../tasks/repo_sync.yml
   tasks:
-    - name: Deploy stereo_camera
+    - name: Deploy overview_camera
       ansible.builtin.include_tasks: ../../tasks/resolve_and_deploy.yml
       vars:
-        _deploy_node_name: stereo_camera
+        _deploy_node_name: overview_camera
 
   post_tasks:
     - name: Start enabled ROS2 nodes gradually

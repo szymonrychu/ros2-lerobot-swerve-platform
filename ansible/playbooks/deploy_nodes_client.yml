@@ -32,8 +32,8 @@
       ansible.builtin.reboot:
         reboot_timeout: 120
 
-    - name: Camera boot overlays (cam0 / cam1 IMX219), reboot only when changed
-      ansible.builtin.include_tasks: tasks/stereo_camera_boot_config.yml
+    - name: Camera boot overlay (cam0 IMX708), reboot only when changed
+      ansible.builtin.include_tasks: tasks/overview_camera_boot_config.yml
 
     - name: Stop lerobot_follower service before deploy (safety)
       ansible.builtin.service:
@@ -129,14 +129,10 @@
       vars:
         _deploy_node_name: realsense_d435i
 
-    - name: Deploy stereo_camera
+    - name: Deploy overview_camera
       ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
       vars:
-        _deploy_node_name: stereo_camera
-    - name: Deploy stereo_depth
-      ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml
-      vars:
-        _deploy_node_name: stereo_depth
+        _deploy_node_name: overview_camera
 
     - name: Deploy lerobot_follower
       ansible.builtin.include_tasks: tasks/resolve_and_deploy.yml

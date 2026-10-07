@@ -980,34 +980,3 @@ def test_rf2o_retry_laser_tf_patch_exists_and_is_wired() -> None:
 def test_rf2o_odom_relay_declares_numpy() -> None:
     pyproject = (REPO_ROOT / "nodes" / "rf2o_odom_relay" / "pyproject.toml").read_text()
     assert re.search(r"^numpy\s*=", pyproject, re.M)
-
-
-def test_stereo_depth_node_is_wired_after_the_cameras() -> None:
-    """stereo_depth: native Python node, config from env, deployed right after the stereo/realsense camera."""
-    defaults = client_vars()["ros2_node_type_defaults"]["stereo_depth"]
-    assert defaults["deploy_mode"] == "native"
-    assert defaults["node_launch_command"] == "python3 -m stereo_depth"
-    assert defaults["node_src_dir"] == "nodes/stereo_depth"
-    assert "STEREO_DEPTH_CONFIG=/etc/ros2/stereo_depth/config.yaml" in defaults["env"]
-    entry = node_entry("stereo_depth")
-    assert entry["present"] is True and entry["enabled"] is True
-    cfg = node_config("stereo_depth")
-    assert cfg["disparity_topic"] == "/stereo/disparity"
-    assert cfg["camera_info_topic"] == "/stereo/left/camera_info"
-    assert cfg["depth_topic"] == "/stereo/depth/image_rect"
-    assert cfg["depth_camera_info_topic"] == "/stereo/depth/camera_info"
-    assert 0 < cfg["min_depth_m"] < cfg["max_depth_m"]
-    names = [n["name"] for n in client_vars()["ros2_nodes"]]
-    camera = "stereo_camera" if "stereo_camera" in names else "realsense_d435i"
-    assert names.index("stereo_depth") > names.index(camera)
-    per_node = yaml.safe_load((PLAYBOOKS_DIR / "nodes" / "client" / "stereo_depth.yml").read_text())[0]
-    assert [t["vars"]["_deploy_node_name"] for t in per_node["tasks"]] == ["stereo_depth"]
-    tasks = yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"]
-    deployed = [t.get("vars", {}).get("_deploy_node_name") for t in tasks]
-    assert deployed.index("stereo_depth") > deployed.index(camera)
-
-
-def test_stereo_depth_declares_numpy_and_pydantic() -> None:
-    pyproject = (REPO_ROOT / "nodes" / "stereo_depth" / "pyproject.toml").read_text()
-    assert re.search(r"^numpy\s*=", pyproject, re.M)
-    assert re.search(r"^pydantic\s*=", pyproject, re.M)

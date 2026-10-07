@@ -99,10 +99,6 @@ The **swerve_drive_controller** node has tests under `nodes/swerve_drive_control
 
 Control step (`test_control_step.py`, rclpy-free `control.py`): combined command layout (8 joints, steer positions + NaN, drive velocities + NaN); no command for stale, missing or incomplete joint states; forward command; cmd_vel timeout gives zero twist; deadband; steer targets held when stopped; no-propulsion safeguard; odometry integration and reported twist. Coordinated steering side (`test_kinematics.py`, `test_control_step.py`): near +-90 deg all wheels pick the same side (no single-wheel 180 deg swings in a sweep), group-level hysteresis prevents chattering, pure rotation falls back to per-wheel fold within limits, FK roundtrip holds for every output, side choice carried in the controller state. Idle recentering: steering held for under `idle_recenter_s` (default 3 s) after stopping, then targets return to 0 rad; motion resets the timer; 0 disables it (`test_config.py` covers parsing and clamping). `test_config.py` also covers `publish_tf` (default true, explicit false).
 
-### Per-node tests (stereo_depth)
-
-The **stereo_depth** node has tests under `nodes/stereo_depth/tests/` (ROS message packages stubbed in `conftest.py`, no rclpy). Run from `nodes/stereo_depth`: `poetry run pytest tests/ -v`. Covers: numpy conversion (`test_depth.py`: known disparity gives exact mm, rounding, invalid/min-disparity/NaN/inf give 0, min/max depth cutoffs, uint16 clamping, shape); message handling (`test_messages.py`: 32FC1 decoding incl. big-endian and padded rows, rejection of empty/wrong-encoding/short data, 16UC1 Image width/height/step/is_bigendian and disparity header, camera info copy with depth stamp/frame and unmutated input, nothing published before the first valid disparity, non-positive f/T, config limits); pydantic config (`test_config.py`: missing file, defaults, overrides, non-mapping, invalid values).
-
 ### Per-node tests (rf2o_odom_relay)
 
 The **rf2o_odom_relay** node has tests under `nodes/rf2o_odom_relay/tests/`. Run from `nodes/rf2o_odom_relay`: `poetry run pytest tests/ -v`. Covers: pose-difference twist (`test_twist.py`: straight ahead, world motion rotated into the body frame, sideways motion reported as `vy`, yaw-rate wrap across pi, mid-heading rotation during a turn, no twist for zero/negative/too large time steps, diagonal-only covariance); config loading (`test_config.py`: missing file, defaults, overrides).
@@ -173,8 +169,8 @@ The **steamdeck_ui** Python bridge has tests under `nodes/steamdeck_ui/bridge/te
 
 The **web_ui** node has tests under `nodes/web_ui/tests/`. Run from `nodes/web_ui`: `poetry run pytest tests/ -v` (or `poetry run poe test`). A `conftest.py` installs ROS2 module stubs (rclpy, sensor_msgs, nav_msgs, geometry_msgs) and provides `config_yaml` and `urdf_dir` fixtures. Covers:
 
-- config loading (`test_config.py`: minimal config defaults, http_port override, missing file raises `FileNotFoundError`, `all_subscribed_topics` for camera/nav/overlay tabs, `load_config` from env var `WEB_UI_CONFIG`, `publish_topics` includes goal_topic, `rgbd_camera` tab type valid with color/depth/camera_info topics, RGBD topics included in `all_subscribed_topics`)
-- bridge dirty-flag store (`test_bridge.py`: `flush_dirty` returns dirty topics, clears after flush, only returns dirty entries; `publish_dict` rejects non-allowlisted topics with warning)
+- config loading (`test_config.py`: minimal config defaults, http_port override, missing file raises `FileNotFoundError`, `all_subscribed_topics` for camera/nav/overlay tabs, `load_config` from env var `WEB_UI_CONFIG`, `publish_topics` includes goal_topic, `rgbd_camera` tab type valid with color/depth/camera_info topics, RGBD topics included in `all_subscribed_topics`, shipped default config has an `Overview` `camera` tab on `/overview_camera/image_raw/compressed` and no RGBD tab)
+- bridge dirty-flag store (`test_bridge.py`: the Overview camera topic resolves to a `CompressedImage` subscription; `flush_dirty` returns dirty topics, clears after flush, only returns dirty entries; `publish_dict` rejects non-allowlisted topics with warning)
 - message serialization (`test_msg_serializer.py`: `msg_to_dict` — Imu message conversion; `extract_field_from_dict` — simple key, array index, missing returns None, out-of-bounds returns None; depth image serialization — 16UC1 returns expected keys, downscaled raw bytes length, depth values preserved, zero-depth preserved; `CameraInfo` returns fx/fy/cx/cy/width/height; color image on RGBD topic includes `color_small_b64`, non-RGBD topic omits it; stereo topics: `/stereo/left/image_rect` rgb8 and raw bgr8 at 320x240 give JPEG + `color_small_b64`, 16UC1 depth at 320x240 gives preview and 160x120 grid)
 - HTTP server routes (`test_server.py`: `/api/config` returns config JSON, `/api/urdf/status` lists URDF files, `/api/urdf/<file>` serves URDF, path traversal blocked, security headers present, static fallback serves index.html)
 - Battery (`test_battery.py`): `battery` config (defaults, absent = off, `resume_cell_v >= cutoff_cell_v`, `cells >= 1`, in `/api/config`, topic subscribed with role `battery`), `serialize_battery`, `BatteryGuard` (unknown without reading, cut-off below 8.4 V, hysteresis release above 8.7 V, stale reading not blocked, invalid voltage ignored, thread safety, rejection message), bridge battery callback (payload with guard state, NaN dropped), server rejection of WS `publish` (error frame) and of map save/reset and arm home/set home with 503, `nav/stop` still allowed, no blocking without battery config, with a good or unknown battery.
@@ -334,8 +330,6 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_colcon_source_build_applies_patches_and_keys_the_stamp_on_their_content` | `colcon_source_build.yml` applies the `colcon_source.patches` with `ansible.builtin.patch` between the (forced) clone and the build, hashes them into the stamp key, and drops the stamp when `install/setup.bash` is missing. |
 | `test_rf2o_retry_laser_tf_patch_exists_and_is_wired` | `patches/0001-retry-laser-tf.patch` exists, skips scans until the laser TF lookup succeeds, and is listed in the rf2o node type's `colcon_source.patches`. |
 | `test_rf2o_odom_relay_declares_numpy` | `rf2o_odom_relay/pyproject.toml` lists `numpy` explicitly (numpy guard). |
-| `test_stereo_depth_node_is_wired_after_the_cameras` | `stereo_depth` node type (native, `python3 -m stereo_depth`, `STEREO_DEPTH_CONFIG` env), enabled entry with the `/stereo/*` topics and a valid depth range, listed and deployed after the stereo/realsense camera, per-node playbook deploys only it. |
-| `test_stereo_depth_declares_numpy_and_pydantic` | `stereo_depth/pyproject.toml` lists `numpy` (numpy guard) and `pydantic` explicitly. |
 | `test_launcher_sources_the_colcon_workspace_after_ros` | The launcher template sources the colcon `install/setup.bash` after `/opt/ros/jazzy/setup.bash`, and `resolve_and_deploy.yml` passes `colcon_source`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_nav_stack_config.py` is listed in this section. |
 
@@ -355,8 +349,8 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
 | `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` in client.yml equal the mcp_server `nav` values. |
 | `test_mcp_server_arm_base_height_is_16_5_cm` | mcp_server config `arm.arm_base_height_m` is 0.165 (measured mount height above the floor). |
-| `test_web_ui_tab_set` | web_ui tabs are exactly map (map_nav, first), agent (agent_chat), camera (`/camera_0/image_raw/compressed`), rgbd_camera (label `Stereo depth`; color `/stereo/left/image_rect`, depth `/stereo/depth/image_rect`, camera_info `/stereo/depth/camera_info`), imu_graphs; arm_servos, local_nav, gps_nav, scene3d and robot_status are gone. |
-| `test_mcp_server_front_camera_is_stereo_left_rect` | mcp_server `topics.front_camera` is `/stereo/left/image_rect` and no `realsense_camera` key remains. |
+| `test_web_ui_tab_set` | web_ui tabs are exactly map (map_nav, first), agent (agent_chat), camera (`/camera_0/image_raw/compressed`), overview_camera (type `camera`, label `Overview`, `/overview_camera/image_raw/compressed`), imu_graphs; arm_servos, local_nav, gps_nav, scene3d and robot_status are gone. |
+| `test_mcp_server_front_camera_is_the_compressed_overview_camera` | mcp_server `topics.front_camera` is `/overview_camera/image_raw/compressed` and no `realsense_camera` key remains. |
 | `test_web_ui_map_tab_uses_contract_fields` | The map tab carries no legacy keys (`urdf_file`, `topic`, `arm_urdf_file`, `arm_joint_topic`, `scan_topic`, `costmap_topic`), uses the frontend contract names, points `arm_home_service` / `arm_set_home_service` at the services mcp_server serves, and keeps the tile cache at `/var/cache/web_ui/tiles`. |
 | `test_web_ui_tile_cache_dir_task_owned_by_node_user` | `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui` and `/var/cache/web_ui/tiles` as directories owned by `ansible_user`. |
 | `test_playbooks_create_tile_cache_before_deploying_web_ui` | `deploy_nodes_client.yml` and `nodes/client/web_ui.yml` include the tile cache task before deploying web_ui. |
@@ -435,67 +429,56 @@ Static checks of the web_ui Agent tab in `ansible/group_vars/client.yml` (no ROS
 | `test_agent_tab_url_matches_claude_agent_port` | `agent_url` is 127.0.0.1 with the same port as the claude_agent `http_port` (18300). |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_web_ui_agent_tab.py` is listed in this section. |
 
-### `test_stereo_camera_config.py`
+### `test_overview_camera_config.py`
 
-Static checks of the stereo_camera node from the repo files (YAML via `yaml.safe_load`, launch file via `ast`; no ROS needed): boot overlays and reboot, the multi-source colcon build (rf2o unchanged, libcamera meson args, camera_ros pin, patches, no apt camera stack), node type / entry / resources, RealSense removal, `camera_link` removal, params defaults and launch structure.
+Static checks of the overview_camera node from the repo files (YAML via `yaml.safe_load`, launch file via `ast`; no ROS needed): boot overlay and reboot, the multi-source colcon build (rf2o unchanged, libcamera meson args, camera_ros pin, patches, no apt camera stack), node type / entry / resources, retired stereo wiring, RealSense removal, `camera_link` removal, params defaults and launch structure.
 
 | Test | Description |
 |---|---|
-| `test_boot_tasks_set_camera_overlays_in_firmware_config` | `stereo_camera_boot_config.yml` writes `camera_auto_detect=0`, `dtoverlay=imx219,cam0` and `dtoverlay=imx219,cam1` to `/boot/firmware/config.txt`, each with a regexp that matches its own line (no duplicates on rerun). |
+| `test_boot_tasks_set_the_imx708_overlay_in_firmware_config` | `overview_camera_boot_config.yml` writes `camera_auto_detect=0` and `dtoverlay=imx708,cam0` (and nothing else) to `/boot/firmware/config.txt`, each with a regexp that matches its own line (no duplicates on rerun). |
+| `test_boot_tasks_remove_stale_imx219_overlays_idempotently` | A first `state: absent` task deletes every `dtoverlay=imx219...` line (cam0, cam1, bare) and keeps `imx708`, `camera_auto_detect` and commented lines. |
 | `test_boot_tasks_register_results_and_reboot_only_when_changed` | Each overlay task registers its result and the single reboot task (last) runs only when one of them changed. |
-| `test_boot_overlays_use_the_same_path_as_the_uart_task` | The camera overlays edit the same config.txt path as the existing UART task in `deploy_nodes_client.yml`. |
-| `test_both_client_playbooks_apply_the_boot_overlays_in_pre_tasks` | The full client playbook and `nodes/client/stereo_camera.yml` both include the boot task file in `pre_tasks` right after the stop-all. |
+| `test_boot_overlays_use_the_same_path_as_the_uart_task` | The camera overlay edits the same config.txt path as the existing UART task in `deploy_nodes_client.yml`. |
+| `test_both_client_playbooks_apply_the_boot_overlays_in_pre_tasks` | The full client playbook and `nodes/client/overview_camera.yml` both include the boot task file in `pre_tasks` right after the stop-all. |
 | `test_boot_overlays_are_only_written_on_aarch64_hosts` | Overlay tasks are guarded by `ansible_machine == "aarch64"`. |
-| `test_per_node_playbook_stops_syncs_deploys_and_starts_gradually` | The per-node playbook stops all nodes, syncs the repo, deploys only `stereo_camera` and starts nodes gradually. |
-| `test_full_client_playbook_deploys_stereo_camera_and_not_realsense_before_it` | `deploy_nodes_client.yml` deploys `stereo_camera`, after the `realsense_d435i` uninstall. |
+| `test_per_node_playbook_stops_syncs_deploys_and_starts_gradually` | The per-node playbook stops all nodes, syncs the repo, deploys only `overview_camera` and starts nodes gradually. |
+| `test_full_client_playbook_deploys_overview_camera_and_not_realsense_before_it` | `deploy_nodes_client.yml` deploys `overview_camera`, after the `realsense_d435i` uninstall. |
+| `test_retired_stereo_nodes_are_gone_from_the_client_wiring` | No `stereo_camera` / `stereo_depth` in the client playbook or group vars, their node directories, per-node playbooks and the `stereo_depth` lint-all-nodes entry are gone. |
 | `test_rf2o_build_inputs_are_unchanged` | rf2o keeps its single-dict `colcon_source` with the exact repo, commit, package, workspace and patch. |
 | `test_colcon_build_accepts_one_dict_or_a_list_of_sources` | `colcon_source_build.yml` wraps a single dict into a list and builds each source in list order through `colcon_source_package.yml`. |
 | `test_colcon_package_build_keeps_the_limits_and_stamp_logic` | The per-source build keeps systemd-run/nice/ionice, `--merge-install`, one worker, `MAKEFLAGS=-j2`, the git `force`, the `creates` stamp, the restart handler and the Release default; supports `--meson-args` and `--cmake-args`. |
 | `test_colcon_stamp_key_is_unchanged_for_the_first_source_and_chained_after` | The stamp key still starts from commit + patch checksums (rf2o unchanged) and later sources chain the earlier keys so a libcamera rebuild rebuilds camera_ros. |
-| `test_stereo_camera_node_type_builds_libcamera_then_camera_ros` | `stereo_camera` builds libcamera (tag `v0.7.2+rpt20260817`, all required meson args) before camera_ros (pinned full SHA) in `/opt/ros2-ws`. |
-| `test_source_patches_are_listed_and_exist_in_the_repo` | Both patches are listed in `colcon_source` and exist under `nodes/stereo_camera/patches`. |
-| `test_camera_ros_patch_exposes_the_sync_controls` | The camera_ros patch adds `rpi::SyncMode` and `rpi::SyncFrames` to `src/type_extent.cpp`. |
+| `test_overview_camera_node_type_builds_libcamera_then_camera_ros` | `overview_camera` builds libcamera (tag `v0.7.2+rpt20260817`, all required meson args) before camera_ros (pinned full SHA) in `/opt/ros2-ws`. |
+| `test_only_the_libcamera_patch_is_listed_and_it_exists_in_the_repo` | Only the libcamera `package.xml` patch is listed and present; the camera_ros SyncMode patch is gone. |
 | `test_libcamera_patch_adds_a_meson_package_xml` | The libcamera patch adds a `package.xml` with `build_type` meson. |
-| `test_apt_packages_carry_the_build_deps_and_never_the_apt_camera_stack` | The apt list has the build dependencies and image_proc / stereo_image_proc / camera_calibration, and no node type installs `ros-jazzy-camera-ros` or `ros-jazzy-libcamera`. |
+| `test_apt_packages_carry_the_build_deps_and_never_the_apt_camera_stack` | The apt list has the build dependencies and the image_transport compressed plugins, no stereo/image_proc/calibration packages, and no node type installs `ros-jazzy-camera-ros` or `ros-jazzy-libcamera`. |
 | `test_launcher_template_sources_the_first_source_workspace_for_a_list` | The launcher template sources the workspace of a dict source or of the first list item. |
-| `test_stereo_camera_node_type_resources_and_launch_command` | Node type: native, `CPUQuota` 150%, `Nice` 5, `MemoryMax` 384M, config path/env and the `ros2 launch` command. |
-| `test_stereo_camera_node_entry_is_present_and_enabled_after_the_lidar` | The `stereo_camera` ros2_nodes entry is present and enabled and its config only holds the camera ID / point cloud keys. |
+| `test_overview_camera_node_type_resources_and_launch_command` | Node type: native, `CPUQuota` 100%, `Nice` 5, `MemoryMax` 256M, config path/env and the `ros2 launch` command. |
+| `test_overview_camera_node_entry_is_present_and_enabled` | The `overview_camera` ros2_nodes entry is present and enabled and its config only holds `camera_id`. |
 | `test_realsense_is_uninstalled` | `realsense_d435i` is `present: false`. |
 | `test_guessed_camera_link_frame_is_removed_from_the_static_tf_config` | `static_tf_publisher` no longer publishes `camera_link` (imu_link and laser_frame stay). |
-| `test_node_directory_layout_and_no_fake_calibration_committed` | Node files exist, `calibration/` has a README and no `left.yaml` / `right.yaml`. |
-| `test_camera_defaults_match_the_requirements` | `params.yaml` camera section: sensor mode, 320x240, video role, 15 fps limits, short exposure, left server / right client, optical frame ids. |
-| `test_disparity_defaults_match_the_requirements` | `params.yaml` disparity section equals the specified SGBM parameters. |
-| `test_launch_settings_default_to_no_ids_and_no_point_cloud` | Empty camera IDs and `publish_points: false` by default. |
+| `test_node_directory_layout_without_calibration_or_stereo_leftovers` | Node files exist, there is no `calibration/` directory and the README names `cam -l`, `AfMode`, IMX708, the overlay and the compressed topic. |
+| `test_camera_defaults_match_the_requirements` | `params.yaml`: 640x480, 15 fps limits, continuous autofocus, optical frame id, JPEG quality 80, only `launch` and `camera` sections. |
+| `test_launch_settings_default_to_no_camera_id` | Empty `camera_id` by default. |
 | `test_launch_file_is_valid_python_with_a_launch_description` | The launch file parses and defines `generate_launch_description`. |
-| `test_launch_file_builds_the_composable_pipeline` | (parametrized) The launch file names the container, intra-process option, camera/rectify/disparity/point cloud components and both namespaces. |
-| `test_launch_file_uses_the_gating_helper` | The launch file imports the helper and uses `calibration_ready` and `publish_points`. |
-| `test_every_new_root_test_file_is_documented` | Every `test_stereo_camera*.py` file and test function is listed in this README. |
+| `test_launch_file_builds_the_single_camera_pipeline` | (parametrized) The launch file names the container, intra-process option, `camera::CameraNode`, the `/overview_camera` namespace and the compressed / camera_info topics. |
+| `test_launch_file_has_no_stereo_or_calibration_stages` | No rectify / disparity / point cloud / calibration gating / SyncMode in the launch file. |
+| `test_every_new_root_test_file_is_documented` | Every `test_overview_camera*.py` file and test function is listed in this README. |
 
-### `test_stereo_camera_launch_config.py`
+### `test_overview_camera_launch_config.py`
 
-Unit tests of the pure-Python launch helper `nodes/stereo_camera/launch/stereo_camera_config.py` (imported via path setup): settings merge, camera selection, calibration gating and parameter dicts.
+Unit tests of the pure-Python launch helper `nodes/overview_camera/launch/overview_camera_config.py` (imported via path setup): settings merge, camera selection and the camera_ros parameter dict.
 
 | Test | Description |
 |---|---|
 | `test_deep_merge_overrides_nested_keys_without_touching_the_base` | `deep_merge` merges nested dicts into a new dict. |
-| `test_load_settings_returns_defaults_when_the_override_is_missing_or_empty` | Missing or empty deployed config leaves the defaults. |
+| `test_load_settings_returns_defaults_when_the_override_is_missing_or_empty` | Missing or empty deployed config leaves the defaults (640 wide). |
 | `test_load_settings_applies_the_deployed_override` | A nested override replaces only the keys it sets. |
-| `test_load_settings_accepts_top_level_launch_keys_in_the_override` | Flat `left_camera_id` / `right_camera_id` / `publish_points` land in the `launch` section. |
+| `test_load_settings_accepts_a_top_level_camera_id_in_the_override` | The flat `camera_id` lands in the `launch` section. |
 | `test_camera_selector_prefers_the_libcamera_id` | A configured ID is used as is, without warning. |
-| `test_camera_selector_falls_back_to_the_index_with_a_warning` | No ID selects the index and returns a warning that mentions `cam -l`. |
+| `test_camera_selector_falls_back_to_index_zero_with_a_warning` | No ID selects index 0 and returns a warning that mentions `cam -l`. |
 | `test_camera_selector_treats_whitespace_as_unset` | A whitespace-only ID counts as unset. |
-| `test_projection_is_valid_requires_nonzero_finite_focal_lengths` | P must be 12 finite numbers with non-zero `P[0]` and `P[5]`. |
-| `test_calibration_ready_when_both_files_have_a_projection` | Both files with a valid P: ready, no reasons. |
-| `test_calibration_not_ready_when_a_file_is_missing` | A missing file blocks the stereo stages and is named in the reason. |
-| `test_calibration_not_ready_with_a_zero_projection` | An all-zero P blocks the stereo stages. |
-| `test_calibration_not_ready_without_a_projection_key_or_with_broken_yaml` | A file without `projection_matrix` or with invalid YAML blocks the stereo stages. |
-| `test_calibration_not_ready_when_both_files_are_missing` | Both files missing gives two reasons. |
-| `test_camera_info_url_is_a_file_url` | `camera_info_url` is `file://<dir>/<side>.yaml`. |
-| `test_camera_parameters_for_the_left_server_camera` | Left camera params: ID, mode, size, role, frame duration, `AeExposureMode` 1, `SyncMode` 1, frame id, info URL. |
-| `test_camera_parameters_for_the_right_client_camera_by_index` | Right camera by index: `SyncMode` 2 and the right frame id. |
-| `test_camera_parameters_reject_unknown_enum_names` | Unknown exposure mode or sync mode names raise `ValueError`. |
-| `test_disparity_parameters_have_the_node_types` | DisparityNode params have the declared types (doubles for P1/P2/uniqueness_ratio/tolerance, ints otherwise). |
-| `test_disparity_parameters_cast_integral_floats` | Integral values are cast to the declared type. |
-| `test_stage_plan_publishes_only_raw_images_without_calibration` | Uncalibrated: only the two camera nodes, even when points are requested. |
-| `test_stage_plan_adds_rectify_and_disparity_with_calibration` | Calibrated: rectify x2 and disparity are added. |
-| `test_stage_plan_adds_the_point_cloud_only_on_request` | The point cloud stage needs `publish_points`. |
+| `test_camera_parameters_of_the_overhead_camera` | Params: ID, 640x480, 15 fps limits, `AfMode` 2 (continuous), frame id and the image_transport JPEG quality 80. |
+| `test_camera_parameters_have_no_calibration_url_and_no_sync_mode` | No `camera_info_url`, no `SyncMode`, and the flat `jpeg_quality` setting is translated. |
+| `test_af_mode_names_map_to_the_libcamera_enum` | (parametrized) manual / auto / continuous (any case) map to 0 / 1 / 2. |
+| `test_camera_parameters_reject_an_unknown_af_mode` | An unknown AfMode name raises `ValueError`. |

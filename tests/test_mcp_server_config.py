@@ -46,7 +46,7 @@ TILE_CACHE_DIR = "/var/cache/web_ui/tiles"
 TILE_CACHE_TASKS = PLAYBOOKS_DIR / "tasks" / "web_ui_tile_cache_dir.yml"
 WEB_UI_PLAYBOOK = PLAYBOOKS_DIR / "nodes" / "client" / "web_ui.yml"
 LEGACY_MAP_KEYS = {"urdf_file", "topic", "arm_urdf_file", "arm_joint_topic", "scan_topic", "costmap_topic"}
-WEB_UI_TABS = ["map", "agent", "camera", "rgbd_camera", "imu_graphs"]
+WEB_UI_TABS = ["map", "agent", "camera", "overview_camera", "imu_graphs"]
 REMOVED_WEB_UI_TABS = {"arm_servos", "local_nav", "gps_nav", "scene3d", "robot_status"}
 
 
@@ -191,12 +191,11 @@ def test_web_ui_tab_set() -> None:
     camera = tabs[2]
     assert camera["type"] == "camera"
     assert camera["topic"] == "/camera_0/image_raw/compressed"
-    rgbd = tabs[3]
-    assert rgbd["type"] == "rgbd_camera"
-    assert rgbd["label"] == "Stereo depth"
-    assert rgbd["color_topic"] == "/stereo/left/image_rect"
-    assert rgbd["depth_topic"] == "/stereo/depth/image_rect"
-    assert rgbd["camera_info_topic"] == "/stereo/depth/camera_info"
+    overview = tabs[3]
+    assert overview["id"] == "overview_camera"
+    assert overview["type"] == "camera"
+    assert overview["label"] == "Overview"
+    assert overview["topic"] == "/overview_camera/image_raw/compressed"
     assert tabs[4]["type"] == "imu_orientation"
 
 
@@ -370,8 +369,8 @@ def test_claude_agent_nav_tolerances_match_mcp_server() -> None:
     assert agent["nav_goal_yaw_tolerance_deg"] == pytest.approx(nav["goal_yaw_tolerance_deg"])
 
 
-def test_mcp_server_front_camera_is_stereo_left_rect() -> None:
-    """mcp_server's `front` camera reads the rectified left stereo image (raw sensor_msgs/Image)."""
+def test_mcp_server_front_camera_is_the_compressed_overview_camera() -> None:
+    """mcp_server's `front` camera reads the overhead camera's JPEG stream (sensor_msgs/CompressedImage)."""
     topics = node_config("mcp_server").get("topics", {})
-    assert topics["front_camera"] == "/stereo/left/image_rect"
+    assert topics["front_camera"] == "/overview_camera/image_raw/compressed"
     assert "realsense_camera" not in topics

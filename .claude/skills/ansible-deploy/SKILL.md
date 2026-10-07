@@ -85,15 +85,14 @@ in parallel with other nodes.
 | `haptic_controller` | Haptic feedback (disabled by default) |
 | `gripper_uvc_camera` | USB camera bridge |
 | `rplidar_a1` | LiDAR bridge (USB) |
-| `realsense_d435i` | Removed (present: false): replaced by `stereo_camera` |
-| `stereo_camera` | Two IMX219 CSI cameras (cam0/cam1), libcamera fork + camera_ros built from source into `/opt/ros2-ws` (first deploy compiles for a long time at lowest priority); adds `camera_auto_detect=0` + `dtoverlay=imx219,cam0/cam1` to `/boot/firmware/config.txt` and reboots the client only when they changed; publishes `/stereo/{left,right}/image_raw`, rectified images + `/stereo/disparity` once `nodes/stereo_camera/calibration/{left,right}.yaml` exist |
+| `realsense_d435i` | Removed (present: false): replaced by `overview_camera` |
+| `overview_camera` | Raspberry Pi Camera Module 3 (IMX708) on CSI cam0, mounted overhead; libcamera fork + camera_ros built from source into `/opt/ros2-ws` (first deploy compiles for a long time at lowest priority); sets `camera_auto_detect=0` + `dtoverlay=imx708,cam0` in `/boot/firmware/config.txt`, removes stale `imx219` overlays and reboots the client only when something changed; publishes `/overview_camera/image_raw`, `/overview_camera/image_raw/compressed`, `camera_info` |
 | `lerobot_follower` | SO-101 follower arm + swerve servos group `swerve_drive` (feetech, one USB bus) |
 | `swerve_drive_servos` | Removed (present: false): swerve servos now run inside `lerobot_follower` (shared bus) |
 | `swerve_controller` | Swerve drive kinematics |
 | `static_tf_publisher` | TF frame publisher |
 | `rf2o_laser_odometry` | rf2o lidar odometry (source-built colcon workspace `/opt/ros2-ws`, pinned commit; first deploy compiles at lowest priority) |
 | `rf2o_odom_relay` | rf2o pose -> body twist with covariance for the EKF |
-| `stereo_depth` | stereo_image_proc disparity -> 16UC1 depth (mm) + camera_info |
 | `robot_localization_ekf` | EKF odometry fusion |
 | `nav2_bringup` | Nav2 navigation stack |
 | `web_ui` | Browser dashboard (FastAPI + React) |

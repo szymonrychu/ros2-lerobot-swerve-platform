@@ -127,20 +127,21 @@ ros2_node_type_defaults:
     memory_max: "512M"
     apt_packages:
       - ros-jazzy-realsense2-camera
-  # Two Arducam B0184 (IMX219) on CSI cam0/cam1: Raspberry Pi libcamera fork + camera_ros built from pinned sources into
-  # /opt/ros2-ws (libcamera first), launched with image_proc / stereo_image_proc in one component container. The apt
-  # ros-jazzy-camera-ros / ros-jazzy-libcamera packages must NOT be installed: they would shadow the fork. Boot
-  # overlays: playbooks/tasks/stereo_camera_boot_config.yml. See nodes/stereo_camera/README.md.
-  stereo_camera:
+  # Raspberry Pi Camera Module 3 (IMX708) on CSI cam0, mounted overhead: Raspberry Pi libcamera fork + camera_ros built
+  # from pinned sources into /opt/ros2-ws (libcamera first). The apt ros-jazzy-camera-ros / ros-jazzy-libcamera
+  # packages must NOT be installed: they would shadow the fork. Boot overlay:
+  # playbooks/tasks/overview_camera_boot_config.yml. See nodes/overview_camera/README.md.
+  overview_camera:
     deploy_mode: native
-    node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/stereo_camera/launch/stereo_camera.launch.py"
+    node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/overview_camera/launch/overview_camera.launch.py"
     node_src_dir: ""
-    cpu_quota: "150%"
-    memory_max: "384M"
+    # One 640x480 camera at 15 fps with JPEG compression: one core is plenty.
+    cpu_quota: "100%"
+    memory_max: "256M"
     nice: 5
-    config_path: /etc/ros2/stereo_camera
+    config_path: /etc/ros2/overview_camera
     env:
-      - STEREO_CAMERA_CONFIG=/etc/ros2/stereo_camera/config.yaml
+      - OVERVIEW_CAMERA_CONFIG=/etc/ros2/overview_camera/config.yaml
     colcon_source:
       - repo: https://github.com/raspberrypi/libcamera.git
         commit: v0.7.2+rpt20260817
@@ -148,7 +149,7 @@ ros2_node_type_defaults:
         workspace: /opt/ros2-ws
         # colcon-meson needs a package.xml (build_type meson); libpisp comes from its meson wrap (needs network).
         patches:
-          - "{{ ros2_repo_dest }}/nodes/stereo_camera/patches/libcamera-0001-add-package-xml.patch"
+          - "{{ ros2_repo_dest }}/nodes/overview_camera/patches/libcamera-0001-add-package-xml.patch"
         meson_args:
           - -Dpipelines=rpi/pisp
           - -Dipas=rpi/pisp
@@ -166,9 +167,6 @@ ros2_node_type_defaults:
         commit: 8f792e27a6dbc81e4943a75765fc1b7b7d37b301
         package: camera_ros
         workspace: /opt/ros2-ws
-        # Exposes the libcamera rpi SyncMode / SyncFrames controls as ROS parameters (stereo frame sync).
-        patches:
-          - "{{ ros2_repo_dest }}/nodes/stereo_camera/patches/camera_ros-0001-expose-sync-controls.patch"
     apt_packages:
       - git
       - build-essential
@@ -190,9 +188,9 @@ ros2_node_type_defaults:
       - ros-jazzy-diagnostic-msgs
       - ros-jazzy-camera-info-manager
       - ros-jazzy-cv-bridge
-      - ros-jazzy-image-proc
-      - ros-jazzy-stereo-image-proc
-      - ros-jazzy-camera-calibration
+      - ros-jazzy-image-transport
+      - ros-jazzy-image-transport-plugins
+      - ros-jazzy-compressed-image-transport
   swerve_controller:
     deploy_mode: native
     node_launch_command: "python3 -m swerve_drive_controller"
@@ -267,16 +265,6 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/rf2o_odom_relay
     env:
       - RF2O_ODOM_RELAY_CONFIG=/etc/ros2/rf2o_odom_relay/config.yaml
-  # stereo_image_proc disparity -> 16UC1 depth (mm) + camera_info for depth consumers.
-  stereo_depth:
-    deploy_mode: native
-    node_launch_command: "python3 -m stereo_depth"
-    node_src_dir: "nodes/stereo_depth"
-    cpu_quota: "25%"
-    memory_max: "128M"
-    config_path: /etc/ros2/stereo_depth
-    env:
-      - STEREO_DEPTH_CONFIG=/etc/ros2/stereo_depth/config.yaml
   robot_localization_ekf:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/robot_localization_ekf/launch/ekf.launch.py"
@@ -591,32 +579,19 @@ ros2_nodes:
     node_type: rplidar_a1
     present: true
     enabled: true
-  # Replaced by the stereo_camera pair: present false uninstalls the unit on the next deploy.
+  # Replaced by the overview_camera: present false uninstalls the unit on the next deploy.
   - name: realsense_d435i
     node_type: realsense_d435i
     present: false
     enabled: false
-  # Stereo pair: no stereo TF yet (mount pose not measured). Camera IDs: `cam -l` on the client, see the README.
-  - name: stereo_camera
-    node_type: stereo_camera
+  # Overhead Camera Module 3 (IMX708): no TF yet (mount pose not measured). Camera ID: `cam -l` on the client, see the README.
+  - name: overview_camera
+    node_type: overview_camera
     present: true
     enabled: true
     config: |
-      # libcamera IDs of the cameras (`cam -l`); empty selects camera index 0 / 1 and logs a warning.
-      left_camera_id: ""
-      right_camera_id: ""
-      publish_points: false
-  - name: stereo_depth
-    node_type: stereo_depth
-    present: true
-    enabled: true
-    config: |
-      disparity_topic: /stereo/disparity
-      camera_info_topic: /stereo/left/camera_info
-      depth_topic: /stereo/depth/image_rect
-      depth_camera_info_topic: /stereo/depth/camera_info
-      min_depth_m: 0.2
-      max_depth_m: 4.0
+      # libcamera ID of the camera (`cam -l`); empty selects camera index 0 and logs a warning.
+      camera_id: ""
   - name: lerobot_follower
     node_type: feetech_servos
     present: true
@@ -757,8 +732,8 @@ ros2_nodes:
           pitch: 0.0
           # Lidar is mounted rotated 180 deg (bench test 2026-10-03: forward motion shortened the 180 deg range).
           yaw: 3.14159265
-        # No stereo camera frames here on purpose: the stereo pair's mount pose is not measured yet, so no guessed
-        # base_link -> stereo_*_optical_frame transform is published (see nodes/stereo_camera/README.md).
+        # No overview camera frame here on purpose: its mount pose is not measured yet, so no guessed
+        # base_link -> overview_camera_optical_frame transform is published (see nodes/overview_camera/README.md).
   # Lidar odometry for the EKF (see nodes/rf2o_laser_odometry/README.md); must start before the EKF fuses /odom_rf2o_twist.
   - name: rf2o_laser_odometry
     node_type: rf2o_laser_odometry
@@ -881,12 +856,10 @@ ros2_nodes:
           type: camera
           label: "Gripper Cam"
           topic: /camera_0/image_raw/compressed
-        - id: rgbd_camera
-          type: rgbd_camera
-          label: "Stereo depth"
-          color_topic: /stereo/left/image_rect
-          depth_topic: /stereo/depth/image_rect
-          camera_info_topic: /stereo/depth/camera_info
+        - id: overview_camera
+          type: camera
+          label: "Overview"
+          topic: /overview_camera/image_raw/compressed
         - id: imu_graphs
           type: imu_orientation
           label: "IMU"
@@ -922,8 +895,8 @@ ros2_nodes:
         port: 18200
         path: /mcp
       topics:
-        # Front camera: rectified left colour image of the stereo pair (sensor_msgs/Image, 320x240).
-        front_camera: /stereo/left/image_rect
+        # Front camera: overhead Camera Module 3 looking down at the front of the robot (CompressedImage, 640x480).
+        front_camera: /overview_camera/image_raw/compressed
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml

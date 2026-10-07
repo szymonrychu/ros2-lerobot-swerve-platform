@@ -1,0 +1,18 @@
+# overview_camera defaults (plain YAML read by launch/overview_camera_config.py, not a ROS params file).
+# Deployed overrides: /etc/ros2/overview_camera/config.yaml (ros2_nodes `config: |`), merged over this file.
+# The flat key camera_id may be given at the top level of the override.
+
+launch:
+  # libcamera camera ID, read on the Pi with `cam -l` (see README). Empty: select camera index 0 and log a warning.
+  camera_id: ""
+
+# camera_ros CameraNode parameters (capitalised names are libcamera controls).
+camera:
+  width: 640
+  height: 480
+  role: video
+  format: RGB888               # bgr8 on the topic
+  FrameDurationLimits: [66666, 66666]   # us, exactly 15 fps
+  AfMode: continuous           # manual | auto | continuous: IMX708 autofocus (libcamera enum 0 | 1 | 2)
+  frame_id: overview_camera_optical_frame
+  jpeg_quality: 80             # image_transport compressed plugin quality of image_raw/compressed
