@@ -263,10 +263,10 @@ def test_colcon_build_accepts_one_dict_or_a_list_of_sources() -> None:
 def test_colcon_package_build_keeps_the_limits_and_stamp_logic() -> None:
     text = COLCON_ONE_TASKS.read_text()
     for needle in (
-        "systemd-run --quiet --scope -p CPUQuota=100% -p IOWeight=10 nice -n 19 ionice -c 3",
+        "systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3",
         "colcon build --merge-install --parallel-workers 1",
         "--packages-select {{ colcon_src.package }}",
-        "MAKEFLAGS: \"-j2\"",
+        "MAKEFLAGS: \"-j{{ ros2_build_jobs }}\"",
         "source /opt/ros/jazzy/setup.bash",
         "install/setup.bash",
         "creates:",
@@ -295,6 +295,8 @@ def test_overview_camera_node_type_builds_libcamera_then_camera_ros() -> None:
     for arg in LIBCAMERA_MESON_ARGS:
         assert arg in libcamera["meson_args"], arg
     assert "cmake_args" not in libcamera
+    # colcon-meson passes --prefix and --libdir itself; meson rejects the same option given twice.
+    assert not [a for a in libcamera["meson_args"] if a.startswith(("-Dlibdir", "-Dprefix"))], libcamera["meson_args"]
     assert camera_ros["repo"] == "https://github.com/christianrauch/camera_ros.git"
     assert camera_ros["commit"] == CAMERA_ROS_COMMIT
     assert "meson_args" not in camera_ros
@@ -453,3 +455,12 @@ def test_every_new_root_test_file_is_documented() -> None:
         assert f"### `{path.name}`" in readme or f"### {path.name}" in readme, path.name
         for name in re.findall(r"^def (test_\w+)", path.read_text(), flags=re.M):
             assert f"`{name}`" in readme, f"{path.name}::{name} is not documented in tests/README.md"
+
+
+def test_builds_use_all_cores_at_lowest_priority_and_nodes_start_quickly() -> None:
+    """Deploy speed: source and frontend builds may use all four cores (still nice 19 / idle IO), and the gradual
+    start spaces node starts 2 s apart."""
+    all_vars = load_yaml(ANSIBLE_DIR / "group_vars" / "all.yml")
+    assert all_vars["ros2_build_jobs"] == 4
+    assert all_vars["ros2_build_cpu_quota"] == "400%"
+    assert all_vars["ros2_node_start_interval_s"] == 2

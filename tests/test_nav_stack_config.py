@@ -737,8 +737,8 @@ def test_web_ui_frontend_build_runs_at_lowest_priority() -> None:
     ]
     assert len(cmds) == 2, cmds
     for cmd in cmds:
-        # cgroup cap (one core of four, low IO weight) plus lowest CPU and IO scheduling priority.
-        assert cmd.startswith("systemd-run --quiet --scope -p CPUQuota=100% -p IOWeight=10 "), cmd
+        # Shared build cgroup cap (all.yml ros2_build_cpu_quota, low IO weight) plus lowest CPU and IO priority.
+        assert cmd.startswith("systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 "), cmd
         assert "nice -n 19 ionice -c 3 npm " in cmd, cmd
 
 
@@ -925,10 +925,10 @@ def test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit() 
     assert git["dest"].endswith("/src/{{ colcon_src.package }}")
     build = next(t for t in tasks if "colcon build" in str(t.get("ansible.builtin.command", "")))
     cmd = build["ansible.builtin.command"]["cmd"]
-    assert cmd.startswith("systemd-run --quiet --scope -p CPUQuota=100% -p IOWeight=10 nice -n 19 ionice -c 3 ")
+    assert cmd.startswith("systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3 ")
     assert "--merge-install" in cmd and "--parallel-workers 1" in cmd
     assert "-DCMAKE_BUILD_TYPE=Release" in cmd
-    assert build["environment"]["MAKEFLAGS"] == "-j2"
+    assert build["environment"]["MAKEFLAGS"] == "-j{{ ros2_build_jobs }}"
     assert "_colcon_patch_key" in build["ansible.builtin.command"]["creates"]
     assert "_colcon_patch_key" in cmd
     assert build["notify"] == "Restart ROS2 node"

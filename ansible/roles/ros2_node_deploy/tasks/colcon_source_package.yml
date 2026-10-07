@@ -8,8 +8,8 @@
 # later source of the same node type also rebuilds when an earlier one (its dependency) changed (_colcon_chain_key).
 # Sources after the first also source the workspace install (their dependencies, e.g. libcamera for camera_ros); the first
 # source builds exactly as a lone rf2o always did.
-# The Pi overheats under a full build next to the running stack: one colcon worker, make -j2, one core, low IO weight,
-# lowest CPU (nice 19) and IO (ionice idle) priority.
+# Build limits (group_vars/all.yml): one colcon worker, make -j{{ ros2_build_jobs }}, CPU cap ros2_build_cpu_quota, low IO
+# weight, lowest CPU (nice 19) and IO (ionice idle) priority so the running stack keeps precedence.
 
 - name: Create colcon workspace source directory
   ansible.builtin.file:
@@ -69,7 +69,7 @@
 - name: Build the workspace for the pinned commit, patches and build args
   ansible.builtin.command:
     cmd: >-
-      systemd-run --quiet --scope -p CPUQuota=100% -p IOWeight=10 nice -n 19 ionice -c 3
+      systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3
       bash -c 'source /opt/ros/jazzy/setup.bash &&
       {{ ('source ' ~ colcon_src.workspace ~ '/install/setup.bash &&') if _colcon_chain_key | default('') | length > 0 else '' }}
       colcon build --merge-install --parallel-workers 1 --packages-select {{ colcon_src.package }}
@@ -79,7 +79,7 @@
     chdir: "{{ colcon_src.workspace }}"
     creates: "{{ colcon_src.workspace }}/.built-{{ colcon_src.package }}-{{ _colcon_patch_key }}"
   environment:
-    MAKEFLAGS: "-j2"
+    MAKEFLAGS: "-j{{ ros2_build_jobs }}"
   become: true
   notify: "Restart ROS2 node"
 

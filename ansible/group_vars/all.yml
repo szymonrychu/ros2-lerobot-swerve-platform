@@ -25,7 +25,7 @@ ros2_dds_env:
   - "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
 
 # Seconds between node starts when a deploy brings the stack back up (playbooks/tasks/start_ros_nodes.yml).
-ros2_node_start_interval_s: 5
+ros2_node_start_interval_s: 2
 
 # Repo to clone on each node for local container builds (deploy playbooks).
 ros2_repo_url: https://github.com/szymonrychu/ros2-lerobot-swerve-platform
@@ -36,3 +36,7 @@ ros2_repo_dest: /opt/ros2-lerobot-swerve-platform
 node_build_on_controller: false
 # Repo root on controller (for docker build context when node_build_on_controller is true). Playbook lives in ansible/playbooks/, so go up twice.
 ros2_repo_root: "{{ playbook_dir }}/../.."
+# Source (colcon) and web_ui frontend builds: cgroup CPU cap and parallel jobs. Builds still run at nice 19 with idle IO
+# priority, so the running stack keeps precedence; raise only if the Pi stays cool (it throttles at 85 C).
+ros2_build_cpu_quota: "400%"
+ros2_build_jobs: 4

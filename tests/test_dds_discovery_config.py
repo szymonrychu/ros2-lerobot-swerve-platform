@@ -161,7 +161,7 @@ def test_start_ros_nodes_is_gradual_and_respects_present_enabled() -> None:
     text = yaml.safe_dump(tasks)
     assert "present" in text and "enabled" in text
     assert "sleep {{ ros2_node_start_interval_s" in text
-    assert load_vars("all")["ros2_node_start_interval_s"] == 5
+    assert load_vars("all")["ros2_node_start_interval_s"] == 2
 
 
 def test_web_ui_deployed_first_in_client_all() -> None:
