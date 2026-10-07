@@ -459,7 +459,7 @@ layout; no ROS needed).
 | Test (group) | Description |
 |---|---|
 | `test_claude_agent_node_type_defaults` | `claude_agent` node type: native, `nodes/claude_agent`, `python3 -m claude_agent`, 50% / 1G, nice, user `claude_agent`, group `mcp-token`, `environment_file` `/etc/ros2/claude_agent/env`, `DISABLE_AUTOUPDATER=1`, no secret in `env`. |
-| `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `mcp_server`. |
+| `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `poi_store` (which follows `mcp_server`). |
 | `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
 | `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (300 / 100 / 150) and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`. |
 | `test_effector_tools_match_mcp_server_motion_tools` | `effector_tools` in the claude_agent config equals mcp_server `MOTION_TOOLS` (parsed from tools.py with `ast`), so the effector cap and the battery gate cover the same tools. |

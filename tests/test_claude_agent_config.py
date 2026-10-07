@@ -139,7 +139,7 @@ def test_claude_agent_node_type_defaults() -> None:
 
 def test_claude_agent_entry_after_mcp_server_and_enabled() -> None:
     names = [n["name"] for n in client_vars()["ros2_nodes"]]
-    assert names.index("claude_agent") == names.index("mcp_server") + 1
+    assert names.index("claude_agent") == names.index("poi_store") + 1 == names.index("mcp_server") + 2
     entry = node_entry("claude_agent")
     assert entry["node_type"] == "claude_agent" and entry["present"] is True and entry["enabled"] is True
 
