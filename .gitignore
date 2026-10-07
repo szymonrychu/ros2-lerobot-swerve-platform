@@ -47,3 +47,7 @@ nodes/steamdeck_ui/src/main/*.d.ts.map
 
 # docs/superpowers
 # docs/web_ui_bugs
+
+# Ansible fact cache (ansible.cfg fact_caching_connection)
+ansible/.ansible_facts_cache/
+.ansible_facts_cache/
