@@ -262,12 +262,14 @@ def register_tools(
     @tool(structured_output=False)
     def get_camera_image(
         camera: Annotated[
-            Camera, Field(description="'gripper' (USB camera on the gripper) or 'front' (front stereo camera, 320x240)")
+            Camera, Field(
+                description="'gripper' (USB camera on the gripper) or 'front' (overhead camera looking down at the front of the robot, 640x480)"
+            )
         ],
         max_px: Annotated[int, Field(ge=32, le=HARD_MAX_IMAGE_PX, description="Longest image side in pixels")] = 768,
     ) -> list[ImageContent | TextContent]:
         """Take one fresh photo from a robot camera and return it as a JPEG image plus its capture timestamp.
-        'gripper' looks out of the gripper (use it to aim grasps); 'front' is the front stereo camera (320x240, the left camera of a stereo pair), forward-looking; the matching depth image exists on /stereo/depth/image_rect but is not returned by this tool.
+        'gripper' looks out of the gripper (use it to aim grasps); 'front' is the overhead camera (640x480) looking down at the front of the robot, the arm and the floor in front of it: the best view for judging gripper-to-object position (take it first for an overview, then use 'gripper' to aim).
         Fails (instead of returning an old picture) when no frame arrives within the timeout or the newest frame is
         older than 1 s."""
         with tool_errors():

@@ -11,10 +11,10 @@ Runs as a native service on the client RPi. Accessible at `http://client.ros2.la
 | Map | `map_nav` | Primary tab, listed first and opened by default. One 3D view: SLAM map, local costmap, GPS tiles, Nav2 plans, goal, footprint, the robot URDF at its TF pose and an interactive arm, plus stop / save / reset / arm home (see below) |
 | Agent | `agent_chat` | Chat with the `claude_agent` node (Claude with the robot MCP tools): see [Agent tab](#agent-tab-agent_chat) |
 | Gripper Cam | `camera` | Live JPEG from the arm camera (`/camera_0/image_raw/compressed`) |
-| Stereo depth | `rgbd_camera` | Stereo left colour (`/stereo/left/image_rect`) + depth (`/stereo/depth/image_rect`, 16UC1 mm) previews and 3D mesh from `/stereo/depth/camera_info` (320x240, 15 Hz). Shows "Waiting for depth + color + camera info" until all three topics publish (e.g. before stereo calibration). |
+| Overview | `camera` | Live JPEG from the overhead camera (`/overview_camera/image_raw/compressed`, 640x480, 15 Hz) looking down at the front of the robot and the arm |
 | IMU | `imu_orientation` | Orientation and rolling acceleration / gyro graphs from `/imu/data` |
 
-`sensor_graph` (generic rolling time-series for configured topic fields) is still a valid tab type but is not in the default config. The valid types are `VALID_TAB_TYPES` in `web_ui/config.py`; the frontend renders the same set (`frontend/src/App.tsx`). The default tab list is `config/default.yaml`, the deployed one is the `web_ui` block in `ansible/group_vars/client.yml`. Tab types that no longer exist (for example `nav_local`, `nav_gps`, `scene3d`, `robot_status`, `effector_graph`) are rejected by the backend config validation and dropped by the frontend, so a stale config shows no dead tabs.
+The `rgbd_camera` tab type (colour + 16UC1 depth previews and mesh) is still implemented but is not in the default or deployed config: no depth source is deployed. `sensor_graph` (generic rolling time-series for configured topic fields) is still a valid tab type but is not in the default config. The valid types are `VALID_TAB_TYPES` in `web_ui/config.py`; the frontend renders the same set (`frontend/src/App.tsx`). The default tab list is `config/default.yaml`, the deployed one is the `web_ui` block in `ansible/group_vars/client.yml`. Tab types that no longer exist (for example `nav_local`, `nav_gps`, `scene3d`, `robot_status`, `effector_graph`) are rejected by the backend config validation and dropped by the frontend, so a stale config shows no dead tabs.
 
 ## UI
 

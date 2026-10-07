@@ -30,8 +30,10 @@ DEFAULT_NAV_GOAL_YAW_TOLERANCE_DEG = 2.0
 DEFAULT_CAMERA_NOTE = (
     "The gripper camera is mounted at an angle on the arm and looks slightly from left to right; "
     "its images are delivered upright (rotated 180 degrees in software). "
-    "The 'front' camera is the left camera of the forward-facing stereo pair (320x240); "
-    "depth for the same view is published separately on the robot, not through the camera tool."
+    "The 'front' camera is an overhead camera (640x480, autofocus) looking down at the front of the robot, the arm "
+    "and the floor in front of it: take it first for an overview (overview first), then judge the arm-to-object "
+    "distance and the gripper position relative to the object from it before aiming with the gripper camera. "
+    "It has no depth; judge distances from the image."
 )
 DEFAULT_STATE_DIR = "/var/lib/claude_agent"
 DEFAULT_WORKDIR = "/var/lib/claude_agent/workspace"

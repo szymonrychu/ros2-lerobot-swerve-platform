@@ -79,6 +79,7 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/swerve_drive/joint_states": JointState,
     "/imu/data": Imu,
     "/camera_0/image_raw/compressed": CompressedImage,
+    "/overview_camera/image_raw/compressed": CompressedImage,
 }
 
 SENSOR_SUB_QOS = QoSProfile(

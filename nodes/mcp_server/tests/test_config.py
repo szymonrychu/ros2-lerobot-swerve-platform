@@ -30,7 +30,7 @@ def test_default_topics_follow_the_robot_graph() -> None:
     assert t.cmd_vel == "/cmd_vel_nav"
     assert t.scan == "/scan_filtered"
     assert t.gripper_camera == "/camera_0/image_raw/compressed"
-    assert t.front_camera == "/stereo/left/image_rect"
+    assert t.front_camera == "/overview_camera/image_raw/compressed"
     assert t.navigate_action == "/navigate_to_pose"
 
 

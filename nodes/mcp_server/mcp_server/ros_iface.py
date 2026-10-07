@@ -24,7 +24,7 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
-from sensor_msgs.msg import BatteryState, CompressedImage, Image, JointState, LaserScan
+from sensor_msgs.msg import BatteryState, CompressedImage, JointState, LaserScan
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
@@ -48,9 +48,6 @@ from .models import (
 )
 from .perception import (
     ImageEncodingError,
-    encode_jpeg,
-    fit_size,
-    image_to_bgr,
     map_stats,
     recompress_jpeg,
     render_map_crop,
@@ -403,19 +400,16 @@ class RosRobot:
         """Grab one fresh frame through a one-shot subscription.
 
         Args:
-            camera (str): 'gripper' (compressed) or 'front' (raw stereo left image).
+            camera (str): 'gripper' or 'front' (overhead camera); both are CompressedImage topics.
             max_px (int): Longest side.
 
         Returns:
             CameraFrame: JPEG frame.
         """
-        topics = {
-            "gripper": (self.cfg.topics.gripper_camera, CompressedImage),
-            "front": (self.cfg.topics.front_camera, Image),
-        }
+        topics = {"gripper": self.cfg.topics.gripper_camera, "front": self.cfg.topics.front_camera}
         if camera not in topics:
             raise RobotError(f"unknown camera {camera!r}")
-        topic, msg_type = topics[camera]
+        topic = topics[camera]
         got: list[Any] = []
         arrived = threading.Event()
 
@@ -424,7 +418,7 @@ class RosRobot:
                 got.append(msg)
                 arrived.set()
 
-        sub = self.node.create_subscription(msg_type, topic, on_frame, SENSOR_QOS, callback_group=self.group)
+        sub = self.node.create_subscription(CompressedImage, topic, on_frame, SENSOR_QOS, callback_group=self.group)
         try:
             if not arrived.wait(self.cfg.timeouts.image_timeout_s):
                 raise RobotError(f"no frame on {topic} within {self.cfg.timeouts.image_timeout_s} s")
@@ -441,12 +435,7 @@ class RosRobot:
             )
         quality = self.cfg.limits.jpeg_quality
         try:
-            if msg_type is CompressedImage:
-                jpeg, width, height = recompress_jpeg(bytes(msg.data), max_px, quality)
-            else:
-                bgr = image_to_bgr(msg.encoding, msg.height, msg.width, msg.step, bytes(msg.data))
-                jpeg = encode_jpeg(bgr, max_px, quality)
-                width, height = fit_size(bgr.shape[1], bgr.shape[0], max_px)
+            jpeg, width, height = recompress_jpeg(bytes(msg.data), max_px, quality)
         except ImageEncodingError as exc:
             raise RobotError(f"cannot encode frame from {topic}: {exc}") from exc
         return CameraFrame(

@@ -48,12 +48,10 @@ tabs:
     label: "Gripper Cam"
     topic: /camera_0/image_raw/compressed
 
-  - id: rgbd_camera
-    type: rgbd_camera
-    label: "Stereo depth"
-    color_topic: /stereo/left/image_rect
-    depth_topic: /stereo/depth/image_rect
-    camera_info_topic: /stereo/depth/camera_info
+  - id: overview_camera
+    type: camera
+    label: "Overview"
+    topic: /overview_camera/image_raw/compressed
 
   - id: imu_graphs
     type: imu_orientation

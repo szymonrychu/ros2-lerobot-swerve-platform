@@ -59,6 +59,15 @@ def test_publish_dict_rejects_non_allowlisted() -> None:
     assert "/evil_topic" not in node.publishers_
 
 
+def test_overview_camera_topic_is_a_compressed_image_subscription() -> None:
+    """The Overview camera tab topic resolves to a CompressedImage subscription without a role."""
+    from sensor_msgs.msg import CompressedImage
+
+    from web_ui.bridge import subscription_spec
+
+    assert subscription_spec("/overview_camera/image_raw/compressed", None)[0] is CompressedImage
+
+
 def test_stereo_topics_have_type_hints() -> None:
     """The stereo RGBD tab topics resolve to Image/CameraInfo subscriptions without a role."""
     from sensor_msgs.msg import CameraInfo, Image
