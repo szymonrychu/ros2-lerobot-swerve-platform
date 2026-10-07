@@ -160,9 +160,8 @@ ros2_node_type_defaults:
           - -Dtest=false
           - -Ddocumentation=disabled
           - -Dpycamera=disabled
-          # Release build. colcon-meson already passes --prefix and --libdir (install/lib); repeating -Dlibdir makes
-          # meson fail with "Got argument libdir as both -Dlibdir and --libdir".
-          - -Dbuildtype=release
+          # No -Dprefix/-Dlibdir/-Dbuildtype: colcon-meson passes --prefix, --libdir (install/lib) and --buildtype
+          # itself, and meson fails on a duplicate ("Got argument buildtype as both -Dbuildtype and --buildtype").
       - repo: https://github.com/christianrauch/camera_ros.git
         commit: 8f792e27a6dbc81e4943a75765fc1b7b7d37b301
         package: camera_ros

@@ -295,8 +295,9 @@ def test_overview_camera_node_type_builds_libcamera_then_camera_ros() -> None:
     for arg in LIBCAMERA_MESON_ARGS:
         assert arg in libcamera["meson_args"], arg
     assert "cmake_args" not in libcamera
-    # colcon-meson passes --prefix and --libdir itself; meson rejects the same option given twice.
-    assert not [a for a in libcamera["meson_args"] if a.startswith(("-Dlibdir", "-Dprefix"))], libcamera["meson_args"]
+    # colcon-meson passes --prefix, --libdir and --buildtype itself; meson rejects the same option given twice.
+    dup = [a for a in libcamera["meson_args"] if a.startswith(("-Dlibdir", "-Dprefix", "-Dbuildtype"))]
+    assert not dup, libcamera["meson_args"]
     assert camera_ros["repo"] == "https://github.com/christianrauch/camera_ros.git"
     assert camera_ros["commit"] == CAMERA_ROS_COMMIT
     assert "meson_args" not in camera_ros
