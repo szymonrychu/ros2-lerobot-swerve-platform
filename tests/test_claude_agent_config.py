@@ -23,7 +23,6 @@ SERVICE_TEMPLATE = ROLE_DIR / "templates" / "ros2-node-native.service.j2"
 RESOLVE_TASKS = PLAYBOOKS_DIR / "tasks" / "resolve_and_deploy.yml"
 SETUP_TASKS = PLAYBOOKS_DIR / "tasks" / "claude_agent_setup.yml"
 MCP_SETUP_TASKS = PLAYBOOKS_DIR / "tasks" / "mcp_server_setup.yml"
-NODE_PLAYBOOK = PLAYBOOKS_DIR / "nodes" / "client" / "claude_agent.yml"
 NODE_DIR = REPO_ROOT / "nodes" / "claude_agent"
 MCP_TOOLS = REPO_ROOT / "nodes" / "mcp_server" / "mcp_server" / "tools.py"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
@@ -314,7 +313,7 @@ def test_existing_mcp_token_gets_group_read_permissions() -> None:
     assert spec["group"] == MCP_TOKEN_GROUP and spec["mode"] == "0640"
 
 
-@pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml", "nodes/client/claude_agent.yml"])
+@pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml"])
 def test_playbooks_run_setup_before_deploying_claude_agent_after_mcp_server(playbook: str) -> None:
     _, tasks, _ = play_tasks(PLAYBOOKS_DIR / playbook)
     deploy = index_of(tasks, "resolve_and_deploy.yml", "claude_agent")
@@ -324,13 +323,6 @@ def test_playbooks_run_setup_before_deploying_claude_agent_after_mcp_server(play
     assert 0 <= mcp_setup < setup < deploy, f"{playbook}: mcp token group and agent token must be set up first"
     if playbook == "deploy_nodes_client.yml":
         assert index_of(tasks, "resolve_and_deploy.yml", "mcp_server") < deploy
-
-
-def test_node_playbook_stops_first_and_starts_last() -> None:
-    pre, _, post = play_tasks(NODE_PLAYBOOK)
-    assert "stop_ros_nodes.yml" in pre[0]["ansible.builtin.include_tasks"]
-    assert "start_ros_nodes.yml" in post[-1]["ansible.builtin.include_tasks"]
-    assert yaml.safe_load(NODE_PLAYBOOK.read_text())[0]["hosts"] == "client"
 
 
 def test_oauth_token_never_in_repo() -> None:
@@ -366,11 +358,6 @@ def test_docs_and_lint_scripts_list_claude_agent() -> None:
     assert "`claude_agent`" in DEPLOY_SKILL.read_text()
     assert "nodes/claude_agent" in LINT_SCRIPT.read_text()
     assert "nodes/claude_agent" in ROOT_PYPROJECT.read_text()
-
-
-def test_deploy_script_discovers_node_playbook() -> None:
-    assert NODE_PLAYBOOK.is_file()
-    assert NODE_PLAYBOOK.parent == PLAYBOOKS_DIR / "nodes" / "client"
 
 
 def test_every_test_is_documented_in_tests_readme() -> None:

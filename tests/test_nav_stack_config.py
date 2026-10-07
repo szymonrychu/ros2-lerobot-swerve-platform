@@ -381,7 +381,7 @@ def maps_dir_tasks(tasks: list[dict]) -> list[dict]:
         if file_args and file_args.get("path") == MAPS_DIR:
             found.append(file_args)
         include = task.get("ansible.builtin.include_tasks")
-        if isinstance(include, str) and "slam_maps_dir" in include:
+        if "slam_maps_dir" in str(include):
             found += maps_dir_tasks(yaml.safe_load((PLAYBOOKS_DIR / "tasks" / "slam_maps_dir.yml").read_text()))
     return found
 
@@ -403,7 +403,7 @@ def deploys(tasks: list[dict], name: str) -> bool:
     )
 
 
-@pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml", "nodes/client/slam_toolbox.yml"])
+@pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml"])
 def test_slam_playbooks_deploy_node_and_create_maps_dir(playbook: str) -> None:
     plays = yaml.safe_load((PLAYBOOKS_DIR / playbook).read_text())
     tasks = [t for play in plays for t in play.get("pre_tasks", []) + play.get("tasks", [])]
@@ -654,7 +654,6 @@ def test_laser_filter_ansible_wiring() -> None:
     assert "scan:=/scan" in cmd and f"scan_filtered:={FILTERED_SCAN}" in cmd
     entry = node_entry("laser_filter")
     assert entry["present"] is True and entry["enabled"] is True
-    assert (PLAYBOOKS_DIR / "nodes" / "client" / "laser_filter.yml").is_file()
     tasks = yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"]
     assert "laser_filter" in [t.get("vars", {}).get("_deploy_node_name") for t in tasks]
 
@@ -892,15 +891,12 @@ def test_rf2o_nodes_are_deployed_before_the_ekf() -> None:
         entry = node_entry(name)
         assert entry["present"] is True and entry["enabled"] is True
         assert names.index(name) < ekf
-        assert (PLAYBOOKS_DIR / "nodes" / "client" / f"{name}.yml").is_file()
     assert names.index("rf2o_laser_odometry") < names.index("rf2o_odom_relay")
     tasks = yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"]
     deployed = [t.get("vars", {}).get("_deploy_node_name") for t in tasks]
     assert deployed.index("rf2o_laser_odometry") < deployed.index("rf2o_odom_relay") < deployed.index(
         "robot_localization_ekf"
     )
-    per_node = yaml.safe_load((PLAYBOOKS_DIR / "nodes" / "client" / "rf2o_laser_odometry.yml").read_text())[0]
-    assert [t["vars"]["_deploy_node_name"] for t in per_node["tasks"]] == ["rf2o_laser_odometry", "rf2o_odom_relay"]
 
 
 def test_rf2o_relay_wiring_matches_ekf_input() -> None:

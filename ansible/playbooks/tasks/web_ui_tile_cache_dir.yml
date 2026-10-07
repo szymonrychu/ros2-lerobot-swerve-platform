@@ -11,3 +11,4 @@
   loop:
     - /var/cache/web_ui
     - /var/cache/web_ui/tiles
+  tags: [setup]

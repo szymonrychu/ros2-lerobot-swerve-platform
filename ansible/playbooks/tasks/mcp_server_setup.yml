@@ -10,11 +10,13 @@
     owner: root
     group: root
     mode: "0755"
+  tags: [setup]
 
 - name: Ensure the group that may read the mcp_server token exists
   ansible.builtin.group:
     name: mcp-token
     system: true
+  tags: [setup]
 
 - name: Create mcp_server bearer token if absent
   ansible.builtin.copy:
@@ -25,6 +27,7 @@
     mode: "0640"
     force: false
   no_log: true
+  tags: [setup]
 
 # force: false leaves an existing token untouched, including owner-only 0600 from before the mcp-token group existed.
 - name: Let group mcp-token read the existing mcp_server token
@@ -33,6 +36,7 @@
     owner: "{{ ansible_user }}"
     group: mcp-token
     mode: "0640"
+  tags: [setup]
 
 - name: Ensure arm home pose directory exists (owned by the node user)
   ansible.builtin.file:
@@ -41,6 +45,7 @@
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
     mode: "0755"
+  tags: [setup]
 
 - name: Ensure camera calibration sample directory exists (owned by the node user)
   ansible.builtin.file:
@@ -49,6 +54,7 @@
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
     mode: "0755"
+  tags: [setup]
 
 - name: Ensure object memory directory exists (owned by the node user)
   ansible.builtin.file:
@@ -57,3 +63,4 @@
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
     mode: "0755"
+  tags: [setup]

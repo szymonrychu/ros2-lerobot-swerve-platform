@@ -3,9 +3,11 @@
 # Expects colcon_src: {repo, commit (SHA, tag or branch), package, workspace, patches (optional list of unified diffs,
 # strip 1), cmake_args (optional, default -DCMAKE_BUILD_TYPE=Release), meson_args (optional: build with colcon-meson)}.
 # Build dependencies come from the node type's apt_packages.
-# Idempotent: the stamp file is named after the pinned commit, the content hash of the patches and the build args, so
-# the build only reruns when one of them changes (or when install/setup.bash is gone: the stamp is then removed). A
-# later source of the same node type also rebuilds when an earlier one (its dependency) changed (_colcon_chain_key).
+# Idempotent and cheap on a no-change deploy: the stamp key is derived first (it needs no checkout) and when the stamp
+# exists and install/setup.bash is there, the clone, patch and build are all skipped (no git network access either).
+# The stamp file is named after the pinned commit, the content hash of the patches and the build args, so the build
+# only reruns when one of them changes (or when install/setup.bash is gone: the stamp is then removed).
+# A later source of the same node type also rebuilds when an earlier one (its dependency) changed (_colcon_chain_key).
 # Sources after the first also source the workspace install (their dependencies, e.g. libcamera for camera_ros); the first
 # source builds exactly as a lone rf2o always did.
 # Build limits (group_vars/all.yml): one colcon worker, make -j{{ ros2_build_jobs }}, CPU cap ros2_build_cpu_quota, low IO
@@ -19,6 +21,46 @@
     group: root
     mode: "0755"
   become: true
+  tags: [build]
+
+- name: Checksum the patches
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha1
+  register: _colcon_patch_stats
+  loop: "{{ colcon_src.patches | default([]) }}"
+  become: true
+  tags: [build]
+
+- name: Derive the build stamp key from the commit and the patch contents
+  ansible.builtin.set_fact:
+    _colcon_patch_key: >-
+      {{ (colcon_src.commit ~ (_colcon_patch_stats.results | map(attribute='stat.checksum') | join(''))
+      ~ (colcon_src.meson_args | default([]) | join(' ')) ~ (colcon_src.cmake_args | default([]) | join(' '))
+      ~ (_colcon_chain_key | default(''))) | hash('sha1') }}
+  tags: [build]
+
+- name: Look for the installed workspace
+  ansible.builtin.stat:
+    path: "{{ colcon_src.workspace }}/install/setup.bash"
+  register: _colcon_setup_stat
+  become: true
+  tags: [build]
+
+- name: Drop the build stamp when the installed workspace is missing
+  ansible.builtin.file:
+    path: "{{ colcon_src.workspace }}/.built-{{ colcon_src.package }}-{{ _colcon_patch_key }}"
+    state: absent
+  when: not _colcon_setup_stat.stat.exists
+  become: true
+  tags: [build]
+
+- name: Look for the build stamp
+  ansible.builtin.stat:
+    path: "{{ colcon_src.workspace }}/.built-{{ colcon_src.package }}-{{ _colcon_patch_key }}"
+  register: _colcon_stamp_stat
+  become: true
+  tags: [build]
 
 # force: discard the previously applied patches so they are re-applied on a clean checkout of the pinned commit.
 - name: Clone the pinned source commit
@@ -28,6 +70,8 @@
     version: "{{ colcon_src.commit }}"
     force: true
   become: true
+  when: not _colcon_stamp_stat.stat.exists
+  tags: [build]
 
 - name: Apply the repo patches to the checkout
   ansible.builtin.patch:
@@ -37,34 +81,13 @@
     remote_src: true
   loop: "{{ colcon_src.patches | default([]) }}"
   become: true
+  when: not _colcon_stamp_stat.stat.exists
+  tags: [build]
 
-- name: Checksum the patches
-  ansible.builtin.stat:
-    path: "{{ item }}"
-    checksum_algorithm: sha1
-  register: _colcon_patch_stats
-  loop: "{{ colcon_src.patches | default([]) }}"
-  become: true
-
-- name: Derive the build stamp key from the commit and the patch contents
-  ansible.builtin.set_fact:
-    _colcon_patch_key: >-
-      {{ (colcon_src.commit ~ (_colcon_patch_stats.results | map(attribute='stat.checksum') | join(''))
-      ~ (colcon_src.meson_args | default([]) | join(' ')) ~ (colcon_src.cmake_args | default([]) | join(' '))
-      ~ (_colcon_chain_key | default(''))) | hash('sha1') }}
-
-- name: Look for the installed workspace
-  ansible.builtin.stat:
-    path: "{{ colcon_src.workspace }}/install/setup.bash"
-  register: _colcon_setup_stat
-  become: true
-
-- name: Drop the build stamp when the installed workspace is missing
-  ansible.builtin.file:
-    path: "{{ colcon_src.workspace }}/.built-{{ colcon_src.package }}-{{ _colcon_patch_key }}"
-    state: absent
-  when: not _colcon_setup_stat.stat.exists
-  become: true
+- name: Stop the running nodes before the colcon build
+  ansible.builtin.include_tasks: stop_for_build.yml
+  when: not _colcon_stamp_stat.stat.exists
+  tags: [build]
 
 - name: Build the workspace for the pinned commit, patches and build args
   ansible.builtin.command:
@@ -81,9 +104,12 @@
   environment:
     MAKEFLAGS: "-j{{ ros2_build_jobs }}"
   become: true
+  when: not _colcon_stamp_stat.stat.exists
   notify: "Restart ROS2 node"
+  tags: [build]
 
 # The next source depends on this one: its stamp changes whenever this source's did.
 - name: Chain the build stamp key into the next source
   ansible.builtin.set_fact:
     _colcon_chain_key: "{{ (_colcon_chain_key | default('')) ~ _colcon_patch_key }}"
+  tags: [build]

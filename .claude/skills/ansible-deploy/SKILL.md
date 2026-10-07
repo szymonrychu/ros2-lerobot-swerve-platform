@@ -25,13 +25,22 @@ mkdir -p .logs
 ./scripts/deploy-nodes.sh client web_ui 2>&1 | tee .logs/deploy-client.log
 ./scripts/deploy-nodes.sh server lerobot_leader 2>&1 | tee .logs/deploy-server.log
 
-# Multiple nodes in PARALLEL (fastest for independent nodes)
+# Several nodes: ONE ansible run with --tags web_ui,filter_node,bno055_imu (never parallel runs)
 ./scripts/deploy-nodes.sh client web_ui filter_node bno055_imu 2>&1 | tee .logs/deploy-client.log
 
-# All nodes on a target (sequential, includes full verify)
+# All nodes on a target (includes full verify)
 ./scripts/deploy-nodes.sh client --all 2>&1 | tee .logs/deploy-client-all.log
 ./scripts/deploy-nodes.sh server --all 2>&1 | tee .logs/deploy-server-all.log
+
+# Partial runs by phase tag (--tags / --skip-tags pass through with --all)
+./scripts/deploy-nodes.sh client --all --tags config,restart   # configs/units/launchers only, then restart
+./scripts/deploy-nodes.sh client --all --skip-tags build,verify
 ```
+
+Phase tags: `sync`, `apt`, `python` (Poetry), `build` (npm/colcon), `config` (config files, units, launchers),
+`boot` (firmware overlays, reboot), `setup` (dirs/tokens/users), `restart`, `verify`, `always`; each node's steps are
+also tagged with the node name. Details: `ansible/README.md`, "Deploy tags". Builds, Poetry installs and restarts only
+happen for what changed (stamps); a no-change deploy restarts nothing. The log ends with a per-task timing recap.
 
 ---
 
@@ -39,18 +48,17 @@ mkdir -p .logs
 
 ```
 ansible/playbooks/
-  deploy_nodes_client.yml       # all client nodes (no loops — explicit per-node)
-  deploy_nodes_server.yml       # all server nodes (no loops — explicit per-node)
-  nodes/
-    client/<node_name>.yml      # per-node playbook (standalone, runs one node)
-    server/<node_name>.yml      # per-node playbook
+  deploy_nodes_client.yml       # all client nodes (explicit per-node steps, each tagged with the node name)
+  deploy_nodes_server.yml       # all server nodes (same)
   tasks/
     repo_sync.yml               # shared: clone/update repo on target
+    apt_nodes.yml               # shared: one batched apt install for the nodes of the run
     resolve_and_deploy.yml      # shared: resolve ros2_nodes entry + call role
+    start_ros_nodes.yml         # last step: restart queued nodes, start stopped ones, gradually
 ```
 
-Per-node playbooks are standalone: they sync the repo, deploy one node, and exit.
-The deploy-all playbooks sync the repo once, deploy all nodes explicitly, then verify.
+There are no per-node playbooks: `deploy-nodes.sh <target> a b` runs the target playbook once with `--tags a,b`.
+The playbook syncs the repo once, deploys the selected nodes, restarts what changed and verifies.
 
 ---
 
@@ -63,9 +71,8 @@ The deploy-all playbooks sync the repo once, deploy all nodes explicitly, then v
 | First deploy, major refactor, or unknown scope | `deploy-nodes.sh <target> --all` |
 | After Ansible role/config structure changes | `deploy-nodes.sh <target> --all` |
 
-Parallel is safe when nodes are independent. Servo nodes (`lerobot_follower`,
-`swerve_drive_servos`, `lerobot_leader`) stop themselves before build — safe to deploy
-in parallel with other nodes.
+A node list is one tag-filtered run, so there is nothing to parallelise. Servo nodes (`lerobot_follower`,
+`lerobot_leader`) are restarted only when their files changed, together with the other changed nodes at the end.
 
 ---
 
@@ -149,11 +156,11 @@ ros2 topic echo /controller/imu/data --once
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `No playbook found` | Node name typo or new node without playbook | Check `playbooks/nodes/<target>/` for available names |
+| `is not a ros2_nodes entry` | Node name typo | The script lists the valid names from `group_vars/<target>.yml` |
 | Poetry install timeout | Transient network on RPi | Re-run the same deploy command |
 | Service restart loop | Bad config or missing device | `journalctl -u ros2-<node>` for traceback |
 | `systemctl status` failed | Node crash on start | Check `journalctl -u ros2-<node>` |
-| Parallel deploy race condition | Two nodes share a device | Deploy those two sequentially instead |
+| Stale SSH control socket | Network dropped mid-run | `rm ~/.ansible/cp/*` and re-run |
 | `ansible-lint` failures | New task missing `name:` | Fix and run `poetry run poe lint-ansible` |
 
 ---

@@ -139,19 +139,16 @@ def test_ros_packages_synced_before_node_deploys(host: str) -> None:
 
 
 def _deploy_playbooks() -> list[Path]:
-    """Every deploy playbook: the --all playbooks and each per-node playbook."""
-    pbs = [ANSIBLE_DIR / "playbooks" / f"deploy_nodes_{h}.yml" for h in ("client", "server")]
-    return pbs + sorted((ANSIBLE_DIR / "playbooks" / "nodes").glob("*/*.yml"))
+    """Every deploy playbook (the client and the server one; per-node deploys are tag filters of these)."""
+    return [ANSIBLE_DIR / "playbooks" / f"deploy_nodes_{h}.yml" for h in ("client", "server")]
 
 
 @pytest.mark.parametrize("playbook", _deploy_playbooks(), ids=lambda p: f"{p.parent.name}/{p.name}")
-def test_deploy_stops_all_nodes_first_and_starts_them_gradually(playbook: Path) -> None:
-    """Builds on the client overheated it next to the running stack (2026-10-03): every deploy first stops all ROS
-    nodes and finally starts the enabled ones one by one."""
+def test_deploy_restarts_changed_nodes_gradually_last(playbook: Path) -> None:
+    """Every deploy ends with the gradual restart/start step; nodes are stopped only before a heavy build (the role's
+    stop_for_build.yml), never up front."""
     play = yaml.safe_load(playbook.read_text())[0]
-    pre = [t.get("ansible.builtin.include_tasks", "") for t in play["pre_tasks"]]
-    stop = [i for i, inc in enumerate(pre) if inc.endswith("tasks/stop_ros_nodes.yml")]
-    assert stop and stop[0] == 0, f"stop_ros_nodes must be the first pre_task: {pre}"
+    assert "stop_ros_nodes" not in playbook.read_text()
     post = [t.get("ansible.builtin.include_tasks", "") for t in play.get("post_tasks", [])]
     assert post and post[-1].endswith("tasks/start_ros_nodes.yml"), post
 

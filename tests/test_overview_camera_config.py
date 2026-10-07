@@ -18,7 +18,6 @@ ANSIBLE_DIR = REPO_ROOT / "ansible"
 CLIENT_VARS = ANSIBLE_DIR / "group_vars" / "client.yml"
 PLAYBOOKS_DIR = ANSIBLE_DIR / "playbooks"
 DEPLOY_CLIENT = PLAYBOOKS_DIR / "deploy_nodes_client.yml"
-NODE_PLAYBOOK = PLAYBOOKS_DIR / "nodes" / "client" / "overview_camera.yml"
 BOOT_TASKS = PLAYBOOKS_DIR / "tasks" / "overview_camera_boot_config.yml"
 RF2O_PLAYBOOK = PLAYBOOKS_DIR / "nodes" / "client" / "rf2o_laser_odometry.yml"
 COLCON_TASKS = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "colcon_source_build.yml"
@@ -182,38 +181,17 @@ def include_names(tasks: list[dict]) -> list[str]:
     return [t["ansible.builtin.include_tasks"] for t in tasks if isinstance(t.get("ansible.builtin.include_tasks"), str)]
 
 
-def test_both_client_playbooks_apply_the_boot_overlays_in_pre_tasks() -> None:
-    full = load_yaml(DEPLOY_CLIENT)[0]["pre_tasks"]
-    single = load_yaml(NODE_PLAYBOOK)[0]["pre_tasks"]
-    assert "tasks/overview_camera_boot_config.yml" in include_names(full)
-    assert "../../tasks/overview_camera_boot_config.yml" in include_names(single)
-    # Boot config first after the stop-all, before the repo sync, in both.
-    assert include_names(full).index("tasks/stop_ros_nodes.yml") < include_names(full).index(
-        "tasks/overview_camera_boot_config.yml"
-    )
-    assert include_names(single).index("../../tasks/stop_ros_nodes.yml") < include_names(single).index(
-        "../../tasks/overview_camera_boot_config.yml"
-    )
+def test_client_playbook_applies_the_camera_boot_overlay_in_pre_tasks_tagged_boot_and_node() -> None:
+    pre = load_yaml(DEPLOY_CLIENT)[0]["pre_tasks"]
+    assert "tasks/overview_camera_boot_config.yml" in include_names(pre)
+    task = next(t for t in pre if t.get("ansible.builtin.include_tasks") == "tasks/overview_camera_boot_config.yml")
+    assert set(task["tags"]) == {"boot", "overview_camera"}, "firmware config only for a boot run or this node"
 
 
 def test_boot_overlays_are_only_written_on_aarch64_hosts() -> None:
     for task in boot_tasks():
         if "ansible.builtin.lineinfile" in task:
             assert task["when"] == 'ansible_machine == "aarch64"'
-
-
-# --- per-node playbook ---------------------------------------------------------------------------------------------
-
-
-def test_per_node_playbook_stops_syncs_deploys_and_starts_gradually() -> None:
-    play = load_yaml(NODE_PLAYBOOK)[0]
-    assert play["hosts"] == "client" and play["become"] is True
-    pre = include_names(play["pre_tasks"])
-    assert pre[0] == "../../tasks/stop_ros_nodes.yml"
-    assert "../../tasks/repo_sync.yml" in pre
-    deployed = [t["vars"]["_deploy_node_name"] for t in play["tasks"]]
-    assert deployed == ["overview_camera"]
-    assert include_names(play["post_tasks"]) == ["../../tasks/start_ros_nodes.yml"]
 
 
 def test_full_client_playbook_deploys_overview_camera_and_not_realsense_before_it() -> None:
@@ -230,8 +208,6 @@ def test_retired_stereo_nodes_are_gone_from_the_client_wiring() -> None:
         assert retired not in text, retired
     assert not (REPO_ROOT / "nodes" / "stereo_depth").exists()
     assert not (REPO_ROOT / "nodes" / "stereo_camera").exists()
-    assert not (PLAYBOOKS_DIR / "nodes" / "client" / "stereo_depth.yml").exists()
-    assert not (PLAYBOOKS_DIR / "nodes" / "client" / "stereo_camera.yml").exists()
     assert "stereo_depth" not in (REPO_ROOT / "scripts" / "lint-all-nodes.sh").read_text()
 
 

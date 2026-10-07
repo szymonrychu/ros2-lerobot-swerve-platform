@@ -1,25 +1,39 @@
 ---
-# Last step of every deploy: start every present and enabled ROS2 node that is not running yet, one at a time with
-# ros2_node_start_interval_s between starts, so the stack ramps up gradually instead of all at once.
-- name: List enabled ROS2 nodes to start
+# Last step of every deploy, once, in ros2_nodes order: restart the nodes whose deploy queued a restart (changed
+# config, unit, launcher, source tree, dependencies, build output) and start the enabled ones that are not running (a
+# heavy step stopped them), one at a time with ros2_node_start_interval_s between them, so the stack ramps up gradually.
+# Running nodes nothing changed for are left alone and cost no sleep.
+- name: List present and enabled ROS2 nodes in deploy order
   ansible.builtin.set_fact:
     ros2_nodes_to_start: >-
-      {{ ros2_nodes
-         | selectattr('present', 'undefined') | list
-         + ros2_nodes | selectattr('present', 'defined') | selectattr('present') | list }}
+      {%- set ns = namespace(names=[]) -%}
+      {%- for n in ros2_nodes -%}
+      {%- if n.present | default(true) and n.enabled | default(true) -%}
+      {%- set ns.names = ns.names + [n.name] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.names }}
+  tags: [restart, always]
 
-- name: Start enabled ROS2 nodes one by one
+- name: Restart the changed and start the stopped ROS2 nodes one by one
   ansible.builtin.shell: |
     set -o pipefail
-    for n in {{ ros2_nodes_to_start | rejectattr('enabled', 'defined') | map(attribute='name') | list | join(' ') }} \
-             {{ ros2_nodes_to_start | selectattr('enabled', 'defined') | selectattr('enabled') | map(attribute='name') | list | join(' ') }}; do
-      if ! systemctl is-active -q "ros2-$n"; then
-        systemctl start "ros2-$n" && echo "started ros2-$n"
-        sleep {{ ros2_node_start_interval_s | default(5) }}
+    pending=" {{ ros2_nodes_pending_restart | default([]) | unique | join(' ') }} "
+    for n in {{ ros2_nodes_to_start | join(' ') }}; do
+      if systemctl is-active -q "ros2-$n" && [[ "$pending" != *" $n "* ]]; then
+        continue
       fi
+      systemctl restart "ros2-$n" && echo "restarted ros2-$n"
+      sleep {{ ros2_node_start_interval_s | default(5) }}
     done
   args:
     executable: /bin/bash
   become: true
   register: ros2_nodes_started
-  changed_when: "'started' in ros2_nodes_started.stdout"
+  changed_when: "'restarted' in ros2_nodes_started.stdout"
+  tags: [restart, always]
+
+- name: Clear the restart queue
+  ansible.builtin.set_fact:
+    ros2_nodes_pending_restart: []
+  tags: [restart, always]

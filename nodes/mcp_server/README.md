@@ -398,4 +398,4 @@ poetry run pytest tests -q   # rclpy-free unit tests (rclpy is only imported by 
 poetry run poe lint          # ruff check, ruff format --check, vulture
 ```
 
-Deploy: `./scripts/deploy-nodes.sh client mcp_server` (playbook `ansible/playbooks/nodes/client/mcp_server.yml`).
+Deploy: `./scripts/deploy-nodes.sh client mcp_server` (a `--tags mcp_server` run of `ansible/playbooks/deploy_nodes_client.yml`).

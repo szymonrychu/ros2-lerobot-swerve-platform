@@ -1,0 +1,15 @@
+---
+# Work out what this run covers from the --tags it was started with (ansible_run_tags; "all" without --tags):
+# ros2_selected_nodes are the ros2_nodes whose name is among the tags, ros2_run_apt says whether the apt steps
+# (ROS package sync, batched node packages) take part: always for a full run or --tags apt, else only when a node
+# was selected. Tagged `always` so it runs under every --tags filter.
+- name: Nodes selected by name through --tags
+  ansible.builtin.set_fact:
+    ros2_selected_nodes: "{{ ros2_nodes | map(attribute='name') | select('in', ansible_run_tags) | list }}"
+  tags: [always]
+
+- name: Whether the apt steps run
+  ansible.builtin.set_fact:
+    ros2_run_apt: "{{ 'all' in ansible_run_tags or 'apt' in ansible_run_tags or ros2_selected_nodes | length > 0 }}"
+    ros2_apt_only_selected: "{{ 'all' not in ansible_run_tags and 'apt' not in ansible_run_tags and ros2_selected_nodes | length > 0 }}"
+  tags: [always]

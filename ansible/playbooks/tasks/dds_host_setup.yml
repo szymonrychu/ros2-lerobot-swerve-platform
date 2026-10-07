@@ -10,6 +10,7 @@
       # Managed by Ansible (playbooks/tasks/dds_host_setup.yml). DDS discovery settings matching the ROS2 nodes.
       unset ROS_DISCOVERY_SERVER ROS_SUPER_CLIENT
       export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+  tags: [config]
 
 # Nodes run as a regular user; with logind's default RemoveIPC=yes every SSH logout of that user deletes
 # its POSIX shared memory, i.e. the FastDDS SHM segments of all running nodes (data silently stops while
@@ -21,6 +22,7 @@
     owner: root
     group: root
     mode: "0755"
+  tags: [config]
 
 - name: Keep node user IPC when sessions end (logind RemoveIPC=no)
   ansible.builtin.copy:
@@ -33,12 +35,14 @@
       [Login]
       RemoveIPC=no
   register: ros2_keep_ipc
+  tags: [config]
 
 - name: Reload systemd-logind configuration
   ansible.builtin.systemd:
     name: systemd-logind
     state: restarted
   when: ros2_keep_ipc.changed
+  tags: [config]
 
 - name: Restart running ROS2 node services so they recreate shared memory segments
   ansible.builtin.shell: |
@@ -48,3 +52,4 @@
     executable: /bin/bash
   changed_when: true
   when: ros2_keep_ipc.changed
+  tags: [config]

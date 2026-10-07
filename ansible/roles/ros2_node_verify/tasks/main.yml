@@ -1,39 +1,50 @@
 ---
 # Verify all present and enabled ROS2 node services are active and stable.
 # Run after ros2_node_deploy (all nodes). Expects ros2_nodes in scope.
+# One systemctl call per check for all nodes (not one SSH task per node and check); retried until every unit is active.
+
+- name: List the present and enabled ROS2 node units
+  ansible.builtin.set_fact:
+    _ros2_verify_units: >-
+      {%- set ns = namespace(units=[]) -%}
+      {%- for n in ros2_nodes -%}
+      {%- if n.present | default(true) and n.enabled | default(true) -%}
+      {%- set ns.units = ns.units + ['ros2-' ~ n.name] -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ ns.units }}
+  tags: [verify, always]
 
 - name: Wait for ROS2 node services to settle
   ansible.builtin.pause:
     seconds: "{{ ros2_node_verify_settle_seconds | default(10) }}"
     prompt: ""
+  tags: [verify, always]
 
-- name: Check each present and enabled ROS2 node service is active (with retries)
-  ansible.builtin.command: systemctl is-active ros2-{{ item.name }}
+- name: Check every present and enabled ROS2 node service is active (with retries)
+  ansible.builtin.command: systemctl is-active {{ _ros2_verify_units | join(' ') }}
   register: _ros2_verify_active
   changed_when: false
-  until: _ros2_verify_active.stdout | trim == 'active'
+  until: _ros2_verify_active.rc == 0
   retries: "{{ ros2_node_verify_retries | default(12) }}"
   delay: "{{ ros2_node_verify_delay | default(5) }}"
-  failed_when: _ros2_verify_active.stdout | trim != 'active'
-  loop: "{{ ros2_nodes }}"
-  when: (item.present | default(true)) and (item.enabled | default(true))
-  loop_control:
-    label: "{{ item.name }}"
+  failed_when: _ros2_verify_active.rc != 0
+  when: _ros2_verify_units | length > 0
+  tags: [verify, always]
 
 - name: Wait before stability re-check
   ansible.builtin.pause:
     seconds: "{{ ros2_node_verify_stable_seconds | default(5) }}"
     prompt: ""
+  tags: [verify, always]
 
 - name: Re-check ROS2 node services are still active (stable)
-  ansible.builtin.command: systemctl is-active ros2-{{ item.name }}
+  ansible.builtin.command: systemctl is-active {{ _ros2_verify_units | join(' ') }}
   register: _ros2_verify_stable
   changed_when: false
-  until: _ros2_verify_stable.stdout | trim == 'active'
+  until: _ros2_verify_stable.rc == 0
   retries: "{{ ros2_node_verify_stable_retries | default(3) }}"
   delay: "{{ ros2_node_verify_delay | default(5) }}"
-  failed_when: _ros2_verify_stable.stdout | trim != 'active'
-  loop: "{{ ros2_nodes }}"
-  when: (item.present | default(true)) and (item.enabled | default(true))
-  loop_control:
-    label: "{{ item.name }}"
+  failed_when: _ros2_verify_stable.rc != 0
+  when: _ros2_verify_units | length > 0
+  tags: [verify, always]

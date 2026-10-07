@@ -8,6 +8,7 @@
   ansible.builtin.set_fact:
     _colcon_sources: "{{ [node_colcon_source] if node_colcon_source is mapping else node_colcon_source }}"
     _colcon_chain_key: ""
+  tags: [build]
 
 - name: Build each pinned source in order
   ansible.builtin.include_tasks: colcon_source_package.yml
@@ -15,3 +16,4 @@
   loop_control:
     loop_var: colcon_src
     label: "{{ colcon_src.package }}"
+  tags: [build]

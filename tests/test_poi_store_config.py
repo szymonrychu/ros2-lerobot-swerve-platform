@@ -8,7 +8,6 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 DEPLOY_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml"
-NODE_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "nodes" / "client" / "poi_store.yml"
 DIR_TASKS = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "poi_store_dir.yml"
 LINT_SCRIPT = REPO_ROOT / "scripts" / "lint-all-nodes.sh"
 NODE_DIR = REPO_ROOT / "nodes" / "poi_store"
@@ -59,14 +58,10 @@ def test_poi_directory_task_owned_by_node_user() -> None:
     assert file_task["owner"] == "{{ ansible_user }}"
 
 
-def test_poi_playbooks_deploy_node_and_create_directory() -> None:
-    node_text = NODE_PLAYBOOK.read_text()
-    assert "_deploy_node_name: poi_store" in node_text
-    assert "poi_store_dir.yml" in node_text
+def test_poi_playbook_deploys_node_and_creates_directory() -> None:
     full = DEPLOY_PLAYBOOK.read_text()
     assert "_deploy_node_name: poi_store" in full and "poi_store_dir.yml" in full
     assert full.index("_deploy_node_name: mcp_server") < full.index("_deploy_node_name: poi_store")
-    assert yaml.safe_load(node_text)[0]["hosts"] == "client"
 
 
 def test_lint_script_and_node_files() -> None:

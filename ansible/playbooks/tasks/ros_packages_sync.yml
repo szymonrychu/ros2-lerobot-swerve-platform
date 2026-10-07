@@ -7,6 +7,7 @@
     update_cache: true
     cache_valid_time: 3600
   become: true
+  tags: [apt, always]
 
 - name: List upgradable ROS 2 Jazzy packages
   ansible.builtin.shell: |
@@ -16,6 +17,7 @@
     executable: /bin/bash
   register: ros_upgradable
   changed_when: false
+  tags: [apt, always]
 
 - name: Upgrade ROS 2 Jazzy packages to the current sync
   ansible.builtin.apt:
@@ -25,6 +27,7 @@
   become: true
   register: ros_upgrade
   when: ros_upgradable.stdout_lines | length > 0
+  tags: [apt, always]
 
 - name: Restart running ROS2 node services after the ROS upgrade
   ansible.builtin.shell: |
@@ -35,3 +38,4 @@
   become: true
   changed_when: true
   when: ros_upgrade is changed
+  tags: [apt, always]

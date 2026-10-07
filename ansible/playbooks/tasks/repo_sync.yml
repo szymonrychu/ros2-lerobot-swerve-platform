@@ -8,6 +8,7 @@
     state: directory
     mode: "0755"
   become: true
+  tags: [sync, always]
 
 - name: Clone or update repo for local builds
   ansible.builtin.git:
@@ -17,3 +18,4 @@
     force: true
     update: true
   become: true
+  tags: [sync, always]

@@ -5,6 +5,11 @@
 #   Native: node_launch_command, node_src_dir (optional), node_apt_packages, node_cpu_quota, node_memory_max,
 #     node_colcon_source (optional {repo, commit, package, workspace} or a list of them: built from source, see colcon_source_build.yml)
 #   Both: node_config_path, node_config, node_env, repo_dest
+# Deploy speed (see ansible/README.md, "Deploy performance"): nothing here restarts or stops a node directly. Changes
+# queue a restart (handler "Restart ROS2 node" appends to ros2_nodes_pending_restart) that playbooks/tasks/start_ros_nodes.yml
+# carries out once, in ros2_nodes order, at the end of the deploy. Heavy steps (npm, colcon, Poetry) run only when
+# their stamp changed and stop all running nodes first (stop_for_build.yml, once per play). Every task carries a tag
+# (apt, python, build, config, always) so partial runs work; the playbook adds the node name tag.
 
 - name: Validate required variables
   ansible.builtin.assert:
@@ -13,6 +18,7 @@
       - node_name | length > 0
     fail_msg: "ros2_node_deploy requires node_name."
     success_msg: "Required vars present for {{ node_name }}"
+  tags: [always]
 
 - name: Validate native-mode required variables
   when: (node_deploy_mode | default('native')) == 'native'
@@ -21,11 +27,13 @@
       - node_launch_command is defined
       - node_launch_command | length > 0
     fail_msg: "Native deploy mode requires node_launch_command."
+  tags: [always]
 
 - name: Set current node name and enabled state for handlers
   ansible.builtin.set_fact:
     ros2_node_restart_now: "{{ node_name }}"
     ros2_node_restart_enabled: "{{ node_enabled | default(true) | bool }}"
+  tags: [always]
 
 - name: Validate feetech_servos node config schema (name+id per joint)
   when:
@@ -47,11 +55,13 @@
     fail_msg: >-
       feetech_servos node '{{ node_name }}' requires config.joint_names as list of
       objects with both name and id (e.g. [{name: joint_1, id: 1}, ...]).
+  tags: [config]
 
 # ── UNINSTALL ──────────────────────────────────────────────────────────────────
 
 - name: Uninstall ROS2 node (present is false)
   when: not (node_present | default(true) | bool)
+  tags: [config]
   block:
     - name: Stop ROS2 node service
       ansible.builtin.service:
@@ -103,6 +113,7 @@
     - node_present | default(true) | bool
     - (node_deploy_mode | default('native')) == 'native'
   block:
+    # Skipped when the playbook installed the apt packages of all nodes in one task up front (ros2_apt_batched).
     - name: Install node apt packages
       ansible.builtin.apt:
         name: "{{ node_apt_packages | default([]) }}"
@@ -110,11 +121,15 @@
         update_cache: true
         cache_valid_time: 3600
       become: true
-      when: (node_apt_packages | default([])) | length > 0
+      when:
+        - (node_apt_packages | default([])) | length > 0
+        - not (ros2_apt_batched | default(false) | bool)
+      tags: [apt]
 
     - name: Build the pinned source workspace (colcon)
       ansible.builtin.include_tasks: colcon_source_build.yml
       when: (node_colcon_source | default({})) | length > 0
+      tags: [build]
 
     - name: Create node venv directory
       ansible.builtin.file:
@@ -125,6 +140,7 @@
         mode: "0755"
       become: true
       when: node_src_dir is defined and node_src_dir | length > 0
+      tags: [python, config]
 
     - name: Create Poetry venv with system-site-packages
       ansible.builtin.command:
@@ -132,34 +148,141 @@
         creates: /opt/ros2-nodes/{{ node_name }}/venv/bin/python3
       become: true
       when: node_src_dir is defined and node_src_dir | length > 0
+      tags: [python, config]
 
+    # One read-only look at what changed: the git tree hash of the node's source dir (plus shared/ for nodes that depend
+    # on it, installed in develop mode), and the hash of pyproject.toml + poetry.lock (+ shared/pyproject.toml) against
+    # the stamp of the last successful Poetry install (<venv>/.poetry-deps).
+    - name: Detect node source and Python dependency changes
+      ansible.builtin.shell: |
+        set -eu
+        repo="{{ repo_dest }}"; src="{{ node_src_dir }}"
+        src_key=$(git -C "$repo" rev-parse "HEAD:$src" 2>/dev/null || echo untracked)
+        deps_files="$repo/$src/pyproject.toml $repo/$src/poetry.lock"
+        if grep -q shared "$repo/$src/pyproject.toml"; then
+          src_key="$src_key-$(git -C "$repo" rev-parse HEAD:shared 2>/dev/null || echo untracked)"
+          deps_files="$deps_files $repo/shared/pyproject.toml"
+        fi
+        deps_key=$(cat $deps_files 2>/dev/null | sha256sum | cut -d' ' -f1)
+        stored=$(cat "/opt/ros2-nodes/{{ node_name }}/venv/.poetry-deps" 2>/dev/null || true)
+        printf '{"src_key": "%s", "deps_key": "%s", "stored_deps_key": "%s"}\n' "$src_key" "$deps_key" "$stored"
+      args:
+        executable: /bin/bash
+      become: true
+      register: node_change_probe
+      changed_when: false
+      check_mode: false
+      when: node_src_dir is defined and node_src_dir | length > 0
+      tags: [python, config]
+
+    - name: Remember what changed for this node
+      ansible.builtin.set_fact:
+        node_src_key: "{{ (node_change_probe.stdout | from_json).src_key }}"
+        node_deps_key: "{{ (node_change_probe.stdout | from_json).deps_key }}"
+        node_deps_stale: "{{ (node_change_probe.stdout | from_json).deps_key != (node_change_probe.stdout | from_json).stored_deps_key }}"
+      when: node_src_dir is defined and node_src_dir | length > 0
+      tags: [python, config]
+
+    - name: Stop the running nodes before the Poetry install
+      ansible.builtin.include_tasks: stop_for_build.yml
+      when:
+        - node_src_dir is defined and node_src_dir | length > 0
+        - node_deps_stale | bool
+      tags: [python]
+
+    # Only when pyproject.toml / poetry.lock (or shared/pyproject.toml) differ from the last successful install, or the
+    # venv is new. The stamp is written only after poetry succeeded.
     - name: Install node Python dependencies via Poetry
-      ansible.builtin.command:
-        cmd: /usr/local/bin/poetry install --only main --no-interaction
+      ansible.builtin.shell: >-
+        /usr/local/bin/poetry install --only main --no-interaction &&
+        printf '%s' '{{ node_deps_key }}' > /opt/ros2-nodes/{{ node_name }}/venv/.poetry-deps
+      args:
         chdir: "{{ repo_dest }}/{{ node_src_dir }}"
+        executable: /bin/bash
       environment:
         VIRTUAL_ENV: "/opt/ros2-nodes/{{ node_name }}/venv"
         POETRY_VIRTUALENVS_CREATE: "false"
         PATH: "/opt/ros2-nodes/{{ node_name }}/venv/bin:/usr/local/bin:/usr/bin:/bin"
       become: true
+      when:
+        - node_src_dir is defined and node_src_dir | length > 0
+        - node_deps_stale | bool
+      notify: "Restart ROS2 node"
+      tags: [python]
+
+    # The node runs from the repo checkout (PYTHONPATH), so a changed source tree needs a restart but no install. The
+    # stamp holds the tree hash; a different hash changes the file, which queues the restart.
+    - name: Record the deployed node source (restart when it changed)
+      ansible.builtin.copy:
+        dest: "/opt/ros2-nodes/{{ node_name }}/.deployed-src"
+        content: "{{ node_src_key }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
       when: node_src_dir is defined and node_src_dir | length > 0
       notify: "Restart ROS2 node"
-      changed_when: true
+      tags: [python, config]
+
+    # web_ui frontend: npm ci only when package.json / package-lock.json changed (or node_modules is gone), npm run build
+    # only when the tracked frontend sources changed (git tree hash), after npm ci, or when the build output is gone.
+    - name: Fingerprint the web_ui frontend
+      ansible.builtin.shell: |
+        set -eu
+        cd "{{ repo_dest }}/nodes/web_ui/frontend"
+        lock=$(cat package.json package-lock.json | sha256sum | cut -d' ' -f1)
+        tree=$(git -C "{{ repo_dest }}" rev-parse HEAD:nodes/web_ui/frontend 2>/dev/null || echo untracked)
+        stored_lock=$(cat .npm-ci-stamp 2>/dev/null || true)
+        stored_tree=$(cat .build-stamp 2>/dev/null || true)
+        ci=false; build=false
+        if [ "$lock" != "$stored_lock" ] || [ ! -d node_modules ]; then ci=true; fi
+        if [ "$ci" = true ] || [ "$tree" != "$stored_tree" ] || [ ! -f dist/index.html ] || [ ! -f ../web_ui/static/index.html ]; then build=true; fi
+        printf '{"lock": "%s", "tree": "%s", "ci": %s, "build": %s}\n' "$lock" "$tree" "$ci" "$build"
+      args:
+        executable: /bin/bash
+      become: true
+      register: web_ui_frontend_probe
+      changed_when: false
+      check_mode: false
+      when: node_name == 'web_ui'
+      tags: [build]
+
+    - name: Stop the running nodes before the web_ui frontend build
+      ansible.builtin.include_tasks: stop_for_build.yml
+      when:
+        - node_name == 'web_ui'
+        - (web_ui_frontend_probe.stdout | from_json).build
+      tags: [build]
 
     - name: Run npm ci for web_ui frontend
       ansible.builtin.command:
         cmd: systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3 npm ci
         chdir: "{{ repo_dest }}/nodes/web_ui/frontend"
-      when: node_name == 'web_ui'
-      changed_when: true
+      when:
+        - node_name == 'web_ui'
+        - (web_ui_frontend_probe.stdout | from_json).ci
+      register: web_ui_npm_ci
+      tags: [build]
+
+    - name: Stamp the npm ci input of the web_ui frontend
+      ansible.builtin.copy:
+        dest: "{{ repo_dest }}/nodes/web_ui/frontend/.npm-ci-stamp"
+        content: "{{ (web_ui_frontend_probe.stdout | from_json).lock }}"
+        mode: "0644"
+      become: true
+      when: web_ui_npm_ci is changed
+      tags: [build]
 
     - name: Run npm run build for web_ui frontend
       ansible.builtin.command:
         cmd: systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3 npm run build
         chdir: "{{ repo_dest }}/nodes/web_ui/frontend"
-      when: node_name == 'web_ui'
-      changed_when: true
+      when:
+        - node_name == 'web_ui'
+        - (web_ui_frontend_probe.stdout | from_json).build
+      register: web_ui_npm_build
       notify: "Restart ROS2 node"
+      tags: [build]
 
     - name: Copy built web_ui frontend to static dir
       ansible.builtin.copy:
@@ -168,8 +291,19 @@
         remote_src: true
         mode: preserve
       become: true
-      when: node_name == 'web_ui'
+      when: web_ui_npm_build is changed
       notify: "Restart ROS2 node"
+      tags: [build]
+
+    # Written last, after build and copy succeeded, so a failed deploy rebuilds on the next run.
+    - name: Stamp the built web_ui frontend sources
+      ansible.builtin.copy:
+        dest: "{{ repo_dest }}/nodes/web_ui/frontend/.build-stamp"
+        content: "{{ (web_ui_frontend_probe.stdout | from_json).tree }}"
+        mode: "0644"
+      become: true
+      when: web_ui_npm_build is changed
+      tags: [build]
 
     - name: Ensure /etc/ros2-nodes directory exists
       ansible.builtin.file:
@@ -179,6 +313,7 @@
         group: root
         mode: "0755"
       become: true
+      tags: [config]
 
     - name: Ensure ROS2 node config directory exists
       ansible.builtin.file:
@@ -186,6 +321,7 @@
         state: directory
         mode: "0755"
       become: true
+      tags: [config]
 
     - name: Deploy node config file (native)
       ansible.builtin.copy:
@@ -195,6 +331,7 @@
       become: true
       when: node_config_path is defined and node_config_path is string and (node_config_path | length > 0)
       notify: "Restart ROS2 node"
+      tags: [config]
 
     - name: Deploy launcher script
       ansible.builtin.template:
@@ -207,6 +344,7 @@
       notify:
         - "Reload systemd"
         - "Restart ROS2 node"
+      tags: [config]
 
     - name: Create native systemd unit for ROS2 node
       ansible.builtin.template:
@@ -217,17 +355,25 @@
       notify:
         - "Reload systemd"
         - "Restart ROS2 node"
+      tags: [config]
 
-    - name: Set service state and enabled (native)
-      ansible.builtin.service:
-        name: "ros2-{{ node_name }}"
-        state: "{{ 'started' if (node_enabled | default(true) | bool) else 'stopped' }}"
-        enabled: "{{ node_enabled | default(true) | bool }}"
-        daemon_reload: true
-      become: true
-
+# Handlers run here: systemd is reloaded (unit changed) before the enable below, and this node's restart is queued.
 - name: Flush handlers (native)
   ansible.builtin.meta: flush_handlers
   when:
     - node_present | default(true) | bool
     - (node_deploy_mode | default('native')) == 'native'
+  tags: [always]
+
+# Enabled nodes are NOT started here: start_ros_nodes.yml restarts the queued ones and starts the stopped ones once,
+# gradually, at the end of the deploy. A node deployed with enabled: false is stopped.
+- name: Set service enabled state (native)
+  ansible.builtin.service:
+    name: "ros2-{{ node_name }}"
+    state: "{{ omit if (node_enabled | default(true) | bool) else 'stopped' }}"
+    enabled: "{{ node_enabled | default(true) | bool }}"
+  become: true
+  when:
+    - node_present | default(true) | bool
+    - (node_deploy_mode | default('native')) == 'native'
+  tags: [config]

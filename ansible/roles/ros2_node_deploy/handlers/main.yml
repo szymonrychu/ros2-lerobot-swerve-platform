@@ -4,12 +4,12 @@
     daemon_reload: true
   become: true
 
+# Queue only: the restart itself happens once, in ros2_nodes order, at the end of the deploy
+# (playbooks/tasks/start_ros_nodes.yml), so a node is never restarted before everything it needs is deployed.
 - name: Restart ROS2 node
-  ansible.builtin.service:
-    name: "ros2-{{ ros2_node_restart_now }}"
-    state: restarted
-  become: true
-  # Never (re)start a node deployed with enabled: false; the role has just stopped it.
+  ansible.builtin.set_fact:
+    ros2_nodes_pending_restart: "{{ (ros2_nodes_pending_restart | default([])) + [ros2_node_restart_now] }}"
+  # Never (re)start a node deployed with enabled: false; the role stops it.
   when:
     - ros2_node_restart_on_change | default(true) | bool
     - ros2_node_restart_enabled | default(true) | bool  # node_enabled of the node being deployed

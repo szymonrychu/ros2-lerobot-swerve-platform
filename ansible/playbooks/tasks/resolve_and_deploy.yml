@@ -6,6 +6,7 @@
 - name: "Look up {{ _deploy_node_name }} in ros2_nodes"
   ansible.builtin.set_fact:
     _node: "{{ ros2_nodes | selectattr('name', 'equalto', _deploy_node_name) | first }}"
+  tags: [apt, python, build, config]
 
 - name: "Deploy {{ _deploy_node_name }}"
   ansible.builtin.include_role:
@@ -38,3 +39,4 @@
     node_no_new_privileges: "{{ ros2_node_type_defaults[_node.node_type].no_new_privileges | default(false) }}"
     node_private_tmp: "{{ ros2_node_type_defaults[_node.node_type].private_tmp | default(false) }}"
     node_extra_args: "{{ _node.extra_args | default('') }}"
+  tags: [apt, python, build, config]

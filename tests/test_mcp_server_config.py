@@ -24,7 +24,6 @@ ROLE_DIR = ANSIBLE_DIR / "roles" / "ros2_node_deploy"
 SERVICE_TEMPLATE = ROLE_DIR / "templates" / "ros2-node-native.service.j2"
 RESOLVE_TASKS = PLAYBOOKS_DIR / "tasks" / "resolve_and_deploy.yml"
 SETUP_TASKS = PLAYBOOKS_DIR / "tasks" / "mcp_server_setup.yml"
-NODE_PLAYBOOK = PLAYBOOKS_DIR / "nodes" / "client" / "mcp_server.yml"
 MCP_JSON = REPO_ROOT / ".mcp.json"
 TOKEN_SCRIPT = REPO_ROOT / "scripts" / "robot_mcp_token.sh"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
@@ -57,7 +56,6 @@ AUTONOMY = {
 }
 TILE_CACHE_DIR = "/var/cache/web_ui/tiles"
 TILE_CACHE_TASKS = PLAYBOOKS_DIR / "tasks" / "web_ui_tile_cache_dir.yml"
-WEB_UI_PLAYBOOK = PLAYBOOKS_DIR / "nodes" / "client" / "web_ui.yml"
 LEGACY_MAP_KEYS = {"urdf_file", "topic", "arm_urdf_file", "arm_joint_topic", "scan_topic", "costmap_topic"}
 WEB_UI_TABS = ["map", "agent", "camera", "overview_camera", "imu_graphs"]
 REMOVED_WEB_UI_TABS = {"arm_servos", "local_nav", "gps_nav", "scene3d", "robot_status"}
@@ -315,7 +313,7 @@ def test_web_ui_tile_cache_dir_task_owned_by_node_user() -> None:
     assert args["owner"] == "{{ ansible_user }}" and args["group"] == "{{ ansible_user }}"
 
 
-@pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml", "nodes/client/web_ui.yml"])
+@pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml"])
 def test_playbooks_create_tile_cache_before_deploying_web_ui(playbook: str) -> None:
     _, tasks, _ = play_tasks(PLAYBOOKS_DIR / playbook)
     deploy = deploy_index(tasks, "web_ui")
@@ -351,21 +349,13 @@ def test_mcp_server_setup_tasks_create_token_and_arm_dir() -> None:
     assert "length=48" in content
 
 
-@pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml", "nodes/client/mcp_server.yml"])
+@pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml"])
 def test_playbooks_run_setup_before_deploying_mcp_server(playbook: str) -> None:
     pre, tasks, _ = play_tasks(PLAYBOOKS_DIR / playbook)
     deploy = deploy_index(tasks, "mcp_server")
     setup = include_index(tasks, "mcp_server_setup.yml")
     assert deploy >= 0, f"{playbook} does not deploy mcp_server"
     assert 0 <= setup < deploy, f"{playbook}: token/arm dir setup must run before the deploy"
-
-
-def test_node_playbook_stops_first_and_starts_last() -> None:
-    pre, tasks, post = play_tasks(NODE_PLAYBOOK)
-    assert "stop_ros_nodes.yml" in pre[0]["ansible.builtin.include_tasks"]
-    assert include_index(pre, "repo_sync.yml") > 0
-    assert "start_ros_nodes.yml" in post[-1]["ansible.builtin.include_tasks"]
-    assert yaml.safe_load(NODE_PLAYBOOK.read_text())[0]["hosts"] == "client"
 
 
 def test_unit_template_renders_environment_file_only_when_set() -> None:

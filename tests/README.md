@@ -365,7 +365,7 @@ Decision logic of the RPLidar scan watchdog (`nodes/bridges/rplidar_a1/scan_watc
 
 ### test_dds_discovery_config.py
 
-Static checks of the DDS discovery setup in Ansible: the shared `ros2_dds_env` is `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` and the discovery-server variables are gone; no node env overrides discovery (`ROS_DISCOVERY_SERVER`, `ROS_SUPER_CLIENT`, `ROS_LOCALHOST_ONLY`, `ROS_AUTOMATIC_DISCOVERY_RANGE`) and the only `ROS_STATIC_PEERS` is the client `master2master` pointing at the server (server nodes have none); the former `fastdds_discovery_server` node is `present: false` / `enabled: false` on both hosts; the unit template renders the shared env before node env with no discovery-server ordering; Steam Deck uses the client as static peer; `/etc/profile.d/ros2_dds.sh` sets localhost discovery for shells; `--all` deploys include `tasks/ros_packages_sync.yml` after the repo sync (upgrade all ros-jazzy packages together, restart running nodes if anything was upgraded); every deploy playbook (`--all` and per-node) first includes `tasks/stop_ros_nodes.yml` and finally `tasks/start_ros_nodes.yml` (present and enabled nodes started one by one, `ros2_node_start_interval_s` = 5), and web_ui is deployed first in the client `--all` playbook; secondary ethernet ports are `optional: true` in the rendered netplan, and `--all` deploys install the wait-online drop-in (`--any --timeout=30`); every `env:` key is a list (an empty `env:` parses as null and breaks deploys); logind keeps the node user's shared memory (`RemoveIPC=no`) and running `ros2-*` services restart once when that is first applied.
+Static checks of the DDS discovery setup in Ansible: the shared `ros2_dds_env` is `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` and the discovery-server variables are gone; no node env overrides discovery (`ROS_DISCOVERY_SERVER`, `ROS_SUPER_CLIENT`, `ROS_LOCALHOST_ONLY`, `ROS_AUTOMATIC_DISCOVERY_RANGE`) and the only `ROS_STATIC_PEERS` is the client `master2master` pointing at the server (server nodes have none); the former `fastdds_discovery_server` node is `present: false` / `enabled: false` on both hosts; the unit template renders the shared env before node env with no discovery-server ordering; Steam Deck uses the client as static peer; `/etc/profile.d/ros2_dds.sh` sets localhost discovery for shells; `--all` deploys include `tasks/ros_packages_sync.yml` after the repo sync (upgrade all ros-jazzy packages together, restart running nodes if anything was upgraded); the client and server deploy playbooks never stop the stack up front (`stop_ros_nodes.yml` is gone) and finally include `tasks/start_ros_nodes.yml` (queued nodes restarted and stopped ones started one by one, `ros2_node_start_interval_s` = 2), and web_ui is deployed first in the client `--all` playbook; secondary ethernet ports are `optional: true` in the rendered netplan, and `--all` deploys install the wait-online drop-in (`--any --timeout=30`); every `env:` key is a list (an empty `env:` parses as null and breaks deploys); logind keeps the node user's shared memory (`RemoveIPC=no`) and running `ros2-*` services restart once when that is first applied.
 
 ### test_nav_stack_config.py
 
@@ -393,7 +393,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_slam_launch_map_base_from_configuration` | `configured_map_base` takes `map_file_name` from the last params file that sets it (falls back to `/var/lib/ros2/maps/slam_map`); an explicit `SLAM_TOOLBOX_MAP_BASE` value wins over the files. |
 | `test_slam_toolbox_ansible_wiring` | Node type defaults (native, apt package, repo launch, budget, `config_path: /etc/ros2/slam_toolbox`, env `SLAM_TOOLBOX_CONFIG`) and an enabled `ros2_nodes` entry. |
 | `test_slam_toolbox_ansible_config_overrides` | The `ros2_nodes` slam_toolbox `config: \|` block parses as YAML with `map_file_name` (`/var/lib/ros2/maps/slam_map`), `min_laser_range` 0.15 and `max_laser_range` 12.0, only known slam_toolbox params, and the same map path as the web_ui Map tab `map_save_path`. |
-| `test_slam_playbooks_deploy_node_and_create_maps_dir` | `deploy_nodes_client.yml` and `nodes/client/slam_toolbox.yml` deploy slam_toolbox and create `/var/lib/ros2/maps` (owner `ansible_user`, 0755). |
+| `test_slam_playbooks_deploy_node_and_create_maps_dir` | `deploy_nodes_client.yml` deploys slam_toolbox and create `/var/lib/ros2/maps` (owner `ansible_user`, 0755). |
 | `test_nav2_launch_passes_repo_params_without_localization` | Nav2 launch passes the repo `params_file`, keeps `use_localization:=False`. |
 | `test_nav2_has_every_server_section` | `nav2_params.yaml` has a section for every server started by Jazzy `navigation_launch.py`. |
 | `test_nav2_frames` | bt_navigator, costmaps, collision_monitor, behavior_server, docking_server and route_server frames/topics. |
@@ -440,7 +440,7 @@ Static wiring invariants of the poi_store node (Ansible, playbooks, lint script,
 | `test_poi_store_node_type_defaults` | `poi_store` node type: native, `nodes/poi_store`, `python3 -m poi_store`, `config_path` `/etc/ros2/poi_store`, env `POI_STORE_CONFIG`. |
 | `test_poi_store_entry_after_mcp_server_with_config` | Present + enabled `ros2_nodes` entry directly after `mcp_server`; config has `store_path` `/var/lib/ros2/poi/poi.json` and the `/poi/list`, `/poi/command`, `/poi/result` topics. |
 | `test_poi_directory_task_owned_by_node_user` | `poi_store_dir.yml` creates `/var/lib/ros2/poi` owned by `ansible_user`. |
-| `test_poi_playbooks_deploy_node_and_create_directory` | Per-node playbook and `deploy_nodes_client.yml` create the directory and deploy `poi_store` (after `mcp_server`). |
+| `test_poi_playbook_deploys_node_and_creates_directory` | `deploy_nodes_client.yml` creates the directory and deploy `poi_store` (after `mcp_server`). |
 | `test_lint_script_and_node_files` | `scripts/lint-all-nodes.sh` lists the node; pyproject, poetry.lock, README and tests exist. |
 | `test_docs_mention_poi_store` | nodes/README.md, ansible/README.md and the ansible-deploy skill mention `poi_store`. |
 
@@ -481,14 +481,13 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_front_camera_is_the_compressed_overview_camera` | mcp_server `topics.front_camera` is `/overview_camera/image_raw/compressed` and no `realsense_camera` key remains. |
 | `test_web_ui_map_tab_uses_contract_fields` | The map tab carries no legacy keys (`urdf_file`, `topic`, `arm_urdf_file`, `arm_joint_topic`, `scan_topic`, `costmap_topic`), uses the frontend contract names, points `arm_home_service` / `arm_set_home_service` at the services mcp_server serves, and keeps the tile cache at `/var/cache/web_ui/tiles`. |
 | `test_web_ui_tile_cache_dir_task_owned_by_node_user` | `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui` and `/var/cache/web_ui/tiles` as directories owned by `ansible_user`. |
-| `test_playbooks_create_tile_cache_before_deploying_web_ui` | `deploy_nodes_client.yml` and `nodes/client/web_ui.yml` include the tile cache task before deploying web_ui. |
+| `test_playbooks_create_tile_cache_before_deploying_web_ui` | `deploy_nodes_client.yml` includes the tile cache task before deploying web_ui. |
 | `test_mcp_server_perception_topics_match_their_producers` | mcp_server `topics` `local_costmap` `/local_costmap/costmap`, `plan` `/plan` and `poi_list` / `poi_command` / `poi_result` equal the poi_store entry's topics. |
 | `test_mcp_server_perception_config_sections` | mcp_server config carries `objects` (`/var/lib/ros2/objects/objects.json`, merge radius 0.25 m), `footprint` 0.47 x 0.386 m, `look_around` defaults (4 captures, positive clearance margin), `topdown` defaults and `poi.request_timeout_s` 3 s. |
 | `test_mcp_server_readme_documents_perception_tools` | `nodes/mcp_server/README.md` documents get_topdown_view, the object memory tools, look_around, the POI tools, the objects file, the robot-up convention, `layers_missing` and the `MOTION_TOOLS` classification. |
 | `test_mcp_server_setup_tasks_create_objects_dir_owned_by_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/objects` owned by `ansible_user`. |
 | `test_mcp_server_setup_tasks_create_token_and_arm_dir` | `tasks/mcp_server_setup.yml` creates `/etc/ros2/mcp_server`, the token (`MCP_SERVER_TOKEN=` + 48-char password lookup, `force: false`, 0640, owner `ansible_user`, group `mcp-token`, `no_log`) and `/var/lib/ros2/arm` owned by the node user. |
-| `test_playbooks_run_setup_before_deploying_mcp_server` | `deploy_nodes_client.yml` and `nodes/client/mcp_server.yml` deploy mcp_server and include the setup tasks before it. |
-| `test_node_playbook_stops_first_and_starts_last` | The per-node playbook targets the client, starts with `stop_ros_nodes.yml`, syncs the repo and ends with `start_ros_nodes.yml`. |
+| `test_playbooks_run_setup_before_deploying_mcp_server` | `deploy_nodes_client.yml` deploys mcp_server and includes the setup tasks before it. |
 | `test_unit_template_renders_environment_file_only_when_set` | The native unit template renders `EnvironmentFile=` (before `ExecStart=`) only when `node_environment_file` is non-empty. |
 | `test_resolve_and_deploy_passes_environment_file` | `resolve_and_deploy.yml` passes the node type's `environment_file` (default empty) to the role. |
 | `test_token_file_never_in_repo` | No tracked `token` file and no literal token value in tracked Ansible/scripts/node/test files; `.mcp.json` uses `${ROBOT_MCP_TOKEN}`. |
@@ -528,19 +527,17 @@ layout; no ROS needed).
 | `test_service_template_user_groups_and_nice_are_optional` | Unit template: `User=` defaults to `ansible_user`; `node_user`, `SupplementaryGroups=` and `Nice=` only when set. |
 | `test_resolve_and_deploy_passes_user_groups_and_nice` | `resolve_and_deploy.yml` hands `user`, `supplementary_groups` and `nice` of the node type to the role. |
 | `test_setup_tasks_read_token_from_controller_env_and_fail_clearly` | `claude_agent_setup.yml` uses `lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN')`; a fail task (before the write, without `no_log`, without touching the token) tells the user to `export CLAUDE_CODE_OAUTH_TOKEN=...` and run `deploy-nodes.sh client claude_agent`. |
-| `test_setup_tasks_write_env_file_0600_no_log` | The env file task: `CLAUDE_CODE_OAUTH_TOKEN=` content, mode 0600, owner `claude_agent`, `no_log`, only when the variable is non-empty (no restart notify: the deploy stops every node first and starts them last). |
+| `test_setup_tasks_write_env_file_0600_no_log` | The env file task: `CLAUDE_CODE_OAUTH_TOKEN=` content, mode 0600, owner `claude_agent`, `no_log`, only when the variable is non-empty (no notify: a changed token queues the claude_agent restart with `set_fact`). |
 | `test_playbook_level_task_files_notify_no_role_handlers` | No task file under `ansible/playbooks/tasks/` uses `notify`: they run at playbook level, where the `ros2_node_deploy` role's `Restart ROS2 node` handler is not visible and the deploy fails. |
 | `test_setup_tasks_no_log_on_every_task_touching_the_token` | Every task using the lookup or writing the token has `no_log: true`. |
 | `test_setup_tasks_create_user_and_dirs_and_keep_existing_file` | System user `claude_agent` (nologin, home `/var/lib/claude_agent`), its directories, and a stat of the existing env file so an unset variable keeps it. |
 | `test_mcp_token_readable_by_group_not_world` | `mcp_server_setup.yml` creates group `mcp-token` before the token, which is `0640` with that group. |
 | `test_existing_mcp_token_gets_group_read_permissions` | After the `force: false` create, a file task enforces group `mcp-token` and mode 0640 on an already existing token, so `claude_agent` can read a token created before the group existed. |
-| `test_playbooks_run_setup_before_deploying_claude_agent_after_mcp_server` | `deploy_nodes_client.yml` and `nodes/client/claude_agent.yml`: mcp setup, then agent setup, then the deploy (after mcp_server in the full playbook). |
-| `test_node_playbook_stops_first_and_starts_last` | The per-node playbook stops nodes first, starts them last, targets `client`. |
+| `test_playbooks_run_setup_before_deploying_claude_agent_after_mcp_server` | `deploy_nodes_client.yml`: mcp setup, then agent setup, then the deploy (after mcp_server in the full playbook). |
 | `test_oauth_token_never_in_repo` | No tracked file contains a literal `CLAUDE_CODE_OAUTH_TOKEN=<token>`. |
 | `test_claude_agent_package_layout_and_pinned_sdk` | Poetry project with the SDK pinned to an exact version, FastAPI/uvicorn/Pillow/pydantic, lock file, README, `__main__.py`, tests. |
 | `test_claude_agent_readme_documents_api_and_token_deploy` | The node README lists every API route, the budget tool, the hard maxima, the `/robot_events` topic and the `export CLAUDE_CODE_OAUTH_TOKEN` deploy command. |
 | `test_docs_and_lint_scripts_list_claude_agent` | `nodes/README.md`, `ansible/README.md`, the ansible-deploy skill, `scripts/lint-all-nodes.sh` and root `lint-nodes` mention the node. |
-| `test_deploy_script_discovers_node_playbook` | `playbooks/nodes/client/claude_agent.yml` exists, which is how `deploy-nodes.sh` finds the node. |
 | `test_claude_agent_hardening_in_group_vars_without_filesystem_protection` | The `claude_agent` node type sets `protect_proc: invisible`, `proc_subset: pid`, `no_new_privileges`, `private_tmp` and no ProtectSystem/ProtectHome (the bearer token is in the CLI child's argv). |
 | `test_only_claude_agent_sets_hardening_in_group_vars` | No other node type in client.yml / server.yml sets any of the hardening keys, so their units are unchanged. |
 | `test_resolve_and_deploy_passes_hardening_with_empty_defaults` | `resolve_and_deploy.yml` hands the four hardening keys to the role, each with a `default(...)`. |
@@ -573,9 +570,8 @@ Static checks of the overview_camera node from the repo files (YAML via `yaml.sa
 | `test_boot_tasks_remove_stale_imx219_overlays_idempotently` | A first `state: absent` task deletes every `dtoverlay=imx219...` line (cam0, cam1, bare) and keeps `imx708`, `camera_auto_detect` and commented lines. |
 | `test_boot_tasks_register_results_and_reboot_only_when_changed` | Each overlay task registers its result and the single reboot task (last) runs only when one of them changed. |
 | `test_boot_overlays_use_the_same_path_as_the_uart_task` | The camera overlay edits the same config.txt path as the existing UART task in `deploy_nodes_client.yml`. |
-| `test_both_client_playbooks_apply_the_boot_overlays_in_pre_tasks` | The full client playbook and `nodes/client/overview_camera.yml` both include the boot task file in `pre_tasks` right after the stop-all. |
+| `test_client_playbook_applies_the_camera_boot_overlay_in_pre_tasks_tagged_boot_and_node` | The client playbook includes the boot task file in `pre_tasks`, tagged only `boot` and `overview_camera`. |
 | `test_boot_overlays_are_only_written_on_aarch64_hosts` | Overlay tasks are guarded by `ansible_machine == "aarch64"`. |
-| `test_per_node_playbook_stops_syncs_deploys_and_starts_gradually` | The per-node playbook stops all nodes, syncs the repo, deploys only `overview_camera` and starts nodes gradually. |
 | `test_full_client_playbook_deploys_overview_camera_and_not_realsense_before_it` | `deploy_nodes_client.yml` deploys `overview_camera`, after the `realsense_d435i` uninstall. |
 | `test_retired_stereo_nodes_are_gone_from_the_client_wiring` | No `stereo_camera` / `stereo_depth` in the client playbook or group vars, their node directories, per-node playbooks and the `stereo_depth` lint-all-nodes entry are gone. |
 | `test_rf2o_build_inputs_are_unchanged` | rf2o keeps its single-dict `colcon_source` with the exact repo, commit, package, workspace and patch. |
@@ -617,3 +613,33 @@ Unit tests of the pure-Python launch helper `nodes/overview_camera/launch/overvi
 | `test_camera_parameters_have_no_calibration_url_and_no_sync_mode` | No `camera_info_url`, no `SyncMode`, and the flat `jpeg_quality` setting is translated. |
 | `test_af_mode_names_map_to_the_libcamera_enum` | (parametrized) manual / auto / continuous (any case) map to 0 / 1 / 2. |
 | `test_camera_parameters_reject_an_unknown_af_mode` | An unknown AfMode name raises `ValueError`. |
+
+### test_ansible_deploy_speed.py
+
+Deploy speed work: stamps instead of always-run builds, queued restarts, batched apt, tags on every task and one tag-filtered playbook run per deploy. The probe scripts of the role are run for real against temporary git repos.
+
+| Test | What it checks |
+|---|---|
+| `test_ansible_cfg_enables_timing_pipelining_and_connection_reuse` | `ansible.cfg` enables `profile_tasks` + `timer`, pipelining, `ControlMaster=auto` / `ControlPersist`; `requirements.yml` lists `ansible.posix`. |
+| `test_ansible_cfg_gathers_minimal_facts_and_caches_them` | `gather_subset = min`, smart gathering, jsonfile fact cache (cache dir gitignored). |
+| `test_documented_tag_set_lists_every_phase_tag` | The "Deploy tags" table in `ansible/README.md` lists exactly sync, apt, python, build, config, boot, setup, restart, verify, always. |
+| `test_every_task_in_role_and_task_files_carries_a_documented_tag` | (parametrized per file) every task (block tags inherited) in the role, the verify role and `playbooks/tasks/*.yml` has a documented tag. |
+| `test_every_task_in_the_deploy_playbooks_carries_a_documented_or_node_tag` | (client, server) every pre/main/post task of the deploy playbooks has a documented or node-name tag. |
+| `test_every_node_has_a_tagged_deploy_step` | (client, server) each `ros2_nodes` entry has exactly one deploy include tagged with its name plus apt/python/build/config, applying the node tag to the included tasks. |
+| `test_node_specific_setup_files_carry_their_node_tag` | The mcp_server token, claude_agent token, poi_store, slam maps, web_ui tile cache and overview_camera boot task files carry their node tag. |
+| `test_shared_steps_run_under_any_node_filter` | (client, server) select_run, repo sync, ROS package sync, batched apt and the gradual restart are `always`-tagged; the verify role too; the apt steps are conditioned on `ros2_run_apt`. |
+| `test_deploy_script_runs_one_playbook_with_the_joined_node_tags` | `deploy-nodes.sh client web_ui mcp_server` calls ansible-playbook once with `--tags web_ui,mcp_server` (fake ansible-playbook on PATH). |
+| `test_deploy_script_all_passes_tags_and_other_options_through` | `--all` adds no tag filter by itself and passes `--tags` / `--skip-tags` through. |
+| `test_deploy_script_rejects_unknown_nodes_and_node_list_with_tags` | Unknown node names are rejected with the valid list; a node list plus `--tags` is rejected; `playbooks/nodes/` no longer exists. |
+| `test_role_has_no_always_changed_tasks_and_does_not_restart_or_start_nodes` | No `changed_when: true` in the role; no inline start/restart; the "Restart ROS2 node" handler only queues into `ros2_nodes_pending_restart`. |
+| `test_poetry_install_runs_only_for_a_new_dependency_hash_and_stamps_after_success` | Poetry runs only when the dependency hash is stale and writes `.poetry-deps` after success; the probe covers pyproject, lock, shared metadata and tree hashes; the source stamp notifies the restart. |
+| `test_web_ui_npm_steps_run_only_when_their_inputs_changed` | `npm ci` / `npm run build` are conditioned on the frontend probe, copy and stamps follow only a build, stamp written last. |
+| `test_dependency_probe_detects_source_dependency_and_shared_changes` | Runs the probe in a temp repo: new venv is stale; matching stamp is not; a source commit changes only `src_key`; `shared/` source restarts dependents without reinstall; shared metadata or `poetry.lock` change the dependency hash. |
+| `test_web_ui_probe_builds_only_when_frontend_inputs_change` | Runs the web_ui probe: first run needs ci + build; with stamps and outputs neither; a source commit builds without ci; a lock change runs ci; missing static output rebuilds. |
+| `test_heavy_steps_stop_the_nodes_only_when_they_will_run` | The stop-before-build include is conditional (Poetry stale, web_ui build, colcon stamp missing), runs once per play, and no playbook stops nodes up front. |
+| `test_colcon_clone_patch_and_build_are_skipped_when_the_stamp_exists` | Clone, patch and build only when the stamp is missing; the stamp check comes before the clone. |
+| `test_start_ros_nodes_restarts_queued_and_starts_stopped_nodes_in_order_sleeping_only_after_acting` | Running unchanged nodes are skipped before any restart or sleep; order is `ros2_nodes` order; the queue is cleared. |
+| `test_claude_agent_token_change_queues_a_restart_directly` | A changed OAuth token env file queues `claude_agent` for restart without role handlers. |
+| `test_apt_packages_are_installed_in_one_batched_task` | (client, server) the playbook sets `ros2_apt_batched`, includes `apt_nodes.yml` (one apt call, hourly cache) and the role's per-node apt is skipped then. |
+| `test_verify_role_checks_all_units_in_one_command_per_round` | The verify role runs one `systemctl is-active` over all units per round instead of looping per node. |
+

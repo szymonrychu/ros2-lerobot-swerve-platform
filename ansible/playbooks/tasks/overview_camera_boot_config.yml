@@ -3,7 +3,7 @@
 # explicit imx708 overlay. Stale imx219 overlay lines (from the retired stereo pair) are removed. The firmware reads
 # config.txt at boot, so the client reboots when (and only when) a line was added, changed or removed. Same pattern as
 # the UART overlay in deploy_nodes_client.yml. Included from pre_tasks (after the stop-all) by the full client
-# playbook and by nodes/client/overview_camera.yml.
+# playbook (tags boot and overview_camera, so --tags overview_camera reaches it).
 - name: Remove stale IMX219 overlay lines (retired stereo pair)
   ansible.builtin.lineinfile:
     path: /boot/firmware/config.txt
@@ -11,6 +11,7 @@
     state: absent
   when: ansible_machine == "aarch64"
   register: imx219_overlay_result
+  tags: [boot]
 
 - name: Disable camera auto detection (the imx708 overlay is explicit)
   ansible.builtin.lineinfile:
@@ -20,6 +21,7 @@
     create: true
   when: ansible_machine == "aarch64"
   register: camera_auto_detect_result
+  tags: [boot]
 
 - name: Enable the IMX708 overlay on CSI cam0 (Camera Module 3)
   ansible.builtin.lineinfile:
@@ -30,8 +32,10 @@
     create: true
   when: ansible_machine == "aarch64"
   register: imx708_cam0_result
+  tags: [boot]
 
 - name: Reboot client if a camera boot overlay changed
   when: imx219_overlay_result.changed or camera_auto_detect_result.changed or imx708_cam0_result.changed
   ansible.builtin.reboot:
     reboot_timeout: 120
+  tags: [boot]

@@ -15,7 +15,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`deploy_topic_scraper_client_config.yml`** — One-off playbook that pushes an updated `topic_scraper_api` config to the client (including `sensor_msgs/msg/Imu` in `allowed_types` and observation rules for leader-vs-follower comparison and oscillation detection) and restarts the service.
   - **`deploy_steamdeck_ui.yml`** — Update-only: re-clones repo, re-runs `npm ci`, re-deploys config. Use for UI-only updates without re-provisioning.
   - **`deploy_nodes_server.yml`**, **`deploy_nodes_client.yml`** — Deploy all nodes on a target. Each node is listed **explicitly** (no loops) so the order and set of deployments is always clear. Runs repo sync once, deploys every node, then verifies all services are active.
-  - **`nodes/client/<node>.yml`**, **`nodes/server/<node>.yml`** — Per-node standalone playbooks. Each syncs the repo, deploys exactly one node, and exits. Use these directly or via `scripts/deploy-nodes.sh`.
+  - There are no per-node playbooks: `deploy_nodes_client.yml` / `deploy_nodes_server.yml` are the only node deploys and every node's steps carry its name as an Ansible tag, so `scripts/deploy-nodes.sh client web_ui mcp_server` is ONE run of the client playbook with `--tags web_ui,mcp_server` (see [Deploy tags](#deploy-tags)).
   - **`tasks/repo_sync.yml`** — Shared include: ensures the Git repo is cloned and up-to-date on the target host.
   - **`tasks/resolve_and_deploy.yml`** — Shared include: looks up a node by name from `ros2_nodes`, resolves all vars, and calls the `ros2_node_deploy` role. Accepts `_deploy_node_name` and optional `_extra_env`.
 - **`roles/`**
@@ -295,17 +295,17 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 
 ## Deploy load management
 
-Every deploy playbook (`--all` and per-node) starts with `playbooks/tasks/stop_ros_nodes.yml`, which stops all running `ros2-*` services, so installs and builds run on an otherwise idle Pi. It ends with `playbooks/tasks/start_ros_nodes.yml`, which starts every present and enabled node that isn't running yet, one at a time with `ros2_node_start_interval_s` (2 s, `group_vars/all.yml`) between starts. During `--all` the role also starts each node as it is deployed. web_ui, the heaviest build, is deployed first.
+A deploy no longer stops the whole stack up front. The role's `stop_for_build.yml` stops all running `ros2-*` services, once per play, only right before a heavy step that will actually run: the Poetry install of a node whose dependency hash changed, the web_ui `npm ci` / `npm run build`, or a colcon source build whose stamp is missing. So installs and builds still run on an otherwise idle Pi (the client overheated and froze on 2026-10-03), while a no-change deploy stops nothing. Nothing is restarted while nodes are deployed either: a changed config, unit, launcher, source tree, dependency set or build output queues a restart (`ros2_nodes_pending_restart`), and `playbooks/tasks/start_ros_nodes.yml` carries out all of them once, at the end, in `ros2_nodes` order (dependencies first), one node at a time with `ros2_node_start_interval_s` (2 s, `group_vars/all.yml`) between them. The same step starts enabled nodes that are not running (stopped for a build). Running nodes nothing changed for are left alone and cost no sleep. `ros2_node_verify` then checks all units with one `systemctl is-active` per round.
 
 ## web_ui frontend build
 
-The web_ui frontend is built on the client during deploy (`npm ci`, `npm run build`). Both steps run in a transient systemd scope (`systemd-run --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10`, 400% = all four cores since the Pi got active cooling; was 100% while it overheated) under `nice -n 19 ionice -c 3`, which keeps the running ROS nodes first in line. On 2026-10-03 a full-priority build next to Nav2, SLAM and the bridges on the then-uncooled Pi 5 overheated it until it stopped responding: lower `ros2_build_cpu_quota` again if temperatures climb.
+The web_ui frontend is built on the client during deploy (`npm ci`, `npm run build`), but only when needed: `npm ci` when the hash of `package.json` + `package-lock.json` differs from `frontend/.npm-ci-stamp` (or `node_modules` is gone), `npm run build` when the git tree hash of `nodes/web_ui/frontend` differs from `frontend/.build-stamp`, after an `npm ci`, or when `dist/index.html` / `web_ui/static/index.html` is missing. The stamps are written after the step succeeded; the node restarts only when a build ran. Both steps run in a transient systemd scope (`systemd-run --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10`, 400% = all four cores since the Pi got active cooling; was 100% while it overheated) under `nice -n 19 ionice -c 3`, which keeps the running ROS nodes first in line. On 2026-10-03 a full-priority build next to Nav2, SLAM and the bridges on the then-uncooled Pi 5 overheated it until it stopped responding: lower `ros2_build_cpu_quota` again if temperatures climb.
 
 ### Source-built ROS packages (colcon)
 
 Packages missing from the Jazzy apt distribution are built from a pinned git commit. A node type with a `colcon_source` block gets `roles/ros2_node_deploy/tasks/colcon_source_build.yml`, which takes ONE source dict (`rf2o_laser_odometry`) or a LIST of sources (`overview_camera`) and builds them in list order, so dependencies come first (libcamera before camera_ros). Each source is `{repo, commit, package, workspace}` plus optional `patches`, `cmake_args` (default `-DCMAKE_BUILD_TYPE=Release`) and `meson_args` (builds that package with colcon-meson, `--meson-args`). `commit` is a SHA or a tag. `colcon_source_package.yml` builds one source: the commit is cloned to `<workspace>/src/<package>` and built with `colcon build --merge-install --parallel-workers 1 --packages-select <package>` (`MAKEFLAGS=-j{{ ros2_build_jobs }}`; meson's ninja uses all cores the cgroup allows) inside the same `systemd-run --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3` wrapper as the web_ui build, after sourcing `/opt/ros/jazzy/setup.bash` and the workspace's own `install/setup.bash` (so camera_ros finds the fresh libcamera). Optional `patches` (a list of unified diffs in the repo, applied with `ansible.builtin.patch` after the checkout; the git task uses `force` so the clone is reset before they are re-applied) can fix upstream bugs. A stamp file `<workspace>/.built-<package>-<hash>` makes it idempotent; the hash covers the pinned commit, the content of every patch, the build args and (for the second and later sources) the stamps of the sources before it, so the build only reruns, and the node restarts, when one of them changes, or when `<workspace>/install/setup.bash` is missing (the stamp is then removed). For rf2o (single source, no build args) the hash is the original `sha1(commit + patch checksums)`, so existing stamps stay valid. The launcher script sources `<workspace>/install/setup.bash` (of the first source) after `/opt/ros/jazzy/setup.bash`. Used by `rf2o_laser_odometry` and `overview_camera` (workspace `/opt/ros2-ws`); the first deploy compiles on the Pi, so expect a slow, low-priority build (libcamera needs network once for its libpisp meson wrap). Build dependencies come from the node type's `apt_packages`.
 
-**Camera boot overlay.** `playbooks/tasks/overview_camera_boot_config.yml` (included from `pre_tasks` of `deploy_nodes_client.yml` and `nodes/client/overview_camera.yml`, after the stop-all) ensures `camera_auto_detect=0` and `dtoverlay=imx708,cam0` in `/boot/firmware/config.txt` (same file and `lineinfile` pattern as the UART overlay), removes stale `dtoverlay=imx219...` lines left by the retired stereo pair, and reboots the client only when a line was added, changed or removed. The `overview_camera` node type installs no apt `ros-jazzy-camera-ros` / `ros-jazzy-libcamera`: they would shadow the source-built fork. `realsense_d435i` is `present: false` (uninstalled on deploy); no `camera_link` frame is published by `static_tf_publisher` until the overview camera mount pose is measured. See `nodes/overview_camera/README.md`.
+**Camera boot overlay.** `playbooks/tasks/overview_camera_boot_config.yml` (included from `pre_tasks` of `deploy_nodes_client.yml`, tags `boot` and `overview_camera`) ensures `camera_auto_detect=0` and `dtoverlay=imx708,cam0` in `/boot/firmware/config.txt` (same file and `lineinfile` pattern as the UART overlay), removes stale `dtoverlay=imx219...` lines left by the retired stereo pair, and reboots the client only when a line was added, changed or removed. The `overview_camera` node type installs no apt `ros-jazzy-camera-ros` / `ros-jazzy-libcamera`: they would shadow the source-built fork. `realsense_d435i` is `present: false` (uninstalled on deploy); no `camera_link` frame is published by `static_tf_publisher` until the overview camera mount pose is measured. See `nodes/overview_camera/README.md`.
 
 ## ROS package sync
 
@@ -356,24 +356,24 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 ### POI store directory
 
 `playbooks/tasks/poi_store_dir.yml` creates `/var/lib/ros2/poi` (owner `ansible_user`, mode `0755`) before `poi_store` is
-deployed, both in `deploy_nodes_client.yml` and in `nodes/client/poi_store.yml`. The node keeps `poi.json` there.
+deployed, in `deploy_nodes_client.yml` (tags `setup`, `poi_store`). The node keeps `poi.json` there.
 
 ### SLAM maps directory
 
 `playbooks/tasks/slam_maps_dir.yml` creates `/var/lib/ros2/maps` (owner `ansible_user`, mode `0755`) before
-`slam_toolbox` is deployed, both in `deploy_nodes_client.yml` and in `nodes/client/slam_toolbox.yml`.
+`slam_toolbox` is deployed, in `deploy_nodes_client.yml` (tags `setup`, `slam_toolbox`).
 slam_toolbox saves and reloads its posegraph there (`slam_map.posegraph` / `slam_map.data`).
 
 ### web_ui tile cache directory
 
 `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui/tiles` (and its parent, owner `ansible_user`,
-mode `0755`) before `web_ui` is deployed, both in `deploy_nodes_client.yml` and in `nodes/client/web_ui.yml`. The
+mode `0755`) before `web_ui` is deployed, in `deploy_nodes_client.yml` (tags `setup`, `web_ui`). The
 map tab's `/api/tiles` proxy caches map tiles there (`tile_cache_dir` default) and serves them when offline.
 
 ### MCP server token and arm home directory
 
 `playbooks/tasks/mcp_server_setup.yml` runs before `mcp_server` is deployed (in `deploy_nodes_client.yml` and in
-`nodes/client/mcp_server.yml`). It creates `/etc/ros2/mcp_server/token` once, containing
+tags `setup`, `mcp_server`). It creates `/etc/ros2/mcp_server/token` once, containing
 `MCP_SERVER_TOKEN=<48 random letters/digits>` (mode `0600`, owner `ansible_user`, `force: false` so redeploys keep the
 token, `no_log: true`), and `/var/lib/ros2/arm` (owner `ansible_user`) for the arm home pose (`home.yaml`),
 `/var/lib/ros2/camera_calibration` (owner `ansible_user`) for the camera calibration samples of the mcp_server camera
@@ -384,7 +384,7 @@ reads the token through `EnvironmentFile=`; the token never enters git. Fetch it
 ### claude_agent user and OAuth token
 
 `playbooks/tasks/claude_agent_setup.yml` runs before `claude_agent` is deployed (in `deploy_nodes_client.yml` and in
-`nodes/client/claude_agent.yml`, after `mcp_server_setup.yml`). It creates the system user `claude_agent` (no login
+tags `setup`, `claude_agent`, after `mcp_server_setup.yml`). It creates the system user `claude_agent` (no login
 shell, home `/var/lib/claude_agent`), the directories `/etc/ros2/claude_agent`, `/var/lib/claude_agent` (HOME, session log) and `/var/lib/claude_agent/workspace` (the agent's persistent volume: its `NOTES.md` and notes; `0750`, owner `claude_agent`, created if missing and never deleted or emptied by a deploy), and writes
 `/etc/ros2/claude_agent/env` containing `CLAUDE_CODE_OAUTH_TOKEN=<token>` (mode `0600`, owner `claude_agent`,
 `no_log: true`). The token is read on the controller with `lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN')`, so deploy with:
@@ -408,13 +408,60 @@ npm install is needed; `DISABLE_AUTOUPDATER=1` is set in the unit environment.
 
 ## Connection tuning
 
-The `ansible.cfg` `[ssh_connection]` section hardens SSH for flaky WiFi links to the Raspberry Pis:
+The `ansible.cfg` `[ssh_connection]` section tunes SSH for the Raspberry Pis on flaky WiFi:
 
-- **`ControlMaster=no`** / **`ControlPath=none`** — disables SSH multiplexing to avoid stale sockets after network drops.
-- **`ConnectTimeout=30`** — fails fast on unreachable hosts (30 s).
-- **`ServerAliveInterval=10`** / **`ServerAliveCountMax=6`** — sends a keepalive every 10 s; drops the connection after 60 s of silence.
-- **`timeout=120`** — per-task SSH timeout (2 min).
-- **`retries=5`** — retries failed SSH connections up to 5 times.
+- **`ControlMaster=auto`** / **`ControlPersist=120s`** - one SSH connection is reused by all tasks of a run (ansible adds the `ControlPath` itself). Before 2026-10 multiplexing was off because of stale sockets after network drops; the keepalives below make a dead master exit, and `retries` re-connects. If a stale socket ever blocks a run, `rm ~/.ansible/cp/*`.
+- **`pipelining = True`** - modules run over the open SSH session instead of being copied to a temp file first (needs no `requiretty` in sudoers, the Ubuntu 24.04 default), saving about two round trips per task.
+- **`ConnectTimeout=30`** - fails fast on unreachable hosts (30 s).
+- **`ServerAliveInterval=10`** / **`ServerAliveCountMax=6`** - sends a keepalive every 10 s; drops the connection after 60 s of silence.
+- **`timeout=120`** - per-task SSH timeout (2 min).
+- **`retries=5`** - retries failed SSH connections up to 5 times.
+
+## Deploy tags
+
+Every task of the deploy playbooks, the `ros2_node_deploy` / `ros2_node_verify` roles and `playbooks/tasks/*.yml` carries at least one of these phase tags (a root test enforces it). Each node's deploy step and node-specific setup carries the node name as well (`web_ui`, `mcp_server`, `overview_camera`, ...).
+
+| Tag | What it covers |
+|-----|----------------|
+| `sync` | Repo clone/update on the target (also `always`) |
+| `apt` | ROS package sync and ONE batched install of the apt packages of all nodes in the run |
+| `python` | Poetry venv, dependency install (only when the hash changed) and the deployed-source stamp |
+| `build` | web_ui npm steps and colcon source builds (stamp-gated), and the stop-before-build |
+| `config` | Node config files, launcher scripts, systemd units, enable/disable, uninstall, DDS host setup |
+| `boot` | Firmware overlays (`/boot/firmware/config.txt`), reboot, boot network wait |
+| `setup` | Node prerequisites: directories, tokens, users (also tagged with their node) |
+| `restart` | The final gradual restart/start of changed and stopped nodes (also `always`) |
+| `verify` | The final active-and-stable check of all node units (also `always`) |
+| `always` | Runs under every `--tags` filter: run selection, repo sync, restart, verify, handler flush, asserts |
+
+`scripts/deploy-nodes.sh <target> node1 node2` runs the target's playbook ONCE with `--tags node1,node2` (so one git sync, no parallel runs); `--all` has no node filter. `--tags` / `--skip-tags` pass through with `--all`:
+
+```bash
+./scripts/deploy-nodes.sh client web_ui mcp_server               # only those nodes, all their phases
+./scripts/deploy-nodes.sh client --all --tags config,restart     # config/unit/launcher changes only, then restart
+./scripts/deploy-nodes.sh client --all --tags python             # Poetry/source change detection for every node
+./scripts/deploy-nodes.sh client --all --skip-tags build,verify  # everything but builds and the final check
+./scripts/deploy-nodes.sh client --all --tags boot               # firmware overlays and boot wait only
+```
+
+With a node filter the apt steps take part (the batch installs only the selected nodes' packages), firmware (`boot`) steps only for nodes that need them (`gps_rtk_rover`, `overview_camera`), and the always-tagged restart and verify steps run last. Note that `always` tasks also run under `--tags config`; skip them with `--skip-tags restart,verify`.
+
+## Deploy performance
+
+Goal: a no-change `./scripts/deploy-nodes.sh client --all` (was over 20 minutes) should only look, not act. `ansible.cfg` enables `ansible.posix.profile_tasks` and `ansible.posix.timer` (`ansible-galaxy collection install -r requirements.yml` if the collection is missing), so every deploy log ends with the slowest tasks and the total time. What changed and the expected saving on a no-change deploy of the client:
+
+| Change | Expected saving |
+|--------|-----------------|
+| web_ui `npm ci` + `npm run build` only when their stamp changed (was every deploy, both ~5-10 min on the Pi) | the bulk of the 20 minutes |
+| Poetry install per node only when `pyproject.toml` / `poetry.lock` (and `shared/pyproject.toml` for nodes depending on it) changed; `shared/` is installed in develop mode, so source changes need no install | ~10-20 s per node, 27 nodes |
+| No stop-all and no per-node restart: only changed nodes restart, once, at the end; nodes are stopped only before a heavy step. Restart cause detection is per node: git tree hash of the node's source dir (plus `shared/` for dependents) vs `/opt/ros2-nodes/<node>/.deployed-src`, config, launcher, unit, deps, builds | the restart + 2 s start interval of every node (about 2-4 minutes), and no downtime for unchanged nodes |
+| Colcon sources: key, stamp and `install/setup.bash` are checked first; clone, patch and build are skipped when the stamp exists (was a git fetch + patch reset per source on every deploy) | a few network round trips per source |
+| One batched apt task for all nodes instead of one per node | about 25 apt calls |
+| SSH `ControlPersist` + pipelining; facts limited to `gather_subset=min` and cached 24 h | 2-3x faster per-task overhead over WiFi (roughly 300 remote tasks) |
+| Node verify: one `systemctl is-active` for all units per round (was one SSH task per node, two rounds) | about 50 SSH tasks |
+| Removed the servo "stop before deploy" pre-tasks: a changed servo node is restarted by the queue, an unchanged one keeps running | an unneeded servo restart |
+
+First deploy after this change: all stamps are missing, so every node's Poetry install, `.deployed-src` and the web_ui build run once and every node restarts once; later deploys are the quick path. The probe and stamp logic is covered by `tests/test_ansible_deploy_speed.py` (the probe scripts are run against temp git repos); the effect on the real Pis is read off the `profile_tasks` recap of the next deploy.
 
 ## Linting and testing
 
@@ -445,16 +492,15 @@ See [nodes/steamdeck_ui/README.md](../nodes/steamdeck_ui/README.md) for architec
 ./scripts/deploy-nodes.sh client web_ui
 ./scripts/deploy-nodes.sh server lerobot_leader
 
-# Multiple nodes in parallel (independent nodes run simultaneously)
+# Several nodes: ONE playbook run with --tags web_ui,filter_node,bno055_imu (one repo sync)
 ./scripts/deploy-nodes.sh client web_ui filter_node bno055_imu
-./scripts/deploy-nodes.sh client web_ui & ./scripts/deploy-nodes.sh server topic_scraper_api &
 
-# All nodes on a target (sequential, includes full verify step)
+# All nodes on a target (includes the full verify step), optionally limited to phases
 ./scripts/deploy-nodes.sh client --all
-./scripts/deploy-nodes.sh server --all
+./scripts/deploy-nodes.sh server --all --tags config,restart
 ```
 
-Node names match the `name` field in `group_vars/client.yml` or `group_vars/server.yml` under `ros2_nodes`. Each node has a matching playbook under `playbooks/nodes/<target>/<node>.yml`.
+Node names match the `name` field in `group_vars/client.yml` or `group_vars/server.yml` under `ros2_nodes`. The script rejects names that are not `ros2_nodes` entries of the target; each node's steps carry its name as tag (see [Deploy tags](#deploy-tags)).
 
 ## Running playbooks
 

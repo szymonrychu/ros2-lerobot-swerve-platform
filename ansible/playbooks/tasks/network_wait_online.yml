@@ -10,6 +10,7 @@
     group: root
     mode: "0755"
   become: true
+  tags: [boot]
 
 - name: Wait for any interface at boot (30 s cap)
   ansible.builtin.copy:
@@ -24,9 +25,11 @@
       ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any --timeout=30
   become: true
   register: ros2_wait_online_dropin
+  tags: [boot]
 
 - name: Reload systemd after wait-online drop-in change
   ansible.builtin.systemd:
     daemon_reload: true
   become: true
   when: ros2_wait_online_dropin.changed
+  tags: [boot]

@@ -7,11 +7,13 @@
   ansible.builtin.set_fact:
     claude_agent_token_given: "{{ (lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN') | length) > 0 }}"
   no_log: true
+  tags: [setup]
 
 - name: Look for an existing claude_agent env file
   ansible.builtin.stat:
     path: /etc/ros2/claude_agent/env
   register: claude_agent_env_file
+  tags: [setup]
 
 - name: Fail without a token to deploy or keep
   ansible.builtin.fail:
@@ -22,6 +24,7 @@
   when:
     - not claude_agent_token_given | bool
     - not claude_agent_env_file.stat.exists
+  tags: [setup]
 
 - name: Create the claude_agent service user (non-root, no login shell)
   ansible.builtin.user:
@@ -31,6 +34,7 @@
     home: /var/lib/claude_agent
     create_home: false
     comment: Claude agent service
+  tags: [setup]
 
 - name: Ensure claude_agent state and HOME directory exists (owned by the service user)
   ansible.builtin.file:
@@ -39,6 +43,7 @@
     owner: claude_agent
     group: claude_agent
     mode: "0750"
+  tags: [setup]
 
 # The workdir is the agent's persistent volume: its notes (NOTES.md) live here. It is created if missing and NEVER removed
 # or emptied by a deploy; the node's session log (/var/lib/claude_agent/session) is kept the same way.
@@ -49,6 +54,7 @@
     owner: claude_agent
     group: claude_agent
     mode: "0750"
+  tags: [setup]
 
 - name: Ensure claude_agent config directory exists
   ansible.builtin.file:
@@ -57,11 +63,13 @@
     owner: root
     group: root
     mode: "0755"
+  tags: [setup]
 
 - name: Name the node whose restart the token change triggers
   ansible.builtin.set_fact:
     ros2_node_restart_now: claude_agent
     ros2_node_restart_enabled: true
+  tags: [setup]
 
 - name: Write the claude_agent OAuth token env file
   ansible.builtin.copy:
@@ -71,9 +79,17 @@
     group: claude_agent
     mode: "0600"
   when: (lookup('env', 'CLAUDE_CODE_OAUTH_TOKEN') | length) > 0
+  register: claude_agent_token_written
   no_log: true
-  # No restart notify: role handlers are not visible from playbook-level tasks, and every deploy stops all nodes
-  # before this runs and starts them at the end, so the service picks up the new token on its next start.
+  tags: [setup]
+
+# Role handlers are not visible from playbook-level tasks, so a changed token queues the restart directly; a deploy no
+# longer stops every node first, and start_ros_nodes.yml restarts the queued ones at the end.
+- name: Queue a claude_agent restart when the token changed
+  ansible.builtin.set_fact:
+    ros2_nodes_pending_restart: "{{ (ros2_nodes_pending_restart | default([])) + ['claude_agent'] }}"
+  when: claude_agent_token_written is changed
+  tags: [setup]
 
 - name: Keep the existing claude_agent env file private to the service user
   ansible.builtin.file:
@@ -82,3 +98,4 @@
     group: claude_agent
     mode: "0600"
   when: claude_agent_env_file.stat.exists
+  tags: [setup]
