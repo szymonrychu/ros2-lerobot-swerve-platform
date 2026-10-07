@@ -163,7 +163,7 @@ def test_start_ros_nodes_is_gradual_and_respects_present_enabled() -> None:
 
 def test_web_ui_deployed_first_in_client_all() -> None:
     """The web_ui frontend build is the heaviest step: run it while almost nothing else has been started."""
-    tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "deploy_nodes_client.yml").read_text())[0]["tasks"]
+    tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "deploy_nodes_client.yml").read_text())[0]["tasks"][0]["block"]
     order = [t.get("vars", {}).get("_deploy_node_name") for t in tasks if t.get("vars", {}).get("_deploy_node_name")]
     assert order[0] == "web_ui", order[:3]
 

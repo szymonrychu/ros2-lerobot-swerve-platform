@@ -5,10 +5,16 @@
   become: true
 
 # Queue only: the restart itself happens once, in ros2_nodes order, at the end of the deploy
-# (playbooks/tasks/start_ros_nodes.yml), so a node is never restarted before everything it needs is deployed.
+# (playbooks/tasks/start_ros_nodes.yml), so a node is never restarted before everything it needs is deployed. The queue is
+# a file on the host (one node name per line), so a failed run does not lose it: the stamps and config written by this
+# run are already on the host, the next run (or this run's rescue) still restarts the node.
 - name: Restart ROS2 node
-  ansible.builtin.set_fact:
-    ros2_nodes_pending_restart: "{{ (ros2_nodes_pending_restart | default([])) + [ros2_node_restart_now] }}"
+  ansible.builtin.lineinfile:
+    path: "{{ ros2_restart_queue }}"
+    line: "{{ ros2_node_restart_now }}"
+    create: true
+    mode: "0644"
+  become: true
   # Never (re)start a node deployed with enabled: false; the role stops it.
   when:
     - ros2_node_restart_on_change | default(true) | bool

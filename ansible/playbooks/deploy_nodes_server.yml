@@ -16,6 +16,18 @@
       ansible.builtin.include_tasks: tasks/select_run.yml
       tags: [always]
 
+    - name: Create the deploy state directories (stamps, restart queue)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ ros2_deploy_state_dir }}"
+        - "{{ ros2_deploy_state_dir }}/stamps"
+      tags: [always]
+
     - name: Sync repository
       ansible.builtin.include_tasks: tasks/repo_sync.yml
       tags: [sync, always]
@@ -44,54 +56,74 @@
       tags: [boot]
 
   tasks:
-    - name: Deploy fastdds_discovery_server
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [fastdds_discovery_server]
-      vars:
-        _deploy_node_name: fastdds_discovery_server
-      tags: [fastdds_discovery_server, apt, python, build, config]
+    - name: Deploy the nodes
+      block:
+        - name: Deploy fastdds_discovery_server
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [fastdds_discovery_server]
+          vars:
+            _deploy_node_name: fastdds_discovery_server
+          tags: [fastdds_discovery_server, apt, python, build, config]
 
-    - name: DDS host setup (shell env, keep shared memory)
-      ansible.builtin.include_tasks: tasks/dds_host_setup.yml
-      tags: [config]
+        - name: DDS host setup (shell env, keep shared memory)
+          ansible.builtin.include_tasks: tasks/dds_host_setup.yml
+          tags: [config]
 
-    - name: Deploy ros2-master
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [ros2-master]
-      vars:
-        _deploy_node_name: ros2-master
-      tags: [ros2-master, apt, python, build, config]
+        - name: Deploy ros2-master
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [ros2-master]
+          vars:
+            _deploy_node_name: ros2-master
+          tags: [ros2-master, apt, python, build, config]
 
-    - name: Deploy lerobot_leader
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [lerobot_leader]
-      vars:
-        _deploy_node_name: lerobot_leader
-      tags: [lerobot_leader, apt, python, build, config]
+        - name: Deploy lerobot_leader
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [lerobot_leader]
+          vars:
+            _deploy_node_name: lerobot_leader
+          tags: [lerobot_leader, apt, python, build, config]
 
-    - name: Deploy topic_scraper_api
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [topic_scraper_api]
-      vars:
-        _deploy_node_name: topic_scraper_api
-      tags: [topic_scraper_api, apt, python, build, config]
+        - name: Deploy topic_scraper_api
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [topic_scraper_api]
+          vars:
+            _deploy_node_name: topic_scraper_api
+          tags: [topic_scraper_api, apt, python, build, config]
 
-    - name: Deploy gps_rtk_base
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [gps_rtk_base]
-      vars:
-        _deploy_node_name: gps_rtk_base
-      tags: [gps_rtk_base, apt, python, build, config]
+        - name: Deploy gps_rtk_base
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [gps_rtk_base]
+          vars:
+            _deploy_node_name: gps_rtk_base
+          tags: [gps_rtk_base, apt, python, build, config]
+
+      # A failure anywhere above (after a heavy step stopped the nodes, say) must not leave the robot down: restart the
+      # queued nodes and start the stopped ones, whatever that start does, then fail the run with the original error.
+      rescue:
+        - name: Start the stopped and queued nodes after a failed deploy
+          ignore_errors: true
+          tags: [always]
+          block:
+            - name: Restart the queued and start the stopped ROS2 nodes
+              ansible.builtin.include_tasks: tasks/start_ros_nodes.yml
+
+        - name: Fail the run with the original error
+          ansible.builtin.fail:
+            msg: >-
+              Deploy failed at task "{{ ansible_failed_task.name | default('unknown') }}":
+              {{ ansible_failed_result.msg | default('see the output above') }}.
+              Queued restarts and stopped nodes were handled in the rescue path.
+          tags: [always]
 
   post_tasks:
     - name: Restart changed and start stopped ROS2 nodes gradually

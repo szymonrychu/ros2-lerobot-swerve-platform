@@ -78,6 +78,18 @@ def effective_tasks(tasks: list[dict], inherited: tuple[str, ...] = ()) -> list[
     return out
 
 
+def flat(tasks: list[dict]) -> list[dict]:
+    """Expand the deploy playbook's single block into its tasks.
+
+    Args:
+        tasks: A play's task list.
+
+    Returns:
+        list[dict]: The tasks, with block children in place of the block.
+    """
+    return [c for t in tasks for c in (t["block"] if "block" in t else [t])]
+
+
 def documented_tags() -> set[str]:
     """Tags listed in the "Deploy tags" table of ansible/README.md.
 
@@ -139,7 +151,7 @@ def test_every_task_in_the_deploy_playbooks_carries_a_documented_or_node_tag(tar
 def test_every_node_has_a_tagged_deploy_step(target: str) -> None:
     """--tags <node> must reach the node: its deploy include carries the node name and every phase tag, and applies the
     node tag to the included tasks."""
-    tasks = load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]["tasks"]
+    tasks = flat(load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]["tasks"])
     deploys = {
         t["vars"]["_deploy_node_name"]: t
         for t in tasks
@@ -154,7 +166,7 @@ def test_every_node_has_a_tagged_deploy_step(target: str) -> None:
 
 def test_node_specific_setup_files_carry_their_node_tag() -> None:
     client = load(PLAYBOOKS_DIR / "deploy_nodes_client.yml")[0]
-    includes = [t for sec in ("pre_tasks", "tasks") for t in client[sec]]
+    includes = client["pre_tasks"] + flat(client["tasks"])
     for filename, node in SETUP_NODE.items():
         task = next(t for t in includes if filename in str(t.get("ansible.builtin.include_tasks", "")))
         assert node in task["tags"], f"{filename} must carry the {node} tag"
@@ -233,8 +245,10 @@ def test_role_has_no_always_changed_tasks_and_does_not_restart_or_start_nodes() 
     assert "state: restarted" not in text and "state: started" not in text and "'started'" not in text
     handlers = load(ROLE_DIR / "handlers" / "main.yml")
     restart = next(h for h in handlers if h["name"] == "Restart ROS2 node")
-    assert "ansible.builtin.set_fact" in restart, "the handler only queues the restart"
-    assert "ros2_nodes_pending_restart" in str(restart["ansible.builtin.set_fact"])
+    assert "ansible.builtin.lineinfile" in restart, "the handler only queues the restart"
+    queue = restart["ansible.builtin.lineinfile"]
+    assert queue["path"] == "{{ ros2_restart_queue }}" and queue["line"] == "{{ ros2_node_restart_now }}"
+    assert queue["create"] is True and restart["become"] is True
 
 
 def test_poetry_install_runs_only_for_a_new_dependency_hash_and_stamps_after_success() -> None:
@@ -245,10 +259,12 @@ def test_poetry_install_runs_only_for_a_new_dependency_hash_and_stamps_after_suc
     assert cmd.index("poetry install --only main") < cmd.index(".poetry-deps"), "stamp only after a successful install"
     assert "changed_when" not in poetry
     probe = tasks["Detect node source and Python dependency changes"]["ansible.builtin.shell"]
-    for needle in ("poetry.lock", "pyproject.toml", "shared/pyproject.toml", "rev-parse HEAD:shared", '"HEAD:$src"'):
+    for needle in ("poetry.lock", "pyproject.toml", "shared/pyproject.toml", '"HEAD:$p"', "node_src_paths"):
         assert needle in probe, needle
+    assert "grep" not in probe, "shared/ is declared per node type (src_shared), not guessed from pyproject"
     source_stamp = tasks["Record the deployed node source (restart when it changed)"]
     assert source_stamp["notify"] == "Restart ROS2 node" and "node_src_key" in source_stamp["ansible.builtin.copy"]["content"]
+    assert "when" not in source_stamp, "launch-only nodes (no node_src_dir) get a source stamp too"
 
 
 def test_web_ui_npm_steps_run_only_when_their_inputs_changed() -> None:
@@ -280,6 +296,7 @@ def render_probe(script: str, **values: str) -> str:
     """
     for key, value in values.items():
         script = script.replace("{{ " + key + " }}", value)
+    assert "{{" not in script, script
     return script
 
 
@@ -343,7 +360,16 @@ def test_dependency_probe_detects_source_dependency_and_shared_changes(probe_rep
     tasks = {t.get("name"): t for t, _ in effective_tasks(load(ROLE_DIR / "tasks" / "main.yml"))}
     template = tasks["Detect node source and Python dependency changes"]["ansible.builtin.shell"]
     venv = tmp_path / "opt"
-    script = render_probe(template, repo_dest=str(probe_repo), node_src_dir="nodes/demo", node_name="demo")
+    script = render_probe(
+        template,
+        repo_dest=str(probe_repo),
+        node_name="demo",
+        **{
+            "node_src_dir | default('')": "nodes/demo",
+            "node_src_paths | join(' ')": "nodes/demo shared",
+            "node_src_shared | default(false) | bool | lower": "true",
+        },
+    )
     script = script.replace("/opt/ros2-nodes/demo", str(venv))
     first = run_bash(script)
     assert first["stored_deps_key"] == "" and first["deps_key"], "a new venv needs an install"
@@ -414,21 +440,191 @@ def test_colcon_clone_patch_and_build_are_skipped_when_the_stamp_exists() -> Non
     assert names.index("Drop the build stamp when the installed workspace is missing") < names.index("Look for the build stamp")
 
 
-def test_start_ros_nodes_restarts_queued_and_starts_stopped_nodes_in_order_sleeping_only_after_acting() -> None:
+def render_start_script(tmp_path: Path, nodes: list[str], scope: list[str]) -> str:
+    """Render the start_ros_nodes.yml shell script with a queue file and node lists.
+
+    Args:
+        tmp_path: Directory holding the queue file.
+        nodes: Enabled node names in deploy order.
+        scope: Nodes the run covers.
+
+    Returns:
+        str: Script ready for bash.
+    """
     tasks = load(TASKS_DIR / "start_ros_nodes.yml")
     script = next(t for t in tasks if "ansible.builtin.shell" in t)["ansible.builtin.shell"]
-    assert "ros2_nodes_pending_restart" in script and "continue" in script
-    assert script.index("continue") < script.index("systemctl restart") < script.index("sleep {{ ros2_node_start_interval_s")
-    assert "for n in {{ ros2_nodes_to_start | join(' ') }}" in script
+    return render_probe(
+        script,
+        ros2_restart_queue=str(tmp_path / "pending-restart"),
+        **{
+            "ros2_scope_nodes | default(ros2_nodes_to_start) | join(' ')": " ".join(scope),
+            "ros2_nodes_to_start | join(' ')": " ".join(nodes),
+            "ros2_node_start_interval_s | default(5)": "0",
+        },
+    )
+
+
+def run_start(tmp_path: Path, script: str, active: list[str], failing: str = "") -> subprocess.CompletedProcess[str]:
+    """Run a rendered start script against a fake systemctl.
+
+    Args:
+        tmp_path: Work directory (fake systemctl, log, active list).
+        script: Rendered script.
+        active: Units reported active.
+        failing: Unit whose restart/start fails.
+
+    Returns:
+        subprocess.CompletedProcess[str]: The finished process.
+    """
+    fake = tmp_path / "bin" / "systemctl"
+    fake.parent.mkdir(exist_ok=True)
+    fake.write_text(
+        "#!/bin/bash\n"
+        'if [ "$1" = is-active ]; then grep -qx -- "$3" "$ACTIVE"; exit $?; fi\n'
+        '[ "$2" = "$FAILING" ] && exit 1\n'
+        'echo "$1 $2" >> "$LOG"\n'
+    )
+    fake.chmod(0o755)
+    (tmp_path / "active").write_text("".join(f"ros2-{n}\n" for n in active))
+    env = {
+        **os.environ,
+        "PATH": f"{fake.parent}:{os.environ['PATH']}",
+        "ACTIVE": str(tmp_path / "active"),
+        "LOG": str(tmp_path / "log"),
+        "FAILING": f"ros2-{failing}" if failing else "-",
+    }
+    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, check=False)
+
+
+def test_start_script_restarts_the_queue_starts_stopped_nodes_in_scope_and_clears_the_queue(tmp_path: Path) -> None:
+    (tmp_path / "pending-restart").write_text("b\nz\n")
+    script = render_start_script(tmp_path, ["a", "b", "c", "d"], scope=["a", "b", "c", "d"])
+    result = run_start(tmp_path, script, active=["a", "b"])
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split("\n")[:-1] == ["restarted ros2-b", "started ros2-c", "started ros2-d"]
+    assert (tmp_path / "log").read_text().split("\n")[:-1] == ["restart ros2-b", "start ros2-c", "start ros2-d"]
+    assert (tmp_path / "pending-restart").read_text() == "", "queue cleared after success"
+
+
+def test_start_script_with_a_node_filter_only_starts_selected_nodes_but_restarts_every_queued_one(tmp_path: Path) -> None:
+    (tmp_path / "pending-restart").write_text("c\n")
+    script = render_start_script(tmp_path, ["a", "b", "c"], scope=["a"])
+    result = run_start(tmp_path, script, active=[])
+    assert result.stdout.split("\n")[:-1] == ["started ros2-a", "restarted ros2-c"], "b is out of scope and not queued"
+
+
+def test_start_script_fails_on_a_failed_restart_and_keeps_the_queue(tmp_path: Path) -> None:
+    (tmp_path / "pending-restart").write_text("a\nb\n")
+    script = render_start_script(tmp_path, ["a", "b"], scope=["a", "b"])
+    result = run_start(tmp_path, script, active=["a", "b"], failing="a")
+    assert result.returncode != 0
+    assert (tmp_path / "pending-restart").read_text() == "a\nb\n", "a failed run keeps its queued restarts for the next run"
+
+
+def test_start_script_without_a_queue_file_acts_only_on_stopped_nodes(tmp_path: Path) -> None:
+    script = render_start_script(tmp_path, ["a", "b"], scope=["a", "b"])
+    result = run_start(tmp_path, script, active=["a"])
+    assert result.returncode == 0 and result.stdout.split("\n")[:-1] == ["started ros2-b"]
+
+
+def test_start_ros_nodes_keeps_deploy_order_and_sleeps_only_after_acting() -> None:
+    tasks = load(TASKS_DIR / "start_ros_nodes.yml")
+    script = next(t for t in tasks if "ansible.builtin.shell" in t)["ansible.builtin.shell"]
+    assert script.index("continue") < script.index('systemctl "$verb"') < script.index("sleep {{ ros2_node_start_interval_s")
+    assert "set -euo pipefail" in script
     assert "namespace" in str(tasks[0]), "names keep ros2_nodes order"
-    assert "ros2_nodes_pending_restart: []" in (TASKS_DIR / "start_ros_nodes.yml").read_text()
+    assert "ros2_restarted_nodes" in str(tasks[-1])
 
 
-def test_claude_agent_token_change_queues_a_restart_directly() -> None:
+def test_restart_queue_is_a_host_file_written_by_the_handler_and_claude_agent_setup() -> None:
+    all_vars = load(ANSIBLE_DIR / "group_vars" / "all.yml")
+    assert all_vars["ros2_restart_queue"].startswith("{{ ros2_deploy_state_dir }}/")
+    assert all_vars["ros2_deploy_state_dir"] == "/var/lib/ros2-deploy"
     tasks = load(TASKS_DIR / "claude_agent_setup.yml")
-    queue = next(t for t in tasks if "ros2_nodes_pending_restart" in str(t.get("ansible.builtin.set_fact", "")))
+    queue = next(t for t in tasks if "ansible.builtin.lineinfile" in t)
+    assert queue["ansible.builtin.lineinfile"]["path"] == "{{ ros2_restart_queue }}"
+    assert queue["ansible.builtin.lineinfile"]["line"] == "claude_agent"
     assert queue["when"] == "claude_agent_token_written is changed"
-    assert "notify" not in (TASKS_DIR / "claude_agent_setup.yml").read_text().replace("No restart notify", "")
+    assert "ros2_nodes_pending_restart" not in "".join(p.read_text() for p in ANSIBLE_DIR.rglob("*.yml"))
+    for target in TARGETS:
+        pre = load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]["pre_tasks"]
+        mk = next(t for t in pre if "ansible.builtin.file" in t and "state" in t["ansible.builtin.file"])
+        assert "{{ ros2_deploy_state_dir }}/stamps" in mk["loop"] and "always" in mk["tags"]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_deploy_tasks_run_in_a_block_whose_rescue_starts_nodes_and_still_fails_the_run(target: str) -> None:
+    """A failure after a heavy step stopped the nodes must not leave them down (incident 2026-10-07)."""
+    play = load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]
+    assert len(play["tasks"]) == 1 and "block" in play["tasks"][0]
+    rescue = play["tasks"][0]["rescue"]
+    start, fail = rescue
+    assert start["ignore_errors"] is True, "a failing start must not mask the original failure"
+    assert "start_ros_nodes.yml" in str(start["block"])
+    assert "ansible.builtin.fail" in fail and "ansible_failed_task" in fail["ansible.builtin.fail"]["msg"]
+    assert "always" in start["tags"] and "always" in fail["tags"]
+    assert any("start_ros_nodes.yml" in str(t) for t in play["post_tasks"]), "success path starts nodes too"
+
+
+def test_scope_facts_limit_start_and_verify_to_the_selected_nodes() -> None:
+    select = (TASKS_DIR / "select_run.yml").read_text()
+    assert "ros2_scope_nodes" in select and "ros2_selected_nodes | length == 0" in select
+    verify = (VERIFY_DIR / "tasks" / "main.yml").read_text()
+    assert "ros2_scope_nodes" in verify and "ros2_restarted_nodes" in verify
+
+
+def node_type_paths(group: dict, entry: dict) -> list[str]:
+    """Source paths a node resolves to, mirroring resolve_and_deploy.yml.
+
+    Args:
+        group: Parsed group_vars file.
+        entry: A ros2_nodes entry.
+
+    Returns:
+        list[str]: Repo-relative paths hashed for the node's restart stamp.
+    """
+    node_type = group["ros2_node_type_defaults"][entry["node_type"]]
+    base = node_type.get("src_paths", [node_type.get("node_src_dir", "")])
+    return [p for p in base if p] + node_type.get("src_extra_paths", []) + (["shared"] if node_type.get("src_shared") else [])
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_every_present_node_resolves_to_existing_source_paths(target: str) -> None:
+    """Launch/config-only nodes (no node_src_dir) must restart when their repo files change: every node hashes paths."""
+    group = load(ANSIBLE_DIR / "group_vars" / f"{target}.yml")
+    for entry in group["ros2_nodes"]:
+        if entry.get("present", True) is False:
+            continue
+        paths = node_type_paths(group, entry)
+        assert paths, f"{entry['name']} has no source paths"
+        for path in paths:
+            assert (REPO_ROOT / path).exists(), f"{entry['name']}: {path} is not in the repo"
+    text = (TASKS_DIR / "resolve_and_deploy.yml").read_text()
+    assert "node_src_paths:" in text and "src_extra_paths" in text and "src_shared" in text
+
+
+def test_mcp_server_restarts_when_the_web_ui_urdf_it_loads_changes() -> None:
+    client = load(ANSIBLE_DIR / "group_vars" / "client.yml")
+    entry = next(n for n in client["ros2_nodes"] if n["name"] == "mcp_server")
+    assert "nodes/web_ui/urdf" in node_type_paths(client, entry)
+    assert (REPO_ROOT / "nodes" / "web_ui" / "urdf" / "so101_arm.urdf").exists()
+
+
+def test_every_pyproject_depending_on_shared_is_declared_src_shared() -> None:
+    client = load(ANSIBLE_DIR / "group_vars" / "client.yml")["ros2_node_type_defaults"]
+    server = load(ANSIBLE_DIR / "group_vars" / "server.yml")["ros2_node_type_defaults"]
+    declared = {t["node_src_dir"] for t in {**server, **client}.values() if t.get("src_shared")}
+    found = {
+        str(p.parent.relative_to(REPO_ROOT))
+        for p in (REPO_ROOT / "nodes").rglob("pyproject.toml")
+        if "node_modules" not in p.parts and "../../shared" in p.read_text()
+    }
+    assert found and found <= declared, f"declare src_shared for {sorted(found - declared)}"
+
+
+def test_docs_say_build_and_config_filters_skip_apt() -> None:
+    text = ANSIBLE_README.read_text()
+    assert "`--tags build` and `--tags config` do not install apt packages" in text
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -455,7 +651,7 @@ def test_verify_role_checks_all_units_in_one_command_per_round() -> None:
 def test_verify_runs_after_the_end_of_play_restarts(target: str) -> None:
     """Verify must see the restarted/started nodes: the start_ros_nodes include comes before the verify role."""
     play = load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]
-    flat = play["pre_tasks"] + play["tasks"] + play["post_tasks"]
-    start = next(i for i, t in enumerate(flat) if "start_ros_nodes.yml" in str(t.get("ansible.builtin.include_tasks", "")))
-    verify = next(i for i, t in enumerate(flat) if "ansible.builtin.include_role" in t)
-    assert start < verify and verify == len(flat) - 1, "verify is the last step of the play"
+    flat_play = play["pre_tasks"] + flat(play["tasks"]) + play["post_tasks"]
+    start = next(i for i, t in enumerate(flat_play) if "start_ros_nodes.yml" in str(t.get("ansible.builtin.include_tasks", "")))
+    verify = next(i for i, t in enumerate(flat_play) if "ansible.builtin.include_role" in t)
+    assert start < verify and verify == len(flat_play) - 1, "verify is the last step of the play"

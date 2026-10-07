@@ -3,12 +3,14 @@
 # Run after ros2_node_deploy (all nodes). Expects ros2_nodes in scope.
 # One systemctl call per check for all nodes (not one SSH task per node and check); retried until every unit is active.
 
-- name: List the present and enabled ROS2 node units
+- name: List the present and enabled ROS2 node units in scope (and those just restarted)
   ansible.builtin.set_fact:
     _ros2_verify_units: >-
       {%- set ns = namespace(units=[]) -%}
       {%- for n in ros2_nodes -%}
-      {%- if n.present | default(true) and n.enabled | default(true) -%}
+      {%- if n.present | default(true) and n.enabled | default(true)
+             and (n.name in ros2_scope_nodes | default(ros2_nodes | map(attribute='name') | list)
+                  or n.name in ros2_restarted_nodes | default([])) -%}
       {%- set ns.units = ns.units + ['ros2-' ~ n.name] -%}
       {%- endif -%}
       {%- endfor -%}

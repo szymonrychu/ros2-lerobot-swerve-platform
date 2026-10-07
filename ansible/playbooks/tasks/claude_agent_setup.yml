@@ -86,8 +86,11 @@
 # Role handlers are not visible from playbook-level tasks, so a changed token queues the restart directly; a deploy no
 # longer stops every node first, and start_ros_nodes.yml restarts the queued ones at the end.
 - name: Queue a claude_agent restart when the token changed
-  ansible.builtin.set_fact:
-    ros2_nodes_pending_restart: "{{ (ros2_nodes_pending_restart | default([])) + ['claude_agent'] }}"
+  ansible.builtin.lineinfile:
+    path: "{{ ros2_restart_queue }}"
+    line: claude_agent
+    create: true
+    mode: "0644"
   when: claude_agent_token_written is changed
   tags: [setup]
 

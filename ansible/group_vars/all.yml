@@ -40,3 +40,9 @@ ros2_repo_root: "{{ playbook_dir }}/../.."
 # priority, so the running stack keeps precedence; raise only if the Pi stays cool (it throttles at 85 C).
 ros2_build_cpu_quota: "400%"
 ros2_build_jobs: 4
+
+# Deploy state on the host: stamps (what source/config was deployed) and the persistent restart queue. A restart is
+# queued here the moment a change is applied, so it survives a failed run and is carried out by the next run's
+# start_ros_nodes.yml (which also runs in the rescue path of a failed run).
+ros2_deploy_state_dir: /var/lib/ros2-deploy
+ros2_restart_queue: "{{ ros2_deploy_state_dir }}/pending-restart"

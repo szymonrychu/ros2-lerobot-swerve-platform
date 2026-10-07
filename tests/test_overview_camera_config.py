@@ -169,6 +169,18 @@ def test_boot_overlays_use_the_same_path_as_the_uart_task() -> None:
     assert uart and uart[0]["path"] == BOOT_CONFIG_PATH
 
 
+def flat(tasks: list[dict]) -> list[dict]:
+    """Expand the deploy playbook's single block into its tasks.
+
+    Args:
+        tasks: A play's task list.
+
+    Returns:
+        list[dict]: The tasks, with block children in place of the block.
+    """
+    return [c for t in tasks for c in (t["block"] if "block" in t else [t])]
+
+
 def include_names(tasks: list[dict]) -> list[str]:
     """Included task files of a task list.
 
@@ -195,7 +207,7 @@ def test_boot_overlays_are_only_written_on_aarch64_hosts() -> None:
 
 
 def test_full_client_playbook_deploys_overview_camera_and_not_realsense_before_it() -> None:
-    tasks = load_yaml(DEPLOY_CLIENT)[0]["tasks"]
+    tasks = flat(load_yaml(DEPLOY_CLIENT)[0]["tasks"])
     deployed = [t.get("vars", {}).get("_deploy_node_name") for t in tasks]
     assert "overview_camera" in deployed
     # Uninstalling the RealSense unit must happen before the new camera starts.

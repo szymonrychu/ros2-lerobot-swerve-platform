@@ -94,6 +94,18 @@ def node_config(name: str) -> dict:
     return yaml.safe_load(node_entry(name)["config"])
 
 
+def flat(tasks: list[dict]) -> list[dict]:
+    """Expand the deploy playbook's single block into its tasks.
+
+    Args:
+        tasks: A play's task list.
+
+    Returns:
+        list[dict]: The tasks, with block children in place of the block.
+    """
+    return [c for t in tasks for c in (t["block"] if "block" in t else [t])]
+
+
 def play_tasks(path: Path) -> tuple[list[dict], list[dict], list[dict]]:
     """Pre-tasks, tasks and post-tasks of the first play in a playbook.
 
@@ -104,7 +116,7 @@ def play_tasks(path: Path) -> tuple[list[dict], list[dict], list[dict]]:
         tuple[list[dict], list[dict], list[dict]]: (pre_tasks, tasks, post_tasks).
     """
     play = yaml.safe_load(path.read_text())[0]
-    return play.get("pre_tasks", []), play.get("tasks", []), play.get("post_tasks", [])
+    return play.get("pre_tasks", []), flat(play.get("tasks", [])), play.get("post_tasks", [])
 
 
 def deploy_index(tasks: list[dict], name: str) -> int:

@@ -386,6 +386,18 @@ def maps_dir_tasks(tasks: list[dict]) -> list[dict]:
     return found
 
 
+def flat(tasks: list[dict]) -> list[dict]:
+    """Expand the deploy playbook's single block into its tasks.
+
+    Args:
+        tasks: A play's task list.
+
+    Returns:
+        list[dict]: The tasks, with block children in place of the block.
+    """
+    return [c for t in tasks for c in (t["block"] if "block" in t else [t])]
+
+
 def deploys(tasks: list[dict], name: str) -> bool:
     """Whether a task list deploys a node via resolve_and_deploy.
 
@@ -406,7 +418,7 @@ def deploys(tasks: list[dict], name: str) -> bool:
 @pytest.mark.parametrize("playbook", ["deploy_nodes_client.yml"])
 def test_slam_playbooks_deploy_node_and_create_maps_dir(playbook: str) -> None:
     plays = yaml.safe_load((PLAYBOOKS_DIR / playbook).read_text())
-    tasks = [t for play in plays for t in play.get("pre_tasks", []) + play.get("tasks", [])]
+    tasks = [t for play in plays for t in play.get("pre_tasks", []) + flat(play.get("tasks", []))]
     assert deploys(tasks, "slam_toolbox")
     created = maps_dir_tasks(tasks)
     assert created, f"{playbook}: no task creates {MAPS_DIR}"
@@ -654,7 +666,7 @@ def test_laser_filter_ansible_wiring() -> None:
     assert "scan:=/scan" in cmd and f"scan_filtered:={FILTERED_SCAN}" in cmd
     entry = node_entry("laser_filter")
     assert entry["present"] is True and entry["enabled"] is True
-    tasks = yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"]
+    tasks = flat(yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"])
     assert "laser_filter" in [t.get("vars", {}).get("_deploy_node_name") for t in tasks]
 
 
@@ -892,7 +904,7 @@ def test_rf2o_nodes_are_deployed_before_the_ekf() -> None:
         assert entry["present"] is True and entry["enabled"] is True
         assert names.index(name) < ekf
     assert names.index("rf2o_laser_odometry") < names.index("rf2o_odom_relay")
-    tasks = yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"]
+    tasks = flat(yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"])
     deployed = [t.get("vars", {}).get("_deploy_node_name") for t in tasks]
     assert deployed.index("rf2o_laser_odometry") < deployed.index("rf2o_odom_relay") < deployed.index(
         "robot_localization_ekf"

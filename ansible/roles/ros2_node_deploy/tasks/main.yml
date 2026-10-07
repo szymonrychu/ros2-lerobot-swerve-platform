@@ -6,7 +6,7 @@
 #     node_colcon_source (optional {repo, commit, package, workspace} or a list of them: built from source, see colcon_source_build.yml)
 #   Both: node_config_path, node_config, node_env, repo_dest
 # Deploy speed (see ansible/README.md, "Deploy performance"): nothing here restarts or stops a node directly. Changes
-# queue a restart (handler "Restart ROS2 node" appends to ros2_nodes_pending_restart) that playbooks/tasks/start_ros_nodes.yml
+# queue a restart (handler "Restart ROS2 node" appends the node to the host file ros2_restart_queue) that playbooks/tasks/start_ros_nodes.yml
 # carries out once, in ros2_nodes order, at the end of the deploy. Heavy steps (npm, colcon, Poetry) run only when
 # their stamp changed and stop all running nodes first (stop_for_build.yml, once per play). Every task carries a tag
 # (apt, python, build, config, always) so partial runs work; the playbook adds the node name tag.
@@ -150,21 +150,24 @@
       when: node_src_dir is defined and node_src_dir | length > 0
       tags: [python, config]
 
-    # One read-only look at what changed: the git tree hash of the node's source dir (plus shared/ for nodes that depend
-    # on it, installed in develop mode), and the hash of pyproject.toml + poetry.lock (+ shared/pyproject.toml) against
-    # the stamp of the last successful Poetry install (<venv>/.poetry-deps).
+    # One read-only look at what changed. src_key: hash of the git tree hashes of every node_src_paths entry (the node's
+    # package dir or launch/config dir, paths it reads, shared/) on the synced checkout. deps_key: hash of
+    # pyproject.toml + poetry.lock (+ shared/pyproject.toml) against the stamp of the last successful Poetry install
+    # (<venv>/.poetry-deps); empty for nodes without a Poetry venv.
     - name: Detect node source and Python dependency changes
       ansible.builtin.shell: |
         set -eu
-        repo="{{ repo_dest }}"; src="{{ node_src_dir }}"
-        src_key=$(git -C "$repo" rev-parse "HEAD:$src" 2>/dev/null || echo untracked)
-        deps_files="$repo/$src/pyproject.toml $repo/$src/poetry.lock"
-        if grep -q shared "$repo/$src/pyproject.toml"; then
-          src_key="$src_key-$(git -C "$repo" rev-parse HEAD:shared 2>/dev/null || echo untracked)"
-          deps_files="$deps_files $repo/shared/pyproject.toml"
+        repo="{{ repo_dest }}"; src="{{ node_src_dir | default('') }}"; shared="{{ node_src_shared | default(false) | bool | lower }}"
+        src_key=$(for p in {{ node_src_paths | join(' ') }}; do
+          git -C "$repo" rev-parse "HEAD:$p" 2>/dev/null || echo "untracked:$p"
+        done | sha256sum | cut -d' ' -f1)
+        deps_key=""; stored=""
+        if [ -n "$src" ]; then
+          deps_files="$repo/$src/pyproject.toml $repo/$src/poetry.lock"
+          if [ "$shared" = true ]; then deps_files="$deps_files $repo/shared/pyproject.toml"; fi
+          deps_key=$(cat $deps_files 2>/dev/null | sha256sum | cut -d' ' -f1)
+          stored=$(cat "/opt/ros2-nodes/{{ node_name }}/venv/.poetry-deps" 2>/dev/null || true)
         fi
-        deps_key=$(cat $deps_files 2>/dev/null | sha256sum | cut -d' ' -f1)
-        stored=$(cat "/opt/ros2-nodes/{{ node_name }}/venv/.poetry-deps" 2>/dev/null || true)
         printf '{"src_key": "%s", "deps_key": "%s", "stored_deps_key": "%s"}\n' "$src_key" "$deps_key" "$stored"
       args:
         executable: /bin/bash
@@ -172,7 +175,6 @@
       register: node_change_probe
       changed_when: false
       check_mode: false
-      when: node_src_dir is defined and node_src_dir | length > 0
       tags: [python, config]
 
     - name: Remember what changed for this node
@@ -180,7 +182,6 @@
         node_src_key: "{{ (node_change_probe.stdout | from_json).src_key }}"
         node_deps_key: "{{ (node_change_probe.stdout | from_json).deps_key }}"
         node_deps_stale: "{{ (node_change_probe.stdout | from_json).deps_key != (node_change_probe.stdout | from_json).stored_deps_key }}"
-      when: node_src_dir is defined and node_src_dir | length > 0
       tags: [python, config]
 
     - name: Stop the running nodes before the Poetry install
@@ -210,17 +211,17 @@
       notify: "Restart ROS2 node"
       tags: [python]
 
-    # The node runs from the repo checkout (PYTHONPATH), so a changed source tree needs a restart but no install. The
-    # stamp holds the tree hash; a different hash changes the file, which queues the restart.
+    # The node runs from the repo checkout (PYTHONPATH, launch and config files), so a changed source tree needs a restart
+    # but no install. The stamp holds the hash of the node's source paths; a different hash changes the file, which queues
+    # the restart (persistently, see the handler).
     - name: Record the deployed node source (restart when it changed)
       ansible.builtin.copy:
-        dest: "/opt/ros2-nodes/{{ node_name }}/.deployed-src"
+        dest: "{{ ros2_deploy_state_dir }}/stamps/{{ node_name }}.src"
         content: "{{ node_src_key }}\n"
         owner: root
         group: root
         mode: "0644"
       become: true
-      when: node_src_dir is defined and node_src_dir | length > 0
       notify: "Restart ROS2 node"
       tags: [python, config]
 

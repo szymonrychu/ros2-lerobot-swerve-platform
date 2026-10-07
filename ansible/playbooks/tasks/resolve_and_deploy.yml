@@ -21,6 +21,14 @@
     node_deploy_mode: "{{ ros2_node_type_defaults[_node.node_type].deploy_mode | default('native') }}"
     node_launch_command: "{{ ros2_node_type_defaults[_node.node_type].node_launch_command | default('') }}"
     node_src_dir: "{{ ros2_node_type_defaults[_node.node_type].node_src_dir | default('') }}"
+    # Repo paths whose change restarts the node: its Python package dir (or the type's src_paths for launch/config-only
+    # nodes), src_extra_paths it reads, and shared/ when it depends on it.
+    node_src_paths: >-
+      {{ (ros2_node_type_defaults[_node.node_type].src_paths
+          | default([ros2_node_type_defaults[_node.node_type].node_src_dir | default('')] | reject('equalto', '') | list))
+         + (ros2_node_type_defaults[_node.node_type].src_extra_paths | default([]))
+         + (['shared'] if ros2_node_type_defaults[_node.node_type].src_shared | default(false) else []) }}
+    node_src_shared: "{{ ros2_node_type_defaults[_node.node_type].src_shared | default(false) }}"
     node_apt_packages: "{{ ros2_node_type_defaults[_node.node_type].apt_packages | default([]) }}"
     node_colcon_source: "{{ ros2_node_type_defaults[_node.node_type].colcon_source | default({}) }}"
     node_pythonpath_parent: "{{ ros2_node_type_defaults[_node.node_type].pythonpath_parent | default(false) }}"

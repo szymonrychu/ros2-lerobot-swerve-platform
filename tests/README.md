@@ -638,8 +638,18 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_web_ui_probe_builds_only_when_frontend_inputs_change` | Runs the web_ui probe: first run needs ci + build; with stamps and outputs neither; a source commit builds without ci; a lock change runs ci; missing static output rebuilds. |
 | `test_heavy_steps_stop_the_nodes_only_when_they_will_run` | The stop-before-build include is conditional (Poetry stale, web_ui build, colcon stamp missing), runs once per play, and no playbook stops nodes up front. |
 | `test_colcon_clone_patch_and_build_are_skipped_when_the_stamp_exists` | Clone, patch and build only when the stamp is missing; the stamp check comes before the clone. |
-| `test_start_ros_nodes_restarts_queued_and_starts_stopped_nodes_in_order_sleeping_only_after_acting` | Running unchanged nodes are skipped before any restart or sleep; order is `ros2_nodes` order; the queue is cleared. |
-| `test_claude_agent_token_change_queues_a_restart_directly` | A changed OAuth token env file queues `claude_agent` for restart without role handlers. |
+| `test_start_script_restarts_the_queue_starts_stopped_nodes_in_scope_and_clears_the_queue` | Runs the rendered start script against a fake `systemctl`: queued nodes restart, stopped nodes in scope start, running unchanged ones are skipped, the queue file is emptied. |
+| `test_start_script_with_a_node_filter_only_starts_selected_nodes_but_restarts_every_queued_one` | Scope limited to one node: only it is started, a queued node outside the scope is still restarted, others untouched. |
+| `test_start_script_fails_on_a_failed_restart_and_keeps_the_queue` | A failing `systemctl restart` fails the script and the queue file keeps its entries for the next run. |
+| `test_start_script_without_a_queue_file_acts_only_on_stopped_nodes` | No queue file: only stopped nodes start. |
+| `test_start_ros_nodes_keeps_deploy_order_and_sleeps_only_after_acting` | `set -euo pipefail`, `ros2_nodes` order, skip before restart/start, sleep only after acting, restarted nodes remembered for verify. |
+| `test_restart_queue_is_a_host_file_written_by_the_handler_and_claude_agent_setup` | The queue is `/var/lib/ros2-deploy/pending-restart`; the handler and the claude_agent token change append to it; nothing uses the old in-memory queue; the playbooks create the state dirs. |
+| `test_deploy_tasks_run_in_a_block_whose_rescue_starts_nodes_and_still_fails_the_run` | (client, server) the node tasks are one block; its rescue runs the start step with ignored errors, then fails the run naming the original failed task; the success path still starts nodes. |
+| `test_scope_facts_limit_start_and_verify_to_the_selected_nodes` | `ros2_scope_nodes` is set by `select_run.yml` and used by verify together with the restarted nodes. |
+| `test_every_present_node_resolves_to_existing_source_paths` | (client, server) every present node resolves to a non-empty list of source paths that exist in the repo (`node_src_dir` or `src_paths`, extras, `shared`). |
+| `test_mcp_server_restarts_when_the_web_ui_urdf_it_loads_changes` | mcp_server's source paths include `nodes/web_ui/urdf`. |
+| `test_every_pyproject_depending_on_shared_is_declared_src_shared` | Every `nodes/**/pyproject.toml` with `../../shared` belongs to a node type with `src_shared: true`. |
+| `test_docs_say_build_and_config_filters_skip_apt` | `ansible/README.md` states that `--tags build` / `--tags config` do not install apt packages. |
 | `test_apt_packages_are_installed_in_one_batched_task` | (client, server) the playbook sets `ros2_apt_batched`, includes `apt_nodes.yml` (one apt call, hourly cache) and the role's per-node apt is skipped then. |
 | `test_verify_role_checks_all_units_in_one_command_per_round` | The verify role runs one `systemctl is-active` over all units per round instead of looping per node. |
 

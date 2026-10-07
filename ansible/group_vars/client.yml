@@ -21,10 +21,14 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "true"
     node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
+    src_paths: [nodes/ros2_master]
   ros2_master:
     deploy_mode: native
     node_launch_command: "ros2 daemon start && sleep infinity"
     node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
+    src_paths: [nodes/ros2_master]
     cpu_quota: "20%"
     memory_max: "128M"
   master2master:
@@ -115,6 +119,8 @@ ros2_node_type_defaults:
     # Supervisor runs the launch file and exits 1 (systemd restarts it) when /scan never starts or goes silent.
     node_launch_command: "python3 {{ ros2_repo_dest }}/nodes/bridges/rplidar_a1/scan_supervisor.py"
     node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
+    src_paths: [nodes/bridges/rplidar_a1]
     cpu_quota: "30%"
     memory_max: "128M"
     apt_packages:
@@ -123,6 +129,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "ros2 launch realsense2_camera rs_launch.py enable_accel:=false enable_gyro:=false depth_module.depth_profile:=848x480x90 rgb_camera.color_profile:=1280x720x30 align_depth.enable:=true"
     node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
+    src_paths: [nodes/bridges/realsense_d435i]
     cpu_quota: "200%"
     memory_max: "512M"
     apt_packages:
@@ -135,6 +143,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/overview_camera/launch/overview_camera.launch.py"
     node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
+    src_paths: [nodes/overview_camera]
     # One 640x480 camera at 15 fps with JPEG compression: one core is plenty.
     cpu_quota: "100%"
     memory_max: "256M"
@@ -203,6 +213,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "ros2 run laser_filters scan_to_scan_filter_chain --ros-args --params-file {{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml -r scan:=/scan -r scan_filtered:=/scan_filtered"
     node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
+    src_paths: [nodes/laser_filter]
     cpu_quota: "20%"
     memory_max: "128M"
     apt_packages:
@@ -226,6 +238,8 @@ ros2_node_type_defaults:
       --params-file {{ ros2_repo_dest }}/nodes/rf2o_laser_odometry/config/rf2o.yaml
       -r __node:=rf2o_laser_odometry
     node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
+    src_paths: [nodes/rf2o_laser_odometry]
     cpu_quota: "25%"
     memory_max: "128M"
     colcon_source:
@@ -268,6 +282,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/robot_localization_ekf/launch/ekf.launch.py"
     node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
+    src_paths: [nodes/robot_localization_ekf]
     cpu_quota: "25%"
     memory_max: "128M"
     apt_packages:
@@ -280,6 +296,8 @@ ros2_node_type_defaults:
     # SLAM runs as its own node (slam_toolbox, online async), so Nav2 starts without localization/map_server.
     node_launch_command: "ros2 launch nav2_bringup bringup_launch.py use_localization:=False params_file:={{ ros2_repo_dest }}/nodes/nav2_bringup/config/nav2_params.yaml"
     node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
+    src_paths: [nodes/nav2_bringup]
     cpu_quota: "75%"
     memory_max: "512M"
     apt_packages:
@@ -299,6 +317,8 @@ ros2_node_type_defaults:
     # /var/lib/ros2/maps (see nodes/slam_toolbox/README.md).
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/slam_toolbox/launch/slam.launch.py"
     node_src_dir: ""
+    # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
+    src_paths: [nodes/slam_toolbox]
     cpu_quota: "75%"
     memory_max: "512M"
     apt_packages:
@@ -310,6 +330,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m web_ui"
     node_src_dir: "nodes/web_ui"
+    # Depends on shared/ (pyproject path dependency, develop mode): its source and metadata matter.
+    src_shared: true
     cpu_quota: "30%"
     memory_max: "256M"
     config_path: /etc/ros2/web_ui
@@ -323,6 +345,10 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m mcp_server"
     node_src_dir: "nodes/mcp_server"
+    # Depends on shared/ (pyproject path dependency, develop mode): its source and metadata matter.
+    src_shared: true
+    # mcp_server loads the arm URDF from the web_ui package directory.
+    src_extra_paths: [nodes/web_ui/urdf]
     cpu_quota: "25%"
     memory_max: "256M"
     config_path: /etc/ros2/mcp_server

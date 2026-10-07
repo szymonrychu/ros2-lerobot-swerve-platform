@@ -17,6 +17,18 @@
       ansible.builtin.include_tasks: tasks/select_run.yml
       tags: [always]
 
+    - name: Create the deploy state directories (stamps, restart queue)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ ros2_deploy_state_dir }}"
+        - "{{ ros2_deploy_state_dir }}/stamps"
+      tags: [always]
+
     - name: Sync repository
       ansible.builtin.include_tasks: tasks/repo_sync.yml
       tags: [sync, always]
@@ -65,283 +77,303 @@
       tags: [boot]
 
   tasks:
-    - name: Web UI tile cache directory
-      ansible.builtin.include_tasks:
-        file: tasks/web_ui_tile_cache_dir.yml
-        apply:
-          tags: [web_ui]
-      tags: [web_ui, setup]
-    - name: Deploy web_ui
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [web_ui]
-      vars:
-        _deploy_node_name: web_ui
-      tags: [web_ui, apt, python, build, config]
+    - name: Deploy the nodes
+      block:
+        - name: Web UI tile cache directory
+          ansible.builtin.include_tasks:
+            file: tasks/web_ui_tile_cache_dir.yml
+            apply:
+              tags: [web_ui]
+          tags: [web_ui, setup]
+        - name: Deploy web_ui
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [web_ui]
+          vars:
+            _deploy_node_name: web_ui
+          tags: [web_ui, apt, python, build, config]
 
-    - name: Deploy fastdds_discovery_server
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [fastdds_discovery_server]
-      vars:
-        _deploy_node_name: fastdds_discovery_server
-      tags: [fastdds_discovery_server, apt, python, build, config]
+        - name: Deploy fastdds_discovery_server
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [fastdds_discovery_server]
+          vars:
+            _deploy_node_name: fastdds_discovery_server
+          tags: [fastdds_discovery_server, apt, python, build, config]
 
-    - name: DDS host setup (shell env, keep shared memory)
-      ansible.builtin.include_tasks: tasks/dds_host_setup.yml
-      tags: [config]
+        - name: DDS host setup (shell env, keep shared memory)
+          ansible.builtin.include_tasks: tasks/dds_host_setup.yml
+          tags: [config]
 
-    - name: Deploy ros2-master
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [ros2-master]
-      vars:
-        _deploy_node_name: ros2-master
-      tags: [ros2-master, apt, python, build, config]
+        - name: Deploy ros2-master
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [ros2-master]
+          vars:
+            _deploy_node_name: ros2-master
+          tags: [ros2-master, apt, python, build, config]
 
-    - name: Deploy master2master
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [master2master]
-      vars:
-        _deploy_node_name: master2master
-        _extra_env: "{{ ['ROS2_SERVER_HOST=' + ros2_server_host] if (ros2_server_host is defined and ros2_server_host | length > 0) else [] }}"
-      tags: [master2master, apt, python, build, config]
+        - name: Deploy master2master
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [master2master]
+          vars:
+            _deploy_node_name: master2master
+            _extra_env: "{{ ['ROS2_SERVER_HOST=' + ros2_server_host] if (ros2_server_host is defined and ros2_server_host | length > 0) else [] }}"
+          tags: [master2master, apt, python, build, config]
 
-    - name: Deploy filter_node
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [filter_node]
-      vars:
-        _deploy_node_name: filter_node
-      tags: [filter_node, apt, python, build, config]
+        - name: Deploy filter_node
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [filter_node]
+          vars:
+            _deploy_node_name: filter_node
+          tags: [filter_node, apt, python, build, config]
 
-    - name: Deploy test_joint_api
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [test_joint_api]
-      vars:
-        _deploy_node_name: test_joint_api
-      tags: [test_joint_api, apt, python, build, config]
+        - name: Deploy test_joint_api
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [test_joint_api]
+          vars:
+            _deploy_node_name: test_joint_api
+          tags: [test_joint_api, apt, python, build, config]
 
-    - name: Deploy topic_scraper_api
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [topic_scraper_api]
-      vars:
-        _deploy_node_name: topic_scraper_api
-      tags: [topic_scraper_api, apt, python, build, config]
+        - name: Deploy topic_scraper_api
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [topic_scraper_api]
+          vars:
+            _deploy_node_name: topic_scraper_api
+          tags: [topic_scraper_api, apt, python, build, config]
 
-    - name: Deploy bno055_imu
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [bno055_imu]
-      vars:
-        _deploy_node_name: bno055_imu
-      tags: [bno055_imu, apt, python, build, config]
+        - name: Deploy bno055_imu
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [bno055_imu]
+          vars:
+            _deploy_node_name: bno055_imu
+          tags: [bno055_imu, apt, python, build, config]
 
-    - name: Deploy gps_rtk_rover
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [gps_rtk_rover]
-      vars:
-        _deploy_node_name: gps_rtk_rover
-      tags: [gps_rtk_rover, apt, python, build, config]
+        - name: Deploy gps_rtk_rover
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [gps_rtk_rover]
+          vars:
+            _deploy_node_name: gps_rtk_rover
+          tags: [gps_rtk_rover, apt, python, build, config]
 
-    - name: Deploy haptic_controller
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [haptic_controller]
-      vars:
-        _deploy_node_name: haptic_controller
-      tags: [haptic_controller, apt, python, build, config]
+        - name: Deploy haptic_controller
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [haptic_controller]
+          vars:
+            _deploy_node_name: haptic_controller
+          tags: [haptic_controller, apt, python, build, config]
 
-    - name: Deploy gripper_uvc_camera
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [gripper_uvc_camera]
-      vars:
-        _deploy_node_name: gripper_uvc_camera
-      tags: [gripper_uvc_camera, apt, python, build, config]
+        - name: Deploy gripper_uvc_camera
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [gripper_uvc_camera]
+          vars:
+            _deploy_node_name: gripper_uvc_camera
+          tags: [gripper_uvc_camera, apt, python, build, config]
 
-    - name: Deploy rplidar_a1
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [rplidar_a1]
-      vars:
-        _deploy_node_name: rplidar_a1
-      tags: [rplidar_a1, apt, python, build, config]
+        - name: Deploy rplidar_a1
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [rplidar_a1]
+          vars:
+            _deploy_node_name: rplidar_a1
+          tags: [rplidar_a1, apt, python, build, config]
 
-    - name: Deploy realsense_d435i
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [realsense_d435i]
-      vars:
-        _deploy_node_name: realsense_d435i
-      tags: [realsense_d435i, apt, python, build, config]
+        - name: Deploy realsense_d435i
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [realsense_d435i]
+          vars:
+            _deploy_node_name: realsense_d435i
+          tags: [realsense_d435i, apt, python, build, config]
 
-    - name: Deploy overview_camera
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [overview_camera]
-      vars:
-        _deploy_node_name: overview_camera
-      tags: [overview_camera, apt, python, build, config]
+        - name: Deploy overview_camera
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [overview_camera]
+          vars:
+            _deploy_node_name: overview_camera
+          tags: [overview_camera, apt, python, build, config]
 
-    - name: Deploy lerobot_follower
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [lerobot_follower]
-      vars:
-        _deploy_node_name: lerobot_follower
-      tags: [lerobot_follower, apt, python, build, config]
+        - name: Deploy lerobot_follower
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [lerobot_follower]
+          vars:
+            _deploy_node_name: lerobot_follower
+          tags: [lerobot_follower, apt, python, build, config]
 
-    - name: Deploy swerve_drive_servos
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [swerve_drive_servos]
-      vars:
-        _deploy_node_name: swerve_drive_servos
-      tags: [swerve_drive_servos, apt, python, build, config]
+        - name: Deploy swerve_drive_servos
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [swerve_drive_servos]
+          vars:
+            _deploy_node_name: swerve_drive_servos
+          tags: [swerve_drive_servos, apt, python, build, config]
 
-    - name: Deploy swerve_controller
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [swerve_controller]
-      vars:
-        _deploy_node_name: swerve_controller
-      tags: [swerve_controller, apt, python, build, config]
+        - name: Deploy swerve_controller
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [swerve_controller]
+          vars:
+            _deploy_node_name: swerve_controller
+          tags: [swerve_controller, apt, python, build, config]
 
-    - name: Deploy static_tf_publisher
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [static_tf_publisher]
-      vars:
-        _deploy_node_name: static_tf_publisher
-      tags: [static_tf_publisher, apt, python, build, config]
+        - name: Deploy static_tf_publisher
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [static_tf_publisher]
+          vars:
+            _deploy_node_name: static_tf_publisher
+          tags: [static_tf_publisher, apt, python, build, config]
 
-    - name: Deploy rf2o_laser_odometry
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [rf2o_laser_odometry]
-      vars:
-        _deploy_node_name: rf2o_laser_odometry
-      tags: [rf2o_laser_odometry, apt, python, build, config]
+        - name: Deploy rf2o_laser_odometry
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [rf2o_laser_odometry]
+          vars:
+            _deploy_node_name: rf2o_laser_odometry
+          tags: [rf2o_laser_odometry, apt, python, build, config]
 
-    - name: Deploy rf2o_odom_relay
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [rf2o_odom_relay]
-      vars:
-        _deploy_node_name: rf2o_odom_relay
-      tags: [rf2o_odom_relay, apt, python, build, config]
+        - name: Deploy rf2o_odom_relay
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [rf2o_odom_relay]
+          vars:
+            _deploy_node_name: rf2o_odom_relay
+          tags: [rf2o_odom_relay, apt, python, build, config]
 
-    - name: Deploy robot_localization_ekf
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [robot_localization_ekf]
-      vars:
-        _deploy_node_name: robot_localization_ekf
-      tags: [robot_localization_ekf, apt, python, build, config]
+        - name: Deploy robot_localization_ekf
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [robot_localization_ekf]
+          vars:
+            _deploy_node_name: robot_localization_ekf
+          tags: [robot_localization_ekf, apt, python, build, config]
 
-    - name: Deploy laser_filter
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [laser_filter]
-      vars:
-        _deploy_node_name: laser_filter
-      tags: [laser_filter, apt, python, build, config]
+        - name: Deploy laser_filter
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [laser_filter]
+          vars:
+            _deploy_node_name: laser_filter
+          tags: [laser_filter, apt, python, build, config]
 
-    - name: SLAM maps directory
-      ansible.builtin.include_tasks:
-        file: tasks/slam_maps_dir.yml
-        apply:
-          tags: [slam_toolbox]
-      tags: [slam_toolbox, setup]
-    - name: Deploy slam_toolbox
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [slam_toolbox]
-      vars:
-        _deploy_node_name: slam_toolbox
-      tags: [slam_toolbox, apt, python, build, config]
+        - name: SLAM maps directory
+          ansible.builtin.include_tasks:
+            file: tasks/slam_maps_dir.yml
+            apply:
+              tags: [slam_toolbox]
+          tags: [slam_toolbox, setup]
+        - name: Deploy slam_toolbox
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [slam_toolbox]
+          vars:
+            _deploy_node_name: slam_toolbox
+          tags: [slam_toolbox, apt, python, build, config]
 
-    - name: Deploy nav2_bringup
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [nav2_bringup]
-      vars:
-        _deploy_node_name: nav2_bringup
-      tags: [nav2_bringup, apt, python, build, config]
+        - name: Deploy nav2_bringup
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [nav2_bringup]
+          vars:
+            _deploy_node_name: nav2_bringup
+          tags: [nav2_bringup, apt, python, build, config]
 
-    - name: MCP server token and arm home directory
-      ansible.builtin.include_tasks:
-        file: tasks/mcp_server_setup.yml
-        apply:
-          tags: [mcp_server]
-      tags: [mcp_server, setup]
-    - name: Deploy mcp_server
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [mcp_server]
-      vars:
-        _deploy_node_name: mcp_server
-      tags: [mcp_server, apt, python, build, config]
+        - name: MCP server token and arm home directory
+          ansible.builtin.include_tasks:
+            file: tasks/mcp_server_setup.yml
+            apply:
+              tags: [mcp_server]
+          tags: [mcp_server, setup]
+        - name: Deploy mcp_server
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [mcp_server]
+          vars:
+            _deploy_node_name: mcp_server
+          tags: [mcp_server, apt, python, build, config]
 
-    - name: POI store directory
-      ansible.builtin.include_tasks:
-        file: tasks/poi_store_dir.yml
-        apply:
-          tags: [poi_store]
-      tags: [poi_store, setup]
-    - name: Deploy poi_store
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [poi_store]
-      vars:
-        _deploy_node_name: poi_store
-      tags: [poi_store, apt, python, build, config]
+        - name: POI store directory
+          ansible.builtin.include_tasks:
+            file: tasks/poi_store_dir.yml
+            apply:
+              tags: [poi_store]
+          tags: [poi_store, setup]
+        - name: Deploy poi_store
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [poi_store]
+          vars:
+            _deploy_node_name: poi_store
+          tags: [poi_store, apt, python, build, config]
 
-    - name: Claude agent user, directories and OAuth token
-      ansible.builtin.include_tasks:
-        file: tasks/claude_agent_setup.yml
-        apply:
-          tags: [claude_agent]
-      tags: [claude_agent, setup]
-    - name: Deploy claude_agent
-      ansible.builtin.include_tasks:
-        file: tasks/resolve_and_deploy.yml
-        apply:
-          tags: [claude_agent]
-      vars:
-        _deploy_node_name: claude_agent
-      tags: [claude_agent, apt, python, build, config]
+        - name: Claude agent user, directories and OAuth token
+          ansible.builtin.include_tasks:
+            file: tasks/claude_agent_setup.yml
+            apply:
+              tags: [claude_agent]
+          tags: [claude_agent, setup]
+        - name: Deploy claude_agent
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [claude_agent]
+          vars:
+            _deploy_node_name: claude_agent
+          tags: [claude_agent, apt, python, build, config]
+
+      # A failure anywhere above (after a heavy step stopped the nodes, say) must not leave the robot down: restart the
+      # queued nodes and start the stopped ones, whatever that start does, then fail the run with the original error.
+      rescue:
+        - name: Start the stopped and queued nodes after a failed deploy
+          ignore_errors: true
+          tags: [always]
+          block:
+            - name: Restart the queued and start the stopped ROS2 nodes
+              ansible.builtin.include_tasks: tasks/start_ros_nodes.yml
+
+        - name: Fail the run with the original error
+          ansible.builtin.fail:
+            msg: >-
+              Deploy failed at task "{{ ansible_failed_task.name | default('unknown') }}":
+              {{ ansible_failed_result.msg | default('see the output above') }}.
+              Queued restarts and stopped nodes were handled in the rescue path.
+          tags: [always]
 
   post_tasks:
     - name: Restart changed and start stopped ROS2 nodes gradually
