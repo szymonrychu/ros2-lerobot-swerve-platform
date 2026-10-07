@@ -110,3 +110,28 @@ def test_unreachable_pitch_raises(kin: ArmKinematics) -> None:
 def test_inverse_rejects_non_finite(kin: ArmKinematics) -> None:
     with pytest.raises(UnreachableError):
         kin.inverse(float("nan"), 0.0, 0.2, None, seed={j: 0.0 for j in ARM_CHAIN_JOINTS})
+
+
+def test_link_frame_base_and_end_match_chain(kin: ArmKinematics) -> None:
+    joints = {"shoulder_pan": 0.3, "shoulder_lift": -0.4, "elbow_flex": 0.8, "wrist_flex": 0.2, "wrist_roll": 0.5}
+    assert np.allclose(kin.link_frame(joints, "base_link"), np.eye(4))
+    end = kin.link_frame(joints, "gripper_frame_link")
+    pose = kin.forward(joints)
+    assert end[:3, 3] == pytest.approx([pose.x, pose.y, pose.z])
+
+
+def test_link_frame_gripper_link_is_the_wrist_roll_child(kin: ArmKinematics) -> None:
+    joints = {j: 0.0 for j in ARM_CHAIN_JOINTS}
+    gripper = kin.link_frame(joints, "gripper_link")
+    end = kin.link_frame(joints, "gripper_frame_link")
+    # gripper_frame_joint is a fixed offset of (-0.0079, -0.0002, -0.0981) m in gripper_link.
+    assert np.linalg.norm(gripper[:3, 3] - end[:3, 3]) == pytest.approx(math.hypot(0.0079, 0.0981), abs=0.002)
+    panned = kin.link_frame({**joints, "shoulder_pan": 0.7}, "gripper_link")
+    assert panned[1, 3] != pytest.approx(gripper[1, 3], abs=0.05)
+
+
+def test_link_frame_rejects_unknown_and_off_chain_links(kin: ArmKinematics) -> None:
+    with pytest.raises(ValueError, match="moving_jaw_so101_v1_link"):
+        kin.link_frame({}, "moving_jaw_so101_v1_link")
+    with pytest.raises(ValueError, match="nope"):
+        kin.link_frame({}, "nope")

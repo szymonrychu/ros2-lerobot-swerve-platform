@@ -9,7 +9,7 @@ from ros2_common.battery import BatteryGuard
 from .arm import ArmController
 from .base_motion import DriveOutcome
 from .config import McpServerConfig
-from .models import CameraFrame, MapSummary, NavigationResult, RobotState, StopResult
+from .models import CameraFrame, MapSummary, NavigationResult, RobotState, ScanPoints, StopResult
 from .monitor import RobotMonitor
 
 
@@ -24,6 +24,10 @@ class RobotApi(Protocol):
 
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:
         """One fresh camera frame."""
+        ...
+
+    def scan_points(self) -> ScanPoints | None:
+        """Latest fresh lidar scan as (x, y, z, range) points in base_link; None when missing, stale or no TF."""
         ...
 
     def map_summary(self, include_png: bool, radius_m: float, png_max_px: int) -> tuple[MapSummary, bytes | None]:

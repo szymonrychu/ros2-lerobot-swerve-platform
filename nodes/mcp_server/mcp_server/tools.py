@@ -17,7 +17,7 @@ from pydantic import Field
 from ros2_common.battery import BatteryGuard
 from starlette.applications import Starlette
 
-from . import body_tools
+from . import body_tools, camera_tools
 from .arm import ArmError
 from .base_motion import DriveError, DriveOutcome
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, McpServerConfig
@@ -53,6 +53,7 @@ TOOL_NAMES = (
     "arm_home",
     "arm_set_home",
     "get_body_state",
+    *camera_tools.TOOL_NAMES,
 )
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
 # MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
@@ -80,6 +81,7 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         "acquire_control",
         "release_control",
         "get_body_state",
+        *camera_tools.TOOL_NAMES,
     }
 )
 DIGEST_EVENTS_KEY = "robot_events_since_last_call"
@@ -541,7 +543,11 @@ def register_core_tools(ctx: ToolContext) -> None:
 
 # The one place tool modules are registered: a new module (e.g. perception tools) is one function taking a ToolContext
 # and one entry here.
-TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (register_core_tools, body_tools.register)
+TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
+    register_core_tools,
+    body_tools.register,
+    camera_tools.register,
+)
 
 
 def build_app(server: MCPServer, config: McpServerConfig) -> Starlette:

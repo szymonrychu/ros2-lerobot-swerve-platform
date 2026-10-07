@@ -281,7 +281,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   a jaw stalling before closed (close_until_effort and open_fraction=0) reports `grasped` and holds stall + squeeze
   (also after the hold window), the squeeze never passes closed, a partial open_fraction stall is not a grasp
 - drive (`test_base_motion.py`): rate, clamping, duration cap, abort always ends with a zero twist
-- tools (`test_tools.py`): all 16 tools registered with real descriptions (arm motion tools explain `residual_error`
+- tools (`test_tools.py`): all 23 tools registered with real descriptions (arm motion tools explain `residual_error`
   and the commanded hold), structured outputs, camera JPEG + stamp,
   argument validation, robot errors as tool errors, map PNG, arm tool round trip, bearer-token auth on the Streamable
   HTTP app (401 without/with a wrong token, 200 with the right one) and the configured path
@@ -296,6 +296,24 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   latched), human takeover only while the lease is held, CPU temperature, digest cursor/cap/vitals line, `MotionWatch`
   (only relevant critical events after creation, live battery cut-off), body state nulls and notes, last 10 events,
   failing sink tolerated, threshold validation
+- camera config (`test_camera_config.py`): cameras default to not calibrated with parent frames `gripper_link` / `base_link`,
+  intrinsics source rules (calibration file XOR hfov with width and height), mount parent frame adopted and checked, front
+  camera restricted to `base_link`, unknown camera keys rejected, `arm.base_in_base_link` and reach ordering
+- camera scene (`test_camera_scene.py`): intrinsics loading (hfov approximate, calibration yaml), not-calibrated error text,
+  synthetic front camera with a known mount (analytic centre-pixel floor point, project/ground round trip, sky pixels),
+  gripper camera pose from measured joints, frame conversions with and without the arm offset, map position from the
+  robot yaw, `pixel_to_ground` report fields and pixel errors
+- camera overlays (`test_camera_overlay.py`): vectorised projection equals `project_raw`, grid polylines at the step
+  and on the floor, behind-camera samples dropped, spaced metric labels, reach circle, lidar dots counted, candidate grid
+  (whole image, region, cap, region validation) and drawing
+- camera calibration (`test_camera_calib.py`): sample store JSON round trip, counts per camera, clear, parent frame change
+  refused, non-finite / unwritable / corrupt files, the solver recovers a known mount from synthetic samples, minimum sample
+  count, YAML snippet shape
+- camera tools (`test_camera_tools.py`): the seven tools and descriptions, documented not-calibrated errors,
+  `pixel_to_ground` (front/gripper, arm offset, missing map pose, stale joints, sky), annotated images (all overlays,
+  notes for overlays that cannot be drawn, validation), candidate points (table vs projection, sky skipped, region, last
+  10 sets, stored values with moved flags), capture/solve/clear round trip
+- IK link frames (`test_ik.py`): `link_frame` for base, `gripper_link`, `gripper_frame_link` and rejected off-chain links
 - digest + body state (`test_digest.py`): every tool result carries `robot_events_since_last_call` and `vitals` (text,
   structured content, `_meta` for image tools, appended to tool errors), events reported once, events raised during the
   call included, a tool registered by a later module gets it for free, `get_body_state` content/nulls, never refused in
@@ -402,6 +420,18 @@ Static wiring invariants of the poi_store node (Ansible, playbooks, lint script,
 | `test_docs_mention_poi_store` | nodes/README.md, ansible/README.md and the ansible-deploy skill mention `poi_store`. |
 
 The node's own tests (store, models, config) live in `nodes/poi_store/tests/` and need no ROS: `cd nodes/poi_store && poetry run pytest tests -q`.
+
+### test_mcp_camera_config.py
+
+Static checks of the mcp_server camera tools wiring (YAML and README only; no ROS needed).
+
+| Test (group) | Description |
+|------|-------------|
+| `test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/camera_calibration` owned by `ansible_user`. |
+| `test_cameras_config_defaults_to_not_calibrated` | The mcp_server `cameras` block has `calibration_dir` and both cameras with their parent frame and `intrinsics`/`mount` null. |
+| `test_gripper_parent_frame_is_a_link_of_the_arm_urdf` | `cameras.gripper.parent_frame` names a link in the arm URDF. |
+| `test_arm_reach_keys_are_ordered` | `arm.reach_inner_m` is positive and below `arm.reach_outer_m`. |
+| `test_readme_documents_the_camera_tools_frames_and_calibration` | `nodes/mcp_server/README.md` documents the seven camera tools, frames, the not-calibrated default, `base_in_base_link`, the calibration directory and the procedure. |
 
 ### test_mcp_server_config.py
 

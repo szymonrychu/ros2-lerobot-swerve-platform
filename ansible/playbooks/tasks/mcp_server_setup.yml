@@ -1,5 +1,6 @@
 ---
-# mcp_server prerequisites, run before its deploy: the bearer token EnvironmentFile and the arm home pose directory.
+# mcp_server prerequisites, run before its deploy: the bearer token EnvironmentFile, the arm home pose directory and the
+# camera calibration sample directory (capture_calibration_sample writes <camera>.json there).
 # The token is generated once on the robot and never overwritten (force: false); it never enters git.
 # Group mcp-token (read-only) lets other services, e.g. claude_agent, use it. Fetch it on the dev machine with scripts/robot_mcp_token.sh.
 - name: Ensure mcp_server config directory exists
@@ -36,6 +37,14 @@
 - name: Ensure arm home pose directory exists (owned by the node user)
   ansible.builtin.file:
     path: /var/lib/ros2/arm
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+
+- name: Ensure camera calibration sample directory exists (owned by the node user)
+  ansible.builtin.file:
+    path: /var/lib/ros2/camera_calibration
     state: directory
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"

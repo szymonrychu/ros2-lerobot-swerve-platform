@@ -28,10 +28,83 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link')` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch, wrist_roll kept); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.165, measured 16.5 cm); the tool descriptions and `get_arm_state.floor_z_m` state it. No motion restriction is derived from it. |
 | `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.12 / 1.5 rad; measured fully closed is -0.172 rad, the URDF limit margin allows -0.1245). |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
+| `pixel_to_ground(camera, u, v)` | Floor point seen at a pixel (sensor): `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
+| `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
+| `mark_candidate_points(camera, region, spacing_px=40, max_points=40)` | Image with numbered dots on a pixel grid plus a table `{set_id, points:[{n, u, v, ground_base_link, ground_map}]}`; the last 10 sets are kept. |
+| `resolve_candidate(set_id, n)` | Stored coordinates of one numbered point, with its age and whether the base/arm moved since. |
+| `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z=0.0)` | Store one marker sample (pixel + measured floor point + parent-link pose) in `cameras.calibration_dir`. |
+| `solve_camera_calibration(camera, initial)` | Fit the mount pose to the stored samples; returns `rms_px` and a YAML snippet for `client.yml` (never edits the config). |
+| `clear_calibration_samples(camera)` | Delete the stored samples of a camera. |
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
 after a failed motion; used by the web UI "Arm home" button) and `/arm/set_home` (store the measured pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
 directory created by Ansible, owned by the node user), written atomically.
+
+## Camera tools and calibration
+
+All camera tools are read-only (sensor class: allowed in battery cut-off, never command the robot). They use
+`ros2_common.camera_geometry` (see `shared/README.md`): pinhole intrinsics plus a mount pose give the pixel ray, which
+is intersected with the flat floor. Pixel coordinates `(u right, v down)` are in the **calibrated image size**
+(the intrinsics `width x height`; every image these tools return has that size, resized if the camera delivers another).
+
+Both cameras are **not calibrated by default** (`intrinsics: null`, `mount: null`): the tools then fail with
+`camera <name> not calibrated: set intrinsics and mount in mcp_server config (see README calibration)`.
+`intrinsics` is `{calibration_file: <camera_calibration yaml>}` or an approximation `{hfov_deg, width, height}` (square
+pixels, centred principal point, no distortion): results then say `approximate intrinsics`. `capture_calibration_sample`
+works before calibration; `solve_camera_calibration` needs the intrinsics.
+
+### Frames
+
+| Camera | Reference frame of results | Floor | Mount `parent_frame` |
+|---|---|---|---|
+| `front` (fixed overhead camera) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | `base_link` (fixed) |
+| `gripper` (on the wrist) | arm base frame (URDF `base_link` of `so101_arm.urdf`, `z = 0` on the arm mount plane) | `z = -arm_base_height_m` (`floor_z_m`, -0.165 m) | URDF link `gripper_link` (child of `wrist_roll`, the rigid gripper body carrying the fixed jaw; `gripper_frame_link` is only the tool point at the jaw tips and `moving_jaw_so101_v1_link` moves with the gripper joint, so neither is a valid mount) |
+
+For the gripper camera `T_arm_base_gripper_link` is computed from the CURRENT measured joints with the same ikpy chain
+as IK/FK (`ArmKinematics.link_frame`), so the tools need fresh `/follower/joint_states`. Mount orientation convention:
+REP-103 camera body frame (x forward, y left, z up), fixed-axis RPY in `parent_frame`.
+
+`arm.base_in_base_link` (`x`, `y`, `z`, `yaw` of the arm base frame in base_link; z = `arm_base_height_m`) is unset until
+measured. Without it, gripper results are in the arm base frame only (`ground_arm_base`; no `ground_base_link`, no
+`ground_map`; distance and bearing are measured from the arm base) and the front camera cannot place arm overlays.
+
+### Tools
+
+- `pixel_to_ground`: `front` gives `ground_base_link`; `gripper` gives `ground_arm_base` (plus `ground_base_link` and
+  `ground_map` when `arm.base_in_base_link` is set). `ground_map` comes from the live map -> base_link TF; it is omitted
+  when the pose is unknown. Errors for pixels outside the image or rays that miss the floor (sky, behind).
+- `get_annotated_camera_image`: overlays are drawn with `project_point_to_pixel` maths in the camera's reference frame:
+  `grid` (floor grid, `(x,y)` metre labels, `grid_step_m` 0.05 to 1), `reach` (floor annulus `arm.reach_inner_m` to
+  `arm.reach_outer_m` around the shoulder pan axis; approximate, measure and set), `gripper` (tool point circle and its
+  straight-down floor foot cross), `planned_gripper` (a `{x,y,z}` target in the arm base frame, as for
+  `move_arm_cartesian`, shown before moving), `lidar` (latest `/scan_filtered`, base_link <- laser TF, range-coloured
+  dots: red near, blue far). Overlays that cannot be drawn are listed in the metadata `notes` (for example arm overlays on
+  the front camera without `arm.base_in_base_link`). A short legend is drawn in the image.
+- `mark_candidate_points` / `resolve_candidate`: dots whose pixel does not see the floor, or whose floor point is farther
+  than 6 m, are skipped (`skipped_no_ground`). Sets live in memory (last 10, lost on restart). `resolve_candidate` returns
+  the STORED values with `age_s`, `robot_moved_since` and `arm_moved_since`: after the base moved `ground_base_link` is stale
+  (`ground_map` stays valid); after the arm moved the pixel no longer matches the live image.
+- Uncertainty: flat floor assumed; error grows with distance (about 1 px of pixel error is several cm far away); the
+  gripper camera pose comes from measured joints (servo sag shifts it by millimetres); hfov intrinsics are approximate.
+
+### Calibration procedure
+
+1. Set intrinsics: `cameras.<camera>.intrinsics` (a `camera_calibration` yaml, or an approximate `hfov_deg` with the
+   image size) and redeploy `mcp_server`. Start the solver from a rough guess of the mount (measure it with a ruler).
+2. Place a marker (a coloured dot or tape cross) on the floor at points whose position you measured with a ruler from
+   the robot: for `front` in `base_link` (x forward, y left, floor `z = 0`), for `gripper` in the arm base frame
+   (`z = -0.165` for the floor). Spread at least 6 points across the field of view and over distance.
+3. Take a photo (`get_camera_image` or `get_annotated_camera_image`; the annotated image works once an approximate mount is
+   set and shows how far off it is), read the marker pixel `(u, v)` and call
+   `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z)`. For the `gripper` camera repeat this at
+   several arm poses (move the arm to look at the markers from different joint configurations): each sample stores the
+   parent-link pose of that moment.
+4. `solve_camera_calibration(camera, initial)` (`initial` = `{x, y, z, roll, pitch, yaw}`, or the configured mount) returns
+   `rms_px` (aim for about 1 px or less) and a YAML snippet.
+5. Paste the snippet under `cameras:` in the `mcp_server` section of `ansible/group_vars/client.yml`, redeploy
+   `mcp_server`, and check with `get_annotated_camera_image(camera)`: the grid lines must meet the markers.
+   `clear_calibration_samples` starts a new run. Samples are JSON files in `/var/lib/ros2/camera_calibration/<camera>.json`
+   (directory created by Ansible, owned by the node user).
 
 ## Body awareness: monitor, events, digest, early return
 
@@ -169,6 +242,8 @@ partition every tool):
 | `home_store.py`, `staleness.py`, `geometry.py`, `models.py` | no | home YAML, data age, pose math, result models |
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
 | `tool_context.py`, `body_tools.py` | no | `ToolContext` / `RobotApi`; the `get_body_state` module |
+| `camera_tools.py` | no | the camera tool module (registered in `tools.TOOL_MODULES`) |
+| `camera_scene.py`, `camera_overlay.py`, `camera_candidates.py`, `camera_calib.py` | no | calibrated scene and frames, overlay drawing and candidate grids, candidate sets, sample store and solver wiring |
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |
 | `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services |
 | `__main__.py` | yes | entry point: executor thread + uvicorn |
@@ -189,6 +264,13 @@ arm:
   arm_base_height_m: 0.165   # arm mount plane height above the floor (m); floor_z_m = -this
   gripper_open_rad: 1.5       # follower gripper joint positions (rad)
   gripper_closed_rad: -0.12
+  reach_outer_m: 0.25        # floor reach around the shoulder axis (annotated image annulus)
+  reach_inner_m: 0.05
+  # base_in_base_link: {x: 0.0, y: 0.0, z: 0.165, yaw: 0.0}   # optional, once measured
+cameras:                  # default: not calibrated (see Camera tools and calibration)
+  calibration_dir: /var/lib/ros2/camera_calibration
+  gripper: {parent_frame: gripper_link, intrinsics: null, mount: null}
+  front: {parent_frame: base_link, intrinsics: {hfov_deg: 66.0, width: 640, height: 480}, mount: null}
 limits:
   arm_max_joint_velocity_rps: 0.5
   arm_settle_tolerance_rad: 0.08   # steady-state error reported as residual_error instead of a timeout

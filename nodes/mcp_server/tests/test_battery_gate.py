@@ -7,6 +7,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryConfig, BatteryGuard
 
+from mcp_server.camera_tools import TOOL_NAMES as CAMERA_TOOL_NAMES
 from mcp_server.config import McpServerConfig, load_config
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, TOOL_NAMES, build_mcp_server
 
@@ -34,6 +35,13 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "acquire_control": {},
     "release_control": {},
     "get_body_state": {},
+    "pixel_to_ground": {"camera": "front", "u": 100.0, "v": 100.0},
+    "get_annotated_camera_image": {"camera": "front"},
+    "mark_candidate_points": {"camera": "front"},
+    "resolve_candidate": {"set_id": "c1", "n": 1},
+    "capture_calibration_sample": {"camera": "front", "u": 100.0, "v": 100.0, "ground_x": 1.0, "ground_y": 0.0},
+    "solve_camera_calibration": {"camera": "front"},
+    "clear_calibration_samples": {"camera": "front"},
 }
 
 
@@ -46,7 +54,9 @@ def make_guard(voltage: float | None) -> BatteryGuard:
 
 
 def make_server(robot: FakeRobot, guard: BatteryGuard | None) -> Any:
-    return build_mcp_server(robot, McpServerConfig(), TOKEN, guard)
+    cfg = McpServerConfig()
+    cfg.cameras.calibration_dir = robot.arm.cfg.arm.home_file.parent / "calibration"
+    return build_mcp_server(robot, cfg, TOKEN, guard)
 
 
 def test_tool_classification_covers_every_tool_exactly_once() -> None:
@@ -80,7 +90,11 @@ def test_refusal_message_is_exact(tmp_path: Path) -> None:
 def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> None:
     robot = FakeRobot(tmp_path)
     server = make_server(robot, make_guard(LOW_V))
-    call(server, name, ALLOWED_ARGS[name])
+    try:
+        call(server, name, ALLOWED_ARGS[name])
+    except ToolError as exc:  # uncalibrated cameras fail on their own terms, never on the battery
+        assert "battery below cut-off" not in str(exc)
+        assert name in CAMERA_TOOL_NAMES
 
 
 @pytest.mark.parametrize("voltage", [OK_V, None])

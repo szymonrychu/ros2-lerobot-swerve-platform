@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
+from ros2_common.camera_geometry import MountPose
 
 CONFIG_ENV = "MCP_SERVER_CONFIG"
 TOKEN_ENV = "MCP_SERVER_TOKEN"
@@ -14,6 +15,9 @@ DEFAULT_CONFIG_PATH = Path("/etc/ros2/mcp_server/config.yaml")
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
+DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
+GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the gripper camera is mounted on
+FRONT_CAMERA_PARENT = "base_link"
 MIN_TOKEN_LENGTH = 24
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 # Hard caps no config may exceed (match the Nav2 velocity smoother and the swerve controller).
@@ -153,6 +157,22 @@ class NavSettings(StrictModel):
     goal_yaw_tolerance_deg: float = Field(default=2.0, gt=0.0)
 
 
+class ArmBaseOffset(StrictModel):
+    """Pose of the arm base frame (URDF base_link, z = 0 on the mount plane) in the robot base_link frame.
+
+    Attributes:
+        x: Arm base x in base_link (m).
+        y: Arm base y in base_link (m).
+        z: Arm base height above the floor (base_link z = 0 is the floor); normally arm_base_height_m.
+        yaw: Rotation of the arm base about z (rad).
+    """
+
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    yaw: float = 0.0
+
+
 class ArmSettings(StrictModel):
     """Arm model, home pose storage and gripper mapping."""
 
@@ -168,6 +188,22 @@ class ArmSettings(StrictModel):
     autonomy_source_name: str = "autonomy"
     # Height of the arm mount plane (the URDF base_link origin) above the floor, measured on the robot.
     arm_base_height_m: float = Field(default=0.165, gt=0.0, le=1.0)
+    # Arm base frame pose in the robot base_link; unset until measured (then arm and base_link coordinates are not mixed).
+    base_in_base_link: ArmBaseOffset | None = None
+    # Horizontal reach on the floor around the shoulder pan axis, drawn as the reach annulus on annotated images.
+    reach_outer_m: float = Field(default=0.25, gt=0.0, le=1.0)
+    reach_inner_m: float = Field(default=0.05, ge=0.0)
+
+    @model_validator(mode="after")
+    def reach_ordered(self) -> "ArmSettings":
+        """Require the inner reach radius below the outer one.
+
+        Returns:
+            ArmSettings: The validated settings.
+        """
+        if not self.reach_inner_m < self.reach_outer_m:
+            raise ValueError("arm.reach_inner_m must be below arm.reach_outer_m")
+        return self
 
     @property
     def floor_z_m(self) -> float:
@@ -247,6 +283,70 @@ class MonitorSettings(StrictModel):
         return self
 
 
+class IntrinsicsSettings(StrictModel):
+    """Camera intrinsics source: a camera_calibration yaml, or an approximate horizontal field of view."""
+
+    calibration_file: Path | None = None
+    hfov_deg: float | None = Field(default=None, gt=0.0, lt=180.0)
+    width: int | None = Field(default=None, gt=0)
+    height: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def one_source(self) -> "IntrinsicsSettings":
+        """Require either calibration_file alone or hfov_deg with width and height.
+
+        Returns:
+            IntrinsicsSettings: The validated settings.
+        """
+        hfov_keys = (self.hfov_deg, self.width, self.height)
+        if self.calibration_file is not None:
+            if any(k is not None for k in hfov_keys):
+                raise ValueError("intrinsics: give calibration_file OR hfov_deg with width and height, not both")
+        elif any(k is None for k in hfov_keys):
+            raise ValueError("intrinsics: set calibration_file, or hfov_deg together with width and height")
+        return self
+
+
+class CameraSettings(StrictModel):
+    """One camera: intrinsics, mount pose and the frame the mount refers to (None = not calibrated)."""
+
+    intrinsics: IntrinsicsSettings | None = None
+    parent_frame: str | None = None
+    mount: MountPose | None = None
+
+
+class CamerasSettings(StrictModel):
+    """Camera geometry for the pixel -> ground tools; both cameras default to not calibrated."""
+
+    calibration_dir: Path = DEFAULT_CALIBRATION_DIR
+    gripper: CameraSettings = CameraSettings()
+    front: CameraSettings = CameraSettings()
+
+    @model_validator(mode="after")
+    def resolve_parent_frames(self) -> "CamerasSettings":
+        """Fill in each camera's parent frame and require a mount to agree with it.
+
+        The gripper camera hangs on an arm URDF link (default gripper_link); the fixed front camera on base_link.
+
+        Returns:
+            CamerasSettings: The validated settings.
+        """
+        for name, cam, default in (
+            ("gripper", self.gripper, GRIPPER_CAMERA_PARENT),
+            ("front", self.front, FRONT_CAMERA_PARENT),
+        ):
+            if cam.parent_frame is None:
+                cam.parent_frame = cam.mount.parent_frame if cam.mount is not None else default
+            if name == "front" and cam.parent_frame != FRONT_CAMERA_PARENT:
+                raise ValueError(f"cameras.front must be mounted on {FRONT_CAMERA_PARENT}, not {cam.parent_frame}")
+            if cam.mount is not None and cam.mount.parent_frame != cam.parent_frame:
+                raise ValueError(
+                    f"cameras.{name}: mount.parent_frame {cam.mount.parent_frame!r} differs from parent_frame "
+                    f"{cam.parent_frame!r}"
+                )
+        return self
+
+
 class McpServerConfig(StrictModel):
     """Top-level mcp_server configuration."""
 
@@ -258,6 +358,7 @@ class McpServerConfig(StrictModel):
     arm: ArmSettings = ArmSettings()
     battery: BatteryConfig | None = None  # absent: battery cut-off gate off, nothing refused
     monitor: MonitorSettings = MonitorSettings()
+    cameras: CamerasSettings = CamerasSettings()
 
 
 def load_config(path: Path) -> McpServerConfig:

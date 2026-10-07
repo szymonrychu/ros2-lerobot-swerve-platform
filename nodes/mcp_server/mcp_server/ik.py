@@ -99,6 +99,13 @@ class ArmKinematics:
             self.index["shoulder_pan"]
         ]
         self.pan_axis_xy = (float(pan_origin[0, 3]), float(pan_origin[1, 3]))
+        # URDF link name -> index of its frame in ikpy's full kinematics (a chain link is named after its joint, its
+        # frame is the child link's frame). Links off the chain (the moving jaw) have no entry.
+        self.link_index = {BASE_LINK: 0}
+        for joint in ET.parse(urdf_path).getroot().iter("joint"):
+            child = joint.find("child")
+            if child is not None and joint.attrib["name"] in names:
+                self.link_index[child.attrib["link"]] = names.index(joint.attrib["name"])
 
     def to_vector(self, joints: dict[str, float]) -> np.ndarray:
         """Convert a joint map into ikpy's full link vector.
@@ -127,6 +134,24 @@ class ArmKinematics:
         return CartesianPose(
             x=float(frame[0, 3]), y=float(frame[1, 3]), z=float(frame[2, 3]), pitch=pitch_of(frame[:3, 2])
         )
+
+    def link_frame(self, joints: dict[str, float], link: str) -> np.ndarray:
+        """Pose of a URDF link frame in the arm base_link frame for a joint configuration.
+
+        Args:
+            joints (dict[str, float]): Joint name -> rad (missing chain joints default to 0).
+            link (str): URDF link name on the base -> gripper_frame_link chain (e.g. gripper_link).
+
+        Returns:
+            np.ndarray: 4x4 transform T_arm_base_link.
+
+        Raises:
+            ValueError: When the link is not on the kinematic chain.
+        """
+        if link not in self.link_index:
+            raise ValueError(f"link {link!r} is not on the arm chain; use one of {sorted(self.link_index)}")
+        frames = self.chain.forward_kinematics(self.to_vector(joints), full_kinematics=True)
+        return np.array(frames[self.link_index[link]], dtype=np.float64)
 
     def approach_vector(self, heading: float, pitch: float) -> np.ndarray:
         """Approach direction with the given horizontal heading, pitched down by pitch.

@@ -33,7 +33,9 @@ def robot(tmp_path: Path) -> FakeRobot:
 
 @pytest.fixture
 def server(robot: FakeRobot, monitor: RobotMonitor) -> Any:
-    return build_mcp_server(robot, McpServerConfig(), TOKEN, None, monitor)
+    cfg = McpServerConfig()
+    cfg.cameras.calibration_dir = robot.arm.cfg.arm.home_file.parent / "calibration"
+    return build_mcp_server(robot, cfg, TOKEN, None, monitor)
 
 
 def overheat(monitor: RobotMonitor, joint: str = "elbow_flex", temp: int = 66) -> None:

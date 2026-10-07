@@ -177,6 +177,14 @@ class CameraFrame(BaseModel):
     age_s: float
 
 
+class ScanPoints(BaseModel):
+    """Latest lidar scan as points in a robot frame (used to overlay lidar returns on camera images)."""
+
+    frame: str = Field(description="Frame the points are expressed in (base_link)")
+    age_s: float
+    points: list[tuple[float, float, float, float]] = Field(description="(x, y, z, range) per valid return, metres")
+
+
 class NavigationResult(BaseModel):
     """Outcome of a NavigateToPose goal."""
 

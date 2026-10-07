@@ -11,6 +11,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+import numpy as np
 import rclpy
 from action_msgs.msg import GoalInfo, GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
@@ -26,6 +27,7 @@ from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPo
 from rclpy.signals import SignalHandlerOptions
 from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
+from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import BatteryState, CompressedImage, Imu, JointState, LaserScan
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
@@ -46,6 +48,7 @@ from .models import (
     RobotError,
     RobotEvent,
     RobotState,
+    ScanPoints,
     StopResult,
     Twist2D,
 )
@@ -629,6 +632,36 @@ class RosRobot:
             stamp_s=stamp.sec + stamp.nanosec / 1e9,
             age_s=round(age, 3),
         )
+
+    def scan_points(self) -> ScanPoints | None:
+        """Latest fresh lidar scan as points in base_link (full 3D laser mount from TF, not just the planar pose).
+
+        Returns:
+            ScanPoints | None: Valid returns as (x, y, z, range), or None when the scan is missing/stale or the
+                base_link <- laser transform is unavailable.
+        """
+        scan = self.get("scan", self.cfg.timeouts.state_stale_s)
+        if scan is None:
+            return None
+        msg = scan.value
+        try:
+            tf = self.tf_buffer.lookup_transform(
+                self.cfg.topics.base_frame,
+                msg.header.frame_id,
+                Time(),
+                timeout=Duration(seconds=self.cfg.timeouts.tf_timeout_s),
+            )
+        except TransformException:
+            return None
+        t, q = tf.transform.translation, tf.transform.rotation
+        rotation = Rotation.from_quat([q.x, q.y, q.z, q.w])
+        ranges = np.asarray(msg.ranges, dtype=np.float64)
+        angles = msg.angle_min + msg.angle_increment * np.arange(len(ranges))
+        valid = np.isfinite(ranges) & (ranges >= msg.range_min) & (ranges <= msg.range_max)
+        local = np.column_stack([ranges * np.cos(angles), ranges * np.sin(angles), np.zeros(len(ranges))])[valid]
+        world = rotation.apply(local) + np.array([t.x, t.y, t.z])
+        rows = [(float(x), float(y), float(z), float(r)) for (x, y, z), r in zip(world, ranges[valid], strict=True)]
+        return ScanPoints(frame=self.cfg.topics.base_frame, age_s=round(scan.age(time.monotonic()), 3), points=rows)
 
     def map_summary(self, include_png: bool, radius_m: float, png_max_px: int) -> tuple[MapSummary, bytes | None]:
         """Obstacle sectors, map stats, robot pose and optional PNG crop.

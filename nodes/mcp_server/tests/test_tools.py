@@ -131,6 +131,13 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "arm_home",
         "arm_set_home",
         "get_body_state",
+        "pixel_to_ground",
+        "get_annotated_camera_image",
+        "mark_candidate_points",
+        "resolve_candidate",
+        "capture_calibration_sample",
+        "solve_camera_calibration",
+        "clear_calibration_samples",
     }
     for t in tools:
         assert t.description and len(t.description) > 60, t.name
