@@ -36,7 +36,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `solve_camera_calibration(camera, initial)` | Fit the mount pose to the stored samples; returns `rms_px` and a YAML snippet for `client.yml` (never edits the config). |
 | `clear_calibration_samples(camera)` | Delete the stored samples of a camera. |
 | `get_topdown_view(radius_m=2.5, layers=all, px=480)` | Robot-up PNG centred on the robot (see Perception and memory) plus metadata `pose`, `scale_m_per_px`, `layers_present`, `layers_missing` (reason each), `data_ages`. Sensor. |
-| `remember_object` / `list_objects` / `forget_object` | Persistent object memory in map coordinates (merge, distance/bearing from the robot). Sensor. |
+| `remember_object` / `list_objects` / `forget_object` | Object memory in map coordinates, stored as object POIs in poi_store (merge, distance/bearing from the robot). Sensor. |
 | `look_around(captures=4, camera='front')` | Effector, ONE motion call: full in-place turn in equal steps with a camera frame and lidar summary per stop. |
 | `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. |
 
@@ -242,15 +242,27 @@ done, grey cancelled) and `objects` (remembered objects as diamonds with labels)
 fabricated**: it is listed in `layers_missing` with the reason (no TF, stale, poi_store down, ...); layers that live in
 the map frame also need the robot pose.
 
-**Object memory.** `remember_object(label, x, y, frame='map', note='', confidence=0.7)` stores objects in
-`objects.store_path` (`/var/lib/ros2/objects/objects.json`, directory created by Ansible, written to a temp file and
-`os.replace`d; an unreadable file is moved to `objects.json.corrupt-<ts>`). A sighting with the same label (case
-insensitive) within `objects.merge_radius_m` (0.25 m) of a remembered object updates the nearest one instead: position
-= average weighted by `times_seen x confidence` (old) and `confidence` (new), `times_seen + 1`, `last_seen`, the higher
-confidence, and the note only if a new one is given. Records: `{id, label, x, y, note, confidence, first_seen,
-last_seen, times_seen}`. `list_objects(label_contains, near_x, near_y, radius_m)` sorts by distance to the robot and
-adds `distance_m` and `bearing_deg` (0 ahead, + left); `near_x`/`near_y` go together (radius default 1 m).
-`forget_object(id)` removes one.
+**Object memory.** Remembered objects ARE POIs: `remember_object(label, x, y, frame='map', note='', confidence=0.7)`
+adds (or updates) a poi_store POI of `kind: "object"`, `created_by: "agent"`, `name` = label (<= 60 chars) plus
+`times_seen`, `first_seen`, `last_seen` and `confidence`, through the same `/poi/command` client as `add_poi`. They show
+on the person's web UI map and are removed with the other agent-made POIs when the person starts a new session (the
+claude_agent "New session" button sends `{"op": "clear", "created_by": "agent"}`); POIs the person made stay. A sighting
+with the same label (case insensitive) within `objects.merge_radius_m` (0.25 m) of a remembered object updates the
+nearest one instead: position = average weighted by `times_seen x confidence` (old) and `confidence` (new),
+`times_seen + 1`, `last_seen`, the higher confidence, and the note only if a new one is given. Records returned to the
+agent: `{id, label, x, y, note, confidence, first_seen, last_seen, times_seen}` (the id is the POI id).
+`list_objects(label_contains, near_x, near_y, radius_m)` returns only object POIs, sorted by distance to the robot, with
+`distance_m` and `bearing_deg` (0 ahead, + left); `near_x`/`near_y` go together (radius default 1 m). `list_pois` lists
+every POI and states each one's `kind` (`point`, `area` or `object`). `forget_object(id)` deletes one object POI (other
+POIs: `delete_poi`). The tools need poi_store (RobotError "poi_store is not running" otherwise). `get_topdown_view`
+reads both layers from the same `/poi/list`: `pois` draws the non-object POIs, `objects` the object POIs, so nothing is
+drawn twice.
+
+*Migration.* `objects.store_path` (`/var/lib/ros2/objects/objects.json`) is now only the legacy file of the former
+separate object memory. On the first object tool call that reaches poi_store, its entries are imported once as object
+POIs (`created_by: "agent"`, sighting fields and confidence kept) and the file is renamed `objects.json.migrated`; while
+poi_store is down the file is left untouched and imported later. An unreadable file is moved to
+`objects.json.corrupt-<ts>`.
 
 **`look_around(captures=4, camera='front')`.** Counts as ONE motion call and is in `MOTION_TOOLS` (battery gate;
 early return). It checks the lidar first and is **refused without moving** when the nearest return is closer than the
@@ -376,7 +388,7 @@ partition every tool):
 | `base_motion.py` | no | timed clamped drive loop, stop sequence (`run_stop`) |
 | `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
 | `topdown.py`, `perception_models.py` | no | robot-up top-down renderer (layers, transforms); perception result models |
-| `object_memory.py`, `look_around.py`, `poi_client.py` | no | object store + merge, look_around plan/loop/montage, POI request matching |
+| `object_memory.py`, `look_around.py`, `poi_client.py` | no | object POI memory + merge, look_around plan/loop/montage, POI request matching |
 | `perception_tools.py` | no | the perception, memory, look_around and POI tools (one `TOOL_MODULES` entry) |
 | `home_store.py`, `staleness.py`, `geometry.py`, `models.py` | no | home YAML, data age, pose math, result models |
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
@@ -444,7 +456,7 @@ topics:                   # perception additions (defaults shown)
   poi_result: /poi/result
 footprint: {length_m: 0.47, width_m: 0.386}
 topdown: {default_radius_m: 2.5, default_px: 480, arm_reach_m: 0.41, plan_max_age_s: 30}
-objects: {store_path: /var/lib/ros2/objects/objects.json, merge_radius_m: 0.25}
+objects: {store_path: /var/lib/ros2/objects/objects.json, merge_radius_m: 0.25}  # store_path: legacy file, imported once into poi_store
 look_around: {default_captures: 4, clearance_margin_m: 0.10, step_timeout_s: 30}
 poi: {request_timeout_s: 3.0, near_radius_m: 5.0}
 monitor:                  # all optional; thresholds of the body monitor (see Body awareness)

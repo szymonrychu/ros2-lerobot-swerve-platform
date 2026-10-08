@@ -381,7 +381,7 @@ tags `setup`, `mcp_server`). It creates `/etc/ros2/mcp_server/token` once, conta
 `MCP_SERVER_TOKEN=<48 random letters/digits>` (mode `0600`, owner `ansible_user`, `force: false` so redeploys keep the
 token, `no_log: true`), and `/var/lib/ros2/arm` (owner `ansible_user`) for the arm home pose (`home.yaml`),
 `/var/lib/ros2/camera_calibration` (owner `ansible_user`) for the camera calibration samples of the mcp_server camera
-tools, and `/var/lib/ros2/objects` (owner `ansible_user`) for the object memory (`objects.json`). The unit
+tools, and `/var/lib/ros2/objects` (owner `ansible_user`) for the legacy object memory file (`objects.json`, imported once into poi_store as object POIs and renamed `objects.json.migrated`). The unit
 reads the token through `EnvironmentFile=`; the token never enters git. Fetch it on the dev machine with
 `eval "$(./scripts/robot_mcp_token.sh)"` (see `nodes/mcp_server/README.md`).
 

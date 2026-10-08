@@ -474,9 +474,9 @@ class TopdownSettings(StrictModel):
 
 
 class ObjectSettings(StrictModel):
-    """Object memory (remember_object / list_objects / forget_object)."""
+    """Object memory (remember_object / list_objects / forget_object); objects live in poi_store as object POIs."""
 
-    store_path: Path = DEFAULT_OBJECTS_FILE
+    store_path: Path = DEFAULT_OBJECTS_FILE  # legacy objects.json, imported once as object POIs then renamed *.migrated
     merge_radius_m: float = Field(default=0.25, gt=0.0)  # same label within this distance is the same object
 
 

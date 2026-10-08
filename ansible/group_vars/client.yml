@@ -1044,7 +1044,8 @@ ros2_nodes:
         default_radius_m: 2.5
         default_px: 480
         arm_reach_m: 0.41
-      # Object memory (remember_object / list_objects / forget_object), directory created by mcp_server_setup.yml.
+      # Object memory (remember_object / list_objects / forget_object): objects are object POIs in poi_store; store_path is
+      # only the legacy objects.json, imported once into poi_store and renamed *.migrated (directory made by mcp_server_setup.yml).
       objects:
         store_path: /var/lib/ros2/objects/objects.json
         merge_radius_m: 0.25

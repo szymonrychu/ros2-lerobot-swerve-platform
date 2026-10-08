@@ -14,7 +14,7 @@ from pydantic import Field
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
 from .look_around import montage_jpeg, run_look_around
 from .models import RobotError
-from .object_memory import ObjectStore, describe_objects
+from .object_memory import OBJECT_KIND, ObjectMemory, describe_objects, record_from_poi
 from .perception_models import (
     LookAroundResult,
     ObjectList,
@@ -106,14 +106,13 @@ def topdown_style(config: McpServerConfig) -> TopdownStyle:
 
 
 def render_view(
-    robot: RobotApi, config: McpServerConfig, store: ObjectStore, layers: list[str], radius_m: float, px: int
+    robot: RobotApi, config: McpServerConfig, layers: list[str], radius_m: float, px: int
 ) -> tuple[bytes, TopdownMeta]:
     """Gather the data and render one top-down view.
 
     Args:
         robot (RobotApi): Robot.
         config (McpServerConfig): Node configuration.
-        store (ObjectStore): Object memory.
         layers (list[str]): Requested layers.
         radius_m (float): Half size of the view (m).
         px (int): Image side (pixels).
@@ -124,17 +123,19 @@ def render_view(
     inputs = robot.topdown_inputs()
     inputs = dataclasses.replace(inputs, missing=dict(inputs.missing))
     pois = None
-    if "pois" in layers:
-        try:
-            pois = robot.poi_list()[0]
-        except RobotError as exc:
-            inputs.missing["pois"] = str(exc)
     objects = None
-    if "objects" in layers:
+    wanted = [layer for layer in ("pois", "objects") if layer in layers]
+    if wanted:
         try:
-            objects = [r.model_dump() for r in store.list()]
-        except ValueError as exc:
-            inputs.missing["objects"] = str(exc)
+            listed = robot.poi_list()[0]
+        except RobotError as exc:
+            for layer in wanted:
+                inputs.missing[layer] = str(exc)
+        else:
+            if "pois" in layers:
+                pois = [p for p in listed if p.get("kind") != OBJECT_KIND]
+            if "objects" in layers:
+                objects = [record_from_poi(p).model_dump() for p in listed if p.get("kind") == OBJECT_KIND]
     rendered = render_topdown(inputs, layers, radius_m, px, topdown_style(config), pois=pois, objects=objects)
     pose = inputs.pose
     meta = TopdownMeta(
@@ -188,7 +189,7 @@ def register(ctx: ToolContext) -> None:
         ctx (ToolContext): Shared registration context.
     """
     server, robot, config = ctx.server, ctx.robot, ctx.config
-    store = ObjectStore(config.objects.store_path, config.objects.merge_radius_m)
+    store = ObjectMemory(robot, config.objects.merge_radius_m, legacy_path=config.objects.store_path)
     td, la, poi_cfg = config.topdown, config.look_around, config.poi
     max_px = min(HARD_MAX_IMAGE_PX, config.limits.max_image_px)
 
@@ -216,21 +217,22 @@ def register(ctx: ToolContext) -> None:
     ) -> CallToolResult:
         """Render the robot-up view; the tool description is passed to the decorator (it states the conventions)."""
         with tool_errors():
-            png, meta = render_view(robot, config, store, list(layers), radius_m, px)
+            png, meta = render_view(robot, config, list(layers), radius_m, px)
         content = [TextContent(type="text", text=meta.model_dump_json()), image_block(png, "image/png")]
         return CallToolResult(content=content, structured_content=meta.model_dump(mode="json"))
 
     @server.tool(
         description=(
-            "Remember an object you saw (for example after locating it in a camera image) in the persistent object "
-            "memory, in map coordinates. A sighting of the same label within "
+            "Remember an object you saw (for example after locating it in a camera image) in map coordinates. It is "
+            "saved as a POI of kind 'object' (created_by 'agent') in poi_store, so it shows on the person's map and "
+            "is removed when the person starts a new session. A sighting of the same label within "
             f"{config.objects.merge_radius_m:g} m of a remembered object updates that object (position averaged, "
             "times_seen + 1) instead of adding a new one. Returns the object with id, first_seen, last_seen, "
             "times_seen. No motion."
         )
     )
     def remember_object(
-        label: Annotated[str, Field(min_length=1, max_length=80, description="What it is, e.g. 'red cup'")],
+        label: Annotated[str, Field(min_length=1, max_length=60, description="What it is, e.g. 'red cup'")],
         x: Annotated[float, Field(description="Map x (m)")],
         y: Annotated[float, Field(description="Map y (m)")],
         frame: Annotated[Literal["map"], Field(description="Coordinate frame, only 'map'")] = "map",
@@ -297,7 +299,7 @@ def register(ctx: ToolContext) -> None:
             montage = montage_jpeg(run.frames, la.frame_max_px)
             content: list[TextContent | ImageContent] = [image_block(montage, "image/jpeg")]
             try:
-                png, meta = render_view(robot, config, store, list(ALL_LAYERS), td.default_radius_m, td.default_px)
+                png, meta = render_view(robot, config, list(ALL_LAYERS), td.default_radius_m, td.default_px)
                 result.topdown = meta.model_dump(mode="json")
                 content.append(image_block(png, "image/png"))
             except (RobotError, ValueError) as exc:
@@ -307,9 +309,9 @@ def register(ctx: ToolContext) -> None:
 
     @server.tool(
         description=(
-            "List points and areas of interest (POIs) from poi_store, each with distance_m and bearing_deg from the "
-            "robot (0 = ahead, positive = left; areas use the centroid and report `inside`). Filter by status "
-            f"('open', 'done', 'cancelled'). near=true keeps only POIs within {poi_cfg.near_radius_m:g} m, nearest "
+            "List all points, areas and remembered objects (kind 'point', 'area' or 'object') from poi_store, each with "
+            "distance_m and bearing_deg from the robot (0 = ahead, positive = left; areas use the centroid and report "
+            "`inside`). Filter by status ('open', 'done', 'cancelled'). near=true keeps only POIs within {poi_cfg.near_radius_m:g} m, nearest "
             "first. Errors if poi_store is not running. No motion."
         )
     )

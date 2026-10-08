@@ -1,4 +1,4 @@
-"""Object memory: remembered objects in the map frame, persisted atomically as JSON (no ROS)."""
+"""Object memory: remembered objects are POIs (kind "object", created_by "agent") in poi_store (no ROS here)."""
 
 import json
 import logging
@@ -6,9 +6,9 @@ import math
 import os
 import threading
 import time
-import uuid
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any, Protocol
 
 from pydantic import ValidationError
 
@@ -17,10 +17,27 @@ from .perception_models import ObjectRecord, ObjectView
 
 LOGGER = logging.getLogger("mcp_server.object_memory")
 DEFAULT_NEAR_RADIUS_M = 1.0
+OBJECT_KIND = "object"
+OBJECT_CREATED_BY = "agent"
+POI_FRAME = "map"
+MAX_LABEL_LEN = 60  # poi_store caps POI names
+MIGRATED_SUFFIX = ".migrated"
+
+
+class PoiBackend(Protocol):
+    """The poi_store access the object memory needs (RobotApi provides it)."""
+
+    def poi_list(self) -> tuple[list[dict[str, Any]], int]:
+        """Latest /poi/list (POIs, revision)."""
+        ...
+
+    def poi_request(self, op: str, poi: dict[str, Any]) -> dict[str, Any]:
+        """Send a /poi/command and wait for its result."""
+        ...
 
 
 class ObjectStoreError(ValueError):
-    """Invalid input or a store that cannot be read/written (a ValueError so the tools report it to the model)."""
+    """Invalid input or an unknown object (a ValueError so the tools report it to the model)."""
 
 
 def label_key(label: str) -> str:
@@ -35,80 +52,100 @@ def label_key(label: str) -> str:
     return label.strip().casefold()
 
 
-class ObjectStore:
-    """In-memory object list backed by a JSON file ({"objects": [...]}), written atomically on every change."""
+def record_from_poi(poi: dict[str, Any]) -> ObjectRecord:
+    """Object view of an object POI; sighting fields a hand-made POI lacks fall back to its timestamps.
+
+    Args:
+        poi (dict[str, Any]): POI JSON of kind "object".
+
+    Returns:
+        ObjectRecord: The object.
+    """
+    created = float(poi.get("created_at") or 0.0)
+    updated = float(poi.get("updated_at") or created)
+    first_seen = float(poi.get("first_seen") or created)
+    return ObjectRecord(
+        id=str(poi["id"]),
+        label=str(poi.get("name", "")),
+        x=float(poi["x"]),
+        y=float(poi["y"]),
+        note=str(poi.get("note", "")),
+        confidence=float(poi.get("confidence", 1.0)),
+        first_seen=first_seen,
+        last_seen=float(poi.get("last_seen") or updated or first_seen),
+        times_seen=max(1, int(poi.get("times_seen") or 0)),
+    )
+
+
+class ObjectMemory:
+    """Remembered objects, stored as object POIs in poi_store and read from its latched /poi/list."""
 
     def __init__(
         self,
-        path: Path,
+        robot: PoiBackend,
         merge_radius_m: float = 0.25,
         clock: Callable[[], float] = time.time,
-        new_id: Callable[[], str] = lambda: uuid.uuid4().hex,
+        legacy_path: Path | None = None,
     ) -> None:
-        """Create the store; the file is read on first use.
+        """Create the memory.
 
         Args:
-            path (Path): objects.json location.
+            robot (PoiBackend): poi_list / poi_request provider.
             merge_radius_m (float): Same-label sightings within this distance are one object.
             clock (Callable[[], float]): Unix seconds.
-            new_id (Callable[[], str]): Id factory.
+            legacy_path (Path | None): Old objects.json; imported once as object POIs, then renamed to *.migrated.
         """
-        self.path = Path(path)
+        self.robot = robot
         self.merge_radius_m = merge_radius_m
         self.clock = clock
-        self.new_id = new_id
-        self.lock = threading.Lock()
-        self.objects: dict[str, ObjectRecord] | None = None
+        self.legacy_path = None if legacy_path is None else Path(legacy_path)
+        self.lock = threading.RLock()
+        self.legacy_done = legacy_path is None
 
-    def load(self) -> dict[str, ObjectRecord]:
-        """Read the file once; an unreadable file is moved aside (objects.json.corrupt-<ts>) and the store starts empty.
+    def import_legacy(self) -> None:
+        """Import the old objects.json once (when poi_store is reachable) and rename it to <name>.migrated.
+
+        An unreadable file is moved to <name>.corrupt-<ts>. When poi_store is down the RobotError propagates and the
+        file stays for the next call.
+        """
+        with self.lock:
+            path = self.legacy_path
+            if self.legacy_done or path is None:
+                return
+            if not path.exists():
+                self.legacy_done = True
+                return
+            try:
+                data = json.loads(path.read_text())
+                records = [ObjectRecord.model_validate(item) for item in data["objects"]]
+            except (OSError, ValueError, KeyError, TypeError, ValidationError) as exc:
+                aside = path.with_name(f"{path.name}.corrupt-{int(self.clock())}")
+                LOGGER.warning("legacy object file %s unreadable (%s); moved to %s", path, exc, aside)
+                os.replace(path, aside)
+                self.legacy_done = True
+                return
+            for record in records:
+                self.robot.poi_request("add", poi_fields(record))
+            os.replace(path, path.with_name(path.name + MIGRATED_SUFFIX))
+            LOGGER.info("imported %d legacy objects from %s as object POIs", len(records), path)
+            self.legacy_done = True
+
+    def object_pois(self) -> list[dict[str, Any]]:
+        """Object POIs from the latest /poi/list (after the one-time legacy import).
 
         Returns:
-            dict[str, ObjectRecord]: Objects by id.
+            list[dict[str, Any]]: POI JSON dicts of kind "object", in store order.
         """
-        if self.objects is not None:
-            return self.objects
-        self.objects = {}
-        if not self.path.exists():
-            return self.objects
-        try:
-            data = json.loads(self.path.read_text())
-            records = [ObjectRecord.model_validate(item) for item in data["objects"]]
-        except (OSError, ValueError, KeyError, TypeError, ValidationError) as exc:
-            aside = self.path.with_name(f"{self.path.name}.corrupt-{int(self.clock())}")
-            LOGGER.warning("object store %s unreadable (%s); moved to %s, starting empty", self.path, exc, aside)
-            try:
-                os.replace(self.path, aside)
-            except OSError as move_exc:
-                LOGGER.warning("cannot move %s aside: %s", self.path, move_exc)
-            return self.objects
-        self.objects = {r.id: r for r in records}
-        return self.objects
-
-    def save(self) -> None:
-        """Write the whole list to a temp file next to the store and move it into place (os.replace)."""
-        assert self.objects is not None
-        payload = json.dumps({"objects": [r.model_dump() for r in self.objects.values()]}, indent=2)
-        tmp = self.path.with_name(self.path.name + ".tmp")
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tmp, "w") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(tmp, self.path)
-        except OSError as exc:
-            tmp.unlink(missing_ok=True)
-            raise ObjectStoreError(f"cannot write object memory {self.path}: {exc}") from exc
+        self.import_legacy()
+        return [p for p in self.robot.poi_list()[0] if p.get("kind") == OBJECT_KIND]
 
     def list(self) -> list[ObjectRecord]:
         """All remembered objects.
 
         Returns:
-            list[ObjectRecord]: Copies in insertion order.
+            list[ObjectRecord]: Objects in store order.
         """
-        with self.lock:
-            return [r.model_copy() for r in self.load().values()]
+        return [record_from_poi(p) for p in self.object_pois()]
 
     def remember(self, label: str, x: float, y: float, note: str = "", confidence: float = 0.7) -> ObjectRecord:
         """Remember a sighting: merge into the nearest same-label object within merge_radius_m, else add a new one.
@@ -136,10 +173,9 @@ class ObjectStore:
             raise ObjectStoreError("confidence must be within 0..1")
         now = self.clock()
         with self.lock:
-            objects = self.load()
             candidates = [
                 (math.hypot(r.x - x, r.y - y), r)
-                for r in objects.values()
+                for r in self.list()
                 if label_key(r.label) == label_key(label) and math.hypot(r.x - x, r.y - y) <= self.merge_radius_m
             ]
             if candidates:
@@ -155,9 +191,20 @@ class ObjectStore:
                         "times_seen": old.times_seen + 1,
                     }
                 )
+                changes = {
+                    "id": record.id,
+                    "x": record.x,
+                    "y": record.y,
+                    "note": record.note,
+                    "confidence": record.confidence,
+                    "first_seen": record.first_seen,
+                    "last_seen": record.last_seen,
+                    "times_seen": record.times_seen,
+                }
+                result = self.robot.poi_request("update", changes)
             else:
                 record = ObjectRecord(
-                    id=self.new_id(),
+                    id="",
                     label=label,
                     x=x,
                     y=y,
@@ -167,17 +214,12 @@ class ObjectStore:
                     last_seen=now,
                     times_seen=1,
                 )
-            previous = dict(objects)
-            objects[record.id] = record
-            try:
-                self.save()
-            except ObjectStoreError:
-                self.objects = previous
-                raise
-            return record.model_copy()
+                result = self.robot.poi_request("add", poi_fields(record))
+            stored = result.get("poi") or {}
+            return record.model_copy(update={"id": str(stored.get("id", record.id))})
 
     def forget(self, object_id: str) -> ObjectRecord:
-        """Remove an object.
+        """Remove an object (only object POIs; other POIs are removed with delete_poi).
 
         Args:
             object_id (str): Its id.
@@ -186,17 +228,36 @@ class ObjectStore:
             ObjectRecord: The removed object.
         """
         with self.lock:
-            objects = self.load()
-            if object_id not in objects:
+            match = next((p for p in self.object_pois() if p.get("id") == object_id), None)
+            if match is None:
                 raise ObjectStoreError(f"unknown object id {object_id!r}")
-            previous = dict(objects)
-            record = objects.pop(object_id)
-            try:
-                self.save()
-            except ObjectStoreError:
-                self.objects = previous
-                raise
-            return record
+            self.robot.poi_request("delete", {"id": object_id})
+            return record_from_poi(match)
+
+
+def poi_fields(record: ObjectRecord) -> dict[str, Any]:
+    """The poi_store "add" payload of an object.
+
+    Args:
+        record (ObjectRecord): The object (its id is left to the store when empty).
+
+    Returns:
+        dict[str, Any]: POI fields of kind "object", created_by "agent".
+    """
+    fields: dict[str, Any] = {
+        "kind": OBJECT_KIND,
+        "frame": POI_FRAME,
+        "name": record.label[:MAX_LABEL_LEN],
+        "x": record.x,
+        "y": record.y,
+        "note": record.note,
+        "confidence": record.confidence,
+        "first_seen": record.first_seen,
+        "last_seen": record.last_seen,
+        "times_seen": record.times_seen,
+        "created_by": OBJECT_CREATED_BY,
+    }
+    return fields
 
 
 def describe_objects(

@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class ObjectRecord(BaseModel):
-    """A remembered object (map frame), as persisted in objects.json."""
+    """A remembered object (map frame), stored as a POI of kind 'object' in poi_store."""
 
     id: str
     label: str

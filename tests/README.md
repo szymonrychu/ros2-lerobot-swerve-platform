@@ -281,10 +281,13 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   offset grid frame (local costmap in `odom`), costmap tint only on non-free cells, plan/object placement, POI points
   and areas drawn, missing layers listed with a reason and never drawn, map-frame layers missing without a pose,
   PNG round trip, scan points into base_link, OccupancyGrid field conversion, point transform
-- object memory (`test_object_memory.py`): new object fields, same-label merge within 0.25 m (case-insensitive,
-  nearest candidate, weighted average, times_seen, max confidence, note kept unless given), different label or too far
-  = new object, atomic persistence (no temp file, failed `os.replace` keeps the old file), corrupt file moved aside,
-  forget, input validation, distance/bearing from the robot heading, label / near-point filters, no pose = no distance
+- object memory (`test_object_memory.py`, against a fake poi_store): objects are added as `kind: object`, `created_by:
+  agent` POIs with sighting fields, same-label merge within 0.25 m through an `update` (case-insensitive, nearest
+  candidate, weighted average, times_seen, max confidence, note kept unless given), different label or too far = new
+  object, other POI kinds are never merged into nor forgotten, hand-made object POIs get times_seen 1, forget deletes,
+  input validation, poi_store down = RobotError, distance/bearing from the robot heading, label / near-point filters, no
+  pose = no distance; one-time import of the legacy `objects.json` (fields kept, file renamed `.migrated`, no second
+  import, retried while poi_store is down, empty file renamed, corrupt file moved aside)
 - look_around (`test_look_around.py`): equal-step plan covering 360 deg and its limits, clearance = footprint
   circumscribed radius + margin, refusal on a close obstacle or a missing lidar (robot not moved), the rotate-capture
   loop (3 rotations between 4 stops plus the closing step, camera and lidar at every stop, expected vs achieved
@@ -295,7 +298,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   malformed results dropped, `/poi/list` parsing
 - perception tools (`test_perception_tools.py`): the nine new tools registered and classified (`look_around` in
   `MOTION_TOOLS`, the rest always allowed), `get_topdown_view` PNG + metadata (pose, scale, layers present/missing,
-  data ages), layer selection and validation, POI/object layers, object tools round trip and merge, POI tools
+  data ages), layer selection and validation, POI/object layers (each POI drawn once: `pois` without objects, `objects` only object POIs; both missing with the reason when poi_store is down), object tools round trip and merge as object POIs (`list_objects` only objects, `list_pois` states `kind`), legacy `objects.json` import through the server, POI tools
   (point defaults to the robot position, area polygon, `created_by` agent, argument errors, store not running),
   `list_pois` distance/bearing/status/near, `look_around` (montage + top-down images, summary, config default
   captures, argument validation, refusal does not move)

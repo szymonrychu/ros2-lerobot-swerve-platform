@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
+from mcp_server import perception_tools
 from mcp_server.config import McpServerConfig
 from mcp_server.models import BasePose, NavigationResult
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, build_mcp_server
@@ -91,6 +92,33 @@ def test_topdown_includes_pois_and_objects_when_available(server: Any, robot: Fa
     assert res.structured_content["layers_present"] == ["pois", "objects"]
 
 
+def test_topdown_draws_each_poi_once_objects_only_in_the_objects_layer(
+    server: Any, robot: FakeRobot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: dict[str, Any] = {}
+    real = perception_tools.render_topdown
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(perception_tools, "render_topdown", spy)
+    robot.pois.append({"id": "a", "kind": "point", "name": "dock", "x": 1.5, "y": 2.0, "radius_m": 0.2})
+    call(server, "remember_object", {"label": "cup", "x": 1.5, "y": 2.2})
+    call(server, "get_topdown_view", {"layers": ["pois", "objects"]})
+    assert [p["name"] for p in seen["pois"]] == ["dock"]
+    assert [o["label"] for o in seen["objects"]] == ["cup"]
+    call(server, "get_topdown_view", {"layers": ["objects"]})
+    assert seen["pois"] is None and [o["label"] for o in seen["objects"]] == ["cup"]
+
+
+def test_topdown_object_layer_missing_when_store_down(server: Any, robot: FakeRobot) -> None:
+    robot.poi_store_up = False
+    res = call(server, "get_topdown_view", {"layers": ["pois", "objects"]})
+    assert "poi_store" in res.structured_content["layers_missing"]["objects"]
+    assert "poi_store" in res.structured_content["layers_missing"]["pois"]
+
+
 def test_topdown_poi_layer_missing_when_store_down(server: Any, robot: FakeRobot) -> None:
     robot.poi_store_up = False
     res = call(server, "get_topdown_view", {"layers": ["pois"]})
@@ -112,6 +140,45 @@ def test_object_round_trip_and_merge(server: Any) -> None:
     forgotten = call(server, "forget_object", {"id": first["id"]}).structured_content
     assert forgotten["id"] == first["id"]
     assert call(server, "list_objects", {}).structured_content["objects"] == []
+
+
+def test_objects_are_agent_made_object_pois_in_poi_store(server: Any, robot: FakeRobot) -> None:
+    obj = call(server, "remember_object", {"label": "cup", "x": 3.0, "y": 2.0}).structured_content
+    (poi,) = robot.pois
+    assert poi["id"] == obj["id"] and poi["kind"] == "object" and poi["name"] == "cup"
+    assert poi["created_by"] == "agent" and poi["times_seen"] == 1
+    robot.pois.append({"id": "z", "kind": "point", "name": "dock", "x": 0.0, "y": 0.0, "status": "open"})
+    assert [o["label"] for o in call(server, "list_objects", {}).structured_content["objects"]] == ["cup"]
+    kinds = {p["name"]: p["kind"] for p in call(server, "list_pois", {}).structured_content["pois"]}
+    assert kinds == {"cup": "object", "dock": "point"}
+    assert "object" in tool_descriptions(server)["list_pois"]
+
+
+def test_legacy_objects_json_is_imported_into_poi_store(robot: FakeRobot, tmp_path: Path) -> None:
+    legacy = tmp_path / "objects" / "objects.json"
+    legacy.parent.mkdir()
+    legacy.write_text(
+        json.dumps(
+            {
+                "objects": [
+                    {
+                        "id": "a" * 32,
+                        "label": "key",
+                        "x": 4.0,
+                        "y": 5.0,
+                        "confidence": 0.5,
+                        "first_seen": 1.0,
+                        "last_seen": 2.0,
+                        "times_seen": 2,
+                    }
+                ]
+            }
+        )
+    )
+    server = build_mcp_server(robot, McpServerConfig(objects={"store_path": legacy}), TOKEN)
+    (obj,) = call(server, "list_objects", {}).structured_content["objects"]
+    assert obj["label"] == "key" and obj["times_seen"] == 2
+    assert not legacy.exists() and legacy.with_name("objects.json.migrated").exists()
 
 
 def test_object_validation_errors_are_tool_errors(server: Any) -> None:
