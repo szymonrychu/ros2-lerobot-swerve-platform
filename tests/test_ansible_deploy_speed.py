@@ -301,8 +301,28 @@ def uv_install_task() -> dict:
     Returns:
         dict: The parsed task.
     """
-    tasks = {t["name"]: t for t in load(ANSIBLE_DIR / "roles" / "ros2_base" / "tasks" / "main.yml")}
+    tasks = {t["name"]: t for t in load(ANSIBLE_DIR / "roles" / "ros2_base" / "tasks" / "uv.yml")}
     return tasks["Install the pinned uv via pipx (system-wide)"]
+
+
+def test_ros2_base_includes_the_uv_task_file() -> None:
+    tasks = load(ANSIBLE_DIR / "roles" / "ros2_base" / "tasks" / "main.yml")
+    assert any(t.get("ansible.builtin.include_tasks") == "uv.yml" for t in tasks)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_deploy_playbook_ensures_the_pinned_uv_before_any_node(target: str) -> None:
+    """deploy-nodes.sh never runs ros2_base, and a host provisioned before the uv migration has no uv: every deploy
+    run (any --tags filter) must install it before the first node's uv sync."""
+    play = load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]
+    pre = play["pre_tasks"]
+    idx = next(
+        i
+        for i, t in enumerate(pre)
+        if t.get("ansible.builtin.include_role", {}) == {"name": "ros2_base", "tasks_from": "uv.yml"}
+    )
+    assert "always" in pre[idx]["tags"]
+    assert not play.get("roles"), "node deploys run in tasks after pre_tasks"
 
 
 def test_ros2_base_installs_the_pinned_uv_system_wide() -> None:
@@ -786,7 +806,11 @@ def test_verify_runs_after_the_end_of_play_restarts(target: str) -> None:
     start = next(
         i for i, t in enumerate(flat_play) if "start_ros_nodes.yml" in str(t.get("ansible.builtin.include_tasks", ""))
     )
-    verify = next(i for i, t in enumerate(flat_play) if "ansible.builtin.include_role" in t)
+    verify = next(
+        i
+        for i, t in enumerate(flat_play)
+        if t.get("ansible.builtin.include_role", {}).get("name") == "ros2_node_verify"
+    )
     assert start < verify and verify == len(flat_play) - 2, "verify is the last step, followed only by the lock release"
     assert flat_play[-1]["ansible.builtin.file"]["state"] == "absent"
 

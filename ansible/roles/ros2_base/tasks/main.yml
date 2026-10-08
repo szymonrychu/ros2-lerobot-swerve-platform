@@ -93,23 +93,8 @@
     state: present
   become: true
 
-# Idempotent: a matching `uv --version` is a no-op; any other version (or none) is replaced by the pinned one.
-- name: Install the pinned uv via pipx (system-wide)
-  ansible.builtin.shell: |
-    set -eu
-    if [ "$(/usr/local/bin/uv --version 2>/dev/null | cut -d' ' -f2)" = "{{ ros2_uv_version }}" ]; then
-      echo "uv {{ ros2_uv_version }} already installed"
-      exit 0
-    fi
-    pipx install --force "uv=={{ ros2_uv_version }}"
-  args:
-    executable: /bin/bash
-  become: true
-  environment:
-    PIPX_HOME: /opt/pipx
-    PIPX_BIN_DIR: /usr/local/bin
-  register: _uv_install
-  changed_when: "'already installed' not in _uv_install.stdout"
+- name: Install the pinned uv
+  ansible.builtin.include_tasks: uv.yml
 
 - name: Install hardware support libraries
   ansible.builtin.apt:

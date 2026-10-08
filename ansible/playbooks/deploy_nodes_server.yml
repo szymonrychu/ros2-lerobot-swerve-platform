@@ -28,6 +28,12 @@
         - "{{ ros2_deploy_state_dir }}/stamps"
       tags: [always]
 
+    - name: Install the pinned uv (hosts provisioned before the uv migration have none)
+      ansible.builtin.include_role:
+        name: ros2_base
+        tasks_from: uv.yml
+      tags: [python, always]
+
     - name: Sync repository
       ansible.builtin.include_tasks: tasks/repo_sync.yml
       tags: [sync, always]
