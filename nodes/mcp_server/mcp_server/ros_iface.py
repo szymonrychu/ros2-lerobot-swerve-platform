@@ -917,6 +917,17 @@ class RosRobot:
         """
         return self.poi.request(op, poi)
 
+    def poi_clear(self, created_by: str) -> dict[str, Any]:
+        """Send a poi_store clear for one creator and wait for the /poi/result.
+
+        Args:
+            created_by (str): "agent" or "user".
+
+        Returns:
+            dict[str, Any]: The accepted result; ``poi`` holds {"removed": count}.
+        """
+        return self.poi.clear(created_by)
+
     def navigate(self, x: float, y: float, yaw: float, frame: str, timeout_s: float) -> NavigationResult:
         """Send a NavigateToPose goal and block until it finishes, times out, stop is called or a critical event fires.
 

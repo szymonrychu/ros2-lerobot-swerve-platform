@@ -16,6 +16,9 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 from ros2_common.battery import BatteryGuard
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from . import body_tools, camera_tools, perception_tools
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
@@ -32,10 +35,13 @@ from .models import (
     StopResult,
 )
 from .monitor import DIGEST_DEFAULT_SESSION, RobotMonitor
+from .poi_client import PoiStoreDown, PoiTimeout
 from .tool_context import RobotApi, ToolContext
 
 SERVER_NAME = "robot"
 TOKEN_CLIENT_ID = "robot-mcp-client"
+ADMIN_CLEAR_AGENT_POIS_PATH = "/admin/clear_agent_pois"
+ADMIN_POI_CREATOR = "agent"
 TOOL_NAMES = (
     "get_robot_state",
     "get_camera_image",
@@ -605,14 +611,40 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
 )
 
 
-def build_app(server: MCPServer, config: McpServerConfig) -> Starlette:
-    """Streamable HTTP ASGI app at config.server.path (bearer auth enforced by the server's token verifier).
+def build_app(
+    server: MCPServer, config: McpServerConfig, robot: RobotApi | None = None, token: str | None = None
+) -> Starlette:
+    """Streamable HTTP ASGI app at config.server.path plus the admin route, both behind the bearer token.
+
+    The admin route is plain HTTP, not an MCP tool, so the model cannot call it. It exists for claude_agent, which runs
+    as another Linux user and cannot reach poi_store over DDS.
 
     Args:
-        server (MCPServer): Server from build_mcp_server.
+        server (MCPServer): Server from build_mcp_server (its token verifier guards the MCP path).
         config (McpServerConfig): Node configuration.
+        robot (RobotApi | None): Robot for the admin route; no admin route when None.
+        token (str | None): Bearer token of the admin route; no admin route when None.
 
     Returns:
         Starlette: ASGI app for uvicorn.
     """
-    return server.streamable_http_app(streamable_http_path=config.server.path, host=config.server.host)
+    app = server.streamable_http_app(streamable_http_path=config.server.path, host=config.server.host)
+    if robot is not None and token:
+        verifier = StaticTokenVerifier(token)
+
+        async def clear_agent_pois(request: Request) -> JSONResponse:
+            scheme, _, presented = request.headers.get("authorization", "").partition(" ")
+            if scheme.lower() != "bearer" or await verifier.verify_token(presented.strip()) is None:
+                return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+            try:
+                result = await run_in_threadpool(robot.poi_clear, ADMIN_POI_CREATOR)
+            except PoiStoreDown as exc:
+                return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
+            except PoiTimeout as exc:
+                return JSONResponse({"ok": False, "error": str(exc)}, status_code=504)
+            except RobotError as exc:
+                return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+            return JSONResponse({"ok": True, "removed": int((result.get("poi") or {}).get("removed", 0))})
+
+        app.add_route(ADMIN_CLEAR_AGENT_POIS_PATH, clear_agent_pois, methods=["POST"])
+    return app

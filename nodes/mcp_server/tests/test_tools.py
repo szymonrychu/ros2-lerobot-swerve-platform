@@ -25,6 +25,7 @@ from mcp_server.models import (
     SectorObstacle,
     StopResult,
 )
+from mcp_server.poi_client import PoiTimeout
 from mcp_server.tools import TOOL_NAMES, StaticTokenVerifier, build_app, build_mcp_server
 
 from .fakes import FakeArmBackend, PerceptionFakeMixin
@@ -428,3 +429,52 @@ def test_move_arm_joints_roll_guard_is_a_tool_error(server: Any, robot: FakeRobo
     robot.arm_backend.positions["gripper"] = 1.5
     with pytest.raises(ToolError, match="half open|open_fraction"):
         call(server, "move_arm_joints", {"targets": {"wrist_roll": -1.0}})
+
+
+ADMIN_PATH = "/admin/clear_agent_pois"
+
+
+def admin_app(robot: FakeRobot) -> Any:
+    cfg = McpServerConfig()
+    return build_app(build_mcp_server(robot, cfg, TOKEN), cfg, robot, TOKEN)
+
+
+def test_admin_clear_requires_the_bearer_token(robot: FakeRobot) -> None:
+    robot.pois = [{"id": "a", "created_by": "agent"}]
+    with TestClient(admin_app(robot)) as client:
+        assert client.post(ADMIN_PATH).status_code == 401
+        assert client.post(ADMIN_PATH, headers={"Authorization": "Bearer " + "x" * 48}).status_code == 401
+        assert client.post(ADMIN_PATH, headers={"Authorization": f"Basic {TOKEN}"}).status_code == 401
+    assert robot.poi_clears == [] and len(robot.pois) == 1
+
+
+def test_admin_clear_removes_agent_pois_and_returns_the_count(robot: FakeRobot) -> None:
+    robot.pois = [
+        {"id": "a", "created_by": "agent"},
+        {"id": "b", "created_by": "user"},
+        {"id": "c", "created_by": "agent"},
+    ]
+    with TestClient(admin_app(robot)) as client:
+        resp = client.post(ADMIN_PATH, headers={"Authorization": f"Bearer {TOKEN}"})
+    assert resp.status_code == 200 and resp.json() == {"ok": True, "removed": 2}
+    assert robot.poi_clears == ["agent"] and [p["id"] for p in robot.pois] == ["b"]
+
+
+def test_admin_clear_is_503_when_poi_store_is_down(robot: FakeRobot) -> None:
+    robot.poi_store_up = False
+    with TestClient(admin_app(robot)) as client:
+        resp = client.post(ADMIN_PATH, headers={"Authorization": f"Bearer {TOKEN}"})
+    assert resp.status_code == 503 and resp.json()["ok"] is False
+
+
+def test_admin_clear_is_504_on_timeout_and_502_on_rejection(robot: FakeRobot, monkeypatch: pytest.MonkeyPatch) -> None:
+    headers = {"Authorization": f"Bearer {TOKEN}"}
+    with TestClient(admin_app(robot)) as client:
+        monkeypatch.setattr(robot, "poi_clear", lambda _c: (_ for _ in ()).throw(PoiTimeout("no answer")))
+        assert client.post(ADMIN_PATH, headers=headers).status_code == 504
+        monkeypatch.setattr(robot, "poi_clear", lambda _c: (_ for _ in ()).throw(RobotError("poi_store rejected")))
+        assert client.post(ADMIN_PATH, headers=headers).status_code == 502
+
+
+def test_admin_clear_is_not_an_mcp_tool(server: Any) -> None:
+    assert not any("agent_pois" in name or "admin" in name for name in TOOL_NAMES)

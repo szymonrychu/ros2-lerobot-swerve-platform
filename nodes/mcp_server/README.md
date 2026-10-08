@@ -7,6 +7,12 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 - Endpoint: `http://client.ros2.lan:18200/mcp` (host/port/path from config)
 - Auth: static bearer token from the environment variable `MCP_SERVER_TOKEN` (the server refuses to start without a
   token of at least 24 characters); verified in constant time by `StaticTokenVerifier` (`Authorization: Bearer ...`)
+- Admin route: `POST /admin/clear_agent_pois` (plain HTTP, same bearer token, NOT an MCP tool so the model cannot call
+  it). It sends the poi_store `clear` command for `created_by: "agent"` and returns poi_store's answer:
+  `200 {"ok": true, "removed": <count>}`; `401` without or with a wrong token; `503` when poi_store is not running;
+  `504` when it does not answer within `poi.request_timeout_s`; `502` when it rejects the command. claude_agent calls it
+  on "New session" because it runs as its own Linux user and DDS data from that user does not reach the robot-user
+  nodes (poi_store), while this node does.
 - Config: YAML at `MCP_SERVER_CONFIG` (default `/etc/ros2/mcp_server/config.yaml`), validated with pydantic
   (`mcp_server/config.py`; unknown keys are rejected, motion limits have hard caps)
 

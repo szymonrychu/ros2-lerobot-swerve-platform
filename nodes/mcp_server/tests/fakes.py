@@ -6,6 +6,7 @@ import numpy as np
 
 from mcp_server.arm import JointSample
 from mcp_server.models import BasePose, RobotError
+from mcp_server.poi_client import PoiStoreDown
 from mcp_server.staleness import Stamped
 from mcp_server.topdown import TopdownInputs
 
@@ -76,6 +77,7 @@ class PerceptionFakeMixin:
         self.poi_store_up = True
         self.pois: list[dict] = []
         self.poi_commands: list[tuple[str, dict]] = []
+        self.poi_clears: list[str] = []
         self.topdown = TopdownInputs(
             pose=(1.0, 2.0, 0.5),
             scan_points=np.array([[1.0, 0.0], [0.0, 1.0]]),
@@ -103,6 +105,14 @@ class PerceptionFakeMixin:
         if not self.poi_store_up:
             raise RobotError("poi_store is not running (no /poi/list received)")
         return list(self.pois), len(self.poi_commands)
+
+    def poi_clear(self, created_by: str) -> dict:
+        if not self.poi_store_up:
+            raise PoiStoreDown("poi_store is not running (no subscriber on /poi/command)")
+        self.poi_clears.append(created_by)
+        doomed = [p for p in self.pois if p.get("created_by") == created_by]
+        self.pois = [p for p in self.pois if p.get("created_by") != created_by]
+        return {"ok": True, "message": f"cleared {len(doomed)}", "poi": {"removed": len(doomed)}}
 
     def poi_request(self, op: str, poi: dict) -> dict:
         if not self.poi_store_up:

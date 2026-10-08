@@ -83,6 +83,10 @@ class RobotApi(Protocol):
         """Send a /poi/command and wait for its /poi/result; RobotError when poi_store is down, slow or rejects."""
         ...
 
+    def poi_clear(self, created_by: str) -> dict[str, Any]:
+        """Clear every POI of one creator; the result's ``poi`` is {"removed": count}. RobotError as poi_request."""
+        ...
+
 
 @dataclass(frozen=True)
 class ToolContext:

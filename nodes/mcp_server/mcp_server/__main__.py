@@ -53,7 +53,7 @@ def main() -> int:
 
     spinner = threading.Thread(target=run_or_exit, args=(spin, rclpy.ok, os._exit), name="ros-executor", daemon=True)
     spinner.start()
-    app = build_app(build_mcp_server(robot, config, token, guard, monitor), config)
+    app = build_app(build_mcp_server(robot, config, token, guard, monitor), config, robot, token)
     if config.battery is not None:
         LOGGER.info("battery cut-off gate on %s (%d cells)", config.battery.topic, config.battery.cells)
     LOGGER.info("serving MCP on http://%s:%d%s", config.server.host, config.server.port, config.server.path)

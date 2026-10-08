@@ -6,7 +6,7 @@ import threading
 import pytest
 
 from mcp_server.models import RobotError
-from mcp_server.poi_client import PoiRequests, parse_poi_list
+from mcp_server.poi_client import PoiRequests, PoiStoreDown, PoiTimeout, parse_poi_list
 
 TIMEOUT = 0.3
 
@@ -104,3 +104,24 @@ def test_parse_poi_list() -> None:
     assert parsed == ([{"id": "a"}], 3)
     with pytest.raises(ValueError):
         parse_poi_list("[]")
+
+
+def test_clear_publishes_op_and_creator_and_returns_removed_count() -> None:
+    published: list[dict] = []
+
+    def answer(client: PoiRequests, msg: dict) -> None:
+        client.on_result(
+            json.dumps({"request_id": msg["request_id"], "ok": True, "message": "cleared 2", "poi": {"removed": 2}})
+        )
+
+    result = make(published, responder=answer).clear("agent")
+    assert result["poi"] == {"removed": 2}
+    (msg,) = published
+    assert msg["op"] == "clear" and msg["created_by"] == "agent" and msg["request_id"] and "poi" not in msg
+
+
+def test_clear_store_down_and_timeout_raise_distinct_errors() -> None:
+    with pytest.raises(PoiStoreDown):
+        make([], store_up=False).clear("agent")
+    with pytest.raises(PoiTimeout):
+        make([]).clear("agent")

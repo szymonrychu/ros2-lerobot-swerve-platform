@@ -295,7 +295,11 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   rotation, `stop` between steps, an obstacle appearing mid-turn, a camera failure recorded (not fabricated), montage
 - POI client (`test_poi_client.py`): request published with op, poi and a fresh `request_id`; the result is matched by
   id (other ids ignored, answer from another thread), timeout, store not running (nothing published), store rejection,
-  malformed results dropped, `/poi/list` parsing
+  malformed results dropped, `/poi/list` parsing, `clear(created_by)` (publishes `op: clear` + `created_by`, returns the
+  removed count; `PoiStoreDown` / `PoiTimeout` for a missing or silent store)
+- admin route (`test_tools.py`): `POST /admin/clear_agent_pois` returns 401 without, with a wrong or with a non-Bearer
+  token (nothing cleared), 200 `{"ok": true, "removed": n}` clearing only agent POIs, 503 when poi_store is down, 504 on
+  timeout, 502 on rejection, and no MCP tool exposes it
 - perception tools (`test_perception_tools.py`): the nine new tools registered and classified (`look_around` in
   `MOTION_TOOLS`, the rest always allowed), `get_topdown_view` PNG + metadata (pose, scale, layers present/missing,
   data ages), layer selection and validation, POI/object layers (each POI drawn once: `pois` without objects, `objects` only object POIs; both missing with the reason when poi_store is down), object tools round trip and merge as object POIs (`list_objects` only objects, `list_pois` states `kind`), legacy `objects.json` import through the server, POI tools

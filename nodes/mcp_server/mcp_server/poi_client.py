@@ -12,6 +12,14 @@ from .models import RobotError
 from .perception_models import PoiView
 
 
+class PoiStoreDown(RobotError):
+    """Nothing listens on /poi/command (poi_store is not running)."""
+
+
+class PoiTimeout(RobotError):
+    """poi_store did not answer a command in time."""
+
+
 class PoiRequests:
     """Publishes /poi/command messages and matches /poi/result answers to them by request_id."""
 
@@ -63,8 +71,37 @@ class PoiRequests:
             entry[1].append(result)
             entry[0].set()
 
-    def request(self, op: str, poi: dict[str, Any]) -> dict[str, Any]:
+    def send(self, op: str, fields: dict[str, Any]) -> dict[str, Any]:
         """Send one command and wait for its result.
+
+        Args:
+            op (str): poi_store operation.
+            fields (dict[str, Any]): Op-specific command fields ("poi" or "created_by").
+
+        Returns:
+            dict[str, Any]: The accepted result {request_id, ok: True, message, poi}.
+        """
+        if not self.store_running():
+            raise PoiStoreDown("poi_store is not running (nothing listens on /poi/command); start the node and retry")
+        request_id = self.new_id()
+        event: threading.Event = threading.Event()
+        answers: list[dict[str, Any]] = []
+        with self.lock:
+            self.pending[request_id] = (event, answers)
+        try:
+            self.publish(json.dumps({"op": op, "request_id": request_id, **fields}))
+            if not event.wait(self.timeout_s):
+                raise PoiTimeout(f"poi_store did not answer within {self.timeout_s:g} s (request {request_id})")
+        finally:
+            with self.lock:
+                self.pending.pop(request_id, None)
+        result = answers[0]
+        if not result.get("ok"):
+            raise RobotError(f"poi_store rejected the {op}: {result.get('message', 'no reason given')}")
+        return result
+
+    def request(self, op: str, poi: dict[str, Any]) -> dict[str, Any]:
+        """Send an add/update/delete command and wait for its result.
 
         Args:
             op (str): "add", "update" or "delete".
@@ -73,24 +110,18 @@ class PoiRequests:
         Returns:
             dict[str, Any]: The accepted result {request_id, ok: True, message, poi}.
         """
-        if not self.store_running():
-            raise RobotError("poi_store is not running (nothing listens on /poi/command); start the node and retry")
-        request_id = self.new_id()
-        event: threading.Event = threading.Event()
-        answers: list[dict[str, Any]] = []
-        with self.lock:
-            self.pending[request_id] = (event, answers)
-        try:
-            self.publish(json.dumps({"op": op, "request_id": request_id, "poi": poi}))
-            if not event.wait(self.timeout_s):
-                raise RobotError(f"poi_store did not answer within {self.timeout_s:g} s (request {request_id})")
-        finally:
-            with self.lock:
-                self.pending.pop(request_id, None)
-        result = answers[0]
-        if not result.get("ok"):
-            raise RobotError(f"poi_store rejected the {op}: {result.get('message', 'no reason given')}")
-        return result
+        return self.send(op, {"poi": poi})
+
+    def clear(self, created_by: str) -> dict[str, Any]:
+        """Delete every POI made by one creator and wait for the result.
+
+        Args:
+            created_by (str): "agent" or "user".
+
+        Returns:
+            dict[str, Any]: The accepted result; ``poi`` holds {"removed": count}.
+        """
+        return self.send("clear", {"created_by": created_by})
 
 
 def parse_poi_list(payload: str) -> tuple[list[dict[str, Any]], int]:
