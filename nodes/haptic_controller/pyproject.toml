@@ -3,7 +3,7 @@ name = "haptic-controller"
 version = "0.1.0"
 description = "Haptic controller: force-feedback resistance and zero-G hold mode for leader gripper (gripper-only pilot)"
 readme = "README.md"
-requires-python = ">=3.11,<4"
+requires-python = ">=3.12"
 dependencies = [
     "pyyaml>=6.0",
     "numpy>=1.26.0",
@@ -12,25 +12,23 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.0.0,<10",
-    "ruff==0.16.10",
+    "ruff==0.15.20",
     "vulture>=2.11,<3",
     "poethepoet>=0.42.0,<1",
 ]
 
 [build-system]
-requires = ["uv_build>=0.11.29,<0.12"]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.uv.build-backend]
-module-name = "haptic_controller"
-module-root = ""
+[tool.hatch.build.targets.wheel]
+packages = ["haptic_controller"]
 
 [tool.ruff]
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = ["E501"]
+select = ["E", "F", "W", "I", "UP"]
 
 [tool.vulture]
 exclude = ["**/__pycache__"]
