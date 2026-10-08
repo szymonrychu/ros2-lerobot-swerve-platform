@@ -971,7 +971,8 @@ ros2_nodes:
           shoulder_lift: -0.0103
           elbow_flex: -0.1381
           wrist_flex: 0.2477
-          wrist_roll: -0.0162
+          # wrist_roll re-solved 2026-10-08 (afternoon) with views at wrist_roll 0 .. -154 deg.
+          wrist_roll: -0.0710
         # Tool centre point (m) in the gripper_frame_link frame: jaw closing point vs gripper_frame_link, measured
         # 2026-10-08 by closing on ruler marks.
         tool_offset_m: {x: 0.0104, y: -0.0282, z: -0.0017}
@@ -988,19 +989,21 @@ ros2_nodes:
       # The gripper mount is relative to the URDF link gripper_link of so101_arm.urdf, the front mount to base_link.
       cameras:
         calibration_dir: /var/lib/ros2/camera_calibration
-        # Calibrated 2026-10-08 with the arm joint offsets (ruler + Lego, 45 points, 10 poses, floor RMS 6.1 mm).
+        # Mount re-solved 2026-10-08 (afternoon) from 15 views at wrist_roll 0, -0.8, -1.57, -2.3, -2.69 over a steel
+        # ruler (3 arm poses, 115 points; intrinsics and the pan/lift/elbow/wrist_flex offsets kept): floor RMS 6.6 mm,
+        # held-out views 4-14 mm. The previous mount fitted only low oblique views at roll 0 (35 mm on these views).
         gripper:
           parent_frame: gripper_link
           intrinsics:
             calibration_file: "{{ ros2_repo_dest }}/nodes/mcp_server/calibration/gripper_camera.yaml"
           mount:
             parent_frame: gripper_link
-            x: -0.0240
-            y: 0.0093
-            z: -0.0672
-            roll: -1.1459
-            pitch: 1.1529
-            yaw: -1.1655
+            x: 0.0002
+            y: 0.0305
+            z: -0.1073
+            roll: -1.6171
+            pitch: 1.1845
+            yaw: -1.4629
         front:
           parent_frame: base_link
           intrinsics: null
