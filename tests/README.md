@@ -453,7 +453,7 @@ Static checks of the mcp_server camera tools wiring (YAML and README only; no RO
 | Test (group) | Description |
 |------|-------------|
 | `test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/camera_calibration` owned by `ansible_user`. |
-| `test_cameras_config_defaults_to_not_calibrated` | The mcp_server `cameras` block has `calibration_dir` and both cameras with their parent frame and `intrinsics`/`mount` null. |
+| `test_cameras_config_front_not_calibrated_gripper_calibrated` | The mcp_server `cameras` block has `calibration_dir`; the front camera is uncalibrated (`intrinsics`/`mount` null), the gripper camera has intrinsics and a mount on `gripper_link`. |
 | `test_gripper_parent_frame_is_a_link_of_the_arm_urdf` | `cameras.gripper.parent_frame` names a link in the arm URDF. |
 | `test_arm_reach_keys_are_ordered` | `arm.reach_inner_m` is positive and below `arm.reach_outer_m`. |
 | `test_readme_documents_the_camera_tools_frames_and_calibration` | `nodes/mcp_server/README.md` documents the seven camera tools, frames, the not-calibrated default, `base_in_base_link`, the calibration directory and the procedure. |
@@ -581,6 +581,7 @@ Static checks of the overview_camera node from the repo files (YAML via `yaml.sa
 | `test_overview_camera_node_type_builds_libcamera_then_camera_ros` | `overview_camera` builds libcamera (tag `v0.7.2+rpt20260817`, all required meson args) before camera_ros (pinned full SHA) in `/opt/ros2-ws`. |
 | `test_builds_use_all_cores_at_lowest_priority_and_nodes_start_quickly` | `all.yml`: `ros2_build_jobs` 4 and `ros2_build_cpu_quota` 400% for source/frontend builds (still nice 19, idle IO), `ros2_node_start_interval_s` 2. |
 | `test_gripper_uvc_camera_uses_a_stable_device_path` | The gripper UVC camera is configured by its `/dev/v4l/by-id` path, since the overview CSI camera's driver takes `/dev/video0..9`. |
+| `test_gripper_camera_is_calibrated_with_a_repo_intrinsics_file` | mcp_server's gripper camera has a calibrated mount on `gripper_link` and intrinsics from `nodes/mcp_server/calibration/gripper_camera.yaml` (640x480, 3x3 matrix, 5 distortion terms). |
 | `test_only_the_libcamera_patch_is_listed_and_it_exists_in_the_repo` | Only the libcamera `package.xml` patch is listed and present; the camera_ros SyncMode patch is gone. |
 | `test_libcamera_patch_adds_a_meson_package_xml` | The libcamera patch adds a `package.xml` with `build_type` meson. |
 | `test_apt_packages_carry_the_build_deps_and_never_the_apt_camera_stack` | The apt list has the build dependencies and the image_transport compressed plugins, no stereo/image_proc/calibration packages, and no node type installs `ros-jazzy-camera-ros` or `ros-jazzy-libcamera`. |

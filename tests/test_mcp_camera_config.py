@@ -49,16 +49,14 @@ def test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user() -
     )
 
 
-def test_cameras_config_defaults_to_not_calibrated() -> None:
+def test_cameras_config_front_not_calibrated_gripper_calibrated() -> None:
     cameras = mcp_config()["cameras"]
     assert cameras["calibration_dir"] == CALIBRATION_DIR
     assert set(cameras) == {"calibration_dir", "gripper", "front"}
-    for name, parent in (("gripper", "gripper_link"), ("front", "base_link")):
-        assert cameras[name] == {
-            "parent_frame": parent,
-            "intrinsics": None,
-            "mount": None,
-        }, name
+    # The front (overview) camera is not mounted in its final place yet: uncalibrated, tools say 'not calibrated'.
+    assert cameras["front"] == {"parent_frame": "base_link", "intrinsics": None, "mount": None}
+    assert cameras["gripper"]["parent_frame"] == "gripper_link"
+    assert cameras["gripper"]["intrinsics"] is not None and cameras["gripper"]["mount"] is not None
 
 
 def test_gripper_parent_frame_is_a_link_of_the_arm_urdf() -> None:
@@ -85,3 +83,21 @@ def test_readme_documents_the_camera_tools_frames_and_calibration() -> None:
         "solve_camera_calibration",
     ):
         assert needle in text, needle
+
+
+def test_gripper_camera_is_calibrated_with_a_repo_intrinsics_file() -> None:
+    """2026-10-08 calibration (ruler + Lego, 20 points, RMS 3.97 px): the gripper camera has a mount on gripper_link
+    and intrinsics from nodes/mcp_server/calibration/gripper_camera.yaml (deployed with the repo)."""
+    import yaml as _yaml
+
+    cfg = _yaml.safe_load(next(n for n in _yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"] if n["name"] == "mcp_server")["config"])
+    gripper = cfg["cameras"]["gripper"]
+    assert gripper["mount"]["parent_frame"] == "gripper_link"
+    for key in ("x", "y", "z", "roll", "pitch", "yaw"):
+        assert isinstance(gripper["mount"][key], float)
+    path = gripper["intrinsics"]["calibration_file"]
+    assert path.endswith("nodes/mcp_server/calibration/gripper_camera.yaml")
+    local = REPO_ROOT / "nodes" / "mcp_server" / "calibration" / "gripper_camera.yaml"
+    data = _yaml.safe_load(local.read_text())
+    assert (data["image_width"], data["image_height"]) == (640, 480)
+    assert len(data["camera_matrix"]["data"]) == 9 and len(data["distortion_coefficients"]["data"]) == 5

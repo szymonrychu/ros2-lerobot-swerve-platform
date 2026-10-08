@@ -1,0 +1,15 @@
+# Gripper UVC camera (Arducam 5MP USB, 640x480) intrinsics, solved 2026-10-08 together with its mount from 20 floor
+# points (steel ruler + Lego at 25 cm, 5 arm poses): RMS 3.97 px. Principal point fixed at the image centre (the poses
+# could not resolve it), single radial term k1. ROS camera_info format (ros2_common.camera_geometry.from_calibration_yaml).
+image_width: 640
+image_height: 480
+camera_name: gripper_camera
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [467.57, 0.0, 319.50, 0.0, 467.57, 239.50, 0.0, 0.0, 1.0]
+distortion_model: plumb_bob
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [-0.2497, 0.0, 0.0, 0.0, 0.0]

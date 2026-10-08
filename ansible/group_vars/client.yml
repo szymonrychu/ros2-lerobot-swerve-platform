@@ -970,10 +970,19 @@ ros2_nodes:
       # The gripper mount is relative to the URDF link gripper_link of so101_arm.urdf, the front mount to base_link.
       cameras:
         calibration_dir: /var/lib/ros2/camera_calibration
+        # Calibrated 2026-10-08 (ruler + Lego at 25 cm, 20 points, 5 arm poses, RMS 3.97 px ~ 3 mm on the floor at 30 cm).
         gripper:
           parent_frame: gripper_link
-          intrinsics: null
-          mount: null
+          intrinsics:
+            calibration_file: "{{ ros2_repo_dest }}/nodes/mcp_server/calibration/gripper_camera.yaml"
+          mount:
+            parent_frame: gripper_link
+            x: -0.0895
+            y: 0.0071
+            z: -0.0271
+            roll: -0.7407
+            pitch: 1.1494
+            yaw: -0.7213
         front:
           parent_frame: base_link
           intrinsics: null
