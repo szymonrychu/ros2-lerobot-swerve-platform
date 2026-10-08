@@ -3,7 +3,7 @@ name = "ros2-lerobot-swerve-platform"
 version = "0.1.0"
 description = "ROS2 Lerobot Swerve-Drive Platform - monorepo for server, client, and Ansible"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]
@@ -37,8 +37,7 @@ line-length = 120
 extend-exclude = ["nodes", "ansible", "client", "server"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = ["E501"]
+select = ["E", "F", "W", "I", "UP"]
 
 [tool.vulture]
 exclude = ["venv", ".venv", "build", "dist", "client", "server", "ansible", "nodes", "**/__pycache__"]

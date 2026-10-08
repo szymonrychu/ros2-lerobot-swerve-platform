@@ -48,3 +48,13 @@ def test_nodes_depend_on_shared_by_relative_develop_path() -> None:
             dep = tool["uv"]["sources"][PACKAGE_NAME]
             assert dep["editable"] is True
         assert (node_dir / dep["path"]).resolve() == SHARED_DIR.resolve()
+
+
+def test_root_and_shared_pyproject_contract() -> None:
+    """Root and shared/ require Python 3.12 and lint with E, F, W, I without disabling E501."""
+    for directory in (REPO_ROOT, SHARED_DIR):
+        pyproject = load_pyproject(directory)
+        assert pyproject["project"]["requires-python"] == ">=3.12"
+        lint = pyproject["tool"]["ruff"]["lint"]
+        assert {"E", "F", "W", "I"} <= set(lint["select"])
+        assert "E501" not in lint.get("ignore", [])
