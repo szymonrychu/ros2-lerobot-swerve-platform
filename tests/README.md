@@ -217,7 +217,7 @@ Covers:
 - config (`test_config.py`): defaults (opus, hard maxima rw 150 / turns 200, no `max_ro_cap` / `max_phase_ro_cap`, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
   tool lists disjoint (stop can never be an effector), invalid numbers and unknown keys rejected, YAML loading,
   `CLAUDE_AGENT_CONFIG` lookup, MCP token read (env-file line or bare token, missing/empty refused, token never in the error)
-- system prompt (`test_prompt.py`): the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase rw/turn guidance ranges, no ro budget and unlimited sensor calls, generous rw/turn caps (double the estimate, raise early), the grasping guidance (several viewpoints incl. from directly above, `pixel_to_ground`, average within 1 cm, centre not edge, correct by the observed offset, NOTES.md), phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections, safety rules, persona,
+- system prompt (`test_prompt.py`): the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase rw/turn guidance ranges, no ro budget and unlimited sensor calls, generous rw/turn caps (double the estimate, raise early), the grasping guidance (several viewpoints by changing the roll incl. directly above, `pixel_to_ground`, average within 1 cm, centre not edge, correct by the observed offset, NOTES.md), retry budgeting (room for retries, raise the budget before it runs out or add a retry phase), fixed vs moving jaw and `object_width_m`, the agent chooses the grasp `wrist_roll`, camera views by roll, the rolling protocol (half open, arm lifted), `surface_height_m` and below-floor reach, fast arm by default, phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections, safety rules, persona,
   `system_prompt_extra` appended
 - plan (`test_budget.py`): `PlanTracker` validation (complexity enum, 1 to 12 phases, integer caps, rw 0 allowed, names and goals, a stray `ro_cap` ignored), clamping to the
   per-phase maxima with notes, rejection when the phase caps summed exceed an instruction maximum, the phase lifecycle (first phase active,
@@ -259,13 +259,19 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - config (`test_config.py`): defaults (0.0.0.0:18200 `/mcp`, topics, conservative limits, timeouts), repo-relative URDF
   path resolution, YAML overrides, empty file, unknown keys rejected, hard caps (0.25 m/s, speed scale 0.5, 1024 px),
   `MCP_SERVER_CONFIG` lookup, `MCP_SERVER_TOKEN` refused when missing/blank/short and stripped otherwise, settle
-  tolerance default 0.08 and validated between the converge tolerance and the tracking abort
+  tolerance default 0.08 and validated between the converge tolerance and the tracking abort; arm velocity default 1.0
+  rad/s with the 1.5 cap, roll guard defaults (0.1 / 0.8) and validation, `arm.jaw_open_axis` default and normalisation
+  (zero and wrong-length vectors rejected), `arm.joint_limit_overrides_rad` default empty with name and lower < upper checks
 - trajectory (`test_trajectory.py`): quintic blend endpoints/monotonicity, limit clamping with margin, duration from the
   quintic peak velocity, sampled trajectory ends exactly at the goal without exceeding the velocity cap, tracking error
 - staleness (`test_staleness.py`), home store (`test_home_store.py`: missing file, atomic round trip, corrupt file,
   non-finite values), geometry (`test_geometry.py`: yaw/quaternion, relative goals, twist clamping)
 - IK (`test_ik.py`): URDF joint limits, 5-DOF chain, FK at zero pose and pitch sign, IK forward/inverse round trip with
-  pitch and position only, wrist_roll kept from the seed, solutions inside limits minus margin, unreachable targets
+  pitch and position only, wrist_roll kept from the seed, solutions inside limits minus margin, unreachable targets;
+  per-call `extra_offset` (forward shifts by the rotated vector, the shared tool offset is not mutated, `grasp_offset`),
+  inverse with a width puts the tool point half a width from the centre along the opening direction at several rolls,
+  limit overrides replace the URDF limits (IK bounds, `within_limits`), a target below the floor (x 0.2, z -0.25) is
+  unreachable with the URDF limits and reachable with shoulder_lift upper 2.6, invalid overrides rejected
 - perception (`test_perception.py`): 8 scan sectors in base_link (lidar mounted backwards), invalid returns ignored, map
   stats, map PNG crop size, image fitting, JPEG encoding, `sensor_msgs/Image` encodings, JPEG pass-through/downscale
 - top-down view (`test_topdown.py`): base_link -> pixel transform (robot-up: forward is image up, left is image left),
@@ -305,10 +311,17 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `arm_settle_hold_s`, relaxed to the measured pose after it (only joints still off target), the next motion starts
   from the intended target, intent and pending relax cleared on release / drop_lease / lease loss; grasp from stall:
   a jaw stalling before closed (close_until_effort and open_fraction=0) reports `grasped` and holds stall + squeeze
-  (also after the hold window), the squeeze never passes closed, a partial open_fraction stall is not a grasp
+  (also after the hold window), the squeeze never passes closed, a partial open_fraction stall is not a grasp; wrist roll
+  guard (refused with a wide open gripper measured or targeted in the same call, nothing published and no lease taken,
+  allowed at half open or for a change under the minimum, thresholds from config); `move_cartesian` with `wrist_roll`
+  (replaces the current roll, clamped and reported in `clamped`, guard applies) and `object_width_m` (centre reached with the
+  shift, `grasp_shift` reported, widths 0 / negative / 0.09 / NaN rejected); limit overrides widen the clamp of `move_joints`
+  and make a below-floor Cartesian target reachable
 - drive (`test_base_motion.py`): rate, clamping, duration cap, abort always ends with a zero twist
 - tools (`test_tools.py`): all 32 tools registered with real descriptions (arm motion tools explain `residual_error`
-  and the commanded hold), structured outputs, camera JPEG + stamp,
+  and the commanded hold), `speed_scale` descriptions derived from `arm_max_joint_velocity_rps` (no hardcoded 0.5 rad/s),
+  `move_arm_cartesian` accepting `wrist_roll` / `object_width_m` (bounds, `grasp_shift` in the result, description phrases),
+  the roll guard as a tool error, structured outputs, camera JPEG + stamp,
   argument validation, robot errors as tool errors, map PNG, arm tool round trip, bearer-token auth on the Streamable
   HTTP app (401 without/with a wrong token, 200 with the right one) and the configured path
 - battery gate (`test_battery_gate.py`): `MOTION_TOOLS` and `ALWAYS_ALLOWED_TOOLS` partition all tools; each motion tool
@@ -328,7 +341,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - camera scene (`test_camera_scene.py`): intrinsics loading (hfov approximate, calibration yaml), not-calibrated error text,
   synthetic front camera with a known mount (analytic centre-pixel floor point, project/ground round trip, sky pixels),
   gripper camera pose from measured joints, frame conversions with and without the arm offset, map position from the
-  robot yaw, `pixel_to_ground` report fields and pixel errors
+  robot yaw, `pixel_to_ground` report fields and pixel errors; `surface_height_m` (a pixel hits the plane at floor + height
+  at the expected point, below the floor too, the report states the height used)
 - camera overlays (`test_camera_overlay.py`): vectorised projection equals `project_raw`, grid polylines at the step
   and on the floor, behind-camera samples dropped, spaced metric labels, reach circle, lidar dots counted, candidate grid
   (whole image, region, cap, region validation) and drawing
@@ -338,7 +352,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - camera tools (`test_camera_tools.py`): the seven tools and descriptions, documented not-calibrated errors,
   `pixel_to_ground` (front/gripper, arm offset, missing map pose, stale joints, sky), annotated images (all overlays,
   notes for overlays that cannot be drawn, validation), candidate points (table vs projection, sky skipped, region, last
-  10 sets, stored values with moved flags), capture/solve/clear round trip
+  10 sets, stored values with moved flags), `surface_height_m` for `pixel_to_ground` and `mark_candidate_points` (raised
+  plane hit, validation, stored and resolved with the set), capture/solve/clear round trip
 - IK link frames (`test_ik.py`): `link_frame` for base, `gripper_link`, `gripper_frame_link` and rejected off-chain links
 - digest + body state (`test_digest.py`): every tool result carries `robot_events_since_last_call` and `vitals` (text,
   structured content, `_meta` for image tools, appended to tool errors), events reported once, events raised during the

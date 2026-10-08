@@ -24,13 +24,13 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `stop` | Always available: cancels all NavigateToPose goals and publishes a zero twist. Aborts any arm motion and holds the arm at its measured pose only if this server holds arm control (or a motion is running); otherwise the arm is not touched (`arm_held: false`). |
 | `get_arm_state` | Joint positions (measured follower values)/efforts, gripper effort, tool point pose (x, y, z, pitch; forward kinematics with `arm.joint_offsets_rad` applied), `floor_z_m` (floor height in the base_link frame), active source, lease, home stored. |
 | `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
-| `move_arm_joints(targets, speed_scale<=0.5)` | Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `converged` results may carry `residual_error` (see Safety model). |
-| `move_arm_cartesian(x, y, z, pitch=None, frame='base_link')` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch, wrist_roll kept); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.165, measured 16.5 cm); the tool descriptions and `get_arm_state.floor_z_m` state it. No motion restriction is derived from it. |
+| `move_arm_joints(targets, speed_scale<=0.5)` | Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `speed_scale` 0.5 is the maximum, `limits.arm_max_joint_velocity_rps` (default 1.0 rad/s); the description states the configured value. A `wrist_roll` change above `limits.roll_guard_min_change_rad` is refused while the gripper is open wider than `limits.roll_max_gripper_open_rad` (see Wrist roll guard). `converged` results may carry `residual_error` (see Safety model). |
+| `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None)` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.165, measured 16.5 cm); the tool descriptions and `get_arm_state.floor_z_m` state it. No motion restriction is derived from it. |
 | `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.15 rad) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
-| `pixel_to_ground(camera, u, v)` | Floor point seen at a pixel (sensor): `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
+| `pixel_to_ground(camera, u, v, surface_height_m=0.0)` | Point seen at a pixel (sensor): `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
 | `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
-| `mark_candidate_points(camera, region, spacing_px=40, max_points=40)` | Image with numbered dots on a pixel grid plus a table `{set_id, points:[{n, u, v, ground_base_link, ground_map}]}`; the last 10 sets are kept. |
+| `mark_candidate_points(camera, region, spacing_px=40, max_points=40, surface_height_m=0.0)` | Image with numbered dots on a pixel grid plus a table `{set_id, surface_height_m, points:[{n, u, v, ground_base_link{x,y,z}, ground_map}]}`; the points are intersected with the plane at floor + `surface_height_m` (as in `pixel_to_ground`); the last 10 sets are kept. |
 | `resolve_candidate(set_id, n)` | Stored coordinates of one numbered point, with its age and whether the base/arm moved since. |
 | `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z=0.0)` | Store one marker sample (pixel + measured floor point + parent-link pose + the raw measured arm `joints` when fresh joint states exist) in `cameras.calibration_dir`. |
 | `solve_camera_calibration(camera, initial)` | Fit the mount pose to the stored samples; returns `rms_px` and a YAML snippet for `client.yml` (never edits the config). |
@@ -84,10 +84,11 @@ measured. Without it, gripper results are in the arm base frame only (`ground_ar
   `move_arm_cartesian`, shown before moving), `lidar` (latest `/scan_filtered`, base_link <- laser TF, range-coloured
   dots: red near, blue far). Overlays that cannot be drawn are listed in the metadata `notes` (for example arm overlays on
   the front camera without `arm.base_in_base_link`). A short legend is drawn in the image.
-- `mark_candidate_points` / `resolve_candidate`: dots whose pixel does not see the floor, or whose floor point is farther
+- `mark_candidate_points` / `resolve_candidate`: dots whose pixel does not see the surface plane (floor, or the one at `surface_height_m`), or whose floor point is farther
   than 6 m, are skipped (`skipped_no_ground`). Sets live in memory (last 10, lost on restart). `resolve_candidate` returns
   the STORED values with `age_s`, `robot_moved_since` and `arm_moved_since`: after the base moved `ground_base_link` is stale
-  (`ground_map` stays valid); after the arm moved the pixel no longer matches the live image.
+  (`ground_map` stays valid); after the arm moved the pixel no longer matches the live image. `resolve_candidate` also
+  returns the `surface_height_m` the set was made with.
 - Uncertainty: flat floor assumed; error grows with distance (about 1 px of pixel error is several cm far away); the
   gripper camera pose comes from measured joints (servo sag shifts it by millimetres); hfov intrinsics are approximate.
 
@@ -142,6 +143,31 @@ the jaws on ruler marks).
   pitch handling, floor/approach logic and unreachable errors are unchanged; a zero offset takes the old code path.
 - Camera tools (gripper overlay, planned gripper marker) use `forward`, so they draw the corrected point.
 - Re-measure after any gripper or jaw change; the repeatability of the current measurement is about 3 mm.
+
+### Grasp shift, wrist roll guard and limit overrides
+
+The gripper has one FIXED and one MOVING jaw; the tool point is (about) the fixed jaw's inner face, so aiming it at an object's
+centre pushes the fixed jaw into the object.
+
+- **Grasp shift.** `move_arm_cartesian(object_width_m=w)` treats (x, y, z) as the object centre: for that solve the tool offset
+  is extended by `(w / 2) * arm.jaw_open_axis` (a unit vector in `gripper_frame_link`, default `[-1, 0, 0]`: the moving jaw opens
+  toward -x; normalised on load). The tool point (fixed jaw face) therefore ends w/2 from the centre against the opening
+  direction, the object centred between the jaws. `ArmKinematics.forward` / `inverse` take a per-call `extra_offset` (the shared
+  `tool_offset` is never modified; `ik.grasp_offset` builds it). The result carries `grasp_shift`
+  `{object_width_m, shift_m, jaw_open_axis, tool_point}` (`tool_point` = the fixed jaw point reached, arm base frame);
+  `expected_tool_pose` / `achieved_tool_pose` refer to the object centre. Widths outside (0, 0.08] m are an error.
+- **Wrist roll guard.** A motion (`move_arm_joints`, or `move_arm_cartesian` with `wrist_roll`; also `arm_home`) that changes
+  `wrist_roll` by more than `limits.roll_guard_min_change_rad` (0.1) is refused with an `ArmError`/tool error and NO motion
+  (the lease is not even taken) when the gripper is more open than `limits.roll_max_gripper_open_rad` (0.8 rad, about half of
+  the -0.17..1.75 range): the larger of the measured gripper position and any gripper target of the same call counts. The
+  message tells the agent to set the gripper about half open (`open_fraction` about 0.5), lift the arm clear of the robot body
+  and objects, then roll, and open wider only for the grasp.
+- **Joint limit overrides.** `arm.joint_limit_overrides_rad` (`{joint: [lower, upper]}`, URDF-space rad, default empty;
+  names must be a chain joint or `gripper`, lower < upper) replaces the URDF limits of the named joints in the IK bounds,
+  `within_limits`/`clamp_seed` and every target clamp in `ArmController` (the margins still apply). Example for reaching
+  below the floor: `{shoulder_lift: [-1.74533, 2.6]}`. Check on the robot that the wider range is mechanically safe.
+- **Speed.** `limits.arm_max_joint_velocity_rps` now defaults to 1.0 rad/s (`le` 1.5); tool descriptions derive the number
+  from the config. `gripper_velocity_rps` is unchanged (0.5).
 
 ## Body awareness: monitor, events, digest, early return
 
@@ -298,7 +324,7 @@ partition every tool):
 - **Arm motions**: targets clamped to URDF limits minus `arm_limit_margin_rad` (0.05; `arm_limit_margin_overrides`
   replaces it per joint, default `{gripper: 0.005}` so the gripper reaches -0.165 rad, just above the measured stop at
   -0.172 rad); synchronised quintic trajectory
-  with per-joint velocity <= 0.5 rad/s (`speed_scale` 0.5 = that maximum, lower is proportionally slower) streamed at
+  with per-joint velocity <= `arm_max_joint_velocity_rps` (default 1.0 rad/s; `speed_scale` 0.5 = that maximum, lower is proportionally slower) streamed at
   25 Hz; blocks until converged (`arm_converge_tolerance_rad`) or `arm_converge_timeout_s` after the trajectory.
   Aborts and holds the measured pose when `/follower/joint_states` is older than 0.3 s, the tracking error (setpoint vs
   measured, gripper excluded) exceeds `arm_tracking_error_rad` (0.35), or `stop` is called. One arm motion at a time.
@@ -381,13 +407,17 @@ arm:
   reach_inner_m: 0.05
   joint_offsets_rad: {shoulder_pan: 0.0, shoulder_lift: 0.0, elbow_flex: 0.0, wrist_flex: 0.0, wrist_roll: 0.0}   # urdf = measured + offset
   tool_offset_m: {x: 0.0, y: 0.0, z: 0.0}   # jaw closing point in the gripper_frame_link frame
+  jaw_open_axis: [-1.0, 0.0, 0.0]           # direction the moving jaw opens, gripper_frame_link (normalised)
+  joint_limit_overrides_rad: {}             # e.g. {shoulder_lift: [-1.74533, 2.6]} replaces URDF limits
   # base_in_base_link: {x: 0.0, y: 0.0, z: 0.165, yaw: 0.0}   # optional, once measured
 cameras:                  # default: not calibrated (see Camera tools and calibration)
   calibration_dir: /var/lib/ros2/camera_calibration
   gripper: {parent_frame: gripper_link, intrinsics: null, mount: null}
   front: {parent_frame: base_link, intrinsics: {hfov_deg: 66.0, width: 640, height: 480}, mount: null}
 limits:
-  arm_max_joint_velocity_rps: 0.5
+  arm_max_joint_velocity_rps: 1.0
+  roll_guard_min_change_rad: 0.1     # wrist_roll changes above this are refused ...
+  roll_max_gripper_open_rad: 0.8     # ... while the gripper is open wider than this (about half open)
   arm_settle_tolerance_rad: 0.08   # steady-state error reported as residual_error instead of a timeout
   gripper_effort_threshold: 300.0
   gripper_effort_ignore_s: 0.3      # ignore the load spike when the motor starts
