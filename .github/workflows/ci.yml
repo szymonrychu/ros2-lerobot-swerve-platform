@@ -37,6 +37,8 @@ jobs:
         with:
           version: 0.11.29
           python-version: "3.12"
+      - name: Install Ansible collections
+        run: uv run --frozen ansible-galaxy collection install -r ansible/requirements.yml
       - name: Run ansible lint
         run: uv run --frozen poe test-ansible
 

@@ -57,3 +57,12 @@ def test_node_matrix_equals_filesystem() -> None:
     run = "\n".join(s.get("run", "") for s in job["steps"])
     for cmd in ("uv lock --check", "uv run --frozen poe lint", "uv run --frozen pytest -q"):
         assert cmd in run
+
+
+def test_ansible_job_installs_collections_before_syntax_check() -> None:
+    """Roles use ansible.posix modules (mount), so the collection must be installed before --syntax-check."""
+    runs = [str(s.get("run", "")) for s in load_workflow()["jobs"]["lint-ansible"]["steps"]]
+    galaxy = "ansible-galaxy collection install -r ansible/requirements.yml"
+    install = next(i for i, r in enumerate(runs) if galaxy in r)
+    check = next(i for i, r in enumerate(runs) if "poe test-ansible" in r)
+    assert install < check

@@ -49,6 +49,7 @@ Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every node pro
 | `test_uv_pinned_in_every_job` | Every job installs uv through `astral-sh/setup-uv` pinned to version 0.11.29. |
 | `test_root_tests_job_present` | A job runs the root test suite (`uv run --frozen pytest tests`). |
 | `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q`. |
+| `test_ansible_job_installs_collections_before_syntax_check` | The `lint-ansible` job installs `ansible/requirements.yml` collections (`ansible.posix`, used by the mount tasks) before `poe test-ansible`. |
 
 ### `test_precommit_config.py`
 
