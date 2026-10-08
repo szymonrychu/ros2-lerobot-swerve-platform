@@ -152,7 +152,7 @@ def run_filter_node(config: FilterConfig) -> None:
             log.warning("No follower_feedback_topic: leader cannot resume after an autonomy release")
     if source_pub is not None:
         node.create_timer(ACTIVE_SOURCE_POLL_S, report_source)
-    node.get_logger().info("Filter node: %s -> %s [%s]" % (config.input_topic, config.output_topic, config.algorithm))
+    node.get_logger().info(f"Filter node: {config.input_topic} -> {config.output_topic} [{config.algorithm}]")
 
     executor = SingleThreadedExecutor()
     executor.add_node(node)
