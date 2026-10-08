@@ -1,4 +1,4 @@
-"""Tool classification and the permission gate: enforces the agent-chosen ro/rw budget, sandboxes the notes file tools to the workdir."""
+"""Tool classification and the permission gate: enforces the agent-chosen per-phase ro/rw/turn budgets, sandboxes the notes file tools to the workdir."""
 
 import os
 from collections.abc import Callable
@@ -7,8 +7,8 @@ from typing import Any
 
 from claude_agent_sdk import PermissionResult, PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
 
-from .budget import ALREADY_RAISED_MESSAGE, KIND_EFFECTOR, KIND_SENSOR, Budget, BudgetTracker
-from .budget import FULL_TOOL_NAME as BUDGET_TOOL_FULL_NAME
+from .budget import FULL_TOOL_NAMES as PLAN_TOOL_FULL_NAMES
+from .budget import KIND_EFFECTOR, KIND_SENSOR, PlanTracker
 from .config import ClaudeAgentConfig
 
 MCP_SERVER_NAME = "robot"
@@ -16,7 +16,7 @@ ROBOT_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 NOT_AVAILABLE_MESSAGE = "tool {name} is not available: only the robot tools (mcp__robot__*) can be used"
 KIND_UNCAPPED = "uncapped"
 KIND_NOTES = "notes"
-KIND_BUDGET = "budget"
+KIND_PLAN = "plan"
 AGENT_PREFIX = "mcp__agent__"
 OUTSIDE_WORKDIR_MESSAGE = "{name} denied: {detail}; file tools only work inside the workdir {workdir}"
 # Built-in file tools allowed for the agent's notes, with the input field naming the path (Glob/Grep: optional, default cwd).
@@ -66,14 +66,14 @@ def classify_tool(config: ClaudeAgentConfig, full_name: str) -> str | None:
         full_name (str): Full tool name.
 
     Returns:
-        str | None: "notes" for the five file tools, "budget" for set_task_budget, "effector", "uncapped" or "sensor" for
+        str | None: "notes" for the five file tools, "plan" for the four planning tools, "effector", "uncapped" or "sensor" for
         robot tools (a robot tool in no list is treated as an effector, so a new motion tool is counted as rw by
         default); None for any other tool.
     """
     if full_name in NOTES_PATH_FIELDS:
         return KIND_NOTES
-    if full_name == BUDGET_TOOL_FULL_NAME:
-        return KIND_BUDGET
+    if full_name in PLAN_TOOL_FULL_NAMES:
+        return KIND_PLAN
     if not full_name.startswith(ROBOT_PREFIX):
         return None
     name = short_name(full_name)
@@ -121,14 +121,15 @@ def check_notes_input(workdir: str, tool_name: str, tool_input: dict[str, Any]) 
 
 
 class EffectorGate:
-    """Permission callback: gates robot tools on the agent-set budget and counts ro (sensor) / rw (effector) calls.
+    """Permission callback: gates robot tools on the agent's plan and counts ro (sensor) / rw (effector) calls per phase.
 
-    Until set_task_budget has been accepted for the instruction every sensor and effector tool is denied; the notes
-    file tools, set_task_budget and the uncapped tools (stop, acquire/release control) are always allowed and never
-    counted. Past a cap the call is denied; the budget can be raised once per instruction.
+    Until set_task_plan has been accepted for the instruction every sensor and effector tool is denied; the notes file
+    tools, the planning tools and the uncapped tools (stop, acquire/release control) are always allowed and never
+    counted (the planning tools validate their own input). Past a cap of the active phase the call is denied; the phase
+    can be raised once, completed, or the plan revised.
 
     Attributes:
-        budget (BudgetTracker): Budget and usage counters of the current instruction.
+        plan (PlanTracker): Plan, phase budgets and usage counters of the current instruction.
     """
 
     def __init__(
@@ -136,7 +137,10 @@ class EffectorGate:
         config: ClaudeAgentConfig,
         on_denied: Callable[[dict[str, Any]], None] | None = None,
         on_count: Callable[[], None] | None = None,
-        on_budget: Callable[[Budget], None] | None = None,
+        on_plan: Callable[[dict[str, Any]], None] | None = None,
+        on_phase_started: Callable[[dict[str, Any]], None] | None = None,
+        on_phase_completed: Callable[[dict[str, Any]], None] | None = None,
+        on_plan_revised: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         """Create the gate.
 
@@ -144,15 +148,25 @@ class EffectorGate:
             config (ClaudeAgentConfig): Tool lists, hard maxima and workdir.
             on_denied (Callable[[dict], None] | None): Called with {id, name, reason} for each denial.
             on_count (Callable[[], None] | None): Called after each counted sensor/effector call.
-            on_budget (Callable[[Budget], None] | None): Called with each accepted (or raised) budget.
+            on_plan (Callable[[dict], None] | None): Called with the plan payload when the agent sets its plan.
+            on_phase_started (Callable[[dict], None] | None): Called with the phase payload when a phase becomes active.
+            on_phase_completed (Callable[[dict], None] | None): Called with the phase payload when a phase is closed.
+            on_plan_revised (Callable[[dict], None] | None): Called with the plan payload after a revision.
         """
         self.config = config
-        self.budget = BudgetTracker(config, on_budget=on_budget, on_change=on_count)
+        self.plan = PlanTracker(
+            config,
+            on_plan=on_plan,
+            on_phase_started=on_phase_started,
+            on_phase_completed=on_phase_completed,
+            on_plan_revised=on_plan_revised,
+            on_change=on_count,
+        )
         self.on_denied = on_denied
 
     def reset(self) -> None:
-        """Start a new instruction: forget the budget and zero the counters."""
-        self.budget.reset()
+        """Start a new instruction: forget the plan and zero the counters."""
+        self.plan.reset()
 
     def deny(self, tool_use_id: str | None, name: str, reason: str) -> PermissionResultDeny:
         """Record and build a denial.
@@ -180,8 +194,8 @@ class EffectorGate:
             context (ToolPermissionContext): Carries the tool_use_id.
 
         Returns:
-            PermissionResult: Allow for notes tools inside the workdir, set_task_budget (until it was raised once),
-            uncapped tools, and sensor/effector calls within the budget; Deny otherwise.
+            PermissionResult: Allow for notes tools inside the workdir, the planning tools, uncapped tools, and
+            sensor/effector calls within the active phase's budget; Deny otherwise.
         """
         kind = classify_tool(self.config, tool_name)
         if kind == KIND_NOTES:
@@ -192,12 +206,8 @@ class EffectorGate:
             return PermissionResultAllow()
         if kind is None:
             return self.deny(context.tool_use_id, tool_name, NOT_AVAILABLE_MESSAGE.format(name=tool_name))
-        if kind == KIND_BUDGET:
-            if self.budget.raised:
-                return self.deny(context.tool_use_id, short_name(tool_name), ALREADY_RAISED_MESSAGE)
-            return PermissionResultAllow()
         if kind in (KIND_SENSOR, KIND_EFFECTOR):
-            reason = self.budget.charge(kind)
+            reason = self.plan.charge(kind)
             if reason:
                 return self.deny(context.tool_use_id, short_name(tool_name), reason)
         return PermissionResultAllow()

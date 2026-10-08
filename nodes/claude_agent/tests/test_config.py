@@ -21,6 +21,7 @@ def test_defaults() -> None:
     assert cfg.model == "opus"
     assert (cfg.max_ro_cap, cfg.max_rw_cap, cfg.max_turn_cap) == (300, 100, 150)
     assert cfg.max_turns == cfg.max_turn_cap + TURN_MARGIN
+    assert (cfg.max_phase_ro_cap, cfg.max_phase_rw_cap, cfg.max_phase_turn_cap) == (60, 40, 40)
     assert cfg.robot_events_topic == "/robot_events"
     assert cfg.robot_events_history == 50
     assert cfg.robot_event_debounce_s == 2.0
@@ -65,6 +66,9 @@ def test_stop_cannot_be_an_effector() -> None:
         ("max_ro_cap", 0),
         ("max_rw_cap", -1),
         ("max_turn_cap", 0),
+        ("max_phase_ro_cap", 0),
+        ("max_phase_rw_cap", 0),
+        ("max_phase_turn_cap", 0),
         ("robot_events_history", 0),
         ("robot_event_debounce_s", -1),
         ("http_port", 70000),

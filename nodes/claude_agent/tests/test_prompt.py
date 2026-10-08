@@ -4,19 +4,42 @@ from claude_agent.config import ClaudeAgentConfig
 from claude_agent.prompt import build_system_prompt
 
 
-def test_prompt_explains_the_budget_workflow() -> None:
-    text = build_system_prompt(ClaudeAgentConfig(max_ro_cap=200, max_rw_cap=60, max_turn_cap=90))
+def test_prompt_explains_the_phase_plan_workflow() -> None:
+    text = build_system_prompt(
+        ClaudeAgentConfig(max_ro_cap=200, max_rw_cap=60, max_turn_cap=90, max_phase_ro_cap=45, max_phase_rw_cap=22)
+    )
     lower = text.lower()
-    assert "set_task_budget" in text and "agent" in text
-    first = lower.index("first judge")
-    assert first < lower.index("working method")
-    for phrase in ("trivial", "simple", "moderate", "complex", "very_complex", "without waiting for approval"):
+    for tool_name in ("set_task_plan", "complete_phase", "revise_plan", "raise_phase_budget"):
+        assert f"agent.{tool_name}" in text
+    assert "set_task_budget" not in text
+    assert lower.index("first split") < lower.index("working method")
+    for phrase in ("trivial", "very_complex", "without waiting for approval", "goal", "within 10 cm", "phases"):
         assert phrase in lower
-    for guidance in ("ro 5-10", "rw 0", "ro 10-20", "rw 3-8", "ro 40-80", "rw 25-50", "turns 40-80"):
+    assert "call agent.set_task_plan first" in lower or "refused until" in lower
+    assert "200" in text and "60" in text and "90" in text and "45" in text and "22" in text
+
+
+def test_prompt_has_the_tomato_example_and_phase_guidance() -> None:
+    lower = build_system_prompt(ClaudeAgentConfig()).lower()
+    assert "put plushie tomato into toy car" in lower
+    for step in (
+        "locate mentioned objects",
+        "drive towards tomato",
+        "pick up tomato",
+        "drop tomato",
+        "get back to home",
+    ):
+        assert step in lower
+    for guidance in ("ro 10-30", "rw 0-5", "ro 5-15", "rw 3-10", "ro 15-40", "rw 10-25", "rw 5-10", "ro 2-5", "rw 1-3"):
         assert guidance in lower
-    assert "200" in text and "60" in text and "90" in text
-    assert "once" in lower and "raise" in lower
-    assert "call agent.set_task_budget first" in lower or "refused until" in lower
+    assert "look_around" in lower and "counts 1" in lower
+
+
+def test_prompt_demands_explicit_honest_phase_completion() -> None:
+    lower = build_system_prompt(ClaudeAgentConfig()).lower()
+    assert "complete every phase" in lower or "always complete" in lower
+    assert "failed" in lower and "skipped" in lower and "honest" in lower
+    assert "once per instruction" in lower and "once per phase" in lower
 
 
 def test_prompt_has_no_old_static_caps() -> None:

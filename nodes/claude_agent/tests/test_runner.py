@@ -189,7 +189,8 @@ async def test_instruction_flow_emits_events(tmp_path: Path) -> None:
         "ro_used": 0,
         "rw_used": 0,
         "turns_used": 0,
-        "budget": None,
+        "plan": None,
+        "active_phase": None,
     }
     assert events.history()[-1]["busy"] is False
     assert runner.busy is False
@@ -318,7 +319,7 @@ def gate_of(client: FakeClient) -> EffectorGate:
 async def use_effector(client: FakeClient) -> None:
     from claude_agent_sdk import ToolPermissionContext
 
-    gate_of(client).budget.set_budget("simple", 10, 10, 20, "test")
+    gate_of(client).plan.set_plan("simple", "test", [phase_spec(10, 10, 20)])
     await client.options.can_use_tool("mcp__robot__drive", {}, ToolPermissionContext(tool_use_id="x"))
 
 
@@ -548,7 +549,11 @@ async def test_connect_timeout_surfaces_error_and_clears_busy(tmp_path: Path) ->
     assert FakeClient.instances[0].disconnected
 
 
-# --- agent-chosen budget, turn cap ----------------------------------------------------------------------------------
+# --- agent-chosen plan, phases, turn caps ---------------------------------------------------------------------------
+
+
+def phase_spec(ro: int = 10, rw: int = 5, turns: int = 20, name: str = "Work", goal: str = "goal reached") -> dict:
+    return {"name": name, "goal": goal, "ro_cap": ro, "rw_cap": rw, "turn_cap": turns}
 
 
 def assistant(*blocks) -> AssistantMessage:
@@ -559,53 +564,108 @@ def tool_results() -> UserMessage:
     return UserMessage(content=[ToolResultBlock(tool_use_id="t", content=[{"type": "text", "text": "ok"}])])
 
 
-def setter(complexity: str = "simple", ro: int = 10, rw: int = 5, turns: int = 20, rationale: str = "why"):
+def planner(*phases: dict, complexity: str = "simple", rationale: str = "why"):
     async def run(client: FakeClient) -> None:
-        gate_of(client).budget.set_budget(complexity, ro, rw, turns, rationale)
+        gate_of(client).plan.set_plan(complexity, rationale, list(phases) or [phase_spec()])
 
     return run
 
 
-async def test_budget_event_and_state_fields(tmp_path: Path) -> None:
-    runner, events, _ = make_runner(tmp_path, script=[setter(), make_result()])
+def completer(outcome: str = "done", summary: str = "ok"):
+    async def run(client: FakeClient) -> None:
+        gate_of(client).plan.complete_phase(outcome, summary)
+
+    return run
+
+
+async def test_plan_and_phase_events_and_state_fields(tmp_path: Path) -> None:
+    script = [
+        planner(phase_spec(10, 5, 20, "Locate", "tomato seen"), phase_spec(6, 4, 8, "Drive", "within 10 cm")),
+        make_result(),
+    ]
+    runner, events, _ = make_runner(tmp_path, script=script)
     await runner.start_instruction("go")
     await runner.wait_idle()
-    budget = [e for e in events.history() if e["type"] == "budget"]
-    assert len(budget) == 1
-    assert {k: budget[0][k] for k in ("complexity", "ro_cap", "rw_cap", "turn_cap", "rationale", "raised")} == {
-        "complexity": "simple",
-        "ro_cap": 10,
-        "rw_cap": 5,
-        "turn_cap": 20,
-        "rationale": "why",
-        "raised": False,
-    }
+    [plan] = [e for e in events.history() if e["type"] == "plan"]
+    assert plan["complexity"] == "simple" and plan["rationale"] == "why" and plan["active_phase"] == 0
+    assert [(p["name"], p["goal"], p["ro_cap"], p["rw_cap"], p["turn_cap"]) for p in plan["phases"]] == [
+        ("Locate", "tomato seen", 10, 5, 20),
+        ("Drive", "within 10 cm", 6, 4, 8),
+    ]
+    [started] = [e for e in events.history() if e["type"] == "phase_started"]
+    assert (started["index"], started["name"], started["goal"], started["ro_cap"]) == (0, "Locate", "tomato seen", 10)
+    assert types_of(events).index("plan") < types_of(events).index("phase_started")
     states = [e for e in events.history() if e["type"] == "state"]
-    assert any(e["budget"] and e["budget"]["ro_cap"] == 10 for e in states)
-    assert states[-1]["busy"] is False and states[-1]["budget"]["turn_cap"] == 20
+    assert any(e["plan"] and e["active_phase"] == 0 for e in states)
+    assert states[-1]["busy"] is False and states[-1]["plan"]["phases"][1]["status"] == "pending"
 
 
-async def test_usage_fields_and_new_instruction_clears_the_budget(tmp_path: Path) -> None:
+async def test_phase_completed_and_next_phase_started_events(tmp_path: Path) -> None:
+    async def sensor(client: FakeClient) -> None:
+        from claude_agent_sdk import ToolPermissionContext
+
+        await client.options.can_use_tool("mcp__robot__get_robot_state", {}, ToolPermissionContext(tool_use_id="s"))
+
+    script = [
+        planner(phase_spec(10, 5, 20, "A"), phase_spec(6, 4, 8, "B")),
+        sensor,
+        completer("failed", "no tomato"),
+        make_result(),
+    ]
+    runner, events, _ = make_runner(tmp_path, script=script)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    [done] = [e for e in events.history() if e["type"] == "phase_completed"]
+    assert done["index"] == 0 and done["name"] == "A" and done["outcome"] == "failed" and done["summary"] == "no tomato"
+    assert done["usage"] == {"ro_used": 1, "rw_used": 0, "turns_used": 0}
+    assert done["caps"] == {"ro_cap": 10, "rw_cap": 5, "turn_cap": 20}
+    started = [e for e in events.history() if e["type"] == "phase_started"]
+    assert [e["index"] for e in started] == [0, 1]
+    assert (
+        types_of(events).index("phase_completed")
+        < [i for i, t in enumerate(types_of(events)) if t == "phase_started"][1]
+    )
+    assert runner.usage_fields()["active_phase"] == 1
+
+
+async def test_plan_revised_event(tmp_path: Path) -> None:
+    async def revise(client: FakeClient) -> None:
+        gate_of(client).plan.revise_plan("switch tactics", [phase_spec(5, 2, 6, "Plan B")])
+
+    runner, events, _ = make_runner(tmp_path, script=[planner(phase_spec(name="A")), revise, make_result()])
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    [revised] = [e for e in events.history() if e["type"] == "plan_revised"]
+    assert revised["revision_rationale"] == "switch tactics" and revised["active_phase"] == 1
+    assert [p["name"] for p in revised["phases"]] == ["A", "Plan B"]
+    assert [p["status"] for p in revised["phases"]] == ["failed", "active"]
+    assert [e["name"] for e in events.history() if e["type"] == "phase_completed"] == ["A"]
+
+
+async def test_usage_fields_and_new_instruction_clears_the_plan(tmp_path: Path) -> None:
     async def read_sensor(client: FakeClient) -> None:
         from claude_agent_sdk import ToolPermissionContext
 
         await client.options.can_use_tool("mcp__robot__get_robot_state", {}, ToolPermissionContext(tool_use_id="s"))
 
     runner, events, _ = make_runner(
-        tmp_path, script=[setter(), read_sensor, assistant(TextBlock(text="x")), make_result()]
+        tmp_path, script=[planner(), read_sensor, assistant(TextBlock(text="x")), make_result()]
     )
     await runner.start_instruction("a")
     await runner.wait_idle()
     usage = runner.usage_fields()
     assert (usage["ro_used"], usage["rw_used"], usage["turns_used"]) == (1, 0, 1)
-    assert usage["effector_calls_used"] == 0 and usage["budget"]["complexity"] == "simple"
+    assert usage["effector_calls_used"] == 0 and usage["plan"]["complexity"] == "simple"
+    assert usage["plan"]["phases"][0]["ro_used"] == 1 and usage["plan"]["phases"][0]["turns_used"] == 1
+    assert usage["active_phase"] == 0
     await runner.start_instruction("b")
     assert runner.usage_fields() == {
         "ro_used": 0,
         "rw_used": 0,
         "turns_used": 0,
         "effector_calls_used": 0,
-        "budget": None,
+        "plan": None,
+        "active_phase": None,
     }
     await runner.wait_idle()
 
@@ -614,17 +674,19 @@ async def wait_for_interrupt(client: FakeClient) -> None:
     await client.interrupted.wait()
 
 
-async def test_turn_cap_interrupts_stops_the_robot_and_ends_turn_cap(tmp_path: Path) -> None:
+async def test_instruction_turn_maximum_interrupts_stops_the_robot_and_ends_turn_cap(tmp_path: Path) -> None:
     stopper = FakeStopper()
     script = [
-        setter(turns=2),
+        planner(phase_spec(turns=2)),
         assistant(TextBlock(text="one")),
         assistant(ToolUseBlock(id="t", name="mcp__robot__get_robot_state", input={})),
         tool_results(),
         wait_for_interrupt,
         make_result(terminal_reason="aborted_streaming"),
     ]
-    runner, events, _ = make_runner(tmp_path, script=script, stopper=stopper)
+    cfg = ClaudeAgentConfig(mcp_token_file=str(tmp_path / "token"), max_turn_cap=2)
+    (tmp_path / "token").write_text("MCP_SERVER_TOKEN=secret-mcp\n")
+    runner, events, _ = make_runner(tmp_path, config=cfg, script=script, stopper=stopper)
     await runner.start_instruction("go")
     await asyncio.wait_for(runner.wait_idle(), timeout=3)
     turn_end = [e for e in events.history() if e["type"] == "turn_end"]
@@ -634,9 +696,49 @@ async def test_turn_cap_interrupts_stops_the_robot_and_ends_turn_cap(tmp_path: P
     assert runner.busy is False
 
 
+class PhaseNoteClient(FakeClient):
+    """First segment: a plan with a 1-turn phase, one turn, tool results (the phase cap is hit), then waits for the
+    interrupt; the follow-up segment finishes normally."""
+
+    def receive_response(self):
+        return self.segment()
+
+    async def segment(self):
+        if len(self.queries) == 1:
+            await planner(phase_spec(turns=1, name="Short"))(self)
+            yield assistant(ToolUseBlock(id="t", name="mcp__robot__get_robot_state", input={}))
+            yield tool_results()
+            await self.interrupted.wait()
+            self.interrupted.clear()
+            yield make_result(terminal_reason="aborted_streaming")
+        else:
+            yield assistant(TextBlock(text="completing"))
+            yield make_result()
+
+
+async def test_phase_turn_cap_injects_a_note_and_continues_without_stopping_the_instruction(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    runner, events, _ = make_runner(tmp_path, stopper=stopper)
+    runner.client_factory = PhaseNoteClient
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    client = FakeClient.instances[-1]
+    assert len(client.queries) == 2
+    assert client.queries[1].startswith("PHASE TURN CAP: phase 1 'Short'")
+    assert "complete_phase" in client.queries[1]
+    turn_end = [e for e in events.history() if e["type"] == "turn_end"]
+    assert len(turn_end) == 1 and turn_end[0]["status"] == "done"
+    assert stopper.calls == 0
+
+
 async def test_turn_cap_not_hit_when_the_instruction_finishes_within_it(tmp_path: Path) -> None:
     stopper = FakeStopper()
-    script = [setter(turns=3), assistant(TextBlock(text="a")), assistant(TextBlock(text="b")), make_result()]
+    script = [
+        planner(phase_spec(turns=3)),
+        assistant(TextBlock(text="a")),
+        assistant(TextBlock(text="b")),
+        make_result(),
+    ]
     runner, events, _ = make_runner(tmp_path, script=script, stopper=stopper)
     await runner.start_instruction("go")
     await runner.wait_idle()
@@ -644,7 +746,7 @@ async def test_turn_cap_not_hit_when_the_instruction_finishes_within_it(tmp_path
     assert stopper.calls == 0 and not FakeClient.instances[0].interrupted.is_set()
 
 
-async def test_no_turn_cap_before_a_budget_is_set(tmp_path: Path) -> None:
+async def test_no_turn_cap_before_a_plan_is_set(tmp_path: Path) -> None:
     script = [assistant(TextBlock(text=str(i))) for i in range(5)] + [tool_results(), make_result()]
     runner, events, _ = make_runner(tmp_path, script=script)
     await runner.start_instruction("go")

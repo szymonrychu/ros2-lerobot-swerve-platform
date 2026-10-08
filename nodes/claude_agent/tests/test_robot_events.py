@@ -142,16 +142,16 @@ async def test_critical_event_while_running_interrupts_then_continues_same_instr
     assert [e["text"] for e in events.history() if e["type"] == "assistant_text"] == ["working", "re-checked"]
 
 
-async def test_budget_and_turns_carry_over_the_follow_up(tmp_path: Path) -> None:
+async def test_plan_and_turns_carry_over_the_follow_up(tmp_path: Path) -> None:
     runner, events = event_runner(tmp_path)
     runner.bind_loop()
     await runner.start_instruction("go")
     await asyncio.sleep(0.1)
-    runner.budget.set_budget("simple", 5, 5, 20, "x")
+    runner.plan.set_plan("simple", "x", [{"name": "A", "goal": "g", "ro_cap": 5, "rw_cap": 5, "turn_cap": 20}])
     runner.handle_robot_event(parse_robot_event(raw()))
     await asyncio.wait_for(runner.wait_idle(), timeout=3)
     assert runner.usage_fields()["turns_used"] == 2
-    assert runner.usage_fields()["budget"]["ro_cap"] == 5
+    assert runner.usage_fields()["plan"]["phases"][0]["ro_cap"] == 5
 
 
 async def test_second_critical_event_within_debounce_does_not_interrupt_again(tmp_path: Path) -> None:

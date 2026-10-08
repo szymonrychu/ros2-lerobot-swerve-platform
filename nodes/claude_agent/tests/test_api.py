@@ -7,6 +7,30 @@ from claude_agent.api import create_app
 from claude_agent.config import TURN_MARGIN, ClaudeAgentConfig
 from claude_agent.events import EventLog
 
+PLAN = {
+    "complexity": "simple",
+    "rationale": "r",
+    "revised": False,
+    "revision_rationale": "",
+    "active_phase": 0,
+    "phases": [
+        {
+            "index": 0,
+            "name": "Locate",
+            "goal": "tomato seen",
+            "status": "active",
+            "ro_cap": 10,
+            "rw_cap": 5,
+            "turn_cap": 20,
+            "ro_used": 3,
+            "rw_used": 2,
+            "turns_used": 4,
+            "raised": False,
+            "summary": "",
+        }
+    ],
+}
+
 
 class FakeRunner:
     """Records calls; behaviour switchable per test."""
@@ -19,14 +43,8 @@ class FakeRunner:
             "rw_used": 2,
             "turns_used": 4,
             "effector_calls_used": 2,
-            "budget": {
-                "complexity": "simple",
-                "ro_cap": 10,
-                "rw_cap": 5,
-                "turn_cap": 20,
-                "rationale": "r",
-                "raised": False,
-            },
+            "plan": PLAN,
+            "active_phase": 0,
         }
         self.session_started_at = 1234.5
         self.started: list[str] = []
@@ -55,7 +73,9 @@ class FakeRunner:
 
 @pytest.fixture
 def setup():
-    cfg = ClaudeAgentConfig(max_ro_cap=77, max_rw_cap=33, max_turn_cap=12)
+    cfg = ClaudeAgentConfig(
+        max_ro_cap=77, max_rw_cap=33, max_turn_cap=12, max_phase_ro_cap=20, max_phase_rw_cap=10, max_phase_turn_cap=5
+    )
     events = EventLog(50)
     runner = FakeRunner(events)
     return TestClient(create_app(runner, events, cfg)), runner, events
@@ -68,18 +88,13 @@ def test_state(setup) -> None:
         "model": "opus",
         "max_turns": 12 + TURN_MARGIN,
         "hard_max": {"ro_cap": 77, "rw_cap": 33, "turn_cap": 12},
+        "phase_max": {"ro_cap": 20, "rw_cap": 10, "turn_cap": 5},
         "ro_used": 3,
         "rw_used": 2,
         "turns_used": 4,
         "effector_calls_used": 2,
-        "budget": {
-            "complexity": "simple",
-            "ro_cap": 10,
-            "rw_cap": 5,
-            "turn_cap": 20,
-            "rationale": "r",
-            "raised": False,
-        },
+        "plan": PLAN,
+        "active_phase": 0,
         "session_started_at": 1234.5,
     }
 

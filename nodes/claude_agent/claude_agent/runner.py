@@ -12,7 +12,7 @@ from typing import Any, Protocol
 
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, UserMessage
 
-from .budget import BUDGET_SERVER_NAME, Budget, build_budget_server
+from .budget import PLAN_SERVER_NAME, build_plan_server
 from .config import ClaudeAgentConfig, MissingTokenError, read_mcp_token
 from .events import (
     STATUS_ERROR,
@@ -75,12 +75,12 @@ def build_child_env(base_env: Mapping[str, str]) -> dict[str, str]:
 def build_options(
     config: ClaudeAgentConfig, token: str, gate: EffectorGate, env: dict[str, str], system_prompt: str
 ) -> ClaudeAgentOptions:
-    """Build the SDK options: the robot MCP tools, the in-process budget server and the five notes file tools, permissions decided by the gate.
+    """Build the SDK options: the robot MCP tools, the in-process planning server and the five notes file tools, permissions decided by the gate.
 
     Args:
         config (ClaudeAgentConfig): Model, absolute SDK turn limit, MCP URL, workdir.
         token (str): MCP bearer token (never logged).
-        gate (EffectorGate): Permission callback; its budget tracker backs the ``agent`` server's set_task_budget tool.
+        gate (EffectorGate): Permission callback; its plan tracker backs the ``agent`` server's planning tools.
         env (dict[str, str]): Child environment from build_child_env.
         system_prompt (str): System prompt text.
 
@@ -106,7 +106,7 @@ def build_options(
         setting_sources=[],
         mcp_servers={
             MCP_SERVER_NAME: {"type": "http", "url": config.mcp_url, "headers": {"Authorization": f"Bearer {token}"}},
-            BUDGET_SERVER_NAME: build_budget_server(gate.budget),
+            PLAN_SERVER_NAME: build_plan_server(gate.plan),
         },
         strict_mcp_config=True,
         env=env,
@@ -148,9 +148,15 @@ class AgentRunner:
         self.base_env = base_env if base_env is not None else os.environ
         self.logger = logger or logging.getLogger("claude_agent")
         self.gate = EffectorGate(
-            config, on_denied=self.emit_denied, on_count=self.emit_state, on_budget=self.emit_budget
+            config,
+            on_denied=self.emit_denied,
+            on_count=self.emit_state,
+            on_plan=self.emit_plan,
+            on_phase_started=self.emit_phase_started,
+            on_phase_completed=self.emit_phase_completed,
+            on_plan_revised=self.emit_plan_revised,
         )
-        self.budget = self.gate.budget
+        self.plan = self.gate.plan
         self.busy = False
         self.session_started_at = time.time()
         self.client: ClientLike | None = None
@@ -175,25 +181,62 @@ class AgentRunner:
         return await call_robot_stop(self.config.mcp_url, self.config.mcp_token_file, self.config.stop_timeout_s)
 
     def usage_fields(self) -> dict[str, Any]:
-        """Return the usage counters and the budget of the current (or last) instruction.
+        """Return the usage counters and the plan of the current (or last) instruction.
 
         Returns:
-            dict[str, Any]: ro_used, rw_used, turns_used, effector_calls_used (same as rw_used) and budget (dict or None).
+            dict[str, Any]: ro_used, rw_used, turns_used, effector_calls_used (same as rw_used), plan (dict with the
+            phases and their usage, or None) and active_phase (index or None).
         """
-        usage = self.budget.usage()
+        usage = self.plan.usage()
         return {**usage, "effector_calls_used": usage["rw_used"]}
 
     def emit_state(self) -> None:
         """Publish a state event."""
         self.events.append("state", busy=self.busy, **self.usage_fields())
 
-    def emit_budget(self, budget: Budget) -> None:
-        """Gate callback: the agent set or raised its budget.
+    def emit_plan(self, plan: dict[str, Any]) -> None:
+        """Gate callback: the agent set its plan.
 
         Args:
-            budget (Budget): The accepted budget.
+            plan (dict[str, Any]): The plan payload.
         """
-        self.events.append("budget", **budget.as_dict())
+        self.events.append("plan", **plan)
+        self.emit_state()
+
+    def emit_phase_started(self, phase: dict[str, Any]) -> None:
+        """Gate callback: a phase became active.
+
+        Args:
+            phase (dict[str, Any]): The phase payload.
+        """
+        self.events.append("phase_started", **phase)
+        self.emit_state()
+
+    def emit_phase_completed(self, phase: dict[str, Any]) -> None:
+        """Gate callback: a phase was closed.
+
+        Args:
+            phase (dict[str, Any]): The phase payload (status is the outcome).
+        """
+        self.events.append(
+            "phase_completed",
+            index=phase["index"],
+            name=phase["name"],
+            goal=phase["goal"],
+            outcome=phase["status"],
+            summary=phase["summary"],
+            usage={"ro_used": phase["ro_used"], "rw_used": phase["rw_used"], "turns_used": phase["turns_used"]},
+            caps={"ro_cap": phase["ro_cap"], "rw_cap": phase["rw_cap"], "turn_cap": phase["turn_cap"]},
+        )
+        self.emit_state()
+
+    def emit_plan_revised(self, plan: dict[str, Any]) -> None:
+        """Gate callback: the agent replaced the remaining phases.
+
+        Args:
+            plan (dict[str, Any]): The revised plan payload.
+        """
+        self.events.append("plan_revised", **plan)
         self.emit_state()
 
     def emit_denied(self, info: dict[str, Any]) -> None:
@@ -322,7 +365,7 @@ class AgentRunner:
         Args:
             source (str): Stop source for the events.
         """
-        if self.budget.rw_used > 0 and not self.interrupted:
+        if self.plan.rw_used > 0 and not self.interrupted:
             await self.stop_robot(source)
 
     def finish_turn(self, result: ResultMessage) -> str:
@@ -334,7 +377,7 @@ class AgentRunner:
         Returns:
             str: The turn_end status.
         """
-        turn_end = result_to_turn_end(result, self.interrupted, self.budget.rw_used)
+        turn_end = result_to_turn_end(result, self.interrupted, self.plan.rw_used)
         if self.turn_capped and turn_end["status"] == STATUS_INTERRUPTED:
             turn_end["status"] = STATUS_TURN_CAP
         if turn_end["status"] == STATUS_ERROR:
@@ -355,9 +398,7 @@ class AgentRunner:
         """
         self.logger.error(message)
         self.events.append("error", message=message)
-        self.events.append(
-            "turn_end", status=STATUS_ERROR, cost_usd=0.0, num_turns=0, effector_calls=self.budget.rw_used
-        )
+        self.events.append("turn_end", status=STATUS_ERROR, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
 
     async def run_instruction(self, text: str) -> None:
         """Run one instruction under the watchdog and publish its events.
@@ -387,7 +428,7 @@ class AgentRunner:
         await self.drop_client()
         self.events.append("error", message=message)
         self.events.append(
-            "turn_end", status=STATUS_TIMEOUT, cost_usd=0.0, num_turns=0, effector_calls=self.budget.rw_used
+            "turn_end", status=STATUS_TIMEOUT, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used
         )
 
     async def start_session(self) -> ClientLike:
@@ -422,14 +463,17 @@ class AgentRunner:
         try:
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
-                    self.budget.count_turn()
+                    self.plan.count_turn()
                 for event_type, fields in normalize_message(message, self.config):
                     self.events.append(event_type, **fields)
                 if isinstance(message, AssistantMessage):
                     self.emit_state()
-                if isinstance(message, UserMessage) and not self.turn_capped and self.budget.turn_cap_reached():
-                    self.turn_capped = True
-                    await self.halt(STOP_SOURCE_TURN_CAP)
+                if isinstance(message, UserMessage) and not self.turn_capped:
+                    if self.plan.turn_cap_reached():
+                        self.turn_capped = True
+                        await self.halt(STOP_SOURCE_TURN_CAP)
+                    else:
+                        self.note_phase_turn_cap()
                 if isinstance(message, ResultMessage):
                     finished = True
                     followup = self.take_followup(message)
@@ -443,6 +487,27 @@ class AgentRunner:
         finally:
             self.streaming = False
         return finished, followup
+
+    def note_phase_turn_cap(self) -> None:
+        """Inject a note when the active phase just used all its turns: interrupt the model, then continue with the note.
+
+        The instruction goes on (only the instruction-level turn maximum ends it); the gate already refuses robot tools
+        for the phase, the note tells the model to complete or revise.
+        """
+        note = self.plan.turn_note()
+        if note is None or self.interrupted:
+            return
+        if self.pending_followup is not None:
+            self.pending_followup += f" {note}"
+            return
+        self.pending_followup = note
+        self.schedule_interrupt()
+
+    def schedule_interrupt(self) -> None:
+        """Interrupt the model in the background (bounded by stop_timeout_s) so a queued follow-up is sent next."""
+        task = asyncio.create_task(self.interrupt_client())
+        self.event_tasks.add(task)
+        task.add_done_callback(self.event_tasks.discard)
 
     def take_followup(self, result: ResultMessage) -> str | None:
         """Take the pending robot-event follow-up when the instruction should continue with it.
@@ -514,9 +579,7 @@ class AgentRunner:
             return
         self.last_event_interrupt = now
         self.pending_followup = line
-        task = asyncio.create_task(self.interrupt_client())
-        self.event_tasks.add(task)
-        task.add_done_callback(self.event_tasks.discard)
+        self.schedule_interrupt()
 
     async def run_turn(self, text: str) -> None:
         """Run the instruction; every failure becomes an error event, and the robot is stopped after abnormal ends.

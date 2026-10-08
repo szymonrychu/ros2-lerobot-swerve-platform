@@ -65,6 +65,11 @@ def create_app(
             "model": config.model,
             "max_turns": config.max_turns,
             "hard_max": {"ro_cap": config.max_ro_cap, "rw_cap": config.max_rw_cap, "turn_cap": config.max_turn_cap},
+            "phase_max": {
+                "ro_cap": config.max_phase_ro_cap,
+                "rw_cap": config.max_phase_rw_cap,
+                "turn_cap": config.max_phase_turn_cap,
+            },
             **runner.usage_fields(),
             "session_started_at": runner.session_started_at,
         }
