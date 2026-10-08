@@ -453,3 +453,11 @@ def test_builds_use_all_cores_at_lowest_priority_and_nodes_start_quickly() -> No
     assert all_vars["ros2_build_jobs"] == 4
     assert all_vars["ros2_build_cpu_quota"] == "400%"
     assert all_vars["ros2_node_start_interval_s"] == 2
+
+
+def test_gripper_uvc_camera_uses_a_stable_device_path() -> None:
+    """The overview CSI camera's rp1-cfe driver takes /dev/video0..9 at boot, so a numbered UVC device can point at a
+    CSI node ('Failed to read frame'); the gripper camera is selected by its /dev/v4l/by-id path instead."""
+    env = node_entry("gripper_uvc_camera")["env"]
+    device = next(e.split("=", 1)[1] for e in env if e.startswith("UVC_DEVICE="))
+    assert device.startswith("/dev/v4l/by-id/") and "Arducam" in device, device

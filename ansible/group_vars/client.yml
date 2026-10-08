@@ -606,7 +606,8 @@ ros2_nodes:
     present: true
     enabled: true
     env:
-      - UVC_DEVICE=/dev/video0
+      # By id: the overview CSI camera (rp1-cfe) takes /dev/video0..9, so numbered devices are not stable.
+      - UVC_DEVICE=/dev/v4l/by-id/usb-Arducam_Arducam_5MP_USB_Camera_YL20240927V0-video-index0
       - UVC_TOPIC=/camera_0/image_raw
       # Image is upside down at wrist roll 0 (confirmed by the agent): rotate every published frame 180 deg at source.
       - UVC_ROTATE_DEG=180
