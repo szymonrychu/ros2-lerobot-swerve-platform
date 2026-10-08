@@ -9,6 +9,7 @@ and the disabled-by-default collision_monitor StopBox.
 import ast
 import math
 import re
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -942,7 +943,9 @@ def test_ekf_fuses_rf2o_and_rejects_outlying_wheel_odometry(source: str) -> None
     assert p["odom1_relative"] is False
     assert p["odom1_queue_size"] >= 2
     assert p["odom0_twist_rejection_threshold"] == 3.0
-    assert not any(k.startswith(("odom1_twist_rejection", "odom1_pose_rejection", "imu0_")) and "rejection" in k for k in p)
+    assert not any(
+        k.startswith(("odom1_twist_rejection", "odom1_pose_rejection", "imu0_")) and "rejection" in k for k in p
+    )
     assert fused(p["imu0_config"]) == {"vyaw"}
 
 
@@ -961,7 +964,13 @@ def test_rf2o_node_type_builds_a_pinned_source_workspace() -> None:
     assert re.fullmatch(r"[0-9a-f]{40}", source["commit"]), "pin a full commit SHA"
     assert source["workspace"] == "/opt/ros2-ws"
     assert source["package"] == "rf2o_laser_odometry"
-    for pkg in ("python3-colcon-common-extensions", "git", "libboost-dev", "libeigen3-dev", "ros-jazzy-eigen3-cmake-module"):
+    for pkg in (
+        "python3-colcon-common-extensions",
+        "git",
+        "libboost-dev",
+        "libeigen3-dev",
+        "ros-jazzy-eigen3-cmake-module",
+    ):
         assert pkg in defaults["apt_packages"], pkg
 
 
@@ -985,8 +994,10 @@ def test_rf2o_nodes_are_deployed_before_the_ekf() -> None:
     assert names.index("rf2o_laser_odometry") < names.index("rf2o_odom_relay")
     tasks = flat(yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"])
     deployed = [t.get("vars", {}).get("_deploy_node_name") for t in tasks]
-    assert deployed.index("rf2o_laser_odometry") < deployed.index("rf2o_odom_relay") < deployed.index(
-        "robot_localization_ekf"
+    assert (
+        deployed.index("rf2o_laser_odometry")
+        < deployed.index("rf2o_odom_relay")
+        < deployed.index("robot_localization_ekf")
     )
 
 
@@ -1012,7 +1023,9 @@ def test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit() 
     assert git["dest"].endswith("/src/{{ colcon_src.package }}")
     build = next(t for t in tasks if "colcon build" in str(t.get("ansible.builtin.command", "")))
     cmd = build["ansible.builtin.command"]["cmd"]
-    assert cmd.startswith("systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3 ")
+    assert cmd.startswith(
+        "systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3 "
+    )
     assert "--merge-install" in cmd and "--parallel-workers 1" in cmd
     assert "-DCMAKE_BUILD_TYPE=Release" in cmd
     assert build["environment"]["MAKEFLAGS"] == "-j{{ ros2_build_jobs }}"
@@ -1027,7 +1040,8 @@ def test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit() 
 def test_launcher_sources_the_colcon_workspace_after_ros() -> None:
     template = (ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "templates" / "ros2-node-launcher.j2").read_text()
     assert template.index("source /opt/ros/jazzy/setup.bash") < template.index(
-        "source {{ (node_colcon_source if node_colcon_source is mapping else node_colcon_source[0]).workspace }}/install/setup.bash"
+        "source {{ (node_colcon_source if node_colcon_source is mapping else node_colcon_source[0]).workspace }}"
+        "/install/setup.bash"
     )
     resolve = (PLAYBOOKS_DIR / "tasks" / "resolve_and_deploy.yml").read_text()
     assert "node_colcon_source:" in resolve and "colcon_source" in resolve
@@ -1043,7 +1057,14 @@ def test_colcon_source_build_applies_patches_and_keys_the_stamp_on_their_content
     is missing."""
     path = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "colcon_source_package.yml"
     tasks = yaml.safe_load(path.read_text())
-    names = [next(k for k in t if k not in ("name", "loop", "when", "become", "notify", "environment", "register", "loop_control", "vars")) for t in tasks]
+    names = [
+        next(
+            k
+            for k in t
+            if k not in ("name", "loop", "when", "become", "notify", "environment", "register", "loop_control", "vars")
+        )
+        for t in tasks
+    ]
     clone = names.index("ansible.builtin.git")
     patch = next(i for i, t in enumerate(tasks) if "ansible.builtin.patch" in t)
     build = next(i for i, t in enumerate(tasks) if "colcon build" in str(t.get("ansible.builtin.command", "")))
@@ -1069,8 +1090,8 @@ def test_rf2o_retry_laser_tf_patch_exists_and_is_wired() -> None:
 
 
 def test_rf2o_odom_relay_declares_numpy() -> None:
-    pyproject = (REPO_ROOT / "nodes" / "rf2o_odom_relay" / "pyproject.toml").read_text()
-    assert re.search(r"^numpy\s*=", pyproject, re.M)
+    pyproject = tomllib.loads((REPO_ROOT / "nodes" / "rf2o_odom_relay" / "pyproject.toml").read_text())
+    assert any(re.match(r"numpy\b", dep) for dep in pyproject["project"]["dependencies"])
 
 
 def test_ekf_rate_fits_the_cpu_budget() -> None:

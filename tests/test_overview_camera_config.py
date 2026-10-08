@@ -190,7 +190,9 @@ def include_names(tasks: list[dict]) -> list[str]:
     Returns:
         list[str]: The include_tasks targets.
     """
-    return [t["ansible.builtin.include_tasks"] for t in tasks if isinstance(t.get("ansible.builtin.include_tasks"), str)]
+    return [
+        t["ansible.builtin.include_tasks"] for t in tasks if isinstance(t.get("ansible.builtin.include_tasks"), str)
+    ]
 
 
 def test_client_playbook_applies_the_camera_boot_overlay_in_pre_tasks_tagged_boot_and_node() -> None:
@@ -254,7 +256,7 @@ def test_colcon_package_build_keeps_the_limits_and_stamp_logic() -> None:
         "systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3",
         "colcon build --merge-install --parallel-workers 1",
         "--packages-select {{ colcon_src.package }}",
-        "MAKEFLAGS: \"-j{{ ros2_build_jobs }}\"",
+        'MAKEFLAGS: "-j{{ ros2_build_jobs }}"',
         "source /opt/ros/jazzy/setup.bash",
         "install/setup.bash",
         "creates:",
@@ -327,7 +329,7 @@ def test_launcher_template_sources_the_first_source_workspace_for_a_list() -> No
     assert "install/setup.bash" in text
 
 
-# --- node type, node entry, realsense, tf --------------------------------------------------------------------------------
+# --- node type, node entry, realsense, tf -----------------------------------------------------------------------------
 
 
 def test_overview_camera_node_type_resources_and_launch_command() -> None:
@@ -433,7 +435,15 @@ def test_launch_file_builds_the_single_camera_pipeline(needle: str) -> None:
 
 def test_launch_file_has_no_stereo_or_calibration_stages() -> None:
     source = launch_source()
-    for retired in ("RectifyNode", "DisparityNode", "PointCloudNode", "calibration_ready", "CALIBRATION_DIR", "stereo", "SyncMode"):
+    for retired in (
+        "RectifyNode",
+        "DisparityNode",
+        "PointCloudNode",
+        "calibration_ready",
+        "CALIBRATION_DIR",
+        "stereo",
+        "SyncMode",
+    ):
         assert retired not in source, retired
     assert "from overview_camera_config import" in source
 

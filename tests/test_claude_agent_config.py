@@ -1,14 +1,15 @@
 """Static invariants of the claude_agent wiring (Ansible, unit template, token handling, docs, package layout).
 
-The claude_agent node (nodes/claude_agent) runs Claude through the Agent SDK against the robot MCP server. It runs as the
-dedicated non-root user `claude_agent`; its OAuth token travels from the deploying machine's CLAUDE_CODE_OAUTH_TOKEN
-into a 0600 EnvironmentFile and never enters git, logs or the unit.
+The claude_agent node (nodes/claude_agent) runs Claude through the Agent SDK against the robot MCP server. It runs
+as the dedicated non-root user `claude_agent`; its OAuth token travels from the deploying machine's
+CLAUDE_CODE_OAUTH_TOKEN into a 0600 EnvironmentFile and never enters git, logs or the unit.
 """
 
 import ast
 import importlib.util
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -40,9 +41,22 @@ SERVICE_USER = "claude_agent"
 API_PORT = 18300
 MCP_PORT = 18200
 ROUND2_SENSOR_TOOLS = {
-    "get_body_state", "pixel_to_ground", "get_annotated_camera_image", "mark_candidate_points", "resolve_candidate",
-    "capture_calibration_sample", "solve_camera_calibration", "clear_calibration_samples", "get_topdown_view",
-    "remember_object", "list_objects", "forget_object", "list_pois", "add_poi", "update_poi", "delete_poi",
+    "get_body_state",
+    "pixel_to_ground",
+    "get_annotated_camera_image",
+    "mark_candidate_points",
+    "resolve_candidate",
+    "capture_calibration_sample",
+    "solve_camera_calibration",
+    "clear_calibration_samples",
+    "get_topdown_view",
+    "remember_object",
+    "list_objects",
+    "forget_object",
+    "list_pois",
+    "add_poi",
+    "update_poi",
+    "delete_poi",
 }
 
 
@@ -207,7 +221,7 @@ def test_effector_tools_match_mcp_server_motion_tools() -> None:
 
 
 def test_round2_tools_classified_in_group_vars_and_defaults() -> None:
-    """look_around is an effector, every other round-1/2 tool a sensor, in the client.yml config and the code defaults."""
+    """look_around is an effector, every other round-1/2 tool a sensor, in the client.yml config and code defaults."""
     spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
     pytest.importorskip("pydantic")
     module = importlib.util.module_from_spec(spec)
@@ -305,7 +319,9 @@ def test_mcp_token_readable_by_group_not_world() -> None:
     assert tasks.index(next(t for t in tasks if "ansible.builtin.group" in t)) < next(
         i for i, t in enumerate(tasks) if t.get("ansible.builtin.copy", {}).get("dest") == MCP_TOKEN_FILE
     )
-    copy = next(t["ansible.builtin.copy"] for t in tasks if t.get("ansible.builtin.copy", {}).get("dest") == MCP_TOKEN_FILE)
+    copy = next(
+        t["ansible.builtin.copy"] for t in tasks if t.get("ansible.builtin.copy", {}).get("dest") == MCP_TOKEN_FILE
+    )
     assert copy["group"] == MCP_TOKEN_GROUP and copy["mode"] == "0640"
 
 
@@ -349,17 +365,32 @@ def test_oauth_token_never_in_repo() -> None:
 
 
 def test_claude_agent_package_layout_and_pinned_sdk() -> None:
-    pyproject = (NODE_DIR / "pyproject.toml").read_text()
-    assert re.search(r'^claude-agent-sdk = "\d+\.\d+\.\d+"$', pyproject, re.M), "SDK (and bundled CLI) must be pinned"
-    for dep in ("fastapi", "uvicorn", "pillow", "pydantic"):
-        assert re.search(rf"^{dep} = ", pyproject, re.M), dep
-    assert (NODE_DIR / "poetry.lock").is_file() and (NODE_DIR / "README.md").is_file()
+    dependencies = tomllib.loads((NODE_DIR / "pyproject.toml").read_text())["project"]["dependencies"]
+    assert any(re.fullmatch(r"claude-agent-sdk==\d+\.\d+\.\d+", dep) for dep in dependencies), (
+        "SDK (and bundled CLI) must be pinned"
+    )
+    names = {re.split(r"[\[=<>~! ]", dep, maxsplit=1)[0].lower() for dep in dependencies}
+    assert {"fastapi", "uvicorn", "pillow", "pydantic"} <= names
+    assert (NODE_DIR / "uv.lock").is_file() and (NODE_DIR / "README.md").is_file()
     assert (NODE_DIR / "claude_agent" / "__main__.py").is_file() and (NODE_DIR / "tests").is_dir()
 
 
 def test_claude_agent_readme_documents_api_and_token_deploy() -> None:
     text = (NODE_DIR / "README.md").read_text()
-    for needle in ("/api/state", "/api/message", "/api/stop", "/api/reset", "/ws/events", "set_task_plan", "complete_phase", "revise_plan", "raise_phase_budget", "max_rw_cap", "max_phase_rw_cap", "/robot_events"):
+    for needle in (
+        "/api/state",
+        "/api/message",
+        "/api/stop",
+        "/api/reset",
+        "/ws/events",
+        "set_task_plan",
+        "complete_phase",
+        "revise_plan",
+        "raise_phase_budget",
+        "max_rw_cap",
+        "max_phase_rw_cap",
+        "/robot_events",
+    ):
         assert needle in text, needle
     assert f"export {TOKEN_VAR}=" in text and "./scripts/deploy-nodes.sh client claude_agent" in text
 
@@ -421,7 +452,11 @@ def test_service_template_hardening_is_optional() -> None:
     for needle in ("ProtectProc", "ProcSubset", "NoNewPrivileges", "PrivateTmp", "ProtectSystem", "ProtectHome"):
         assert needle not in default
     hardened = template.render(
-        **base, node_protect_proc="invisible", node_proc_subset="pid", node_no_new_privileges=True, node_private_tmp=True
+        **base,
+        node_protect_proc="invisible",
+        node_proc_subset="pid",
+        node_no_new_privileges=True,
+        node_private_tmp=True,
     )
     for line in HARDENING_LINES:
         assert f"{line}\n" in hardened
@@ -484,7 +519,10 @@ def test_claude_agent_config_workdir_state_dir_and_hardware_facts() -> None:
 
 
 def test_claude_agent_config_has_budget_maxima_and_robot_events_topic() -> None:
-    """The agent picks its own rw/turn budget under hard maxima (sensor calls are uncapped); the static caps are gone; events come from /robot_events."""
+    """The agent picks its own rw/turn budget under hard maxima (sensor calls are uncapped).
+
+    The static caps are gone; events come from /robot_events.
+    """
     raw = yaml.safe_load(node_entry("claude_agent")["config"])
     assert (raw["max_rw_cap"], raw["max_turn_cap"]) == (150, 200)
     assert (raw["max_phase_rw_cap"], raw["max_phase_turn_cap"]) == (40, 40)

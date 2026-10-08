@@ -1,8 +1,19 @@
 # Tests
 
-Unit tests for the project. Run with `poetry run pytest` or `mise exec -- poetry run pytest` from the repo root. Config: [pyproject.toml](../pyproject.toml) (`[tool.pytest.ini_options]`).
+Unit tests for the project. Run with `uv run pytest` or `mise exec -- uv run pytest` from the repo root. Config: [pyproject.toml](../pyproject.toml) (`[tool.pytest.ini_options]`).
 
 ## Test files and what they cover
+
+### `test_node_lint_coverage.py`
+
+Root lint tasks cover every Python node. Node projects are discovered dynamically (`nodes/**/pyproject.toml`, ignoring `.venv`, `worktrees`, `node_modules`), so a new node without a lint entry fails here.
+
+| Test | Description |
+|------|-------------|
+| `test_node_discovery_finds_the_known_projects` | Guard against vacuous passes: discovery finds at least 18 projects, including `mcp_server` and `steamdeck_ui/bridge`. |
+| `test_lint_all_nodes_script_covers_every_node_project` | `scripts/lint-all-nodes.sh` names every discovered node directory. |
+| `test_lint_all_nodes_script_uses_uv_and_fails_loudly` | The script runs `uv run --frozen poe lint` per node, uses `set -e`, has no Poetry and no pipe/`|| true` masking. |
+| `test_root_lint_nodes_task_covers_every_node_project` | The root `lint-nodes` poe task stops on the first failure and lists (or delegates to the script for) every discovered node. |
 
 ### `test_master2master_config.py`
 
@@ -96,12 +107,12 @@ Pure-logic tests of `shared/ros2_common/battery.py` (`BatteryConfig`, `BatteryGu
 
 ### `test_shared_package.py`
 
-Packaging of `shared/` as the installable Poetry package `ros2-common`.
+Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 
 | Test | Description |
 |------|-------------|
 | `test_shared_pyproject_defines_ros2_common` | `shared/pyproject.toml` is named `ros2-common` and ships the `ros2_common` module. |
-| `test_nodes_depend_on_shared_by_relative_develop_path` | Consumer nodes (mcp_server) declare a `develop = true` path dependency whose relative path resolves to `shared/`; the same layout holds on the Pi (whole repo in `ros2_repo_dest`, `poetry install` run in `nodes/<node>`). |
+| `test_nodes_depend_on_shared_by_relative_develop_path` | Consumer nodes (mcp_server) declare a editable `[tool.uv.sources]` path dependency whose relative path resolves to `shared/`; the same layout holds on the Pi (whole repo in `ros2_repo_dest`, `uv sync --frozen --no-dev` run in `nodes/<node>`). |
 
 ### `test_topic_scraper_collect.py`
 
@@ -116,43 +127,43 @@ Unit tests for `scripts/topic_scraper_collect.py` parser/format helpers.
 
 ### Per-node tests (feetech_servos)
 
-The **feetech_servos** node has its own test suite under `nodes/bridges/feetech_servos/tests/`. Run from that directory: `poetry run pytest tests/ -v` (or `poetry run poe test`). A `conftest.py` mocks the `st3215` module so script tests (calibrate_servos, set_servo_id) run without the hardware library installed. Covers: config loading and validation (`test_config.py`: namespace, joint_names as list of `{ name, id }` per joint—missing namespace/joint_names, device/baudrate, log_joint_updates, torque startup (`enable_torque_on_start` and `disable_torque_on_start`), and loop frequency option `control_loop_hz`; optional per-joint range mapping `source_min_steps`/`source_max_steps`/`command_min_steps`/`command_max_steps` (valid parse, defaults None, invalid/out-of-range or min > max ignored); `joint_entry_by_name`; rejects namespace with slash; rejects joint without id, without name, plain string list; rejects id out of range 0–253, duplicate servo id; accepts non-sequential IDs; `joint_names` property and `servo_id_for_joint_name`; `load_config_from_env` with default path and with env path), command range mapping (`test_command_mapping.py`: `map_position_to_steps` in `command_mapping.py`—identity 0/4095, midpoint, narrow command range, leader max→follower max, degenerate source range, clamping below/above source), startup torque write reliability (`test_bridge_startup_torque.py`: verify/retry logic and failed-servo reporting), register map and read helpers (`test_registers.py`: REGISTER_MAP entries, WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers and read_register with mock servo; EPROM vs RAM: `test_eprom_registers_marked_for_runtime_rejection`, `test_ram_registers_accepted_at_runtime` — bridge rejects EPROM writes from ROS set_register), set_servo_id script argparse and exactly-one-servo logic (`test_set_servo_id.py`), calibrate_servos subcommands and parser (`test_calibrate_servos.py`: parser default `--id` 1 for read/write; `list-registers` exits 0 and prints register map JSON; `read` with unknown register / `write` with read-only register / `limits-set` with min > max or out-of-range exit 1; calibrate JSON shape and missing-joint exit; `center` defines the middle and writes symmetric limits, refuses to write limits when the servo does not read ~2048, rejects out-of-range spans). Battery: `test_battery.py` covers `raw_to_volts` (0.1 V units, 0/None rejected), `BatteryMonitor` (one servo per interval round-robin, disabled at interval 0, median of fresh readings, failed/zero reads ignored, stale readings dropped) and `battery_fields` (BatteryState field values with NaN/UNKNOWN); `test_config.py` also covers the `battery_*` fields and defaults. Swerve additions: `test_config.py` also covers per-joint `mode` / `inverted` / `max_velocity_rad_s`, invalid mode rejection, `extra_groups` (parsing, duplicate IDs across groups, duplicate namespaces, `servo_id_for_joint_name` across groups) and `velocity_command_timeout_s`; `test_wheel_mode.py` covers sign-magnitude velocity encode/decode (clamp, inversion, roundtrip), inverted position conversion, sync read with per-servo fallback (`sync_read.py`), the velocity watchdog and record-only-on-successful-write (`velocity_watchdog.py`, so a failed stop is retried), and the incremental one-servo-per-cycle register dump (`register_dump.py`).
+The **feetech_servos** node has its own test suite under `nodes/bridges/feetech_servos/tests/`. Run from that directory: `uv run pytest tests/ -v` (or `uv run poe test`). A `conftest.py` mocks the `st3215` module so script tests (calibrate_servos, set_servo_id) run without the hardware library installed. Covers: config loading and validation (`test_config.py`: namespace, joint_names as list of `{ name, id }` per joint—missing namespace/joint_names, device/baudrate, log_joint_updates, torque startup (`enable_torque_on_start` and `disable_torque_on_start`), and loop frequency option `control_loop_hz`; optional per-joint range mapping `source_min_steps`/`source_max_steps`/`command_min_steps`/`command_max_steps` (valid parse, defaults None, invalid/out-of-range or min > max ignored); `joint_entry_by_name`; rejects namespace with slash; rejects joint without id, without name, plain string list; rejects id out of range 0–253, duplicate servo id; accepts non-sequential IDs; `joint_names` property and `servo_id_for_joint_name`; `load_config_from_env` with default path and with env path), command range mapping (`test_command_mapping.py`: `map_position_to_steps` in `command_mapping.py`—identity 0/4095, midpoint, narrow command range, leader max→follower max, degenerate source range, clamping below/above source), startup torque write reliability (`test_bridge_startup_torque.py`: verify/retry logic and failed-servo reporting), register map and read helpers (`test_registers.py`: REGISTER_MAP entries, WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers and read_register with mock servo; EPROM vs RAM: `test_eprom_registers_marked_for_runtime_rejection`, `test_ram_registers_accepted_at_runtime` — bridge rejects EPROM writes from ROS set_register), set_servo_id script argparse and exactly-one-servo logic (`test_set_servo_id.py`), calibrate_servos subcommands and parser (`test_calibrate_servos.py`: parser default `--id` 1 for read/write; `list-registers` exits 0 and prints register map JSON; `read` with unknown register / `write` with read-only register / `limits-set` with min > max or out-of-range exit 1; calibrate JSON shape and missing-joint exit; `center` defines the middle and writes symmetric limits, refuses to write limits when the servo does not read ~2048, rejects out-of-range spans). Battery: `test_battery.py` covers `raw_to_volts` (0.1 V units, 0/None rejected), `BatteryMonitor` (one servo per interval round-robin, disabled at interval 0, median of fresh readings, failed/zero reads ignored, stale readings dropped) and `battery_fields` (BatteryState field values with NaN/UNKNOWN); `test_config.py` also covers the `battery_*` fields and defaults. Swerve additions: `test_config.py` also covers per-joint `mode` / `inverted` / `max_velocity_rad_s`, invalid mode rejection, `extra_groups` (parsing, duplicate IDs across groups, duplicate namespaces, `servo_id_for_joint_name` across groups) and `velocity_command_timeout_s`; `test_wheel_mode.py` covers sign-magnitude velocity encode/decode (clamp, inversion, roundtrip), inverted position conversion, sync read with per-servo fallback (`sync_read.py`), the velocity watchdog and record-only-on-successful-write (`velocity_watchdog.py`, so a failed stop is retried), and the incremental one-servo-per-cycle register dump (`register_dump.py`).
 
 Bridge cycle (`test_bridge_cycle.py`, rclpy-free `bridge_cycle.py`): regression test that wheel `goal_speed` is never written to 0 while drive commands keep arriving faster than the loop (the 2026-10 stall: one ROS callback per loop iteration starved drive commands until the 0.3 s watchdog fired); watchdog stops wheels when drive commands cease while steering continues, works per wheel, stays fed by received commands even if a write fails, retries a failed stop; callback draining processes everything pending, is bounded and stops when nothing is ready; remaining-sleep computation; combined JointState with NaN placeholders drives steering and wheels; non-finite velocity/position entries ignored (and do not feed the watchdog); arm position-only messages and separate steer/drive messages still work. Direct command sources: web UI / autonomy gripper targets reach the servo as follower radians (0.0 rad -> step 2048, clamped to the command range), leader and untagged commands keep the exact `source_min/max_steps` mapping (step-for-step identical to a cycle without direct sources over a leader sweep), no direct sources = legacy mapping for every message, joints without a source range unaffected; `test_config.py` covers `direct_command_sources` parsing (default empty, blanks dropped, non-list rejected).
 
 ### Per-node tests (uvc_camera)
 
-The **uvc_camera** node has tests under `nodes/bridges/uvc_camera/tests/`. Run from `nodes/bridges/uvc_camera`: `poetry run pytest tests/ -v` (or `poetry run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, device as path or index, stripping whitespace and fallback for empty topic/frame_id; `UVC_ROTATE_DEG` and `UVC_MAX_FPS` (`get_max_fps`: unset is no cap, positive number, invalid values raise). `test_frame.py` covers `rotate_frame` and `frame_due` (publish-rate throttle: no cap, first frame, period). Config lives in `config.py` (no ROS/OpenCV deps) for testability.
+The **uvc_camera** node has tests under `nodes/bridges/uvc_camera/tests/`. Run from `nodes/bridges/uvc_camera`: `uv run pytest tests/ -v` (or `uv run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, device as path or index, stripping whitespace and fallback for empty topic/frame_id; `UVC_ROTATE_DEG` and `UVC_MAX_FPS` (`get_max_fps`: unset is no cap, positive number, invalid values raise). `test_frame.py` covers `rotate_frame` and `frame_due` (publish-rate throttle: no cap, first frame, period). Config lives in `config.py` (no ROS/OpenCV deps) for testability.
 
 ### Per-node tests (lerobot_teleop)
 
-The **lerobot_teleop** node has tests under `nodes/lerobot_teleop/tests/`. Run from `nodes/lerobot_teleop`: `poetry run pytest tests/ -v` (or `poetry run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, empty env fallback. Config lives in `config.py` (no ROS deps) for testability.
+The **lerobot_teleop** node has tests under `nodes/lerobot_teleop/tests/`. Run from `nodes/lerobot_teleop`: `uv run pytest tests/ -v` (or `uv run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, empty env fallback. Config lives in `config.py` (no ROS deps) for testability.
 
 ### Per-node tests (swerve_drive_controller)
 
-The **swerve_drive_controller** node has tests under `nodes/swerve_drive_controller/tests/`. Run from `nodes/swerve_drive_controller`: `poetry run pytest tests/ -v`. Covers: kinematics (`test_kinematics.py`: wheel_positions, inverse_kinematics straight/zero/sideways, forward_kinematics roundtrip, `forward_kinematics_with_residual` (residual ~0 for consistent wheels, grows with a slipping wheel), `robust_forward_kinematics` (keeps the full solution below the threshold, drops one slipping wheel and matches the other three for each of the four wheels, keeps the full solution when two wheels slip), `odometry_twist_variances` (0.01 + r^2 and 0.01 + (r / hypot(lx, ly))^2), steer_angle_difference, should_zero_drive, normalize_angle; with the real platform geometry: `fold_to_steer_range` (inside limit, backward flip, +-90 deg boundary picks side closer to current), `desaturate_wheel_speeds`, `compute_wheel_commands` forward/backward/strafe/rotate-in-place/stopped-holds-steer/desaturation/IK-FK roundtrip, `wheel_states` requires all joints, `integrate_odometry` straight/rotated/arc, steering-limit hysteresis keeps the current side just past +-90 deg and switches side when far past); config (`test_config.py`: load_config missing/minimal/defaults, defaults match Platform dimensions, motion limits and timeouts parsed, `slip_residual_threshold_mps` default 0.05 and override); control step (`test_control_step.py`, including the odometry residual: a slipping wheel is dropped and the residual is ~0 for consistent wheels).
+The **swerve_drive_controller** node has tests under `nodes/swerve_drive_controller/tests/`. Run from `nodes/swerve_drive_controller`: `uv run pytest tests/ -v`. Covers: kinematics (`test_kinematics.py`: wheel_positions, inverse_kinematics straight/zero/sideways, forward_kinematics roundtrip, `forward_kinematics_with_residual` (residual ~0 for consistent wheels, grows with a slipping wheel), `robust_forward_kinematics` (keeps the full solution below the threshold, drops one slipping wheel and matches the other three for each of the four wheels, keeps the full solution when two wheels slip), `odometry_twist_variances` (0.01 + r^2 and 0.01 + (r / hypot(lx, ly))^2), steer_angle_difference, should_zero_drive, normalize_angle; with the real platform geometry: `fold_to_steer_range` (inside limit, backward flip, +-90 deg boundary picks side closer to current), `desaturate_wheel_speeds`, `compute_wheel_commands` forward/backward/strafe/rotate-in-place/stopped-holds-steer/desaturation/IK-FK roundtrip, `wheel_states` requires all joints, `integrate_odometry` straight/rotated/arc, steering-limit hysteresis keeps the current side just past +-90 deg and switches side when far past); config (`test_config.py`: load_config missing/minimal/defaults, defaults match Platform dimensions, motion limits and timeouts parsed, `slip_residual_threshold_mps` default 0.05 and override); control step (`test_control_step.py`, including the odometry residual: a slipping wheel is dropped and the residual is ~0 for consistent wheels).
 
 Control step (`test_control_step.py`, rclpy-free `control.py`): combined command layout (8 joints, steer positions + NaN, drive velocities + NaN); no command for stale, missing or incomplete joint states; forward command; cmd_vel timeout gives zero twist; deadband; steer targets held when stopped; no-propulsion safeguard; odometry integration and reported twist. Coordinated steering side (`test_kinematics.py`, `test_control_step.py`): near +-90 deg all wheels pick the same side (no single-wheel 180 deg swings in a sweep), group-level hysteresis prevents chattering, pure rotation falls back to per-wheel fold within limits, FK roundtrip holds for every output, side choice carried in the controller state. Idle recentering: steering held for under `idle_recenter_s` (default 3 s) after stopping, then targets return to 0 rad; motion resets the timer; 0 disables it (`test_config.py` covers parsing and clamping). `test_config.py` also covers `publish_tf` (default true, explicit false).
 
 ### Per-node tests (rf2o_odom_relay)
 
-The **rf2o_odom_relay** node has tests under `nodes/rf2o_odom_relay/tests/`. Run from `nodes/rf2o_odom_relay`: `poetry run pytest tests/ -v`. Covers: pose-difference twist (`test_twist.py`: straight ahead, world motion rotated into the body frame, sideways motion reported as `vy`, yaw-rate wrap across pi, mid-heading rotation during a turn, no twist for zero/negative/too large time steps, diagonal-only covariance); config loading (`test_config.py`: missing file, defaults, overrides).
+The **rf2o_odom_relay** node has tests under `nodes/rf2o_odom_relay/tests/`. Run from `nodes/rf2o_odom_relay`: `uv run pytest tests/ -v`. Covers: pose-difference twist (`test_twist.py`: straight ahead, world motion rotated into the body frame, sideways motion reported as `vy`, yaw-rate wrap across pi, mid-heading rotation during a turn, no twist for zero/negative/too large time steps, diagonal-only covariance); config loading (`test_config.py`: missing file, defaults, overrides).
 
 ### Per-node tests (static_tf_publisher)
 
-The **static_tf_publisher** node has tests under `nodes/static_tf_publisher/tests/`. Run from `nodes/static_tf_publisher`: `poetry run pytest tests/ -v`. Covers: config loading (`test_config.py`: missing file, frames list with parent/child and offsets).
+The **static_tf_publisher** node has tests under `nodes/static_tf_publisher/tests/`. Run from `nodes/static_tf_publisher`: `uv run pytest tests/ -v`. Covers: config loading (`test_config.py`: missing file, frames list with parent/child and offsets).
 
 ### Per-node tests (filter_node)
 
-The **filter_node** node has tests under `nodes/filter_node/tests/`. Run from `nodes/filter_node`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`: input/output topic, algorithm, params, joint_names); algorithm registry and Kalman (`test_algorithms.py`: get_algorithm, Kalman create_state/update/predict); output command filling (`test_command.py`: `header.frame_id` carries the command source leader / web_ui / autonomy, positions copied, velocity/effort cleared).
+The **filter_node** node has tests under `nodes/filter_node/tests/`. Run from `nodes/filter_node`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers: config loading (`test_config.py`: input/output topic, algorithm, params, joint_names); algorithm registry and Kalman (`test_algorithms.py`: get_algorithm, Kalman create_state/update/predict); output command filling (`test_command.py`: `header.frame_id` carries the command source leader / web_ui / autonomy, positions copied, velocity/effort cleared).
 
 ### Per-node tests (test_joint_api)
 
-The **test_joint_api** node has tests under `nodes/test_joint_api/tests/`. Run from `nodes/test_joint_api`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config (`test_config.py`); GET/POST `/joint-updates` (`test_app.py`: empty GET, single/multiple POST, validation errors, gripper-only POST). Async tests require **pytest-asyncio** (included in the node's Poetry dev deps; if running with system pytest, install it: `pip install pytest-asyncio`). Endpoint use in tests is limited to gripper joints (joint_5, joint_6) for safety. The utility script `scripts/joint_api_client.py` can GET or POST joint updates (see script docstring for examples).
+The **test_joint_api** node has tests under `nodes/test_joint_api/tests/`. Run from `nodes/test_joint_api`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers: config (`test_config.py`); GET/POST `/joint-updates` (`test_app.py`: empty GET, single/multiple POST, validation errors, gripper-only POST). Async tests require **pytest-asyncio** (included in the node's uv dev dependency group; if running with system pytest, install it: `pip install pytest-asyncio`). Endpoint use in tests is limited to gripper joints (joint_5, joint_6) for safety. The utility script `scripts/joint_api_client.py` can GET or POST joint updates (see script docstring for examples).
 
 ### Per-node tests (topic_scraper_api)
 
-The **topic_scraper_api** node has tests under `nodes/topic_scraper_api/tests/`. Run from `nodes/topic_scraper_api`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers:
+The **topic_scraper_api** node has tests under `nodes/topic_scraper_api/tests/`. Run from `nodes/topic_scraper_api`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers:
 
 - config parsing (`test_config.py`: defaults, overrides, type allow-list, observation_rules parsing)
 - endpoint mapping (`test_paths.py`: normalize topic, topic->endpoint, endpoint->topic; stream/preview path helpers)
@@ -164,7 +175,7 @@ The **topic_scraper_api** node has tests under `nodes/topic_scraper_api/tests/`.
 
 ### Per-node tests (bno055_imu)
 
-The **bno055_imu** node has tests under `nodes/bridges/bno055_imu/tests/`. Run from `nodes/bridges/bno055_imu`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers:
+The **bno055_imu** node has tests under `nodes/bridges/bno055_imu/tests/`. Run from `nodes/bridges/bno055_imu`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers:
 
 - config loading (`test_config.py`: missing/empty file, defaults, explicit topic/frame_id/publish_hz/i2c_bus/i2c_address/covariances, publish_hz clamping, load_config_from_env)
 - quaternion and IMU message mapping (`test_imu_msg.py`: `quaternion_wxyz_to_xyzw`, `build_imu_message` units and covariance arrays; build_imu_message tests are skipped when sensor_msgs is not available, e.g. without a ROS environment)
@@ -173,13 +184,13 @@ The **bno055_imu** node has tests under `nodes/bridges/bno055_imu/tests/`. Run f
 
 ### Per-node tests (haptic_controller)
 
-The **haptic_controller** node has tests under `nodes/haptic_controller/tests/`. Run from `nodes/haptic_controller`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading (`test_config.py`: missing/empty file, defaults, mode off/resistance/zero_g, invalid mode fallback, resistance_gains including load_release_ratio and activation_debounce_cycles, delay_safety_max_skew_s, load_config_from_env); resistance control law (`test_node.py`: `compute_resistance_target` — no load/zero velocity returns leader_pos, opposes closing when load above deadband, respects max_step_per_cycle; `should_apply_resistance`; `should_apply_resistance_hysteresis` — activation above deadband, stay-active until release threshold). No ROS2/rclpy dependency in tests.
+The **haptic_controller** node has tests under `nodes/haptic_controller/tests/`. Run from `nodes/haptic_controller`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers: config loading (`test_config.py`: missing/empty file, defaults, mode off/resistance/zero_g, invalid mode fallback, resistance_gains including load_release_ratio and activation_debounce_cycles, delay_safety_max_skew_s, load_config_from_env); resistance control law (`test_node.py`: `compute_resistance_target` — no load/zero velocity returns leader_pos, opposes closing when load above deadband, respects max_step_per_cycle; `should_apply_resistance`; `should_apply_resistance_hysteresis` — activation above deadband, stay-active until release threshold). No ROS2/rclpy dependency in tests.
 
 **Gripper-only validation (manual):** After deploying with haptic controller in resistance mode, bench-check: (1) free motion of leader gripper remains easy (no lock); (2) resistance appears only on contact (follower load above deadband, leader closing); (3) no periodic ~1 s pulsing; (4) no oscillation growth when moving slowly. Use `ros2 topic hz` on key topics and verify service health for leader/follower/haptic. Leader gripper tuning: apply `nodes/bridges/feetech_servos/leader_gripper_haptic_profile.json` via `calibrate_servos.py load-config` on the server (see feetech_servos README).
 
 ### Per-node tests (master2master)
 
-The **master2master** node has its own test suite under `nodes/master2master/tests/`. Run from `nodes/master2master`: `poetry run pytest tests/ -v` (or `poetry run poe test`). A `conftest.py` provides path setup. Covers:
+The **master2master** node has its own test suite under `nodes/master2master/tests/`. Run from `nodes/master2master`: `uv run pytest tests/ -v` (or `uv run poe test`). A `conftest.py` provides path setup. Covers:
 
 - config loading and validation (`test_config.py`: `normalize_topic` — adds leading slash, strips trailing slash, idempotent, empty string, root slash; `TopicRule` construction — defaults, topic normalisation, direction in/out, msg_type jointstate and all new types (imu, navsatfix, laserscan, occupancygrid, odometry, posestamped, image, compressedimage, twist), case-insensitive direction/msg_type, invalid direction/msg_type raises `ValidationError`, non-string source raises; `parse_rule_entry` — string entry, full dict, `from`/`to` aliases, dest defaults to source, missing source returns None, empty string returns None, invalid type raises `ConfigError`, invalid direction raises; `load_config_from_dict` — empty dict, valid topics list, `topic_proxy` key alias, empty topics list, skips None entries, non-list topics raises `ConfigError`, realistic multi-rule config, duplicate topic names allowed; `load_config` — missing file returns empty, empty file returns empty, valid file; `validate_relay_rules` — no loops passes, detects dest→source loop, empty list passes)
 - relay proxy (`test_proxy.py`: `get_message_class` — string, jointstate, case-insensitive, unknown raises `KeyError`; `get_supported_message_types` — contains all expected types; parametrized new msg_type→mock mapping; `run_all_relays` — creates one pub/sub per rule, multiple rules get separate pubs/subs, relay callback publishes to correct publisher, calls `rclpy.init`/`shutdown`, shutdown called even on exception, rejects relay loop with `ValueError`, rejects unknown msg_type, `shutdown_callback` stops spin loop, node destroyed after run, two-rule callbacks publish to their own publishers)
@@ -195,14 +206,14 @@ The **steamdeck_ui** Electron frontend has TypeScript tests under `nodes/steamde
 
 ### Per-node tests (steamdeck_ui — bridge)
 
-The **steamdeck_ui** Python bridge has tests under `nodes/steamdeck_ui/bridge/tests/`. Run from `nodes/steamdeck_ui/bridge`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers:
+The **steamdeck_ui** Python bridge has tests under `nodes/steamdeck_ui/bridge/tests/`. Run from `nodes/steamdeck_ui/bridge`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers:
 
 - config loading and validation (`test_config.py`: `BridgeConfig` defaults (host, port, ros_static_peers), custom port, `ros_domain_id` int coerced to str; `TabConfig` — valid camera tab, invalid type raises; `AppConfig` — empty config valid, `all_subscribed_topics` for camera and sensor_graph tabs, `publish_topics` includes nav goal_topic, no duplicate topics; `load_config` — valid file, missing file raises `FileNotFoundError`, empty YAML returns defaults)
 - message serialization (`test_msg_serializer.py`: `_bytes_per_pixel` — rgb8/mono8/rgba8/mono16/rgb16; `_serialize_value` — `array.array` to list, bytes to list, primitives passthrough, nested list; `extractField_from_dict` — simple key, nested dot notation, array index, missing key returns None, non-numeric returns None)
 
 ### Per-node tests (web_ui)
 
-The **web_ui** node has tests under `nodes/web_ui/tests/`. Run from `nodes/web_ui`: `poetry run pytest tests/ -v` (or `poetry run poe test`). A `conftest.py` installs ROS2 module stubs (rclpy, sensor_msgs, nav_msgs, geometry_msgs) and provides `config_yaml` and `urdf_dir` fixtures. Covers:
+The **web_ui** node has tests under `nodes/web_ui/tests/`. Run from `nodes/web_ui`: `uv run pytest tests/ -v` (or `uv run poe test`). A `conftest.py` installs ROS2 module stubs (rclpy, sensor_msgs, nav_msgs, geometry_msgs) and provides `config_yaml` and `urdf_dir` fixtures. Covers:
 
 - config loading (`test_config.py`: minimal config defaults, http_port override, missing file raises `FileNotFoundError`, `all_subscribed_topics` for camera/nav/overlay tabs, `load_config` from env var `WEB_UI_CONFIG`, `publish_topics` includes goal_topic, `rgbd_camera` tab type valid with color/depth/camera_info topics, RGBD topics included in `all_subscribed_topics`, shipped default config has an `Overview` `camera` tab on `/overview_camera/image_raw/compressed` and no RGBD tab)
 - bridge dirty-flag store (`test_bridge.py`: the Overview camera topic resolves to a `CompressedImage` subscription; `flush_dirty` returns dirty topics, clears after flush, only returns dirty entries; `publish_dict` rejects non-allowlisted topics with warning)
@@ -220,7 +231,7 @@ The **web_ui** node has tests under `nodes/web_ui/tests/`. Run from `nodes/web_u
 ### Per-node tests (claude_agent)
 
 The **claude_agent** node has tests under `nodes/claude_agent/tests/` (no network, no real Claude calls; rclpy is stubbed in
-`conftest.py`, the Agent SDK dataclasses are built directly). Run from `nodes/claude_agent`: `poetry run pytest tests -q`.
+`conftest.py`, the Agent SDK dataclasses are built directly). Run from `nodes/claude_agent`: `uv run pytest tests -q`.
 Covers:
 
 - config (`test_config.py`): defaults (opus, hard maxima rw 150 / turns 200, no `max_ro_cap` / `max_phase_ro_cap`, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
@@ -263,7 +274,7 @@ Covers:
 ### Per-node tests (mcp_server)
 
 The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed: rclpy is imported only by
-`ros_iface.py` and `__main__.py`). Run from `nodes/mcp_server`: `poetry run pytest tests -q` (or `poetry run poe test`).
+`ros_iface.py` and `__main__.py`). Run from `nodes/mcp_server`: `uv run pytest tests -q` (or `uv run poe test`).
 `fakes.py` provides a simulated follower arm backend with a fake clock. Covers:
 
 - config (`test_config.py`): defaults (0.0.0.0:18200 `/mcp`, topics, conservative limits, timeouts), repo-relative URDF
@@ -391,7 +402,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 
 ### Per-node tests (gps_rtk)
 
-The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `nodes/bridges/gps_rtk`: `poetry run pytest tests/ -v` (or `poetry run poe test`). Covers: config loading and validation (`test_config.py`: minimal base/rover, rover with rtcm_server_host, invalid mode rejected, load_config from file/missing/empty); NMEA GGA parsing (`test_nmea_parser.py`: lat/lon N/S/E/W, altitude, fix quality, full sentence, RTK fixed quality 4, quality-to-NavSatStatus mapping); serial stream handling (`test_serial_handler.py`: NMEA checksum and append_checksum_if_missing, RTCM3 length parsing, CRC24Q, valid RTCM3 frame build/validation, parser emits NMEA with valid checksum, ignores invalid NMEA, discards unknown bytes).
+The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `nodes/bridges/gps_rtk`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers: config loading and validation (`test_config.py`: minimal base/rover, rover with rtcm_server_host, invalid mode rejected, load_config from file/missing/empty); NMEA GGA parsing (`test_nmea_parser.py`: lat/lon N/S/E/W, altitude, fix quality, full sentence, RTK fixed quality 4, quality-to-NavSatStatus mapping); serial stream handling (`test_serial_handler.py`: NMEA checksum and append_checksum_if_missing, RTCM3 length parsing, CRC24Q, valid RTCM3 frame build/validation, parser emits NMEA with valid checksum, ignores invalid NMEA, discards unknown bytes).
 
 ---
 
@@ -478,7 +489,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` | `colcon_source_build.yml` clones the pinned commit and builds with `systemd-run` (CPUQuota 100%, IOWeight 10), nice 19, ionice idle, `--merge-install`, one worker, `MAKEFLAGS=-j2`, a per-commit-and-patch-hash stamp (`creates:`) and a restart notify; included by the role. |
 | `test_colcon_source_build_applies_patches_and_keys_the_stamp_on_their_content` | `colcon_source_build.yml` applies the `colcon_source.patches` with `ansible.builtin.patch` between the (forced) clone and the build, hashes them into the stamp key, and drops the stamp when `install/setup.bash` is missing. |
 | `test_rf2o_retry_laser_tf_patch_exists_and_is_wired` | `patches/0001-retry-laser-tf.patch` exists, skips scans until the laser TF lookup succeeds, and is listed in the rf2o node type's `colcon_source.patches`. |
-| `test_rf2o_odom_relay_declares_numpy` | `rf2o_odom_relay/pyproject.toml` lists `numpy` explicitly (numpy guard). |
+| `test_rf2o_odom_relay_declares_numpy` | `rf2o_odom_relay/pyproject.toml` lists `numpy` in `[project].dependencies` (numpy guard, parsed with `tomllib`). |
 | `test_launcher_sources_the_colcon_workspace_after_ros` | The launcher template sources the colcon `install/setup.bash` after `/opt/ros/jazzy/setup.bash`, and `resolve_and_deploy.yml` passes `colcon_source`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_nav_stack_config.py` is listed in this section. |
 
@@ -492,10 +503,10 @@ Static wiring invariants of the poi_store node (Ansible, playbooks, lint script,
 | `test_poi_store_entry_after_mcp_server_with_config` | Present + enabled `ros2_nodes` entry directly after `mcp_server`; config has `store_path` `/var/lib/ros2/poi/poi.json` and the `/poi/list`, `/poi/command`, `/poi/result` topics. |
 | `test_poi_directory_task_owned_by_node_user` | `poi_store_dir.yml` creates `/var/lib/ros2/poi` owned by `ansible_user`. |
 | `test_poi_playbook_deploys_node_and_creates_directory` | `deploy_nodes_client.yml` creates the directory and deploy `poi_store` (after `mcp_server`). |
-| `test_lint_script_and_node_files` | `scripts/lint-all-nodes.sh` lists the node; pyproject, poetry.lock, README and tests exist. |
+| `test_lint_script_and_node_files` | `scripts/lint-all-nodes.sh` lists the node; pyproject, uv.lock, README and tests exist. |
 | `test_docs_mention_poi_store` | nodes/README.md, ansible/README.md and the ansible-deploy skill mention `poi_store`. |
 
-The node's own tests (store, models, config; including `kind: object` POIs with their sighting fields and defaults for old files, and the `clear` op that deletes every POI of one `created_by`, persists and keeps the revision when nothing was removed) live in `nodes/poi_store/tests/` and need no ROS: `cd nodes/poi_store && poetry run pytest tests -q`.
+The node's own tests (store, models, config; including `kind: object` POIs with their sighting fields and defaults for old files, and the `clear` op that deletes every POI of one `created_by`, persists and keeps the revision when nothing was removed) live in `nodes/poi_store/tests/` and need no ROS: `cd nodes/poi_store && uv run pytest tests -q`.
 
 ### test_mcp_camera_config.py
 
@@ -546,7 +557,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_json_registers_robot_server` | `.mcp.json` registers server `robot` (type http, `http://client.ros2.lan:18200/mcp`, `Authorization: Bearer ${ROBOT_MCP_TOKEN}`) matching the node's port and path. |
 | `test_robot_mcp_token_script` | `scripts/robot_mcp_token.sh` is executable bash (`set -euo pipefail`, passes `bash -n`), reads the token file over ssh and prints an export line. |
 | `test_robot_mcp_token_script_prints_export_line` | With a fake `ssh` returning the EnvironmentFile line, the script prints `export ROBOT_MCP_TOKEN='<token>'`. |
-| `test_mcp_server_node_package_layout` | `nodes/mcp_server` has a Poetry project with the `mcp` dependency and `mcp_server` package, a lock file, `__main__.py`, and a README with the `claude mcp add` setup. |
+| `test_mcp_server_node_package_layout` | `nodes/mcp_server` has a uv project (PEP 621) with the `mcp` dependency and `mcp_server` package, a lock file, `__main__.py`, and a README with the `claude mcp add` setup. |
 | `test_mcp_server_listed_in_nodes_readme_index` | `nodes/README.md` Layout index has an `mcp_server/` entry describing the MCP server. |
 | `test_mcp_gripper_closed_target_is_inside_the_follower_gripper_command_range` | The mcp_server closed gripper target (-0.165 rad = 1940 steps, follower gripper not inverted) is at or above the follower gripper `command_min_steps` (1900), `autonomy` is a direct command source, and the mcp_server README documents the steps and `command_min_steps`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_mcp_server_config.py` is listed in this section. |
@@ -588,7 +599,7 @@ layout; no ROS needed).
 | `test_existing_mcp_token_gets_group_read_permissions` | After the `force: false` create, a file task enforces group `mcp-token` and mode 0640 on an already existing token, so `claude_agent` can read a token created before the group existed. |
 | `test_playbooks_run_setup_before_deploying_claude_agent_after_mcp_server` | `deploy_nodes_client.yml`: mcp setup, then agent setup, then the deploy (after mcp_server in the full playbook). |
 | `test_oauth_token_never_in_repo` | No tracked file contains a literal `CLAUDE_CODE_OAUTH_TOKEN=<token>`. |
-| `test_claude_agent_package_layout_and_pinned_sdk` | Poetry project with the SDK pinned to an exact version, FastAPI/uvicorn/Pillow/pydantic, lock file, README, `__main__.py`, tests. |
+| `test_claude_agent_package_layout_and_pinned_sdk` | uv project (PEP 621) with the SDK pinned to an exact version, FastAPI/uvicorn/Pillow/pydantic, lock file, README, `__main__.py`, tests. |
 | `test_claude_agent_readme_documents_api_and_token_deploy` | The node README lists every API route, the four planning tools, the hard and per-phase maxima, the `/robot_events` topic and the `export CLAUDE_CODE_OAUTH_TOKEN` deploy command. |
 | `test_docs_and_lint_scripts_list_claude_agent` | `nodes/README.md`, `ansible/README.md`, the ansible-deploy skill, `scripts/lint-all-nodes.sh` and root `lint-nodes` mention the node. |
 | `test_claude_agent_hardening_in_group_vars_without_filesystem_protection` | The `claude_agent` node type sets `protect_proc: invisible`, `proc_subset: pid`, `no_new_privileges`, `private_tmp` and no ProtectSystem/ProtectHome (the bearer token is in the CLI child's argv). |

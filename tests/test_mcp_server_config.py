@@ -11,6 +11,7 @@ import math
 import os
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -433,9 +434,10 @@ def test_robot_mcp_token_script_prints_export_line(tmp_path: Path) -> None:
 
 
 def test_mcp_server_node_package_layout() -> None:
-    pyproject = (NODE_DIR / "pyproject.toml").read_text()
-    assert 'mcp = "' in pyproject and 'packages = [{ include = "mcp_server"' in pyproject
-    assert (NODE_DIR / "poetry.lock").is_file()
+    pyproject = tomllib.loads((NODE_DIR / "pyproject.toml").read_text())
+    assert any(dep.startswith("mcp==") for dep in pyproject["project"]["dependencies"])
+    assert pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == ["mcp_server"]
+    assert (NODE_DIR / "uv.lock").is_file()
     assert (NODE_DIR / "mcp_server" / "__main__.py").is_file()
     assert (NODE_DIR / "README.md").read_text().count("claude mcp add") >= 1
 

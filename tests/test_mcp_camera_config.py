@@ -26,27 +26,16 @@ def mcp_config() -> dict:
     Returns:
         dict: The node config.
     """
-    entry = next(
-        n
-        for n in yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"]
-        if n["name"] == "mcp_server"
-    )
+    entry = next(n for n in yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"] if n["name"] == "mcp_server")
     return yaml.safe_load(entry["config"])
 
 
 def test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user() -> None:
     tasks = yaml.safe_load(SETUP_TASKS.read_text())
-    dirs = {
-        t["ansible.builtin.file"]["path"]: t["ansible.builtin.file"]
-        for t in tasks
-        if "ansible.builtin.file" in t
-    }
+    dirs = {t["ansible.builtin.file"]["path"]: t["ansible.builtin.file"] for t in tasks if "ansible.builtin.file" in t}
     calib = dirs[CALIBRATION_DIR]
     assert calib["state"] == "directory"
-    assert (
-        calib["owner"] == "{{ ansible_user }}"
-        and calib["group"] == "{{ ansible_user }}"
-    )
+    assert calib["owner"] == "{{ ansible_user }}" and calib["group"] == "{{ ansible_user }}"
 
 
 def test_cameras_config_front_not_calibrated_gripper_calibrated() -> None:
@@ -90,7 +79,9 @@ def test_gripper_camera_is_calibrated_with_a_repo_intrinsics_file() -> None:
     and intrinsics from nodes/mcp_server/calibration/gripper_camera.yaml (deployed with the repo)."""
     import yaml as _yaml
 
-    cfg = _yaml.safe_load(next(n for n in _yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"] if n["name"] == "mcp_server")["config"])
+    cfg = _yaml.safe_load(
+        next(n for n in _yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"] if n["name"] == "mcp_server")["config"]
+    )
     gripper = cfg["cameras"]["gripper"]
     assert gripper["mount"]["parent_frame"] == "gripper_link"
     for key in ("x", "y", "z", "roll", "pitch", "yaw"):

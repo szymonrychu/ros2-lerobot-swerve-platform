@@ -66,7 +66,7 @@ def test_poi_playbook_deploys_node_and_creates_directory() -> None:
 
 def test_lint_script_and_node_files() -> None:
     assert "nodes/poi_store" in LINT_SCRIPT.read_text()
-    for name in ("pyproject.toml", "poetry.lock", "README.md"):
+    for name in ("pyproject.toml", "uv.lock", "README.md"):
         assert (NODE_DIR / name).is_file()
     assert (NODE_DIR / "tests").is_dir()
 
