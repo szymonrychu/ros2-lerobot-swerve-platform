@@ -1,7 +1,8 @@
 """Single-process topic relay: one node, one executor, multiple subscribe->publish rules."""
 
 import signal
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import rclpy
 from geometry_msgs.msg import PoseStamped, Twist
@@ -106,8 +107,8 @@ def run_all_relays(
     for r in rules:
         if (r.msg_type or "string").lower().strip() not in RELAY_MESSAGE_TYPES:
             raise KeyError(
-                "Unsupported msg_type %r for rule %s -> %s; available: %s"
-                % (r.msg_type, r.source, r.dest, list(RELAY_MESSAGE_TYPES))
+                f"Unsupported msg_type {r.msg_type!r} for rule {r.source} -> {r.dest}; "
+                f"available: {list(RELAY_MESSAGE_TYPES)}"
             )
     validate_relay_rules(rules)
 
@@ -140,7 +141,7 @@ def run_all_relays(
 
             self.create_subscription(msg_class, rule.source, callback, sub_qos, callback_group=cbg)
             self.get_logger().info(
-                "Relay: %s -> %s [%s]" % (rule.source, rule.dest, rule.msg_type),
+                f"Relay: {rule.source} -> {rule.dest} [{rule.msg_type}]",
                 throttle_duration_sec=10.0,
             )
 
@@ -156,7 +157,7 @@ def run_all_relays(
         logger = node.get_logger()
         logger.info("master2master relay rules (direction=in: remote->local, out: local->remote):")
         for rule in rules:
-            logger.info("  [%s] %s -> %s type=%s" % (rule.direction, rule.source, rule.dest, rule.msg_type))
+            logger.info(f"  [{rule.direction}] {rule.source} -> {rule.dest} type={rule.msg_type}")
         for rule in rules:
             node.add_relay(rule)
 

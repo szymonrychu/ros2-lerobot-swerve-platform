@@ -6,9 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from pydantic import ValidationError as PydanticValidationError
-from pydantic import field_validator
 
 SUPPORTED_DIRECTIONS = ("in", "out")
 SUPPORTED_MSG_TYPES = (
@@ -65,14 +64,14 @@ class TopicRule(BaseModel):
 
     @field_validator("source", "dest", mode="before")
     @classmethod
-    def normalize_topic_field(_cls: type["TopicRule"], v: Any) -> str:
+    def normalize_topic_field(_cls: type[TopicRule], v: Any) -> str:
         if not isinstance(v, str):
             raise ValueError("Topic must be a string")
         return normalize_topic(v)
 
     @field_validator("direction", mode="before")
     @classmethod
-    def check_direction(_cls: type["TopicRule"], v: Any) -> str:
+    def check_direction(_cls: type[TopicRule], v: Any) -> str:
         if not isinstance(v, str):
             raise ValueError("Direction must be a string")
         d = v.lower().strip()
@@ -82,7 +81,7 @@ class TopicRule(BaseModel):
 
     @field_validator("msg_type", mode="before")
     @classmethod
-    def check_msg_type(_cls: type["TopicRule"], v: Any) -> str:
+    def check_msg_type(_cls: type[TopicRule], v: Any) -> str:
         if not isinstance(v, str):
             raise ValueError("msg_type must be a string")
         t = v.lower().strip()
@@ -179,8 +178,8 @@ def validate_relay_rules(rules: list[TopicRule]) -> None:
         for j, s in enumerate(rules):
             if i != j and r.dest == s.source:
                 raise ValueError(
-                    "Relay loop guard: rule dest %r is source of another rule; "
-                    "would re-relay own output. Fix config (direction in/out)." % r.dest
+                    f"Relay loop guard: rule dest {r.dest!r} is source of another rule; "
+                    "would re-relay own output. Fix config (direction in/out)."
                 )
 
 
