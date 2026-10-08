@@ -47,6 +47,8 @@ Guards `.pre-commit-config.yaml` against the legacy toolchain.
 |---|---|
 | `test_no_legacy_python_hooks` | No black, isort, autoflake or flake8 hooks are configured. |
 | `test_ruff_hooks_pinned` | `ruff-check` and `ruff-format` hooks exist and are pinned to v0.15.20. |
+| `test_ansible_lint_hook_matches_ansible_yaml` | The `ansible-lint` hook `files` regex matches `.yml`/`.yaml` files under `ansible/` and nothing outside it. |
+| `test_ansible_lint_hook_uses_pinned_script` | The `ansible-lint` hook runs `scripts/lint-ansible.sh` (pinned version) rather than whatever `ansible-lint` is on PATH. |
 
 ### `test_shared_utils.py`
 

@@ -31,12 +31,12 @@ repos:
         args: [--min-confidence=80]
     # Runs on staged .py files from any path (src, tests, shared, nodes/*)
 
-  # Run from ansible/ so roles_path resolves; use local hook to cd into ansible first
+  # The script runs the pinned ansible-lint from ansible/ so roles_path resolves
   - repo: local
     hooks:
       - id: ansible-lint
         name: ansible-lint
-        entry: bash -c 'cd ansible && ansible-lint .'
+        entry: bash scripts/lint-ansible.sh
         language: system
         pass_filenames: false
-        files: ^ansible/.*\\.(ya?ml)$
+        files: ^ansible/.*\.ya?ml$
