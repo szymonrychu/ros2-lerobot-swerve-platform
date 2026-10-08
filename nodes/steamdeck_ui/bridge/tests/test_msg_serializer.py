@@ -5,6 +5,7 @@ from __future__ import annotations
 import array
 
 import pytest
+
 from bridge.msg_serializer import _bytes_per_pixel, _serialize_value, extractField_from_dict
 
 
