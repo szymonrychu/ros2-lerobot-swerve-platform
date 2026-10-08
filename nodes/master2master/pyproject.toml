@@ -15,10 +15,13 @@ dev = [
     "pytest>=9.0.2,<10",
     "ruff==0.15.20",
     "vulture>=2.11,<3",
-    "poethepoet>=0.42.0,<1",
+    "poethepoet>=0.42.0,<0.43",
 ]
 
 [tool.uv]
+constraint-dependencies = [
+    "annotated-types<0.8",
+]
 package = false
 
 [tool.ruff]

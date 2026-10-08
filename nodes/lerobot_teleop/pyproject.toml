@@ -11,7 +11,7 @@ dev = [
     "pytest>=9.0.0,<10",
     "ruff==0.15.20",
     "vulture>=2.11,<3",
-    "poethepoet>=0.42.0,<1",
+    "poethepoet>=0.42.0,<0.43",
 ]
 
 [tool.uv]

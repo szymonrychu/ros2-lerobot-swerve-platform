@@ -54,3 +54,8 @@ test = { shell = "pytest tests/ -v" }
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.uv]
+constraint-dependencies = [
+    "annotated-types<0.8",
+]

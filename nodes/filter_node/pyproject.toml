@@ -11,10 +11,10 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0.0,<10",
+    "pytest>=8.0.0,<9",
     "ruff==0.15.20",
     "vulture>=2.11,<3",
-    "poethepoet>=0.42.0,<1",
+    "poethepoet>=0.42.0,<0.43",
 ]
 
 [build-system]

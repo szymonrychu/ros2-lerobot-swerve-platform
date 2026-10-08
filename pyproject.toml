@@ -19,11 +19,22 @@ dev = [
     "ruff==0.15.20",
     "vulture>=2.11",
     "pre-commit>=4.0.0",
-    "poethepoet>=0.42.0",
+    "poethepoet>=0.42.0,<0.43",
     "ansible-lint>=26.0",
 ]
 
 [tool.uv]
+constraint-dependencies = [
+    "annotated-types<0.8",
+    "ansible-compat<26",
+    "attrs<26",
+    "black<25",
+    "bracex<3",
+    "cryptography<47",
+    "filelock<4",
+    "rpds-py<0.31",
+    "wcmatch<11",
+]
 package = false
 
 [tool.pytest.ini_options]
