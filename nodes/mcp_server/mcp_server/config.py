@@ -211,6 +211,14 @@ class JointOffsets(StrictModel):
     wrist_roll: float = 0.0
 
 
+class ToolOffset(StrictModel):
+    """Offset (m) of the tool centre point from the URDF tool frame gripper_frame_link, in that frame's axes."""
+
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+
+
 class ArmSettings(StrictModel):
     """Arm model, home pose storage and gripper mapping."""
 
@@ -222,6 +230,9 @@ class ArmSettings(StrictModel):
     # kinematics (tool pose, link frames, IK and URDF-space limit clamping); joint targets and reported positions
     # stay in measured space. Solve them from the stored calibration samples (README, "Joint zero offsets").
     joint_offsets_rad: JointOffsets = Field(default_factory=JointOffsets)
+    # Where the jaws actually close, relative to gripper_frame_link and expressed in its frame (measured on the robot).
+    # tool_pose, move_arm_cartesian and the camera tool overlays all refer to this point.
+    tool_offset_m: ToolOffset = Field(default_factory=ToolOffset)
     # Follower gripper joint positions (as in /follower/joint_states; the leader-only source range mapping in the
     # follower bridge does not apply to autonomy commands). Measured closed: -0.172 rad (URDF lower limit -0.1745);
     # -0.165 is just above it and inside the gripper limit margin (limits.arm_limit_margin_overrides, 0.005).

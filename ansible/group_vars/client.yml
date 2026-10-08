@@ -968,6 +968,9 @@ ros2_nodes:
           elbow_flex: -0.1381
           wrist_flex: 0.2477
           wrist_roll: -0.0162
+        # Tool centre point (m) in the gripper_frame_link frame: jaw closing point vs gripper_frame_link, measured
+        # 2026-10-08 by closing on ruler marks.
+        tool_offset_m: {x: 0.0104, y: -0.0282, z: -0.0017}
         # Optional once measured: arm base frame pose in base_link (x/y/z in m, yaw in rad; z = arm_base_height_m). Without it
         # gripper-camera results have no base_link/map coordinates and the reach/gripper overlays are skipped on the front camera.
         # base_in_base_link: {x: 0.0, y: 0.0, z: 0.165, yaw: 0.0}

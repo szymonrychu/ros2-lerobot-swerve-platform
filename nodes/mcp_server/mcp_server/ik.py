@@ -19,6 +19,9 @@ POSITION_TOLERANCE_M = 0.002
 PITCH_TOLERANCE_RAD = math.radians(3.0)
 # Extra IK seeds (shoulder_lift, elbow_flex, wrist_flex) tried after the caller's seed.
 HEADING_REFINEMENTS = 6
+# Fixed-point iterations / convergence (m) of the IK on the flange target when the tool point is offset.
+TOOL_ITERATIONS = 6
+TOOL_CONVERGENCE_M = 0.0005
 EXTRA_SEEDS = ((0.0, 0.0, 0.0), (-0.8, 0.8, 0.5), (0.5, -0.5, 1.0), (-1.2, 1.4, 0.0), (0.8, 0.8, -0.5))
 
 
@@ -74,7 +77,13 @@ class ArmKinematics:
     and the FK itself work in URDF space.
     """
 
-    def __init__(self, urdf_path: Path, margin: float, joint_offsets: dict[str, float] | None = None) -> None:
+    def __init__(
+        self,
+        urdf_path: Path,
+        margin: float,
+        joint_offsets: dict[str, float] | None = None,
+        tool_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    ) -> None:
         """Build the ikpy chain and shrink the joint bounds by margin.
 
         Args:
@@ -82,6 +91,9 @@ class ArmKinematics:
             margin (float): Safety margin kept from each URDF limit (rad).
             joint_offsets (dict[str, float] | None): Joint zero offsets (rad) of the chain joints,
                 urdf_angle = measured_angle + offset; missing joints and None mean 0.
+            tool_offset (tuple[float, float, float]): Tool centre point (jaw closing point) relative to
+                gripper_frame_link, expressed in that frame (m). Forward kinematics reports this point and the
+                inverse places it on the target.
 
         Raises:
             ValueError: For an offset on a joint that is not a chain joint (e.g. the gripper).
@@ -89,6 +101,7 @@ class ArmKinematics:
         all_limits = load_joint_limits(urdf_path)
         self.limits = {j: all_limits[j] for j in ARM_CHAIN_JOINTS}
         self.margin = margin
+        self.tool_offset = np.array(tool_offset, dtype=np.float64)
         unknown = sorted(set(joint_offsets or {}) - set(ARM_CHAIN_JOINTS))
         if unknown:
             raise ValueError(f"joint offsets only apply to {list(ARM_CHAIN_JOINTS)}, not {unknown}")
@@ -189,9 +202,8 @@ class ArmKinematics:
             CartesianPose: Tool position and approach pitch in base_link.
         """
         frame = self.chain.forward_kinematics(self.urdf_vector(joints))
-        return CartesianPose(
-            x=float(frame[0, 3]), y=float(frame[1, 3]), z=float(frame[2, 3]), pitch=pitch_of(frame[:3, 2])
-        )
+        point = frame[:3, 3] + frame[:3, :3] @ self.tool_offset
+        return CartesianPose(x=float(point[0]), y=float(point[1]), z=float(point[2]), pitch=pitch_of(frame[:3, 2]))
 
     def link_frame(self, joints: dict[str, float], link: str) -> np.ndarray:
         """Pose of a URDF link frame in the arm base_link frame for a joint configuration.
@@ -239,7 +251,48 @@ class ArmKinematics:
         )
 
     def inverse(self, x: float, y: float, z: float, pitch: float | None, seed: dict[str, float]) -> dict[str, float]:
-        """Joint configuration placing the tool at (x, y, z), optionally with the given approach pitch.
+        """Joint configuration placing the tool point at (x, y, z), optionally with the given approach pitch.
+
+        With a tool offset the gripper_frame_link target is target - R_tool @ offset; R_tool depends on the solution,
+        so it is iterated: the flange target is shifted by the tool point residual until it is within
+        TOOL_CONVERGENCE_M.
+
+        Args:
+            x (float): Target x in base_link (m).
+            y (float): Target y in base_link (m).
+            z (float): Target z in base_link (m).
+            pitch (float | None): Approach pitch (rad, positive down), or None for position only.
+            seed (dict[str, float]): Starting configuration in measured space; wrist_roll is kept.
+
+        Returns:
+            dict[str, float]: Chain joint name -> measured rad.
+
+        Raises:
+            UnreachableError: When the target cannot be reached within limits and tolerances.
+        """
+        if not self.tool_offset.any():
+            return self.inverse_flange(x, y, z, pitch, seed)
+        target = np.array([x, y, z])
+        flange = target.copy()
+        sol = self.inverse_flange(*flange, pitch, seed)
+        for _ in range(TOOL_ITERATIONS):
+            reached = self.forward(sol)
+            residual = target - np.array([reached.x, reached.y, reached.z])
+            if float(np.linalg.norm(residual)) < TOOL_CONVERGENCE_M:
+                break
+            flange = flange + residual
+            sol = self.inverse_flange(*flange, pitch, sol)
+        reached = self.forward(sol)
+        if math.dist((reached.x, reached.y, reached.z), (x, y, z)) > POSITION_TOLERANCE_M:
+            raise UnreachableError(
+                f"target ({x:.3f}, {y:.3f}, {z:.3f}) tool point did not converge within joint limits"
+            )
+        return sol
+
+    def inverse_flange(
+        self, x: float, y: float, z: float, pitch: float | None, seed: dict[str, float]
+    ) -> dict[str, float]:
+        """Joint configuration placing gripper_frame_link at (x, y, z), optionally with the given approach pitch.
 
         Tries the seed first, then a few fixed seeds, and accepts a solution only when forward kinematics confirms it
         within POSITION_TOLERANCE_M / PITCH_TOLERANCE_RAD and inside the limits; it never returns a best guess.
@@ -282,8 +335,8 @@ class ArmKinematics:
                 approach = frame[:3, 2]
                 if math.hypot(float(approach[0]), float(approach[1])) > 1e-6:
                     heading = math.atan2(float(approach[1]), float(approach[0]))
+                error = math.dist(tuple(frame[:3, 3]), (x, y, z))
                 reached = self.forward_urdf(sol)
-                error = math.dist((reached.x, reached.y, reached.z), (x, y, z))
                 best_error = min(best_error, error)
                 pitch_ok = pitch is None or abs(reached.pitch - pitch) <= PITCH_TOLERANCE_RAD
                 if error <= POSITION_TOLERANCE_M and pitch_ok and self.within_limits(sol):

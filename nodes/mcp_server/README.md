@@ -129,6 +129,20 @@ the URDF model angles by a constant per joint. `arm.joint_offsets_rad` (`shoulde
   `joints`), written to `arm.joint_offsets_rad` in `ansible/group_vars/client.yml` and `mcp_server` redeployed. After
   changing them, redo the camera mount solve (the stored `t_frame_parent` of old samples used the old offsets).
 
+### Tool centre point
+
+The tool point is where the jaws actually close, not the URDF frame `gripper_frame_link`. `arm.tool_offset_m` (`x`, `y`,
+`z` in m, default all 0.0) is that point expressed IN the `gripper_frame_link` frame (measured on the robot by closing
+the jaws on ruler marks).
+
+- Applied in ONE place, `ArmKinematics` (`ik.py`): `forward` / `tool_pose` report `T_base_tool @ [offset, 1]`; the pitch is
+  that of the tool frame, unchanged.
+- `move_arm_cartesian` (IK) places that point on the target: the `gripper_frame_link` target is
+  `target - R_tool @ offset`, iterated (R_tool depends on the solution) until the tool point is within 0.5 mm. The
+  pitch handling, floor/approach logic and unreachable errors are unchanged; a zero offset takes the old code path.
+- Camera tools (gripper overlay, planned gripper marker) use `forward`, so they draw the corrected point.
+- Re-measure after any gripper or jaw change; the repeatability of the current measurement is about 3 mm.
+
 ## Body awareness: monitor, events, digest, early return
 
 `RobotMonitor` (`monitor.py`, pure logic, unit tested) is fed by thin ROS callbacks in `ros_iface.py`: `/follower/servo_registers`
@@ -366,6 +380,7 @@ arm:
   reach_outer_m: 0.25        # floor reach around the shoulder axis (annotated image annulus)
   reach_inner_m: 0.05
   joint_offsets_rad: {shoulder_pan: 0.0, shoulder_lift: 0.0, elbow_flex: 0.0, wrist_flex: 0.0, wrist_roll: 0.0}   # urdf = measured + offset
+  tool_offset_m: {x: 0.0, y: 0.0, z: 0.0}   # jaw closing point in the gripper_frame_link frame
   # base_in_base_link: {x: 0.0, y: 0.0, z: 0.165, yaw: 0.0}   # optional, once measured
 cameras:                  # default: not calibrated (see Camera tools and calibration)
   calibration_dir: /var/lib/ros2/camera_calibration

@@ -219,3 +219,11 @@ def test_joint_offsets_default_to_zero_and_reject_unknown_joints() -> None:
     assert cfg.arm.joint_offsets_rad.wrist_flex == 0.2
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"arm": {"joint_offsets_rad": {"gripper": 0.2}}})
+
+
+def test_tool_offset_defaults_to_zero_and_rejects_unknown_axes() -> None:
+    assert McpServerConfig().arm.tool_offset_m.model_dump() == {"x": 0.0, "y": 0.0, "z": 0.0}
+    cfg = McpServerConfig.model_validate({"arm": {"tool_offset_m": {"x": 0.01, "y": -0.028, "z": -0.002}}})
+    assert cfg.arm.tool_offset_m.y == -0.028
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"arm": {"tool_offset_m": {"w": 0.2}}})

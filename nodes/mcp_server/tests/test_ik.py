@@ -194,3 +194,59 @@ def test_to_urdf_and_to_measured_are_inverse_and_skip_the_gripper(kin_off: ArmKi
 def test_unknown_offset_joint_is_rejected() -> None:
     with pytest.raises(ValueError, match="gripper"):
         ArmKinematics(URDF, margin=MARGIN, joint_offsets={"gripper": 0.1})
+
+
+# --- tool centre point: offset of the jaw closing point in the gripper_frame_link frame ---
+
+TOOL_OFFSET = (0.0104, -0.0282, -0.0017)
+
+
+@pytest.fixture(scope="module")
+def kin_tcp() -> ArmKinematics:
+    return ArmKinematics(URDF, margin=MARGIN, joint_offsets=OFFSETS, tool_offset=TOOL_OFFSET)
+
+
+def test_forward_reports_the_offset_tool_point(kin_off: ArmKinematics, kin_tcp: ArmKinematics) -> None:
+    measured = {"shoulder_pan": 0.3, "shoulder_lift": -0.4, "elbow_flex": 0.6, "wrist_flex": 0.5, "wrist_roll": 0.1}
+    flange = kin_off.link_frame(measured, "gripper_frame_link")
+    want = flange @ np.array([*TOOL_OFFSET, 1.0])
+    got, plain = kin_tcp.forward(measured), kin_off.forward(measured)
+    assert (got.x, got.y, got.z) == pytest.approx(tuple(want[:3]))
+    assert got.pitch == pytest.approx(plain.pitch)
+    assert math.dist((got.x, got.y, got.z), (plain.x, plain.y, plain.z)) == pytest.approx(
+        math.hypot(0.0104, 0.0282, 0.0017)
+    )
+
+
+def test_zero_tool_offset_is_the_old_behaviour(kin_off: ArmKinematics) -> None:
+    zero = ArmKinematics(URDF, margin=MARGIN, joint_offsets=OFFSETS, tool_offset=(0.0, 0.0, 0.0))
+    measured = {"shoulder_pan": 0.3, "shoulder_lift": -0.4, "elbow_flex": 0.6, "wrist_flex": 0.5, "wrist_roll": 0.1}
+    assert zero.forward(measured) == kin_off.forward(measured)
+    seed = {j: 0.0 for j in ARM_CHAIN_JOINTS}
+    assert zero.inverse(0.2, 0.05, 0.05, 0.8, seed=seed) == kin_off.inverse(0.2, 0.05, 0.05, 0.8, seed=seed)
+
+
+@pytest.mark.parametrize("pan", [-0.6, 0.0, 0.5])
+@pytest.mark.parametrize("seed_no", [11, 12, 13])
+def test_ik_lands_the_offset_tool_point_within_1mm(kin_tcp: ArmKinematics, pan: float, seed_no: int) -> None:
+    q = random_joints(np.random.default_rng(seed_no), kin_tcp) | {"shoulder_pan": pan}
+    base = kin_tcp.forward(q)
+    target = (base.x, base.y, base.z)
+    seed = {j: 0.0 for j in ARM_CHAIN_JOINTS} | {"wrist_roll": q["wrist_roll"]}
+    sol = kin_tcp.inverse(*target, base.pitch, seed=seed)
+    got = kin_tcp.forward(sol)
+    assert math.dist((got.x, got.y, got.z), target) < 0.001
+    assert abs(got.pitch - base.pitch) <= math.radians(3.0)
+
+
+def test_ik_offset_tool_point_for_free_targets(kin_tcp: ArmKinematics) -> None:
+    seed = {j: 0.0 for j in ARM_CHAIN_JOINTS}
+    for x, y, z, pitch in [
+        (0.22, 0.0, 0.03, 1.2),
+        (0.2, 0.05, -0.05, 1.2),
+        (0.2, -0.1, 0.02, 1.4),
+        (0.25, 0.0, -0.05, 1.2),
+    ]:
+        sol = kin_tcp.inverse(x, y, z, pitch, seed=seed)
+        got = kin_tcp.forward(sol)
+        assert math.dist((got.x, got.y, got.z), (x, y, z)) < 0.001
