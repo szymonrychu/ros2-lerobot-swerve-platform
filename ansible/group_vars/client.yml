@@ -961,12 +961,13 @@ ros2_nodes:
         reach_outer_m: 0.25
         reach_inner_m: 0.05
         # Follower-vs-URDF joint zero offsets (rad): urdf_angle = measured_angle + offset (nodes/mcp_server/README.md).
+        # Solved 2026-10-08 with the gripper camera calibration (ruler + Lego, 45 points, 10 poses, floor RMS 6.1 mm).
         joint_offsets_rad:
-          shoulder_pan: 0.0
-          shoulder_lift: 0.0
-          elbow_flex: 0.0
-          wrist_flex: 0.0
-          wrist_roll: 0.0
+          shoulder_pan: -0.0619
+          shoulder_lift: -0.0103
+          elbow_flex: -0.1381
+          wrist_flex: 0.2477
+          wrist_roll: -0.0162
         # Optional once measured: arm base frame pose in base_link (x/y/z in m, yaw in rad; z = arm_base_height_m). Without it
         # gripper-camera results have no base_link/map coordinates and the reach/gripper overlays are skipped on the front camera.
         # base_in_base_link: {x: 0.0, y: 0.0, z: 0.165, yaw: 0.0}
@@ -980,19 +981,19 @@ ros2_nodes:
       # The gripper mount is relative to the URDF link gripper_link of so101_arm.urdf, the front mount to base_link.
       cameras:
         calibration_dir: /var/lib/ros2/camera_calibration
-        # Calibrated 2026-10-08 (ruler + Lego at 25 cm, 20 points, 5 arm poses, RMS 3.97 px ~ 3 mm on the floor at 30 cm).
+        # Calibrated 2026-10-08 with the arm joint offsets (ruler + Lego, 45 points, 10 poses, floor RMS 6.1 mm).
         gripper:
           parent_frame: gripper_link
           intrinsics:
             calibration_file: "{{ ros2_repo_dest }}/nodes/mcp_server/calibration/gripper_camera.yaml"
           mount:
             parent_frame: gripper_link
-            x: -0.0895
-            y: 0.0071
-            z: -0.0271
-            roll: -0.7407
-            pitch: 1.1494
-            yaw: -0.7213
+            x: -0.0240
+            y: 0.0093
+            z: -0.0672
+            roll: -1.1459
+            pitch: 1.1529
+            yaw: -1.1655
         front:
           parent_frame: base_link
           intrinsics: null
