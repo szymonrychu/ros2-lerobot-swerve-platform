@@ -3,7 +3,7 @@ name = "gps_rtk"
 version = "0.1.0"
 description = "GPS RTK bridge for LC29H-BS (base) and LC29H-DA (rover); publishes NavSatFix, streams RTCM3 over TCP"
 readme = "README.md"
-requires-python = ">=3.11,<4"
+requires-python = ">=3.12"
 dependencies = [
     "numpy>=1.26.0",
     "pyserial>=3.5",
@@ -13,7 +13,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff==0.16.10",
+    "ruff==0.15.20",
     "vulture>=2.11,<3",
     "poethepoet>=0.42.0,<0.43",
     "pytest>=8.0.0,<9",
@@ -31,7 +31,7 @@ line-length = 120
 extend-exclude = [".venv", "__pycache__"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "W"]
 ignore = ["E501"]
 
 [tool.vulture]
