@@ -1,32 +1,39 @@
-[tool.poetry]
+[project]
 name = "mcp-server"
 version = "0.1.0"
 description = "Robot MCP server: Streamable HTTP tools for base navigation, cameras and safe arm streaming (IK)"
 readme = "README.md"
-packages = [{ include = "mcp_server", from = "." }]
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "mcp==2.3.0",
+    "ikpy==4.1.0",
+    "numpy==2.4.3",
+    "scipy==1.18.1",
+    "opencv-python-headless==4.13.0.92",
+    "pydantic==2.13.5",
+    "uvicorn==0.54.0",
+    "pyyaml==6.0.3",
+    "ros2-common",
+]
 
-[tool.poetry.dependencies]
-python = ">=3.12,<3.15"
-mcp = "2.3.0"
-ikpy = "4.1.0"
-numpy = "2.4.3"
-scipy = "1.18.1"
-opencv-python-headless = "4.13.0.92"
-pydantic = "2.13.5"
-uvicorn = "0.54.0"
-pyyaml = "6.0.3"
-ros2-common = { path = "../../shared", develop = true }
+[dependency-groups]
+dev = [
+    "ruff==0.16.10",
+    "vulture==2.16",
+    "poethepoet==0.48.0",
+    "pytest==9.1.1",
+    "httpx==0.28.1",
+]
 
-[tool.poetry.group.dev.dependencies]
-ruff = "0.16.10"
-vulture = "2.16"
-poethepoet = "0.48.0"
-pytest = "9.1.1"
-httpx = "0.28.1"
+[tool.uv.sources]
+ros2-common = { path = "../../shared", editable = true }
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_server"]
 
 [tool.ruff]
 line-length = 120

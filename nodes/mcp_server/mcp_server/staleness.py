@@ -1,9 +1,6 @@
 """Data age bookkeeping: every cached ROS sample carries the monotonic time it was received."""
 
 from dataclasses import dataclass
-from typing import Generic, TypeVar
-
-T = TypeVar("T")
 
 
 def age_s(stamp: float | None, now: float) -> float | None:
@@ -35,7 +32,7 @@ def is_fresh(stamp: float | None, now: float, max_age_s: float) -> bool:
 
 
 @dataclass(frozen=True)
-class Stamped(Generic[T]):
+class Stamped[T]:
     """A value with the time it was received."""
 
     value: T
