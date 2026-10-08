@@ -141,7 +141,7 @@ class _TrackingNodeBase:
     subclassing complications.  All relevant methods return MagicMock objects.
     """
 
-    _instances: list["_TrackingNodeBase"] = []
+    _instances: list[_TrackingNodeBase] = []
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.publishers: list[MagicMock] = []
@@ -171,7 +171,7 @@ class _TrackingNodeBase:
         """No-op destroy."""
 
 
-def _run_with_tracking_node(rules: list[TopicRule], **kwargs: Any) -> "_TrackingNodeBase":
+def _run_with_tracking_node(rules: list[TopicRule], **kwargs: Any) -> _TrackingNodeBase:
     """Run run_all_relays with a _TrackingNodeBase as the Node mock.
 
     Returns the RelayNode instance created inside run_all_relays.
