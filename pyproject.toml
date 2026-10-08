@@ -1,31 +1,30 @@
-[tool.poetry]
+[project]
 name = "ros2-lerobot-swerve-platform"
 version = "0.1.0"
-description = "ROS2 Lerobot Swerve-Drive Platform — monorepo for server, client, and Ansible"
-authors = []
+description = "ROS2 Lerobot Swerve-Drive Platform - monorepo for server, client, and Ansible"
 readme = "README.md"
-packages = []
+requires-python = ">=3.11"
+dependencies = []
 
-[tool.poetry.dependencies]
-python = "^3.11"
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-cov>=7.0.0",
+    "pyyaml>=6.0",
+    "jinja2>=3.1",
+    "pydantic>=2.0",
+    "numpy>=1.26.0",
+    "scipy>=1.11.0",
+    "opencv-python-headless>=4.9.0,<5",
+    "ruff==0.15.20",
+    "vulture>=2.11",
+    "pre-commit>=4.0.0",
+    "poethepoet>=0.42.0",
+    "ansible-lint>=26.0",
+]
 
-[tool.poetry.group.dev.dependencies]
-pydantic = ">=2.0"
-pytest = "^9.0.0"
-pyyaml = ">=6.0"
-pytest-cov = "^7.0.0"
-flake8 = "^7.0.0"
-black = "^24.0.0"
-isort = "^5.13.0"
-vulture = "^2.11"
-autoflake = "^2.3.1"
-pre-commit = "^4.0.0"
-poethepoet = "^0.42.0"
-ansible-lint = "^26.0"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.uv]
+package = false
 
 [tool.pytest.ini_options]
 addopts = "-v -rxXs"
@@ -33,21 +32,13 @@ testpaths = ["tests"]
 log_cli = true
 log_cli_level = "INFO"
 
-[tool.autoflake]
-remove-all-unused-imports = true
-in-place = true
-expand-star-imports = true
-remove-unused-variables = true
-
-[tool.black]
+[tool.ruff]
 line-length = 120
+extend-exclude = ["nodes", "ansible", "client", "server"]
 
-[tool.isort]
-profile = "black"
-line_length = 120
-
-[tool.flake8]
-max-line-length = 120
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
 
 [tool.vulture]
 exclude = ["venv", ".venv", "build", "dist", "client", "server", "ansible", "nodes", "**/__pycache__"]
@@ -62,38 +53,35 @@ source = ["shared"]
 [tool.coverage.report]
 skip_empty = true
 
-# Root lint: tests, shared only. Python nodes have their own Poetry and `poe lint` (see README).
+# Root lint: tests, shared only. Python nodes have their own uv project and `poe lint` (see README).
 [tool.poe.tasks]
 lint = { shell = """
   set -e
-  flake8 tests shared
-  black --check tests shared
-  isort --check tests shared
-  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables tests shared
+  ruff check tests shared
+  ruff format --check tests shared
   vulture tests shared --min-confidence 80
 """ }
 lint-fix = { shell = """
-  black tests shared
-  isort tests shared
-  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables tests shared
+  ruff check --fix tests shared
+  ruff format tests shared
 """ }
 lint-nodes = { shell = """
   set -e
-  (cd nodes/master2master && poetry run poe lint)
-  (cd nodes/bridges/uvc_camera && poetry run poe lint)
-  (cd nodes/bridges/feetech_servos && poetry run poe lint)
-  (cd nodes/bridges/gps_rtk && poetry run poe lint)
-  (cd nodes/bridges/bno055_imu && poetry run poe lint)
-  (cd nodes/lerobot_teleop && poetry run poe lint)
-  (cd nodes/filter_node && poetry run poe lint)
-  (cd nodes/test_joint_api && poetry run poe lint)
-  (cd nodes/haptic_controller && poetry run poe lint)
-  (cd nodes/topic_scraper_api && poetry run poe lint)
-  (cd nodes/swerve_drive_controller && poetry run poe lint)
-  (cd nodes/web_ui && poetry run poe lint)
-  (cd nodes/claude_agent && poetry run poe lint)
-  (cd nodes/static_tf_publisher && poetry run poe lint)
-  (cd nodes/steamdeck_ui/bridge && poetry run poe lint)
+  (cd nodes/master2master && uv run poe lint)
+  (cd nodes/bridges/uvc_camera && uv run poe lint)
+  (cd nodes/bridges/feetech_servos && uv run poe lint)
+  (cd nodes/bridges/gps_rtk && uv run poe lint)
+  (cd nodes/bridges/bno055_imu && uv run poe lint)
+  (cd nodes/lerobot_teleop && uv run poe lint)
+  (cd nodes/filter_node && uv run poe lint)
+  (cd nodes/test_joint_api && uv run poe lint)
+  (cd nodes/haptic_controller && uv run poe lint)
+  (cd nodes/topic_scraper_api && uv run poe lint)
+  (cd nodes/swerve_drive_controller && uv run poe lint)
+  (cd nodes/web_ui && uv run poe lint)
+  (cd nodes/claude_agent && uv run poe lint)
+  (cd nodes/static_tf_publisher && uv run poe lint)
+  (cd nodes/steamdeck_ui/bridge && uv run poe lint)
 """ }
 lint-ansible = { shell = """
   set -e

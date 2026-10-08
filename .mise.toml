@@ -1,9 +1,27 @@
 [tools]
 python = "3.12"
-uv = "0.10.6"
-poetry = "2.3.2"
+uv = "0.11.29"
+# Pinned here rather than inherited from the workbench root: this repo is an
+# independent GitHub repo and its own CI clones it alone, with no superrepo
+# .mise.toml above it to supply ruff.
+ruff = "0.15.20"
 
 [env]
-POETRY_INSTALLER_MAX_WORKERS = "4"
-POETRY_VIRTUALENVS_IN_PROJECT = "true"
-POETRY_VIRTUALENVS_PREFER_ACTIVE_PYTHON = "true"
+_.python.venv = { path = ".venv", create = true }
+UV_PYTHON_DOWNLOADS = "never"
+
+[tasks.install]
+description = "Sync the virtualenv from the lockfile"
+run = "uv sync"
+
+[tasks.lint]
+description = "Lint and format check"
+run = "uv run poe lint"
+
+[tasks.fmt]
+description = "Format and autofix"
+run = "uv run poe lint-fix"
+
+[tasks.test]
+description = "Run root tests"
+run = "uv run pytest tests -q"

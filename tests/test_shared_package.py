@@ -1,4 +1,4 @@
-"""shared/ is an installable Poetry package (ros2-common) that nodes consume as a relative path dependency."""
+"""shared/ is an installable PEP 621 package (ros2-common) that nodes consume as a relative path dependency."""
 
 import tomllib
 from pathlib import Path
@@ -24,20 +24,27 @@ def load_pyproject(path: Path) -> dict:
 
 def test_shared_pyproject_defines_ros2_common() -> None:
     """shared/pyproject.toml names the package ros2-common and ships the ros2_common module."""
-    poetry = load_pyproject(SHARED_DIR)["tool"]["poetry"]
-    assert poetry["name"] == PACKAGE_NAME
-    assert {"include": MODULE_NAME} in poetry["packages"]
+    pyproject = load_pyproject(SHARED_DIR)
+    assert pyproject["project"]["name"] == PACKAGE_NAME
+    assert pyproject["build-system"]["build-backend"] == "hatchling.build"
+    assert pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [MODULE_NAME]
     assert (SHARED_DIR / MODULE_NAME / "__init__.py").is_file()
 
 
 def test_nodes_depend_on_shared_by_relative_develop_path() -> None:
     """Each consumer node points at the shared dir relative to itself; the layout is the same on the Pi.
 
-    Ansible syncs the whole repo to ros2_repo_dest and runs poetry inside <repo>/nodes/<node>, so the same
-    relative path resolves there as in the checkout.
+    Ansible syncs the whole repo to ros2_repo_dest and installs inside <repo>/nodes/<node>, so the same
+    relative path resolves there as in the checkout. Nodes declare it as a uv editable path source, or
+    (until migrated) as a Poetry develop path dependency.
     """
     for node in CONSUMER_NODES:
         node_dir = REPO_ROOT / "nodes" / node
-        dep = load_pyproject(node_dir)["tool"]["poetry"]["dependencies"][PACKAGE_NAME]
-        assert dep["develop"] is True
+        tool = load_pyproject(node_dir)["tool"]
+        if "poetry" in tool:
+            dep = tool["poetry"]["dependencies"][PACKAGE_NAME]
+            assert dep["develop"] is True
+        else:
+            dep = tool["uv"]["sources"][PACKAGE_NAME]
+            assert dep["editable"] is True
         assert (node_dir / dep["path"]).resolve() == SHARED_DIR.resolve()
