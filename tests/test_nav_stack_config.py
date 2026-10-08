@@ -7,6 +7,7 @@ and the disabled-by-default collision_monitor StopBox.
 """
 
 import ast
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -529,10 +530,12 @@ def test_nav2_collision_monitor_uses_scan() -> None:
     assert cm["polygons"]
     for name in cm["polygons"]:
         polygon = cm[name]
-        assert polygon["type"] in ("polygon", "circle")
+        assert polygon["type"] in ("polygon", "circle", "velocity_polygon")
         assert polygon["action_type"] in ("stop", "slowdown", "approach", "limit")
         if polygon["type"] == "polygon":
             assert len(yaml.safe_load(polygon["points"])) >= 3
+        elif polygon["type"] == "velocity_polygon":
+            assert all(len(yaml.safe_load(polygon[sub]["points"])) >= 3 for sub in polygon["velocity_polygons"])
         else:
             assert polygon["radius"] > 0
         assert isinstance(polygon["min_points"], int) and polygon["min_points"] > 0
@@ -543,8 +546,8 @@ def test_nav2_collision_monitor_uses_scan() -> None:
 
 
 def test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan() -> None:
-    """StopBox (5 cm outside the footprint) is enabled: on /scan_filtered the robot body is removed and a 20 s
-    stationary sample on the robot (2026-10-03) had 0 returns in the 5 cm band (min_points 4)."""
+    """StopBox (2 cm outside the footprint) is enabled: on /scan_filtered the robot body is removed and a 20 s
+    stationary sample on the robot (2026-10-03) had 0 returns in the band (min_points 4)."""
     cm = ros_params(nav2(), "collision_monitor")
     assert (cm["cmd_vel_in_topic"], cm["cmd_vel_out_topic"]) == ("cmd_vel_smoothed", "cmd_vel")
     assert cm["base_frame_id"] == "base_link" and cm["odom_frame_id"] == "odom"
@@ -554,8 +557,84 @@ def test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan() -> None:
     stop = cm["StopBox"]
     assert stop["enabled"] is True
     assert stop["action_type"] == "stop"
-    assert stop["type"] == "polygon"
+    assert stop["type"] == "velocity_polygon" and stop["holonomic"] is True
     assert stop["min_points"] >= 4
+
+
+def point_in_polygon(x: float, y: float, poly: list[list[float]]) -> bool:
+    """Ray-casting point-in-polygon test (as nav2_collision_monitor Polygon::isPointInside).
+
+    Args:
+        x (float): Point x (m).
+        y (float): Point y (m).
+        poly (list[list[float]]): Polygon vertices.
+
+    Returns:
+        bool: True when the point is inside.
+    """
+    inside = False
+    j = len(poly) - 1
+    for i in range(len(poly)):
+        (xi, yi), (xj, yj) = poly[i], poly[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def stopbox_polygon(vx: float, vy: float, wz: float) -> list[list[float]]:
+    """StopBox sub-polygon nav2_collision_monitor selects for a command (VelocityPolygon::isInRange, first match).
+
+    Args:
+        vx (float): Forward (m/s).
+        vy (float): Left (m/s).
+        wz (float): Yaw rate (rad/s).
+
+    Returns:
+        list[list[float]]: Selected polygon vertices.
+    """
+    stop = ros_params(nav2(), "collision_monitor")["StopBox"]
+    magnitude = math.hypot(vx, vy)
+    direction = math.atan2(vy, vx) if magnitude > 0.0 else 0.0
+    for name in stop["velocity_polygons"]:
+        sub = stop[name]
+        start, end = sub["direction_start_angle"], sub["direction_end_angle"]
+        in_dir = start <= direction <= end if start <= end else direction >= start or direction <= end
+        if (
+            sub["theta_min"] <= wz <= sub["theta_max"]
+            and sub["linear_min"] <= magnitude <= sub["linear_max"]
+            and in_dir
+        ):
+            return yaml.safe_load(sub["points"])
+    raise AssertionError(f"velocity ({vx}, {vy}, {wz}) is not covered by any StopBox sub-polygon")
+
+
+# A return 0.5 cm outside the laser_filter self box (so it survives /scan_filtered) mid-face on each side.
+BAND_POINTS = {"front": (0.25, 0.0), "back": (-0.25, 0.0), "left": (0.0, 0.208), "right": (0.0, -0.208)}
+FACE_NORMALS = {"front": (1.0, 0.0), "back": (-1.0, 0.0), "left": (0.0, 1.0), "right": (0.0, -1.0)}
+
+
+def test_stopbox_covers_every_velocity() -> None:
+    for deg in range(-180, 181, 5):
+        for speed in (0.0, 0.003, 0.02, 0.1, 0.25):
+            for wz in (-0.5, 0.0, 0.5):
+                stopbox_polygon(speed * math.cos(math.radians(deg)), speed * math.sin(math.radians(deg)), wz)
+
+
+@pytest.mark.parametrize("face", sorted(BAND_POINTS))
+def test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape(face: str) -> None:
+    """Direction-aware StopBox: an obstacle in the band stops motion toward its side only, so the robot can back away
+    or slide along it instead of freezing (the plain StopBox zeroed every command once an obstacle was inside)."""
+    px, py = BAND_POINTS[face]
+    nx, ny = FACE_NORMALS[face]
+    speed = 0.1
+    assert point_in_polygon(px, py, stopbox_polygon(speed * nx, speed * ny, 0.0)), "toward"
+    assert point_in_polygon(px, py, stopbox_polygon(speed * (nx - ny), speed * (ny + nx), 0.0)), "diagonal toward"
+    assert not point_in_polygon(px, py, stopbox_polygon(-speed * nx, -speed * ny, 0.0)), "away"
+    assert not point_in_polygon(px, py, stopbox_polygon(-speed * (nx - ny), -speed * (ny + nx), 0.0)), "diag away"
+    assert not point_in_polygon(px, py, stopbox_polygon(-speed * ny, speed * nx, 0.0)), "along"
+    assert not point_in_polygon(px, py, stopbox_polygon(speed * ny, -speed * nx, 0.0)), "along"
+    assert point_in_polygon(px, py, stopbox_polygon(0.0, 0.0, 0.5)), "rotating in place sweeps the corners"
 
 
 def test_nav2_readme_documents_collision_monitor_validation() -> None:
@@ -792,10 +871,10 @@ def test_safety_boxes_hug_the_given_dimensions() -> None:
     assert (box["max_x"], box["max_y"]) == pytest.approx((0.245, 0.203))
     assert (box["min_x"], box["min_y"]) == pytest.approx((-0.245, -0.203))
     stop = ros_params(nav2(), "collision_monitor")["StopBox"]
-    xs = [abs(x) for x, _ in yaml.safe_load(stop["points"])]
-    ys = [abs(y) for _, y in yaml.safe_load(stop["points"])]
-    assert max(xs) == pytest.approx(0.255) and max(ys) == pytest.approx(0.213)
-    assert min(xs) > box["max_x"] and min(ys) > box["max_y"]
+    for sub in stop["velocity_polygons"]:
+        points = yaml.safe_load(stop[sub]["points"])
+        assert all(abs(x) in (0.0, 0.255) and abs(y) in (0.0, 0.213) for x, y in points), sub
+    assert 0.255 > box["max_x"] and 0.213 > box["max_y"]
 
 
 @pytest.mark.parametrize("costmap", ["global_costmap", "local_costmap"])

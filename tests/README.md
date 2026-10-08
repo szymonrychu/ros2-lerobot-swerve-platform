@@ -440,12 +440,14 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_planner_navfn_allows_unknown` | NavFn with `allow_unknown: true`. |
 | `test_nav2_velocity_smoother_matches_swerve` | Smoother limits `[0.25, 0.25, 0.5]`, odom `/odometry/filtered`. |
 | `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) and a `/scan` observation source. |
-| `test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan` | collision_monitor stays in the `cmd_vel_smoothed -> cmd_vel` chain with its core keys; `StopBox` (stop polygon, min 4 points) is enabled on the footprint-filtered scan. |
+| `test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan` | collision_monitor stays in the `cmd_vel_smoothed -> cmd_vel` chain with its core keys; `StopBox` (holonomic stop `velocity_polygon`, min 4 points) is enabled on the footprint-filtered scan. |
+| `test_stopbox_covers_every_velocity` | Every command (directions in 5 deg steps, speeds 0 to 0.25 m/s, yaw rates -0.5 to 0.5) selects a StopBox sub-polygon, as Nav2 keeps the previous one for an uncovered velocity. |
+| `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side, a return in the band just outside the self-filter box stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
 | `test_nav2_goal_tolerance_tight_enough_for_swerve` | Goal checker tolerances 0.01 m / 0.035 rad (1 cm / 2 deg), stateful: the latch only holds because the BT no longer replans periodically. |
 | `test_nav2_replans_only_when_path_invalid` | `bt_navigator` uses the "replanning only if path becomes invalid" BT: periodic replans reset the goal checker latch and the rotation shim position check. |
 | `test_nav2_progress_checker_counts_rotation` | `progress_checker` is `PoseProgressChecker` (counts rotation), movement radius <= 0.05 m and a required angle set. |
 | `test_costmaps_add_no_margin_beyond_given_dimensions` | Both costmaps: `footprint_padding` 0 and inflation only to the planner footprint's circumscribed radius (0.24 m, `cost_scaling_factor` >= 10). |
-| `test_safety_boxes_hug_the_given_dimensions` | laser_filter self box is footprint + 1 cm and the collision-monitor StopBox footprint + 2 cm, strictly outside the filter box so obstacles stay visible to it. |
+| `test_safety_boxes_hug_the_given_dimensions` | laser_filter self box is footprint + 1 cm and every collision-monitor StopBox sub-polygon is bounded by footprint + 2 cm, strictly outside the filter box so obstacles stay visible to it. |
 | `test_costmaps_wait_for_odom_through_a_gradual_restart` | Both costmaps: `initial_transform_timeout` >= 300 s, so a deploy that restarts nav2 before the gradual ramp brings up the servos and EKF (odom TF) does not abort the bringup. |
 | `test_ekf_rate_fits_the_cpu_budget` | EKF `frequency` 30 Hz: at 50 Hz it missed its rate on the loaded Pi and its odom TF lagged the scans. |
 | `test_slam_waits_for_a_lagging_odom_transform` | slam_toolbox `transform_timeout` >= 0.5 s so scans are not dropped when the odom TF lags. |

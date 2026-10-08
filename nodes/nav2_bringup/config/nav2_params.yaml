@@ -350,19 +350,97 @@ collision_monitor:
     source_timeout: 1.0
     base_shift_correction: true
     stop_pub_timeout: 2.0
-    # StopBox: stop when 4+ scan points enter a box 2 cm beyond the outer 470 x 386 mm frame on every side (the outer dimensions already
-    # include the wheel margin). It must stay outside the laser_filter self box (footprint + 1 cm), whose returns are
-    # removed from /scan_filtered. A 20 s stationary sample on the robot (2026-10-03) had 0 returns within 5 cm of the
-    # footprint. To disable at runtime:
+    # StopBox: stop when 4+ scan points enter the box 2 cm beyond the outer 470 x 386 mm frame on every side (the outer
+    # dimensions already include the wheel margin), but only on the side the command drives toward. A plain stop
+    # polygon zeroed every command once an obstacle was inside, so a robot that got close to a wall froze and could not
+    # back away. As a velocity_polygon the monitor checks one sub-polygon picked by the command direction
+    # (atan2(vy, vx), first match wins): the triangle between the base_link origin and the face being approached
+    # (two faces for diagonal sectors). Commands within 10 deg of an axis count as pure axis motion. Near-zero linear
+    # speed (rotating in place sweeps the corners) checks the full box. The box must stay outside the laser_filter
+    # self box (footprint + 1 cm), whose returns are removed from /scan_filtered. A 20 s stationary sample on the robot
+    # (2026-10-03) had 0 returns within 5 cm of the footprint. To disable at runtime:
     # `ros2 param set /collision_monitor StopBox.enabled false`.
     polygons: ["StopBox"]
     StopBox:
-      type: "polygon"
-      points: "[[0.255, 0.213], [0.255, -0.213], [-0.255, -0.213], [-0.255, 0.213]]"
+      type: "velocity_polygon"
       action_type: "stop"
       min_points: 4
       visualize: false
       enabled: true
+      holonomic: true
+      velocity_polygons: ["rotate", "forward", "forward_left", "left", "back_left", "back", "back_right", "right", "forward_right"]
+      rotate:
+        points: "[[0.255, 0.213], [0.255, -0.213], [-0.255, -0.213], [-0.255, 0.213]]"
+        linear_min: 0.0
+        linear_max: 0.005
+        theta_min: -10.0
+        theta_max: 10.0
+        direction_start_angle: -3.1416
+        direction_end_angle: 3.1416
+      forward:
+        points: "[[0.0, 0.0], [0.255, 0.213], [0.255, -0.213]]"
+        linear_min: 0.0
+        linear_max: 10.0
+        theta_min: -10.0
+        theta_max: 10.0
+        direction_start_angle: -0.1745
+        direction_end_angle: 0.1745
+      forward_left:
+        points: "[[0.255, -0.213], [0.255, 0.213], [-0.255, 0.213]]"
+        linear_min: 0.0
+        linear_max: 10.0
+        theta_min: -10.0
+        theta_max: 10.0
+        direction_start_angle: 0.1745
+        direction_end_angle: 1.3963
+      left:
+        points: "[[0.0, 0.0], [0.255, 0.213], [-0.255, 0.213]]"
+        linear_min: 0.0
+        linear_max: 10.0
+        theta_min: -10.0
+        theta_max: 10.0
+        direction_start_angle: 1.3963
+        direction_end_angle: 1.7453
+      back_left:
+        points: "[[0.255, 0.213], [-0.255, 0.213], [-0.255, -0.213]]"
+        linear_min: 0.0
+        linear_max: 10.0
+        theta_min: -10.0
+        theta_max: 10.0
+        direction_start_angle: 1.7453
+        direction_end_angle: 2.9671
+      back:
+        points: "[[0.0, 0.0], [-0.255, 0.213], [-0.255, -0.213]]"
+        linear_min: 0.0
+        linear_max: 10.0
+        theta_min: -10.0
+        theta_max: 10.0
+        direction_start_angle: 2.9671
+        direction_end_angle: -2.9671
+      back_right:
+        points: "[[-0.255, 0.213], [-0.255, -0.213], [0.255, -0.213]]"
+        linear_min: 0.0
+        linear_max: 10.0
+        theta_min: -10.0
+        theta_max: 10.0
+        direction_start_angle: -2.9671
+        direction_end_angle: -1.7453
+      right:
+        points: "[[0.0, 0.0], [-0.255, -0.213], [0.255, -0.213]]"
+        linear_min: 0.0
+        linear_max: 10.0
+        theta_min: -10.0
+        theta_max: 10.0
+        direction_start_angle: -1.7453
+        direction_end_angle: -1.3963
+      forward_right:
+        points: "[[-0.255, -0.213], [0.255, -0.213], [0.255, 0.213]]"
+        linear_min: 0.0
+        linear_max: 10.0
+        theta_min: -10.0
+        theta_max: 10.0
+        direction_start_angle: -1.3963
+        direction_end_angle: -0.1745
     observation_sources: ["scan"]
     scan:
       type: "scan"
