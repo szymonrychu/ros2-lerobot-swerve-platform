@@ -11,75 +11,72 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6.8.0
         with:
-          python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
-      - name: Install root dependencies
-        run: poetry install --no-root
+          version: 0.11.29
+          python-version: "3.12"
       - name: Run lint
-        run: poetry run poe lint
+        run: uv run --frozen poe lint
 
-  lint-nodes:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6.8.0
         with:
-          python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
-      - name: Run node linters
-        # lint-all-nodes.sh runs `poetry install` per node before `poetry run poe lint`
-        run: ./scripts/lint-all-nodes.sh
-
-  test-nodes:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # All nodes below have tests that work without ROS2.
-        # Tests that require rclpy/sensor_msgs/etc. use pytest.importorskip and are skipped automatically.
-        node:
-          - bridges/bno055_imu
-          - filter_node
-          - haptic_controller
-          - lerobot_teleop
-          - static_tf_publisher
-          - swerve_drive_controller
-          - test_joint_api
-          - topic_scraper_api
-          - bridges/feetech_servos
-          - bridges/gps_rtk
-          - bridges/uvc_camera
-      fail-fast: false
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
-      - name: Install node dependencies
-        working-directory: nodes/${{ matrix.node }}
-        run: poetry install
-      - name: Run tests
-        working-directory: nodes/${{ matrix.node }}
-        run: poetry run pytest tests/ -v --tb=short
+          version: 0.11.29
+          python-version: "3.12"
+      - name: Run root tests
+        run: uv run --frozen pytest tests -q
 
   lint-ansible:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6.8.0
         with:
-          python-version: "3.11"
-      - name: Install Poetry
-        run: pip install poetry
-      - name: Install root dependencies
-        run: poetry install --no-root
+          version: 0.11.29
+          python-version: "3.12"
       - name: Run ansible lint
-        # NOTE: ansible-lint may fail if Ansible collections (e.g. community.general,
-        # ansible.posix) are not installed. Add an `ansible-galaxy collection install`
-        # step here if the playbooks require specific collections.
-        run: poetry run poe lint-ansible
+        run: uv run --frozen poe test-ansible
+
+  nodes:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every nodes/**/pyproject.toml; tests/test_ci_workflow.py keeps this in sync.
+        node:
+          - bridges/bno055_imu
+          - bridges/feetech_servos
+          - bridges/gps_rtk
+          - bridges/uvc_camera
+          - claude_agent
+          - filter_node
+          - haptic_controller
+          - lerobot_teleop
+          - master2master
+          - mcp_server
+          - poi_store
+          - rf2o_odom_relay
+          - static_tf_publisher
+          - steamdeck_ui/bridge
+          - swerve_drive_controller
+          - test_joint_api
+          - topic_scraper_api
+          - web_ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6.8.0
+        with:
+          version: 0.11.29
+          python-version: "3.12"
+      - name: Check lockfile
+        working-directory: nodes/${{ matrix.node }}
+        run: uv lock --check
+      - name: Lint
+        working-directory: nodes/${{ matrix.node }}
+        run: uv run --frozen poe lint
+      - name: Test
+        working-directory: nodes/${{ matrix.node }}
+        run: uv run --frozen pytest -q
