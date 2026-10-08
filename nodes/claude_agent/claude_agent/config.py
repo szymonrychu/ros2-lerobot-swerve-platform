@@ -75,17 +75,15 @@ class ClaudeAgentConfig(BaseModel):
 
     Attributes:
         model: Claude model alias or id passed to the Agent SDK.
-        max_ro_cap: Hard maximum of the agent-chosen read-only (sensor) call budget per instruction.
         max_rw_cap: Hard maximum of the agent-chosen read-write (effector) call budget per instruction.
         max_turn_cap: Hard maximum of the agent-chosen model-turn budget per instruction (SDK ``max_turns`` is this plus
             TURN_MARGIN, see the ``max_turns`` property).
-        max_phase_ro_cap: Largest read-only (sensor) call cap the agent may give ONE phase of its plan.
-        max_phase_rw_cap: Largest read-write (effector) call cap of one phase.
+        max_phase_rw_cap: Largest read-write (effector) call cap the agent may give ONE phase of its plan.
         max_phase_turn_cap: Largest model-turn cap of one phase. The caps of all phases together must also stay within
-            the three instruction maxima above.
+            the two instruction maxima above. Sensor calls have no budget at all.
         effector_tools: Short names (no mcp__robot__ prefix) of the motion tools; keep in sync with mcp_server MOTION_TOOLS.
         uncapped_tools: Short names of safety/control tools that are never capped (stop never counts).
-        sensor_tools: Short names of read-only tools (never capped).
+        sensor_tools: Short names of read-only tools (counted for telemetry, never capped or refused).
         mcp_url: Robot MCP server Streamable HTTP URL.
         mcp_token_file: File holding the MCP bearer token (``MCP_SERVER_TOKEN=<token>`` or the bare token); read at each session start.
         http_host: Bind address of the API (loopback only; the web UI proxies it).
@@ -113,10 +111,8 @@ class ClaudeAgentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str = "opus"
-    max_ro_cap: int = Field(default=300, ge=1)
-    max_rw_cap: int = Field(default=100, ge=1)
-    max_turn_cap: int = Field(default=150, ge=1)
-    max_phase_ro_cap: int = Field(default=60, ge=1)
+    max_rw_cap: int = Field(default=150, ge=1)
+    max_turn_cap: int = Field(default=200, ge=1)
     max_phase_rw_cap: int = Field(default=40, ge=1)
     max_phase_turn_cap: int = Field(default=40, ge=1)
     effector_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_EFFECTOR_TOOLS))

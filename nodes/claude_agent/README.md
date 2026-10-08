@@ -70,13 +70,15 @@ interrupts), the spatial perception workflow (`get_topdown_view`, `look_around`,
 
 There are no static per-instruction caps. For each instruction the agent splits the task into phases, gives each phase a
 goal and its own caps, then starts working at once (no approval step). Everything resets at each `POST /api/message`.
-The counters are:
+Sensor calls have no budget: they are never refused (not before a plan, not after the last phase, not when a phase turn cap is
+used up) and only counted (`ro_used`, per instruction and per active phase) for telemetry. The budgeted counters are:
 
 | Counter | Counts | Instruction maximum (config) | Per-phase maximum (config) |
 |---|---|---|---|
-| `ro` (read-only) | robot sensor calls (kind `sensor`: `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools and the POI tools; all of them listed in `sensor_tools`, because an unlisted robot tool counts as an effector) | `max_ro_cap` (300) | `max_phase_ro_cap` (60) |
-| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`; a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (100) | `max_phase_rw_cap` (40) |
-| turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (150) | `max_phase_turn_cap` (40) |
+| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`; a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (150) | `max_phase_rw_cap` (40) |
+| turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (200) | `max_phase_turn_cap` (40) |
+
+Sensor calls (kind `sensor`: `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools and the POI tools) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
 
 Not counted: the notes file tools, the planning tools, and the control tools `stop`, `acquire_control`, `release_control`
 (`stop` must always work). Keep `effector_tools` equal to the motion classification of `nodes/mcp_server` (`MOTION_TOOLS`;
@@ -85,9 +87,9 @@ Not counted: the notes file tools, the planning tools, and the control tools `st
 The in-process SDK MCP server `agent` (`claude_agent_sdk.create_sdk_mcp_server`) offers four tools:
 
 - `mcp__agent__set_task_plan(complexity, rationale, phases)`: `complexity` is `trivial`, `simple`, `moderate`, `complex` or
-  `very_complex`; `phases` is 1 to 12 objects `{name, goal, ro_cap, rw_cap, turn_cap}`. `goal` is a measurable success criterion
-  (for example "within 10 cm of the tomato"). `ro_cap`/`turn_cap` are integers >= 1, `rw_cap` an integer >= 0 (0 for a sensing-only
-  phase). A cap above its per-phase maximum is clamped and the result says which; if the caps of all phases summed exceed an
+  `very_complex`; `phases` is 1 to 12 objects `{name, goal, rw_cap, turn_cap}`. `goal` is a measurable success criterion
+  (for example "within 10 cm of the tomato"). `turn_cap` is an integer >= 1, `rw_cap` an integer >= 0 (0 for a sensing-only
+  phase). A stray `ro_cap` from the model is ignored silently. A cap above its per-phase maximum is clamped and the result says which; if the caps of all phases summed exceed an
   instruction maximum the plan is rejected with the sum and the room left. The first phase becomes active. A second call is refused
   (use `revise_plan`).
 - `mcp__agent__complete_phase(outcome, summary)`: closes the active phase with `done`, `failed` or `skipped` and a summary, records
@@ -95,17 +97,18 @@ The in-process SDK MCP server `agent` (`claude_agent_sdk.create_sdk_mcp_server`)
 - `mcp__agent__revise_plan(rationale, phases)`: once per instruction, replaces the remaining phases (an unfinished active phase is
   closed as `failed`, completed phases are immutable). The new caps must fit into the instruction maxima minus what started phases
   already used.
-- `mcp__agent__raise_phase_budget(ro_cap?, rw_cap?, turn_cap?, rationale)`: once per phase, new total caps for the active phase (not
+- `mcp__agent__raise_phase_budget(rw_cap?, turn_cap?, rationale)`: once per phase, new total caps for the active phase (not
   lower than now), limited to what is left of the instruction maxima.
 
 Gate (`tools.py`, `can_use_tool`):
 
-- Every sensor and effector tool is denied with `call agent.set_task_plan first` until a plan exists, and with `all phases are
-  completed; ...` after the last phase. The notes tools, the planning tools and the control tools stay allowed.
-- Calls are counted against the ACTIVE phase and denied past its cap: `phase 2 'Drive' ro budget exhausted (N/N); call
+- Sensor tools are always allowed (counted only). Every effector tool is denied with `call agent.set_task_plan first` until a plan
+  exists, and with `all phases are completed; ...` after the last phase. The notes tools, the planning tools and the control tools
+  stay allowed.
+- Effector calls are counted against the ACTIVE phase and denied past its cap: `phase 2 'Drive' rw budget exhausted (N/N); call
   agent.complete_phase (outcome 'failed' if ...), agent.revise_plan, or raise this phase once with agent.raise_phase_budget` (a
   `tool_denied` event).
-- Phase turn cap: when the active phase has used its turns, robot tools are denied for that phase and, once per phase, the runner
+- Phase turn cap: when the active phase has used its turns, effector tools are denied (sensors stay allowed) for that phase and, once per phase, the runner
   interrupts the model and continues the same instruction with a `PHASE TURN CAP` note (the same follow-up mechanism as robot events).
   The instruction continues.
 - Instruction turn maximum: when `max_turn_cap` turns are used (checked when the tool results of that turn arrive, so its calls
@@ -116,9 +119,18 @@ Gate (`tools.py`, `can_use_tool`):
 
 The system prompt explains the planning with the example "put plushie tomato into toy car" (1 Locate mentioned objects, 2 Drive
 towards tomato within 10 cm, 3 Pick up tomato, 4 Drive towards toy car within 10 cm, 5 Drop tomato into the toy car, 6 Get back to
-home), measurable goals, per-phase cap guidance (locate ro 10-30 / rw 0-5, drive ro 5-15 / rw 3-10, pick ro 15-40 / rw 10-25, drop
-ro 5-15 / rw 5-10, home ro 2-5 / rw 1-3; `look_around` counts 1), the maxima, explicit honest `complete_phase` calls and starting
-work immediately after planning.
+home), measurable goals, generous per-phase cap guidance (plan roughly double the estimate, because grasps need retries; locate rw 5-10 / turns
+15-30, drive rw 8-20 / turns 10-25, pick rw 20-40 / turns 30-40, drop rw 10-20 / turns 10-20, home rw 2-6 / turns 5-10;
+`look_around` counts 1), raising a low phase early with `raise_phase_budget` instead of giving up, that sensor calls are
+unlimited, the maxima, explicit honest `complete_phase` calls and starting work immediately after planning. The six example
+phases at the top of the guidance sum to rw 116 and turns 150, which fits `max_rw_cap` 150 and `max_turn_cap` 200 with room for
+raises (the maxima were 100 and 150 before).
+
+A `Grasping:` paragraph of the prompt makes the agent photograph the object from several viewpoints before every grasp (one from
+directly above, one from a different angle), convert the object centre pixel of each picture to floor coordinates with
+`pixel_to_ground` (or `mark_candidate_points` + `resolve_candidate`), average the estimates when they agree within about 1 cm
+(otherwise take another picture), aim at the object centre and not its edge, correct the target by the observed offset after a
+miss (earlier grasps landed left of the centre) and record what worked in `NOTES.md`.
 
 ## Robot events and interrupts
 
@@ -176,8 +188,8 @@ unknown keys are rejected.
 | Key | Default | Meaning |
 |---|---|---|
 | `model` | `opus` | Model alias or id |
-| `max_ro_cap` / `max_rw_cap` / `max_turn_cap` | `300` / `100` / `150` | Hard maxima of the caps of all phases together per instruction (SDK `max_turns` = `max_turn_cap` + 10) |
-| `max_phase_ro_cap` / `max_phase_rw_cap` / `max_phase_turn_cap` | `60` / `40` / `40` | Maxima of the caps of one phase (larger values are clamped) |
+| `max_rw_cap` / `max_turn_cap` | `150` / `200` | Hard maxima of the caps of all phases together per instruction (SDK `max_turns` = `max_turn_cap` + 10) |
+| `max_phase_rw_cap` / `max_phase_turn_cap` | `40` / `40` | Maxima of the caps of one phase (larger values are clamped) |
 | `effector_tools` / `uncapped_tools` / `sensor_tools` | see above | Short tool names (no `mcp__robot__`) |
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |
 | `mcp_token_file` | `/etc/ros2/mcp_server/token` | `MCP_SERVER_TOKEN=<token>` (or the bare token), read per session |
@@ -205,7 +217,7 @@ The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this
 
 | Route | Result |
 |---|---|
-| `GET /api/state` | `{busy, model, max_turns, hard_max: {ro_cap, rw_cap, turn_cap}, phase_max: {ro_cap, rw_cap, turn_cap}, ro_used, rw_used, turns_used, effector_calls_used (= rw_used), plan, active_phase, session_started_at}`; `plan` is `{complexity, rationale, revised, revision_rationale, active_phase, phases: [{index, name, goal, status (pending/active/done/failed/skipped), ro_cap, rw_cap, turn_cap, ro_used, rw_used, turns_used, raised, summary}]}` or `null` until the agent set one; `active_phase` is the index of the active phase or `null` |
+| `GET /api/state` | `{busy, model, max_turns, hard_max: {rw_cap, turn_cap}, phase_max: {rw_cap, turn_cap}, ro_used (sensor calls, uncapped), rw_used, turns_used, effector_calls_used (= rw_used), plan, active_phase, session_started_at}`; `plan` is `{complexity, rationale, revised, revision_rationale, active_phase, phases: [{index, name, goal, status (pending/active/done/failed/skipped), rw_cap, turn_cap, ro_used, rw_used, turns_used, raised, summary}]}` or `null` until the agent set one; `active_phase` is the index of the active phase or `null` |
 | `GET /api/history?before_seq=<int>&limit=<int>` | `{events: [...], has_more}`: the newest `limit` events (default 100, max 500) with `seq < before_seq` (the newest overall without it), ascending `seq`; `has_more` is true when older events exist |
 | `POST /api/message` `{text}` | `202 {ok: true}`; `409 {ok: false, message: "busy"}`; `400` on empty or invalid text |
 | `POST /api/stop` | `{ok, message}`; stops the robot (MCP `stop`) and interrupts the current instruction (`client.interrupt()`) |
@@ -225,7 +237,7 @@ Every event is `{seq: int, ts: float, type, ...}`:
 | `error` | `message` (authentication failures, missing token file, session failures) |
 | `plan` | the plan payload (`complexity`, `rationale`, `revised`, `revision_rationale`, `active_phase`, `phases` with caps and usage); emitted when the agent sets its plan |
 | `phase_started` | the phase payload (`index`, `name`, `goal`, `status`, caps, usage, `raised`, `summary`); emitted when a phase becomes active |
-| `phase_completed` | `index`, `name`, `goal`, `outcome` (`done` / `failed` / `skipped`), `summary`, `usage` `{ro_used, rw_used, turns_used}`, `caps` `{ro_cap, rw_cap, turn_cap}` |
+| `phase_completed` | `index`, `name`, `goal`, `outcome` (`done` / `failed` / `skipped`), `summary`, `usage` `{ro_used, rw_used, turns_used}`, `caps` `{rw_cap, turn_cap}` |
 | `plan_revised` | the revised plan payload plus `revision_rationale`; emitted after `revise_plan` (the replaced active phase gets a `phase_completed` with outcome `failed` first) |
 | `robot_event` | `event_seq`, `event_ts`, `event_type`, `severity` (`info` / `warning` / `critical`), `source`, `message`, `data` (the `/robot_events` fields, renamed so they do not clash with the event's own `seq` / `ts` / `type`) |
 | `state` | `busy`, `ro_used`, `rw_used`, `turns_used`, `effector_calls_used` (= `rw_used`), `plan` (object or `null`), `active_phase`; emitted at each instruction start (counters 0, plan `null`), after each counted call and each model turn |

@@ -64,9 +64,8 @@ def create_app(
             "busy": runner.busy,
             "model": config.model,
             "max_turns": config.max_turns,
-            "hard_max": {"ro_cap": config.max_ro_cap, "rw_cap": config.max_rw_cap, "turn_cap": config.max_turn_cap},
+            "hard_max": {"rw_cap": config.max_rw_cap, "turn_cap": config.max_turn_cap},
             "phase_max": {
-                "ro_cap": config.max_phase_ro_cap,
                 "rw_cap": config.max_phase_rw_cap,
                 "turn_cap": config.max_phase_turn_cap,
             },

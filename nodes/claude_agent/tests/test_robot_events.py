@@ -147,11 +147,11 @@ async def test_plan_and_turns_carry_over_the_follow_up(tmp_path: Path) -> None:
     runner.bind_loop()
     await runner.start_instruction("go")
     await asyncio.sleep(0.1)
-    runner.plan.set_plan("simple", "x", [{"name": "A", "goal": "g", "ro_cap": 5, "rw_cap": 5, "turn_cap": 20}])
+    runner.plan.set_plan("simple", "x", [{"name": "A", "goal": "g", "rw_cap": 5, "turn_cap": 20}])
     runner.handle_robot_event(parse_robot_event(raw()))
     await asyncio.wait_for(runner.wait_idle(), timeout=3)
     assert runner.usage_fields()["turns_used"] == 2
-    assert runner.usage_fields()["plan"]["phases"][0]["ro_cap"] == 5
+    assert runner.usage_fields()["plan"]["phases"][0]["rw_cap"] == 5
 
 
 async def test_second_critical_event_within_debounce_does_not_interrupt_again(tmp_path: Path) -> None:

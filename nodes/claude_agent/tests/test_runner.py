@@ -319,7 +319,7 @@ def gate_of(client: FakeClient) -> EffectorGate:
 async def use_effector(client: FakeClient) -> None:
     from claude_agent_sdk import ToolPermissionContext
 
-    gate_of(client).plan.set_plan("simple", "test", [phase_spec(10, 10, 20)])
+    gate_of(client).plan.set_plan("simple", "test", [phase_spec(10, 20)])
     await client.options.can_use_tool("mcp__robot__drive", {}, ToolPermissionContext(tool_use_id="x"))
 
 
@@ -552,8 +552,8 @@ async def test_connect_timeout_surfaces_error_and_clears_busy(tmp_path: Path) ->
 # --- agent-chosen plan, phases, turn caps ---------------------------------------------------------------------------
 
 
-def phase_spec(ro: int = 10, rw: int = 5, turns: int = 20, name: str = "Work", goal: str = "goal reached") -> dict:
-    return {"name": name, "goal": goal, "ro_cap": ro, "rw_cap": rw, "turn_cap": turns}
+def phase_spec(rw: int = 5, turns: int = 20, name: str = "Work", goal: str = "goal reached") -> dict:
+    return {"name": name, "goal": goal, "rw_cap": rw, "turn_cap": turns}
 
 
 def assistant(*blocks) -> AssistantMessage:
@@ -580,7 +580,7 @@ def completer(outcome: str = "done", summary: str = "ok"):
 
 async def test_plan_and_phase_events_and_state_fields(tmp_path: Path) -> None:
     script = [
-        planner(phase_spec(10, 5, 20, "Locate", "tomato seen"), phase_spec(6, 4, 8, "Drive", "within 10 cm")),
+        planner(phase_spec(5, 20, "Locate", "tomato seen"), phase_spec(4, 8, "Drive", "within 10 cm")),
         make_result(),
     ]
     runner, events, _ = make_runner(tmp_path, script=script)
@@ -588,12 +588,13 @@ async def test_plan_and_phase_events_and_state_fields(tmp_path: Path) -> None:
     await runner.wait_idle()
     [plan] = [e for e in events.history() if e["type"] == "plan"]
     assert plan["complexity"] == "simple" and plan["rationale"] == "why" and plan["active_phase"] == 0
-    assert [(p["name"], p["goal"], p["ro_cap"], p["rw_cap"], p["turn_cap"]) for p in plan["phases"]] == [
-        ("Locate", "tomato seen", 10, 5, 20),
-        ("Drive", "within 10 cm", 6, 4, 8),
+    assert [(p["name"], p["goal"], p["rw_cap"], p["turn_cap"]) for p in plan["phases"]] == [
+        ("Locate", "tomato seen", 5, 20),
+        ("Drive", "within 10 cm", 4, 8),
     ]
     [started] = [e for e in events.history() if e["type"] == "phase_started"]
-    assert (started["index"], started["name"], started["goal"], started["ro_cap"]) == (0, "Locate", "tomato seen", 10)
+    assert (started["index"], started["name"], started["goal"]) == (0, "Locate", "tomato seen")
+    assert "ro_cap" not in started and "ro_cap" not in plan["phases"][0]
     assert types_of(events).index("plan") < types_of(events).index("phase_started")
     states = [e for e in events.history() if e["type"] == "state"]
     assert any(e["plan"] and e["active_phase"] == 0 for e in states)
@@ -607,7 +608,7 @@ async def test_phase_completed_and_next_phase_started_events(tmp_path: Path) -> 
         await client.options.can_use_tool("mcp__robot__get_robot_state", {}, ToolPermissionContext(tool_use_id="s"))
 
     script = [
-        planner(phase_spec(10, 5, 20, "A"), phase_spec(6, 4, 8, "B")),
+        planner(phase_spec(5, 20, "A"), phase_spec(4, 8, "B")),
         sensor,
         completer("failed", "no tomato"),
         make_result(),
@@ -618,7 +619,7 @@ async def test_phase_completed_and_next_phase_started_events(tmp_path: Path) -> 
     [done] = [e for e in events.history() if e["type"] == "phase_completed"]
     assert done["index"] == 0 and done["name"] == "A" and done["outcome"] == "failed" and done["summary"] == "no tomato"
     assert done["usage"] == {"ro_used": 1, "rw_used": 0, "turns_used": 0}
-    assert done["caps"] == {"ro_cap": 10, "rw_cap": 5, "turn_cap": 20}
+    assert done["caps"] == {"rw_cap": 5, "turn_cap": 20}
     started = [e for e in events.history() if e["type"] == "phase_started"]
     assert [e["index"] for e in started] == [0, 1]
     assert (
@@ -630,7 +631,7 @@ async def test_phase_completed_and_next_phase_started_events(tmp_path: Path) -> 
 
 async def test_plan_revised_event(tmp_path: Path) -> None:
     async def revise(client: FakeClient) -> None:
-        gate_of(client).plan.revise_plan("switch tactics", [phase_spec(5, 2, 6, "Plan B")])
+        gate_of(client).plan.revise_plan("switch tactics", [phase_spec(2, 6, "Plan B")])
 
     runner, events, _ = make_runner(tmp_path, script=[planner(phase_spec(name="A")), revise, make_result()])
     await runner.start_instruction("go")

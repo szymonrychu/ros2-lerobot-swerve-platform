@@ -5,9 +5,7 @@ from claude_agent.prompt import build_system_prompt
 
 
 def test_prompt_explains_the_phase_plan_workflow() -> None:
-    text = build_system_prompt(
-        ClaudeAgentConfig(max_ro_cap=200, max_rw_cap=60, max_turn_cap=90, max_phase_ro_cap=45, max_phase_rw_cap=22)
-    )
+    text = build_system_prompt(ClaudeAgentConfig(max_rw_cap=60, max_turn_cap=90, max_phase_rw_cap=22))
     lower = text.lower()
     for tool_name in ("set_task_plan", "complete_phase", "revise_plan", "raise_phase_budget"):
         assert f"agent.{tool_name}" in text
@@ -16,7 +14,7 @@ def test_prompt_explains_the_phase_plan_workflow() -> None:
     for phrase in ("trivial", "very_complex", "without waiting for approval", "goal", "within 10 cm", "phases"):
         assert phrase in lower
     assert "call agent.set_task_plan first" in lower or "refused until" in lower
-    assert "200" in text and "60" in text and "90" in text and "45" in text and "22" in text
+    assert "60" in text and "90" in text and "22" in text
 
 
 def test_prompt_has_the_tomato_example_and_phase_guidance() -> None:
@@ -30,9 +28,35 @@ def test_prompt_has_the_tomato_example_and_phase_guidance() -> None:
         "get back to home",
     ):
         assert step in lower
-    for guidance in ("ro 10-30", "rw 0-5", "ro 5-15", "rw 3-10", "ro 15-40", "rw 10-25", "rw 5-10", "ro 2-5", "rw 1-3"):
+    for guidance in ("rw 5-10", "rw 8-20", "rw 20-40", "rw 10-20", "rw 2-6"):
         assert guidance in lower
     assert "look_around" in lower and "counts 1" in lower
+
+
+def test_prompt_has_no_ro_budget_and_says_sensors_are_unlimited() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    lower = text.lower()
+    assert "ro_cap" not in lower and "ro 10" not in lower and "max_ro" not in lower
+    assert "sensor calls are unlimited" in lower and "never counted against a budget" in lower
+    assert "look as much as needed" in lower
+
+
+def test_prompt_demands_generous_rw_and_turn_caps() -> None:
+    lower = build_system_prompt(ClaudeAgentConfig()).lower()
+    assert "roughly double" in lower and "retries" in lower
+    assert "raise_phase_budget" in lower and "early" in lower and "rather than giving up" in lower
+
+
+def test_prompt_teaches_accurate_grasping() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    section = text[text.index("Grasping:") :]
+    lower = section.lower()
+    assert "from directly above" in lower and "different angle" in lower and "several viewpoints" in lower
+    assert "pixel_to_ground" in section and "mark_candidate_points" in section and "resolve_candidate" in section
+    assert "centre" in lower and "not its edge" in lower
+    assert "within about 1 cm" in lower and "average" in lower and "take another picture" in lower
+    assert "left of the object centre" in lower and "observed offset" in lower
+    assert "NOTES.md" in section
 
 
 def test_prompt_demands_explicit_honest_phase_completion() -> None:
@@ -45,7 +69,7 @@ def test_prompt_demands_explicit_honest_phase_completion() -> None:
 def test_prompt_has_no_old_static_caps() -> None:
     text = build_system_prompt(ClaudeAgentConfig())
     assert "30 effector" not in text and "50 turns" not in text
-    assert "unlimited" not in text.lower()
+    assert "ro_cap" not in text
 
 
 def test_prompt_lists_tools_by_kind(config: ClaudeAgentConfig) -> None:

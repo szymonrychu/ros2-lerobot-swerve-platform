@@ -1064,13 +1064,11 @@ ros2_nodes:
     enabled: true
     config: |
       model: opus
-      # The agent splits each task into phases and sets ro (sensor calls) / rw (effector calls) / turn caps per phase via
-      # agent.set_task_plan. The caps of all phases together stay within the instruction maxima, one phase within
-      # the per-phase maxima.
-      max_ro_cap: 300
-      max_rw_cap: 100
-      max_turn_cap: 150
-      max_phase_ro_cap: 60
+      # The agent splits each task into phases and sets rw (effector calls) / turn caps per phase via
+      # agent.set_task_plan. Sensor calls are never capped. The caps of all phases together stay within the
+      # instruction maxima, one phase within the per-phase maxima.
+      max_rw_cap: 150
+      max_turn_cap: 200
       max_phase_rw_cap: 40
       max_phase_turn_cap: 40
       # Event monitor of mcp_server: critical events interrupt the running model step (see nodes/claude_agent/README.md).

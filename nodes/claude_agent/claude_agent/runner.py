@@ -184,7 +184,7 @@ class AgentRunner:
         """Return the usage counters and the plan of the current (or last) instruction.
 
         Returns:
-            dict[str, Any]: ro_used, rw_used, turns_used, effector_calls_used (same as rw_used), plan (dict with the
+            dict[str, Any]: ro_used (sensor calls, uncapped), rw_used, turns_used, effector_calls_used (same as rw_used), plan (dict with the
             phases and their usage, or None) and active_phase (index or None).
         """
         usage = self.plan.usage()
@@ -226,7 +226,7 @@ class AgentRunner:
             outcome=phase["status"],
             summary=phase["summary"],
             usage={"ro_used": phase["ro_used"], "rw_used": phase["rw_used"], "turns_used": phase["turns_used"]},
-            caps={"ro_cap": phase["ro_cap"], "rw_cap": phase["rw_cap"], "turn_cap": phase["turn_cap"]},
+            caps={"rw_cap": phase["rw_cap"], "turn_cap": phase["turn_cap"]},
         )
         self.emit_state()
 

@@ -214,14 +214,14 @@ The **claude_agent** node has tests under `nodes/claude_agent/tests/` (no networ
 `conftest.py`, the Agent SDK dataclasses are built directly). Run from `nodes/claude_agent`: `poetry run pytest tests -q`.
 Covers:
 
-- config (`test_config.py`): defaults (opus, hard maxima ro 300 / rw 100 / turns 150, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
+- config (`test_config.py`): defaults (opus, hard maxima rw 150 / turns 200, no `max_ro_cap` / `max_phase_ro_cap`, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
   tool lists disjoint (stop can never be an effector), invalid numbers and unknown keys rejected, YAML loading,
   `CLAUDE_AGENT_CONFIG` lookup, MCP token read (env-file line or bare token, missing/empty refused, token never in the error)
-- system prompt (`test_prompt.py`): the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase guidance ranges, phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections, safety rules, persona,
+- system prompt (`test_prompt.py`): the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase rw/turn guidance ranges, no ro budget and unlimited sensor calls, generous rw/turn caps (double the estimate, raise early), the grasping guidance (several viewpoints incl. from directly above, `pixel_to_ground`, average within 1 cm, centre not edge, correct by the observed offset, NOTES.md), phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections, safety rules, persona,
   `system_prompt_extra` appended
-- plan (`test_budget.py`): `PlanTracker` validation (complexity enum, 1 to 12 phases, integer caps, rw 0 allowed, names and goals), clamping to the
+- plan (`test_budget.py`): `PlanTracker` validation (complexity enum, 1 to 12 phases, integer caps, rw 0 allowed, names and goals, a stray `ro_cap` ignored), clamping to the
   per-phase maxima with notes, rejection when the phase caps summed exceed an instruction maximum, the phase lifecycle (first phase active,
-  `complete_phase` outcomes and next activation, plan end), per-phase ro/rw/turn counting and exact exhausted reasons, the once-per-phase raise
+  `complete_phase` outcomes and next activation, plan end), sensor calls never refused (no plan, plan finished, turn cap used up) but counted, rw/turn counting and exact exhausted reasons, the once-per-phase raise
   (rationale, no lowering, limited to the remaining instruction room), the single `revise_plan` (closed phases kept, active one closed as failed,
   budget counts what closed phases used), the phase turn note, reset, callbacks, and the four SDK tools (schemas, texts, errors as error results)
 - robot events (`test_robot_events.py`): `/robot_events` JSON parsing and normalization, idle events emitted but never interrupting, bounded
@@ -229,8 +229,8 @@ Covers:
   with the follow-up message (no robot stop, plan and turns carried over), the 2 s debounce, thread-safe hand-over from the rclpy thread,
   garbage and unbound-loop events dropped, a user stop winning over a pending follow-up
 - tools (`test_tools.py`): classification (sensor / effector / uncapped / plan, unknown robot tool counted as rw, non-robot unclassified),
-  built-in tool deny list, every sensor/effector tool denied until a plan is set (notes tools, the planning tools, `stop` and the
-  control tools stay allowed), ro and rw counted per active phase then denied with the exact messages, the phase turn cap, denial after the last phase, reset,
+  built-in tool deny list, effector tools denied until a plan is set while sensors stay allowed (notes tools, the planning tools, `stop` and the
+  control tools too), sensors counted but never denied and effectors denied at the rw cap with the exact messages, the phase turn cap, denial after the last phase, reset,
   everything outside `mcp__robot__*` denied, count and denial callbacks
 - events (`test_events.py`): ring buffer and sequence numbers, subscribers, normalization of assistant text / tool calls /
   tool results from SDK objects, image thumbnails (size, no upscaling, RGBA, undecodable), 4000-char truncation flag,
@@ -534,7 +534,7 @@ layout; no ROS needed).
 | `test_claude_agent_node_type_defaults` | `claude_agent` node type: native, `nodes/claude_agent`, `python3 -m claude_agent`, 50% / 1G, nice, user `claude_agent`, group `mcp-token`, `environment_file` `/etc/ros2/claude_agent/env`, `DISABLE_AUTOUPDATER=1`, no secret in `env`. |
 | `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `poi_store` (which follows `mcp_server`). |
 | `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
-| `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (300 / 100 / 150), the per-phase maxima (60 / 40 / 40) and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`. |
+| `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (rw 150 / turns 200), the per-phase maxima (40 / 40), no ro maxima and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`. |
 | `test_effector_tools_match_mcp_server_motion_tools` | `effector_tools` in the claude_agent config equals mcp_server `MOTION_TOOLS` (parsed from tools.py with `ast`), so the effector cap and the battery gate cover the same tools. Strict: `look_around` must be in `MOTION_TOOLS`. |
 | `test_round2_tools_classified_in_group_vars_and_defaults` | `look_around` is an effector and `get_body_state` plus the round-2 sensor tools (pixel_to_ground, annotated image, candidates, calibration, topdown view, objects, POIs) are sensors, in both the client.yml config and the code defaults. |
 | `test_service_template_user_groups_and_nice_are_optional` | Unit template: `User=` defaults to `ansible_user`; `node_user`, `SupplementaryGroups=` and `Nice=` only when set. |

@@ -1,5 +1,6 @@
-"""Agent-chosen task plan: phases with their own ro (sensor calls), rw (effector calls) and turn caps, plus the
-``set_task_plan`` / ``complete_phase`` / ``revise_plan`` / ``raise_phase_budget`` SDK tools."""
+"""Agent-chosen task plan: phases with their own rw (effector calls) and turn caps, plus the
+``set_task_plan`` / ``complete_phase`` / ``revise_plan`` / ``raise_phase_budget`` SDK tools. Sensor calls are never
+capped, only counted for telemetry."""
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -24,9 +25,8 @@ STATUS_PENDING = "pending"
 STATUS_ACTIVE = "active"
 MIN_PHASES = 1
 MAX_PHASES = 12
-CAP_FIELDS = ("ro_cap", "rw_cap", "turn_cap")
-CAP_MINIMA = {"ro_cap": 1, "rw_cap": 0, "turn_cap": 1}
-CAP_LABELS = {"ro_cap": "ro", "rw_cap": "rw", "turn_cap": "turn"}
+CAP_FIELDS = ("rw_cap", "turn_cap")
+CAP_MINIMA = {"rw_cap": 0, "turn_cap": 1}
 NO_PLAN_MESSAGE = "call agent.set_task_plan first"
 PLAN_FINISHED_MESSAGE = (
     "all phases are completed; report to the user, or call agent.revise_plan (once) if the task is not done"
@@ -48,7 +48,7 @@ EXHAUSTED_AFTER_RAISE_MESSAGE = (
     "agent.complete_phase (outcome 'failed' if the goal is not met) or agent.revise_plan"
 )
 TURN_NOTE = (
-    "PHASE TURN CAP: phase {number} '{name}' used its {cap} turns. Robot tools are refused for this phase: call "
+    "PHASE TURN CAP: phase {number} '{name}' used its {cap} turns. Effector tools are refused for this phase: call "
     "agent.complete_phase now (outcome 'failed' if the goal '{goal}' is not met), or agent.revise_plan, or raise the "
     "phase once with agent.raise_phase_budget giving a reason."
 )
@@ -61,7 +61,6 @@ PHASE_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "Measurable success criterion, e.g. 'within 10 cm of the tomato'.",
         },
-        "ro_cap": {"type": "integer", "minimum": 1, "description": "Most robot sensor calls in this phase."},
         "rw_cap": {
             "type": "integer",
             "minimum": 0,
@@ -79,11 +78,11 @@ PHASES_SCHEMA: dict[str, Any] = {
     "description": "The phases in order; the first becomes active at once.",
 }
 SET_PLAN_DESCRIPTION = (
-    "Split the current task into 1 to 12 phases and give each its own budget: ro_cap (robot sensor calls), rw_cap "
-    "(robot effector calls) and turn_cap (model turns), plus a measurable goal. Call this FIRST in every instruction, "
-    "then start working at once; every robot tool is refused until a plan is set. The first phase is active. Per-phase "
-    "caps above the per-phase maxima are clamped; the caps of all phases together must stay within the instruction "
-    "maxima or the plan is rejected."
+    "Split the current task into 1 to 12 phases and give each its own budget: rw_cap (robot effector calls) and "
+    "turn_cap (model turns), plus a measurable goal. Sensor calls are unlimited and need no cap. Call this FIRST in "
+    "every instruction, then start working at once; effector tools are refused until a plan is set. The first phase "
+    "is active. Plan generously (roughly double your estimate). Per-phase caps above the per-phase maxima are "
+    "clamped; the caps of all phases together must stay within the instruction maxima or the plan is rejected."
 )
 COMPLETE_PHASE_DESCRIPTION = (
     "Close the active phase with an honest outcome ('done' when its goal is met, 'failed' when it is not, 'skipped' "
@@ -93,11 +92,12 @@ COMPLETE_PHASE_DESCRIPTION = (
 REVISE_PLAN_DESCRIPTION = (
     "Replace the REMAINING phases (once per instruction) when a phase failed or the situation changed. Completed "
     "phases stay as they are; an unfinished active phase is closed as failed. Needs a rationale; the new phases get "
-    "their own caps within what is left of the instruction maxima."
+    "their own rw_cap and turn_cap within what is left of the instruction maxima."
 )
 RAISE_PHASE_DESCRIPTION = (
-    "Raise the caps of the ACTIVE phase once, giving a rationale. Pass the new total cap for each of ro_cap, rw_cap, "
-    "turn_cap you want raised (at least one); values are limited to what is left of the instruction maxima."
+    "Raise the caps of the ACTIVE phase once, giving a rationale. Pass the new total cap for each of rw_cap, "
+    "turn_cap you want raised (at least one); values are limited to what is left of the instruction maxima. Do it "
+    "early, when the phase runs low, rather than giving up."
 )
 SET_PLAN_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -127,7 +127,6 @@ REVISE_PLAN_SCHEMA: dict[str, Any] = {
 RAISE_PHASE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "ro_cap": {"type": "integer", "minimum": 1, "description": "New total sensor call cap of the phase."},
         "rw_cap": {"type": "integer", "minimum": 0, "description": "New total effector call cap of the phase."},
         "turn_cap": {"type": "integer", "minimum": 1, "description": "New total turn cap of the phase."},
         "rationale": {"type": "string", "description": "Why the phase needs more."},
@@ -149,10 +148,9 @@ class Phase:
         name (str): Short name.
         goal (str): Measurable success criterion.
         status (str): pending, active, done, failed or skipped.
-        ro_cap (int): Most sensor calls.
         rw_cap (int): Most effector calls.
         turn_cap (int): Most model turns.
-        ro_used (int): Sensor calls allowed so far.
+        ro_used (int): Sensor calls so far (telemetry only, never capped).
         rw_used (int): Effector calls allowed so far.
         turns_used (int): Model turns while the phase was active.
         raised (bool): Whether the one allowed raise was used.
@@ -164,7 +162,6 @@ class Phase:
     name: str
     goal: str
     status: str
-    ro_cap: int
     rw_cap: int
     turn_cap: int
     ro_used: int = 0
@@ -178,7 +175,7 @@ class Phase:
         """Return the phase as the event/API payload.
 
         Returns:
-            dict[str, Any]: index, name, goal, status, the three caps and used counters, raised and summary.
+            dict[str, Any]: index, name, goal, status, the two caps and used counters, raised and summary.
         """
         data = asdict(self)
         del data["turn_noted"]
@@ -233,7 +230,7 @@ class PlanTracker:
     Attributes:
         phases (list[Phase]): The phases in order (empty until set_plan succeeded).
         active (int | None): Index of the active phase; None before a plan and after the last phase was completed.
-        ro_used (int): Sensor calls allowed so far in the instruction.
+        ro_used (int): Sensor calls so far in the instruction (telemetry only, never capped).
         rw_used (int): Effector calls allowed so far in the instruction.
         turns_used (int): Model turns so far in the instruction.
     """
@@ -330,7 +327,6 @@ class PlanTracker:
         if not MIN_PHASES <= len(raw) <= MAX_PHASES:
             raise PlanError(f"phases must hold {MIN_PHASES} to {MAX_PHASES} phases, got {len(raw)}")
         maxima = {
-            "ro_cap": self.config.max_phase_ro_cap,
             "rw_cap": self.config.max_phase_rw_cap,
             "turn_cap": self.config.max_phase_turn_cap,
         }
@@ -339,7 +335,7 @@ class PlanTracker:
         for offset, item in enumerate(raw):
             label = f"phase {offset + 1}"
             if not isinstance(item, dict):
-                raise PlanError(f"{label} must be an object with name, goal, ro_cap, rw_cap and turn_cap")
+                raise PlanError(f"{label} must be an object with name, goal, rw_cap and turn_cap")
             try:
                 name = as_text("name", item.get("name"))
                 goal = as_text("goal", item.get("goal"))
@@ -357,10 +353,9 @@ class PlanTracker:
         """Return the instruction-level hard maxima.
 
         Returns:
-            dict[str, int]: ro_cap, rw_cap and turn_cap maxima.
+            dict[str, int]: rw_cap and turn_cap maxima.
         """
         return {
-            "ro_cap": self.config.max_ro_cap,
             "rw_cap": self.config.max_rw_cap,
             "turn_cap": self.config.max_turn_cap,
         }
@@ -388,12 +383,12 @@ class PlanTracker:
         """Sum the usage of every phase that is not pending.
 
         Args:
-            field (str): ro_cap, rw_cap or turn_cap.
+            field (str): rw_cap or turn_cap.
 
         Returns:
             int: Calls (or turns) already spent in started phases.
         """
-        used = {"ro_cap": "ro_used", "rw_cap": "rw_used", "turn_cap": "turns_used"}[field]
+        used = {"rw_cap": "rw_used", "turn_cap": "turns_used"}[field]
         return sum(getattr(phase, used) for phase in self.phases if phase.status != STATUS_PENDING)
 
     def activate(self, phase: Phase) -> None:
@@ -429,7 +424,7 @@ class PlanTracker:
         Args:
             complexity (Any): One of COMPLEXITIES.
             rationale (Any): Why this plan.
-            phases (Any): List of {name, goal, ro_cap, rw_cap, turn_cap}, 1 to 12.
+            phases (Any): List of {name, goal, rw_cap, turn_cap}, 1 to 12 (a stray ro_cap is ignored).
 
         Returns:
             tuple[dict[str, Any], list[str]]: The plan payload and the notes about clamped caps.
@@ -534,13 +529,10 @@ class PlanTracker:
         self.announce(parsed[0])
         return plan, notes
 
-    def raise_phase_budget(
-        self, ro_cap: Any, rw_cap: Any, turn_cap: Any, rationale: Any
-    ) -> tuple[dict[str, Any], list[str]]:
+    def raise_phase_budget(self, rw_cap: Any, turn_cap: Any, rationale: Any) -> tuple[dict[str, Any], list[str]]:
         """Raise the caps of the active phase (once per phase) within what is left of the instruction maxima.
 
         Args:
-            ro_cap (Any): New total sensor cap, or None to keep.
             rw_cap (Any): New total effector cap, or None to keep.
             turn_cap (Any): New total turn cap, or None to keep.
             rationale (Any): Why; required.
@@ -560,12 +552,12 @@ class PlanTracker:
             raise PlanError(ALREADY_RAISED_MESSAGE)
         if not isinstance(rationale, str) or not rationale.strip():
             raise PlanError(RATIONALE_REQUIRED_MESSAGE.format(what="raising a phase budget"))
-        requested = {"ro_cap": ro_cap, "rw_cap": rw_cap, "turn_cap": turn_cap}
+        requested = {"rw_cap": rw_cap, "turn_cap": turn_cap}
         given = {
             field: as_int(field, value, CAP_MINIMA[field]) for field, value in requested.items() if value is not None
         }
         if not given:
-            raise PlanError("give at least one of ro_cap, rw_cap, turn_cap")
+            raise PlanError("give at least one of rw_cap, turn_cap")
         maxima = self.instruction_maxima()
         notes: list[str] = []
         updates: dict[str, int] = {}
@@ -596,19 +588,19 @@ class PlanTracker:
 
         Args:
             phase (Phase): The phase.
-            field (str): ro_cap, rw_cap or turn_cap.
+            field (str): rw_cap or turn_cap.
 
         Returns:
-            int: ro_used, rw_used or turns_used of the phase.
+            int: rw_used or turns_used of the phase.
         """
-        return {"ro_cap": phase.ro_used, "rw_cap": phase.rw_used, "turn_cap": phase.turns_used}[field]
+        return {"rw_cap": phase.rw_used, "turn_cap": phase.turns_used}[field]
 
     def exhausted(self, phase: Phase, label: str, used: int, cap: int) -> str:
         """Build the denial reason for an exhausted phase cap.
 
         Args:
             phase (Phase): The active phase.
-            label (str): ro, rw or turn.
+            label (str): rw or turn.
             used (int): Used so far.
             cap (int): The cap.
 
@@ -619,29 +611,28 @@ class PlanTracker:
         return template.format(number=phase.index + 1, name=phase.name, label=label, used=used, cap=cap)
 
     def charge(self, kind: str) -> str | None:
-        """Count one robot call against the active phase.
+        """Count one robot call; effector calls are checked against the active phase budget, sensor calls never are.
 
         Args:
-            kind (str): KIND_SENSOR (ro) or KIND_EFFECTOR (rw).
+            kind (str): KIND_SENSOR (ro, always allowed and only counted) or KIND_EFFECTOR (rw).
 
         Returns:
-            str | None: None when the call is within the phase budget (and counted), else the denial reason.
+            str | None: None when the call is allowed (and counted), else the denial reason (effector calls only).
         """
-        if not self.phases:
-            return NO_PLAN_MESSAGE
-        if self.active is None:
-            return PLAN_FINISHED_MESSAGE
-        phase = self.phases[self.active]
-        if phase.turns_used >= phase.turn_cap:
-            return self.exhausted(phase, "turn", phase.turns_used, phase.turn_cap)
-        ro = kind == KIND_SENSOR
-        label, used, cap = ("ro", phase.ro_used, phase.ro_cap) if ro else ("rw", phase.rw_used, phase.rw_cap)
-        if used >= cap:
-            return self.exhausted(phase, label, used, cap)
-        if ro:
-            phase.ro_used += 1
+        if kind == KIND_SENSOR:
             self.ro_used += 1
+            if self.active is not None:
+                self.phases[self.active].ro_used += 1
         else:
+            if not self.phases:
+                return NO_PLAN_MESSAGE
+            if self.active is None:
+                return PLAN_FINISHED_MESSAGE
+            phase = self.phases[self.active]
+            if phase.turns_used >= phase.turn_cap:
+                return self.exhausted(phase, "turn", phase.turns_used, phase.turn_cap)
+            if phase.rw_used >= phase.rw_cap:
+                return self.exhausted(phase, "rw", phase.rw_used, phase.rw_cap)
             phase.rw_used += 1
             self.rw_used += 1
         if self.on_change:
@@ -701,8 +692,8 @@ def describe_phase(phase: dict[str, Any]) -> str:
         str: One line with number, name, goal and caps.
     """
     return (
-        f"Phase {phase['index'] + 1} '{phase['name']}' (goal: {phase['goal']}; ro_cap={phase['ro_cap']}, "
-        f"rw_cap={phase['rw_cap']}, turn_cap={phase['turn_cap']})"
+        f"Phase {phase['index'] + 1} '{phase['name']}' (goal: {phase['goal']}; rw_cap={phase['rw_cap']}, "
+        f"turn_cap={phase['turn_cap']})"
     )
 
 
@@ -735,7 +726,10 @@ def format_completed(closed: dict[str, Any], following: dict[str, Any] | None) -
     Returns:
         str: Text the model reads.
     """
-    usage = f"ro {closed['ro_used']}/{closed['ro_cap']}, rw {closed['rw_used']}/{closed['rw_cap']}, turns {closed['turns_used']}/{closed['turn_cap']}"
+    usage = (
+        f"{closed['ro_used']} sensor calls, rw {closed['rw_used']}/{closed['rw_cap']}, "
+        f"turns {closed['turns_used']}/{closed['turn_cap']}"
+    )
     text = f"Phase {closed['index'] + 1} '{closed['name']}' {closed['status']} ({usage})."
     if following is None:
         return f"{text} The plan is finished: report to the user what you did and what remains."
@@ -785,13 +779,11 @@ def build_plan_tools(tracker: PlanTracker) -> list[SdkMcpTool[Any]]:
     @tool(RAISE_PHASE_TOOL, RAISE_PHASE_DESCRIPTION, RAISE_PHASE_SCHEMA)
     async def raise_phase_budget(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            phase, notes = tracker.raise_phase_budget(
-                args.get("ro_cap"), args.get("rw_cap"), args.get("turn_cap"), args.get("rationale")
-            )
+            phase, notes = tracker.raise_phase_budget(args.get("rw_cap"), args.get("turn_cap"), args.get("rationale"))
         except PlanError as exc:
             return text_result(f"Raise rejected: {exc}", True)
         text = (
-            f"Phase {phase['index'] + 1} budget raised: ro_cap={phase['ro_cap']}, rw_cap={phase['rw_cap']}, "
+            f"Phase {phase['index'] + 1} budget raised: rw_cap={phase['rw_cap']}, "
             f"turn_cap={phase['turn_cap']}. This phase cannot be raised again."
         )
         if notes:

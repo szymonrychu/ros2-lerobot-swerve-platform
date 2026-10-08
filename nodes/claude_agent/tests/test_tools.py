@@ -64,13 +64,13 @@ PLAN_TOOLS = [
 ]
 
 
-def one_phase(ro: int = 3, rw: int = 2, turns: int = 20, name: str = "Work") -> dict:
-    return {"name": name, "goal": "goal reached", "ro_cap": ro, "rw_cap": rw, "turn_cap": turns}
+def one_phase(rw: int = 2, turns: int = 20, name: str = "Work") -> dict:
+    return {"name": name, "goal": "goal reached", "rw_cap": rw, "turn_cap": turns}
 
 
-def gate_with_plan(ro: int = 3, rw: int = 2, turns: int = 20, **kwargs) -> EffectorGate:
+def gate_with_plan(rw: int = 2, turns: int = 20, **kwargs) -> EffectorGate:
     gate = EffectorGate(ClaudeAgentConfig(), **kwargs)
-    gate.plan.set_plan("simple", "test", [one_phase(ro, rw, turns)])
+    gate.plan.set_plan("simple", "test", [one_phase(rw, turns)])
     return gate
 
 
@@ -85,15 +85,17 @@ def test_classify_unknown_agent_tool_is_none(config: ClaudeAgentConfig) -> None:
     assert classify_tool(config, "mcp__agent__set_task_budget") is None
 
 
-async def test_every_robot_tool_denied_until_a_plan_is_set() -> None:
+async def test_effector_tools_denied_until_a_plan_is_set_but_sensors_allowed() -> None:
     denied: list[dict] = []
     gate = EffectorGate(ClaudeAgentConfig(), on_denied=denied.append)
-    for name in ("get_robot_state", "get_camera_image", "drive", "move_arm_joints"):
+    for name in ("get_robot_state", "get_camera_image"):
+        assert isinstance(await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx("t")), PermissionResultAllow)
+    for name in ("drive", "move_arm_joints"):
         result = await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx("t"))
         assert isinstance(result, PermissionResultDeny)
         assert result.message == "call agent.set_task_plan first"
-    assert len(denied) == 4 and denied[0] == {"id": "t", "name": "get_robot_state", "reason": result.message}
-    assert gate.plan.ro_used == 0 and gate.plan.rw_used == 0
+    assert len(denied) == 2 and denied[0] == {"id": "t", "name": "drive", "reason": result.message}
+    assert gate.plan.ro_used == 2 and gate.plan.rw_used == 0
 
 
 async def test_planning_and_notes_tools_allowed_without_a_plan(workdir: Path) -> None:
@@ -107,28 +109,26 @@ async def test_stop_and_control_tools_always_allowed_and_never_counted() -> None
     gate = EffectorGate(ClaudeAgentConfig())
     for name in ("stop", "acquire_control", "release_control"):
         assert isinstance(await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx()), PermissionResultAllow)
-    gate.plan.set_plan("simple", "x", [one_phase(1, 1, 5)])
+    gate.plan.set_plan("simple", "x", [one_phase(1, 5)])
     for _ in range(20):
         assert isinstance(await gate.can_use_tool("mcp__robot__stop", {}, ctx()), PermissionResultAllow)
     assert (gate.plan.ro_used, gate.plan.rw_used) == (0, 0)
 
 
-async def test_ro_and_rw_counted_separately_then_denied() -> None:
+async def test_sensors_are_counted_never_denied_and_effectors_denied_at_the_cap() -> None:
     denied: list[dict] = []
-    gate = gate_with_plan(ro=2, rw=1, on_denied=denied.append)
-    for name in ("get_robot_state", "get_arm_state"):
-        assert isinstance(await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx()), PermissionResultAllow)
-    result = await gate.can_use_tool("mcp__robot__get_camera_image", {}, ctx("c"))
-    assert isinstance(result, PermissionResultDeny)
-    assert result.message.startswith("phase 1 'Work' ro budget exhausted (2/2)")
-    assert "complete_phase" in result.message and "raise_phase_budget" in result.message
+    gate = gate_with_plan(rw=1, on_denied=denied.append)
+    for _ in range(50):
+        assert isinstance(await gate.can_use_tool("mcp__robot__get_camera_image", {}, ctx()), PermissionResultAllow)
     assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
     result = await gate.can_use_tool("mcp__robot__set_gripper", {}, ctx("d"))
     assert isinstance(result, PermissionResultDeny) and result.message.startswith(
         "phase 1 'Work' rw budget exhausted (1/1)"
     )
-    assert (gate.plan.ro_used, gate.plan.rw_used) == (2, 1)
-    assert denied[0]["id"] == "c" and denied[0]["name"] == "get_camera_image"
+    assert "complete_phase" in result.message and "raise_phase_budget" in result.message
+    assert (gate.plan.ro_used, gate.plan.rw_used) == (50, 1)
+    assert denied[0]["id"] == "d" and denied[0]["name"] == "set_gripper"
+    assert isinstance(await gate.can_use_tool("mcp__robot__get_robot_state", {}, ctx()), PermissionResultAllow)
     assert isinstance(await gate.can_use_tool("mcp__robot__stop", {}, ctx()), PermissionResultAllow)
 
 
@@ -140,7 +140,7 @@ async def test_unknown_robot_tool_counts_as_rw() -> None:
 
 async def test_notes_tools_are_not_counted(workdir: Path) -> None:
     gate = EffectorGate(ClaudeAgentConfig(workdir=str(workdir)))
-    gate.plan.set_plan("simple", "x", [one_phase(1, 1, 5)])
+    gate.plan.set_plan("simple", "x", [one_phase(1, 5)])
     for _ in range(10):
         assert isinstance(await gate.can_use_tool("Read", {"file_path": "NOTES.md"}, ctx()), PermissionResultAllow)
     assert (gate.plan.ro_used, gate.plan.rw_used) == (0, 0)
@@ -148,29 +148,31 @@ async def test_notes_tools_are_not_counted(workdir: Path) -> None:
 
 async def test_calls_count_against_the_active_phase_and_the_next_phase_starts_fresh() -> None:
     gate = EffectorGate(ClaudeAgentConfig())
-    gate.plan.set_plan("simple", "x", [one_phase(1, 1, 20, "A"), one_phase(1, 1, 20, "B")])
-    assert isinstance(await gate.can_use_tool("mcp__robot__get_robot_state", {}, ctx()), PermissionResultAllow)
-    assert isinstance(await gate.can_use_tool("mcp__robot__get_robot_state", {}, ctx()), PermissionResultDeny)
+    gate.plan.set_plan("simple", "x", [one_phase(1, 20, "A"), one_phase(1, 20, "B")])
+    assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
+    assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultDeny)
     gate.plan.complete_phase("done", "ok")
-    assert isinstance(await gate.can_use_tool("mcp__robot__get_robot_state", {}, ctx()), PermissionResultAllow)
+    assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
 
 
 async def test_phase_turn_cap_denies_robot_tools_but_not_planning_tools(workdir: Path) -> None:
     gate = EffectorGate(ClaudeAgentConfig(workdir=str(workdir)))
-    gate.plan.set_plan("simple", "x", [one_phase(5, 5, 1)])
+    gate.plan.set_plan("simple", "x", [one_phase(5, 1)])
     gate.plan.count_turn()
     result = await gate.can_use_tool("mcp__robot__drive", {}, ctx("d"))
     assert isinstance(result, PermissionResultDeny) and "turn budget exhausted (1/1)" in result.message
+    assert isinstance(await gate.can_use_tool("mcp__robot__get_robot_state", {}, ctx()), PermissionResultAllow)
     assert isinstance(await gate.can_use_tool("mcp__robot__stop", {}, ctx()), PermissionResultAllow)
     assert isinstance(await gate.can_use_tool(PLAN_TOOLS[1], {}, ctx()), PermissionResultAllow)
     assert isinstance(await gate.can_use_tool("Read", {"file_path": "NOTES.md"}, ctx()), PermissionResultAllow)
 
 
-async def test_robot_tools_denied_after_the_last_phase_is_completed() -> None:
+async def test_effector_tools_denied_but_sensors_allowed_after_the_last_phase_is_completed() -> None:
     gate = gate_with_plan()
     gate.plan.complete_phase("done", "all done")
-    result = await gate.can_use_tool("mcp__robot__get_robot_state", {}, ctx())
+    result = await gate.can_use_tool("mcp__robot__drive", {}, ctx())
     assert isinstance(result, PermissionResultDeny) and "all phases are completed" in result.message
+    assert isinstance(await gate.can_use_tool("mcp__robot__get_robot_state", {}, ctx()), PermissionResultAllow)
 
 
 async def test_reset_clears_the_plan_and_counters() -> None:
@@ -197,7 +199,7 @@ async def test_everything_else_denied(name: str) -> None:
 async def test_count_change_callback() -> None:
     seen: list[None] = []
     gate = EffectorGate(ClaudeAgentConfig(), on_count=lambda: seen.append(None))
-    gate.plan.set_plan("simple", "x", [one_phase(5, 5, 5)])
+    gate.plan.set_plan("simple", "x", [one_phase(5, 5)])
     seen.clear()
     await gate.can_use_tool("mcp__robot__drive", {}, ctx())
     await gate.can_use_tool("mcp__robot__get_robot_state", {}, ctx())
@@ -258,7 +260,7 @@ async def test_glob_grep_without_path_default_to_workdir(workdir: Path, tool: st
 
 async def test_notes_tools_never_counted(workdir: Path) -> None:
     gate = notes_gate(workdir)
-    gate.plan.set_plan("simple", "x", [one_phase(5, 5, 20)])
+    gate.plan.set_plan("simple", "x", [one_phase(5, 20)])
     for _ in range(20):
         for tool in NOTES_TOOLS:
             await gate.can_use_tool(tool, {"file_path": "NOTES.md", "path": "."}, ctx())

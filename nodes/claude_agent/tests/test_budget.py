@@ -19,12 +19,12 @@ def tracker(**kwargs) -> PlanTracker:
     return PlanTracker(ClaudeAgentConfig(**kwargs))
 
 
-def phase(name: str = "Locate", goal: str = "tomato seen", ro: int = 10, rw: int = 2, turns: int = 8) -> dict:
-    return {"name": name, "goal": goal, "ro_cap": ro, "rw_cap": rw, "turn_cap": turns}
+def phase(name: str = "Locate", goal: str = "tomato seen", rw: int = 2, turns: int = 8, **extra) -> dict:
+    return {"name": name, "goal": goal, "rw_cap": rw, "turn_cap": turns, **extra}
 
 
 def two_phases() -> list[dict]:
-    return [phase("Locate", "tomato seen"), phase("Drive", "within 10 cm of the tomato", ro=8, rw=6, turns=10)]
+    return [phase("Locate", "tomato seen"), phase("Drive", "within 10 cm of the tomato", rw=6, turns=10)]
 
 
 def planned(**kwargs) -> PlanTracker:
@@ -46,8 +46,9 @@ def test_constants() -> None:
 
 def test_defaults_of_hard_and_phase_maxima() -> None:
     cfg = ClaudeAgentConfig()
-    assert (cfg.max_ro_cap, cfg.max_rw_cap, cfg.max_turn_cap) == (300, 100, 150)
-    assert (cfg.max_phase_ro_cap, cfg.max_phase_rw_cap, cfg.max_phase_turn_cap) == (60, 40, 40)
+    assert (cfg.max_rw_cap, cfg.max_turn_cap) == (150, 200)
+    assert (cfg.max_phase_rw_cap, cfg.max_phase_turn_cap) == (40, 40)
+    assert not hasattr(cfg, "max_ro_cap") and not hasattr(cfg, "max_phase_ro_cap")
     assert cfg.max_turns > cfg.max_turn_cap
 
 
@@ -81,7 +82,6 @@ def test_set_plan_accepts_and_activates_the_first_phase() -> None:
         "name": "Locate",
         "goal": "tomato seen",
         "status": "active",
-        "ro_cap": 10,
         "rw_cap": 2,
         "turn_cap": 8,
         "ro_used": 0,
@@ -97,16 +97,16 @@ def test_set_plan_accepts_and_activates_the_first_phase() -> None:
 
 
 def test_phase_caps_above_phase_maxima_are_clamped_and_reported() -> None:
-    t = tracker(max_phase_ro_cap=20, max_phase_rw_cap=5, max_phase_turn_cap=9)
-    plan, notes = t.set_plan("simple", "r", [phase(ro=50, rw=10, turns=30)])
+    t = tracker(max_phase_rw_cap=5, max_phase_turn_cap=9)
+    plan, notes = t.set_plan("simple", "r", [phase(rw=10, turns=30)])
     p = plan["phases"][0]
-    assert (p["ro_cap"], p["rw_cap"], p["turn_cap"]) == (20, 5, 9)
-    assert len(notes) == 3 and "ro_cap" in notes[0] and "50" in notes[0] and "20" in notes[0]
+    assert (p["rw_cap"], p["turn_cap"]) == (5, 9)
+    assert len(notes) == 2 and "rw_cap" in notes[0] and "10" in notes[0] and "5" in notes[0]
 
 
 def test_sum_above_instruction_maxima_is_rejected_with_the_sums() -> None:
-    t = tracker(max_ro_cap=15)
-    with pytest.raises(PlanError, match=r"ro_cap.*18.*15"):
+    t = tracker(max_rw_cap=7)
+    with pytest.raises(PlanError, match=r"rw_cap.*8.*7"):
         t.set_plan("simple", "r", two_phases())
     assert t.plan is None
 
@@ -114,12 +114,11 @@ def test_sum_above_instruction_maxima_is_rejected_with_the_sums() -> None:
 @pytest.mark.parametrize(
     "bad",
     [
-        phase(ro=0),
         phase(turns=0),
         phase(rw=-1),
-        phase(ro="5"),
-        phase(ro=True),
-        phase(ro=5.5),
+        phase(rw="5"),
+        phase(rw=True),
+        phase(rw=5.5),
         phase(name=" "),
         phase(goal=""),
         {"name": "x", "goal": "y"},
@@ -138,17 +137,25 @@ def test_phase_count_must_be_1_to_12() -> None:
     with pytest.raises(PlanError, match="1 to 12"):
         t.set_plan("simple", "r", [])
     with pytest.raises(PlanError, match="1 to 12"):
-        t.set_plan("simple", "r", [phase(ro=1, rw=0, turns=1) for _ in range(13)])
-    plan, _ = t.set_plan("simple", "r", [phase(ro=1, rw=0, turns=1) for _ in range(12)])
+        t.set_plan("simple", "r", [phase(rw=0, turns=1) for _ in range(13)])
+    plan, _ = t.set_plan("simple", "r", [phase(rw=0, turns=1) for _ in range(12)])
     assert len(plan["phases"]) == 12
     with pytest.raises(PlanError, match="list"):
         tracker().set_plan("simple", "r", "nope")
 
 
 def test_rw_zero_allowed_and_floats_with_integer_value_accepted() -> None:
-    plan, _ = tracker().set_plan("trivial", "look", [phase(ro=5.0, rw=0, turns=3.0)])
+    plan, _ = tracker().set_plan("trivial", "look", [phase(rw=0.0, turns=3.0)])
     p = plan["phases"][0]
-    assert (p["ro_cap"], p["rw_cap"], p["turn_cap"]) == (5, 0, 3)
+    assert (p["rw_cap"], p["turn_cap"]) == (0, 3)
+
+
+def test_ro_cap_given_by_the_model_is_ignored_silently() -> None:
+    t = tracker()
+    plan, notes = t.set_plan("simple", "r", [phase(ro_cap=5), phase("B", ro_cap="junk")])
+    assert notes == [] and all("ro_cap" not in p for p in plan["phases"])
+    plan, notes = t.revise_plan("again", [phase("N", ro_cap=1)])
+    assert notes == [] and "ro_cap" not in plan["phases"][-1]
 
 
 def test_bad_complexity_or_rationale_rejected() -> None:
@@ -164,23 +171,28 @@ def test_second_set_plan_is_refused() -> None:
         t.set_plan("simple", "again", [phase()])
 
 
-def test_charge_requires_a_plan() -> None:
-    assert tracker().charge("sensor") == "call agent.set_task_plan first"
+def test_effector_charge_requires_a_plan() -> None:
     assert tracker().charge("effector") == "call agent.set_task_plan first"
 
 
-def test_charge_counts_against_the_active_phase_and_denies_past_the_cap() -> None:
+def test_sensor_calls_are_never_refused_but_counted() -> None:
     t = tracker()
-    t.set_plan("simple", "r", [phase(ro=2, rw=1, turns=20)])
-    assert t.charge("sensor") is None and t.charge("sensor") is None
-    reason = t.charge("sensor")
-    assert reason.startswith("phase 1 'Locate' ro budget exhausted (2/2)")
-    assert "complete_phase" in reason and "revise_plan" in reason and "raise_phase_budget" in reason
+    assert t.charge("sensor") is None, "allowed before a plan is set"
+    assert t.ro_used == 1
+    t.set_plan("simple", "r", [phase(rw=1, turns=20)])
+    assert all(t.charge("sensor") is None for _ in range(500))
+    assert t.ro_used == 501 and t.phase_dicts()[0]["ro_used"] == 500
     assert t.charge("effector") is None
-    assert t.charge("effector").startswith("phase 1 'Locate' rw budget exhausted (1/1)")
-    assert (t.ro_used, t.rw_used) == (2, 1)
-    p = t.phase_dicts()[0]
-    assert (p["ro_used"], p["rw_used"]) == (2, 1)
+
+
+def test_effector_calls_are_denied_past_the_cap() -> None:
+    t = tracker()
+    t.set_plan("simple", "r", [phase(rw=1, turns=20)])
+    assert t.charge("effector") is None
+    reason = t.charge("effector")
+    assert reason.startswith("phase 1 'Locate' rw budget exhausted (1/1)")
+    assert "complete_phase" in reason and "revise_plan" in reason and "raise_phase_budget" in reason
+    assert t.rw_used == 1 and t.phase_dicts()[0]["rw_used"] == 1
 
 
 def test_rw_cap_zero_denies_every_effector_call() -> None:
@@ -197,6 +209,7 @@ def test_usage_moves_to_the_next_phase_on_completion() -> None:
     t.charge("effector")
     phases = t.phase_dicts()
     assert (phases[0]["ro_used"], phases[1]["ro_used"], phases[1]["rw_used"]) == (1, 1, 1)
+    assert "ro_cap" not in phases[0]
     assert (t.ro_used, t.rw_used) == (2, 1)
 
 
@@ -224,7 +237,8 @@ def test_completing_the_last_phase_ends_the_plan() -> None:
     assert nxt is None and closed["status"] == "skipped"
     assert t.active is None and t.plan_finished
     assert t.usage()["active_phase"] is None
-    assert "all phases are completed" in t.charge("sensor")
+    assert t.charge("sensor") is None, "sensors stay allowed after the plan ended"
+    assert "all phases are completed" in t.charge("effector")
 
 
 def test_complete_phase_validation() -> None:
@@ -251,11 +265,12 @@ def test_phase_turn_counting_note_once_and_denial() -> None:
     note = t.turn_note()
     assert note is not None and "phase 1" in note and "complete_phase" in note
     assert t.turn_note() is None, "the note is injected once per phase"
-    assert t.charge("sensor").startswith("phase 1 'Locate' turn budget exhausted (2/2)")
+    assert t.charge("effector").startswith("phase 1 'Locate' turn budget exhausted (2/2)")
+    assert t.charge("sensor") is None, "sensors stay allowed when the phase turns are used up"
     assert t.phase_dicts()[0]["turns_used"] == 2 and t.turns_used == 2
     t.complete_phase("failed", "ran out of turns")
     t.count_turn()
-    assert t.charge("sensor") is None, "the next phase has its own turns"
+    assert t.charge("effector") is None, "the next phase has its own turns"
     assert t.phase_dicts()[1]["turns_used"] == 1
 
 
@@ -271,55 +286,50 @@ def test_instruction_turn_maximum() -> None:
 def test_raise_phase_budget_once_with_rationale_within_instruction_maxima() -> None:
     t = planned()
     with pytest.raises(PlanError, match="rationale"):
-        t.raise_phase_budget(20, None, None, " ")
+        t.raise_phase_budget(4, None, " ")
     with pytest.raises(PlanError, match="at least one"):
-        t.raise_phase_budget(None, None, None, "why")
-    phase_dict, notes = t.raise_phase_budget(20, 4, None, "the tomato is far")
+        t.raise_phase_budget(None, None, "why")
+    phase_dict, notes = t.raise_phase_budget(4, 12, "the tomato is far")
     assert notes == []
-    assert (phase_dict["ro_cap"], phase_dict["rw_cap"], phase_dict["turn_cap"], phase_dict["raised"]) == (
-        20,
-        4,
-        8,
-        True,
-    )
+    assert (phase_dict["rw_cap"], phase_dict["turn_cap"], phase_dict["raised"]) == (4, 12, True)
     with pytest.raises(PlanError, match="already raised"):
-        t.raise_phase_budget(25, None, None, "again")
+        t.raise_phase_budget(5, None, "again")
 
 
 def test_raise_cannot_lower_and_is_clamped_to_the_remaining_instruction_budget() -> None:
-    t = tracker(max_ro_cap=30)
-    t.set_plan("simple", "r", [phase(ro=10), phase("B", ro=12)])
+    t = tracker(max_rw_cap=30)
+    t.set_plan("simple", "r", [phase(rw=10), phase("B", rw=12)])
     with pytest.raises(PlanError, match="lower"):
-        t.raise_phase_budget(5, None, None, "x")
-    phase_dict, notes = t.raise_phase_budget(100, None, None, "need more")
-    assert phase_dict["ro_cap"] == 18, "30 minus the 12 reserved for the pending phase"
-    assert len(notes) == 1 and "ro_cap" in notes[0] and "18" in notes[0]
+        t.raise_phase_budget(5, None, "x")
+    phase_dict, notes = t.raise_phase_budget(100, None, "need more")
+    assert phase_dict["rw_cap"] == 18, "30 minus the 12 reserved for the pending phase"
+    assert len(notes) == 1 and "rw_cap" in notes[0] and "18" in notes[0]
 
 
 def test_raise_restores_the_turn_note_and_allows_calls_again() -> None:
     t = tracker()
-    t.set_plan("simple", "r", [phase(ro=1)])
-    t.charge("sensor")
-    assert t.charge("sensor") is not None
-    t.raise_phase_budget(3, None, None, "more")
-    assert t.charge("sensor") is None
+    t.set_plan("simple", "r", [phase(rw=1)])
+    t.charge("effector")
+    assert t.charge("effector") is not None
+    t.raise_phase_budget(3, None, "more")
+    assert t.charge("effector") is None
 
 
 def test_raise_needs_an_active_phase() -> None:
     with pytest.raises(PlanError, match="set_task_plan"):
-        tracker().raise_phase_budget(5, None, None, "x")
+        tracker().raise_phase_budget(5, None, "x")
     t = planned()
     t.complete_phase("done", "a")
     t.complete_phase("done", "b")
     with pytest.raises(PlanError, match="no active phase"):
-        t.raise_phase_budget(50, None, None, "x")
+        t.raise_phase_budget(50, None, "x")
 
 
 def test_the_raise_is_per_phase() -> None:
     t = planned()
-    t.raise_phase_budget(12, None, None, "first")
+    t.raise_phase_budget(12, None, "first")
     t.complete_phase("done", "a")
-    phase_dict, _ = t.raise_phase_budget(None, 8, None, "second phase")
+    phase_dict, _ = t.raise_phase_budget(8, None, "second phase")
     assert phase_dict["raised"] is True and phase_dict["rw_cap"] == 8
 
 
@@ -363,15 +373,15 @@ def test_revise_after_the_plan_ended_starts_new_phases() -> None:
 
 
 def test_revise_budget_counts_what_closed_phases_used() -> None:
-    t = tracker(max_ro_cap=30)
-    t.set_plan("simple", "r", [phase(ro=20), phase("B", ro=10)])
+    t = tracker(max_rw_cap=30)
+    t.set_plan("simple", "r", [phase(rw=20), phase("B", rw=10)])
     for _ in range(12):
-        t.charge("sensor")
+        t.charge("effector")
     t.complete_phase("failed", "x")
-    with pytest.raises(PlanError, match=r"ro_cap.*20.*18"):
-        t.revise_plan("again", [phase("N", ro=20)])
-    plan, _ = t.revise_plan("again", [phase("N", ro=18)])
-    assert plan["phases"][-1]["ro_cap"] == 18
+    with pytest.raises(PlanError, match=r"rw_cap.*20.*18"):
+        t.revise_plan("again", [phase("N", rw=20)])
+    plan, _ = t.revise_plan("again", [phase("N", rw=18)])
+    assert plan["phases"][-1]["rw_cap"] == 18
 
 
 def test_revise_validation() -> None:
@@ -399,7 +409,7 @@ def test_usage_includes_plan_and_active_phase() -> None:
     t.charge("sensor")
     usage = t.usage()
     assert usage["ro_used"] == 1 and usage["active_phase"] == 0
-    assert usage["plan"]["phases"][0]["ro_used"] == 1 and usage["plan"]["phases"][0]["ro_cap"] == 10
+    assert usage["plan"]["phases"][0]["ro_used"] == 1 and "ro_cap" not in usage["plan"]["phases"][0]
 
 
 def test_change_callback_fires_on_each_counted_call() -> None:
@@ -421,9 +431,13 @@ def test_server_is_an_in_process_sdk_server_named_agent() -> None:
     assert schema["properties"]["complexity"]["enum"] == list(COMPLEXITIES)
     phases = schema["properties"]["phases"]
     assert phases["minItems"] == 1 and phases["maxItems"] == 12
-    assert phases["items"]["required"] == ["name", "goal", "ro_cap", "rw_cap", "turn_cap"]
+    assert phases["items"]["required"] == ["name", "goal", "rw_cap", "turn_cap"]
     assert tools["complete_phase"].input_schema["properties"]["outcome"]["enum"] == ["done", "failed", "skipped"]
     assert tools["raise_phase_budget"].input_schema["required"] == ["rationale"]
+    assert "ro_cap" not in tools["raise_phase_budget"].input_schema["properties"]
+    assert "ro_cap" not in phases["items"]["properties"]
+    for name in ("set_task_plan", "revise_plan", "raise_phase_budget"):
+        assert "ro_cap" not in tools[name].description
     assert tools["revise_plan"].input_schema["required"] == ["rationale", "phases"]
 
 
@@ -432,12 +446,13 @@ def by_name(t: PlanTracker) -> dict:
 
 
 async def test_set_task_plan_handler_accepts_and_reports_clamping() -> None:
-    t = tracker(max_phase_ro_cap=20)
+    t = tracker(max_phase_rw_cap=20)
     handlers = by_name(t)
-    ok = await handlers["set_task_plan"]({"complexity": "moderate", "rationale": "big", "phases": [phase(ro=50)]})
+    ok = await handlers["set_task_plan"]({"complexity": "moderate", "rationale": "big", "phases": [phase(rw=50)]})
     assert not ok.get("is_error")
     text = ok["content"][0]["text"]
-    assert "ro_cap" in text and "20" in text and "Start working" in text and "Locate" in text
+    assert "rw_cap" in text and "20" in text and "Start working" in text and "Locate" in text
+    assert "ro_cap" not in text
     assert t.active == 0
 
 
@@ -450,7 +465,7 @@ async def test_handlers_report_errors_as_error_results() -> None:
     assert missing["is_error"] is True
     assert (await handlers["complete_phase"]({"outcome": "done", "summary": "x"}))["is_error"] is True
     assert (await handlers["revise_plan"]({"rationale": "x", "phases": [phase()]}))["is_error"] is True
-    assert (await handlers["raise_phase_budget"]({"ro_cap": 5, "rationale": "x"}))["is_error"] is True
+    assert (await handlers["raise_phase_budget"]({"rw_cap": 5, "rationale": "x"}))["is_error"] is True
     assert t.plan is None
 
 
@@ -468,8 +483,11 @@ async def test_complete_phase_handler_announces_the_next_phase_and_the_end() -> 
 async def test_revise_and_raise_handlers() -> None:
     t = planned()
     handlers = by_name(t)
-    raised = await handlers["raise_phase_budget"]({"ro_cap": 15, "rationale": "far"})
-    assert not raised.get("is_error") and "ro_cap=15" in raised["content"][0]["text"]
+    raised = await handlers["raise_phase_budget"]({"rw_cap": 15, "rationale": "far"})
+    assert not raised.get("is_error") and "rw_cap=15" in raised["content"][0]["text"]
+    assert "ro_cap" not in raised["content"][0]["text"]
+    only_ro = await handlers["raise_phase_budget"]({"ro_cap": 99, "rationale": "ignored"})
+    assert only_ro["is_error"] is True, "a raise that only names the removed ro_cap has nothing to raise"
     revised = await handlers["revise_plan"]({"rationale": "new route", "phases": [phase("Other")]})
     assert not revised.get("is_error") and "Other" in revised["content"][0]["text"]
     again = await handlers["revise_plan"]({"rationale": "x", "phases": [phase("Other")]})
