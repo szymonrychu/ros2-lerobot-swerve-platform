@@ -167,7 +167,8 @@ function PhaseRowView({ row }: { row: PhaseRow }) {
         <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{row.goal}</Typography>
       </Stack>
       {row.status !== 'pending' && (
-        <Stack direction="row" gap={1.5} sx={{ mt: 0.5 }}>
+        <Stack direction="row" gap={1.5} alignItems="center" sx={{ mt: 0.5 }}>
+          <Typography variant="caption" color="text.secondary">sensors {row.sensorCalls}</Typography>
           {row.bars.map((bar) => <UsageBarView key={bar.key} bar={bar} />)}
         </Stack>
       )}
@@ -202,7 +203,7 @@ function PlanCard({ item }: { item: PlanItem }) {
       <Stack component="ol" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
         {item.phases.map((p) => (
           <Typography component="li" variant="caption" key={p.index} sx={{ overflowWrap: 'anywhere' }}>
-            <b>{p.name}</b> ({p.goal}) - ro {p.roCap}, rw {p.rwCap}, turns {p.turnCap}
+            <b>{p.name}</b> ({p.goal}) - rw {p.rwCap}, turns {p.turnCap}
           </Typography>
         ))}
       </Stack>
@@ -216,7 +217,7 @@ function PhaseStartedCard({ item }: { item: PhaseStartedItem }) {
       <Chip size="small" color="primary" label={`Phase ${item.index + 1} started`} />
       <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.name}</Typography>
       <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
-        {item.goal} (ro {item.roCap}, rw {item.rwCap}, turns {item.turnCap})
+        {item.goal} (rw {item.rwCap}, turns {item.turnCap})
       </Typography>
     </Stack>
   )
@@ -229,7 +230,7 @@ function PhaseCompletedCard({ item }: { item: PhaseCompletedItem }) {
       <Chip size="small" color={color} label={`Phase ${item.index + 1} ${item.outcome}`} />
       <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.name}</Typography>
       <Typography variant="caption" color="text.secondary">
-        ro {item.usage.roUsed}/{item.caps.roCap}, rw {item.usage.rwUsed}/{item.caps.rwCap}, turns {item.usage.turnsUsed}/{item.caps.turnCap}
+        sensors {item.usage.roUsed}, rw {item.usage.rwUsed}/{item.caps.rwCap}, turns {item.usage.turnsUsed}/{item.caps.turnCap}
       </Typography>
       {item.summary && <Typography variant="caption" color="text.secondary" sx={{ flexBasis: '100%', overflowWrap: 'anywhere' }}>{item.summary}</Typography>}
     </Stack>

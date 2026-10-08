@@ -29,15 +29,15 @@ function run(events: AgentEvent[], start: ChatState = emptyChat()): ChatState {
 }
 
 const phase = (index: number, name: string, goal: string, status: string, caps: number[], used: number[]) => ({
-  index, name, goal, status, ro_cap: caps[0], rw_cap: caps[1], turn_cap: caps[2], ro_used: used[0], rw_used: used[1], turns_used: used[2],
+  index, name, goal, status, rw_cap: caps[0], turn_cap: caps[1], ro_used: used[0], rw_used: used[1], turns_used: used[2],
   raised: false, summary: status === 'done' ? 'found' : '',
 })
 const PLAN_PAYLOAD = {
   complexity: 'complex', rationale: 'pick and place', revised: false, revision_rationale: '', active_phase: 1,
   phases: [
-    phase(0, 'Locate', 'tomato seen', 'done', [20, 3, 10], [9, 1, 4]),
-    phase(1, 'Drive', 'within 10 cm', 'active', [15, 10, 12], [6, 4, 3]),
-    phase(2, 'Pick', 'tomato held', 'pending', [30, 20, 25], [0, 0, 0]),
+    phase(0, 'Locate', 'tomato seen', 'done', [3, 10], [9, 1, 4]),
+    phase(1, 'Drive', 'within 10 cm', 'active', [10, 12], [6, 4, 3]),
+    phase(2, 'Pick', 'tomato held', 'pending', [20, 25], [0, 0, 0]),
   ],
 }
 
@@ -103,7 +103,7 @@ describe('reduceEvent', () => {
     expect([s.roUsed, s.rwUsed, s.turnsUsed]).toEqual([3, 4, 2])
     expect(s.plan?.activePhase).toBe(1)
     expect(s.plan?.phases.map((p) => p.status)).toEqual(['done', 'active', 'pending'])
-    expect(s.plan?.phases[1]).toMatchObject({ name: 'Drive', goal: 'within 10 cm', roCap: 15, rwCap: 10, turnCap: 12, roUsed: 6, rwUsed: 4, turnsUsed: 3 })
+    expect(s.plan?.phases[1]).toMatchObject({ name: 'Drive', goal: 'within 10 cm', rwCap: 10, turnCap: 12, roUsed: 6, rwUsed: 4, turnsUsed: 3 })
   })
 
   it('a state event with a null plan clears it (new instruction)', () => {
@@ -122,7 +122,8 @@ describe('reduceEvent', () => {
   it('phase_started adds a compact card and marks the phase active in the plan', () => {
     const base = run([ev(1, 'plan', { ...PLAN_PAYLOAD, active_phase: 0, phases: PLAN_PAYLOAD.phases.map((p, i) => ({ ...p, status: i === 0 ? 'active' : 'pending' })) })])
     const s = run([ev(2, 'phase_started', { ...PLAN_PAYLOAD.phases[1], status: 'active' })], base)
-    expect(s.items[1]).toMatchObject({ kind: 'phase_started', index: 1, name: 'Drive', goal: 'within 10 cm', roCap: 15, rwCap: 10, turnCap: 12 })
+    expect(s.items[1]).toMatchObject({ kind: 'phase_started', index: 1, name: 'Drive', goal: 'within 10 cm', rwCap: 10, turnCap: 12 })
+    expect(s.items[1]).not.toHaveProperty('roCap')
     expect(s.plan?.activePhase).toBe(1)
     expect(s.plan?.phases.map((p) => p.status)).toEqual(['active', 'active', 'pending'])
   })
@@ -132,12 +133,12 @@ describe('reduceEvent', () => {
     const s = run([
       ev(2, 'phase_completed', {
         index: 0, name: 'Locate', goal: 'tomato seen', outcome: 'failed', summary: 'no tomato',
-        usage: { ro_used: 12, rw_used: 1, turns_used: 6 }, caps: { ro_cap: 20, rw_cap: 3, turn_cap: 10 },
+        usage: { ro_used: 12, rw_used: 1, turns_used: 6 }, caps: { rw_cap: 3, turn_cap: 10 },
       }),
     ], base)
     expect(s.items[1]).toMatchObject({
       kind: 'phase_completed', index: 0, name: 'Locate', outcome: 'failed', summary: 'no tomato',
-      usage: { roUsed: 12, rwUsed: 1, turnsUsed: 6 }, caps: { roCap: 20, rwCap: 3, turnCap: 10 },
+      usage: { roUsed: 12, rwUsed: 1, turnsUsed: 6 }, caps: { rwCap: 3, turnCap: 10 },
     })
     expect(s.plan?.phases[0]).toMatchObject({ status: 'failed', summary: 'no tomato', roUsed: 12 })
   })
@@ -213,7 +214,7 @@ describe('parseAgentFrame', () => {
 })
 
 const INFO = {
-  busy: false, model: 'opus', max_turns: 160, hard_max: { ro_cap: 300, rw_cap: 100, turn_cap: 150 },
+  busy: false, model: 'opus', max_turns: 160, hard_max: { rw_cap: 150, turn_cap: 200 },
   ro_used: 0, rw_used: 0, turns_used: 0, effector_calls_used: 0, plan: null, active_phase: null, session_started_at: 1,
 }
 
@@ -226,7 +227,7 @@ describe('parsePlan', () => {
   })
 
   it('falls back to pending for an unknown status', () => {
-    const p = parsePlan({ ...PLAN_PAYLOAD, phases: [phase(0, 'A', 'g', 'weird', [1, 0, 1], [0, 0, 0])] })
+    const p = parsePlan({ ...PLAN_PAYLOAD, phases: [phase(0, 'A', 'g', 'weird', [0, 1], [0, 0, 0])] })
     expect(p?.phases[0].status).toBe('pending')
   })
 })
@@ -269,24 +270,25 @@ describe('phaseRows', () => {
     const plan = parsePlan({
       ...PLAN_PAYLOAD,
       phases: [
-        phase(0, 'Locate', 'tomato seen', 'done', [20, 3, 10], [9, 1, 4]),
-        phase(1, 'Drive', 'within 10 cm', 'active', [10, 5, 20], [8, 5, 3]),
-        phase(2, 'Pick', 'tomato held', 'pending', [30, 0, 25], [0, 0, 0]),
+        phase(0, 'Locate', 'tomato seen', 'done', [3, 10], [9, 1, 4]),
+        phase(1, 'Drive', 'within 10 cm', 'active', [5, 20], [8, 5, 3]),
+        phase(2, 'Pick', 'tomato held', 'pending', [0, 25], [0, 0, 0]),
       ],
     })
     const rows = phaseRows(plan)
     expect(rows.map((r) => [r.number, r.status, r.active])).toEqual([[1, 'done', false], [2, 'active', true], [3, 'pending', false]])
     expect(rows[1].bars).toEqual([
-      { key: 'ro', label: 'ro 8 / 10', used: 8, cap: 10, fraction: 0.8, level: 'warn' },
       { key: 'rw', label: 'rw 5 / 5', used: 5, cap: 5, fraction: 1, level: 'full' },
       { key: 'turns', label: 'turns 3 / 20', used: 3, cap: 20, fraction: 0.15, level: 'ok' },
     ])
-    expect(rows[2].bars[1]).toMatchObject({ label: 'rw 0 / 0', fraction: 0, level: 'ok' })
+    expect(rows[2].bars[0]).toMatchObject({ label: 'rw 0 / 0', fraction: 0, level: 'ok' })
+    expect(rows.map((r) => r.bars.map((b) => b.key))).toEqual([['rw', 'turns'], ['rw', 'turns'], ['rw', 'turns']])
+    expect(rows.map((r) => r.sensorCalls)).toEqual([9, 8, 0])
     expect(rows[0]).toMatchObject({ name: 'Locate', goal: 'tomato seen', summary: 'found' })
   })
 
   it('clamps the bar fraction at 1 when usage exceeds the cap and returns [] without a plan', () => {
-    const plan = parsePlan({ ...PLAN_PAYLOAD, phases: [phase(0, 'A', 'g', 'active', [2, 1, 2], [5, 0, 0])] })
+    const plan = parsePlan({ ...PLAN_PAYLOAD, phases: [phase(0, 'A', 'g', 'active', [1, 2], [0, 5, 0])] })
     expect(phaseRows(plan)[0].bars[0]).toMatchObject({ fraction: 1, level: 'full' })
     expect(phaseRows(null)).toEqual([])
   })
@@ -310,7 +312,7 @@ describe('statusLabel / headerStatus', () => {
       complexity: null,
       phase: null,
       chips: [
-        { key: 'ro', label: 'ro 2', level: 'ok' },
+        { key: 'ro', label: 'sensors 2', level: 'ok' },
         { key: 'rw', label: 'rw 1', level: 'ok' },
         { key: 'turns', label: 'turns 3', level: 'ok' },
       ],
@@ -318,14 +320,14 @@ describe('statusLabel / headerStatus', () => {
     expect(headerStatus(null, s).model).toBeNull()
   })
 
-  it('shows the active phase and its used / cap chips with amber at 80 percent and red at the cap', () => {
+  it('shows the active phase and its used / cap chips (sensor calls are a plain number) with amber at 80 percent and red at the cap', () => {
     const plan = parsePlan({
       ...PLAN_PAYLOAD,
       active_phase: 1,
       phases: [
-        phase(0, 'Locate', 'tomato seen', 'done', [20, 3, 10], [9, 1, 4]),
-        phase(1, 'Drive', 'within 10 cm', 'active', [10, 5, 20], [8, 5, 3]),
-        phase(2, 'Pick', 'tomato held', 'pending', [30, 20, 25], [0, 0, 0]),
+        phase(0, 'Locate', 'tomato seen', 'done', [3, 10], [9, 1, 4]),
+        phase(1, 'Drive', 'within 10 cm', 'active', [5, 20], [8, 5, 3]),
+        phase(2, 'Pick', 'tomato held', 'pending', [20, 25], [0, 0, 0]),
       ],
     })
     const s = { ...emptyChat(), plan, roUsed: 17, rwUsed: 6, turnsUsed: 7 }
@@ -333,17 +335,17 @@ describe('statusLabel / headerStatus', () => {
     expect(h.complexity).toBe('complex')
     expect(h.phase).toEqual({ number: 2, total: 3, name: 'Drive' })
     expect(h.chips).toEqual([
-      { key: 'ro', label: 'ro 8 / 10', level: 'warn' },
+      { key: 'ro', label: 'sensors 8', level: 'ok' },
       { key: 'rw', label: 'rw 5 / 5', level: 'full' },
       { key: 'turns', label: 'turns 3 / 20', level: 'ok' },
     ])
   })
 
   it('shows the instruction totals without caps once every phase is completed', () => {
-    const plan = parsePlan({ ...PLAN_PAYLOAD, active_phase: null, phases: [phase(0, 'A', 'g', 'done', [5, 1, 5], [3, 1, 2])] })
+    const plan = parsePlan({ ...PLAN_PAYLOAD, active_phase: null, phases: [phase(0, 'A', 'g', 'done', [1, 5], [3, 1, 2])] })
     const h = headerStatus(INFO, { ...emptyChat(), plan, roUsed: 3, rwUsed: 1, turnsUsed: 2 })
     expect(h.phase).toBeNull()
-    expect(h.chips.map((c) => c.label)).toEqual(['ro 3', 'rw 1', 'turns 2'])
+    expect(h.chips.map((c) => c.label)).toEqual(['sensors 3', 'rw 1', 'turns 2'])
   })
 })
 describe('composerBlockReason', () => {

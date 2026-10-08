@@ -27,7 +27,6 @@ export interface PhaseInfo {
   name: string
   goal: string
   status: PhaseStatus
-  roCap: number
   rwCap: number
   turnCap: number
   roUsed: number
@@ -53,8 +52,8 @@ export interface AgentInfo {
   busy: boolean
   model: string
   max_turns: number
-  hard_max?: { ro_cap: number; rw_cap: number; turn_cap: number }
-  phase_max?: { ro_cap: number; rw_cap: number; turn_cap: number }
+  hard_max?: { rw_cap: number; turn_cap: number }
+  phase_max?: { rw_cap: number; turn_cap: number }
   ro_used: number
   rw_used: number
   turns_used: number
@@ -104,7 +103,7 @@ export type ChatItem =
       outcome: string
       summary: string
       usage: { roUsed: number; rwUsed: number; turnsUsed: number }
-      caps: { roCap: number; rwCap: number; turnCap: number }
+      caps: { rwCap: number; turnCap: number }
     }
   | {
       key: string
@@ -150,7 +149,7 @@ export type StatusColor = 'success' | 'warning' | 'error' | 'default'
 export type UsageLevel = 'ok' | 'warn' | 'full'
 
 export interface UsageBar {
-  key: 'ro' | 'rw' | 'turns'
+  key: 'rw' | 'turns'
   label: string
   used: number
   cap: number
@@ -168,6 +167,8 @@ export interface PhaseRow {
   active: boolean
   summary: string
   raised: boolean
+  /** Sensor calls so far in the phase (a plain count, sensors have no cap). */
+  sensorCalls: number
   bars: UsageBar[]
 }
 
@@ -236,7 +237,6 @@ function parsePhase(raw: unknown, fallbackIndex: number): PhaseInfo {
     name: str(p.name),
     goal: str(p.goal),
     status: PHASE_STATUSES.find((s) => s === p.status) ?? 'pending',
-    roCap: num(p.ro_cap),
     rwCap: num(p.rw_cap),
     turnCap: num(p.turn_cap),
     roUsed: num(p.ro_used),
@@ -386,7 +386,7 @@ export function reduceEvent(state: ChatState, event: AgentEvent): ChatState {
         outcome,
         summary,
         usage: { roUsed: num(usage.ro_used), rwUsed: num(usage.rw_used), turnsUsed: num(usage.turns_used) },
-        caps: { roCap: num(caps.ro_cap), rwCap: num(caps.rw_cap), turnCap: num(caps.turn_cap) },
+        caps: { rwCap: num(caps.rw_cap), turnCap: num(caps.turn_cap) },
       }
       const plan = withPhase(
         state.plan,
@@ -564,7 +564,7 @@ function usageBar(key: UsageBar['key'], name: string, used: number, cap: number)
 /**
  * Rows of the phase list (side panel / header).
  * @param plan the agent's plan, null before it set one
- * @returns one row per phase with its status, whether it is the active one and ro / rw / turns usage bars (amber from
+ * @returns one row per phase with its status, whether it is the active one, its sensor call count and rw / turns usage bars (amber from
  *   80 percent of a cap, red at the cap); empty without a plan
  */
 export function phaseRows(plan: PlanInfo | null): PhaseRow[] {
@@ -577,7 +577,8 @@ export function phaseRows(plan: PlanInfo | null): PhaseRow[] {
     active: p.status === 'active' && plan.activePhase === p.index,
     summary: p.summary,
     raised: p.raised,
-    bars: [usageBar('ro', 'ro', p.roUsed, p.roCap), usageBar('rw', 'rw', p.rwUsed, p.rwCap), usageBar('turns', 'turns', p.turnsUsed, p.turnCap)],
+    sensorCalls: p.roUsed,
+    bars: [usageBar('rw', 'rw', p.rwUsed, p.rwCap), usageBar('turns', 'turns', p.turnsUsed, p.turnCap)],
   }))
 }
 
@@ -586,7 +587,7 @@ export function phaseRows(plan: PlanInfo | null): PhaseRow[] {
  * @param info last /api/agent/state snapshot, null until loaded
  * @param state live chat state (busy, counters and plan follow state events)
  * @returns model, busy flag, the complexity the agent judged (null before it made a plan), the active phase and the
- *   ro / rw / turns chips of the active phase ("used / cap"); without an active phase the instruction totals, without caps
+ *   sensor count (no cap) and rw / turns chips of the active phase ("used / cap"); without an active phase the instruction totals, without caps
  */
 export function headerStatus(info: AgentInfo | null, state: ChatState): HeaderStatus {
   const plan = state.plan
@@ -598,12 +599,12 @@ export function headerStatus(info: AgentInfo | null, state: ChatState): HeaderSt
     phase: plan && active ? { number: active.index + 1, total: plan.phases.length, name: active.name } : null,
     chips: active
       ? [
-          usageChip('ro', 'ro', active.roUsed, active.roCap),
+          usageChip('ro', 'sensors', active.roUsed, null),
           usageChip('rw', 'rw', active.rwUsed, active.rwCap),
           usageChip('turns', 'turns', active.turnsUsed, active.turnCap),
         ]
       : [
-          usageChip('ro', 'ro', state.roUsed, null),
+          usageChip('ro', 'sensors', state.roUsed, null),
           usageChip('rw', 'rw', state.rwUsed, null),
           usageChip('turns', 'turns', state.turnsUsed, null),
         ],
