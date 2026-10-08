@@ -52,9 +52,9 @@ From repo root:
 
 ```bash
 cd nodes/bridges/bno055_imu
-poetry install
-poetry run poe lint
-poetry run poe test
+uv sync
+uv run poe lint
+uv run poe test
 ```
 
 Deploy to target via Ansible:

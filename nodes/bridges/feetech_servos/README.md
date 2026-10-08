@@ -77,7 +77,7 @@ The watchdog stops a wheel (goal_speed = 0) only when it is moving and **no driv
 
 ## Build and run
 
-Node source lives under `nodes/bridges/feetech_servos`. Ansible deploys by cloning the repo on the node and installing the Poetry venv from this path; run the deploy playbook for client or server to install and start the service.
+Node source lives under `nodes/bridges/feetech_servos`. Ansible deploys by cloning the repo on the node and syncing the uv venv (`uv sync --frozen --no-dev`) from this path; run the deploy playbook for client or server to install and start the service.
 
 ```bash
 ./scripts/deploy-nodes.sh client lerobot_follower
@@ -88,7 +88,7 @@ Set `FEETECH_SERVOS_CONFIG` to the path of the mounted config (e.g. `/etc/ros2/f
 
 ## Utility scripts
 
-Run from the node directory after `poetry install`: `poetry run python scripts/set_servo_id.py ...` or `poetry run python scripts/calibrate_servos.py ...`.
+Run from the node directory after `uv sync`: `uv run python scripts/set_servo_id.py ...` or `uv run python scripts/calibrate_servos.py ...`.
 
 ### set_servo_id.py
 
@@ -98,7 +98,7 @@ Set a new ID on a single Feetech servo. Requires exactly one servo on the bus (e
 - `--baudrate` (default 1000000): Baudrate; the st3215 library uses 1Mbps by default.
 - `--new-id` (required): New servo ID (0–253).
 
-Example: `poetry run python scripts/set_servo_id.py --device /dev/ttyUSB0 --new-id 3`
+Example: `uv run python scripts/set_servo_id.py --device /dev/ttyUSB0 --new-id 3`
 
 ### calibrate_servos.py
 
@@ -129,36 +129,36 @@ Register names match `registers.py` (e.g. `present_position`, `goal_position`, `
 
 ```bash
 # Interactive calibration (multi-joint)
-poetry run python scripts/calibrate_servos.py calibrate --device /dev/ttyUSB0 --output cal.json
+uv run python scripts/calibrate_servos.py calibrate --device /dev/ttyUSB0 --output cal.json
 
 # Read one register from servo ID 1 (default)
-poetry run python scripts/calibrate_servos.py read --device /dev/ttyUSB0 --register present_position
+uv run python scripts/calibrate_servos.py read --device /dev/ttyUSB0 --register present_position
 
 # Read all registers from servo ID 2
-poetry run python scripts/calibrate_servos.py read --device /dev/ttyUSB0 --id 2 --all
+uv run python scripts/calibrate_servos.py read --device /dev/ttyUSB0 --id 2 --all
 
 # Write goal_position on servo 1
-poetry run python scripts/calibrate_servos.py write --device /dev/ttyUSB0 --register goal_position --value 2048
+uv run python scripts/calibrate_servos.py write --device /dev/ttyUSB0 --register goal_position --value 2048
 
 # Set min/max limits on servo 1
-poetry run python scripts/calibrate_servos.py limits-set --device /dev/ttyUSB0 --id 1 --min 100 --max 4000
+uv run python scripts/calibrate_servos.py limits-set --device /dev/ttyUSB0 --id 1 --min 100 --max 4000
 
 # Read current min/max limits (JSON)
-poetry run python scripts/calibrate_servos.py limits-get --device /dev/ttyUSB0 --id 1
+uv run python scripts/calibrate_servos.py limits-get --device /dev/ttyUSB0 --id 1
 
 # Clear limits to full range
-poetry run python scripts/calibrate_servos.py limits-clear --device /dev/ttyUSB0 --id 1
+uv run python scripts/calibrate_servos.py limits-clear --device /dev/ttyUSB0 --id 1
 
 # Get/set (get any register; set only read-write)
-poetry run python scripts/calibrate_servos.py get --device /dev/ttyUSB0 --register present_position
-poetry run python scripts/calibrate_servos.py set --device /dev/ttyUSB0 --register goal_position --value 2048
+uv run python scripts/calibrate_servos.py get --device /dev/ttyUSB0 --register present_position
+uv run python scripts/calibrate_servos.py set --device /dev/ttyUSB0 --register goal_position --value 2048
 
 # File-based config: dump all registers to JSON, then load back (file must not contain read-only registers)
-poetry run python scripts/calibrate_servos.py dump-config --device /dev/ttyUSB0 --id 1 2 --output config.json
-poetry run python scripts/calibrate_servos.py load-config --device /dev/ttyUSB0 --file config.json
+uv run python scripts/calibrate_servos.py dump-config --device /dev/ttyUSB0 --id 1 2 --output config.json
+uv run python scripts/calibrate_servos.py load-config --device /dev/ttyUSB0 --file config.json
 
 # List register map (no device)
-poetry run python scripts/calibrate_servos.py list-registers
+uv run python scripts/calibrate_servos.py list-registers
 ```
 
 ### Leader gripper tuning for haptics
@@ -178,7 +178,7 @@ Deadband, acceleration, goal_speed, and protective_torque are left at servo defa
 2. Apply the profile (writes to EEPROM; servos 5 and 6 only):
    ```bash
    cd nodes/bridges/feetech_servos
-   poetry run python scripts/calibrate_servos.py load-config --device /dev/serial/by-id/usb-... --file leader_gripper_haptic_profile.json
+   uv run python scripts/calibrate_servos.py load-config --device /dev/serial/by-id/usb-... --file leader_gripper_haptic_profile.json
    ```
 3. Restart the leader feetech_servos node so it runs with the new register values.
 4. Tune if needed: use `dump-config --id 5 6` to read current values, edit the JSON (PID and current only), then `load-config` again. Keep haptic tests **gripper-only**.

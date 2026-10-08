@@ -53,7 +53,7 @@ A ROS2-based robotics platform with leader–follower teleop, RTK GPS, IMU, came
 </td>
 <td width="50%">
 
-**Full sensor suite on a Raspberry Pi 5** — BNO055 IMU, RealSense D435i depth camera, RPLidar A1, dual USB cameras, 8-servo swerve drive, and Nav2 navigation stack — all running natively with Poetry venvs and systemd.
+**Full sensor suite on a Raspberry Pi 5** — BNO055 IMU, RealSense D435i depth camera, RPLidar A1, dual USB cameras, 8-servo swerve drive, and Nav2 navigation stack — all running natively with uv venvs and systemd.
 
 </td>
 </tr>
@@ -241,10 +241,10 @@ claude                                   # start Claude Code in this repo, appro
 
 ## Development setup
 
-- **Python**: Managed with [mise](https://mise.jdx.dev/). Run `mise install` to get Python 3.12, uv, and Poetry.
-- **Dependencies**: Root: `mise exec -- poetry install`. Each node has its own Poetry project.
-- **Linters**: `poetry run poe lint` (root), `poetry run poe lint-nodes` (all nodes), `poetry run poe lint-ansible` (Ansible).
-- **Tests**: `poetry run pytest` (root). Per-node: `cd nodes/<node> && poetry run poe test`.
+- **Python**: Managed with [mise](https://mise.jdx.dev/). Run `mise install` to get Python 3.12, uv, and ruff.
+- **Dependencies**: Root: `mise exec -- uv sync`. Each node is its own uv project (`pyproject.toml` + `uv.lock`).
+- **Linters**: `uv run poe lint` (root), `uv run poe lint-nodes` (all nodes), `uv run poe lint-ansible` (Ansible).
+- **Tests**: `uv run pytest` (root). Per-node: `cd nodes/<node> && uv run poe test`.
 - **Pre-commit**: `pre-commit install` once, then hooks run on every commit.
 
 ## Ansible

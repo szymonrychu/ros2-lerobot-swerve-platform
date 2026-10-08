@@ -23,4 +23,4 @@ When adding a new bridge: add a directory under `bridges/` with Python (or other
 
 ## Rebuild rule
 
-After editing any source used by a bridge node, re-run the Ansible deploy playbook on the target node so the repo is updated and the Poetry venv is reinstalled (see [CLAUDE.md](../../CLAUDE.md)).
+After editing any source used by a bridge node, re-run the Ansible deploy playbook on the target node so the repo is updated and the uv venv is re-synced (see [CLAUDE.md](../../CLAUDE.md)).

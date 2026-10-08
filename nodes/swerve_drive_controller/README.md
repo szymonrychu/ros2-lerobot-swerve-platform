@@ -78,10 +78,10 @@ With the wheel pointing exactly straight ahead (bridge stopped so the bus is fre
 
 ```bash
 cd nodes/bridges/feetech_servos
-poetry run python scripts/calibrate_servos.py center --device /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00 --id 33
+uv run python scripts/calibrate_servos.py center --device /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00 --id 33
 # repeat for --id 34, 37, 38
 ```
 
 ## Build and run
 
-Ansible deploys this node on the client as `swerve_controller`. Locally: `cd nodes/swerve_drive_controller && poetry install && poetry run python -m swerve_drive_controller` (with config and ROS2 sourced). Tests: `poetry run pytest tests/ -v`.
+Ansible deploys this node on the client as `swerve_controller`. Locally: `cd nodes/swerve_drive_controller && uv sync && uv run python -m swerve_drive_controller` (with config and ROS2 sourced). Tests: `uv run pytest tests/ -v`.

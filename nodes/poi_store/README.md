@@ -66,4 +66,4 @@ result_topic: /poi/result
 
 - `poi_store/models.py` pydantic `Poi` / `Command`; `store.py` `PoiStore` (pure logic, no rclpy); `config.py`;
   `node.py` the only rclpy module.
-- `cd nodes/poi_store && poetry run pytest tests -q` (no ROS needed); `poetry run poe lint`.
+- `cd nodes/poi_store && uv run pytest tests -q` (no ROS needed); `uv run poe lint`.

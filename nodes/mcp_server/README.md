@@ -498,9 +498,9 @@ claude mcp add --transport http robot http://client.ros2.lan:18200/mcp \
 
 ```bash
 cd nodes/mcp_server
-poetry install    # also installs the shared `ros2-common` package (path dependency ../../shared, develop mode)
-poetry run pytest tests -q   # rclpy-free unit tests (rclpy is only imported by ros_iface.py / __main__.py)
-poetry run poe lint          # ruff check, ruff format --check, vulture
+uv sync    # also installs the shared `ros2-common` package (path dependency ../../shared, develop mode)
+uv run pytest tests -q   # rclpy-free unit tests (rclpy is only imported by ros_iface.py / __main__.py)
+uv run poe lint          # ruff check, ruff format --check, vulture
 ```
 
 Deploy: `./scripts/deploy-nodes.sh client mcp_server` (a `--tags mcp_server` run of `ansible/playbooks/deploy_nodes_client.yml`).

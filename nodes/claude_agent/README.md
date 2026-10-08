@@ -286,9 +286,9 @@ Node.js or npm install is needed. Bump the SDK version deliberately and re-run t
 
 ```bash
 cd nodes/claude_agent
-poetry install
-poetry run poe test    # pytest, no network and no real Claude calls
-poetry run poe lint    # ruff, ruff format --check, vulture
+uv sync
+uv run poe test    # pytest, no network and no real Claude calls
+uv run poe lint    # ruff, ruff format --check, vulture
 ```
 
 ## Security

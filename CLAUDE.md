@@ -47,7 +47,7 @@
 
 ### numpy dependency guard (mandatory)
 
-Before finalising any ROS2 Python node, check imported ROS2 message packages (especially `sensor_msgs`) for transitive Python runtime dependencies and **explicitly add `numpy` to the node's Poetry dependencies when needed**. Validate by starting the service and confirming it does not fail with `ModuleNotFoundError: numpy`.
+Before finalising any ROS2 Python node, check imported ROS2 message packages (especially `sensor_msgs`) for transitive Python runtime dependencies and **explicitly add `numpy` to the node's uv/pyproject dependencies when needed**. Validate by starting the service and confirming it does not fail with `ModuleNotFoundError: numpy`.
 
 ---
 
@@ -112,10 +112,10 @@ python scripts/topic_scraper_collect.py \
 **Before considering any change done, complete this sequence in full. No exceptions.**
 
 1. **Test** — Run the relevant test/lint for what you changed:
-   - Node tests: e.g. `cd nodes/bridges/feetech_servos && poetry run pytest tests/ -v`
-   - Root lint: `poetry run poe lint`
-   - All nodes: `poetry run poe lint-nodes`
-   - Ansible: `poetry run poe lint-ansible` and `poetry run poe test-ansible`
+   - Node tests: e.g. `cd nodes/bridges/feetech_servos && uv run pytest tests/ -v`
+   - Root lint: `uv run poe lint`
+   - All nodes: `uv run poe lint-nodes`
+   - Ansible: `uv run poe lint-ansible` and `uv run poe test-ansible`
    - Fix any failures before continuing.
 
 2. **Commit** — Stage and commit with a semantic message (`feat:`, `fix:`, `docs:`, etc.). One logical change per commit. Create a commit after each phase/iteration that passes.
@@ -158,24 +158,24 @@ Run from the **repository root** unless noted:
 
 | Command | What it does |
 |---|---|
-| `poetry run poe lint` | Lint `tests/` and `shared/` (root level) |
-| `poetry run poe lint-nodes` | Lint all Python nodes (all 14 node directories with `pyproject.toml`) |
+| `uv run poe lint` | Lint `tests/` and `shared/` (root level) |
+| `uv run poe lint-nodes` | Lint all Python nodes (all 15 node directories with `pyproject.toml`) |
 | `./scripts/lint-all-nodes.sh` | Alternative: lint all nodes via shell script (same coverage) |
-| `poetry run poe lint-ansible` | Run ansible-lint |
-| `poetry run poe test-ansible` | ansible-lint + playbook `--syntax-check` |
-| `poetry run pytest tests/ -v` | Run root-level tests |
+| `uv run poe lint-ansible` | Run ansible-lint |
+| `uv run poe test-ansible` | ansible-lint + playbook `--syntax-check` |
+| `uv run pytest tests/ -v` | Run root-level tests |
 
-Each node has its own Poetry environment and `poe lint` / `poe lint-fix` — run these inside the node directory (e.g. `cd nodes/bridges/feetech_servos && poetry run poe lint`).
+Each node has its own uv environment (`.venv`, from its `uv.lock`) and `poe lint` / `poe lint-fix` — run these inside the node directory (e.g. `cd nodes/bridges/feetech_servos && uv run poe lint`).
 
-**Per-node Poetry:** Each Python node has its own `pyproject.toml` and `poetry.lock`. Run `poetry install` and `poetry run poe lint` / `poetry run poe lint-fix` inside each node directory. Root `poe lint` covers only `tests`, `shared`.
+**Per-node uv:** Each Python node has its own `pyproject.toml` and `uv.lock`. Lint and format use ruff (configured in each `pyproject.toml`, version pinned in `mise.toml`). Run `uv sync` and `uv run poe lint` / `uv run poe lint-fix` inside each node directory. Root `poe lint` covers only `tests`, `shared`.
 
-**Ansible lint:** Run `ansible-lint .` from `ansible/` or `poetry run poe lint-ansible` from the root. Config: `ansible/.ansible-lint`.
+**Ansible lint:** Run `ansible-lint .` from `ansible/` or `uv run poe lint-ansible` from the root. Config: `ansible/.ansible-lint`.
 
 ---
 
 ## Native Node Source Changes
 
-Whenever source code used by a native ROS2 node is edited, **redeploy that node** so the Poetry venv and service reflect the change. Use `scripts/deploy-nodes.sh <target> <node_name>` to redeploy individual nodes.
+Whenever source code used by a native ROS2 node is edited, **redeploy that node** so the uv venv and service reflect the change. Use `scripts/deploy-nodes.sh <target> <node_name>` to redeploy individual nodes.
 
 ---
 

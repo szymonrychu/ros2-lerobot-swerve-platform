@@ -29,7 +29,7 @@ Supported relay types (set via `type:` in each rule; default `string`): `string`
 
 ## Build and run
 
-Ansible deploys by cloning the repo on the node and installing the Poetry venv from `nodes/master2master`. Run the deploy playbook for client or server; config is deployed to `/etc/ros2/master2master/config.yaml`. After editing source, re-run the deploy playbook so the repo is updated and the venv is reinstalled.
+Ansible deploys by cloning the repo on the node and syncing the uv venv (`uv sync --frozen --no-dev`) from `nodes/master2master`. Run the deploy playbook for client or server; config is deployed to `/etc/ros2/master2master/config.yaml`. After editing source, re-run the deploy playbook so the repo is updated and the venv is reinstalled.
 
 ```bash
 ./scripts/deploy-nodes.sh client master2master

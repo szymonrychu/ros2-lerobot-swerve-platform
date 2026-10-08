@@ -22,7 +22,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
   - **`network`** — Netplan: primary interface gets static IP (ethernet or wlan, auto-detected); other interfaces DHCP; IPv6 disabled. Runs when `network_address` and `network_gateway` are set; for primary WiFi set `network_wifi_ssid` (and optionally `network_wifi_password`).
   - **`hostname`** — Set system hostname (hostnamectl, `/etc/hostname`, `127.0.1.1` in `/etc/hosts`). Runs only when `hostname` is set.
-  - **`ros2_node_deploy`** — For each node: install Poetry venv from repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
+  - **`ros2_node_deploy`** — For each node: create the node venv (`python3 -m venv --system-site-packages`) and `uv sync --frozen --no-dev` from the repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
   - **`ros2_node_verify`** — Runs as the last step of the play, after the end-of-play restarts: waits for services to settle, checks each present+enabled node’s systemd unit is active, waits again, then re-checks (stability). Used by `deploy_nodes_server.yml` and `deploy_nodes_client.yml`. Variables: `ros2_node_verify_settle_seconds` (default 10), `ros2_node_verify_stable_seconds` (default 5).
 
   - **`system_optimize`** — Ubuntu 24.04 debloating, performance tuning, and resilience hardening for Raspberry Pi. See [System optimization](#system-optimization) below.
@@ -295,9 +295,9 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 
 ## Deploy load management
 
-A deploy no longer stops the whole stack up front. The role's `stop_for_build.yml` stops all running `ros2-*` services, once per play, only right before a heavy step that will actually run: the Poetry install of a node whose dependency hash changed, the web_ui `npm ci` / `npm run build`, or a colcon source build whose stamp is missing. So installs and builds still run on an otherwise idle Pi (the client overheated and froze on 2026-10-03), while a no-change deploy stops nothing. Nothing is restarted while nodes are deployed either: a changed config, unit, launcher, source, dependency set or build output queues a restart by appending the node to the host file `/var/lib/ros2-deploy/pending-restart` (`ros2_restart_queue`, one name per line), and `playbooks/tasks/start_ros_nodes.yml` carries out all of them once, at the end, in `ros2_nodes` order (dependencies first), one node at a time with `ros2_node_start_interval_s` (2 s, `group_vars/all.yml`) between them. It fails the run if a restart fails and clears the queue only after all succeeded, so a failed run keeps its queued restarts for the next one. The same step starts enabled nodes in the run's scope that are not running (stopped for a build); with a node filter (`--tags web_ui`) the scope is the selected nodes, queued nodes are restarted whatever the scope, and verify checks the scope plus the restarted nodes. The node tasks of both deploy playbooks run inside a `block` whose `rescue` runs the same start step (errors ignored) and then fails the run with the original error, so a failure after a build stopped the nodes never leaves the robot down.
+A deploy no longer stops the whole stack up front. The role's `stop_for_build.yml` stops all running `ros2-*` services, once per play, only right before a heavy step that will actually run: the uv sync of a node whose dependency hash changed, the web_ui `npm ci` / `npm run build`, or a colcon source build whose stamp is missing. So installs and builds still run on an otherwise idle Pi (the client overheated and froze on 2026-10-03), while a no-change deploy stops nothing. Nothing is restarted while nodes are deployed either: a changed config, unit, launcher, source, dependency set or build output queues a restart by appending the node to the host file `/var/lib/ros2-deploy/pending-restart` (`ros2_restart_queue`, one name per line), and `playbooks/tasks/start_ros_nodes.yml` carries out all of them once, at the end, in `ros2_nodes` order (dependencies first), one node at a time with `ros2_node_start_interval_s` (2 s, `group_vars/all.yml`) between them. It fails the run if a restart fails and clears the queue only after all succeeded, so a failed run keeps its queued restarts for the next one. The same step starts enabled nodes in the run's scope that are not running (stopped for a build); with a node filter (`--tags web_ui`) the scope is the selected nodes, queued nodes are restarted whatever the scope, and verify checks the scope plus the restarted nodes. The node tasks of both deploy playbooks run inside a `block` whose `rescue` runs the same start step (errors ignored) and then fails the run with the original error, so a failure after a build stopped the nodes never leaves the robot down.
 
-**Failure safety.** (1) The restart intent is written to the host queue by a task right after each change is applied (Poetry install, npm build and static copy, config, launcher, unit, colcon build, source stamp), not only at the late handler flush; the source stamp is written last, after config, launcher and unit succeeded. A failure at any point therefore still leaves the restart queued, and the start step runs `systemctl daemon-reload` first so a changed unit takes effect. (2) Before a heavy step stops the running units, they are appended to `/var/lib/ros2-deploy/stopped-for-build`; the start step starts every listed unit whatever the run's scope (also with `--tags <node>`) and clears the file after success. (3) `playbooks/tasks/deploy_guard.yml` installs `ros2-deploy-recover.timer` (every 2 minutes): when the stopped list is older than `ros2_recover_after_min` (15) and no deploy lock younger than `ros2_deploy_lock_max_age_min` (240) exists, it starts the listed units and clears the file. This covers a lost controller or SSH session, where the rescue path cannot run on an unreachable host. The lock `/var/lib/ros2-deploy/deploy.lock` is taken as the last pre-task and released after verify or in the rescue; a lock left by a dead controller stops blocking after its max age. The pre-tasks (repo sync, apt, firmware config) run before any node is stopped, so a failure there needs no rescue. The rescue message carries the failed task, its message, rc and stderr.
+**Failure safety.** (1) The restart intent is written to the host queue by a task right after each change is applied (uv sync, npm build and static copy, config, launcher, unit, colcon build, source stamp), not only at the late handler flush; the source stamp is written last, after config, launcher and unit succeeded. A failure at any point therefore still leaves the restart queued, and the start step runs `systemctl daemon-reload` first so a changed unit takes effect. (2) Before a heavy step stops the running units, they are appended to `/var/lib/ros2-deploy/stopped-for-build`; the start step starts every listed unit whatever the run's scope (also with `--tags <node>`) and clears the file after success. (3) `playbooks/tasks/deploy_guard.yml` installs `ros2-deploy-recover.timer` (every 2 minutes): when the stopped list is older than `ros2_recover_after_min` (15) and no deploy lock younger than `ros2_deploy_lock_max_age_min` (240) exists, it starts the listed units and clears the file. This covers a lost controller or SSH session, where the rescue path cannot run on an unreachable host. The lock `/var/lib/ros2-deploy/deploy.lock` is taken as the last pre-task and released after verify or in the rescue; a lock left by a dead controller stops blocking after its max age. The pre-tasks (repo sync, apt, firmware config) run before any node is stopped, so a failure there needs no rescue. The rescue message carries the failed task, its message, rc and stderr.
 
 **What counts as a changed source.** Every node gets a source stamp (`/var/lib/ros2-deploy/stamps/<node>.src`) holding the hash of the git tree hashes of its source paths on the synced checkout: `node_src_dir` for Python nodes, `src_paths` for launch/config-only node types (rplidar_a1, overview_camera, laser_filter, rf2o_laser_odometry, robot_localization_ekf, slam_toolbox, nav2_bringup, ros2_master), plus the type's `src_extra_paths` (mcp_server also reads `nodes/web_ui/urdf`) and `shared/` when the type sets `src_shared: true` (mcp_server, web_ui; a root test checks every pyproject with a `../../shared` dependency is declared). A different hash queues the restart. Running nodes nothing changed for are left alone and cost no sleep. `ros2_node_verify` runs last, after those restarts, and checks all units with one `systemctl is-active` per round.
 
@@ -407,7 +407,7 @@ bearer token is in the CLI child's argv, the claude_agent unit is also hardened 
 `proc_subset: pid`, `no_new_privileges: true`, `private_tmp: true`; defaults off, so other units are unchanged).
 `mcp_server_setup.yml` now creates the system group `mcp-token` and makes the MCP token group-readable
 (`0640`, owner `ansible_user`, group `mcp-token`); `claude_agent` joins that group through `SupplementaryGroups=`.
-The Claude Code CLI is the native binary bundled in the pinned `claude-agent-sdk` wheel (installed by Poetry), so no
+The Claude Code CLI is the native binary bundled in the pinned `claude-agent-sdk` wheel (installed by uv), so no
 npm install is needed; `DISABLE_AUTOUPDATER=1` is set in the unit environment.
 
 ## Connection tuning
@@ -421,6 +421,15 @@ The `ansible.cfg` `[ssh_connection]` section tunes SSH for the Raspberry Pis on 
 - **`timeout=120`** - per-task SSH timeout (2 min).
 - **`retries=5`** - retries failed SSH connections up to 5 times.
 
+## Node venvs (uv)
+
+How a node's Python environment is built on the Pi (`ros2_base` and `ros2_node_deploy` roles):
+
+- **uv install** (`ros2_base`): the pinned `uv` (`ros2_uv_version`, currently 0.11.29) is installed system-wide with `pipx install --force "uv==<version>"` into `/usr/local/bin`. A matching `uv --version` makes the task a no-op; any other version is replaced.
+- **Venv recipe** (`ros2_node_deploy`, only for nodes with a `build_context` source dir): `python3 -m venv --system-site-packages /opt/ros2-nodes/<node>/venv` using the system Python 3.12 (so `rclpy` and apt `python3-*` libraries stay visible), then `uv sync --frozen --no-dev` run in `<repo>/<build_context>` with `UV_PROJECT_ENVIRONMENT=<venv>`, `UV_PYTHON=<venv>/bin/python3` and `UV_PYTHON_DOWNLOADS=never`. `--frozen` installs exactly the node's committed `uv.lock`; `--no-dev` skips the dev group.
+- **Stamp** `<venv>/.uv-deps`: sha256 of the node's `pyproject.toml` + `uv.lock` (plus `shared/pyproject.toml` for nodes with `src_shared`). The sync runs only when it differs from the stamp or the venv is new; the stamp is written only after `uv sync` succeeded. A stamp from the previous installer has another file name, so the first uv deploy always syncs once.
+- **Changing dependencies**: edit the node's `pyproject.toml`, run `uv lock` in the node directory, commit both files, redeploy the node.
+
 ## Deploy tags
 
 Every task of the deploy playbooks, the `ros2_node_deploy` / `ros2_node_verify` roles and `playbooks/tasks/*.yml` carries at least one of these phase tags (a root test enforces it). Each node's deploy step and node-specific setup carries the node name as well (`web_ui`, `mcp_server`, `overview_camera`, ...).
@@ -429,7 +438,7 @@ Every task of the deploy playbooks, the `ros2_node_deploy` / `ros2_node_verify` 
 |-----|----------------|
 | `sync` | Repo clone/update on the target (also `always`) |
 | `apt` | ROS package sync and ONE batched install of the apt packages of all nodes in the run |
-| `python` | Poetry venv, dependency install (only when the hash changed) and the deployed-source stamp |
+| `python` | uv venv, dependency sync (only when the hash changed) and the deployed-source stamp |
 | `build` | web_ui npm steps and colcon source builds (stamp-gated), and the stop-before-build |
 | `config` | Node config files, launcher scripts, systemd units, enable/disable, uninstall, DDS host setup |
 | `boot` | Firmware overlays (`/boot/firmware/config.txt`), reboot, boot network wait |
@@ -443,7 +452,7 @@ Every task of the deploy playbooks, the `ros2_node_deploy` / `ros2_node_verify` 
 ```bash
 ./scripts/deploy-nodes.sh client web_ui mcp_server               # only those nodes, all their phases
 ./scripts/deploy-nodes.sh client --all --tags config,restart     # config/unit/launcher changes only, then restart
-./scripts/deploy-nodes.sh client --all --tags python             # Poetry/source change detection for every node
+./scripts/deploy-nodes.sh client --all --tags python             # uv/source change detection for every node
 ./scripts/deploy-nodes.sh client --all --skip-tags build,verify  # everything but builds and the final check
 ./scripts/deploy-nodes.sh client --all --tags boot               # firmware overlays and boot wait only
 ```
@@ -457,7 +466,7 @@ Goal: a no-change `./scripts/deploy-nodes.sh client --all` (was over 20 minutes)
 | Change | Expected saving |
 |--------|-----------------|
 | web_ui `npm ci` + `npm run build` only when their stamp changed (was every deploy, both ~5-10 min on the Pi) | the bulk of the 20 minutes |
-| Poetry install per node only when `pyproject.toml` / `poetry.lock` (and `shared/pyproject.toml` for nodes depending on it) changed; `shared/` is installed in develop mode, so source changes need no install | ~10-20 s per node, 27 nodes |
+| uv sync per node only when `pyproject.toml` / `uv.lock` (and `shared/pyproject.toml` for nodes depending on it) changed; `shared/` is an editable path source, so source changes need no sync | ~10-20 s per node, 27 nodes |
 | No stop-all and no per-node restart: only changed nodes restart, once, at the end; nodes are stopped only before a heavy step. Restart cause detection is per node: git tree hash of the node's source dir (plus `shared/` for dependents) vs `/opt/ros2-nodes/<node>/.deployed-src`, config, launcher, unit, deps, builds | the restart + 2 s start interval of every node (about 2-4 minutes), and no downtime for unchanged nodes |
 | Colcon sources: key, stamp and `install/setup.bash` are checked first; clone, patch and build are skipped when the stamp exists (was a git fetch + patch reset per source on every deploy) | a few network round trips per source |
 | One batched apt task for all nodes instead of one per node | about 25 apt calls |
@@ -465,12 +474,12 @@ Goal: a no-change `./scripts/deploy-nodes.sh client --all` (was over 20 minutes)
 | Node verify: one `systemctl is-active` for all units per round (was one SSH task per node, two rounds) | about 50 SSH tasks |
 | Removed the servo "stop before deploy" pre-tasks: a changed servo node is restarted by the queue, an unchanged one keeps running | an unneeded servo restart |
 
-First deploy after this change: all stamps are missing, so every node's Poetry install, `.deployed-src` and the web_ui build run once and every node restarts once; later deploys are the quick path. The probe and stamp logic is covered by `tests/test_ansible_deploy_speed.py` (the probe scripts are run against temp git repos); the effect on the real Pis is read off the `profile_tasks` recap of the next deploy.
+First deploy after this change: all stamps are missing, so every node's uv sync, `.deployed-src` and the web_ui build run once and every node restarts once; later deploys are the quick path. The probe and stamp logic is covered by `tests/test_ansible_deploy_speed.py` (the probe scripts are run against temp git repos); the effect on the real Pis is read off the `profile_tasks` recap of the next deploy.
 
 ## Linting and testing
 
-- **ansible-lint**: Run from the `ansible/` directory so `roles_path` resolves: `cd ansible && ansible-lint .`. From repo root: `poetry run poe lint-ansible`.
-- **test-ansible**: Lint plus playbook syntax-check for all playbooks: `poetry run poe test-ansible` (runs `ansible-lint .` and `ansible-playbook -i inventory playbooks/<name>.yml --syntax-check` for each playbook).
+- **ansible-lint**: Run from the `ansible/` directory so `roles_path` resolves: `cd ansible && ansible-lint .`. From repo root: `uv run poe lint-ansible`.
+- **test-ansible**: Lint plus playbook syntax-check for all playbooks: `uv run poe test-ansible` (runs `ansible-lint .` and `ansible-playbook -i inventory playbooks/<name>.yml --syntax-check` for each playbook).
 - **Config**: `ansible/.ansible-lint` (profile, skip_list, warn_list). Pre-commit runs ansible-lint on staged `ansible/*.yml` files via a local hook that runs from `ansible/`. Install ansible-lint (e.g. `pip install ansible-lint` or `pipx install ansible-lint`) for the hook to work.
 
 ## SteamDeck provisioning
@@ -529,4 +538,4 @@ ansible-playbook -i inventory playbooks/client.yml -l client
 
 ## After changing playbooks or roles
 
-When you change playbooks, roles, or templates, re-run the relevant playbook so targets get the updates. When you change node **source code**, re-run the deploy playbook to update the Poetry venv and restart the service.
+When you change playbooks, roles, or templates, re-run the relevant playbook so targets get the updates. When you change node **source code**, re-run the deploy playbook to update the uv venv and restart the service.

@@ -75,7 +75,7 @@ steamdeck_ui/
 │       └── utils/
 │           └── field-extract.ts      # Dot-notation field extraction
 ├── bridge/
-│   ├── pyproject.toml        # Poetry: websockets, pydantic, opencv-python-headless
+│   ├── pyproject.toml        # uv project: websockets, pydantic, opencv-python-headless
 │   ├── bridge_server.py      # rclpy node + asyncio WebSocket server
 │   ├── config.py             # Pydantic AppConfig + load_config()
 │   ├── msg_serializer.py     # ROS2 msg → JSON (Image → JPEG base64)
@@ -146,8 +146,8 @@ Production config is loaded from `/etc/steamdeck-ui/config.yaml` (Ansible-deploy
 ### Prerequisites
 
 - Node.js 20+
-- Python 3.11+
-- Poetry
+- Python 3.12+
+- uv (`mise install` provides it)
 
 ### Setup
 
@@ -156,7 +156,7 @@ cd nodes/steamdeck_ui
 npm ci                          # TypeScript + Electron deps
 
 cd bridge
-poetry install                  # Python bridge deps
+uv sync                  # Python bridge deps
 ```
 
 ### TypeScript tests
@@ -170,15 +170,15 @@ npm test                        # Jest: config loader + field-extract
 
 ```bash
 cd nodes/steamdeck_ui/bridge
-poetry run pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ### Lint
 
 ```bash
 cd nodes/steamdeck_ui/bridge
-poetry run poe lint             # flake8 + black + isort + vulture
-poetry run poe lint-fix         # auto-fix formatting
+uv run poe lint             # ruff + vulture
+uv run poe lint-fix         # auto-fix formatting
 ```
 
 ### Build renderer

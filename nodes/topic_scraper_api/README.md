@@ -175,7 +175,7 @@ Notes:
 Run tests and lint:
 
 ```bash
-poetry install
-poetry run poe test
-poetry run poe lint
+uv sync
+uv run poe test
+uv run poe lint
 ```

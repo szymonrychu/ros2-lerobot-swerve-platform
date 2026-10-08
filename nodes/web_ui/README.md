@@ -252,7 +252,7 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 
 ```bash
 # Python tests
-cd nodes/web_ui && poetry install && poetry run pytest tests/ -v
+cd nodes/web_ui && uv sync && uv run pytest tests/ -v
 
 # Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/map3d/*.test.ts, src/poi/*.test.ts, src/tabSelection.test.ts, src/agent/*.test.ts)
 cd nodes/web_ui/frontend && npx tsc --noEmit && npm test

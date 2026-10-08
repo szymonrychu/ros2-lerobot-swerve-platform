@@ -37,9 +37,9 @@ mkdir -p .logs
 ./scripts/deploy-nodes.sh client --all --skip-tags build,verify
 ```
 
-Phase tags: `sync`, `apt`, `python` (Poetry), `build` (npm/colcon), `config` (config files, units, launchers),
+Phase tags: `sync`, `apt`, `python` (uv), `build` (npm/colcon), `config` (config files, units, launchers),
 `boot` (firmware overlays, reboot), `setup` (dirs/tokens/users), `restart`, `verify`, `always`; each node's steps are
-also tagged with the node name. Details: `ansible/README.md`, "Deploy tags". Builds, Poetry installs and restarts only
+also tagged with the node name. Details: `ansible/README.md`, "Deploy tags". Builds, uv syncs and restarts only
 happen for what changed (stamps); a no-change deploy restarts nothing. The log ends with a per-task timing recap.
 
 ---
@@ -157,11 +157,11 @@ ros2 topic echo /controller/imu/data --once
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `is not a ros2_nodes entry` | Node name typo | The script lists the valid names from `group_vars/<target>.yml` |
-| Poetry install timeout | Transient network on RPi | Re-run the same deploy command |
+| uv sync timeout | Transient network on RPi | Re-run the same deploy command |
 | Service restart loop | Bad config or missing device | `journalctl -u ros2-<node>` for traceback |
 | `systemctl status` failed | Node crash on start | Check `journalctl -u ros2-<node>` |
 | Stale SSH control socket | Network dropped mid-run | `rm ~/.ansible/cp/*` and re-run |
-| `ansible-lint` failures | New task missing `name:` | Fix and run `poetry run poe lint-ansible` |
+| `ansible-lint` failures | New task missing `name:` | Fix and run `uv run poe lint-ansible` |
 
 ---
 
@@ -169,6 +169,6 @@ ros2 topic echo /controller/imu/data --once
 
 ```bash
 # From repo root
-poetry run poe lint-ansible      # ansible-lint
-poetry run poe test-ansible      # lint + syntax-check all playbooks
+uv run poe lint-ansible      # ansible-lint
+uv run poe test-ansible      # lint + syntax-check all playbooks
 ```

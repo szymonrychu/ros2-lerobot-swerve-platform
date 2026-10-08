@@ -1,6 +1,6 @@
 # Nodes
 
-All ROS2 node source code lives here. Deployment is via Ansible: the repo is cloned on each target and Poetry venvs are installed from these paths.
+All ROS2 node source code lives here. Deployment is via Ansible: the repo is cloned on each target and uv venvs are synced (`uv sync --frozen --no-dev`) from these paths.
 
 ## Layout
 
