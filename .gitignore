@@ -51,3 +51,6 @@ nodes/steamdeck_ui/src/main/*.d.ts.map
 # Ansible fact cache (ansible.cfg fact_caching_connection)
 ansible/.ansible_facts_cache/
 .ansible_facts_cache/
+
+# graphify knowledge graph (generated locally)
+graphify-out/
