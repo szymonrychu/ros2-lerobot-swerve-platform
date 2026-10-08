@@ -1,6 +1,7 @@
 """Unit tests for teleop config (env-based)."""
 
 import pytest
+
 from config import DEFAULT_FOLLOWER_JOINT_COMMANDS_TOPIC, DEFAULT_LEADER_JOINT_STATES_TOPIC, get_config
 
 
