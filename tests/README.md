@@ -299,6 +299,10 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   (point defaults to the robot position, area polygon, `created_by` agent, argument errors, store not running),
   `list_pois` distance/bearing/status/near, `look_around` (montage + top-down images, summary, config default
   captures, argument validation, refusal does not move)
+- executor hardening and camera frame cache (`test_spin.py`): `spin_forever` survives a stale-handle error and
+  re-raises others; `run_or_exit` exits the process when the executor thread dies or stops while ROS runs (systemd
+  restarts the node) and stays quiet on shutdown; `FrameCache.wait_newer` returns the first frame newer than the
+  request or None on timeout.
 - arm controller (`test_arm.py`): lease acquire/release, streamed motion with implicit acquire and velocity cap, speed
   scale, clamping, argument validation, abort + hold on stale feedback / tracking error / stop (tracking limit grows
   with the motion's velocity: `tracking_limit`, a 0.4 rad lag passes at full speed and aborts at 0.2 rad/s), no hold after filter_node

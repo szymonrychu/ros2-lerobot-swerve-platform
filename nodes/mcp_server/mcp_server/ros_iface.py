@@ -63,6 +63,7 @@ from .perception import (
     summarize_scan,
 )
 from .poi_client import PoiRequests, parse_poi_list
+from .spin import FrameCache
 from .staleness import Stamped
 from .topdown import TopdownInputs, grid_layer, transform_points
 
@@ -275,6 +276,12 @@ class RosRobot:
         )
         self.subscribe(Twist, t.cmd_vel, lambda m: self.monitor.on_cmd_vel(m.linear.x, m.linear.y, m.angular.z))
         self.subscribe(String, t.servo_registers, self.on_servo_registers)
+        # Persistent camera subscriptions: per-call subscriptions destroyed from tool threads raced the executor's
+        # wait set (rclpy InvalidHandle killed the executor thread, 2026-10-08).
+        self.camera_topics = {"gripper": t.gripper_camera, "front": t.front_camera}
+        self.camera_frames = {name: FrameCache() for name in self.camera_topics}
+        for name, topic in self.camera_topics.items():
+            self.subscribe(CompressedImage, topic, self.camera_frames[name].update)
 
         if config.battery is not None and battery_guard is not None:
 
@@ -603,7 +610,7 @@ class RosRobot:
         return state
 
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:
-        """Grab one fresh frame through a one-shot subscription.
+        """Wait for the next frame on the camera's persistent subscription.
 
         Args:
             camera (str): 'gripper' or 'front' (overhead camera); both are CompressedImage topics.
@@ -612,25 +619,13 @@ class RosRobot:
         Returns:
             CameraFrame: JPEG frame.
         """
-        topics = {"gripper": self.cfg.topics.gripper_camera, "front": self.cfg.topics.front_camera}
-        if camera not in topics:
+        if camera not in self.camera_topics:
             raise RobotError(f"unknown camera {camera!r}")
-        topic = topics[camera]
-        got: list[Any] = []
-        arrived = threading.Event()
-
-        def on_frame(msg: Any) -> None:
-            if not got:
-                got.append(msg)
-                arrived.set()
-
-        sub = self.node.create_subscription(CompressedImage, topic, on_frame, SENSOR_QOS, callback_group=self.group)
-        try:
-            if not arrived.wait(self.cfg.timeouts.image_timeout_s):
-                raise RobotError(f"no frame on {topic} within {self.cfg.timeouts.image_timeout_s} s")
-        finally:
-            self.node.destroy_subscription(sub)
-        msg = got[0]
+        topic = self.camera_topics[camera]
+        cache = self.camera_frames[camera]
+        msg = cache.wait_newer(cache.clock(), self.cfg.timeouts.image_timeout_s)
+        if msg is None:
+            raise RobotError(f"no frame on {topic} within {self.cfg.timeouts.image_timeout_s} s")
         stamp = msg.header.stamp
         if not (stamp.sec or stamp.nanosec):
             raise RobotError(f"frame on {topic} has no capture timestamp")

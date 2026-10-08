@@ -1,21 +1,25 @@
 """Entry point: rclpy node spun in a background executor thread + the MCP Streamable HTTP app on uvicorn."""
 
 import logging
+import os
 import sys
 import threading
 
 import rclpy
 import uvicorn
 from pydantic import ValidationError
+from rclpy._rclpy_pybind11 import InvalidHandle
 from rclpy.executors import MultiThreadedExecutor
 from ros2_common.battery import BatteryGuard
 
 from .config import MissingTokenError, config_path_from_env, load_config, token_from_env
 from .monitor import RobotMonitor
 from .ros_iface import RosRobot, init_ros
+from .spin import run_or_exit, spin_forever
 from .tools import build_app, build_mcp_server
 
 EXECUTOR_THREADS = 4
+SPIN_TIMEOUT_S = 0.5
 LOGGER = logging.getLogger("mcp_server")
 
 
@@ -43,7 +47,11 @@ def main() -> int:
     robot = RosRobot(config, guard, monitor)
     executor = MultiThreadedExecutor(num_threads=EXECUTOR_THREADS)
     executor.add_node(robot.node)
-    spinner = threading.Thread(target=executor.spin, name="ros-executor", daemon=True)
+
+    def spin() -> None:
+        spin_forever(lambda: executor.spin_once(timeout_sec=SPIN_TIMEOUT_S), rclpy.ok, (InvalidHandle,))
+
+    spinner = threading.Thread(target=run_or_exit, args=(spin, rclpy.ok, os._exit), name="ros-executor", daemon=True)
     spinner.start()
     app = build_app(build_mcp_server(robot, config, token, guard, monitor), config)
     if config.battery is not None:
