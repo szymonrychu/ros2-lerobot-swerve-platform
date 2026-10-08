@@ -110,8 +110,8 @@ def _warmup(bno: Any, node: Node, executor: SingleThreadedExecutor, timeout_s: f
         time.sleep(0.2)
         _spin_once_safe(executor, timeout_sec=0.01)
     node.get_logger().warn(
-        "BNO055 warm-up timed out (%.0f s); will retry each cycle. "
-        "Check I2C, calibration, and keep sensor still for a few seconds." % timeout_s
+        f"BNO055 warm-up timed out ({timeout_s:.0f} s); will retry each cycle. "
+        "Check I2C, calibration, and keep sensor still for a few seconds."
     )
     return False
 
@@ -185,9 +185,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         except Exception as e:  # noqa: BLE001
             init_attempt += 1
             backoff = min(30.0, 2 ** min(init_attempt, 5))
-            node.get_logger().error(
-                "BNO055 init failed (attempt %d): %s — retrying in %.0fs" % (init_attempt, e, backoff)
-            )
+            node.get_logger().error(f"BNO055 init failed (attempt {init_attempt}): {e} — retrying in {backoff:.0f}s")
             time.sleep(backoff)
             _spin_once_safe(executor, timeout_sec=0.01)
     if bno is None:
@@ -197,22 +195,20 @@ def run_imu_node(config: ImuNodeConfig) -> None:
 
     actual_mode = bno.mode
     node.get_logger().info(
-        "BNO055 IMU: mode=0x%02x, publishing %s at %.1f Hz (frame_id=%s, i2c=%d, address=0x%02x)"
-        % (actual_mode, config.topic, config.publish_hz, config.frame_id, config.i2c_bus, used_addr)
+        f"BNO055 IMU: mode=0x{actual_mode:02x}, publishing {config.topic} at {config.publish_hz:.1f} Hz "
+        f"(frame_id={config.frame_id}, i2c={config.i2c_bus}, address=0x{used_addr:02x})"
     )
     if actual_mode != IMUPLUS_MODE_VALUE:
         node.get_logger().warn(
-            "BNO055 mode mismatch after init: expected 0x08 (IMUPLUS), got 0x%02x"
-            " — reads will return None" % actual_mode
+            f"BNO055 mode mismatch after init: expected 0x08 (IMUPLUS), got 0x{actual_mode:02x} — reads will return None"
         )
     try:
         sys_c, gyro_c, accel_c, mag_c = bno.calibration_status
         node.get_logger().info(
-            "BNO055 calibration (sys, gyro, accel, mag): %d, %d, %d, %d (0=uncal, 3=full)"
-            % (sys_c, gyro_c, accel_c, mag_c)
+            f"BNO055 calibration (sys, gyro, accel, mag): {sys_c}, {gyro_c}, {accel_c}, {mag_c} (0=uncal, 3=full)"
         )
     except Exception as e:  # noqa: BLE001
-        node.get_logger().debug("BNO055 calibration status unavailable: %s" % e)
+        node.get_logger().debug(f"BNO055 calibration status unavailable: {e}")
 
     _warmup(bno, node, executor)
 
@@ -225,8 +221,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         gyro_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
         accel_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
         node.get_logger().info(
-            "BNO055: real covariance estimation enabled (window=%d, min_samples=%d)"
-            % (config.covariance_window, config.covariance_min_samples)
+            f"BNO055: real covariance estimation enabled "
+            f"(window={config.covariance_window}, min_samples={config.covariance_min_samples})"
         )
 
     consecutive_failures: int = 0
@@ -257,7 +253,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 _spin_once_safe(executor, timeout_sec=period_s)
                 continue
 
-            node.get_logger().warn("BNO055: %d consecutive failures — attempting I2C reconnect" % consecutive_failures)
+            node.get_logger().warn(f"BNO055: {consecutive_failures} consecutive failures — attempting I2C reconnect")
             # Backoff grows with reconnect_count to slow down repeated reconnect loops.
             backoff = min(30.0, 2 ** min(reconnect_count, 5))
             time.sleep(backoff)
@@ -268,12 +264,11 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 reconnect_count += 1
                 reconnect_mode = bno.mode
                 node.get_logger().info(
-                    "BNO055 reconnected on 0x%02x, mode=0x%02x (reconnect #%d)"
-                    % (used_addr, reconnect_mode, reconnect_count)
+                    f"BNO055 reconnected on 0x{used_addr:02x}, mode=0x{reconnect_mode:02x} (reconnect #{reconnect_count})"
                 )
                 if reconnect_mode != 0x08:  # IMUPLUS_MODE
                     node.get_logger().warn(
-                        "BNO055 mode mismatch after reconnect: expected 0x08, got 0x%02x" % reconnect_mode
+                        f"BNO055 mode mismatch after reconnect: expected 0x08, got 0x{reconnect_mode:02x}"
                     )
                 # Reset estimators so stale pre-reconnect samples don't pollute covariance.
                 if orient_est is not None:
@@ -284,7 +279,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                     accel_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
                 _warmup(bno, node, executor)
             except Exception as e:  # noqa: BLE001
-                node.get_logger().error("BNO055 reconnect failed: %s" % e)
+                node.get_logger().error(f"BNO055 reconnect failed: {e}")
                 # Don't reset counter — will retry again after threshold
             _spin_once_safe(executor, timeout_sec=period_s)
             continue
@@ -296,7 +291,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 gyro = bno.gyro
                 accel = bno.linear_acceleration
             except (RuntimeError, OSError) as e:
-                node.get_logger().warn("BNO055 read error: %s" % e, throttle_duration_sec=5.0)
+                node.get_logger().warn(f"BNO055 read error: {e}", throttle_duration_sec=5.0)
                 quat = gyro = accel = None
                 hard_failures += 1
                 break
@@ -307,8 +302,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             time.sleep(0.01)
         else:
             node.get_logger().warn(
-                "BNO055 no valid gyro/accel after 5 retries (gyro=%r, accel=%r); attempting mode restore"
-                % (gyro, accel),
+                f"BNO055 no valid gyro/accel after 5 retries (gyro={gyro!r}, accel={accel!r}); attempting mode restore",
                 throttle_duration_sec=5.0,
             )
             # All-None returns indicate CONFIG mode (0x00), not a transient I2C glitch.
@@ -336,8 +330,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         if not has_valid_tuple(gyro, 3, allow_zeros=True) or not has_valid_tuple(accel, 3, allow_zeros=True):
             consecutive_failures += 1
             node.get_logger().warn(
-                "BNO055 accel fallback still invalid (gyro_ok=%s, accel_ok=%s); skipping publish"
-                % (has_valid_tuple(gyro, 3, allow_zeros=True), has_valid_tuple(accel, 3, allow_zeros=True)),
+                f"BNO055 accel fallback still invalid (gyro_ok={has_valid_tuple(gyro, 3, allow_zeros=True)}, accel_ok={has_valid_tuple(accel, 3, allow_zeros=True)}); skipping publish",
                 throttle_duration_sec=5.0,
             )
             _spin_once_safe(executor, timeout_sec=period_s)

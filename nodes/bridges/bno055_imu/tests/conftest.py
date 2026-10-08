@@ -26,6 +26,10 @@ def _stub_ros2_modules() -> None:
     node_mod = _make_stub_module("rclpy.node")
     node_mod.Node = object  # type: ignore[attr-defined]
 
+    # rclpy.executors
+    executors_mod = _make_stub_module("rclpy.executors")
+    executors_mod.SingleThreadedExecutor = object  # type: ignore[attr-defined]
+
     # rclpy.qos
     qos_mod = _make_stub_module("rclpy.qos")
 

@@ -1,40 +1,39 @@
-[tool.poetry]
+[project]
 name = "bno055_imu"
 version = "0.1.0"
 description = "BNO055 IMU bridge publishing sensor_msgs/Imu for Nav2 and navigation stack"
 readme = "README.md"
-packages = [{ include = "bno055_imu", from = "." }]
+requires-python = ">=3.11,<4"
+dependencies = [
+    "pyyaml>=6.0",
+    "numpy>=1.26.0",
+    "adafruit-circuitpython-bno055>=1.0.0",
+    "adafruit-blinka>=8.0.0",
+    "adafruit-extended-bus>=1.0.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-pyyaml = ">=6.0"
-numpy = ">=1.26.0"
-adafruit-circuitpython-bno055 = ">=1.0.0"
-adafruit-blinka = ">=8.0.0"
-adafruit-extended-bus = ">=1.0.0"
-
-[tool.poetry.group.dev.dependencies]
-flake8 = "^7.0.0"
-black = "^24.0.0"
-isort = "^5.13.0"
-autoflake = "^2.3.1"
-vulture = "^2.11"
-poethepoet = "^0.42.0"
-pytest = "^8.0.0"
+[dependency-groups]
+dev = [
+    "ruff==0.16.10",
+    "vulture>=2.11,<3",
+    "poethepoet>=0.42.0,<0.43",
+    "pytest>=8.0.0,<9",
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.black]
+[tool.hatch.build.targets.wheel]
+packages = ["bno055_imu"]
+
+[tool.ruff]
 line-length = 120
+extend-exclude = [".venv", "__pycache__"]
 
-[tool.isort]
-profile = "black"
-line_length = 120
-
-[tool.flake8]
-max-line-length = 120
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
 
 [tool.vulture]
 exclude = ["**/__pycache__"]
@@ -43,16 +42,13 @@ min_confidence = 80
 [tool.poe.tasks]
 lint = { shell = """
   set -e
-  flake8 bno055_imu
-  black --check bno055_imu tests
-  isort --check bno055_imu tests
-  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables bno055_imu tests
+  ruff check bno055_imu tests
+  ruff format --check bno055_imu tests
   vulture bno055_imu tests --min-confidence 80
 """ }
 lint-fix = { shell = """
-  black bno055_imu tests
-  isort bno055_imu tests
-  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables bno055_imu tests
+  ruff check --fix bno055_imu tests
+  ruff format bno055_imu tests
 """ }
 test = { shell = "pytest tests/ -v" }
 
