@@ -4,7 +4,7 @@
 #   ./scripts/deploy-nodes.sh client --all --tags config,restart
 # Phase tags: apt, python, build, config, boot, setup, sync, restart, verify (documented in ansible/README.md, "Deploy tags").
 # Node list and config live in group_vars/client.yml; repo vars in group_vars/all.yml.
-# Deploys are quick on a no-change run: heavy steps (npm, colcon, Poetry) run only when their stamp changed, nodes are
+# Deploys are quick on a no-change run: heavy steps (npm, colcon, uv sync) run only when their stamp changed, nodes are
 # stopped only before such a step, and changed nodes are restarted once at the end (tasks/start_ros_nodes.yml).
 
 - name: Deploy all Client ROS2 nodes

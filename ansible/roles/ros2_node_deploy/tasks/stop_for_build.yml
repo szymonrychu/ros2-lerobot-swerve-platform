@@ -1,5 +1,5 @@
 ---
-# Stop every running ROS2 node service before a heavy step (npm, colcon, Poetry install), once per play. The client
+# Stop every running ROS2 node service before a heavy step (npm, colcon, uv sync), once per play. The client
 # overheated and froze when a build ran next to the full stack (2026-10-03). A deploy with nothing to build never gets
 # here, so nothing is stopped. The units are recorded in ros2_stopped_for_build_file BEFORE they are stopped; the stopped
 # nodes are started again, gradually, by playbooks/tasks/start_ros_nodes.yml (every listed unit, whatever the run's scope),

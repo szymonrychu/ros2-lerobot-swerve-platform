@@ -1,6 +1,6 @@
 ---
 # Bootstrap ROS2 Jazzy on a fresh Ubuntu 24.04 host.
-# Installs: apt prerequisites, ROS2 Jazzy, Python tooling, Poetry,
+# Installs: apt prerequisites, ROS2 Jazzy, Python tooling, uv,
 # hardware support libs, Node.js 22 (client only), user groups.
 
 - name: Remove conflicting cloud-init netplan file (superseded by ansible-managed netplan)
@@ -93,15 +93,23 @@
     state: present
   become: true
 
-- name: Install Poetry via pipx (system-wide)
-  ansible.builtin.command: pipx install poetry
+# Idempotent: a matching `uv --version` is a no-op; any other version (or none) is replaced by the pinned one.
+- name: Install the pinned uv via pipx (system-wide)
+  ansible.builtin.shell: |
+    set -eu
+    if [ "$(/usr/local/bin/uv --version 2>/dev/null | cut -d' ' -f2)" = "{{ ros2_uv_version }}" ]; then
+      echo "uv {{ ros2_uv_version }} already installed"
+      exit 0
+    fi
+    pipx install --force "uv=={{ ros2_uv_version }}"
+  args:
+    executable: /bin/bash
   become: true
   environment:
     PIPX_HOME: /opt/pipx
     PIPX_BIN_DIR: /usr/local/bin
-  register: _poetry_install
-  changed_when: "'already installed' not in _poetry_install.stdout"
-  failed_when: _poetry_install.rc != 0 and 'already installed' not in _poetry_install.stderr
+  register: _uv_install
+  changed_when: "'already installed' not in _uv_install.stdout"
 
 - name: Install hardware support libraries
   ansible.builtin.apt:

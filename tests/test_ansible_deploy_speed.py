@@ -251,20 +251,98 @@ def test_role_has_no_always_changed_tasks_and_does_not_restart_or_start_nodes() 
     assert queue["create"] is True and restart["become"] is True
 
 
-def test_poetry_install_runs_only_for_a_new_dependency_hash_and_stamps_after_success() -> None:
+def test_uv_sync_runs_only_for_a_new_dependency_hash_and_stamps_after_success() -> None:
     tasks = {t.get("name"): t for t, _ in effective_tasks(load(ROLE_DIR / "tasks" / "main.yml"))}
-    poetry = tasks["Install node Python dependencies via Poetry"]
-    assert "node_deps_stale | bool" in poetry["when"]
-    cmd = poetry["ansible.builtin.shell"]
-    assert cmd.index("poetry install --only main") < cmd.index(".poetry-deps"), "stamp only after a successful install"
-    assert "changed_when" not in poetry
+    venv = tasks["Create node venv with system-site-packages"]["ansible.builtin.command"]
+    assert venv["cmd"] == "python3 -m venv --system-site-packages /opt/ros2-nodes/{{ node_name }}/venv"
+    sync = tasks["Install node Python dependencies with uv"]
+    assert "node_deps_stale | bool" in sync["when"]
+    cmd = sync["ansible.builtin.shell"]
+    assert cmd.index("/usr/local/bin/uv sync --frozen --no-dev") < cmd.index(".uv-deps"), "stamp only after success"
+    assert sync["args"]["chdir"] == "{{ repo_dest }}/{{ node_src_dir }}", "path dependencies resolve in the checkout"
+    assert sync["environment"] == {
+        "UV_PROJECT_ENVIRONMENT": "/opt/ros2-nodes/{{ node_name }}/venv",
+        "UV_PYTHON": "/opt/ros2-nodes/{{ node_name }}/venv/bin/python3",
+        "UV_PYTHON_DOWNLOADS": "never",
+    }
+    assert "changed_when" not in sync and sync["notify"] == "Restart ROS2 node"
     probe = tasks["Detect node source and Python dependency changes"]["ansible.builtin.shell"]
-    for needle in ("poetry.lock", "pyproject.toml", "shared/pyproject.toml", '"HEAD:$p"', "node_src_paths"):
+    for needle in ("uv.lock", "pyproject.toml", "shared/pyproject.toml", '"HEAD:$p"', "node_src_paths", ".uv-deps"):
         assert needle in probe, needle
     assert "grep" not in probe, "shared/ is declared per node type (src_shared), not guessed from pyproject"
+    queue = tasks["Queue a restart (Python dependencies installed)"]
+    assert "node_uv_sync is changed" in queue["when"] and sync["register"] == "node_uv_sync"
     source_stamp = tasks["Record the deployed node source (restart when it changed)"]
     assert source_stamp["notify"] == "Restart ROS2 node" and "node_src_key" in source_stamp["ansible.builtin.copy"]["content"]
     assert "when" not in source_stamp, "launch-only nodes (no node_src_dir) get a source stamp too"
+
+
+def uv_install_task() -> dict:
+    """The ros2_base task that installs the pinned uv.
+
+    Returns:
+        dict: The parsed task.
+    """
+    tasks = {t["name"]: t for t in load(ANSIBLE_DIR / "roles" / "ros2_base" / "tasks" / "main.yml")}
+    return tasks["Install the pinned uv via pipx (system-wide)"]
+
+
+def test_ros2_base_installs_the_pinned_uv_system_wide() -> None:
+    assert load(ANSIBLE_DIR / "roles" / "ros2_base" / "defaults" / "main.yml")["ros2_uv_version"] == "0.11.29"
+    task = uv_install_task()
+    assert task["environment"] == {"PIPX_HOME": "/opt/pipx", "PIPX_BIN_DIR": "/usr/local/bin"}
+    assert task["become"] is True and task["register"] == "_uv_install"
+    assert task["changed_when"] == "'already installed' not in _uv_install.stdout"
+    assert 'pipx install --force "uv=={{ ros2_uv_version }}"' in task["ansible.builtin.shell"]
+
+
+@pytest.mark.parametrize(
+    ("installed", "installs"),
+    [
+        ("uv 0.11.29", False),
+        ("uv 0.11.29 (901092ee1 2026-07-15 aarch64-unknown-linux-gnu)", False),
+        ("uv 0.11.2", True),
+        ("uv 0.11.290", True),
+        ("uv 0.12.0", True),
+        (None, True),
+    ],
+)
+def test_ros2_base_uv_install_is_idempotent_and_fixes_a_wrong_version(
+    tmp_path: Path, installed: str | None, installs: bool
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "pipx-calls"
+    (bin_dir / "pipx").write_text(f'#!/bin/bash\necho "$@" >> {calls}\n')
+    fake_uv = bin_dir / "uv"
+    if installed is not None:
+        fake_uv.write_text(f'#!/bin/bash\necho "{installed}"\n')
+    for f in bin_dir.iterdir():
+        f.chmod(0o755)
+    script = render_probe(uv_install_task()["ansible.builtin.shell"], ros2_uv_version="0.11.29")
+    script = script.replace("/usr/local/bin/uv", str(fake_uv))
+    env = {**os.environ, "PATH": f"{bin_dir}:/usr/bin:/bin"}
+    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True, env=env)
+    if installs:
+        assert calls.read_text() == "install --force uv==0.11.29\n"
+        assert "already installed" not in out.stdout
+    else:
+        assert not calls.exists() and "already installed" in out.stdout
+
+
+def test_ansible_tree_has_no_poetry_left_outside_the_readme() -> None:
+    hits = [
+        str(p.relative_to(REPO_ROOT))
+        for p in ANSIBLE_DIR.rglob("*")
+        if p.is_file() and p != ANSIBLE_README and "poetry" in p.read_text(errors="ignore").lower()
+    ]
+    assert hits == []
+
+
+def test_lint_ansible_script_runs_ansible_lint_through_uv() -> None:
+    text = (REPO_ROOT / "scripts" / "lint-ansible.sh").read_text()
+    assert "poetry" not in text.lower()
+    assert "uv run ansible-lint" in text and "uvx --from" in text
 
 
 def test_web_ui_npm_steps_run_only_when_their_inputs_changed() -> None:
@@ -324,8 +402,8 @@ def probe_repo(tmp_path: Path) -> Path:
     """
     repo = tmp_path / "repo"
     files = {
-        "nodes/demo/pyproject.toml": 'ros2-common = { path = "../../shared", develop = true }\n',
-        "nodes/demo/poetry.lock": "lock-1\n",
+        "nodes/demo/pyproject.toml": '[tool.uv.sources]\nros2-common = { path = "../../shared", editable = true }\n',
+        "nodes/demo/uv.lock": "lock-1\n",
         "nodes/demo/demo/__init__.py": "x = 1\n",
         "shared/pyproject.toml": "[project]\n",
         "shared/lib.py": "y = 1\n",
@@ -375,6 +453,8 @@ def test_dependency_probe_detects_source_dependency_and_shared_changes(probe_rep
     assert first["stored_deps_key"] == "" and first["deps_key"], "a new venv needs an install"
     (venv / "venv").mkdir(parents=True)
     (venv / "venv" / ".poetry-deps").write_text(first["deps_key"])
+    assert run_bash(script)["stored_deps_key"] == "", "a stamp left by the old Poetry install never skips uv sync"
+    (venv / "venv" / ".uv-deps").write_text(first["deps_key"])
     assert run_bash(script)["stored_deps_key"] == first["deps_key"], "stamp matches: no reinstall"
     (probe_repo / "nodes/demo/demo/__init__.py").write_text("x = 2\n")
     git(probe_repo, "commit", "-qam", "src")
@@ -384,10 +464,10 @@ def test_dependency_probe_detects_source_dependency_and_shared_changes(probe_rep
     git(probe_repo, "commit", "-qam", "shared source")
     shared = run_bash(script)
     assert shared["src_key"] != changed_src["src_key"], "shared/ changes restart its dependents"
-    assert shared["deps_key"] == first["deps_key"], "develop mode: shared source needs no reinstall"
+    assert shared["deps_key"] == first["deps_key"], "editable install: shared source needs no reinstall"
     (probe_repo / "shared/pyproject.toml").write_text("[project]\nversion = 2\n")
     assert run_bash(script)["deps_key"] != first["deps_key"], "shared metadata changes reinstall"
-    (probe_repo / "nodes/demo/poetry.lock").write_text("lock-2\n")
+    (probe_repo / "nodes/demo/uv.lock").write_text("lock-2\n")
     assert run_bash(script)["deps_key"] != first["deps_key"]
 
 

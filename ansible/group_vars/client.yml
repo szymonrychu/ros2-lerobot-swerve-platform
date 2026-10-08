@@ -330,7 +330,7 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m web_ui"
     node_src_dir: "nodes/web_ui"
-    # Depends on shared/ (pyproject path dependency, develop mode): its source and metadata matter.
+    # Depends on shared/ (editable path dependency in [tool.uv.sources]): its source and metadata matter.
     src_shared: true
     cpu_quota: "30%"
     memory_max: "256M"
@@ -345,7 +345,7 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m mcp_server"
     node_src_dir: "nodes/mcp_server"
-    # Depends on shared/ (pyproject path dependency, develop mode): its source and metadata matter.
+    # Depends on shared/ (editable path dependency in [tool.uv.sources]): its source and metadata matter.
     src_shared: true
     # mcp_server loads the arm URDF from the web_ui package directory.
     src_extra_paths: [nodes/web_ui/urdf]
