@@ -115,6 +115,20 @@ class ArmBackend(Protocol):
         ...
 
 
+def tracking_limit(base_rad: float, lag_s: float, velocity_rps: float) -> float:
+    """Tracking-error abort threshold of a motion: servos lag their setpoint more the faster they move.
+
+    Args:
+        base_rad (float): Threshold at standstill (rad).
+        lag_s (float): Expected servo lag (s); the threshold grows by lag_s * velocity_rps.
+        velocity_rps (float): Per-joint velocity cap of the motion (rad/s).
+
+    Returns:
+        float: The abort threshold (rad).
+    """
+    return base_rad + lag_s * velocity_rps
+
+
 class ArmController:
     """Streams safe arm motions on the autonomy topic and keeps the lease alive.
 
@@ -159,6 +173,7 @@ class ArmController:
         self._relax_hold: tuple[float, list[str]] | None = None
         self._streaming = False
         self._moving: list[str] = []  # joints of the running motion
+        self._tracking_limit = config.limits.arm_tracking_error_rad  # abort threshold of the running motion (rad)
         self._stop = threading.Event()
         self._motion_lock = threading.Lock()
         # Guards _held, _acquired_at, _last_setpoint, _last_target, _relax_hold, _streaming and every autonomy publish.
@@ -979,17 +994,15 @@ class ArmController:
             setpoint = self._last_setpoint
         if setpoint is not None:
             error = max_abs_error(setpoint, sample.positions, [j for j in tracked if j in setpoint])
-            if error > self.cfg.limits.arm_tracking_error_rad:
+            limit = self._tracking_limit
+            if error > limit:
                 self._interrupted_by = "arm_tracking_abort"
                 if self.monitor is not None:
                     self.monitor.report_arm_tracking_abort(
-                        f"arm tracking error {error:.3f} rad exceeds {self.cfg.limits.arm_tracking_error_rad}",
+                        f"arm tracking error {error:.3f} rad exceeds {limit:.3f}",
                         {"tracking_error_rad": round(error, 4)},
                     )
-                return (
-                    "aborted_tracking",
-                    f"tracking error {error:.3f} rad exceeds {self.cfg.limits.arm_tracking_error_rad}",
-                )
+                return "aborted_tracking", f"tracking error {error:.3f} rad exceeds {limit:.3f}"
         if effort_threshold is not None and abs(sample.efforts.get(self.gripper, 0.0)) >= effort_threshold:
             return "grasped", f"gripper effort reached {effort_threshold}"
         return None
@@ -1023,6 +1036,8 @@ class ArmController:
         rate = self.cfg.limits.arm_rate_hz
         period = 1.0 / rate
         tracked = [j for j in moving if j != self.gripper]
+        limits = self.cfg.limits
+        self._tracking_limit = tracking_limit(limits.arm_tracking_error_rad, limits.arm_tracking_lag_s, vmax)
         started = self.backend.now()
         self._moving = list(moving)
         jaw_history: list[tuple[float, float]] = []

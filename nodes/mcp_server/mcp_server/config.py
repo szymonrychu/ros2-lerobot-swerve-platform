@@ -108,7 +108,11 @@ class LimitSettings(StrictModel):
     # Per-joint margins replacing arm_limit_margin_rad. The gripper may close to the measured physical stop
     # (-0.172 rad, URDF lower limit -0.1745).
     arm_limit_margin_overrides: dict[str, float] = Field(default_factory=lambda: {"gripper": 0.005})
-    arm_tracking_error_rad: float = Field(default=0.35, gt=0.0)
+    # Tracking-error abort (jam / collision detector): a moving joint lagging its setpoint by more than
+    # arm_tracking_error_rad + arm_tracking_lag_s * velocity (rad/s of the motion) aborts the motion. Servos lag more at
+    # speed (2026-10-08: 0.35-0.37 rad at 0.8-1.0 rad/s on free moves).
+    arm_tracking_error_rad: float = Field(default=0.25, gt=0.0)
+    arm_tracking_lag_s: float = Field(default=0.25, ge=0.0)
     arm_converge_tolerance_rad: float = Field(default=0.03, gt=0.0)
     # Steady-state error band (position servo under gravity load): a joint that stopped moving (less than
     # arm_settle_motion_rad over arm_settle_window_s) within this error of its target has settled; its target stays

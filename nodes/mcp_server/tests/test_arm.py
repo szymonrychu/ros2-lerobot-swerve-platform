@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mcp_server.arm import ArmController, ArmError
+from mcp_server.arm import ArmController, ArmError, tracking_limit
 from mcp_server.config import McpServerConfig
 from mcp_server.ik import ArmKinematics, grasp_offset, load_joint_limits
 from mcp_server.models import ArmMotionResult
@@ -483,7 +483,8 @@ def test_moving_joint_within_settle_band_is_not_settled(tmp_path: Path) -> None:
 
 def test_tracking_abort_still_holds_measured_with_settle_enabled(tmp_path: Path) -> None:
     arm, be = make(tmp_path)
-    be.sag = {"shoulder_lift": -(CONFIG.limits.arm_tracking_error_rad + 0.05)}
+    lim = CONFIG.limits
+    be.sag = {"shoulder_lift": -(tracking_limit(lim.arm_tracking_error_rad, lim.arm_tracking_lag_s, 1.0) + 0.05)}
     res = arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
     assert res.status == "aborted_tracking"
     assert be.commands[-1] == res.positions
@@ -981,3 +982,27 @@ def test_move_cartesian_below_the_floor_with_wider_limits(tmp_path: Path) -> Non
     assert (reached.x, reached.z) == pytest.approx((0.2, -0.25), abs=0.005)
     narrow, narrow_be = make(tmp_path)
     assert narrow.move_cartesian(0.2, 0.0, -0.25, None).status == "unreachable"
+
+
+def test_tracking_limit_grows_with_the_commanded_speed() -> None:
+    """Servos lag more at speed: the abort threshold is base + lag_s * velocity."""
+    assert tracking_limit(0.25, 0.25, 1.0) == pytest.approx(0.5)
+    assert tracking_limit(0.25, 0.25, 0.5) == pytest.approx(0.375)
+    assert tracking_limit(0.25, 0.0, 1.0) == pytest.approx(0.25)
+
+
+def test_fast_motion_tolerates_lag_within_its_speed_scaled_limit(tmp_path: Path) -> None:
+    """A 0.4 rad lag at full speed (1.0 rad/s, limit 0.5 rad) is not a tracking abort (2026-10-08: 0.35-0.37 rad
+    lag aborted fast moves)."""
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": -0.4}
+    res = arm.move_joints({"shoulder_lift": 0.8}, speed_scale=0.5)
+    assert res.status != "aborted_tracking"
+
+
+def test_slow_motion_still_aborts_on_the_same_lag(tmp_path: Path) -> None:
+    """At 0.2 rad/s the limit is 0.3 rad: the same 0.4 rad lag aborts (a jam or collision)."""
+    arm, be = make(tmp_path)
+    be.sag = {"shoulder_lift": -0.4}
+    res = arm.move_joints({"shoulder_lift": 0.8}, speed_scale=0.1)
+    assert res.status == "aborted_tracking"

@@ -187,7 +187,7 @@ missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresho
 | `battery_cutoff` | critical | the shared `BatteryGuard` cut-off (hysteresis as in the gate) |
 | `collision_stop` | critical | collision monitor STOP while a base motion runs |
 | `stall` | critical | base: commanded speed (> 0.05 m/s or 0.1 rad/s) but measured odometry/rf2o ~0 for > `stall_s` 1.0 s while a base motion runs (the arm's tracking abort is its own `arm_tracking_abort` event) |
-| `arm_tracking_abort` | warning | arm: setpoint vs measured tracking error above `limits.arm_tracking_error_rad`; never interrupts the model's turn or a base motion (not in `BASE_INTERRUPTS`) |
+| `arm_tracking_abort` | warning | arm: setpoint vs measured tracking error above `limits.arm_tracking_error_rad` + `limits.arm_tracking_lag_s` x the motion's velocity; never interrupts the model's turn or a base motion (not in `BASE_INTERRUPTS`) |
 | `wheel_slip` | warning | swerve residual (decoded from the twist covariance `var_xy = 0.002 + r^2`; parked fixed value = none) > `slip_residual_warn_mps` 0.1 |
 | `bump` | warning / critical | horizontal acceleration spike after baseline removal >= `bump_warn_mps2` 4 / `bump_critical_mps2` 9 m/s^2 for `bump_min_samples` (2) consecutive IMU samples; one glitchy sample is ignored and the severity follows the weakest sample of the run |
 | `tilt` | warning | tilt from the IMU orientation > `tilt_warn_deg` 10 deg |
@@ -327,7 +327,7 @@ partition every tool):
   with per-joint velocity <= `arm_max_joint_velocity_rps` (default 1.0 rad/s; `speed_scale` 0.5 = that maximum, lower is proportionally slower) streamed at
   25 Hz; blocks until converged (`arm_converge_tolerance_rad`) or `arm_converge_timeout_s` after the trajectory.
   Aborts and holds the measured pose when `/follower/joint_states` is older than 0.3 s, the tracking error (setpoint vs
-  measured, gripper excluded) exceeds `arm_tracking_error_rad` (0.35), or `stop` is called. One arm motion at a time.
+  measured, gripper excluded) exceeds `arm_tracking_error_rad` (0.25) + `arm_tracking_lag_s` (0.25 s) x the motion's joint velocity cap (0.5 rad at full speed 1.0 rad/s, 0.3 rad at 0.2 rad/s: servos lag more at speed), or `stop` is called. One arm motion at a time.
 - **No sag ratchet**: while the lease is held, a motion starts from the last commanded pose and joints it does not name
   keep their last commanded target (the measured pose is used only right after acquiring). Re-commanding the measured
   pose would lock gravity sag in and let it accumulate over calls.

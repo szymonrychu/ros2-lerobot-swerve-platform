@@ -259,7 +259,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - config (`test_config.py`): defaults (0.0.0.0:18200 `/mcp`, topics, conservative limits, timeouts), repo-relative URDF
   path resolution, YAML overrides, empty file, unknown keys rejected, hard caps (0.25 m/s, speed scale 0.5, 1024 px),
   `MCP_SERVER_CONFIG` lookup, `MCP_SERVER_TOKEN` refused when missing/blank/short and stripped otherwise, settle
-  tolerance default 0.08 and validated between the converge tolerance and the tracking abort; arm velocity default 1.0
+  tolerance default 0.08 and validated between the converge tolerance and the tracking abort (defaults 0.25 rad + 0.25 s x velocity); arm velocity default 1.0
   rad/s with the 1.5 cap, roll guard defaults (0.1 / 0.8) and validation, `arm.jaw_open_axis` default and normalisation
   (zero and wrong-length vectors rejected), `arm.joint_limit_overrides_rad` default empty with name and lower < upper checks
 - trajectory (`test_trajectory.py`): quintic blend endpoints/monotonicity, limit clamping with margin, duration from the
@@ -300,7 +300,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `list_pois` distance/bearing/status/near, `look_around` (montage + top-down images, summary, config default
   captures, argument validation, refusal does not move)
 - arm controller (`test_arm.py`): lease acquire/release, streamed motion with implicit acquire and velocity cap, speed
-  scale, clamping, argument validation, abort + hold on stale feedback / tracking error / stop, no hold after filter_node
+  scale, clamping, argument validation, abort + hold on stale feedback / tracking error / stop (tracking limit grows
+  with the motion's velocity: `tracking_limit`, a 0.4 rad lag passes at full speed and aborts at 0.2 rad/s), no hold after filter_node
   switches source, convergence timeout, Cartesian moves (unreachable reported without motion), gripper open fraction
   and close-until-effort, home/set_home, keepalive and lease loss, state with stale data omitted; gripper closed default
   is a follower joint position; sag ratchet (fake backend `sag`): a small steady-state error settles as `converged`

@@ -162,6 +162,7 @@ def test_nav_goal_tolerance_defaults_and_validation() -> None:
 def test_settle_tolerance_defaults_between_converge_tolerance_and_tracking_abort() -> None:
     lim = McpServerConfig().limits
     assert lim.arm_settle_tolerance_rad == pytest.approx(0.08)
+    assert lim.arm_tracking_error_rad == pytest.approx(0.25) and lim.arm_tracking_lag_s == pytest.approx(0.25)
     assert lim.arm_converge_tolerance_rad < lim.arm_settle_tolerance_rad < lim.arm_tracking_error_rad
 
 
