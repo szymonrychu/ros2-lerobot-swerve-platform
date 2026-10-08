@@ -474,3 +474,36 @@ def test_capture_gripper_stores_raw_joints_and_offset_corrected_parent_pose(tmp_
     corrected = {j: robot.arm_backend.positions[j] + offsets.get(j, 0.0) for j in robot.arm_backend.positions}
     expected = plain.link_frame(corrected, "gripper_link")
     np.testing.assert_allclose(np.array(sample["t_frame_parent"]), expected, atol=1e-9)
+
+
+def test_pixel_to_ground_surface_height_hits_the_raised_plane(tmp_path: Path) -> None:
+    server, _, _ = make(tmp_path)
+    u, v = front_pixel((0.9, 0.1, 0.03))
+    flat = call(server, "pixel_to_ground", {"camera": "front", "u": u, "v": v}).structured_content
+    raised = call(
+        server, "pixel_to_ground", {"camera": "front", "u": u, "v": v, "surface_height_m": 0.03}
+    ).structured_content
+    assert flat["surface_height_m"] == 0.0 and flat["ground_base_link"]["z"] == 0.0
+    assert raised["surface_height_m"] == 0.03
+    assert raised["ground_base_link"] == pytest.approx({"x": 0.9, "y": 0.1, "z": 0.03}, abs=2e-3)
+    assert raised["ground_base_link"]["x"] != pytest.approx(flat["ground_base_link"]["x"], abs=1e-3)
+
+
+def test_pixel_to_ground_surface_height_is_validated(tmp_path: Path) -> None:
+    server, _, _ = make(tmp_path)
+    with pytest.raises(ToolError):
+        call(server, "pixel_to_ground", {"camera": "front", "u": 320.0, "v": 240.0, "surface_height_m": 5.0})
+
+
+def test_mark_candidate_points_surface_height_is_stored_and_resolved(tmp_path: Path) -> None:
+    server, _, _ = make(tmp_path)
+    table = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 120, "surface_height_m": 0.04}))
+    assert table["surface_height_m"] == 0.04
+    for p in table["points"]:
+        assert p["ground_base_link"]["z"] == 0.04
+        back = front_pixel((p["ground_base_link"]["x"], p["ground_base_link"]["y"], 0.04))
+        assert back == pytest.approx((p["u"], p["v"]), abs=0.5)
+    resolved = call(server, "resolve_candidate", {"set_id": table["set_id"], "n": 1}).structured_content
+    assert resolved["point"] == table["points"][0] and resolved["surface_height_m"] == 0.04
+    flat = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 120}))
+    assert flat["surface_height_m"] == 0.0

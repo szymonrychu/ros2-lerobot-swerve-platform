@@ -30,6 +30,7 @@ class CandidateSet:
     created: float
     snapshot: RobotSnapshot
     points: list[dict[str, Any]] = field(default_factory=list)
+    surface_height_m: float = 0.0
 
 
 def angle_diff(a: float, b: float) -> float:
@@ -86,20 +87,23 @@ class CandidateStore:
         self.counter = 0
         self.lock = threading.Lock()
 
-    def add(self, camera: str, snapshot: RobotSnapshot, points: list[dict[str, Any]]) -> CandidateSet:
+    def add(
+        self, camera: str, snapshot: RobotSnapshot, points: list[dict[str, Any]], surface_height_m: float = 0.0
+    ) -> CandidateSet:
         """Store a new set, evicting the oldest beyond MAX_SETS.
 
         Args:
             camera (str): Camera name.
             snapshot (RobotSnapshot): Robot state at creation.
             points (list[dict[str, Any]]): Numbered points.
+            surface_height_m (float): Height of the surface the points lie on relative to the floor (m).
 
         Returns:
             CandidateSet: The stored set.
         """
         with self.lock:
             self.counter += 1
-            item = CandidateSet(f"c{self.counter}", camera, time.monotonic(), snapshot, points)
+            item = CandidateSet(f"c{self.counter}", camera, time.monotonic(), snapshot, points, surface_height_m)
             self.sets[item.set_id] = item
             while len(self.sets) > MAX_SETS:
                 self.sets.popitem(last=False)

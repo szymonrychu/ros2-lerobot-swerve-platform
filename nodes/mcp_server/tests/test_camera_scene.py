@@ -189,3 +189,39 @@ def test_ground_report_rejects_off_image_and_sky(kin: ArmKinematics) -> None:
     scene2 = build_scene(camera_setup(flat, "front"), flat, np.eye(4))
     with pytest.raises(PixelError, match="floor"):
         ground_report(scene2, "front", WIDTH / 2, 5, None)
+
+
+def test_ground_point_intersects_the_plane_at_the_surface_height(kin: ArmKinematics) -> None:
+    cfg = camera_config()
+    scene = build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
+    box_top = np.array([0.8, 0.1, 0.03])
+    uv = scene.project(box_top)
+    assert uv is not None
+    on_box = scene.ground_point(*uv, surface_height_m=0.03)
+    assert on_box is not None and on_box == pytest.approx(box_top, abs=1e-6)
+    on_floor = scene.ground_point(*uv)
+    assert on_floor is not None and on_floor[2] == 0.0
+    assert not np.allclose(on_floor[:2], on_box[:2], atol=1e-3)
+
+
+def test_ground_point_below_the_floor_and_gripper_frame_offset(kin: ArmKinematics) -> None:
+    joints = {"shoulder_pan": 0.0, "shoulder_lift": 0.9, "elbow_flex": 0.9, "wrist_flex": 1.2, "wrist_roll": 0.0}
+    cfg = camera_config(front=False)
+    scene = build_scene(camera_setup(cfg, "gripper"), cfg, parent_transform(cfg, "gripper", kin, joints))
+    target = np.array([0.2, 0.0, cfg.arm.floor_z_m - 0.10])
+    uv = scene.project(target)
+    if uv is None:
+        pytest.skip("synthetic pose does not see the point")
+    hit = scene.ground_point(*uv, surface_height_m=-0.10)
+    assert hit is not None and hit == pytest.approx(target, abs=1e-6)
+
+
+def test_ground_report_reports_the_surface_height_used(kin: ArmKinematics) -> None:
+    cfg = camera_config()
+    scene = build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
+    uv = scene.project(np.array([0.8, 0.0, 0.05]))
+    assert uv is not None
+    rep = ground_report(scene, "front", uv[0], uv[1], None, surface_height_m=0.05)
+    assert rep["surface_height_m"] == 0.05
+    assert rep["ground_base_link"] == pytest.approx({"x": 0.8, "y": 0.0, "z": 0.05}, abs=2e-3)
+    assert ground_report(scene, "front", WIDTH / 2, HEIGHT / 2, None)["surface_height_m"] == 0.0

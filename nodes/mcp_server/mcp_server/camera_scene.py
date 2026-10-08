@@ -27,7 +27,9 @@ NOT_CALIBRATED = (
 )
 FRAME_BASE = "base_link"
 FRAME_ARM = "arm_base"
-GROUND_METHOD = "pinhole ray through the pixel intersected with the horizontal floor plane (camera_geometry)"
+GROUND_METHOD = (
+    "pinhole ray through the pixel intersected with the horizontal plane at floor + surface_height_m (camera_geometry)"
+)
 APPROX_NOTE = "approximate intrinsics (hfov only: square pixels, centred principal point, no distortion)"
 
 
@@ -150,20 +152,23 @@ class Scene:
     t_base_ref: np.ndarray | None
     t_arm_ref: np.ndarray | None
 
-    def ground_point(self, u: float, v: float) -> np.ndarray | None:
-        """Floor point (x, y, ground_z) in the reference frame seen at a pixel.
+    def ground_point(self, u: float, v: float, surface_height_m: float = 0.0) -> np.ndarray | None:
+        """Point (x, y, ground_z + surface_height_m) in the reference frame seen at a pixel.
 
         Args:
             u (float): Pixel x.
             v (float): Pixel y.
+            surface_height_m (float): Height of the surface the pixel lies on relative to the floor (m, positive
+                above, negative below).
 
         Returns:
-            np.ndarray | None: The point, or None when the ray misses the floor.
+            np.ndarray | None: The point, or None when the ray misses the surface plane.
         """
-        hit = geometry_pixel_to_ground(self.intr, self.t_ref_optical, u, v, self.ground_z)
+        z = self.ground_z + surface_height_m
+        hit = geometry_pixel_to_ground(self.intr, self.t_ref_optical, u, v, z)
         if hit is None:
             return None
-        return np.array([hit[0], hit[1], self.ground_z])
+        return np.array([hit[0], hit[1], z])
 
     def project(self, point: np.ndarray) -> tuple[float, float] | None:
         """Pixel of a reference-frame point, None when behind the camera or off the image.
@@ -327,7 +332,9 @@ def ground_fields(scene: Scene, ground: np.ndarray, pose: BasePose | None) -> di
     return out
 
 
-def ground_report(scene: Scene, camera: str, u: float, v: float, pose: BasePose | None) -> dict[str, Any]:
+def ground_report(
+    scene: Scene, camera: str, u: float, v: float, pose: BasePose | None, surface_height_m: float = 0.0
+) -> dict[str, Any]:
     """The pixel_to_ground tool result for one pixel.
 
     Args:
@@ -336,19 +343,23 @@ def ground_report(scene: Scene, camera: str, u: float, v: float, pose: BasePose 
         u (float): Pixel x.
         v (float): Pixel y.
         pose (BasePose | None): Robot map pose, None when unknown.
+        surface_height_m (float): Height of the surface the pixel lies on relative to the floor (m).
 
     Returns:
-        dict[str, Any]: camera, pixel, ground coordinates, distance_from_base_m, bearing_deg, method,
-            uncertainty_note.
+        dict[str, Any]: camera, pixel, surface_height_m, ground coordinates, distance_from_base_m, bearing_deg,
+            method, uncertainty_note.
 
     Raises:
         PixelError: When the pixel is outside the image or its ray does not hit the floor.
     """
     if not (0.0 <= u < scene.intr.width and 0.0 <= v < scene.intr.height):
         raise PixelError(f"pixel ({u:g}, {v:g}) is outside the image ({scene.intr.width}x{scene.intr.height})")
-    ground = scene.ground_point(u, v)
+    ground = scene.ground_point(u, v, surface_height_m)
     if ground is None:
-        raise PixelError(f"pixel ({u:g}, {v:g}) does not see the floor (above the horizon or behind the camera)")
+        raise PixelError(
+            f"pixel ({u:g}, {v:g}) does not see the surface at floor + {surface_height_m:g} m "
+            "(above the horizon or behind the camera)"
+        )
     notes = [
         "assumes a flat floor and the configured mount; error grows with distance from the camera "
         "(about 1 px of pixel error is several cm far from the camera)"
@@ -362,9 +373,12 @@ def ground_report(scene: Scene, camera: str, u: float, v: float, pose: BasePose 
         if scene.camera == "gripper"
         else "ground_base_link is in base_link (floor z = 0)"
     )
+    if surface_height_m != 0.0:
+        frame_note += f"; the pixel was intersected with a surface {surface_height_m:+g} m from the floor"
     return {
         "camera": camera,
         "pixel": {"u": u, "v": v},
+        "surface_height_m": surface_height_m,
         **ground_fields(scene, ground, pose),
         "method": GROUND_METHOD,
         "uncertainty_note": "; ".join([frame_note, *notes]),

@@ -59,6 +59,17 @@ TOOL_NAMES = (
     "clear_calibration_samples",
 )
 Camera = Literal["gripper", "front"]
+SurfaceHeight = Annotated[
+    float,
+    Field(
+        ge=-0.5,
+        le=0.5,
+        description=(
+            "Height (m) of the surface the pixel lies on relative to the robot's floor: positive above, negative "
+            "below (top of a 3 cm box 0.03, a floor 10 cm lower -0.10); 0 = the floor"
+        ),
+    ),
+]
 Overlay = Literal["grid", "reach", "gripper", "planned_gripper", "lidar"]
 MAX_GROUND_RANGE_M = 6.0  # candidate points whose floor point is farther are skipped (near-horizon pixels are noise)
 MIN_GOOD_SAMPLES = 6  # six mount parameters
@@ -210,8 +221,11 @@ def register(ctx: ToolContext) -> None:
 
     @server.tool(
         description=(
-            "Floor position seen at a camera pixel (read-only). Projects the pixel ray through the configured camera "
-            "model and mount onto the flat floor. 'gripper' uses the CURRENT measured arm joints (the camera moves with "
+            "Position seen at a camera pixel (read-only). Projects the pixel ray through the configured camera "
+            "model and mount onto a horizontal plane: the flat floor by default, or the surface the pixel lies on when "
+            "surface_height_m is given (height relative to the robot's floor, positive above, negative below: the top "
+            "of a 3 cm box is 0.03, a floor 10 cm lower is -0.10); the result reports surface_height_m and the "
+            "coordinates have z = floor + surface_height_m. 'gripper' uses the CURRENT measured arm joints (the camera moves with "
             "the arm); 'front' is the fixed overhead camera. Returns ground_base_link {x,y,z} (m, x forward, y left, "
             "floor z = 0), ground_map {x,y} when the map pose is known, distance_from_base_m, bearing_deg, method and "
             f"uncertainty_note. {floor_note} Pixel (u right, v down) is in the calibrated image size, e.g. read it "
@@ -223,11 +237,12 @@ def register(ctx: ToolContext) -> None:
         camera: Annotated[Camera, Field(description="'gripper' or 'front'")],
         u: Annotated[float, Field(description="Pixel x (right)")],
         v: Annotated[float, Field(description="Pixel y (down)")],
+        surface_height_m: SurfaceHeight = 0.0,
     ) -> CallToolResult:
         """Pixel -> floor point; the tool description is passed to the decorator (it states the frames)."""
         with camera_errors():
             scene, _, _ = scene_for(camera)
-            return data_result(ground_report(scene, camera, u, v, map_pose()))
+            return data_result(ground_report(scene, camera, u, v, map_pose(), surface_height_m))
 
     @server.tool(
         structured_output=False,
@@ -325,9 +340,12 @@ def register(ctx: ToolContext) -> None:
         structured_output=False,
         description=(
             "Take a fresh photo and overlay numbered dots on a pixel grid (read-only) so you can pick floor targets "
-            "by number: returns the JPEG and a table {set_id, points:[{n, u, v, ground_base_link{x,y}|null, "
-            "ground_map{x,y}|null}]} (the gripper camera also gives ground_arm_base). Dots whose pixel does not see the "
-            f"floor (sky, behind) or lies beyond {MAX_GROUND_RANGE_M:g} m are skipped and counted in "
+            "by number: returns the JPEG and a table {set_id, surface_height_m, points:[{n, u, v, "
+            "ground_base_link{x,y,z}|null, ground_map{x,y}|null}]} (the gripper camera also gives ground_arm_base). "
+            "Pass surface_height_m (height of the surface the dots lie on relative to the floor, positive above, "
+            "negative below; 0 = the floor) when the target is on a box top or another level, so the points are "
+            "intersected with that plane. Dots whose pixel does not see "
+            f"the surface (sky, behind) or lies beyond {MAX_GROUND_RANGE_M:g} m are skipped and counted in "
             "skipped_no_ground. The last 10 sets are kept; look at the picture, choose a number, then call "
             "resolve_candidate(set_id, n). Optional region {u0,v0,u1,v1} limits the grid; spacing_px sets the grid; "
             "at most max_points dots (evenly thinned). Errors if the camera is not calibrated."
@@ -338,6 +356,7 @@ def register(ctx: ToolContext) -> None:
         region: Annotated[Region | None, Field(description="Pixel rectangle; the whole image when omitted")] = None,
         spacing_px: Annotated[int, Field(ge=8, le=320, description="Grid spacing in pixels")] = 40,
         max_points: Annotated[int, Field(ge=1, le=200, description="Maximum number of dots")] = 40,
+        surface_height_m: SurfaceHeight = 0.0,
     ) -> list[ImageContent | TextContent]:
         """Numbered candidate dots; the tool description is passed to the decorator."""
         with camera_errors():
@@ -349,7 +368,7 @@ def register(ctx: ToolContext) -> None:
             valid: list[dict[str, Any]] = []
             skipped = 0
             for u, v in pixels:
-                ground = scene.ground_point(u, v)
+                ground = scene.ground_point(u, v, surface_height_m)
                 if ground is None or float(np.hypot(ground[0], ground[1])) > MAX_GROUND_RANGE_M:
                     skipped += 1
                     continue
@@ -358,25 +377,26 @@ def register(ctx: ToolContext) -> None:
                 point: dict[str, Any] = {
                     "u": round(u, 1),
                     "v": round(v, 1),
-                    "ground_base_link": None if base is None else {"x": base["x"], "y": base["y"]},
+                    "ground_base_link": None if base is None else {"x": base["x"], "y": base["y"], "z": base["z"]},
                     "ground_map": fields.get("ground_map"),
                 }
                 if scene.camera == "gripper":
                     arm = fields["ground_arm_base"]
-                    point["ground_arm_base"] = {"x": arm["x"], "y": arm["y"]}
+                    point["ground_arm_base"] = {"x": arm["x"], "y": arm["y"], "z": arm["z"]}
                 valid.append(point)
             kept = [{"n": n, **p} for n, p in enumerate(thin(valid, max_points), start=1)]
             snapshot = RobotSnapshot(
                 None if pose is None else (pose.x, pose.y, pose.yaw),
                 joints if joints is not None else arm_joints(False),
             )
-            item = candidates.add(camera, snapshot, kept)
+            item = candidates.add(camera, snapshot, kept, surface_height_m)
             draw_candidates(img, [(p["n"], p["u"], p["v"]) for p in kept])
             draw_legend(img, [f"{camera} camera: {len(kept)} candidates, set {item.set_id}"])
             table = {
                 "set_id": item.set_id,
                 "camera": camera,
                 "frame": scene.frame_name,
+                "surface_height_m": surface_height_m,
                 "points": kept,
                 "skipped_no_ground": skipped,
                 "approximate_intrinsics": scene.approximate,
@@ -389,6 +409,7 @@ def register(ctx: ToolContext) -> None:
             "STORED when the set was made (they are not recomputed), age_s since then, and whether the base "
             "(robot_moved_since) or the arm (arm_moved_since) moved since; if the base moved, base_link coordinates "
             "are stale (ground_map stays valid), and if the arm moved the pixel no longer matches the live image. "
+            "surface_height_m is the plane the set was intersected with (given to mark_candidate_points). "
             "Only the last 10 sets are kept."
         )
     )
@@ -420,6 +441,7 @@ def register(ctx: ToolContext) -> None:
                 {
                     "set_id": set_id,
                     "camera": item.camera,
+                    "surface_height_m": item.surface_height_m,
                     "point": point,
                     "age_s": round(time.monotonic() - item.created, 1),
                     "robot_moved_since": robot_moved,
