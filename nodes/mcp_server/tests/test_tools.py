@@ -378,3 +378,53 @@ def test_camera_tool_offers_the_overhead_front_camera_not_realsense_or_stereo(se
     assert "stereo" not in text.lower() and "/stereo" not in text
     with pytest.raises(ToolError):
         call(server, "get_camera_image", {"camera": "realsense"})
+
+
+def tool_schema_text(server: Any, name: str) -> str:
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tool = next(t for t in anyio.run(run) if t.name == name)
+    return (tool.description or "") + json.dumps(tool.input_schema)
+
+
+@pytest.mark.parametrize("name", ["move_arm_joints", "move_arm_cartesian"])
+def test_speed_description_derives_from_the_configured_velocity(robot: FakeRobot, name: str) -> None:
+    custom = McpServerConfig.model_validate({"limits": {"arm_max_joint_velocity_rps": 0.8}})
+    text = tool_schema_text(build_mcp_server(robot, custom, TOKEN), name)
+    assert "0.8 rad/s" in text and "0.5 rad/s" not in text
+
+
+def test_speed_scale_description_defaults_to_one_rad_per_second(server: Any) -> None:
+    for name in ("move_arm_joints", "move_arm_cartesian"):
+        text = tool_schema_text(server, name)
+        assert "max joint speed (1 rad/s)" in text and "0.5 rad/s" not in text, name
+
+
+def test_move_arm_cartesian_description_explains_roll_and_object_width(server: Any) -> None:
+    text = tool_schema_text(server, "move_arm_cartesian")
+    for phrase in ("wrist_roll", "object_width_m", "object centre", "fixed jaw", "grasp_shift", "half open"):
+        assert phrase in text, phrase
+
+
+def test_move_arm_cartesian_accepts_wrist_roll_and_object_width(server: Any, robot: FakeRobot) -> None:
+    pose = robot.arm.kin.forward({"shoulder_pan": 0.1, "shoulder_lift": -0.2, "elbow_flex": 0.4, "wrist_flex": 0.5})
+    args = {"x": pose.x, "y": pose.y, "z": pose.z, "pitch": pose.pitch}
+    res = call(server, "move_arm_cartesian", args | {"wrist_roll": -1.57, "object_width_m": 0.03})
+    data = res.structured_content
+    assert data["status"] == "converged", data["message"]
+    assert robot.arm_backend.positions["wrist_roll"] == pytest.approx(-1.57)
+    assert data["grasp_shift"]["object_width_m"] == 0.03
+    assert data["grasp_shift"]["shift_m"] == pytest.approx(0.015)
+
+
+@pytest.mark.parametrize("width", [0.0, -0.01, 0.2])
+def test_move_arm_cartesian_rejects_bad_object_widths(server: Any, width: float) -> None:
+    with pytest.raises(ToolError):
+        call(server, "move_arm_cartesian", {"x": 0.2, "y": 0.0, "z": 0.0, "object_width_m": width})
+
+
+def test_move_arm_joints_roll_guard_is_a_tool_error(server: Any, robot: FakeRobot) -> None:
+    robot.arm_backend.positions["gripper"] = 1.5
+    with pytest.raises(ToolError, match="half open|open_fraction"):
+        call(server, "move_arm_joints", {"targets": {"wrist_roll": -1.0}})

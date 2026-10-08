@@ -42,7 +42,7 @@ def test_default_limits_are_conservative() -> None:
     assert lim.max_drive_duration_s == pytest.approx(2.0)
     assert lim.drive_rate_hz == pytest.approx(20.0)
     assert lim.arm_rate_hz == pytest.approx(25.0)
-    assert lim.arm_max_joint_velocity_rps == pytest.approx(0.5)
+    assert lim.arm_max_joint_velocity_rps == pytest.approx(1.0)
     assert lim.arm_max_speed_scale == pytest.approx(0.5)
     assert lim.max_image_px == 1024
 
@@ -227,3 +227,42 @@ def test_tool_offset_defaults_to_zero_and_rejects_unknown_axes() -> None:
     assert cfg.arm.tool_offset_m.y == -0.028
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"arm": {"tool_offset_m": {"w": 0.2}}})
+
+
+def test_arm_velocity_default_is_one_rad_per_second_with_a_hard_cap() -> None:
+    assert McpServerConfig().limits.arm_max_joint_velocity_rps == pytest.approx(1.0)
+    assert McpServerConfig().limits.gripper_velocity_rps == pytest.approx(0.5)
+    assert McpServerConfig.model_validate({"limits": {"arm_max_joint_velocity_rps": 1.5}})
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"limits": {"arm_max_joint_velocity_rps": 1.6}})
+
+
+def test_roll_guard_defaults_and_validation() -> None:
+    lim = McpServerConfig().limits
+    assert lim.roll_guard_min_change_rad == pytest.approx(0.1)
+    assert lim.roll_max_gripper_open_rad == pytest.approx(0.8)
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"limits": {"roll_guard_min_change_rad": 0.0}})
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"limits": {"roll_max_gripper_open_rad": -0.1}})
+
+
+def test_jaw_open_axis_defaults_and_is_normalised() -> None:
+    assert McpServerConfig().arm.jaw_open_axis == pytest.approx((-1.0, 0.0, 0.0))
+    cfg = McpServerConfig.model_validate({"arm": {"jaw_open_axis": [0.0, -3.0, 4.0]}})
+    assert cfg.arm.jaw_open_axis == pytest.approx((0.0, -0.6, 0.8))
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"arm": {"jaw_open_axis": [0.0, 0.0, 0.0]}})
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"arm": {"jaw_open_axis": [1.0, 0.0]}})
+
+
+def test_joint_limit_overrides_default_empty_and_are_validated() -> None:
+    assert McpServerConfig().arm.joint_limit_overrides_rad == {}
+    cfg = McpServerConfig.model_validate({"arm": {"joint_limit_overrides_rad": {"shoulder_lift": [-1.7, 2.6]}}})
+    assert cfg.arm.joint_limit_overrides_rad == {"shoulder_lift": (-1.7, 2.6)}
+    assert McpServerConfig.model_validate({"arm": {"joint_limit_overrides_rad": {"gripper": [-0.2, 1.8]}}})
+    with pytest.raises(ValidationError, match="unknown joint"):
+        McpServerConfig.model_validate({"arm": {"joint_limit_overrides_rad": {"elbow": [-1.0, 1.0]}}})
+    with pytest.raises(ValidationError, match="lower"):
+        McpServerConfig.model_validate({"arm": {"joint_limit_overrides_rad": {"elbow_flex": [1.0, -1.0]}}})

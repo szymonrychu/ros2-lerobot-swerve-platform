@@ -1,12 +1,13 @@
 """Tests for mcp_server.arm.ArmController: autonomy lease, streamed motion, aborts, gripper, home pose, keepalive."""
 
+import math
 from pathlib import Path
 
 import pytest
 
 from mcp_server.arm import ArmController, ArmError
 from mcp_server.config import McpServerConfig
-from mcp_server.ik import ArmKinematics, load_joint_limits
+from mcp_server.ik import ArmKinematics, grasp_offset, load_joint_limits
 from mcp_server.models import ArmMotionResult
 
 from .fakes import JOINTS, FakeArmBackend
@@ -807,3 +808,176 @@ def test_grasp_thresholds_come_from_config(tmp_path: Path) -> None:
     assert close_on_load(arm).status == "blocked"
     assert McpServerConfig().limits.gripper_grasp_min_travel_rad == 0.15
     assert McpServerConfig().limits.gripper_grasp_max_open_rad == 1.2
+
+
+# --- wrist roll guard: no big roll with a wide open gripper ---
+
+WIDE_GRIPPER = 1.2  # rad, above limits.roll_max_gripper_open_rad (0.8)
+HALF_GRIPPER = 0.67  # rad, open_fraction 0.5
+
+
+def test_roll_is_refused_with_a_wide_open_gripper_and_nothing_moves(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.positions["gripper"] = WIDE_GRIPPER
+    with pytest.raises(ArmError, match=r"open_fraction about 0\.5") as exc:
+        arm.move_joints({"wrist_roll": 1.0})
+    assert "lift the arm clear" in str(exc.value)
+    assert be.commands == [] and not arm.control_held
+
+
+def test_roll_is_refused_when_the_same_call_opens_the_gripper_wide(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    with pytest.raises(ArmError, match="gripper"):
+        arm.move_joints({"wrist_roll": 1.0, "gripper": 1.5})
+    assert be.commands == []
+
+
+def test_roll_guard_uses_the_larger_of_measured_and_targeted_gripper(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.positions["gripper"] = WIDE_GRIPPER
+    with pytest.raises(ArmError):
+        arm.move_joints({"wrist_roll": 1.0, "gripper": 0.0})
+    assert be.commands == []
+
+
+def test_roll_is_allowed_with_a_half_open_gripper(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.positions["gripper"] = HALF_GRIPPER
+    res = arm.move_joints({"wrist_roll": 1.2})
+    assert res.status == "converged", res.message
+    assert be.commands[-1]["wrist_roll"] == pytest.approx(1.2)
+
+
+def test_small_roll_change_is_allowed_with_a_wide_open_gripper(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.positions["gripper"] = WIDE_GRIPPER
+    assert arm.move_joints({"wrist_roll": 0.08}).status == "converged"
+    assert arm.move_joints({"wrist_roll": 0.0, "elbow_flex": 0.3}).status == "converged"
+
+
+def test_other_joints_move_with_a_wide_open_gripper(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.positions["gripper"] = WIDE_GRIPPER
+    assert arm.move_joints({"elbow_flex": 0.5}).status == "converged"
+
+
+def test_roll_guard_thresholds_come_from_config(tmp_path: Path) -> None:
+    be = FakeArmBackend()
+    be.positions["gripper"] = 0.5
+    cfg = CONFIG.model_copy(deep=True)
+    cfg.limits.roll_max_gripper_open_rad = 0.4
+    cfg.limits.roll_guard_min_change_rad = 0.5
+    arm = ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg)
+    assert arm.move_joints({"wrist_roll": 0.4}).status == "converged"  # change below the guard minimum
+    with pytest.raises(ArmError):
+        arm.move_joints({"wrist_roll": 1.5})
+
+
+# --- move_cartesian: wrist_roll and object_width_m ---
+
+CARTESIAN_Q = {"shoulder_pan": 0.2, "shoulder_lift": -0.3, "elbow_flex": 0.5, "wrist_flex": 0.6, "wrist_roll": 0.0}
+
+
+def test_move_cartesian_wrist_roll_replaces_the_current_roll(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    target = KIN.forward(CARTESIAN_Q)
+    res = arm.move_cartesian(target.x, target.y, target.z, target.pitch, wrist_roll=-1.57)
+    assert res.status == "converged", res.message
+    assert be.commands[-1]["wrist_roll"] == pytest.approx(-1.57)
+    assert be.positions["wrist_roll"] == pytest.approx(-1.57)
+    assert res.clamped == []
+
+
+def test_move_cartesian_wrist_roll_is_clamped_to_the_limits(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    target = KIN.forward(CARTESIAN_Q)
+    res = arm.move_cartesian(target.x, target.y, target.z, target.pitch, wrist_roll=-3.5)
+    lo = load_joint_limits(CONFIG.arm.urdf_path)["wrist_roll"][0] + CONFIG.limits.arm_limit_margin_rad
+    assert be.commands[-1]["wrist_roll"] == pytest.approx(lo)
+    assert "wrist_roll" in res.clamped
+
+
+def test_move_cartesian_wrist_roll_is_refused_with_a_wide_open_gripper(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    be.positions["gripper"] = WIDE_GRIPPER
+    target = KIN.forward(CARTESIAN_Q)
+    with pytest.raises(ArmError, match="half open|open_fraction"):
+        arm.move_cartesian(target.x, target.y, target.z, target.pitch, wrist_roll=-1.57)
+    assert be.commands == []
+
+
+def test_move_cartesian_without_wrist_roll_keeps_the_commanded_roll(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    arm.move_joints({"wrist_roll": 0.9})
+    target = KIN.forward(CARTESIAN_Q | {"wrist_roll": 0.9})
+    arm.move_cartesian(target.x, target.y, target.z, target.pitch)
+    assert be.commands[-1]["wrist_roll"] == pytest.approx(0.9)
+
+
+def test_move_cartesian_object_width_targets_the_object_centre(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    width = 0.04
+    target = KIN.forward(CARTESIAN_Q)
+    res = arm.move_cartesian(target.x, target.y, target.z, target.pitch, wrist_roll=-1.57, object_width_m=width)
+    assert res.status == "converged", res.message
+    final = {j: be.commands[-1][j] for j in KIN.joint_names}
+    shift = grasp_offset(width, tuple(CONFIG.arm.jaw_open_axis))
+    centre = KIN.forward(final, extra_offset=shift)
+    assert (centre.x, centre.y, centre.z) == pytest.approx((target.x, target.y, target.z), abs=0.003)
+    tool = KIN.forward(final)
+    assert math.dist((tool.x, tool.y, tool.z), (target.x, target.y, target.z)) == pytest.approx(width / 2, abs=0.003)
+    assert res.grasp_shift is not None
+    assert res.grasp_shift["object_width_m"] == width
+    assert res.grasp_shift["shift_m"] == pytest.approx(width / 2)
+    assert res.grasp_shift["tool_point"] == pytest.approx({"x": tool.x, "y": tool.y, "z": tool.z}, abs=0.003)
+    assert res.expected_tool_pose == pytest.approx({"x": target.x, "y": target.y, "z": target.z, "pitch": target.pitch})
+
+
+def test_move_cartesian_without_object_width_reports_no_grasp_shift(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path)
+    target = KIN.forward(CARTESIAN_Q)
+    assert arm.move_cartesian(target.x, target.y, target.z, target.pitch).grasp_shift is None
+
+
+@pytest.mark.parametrize("width", [0.0, -0.01, 0.09, float("nan")])
+def test_move_cartesian_rejects_bad_object_widths(tmp_path: Path, width: float) -> None:
+    arm, be = make(tmp_path)
+    with pytest.raises(ArmError, match="object_width_m"):
+        arm.move_cartesian(0.2, 0.0, 0.0, None, object_width_m=width)
+    assert be.commands == []
+
+
+# --- joint limit overrides ---
+
+
+def test_limit_overrides_apply_to_the_clamp_of_move_joints(tmp_path: Path) -> None:
+    be = FakeArmBackend()
+    cfg = CONFIG.model_copy(deep=True)
+    cfg.arm.joint_limit_overrides_rad = {"shoulder_lift": (-1.74533, 2.6)}
+    arm = ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg)
+    res = arm.move_joints({"shoulder_lift": 2.4})
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(2.4) and res.clamped == []
+    res = arm.move_joints({"shoulder_lift": 3.0})
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(2.6 - cfg.limits.arm_limit_margin_rad)
+    assert res.clamped == ["shoulder_lift"]
+    plain, plain_be = make(tmp_path)
+    plain.move_joints({"shoulder_lift": 2.4})
+    assert plain_be.commands[-1]["shoulder_lift"] == pytest.approx(1.74533 - CONFIG.limits.arm_limit_margin_rad)
+
+
+def test_move_cartesian_below_the_floor_with_wider_limits(tmp_path: Path) -> None:
+    be = FakeArmBackend()
+    cfg = CONFIG.model_copy(deep=True)
+    cfg.arm.joint_limit_overrides_rad = {"shoulder_lift": (-1.74533, 2.6)}
+    kin = ArmKinematics(
+        cfg.arm.urdf_path,
+        margin=cfg.limits.arm_limit_margin_rad,
+        limit_overrides=cfg.arm.joint_limit_overrides_rad,
+    )
+    arm = ArmController(be, kin, load_joint_limits(cfg.arm.urdf_path), cfg)
+    res = arm.move_cartesian(0.2, 0.0, -0.25, None)
+    assert res.status == "converged", res.message
+    reached = kin.forward({j: be.positions[j] for j in kin.joint_names})
+    assert (reached.x, reached.z) == pytest.approx((0.2, -0.25), abs=0.005)
+    narrow, narrow_be = make(tmp_path)
+    assert narrow.move_cartesian(0.2, 0.0, -0.25, None).status == "unreachable"

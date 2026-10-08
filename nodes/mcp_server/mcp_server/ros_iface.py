@@ -310,6 +310,7 @@ class RosRobot:
                 margin=config.limits.arm_limit_margin_rad,
                 joint_offsets=config.arm.joint_offsets_rad.model_dump(),
                 tool_offset=tuple(config.arm.tool_offset_m.model_dump().values()),
+                limit_overrides=config.arm.joint_limit_overrides_rad,
             ),
             load_joint_limits(urdf),
             config,

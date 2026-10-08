@@ -1,5 +1,6 @@
 """mcp_server configuration: pydantic models loaded from YAML, config path and bearer token from the environment."""
 
+import math
 import os
 from pathlib import Path
 
@@ -101,7 +102,7 @@ class LimitSettings(StrictModel):
     max_drive_duration_s: float = Field(default=HARD_MAX_DRIVE_S, gt=0.0, le=HARD_MAX_DRIVE_S)
     drive_rate_hz: float = Field(default=20.0, gt=0.0, le=50.0)
     arm_rate_hz: float = Field(default=25.0, gt=0.0, le=100.0)
-    arm_max_joint_velocity_rps: float = Field(default=0.5, gt=0.0, le=1.5)
+    arm_max_joint_velocity_rps: float = Field(default=1.0, gt=0.0, le=1.5)
     arm_max_speed_scale: float = Field(default=HARD_MAX_SPEED_SCALE, gt=0.0, le=HARD_MAX_SPEED_SCALE)
     arm_limit_margin_rad: float = Field(default=0.05, ge=0.0, le=0.3)
     # Per-joint margins replacing arm_limit_margin_rad. The gripper may close to the measured physical stop
@@ -132,6 +133,11 @@ class LimitSettings(StrictModel):
     # start AND stopped no more open than gripper_grasp_max_open_rad; otherwise status 'blocked' (pressing on something).
     gripper_grasp_min_travel_rad: float = Field(default=0.15, ge=0.0)
     gripper_grasp_max_open_rad: float = Field(default=1.2, gt=0.0)
+    # Wrist roll guard: a motion that changes wrist_roll by more than roll_guard_min_change_rad is refused while the
+    # gripper (measured, or targeted in the same call) is more open than roll_max_gripper_open_rad (about half open of
+    # the -0.17 .. 1.75 range): the open moving finger can jam against the robot body or an object.
+    roll_guard_min_change_rad: float = Field(default=0.1, gt=0.0)
+    roll_max_gripper_open_rad: float = Field(default=0.8, gt=0.0)
     hold_republish_hz: float = Field(default=5.0, gt=0.0, le=25.0)
     max_image_px: int = Field(default=HARD_MAX_IMAGE_PX, ge=32, le=HARD_MAX_IMAGE_PX)
     jpeg_quality: int = Field(default=80, ge=10, le=100)
@@ -233,6 +239,12 @@ class ArmSettings(StrictModel):
     # Where the jaws actually close, relative to gripper_frame_link and expressed in its frame (measured on the robot).
     # tool_pose, move_arm_cartesian and the camera tool overlays all refer to this point.
     tool_offset_m: ToolOffset = Field(default_factory=ToolOffset)
+    # Direction (in gripper_frame_link, normalised on load) in which the moving jaw opens away from the fixed jaw. With
+    # move_arm_cartesian(object_width_m=w) the tool point is placed w/2 against this direction from the object centre.
+    jaw_open_axis: tuple[float, float, float] = (-1.0, 0.0, 0.0)
+    # Replacement (lower, upper) limits in URDF space (rad) of named joints (chain joints or gripper): IK bounds,
+    # within-limits checks and target clamping all use them instead of the URDF values. Empty = URDF limits.
+    joint_limit_overrides_rad: dict[str, tuple[float, float]] = Field(default_factory=dict)
     # Follower gripper joint positions (as in /follower/joint_states; the leader-only source range mapping in the
     # follower bridge does not apply to autonomy commands). Measured closed: -0.172 rad (URDF lower limit -0.1745);
     # -0.165 is just above it and inside the gripper limit margin (limits.arm_limit_margin_overrides, 0.005).
@@ -257,6 +269,42 @@ class ArmSettings(StrictModel):
         if not self.reach_inner_m < self.reach_outer_m:
             raise ValueError("arm.reach_inner_m must be below arm.reach_outer_m")
         return self
+
+    @field_validator("jaw_open_axis")
+    @classmethod
+    def normalise_jaw_axis(cls, v: tuple[float, float, float]) -> tuple[float, float, float]:
+        """Normalise the jaw opening direction to a unit vector.
+
+        Args:
+            v (tuple[float, float, float]): Configured direction.
+
+        Returns:
+            tuple[float, float, float]: Unit direction.
+        """
+        norm = math.sqrt(sum(c * c for c in v))
+        if norm < 1e-9:
+            raise ValueError("arm.jaw_open_axis must not be the zero vector")
+        return (v[0] / norm, v[1] / norm, v[2] / norm)
+
+    @field_validator("joint_limit_overrides_rad")
+    @classmethod
+    def check_limit_overrides(cls, v: dict[str, tuple[float, float]]) -> dict[str, tuple[float, float]]:
+        """Require known joint names and lower < upper.
+
+        Args:
+            v (dict[str, tuple[float, float]]): Joint name -> (lower, upper) rad.
+
+        Returns:
+            dict[str, tuple[float, float]]: The validated overrides.
+        """
+        for name, (lo, hi) in v.items():
+            if name not in ARM_JOINTS:
+                raise ValueError(
+                    f"arm.joint_limit_overrides_rad: unknown joint {name!r}; use one of {list(ARM_JOINTS)}"
+                )
+            if not lo < hi:
+                raise ValueError(f"arm.joint_limit_overrides_rad[{name}]: lower {lo} must be below upper {hi}")
+        return v
 
     @property
     def floor_z_m(self) -> float:

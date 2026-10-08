@@ -12,7 +12,7 @@ from typing import Literal, Protocol
 
 from .config import LimitSettings, McpServerConfig
 from .home_store import HomeStoreError, load_home, save_home
-from .ik import ArmKinematics, UnreachableError
+from .ik import ArmKinematics, UnreachableError, grasp_offset
 from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .staleness import Stamped, is_fresh
@@ -24,6 +24,9 @@ CHANGED_EPS = 1e-9
 # After a restart, an 'autonomy' active source seen within this window (s) while not holding control is an orphaned
 # lease from a crashed predecessor and gets released.
 ORPHAN_LEASE_WINDOW_S = 3.0
+# Widest object the jaws can enclose (m); move_cartesian's object_width_m must lie in (0, MAX_OBJECT_WIDTH_M].
+MAX_OBJECT_WIDTH_M = 0.08
+ROLL_JOINT = "wrist_roll"
 
 OrphanCheck = Literal["pending", "released", "clear"]
 
@@ -141,7 +144,8 @@ class ArmController:
         self._interrupted_by: str | None = None
         self.backend = backend
         self.kin = kinematics
-        self.limits = limits
+        # Configured overrides replace the URDF limits of the named joints (clamping of every target uses these).
+        self.limits = {**limits, **config.arm.joint_limit_overrides_rad}
         self.cfg = config
         self.joint_names = tuple(config.arm.joint_names)
         self.gripper = config.arm.gripper_joint
@@ -479,9 +483,7 @@ class ArmController:
         Returns:
             ArmMotionResult: Outcome.
         """
-        if not self._held:
-            self.acquire()
-        start = self.command_base(self.require_sample())
+        sample = self.require_sample()
         # Targets are in measured (follower) space, limits in URDF space: clamp in URDF space, then convert back.
         safe = self.kin.to_measured(
             clamp_to_limits(
@@ -492,29 +494,85 @@ class ArmController:
             )
         )
         clamped = sorted(j for j in targets if abs(safe[j] - targets[j]) > CHANGED_EPS)
+        self.check_roll_guard(safe, self.command_base(sample), sample)
+        if not self._held:
+            self.acquire()
+        start = self.command_base(self.require_sample())
         with self.holding_arm_for_gripper(list(targets)):
             return self.stream(start, start | safe, vmax, list(targets), clamped)
 
+    def check_roll_guard(self, safe: dict[str, float], start: dict[str, float], sample: JointSample) -> None:
+        """Refuse a wrist roll while the gripper is wide open (the open moving finger can jam against the robot).
+
+        The gripper opening is the larger of the measured position and any gripper target of the same call.
+
+        Args:
+            safe (dict[str, float]): Clamped targets of the motion (measured space).
+            start (dict[str, float]): Pose the motion starts from (last commanded or measured).
+            sample (JointSample): Fresh joint sample (measured gripper position).
+
+        Raises:
+            ArmError: When wrist_roll changes by more than limits.roll_guard_min_change_rad with the gripper more
+                open than limits.roll_max_gripper_open_rad.
+        """
+        limits = self.cfg.limits
+        if ROLL_JOINT not in safe or abs(safe[ROLL_JOINT] - start[ROLL_JOINT]) <= limits.roll_guard_min_change_rad:
+            return
+        opening = max(sample.positions[self.gripper], safe.get(self.gripper, -math.inf))
+        if opening > limits.roll_max_gripper_open_rad:
+            raise ArmError(
+                f"refused: wrist_roll changes by {abs(safe[ROLL_JOINT] - start[ROLL_JOINT]):.2f} rad while the gripper is "
+                f"open to {opening:.2f} rad (limit {limits.roll_max_gripper_open_rad} rad); the open moving finger can "
+                "jam against the robot body or an object. First set the gripper about half open (set_gripper "
+                "open_fraction about 0.5, enough to keep the finger out of the picture), lift the arm clear of the "
+                "robot body and objects, then roll; open wider only for the grasp itself. Nothing moved."
+            )
+
     def move_cartesian(
-        self, x: float, y: float, z: float, pitch: float | None, speed_scale: float | None = None
+        self,
+        x: float,
+        y: float,
+        z: float,
+        pitch: float | None,
+        speed_scale: float | None = None,
+        wrist_roll: float | None = None,
+        object_width_m: float | None = None,
     ) -> ArmMotionResult:
         """Move the gripper tool point to (x, y, z) in the arm base_link, optionally with an approach pitch.
 
         Args:
-            x (float): Target x (m).
+            x (float): Target x (m); the object centre when object_width_m is given.
             y (float): Target y (m).
             z (float): Target z (m).
             pitch (float | None): Approach pitch (rad, + down), or None for position only.
             speed_scale (float | None): Speed scale; None for the maximum.
+            wrist_roll (float | None): Wrist roll (rad, measured space) the IK keeps for this target and the motion
+                moves to (clamped to the limits); None keeps the current roll.
+            object_width_m (float | None): Object width across the jaws (m, 0 < w <= MAX_OBJECT_WIDTH_M): (x, y, z)
+                is then the object centre and the tool point (fixed jaw inner face) is placed half a width from it
+                against the jaw opening direction (arm.jaw_open_axis).
 
         Returns:
             ArmMotionResult: Outcome; status "unreachable" (no motion) when IK has no solution within limits.
+
+        Raises:
+            ArmError: For an invalid object_width_m or a refused wrist roll (wide open gripper).
         """
         self.velocity_for(speed_scale)
+        shift: tuple[float, float, float] | None = None
+        if object_width_m is not None:
+            if not math.isfinite(object_width_m) or not 0.0 < object_width_m <= MAX_OBJECT_WIDTH_M:
+                raise ArmError(f"object_width_m must be in (0, {MAX_OBJECT_WIDTH_M}] m, got {object_width_m}")
+            shift = grasp_offset(object_width_m, self.cfg.arm.jaw_open_axis)
+        if wrist_roll is not None and not math.isfinite(wrist_roll):
+            raise ArmError(f"wrist_roll must be finite, got {wrist_roll}")
         sample = self.require_sample()
         expected = {"x": x, "y": y, "z": z} | ({} if pitch is None else {"pitch": pitch})
+        seed = self.command_base(sample)
+        if wrist_roll is not None:
+            seed = seed | {ROLL_JOINT: wrist_roll}
         try:
-            solution = self.kin.inverse(x, y, z, pitch, seed=self.command_base(sample))
+            solution = self.kin.inverse(x, y, z, pitch, seed=seed, extra_offset=shift)
         except UnreachableError as exc:
             return ArmMotionResult(
                 status="unreachable",
@@ -525,10 +583,26 @@ class ArmController:
             )
         result = self.move_joints(solution, speed_scale)
         achieved = None
+        grasp_shift = None
         if result.positions is not None and all(j in result.positions for j in self.kin.joint_names):
-            pose = self.kin.forward(result.positions)
+            pose = self.kin.forward(result.positions, shift)
             achieved = {"x": pose.x, "y": pose.y, "z": pose.z, "pitch": pose.pitch}
-        return result.model_copy(update={"expected_tool_pose": expected, "achieved_tool_pose": achieved})
+            if shift is not None and object_width_m is not None:
+                jaw = self.kin.forward(result.positions)
+                grasp_shift = {
+                    "object_width_m": object_width_m,
+                    "shift_m": object_width_m / 2.0,
+                    "jaw_open_axis": list(self.cfg.arm.jaw_open_axis),
+                    "tool_point": {"x": round(jaw.x, 4), "y": round(jaw.y, 4), "z": round(jaw.z, 4)},
+                }
+        update: dict[str, object] = {
+            "expected_tool_pose": expected,
+            "achieved_tool_pose": achieved,
+            "grasp_shift": grasp_shift,
+        }
+        if wrist_roll is not None and abs(solution[ROLL_JOINT] - wrist_roll) > CHANGED_EPS:
+            update["clamped"] = sorted({*result.clamped, ROLL_JOINT})
+        return result.model_copy(update=update)
 
     def set_gripper(
         self,

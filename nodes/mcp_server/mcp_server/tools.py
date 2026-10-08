@@ -18,7 +18,7 @@ from ros2_common.battery import BatteryGuard
 from starlette.applications import Starlette
 
 from . import body_tools, camera_tools, perception_tools
-from .arm import ArmError
+from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, McpServerConfig
 from .models import (
@@ -316,6 +316,17 @@ def register_core_tools(ctx: ToolContext) -> None:
         "follower gripper joint positions (rad, as in get_arm_state)."
     )
 
+    speed_desc = (
+        f"{HARD_MAX_SPEED_SCALE:g} = max joint speed ({config.limits.arm_max_joint_velocity_rps:g} rad/s) and the default; "
+        "lower is slower. Use a lower value only for the last few centimetres of a grasp or near obstacles"
+    )
+    roll_note = (
+        f"Wrist roll guard: a roll change above {config.limits.roll_guard_min_change_rad:g} rad is refused (nothing "
+        f"moves) while the gripper is open wider than {config.limits.roll_max_gripper_open_rad:g} rad (measured or "
+        "targeted in the same call): set the gripper about half open first (set_gripper open_fraction about 0.5, "
+        "enough to keep the finger out of the picture), lift the arm clear of the robot body and objects, then roll."
+    )
+
     battery_gate = ctx.battery_gate
 
     def nav_timeout(timeout_s: float | None) -> float:
@@ -466,7 +477,7 @@ def register_core_tools(ctx: ToolContext) -> None:
             "to the URDF limits minus a margin (reported in `clamped`). Blocks until converged or timed out; aborts "
             "and holds the measured pose if joint feedback goes stale (>0.3 s), the tracking error grows too large, "
             "the joints do not settle near the target (status 'timeout'), or stop is called. Takes arm control if "
-            f"not already held and keeps it afterwards: call release_control when done. {settle_note}"
+            f"not already held and keeps it afterwards: call release_control when done. {roll_note} {settle_note}"
         )
     )
     def move_arm_joints(
@@ -479,7 +490,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         ],
         speed_scale: Annotated[
             float,
-            Field(gt=0.0, le=HARD_MAX_SPEED_SCALE, description="0.5 = max joint speed (0.5 rad/s); lower is slower"),
+            Field(gt=0.0, le=HARD_MAX_SPEED_SCALE, description=speed_desc),
         ] = HARD_MAX_SPEED_SCALE,
     ) -> ArmMotionResult:
         """Move arm joints; the tool description is passed to the decorator so it can state the tolerances."""
@@ -491,10 +502,19 @@ def register_core_tools(ctx: ToolContext) -> None:
         description=(
             "Move the gripper tool point to (x, y, z) in the arm's base_link frame (arm URDF root: x forward "
             "along the arm at shoulder_pan=0, z up), optionally with an approach pitch. Solves inverse "
-            "kinematics on the arm URDF (5-DOF: position + pitch, wrist_roll kept) and streams the joint motion "
-            "like move_arm_joints. Returns status 'unreachable' without moving when no solution exists within "
-            "joint limits. Keeps arm control afterwards like move_arm_joints: call release_control when done. "
-            f"{floor_note} {settle_note}"
+            "kinematics on the arm URDF (5-DOF: position + pitch) and streams the joint motion "
+            "like move_arm_joints. wrist_roll (rad, as in get_arm_state; clamped to the limits) sets the roll for this "
+            "target and the motion rolls the wrist to it; omitted, the current roll is kept. The roll is your choice "
+            "per object: it sets the camera view and the jaw orientation (-1.57 camera nearly straight down, 0, "
+            "+1.57 camera parallel to the ground), so pick the one that closes the jaws across the object's narrow "
+            "side. The tool point is the fixed jaw's inner face; the moving jaw opens away from it. With "
+            "object_width_m (m, estimated from the pictures) x, y, z are the OBJECT CENTRE: the tool point is "
+            "placed half a width from it so the fixed jaw's inner face lies on the object's side and the object sits "
+            "centred between the jaws (the result reports grasp_shift incl. the fixed jaw point); without it the "
+            "tool point itself goes to x, y, z. Returns status 'unreachable' without moving when no solution exists "
+            "within joint limits (the arm can reach somewhat below the floor, limited by the joint limits). "
+            "Keeps arm control afterwards like move_arm_joints: call release_control when done. "
+            f"{roll_note} {floor_note} {settle_note}"
         )
     )
     def move_arm_cartesian(
@@ -505,13 +525,27 @@ def register_core_tools(ctx: ToolContext) -> None:
             float | None, Field(description="Approach pitch (rad): 0 horizontal, +1.57 pointing straight down")
         ] = None,
         frame: Annotated[Literal["base_link"], Field(description="Arm URDF base_link (the arm mount)")] = "base_link",
-        speed_scale: Annotated[float, Field(gt=0.0, le=HARD_MAX_SPEED_SCALE)] = HARD_MAX_SPEED_SCALE,
+        speed_scale: Annotated[
+            float, Field(gt=0.0, le=HARD_MAX_SPEED_SCALE, description=speed_desc)
+        ] = HARD_MAX_SPEED_SCALE,
+        wrist_roll: Annotated[
+            float | None,
+            Field(description="Wrist roll (rad, measured space) kept by the IK and moved to; None keeps the current"),
+        ] = None,
+        object_width_m: Annotated[
+            float | None,
+            Field(
+                gt=0.0,
+                le=MAX_OBJECT_WIDTH_M,
+                description="Object width across the jaws (m): x, y, z are then the object centre, not the tool point",
+            ),
+        ] = None,
     ) -> ArmMotionResult:
         """Move the tool point; the tool description is passed to the decorator so it can state the floor."""
         battery_gate("move_arm_cartesian")
         del frame  # the only supported frame
         with tool_errors():
-            return robot.arm.move_cartesian(x, y, z, pitch, speed_scale)
+            return robot.arm.move_cartesian(x, y, z, pitch, speed_scale, wrist_roll, object_width_m)
 
     @tool()
     def set_gripper(

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from mcp_server.config import McpServerConfig
-from mcp_server.ik import ARM_CHAIN_JOINTS, ArmKinematics, UnreachableError, load_joint_limits
+from mcp_server.ik import ARM_CHAIN_JOINTS, ArmKinematics, UnreachableError, grasp_offset, load_joint_limits
 
 URDF = McpServerConfig().arm.urdf_path
 MARGIN = 0.05
@@ -250,3 +250,82 @@ def test_ik_offset_tool_point_for_free_targets(kin_tcp: ArmKinematics) -> None:
         sol = kin_tcp.inverse(x, y, z, pitch, seed=seed)
         got = kin_tcp.forward(sol)
         assert math.dist((got.x, got.y, got.z), (x, y, z)) < 0.001
+
+
+# --- grasp shift: object centre target with the fixed jaw on the object's side ---
+
+JAW_OPEN_AXIS = (-1.0, 0.0, 0.0)
+
+
+def test_extra_offset_shifts_forward_by_the_rotated_vector(kin_tcp: ArmKinematics) -> None:
+    measured = {"shoulder_pan": 0.3, "shoulder_lift": -0.4, "elbow_flex": 0.6, "wrist_flex": 0.5, "wrist_roll": 0.9}
+    plain = kin_tcp.forward(measured)
+    shifted = kin_tcp.forward(measured, extra_offset=(-0.02, 0.0, 0.0))
+    rot = kin_tcp.link_frame(measured, "gripper_frame_link")[:3, :3]
+    want = np.array([plain.x, plain.y, plain.z]) + rot @ np.array([-0.02, 0.0, 0.0])
+    assert (shifted.x, shifted.y, shifted.z) == pytest.approx(tuple(want))
+    assert kin_tcp.forward(measured, extra_offset=None) == plain
+
+
+@pytest.mark.parametrize("roll", [-1.57, 0.0, 1.0])
+def test_inverse_with_object_width_places_the_tool_half_a_width_from_the_centre(
+    kin_tcp: ArmKinematics, roll: float
+) -> None:
+    width = 0.04
+    centre = np.array([0.22, 0.03, 0.02])
+    seed = {j: 0.0 for j in ARM_CHAIN_JOINTS} | {"wrist_roll": roll}
+    extra = (width / 2 * JAW_OPEN_AXIS[0], width / 2 * JAW_OPEN_AXIS[1], width / 2 * JAW_OPEN_AXIS[2])
+    sol = kin_tcp.inverse(*centre, 1.2, seed=seed, extra_offset=extra)
+    assert sol["wrist_roll"] == pytest.approx(roll)
+    # The shifted point sits on the centre; the configured tool point (fixed jaw face) is half a width away from it
+    # against the opening direction.
+    on_centre = kin_tcp.forward(sol, extra_offset=extra)
+    assert (on_centre.x, on_centre.y, on_centre.z) == pytest.approx(tuple(centre), abs=0.001)
+    tool = kin_tcp.forward(sol)
+    open_world = kin_tcp.link_frame(sol, "gripper_frame_link")[:3, :3] @ np.array(JAW_OPEN_AXIS)
+    offset = centre - np.array([tool.x, tool.y, tool.z])
+    assert np.linalg.norm(offset) == pytest.approx(width / 2, abs=0.001)
+    assert offset @ open_world == pytest.approx(width / 2, abs=0.001)
+
+
+def test_inverse_extra_offset_does_not_mutate_the_shared_tool_offset(kin_tcp: ArmKinematics) -> None:
+    before = kin_tcp.tool_offset.copy()
+    kin_tcp.inverse(0.22, 0.0, 0.03, 1.2, seed={j: 0.0 for j in ARM_CHAIN_JOINTS}, extra_offset=(-0.02, 0.0, 0.0))
+    assert np.array_equal(kin_tcp.tool_offset, before)
+
+
+def test_grasp_offset_scales_the_normalised_open_axis() -> None:
+    assert grasp_offset(0.04, (-1.0, 0.0, 0.0)) == pytest.approx((-0.02, 0.0, 0.0))
+    assert grasp_offset(0.06, (0.0, 0.6, 0.8)) == pytest.approx((0.0, 0.018, 0.024))
+
+
+# --- joint limit overrides ---
+
+
+def test_limit_overrides_replace_the_urdf_limits_of_named_joints() -> None:
+    kin = ArmKinematics(URDF, margin=MARGIN, limit_overrides={"shoulder_lift": (-1.7, 2.6)})
+    assert kin.limits["shoulder_lift"] == (-1.7, 2.6)
+    assert kin.limits["elbow_flex"] == pytest.approx(load_joint_limits(URDF)["elbow_flex"])
+    zero = {j: 0.0 for j in ARM_CHAIN_JOINTS}
+    assert kin.within_limits(zero | {"shoulder_lift": 2.5})
+    assert not kin.within_limits(zero | {"shoulder_lift": 2.58})
+    assert kin.chain.links[kin.index["shoulder_lift"]].bounds == pytest.approx((-1.7 + MARGIN, 2.6 - MARGIN))
+
+
+def test_target_below_the_floor_needs_a_wider_shoulder_lift() -> None:
+    seed = {j: 0.0 for j in ARM_CHAIN_JOINTS}
+    plain = ArmKinematics(URDF, margin=MARGIN)
+    with pytest.raises(UnreachableError):
+        plain.inverse(0.2, 0.0, -0.25, None, seed=seed)
+    wide = ArmKinematics(URDF, margin=MARGIN, limit_overrides={"shoulder_lift": (-1.74533, 2.6)})
+    sol = wide.inverse(0.2, 0.0, -0.25, None, seed=seed)
+    got = wide.forward(sol)
+    assert math.dist((got.x, got.y, got.z), (0.2, 0.0, -0.25)) < 0.003
+    assert sol["shoulder_lift"] > 1.74533 - MARGIN
+
+
+def test_limit_overrides_reject_non_chain_joints_and_inverted_ranges() -> None:
+    with pytest.raises(ValueError, match="gripper"):
+        ArmKinematics(URDF, margin=MARGIN, limit_overrides={"gripper": (-0.2, 1.8)})
+    with pytest.raises(ValueError, match="lower"):
+        ArmKinematics(URDF, margin=MARGIN, limit_overrides={"elbow_flex": (1.0, -1.0)})

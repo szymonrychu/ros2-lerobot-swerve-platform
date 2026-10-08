@@ -57,6 +57,23 @@ def load_joint_limits(urdf_path: Path) -> dict[str, tuple[float, float]]:
     return limits
 
 
+def grasp_offset(object_width_m: float, jaw_open_axis: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Extra tool offset that makes the controlled point the centre between the jaws of an object.
+
+    The configured tool point is the fixed jaw's inner face; the object centre lies half its width away in the
+    direction the moving jaw opens.
+
+    Args:
+        object_width_m (float): Object width across the jaws (m).
+        jaw_open_axis (tuple[float, float, float]): Unit opening direction in gripper_frame_link.
+
+    Returns:
+        tuple[float, float, float]: Offset (m) in gripper_frame_link, added to the configured tool offset.
+    """
+    half = object_width_m / 2.0
+    return (half * jaw_open_axis[0], half * jaw_open_axis[1], half * jaw_open_axis[2])
+
+
 def pitch_of(approach: np.ndarray) -> float:
     """Pitch of an approach vector: angle below the horizontal plane.
 
@@ -83,6 +100,7 @@ class ArmKinematics:
         margin: float,
         joint_offsets: dict[str, float] | None = None,
         tool_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        limit_overrides: dict[str, tuple[float, float]] | None = None,
     ) -> None:
         """Build the ikpy chain and shrink the joint bounds by margin.
 
@@ -94,12 +112,21 @@ class ArmKinematics:
             tool_offset (tuple[float, float, float]): Tool centre point (jaw closing point) relative to
                 gripper_frame_link, expressed in that frame (m). Forward kinematics reports this point and the
                 inverse places it on the target.
+            limit_overrides (dict[str, tuple[float, float]] | None): Replacement (lower, upper) URDF-space limits
+                (rad) of chain joints; used for the IK bounds, within_limits and clamp_seed.
 
         Raises:
-            ValueError: For an offset on a joint that is not a chain joint (e.g. the gripper).
+            ValueError: For an offset on a joint that is not a chain joint (e.g. the gripper), or a limit override
+                on a non-chain joint or with lower >= upper.
         """
         all_limits = load_joint_limits(urdf_path)
         self.limits = {j: all_limits[j] for j in ARM_CHAIN_JOINTS}
+        for name, (lo, hi) in (limit_overrides or {}).items():
+            if name not in self.limits:
+                raise ValueError(f"limit overrides only apply to {list(ARM_CHAIN_JOINTS)}, not {name!r}")
+            if not lo < hi:
+                raise ValueError(f"limit override for {name}: lower {lo} must be below upper {hi}")
+            self.limits[name] = (float(lo), float(hi))
         self.margin = margin
         self.tool_offset = np.array(tool_offset, dtype=np.float64)
         unknown = sorted(set(joint_offsets or {}) - set(ARM_CHAIN_JOINTS))
@@ -181,28 +208,36 @@ class ArmKinematics:
             q[self.index[j]] = joints.get(j, 0.0)
         return q
 
-    def forward(self, joints: dict[str, float]) -> CartesianPose:
+    def forward(
+        self, joints: dict[str, float], extra_offset: tuple[float, float, float] | None = None
+    ) -> CartesianPose:
         """Tool pose for a joint configuration.
 
         Args:
             joints (dict[str, float]): Joint name -> measured rad.
+            extra_offset (tuple[float, float, float] | None): Extra tool offset (m, gripper_frame_link axes) added to
+                the configured one for this call only (e.g. grasp_offset); None for the configured tool point.
 
         Returns:
             CartesianPose: Tool position and approach pitch in base_link.
         """
-        return self.forward_urdf(self.to_urdf(joints))
+        return self.forward_urdf(self.to_urdf(joints), extra_offset)
 
-    def forward_urdf(self, joints: dict[str, float]) -> CartesianPose:
+    def forward_urdf(
+        self, joints: dict[str, float], extra_offset: tuple[float, float, float] | None = None
+    ) -> CartesianPose:
         """Tool pose for URDF-space joint angles.
 
         Args:
             joints (dict[str, float]): Joint name -> URDF rad.
+            extra_offset (tuple[float, float, float] | None): Extra tool offset for this call only (see forward).
 
         Returns:
             CartesianPose: Tool position and approach pitch in base_link.
         """
         frame = self.chain.forward_kinematics(self.urdf_vector(joints))
-        point = frame[:3, 3] + frame[:3, :3] @ self.tool_offset
+        offset = self.tool_offset if extra_offset is None else self.tool_offset + np.array(extra_offset)
+        point = frame[:3, 3] + frame[:3, :3] @ offset
         return CartesianPose(x=float(point[0]), y=float(point[1]), z=float(point[2]), pitch=pitch_of(frame[:3, 2]))
 
     def link_frame(self, joints: dict[str, float], link: str) -> np.ndarray:
@@ -250,7 +285,15 @@ class ArmKinematics:
             for j in ARM_CHAIN_JOINTS
         )
 
-    def inverse(self, x: float, y: float, z: float, pitch: float | None, seed: dict[str, float]) -> dict[str, float]:
+    def inverse(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        pitch: float | None,
+        seed: dict[str, float],
+        extra_offset: tuple[float, float, float] | None = None,
+    ) -> dict[str, float]:
         """Joint configuration placing the tool point at (x, y, z), optionally with the given approach pitch.
 
         With a tool offset the gripper_frame_link target is target - R_tool @ offset; R_tool depends on the solution,
@@ -263,6 +306,8 @@ class ArmKinematics:
             z (float): Target z in base_link (m).
             pitch (float | None): Approach pitch (rad, positive down), or None for position only.
             seed (dict[str, float]): Starting configuration in measured space; wrist_roll is kept.
+            extra_offset (tuple[float, float, float] | None): Extra tool offset (m, gripper_frame_link axes) added to
+                the configured one for this solve only; the shared tool offset is not modified.
 
         Returns:
             dict[str, float]: Chain joint name -> measured rad.
@@ -270,19 +315,19 @@ class ArmKinematics:
         Raises:
             UnreachableError: When the target cannot be reached within limits and tolerances.
         """
-        if not self.tool_offset.any():
+        if not (self.tool_offset.any() or (extra_offset is not None and any(extra_offset))):
             return self.inverse_flange(x, y, z, pitch, seed)
         target = np.array([x, y, z])
         flange = target.copy()
         sol = self.inverse_flange(*flange, pitch, seed)
         for _ in range(TOOL_ITERATIONS):
-            reached = self.forward(sol)
+            reached = self.forward(sol, extra_offset)
             residual = target - np.array([reached.x, reached.y, reached.z])
             if float(np.linalg.norm(residual)) < TOOL_CONVERGENCE_M:
                 break
             flange = flange + residual
             sol = self.inverse_flange(*flange, pitch, sol)
-        reached = self.forward(sol)
+        reached = self.forward(sol, extra_offset)
         if math.dist((reached.x, reached.y, reached.z), (x, y, z)) > POSITION_TOLERANCE_M:
             raise UnreachableError(
                 f"target ({x:.3f}, {y:.3f}, {z:.3f}) tool point did not converge within joint limits"

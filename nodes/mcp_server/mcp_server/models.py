@@ -153,6 +153,12 @@ class ArmMotionResult(BaseModel):
         default=None,
         description="Tool point x, y, z (m), pitch (rad) from the final measured joints (move_arm_cartesian)",
     )
+    grasp_shift: dict[str, Any] | None = Field(
+        default=None,
+        description="move_arm_cartesian with object_width_m: {object_width_m, shift_m (half the width), "
+        "jaw_open_axis (gripper_frame_link), tool_point {x,y,z} of the fixed jaw's inner face in the arm base "
+        "frame}. The requested x, y, z were the object centre, not the tool point.",
+    )
 
 
 class ControlResult(BaseModel):

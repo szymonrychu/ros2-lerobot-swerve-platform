@@ -497,7 +497,9 @@ def test_pixel_to_ground_surface_height_is_validated(tmp_path: Path) -> None:
 
 def test_mark_candidate_points_surface_height_is_stored_and_resolved(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
-    table = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 120, "surface_height_m": 0.04}))
+    table = text_json(
+        call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 120, "surface_height_m": 0.04})
+    )
     assert table["surface_height_m"] == 0.04
     for p in table["points"]:
         assert p["ground_base_link"]["z"] == 0.04
