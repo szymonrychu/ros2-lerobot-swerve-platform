@@ -58,7 +58,7 @@ def run_relay(config: RelayConfig) -> None:
         publisher.publish(out)
 
     node.create_subscription(Odometry, config.input_topic, on_odom, QOS)
-    node.get_logger().info("rf2o relay: %s -> %s" % (config.input_topic, config.output_topic))
+    node.get_logger().info(f"rf2o relay: {config.input_topic} -> {config.output_topic}")
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
