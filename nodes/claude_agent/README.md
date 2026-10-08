@@ -119,18 +119,26 @@ Gate (`tools.py`, `can_use_tool`):
 
 The system prompt explains the planning with the example "put plushie tomato into toy car" (1 Locate mentioned objects, 2 Drive
 towards tomato within 10 cm, 3 Pick up tomato, 4 Drive towards toy car within 10 cm, 5 Drop tomato into the toy car, 6 Get back to
-home), measurable goals, generous per-phase cap guidance (plan roughly double the estimate, because grasps need retries; locate rw 5-10 / turns
+home), measurable goals, generous per-phase cap guidance (plan roughly double the estimate and include room for retries, grasps usually need 2-4 attempts; locate rw 5-10 / turns
 15-30, drive rw 8-20 / turns 10-25, pick rw 20-40 / turns 30-40, drop rw 10-20 / turns 10-20, home rw 2-6 / turns 5-10;
-`look_around` counts 1), raising a low phase early with `raise_phase_budget` instead of giving up, that sensor calls are
+`look_around` counts 1), raising a low phase early (before the budget runs out) with `raise_phase_budget`, or adding a retry phase with `revise_plan`, never giving up only because a cap is near, that sensor calls are
 unlimited, the maxima, explicit honest `complete_phase` calls and starting work immediately after planning. The six example
 phases at the top of the guidance sum to rw 116 and turns 150, which fits `max_rw_cap` 150 and `max_turn_cap` 200 with room for
 raises (the maxima were 100 and 150 before).
 
-A `Grasping:` paragraph of the prompt makes the agent photograph the object from several viewpoints before every grasp (one from
-directly above, one from a different angle), convert the object centre pixel of each picture to floor coordinates with
+Three prompt paragraphs cover grasping. `Gripper:` explains the fixed and the moving jaw (at wrist roll 0 the fixed jaw is the dark
+shape at the lower right of the gripper camera image, the moving jaw closes in from the top), that the fixed jaw goes beside or
+under the object and never onto it, that `object_width_m` (estimated e.g. with `pixel_to_ground` on both object edges) makes
+`move_arm_cartesian` target the object centre, and that the agent chooses the `wrist_roll` per object before each grasp (most often
+-1.57 rad). `Rolling the wrist:` is the protocol (gripper about half open, arm lifted clear, open wider only for the grasp; the arm
+tools refuse a roll with a wide open gripper). `Grasping:` makes the agent photograph the object from several viewpoints by
+changing the wrist roll (-90 deg camera nearly straight down, +90 deg parallel to the ground, near -154 deg the other side,
+upside down; `pixel_to_ground` works at any roll), convert the object centre pixel of each picture to floor coordinates with
 `pixel_to_ground` (or `mark_candidate_points` + `resolve_candidate`), average the estimates when they agree within about 1 cm
 (otherwise take another picture), aim at the object centre and not its edge, correct the target by the observed offset after a
-miss (earlier grasps landed left of the centre) and record what worked in `NOTES.md`.
+miss and record what worked in `NOTES.md`. `Surfaces and speed:` tells it to pass `surface_height_m` for objects above or below
+the robot's floor, that the arm reaches somewhat below floor level within its joint limits, and that the arm is fast by default
+(a lower `speed_scale` only for the last centimetres of a grasp or near obstacles). Each is asserted in `tests/test_prompt.py`.
 
 ## Robot events and interrupts
 

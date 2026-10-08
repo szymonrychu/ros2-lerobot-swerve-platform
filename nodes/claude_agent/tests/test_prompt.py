@@ -44,14 +44,23 @@ def test_prompt_has_no_ro_budget_and_says_sensors_are_unlimited() -> None:
 def test_prompt_demands_generous_rw_and_turn_caps() -> None:
     lower = build_system_prompt(ClaudeAgentConfig()).lower()
     assert "roughly double" in lower and "retries" in lower
-    assert "raise_phase_budget" in lower and "early" in lower and "rather than giving up" in lower
+    assert "raise_phase_budget" in lower and "early" in lower
+
+
+def test_prompt_budgets_for_retries_and_never_gives_up_at_a_cap() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    assert "room for retries in rw_cap and turn_cap" in lower
+    assert "2-4 attempts" in lower
+    assert "before the budget runs out" in lower
+    assert "agent.revise_plan to add a retry phase" in lower
+    assert "never give up only because a cap is near" in lower
 
 
 def test_prompt_teaches_accurate_grasping() -> None:
     text = build_system_prompt(ClaudeAgentConfig())
     section = text[text.index("Grasping:") :]
     lower = section.lower()
-    assert "from directly above" in lower and "different angle" in lower and "several viewpoints" in lower
+    assert "directly above" in lower and "several viewpoints" in lower and "changing the wrist roll" in lower
     assert "pixel_to_ground" in section and "mark_candidate_points" in section and "resolve_candidate" in section
     assert "centre" in lower and "not its edge" in lower
     assert "within about 1 cm" in lower and "average" in lower and "take another picture" in lower
@@ -185,3 +194,56 @@ def test_every_default_tool_is_named_in_the_prompt() -> None:
     cfg = ClaudeAgentConfig()
     for name in cfg.sensor_tools + cfg.effector_tools:
         assert name in text
+
+
+def prompt_lower() -> str:
+    return " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+
+
+def test_prompt_explains_the_fixed_and_moving_jaw() -> None:
+    lower = prompt_lower()
+    assert "one fixed jaw and one moving jaw" in lower
+    assert "dark shape at the lower right" in lower and "closes in from the top" in lower
+    assert "roll 0" in lower
+    assert "beside or under the object's side, never onto the object" in lower
+    assert "closes the object against it" in lower
+    assert "object_width_m" in lower and "move_arm_cartesian" in lower
+    assert "both object edges" in lower and "object centre" in lower
+
+
+def test_prompt_makes_the_agent_choose_the_grasp_roll() -> None:
+    lower = prompt_lower()
+    assert "before each grasp" in lower and "choose the wrist roll" in lower
+    assert "-90 deg = -1.57 rad" in lower and "narrow side" in lower
+    assert "pass it as wrist_roll to move_arm_cartesian" in lower
+
+
+def test_prompt_describes_camera_views_by_roll_in_the_grasping_paragraph() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    lower = " ".join(text.lower().split())
+    assert "nearly straight down" in lower and "parallel to the ground" in lower
+    assert "-154 deg" in lower and "upside down" in lower and "180 is not reachable" in lower
+    assert "pixel_to_ground works at any roll" in lower
+    assert lower.count("directly above") == 1  # merged into the one Grasping paragraph
+
+
+def test_prompt_has_the_rolling_protocol() -> None:
+    lower = prompt_lower()
+    assert "before changing the roll" in lower
+    assert "about half open" in lower and "keep the finger out of the picture" in lower
+    assert "lift the arm clear of the robot body" in lower
+    assert "open wider only for the grasp" in lower
+    assert "refuse a roll with a wide open gripper" in lower
+
+
+def test_prompt_teaches_surfaces_and_below_floor_reach() -> None:
+    lower = prompt_lower()
+    assert "surface_height_m" in lower and "above or below the robot's floor" in lower
+    assert "below floor level" in lower and "joint limits" in lower and "unreachable" in lower
+
+
+def test_prompt_says_the_arm_is_fast_by_default() -> None:
+    lower = prompt_lower()
+    assert "default is full speed" in lower
+    assert "lower speed_scale only for the last few centimetres of a grasp or near obstacles" in lower
+    assert "0.5 rad/s" not in lower and "slow speed" not in lower
