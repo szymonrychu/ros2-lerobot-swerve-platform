@@ -3,7 +3,7 @@ name = "test-joint-api"
 version = "0.1.0"
 description = "REST API for posting joint updates (same path as master2master: filter -> feetech)"
 readme = "README.md"
-requires-python = ">=3.11,<4"
+requires-python = ">=3.12"
 dependencies = [
     "aiohttp>=3.9.0",
     "pyyaml>=6.0",
@@ -13,26 +13,24 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.0.0,<10",
-    "ruff==0.16.10",
+    "ruff==0.15.20",
     "vulture>=2.11,<3",
     "poethepoet>=0.42.0,<1",
     "pytest-asyncio>=0.23.0,<2",
 ]
 
 [build-system]
-requires = ["uv_build>=0.11.29,<0.12"]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.uv.build-backend]
-module-name = "test_joint_api"
-module-root = ""
+[tool.hatch.build.targets.wheel]
+packages = ["test_joint_api"]
 
 [tool.ruff]
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = ["E501"]
+select = ["E", "F", "W", "I", "UP"]
 
 [tool.vulture]
 exclude = ["**/__pycache__"]
