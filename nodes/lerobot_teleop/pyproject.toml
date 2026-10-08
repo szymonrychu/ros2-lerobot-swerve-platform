@@ -3,13 +3,13 @@ name = "lerobot-teleop"
 version = "0.1.0"
 description = "Lerobot leader-follower teleop node"
 readme = "README.md"
-requires-python = ">=3.11,<4"
+requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.0,<10",
-    "ruff==0.16.10",
+    "ruff==0.15.20",
     "vulture>=2.11,<3",
     "poethepoet>=0.42.0,<1",
 ]
@@ -22,8 +22,7 @@ line-length = 120
 extend-exclude = [".venv", "__pycache__"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-ignore = ["E501"]
+select = ["E", "F", "W", "I", "UP"]
 
 [tool.vulture]
 exclude = ["**/__pycache__"]
