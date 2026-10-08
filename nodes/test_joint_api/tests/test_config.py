@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+
 from test_joint_api.config import load_config, load_config_from_env
 
 
