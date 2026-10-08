@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+
 from frame import frame_due, rotate_frame
 
 FRAME = np.arange(2 * 3 * 3, dtype=np.uint8).reshape(2, 3, 3)  # height 2, width 3, bgr

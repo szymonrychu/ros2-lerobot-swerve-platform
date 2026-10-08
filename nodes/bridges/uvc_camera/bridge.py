@@ -43,9 +43,7 @@ def exit_err(message: str) -> NoReturn:
     sys.exit(1)
 
 
-def run_bridge(
-    device: str | int, topic: str, frame_id: str, rotate_deg: int = 0, max_fps: float | None = None
-) -> None:
+def run_bridge(device: str | int, topic: str, frame_id: str, rotate_deg: int = 0, max_fps: float | None = None) -> None:
     """Run the bridge: capture frames from device, publish sensor_msgs/Image and CompressedImage.
 
     Publishes:
