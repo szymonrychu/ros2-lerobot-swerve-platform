@@ -2,7 +2,11 @@
 import type { Poi, PoiList } from './types'
 import { POI_STATUSES } from './types'
 
+const DEFAULT_CONFIDENCE = 1
+
 export const STATUS_COLORS = { open: '#ffb000', done: '#2ecc40', cancelled: '#8b949e' } as const
+/** Fill of remembered objects (not a status colour, so they stand out from the other POIs). */
+export const OBJECT_COLOR = '#b967ff'
 export const CREATOR_OUTLINE = { agent: '#2f9bff', user: '#ffffff' } as const
 const SELECTED_OUTLINE = '#ff4fd8'
 const CLOSED_OPACITY = 0.35
@@ -19,7 +23,7 @@ export interface PoiStyle {
 }
 
 /**
- * Visual style of a POI: fill colour by status, outline by creator (agent: blue dashed, user: white solid).
+ * Visual style of a POI: fill colour by status (objects: OBJECT_COLOR), outline by creator (agent: blue dashed, user: white solid).
  *
  * @param poi - POI
  * @param selected - whether it is the selected POI
@@ -27,7 +31,7 @@ export interface PoiStyle {
  */
 export function poiStyle(poi: Poi, selected: boolean): PoiStyle {
   return {
-    fill: STATUS_COLORS[poi.status],
+    fill: poi.kind === 'object' ? OBJECT_COLOR : STATUS_COLORS[poi.status],
     outline: selected ? SELECTED_OUTLINE : CREATOR_OUTLINE[poi.created_by],
     opacity: poi.status === 'open' ? OPEN_OPACITY : CLOSED_OPACITY,
     lineWidth: selected ? 4 : 2,
@@ -44,12 +48,22 @@ function isPoi(raw: unknown): raw is Poi {
   if (!raw || typeof raw !== 'object') return false
   const p = raw as Record<string, unknown>
   if (typeof p.id !== 'string' || !p.id) return false
-  if (p.kind !== 'point' && p.kind !== 'area') return false
+  if (p.kind !== 'point' && p.kind !== 'area' && p.kind !== 'object') return false
   if (!isNum(p.x) || !isNum(p.y) || !isNum(p.radius_m) || !isNum(p.created_at) || !isNum(p.updated_at)) return false
   if (typeof p.name !== 'string' || typeof p.note !== 'string') return false
   if (!POI_STATUSES.includes(p.status as never) || (p.created_by !== 'agent' && p.created_by !== 'user')) return false
   if (!Array.isArray(p.polygon) || !p.polygon.every((v) => Array.isArray(v) && v.length === 2 && v.every(isNum))) return false
-  return p.kind === 'point' || p.polygon.length >= MIN_AREA_VERTICES
+  return p.kind !== 'area' || p.polygon.length >= MIN_AREA_VERTICES
+}
+
+function withObjectDefaults(p: Poi): Poi {
+  return {
+    ...p,
+    times_seen: isNum(p.times_seen) ? p.times_seen : 0,
+    first_seen: isNum(p.first_seen) ? p.first_seen : 0,
+    last_seen: isNum(p.last_seen) ? p.last_seen : 0,
+    confidence: isNum(p.confidence) ? p.confidence : DEFAULT_CONFIDENCE,
+  }
 }
 
 /**
@@ -62,7 +76,7 @@ export function parsePoiList(raw: unknown): PoiList | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Record<string, unknown>
   if (!Array.isArray(r.pois) || !isNum(r.revision)) return null
-  return { pois: r.pois.filter(isPoi), revision: r.revision }
+  return { pois: r.pois.filter(isPoi).map(withObjectDefaults), revision: r.revision }
 }
 
 /**
@@ -89,4 +103,18 @@ export function formatUpdated(updatedAt: number, now: number): string {
   if (diff < 3600) return `${Math.floor(diff / 60)} min ago`
   if (diff < 86400) return `${Math.floor(diff / 3600)} h ago`
   return `${Math.floor(diff / 86400)} d ago`
+}
+
+/**
+ * Sighting summary of an object POI.
+ *
+ * @param poi - POI
+ * @param now - unix seconds
+ * @returns e.g. "seen 3x, last seen 1 min ago, confidence 80%"; empty for a POI without sightings
+ */
+export function objectDetails(poi: Poi, now: number): string {
+  const seen = poi.times_seen ?? 0
+  if (poi.kind !== 'object' || seen < 1) return ''
+  const confidence = Math.round((poi.confidence ?? DEFAULT_CONFIDENCE) * 100)
+  return `seen ${seen}x, last seen ${formatUpdated(poi.last_seen ?? poi.updated_at, now)}, confidence ${confidence}%`
 }

@@ -1,7 +1,7 @@
 /** Pure editor state logic for POIs: area drafting, new-POI fields, drag previews and update commands. */
 import type { Vec2 } from '../map/mapMath'
 import { polygonCentroid, distance, type Hit } from './geometry'
-import type { Poi, PoiCommand, PoiFields, PoiKind } from './types'
+import { isPointLike, type Poi, type PoiCommand, type PoiFields, type PoiKind } from './types'
 
 /** A press that moves less than this (screen px) is a click. */
 export const CLICK_MAX_DRAG_PX = 6
@@ -151,7 +151,7 @@ export function updateDrag(drag: DragState, currentMap: Vec2 | null, currentScre
 export function dragPreview(poi: Poi, drag: DragState): Poi {
   const dx = drag.current.x - drag.startMap.x
   const dy = drag.current.y - drag.startMap.y
-  if (poi.kind === 'point') return { ...poi, x: poi.x + dx, y: poi.y + dy }
+  if (isPointLike(poi.kind)) return { ...poi, x: poi.x + dx, y: poi.y + dy }
   const polygon = poi.polygon.map(([x, y], i): [number, number] =>
     drag.target.part === 'vertex' && drag.target.index !== i ? [x, y] : [x + dx, y + dy],
   )
@@ -170,7 +170,7 @@ export function dragCommand(poi: Poi, drag: DragState): Extract<PoiCommand, { op
   const moved = dragPreview(poi, drag)
   return {
     op: 'update',
-    poi: poi.kind === 'point' ? { id: poi.id, x: moved.x, y: moved.y } : { id: poi.id, polygon: moved.polygon },
+    poi: isPointLike(poi.kind) ? { id: poi.id, x: moved.x, y: moved.y } : { id: poi.id, polygon: moved.polygon },
   }
 }
 

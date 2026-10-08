@@ -76,6 +76,14 @@ def test_serialize_poi_list() -> None:
     assert serialize_poi_list(SimpleNamespace(data=json.dumps(LIST_PAYLOAD))) == LIST_PAYLOAD
 
 
+def test_serialize_poi_list_keeps_object_pois_with_their_sighting_fields() -> None:
+    from web_ui.msg_serializer import serialize_poi_list
+
+    cup = {"id": "b" * 32, "kind": "object", "name": "cup", "x": 1.0, "y": 2.0, "times_seen": 3, "last_seen": 9.0}
+    payload = {"pois": [*LIST_PAYLOAD["pois"], cup], "revision": 5}
+    assert serialize_poi_list(SimpleNamespace(data=json.dumps(payload))) == payload
+
+
 @pytest.mark.parametrize("raw", ["{oops", "[]", json.dumps({"pois": "x"}), json.dumps({"revision": 1})])
 def test_serialize_poi_list_rejects_malformed(raw: str) -> None:
     from web_ui.msg_serializer import serialize_poi_list

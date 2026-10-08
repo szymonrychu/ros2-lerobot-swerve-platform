@@ -22,10 +22,11 @@ import CloseIcon from '@mui/icons-material/Close'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { MONO_FONT } from '../theme'
-import { formatUpdated, sortPois, STATUS_COLORS } from './style'
+import { formatUpdated, objectDetails, OBJECT_COLOR, sortPois, STATUS_COLORS } from './style'
 import { Poi, POI_NAME_MAX, POI_NOTE_MAX, POI_STATUSES, PoiCommand, PoiResult, PoiStatus } from './types'
 
 const PANEL_BG = 'rgba(22, 27, 34, 0.92)'
+const KIND_TITLES = { point: 'Point', area: 'Area', object: 'Object' } as const
 
 /** Collapsible list of all POIs; a row click selects the POI and centres the view on it. */
 export function PoiListPanel({
@@ -83,14 +84,18 @@ export function PoiListPanel({
             <ListItemButton key={p.id} selected={p.id === selectedId} onClick={() => onFocus(p)} sx={{ minHeight: 48 }}>
               <ListItemText
                 primary={p.name || '(unnamed)'}
-                secondary={`${p.kind} - ${p.created_by} - ${formatUpdated(p.updated_at, now)}`}
+                secondary={
+                  p.kind === 'object'
+                    ? `object - ${p.created_by} - ${objectDetails(p, now) || formatUpdated(p.updated_at, now)}`
+                    : `${p.kind} - ${p.created_by} - ${formatUpdated(p.updated_at, now)}`
+                }
                 primaryTypographyProps={{ noWrap: true }}
                 secondaryTypographyProps={{ noWrap: true }}
               />
               <Chip
                 size="small"
                 label={p.status}
-                sx={{ ml: 1, bgcolor: STATUS_COLORS[p.status], color: '#0d1117', fontWeight: 700 }}
+                sx={{ ml: 1, bgcolor: p.kind === 'object' ? OBJECT_COLOR : STATUS_COLORS[p.status], color: '#0d1117', fontWeight: 700 }}
               />
             </ListItemButton>
           ))}
@@ -100,7 +105,7 @@ export function PoiListPanel({
   )
 }
 
-/** Edit form of one POI: name, note, status (and radius for a point); delete asks for confirmation in a dialog. */
+/** Edit form of one POI: name, note, status (and radius for a point; objects also show their sighting details); delete asks for confirmation in a dialog. */
 export function PoiEditorPanel({
   poi,
   busy,
@@ -157,7 +162,7 @@ export function PoiEditorPanel({
     >
       <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
         <Typography variant="overline" sx={{ lineHeight: 2 }}>
-          {poi.kind === 'point' ? 'Point' : 'Area'} - created by {poi.created_by}
+          {KIND_TITLES[poi.kind]} - created by {poi.created_by}
         </Typography>
         <IconButton aria-label="Close editor" size="small" onClick={onClose}>
           <CloseIcon fontSize="small" />
@@ -205,11 +210,16 @@ export function PoiEditorPanel({
           />
         )}
         <Typography variant="caption" color="text.secondary" sx={{ fontFamily: MONO_FONT }}>
-          {poi.kind === 'point' ? 'at' : 'centre'} {poi.x.toFixed(2)}, {poi.y.toFixed(2)} (map)
+          {poi.kind === 'area' ? 'centre' : 'at'} {poi.x.toFixed(2)}, {poi.y.toFixed(2)} (map)
           {poi.kind === 'area' ? ` - ${poi.polygon.length} vertices` : ''}
         </Typography>
+        {objectDetails(poi, Date.now() / 1000) && (
+          <Typography variant="caption" color="text.secondary" data-testid="poi-object-details">
+            {objectDetails(poi, Date.now() / 1000)}
+          </Typography>
+        )}
         <Typography variant="caption" color="text.secondary">
-          Drag the selected {poi.kind === 'point' ? 'point' : 'area or its vertices'} on the map (top view) to move it.
+          Drag the selected {poi.kind === 'area' ? 'area or its vertices' : poi.kind} on the map (top view) to move it.
         </Typography>
         <Stack direction="row" spacing={1}>
           <Button variant="contained" onClick={save} disabled={busy || !dirty || !valid} sx={{ flex: 1, minHeight: 44 }}>

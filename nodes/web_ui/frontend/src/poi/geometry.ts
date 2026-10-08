@@ -1,8 +1,10 @@
 /** Pure planar geometry and hit testing for POIs (map frame, metres). */
 import type { Vec2 } from '../map/mapMath'
-import type { Poi } from './types'
+import { isPointLike, type Poi } from './types'
 
 const DEGENERATE_AREA = 1e-12
+/** An object has no radius of its own; only the pointer tolerance counts. */
+const OBJECT_HIT_RADIUS_M = 0
 
 /** What a pointer press landed on: a whole POI, or one vertex of an area. */
 export interface Hit {
@@ -106,8 +108,8 @@ export function nearestVertex(polygon: [number, number][], p: Vec2, tolerance: n
 }
 
 /**
- * What is under a map point. Priority: a vertex of the selected area, then the nearest point POI (hit radius is
- * the larger of its radius and the tolerance), then the smallest area containing the point.
+ * What is under a map point. Priority: a vertex of the selected area, then the nearest point or object POI (hit radius is
+ * the larger of its radius and the tolerance; objects use the tolerance only), then the smallest area containing the point.
  *
  * @param pois - POIs to test
  * @param p - map-frame point
@@ -124,9 +126,10 @@ export function hitTest(pois: Poi[], p: Vec2, tolerance: number, selectedId: str
   let nearest: Poi | null = null
   let nearestDist = Infinity
   for (const q of pois) {
-    if (q.kind !== 'point') continue
+    if (!isPointLike(q.kind)) continue
     const d = distance(p, q)
-    if (d <= Math.max(q.radius_m, tolerance) && d < nearestDist) {
+    const radius = q.kind === 'object' ? OBJECT_HIT_RADIUS_M : q.radius_m
+    if (d <= Math.max(radius, tolerance) && d < nearestDist) {
       nearest = q
       nearestDist = d
     }

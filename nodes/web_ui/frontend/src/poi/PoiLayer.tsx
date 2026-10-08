@@ -8,7 +8,7 @@ import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Vec2 } from '../map/mapMath'
 import { rosToThree, ThreeTuple } from '../map3d/coords'
-import { poiStyle, STATUS_COLORS } from './style'
+import { objectDetails, poiStyle, STATUS_COLORS } from './style'
 import type { Poi } from './types'
 
 /** Stacking heights (three y, metres), above the goal marker. */
@@ -16,6 +16,8 @@ const POI_LIFT = { fill: 0.034, outline: 0.036, handle: 0.04, draft: 0.042 } as 
 const DISC_SEGMENTS = 40
 const HANDLE_RADIUS_M = 0.06
 const DRAFT_COLOR = '#ffdc00'
+/** Half diagonal of the diamond that marks a remembered object, m. */
+const OBJECT_MARKER_RADIUS_M = 0.07
 
 function closedOutline(polygon: [number, number][], lift: number): ThreeTuple[] {
   const pts = polygon.map(([x, y]) => rosToThree({ x, y }, lift))
@@ -23,7 +25,8 @@ function closedOutline(polygon: [number, number][], lift: number): ThreeTuple[] 
 }
 
 function PoiLabel({ poi, lift }: { poi: Poi; lift: number }) {
-  const tag = poi.created_by === 'agent' ? 'A' : 'U'
+  const tag = poi.kind === 'object' ? 'obj' : poi.created_by === 'agent' ? 'A' : 'U'
+  const seen = poi.kind === 'object' && (poi.times_seen ?? 0) > 1 ? ` x${poi.times_seen}` : ''
   return (
     <Html position={rosToThree(poi, lift)} center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
       <div
@@ -37,9 +40,11 @@ function PoiLabel({ poi, lift }: { poi: Poi; lift: number }) {
           borderRadius: 4,
           padding: '1px 5px',
         }}
+        title={objectDetails(poi, Date.now() / 1000) || undefined}
       >
         <span style={{ opacity: 0.7, marginRight: 4 }}>{tag}</span>
         {poi.name || '(unnamed)'}
+        {seen}
       </div>
     </Html>
   )
@@ -70,6 +75,33 @@ const PointMarker = memo(function PointMarker({ poi, selected }: { poi: Poi; sel
           dashSize={0.04}
           gapSize={0.03}
         />
+      </group>
+      <PoiLabel poi={{ ...poi, x: 0, y: 0 }} lift={0} />
+    </group>
+  )
+})
+
+/** A remembered object: a diamond in the object colour with its label (times seen and last sighting in the tooltip). */
+const ObjectMarker = memo(function ObjectMarker({ poi, selected }: { poi: Poi; selected: boolean }) {
+  const style = poiStyle(poi, selected)
+  const diamond = useMemo(() => {
+    const r = OBJECT_MARKER_RADIUS_M
+    const pts: ThreeTuple[] = [
+      [r, 0, 0],
+      [0, 0, r],
+      [-r, 0, 0],
+      [0, 0, -r],
+    ]
+    return [...pts, pts[0]]
+  }, [])
+  return (
+    <group position={rosToThree(poi, POI_LIFT.fill)}>
+      <mesh rotation={[-Math.PI / 2, 0, Math.PI / 4]} renderOrder={2}>
+        <circleGeometry args={[OBJECT_MARKER_RADIUS_M * Math.SQRT2, 4]} />
+        <meshBasicMaterial color={style.fill} transparent opacity={Math.min(1, style.opacity + 0.3)} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <group position={[0, POI_LIFT.outline - POI_LIFT.fill, 0]}>
+        <Line points={diamond} color={style.outline} lineWidth={style.lineWidth} dashed={style.dashed} dashSize={0.03} gapSize={0.02} />
       </group>
       <PoiLabel poi={{ ...poi, x: 0, y: 0 }} lift={0} />
     </group>
@@ -140,6 +172,8 @@ export const PoiLayer = memo(function PoiLayer({
       {pois.map((p) =>
         p.kind === 'point' ? (
           <PointMarker key={p.id} poi={p} selected={p.id === selectedId} />
+        ) : p.kind === 'object' ? (
+          <ObjectMarker key={p.id} poi={p} selected={p.id === selectedId} />
         ) : (
           <AreaMarker key={p.id} poi={p} selected={p.id === selectedId} />
         ),

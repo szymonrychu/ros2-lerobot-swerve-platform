@@ -74,6 +74,13 @@ describe('hitTest', () => {
     expect(hitTest([p], { x: 5.3, y: 5 }, 0.4, null)?.id).toBe(p.id)
   })
 
+  it('hits an object only within the tolerance, not its default 0.2 m radius, and moves like a point', () => {
+    const o = poi({ kind: 'object', x: 5, y: 5, radius_m: 0.2 })
+    expect(hitTest([o], { x: 5.15, y: 5 }, 0.05, null)).toBeNull()
+    expect(hitTest([o], { x: 5.04, y: 5 }, 0.05, null)).toEqual({ id: o.id, part: 'body' })
+    expect(hitTest([o], { x: 5.15, y: 5 }, 0.2, null)?.id).toBe(o.id)
+  })
+
   it('hits an area by its interior', () => {
     const a = poi({ id: 'b'.repeat(32), kind: 'area', polygon: SQUARE, x: 1, y: 1 })
     expect(hitTest([a], { x: 1.5, y: 0.5 }, 0.05, null)).toEqual({ id: a.id, part: 'body' })

@@ -79,6 +79,13 @@ describe('area drafting', () => {
 })
 
 describe('dragging', () => {
+  it('moves an object like a point', () => {
+    const o = { ...poi({ x: 1, y: 1 }), kind: 'object' as const }
+    const d = updateDrag(startDrag({ id: o.id, part: 'body' }, { x: 1, y: 1 }, { x: 0, y: 0 }), { x: 3, y: 4 }, { x: 40, y: 0 })
+    expect(dragPreview(o, d)).toMatchObject({ x: 3, y: 4, kind: 'object' })
+    expect(dragCommand(o, d)).toEqual({ op: 'update', poi: { id: o.id, x: 3, y: 4 } })
+  })
+
   it('moves a point by the pointer and tracks the screen distance', () => {
     const p = poi({ x: 1, y: 1 })
     let d = startDrag({ id: p.id, part: 'body' }, { x: 1, y: 1 }, { x: 100, y: 100 })
