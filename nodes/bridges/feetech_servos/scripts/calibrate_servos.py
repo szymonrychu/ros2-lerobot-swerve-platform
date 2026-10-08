@@ -388,8 +388,7 @@ def cmd_load_config(servo: Any, args: argparse.Namespace) -> int:
     ro_found = _validate_config_no_readonly(config)
     if ro_found:
         print(
-            "Error: refusing to load config because the following registers are read-only "
-            "and cannot be set from file:",
+            "Error: refusing to load config because the following registers are read-only and cannot be set from file:",
             file=sys.stderr,
         )
         for name in ro_found:
@@ -647,8 +646,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "limits-clear",
         help="Reset min/max angle limits to full range (0 and 4095).",
         description=(
-            "Write min_angle_limit=0 and max_angle_limit=4095 to the servo EEPROM, "
-            "restoring the full mechanical range."
+            "Write min_angle_limit=0 and max_angle_limit=4095 to the servo EEPROM, restoring the full mechanical range."
         ),
     )
     _add_connection_args(p_limits_clear)

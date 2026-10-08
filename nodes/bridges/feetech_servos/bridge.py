@@ -29,9 +29,8 @@ from .command_mapping import speed_register_to_velocity, steps_to_radians
 from .config import BridgeConfig, JointGroup, load_config_from_env
 from .joint_updates import get_position_updates
 from .register_dump import RegisterDumpScheduler
-from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers
+from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers, write_register
 from .registers import read_register as read_register_raw
-from .registers import write_register
 from .startup_torque import hold_current_positions, set_startup_torque_state
 from .sync_read import PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH, read_positions_and_speeds
 
@@ -240,7 +239,7 @@ def run_bridge(config: BridgeConfig) -> None:
         # Reject EPROM writes from ROS: PID/current/t limits must be set once via calibrate_servos load-config.
         if entry.eprom:
             node.get_logger().warn(
-                "set_register: rejecting EPROM register '%s'; set once via calibrate_servos load-config" % reg_name
+                f"set_register: rejecting EPROM register '{reg_name}'; set once via calibrate_servos load-config"
             )
             return
         if sid not in last_written:

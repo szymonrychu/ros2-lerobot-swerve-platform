@@ -1,63 +1,54 @@
-[tool.poetry]
+[project]
 name = "feetech-servos"
 version = "0.1.0"
 description = "Feetech servos bridge (joint_states / joint_commands) and calibration tools"
 readme = "README.md"
-package-mode = false
+requires-python = ">=3.11,<4"
+dependencies = [
+    "pyyaml>=6.0",
+    "st3215>=0.4.0",
+    "numpy>=1.26.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-pyyaml = ">=6.0"
-st3215 = ">=0.4.0"
-numpy = ">=1.26.0"
+[dependency-groups]
+dev = [
+    "ruff==0.16.10",
+    "vulture>=2.11,<3",
+    "poethepoet>=0.42.0,<0.43",
+    "pytest>=9.0.0,<10",
+]
 
-[tool.poetry.group.dev.dependencies]
-flake8 = "^7.0.0"
-black = "^24.0.0"
-isort = "^5.13.0"
-autoflake = "^2.3.1"
-vulture = "^2.11"
-poethepoet = "^0.42.0"
-pytest = "^9.0.0"
+[tool.uv]
+package = false
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.black]
+[tool.ruff]
 line-length = 120
-extend-exclude = "\\.venv|__pycache__"
-
-[tool.isort]
-profile = "black"
-line_length = 120
-skip = [".venv", "__pycache__"]
-known_first_party = ["feetech_servos"]
-
-[tool.flake8]
-max-line-length = 120
 extend-exclude = [".venv", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["feetech_servos"]
 
 [tool.vulture]
 exclude = ["**/__pycache__"]
 min_confidence = 80
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = [".."]
-
 [tool.poe.tasks]
 lint = { shell = """
   set -e
-  flake8 --exclude=.venv,__pycache__ . scripts/ tests/
-  black --check --exclude '\\.venv|__pycache__' . scripts/ tests/
-  isort --check --skip .venv --skip __pycache__ . scripts/ tests/
-  autoflake --check --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables --exclude '.venv|__pycache__' . scripts/ tests/
-  vulture . scripts/ tests/ --min-confidence 80 --exclude .venv
+  ruff check .
+  ruff format --check .
+  vulture . --min-confidence 80 --exclude .venv
 """ }
 lint-fix = { shell = """
-  black --exclude '\\.venv|__pycache__' .
-  isort --skip .venv --skip __pycache__ .
-  autoflake --in-place --recursive --remove-all-unused-imports --expand-star-imports --remove-unused-variables --exclude '.venv|__pycache__' .
+  ruff check --fix .
+  ruff format .
 """ }
-test = "pytest tests/ -v --tb=short"
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".."]
