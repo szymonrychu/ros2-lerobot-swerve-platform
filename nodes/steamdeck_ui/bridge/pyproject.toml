@@ -2,7 +2,7 @@
 name = "steamdeck-ui-bridge"
 version = "0.1.0"
 description = "ROS2-to-WebSocket bridge for SteamDeck UI"
-requires-python = ">=3.11,<4"
+requires-python = ">=3.12"
 dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.0",
@@ -13,7 +13,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff==0.16.10",
+    "ruff==0.15.20",
     "vulture>=2.11,<3",
     "poethepoet>=0.42.0,<0.43",
     "pytest>=9.0.0,<10",
@@ -35,7 +35,7 @@ line-length = 120
 extend-exclude = [".venv", "__pycache__"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "W"]
 ignore = ["E501"]
 
 [tool.vulture]
