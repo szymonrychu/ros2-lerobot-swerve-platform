@@ -39,6 +39,17 @@ Unit tests for master2master topic proxy config parsing (`nodes/master2master/ma
 | `test_validate_relay_rules_allows_acyclic_rules` | `validate_relay_rules` accepts rules where no rule's `dest` is another's `source`. |
 | `test_validate_relay_rules_raises_when_dest_is_source_of_another` | `validate_relay_rules` raises `ValueError` when a rule's `dest` equals another rule's `source` (relay loop). |
 
+### `test_ci_workflow.py`
+
+Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every node project.
+
+| Test | Description |
+|---|---|
+| `test_workflow_has_no_poetry` | The workflow never mentions Poetry. |
+| `test_uv_pinned_in_every_job` | Every job installs uv through `astral-sh/setup-uv` pinned to version 0.11.29. |
+| `test_root_tests_job_present` | A job runs the root test suite (`uv run --frozen pytest tests`). |
+| `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q`. |
+
 ### `test_precommit_config.py`
 
 Guards `.pre-commit-config.yaml` against the legacy toolchain.
