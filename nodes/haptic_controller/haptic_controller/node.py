@@ -100,8 +100,8 @@ def run_haptic_node(config: HapticConfig) -> None:
     )
 
     node.get_logger().info(
-        "Haptic controller: mode=%s gripper=%s leader_cmd=%s leader_set_register=%s"
-        % (config.mode, config.gripper_joint_names, config.leader_cmd_topic, config.leader_set_register_topic)
+        f"Haptic controller: mode={config.mode} gripper={config.gripper_joint_names} "
+        f"leader_cmd={config.leader_cmd_topic} leader_set_register={config.leader_set_register_topic}"
     )
 
     control_period_s = 1.0 / max(1.0, config.control_loop_hz)

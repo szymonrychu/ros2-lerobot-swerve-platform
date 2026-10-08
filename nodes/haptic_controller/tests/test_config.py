@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+
 from haptic_controller.config import (
     MODE_OFF,
     MODE_RESISTANCE,
