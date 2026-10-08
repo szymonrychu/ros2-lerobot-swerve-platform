@@ -3,7 +3,7 @@ name = "static_tf_publisher"
 version = "0.1.0"
 description = "Publish static TF from base_link to sensor frames (configurable offsets)"
 readme = "README.md"
-requires-python = ">=3.11,<4"
+requires-python = ">=3.12,<4"
 dependencies = [
     "pyyaml>=6.0",
     "numpy>=1.24",
@@ -11,7 +11,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff==0.16.10",
+    "ruff==0.15.20",
     "vulture>=2.11,<3",
     "poethepoet>=0.42.0,<0.43",
     "pytest>=8.0.0,<9",
@@ -28,7 +28,7 @@ packages = ["static_tf_publisher"]
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "W"]
 ignore = ["E501"]
 
 [tool.vulture]
