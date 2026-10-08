@@ -28,6 +28,15 @@ Unit tests for master2master topic proxy config parsing (`nodes/master2master/ma
 | `test_validate_relay_rules_allows_acyclic_rules` | `validate_relay_rules` accepts rules where no rule's `dest` is another's `source`. |
 | `test_validate_relay_rules_raises_when_dest_is_source_of_another` | `validate_relay_rules` raises `ValueError` when a rule's `dest` equals another rule's `source` (relay loop). |
 
+### `test_precommit_config.py`
+
+Guards `.pre-commit-config.yaml` against the legacy toolchain.
+
+| Test | Description |
+|---|---|
+| `test_no_legacy_python_hooks` | No black, isort, autoflake or flake8 hooks are configured. |
+| `test_ruff_hooks_pinned` | `ruff-check` and `ruff-format` hooks exist and are pinned to v0.15.20. |
+
 ### `test_shared_utils.py`
 
 Unit tests for the shared library `shared/ros2_common/_utils.py`. Imports from repo root path.
