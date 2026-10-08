@@ -2,7 +2,7 @@
 
 import numpy as np
 import pytest
-from frame import rotate_frame
+from frame import frame_due, rotate_frame
 
 FRAME = np.arange(2 * 3 * 3, dtype=np.uint8).reshape(2, 3, 3)  # height 2, width 3, bgr
 
@@ -45,3 +45,20 @@ def test_invalid_angle_raises() -> None:
     """Unsupported angle is rejected."""
     with pytest.raises(ValueError):
         rotate_frame(FRAME, 45)
+
+
+def test_frame_due_without_cap_is_always_true() -> None:
+    """No cap: every frame is published."""
+    assert frame_due(None, 1.0, None)
+    assert frame_due(1.0, 1.001, None)
+
+
+def test_frame_due_first_frame_is_published() -> None:
+    """Nothing published yet: the first frame goes out."""
+    assert frame_due(None, 5.0, 10.0)
+
+
+def test_frame_due_respects_the_period() -> None:
+    """At 10 fps a frame 50 ms after the last publish is dropped, one 100 ms after is published."""
+    assert not frame_due(1.0, 1.05, 10.0)
+    assert frame_due(1.0, 1.1, 10.0)

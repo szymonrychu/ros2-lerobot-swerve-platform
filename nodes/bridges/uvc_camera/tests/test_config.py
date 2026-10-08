@@ -7,6 +7,7 @@ from config import (
     DEFAULT_ROTATE_DEG,
     DEFAULT_TOPIC,
     get_config,
+    get_max_fps,
     get_rotate_deg,
 )
 
@@ -75,3 +76,23 @@ def test_rotate_deg_rejects_invalid_values(monkeypatch: pytest.MonkeyPatch, valu
     monkeypatch.setenv("UVC_ROTATE_DEG", value)
     with pytest.raises(ValueError, match="UVC_ROTATE_DEG"):
         get_rotate_deg()
+
+
+def test_max_fps_unset_means_no_cap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without UVC_MAX_FPS every captured frame is published."""
+    monkeypatch.delenv("UVC_MAX_FPS", raising=False)
+    assert get_max_fps() is None
+
+
+def test_max_fps_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UVC_MAX_FPS is read as a float."""
+    monkeypatch.setenv("UVC_MAX_FPS", " 10 ")
+    assert get_max_fps() == 10.0
+
+
+@pytest.mark.parametrize("value", ["0", "-5", "fast"])
+def test_max_fps_rejects_invalid_values(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    """A non-positive or non-numeric UVC_MAX_FPS is a config error."""
+    monkeypatch.setenv("UVC_MAX_FPS", value)
+    with pytest.raises(ValueError, match="UVC_MAX_FPS"):
+        get_max_fps()

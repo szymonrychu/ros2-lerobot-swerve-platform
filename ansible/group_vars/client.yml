@@ -407,10 +407,12 @@ ros2_nodes:
     node_type: ros2_master
     present: true
     enabled: true
+  # Disabled 2026-10-08 to save CPU: its /controller/* relays (camera included) served the legacy Steam Deck UI.
+  # Note: it also bridges leader arm teleop (/leader/joint_states) and /server/cmd_vel; re-enable for teleop.
   - name: master2master
     node_type: master2master
     present: true
-    enabled: true
+    enabled: false
     config: |
       topics:
         - source: /server/cmd_vel
@@ -611,6 +613,8 @@ ros2_nodes:
       - UVC_TOPIC=/camera_0/image_raw
       # Image is upside down at wrist roll 0 (confirmed by the agent): rotate every published frame 180 deg at source.
       - UVC_ROTATE_DEG=180
+      # About 18 fps uncapped; 10 fps is enough for the agent and the web UI and saves CPU on the loaded client.
+      - UVC_MAX_FPS=10
   - name: rplidar_a1
     node_type: rplidar_a1
     present: true

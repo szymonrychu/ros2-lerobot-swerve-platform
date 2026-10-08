@@ -113,7 +113,7 @@ Bridge cycle (`test_bridge_cycle.py`, rclpy-free `bridge_cycle.py`): regression 
 
 ### Per-node tests (uvc_camera)
 
-The **uvc_camera** node has tests under `nodes/bridges/uvc_camera/tests/`. Run from `nodes/bridges/uvc_camera`: `poetry run pytest tests/ -v` (or `poetry run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, device as path or index, stripping whitespace and fallback for empty topic/frame_id. Config lives in `config.py` (no ROS/OpenCV deps) for testability.
+The **uvc_camera** node has tests under `nodes/bridges/uvc_camera/tests/`. Run from `nodes/bridges/uvc_camera`: `poetry run pytest tests/ -v` (or `poetry run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, device as path or index, stripping whitespace and fallback for empty topic/frame_id; `UVC_ROTATE_DEG` and `UVC_MAX_FPS` (`get_max_fps`: unset is no cap, positive number, invalid values raise). `test_frame.py` covers `rotate_frame` and `frame_due` (publish-rate throttle: no cap, first frame, period). Config lives in `config.py` (no ROS/OpenCV deps) for testability.
 
 ### Per-node tests (lerobot_teleop)
 
@@ -363,6 +363,15 @@ The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `n
 ### test_rplidar_scan_watch.py
 
 Decision logic of the RPLidar scan watchdog (`nodes/bridges/rplidar_a1/scan_watch.py`): no restart during the startup grace, restart when no scan arrives after it, no restart while scans keep arriving, restart when scans stop for the silence timeout, and the silence timeout applies once the first scan has arrived.
+
+### test_client_cpu_load.py
+
+Client CPU load trims (load about 13 on 4 cores made the EKF miss its rate and the map pose go stale).
+
+| Test | Description |
+|------|-------------|
+| `test_master2master_is_disabled` | `master2master` stays `present: true` but `enabled: false` (its `/controller/*` relays, the gripper camera included, served only the legacy Steam Deck UI). |
+| `test_gripper_camera_publish_rate_is_capped` | `gripper_uvc_camera` env has `UVC_MAX_FPS=10`. |
 
 ### test_dds_discovery_config.py
 

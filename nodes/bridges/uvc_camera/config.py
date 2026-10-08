@@ -11,6 +11,7 @@ ENV_FRAME_ID_KEY = "UVC_FRAME_ID"
 ENV_ROTATE_DEG_KEY = "UVC_ROTATE_DEG"
 DEFAULT_ROTATE_DEG = 0
 ALLOWED_ROTATE_DEG = (0, 90, 180, 270)
+ENV_MAX_FPS_KEY = "UVC_MAX_FPS"
 
 
 def get_config() -> tuple[str | int, str, str]:
@@ -48,4 +49,25 @@ def get_rotate_deg() -> int:
         value = -1
     if value not in ALLOWED_ROTATE_DEG:
         raise ValueError(f"{ENV_ROTATE_DEG_KEY} must be one of {ALLOWED_ROTATE_DEG}, got {raw!r}")
+    return value
+
+
+def get_max_fps() -> float | None:
+    """Read the publish rate cap from UVC_MAX_FPS.
+
+    Returns:
+        float | None: Maximum published frames per second, or None (no cap) when unset.
+
+    Raises:
+        ValueError: When UVC_MAX_FPS is not a positive number.
+    """
+    raw = (os.environ.get(ENV_MAX_FPS_KEY) or "").strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        value = -1.0
+    if value <= 0:
+        raise ValueError(f"{ENV_MAX_FPS_KEY} must be a positive number, got {raw!r}")
     return value

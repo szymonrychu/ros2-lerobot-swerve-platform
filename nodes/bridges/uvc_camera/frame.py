@@ -1,4 +1,4 @@
-"""Pure frame rotation helper (numpy only, no ROS)."""
+"""Pure frame helpers: rotation and publish-rate throttling (numpy only, no ROS)."""
 
 import numpy as np
 
@@ -24,3 +24,19 @@ def rotate_frame(frame: np.ndarray, rotate_deg: int) -> np.ndarray:
     if rotate_deg == 0:
         return frame
     return np.ascontiguousarray(np.rot90(frame, QUARTER_TURNS_CCW[rotate_deg]))
+
+
+def frame_due(last_publish_s: float | None, now_s: float, max_fps: float | None) -> bool:
+    """Decide whether a captured frame should be published under a frame rate cap.
+
+    Args:
+        last_publish_s (float | None): Monotonic time of the last published frame, None before the first.
+        now_s (float): Monotonic time of the current frame.
+        max_fps (float | None): Publish rate cap, None for no cap.
+
+    Returns:
+        bool: True when the frame should be published.
+    """
+    if max_fps is None or last_publish_s is None:
+        return True
+    return now_s - last_publish_s >= 1.0 / max_fps - 1e-9

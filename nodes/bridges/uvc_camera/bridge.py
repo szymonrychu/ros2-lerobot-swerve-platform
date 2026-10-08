@@ -1,6 +1,7 @@
 """Generic UVC camera bridge: reads from device, publishes sensor_msgs/Image and CompressedImage to ROS2."""
 
 import sys
+import time
 from typing import Any, NoReturn
 
 import cv2
@@ -10,8 +11,8 @@ from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Header
 
-from .config import get_config, get_rotate_deg
-from .frame import rotate_frame
+from .config import get_config, get_max_fps, get_rotate_deg
+from .frame import frame_due, rotate_frame
 
 PUBLISH_QOS_DEPTH = 10
 JPEG_QUALITY = 70
@@ -42,7 +43,9 @@ def exit_err(message: str) -> NoReturn:
     sys.exit(1)
 
 
-def run_bridge(device: str | int, topic: str, frame_id: str, rotate_deg: int = 0) -> None:
+def run_bridge(
+    device: str | int, topic: str, frame_id: str, rotate_deg: int = 0, max_fps: float | None = None
+) -> None:
     """Run the bridge: capture frames from device, publish sensor_msgs/Image and CompressedImage.
 
     Publishes:
@@ -54,20 +57,27 @@ def run_bridge(device: str | int, topic: str, frame_id: str, rotate_deg: int = 0
         topic: ROS2 topic name for Image messages.
         frame_id: Frame ID for message header.
         rotate_deg: Clockwise rotation (0/90/180/270) applied to every frame before publishing both topics.
+        max_fps: Publish rate cap (also requested from the device); frames above it are read and dropped
+            before rotation and encoding. None publishes every frame.
 
     On device open failure, exits with non-zero. On periodic read failure, logs and continues.
     """
     cap = open_capture(device)
     if cap is None:
         exit_err(f"Could not open video device: {device}")
+    if max_fps is not None:
+        cap.set(cv2.CAP_PROP_FPS, max_fps)
 
     rclpy.init()
     node = Node("uvc_camera_bridge")
     pub_raw = node.create_publisher(Image, topic, PUBLISH_QOS_DEPTH)
     pub_compressed = node.create_publisher(CompressedImage, f"{topic}/compressed", PUBLISH_QOS_DEPTH)
     logger = node.get_logger()
-    logger.info(f"UVC bridge: device={device} topic={topic} frame_id={frame_id} rotate_deg={rotate_deg}")
+    logger.info(
+        f"UVC bridge: device={device} topic={topic} frame_id={frame_id} rotate_deg={rotate_deg} max_fps={max_fps}"
+    )
 
+    last_publish_s: float | None = None
     try:
         while rclpy.ok():
             ret, frame = cap.read()
@@ -78,6 +88,12 @@ def run_bridge(device: str | int, topic: str, frame_id: str, rotate_deg: int = 0
                 )
                 rclpy.spin_once(node, timeout_sec=0.1)
                 continue
+
+            now_s = time.monotonic()
+            if not frame_due(last_publish_s, now_s, max_fps):
+                rclpy.spin_once(node, timeout_sec=0.001)
+                continue
+            last_publish_s = now_s
 
             frame = rotate_frame(frame, rotate_deg)
             stamp = node.get_clock().now().to_msg()
@@ -111,6 +127,9 @@ def run_bridge(device: str | int, topic: str, frame_id: str, rotate_deg: int = 0
 
 
 def main() -> None:
-    """Entry point: read config from env (UVC_ROTATE_DEG included) and run bridge. Exits on config or device error."""
+    """Entry point: read config from env (UVC_ROTATE_DEG, UVC_MAX_FPS included) and run bridge.
+
+    Exits on config or device error.
+    """
     device, topic, frame_id = get_config()
-    run_bridge(device, topic, frame_id, get_rotate_deg())
+    run_bridge(device, topic, frame_id, get_rotate_deg(), get_max_fps())
