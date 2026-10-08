@@ -1,6 +1,7 @@
 """Agent session: one ClaudeSDKClient, one instruction at a time, events into the EventLog."""
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -40,6 +41,7 @@ STOP_SOURCE_MAX_TURNS = "max_turns"
 STOP_SOURCE_ERROR = "error"
 STOP_SOURCE_TURN_CAP = "turn_cap"
 STOP_SENT_TEXT = "stop sent"
+POI_CLEAR_CREATOR = "agent"
 AUTH_ERROR_MESSAGE = (
     "Claude authentication failed (HTTP 401): CLAUDE_CODE_OAUTH_TOKEN is missing, invalid or expired. "
     "Run `claude setup-token`, then `export CLAUDE_CODE_OAUTH_TOKEN=...; ./scripts/deploy-nodes.sh client claude_agent`."
@@ -130,6 +132,7 @@ class AgentRunner:
         base_env: Mapping[str, str] | None = None,
         logger: Any = None,
         robot_stopper: Callable[[], Awaitable[RobotStopResult]] | None = None,
+        poi_publisher: Callable[[str], None] | None = None,
     ) -> None:
         """Create the runner (the Claude session starts lazily at the first instruction).
 
@@ -141,6 +144,8 @@ class AgentRunner:
             logger (Any): Object with info/warning/error(str); defaults to the stdlib logger (the node passes the ROS2 logger).
             robot_stopper (Callable[[], Awaitable[RobotStopResult]] | None): Calls the robot MCP stop tool directly;
                 defaults to call_robot_stop with the configured URL, token file and stop_timeout_s.
+            poi_publisher (Callable[[str], None] | None): Publishes one JSON string on the poi_store command topic;
+                used by reset() to clear the agent-made POIs. None = no POI cleanup.
         """
         self.config = config
         self.events = events
@@ -171,6 +176,7 @@ class AgentRunner:
         self.robot_events: deque[dict[str, Any]] = deque(maxlen=config.robot_events_history)
         self.event_tasks: set[asyncio.Task[None]] = set()
         self.robot_stopper = robot_stopper or self.default_robot_stopper
+        self.poi_publisher = poi_publisher
 
     async def default_robot_stopper(self) -> RobotStopResult:
         """Call the robot MCP stop tool with the configured endpoint.
@@ -620,8 +626,23 @@ class AgentRunner:
         await self.halt(STOP_SOURCE_USER)
         return True
 
+    def clear_agent_pois(self) -> None:
+        """Ask poi_store to delete every POI the agent made (object POIs included); the person's POIs stay.
+
+        A failing publisher is logged and does not stop the reset.
+        """
+        if self.poi_publisher is None:
+            return
+        command = {"op": "clear", "created_by": POI_CLEAR_CREATOR, "request_id": uuid.uuid4().hex}
+        try:
+            self.poi_publisher(json.dumps(command))
+        except Exception as exc:  # noqa: BLE001 - a dead publisher must not break "New session"
+            self.logger.warning(f"could not publish the POI clear command: {type(exc).__name__}: {exc}")
+
     async def reset(self) -> bool:
-        """Start a fresh session: stop the robot, disconnect the old client and clear the session log (notes stay).
+        """Start a fresh session: stop the robot, clear the agent-made POIs, disconnect the client and clear the log.
+
+        The notes stay.
 
         Returns:
             bool: False while an instruction is running or another reset is in progress.
@@ -631,6 +652,7 @@ class AgentRunner:
         self.resetting = True
         try:
             await self.stop_robot(STOP_SOURCE_RESET)
+            self.clear_agent_pois()
             await self.drop_client()
             self.gate.reset()
             self.events.reset()

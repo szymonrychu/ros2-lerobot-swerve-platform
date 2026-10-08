@@ -145,6 +145,10 @@ the robot's floor, that the arm reaches somewhat below floor level within its jo
 The node subscribes to `robot_events_topic` (`/robot_events`, `std_msgs/String`, BEST_EFFORT + VOLATILE QoS, published by the
 mcp_server event monitor). Payload JSON: `{seq, ts, type, severity: info|warning|critical, source, message, data}`;
 critical types include `collision_stop`, `battery_cutoff`, `overheat`, `servo_error`, `stall`, `human_takeover`, `bump`.
+On an explicit reset (`POST /api/reset`, never on node start or restart) the runner publishes the POI `clear` command on
+`poi_command_topic` (publisher created in `__main__.py`, injected into `AgentRunner` as `poi_publisher`); a failing
+publisher is logged and the reset still completes.
+
 A background `SingleThreadedExecutor` thread runs the callback, which hands the raw text to the asyncio loop with
 `loop.call_soon_threadsafe` (`AgentRunner.post_robot_event`); invalid payloads are dropped.
 
@@ -216,6 +220,7 @@ unknown keys are rejected.
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |
 | `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |
 | `robot_events_topic` | `/robot_events` | std_msgs/String JSON events of the mcp_server monitor |
+| `poi_command_topic` | `/poi/command` | poi_store command topic (std_msgs/String, reliable); a successful `POST /api/reset` publishes `{"op": "clear", "created_by": "agent", "request_id": <uuid>}` there |
 | `robot_events_history` | `50` | Robot events kept in memory |
 | `robot_event_debounce_s` | `2` | A critical event does not interrupt again within this window |
 
@@ -229,7 +234,7 @@ The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this
 | `GET /api/history?before_seq=<int>&limit=<int>` | `{events: [...], has_more}`: the newest `limit` events (default 100, max 500) with `seq < before_seq` (the newest overall without it), ascending `seq`; `has_more` is true when older events exist |
 | `POST /api/message` `{text}` | `202 {ok: true}`; `409 {ok: false, message: "busy"}`; `400` on empty or invalid text |
 | `POST /api/stop` | `{ok, message}`; stops the robot (MCP `stop`) and interrupts the current instruction (`client.interrupt()`) |
-| `POST /api/reset` | `{ok: true}` new session; `409` while busy or resetting; stops the robot and deletes the session log (seq restarts at 0); notes in the workdir are kept |
+| `POST /api/reset` | `{ok: true}` new session; `409` while busy or resetting; stops the robot, asks poi_store to delete everything the agent made (`clear` for `created_by: agent`: its POIs and remembered objects; the person's POIs stay) and deletes the session log (seq restarts at 0); notes in the workdir are kept |
 | `WS /ws/events` | on connect `{type: "history", events: [last 100], has_more}`, then each event as it happens |
 
 Every event is `{seq: int, ts: float, type, ...}`:

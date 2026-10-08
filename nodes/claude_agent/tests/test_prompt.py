@@ -185,6 +185,8 @@ def test_prompt_teaches_memory_pois_and_calibration() -> None:
     for needle in ("remember_object", "list_objects", "list_pois", "add_poi", "update_poi", "NOTES.md"):
         assert needle in text, needle
     lower = text.lower()
+    assert "objects are pois" in lower and "new session" in lower
+    assert "your own pois and objects are removed" in lower and "person's pois stay" in lower
     assert "calibrat" in lower and "only when the person asks" in lower
     assert "capture_calibration_sample" in text and "solve_camera_calibration" in text
 

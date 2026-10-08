@@ -22,6 +22,7 @@ from .runner import REMOVED_ENV_KEYS, AgentRunner
 NODE_NAME = "claude_agent"
 SESSION_LOG_RELPATH = Path("session") / "events.jsonl"
 ROBOT_EVENTS_QOS_DEPTH = 50
+POI_COMMAND_QOS_DEPTH = 20
 
 
 def make_robot_event_callback(runner: AgentRunner) -> Callable[[String], None]:
@@ -63,7 +64,13 @@ def main() -> int:
             path=Path(config.state_dir) / SESSION_LOG_RELPATH,
             max_bytes=config.session_log_max_bytes,
         )
-        runner = AgentRunner(config, events, logger=logger)
+        poi_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=POI_COMMAND_QOS_DEPTH
+        )
+        poi_pub = node.create_publisher(String, config.poi_command_topic, poi_qos)
+        runner = AgentRunner(
+            config, events, logger=logger, poi_publisher=lambda payload: poi_pub.publish(String(data=payload))
+        )
         # Best effort + volatile matches publishers of either reliability; only live events matter (no replay).
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,

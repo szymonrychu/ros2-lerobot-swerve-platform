@@ -1081,6 +1081,8 @@ ros2_nodes:
       max_phase_turn_cap: 40
       # Event monitor of mcp_server: critical events interrupt the running model step (see nodes/claude_agent/README.md).
       robot_events_topic: /robot_events
+      # "New session" publishes {"op": "clear", "created_by": "agent"} here: poi_store drops the agent-made POIs and objects.
+      poi_command_topic: /poi/command
       http_host: "127.0.0.1"
       http_port: 18300
       mcp_url: http://127.0.0.1:18200/mcp

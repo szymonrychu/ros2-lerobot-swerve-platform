@@ -24,6 +24,7 @@ def test_defaults() -> None:
     assert (cfg.max_phase_rw_cap, cfg.max_phase_turn_cap) == (40, 40)
     assert not hasattr(cfg, "max_ro_cap") and not hasattr(cfg, "max_phase_ro_cap")
     assert cfg.robot_events_topic == "/robot_events"
+    assert cfg.poi_command_topic == "/poi/command"
     assert cfg.robot_events_history == 50
     assert cfg.robot_event_debounce_s == 2.0
     assert cfg.mcp_url == "http://127.0.0.1:18200/mcp"

@@ -1,6 +1,7 @@
 """AgentRunner with a fake Claude client: options, turn flow, busy handling, interrupt, reset, auth errors."""
 
 import asyncio
+import json
 from pathlib import Path
 
 from claude_agent_sdk import (
@@ -98,7 +99,9 @@ class FakeStopper:
         return self.result
 
 
-def make_runner(tmp_path: Path, config: ClaudeAgentConfig | None = None, script=None, block=False, stopper=None):
+def make_runner(
+    tmp_path: Path, config: ClaudeAgentConfig | None = None, script=None, block=False, stopper=None, poi_publisher=None
+):
     FakeClient.instances.clear()
     token = tmp_path / "token"
     token.write_text("MCP_SERVER_TOKEN=secret-mcp\n")
@@ -117,6 +120,7 @@ def make_runner(tmp_path: Path, config: ClaudeAgentConfig | None = None, script=
         client_factory=factory,
         base_env={"ANTHROPIC_API_KEY": "sk", "CLAUDE_CODE_OAUTH_TOKEN": "oa"},
         robot_stopper=stopper or FakeStopper(),
+        poi_publisher=poi_publisher,
     )
     return runner, events, cfg
 
@@ -385,6 +389,40 @@ async def test_reset_stops_the_robot(tmp_path: Path) -> None:
     await runner.reset()
     assert stopper.calls == 1
     assert stop_events(events) == []
+
+
+async def test_reset_clears_agent_made_pois(tmp_path: Path) -> None:
+    published: list[str] = []
+    runner, _, _ = make_runner(tmp_path, poi_publisher=published.append)
+    assert published == [], "nothing is published on start"
+    assert await runner.reset() is True
+    assert len(published) == 1
+    command = json.loads(published[0])
+    assert command["op"] == "clear" and command["created_by"] == "agent" and command["request_id"]
+
+
+async def test_refused_reset_does_not_clear_pois(tmp_path: Path) -> None:
+    published: list[str] = []
+    runner, _, _ = make_runner(tmp_path, script=[make_result()], block=True, poi_publisher=published.append)
+    await runner.start_instruction("one")
+    assert await runner.reset() is False
+    assert published == []
+    await runner.interrupt()
+    await runner.wait_idle()
+
+
+async def test_reset_survives_a_failing_poi_publisher(tmp_path: Path) -> None:
+    def boom(_payload: str) -> None:
+        raise RuntimeError("publisher gone")
+
+    runner, events, _ = make_runner(tmp_path, poi_publisher=boom)
+    assert await runner.reset() is True
+    assert types_of(events) == ["state"]
+
+
+async def test_reset_without_poi_publisher_still_works(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path)
+    assert await runner.reset() is True
 
 
 async def test_reset_clears_the_event_log_and_restarts_seq(tmp_path: Path) -> None:

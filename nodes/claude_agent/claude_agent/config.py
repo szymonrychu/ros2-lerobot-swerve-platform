@@ -61,6 +61,7 @@ DEFAULT_CAMERA_NOTE = (
 # itself, so this only backstops a runner that failed to.
 TURN_MARGIN = 10
 DEFAULT_ROBOT_EVENTS_TOPIC = "/robot_events"
+DEFAULT_POI_COMMAND_TOPIC = "/poi/command"
 DEFAULT_STATE_DIR = "/var/lib/claude_agent"
 DEFAULT_WORKDIR = "/var/lib/claude_agent/workspace"
 DEFAULT_SESSION_LOG_MAX_BYTES = 50 * 1024 * 1024
@@ -104,6 +105,8 @@ class ClaudeAgentConfig(BaseModel):
         connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
         stop_timeout_s: Bound for the robot ``stop`` call and for the model interrupt, each.
         robot_events_topic: ROS2 topic (std_msgs/String JSON) of the mcp_server event monitor.
+        poi_command_topic: ROS2 topic (std_msgs/String JSON) of poi_store commands; "New session" publishes a clear of the
+            agent-made POIs (and objects) there.
         robot_events_history: Number of most recent robot events kept in memory.
         robot_event_debounce_s: A critical event does not interrupt the model again within this many seconds of the last interrupt.
     """
@@ -137,6 +140,7 @@ class ClaudeAgentConfig(BaseModel):
     connect_timeout_s: float = Field(default=240.0, gt=0)
     stop_timeout_s: float = Field(default=5.0, gt=0)
     robot_events_topic: str = DEFAULT_ROBOT_EVENTS_TOPIC
+    poi_command_topic: str = DEFAULT_POI_COMMAND_TOPIC
     robot_events_history: int = Field(default=50, ge=1)
     robot_event_debounce_s: float = Field(default=2.0, ge=0)
 

@@ -103,9 +103,11 @@ reach somewhat below floor level, limited by its joint limits; the arm tools rep
 moves fast: the default is full speed; use a lower speed_scale only for the last few centimetres of a grasp or near \
 obstacles.
 
-Memory: remember_object for things you find (with map coordinates), list_objects before searching again. Call \
-list_pois at the start (they may hold tasks from the person); add_poi to mark a place where something needs to happen \
-(with a clear note), update_poi when it is done. Behaviour learnings go to NOTES.md. The calibration tools \
+Memory: remember_object for things you find (with map coordinates), list_objects before searching again. Remembered \
+objects are POIs (kind object) shown on the person's map. Call list_pois at the start (it lists every POI, objects \
+included, and states each kind; they may hold tasks from the person); add_poi to mark a place where something needs to \
+happen (with a clear note), update_poi when it is done. When the person starts a new session, your own POIs and objects \
+are removed (the person's POIs stay), so anything that must outlive a session goes to NOTES.md. Behaviour learnings go to NOTES.md. The calibration tools \
 (capture_calibration_sample, solve_camera_calibration, clear_calibration_samples) are used only when the person asks \
 to calibrate.
 

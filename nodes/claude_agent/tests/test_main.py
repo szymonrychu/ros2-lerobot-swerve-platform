@@ -20,6 +20,7 @@ class StubLogger:
 class StubNode:
     created: list[str] = []
     subscriptions: list[tuple] = []
+    publishers: list = []
     logger = StubLogger()
 
     def __init__(self, name: str) -> None:
@@ -34,10 +35,25 @@ class StubNode:
     def create_subscription(self, msg_type, topic, callback, qos) -> None:
         StubNode.subscriptions.append((msg_type, topic, callback, qos))
 
+    def create_publisher(self, msg_type, topic, qos) -> "StubPublisher":
+        publisher = StubPublisher(topic)
+        StubNode.publishers.append(publisher)
+        return publisher
+
+
+class StubPublisher:
+    def __init__(self, topic: str) -> None:
+        self.topic = topic
+        self.sent: list = []
+
+    def publish(self, msg) -> None:
+        self.sent.append(msg)
+
 
 @pytest.fixture
 def stubs(monkeypatch, tmp_path):
     StubNode.subscriptions.clear()
+    StubNode.publishers.clear()
     calls: dict = {"init": 0, "shutdown": 0}
     monkeypatch.setattr(entry.rclpy, "init", lambda: calls.__setitem__("init", calls["init"] + 1), raising=False)
     monkeypatch.setattr(
@@ -60,6 +76,22 @@ def test_main_binds_loopback_and_uses_ros_logger(stubs) -> None:
     assert StubNode.created == ["claude_agent"]
     assert any("18999" in line for line in StubNode.logger.lines)
     assert not any("sk-secret" in line for line in StubNode.logger.lines)
+
+
+def test_main_wires_the_poi_clear_publisher_without_publishing_on_start(stubs, monkeypatch) -> None:
+    captured: dict = {}
+    real_runner = entry.AgentRunner
+
+    def spy(*args, **kwargs):
+        captured["runner"] = real_runner(*args, **kwargs)
+        return captured["runner"]
+
+    monkeypatch.setattr(entry, "AgentRunner", spy)
+    assert entry.main() == 0
+    (publisher,) = StubNode.publishers
+    assert publisher.topic == "/poi/command" and publisher.sent == []
+    captured["runner"].poi_publisher('{"op": "clear"}')
+    assert [msg.data for msg in publisher.sent] == ['{"op": "clear"}']
 
 
 def test_main_removes_api_key_from_process_env(stubs) -> None:
