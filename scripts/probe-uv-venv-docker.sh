@@ -3,8 +3,9 @@
 #   1. the ros2_base task installs the pinned uv via pipx, replaces a wrong version and is a no-op afterwards;
 #   2. the ros2_node_deploy venv task (python3 -m venv --system-site-packages) plus its uv sync task, both read
 #      verbatim from the role YAML, sync a node project with an editable ../../shared path dependency;
-#   3. the venv keeps include-system-site-packages = true, an apt Python module (python3-yaml, standing in for
-#      rclpy) imports from the venv python, the path dependency and the node package import, dev deps stay out.
+#   3. the venv keeps include-system-site-packages = true, an apt Python module (python3-distro, standing in for
+#      rclpy; absent from the node's uv.lock, so it can only come from system site-packages) imports from the venv
+#      python, the path dependency and the node package import, dev deps stay out.
 # Uses nodes/mcp_server + shared/ when nodes/mcp_server/uv.lock exists, else a minimal fixture of the same shape.
 # Usage: from repo root, run: ./scripts/probe-uv-venv-docker.sh
 set -euo pipefail
@@ -20,7 +21,7 @@ pass() { echo "PASS: $*"; }
 
 echo "== host: $(uname -m), $(. /etc/os-release && echo "$PRETTY_NAME")"
 apt-get update -qq >/dev/null
-apt-get install -y -qq python3 python3-venv python3-yaml pipx ca-certificates >/dev/null
+apt-get install -y -qq python3 python3-venv python3-yaml python3-distro pipx ca-certificates >/dev/null
 echo "== system python: $(python3 --version)"
 
 # Read a task out of a role's tasks/main.yml (descending into blocks), print one field of it.
@@ -134,9 +135,13 @@ echo "== $VENV/pyvenv.cfg:"; sed 's/^/   /' "$VENV/pyvenv.cfg"
 grep -qx 'include-system-site-packages = true' "$VENV/pyvenv.cfg" && pass "venv still has include-system-site-packages = true" \
   || fail "uv sync dropped --system-site-packages"
 [ "$("$PY" -c 'import sys; print(sys.prefix)')" = "$VENV" ] && pass "venv python: $("$PY" --version), prefix $VENV" || fail "venv python prefix"
-yaml_path=$("$PY" -c 'import yaml; print(yaml.__file__)')
-case "$yaml_path" in /usr/lib/python3/dist-packages/*) pass "apt module (rclpy stand-in) imports from the venv: yaml -> $yaml_path";;
-  *) fail "yaml came from $yaml_path";; esac
+SYSTEM_MODULE=distro
+grep -qx "name = \"$SYSTEM_MODULE\"" "$REPO/$NODE_SRC_DIR/uv.lock" \
+  && fail "$SYSTEM_MODULE is in the node's uv.lock, so it cannot prove system site-packages visibility"
+system_path=$("$PY" -c "import $SYSTEM_MODULE; print($SYSTEM_MODULE.__file__)")
+case "$system_path" in /usr/lib/python3/dist-packages/*)
+  pass "apt module (rclpy stand-in, not in uv.lock) imports from the venv: $SYSTEM_MODULE -> $system_path";;
+  *) fail "$SYSTEM_MODULE came from $system_path";; esac
 shared_path=$("$PY" -c 'import ros2_common; print(ros2_common.__file__)')
 [ "$shared_path" = "$REPO/shared/ros2_common/__init__.py" ] && pass "editable path dependency imports from the checkout: ros2_common -> $shared_path" \
   || fail "ros2_common came from $shared_path"
