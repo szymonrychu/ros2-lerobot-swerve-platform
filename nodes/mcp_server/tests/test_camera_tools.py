@@ -450,3 +450,27 @@ def test_camera_argument_is_validated(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
     with pytest.raises(ToolError):
         call(server, "pixel_to_ground", {"camera": "rear", "u": 1.0, "v": 1.0})
+
+
+def test_capture_gripper_stores_raw_joints_and_offset_corrected_parent_pose(tmp_path: Path) -> None:
+    from mcp_server.ik import ArmKinematics
+
+    cfg = McpServerConfig()
+    cfg.cameras.calibration_dir = tmp_path / "calib"
+    robot = CameraRobot(tmp_path)
+    offsets = {"shoulder_lift": -0.12, "elbow_flex": 0.09, "wrist_flex": 0.2}
+    robot.arm.kin = ArmKinematics(cfg.arm.urdf_path, margin=cfg.limits.arm_limit_margin_rad, joint_offsets=offsets)
+    measured = {"shoulder_lift": 0.7, "elbow_flex": 0.3, "wrist_flex": 0.1}
+    robot.arm_backend.positions.update(measured)
+    server = build_mcp_server(robot, cfg, TOKEN)
+    call(
+        server,
+        "capture_calibration_sample",
+        {"camera": "gripper", "u": 100.0, "v": 200.0, "ground_x": 0.2, "ground_y": 0.0, "ground_z": -0.165},
+    )
+    sample = json.loads((cfg.cameras.calibration_dir / "gripper.json").read_text())["samples"][0]
+    assert sample["joints"] == robot.arm_backend.positions
+    plain = ArmKinematics(cfg.arm.urdf_path, margin=cfg.limits.arm_limit_margin_rad)
+    corrected = {j: robot.arm_backend.positions[j] + offsets.get(j, 0.0) for j in robot.arm_backend.positions}
+    expected = plain.link_frame(corrected, "gripper_link")
+    np.testing.assert_allclose(np.array(sample["t_frame_parent"]), expected, atol=1e-9)

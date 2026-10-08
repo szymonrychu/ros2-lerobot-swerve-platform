@@ -128,6 +128,10 @@ class LimitSettings(StrictModel):
     gripper_contact_travel_rad: float = Field(default=0.03, ge=0.0)
     # A closing jaw that stalls before the closed target grips an object: hold the stall position this far toward closed.
     gripper_grasp_squeeze_rad: float = Field(default=0.03, ge=0.0, le=0.2)
+    # A stall/effort contact only counts as 'grasped' when the jaw closed at least gripper_grasp_min_travel_rad from its
+    # start AND stopped no more open than gripper_grasp_max_open_rad; otherwise status 'blocked' (pressing on something).
+    gripper_grasp_min_travel_rad: float = Field(default=0.15, ge=0.0)
+    gripper_grasp_max_open_rad: float = Field(default=1.2, gt=0.0)
     hold_republish_hz: float = Field(default=5.0, gt=0.0, le=25.0)
     max_image_px: int = Field(default=HARD_MAX_IMAGE_PX, ge=32, le=HARD_MAX_IMAGE_PX)
     jpeg_quality: int = Field(default=80, ge=10, le=100)
@@ -197,6 +201,16 @@ class ArmBaseOffset(StrictModel):
     yaw: float = 0.0
 
 
+class JointOffsets(StrictModel):
+    """Zero offsets (rad) of the five kinematic arm joints: urdf_angle = measured_angle + offset (gripper excluded)."""
+
+    shoulder_pan: float = 0.0
+    shoulder_lift: float = 0.0
+    elbow_flex: float = 0.0
+    wrist_flex: float = 0.0
+    wrist_roll: float = 0.0
+
+
 class ArmSettings(StrictModel):
     """Arm model, home pose storage and gripper mapping."""
 
@@ -204,6 +218,10 @@ class ArmSettings(StrictModel):
     home_file: Path = DEFAULT_HOME_FILE
     joint_names: tuple[str, ...] = ARM_JOINTS
     gripper_joint: str = "gripper"
+    # Follower-vs-URDF zero offsets: urdf_angle = measured_angle (/follower/joint_states) + offset. Used by all
+    # kinematics (tool pose, link frames, IK and URDF-space limit clamping); joint targets and reported positions
+    # stay in measured space. Solve them from the stored calibration samples (README, "Joint zero offsets").
+    joint_offsets_rad: JointOffsets = Field(default_factory=JointOffsets)
     # Follower gripper joint positions (as in /follower/joint_states; the leader-only source range mapping in the
     # follower bridge does not apply to autonomy commands). Measured closed: -0.172 rad (URDF lower limit -0.1745);
     # -0.165 is just above it and inside the gripper limit margin (limits.arm_limit_margin_overrides, 0.005).

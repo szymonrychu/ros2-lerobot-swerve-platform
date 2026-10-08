@@ -457,7 +457,8 @@ class ArmController:
         acquiring), so neither named nor unnamed joints drop to their gravity-sagged measured position.
 
         Args:
-            targets (dict[str, float]): Joint name -> target rad (clamped to URDF limits minus margin).
+            targets (dict[str, float]): Joint name -> target rad in measured (follower) joint space, as reported by
+                get_arm_state (clamped to URDF limits minus margin, applied in URDF space: urdf = measured + offset).
             speed_scale (float | None): Speed scale in (0, arm_max_speed_scale]; None for the maximum.
 
         Returns:
@@ -481,8 +482,14 @@ class ArmController:
         if not self._held:
             self.acquire()
         start = self.command_base(self.require_sample())
-        safe = clamp_to_limits(
-            targets, self.limits, self.cfg.limits.arm_limit_margin_rad, self.cfg.limits.arm_limit_margin_overrides
+        # Targets are in measured (follower) space, limits in URDF space: clamp in URDF space, then convert back.
+        safe = self.kin.to_measured(
+            clamp_to_limits(
+                self.kin.to_urdf(targets),
+                self.limits,
+                self.cfg.limits.arm_limit_margin_rad,
+                self.cfg.limits.arm_limit_margin_overrides,
+            )
         )
         clamped = sorted(j for j in targets if abs(safe[j] - targets[j]) > CHANGED_EPS)
         with self.holding_arm_for_gripper(list(targets)):
@@ -549,8 +556,9 @@ class ArmController:
             self.validate_targets(targets)
             vmax = self.velocity_for(None)
             with self.exclusive_motion(), self.holding_arm_for_gripper([self.gripper]):
+                start_jaw = self.require_sample().positions[self.gripper]
                 result = self.stream_to(targets, vmax)
-                return self.grasp_from_stall(result) if open_fraction == 0.0 else result
+                return self.grasp_from_stall(result, start_jaw) if open_fraction == 0.0 else result
         threshold = self.cfg.limits.gripper_effort_threshold if effort_threshold is None else effort_threshold
         if not math.isfinite(threshold) or threshold <= 0.0:
             raise ArmError("effort_threshold must be positive")
@@ -558,6 +566,7 @@ class ArmController:
             if not self._held:
                 self.acquire()
             start = self.command_base(self.require_sample())
+            start_jaw = self.require_sample().positions[self.gripper]
             goal = start | clamp_to_limits(
                 {self.gripper: closed},
                 self.limits,
@@ -565,7 +574,7 @@ class ArmController:
                 self.cfg.limits.arm_limit_margin_overrides,
             )
             result = self.grasp_from_stall(
-                self.stream(start, goal, self.cfg.limits.gripper_velocity_rps, [self.gripper], [], threshold)
+                self.stream(start, goal, self.cfg.limits.gripper_velocity_rps, [self.gripper], [], threshold), start_jaw
             )
         if result.status == "converged":
             return result.model_copy(update={"status": "closed_no_contact", "message": "closed without contact"})
@@ -628,18 +637,61 @@ class ArmController:
         window = [p for t, p in history if t >= latest_t - limits.arm_settle_window_s]
         return max(window) - min(window) <= limits.arm_settle_motion_rad
 
-    def grasp_from_stall(self, result: ArmMotionResult) -> ArmMotionResult:
+    def loose_grasp_message(self, start_jaw: float, stopped: float) -> str | None:
+        """Why a contact at `stopped` is not a hold of an object (None when the jaw really closed onto something).
+
+        Args:
+            start_jaw (float): Gripper position when the close started (rad).
+            stopped (float): Gripper position at the contact (rad).
+
+        Returns:
+            str | None: The 'blocked' message, or None for a valid grasp.
+        """
+        limits = self.cfg.limits
+        travel = abs(start_jaw - stopped)
+        if travel >= limits.gripper_grasp_min_travel_rad and stopped <= limits.gripper_grasp_max_open_rad:
+            return None
+        return (
+            f"jaw stopped at {stopped:.3f} rad after {travel:.3f} rad travel "
+            "- likely pressing on an object rather than holding it"
+        )
+
+    def hold_blocked(self, result: ArmMotionResult, message: str) -> ArmMotionResult:
+        """'blocked' result holding the measured jaw position with no squeeze (caller holds the motion guard).
+
+        Args:
+            result (ArmMotionResult): Close outcome that looked like a contact.
+            message (str): Why it is not a grasp.
+
+        Returns:
+            ArmMotionResult: The result with status 'blocked'.
+        """
+        with self._lock:
+            intent = dict(self._last_target) if self._last_target is not None else None
+        if intent is not None and result.positions is not None:
+            self.command(intent | {self.gripper: result.positions[self.gripper]})
+        return result.model_copy(update={"status": "blocked", "message": message})
+
+    def grasp_from_stall(self, result: ArmMotionResult, start_jaw: float) -> ArmMotionResult:
         """Treat a closing jaw that settled before the closed target as a grasp (caller holds the motion guard).
 
         Without this the full closed target would stay commanded and the servo would keep squeezing the object.
         The hold becomes the stalled position plus gripper_grasp_squeeze_rad toward closed (never past closed).
+        An effort contact ('grasped' from the load) and a stall both need the jaw to have closed
+        gripper_grasp_min_travel_rad from start_jaw and to stop no more open than gripper_grasp_max_open_rad;
+        otherwise the result is 'blocked' and the measured jaw position is held.
 
         Args:
             result (ArmMotionResult): Outcome of a close motion.
+            start_jaw (float): Gripper position when the close started (rad).
 
         Returns:
-            ArmMotionResult: 'grasped' (contact inferred from the stall) with the hold published, or result unchanged.
+            ArmMotionResult: 'grasped' (contact), 'blocked' (contact without a real closure) with the hold
+                published, or result unchanged.
         """
+        if result.status == "grasped" and result.positions is not None:
+            loose = self.loose_grasp_message(start_jaw, result.positions[self.gripper])
+            return result if loose is None else self.hold_blocked(result, loose)
         residual = result.residual_error.get(self.gripper)
         if result.status != "converged" or residual is None or result.positions is None:
             return result
@@ -652,6 +704,9 @@ class ArmController:
             intent = dict(self._last_target) if self._last_target is not None else None
         if intent is None:
             return result
+        loose = self.loose_grasp_message(start_jaw, stalled)
+        if loose is not None:
+            return self.hold_blocked(result, loose)
         squeeze = min(self.cfg.limits.gripper_grasp_squeeze_rad, abs(toward_closed))
         hold = stalled + math.copysign(squeeze, toward_closed)
         if not self.command(intent | {self.gripper: hold}):

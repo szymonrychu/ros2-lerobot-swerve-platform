@@ -208,3 +208,14 @@ def test_deployed_ansible_config_validates_against_the_model() -> None:
     cfg = McpServerConfig.model_validate(yaml.safe_load(entry["config"]))
     assert cfg.objects.store_path == Path("/var/lib/ros2/objects/objects.json")
     assert cfg.topics.poi_command == "/poi/command"
+
+
+def test_joint_offsets_default_to_zero_and_reject_unknown_joints() -> None:
+    offsets = McpServerConfig().arm.joint_offsets_rad
+    assert offsets.model_dump() == dict.fromkeys(
+        ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"), 0.0
+    )
+    cfg = McpServerConfig.model_validate({"arm": {"joint_offsets_rad": {"wrist_flex": 0.2}}})
+    assert cfg.arm.joint_offsets_rad.wrist_flex == 0.2
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"arm": {"joint_offsets_rad": {"gripper": 0.2}}})

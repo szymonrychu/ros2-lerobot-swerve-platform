@@ -451,7 +451,7 @@ def register(ctx: ToolContext) -> None:
             parent = str(getattr(config.cameras, camera).parent_frame)
             joints = arm_joints(required=camera == "gripper")
             t_parent = parent_transform(config, camera, kin, joints)
-            count = samples.add(camera, parent, t_parent, (u, v), (ground_x, ground_y, ground_z))
+            count = samples.add(camera, parent, t_parent, (u, v), (ground_x, ground_y, ground_z), joints=joints)
             return data_result(
                 {
                     "camera": camera,

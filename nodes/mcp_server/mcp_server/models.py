@@ -12,6 +12,7 @@ ArmMotionStatus = Literal[
     "stopped",
     "unreachable",
     "grasped",
+    "blocked",
     "closed_no_contact",
     "interrupted",
 ]

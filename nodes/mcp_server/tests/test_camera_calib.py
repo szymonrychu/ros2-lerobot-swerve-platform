@@ -107,3 +107,16 @@ def test_mount_yaml_pastes_under_cameras_with_rounded_floats() -> None:
     mount = data["cameras"]["front"]["mount"]
     assert mount["parent_frame"] == "base_link" and mount["x"] == 0.123457
     assert set(mount) == {"parent_frame", "x", "y", "z", "roll", "pitch", "yaw"}
+
+
+def test_add_stores_optional_raw_joints(tmp_path) -> None:
+    store = SampleStore(tmp_path)
+    store.add("gripper", "gripper_link", np.eye(4), (1.0, 2.0), (0.1, 0.2, -0.165), joints={"shoulder_lift": 0.7})
+    store.add("front", "base_link", np.eye(4), (1.0, 2.0), (1.0, 0.0, 0.0))
+    assert store.read("gripper")["samples"][0]["joints"] == {"shoulder_lift": 0.7}
+    assert "joints" not in store.read("front")["samples"][0]
+    assert len(store.load("gripper")[1]) == 1  # solver form is unchanged
+    with pytest.raises(CalibrationError):
+        store.add(
+            "gripper", "gripper_link", np.eye(4), (1.0, 2.0), (0.1, 0.2, 0.0), joints={"shoulder_lift": float("nan")}
+        )

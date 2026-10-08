@@ -67,18 +67,32 @@ def pitch_of(approach: np.ndarray) -> float:
 
 
 class ArmKinematics:
-    """Forward and inverse kinematics of the 5-DOF SO101 chain base_link -> gripper_frame_link."""
+    """Forward and inverse kinematics of the 5-DOF SO101 chain base_link -> gripper_frame_link.
 
-    def __init__(self, urdf_path: Path, margin: float) -> None:
+    Public joint maps (``forward``, ``link_frame``, the ``inverse`` seed and result) are in MEASURED follower space.
+    The single place that maps to the URDF model is ``to_urdf``: urdf_angle = measured_angle + offset. Limits, ikpy
+    and the FK itself work in URDF space.
+    """
+
+    def __init__(self, urdf_path: Path, margin: float, joint_offsets: dict[str, float] | None = None) -> None:
         """Build the ikpy chain and shrink the joint bounds by margin.
 
         Args:
             urdf_path (Path): Arm URDF.
             margin (float): Safety margin kept from each URDF limit (rad).
+            joint_offsets (dict[str, float] | None): Joint zero offsets (rad) of the chain joints,
+                urdf_angle = measured_angle + offset; missing joints and None mean 0.
+
+        Raises:
+            ValueError: For an offset on a joint that is not a chain joint (e.g. the gripper).
         """
         all_limits = load_joint_limits(urdf_path)
         self.limits = {j: all_limits[j] for j in ARM_CHAIN_JOINTS}
         self.margin = margin
+        unknown = sorted(set(joint_offsets or {}) - set(ARM_CHAIN_JOINTS))
+        if unknown:
+            raise ValueError(f"joint offsets only apply to {list(ARM_CHAIN_JOINTS)}, not {unknown}")
+        self.offsets = {j: float((joint_offsets or {}).get(j, 0.0)) for j in ARM_CHAIN_JOINTS}
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             chain = ikpy.chain.Chain.from_urdf_file(str(urdf_path), base_elements=[BASE_LINK])
@@ -107,11 +121,44 @@ class ArmKinematics:
             if child is not None and joint.attrib["name"] in names:
                 self.link_index[child.attrib["link"]] = names.index(joint.attrib["name"])
 
-    def to_vector(self, joints: dict[str, float]) -> np.ndarray:
-        """Convert a joint map into ikpy's full link vector.
+    def to_urdf(self, joints: dict[str, float]) -> dict[str, float]:
+        """Measured joint angles -> URDF model angles (urdf = measured + offset); other joints pass through.
 
         Args:
-            joints (dict[str, float]): Joint name -> rad (missing chain joints default to 0).
+            joints (dict[str, float]): Joint name -> measured rad.
+
+        Returns:
+            dict[str, float]: Joint name -> URDF rad.
+        """
+        return {j: v + self.offsets.get(j, 0.0) for j, v in joints.items()}
+
+    def to_measured(self, joints: dict[str, float]) -> dict[str, float]:
+        """URDF model angles -> measured joint angles (measured = urdf - offset); other joints pass through.
+
+        Args:
+            joints (dict[str, float]): Joint name -> URDF rad.
+
+        Returns:
+            dict[str, float]: Joint name -> measured rad.
+        """
+        return {j: v - self.offsets.get(j, 0.0) for j, v in joints.items()}
+
+    def to_vector(self, joints: dict[str, float]) -> np.ndarray:
+        """Convert a measured joint map into ikpy's full link vector (URDF space).
+
+        Args:
+            joints (dict[str, float]): Joint name -> measured rad (missing chain joints default to 0 measured).
+
+        Returns:
+            np.ndarray: Link vector in URDF angles.
+        """
+        return self.urdf_vector(self.to_urdf({j: joints.get(j, 0.0) for j in ARM_CHAIN_JOINTS}))
+
+    def urdf_vector(self, joints: dict[str, float]) -> np.ndarray:
+        """Convert a URDF-angle joint map into ikpy's full link vector.
+
+        Args:
+            joints (dict[str, float]): Joint name -> URDF rad (missing chain joints default to 0).
 
         Returns:
             np.ndarray: Link vector.
@@ -125,12 +172,23 @@ class ArmKinematics:
         """Tool pose for a joint configuration.
 
         Args:
-            joints (dict[str, float]): Joint name -> rad.
+            joints (dict[str, float]): Joint name -> measured rad.
 
         Returns:
             CartesianPose: Tool position and approach pitch in base_link.
         """
-        frame = self.chain.forward_kinematics(self.to_vector(joints))
+        return self.forward_urdf(self.to_urdf(joints))
+
+    def forward_urdf(self, joints: dict[str, float]) -> CartesianPose:
+        """Tool pose for URDF-space joint angles.
+
+        Args:
+            joints (dict[str, float]): Joint name -> URDF rad.
+
+        Returns:
+            CartesianPose: Tool position and approach pitch in base_link.
+        """
+        frame = self.chain.forward_kinematics(self.urdf_vector(joints))
         return CartesianPose(
             x=float(frame[0, 3]), y=float(frame[1, 3]), z=float(frame[2, 3]), pitch=pitch_of(frame[:3, 2])
         )
@@ -139,7 +197,7 @@ class ArmKinematics:
         """Pose of a URDF link frame in the arm base_link frame for a joint configuration.
 
         Args:
-            joints (dict[str, float]): Joint name -> rad (missing chain joints default to 0).
+            joints (dict[str, float]): Joint name -> measured rad (missing chain joints default to 0).
             link (str): URDF link name on the base -> gripper_frame_link chain (e.g. gripper_link).
 
         Returns:
@@ -169,7 +227,7 @@ class ArmKinematics:
         """Whether every chain joint lies within its limits minus margin.
 
         Args:
-            joints (dict[str, float]): Joint name -> rad.
+            joints (dict[str, float]): Joint name -> URDF rad (limits are URDF values).
 
         Returns:
             bool: True when inside.
@@ -191,10 +249,11 @@ class ArmKinematics:
             y (float): Target y in base_link (m).
             z (float): Target z in base_link (m).
             pitch (float | None): Approach pitch (rad, positive down), or None for position only.
-            seed (dict[str, float]): Starting configuration (typically the measured pose); wrist_roll is kept.
+            seed (dict[str, float]): Starting configuration in measured space (typically the measured pose);
+                wrist_roll is kept.
 
         Returns:
-            dict[str, float]: Chain joint name -> rad.
+            dict[str, float]: Chain joint name -> measured rad (command space: urdf angle - offset).
 
         Raises:
             UnreachableError: When the target cannot be reached within limits and tolerances.
@@ -202,6 +261,7 @@ class ArmKinematics:
         values = (x, y, z) if pitch is None else (x, y, z, pitch)
         if not all(math.isfinite(v) for v in values):
             raise UnreachableError("target must be finite")
+        seed = self.to_urdf(seed)
         roll = min(
             max(seed.get("wrist_roll", 0.0), self.limits["wrist_roll"][0] + self.margin),
             self.limits["wrist_roll"][1] - self.margin,
@@ -218,16 +278,16 @@ class ArmKinematics:
             for _ in range(HEADING_REFINEMENTS if pitch is not None else 1):
                 orientation = None if pitch is None else self.approach_vector(heading, pitch)
                 sol = self.solve(target, orientation, sol, roll)
-                frame = self.chain.forward_kinematics(self.to_vector(sol))
+                frame = self.chain.forward_kinematics(self.urdf_vector(sol))
                 approach = frame[:3, 2]
                 if math.hypot(float(approach[0]), float(approach[1])) > 1e-6:
                     heading = math.atan2(float(approach[1]), float(approach[0]))
-                reached = self.forward(sol)
+                reached = self.forward_urdf(sol)
                 error = math.dist((reached.x, reached.y, reached.z), (x, y, z))
                 best_error = min(best_error, error)
                 pitch_ok = pitch is None or abs(reached.pitch - pitch) <= PITCH_TOLERANCE_RAD
                 if error <= POSITION_TOLERANCE_M and pitch_ok and self.within_limits(sol):
-                    return sol
+                    return self.to_measured(sol)
         raise UnreachableError(
             f"target ({x:.3f}, {y:.3f}, {z:.3f})"
             + ("" if pitch is None else f" pitch {pitch:.2f} rad")
@@ -242,11 +302,11 @@ class ArmKinematics:
         Args:
             target (np.ndarray): Target position.
             orientation (np.ndarray | None): Approach vector, or None for position only.
-            start (dict[str, float]): Start configuration (inside bounds).
+            start (dict[str, float]): Start configuration in URDF angles (inside bounds).
             roll (float): wrist_roll kept fixed.
 
         Returns:
-            dict[str, float]: Solved chain joints.
+            dict[str, float]: Solved chain joints (URDF angles).
         """
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -254,7 +314,7 @@ class ArmKinematics:
                 target,
                 orientation,
                 orientation_mode=None if orientation is None else APPROACH_AXIS,
-                initial_position=self.to_vector(self.clamp_seed(start)),
+                initial_position=self.urdf_vector(self.clamp_seed(start)),
             )
         sol = {j: float(q[self.index[j]]) for j in ARM_CHAIN_JOINTS}
         sol["wrist_roll"] = roll

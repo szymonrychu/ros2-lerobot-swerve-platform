@@ -92,6 +92,7 @@ class SampleStore:
         t_frame_parent: np.ndarray,
         pixel: tuple[float, float],
         ground: tuple[float, float, float],
+        joints: dict[str, float] | None = None,
     ) -> int:
         """Append one sample.
 
@@ -101,6 +102,8 @@ class SampleStore:
             t_frame_parent (np.ndarray): 4x4 pose of the parent link in the ground frame at capture time.
             pixel (tuple[float, float]): Marker pixel (u, v).
             ground (tuple[float, float, float]): Marker position (x, y, z) in the camera's reference frame.
+            joints (dict[str, float] | None): Raw measured arm joint positions (rad) at capture time, stored so the
+                joint zero offsets can be re-solved later; None for samples that do not depend on the arm.
 
         Returns:
             int: Number of samples now stored.
@@ -109,6 +112,7 @@ class SampleStore:
             CalibrationError: For non-finite values, a changed parent frame or an unwritable store.
         """
         values = [*pixel, *ground, *np.asarray(t_frame_parent, dtype=float).ravel()]
+        values += list((joints or {}).values())
         if not all(math.isfinite(v) for v in values):
             raise CalibrationError("sample values must be finite numbers")
         data = self.read(camera)
@@ -127,6 +131,8 @@ class SampleStore:
                 "captured_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
             }
         )
+        if joints is not None:
+            samples[-1]["joints"] = {j: float(v) for j, v in joints.items()}
         self.write(camera, {"camera": camera, "parent_frame": parent_frame, "samples": samples})
         return len(samples)
 

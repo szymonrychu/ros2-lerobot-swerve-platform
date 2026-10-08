@@ -305,7 +305,11 @@ class RosRobot:
         urdf = config.arm.urdf_path
         self.arm = ArmController(
             self,
-            ArmKinematics(urdf, margin=config.limits.arm_limit_margin_rad),
+            ArmKinematics(
+                urdf,
+                margin=config.limits.arm_limit_margin_rad,
+                joint_offsets=config.arm.joint_offsets_rad.model_dump(),
+            ),
             load_joint_limits(urdf),
             config,
             self.monitor,

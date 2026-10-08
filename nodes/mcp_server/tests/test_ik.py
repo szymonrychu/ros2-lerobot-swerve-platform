@@ -135,3 +135,62 @@ def test_link_frame_rejects_unknown_and_off_chain_links(kin: ArmKinematics) -> N
         kin.link_frame({}, "moving_jaw_so101_v1_link")
     with pytest.raises(ValueError, match="nope"):
         kin.link_frame({}, "nope")
+
+
+# --- joint zero offsets: urdf_angle = measured_angle + offset ---
+
+OFFSETS = {"shoulder_pan": 0.05, "shoulder_lift": -0.12, "elbow_flex": 0.09, "wrist_flex": 0.2, "wrist_roll": -0.07}
+
+
+@pytest.fixture(scope="module")
+def kin_off() -> ArmKinematics:
+    return ArmKinematics(URDF, margin=MARGIN, joint_offsets=OFFSETS)
+
+
+def test_forward_applies_offsets_to_measured_angles(kin: ArmKinematics, kin_off: ArmKinematics) -> None:
+    measured = {"shoulder_pan": 0.3, "shoulder_lift": -0.4, "elbow_flex": 0.6, "wrist_flex": 0.5, "wrist_roll": 0.1}
+    urdf = {j: measured[j] + OFFSETS[j] for j in measured}
+    got, want = kin_off.forward(measured), kin.forward(urdf)
+    assert (got.x, got.y, got.z, got.pitch) == pytest.approx((want.x, want.y, want.z, want.pitch))
+    assert abs(got.pitch - kin.forward(measured).pitch) > 0.05
+
+
+def test_link_frame_applies_offsets(kin: ArmKinematics, kin_off: ArmKinematics) -> None:
+    measured = {"shoulder_pan": 0.3, "shoulder_lift": -0.4, "elbow_flex": 0.6, "wrist_flex": 0.5, "wrist_roll": 0.1}
+    urdf = {j: measured[j] + OFFSETS[j] for j in measured}
+    np.testing.assert_allclose(kin_off.link_frame(measured, "gripper_link"), kin.link_frame(urdf, "gripper_link"))
+
+
+def test_ik_round_trip_with_offsets_returns_measured_space(kin_off: ArmKinematics) -> None:
+    rng = np.random.default_rng(3)
+    for _ in range(8):
+        q = random_joints(rng, kin_off)
+        target = kin_off.forward(q)
+        seed = {j: 0.0 for j in ARM_CHAIN_JOINTS} | {"wrist_roll": q["wrist_roll"]}
+        sol = kin_off.inverse(target.x, target.y, target.z, target.pitch, seed=seed)
+        got = kin_off.forward(sol)
+        assert math.dist((got.x, got.y, got.z), (target.x, target.y, target.z)) < 0.003
+        assert sol["wrist_roll"] == pytest.approx(q["wrist_roll"])
+
+
+def test_ik_limits_are_checked_in_urdf_space(kin_off: ArmKinematics) -> None:
+    rng = np.random.default_rng(5)
+    for _ in range(5):
+        q = random_joints(rng, kin_off)
+        t = kin_off.forward(q)
+        sol = kin_off.inverse(t.x, t.y, t.z, t.pitch, seed={j: 0.0 for j in ARM_CHAIN_JOINTS})
+        for j, v in sol.items():
+            lo, hi = kin_off.limits[j]
+            assert lo + MARGIN - 1e-9 <= v + OFFSETS[j] <= hi - MARGIN + 1e-9
+
+
+def test_to_urdf_and_to_measured_are_inverse_and_skip_the_gripper(kin_off: ArmKinematics) -> None:
+    measured = {"shoulder_lift": 0.1, "wrist_flex": -0.3, "gripper": 0.7}
+    urdf = kin_off.to_urdf(measured)
+    assert urdf == pytest.approx({"shoulder_lift": -0.02, "wrist_flex": -0.1, "gripper": 0.7})
+    assert kin_off.to_measured(urdf) == pytest.approx(measured)
+
+
+def test_unknown_offset_joint_is_rejected() -> None:
+    with pytest.raises(ValueError, match="gripper"):
+        ArmKinematics(URDF, margin=MARGIN, joint_offsets={"gripper": 0.1})

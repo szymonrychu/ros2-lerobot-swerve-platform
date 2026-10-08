@@ -337,9 +337,10 @@ def register_core_tools(ctx: ToolContext) -> None:
     @tool(structured_output=False)
     def get_camera_image(
         camera: Annotated[
-            Camera, Field(
+            Camera,
+            Field(
                 description="'gripper' (USB camera on the gripper) or 'front' (overhead camera looking down at the front of the robot, 640x480)"
-            )
+            ),
         ],
         max_px: Annotated[int, Field(ge=32, le=HARD_MAX_IMAGE_PX, description="Longest image side in pixels")] = 768,
     ) -> list[ImageContent | TextContent]:
@@ -525,8 +526,11 @@ def register_core_tools(ctx: ToolContext) -> None:
         """Open the gripper to a fraction, or close it until it grips something (status 'grasped' and the gripper
         holds that position; 'closed_no_contact' if it closed fully without touching anything). Closing (also
         open_fraction=0) reports 'grasped' too when the jaw stalls before the closed position: contact is inferred
-        from the stall and the gripper holds the stall position plus a small squeeze. The load is ignored for the
-        first 0.3 s of a close and counts only after the jaw moved or stalled. The arm stays held at its intended
+        from the stall and the gripper holds the stall position plus a small squeeze. A contact only counts as
+        'grasped' when the jaw closed at least gripper_grasp_min_travel_rad (0.15) from where it started and stopped
+        no more open than gripper_grasp_max_open_rad (1.2); otherwise the status is 'blocked' (the jaw is pressing on
+        an object, not holding it) and the measured jaw position is held without squeeze. The load is ignored for
+        the first 0.3 s of a close and counts only after the jaw moved or stalled. The arm stays held at its intended
         targets while the gripper moves. Give exactly one of
         open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done."""
         battery_gate("set_gripper")

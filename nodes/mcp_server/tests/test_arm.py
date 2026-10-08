@@ -7,6 +7,7 @@ import pytest
 from mcp_server.arm import ArmController, ArmError
 from mcp_server.config import McpServerConfig
 from mcp_server.ik import ArmKinematics, load_joint_limits
+from mcp_server.models import ArmMotionResult
 
 from .fakes import JOINTS, FakeArmBackend
 
@@ -690,3 +691,119 @@ def test_effort_counts_after_jaw_travel_or_stall(tmp_path: Path) -> None:
     assert arm.contact_allowed(stalled, started=99.0) is True
     short = [(100.0 + 0.1 * i, 0.7) for i in range(3)]  # stall window (0.5 s) not covered yet
     assert arm.contact_allowed(short, started=99.0) is False
+
+
+# --- joint zero offsets: kinematics in URDF space (urdf = measured + offset), joint commands stay measured ---
+
+OFFSETS = {"shoulder_pan": 0.05, "shoulder_lift": -0.12, "elbow_flex": 0.09, "wrist_flex": 0.2, "wrist_roll": -0.07}
+KIN_OFF = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad, joint_offsets=OFFSETS)
+
+
+def make_offset(tmp_path: Path, backend: FakeArmBackend | None = None) -> tuple[ArmController, FakeArmBackend]:
+    be = backend or FakeArmBackend()
+    cfg = CONFIG.model_copy(deep=True)
+    cfg.arm.home_file = tmp_path / "arm" / "home.yaml"
+    return ArmController(be, KIN_OFF, load_joint_limits(cfg.arm.urdf_path), cfg), be
+
+
+def test_state_reports_measured_positions_and_offset_corrected_tool_pose(tmp_path: Path) -> None:
+    be = FakeArmBackend()
+    be.positions.update({"shoulder_lift": 0.3, "elbow_flex": 0.5, "wrist_flex": 0.4})
+    arm, _ = make_offset(tmp_path, be)
+    state = arm.state()
+    assert state.positions == be.positions
+    plain = ArmController(be, KIN, load_joint_limits(CONFIG.arm.urdf_path), CONFIG).state().tool_pose
+    pose = KIN.forward({j: be.positions[j] + OFFSETS[j] for j in OFFSETS})
+    assert state.tool_pose == pytest.approx({"x": pose.x, "y": pose.y, "z": pose.z, "pitch": pose.pitch})
+    assert state.tool_pose["pitch"] != pytest.approx(plain["pitch"], abs=0.05)
+
+
+def test_move_joints_clamps_in_urdf_space_and_commands_measured_space(tmp_path: Path) -> None:
+    arm, be = make_offset(tmp_path)
+    res = arm.move_joints({"wrist_flex": 3.0, "elbow_flex": 0.4}, speed_scale=0.5)
+    hi = load_joint_limits(CONFIG.arm.urdf_path)["wrist_flex"][1] - CONFIG.limits.arm_limit_margin_rad
+    assert be.commands[-1]["wrist_flex"] == pytest.approx(hi - OFFSETS["wrist_flex"])
+    assert be.commands[-1]["elbow_flex"] == pytest.approx(0.4)  # in range: the agent's measured-space target as is
+    assert res.clamped == ["wrist_flex"]
+
+
+def test_move_cartesian_reaches_the_target_with_offsets(tmp_path: Path) -> None:
+    arm, be = make_offset(tmp_path)
+    q = {"shoulder_pan": 0.2, "shoulder_lift": 0.2, "elbow_flex": 0.3, "wrist_flex": 0.4, "wrist_roll": 0.0}
+    target = KIN_OFF.forward(q)
+    res = arm.move_cartesian(target.x, target.y, target.z, target.pitch, speed_scale=0.5)
+    assert res.status == "converged", res.message
+    assert res.achieved_tool_pose == pytest.approx(
+        {"x": target.x, "y": target.y, "z": target.z, "pitch": target.pitch}, abs=0.004
+    )
+    final = KIN_OFF.forward({j: be.commands[-1][j] for j in q})
+    assert (final.x, final.y, final.z) == pytest.approx((target.x, target.y, target.z), abs=0.003)
+
+
+# --- stricter grasp detection: the jaw must have closed onto something ---
+
+
+def stall_from(start: float, stop: float, effort: float = 0.0) -> FakeArmBackend:
+    """Follower whose jaw starts at `start` and cannot close beyond `stop` (optionally reporting `effort` there)."""
+    be = FakeArmBackend()
+    be.positions["gripper"] = start
+
+    def blocked(b: FakeArmBackend) -> None:
+        b.positions["gripper"] = max(b.positions["gripper"], stop)
+        b.efforts["gripper"] = effort if b.positions["gripper"] <= stop + 1e-9 else 0.0
+
+    be.on_sleep = blocked
+    return be
+
+
+def close_on_load(arm: ArmController) -> ArmMotionResult:
+    return arm.set_gripper(close_until_effort=True, effort_threshold=300.0)
+
+
+def test_tiny_jaw_travel_under_load_is_blocked_not_grasped(tmp_path: Path) -> None:
+    arm, be = make(tmp_path, stall_from(1.5, 1.49, effort=500.0))
+    res = close_on_load(arm)
+    assert res.status == "blocked", res.message
+    pos = be.positions["gripper"]
+    assert res.message == (
+        f"jaw stopped at {pos:.3f} rad after {1.5 - pos:.3f} rad travel "
+        "- likely pressing on an object rather than holding it"
+    )
+    assert be.commands[-1]["gripper"] == pytest.approx(pos)  # holds the measured jaw, no squeeze
+
+
+def test_barely_moved_jaw_stall_is_blocked_without_squeeze(tmp_path: Path) -> None:
+    """Stall path (no load reported): the jaw started near closed and moved 0.07 rad only."""
+    be = stall_from(-0.05, -0.12)
+    arm, be = make(tmp_path, be)
+    res = arm.set_gripper(open_fraction=0.0)
+    assert res.status == "blocked", res.message
+    assert "after 0.070 rad travel" in res.message
+    assert be.commands[-1]["gripper"] == pytest.approx(-0.12)
+
+
+def test_stall_far_into_the_travel_is_grasped(tmp_path: Path) -> None:
+    arm, be = make(tmp_path, stall_from(1.5, 0.4, effort=500.0))
+    res = close_on_load(arm)
+    assert res.status == "grasped", res.message
+    assert be.commands[-1]["gripper"] == pytest.approx(0.4)
+
+
+def test_stall_near_fully_open_is_blocked_even_with_travel(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path, stall_from(1.5, 1.3, effort=500.0))
+    res = close_on_load(arm)
+    assert res.status == "blocked", res.message
+    assert "jaw stopped at 1.300 rad after 0.200 rad travel" in res.message
+
+
+def test_grasp_thresholds_come_from_config(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path, stall_from(1.5, 1.0, effort=500.0))
+    assert close_on_load(arm).status == "grasped"
+    arm, _ = make(tmp_path, stall_from(1.5, 1.0, effort=500.0))
+    arm.cfg.limits.gripper_grasp_min_travel_rad = 0.6
+    assert close_on_load(arm).status == "blocked"
+    arm, _ = make(tmp_path, stall_from(1.5, 1.0, effort=500.0))
+    arm.cfg.limits.gripper_grasp_max_open_rad = 0.9
+    assert close_on_load(arm).status == "blocked"
+    assert McpServerConfig().limits.gripper_grasp_min_travel_rad == 0.15
+    assert McpServerConfig().limits.gripper_grasp_max_open_rad == 1.2

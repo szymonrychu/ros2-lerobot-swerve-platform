@@ -960,6 +960,13 @@ ros2_nodes:
         # (approximate: measure it and adjust).
         reach_outer_m: 0.25
         reach_inner_m: 0.05
+        # Follower-vs-URDF joint zero offsets (rad): urdf_angle = measured_angle + offset (nodes/mcp_server/README.md).
+        joint_offsets_rad:
+          shoulder_pan: 0.0
+          shoulder_lift: 0.0
+          elbow_flex: 0.0
+          wrist_flex: 0.0
+          wrist_roll: 0.0
         # Optional once measured: arm base frame pose in base_link (x/y/z in m, yaw in rad; z = arm_base_height_m). Without it
         # gripper-camera results have no base_link/map coordinates and the reach/gripper overlays are skipped on the front camera.
         # base_in_base_link: {x: 0.0, y: 0.0, z: 0.165, yaw: 0.0}
