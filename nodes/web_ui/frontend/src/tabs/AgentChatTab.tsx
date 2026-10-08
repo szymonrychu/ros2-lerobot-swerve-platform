@@ -24,8 +24,8 @@ import SendIcon from '@mui/icons-material/Send'
 import StopIcon from '@mui/icons-material/Stop'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { postAgent } from '../agent/agentApi'
-import { composerBlockReason, headerStatus, statusLabel } from '../agent/agentModel'
-import type { ChatItem, RobotEventSeverity, ToolContent, ToolKind, UsageChip, UsageLevel } from '../agent/agentModel'
+import { composerBlockReason, headerStatus, phaseRows, statusLabel } from '../agent/agentModel'
+import type { ChatItem, PhaseRow, PhaseStatus, RobotEventSeverity, ToolContent, ToolKind, UsageBar, UsageChip, UsageLevel } from '../agent/agentModel'
 import { useAgentChat } from '../agent/useAgentChat'
 import { cutoffBanner } from '../battery/batteryStatus'
 import type { BatteryStatus } from '../battery/batteryStatus'
@@ -40,16 +40,26 @@ interface Props {
 }
 
 type ToolItem = Extract<ChatItem, { kind: 'tool' }>
-type BudgetItem = Extract<ChatItem, { kind: 'budget' }>
+type PlanItem = Extract<ChatItem, { kind: 'plan' | 'plan_revised' }>
+type PhaseStartedItem = Extract<ChatItem, { kind: 'phase_started' }>
+type PhaseCompletedItem = Extract<ChatItem, { kind: 'phase_completed' }>
 
 const KIND_COLORS: Record<ToolKind, 'info' | 'warning' | 'default' | 'secondary'> = {
   sensor: 'info',
   effector: 'warning',
   uncapped: 'default',
   notes: 'secondary',
-  budget: 'secondary',
+  plan: 'secondary',
 }
 const USAGE_COLORS: Record<UsageLevel, 'default' | 'warning' | 'error'> = { ok: 'default', warn: 'warning', full: 'error' }
+const PHASE_STATUS_COLORS: Record<PhaseStatus, 'default' | 'primary' | 'success' | 'error' | 'warning'> = {
+  pending: 'default',
+  active: 'primary',
+  done: 'success',
+  failed: 'error',
+  skipped: 'warning',
+}
+const BAR_COLORS: Record<UsageLevel, 'primary' | 'warning' | 'error'> = { ok: 'primary', warn: 'warning', full: 'error' }
 const EVENT_SEVERITY: Record<RobotEventSeverity, 'info' | 'warning' | 'error'> = { info: 'info', warning: 'warning', critical: 'error' }
 // Distance from the bottom (px) within which the transcript keeps following new messages.
 const STICK_THRESHOLD_PX = 48
@@ -131,22 +141,98 @@ function UsageChipView({ chip }: { chip: UsageChip }) {
   return <Chip size="small" variant={chip.level === 'ok' ? 'outlined' : 'filled'} color={color} label={chip.label} data-testid={`usage-${chip.key}`} />
 }
 
-function BudgetCard({ item }: { item: BudgetItem }) {
+function UsageBarView({ bar }: { bar: UsageBar }) {
+  return (
+    <Box sx={{ minWidth: 88, flex: 1 }} data-testid={`phase-bar-${bar.key}`} data-level={bar.level}>
+      <Typography variant="caption" color={bar.level === 'ok' ? 'text.secondary' : `${BAR_COLORS[bar.level]}.main`}>{bar.label}</Typography>
+      <LinearProgress variant="determinate" value={bar.fraction * 100} color={BAR_COLORS[bar.level]} sx={{ height: 5, borderRadius: 1 }} />
+    </Box>
+  )
+}
+
+function PhaseRowView({ row }: { row: PhaseRow }) {
+  return (
+    <Box
+      data-testid={`phase-row-${row.number}`}
+      data-status={row.status}
+      sx={{
+        px: 1, py: 0.5, borderRadius: 1, border: 1, borderColor: row.active ? 'primary.main' : 'divider',
+        bgcolor: row.active ? 'action.selected' : 'transparent', opacity: row.status === 'pending' ? 0.7 : 1,
+      }}
+    >
+      <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
+        <Chip size="small" color={PHASE_STATUS_COLORS[row.status]} variant={row.active ? 'filled' : 'outlined'} label={row.status} />
+        <Typography variant="body2" sx={{ fontWeight: row.active ? 700 : 500 }}>{row.number}. {row.name}</Typography>
+        {row.raised && <Chip size="small" variant="outlined" label="raised" />}
+        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{row.goal}</Typography>
+      </Stack>
+      {row.status !== 'pending' && (
+        <Stack direction="row" gap={1.5} sx={{ mt: 0.5 }}>
+          {row.bars.map((bar) => <UsageBarView key={bar.key} bar={bar} />)}
+        </Stack>
+      )}
+      {row.summary && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{row.summary}</Typography>}
+    </Box>
+  )
+}
+
+function PhasePanel({ rows }: { rows: PhaseRow[] }) {
+  if (rows.length === 0) return null
+  return (
+    <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider', maxHeight: 220, overflowY: 'auto' }} data-testid="phase-panel">
+      <Stack gap={0.5}>
+        {rows.map((row) => <PhaseRowView key={row.number} row={row} />)}
+      </Stack>
+    </Box>
+  )
+}
+
+function PlanCard({ item }: { item: PlanItem }) {
+  const revised = item.kind === 'plan_revised'
   return (
     <Paper variant="outlined" sx={{ alignSelf: 'stretch', px: 1.5, py: 1, borderColor: 'secondary.main' }}>
       <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-        <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.raised ? 'Budget raised' : 'Task budget'}</Typography>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>{revised ? 'Plan revised' : 'Task plan'}</Typography>
         <Chip size="small" color="secondary" label={item.complexity.replace('_', ' ')} />
-        <Chip size="small" variant="outlined" label={`ro ${item.roCap}`} />
-        <Chip size="small" variant="outlined" label={`rw ${item.rwCap}`} />
-        <Chip size="small" variant="outlined" label={`turns ${item.turnCap}`} />
+        <Chip size="small" variant="outlined" label={`${item.phases.length} phases`} />
       </Stack>
-      {item.rationale && (
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-          {item.rationale}
-        </Typography>
-      )}
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
+        {revised ? item.revisionRationale : item.rationale}
+      </Typography>
+      <Stack component="ol" sx={{ m: 0, mt: 0.5, pl: 2.5 }}>
+        {item.phases.map((p) => (
+          <Typography component="li" variant="caption" key={p.index} sx={{ overflowWrap: 'anywhere' }}>
+            <b>{p.name}</b> ({p.goal}) - ro {p.roCap}, rw {p.rwCap}, turns {p.turnCap}
+          </Typography>
+        ))}
+      </Stack>
     </Paper>
+  )
+}
+
+function PhaseStartedCard({ item }: { item: PhaseStartedItem }) {
+  return (
+    <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ alignSelf: 'stretch', px: 1, py: 0.25 }}>
+      <Chip size="small" color="primary" label={`Phase ${item.index + 1} started`} />
+      <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.name}</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+        {item.goal} (ro {item.roCap}, rw {item.rwCap}, turns {item.turnCap})
+      </Typography>
+    </Stack>
+  )
+}
+
+function PhaseCompletedCard({ item }: { item: PhaseCompletedItem }) {
+  const color = item.outcome === 'done' ? 'success' : item.outcome === 'failed' ? 'error' : 'warning'
+  return (
+    <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ alignSelf: 'stretch', px: 1, py: 0.25 }}>
+      <Chip size="small" color={color} label={`Phase ${item.index + 1} ${item.outcome}`} />
+      <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.name}</Typography>
+      <Typography variant="caption" color="text.secondary">
+        ro {item.usage.roUsed}/{item.caps.roCap}, rw {item.usage.rwUsed}/{item.caps.rwCap}, turns {item.usage.turnsUsed}/{item.caps.turnCap}
+      </Typography>
+      {item.summary && <Typography variant="caption" color="text.secondary" sx={{ flexBasis: '100%', overflowWrap: 'anywhere' }}>{item.summary}</Typography>}
+    </Stack>
   )
 }
 
@@ -197,8 +283,13 @@ function renderItem(item: ChatItem, onOpenImage: (src: string) => void) {
         </Stack>
       )
     }
-    case 'budget':
-      return <BudgetCard item={item} />
+    case 'plan':
+    case 'plan_revised':
+      return <PlanCard item={item} />
+    case 'phase_started':
+      return <PhaseStartedCard item={item} />
+    case 'phase_completed':
+      return <PhaseCompletedCard item={item} />
     case 'robot_event':
       return (
         <Alert severity={EVENT_SEVERITY[item.severity]} sx={{ alignSelf: 'stretch' }}>
@@ -251,6 +342,7 @@ export default function AgentChatTab({ battery }: Props) {
   const listRef = useRef<VirtuosoHandle>(null)
 
   const header = headerStatus(info, chat)
+  const rows = phaseRows(chat.plan)
   const batteryMessage = battery ? cutoffBanner(battery) : null
   const blockReason = composerBlockReason({ busy: chat.busy, connected, batteryCutoff: batteryMessage !== null, batteryMessage })
   const canSend = blockReason === null && text.trim().length > 0
@@ -301,6 +393,7 @@ export default function AgentChatTab({ battery }: Props) {
         <Chip size="small" label={header.model ?? 'model unknown'} variant="outlined" />
         <Chip size="small" color={header.busy ? 'warning' : connected ? 'success' : 'default'} label={header.busy ? 'working' : connected ? 'idle' : 'disconnected'} />
         {header.complexity !== null && <Chip size="small" color="secondary" label={header.complexity.replace('_', ' ')} />}
+        {header.phase !== null && <Chip size="small" color="primary" label={`phase ${header.phase.number}/${header.phase.total}: ${header.phase.name}`} data-testid="active-phase" />}
         {header.chips.map((chip) => (
           <UsageChipView key={chip.key} chip={chip} />
         ))}
@@ -312,6 +405,7 @@ export default function AgentChatTab({ battery }: Props) {
           New session
         </Button>
       </Box>
+      <PhasePanel rows={rows} />
       {chat.busy && <LinearProgress />}
 
       <Box sx={{ flex: 1, minHeight: 0, position: 'relative' }}>
@@ -373,7 +467,7 @@ export default function AgentChatTab({ battery }: Props) {
       <Dialog open={confirmReset} onClose={() => setConfirmReset(false)}>
         <DialogTitle>Start a new session?</DialogTitle>
         <DialogContent>
-          <DialogContentText>The conversation, the usage counters and the task budget are cleared.</DialogContentText>
+          <DialogContentText>The conversation, the usage counters and the task plan are cleared.</DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setConfirmReset(false)}>Cancel</Button>

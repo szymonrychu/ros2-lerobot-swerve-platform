@@ -3,10 +3,10 @@
  *
  * Events are `{seq, ts, type, ...}` (see nodes/claude_agent/README.md). tool_call and tool_result are paired by id,
  * events are deduplicated by seq (the WebSocket replays the history on every connect), and the busy flag and
- * usage counters and agent-chosen budget follow `state` events.
+ * usage counters and the agent's phase plan follow `state` events; plan / phase events keep the plan current between them.
  */
 
-export type ToolKind = 'sensor' | 'effector' | 'uncapped' | 'notes' | 'budget'
+export type ToolKind = 'sensor' | 'effector' | 'uncapped' | 'notes' | 'plan'
 
 export type ToolContent =
   | { type: 'text'; text: string }
@@ -19,24 +19,33 @@ export interface AgentEvent {
   [field: string]: unknown
 }
 
-/** The budget the agent chose for the running instruction (camelCase of the `budget` event / state payload). */
-export interface BudgetInfo {
-  complexity: string
+export type PhaseStatus = 'pending' | 'active' | 'done' | 'failed' | 'skipped'
+
+/** One phase of the agent's plan with its caps and usage (camelCase of the wire phase object). */
+export interface PhaseInfo {
+  index: number
+  name: string
+  goal: string
+  status: PhaseStatus
   roCap: number
   rwCap: number
   turnCap: number
-  rationale: string
+  roUsed: number
+  rwUsed: number
+  turnsUsed: number
   raised: boolean
+  summary: string
 }
 
-/** Wire form of the budget (claude_agent `budget` event fields and the `budget` object of state/API). */
-export interface BudgetPayload {
+/** The plan the agent made for the running instruction (camelCase of the `plan` event / state payload). */
+export interface PlanInfo {
   complexity: string
-  ro_cap: number
-  rw_cap: number
-  turn_cap: number
   rationale: string
-  raised: boolean
+  revised: boolean
+  revisionRationale: string
+  /** Index of the active phase; null before the first phase starts and after the last one was completed. */
+  activePhase: number | null
+  phases: PhaseInfo[]
 }
 
 /** GET /api/agent/state (claude_agent GET /api/state). */
@@ -45,11 +54,13 @@ export interface AgentInfo {
   model: string
   max_turns: number
   hard_max?: { ro_cap: number; rw_cap: number; turn_cap: number }
+  phase_max?: { ro_cap: number; rw_cap: number; turn_cap: number }
   ro_used: number
   rw_used: number
   turns_used: number
   effector_calls_used?: number
-  budget: BudgetPayload | null
+  plan: unknown
+  active_phase?: number | null
   session_started_at: number | null
 }
 
@@ -80,7 +91,21 @@ export type ChatItem =
   | { key: string; kind: 'denied'; seq: number; id: string | null; name: string; reason: string }
   | { key: string; kind: 'turn_end'; seq: number; status: string; costUsd: number; numTurns: number; effectorCalls: number }
   | { key: string; kind: 'error'; seq: number; message: string }
-  | ({ key: string; kind: 'budget'; seq: number } & BudgetInfo)
+  | ({ key: string; kind: 'plan'; seq: number } & PlanInfo)
+  | ({ key: string; kind: 'plan_revised'; seq: number } & PlanInfo)
+  | ({ key: string; kind: 'phase_started'; seq: number } & Omit<PhaseInfo, 'status'>)
+  | {
+      key: string
+      kind: 'phase_completed'
+      seq: number
+      index: number
+      name: string
+      goal: string
+      outcome: string
+      summary: string
+      usage: { roUsed: number; rwUsed: number; turnsUsed: number }
+      caps: { roCap: number; rwCap: number; turnCap: number }
+    }
   | {
       key: string
       kind: 'robot_event'
@@ -100,8 +125,8 @@ export interface ChatState {
   /** Effector (read-write) robot calls used in the current instruction. */
   rwUsed: number
   turnsUsed: number
-  /** The budget the agent set for the current instruction; null until it did. */
-  budget: BudgetInfo | null
+  /** The plan the agent made for the current instruction; null until it did. */
+  plan: PlanInfo | null
   /** Lowest event seq held in memory: the `before_seq` cursor of the next older page; null while nothing is loaded. */
   firstSeq: number | null
   /** Whether older events exist on the agent beyond firstSeq. */
@@ -124,6 +149,28 @@ export type StatusColor = 'success' | 'warning' | 'error' | 'default'
 
 export type UsageLevel = 'ok' | 'warn' | 'full'
 
+export interface UsageBar {
+  key: 'ro' | 'rw' | 'turns'
+  label: string
+  used: number
+  cap: number
+  /** used / cap clamped to 0..1 (0 for a zero cap). */
+  fraction: number
+  level: UsageLevel
+}
+
+export interface PhaseRow {
+  /** 1-based number shown to the user. */
+  number: number
+  name: string
+  goal: string
+  status: PhaseStatus
+  active: boolean
+  summary: string
+  raised: boolean
+  bars: UsageBar[]
+}
+
 export interface UsageChip {
   key: 'ro' | 'rw' | 'turns'
   label: string
@@ -134,6 +181,8 @@ export interface HeaderStatus {
   model: string | null
   busy: boolean
   complexity: string | null
+  /** The active phase (1-based number, phase count, name); null without a plan or after the last phase. */
+  phase: { number: number; total: number; name: string } | null
   chips: UsageChip[]
 }
 
@@ -165,7 +214,7 @@ export const FIRST_ITEM_INDEX = 1_000_000
 
 export function emptyChat(): ChatState {
   return {
-    items: [], lastSeq: 0, busy: false, roUsed: 0, rwUsed: 0, turnsUsed: 0, budget: null, firstSeq: null, hasMore: false,
+    items: [], lastSeq: 0, busy: false, roUsed: 0, rwUsed: 0, turnsUsed: 0, plan: null, firstSeq: null, hasMore: false,
     firstItemIndex: FIRST_ITEM_INDEX,
   }
 }
@@ -178,23 +227,48 @@ function num(value: unknown, fallback = 0): number {
   return typeof value === 'number' ? value : fallback
 }
 
-/**
- * Read a budget object from an event or API payload.
- * @param raw the `budget` field (or the fields of a `budget` event)
- * @returns the budget, or null when raw is not an object with a complexity
- */
-export function parseBudget(raw: unknown): BudgetInfo | null {
-  if (typeof raw !== 'object' || raw === null) return null
-  const b = raw as Record<string, unknown>
-  if (typeof b.complexity !== 'string') return null
+const PHASE_STATUSES: PhaseStatus[] = ['pending', 'active', 'done', 'failed', 'skipped']
+
+function parsePhase(raw: unknown, fallbackIndex: number): PhaseInfo {
+  const p = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
   return {
-    complexity: b.complexity,
-    roCap: num(b.ro_cap),
-    rwCap: num(b.rw_cap),
-    turnCap: num(b.turn_cap),
-    rationale: str(b.rationale),
-    raised: b.raised === true,
+    index: num(p.index, fallbackIndex),
+    name: str(p.name),
+    goal: str(p.goal),
+    status: PHASE_STATUSES.find((s) => s === p.status) ?? 'pending',
+    roCap: num(p.ro_cap),
+    rwCap: num(p.rw_cap),
+    turnCap: num(p.turn_cap),
+    roUsed: num(p.ro_used),
+    rwUsed: num(p.rw_used),
+    turnsUsed: num(p.turns_used),
+    raised: p.raised === true,
+    summary: str(p.summary),
   }
+}
+
+/**
+ * Read a plan object from an event or API payload.
+ * @param raw the `plan` field (or the fields of a `plan` / `plan_revised` event)
+ * @returns the plan, or null when raw is not an object with a complexity and a phases array
+ */
+export function parsePlan(raw: unknown): PlanInfo | null {
+  if (typeof raw !== 'object' || raw === null) return null
+  const p = raw as Record<string, unknown>
+  if (typeof p.complexity !== 'string' || !Array.isArray(p.phases)) return null
+  return {
+    complexity: p.complexity,
+    rationale: str(p.rationale),
+    revised: p.revised === true,
+    revisionRationale: str(p.revision_rationale),
+    activePhase: typeof p.active_phase === 'number' ? p.active_phase : null,
+    phases: p.phases.map((phase, i) => parsePhase(phase, i)),
+  }
+}
+
+function withPhase(plan: PlanInfo | null, index: number, update: (phase: PhaseInfo) => PhaseInfo, activePhase: number | null): PlanInfo | null {
+  if (plan === null) return null
+  return { ...plan, activePhase, phases: plan.phases.map((phase) => (phase.index === index ? update(phase) : phase)) }
 }
 
 /**
@@ -278,11 +352,49 @@ export function reduceEvent(state: ChatState, event: AgentEvent): ChatState {
         roUsed: num(event.ro_used, state.roUsed),
         rwUsed: num(event.rw_used, state.rwUsed),
         turnsUsed: num(event.turns_used, state.turnsUsed),
-        budget: 'budget' in event ? parseBudget(event.budget) : state.budget,
+        plan: 'plan' in event ? parsePlan(event.plan) : state.plan,
       }
-    case 'budget': {
-      const budget = parseBudget(event)
-      return budget ? { ...next, budget, items: [...state.items, { ...base, kind: 'budget', ...budget }] } : next
+    case 'plan':
+    case 'plan_revised': {
+      const plan = parsePlan(event)
+      if (!plan) return next
+      const kind = event.type === 'plan' ? 'plan' : 'plan_revised'
+      return { ...next, plan, items: [...state.items, { ...base, kind, ...plan }] }
+    }
+    case 'phase_started': {
+      const phase = parsePhase(event, num(event.index))
+      const { status: _status, ...rest } = phase
+      return {
+        ...next,
+        plan: withPhase(state.plan, phase.index, (p) => ({ ...p, status: 'active' }), phase.index),
+        items: [...state.items, { ...base, kind: 'phase_started', ...rest }],
+      }
+    }
+    case 'phase_completed': {
+      const usage = (typeof event.usage === 'object' && event.usage !== null ? event.usage : {}) as Record<string, unknown>
+      const caps = (typeof event.caps === 'object' && event.caps !== null ? event.caps : {}) as Record<string, unknown>
+      const index = num(event.index)
+      const outcome = str(event.outcome)
+      const summary = str(event.summary)
+      const status = PHASE_STATUSES.find((s) => s === outcome) ?? 'done'
+      const item: ChatItem = {
+        ...base,
+        kind: 'phase_completed',
+        index,
+        name: str(event.name),
+        goal: str(event.goal),
+        outcome,
+        summary,
+        usage: { roUsed: num(usage.ro_used), rwUsed: num(usage.rw_used), turnsUsed: num(usage.turns_used) },
+        caps: { roCap: num(caps.ro_cap), rwCap: num(caps.rw_cap), turnCap: num(caps.turn_cap) },
+      }
+      const plan = withPhase(
+        state.plan,
+        index,
+        (p) => ({ ...p, status, summary, roUsed: num(usage.ro_used, p.roUsed), rwUsed: num(usage.rw_used, p.rwUsed), turnsUsed: num(usage.turns_used, p.turnsUsed) }),
+        state.plan?.activePhase === index ? null : (state.plan?.activePhase ?? null),
+      )
+      return { ...next, plan, items: [...state.items, item] }
     }
     case 'robot_event': {
       const severity = SEVERITIES.find((s) => s === event.severity) ?? 'info'
@@ -318,7 +430,7 @@ export function applyFrame(state: ChatState, frame: AgentFrame, maxItems: number
   const hasState = frame.events.some((e) => e.type === 'state')
   return hasState
     ? paged
-    : { ...paged, busy: state.busy, roUsed: state.roUsed, rwUsed: state.rwUsed, turnsUsed: state.turnsUsed, budget: state.budget }
+    : { ...paged, busy: state.busy, roUsed: state.roUsed, rwUsed: state.rwUsed, turnsUsed: state.turnsUsed, plan: state.plan }
 }
 
 /**
@@ -404,7 +516,7 @@ export function parseAgentFrame(raw: string): ParsedFrame | null {
 }
 
 /**
- * Take busy, the usage counters and the budget from a /api/agent/state snapshot.
+ * Take busy, the usage counters and the plan from a /api/agent/state snapshot.
  * @param state current state
  * @param info state snapshot
  * @returns the next state
@@ -416,7 +528,7 @@ export function applyStateSnapshot(state: ChatState, info: AgentInfo): ChatState
     roUsed: info.ro_used,
     rwUsed: info.rw_used,
     turnsUsed: info.turns_used,
-    budget: parseBudget(info.budget),
+    plan: parsePlan(info.plan),
   }
 }
 
@@ -445,24 +557,56 @@ function usageChip(key: UsageChip['key'], name: string, used: number, cap: numbe
   return { key, label: cap === null ? `${name} ${used}` : `${name} ${used} / ${cap}`, level: usageLevel(used, cap) }
 }
 
+function usageBar(key: UsageBar['key'], name: string, used: number, cap: number): UsageBar {
+  return { key, label: `${name} ${used} / ${cap}`, used, cap, fraction: cap > 0 ? Math.min(used / cap, 1) : 0, level: usageLevel(used, cap) }
+}
+
+/**
+ * Rows of the phase list (side panel / header).
+ * @param plan the agent's plan, null before it set one
+ * @returns one row per phase with its status, whether it is the active one and ro / rw / turns usage bars (amber from
+ *   80 percent of a cap, red at the cap); empty without a plan
+ */
+export function phaseRows(plan: PlanInfo | null): PhaseRow[] {
+  if (plan === null) return []
+  return plan.phases.map((p) => ({
+    number: p.index + 1,
+    name: p.name,
+    goal: p.goal,
+    status: p.status,
+    active: p.status === 'active' && plan.activePhase === p.index,
+    summary: p.summary,
+    raised: p.raised,
+    bars: [usageBar('ro', 'ro', p.roUsed, p.roCap), usageBar('rw', 'rw', p.rwUsed, p.rwCap), usageBar('turns', 'turns', p.turnsUsed, p.turnCap)],
+  }))
+}
+
 /**
  * Values of the header strip.
  * @param info last /api/agent/state snapshot, null until loaded
- * @param state live chat state (busy, counters and budget follow state events)
- * @returns model, busy flag, the complexity the agent judged (null before it set a budget) and the ro / rw / turns
- *   chips ("used / cap" once a budget is set, else just "used")
+ * @param state live chat state (busy, counters and plan follow state events)
+ * @returns model, busy flag, the complexity the agent judged (null before it made a plan), the active phase and the
+ *   ro / rw / turns chips of the active phase ("used / cap"); without an active phase the instruction totals, without caps
  */
 export function headerStatus(info: AgentInfo | null, state: ChatState): HeaderStatus {
-  const budget = state.budget
+  const plan = state.plan
+  const active = plan && plan.activePhase !== null ? (plan.phases.find((p) => p.index === plan.activePhase) ?? null) : null
   return {
     model: info?.model ?? null,
     busy: state.busy,
-    complexity: budget?.complexity ?? null,
-    chips: [
-      usageChip('ro', 'ro', state.roUsed, budget?.roCap ?? null),
-      usageChip('rw', 'rw', state.rwUsed, budget?.rwCap ?? null),
-      usageChip('turns', 'turns', state.turnsUsed, budget?.turnCap ?? null),
-    ],
+    complexity: plan?.complexity ?? null,
+    phase: plan && active ? { number: active.index + 1, total: plan.phases.length, name: active.name } : null,
+    chips: active
+      ? [
+          usageChip('ro', 'ro', active.roUsed, active.roCap),
+          usageChip('rw', 'rw', active.rwUsed, active.rwCap),
+          usageChip('turns', 'turns', active.turnsUsed, active.turnCap),
+        ]
+      : [
+          usageChip('ro', 'ro', state.roUsed, null),
+          usageChip('rw', 'rw', state.rwUsed, null),
+          usageChip('turns', 'turns', state.turnsUsed, null),
+        ],
   }
 }
 

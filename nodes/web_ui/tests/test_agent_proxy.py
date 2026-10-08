@@ -29,7 +29,8 @@ AGENT_STATE = {
     "ro_used": 3,
     "rw_used": 2,
     "turns_used": 4,
-    "budget": None,
+    "plan": None,
+    "active_phase": None,
     "session_started_at": 1.0,
 }
 LOW_V = 8.21
