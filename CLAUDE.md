@@ -159,7 +159,7 @@ Run from the **repository root** unless noted:
 | Command | What it does |
 |---|---|
 | `uv run poe lint` | Lint `tests/` and `shared/` (root level) |
-| `uv run poe lint-nodes` | Lint all Python nodes (all 15 node directories with `pyproject.toml`) |
+| `uv run poe lint-nodes` | Lint all Python nodes (all 18 node directories with `pyproject.toml`) |
 | `./scripts/lint-all-nodes.sh` | Alternative: lint all nodes via shell script (same coverage) |
 | `uv run poe lint-ansible` | Run ansible-lint |
 | `uv run poe test-ansible` | ansible-lint + playbook `--syntax-check` |

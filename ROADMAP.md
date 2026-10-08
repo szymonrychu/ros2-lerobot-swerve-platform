@@ -5,8 +5,8 @@
 Non functional requirements:
 * written in Python3
 * Python3 installation managed with `mise`
-* Dependencies managed by uv and Poetry
-* extensive linting including `pre-commit`, `flake8`, `black`, `isort`, `vulture`, `autoflake`, `coverage`, `pytest` (based on https://github.com/szymonrychu/hikvision-doorbell repository configuration)
+* Dependencies managed by uv
+* extensive linting including `pre-commit`, `ruff`, `vulture`, `coverage`, `pytest` (based on https://github.com/szymonrychu/hikvision-doorbell repository configuration)
 * Ansible is able to provision Client and Server raspberry pis running Ubuntu 24.04 (not raspbian)
 * Every part of the software developed for the purpose of this project is storedin this reposusitory
 * Development is augmented by AI, because of that files like `CLAUDE.md`, `MEMORY.md` also exist
