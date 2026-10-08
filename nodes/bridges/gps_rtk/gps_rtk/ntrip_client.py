@@ -5,7 +5,8 @@ import logging
 import socket
 import threading
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 LOG = logging.getLogger(__name__)
 
@@ -164,7 +165,7 @@ class NtripClient:
             sock.settimeout(1.0)
             try:
                 data = sock.recv(_RECV_SIZE)
-            except socket.timeout:
+            except TimeoutError:
                 data = None  # timeout — not an EOF
             except (ConnectionResetError, BrokenPipeError, OSError) as e:
                 self._log_debug("NTRIP stream error: %s", e)

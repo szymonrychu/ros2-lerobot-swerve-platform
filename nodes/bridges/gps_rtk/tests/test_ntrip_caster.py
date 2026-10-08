@@ -55,7 +55,7 @@ def _caster_with_request(
         client.sendall(request)
         try:
             response = client.recv(1024)
-        except socket.timeout:
+        except TimeoutError:
             response = b""
         client.close()
     finally:
@@ -133,7 +133,7 @@ def test_broadcast_rtcm_to_connected_clients() -> None:
         time.sleep(0.05)
         assert caster.client_count == 2
 
-        frame = b"\xD3\x00\x02\x01\x02\x00\x00\x00"  # fake frame (not CRC-validated here)
+        frame = b"\xd3\x00\x02\x01\x02\x00\x00\x00"  # fake frame (not CRC-validated here)
         caster.broadcast_rtcm(frame)
         for c in clients:
             c.settimeout(1.0)
@@ -171,9 +171,9 @@ def test_disconnected_client_removed() -> None:
         time.sleep(0.05)
 
         # First broadcast may succeed on macOS (CLOSE_WAIT) — second detects the dead socket
-        caster.broadcast_rtcm(b"\xD3\x00\x01\xFF\x00\x00\x00")
+        caster.broadcast_rtcm(b"\xd3\x00\x01\xff\x00\x00\x00")
         time.sleep(0.05)
-        caster.broadcast_rtcm(b"\xD3\x00\x01\xFF\x00\x00\x00")
+        caster.broadcast_rtcm(b"\xd3\x00\x01\xff\x00\x00\x00")
         time.sleep(0.05)
         assert caster.client_count == 0
     finally:

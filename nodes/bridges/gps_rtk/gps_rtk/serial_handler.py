@@ -4,7 +4,7 @@ import logging
 import re
 import threading
 import time
-from typing import Callable
+from collections.abc import Callable
 
 import serial
 

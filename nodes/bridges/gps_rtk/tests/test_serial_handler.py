@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import serial
+
 from gps_rtk.rtcm3 import crc24q, is_valid_rtcm3_frame, parse_rtcm3_length
 from gps_rtk.serial_handler import SerialHandler, SerialStreamParser, append_checksum_if_missing, nmea_checksum
 
@@ -55,7 +56,7 @@ def test_parse_rtcm3_message_type() -> None:
 def test_parse_rtcm3_message_type_too_short() -> None:
     from gps_rtk.rtcm3 import parse_rtcm3_message_type
 
-    assert parse_rtcm3_message_type(b"\xD3\x00\x02\x3E") is None  # only 4 bytes, need 6
+    assert parse_rtcm3_message_type(b"\xd3\x00\x02\x3e") is None  # only 4 bytes, need 6
 
 
 def test_build_valid_rtcm3_frame() -> None:
@@ -68,7 +69,7 @@ def test_build_valid_rtcm3_frame() -> None:
 
 
 def test_is_valid_rtcm3_frame_too_short() -> None:
-    assert is_valid_rtcm3_frame(b"\xD3\x00") is False
+    assert is_valid_rtcm3_frame(b"\xd3\x00") is False
 
 
 def test_is_valid_rtcm3_frame_wrong_preamble() -> None:

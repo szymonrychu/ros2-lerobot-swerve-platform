@@ -134,7 +134,7 @@ class NtripCaster:
             try:
                 self._server_socket.settimeout(1.0)
                 client, addr = self._server_socket.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break
@@ -147,7 +147,7 @@ class NtripCaster:
         try:
             sock.settimeout(_REQUEST_TIMEOUT_S)
             raw = sock.recv(_REQUEST_READ_SIZE)
-        except (socket.timeout, OSError) as e:
+        except (TimeoutError, OSError) as e:
             self._log_debug("Failed to read NTRIP request from %s: %s", addr[0], e)
             try:
                 sock.close()

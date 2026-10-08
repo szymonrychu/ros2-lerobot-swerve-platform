@@ -33,7 +33,7 @@ def _start_fake_caster(
                 conn.sendall(data_to_send)
             time.sleep(0.5)
             conn.close()
-        except (socket.timeout, OSError):
+        except (TimeoutError, OSError):
             pass
         finally:
             server.close()
@@ -70,7 +70,7 @@ def test_ntrip_build_request_contains_mountpoint() -> None:
             conn.sendall(b"ICY 200 OK\r\n\r\n")
             time.sleep(0.2)
             conn.close()
-        except (socket.timeout, OSError):
+        except (TimeoutError, OSError):
             pass
         finally:
             server.close()
@@ -119,7 +119,7 @@ def test_ntrip_auth_header_included_when_credentials_set() -> None:
             conn.sendall(b"ICY 200 OK\r\n\r\n")
             time.sleep(0.1)
             conn.close()
-        except (socket.timeout, OSError):
+        except (TimeoutError, OSError):
             pass
         finally:
             server.close()
@@ -151,7 +151,7 @@ def test_ntrip_parse_icy_200_receives_data() -> None:
     """Client forwards RTCM data from caster to on_data callback."""
     received: list[bytes] = []
     port = _free_port()
-    rtcm_data = b"\xD3\x00\x04\x3E\xD0\x00\x00\x00\x00\x00"
+    rtcm_data = b"\xd3\x00\x04\x3e\xd0\x00\x00\x00\x00\x00"
 
     _start_fake_caster(port, b"ICY 200 OK\r\n\r\n", data_to_send=rtcm_data)
     time.sleep(0.05)
@@ -211,7 +211,7 @@ def test_ntrip_is_connected_reflects_state() -> None:
             conn.sendall(b"ICY 200 OK\r\n\r\n")
             time.sleep(1.0)
             conn.close()
-        except (socket.timeout, OSError):
+        except (TimeoutError, OSError):
             pass
         finally:
             server.close()
@@ -260,10 +260,10 @@ def test_ntrip_sends_gga_to_caster() -> None:
                     if not data:
                         break
                     sent_to_caster.append(data)
-                except socket.timeout:
+                except TimeoutError:
                     break
             conn.close()
-        except (socket.timeout, OSError):
+        except (TimeoutError, OSError):
             pass
         finally:
             server.close()
@@ -312,7 +312,7 @@ def test_ntrip_reconnects_on_disconnect() -> None:
                     conn.sendall(b"ICY 200 OK\r\n\r\n")
                     time.sleep(0.05)
                     conn.close()  # immediately drop
-                except (socket.timeout, OSError):
+                except (TimeoutError, OSError):
                     break
         finally:
             server.close()

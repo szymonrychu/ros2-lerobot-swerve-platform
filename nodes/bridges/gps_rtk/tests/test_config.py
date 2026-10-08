@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
 from gps_rtk.config import GpsRtkConfig, load_config
 
 
