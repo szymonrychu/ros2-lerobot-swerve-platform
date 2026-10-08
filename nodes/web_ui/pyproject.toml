@@ -3,7 +3,7 @@ name = "web-ui"
 version = "0.1.0"
 description = "ROS2 web dashboard — FastAPI bridge + React frontend"
 readme = "README.md"
-requires-python = ">=3.11,<3.15"
+requires-python = ">=3.12,<3.15"
 dependencies = [
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
@@ -19,7 +19,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff==0.16.10",
+    "ruff==0.15.20",
     "vulture>=2.11,<3",
     "poethepoet>=0.42.0,<0.43",
     "pytest>=8.0.0,<9",
@@ -40,7 +40,7 @@ packages = ["web_ui"]
 line-length = 120
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = ["E", "F", "I", "UP", "W"]
 ignore = ["E501"]
 
 [tool.vulture]
