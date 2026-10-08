@@ -657,9 +657,9 @@ class Typed:
     def __setattr__(self, name: str, value: Any) -> None:
         expected = self._types.get(name)
         if expected is not None and expected is not object:
-            assert isinstance(value, expected) and not (
-                expected is int and isinstance(value, bool)
-            ), f"{name} expects {expected.__name__}, got {type(value).__name__}"
+            assert isinstance(value, expected) and not (expected is int and isinstance(value, bool)), (
+                f"{name} expects {expected.__name__}, got {type(value).__name__}"
+            )
         object.__setattr__(self, name, value)
 
 
