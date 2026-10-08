@@ -157,7 +157,7 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
             # No fresh, complete wheel state: publish nothing (bridge watchdog stops the wheels).
             if now - last_wait_log > WAIT_LOG_INTERVAL_S:
                 last_wait_log = now
-                logger.warn("Waiting for fresh joint states on %s" % config.joint_states_topic)
+                logger.warn(f"Waiting for fresh joint states on {config.joint_states_topic}")
             return
         stamp = clock.now().to_msg()
         cmd = JointState()
@@ -175,20 +175,8 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
     node.create_timer(1.0 / config.control_loop_hz, on_timer)
 
     logger.info(
-        "Swerve controller: %s -> %s, odom -> %s (Lx=%.4f Ly=%.4f R=%.3f, steer limit %.2f rad, wheel max %.2f rad/s, "
-        "%.0f Hz, tf=%s)"
-        % (
-            config.cmd_vel_topic,
-            config.joint_commands_topic,
-            config.odom_topic,
-            config.half_length_m,
-            config.half_width_m,
-            config.wheel_radius_m,
-            config.max_steer_angle_rad,
-            config.max_wheel_angular_velocity_rad_s,
-            config.control_loop_hz,
-            config.publish_tf,
-        )
+        f"Swerve controller: {config.cmd_vel_topic} -> {config.joint_commands_topic}, odom -> {config.odom_topic} (Lx={config.half_length_m:.4f} Ly={config.half_width_m:.4f} R={config.wheel_radius_m:.3f}, steer limit {config.max_steer_angle_rad:.2f} rad, wheel max {config.max_wheel_angular_velocity_rad_s:.2f} rad/s, "
+        f"{config.control_loop_hz:.0f} Hz, tf={config.publish_tf})"
     )
 
     try:
