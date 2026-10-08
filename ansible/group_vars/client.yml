@@ -794,7 +794,7 @@ ros2_nodes:
     config: |
       ekf_filter_node:
         ros__parameters:
-          frequency: 50.0
+          frequency: 30.0
           sensor_timeout: 0.1
           two_d_mode: true
           publish_tf: true

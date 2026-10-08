@@ -992,3 +992,15 @@ def test_rf2o_retry_laser_tf_patch_exists_and_is_wired() -> None:
 def test_rf2o_odom_relay_declares_numpy() -> None:
     pyproject = (REPO_ROOT / "nodes" / "rf2o_odom_relay" / "pyproject.toml").read_text()
     assert re.search(r"^numpy\s*=", pyproject, re.M)
+
+
+def test_ekf_rate_fits_the_cpu_budget() -> None:
+    """2026-10-08: at 50 Hz the EKF kept logging 'Failed to meet update rate' on the loaded Pi; its odom TF lagged the
+    scans, slam_toolbox dropped them and map->base_link went stale. 30 Hz is enough for a 0.25 m/s base."""
+    assert ekf_params(yaml.safe_load(EKF_CONFIG.read_text()))["frequency"] == 30.0
+
+
+def test_slam_waits_for_a_lagging_odom_transform() -> None:
+    """slam_toolbox's message filter dropped every scan whose odom TF arrived after transform_timeout 0.2 s."""
+    p = yaml.safe_load(SLAM_PARAMS.read_text())["slam_toolbox"]["ros__parameters"]
+    assert p["transform_timeout"] >= 0.5
