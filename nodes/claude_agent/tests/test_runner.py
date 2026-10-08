@@ -1,7 +1,6 @@
 """AgentRunner with a fake Claude client: options, turn flow, busy handling, interrupt, reset, auth errors."""
 
 import asyncio
-import json
 from pathlib import Path
 
 from claude_agent_sdk import (
@@ -16,6 +15,7 @@ from claude_agent_sdk import (
 
 from claude_agent.config import TURN_MARGIN, ClaudeAgentConfig, MissingTokenError
 from claude_agent.events import EventLog
+from claude_agent.poi_clear import PoiClearResult
 from claude_agent.robot_stop import RobotStopResult
 from claude_agent.runner import AgentRunner, build_child_env, build_options
 from claude_agent.tools import BUILTIN_TOOLS, EffectorGate
@@ -99,8 +99,20 @@ class FakeStopper:
         return self.result
 
 
+class FakeClearer:
+    """Records POI clear calls."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.result = PoiClearResult(False, "removed 2")
+
+    async def __call__(self) -> PoiClearResult:
+        self.calls += 1
+        return self.result
+
+
 def make_runner(
-    tmp_path: Path, config: ClaudeAgentConfig | None = None, script=None, block=False, stopper=None, poi_publisher=None
+    tmp_path: Path, config: ClaudeAgentConfig | None = None, script=None, block=False, stopper=None, clearer=None
 ):
     FakeClient.instances.clear()
     token = tmp_path / "token"
@@ -120,7 +132,7 @@ def make_runner(
         client_factory=factory,
         base_env={"ANTHROPIC_API_KEY": "sk", "CLAUDE_CODE_OAUTH_TOKEN": "oa"},
         robot_stopper=stopper or FakeStopper(),
-        poi_publisher=poi_publisher,
+        poi_clearer=clearer or FakeClearer(),
     )
     return runner, events, cfg
 
@@ -391,37 +403,47 @@ async def test_reset_stops_the_robot(tmp_path: Path) -> None:
     assert stop_events(events) == []
 
 
-async def test_reset_clears_agent_made_pois(tmp_path: Path) -> None:
-    published: list[str] = []
-    runner, _, _ = make_runner(tmp_path, poi_publisher=published.append)
-    assert published == [], "nothing is published on start"
+async def test_reset_clears_agent_made_pois_through_the_mcp_server(tmp_path: Path) -> None:
+    clearer = FakeClearer()
+    runner, _, _ = make_runner(tmp_path, clearer=clearer)
+    assert clearer.calls == 0, "nothing is cleared on start"
     assert await runner.reset() is True
-    assert len(published) == 1
-    command = json.loads(published[0])
-    assert command["op"] == "clear" and command["created_by"] == "agent" and command["request_id"]
+    assert clearer.calls == 1
 
 
 async def test_refused_reset_does_not_clear_pois(tmp_path: Path) -> None:
-    published: list[str] = []
-    runner, _, _ = make_runner(tmp_path, script=[make_result()], block=True, poi_publisher=published.append)
+    clearer = FakeClearer()
+    runner, _, _ = make_runner(tmp_path, script=[make_result()], block=True, clearer=clearer)
     await runner.start_instruction("one")
     assert await runner.reset() is False
-    assert published == []
+    assert clearer.calls == 0
     await runner.interrupt()
     await runner.wait_idle()
 
 
-async def test_reset_survives_a_failing_poi_publisher(tmp_path: Path) -> None:
-    def boom(_payload: str) -> None:
-        raise RuntimeError("publisher gone")
+async def test_reset_survives_a_failed_poi_clear(tmp_path: Path) -> None:
+    clearer = FakeClearer()
+    clearer.result = PoiClearResult(True, "clear failed: 503")
+    warnings: list[str] = []
 
-    runner, events, _ = make_runner(tmp_path, poi_publisher=boom)
+    class Log:
+        def info(self, _m: str) -> None: ...
+        def error(self, _m: str) -> None: ...
+        def warning(self, m: str) -> None:
+            warnings.append(m)
+
+    runner, events, _ = make_runner(tmp_path, clearer=clearer)
+    runner.logger = Log()
     assert await runner.reset() is True
     assert types_of(events) == ["state"]
+    assert any("503" in w for w in warnings)
 
 
-async def test_reset_without_poi_publisher_still_works(tmp_path: Path) -> None:
-    runner, _, _ = make_runner(tmp_path)
+async def test_reset_survives_a_raising_poi_clearer(tmp_path: Path) -> None:
+    async def boom() -> PoiClearResult:
+        raise RuntimeError("clearer gone")
+
+    runner, _, _ = make_runner(tmp_path, clearer=boom)
     assert await runner.reset() is True
 
 

@@ -78,20 +78,10 @@ def test_main_binds_loopback_and_uses_ros_logger(stubs) -> None:
     assert not any("sk-secret" in line for line in StubNode.logger.lines)
 
 
-def test_main_wires_the_poi_clear_publisher_without_publishing_on_start(stubs, monkeypatch) -> None:
-    captured: dict = {}
-    real_runner = entry.AgentRunner
-
-    def spy(*args, **kwargs):
-        captured["runner"] = real_runner(*args, **kwargs)
-        return captured["runner"]
-
-    monkeypatch.setattr(entry, "AgentRunner", spy)
+def test_main_creates_no_poi_publisher(stubs) -> None:
+    """The POI clear goes over HTTP to mcp_server (cross-user DDS does not reach poi_store)."""
     assert entry.main() == 0
-    (publisher,) = StubNode.publishers
-    assert publisher.topic == "/poi/command" and publisher.sent == []
-    captured["runner"].poi_publisher('{"op": "clear"}')
-    assert [msg.data for msg in publisher.sent] == ['{"op": "clear"}']
+    assert StubNode.publishers == []
 
 
 def test_main_removes_api_key_from_process_env(stubs) -> None:

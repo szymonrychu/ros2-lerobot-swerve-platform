@@ -245,10 +245,11 @@ Covers:
 - runner (`test_runner.py`): SDK options (robot HTTP MCP server with bearer header, `tools=[]`, no allow rules, `can_use_tool`), event
   flow with a fake client, token never in events, busy refusal, interrupt, plan and counters reset per instruction, `plan` / `phase_started` /
   `phase_completed` / `plan_revised` and `state` events (ro/rw/turns/plan), the instruction turn maximum (interrupt, robot stop, `turn_cap` status), the phase turn cap note (follow-up, no stop), denial events,
-  auth error, session failure and missing token become error events, reset starts a new session and publishes the POI `clear` command for `created_by: agent` (fake publisher; not on start, not on a refused reset, a failing publisher does not break the reset, no publisher = no cleanup)
+  auth error, session failure and missing token become error events, reset starts a new session and clears the agent POIs through the injected clearer (fake; not on start, not on a refused reset, an error result or a raising clearer is logged and does not break the reset)
+- POI clear (`test_poi_clear.py`): `clear_url` keeps scheme/host/port and swaps the path; the POST carries the bearer token and reports the removed count; wrong token, poi_store down (503), unreachable server, missing token file and timeout all return an error result instead of raising (real uvicorn app on an ephemeral port)
 - API (`test_api.py`): `/api/state` (plan, active phase, usage, hard and per-phase maxima), `/api/history`, `/api/message` (202 / 409 busy / 400 empty or invalid), `/api/stop`,
   `/api/reset` (409 while busy), `/ws/events` history on connect then live events, shutdown hook
-- entry point (`test_main.py`): loopback bind and port from config, the `/robot_events` subscription (volatile QoS) and its callback, the `/poi/command` publisher wired into the runner (nothing published on start), ROS2 logger, API key removed from the process env, invalid config exits 1
+- entry point (`test_main.py`): loopback bind and port from config, the `/robot_events` subscription (volatile QoS) and its callback, no POI publisher is created (the clear goes over HTTP), ROS2 logger, API key removed from the process env, invalid config exits 1
 
 ### Per-node tests (mcp_server)
 
@@ -562,7 +563,7 @@ layout; no ROS needed).
 | `test_claude_agent_node_type_defaults` | `claude_agent` node type: native, `nodes/claude_agent`, `python3 -m claude_agent`, 50% / 1G, nice, user `claude_agent`, group `mcp-token`, `environment_file` `/etc/ros2/claude_agent/env`, `DISABLE_AUTOUPDATER=1`, no secret in `env`. |
 | `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `poi_store` (which follows `mcp_server`). |
 | `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
-| `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (rw 150 / turns 200), the per-phase maxima (40 / 40), no ro maxima and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`; `poi_command_topic` equals the poi_store `command_topic`. |
+| `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (rw 150 / turns 200), the per-phase maxima (40 / 40), no ro maxima and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`; no `poi_command_topic` (the reset clears POIs over HTTP via mcp_server). |
 | `test_effector_tools_match_mcp_server_motion_tools` | `effector_tools` in the claude_agent config equals mcp_server `MOTION_TOOLS` (parsed from tools.py with `ast`), so the effector cap and the battery gate cover the same tools. Strict: `look_around` must be in `MOTION_TOOLS`. |
 | `test_round2_tools_classified_in_group_vars_and_defaults` | `look_around` is an effector and `get_body_state` plus the round-2 sensor tools (pixel_to_ground, annotated image, candidates, calibration, topdown view, objects, POIs) are sensors, in both the client.yml config and the code defaults. |
 | `test_service_template_user_groups_and_nice_are_optional` | Unit template: `User=` defaults to `ansible_user`; `node_user`, `SupplementaryGroups=` and `Nice=` only when set. |

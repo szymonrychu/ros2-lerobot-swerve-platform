@@ -491,4 +491,4 @@ def test_claude_agent_config_has_budget_maxima_and_robot_events_topic() -> None:
     assert "max_ro_cap" not in raw and "max_phase_ro_cap" not in raw
     assert "effector_call_cap" not in raw and "max_turns" not in raw
     assert raw["robot_events_topic"] == "/robot_events"
-    assert raw["poi_command_topic"] == yaml.safe_load(node_entry("poi_store")["config"])["command_topic"]
+    assert "poi_command_topic" not in raw, "the POI clear goes over HTTP to mcp_server, not DDS"
