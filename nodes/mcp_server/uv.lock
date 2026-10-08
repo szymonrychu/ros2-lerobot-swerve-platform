@@ -786,10 +786,16 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=1.26.0" },
-    { name = "opencv-python-headless", specifier = ">=4.9.0" },
+    { name = "opencv-python-headless", specifier = ">=4.9.0,<5" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "scipy", specifier = ">=1.11.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ruff", specifier = "==0.15.20" },
+    { name = "vulture", specifier = ">=2.11" },
 ]
 
 [[package]]
