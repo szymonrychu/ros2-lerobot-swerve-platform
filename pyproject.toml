@@ -100,4 +100,7 @@ test-ansible = { shell = """
   ansible-playbook -i inventory playbooks/deploy_nodes_server.yml --syntax-check
   ansible-playbook -i inventory playbooks/controller.yml --syntax-check
   ansible-playbook -i inventory playbooks/deploy_steamdeck_ui.yml --syntax-check
+  ansible-playbook -i inventory playbooks/deploy_topic_scraper_client_config.yml --syntax-check
+  ansible-playbook -i inventory playbooks/docker_cleanup.yml --syntax-check
+  ansible-playbook -i inventory playbooks/optimize.yml --syntax-check
 """ }

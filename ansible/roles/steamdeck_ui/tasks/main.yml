@@ -30,11 +30,16 @@
 
 # ── ROS2 Jazzy ───────────────────────────────────────────────────────────────
 
+- name: Download ROS2 apt key (ASCII-armored)
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/ros/rosdistro/master/ros.key
+    dest: /etc/apt/keyrings/ros-archive-keyring.asc
+    mode: "0644"
+  become: true
+
 - name: Add ROS2 apt key
-  ansible.builtin.shell:
-    cmd: >
-      curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key
-      | gpg --dearmor -o /etc/apt/keyrings/ros-archive-keyring.gpg
+  ansible.builtin.command:
+    cmd: gpg --dearmor -o /etc/apt/keyrings/ros-archive-keyring.gpg /etc/apt/keyrings/ros-archive-keyring.asc
     creates: /etc/apt/keyrings/ros-archive-keyring.gpg
   become: true
 
@@ -86,11 +91,16 @@
 
 # ── Node.js ──────────────────────────────────────────────────────────────────
 
+- name: Download NodeSource apt key (ASCII-armored)
+  ansible.builtin.get_url:
+    url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+    dest: /etc/apt/keyrings/nodesource.asc
+    mode: "0644"
+  become: true
+
 - name: Add NodeSource apt key
-  ansible.builtin.shell:
-    cmd: >
-      curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
-      | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+  ansible.builtin.command:
+    cmd: gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg /etc/apt/keyrings/nodesource.asc
     creates: /etc/apt/keyrings/nodesource.gpg
   become: true
 

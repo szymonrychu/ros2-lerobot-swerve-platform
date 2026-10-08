@@ -24,6 +24,7 @@
   tags: [verify, always]
 
 - name: Check every present and enabled ROS2 node service is active (with retries)
+  # noqa: command-instead-of-module - no module checks the ActiveState of many units in one call (systemd is per unit)
   ansible.builtin.command: systemctl is-active {{ _ros2_verify_units | join(' ') }}
   register: _ros2_verify_active
   changed_when: false
@@ -41,6 +42,7 @@
   tags: [verify, always]
 
 - name: Re-check ROS2 node services are still active (stable)
+  # noqa: command-instead-of-module - no module checks the ActiveState of many units in one call (systemd is per unit)
   ansible.builtin.command: systemctl is-active {{ _ros2_verify_units | join(' ') }}
   register: _ros2_verify_stable
   changed_when: false

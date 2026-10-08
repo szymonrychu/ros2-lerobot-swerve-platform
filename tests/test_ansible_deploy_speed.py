@@ -5,6 +5,7 @@ import json
 import os
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -985,3 +986,83 @@ def test_ros2_master_and_fastdds_watch_no_repo_path(target: str) -> None:
     types = load(ANSIBLE_DIR / "group_vars" / f"{target}.yml")["ros2_node_type_defaults"]
     for name in ("ros2_master", "fastdds_discovery_server"):
         assert types[name]["src_paths"] == [], name
+
+
+LINT_LINE_LIMIT = 160
+FOLDED_LAUNCH_COMMANDS = {
+    "realsense_d435i": (
+        "ros2 launch realsense2_camera rs_launch.py enable_accel:=false enable_gyro:=false "
+        "depth_module.depth_profile:=848x480x90 rgb_camera.color_profile:=1280x720x30 align_depth.enable:=true"
+    ),
+    "laser_filter": (
+        "ros2 run laser_filters scan_to_scan_filter_chain --ros-args --params-file "
+        "{{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml "
+        "-r scan:=/scan -r scan_filtered:=/scan_filtered"
+    ),
+    "nav2_bringup": (
+        "ros2 launch nav2_bringup bringup_launch.py use_localization:=False "
+        "params_file:={{ ros2_repo_dest }}/nodes/nav2_bringup/config/nav2_params.yaml"
+    ),
+}
+
+
+@pytest.mark.parametrize("node_type", sorted(FOLDED_LAUNCH_COMMANDS))
+def test_wrapped_launch_commands_render_byte_identical(node_type: str) -> None:
+    """Folding long launch commands for yamllint must not change the command string the launcher runs."""
+    types = load(ANSIBLE_DIR / "group_vars" / "client.yml")["ros2_node_type_defaults"]
+    assert types[node_type]["node_launch_command"] == FOLDED_LAUNCH_COMMANDS[node_type]
+
+
+def test_ansible_yaml_lines_fit_the_lint_limit() -> None:
+    long_lines = [
+        f"{path.relative_to(ANSIBLE_DIR)}:{number}"
+        for path in sorted(ANSIBLE_DIR.rglob("*.yml"))
+        for number, line in enumerate(path.read_text().splitlines(), start=1)
+        if len(line) > LINT_LINE_LIMIT
+    ]
+    assert long_lines == []
+
+
+def test_every_play_is_named() -> None:
+    playbooks = [ANSIBLE_DIR / "site.yml", *sorted(PLAYBOOKS_DIR.glob("*.yml"))]
+    unnamed = [p.name for p in playbooks for play in load(p) if "name" not in play]
+    assert unnamed == []
+
+
+def test_test_ansible_syntax_checks_every_playbook() -> None:
+    task = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["tool"]["poe"]["tasks"]["test-ansible"]["shell"]
+    checked = set(re.findall(r"ansible-playbook -i inventory (\S+) --syntax-check", task))
+    expected = {"site.yml", *(f"playbooks/{p.name}" for p in PLAYBOOKS_DIR.glob("*.yml"))}
+    assert checked == expected
+    assert "ansible-lint ." in task
+
+
+def test_steamdeck_apt_keys_are_downloaded_with_get_url_and_dearmored_to_the_same_keyrings() -> None:
+    tasks = load(ANSIBLE_DIR / "roles" / "steamdeck_ui" / "tasks" / "main.yml")
+    commands = [str(t.get("ansible.builtin.shell", "")) + str(t.get("ansible.builtin.command", "")) for t in tasks]
+    assert not any("curl" in c for c in commands)
+    downloads = {t["ansible.builtin.get_url"]["url"]: t for t in tasks if "ansible.builtin.get_url" in t}
+    dearmor = [t["ansible.builtin.command"] for t in tasks if "gpg --dearmor" in str(t.get("ansible.builtin.command"))]
+    for url, keyring in (
+        ("https://raw.githubusercontent.com/ros/rosdistro/master/ros.key", "/etc/apt/keyrings/ros-archive-keyring.gpg"),
+        ("https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key", "/etc/apt/keyrings/nodesource.gpg"),
+    ):
+        armored = downloads[url]["ansible.builtin.get_url"]["dest"]
+        step = next(c for c in dearmor if c["creates"] == keyring)
+        assert step["cmd"] == f"gpg --dearmor -o {keyring} {armored}"
+
+
+def test_system_optimize_mounts_use_the_posix_mount_module_with_the_same_effect() -> None:
+    tasks = {t["name"]: t for t in load(ANSIBLE_DIR / "roles" / "system_optimize" / "tasks" / "main.yml")}
+    assert "mount " not in str([t.get("ansible.builtin.command", "") for t in tasks.values()])
+    root = tasks["Remount root with noatime"]["ansible.posix.mount"]
+    assert root == {"path": "/", "state": "remounted", "opts": "noatime"}, "runs: mount -o remount,noatime /"
+    tmp = tasks["Mount /tmp as tmpfs now"]["ansible.posix.mount"]
+    assert tmp == {"path": "/tmp", "state": "remounted"}, "runs: mount -o remount /tmp"
+    fstab = tasks["Add tmpfs mount for /var/tmp in fstab"]["ansible.builtin.lineinfile"]["line"]
+    var_tmp = tasks["Mount /var/tmp as tmpfs now"]["ansible.posix.mount"]
+    assert var_tmp["state"] == "mounted", "mounts the fstab entry if not yet mounted, like: mount /var/tmp"
+    rendered = " ".join(str(var_tmp[k]) for k in ("src", "path", "fstype", "opts", "dump", "passno"))
+    assert rendered == fstab, "same fields as the lineinfile entry, so the module leaves fstab untouched"
+    for name in ("Remount root with noatime", "Mount /tmp as tmpfs now", "Mount /var/tmp as tmpfs now"):
+        assert tasks[name]["failed_when"] is False and tasks[name]["changed_when"] is False

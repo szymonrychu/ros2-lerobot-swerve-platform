@@ -1,6 +1,7 @@
 ---
 # One-off: push topic_scraper_api config (with Imu in allowed_types) to client and restart.
-- hosts: client
+- name: Push topic_scraper_api config with Imu allowed to the client
+  hosts: client
   vars:
     node_name: topic_scraper_api
     ros2_node_config_dir: /etc/ros2

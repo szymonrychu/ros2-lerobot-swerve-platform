@@ -127,7 +127,9 @@ ros2_node_type_defaults:
       - ros-jazzy-rplidar-ros
   realsense_d435i:
     deploy_mode: native
-    node_launch_command: "ros2 launch realsense2_camera rs_launch.py enable_accel:=false enable_gyro:=false depth_module.depth_profile:=848x480x90 rgb_camera.color_profile:=1280x720x30 align_depth.enable:=true"
+    node_launch_command: >-
+      ros2 launch realsense2_camera rs_launch.py enable_accel:=false enable_gyro:=false
+      depth_module.depth_profile:=848x480x90 rgb_camera.color_profile:=1280x720x30 align_depth.enable:=true
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/bridges/realsense_d435i]
@@ -211,7 +213,10 @@ ros2_node_type_defaults:
       - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_drive_controller/config.yaml
   laser_filter:
     deploy_mode: native
-    node_launch_command: "ros2 run laser_filters scan_to_scan_filter_chain --ros-args --params-file {{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml -r scan:=/scan -r scan_filtered:=/scan_filtered"
+    node_launch_command: >-
+      ros2 run laser_filters scan_to_scan_filter_chain --ros-args
+      --params-file {{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml
+      -r scan:=/scan -r scan_filtered:=/scan_filtered
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/laser_filter]
@@ -294,7 +299,9 @@ ros2_node_type_defaults:
   nav2_bringup:
     deploy_mode: native
     # SLAM runs as its own node (slam_toolbox, online async), so Nav2 starts without localization/map_server.
-    node_launch_command: "ros2 launch nav2_bringup bringup_launch.py use_localization:=False params_file:={{ ros2_repo_dest }}/nodes/nav2_bringup/config/nav2_params.yaml"
+    node_launch_command: >-
+      ros2 launch nav2_bringup bringup_launch.py use_localization:=False
+      params_file:={{ ros2_repo_dest }}/nodes/nav2_bringup/config/nav2_params.yaml
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/nav2_bringup]

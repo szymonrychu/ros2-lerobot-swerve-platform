@@ -151,7 +151,10 @@
   when: sdcard_optimize_fstab
 
 - name: Remount root with noatime
-  ansible.builtin.command: mount -o remount,noatime /
+  ansible.posix.mount:  # remounted + opts runs: mount -o remount,noatime /
+    path: /
+    state: remounted
+    opts: noatime
   when: sdcard_optimize_fstab
   failed_when: false
   changed_when: false
@@ -203,7 +206,9 @@
   when: tmpfs_tmp_enabled
 
 - name: Mount /tmp as tmpfs now
-  ansible.builtin.command: mount -o remount /tmp
+  ansible.posix.mount:  # remounted without opts runs: mount -o remount /tmp
+    path: /tmp
+    state: remounted
   when: tmpfs_tmp_enabled
   failed_when: false
   changed_when: false
@@ -217,7 +222,14 @@
   when: tmpfs_var_tmp_enabled
 
 - name: Mount /var/tmp as tmpfs now
-  ansible.builtin.command: mount /var/tmp
+  ansible.posix.mount:  # same fields as the fstab line above, so fstab is left as is; mounts only if not mounted
+    src: tmpfs
+    path: /var/tmp
+    fstype: tmpfs
+    opts: "defaults,noatime,nosuid,nodev,size={{ tmpfs_var_tmp_size }}"
+    dump: "0"
+    passno: "0"
+    state: mounted
   when: tmpfs_var_tmp_enabled
   failed_when: false
   changed_when: false
