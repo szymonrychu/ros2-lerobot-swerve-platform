@@ -39,7 +39,7 @@ def run_static_tf_publisher(transforms: list[FrameTransform]) -> None:
         msgs.append(msg)
 
     broadcaster.sendTransform(msgs)
-    node.get_logger().info("Published %d static transform(s)" % len(msgs))
+    node.get_logger().info(f"Published {len(msgs)} static transform(s)")
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
