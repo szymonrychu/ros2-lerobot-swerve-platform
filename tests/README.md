@@ -344,8 +344,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - monitor (`test_monitor.py`): servo overheat warning/critical with hysteresis, debounce and `_cleared` info events, status
   error bits decoded (critical), battery low/cut-off from the shared guard, IMU bump (baseline removed, debounce,
   warning/critical) and tilt, wheel slip from the swerve twist covariance (parked = no residual), base stall (needs a
-  running base motion, commanded speed and fresh ~0 odometry for 1 s), collision STOP only during a base motion (also
-  latched), human takeover only while the lease is held, CPU temperature, digest cursor/cap/vitals line, `MotionWatch`
+  running base motion, commanded speed and fresh ~0 odometry for 1 s), collision STOP only during a base motion (a STOP
+  latched before the motion fires after the 0.5 s grace, a fresh state clears it), human takeover only while the lease is held, CPU temperature, digest cursor/cap/vitals line, `MotionWatch`
   (only relevant critical events after creation, live battery cut-off), body state nulls and notes, last 10 events,
   failing sink tolerated, threshold validation
 - camera config (`test_camera_config.py`): cameras default to not calibrated with parent frames `gripper_link` / `base_link`,

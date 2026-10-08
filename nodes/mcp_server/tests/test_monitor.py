@@ -311,13 +311,31 @@ def test_collision_stop_only_during_base_motion() -> None:
     assert seen[0].source == "PolygonStop"
 
 
-def test_collision_stop_latched_before_motion_start_fires_on_tick() -> None:
+def test_collision_stop_latched_before_motion_start_fires_once_the_grace_passes() -> None:
+    """The monitor publishes its state only on change: a STOP still unanswered after the grace is in effect."""
     mon, clock, seen = make()
     mon.on_collision(1, "PolygonStop")
-    clock.t += 0.5
+    clock.t += 10.0
     with mon.base_motion():
         mon.tick()
+        assert seen == []
+        clock.t += MonitorSettings().collision_latch_grace_s
+        mon.tick()
     assert types(seen) == [("collision_stop", "critical")]
+
+
+def test_collision_stop_latched_before_motion_is_cleared_by_a_fresh_state() -> None:
+    """Driving away from the obstacle: the monitor answers the new command with do_nothing, so no stop event."""
+    mon, clock, seen = make()
+    mon.on_collision(1, "PolygonStop")
+    with mon.base_motion():
+        clock.t += 0.05
+        mon.tick()  # before the monitor has seen the first command of this motion
+        clock.t += 0.05
+        mon.on_collision(0, "")
+        clock.t += 5.0
+        mon.tick()
+    assert seen == []
 
 
 # --- human takeover / cpu ------------------------------------------------------------------------------------------

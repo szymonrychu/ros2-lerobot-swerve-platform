@@ -356,7 +356,9 @@ class MonitorSettings(StrictModel):
     stall_measured_max_rps: float = Field(default=0.03, gt=0.0)
     cmd_fresh_s: float = Field(default=0.5, gt=0.0)
     odom_fresh_s: float = Field(default=1.0, gt=0.0)
-    collision_state_max_age_s: float = Field(default=2.0, gt=0.0)
+    # The collision monitor publishes its state only on change: a STOP from before a base motion counts only when no
+    # fresh state answers the motion's commands within this grace (driving away from the obstacle clears it).
+    collision_latch_grace_s: float = Field(default=0.5, gt=0.0)
     slip_residual_warn_mps: float = Field(default=0.1, gt=0.0)
     bump_warn_mps2: float = Field(default=4.0, gt=0.0)  # horizontal accel spike after baseline (gravity) removal
     bump_critical_mps2: float = Field(default=9.0, gt=0.0)

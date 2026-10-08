@@ -191,7 +191,7 @@ missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresho
 | `servo_error` | critical | servo `status` register != 0; bits decoded: voltage, sensor, overheat, overcurrent, overload |
 | `battery_low` | warning | pack < cells x (cutoff_cell_v + `battery_warn_margin_cell_v` 0.2 V) |
 | `battery_cutoff` | critical | the shared `BatteryGuard` cut-off (hysteresis as in the gate) |
-| `collision_stop` | critical | collision monitor STOP while a base motion runs |
+| `collision_stop` | critical | collision monitor STOP while a base motion runs. The monitor publishes its state only on change, so a STOP from before the motion counts only if no fresher state arrives within `collision_latch_grace_s` 0.5 s: a drive away from the obstacle gets a new state and is not cut short |
 | `stall` | critical | base: commanded speed (> 0.05 m/s or 0.1 rad/s) but measured odometry/rf2o ~0 for > `stall_s` 1.0 s while a base motion runs (the arm's tracking abort is its own `arm_tracking_abort` event) |
 | `arm_tracking_abort` | warning | arm: setpoint vs measured tracking error above `limits.arm_tracking_error_rad` + `limits.arm_tracking_lag_s` x the motion's velocity; never interrupts the model's turn or a base motion (not in `BASE_INTERRUPTS`) |
 | `wheel_slip` | warning | swerve residual (decoded from the twist covariance `var_xy = 0.002 + r^2`; parked fixed value = none) > `slip_residual_warn_mps` 0.1 |

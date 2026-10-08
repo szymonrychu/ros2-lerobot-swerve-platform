@@ -226,6 +226,7 @@ class RobotMonitor:
         self.collision: tuple[float, int, str] | None = None
         self.source: tuple[str, float] | None = None
         self.motion_depth = 0
+        self.motion_started = 0.0
         self.stall_since: float | None = None
         self.cpu: tuple[float, float | None] | None = None
 
@@ -629,6 +630,8 @@ class RobotMonitor:
             None: Context body.
         """
         with self.lock:
+            if self.motion_depth == 0:
+                self.motion_started = self.clock()
             self.motion_depth += 1
         try:
             yield
@@ -641,12 +644,17 @@ class RobotMonitor:
 
     @delivers
     def tick(self) -> None:
-        """Periodic evaluation (a few Hz): base stall, latched collision stop, CPU temperature."""
+        """Periodic evaluation (a few Hz): base stall, latched collision stop, CPU temperature.
+
+        A STOP received before the motion began is acted on only after collision_latch_grace_s with no fresher state:
+        the monitor answers a command that drives away from the obstacle with a new state, which clears it.
+        """
         now = self.clock()
         self.evaluate_stall(now)
         if self.motion_depth > 0 and self.collision is not None:
             at, action, polygon = self.collision
-            if action == COLLISION_STOP_ACTION and now - at <= self.cfg.collision_state_max_age_s:
+            settled = at > self.motion_started or now - self.motion_started >= self.cfg.collision_latch_grace_s
+            if action == COLLISION_STOP_ACTION and settled:
                 self.collision_stop(polygon)
         temp = self.cpu_temp()
         if temp is not None:
