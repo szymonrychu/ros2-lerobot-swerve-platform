@@ -966,6 +966,9 @@ ros2_nodes:
       # Camera geometry for pixel_to_ground, annotated images and candidate points (nodes/mcp_server/README.md, "Camera
       # tools and calibration"). Both cameras are NOT calibrated until intrinsics and mount are set. intrinsics is
       # {calibration_file: <camera_calibration yaml>} or an approximation {hfov_deg: 66.0, width: 640, height: 480};
+      # Camera calls subscribe per call: on the loaded Pi, DDS discovery can exceed the 2 s default.
+      timeouts:
+        image_timeout_s: 5.0
       # mount is the solve_camera_calibration output (parent_frame x y z roll pitch yaw, body frame x fwd / y left / z up).
       # The gripper mount is relative to the URDF link gripper_link of so101_arm.urdf, the front mount to base_link.
       cameras:

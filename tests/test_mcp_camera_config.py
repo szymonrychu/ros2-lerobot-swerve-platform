@@ -101,3 +101,9 @@ def test_gripper_camera_is_calibrated_with_a_repo_intrinsics_file() -> None:
     data = _yaml.safe_load(local.read_text())
     assert (data["image_width"], data["image_height"]) == (640, 480)
     assert len(data["camera_matrix"]["data"]) == 9 and len(data["distortion_coefficients"]["data"]) == 5
+
+
+def test_camera_image_wait_covers_discovery_on_a_loaded_pi() -> None:
+    """Each get_camera_image call subscribes afresh; with the full stack running, DDS discovery took over the 2 s
+    default (2026-10-08: 'no frame ... within 2.0 s' while the topic ran at 18 Hz), so the wait is 5 s."""
+    assert mcp_config()["timeouts"]["image_timeout_s"] >= 5.0

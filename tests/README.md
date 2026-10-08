@@ -582,6 +582,7 @@ Static checks of the overview_camera node from the repo files (YAML via `yaml.sa
 | `test_builds_use_all_cores_at_lowest_priority_and_nodes_start_quickly` | `all.yml`: `ros2_build_jobs` 4 and `ros2_build_cpu_quota` 400% for source/frontend builds (still nice 19, idle IO), `ros2_node_start_interval_s` 2. |
 | `test_gripper_uvc_camera_uses_a_stable_device_path` | The gripper UVC camera is configured by its `/dev/v4l/by-id` path, since the overview CSI camera's driver takes `/dev/video0..9`. |
 | `test_gripper_camera_is_calibrated_with_a_repo_intrinsics_file` | mcp_server's gripper camera has a calibrated mount on `gripper_link` and intrinsics from `nodes/mcp_server/calibration/gripper_camera.yaml` (640x480, 3x3 matrix, 5 distortion terms). |
+| `test_camera_image_wait_covers_discovery_on_a_loaded_pi` | mcp_server `timeouts.image_timeout_s` >= 5 s: each camera call subscribes afresh and discovery exceeds 2 s with the full stack running. |
 | `test_only_the_libcamera_patch_is_listed_and_it_exists_in_the_repo` | Only the libcamera `package.xml` patch is listed and present; the camera_ros SyncMode patch is gone. |
 | `test_libcamera_patch_adds_a_meson_package_xml` | The libcamera patch adds a `package.xml` with `build_type` meson. |
 | `test_apt_packages_carry_the_build_deps_and_never_the_apt_camera_stack` | The apt list has the build dependencies and the image_transport compressed plugins, no stereo/image_proc/calibration packages, and no node type installs `ros-jazzy-camera-ros` or `ros-jazzy-libcamera`. |
