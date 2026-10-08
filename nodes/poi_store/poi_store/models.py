@@ -110,7 +110,7 @@ class Poi(BaseModel):
             self.polygon = []
         else:
             if len(self.polygon) < MIN_POLYGON_VERTICES:
-                raise ValueError("area needs at least %d polygon vertices" % MIN_POLYGON_VERTICES)
+                raise ValueError(f"area needs at least {MIN_POLYGON_VERTICES} polygon vertices")
             self.x, self.y = polygon_centroid(self.polygon)
         return self
 

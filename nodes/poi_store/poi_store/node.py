@@ -35,14 +35,14 @@ def run_node(config: PoiStoreConfig) -> None:
     def on_command(msg: String) -> None:
         before = store.revision
         result = store.handle_message(msg.data)
-        node.get_logger().info("command handled: %s" % result[:200])
+        node.get_logger().info(f"command handled: {result[:200]}")
         if store.revision != before:
             publish_list()
         result_pub.publish(String(data=result))
 
     node.create_subscription(String, config.command_topic, on_command, VOLATILE_QOS)
     publish_list()
-    node.get_logger().info("poi_store: %d POIs, file %s" % (len(store.pois), config.store_path))
+    node.get_logger().info(f"poi_store: {len(store.pois)} POIs, file {config.store_path}")
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

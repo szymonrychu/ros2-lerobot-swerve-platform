@@ -5,8 +5,9 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -50,7 +51,7 @@ class PoiStore:
             self.revision = int(data.get("revision", 0))
             self.pois = {p.id: p for p in pois}
         except (OSError, ValueError, KeyError, TypeError, ValidationError) as exc:
-            aside = self.path.with_name("%s.corrupt-%d" % (self.path.name, int(self.clock())))
+            aside = self.path.with_name(f"{self.path.name}.corrupt-{int(self.clock())}")
             LOGGER.error("POI file %s is corrupt (%s); moving it to %s and starting empty", self.path, exc, aside)
             self.pois = {}
             self.revision = 0
@@ -99,11 +100,11 @@ class PoiStore:
                 return self.op_clear(command.created_by)
             return getattr(self, "op_" + command.op)(command.poi)
         except ValidationError as exc:
-            return False, "; ".join("%s: %s" % (".".join(map(str, e["loc"])), e["msg"]) for e in exc.errors()), None
+            return False, "; ".join("{}: {}".format(".".join(map(str, e["loc"])), e["msg"]) for e in exc.errors()), None
         except OSError as exc:
             self.pois, self.revision = pois_before, revision_before
             LOGGER.error("could not save %s (%s); %s rolled back", self.path, exc, command.op)
-            return False, "could not save POI store %s: %s" % (self.path, exc), None
+            return False, f"could not save POI store {self.path}: {exc}", None
 
     def op_add(self, fields: dict[str, Any]) -> tuple[bool, str, dict[str, Any] | None]:
         """Add a POI, assigning id and timestamps when absent.
@@ -118,7 +119,7 @@ class PoiStore:
         poi = Poi(**fields)
         poi.id = poi.id or uuid.uuid4().hex
         if poi.id in self.pois:
-            return False, "poi %s already exists" % poi.id, None
+            return False, f"poi {poi.id} already exists", None
         poi.created_at = poi.created_at or now
         poi.updated_at = poi.updated_at or now
         self.pois[poi.id] = poi
@@ -139,7 +140,7 @@ class PoiStore:
             return False, MISSING_ID_MESSAGE, None
         current = self.pois.get(poi_id)
         if current is None:
-            return False, "unknown poi id %s" % poi_id, None
+            return False, f"unknown poi id {poi_id}", None
         merged = current.to_json_dict()
         merged.update({k: v for k, v in fields.items() if k not in IMMUTABLE_FIELDS})
         updated = Poi(**merged)
@@ -162,7 +163,7 @@ class PoiStore:
             return False, MISSING_ID_MESSAGE, None
         removed = self.pois.pop(poi_id, None)
         if removed is None:
-            return False, "unknown poi id %s" % poi_id, None
+            return False, f"unknown poi id {poi_id}", None
         self.commit()
         return True, "deleted", removed.to_json_dict()
 
@@ -180,7 +181,7 @@ class PoiStore:
             del self.pois[poi_id]
         if doomed:
             self.commit()
-        return True, "cleared %d" % len(doomed), {"removed": len(doomed)}
+        return True, f"cleared {len(doomed)}", {"removed": len(doomed)}
 
     def handle_message(self, raw: str) -> str:
         """Process one /poi/command payload.
@@ -198,6 +199,6 @@ class PoiStore:
                 request_id = str(data.get("request_id", ""))
             command = Command(**data)
         except (ValueError, TypeError, ValidationError) as exc:
-            return json.dumps({"request_id": request_id, "ok": False, "message": "bad command: %s" % exc, "poi": None})
+            return json.dumps({"request_id": request_id, "ok": False, "message": f"bad command: {exc}", "poi": None})
         ok, message, poi = self.apply(command)
         return json.dumps({"request_id": command.request_id, "ok": ok, "message": message, "poi": poi})
