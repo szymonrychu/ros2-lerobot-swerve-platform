@@ -95,6 +95,8 @@ class PoiStore:
         """
         pois_before, revision_before = dict(self.pois), self.revision
         try:
+            if command.op == "clear":
+                return self.op_clear(command.created_by)
             return getattr(self, "op_" + command.op)(command.poi)
         except ValidationError as exc:
             return False, "; ".join("%s: %s" % (".".join(map(str, e["loc"])), e["msg"]) for e in exc.errors()), None
@@ -163,6 +165,22 @@ class PoiStore:
             return False, "unknown poi id %s" % poi_id, None
         self.commit()
         return True, "deleted", removed.to_json_dict()
+
+    def op_clear(self, created_by: str | None) -> tuple[bool, str, dict[str, Any] | None]:
+        """Delete every POI created by one creator (the revision only moves when something was removed).
+
+        Args:
+            created_by: "agent" or "user".
+
+        Returns:
+            tuple[bool, str, dict[str, Any] | None]: Result triple; the third item is {"removed": count}.
+        """
+        doomed = [poi_id for poi_id, poi in self.pois.items() if poi.created_by == created_by]
+        for poi_id in doomed:
+            del self.pois[poi_id]
+        if doomed:
+            self.commit()
+        return True, "cleared %d" % len(doomed), {"removed": len(doomed)}
 
     def handle_message(self, raw: str) -> str:
         """Process one /poi/command payload.

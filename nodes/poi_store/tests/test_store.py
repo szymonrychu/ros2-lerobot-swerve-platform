@@ -203,3 +203,87 @@ def test_save_failure_is_an_ok_false_result_not_an_exception(store, monkeypatch)
     out = json.loads(store.handle_message(json.dumps({"op": "add", "request_id": "r1", "poi": point()})))
     assert out["ok"] is False and out["request_id"] == "r1" and "No space left" in out["message"]
     assert json.loads(store.list_json()) == {"pois": [], "revision": 0}
+
+
+# --- object POIs and the clear command ---------------------------------------------------------------------------
+
+
+def test_object_poi_is_point_like_with_sighting_fields(store):
+    ok, msg, poi = store.apply(
+        Command(
+            op="add",
+            request_id="r",
+            poi={
+                "kind": "object",
+                "name": "red cup",
+                "x": 1.0,
+                "y": 2.0,
+                "times_seen": 1,
+                "first_seen": 50.0,
+                "last_seen": 50.0,
+                "confidence": 0.8,
+                "polygon": [[0, 0], [1, 0], [1, 1]],
+            },
+        )
+    )
+    assert ok, msg
+    assert poi["kind"] == "object" and poi["polygon"] == []
+    assert (poi["x"], poi["y"], poi["times_seen"], poi["first_seen"], poi["last_seen"]) == (1.0, 2.0, 1, 50.0, 50.0)
+    assert poi["confidence"] == 0.8
+
+
+def test_old_poi_without_object_fields_gets_defaults(tmp_path):
+    path = tmp_path / "poi.json"
+    old = {"id": "a" * 32, "kind": "point", "frame": "map", "x": 1, "y": 2, "name": "dock", "created_by": "user"}
+    path.write_text(json.dumps({"pois": [old], "revision": 4}))
+    loaded = PoiStore(path).pois["a" * 32]
+    assert (loaded.times_seen, loaded.first_seen, loaded.last_seen) == (0, 0.0, 0.0)
+    assert loaded.confidence == 1.0
+
+
+def test_object_update_merges_sighting_fields(store):
+    _, _, poi = store.apply(Command(op="add", request_id="r", poi={"kind": "object", "name": "cup", "x": 1, "y": 1}))
+    ok, _, updated = store.apply(
+        Command(op="update", request_id="r", poi={"id": poi["id"], "times_seen": 2, "last_seen": 90.0, "x": 1.1})
+    )
+    assert ok and updated["times_seen"] == 2 and updated["last_seen"] == 90.0 and updated["kind"] == "object"
+
+
+def test_negative_times_seen_rejected():
+    with pytest.raises(ValidationError):
+        Poi(kind="object", times_seen=-1)
+
+
+def test_clear_removes_only_pois_of_that_creator_and_persists(store, tmp_path):
+    store.apply(Command(op="add", poi=point(name="agent point")))
+    store.apply(Command(op="add", poi={"kind": "object", "name": "cup", "created_by": "agent"}))
+    store.apply(Command(op="add", poi=area()))
+    revision = store.revision
+    ok, msg, result = store.apply(Command(op="clear", request_id="r", created_by="agent"))
+    assert ok, msg
+    assert [p["name"] for p in store.list_pois()] == ["zone"]
+    assert result == {"removed": 2}
+    assert store.revision == revision + 1
+    assert [p["name"] for p in PoiStore(tmp_path / "poi.json").list_pois()] == ["zone"]
+
+
+def test_clear_with_nothing_to_remove_keeps_revision(store):
+    store.apply(Command(op="add", poi=area()))
+    revision = store.revision
+    ok, _, result = store.apply(Command(op="clear", created_by="agent"))
+    assert ok and result == {"removed": 0} and store.revision == revision
+
+
+def test_clear_requires_valid_creator():
+    with pytest.raises(ValidationError):
+        Command(op="clear")
+    with pytest.raises(ValidationError):
+        Command(op="clear", created_by="robot")
+
+
+def test_clear_via_handle_message(store):
+    store.apply(Command(op="add", poi=point()))
+    out = json.loads(store.handle_message(json.dumps({"op": "clear", "created_by": "agent", "request_id": "q"})))
+    assert out["ok"] and out["request_id"] == "q" and out["poi"] == {"removed": 1}
+    bad = json.loads(store.handle_message(json.dumps({"op": "clear", "request_id": "q2"})))
+    assert not bad["ok"]

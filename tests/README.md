@@ -476,7 +476,7 @@ Static wiring invariants of the poi_store node (Ansible, playbooks, lint script,
 | `test_lint_script_and_node_files` | `scripts/lint-all-nodes.sh` lists the node; pyproject, poetry.lock, README and tests exist. |
 | `test_docs_mention_poi_store` | nodes/README.md, ansible/README.md and the ansible-deploy skill mention `poi_store`. |
 
-The node's own tests (store, models, config) live in `nodes/poi_store/tests/` and need no ROS: `cd nodes/poi_store && poetry run pytest tests -q`.
+The node's own tests (store, models, config; including `kind: object` POIs with their sighting fields and defaults for old files, and the `clear` op that deletes every POI of one `created_by`, persists and keeps the revision when nothing was removed) live in `nodes/poi_store/tests/` and need no ROS: `cd nodes/poi_store && poetry run pytest tests -q`.
 
 ### test_mcp_camera_config.py
 

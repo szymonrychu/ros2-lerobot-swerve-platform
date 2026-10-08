@@ -45,7 +45,7 @@ class Poi(BaseModel):
 
     Attributes:
         id: uuid4 hex; empty only before the store assigns it.
-        kind: "point" or "area".
+        kind: "point", "area" or "object" (a remembered object: a point-like POI with sighting fields).
         frame: Always "map".
         x: Point position, or the polygon centroid for an area (computed), m.
         y: As x.
@@ -57,12 +57,16 @@ class Poi(BaseModel):
         created_by: "agent" or "user".
         created_at: Unix seconds; 0 before the store assigns it.
         updated_at: Unix seconds; 0 before the store assigns it.
+        times_seen: Objects: how often it was sighted (0 for other kinds).
+        first_seen: Objects: unix seconds of the first sighting (0 for other kinds).
+        last_seen: Objects: unix seconds of the latest sighting (0 for other kinds).
+        confidence: Objects: how sure the sighting was, 0..1 (1 for other kinds).
     """
 
     model_config = ConfigDict(extra="ignore")
 
     id: str = ""
-    kind: Literal["point", "area"]
+    kind: Literal["point", "area", "object"]
     frame: Literal["map"] = "map"
     x: Coordinate = 0.0
     y: Coordinate = 0.0
@@ -74,6 +78,10 @@ class Poi(BaseModel):
     created_by: Literal["agent", "user"] = "agent"
     created_at: Timestamp = 0.0
     updated_at: Timestamp = 0.0
+    times_seen: Annotated[int, Field(ge=0)] = 0
+    first_seen: Timestamp = 0.0
+    last_seen: Timestamp = 0.0
+    confidence: Annotated[float, Field(allow_inf_nan=False, ge=0, le=1)] = 1.0
 
     @field_validator("id")
     @classmethod
@@ -92,12 +100,13 @@ class Poi(BaseModel):
 
     @model_validator(mode="after")
     def check_geometry(self) -> "Poi":
-        """Enforce the per-kind geometry: a point has no polygon, an area has >= 3 vertices and a computed centroid.
+        """Enforce the per-kind geometry: a point or object has no polygon, an area has >= 3
+        vertices and a computed centroid.
 
         Returns:
             Poi: Self.
         """
-        if self.kind == "point":
+        if self.kind != "area":
             self.polygon = []
         else:
             if len(self.polygon) < MIN_POLYGON_VERTICES:
@@ -118,13 +127,26 @@ class Command(BaseModel):
     """A /poi/command message.
 
     Attributes:
-        op: "add", "update" or "delete".
+        op: "add", "update", "delete" or "clear".
         request_id: Echoed in /poi/result.
-        poi: add: the POI; update: id plus changed fields; delete: id.
+        poi: add: the POI; update: id plus changed fields; delete: id; clear: unused.
+        created_by: clear: delete every POI created by this creator ("agent" or "user").
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    op: Literal["add", "update", "delete"]
+    op: Literal["add", "update", "delete", "clear"]
     request_id: str = ""
     poi: dict[str, Any] = Field(default_factory=dict)
+    created_by: Literal["agent", "user"] | None = None
+
+    @model_validator(mode="after")
+    def check_clear_creator(self) -> "Command":
+        """Require created_by for the clear op.
+
+        Returns:
+            Command: Self.
+        """
+        if self.op == "clear" and self.created_by is None:
+            raise ValueError("clear needs created_by ('agent' or 'user')")
+        return self

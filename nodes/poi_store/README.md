@@ -9,7 +9,7 @@ three std_msgs/String topics carrying JSON. Client only.
 | Field | Type | Notes |
 |---|---|---|
 | `id` | str | uuid4 hex (32 chars), assigned by the store on add |
-| `kind` | `"point"` or `"area"` | |
+| `kind` | `"point"`, `"area"` or `"object"` | an object is a remembered object: point-like (no polygon), `name` is its label |
 | `frame` | `"map"` | always |
 | `x`, `y` | float | point position; for an area the polygon centroid (computed by the store) |
 | `polygon` | `[[x, y], ...]` | area only, >= 3 vertices; `[]` for a point |
@@ -19,21 +19,28 @@ three std_msgs/String topics carrying JSON. Client only.
 | `status` | `"open"`, `"done"`, `"cancelled"` | default `open` |
 | `created_by` | `"agent"` or `"user"` | |
 | `created_at`, `updated_at` | float | unix seconds, set by the store |
+| `times_seen` | int >= 0 | objects: sighting count (0 for other kinds) |
+| `first_seen`, `last_seen` | float | objects: unix seconds of the first / latest sighting (0 for other kinds) |
+| `confidence` | float 0..1 | objects: how sure the sighting was (default 1) |
 
-All numbers must be finite.
+All numbers must be finite. Files written before `object` existed load unchanged (the new fields take their defaults).
 
 ## Topics
 
 | Topic | Type / QoS | Payload |
 |---|---|---|
 | `/poi/list` | std_msgs/String, reliable + transient_local (latched) | `{"pois": [...], "revision": int}`; published on start and after every change |
-| `/poi/command` | std_msgs/String, reliable | `{"op": "add"\|"update"\|"delete", "request_id": str, "poi": {...}}` |
+| `/poi/command` | std_msgs/String, reliable | `{"op": "add"\|"update"\|"delete"\|"clear", "request_id": str, "poi": {...}, "created_by": "agent"\|"user"}` |
 | `/poi/result` | std_msgs/String, reliable, volatile | `{"request_id": str, "ok": bool, "message": str, "poi": {...}\|null}` |
 
 - `add`: `poi` is a full POI; `id`, `created_at`, `updated_at` are assigned when absent.
 - `update`: `poi` is `id` plus the changed fields; merged into the stored POI, `updated_at` bumped. `id`, `created_at`
   and `created_by` cannot change. Unknown id gives `ok: false`.
 - `delete`: `poi` holds `id`; the result carries the deleted POI. Unknown id gives `ok: false`.
+- `clear`: `{"op": "clear", "created_by": "agent", "request_id": ...}` deletes every POI (objects included) whose
+  `created_by` matches, persists and republishes `/poi/list`; the result is `ok: true`, `poi: {"removed": n}`. The
+  revision only moves when something was removed. `created_by` is required and must be `agent` or `user`.
+  claude_agent sends it for "New session" so agent-made POIs and objects go while the person's POIs stay.
 - Invalid input (validation, bad JSON) gives `ok: false` with the reason; the store is untouched and `revision` does
   not change.
 - A failed write of the store file (`OSError`, e.g. disk full or read-only filesystem) rolls the in-memory change and the
