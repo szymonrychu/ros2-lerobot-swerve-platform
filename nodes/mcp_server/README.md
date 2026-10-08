@@ -26,7 +26,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
 | `move_arm_joints(targets, speed_scale<=0.5)` | Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `converged` results may carry `residual_error` (see Safety model). |
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link')` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch, wrist_roll kept); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.165, measured 16.5 cm); the tool descriptions and `get_arm_state.floor_z_m` state it. No motion restriction is derived from it. |
-| `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.12 / 1.5 rad; measured fully closed is -0.172 rad, the URDF limit margin allows -0.1245). |
+| `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
 | `pixel_to_ground(camera, u, v)` | Floor point seen at a pixel (sensor): `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
 | `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
@@ -262,7 +262,9 @@ partition every tool):
   `ORPHAN_LEASE_WINDOW_S` (3 s). If filter_node reports `autonomy` while this process does not hold control (a
   previous run crashed or was OOM-killed holding the lease), it publishes the autonomy release and logs a warning,
   returning the arm to normal arbitration.
-- **Arm motions**: targets clamped to URDF limits minus `arm_limit_margin_rad` (0.05); synchronised quintic trajectory
+- **Arm motions**: targets clamped to URDF limits minus `arm_limit_margin_rad` (0.05; `arm_limit_margin_overrides`
+  replaces it per joint, default `{gripper: 0.005}` so the gripper reaches -0.165 rad, just above the measured stop at
+  -0.172 rad); synchronised quintic trajectory
   with per-joint velocity <= 0.5 rad/s (`speed_scale` 0.5 = that maximum, lower is proportionally slower) streamed at
   25 Hz; blocks until converged (`arm_converge_tolerance_rad`) or `arm_converge_timeout_s` after the trajectory.
   Aborts and holds the measured pose when `/follower/joint_states` is older than 0.3 s, the tracking error (setpoint vs
@@ -282,6 +284,18 @@ partition every tool):
   obstacle or the floor is not pushed at the torque limit indefinitely (only wrist_roll and gripper publish effort).
   The intended target is kept separately and still seeds the next motion (unnamed joints, IK seed), so the sag
   ratchet stays fixed. Any new setpoint, release, lease loss or stop cancels the pending relax.
+- **Gripper motions keep the arm held**: `set_gripper` (and any gripper-only motion) streams and holds the arm joints
+  at their intended targets, also when the residual hold had already relaxed (the first gripper setpoint restores
+  it), and a grasp stops with the arm intent plus the measured gripper, not the sagged arm pose. Joints that were
+  held with a residual error get their relax re-armed `arm_settle_hold_s` after the gripper motion finished.
+- **Effort contact gate**: `close_until_effort` ignores the gripper load for `gripper_effort_ignore_s` (0.3 s) after
+  the close starts (the load spikes when the motor starts) and afterwards counts it only when the jaw moved at least
+  `gripper_contact_travel_rad` (0.03) from its start or stalled (less than `arm_settle_motion_rad` over
+  `arm_settle_window_s`).
+- **Follower gripper command range**: direct (autonomy / web_ui) gripper commands are clamped by the feetech
+  follower bridge to the servo command range (`command_min_steps: 1900` in `client.yml`, max read from the servo
+  register; gripper not inverted). The closed target -0.165 rad is 2048 + (-0.165 / 0.001534) = 1940 steps, inside
+  that range (the measured stop -0.172 rad is 1936 steps). The servo EEPROM angle limits are not changed by this node.
 - **Grasp from stall**: when closing (`close_until_effort` or `open_fraction=0`) the jaw settles before the closed
   position (residual outside the converge tolerance), the result is `grasped` with "contact inferred: jaw stalled
   ..." and the gripper holds the stall position plus `gripper_grasp_squeeze_rad` (0.03) toward closed (never past
@@ -328,7 +342,7 @@ arm:
   home_file: /var/lib/ros2/arm/home.yaml
   arm_base_height_m: 0.165   # arm mount plane height above the floor (m); floor_z_m = -this
   gripper_open_rad: 1.5       # follower gripper joint positions (rad)
-  gripper_closed_rad: -0.12
+  gripper_closed_rad: -0.165
   reach_outer_m: 0.25        # floor reach around the shoulder axis (annotated image annulus)
   reach_inner_m: 0.05
   # base_in_base_link: {x: 0.0, y: 0.0, z: 0.165, yaw: 0.0}   # optional, once measured
@@ -340,6 +354,10 @@ limits:
   arm_max_joint_velocity_rps: 0.5
   arm_settle_tolerance_rad: 0.08   # steady-state error reported as residual_error instead of a timeout
   gripper_effort_threshold: 300.0
+  gripper_effort_ignore_s: 0.3      # ignore the load spike when the motor starts
+  gripper_contact_travel_rad: 0.03  # jaw travel (or a stall) required before effort counts as contact
+  arm_limit_margin_rad: 0.05
+  arm_limit_margin_overrides: {gripper: 0.005}   # per-joint margins; the gripper may close to its physical stop
 timeouts:
   follower_stale_s: 0.3
   image_max_age_s: 1.0

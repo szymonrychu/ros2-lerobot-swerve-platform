@@ -475,3 +475,18 @@ def test_mcp_server_front_camera_is_the_compressed_overview_camera() -> None:
     topics = node_config("mcp_server").get("topics", {})
     assert topics["front_camera"] == "/overview_camera/image_raw/compressed"
     assert "realsense_camera" not in topics
+
+
+def test_mcp_gripper_closed_target_is_inside_the_follower_gripper_command_range() -> None:
+    """Direct (autonomy) gripper commands are clamped to the follower servo's command range: -0.165 rad (steps
+    2048 + rad * 4096 / 2pi, not inverted) must lie above command_min_steps, and the README documents the steps."""
+    closed_rad = -0.165
+    follower = node_config("lerobot_follower")
+    gripper = next(j for j in follower["joint_names"] if j["name"] == "gripper")
+    assert not gripper.get("inverted", False)
+    steps = round(closed_rad * 4096 / (2 * math.pi) + 2048)
+    assert steps == 1940
+    assert gripper["command_min_steps"] <= steps
+    assert "direct_command_sources" in follower and "autonomy" in follower["direct_command_sources"]
+    readme = (NODE_DIR / "README.md").read_text()
+    assert "-0.165" in readme and "1940" in readme and "command_min_steps" in readme

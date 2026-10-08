@@ -21,13 +21,16 @@ def quintic(s: float) -> float:
     return s * s * s * (10.0 + s * (-15.0 + 6.0 * s))
 
 
-def clamp_to_limits(targets: dict[str, float], limits: JointLimits, margin: float) -> dict[str, float]:
+def clamp_to_limits(
+    targets: dict[str, float], limits: JointLimits, margin: float, overrides: dict[str, float] | None = None
+) -> dict[str, float]:
     """Clamp joint targets into [lower + margin, upper - margin].
 
     Args:
         targets (dict[str, float]): Joint name -> target (rad).
         limits (JointLimits): Joint name -> (lower, upper) from the URDF.
         margin (float): Safety margin kept away from each limit (rad).
+        overrides (dict[str, float] | None): Per-joint margins replacing `margin` (rad).
 
     Returns:
         dict[str, float]: Clamped targets.
@@ -38,7 +41,8 @@ def clamp_to_limits(targets: dict[str, float], limits: JointLimits, margin: floa
     out: dict[str, float] = {}
     for name, value in targets.items():
         lo, hi = limits[name]
-        out[name] = min(max(value, lo + margin), hi - margin)
+        m = (overrides or {}).get(name, margin)
+        out[name] = min(max(value, lo + m), hi - m)
     return out
 
 

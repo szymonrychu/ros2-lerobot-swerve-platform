@@ -47,6 +47,17 @@ def test_default_limits_are_conservative() -> None:
     assert lim.max_image_px == 1024
 
 
+def test_gripper_closes_fully_within_its_own_small_limit_margin() -> None:
+    cfg = McpServerConfig()
+    assert cfg.limits.arm_limit_margin_rad == 0.05
+    assert cfg.limits.arm_limit_margin_overrides == {"gripper": 0.005}
+    assert cfg.limits.margin_for("gripper") == 0.005
+    assert cfg.limits.margin_for("elbow_flex") == 0.05
+    assert cfg.arm.gripper_closed_rad == -0.165
+    assert cfg.limits.gripper_effort_ignore_s == 0.3
+    assert cfg.limits.gripper_contact_travel_rad == 0.03
+
+
 def test_default_timeouts() -> None:
     to = McpServerConfig().timeouts
     assert to.follower_stale_s == pytest.approx(0.3)

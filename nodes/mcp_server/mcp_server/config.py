@@ -104,6 +104,9 @@ class LimitSettings(StrictModel):
     arm_max_joint_velocity_rps: float = Field(default=0.5, gt=0.0, le=1.5)
     arm_max_speed_scale: float = Field(default=HARD_MAX_SPEED_SCALE, gt=0.0, le=HARD_MAX_SPEED_SCALE)
     arm_limit_margin_rad: float = Field(default=0.05, ge=0.0, le=0.3)
+    # Per-joint margins replacing arm_limit_margin_rad. The gripper may close to the measured physical stop
+    # (-0.172 rad, URDF lower limit -0.1745).
+    arm_limit_margin_overrides: dict[str, float] = Field(default_factory=lambda: {"gripper": 0.005})
     arm_tracking_error_rad: float = Field(default=0.35, gt=0.0)
     arm_converge_tolerance_rad: float = Field(default=0.03, gt=0.0)
     # Steady-state error band (position servo under gravity load): a joint that stopped moving (less than
@@ -119,6 +122,10 @@ class LimitSettings(StrictModel):
     arm_settle_hold_s: float = Field(default=2.0, gt=0.0)
     gripper_velocity_rps: float = Field(default=0.5, gt=0.0, le=1.5)
     gripper_effort_threshold: float = Field(default=300.0, gt=0.0)
+    # close_until_effort ignores the load for this long after the close starts (motor start-up spike) and afterwards
+    # counts it only once the jaw travelled gripper_contact_travel_rad or stalled (arm_settle_* window and motion).
+    gripper_effort_ignore_s: float = Field(default=0.3, ge=0.0)
+    gripper_contact_travel_rad: float = Field(default=0.03, ge=0.0)
     # A closing jaw that stalls before the closed target grips an object: hold the stall position this far toward closed.
     gripper_grasp_squeeze_rad: float = Field(default=0.03, ge=0.0, le=0.2)
     hold_republish_hz: float = Field(default=5.0, gt=0.0, le=25.0)
@@ -126,6 +133,17 @@ class LimitSettings(StrictModel):
     jpeg_quality: int = Field(default=80, ge=10, le=100)
     map_png_max_px: int = Field(default=256, ge=32, le=HARD_MAX_IMAGE_PX)
     scan_sectors: int = Field(default=8, ge=8, le=8)
+
+    def margin_for(self, joint: str) -> float:
+        """Limit margin of a joint.
+
+        Args:
+            joint (str): Joint name.
+
+        Returns:
+            float: The per-joint override, else arm_limit_margin_rad (rad).
+        """
+        return self.arm_limit_margin_overrides.get(joint, self.arm_limit_margin_rad)
 
     @model_validator(mode="after")
     def settle_band_inside_abort(self) -> "LimitSettings":
@@ -188,9 +206,9 @@ class ArmSettings(StrictModel):
     gripper_joint: str = "gripper"
     # Follower gripper joint positions (as in /follower/joint_states; the leader-only source range mapping in the
     # follower bridge does not apply to autonomy commands). Measured closed: -0.172 rad (URDF lower limit -0.1745);
-    # -0.12 is the closest target the URDF limit margin (0.05) allows.
+    # -0.165 is just above it and inside the gripper limit margin (limits.arm_limit_margin_overrides, 0.005).
     gripper_open_rad: float = 1.5
-    gripper_closed_rad: float = -0.12
+    gripper_closed_rad: float = -0.165
     autonomy_source_name: str = "autonomy"
     # Height of the arm mount plane (the URDF base_link origin) above the floor, measured on the robot.
     arm_base_height_m: float = Field(default=0.165, gt=0.0, le=1.0)

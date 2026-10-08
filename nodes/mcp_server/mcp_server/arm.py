@@ -5,6 +5,8 @@ All commands go to filter_node's autonomy input; filter_node arbitrates against 
 
 import math
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -152,6 +154,7 @@ class ArmController:
         # Pending relax of a settled residual hold: (monotonic due time, joints settled outside the tolerance).
         self._relax_hold: tuple[float, list[str]] | None = None
         self._streaming = False
+        self._moving: list[str] = []  # joints of the running motion
         self._stop = threading.Event()
         self._motion_lock = threading.Lock()
         # Guards _held, _acquired_at, _last_setpoint, _last_target, _relax_hold, _streaming and every autonomy publish.
@@ -478,9 +481,12 @@ class ArmController:
         if not self._held:
             self.acquire()
         start = self.command_base(self.require_sample())
-        safe = clamp_to_limits(targets, self.limits, self.cfg.limits.arm_limit_margin_rad)
+        safe = clamp_to_limits(
+            targets, self.limits, self.cfg.limits.arm_limit_margin_rad, self.cfg.limits.arm_limit_margin_overrides
+        )
         clamped = sorted(j for j in targets if abs(safe[j] - targets[j]) > CHANGED_EPS)
-        return self.stream(start, start | safe, vmax, list(targets), clamped)
+        with self.holding_arm_for_gripper(list(targets)):
+            return self.stream(start, start | safe, vmax, list(targets), clamped)
 
     def move_cartesian(
         self, x: float, y: float, z: float, pitch: float | None, speed_scale: float | None = None
@@ -539,24 +545,88 @@ class ArmController:
         if open_fraction is not None:
             if not 0.0 <= open_fraction <= 1.0:
                 raise ArmError(f"open_fraction must be in [0, 1], got {open_fraction}")
-            if open_fraction > 0.0:
-                return self.move_joints({self.gripper: closed + open_fraction * (opened - closed)})
-            with self.exclusive_motion():
-                return self.grasp_from_stall(self.stream_to({self.gripper: closed}, self.velocity_for(None)))
+            targets = {self.gripper: closed + open_fraction * (opened - closed)}
+            self.validate_targets(targets)
+            vmax = self.velocity_for(None)
+            with self.exclusive_motion(), self.holding_arm_for_gripper([self.gripper]):
+                result = self.stream_to(targets, vmax)
+                return self.grasp_from_stall(result) if open_fraction == 0.0 else result
         threshold = self.cfg.limits.gripper_effort_threshold if effort_threshold is None else effort_threshold
         if not math.isfinite(threshold) or threshold <= 0.0:
             raise ArmError("effort_threshold must be positive")
-        with self.exclusive_motion():
+        with self.exclusive_motion(), self.holding_arm_for_gripper([self.gripper]):
             if not self._held:
                 self.acquire()
             start = self.command_base(self.require_sample())
-            goal = start | clamp_to_limits({self.gripper: closed}, self.limits, self.cfg.limits.arm_limit_margin_rad)
+            goal = start | clamp_to_limits(
+                {self.gripper: closed},
+                self.limits,
+                self.cfg.limits.arm_limit_margin_rad,
+                self.cfg.limits.arm_limit_margin_overrides,
+            )
             result = self.grasp_from_stall(
                 self.stream(start, goal, self.cfg.limits.gripper_velocity_rps, [self.gripper], [], threshold)
             )
         if result.status == "converged":
             return result.model_copy(update={"status": "closed_no_contact", "message": "closed without contact"})
         return result
+
+    @contextmanager
+    def holding_arm_for_gripper(self, moving: list[str]) -> Iterator[None]:
+        """Keep the arm's hold untouched while only the gripper moves (caller holds the motion guard).
+
+        The arm joints stay commanded at their intended targets for the whole gripper motion (the stream and every
+        hold published at its end use the intent, not the sagged measured pose). Joints that are held with a residual
+        error when it starts get their relax re-armed arm_settle_hold_s after the motion finished.
+
+        Args:
+            moving (list[str]): Joints the motion moves; anything but the gripper alone is not wrapped.
+
+        Yields:
+            None: Runs the gripper motion.
+        """
+        pending: list[str] = []
+        sample = self.fresh_sample() if moving == [self.gripper] else None
+        if sample is not None:
+            tolerance = self.cfg.limits.arm_converge_tolerance_rad
+            with self._lock:
+                intent = dict(self._last_target) if self._held and self._last_target is not None else {}
+            pending = [
+                j
+                for j in self.joint_names
+                if j != self.gripper and j in intent and abs(intent[j] - sample.positions[j]) > tolerance
+            ]
+        try:
+            yield
+        finally:
+            if pending:
+                self.schedule_relax(pending)
+
+    def contact_allowed(self, history: list[tuple[float, float]], started: float) -> bool:
+        """Whether a gripper load counts as contact yet (close_until_effort).
+
+        The load spikes when the motor starts, so it is ignored for gripper_effort_ignore_s after the close started
+        and afterwards only counts once the jaw travelled gripper_contact_travel_rad from its start or stalled (moved
+        less than arm_settle_motion_rad over arm_settle_window_s).
+
+        Args:
+            history (list[tuple[float, float]]): (sample stamp s, gripper position rad) since the close started,
+                oldest first.
+            started (float): Close start (monotonic s).
+
+        Returns:
+            bool: True when effort may be taken as contact.
+        """
+        limits = self.cfg.limits
+        if not history or history[-1][0] - started < limits.gripper_effort_ignore_s:
+            return False
+        latest_t, latest = history[-1]
+        if abs(latest - history[0][1]) >= limits.gripper_contact_travel_rad:
+            return True
+        if latest_t - history[0][0] < limits.arm_settle_window_s:
+            return False
+        window = [p for t, p in history if t >= latest_t - limits.arm_settle_window_s]
+        return max(window) - min(window) <= limits.arm_settle_motion_rad
 
     def grasp_from_stall(self, result: ArmMotionResult) -> ArmMotionResult:
         """Treat a closing jaw that settled before the closed target as a grasp (caller holds the motion guard).
@@ -724,7 +794,12 @@ class ArmController:
         """
         positions = None if sample is None else self.measured(sample)
         if hold and positions:
-            self.command(positions)  # no-op once released
+            setpoint = positions
+            if self._moving == [self.gripper]:  # a gripper motion never re-holds the arm at its sagged pose
+                with self._lock:
+                    intent = dict(self._last_target) if self._last_target is not None else {}
+                setpoint = positions | {j: v for j, v in intent.items() if j != self.gripper}
+            self.command(setpoint)  # no-op once released
         return ArmMotionResult(
             status=status,
             message=message,
@@ -820,6 +895,17 @@ class ArmController:
         period = 1.0 / rate
         tracked = [j for j in moving if j != self.gripper]
         started = self.backend.now()
+        self._moving = list(moving)
+        jaw_history: list[tuple[float, float]] = []
+
+        def contact_threshold(latest: JointSample | None) -> float | None:
+            """Effort threshold to apply this cycle: None while the load cannot be contact yet."""
+            if effort_threshold is None or latest is None or self.gripper not in latest.positions:
+                return None
+            if not jaw_history or jaw_history[-1][0] != latest.stamp:
+                jaw_history.append((latest.stamp, latest.positions[self.gripper]))
+            return effort_threshold if self.contact_allowed(jaw_history, started) else None
+
         with self._lock:
             self._streaming = True
         try:
@@ -827,7 +913,7 @@ class ArmController:
             for point in plan_trajectory(start, goal, vmax, rate):
                 latest = self.backend.joint_sample()
                 sample = latest or sample
-                verdict = self.check(latest, tracked, effort_threshold)
+                verdict = self.check(latest, tracked, contact_threshold(latest))
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
                 if not self.command(point):
@@ -837,7 +923,7 @@ class ArmController:
             history: list[tuple[float, dict[str, float]]] = []
             while True:
                 sample = self.backend.joint_sample() or sample
-                verdict = self.check(sample, tracked, effort_threshold)
+                verdict = self.check(sample, tracked, contact_threshold(sample))
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
                 assert sample is not None

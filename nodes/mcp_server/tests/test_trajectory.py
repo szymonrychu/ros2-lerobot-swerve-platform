@@ -26,6 +26,12 @@ def test_quintic_is_monotonic() -> None:
     assert all(b >= a for a, b in zip(values, values[1:], strict=False))
 
 
+def test_clamp_to_limits_per_joint_margin_override() -> None:
+    out = clamp_to_limits({"a": 5.0, "b": -5.0}, LIMITS, margin=0.1, overrides={"a": 0.0})
+    assert out["a"] == pytest.approx(LIMITS["a"][1])
+    assert out["b"] == pytest.approx(LIMITS["b"][0] + 0.1)
+
+
 def test_clamp_to_limits_applies_margin() -> None:
     out = clamp_to_limits({"a": 5.0, "b": -5.0}, LIMITS, margin=0.1)
     assert out == {"a": pytest.approx(0.9), "b": pytest.approx(-1.9)}

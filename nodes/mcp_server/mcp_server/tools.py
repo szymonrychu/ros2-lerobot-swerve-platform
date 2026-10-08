@@ -525,7 +525,9 @@ def register_core_tools(ctx: ToolContext) -> None:
         """Open the gripper to a fraction, or close it until it grips something (status 'grasped' and the gripper
         holds that position; 'closed_no_contact' if it closed fully without touching anything). Closing (also
         open_fraction=0) reports 'grasped' too when the jaw stalls before the closed position: contact is inferred
-        from the stall and the gripper holds the stall position plus a small squeeze. Give exactly one of
+        from the stall and the gripper holds the stall position plus a small squeeze. The load is ignored for the
+        first 0.3 s of a close and counts only after the jaw moved or stalled. The arm stays held at its intended
+        targets while the gripper moves. Give exactly one of
         open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done."""
         battery_gate("set_gripper")
         with tool_errors():

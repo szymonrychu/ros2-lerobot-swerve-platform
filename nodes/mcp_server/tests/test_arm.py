@@ -340,10 +340,32 @@ def test_gripper_closed_default_is_a_follower_joint_position(tmp_path: Path) -> 
     """Gripper targets are follower joint radians (as in /follower/joint_states): closed is near the URDF lower
     limit (measured closed: -0.172 rad), not 0.0 (which is ~10 deg open on the follower)."""
     arm, be = make(tmp_path)
-    lo = load_joint_limits(CONFIG.arm.urdf_path)["gripper"][0] + CONFIG.limits.arm_limit_margin_rad
-    arm.set_gripper(open_fraction=0.0)
+    lo = load_joint_limits(CONFIG.arm.urdf_path)["gripper"][0] + CONFIG.limits.margin_for("gripper")
+    res = arm.set_gripper(open_fraction=0.0)
     assert be.commands[-1]["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)
-    assert lo <= CONFIG.arm.gripper_closed_rad < -0.1
+    assert res.clamped == []
+    assert lo <= CONFIG.arm.gripper_closed_rad < -0.15
+
+
+@pytest.mark.parametrize("close_until_effort", [True, False])
+def test_gripper_closes_fully_to_the_measured_closed_position(tmp_path: Path, close_until_effort: bool) -> None:
+    """Physical closed is -0.172 rad: the commanded closed target (-0.165) must not be clamped to -0.1245."""
+    be = FakeArmBackend()
+    be.positions["gripper"] = 0.5
+    arm, be = make(tmp_path, be)
+    if close_until_effort:
+        arm.set_gripper(close_until_effort=True, effort_threshold=300.0)
+    else:
+        arm.set_gripper(open_fraction=0.0)
+    assert be.commands[-1]["gripper"] == pytest.approx(-0.165)
+
+
+def test_limit_margin_override_applies_per_joint(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    arm.cfg.limits.arm_limit_margin_overrides = {"wrist_flex": 0.0}
+    hi = load_joint_limits(CONFIG.arm.urdf_path)["wrist_flex"][1]
+    arm.move_joints({"wrist_flex": 3.0}, speed_scale=0.5)
+    assert be.commands[-1]["wrist_flex"] == pytest.approx(hi)
 
 
 def test_small_steady_state_error_settles_as_converged_with_residual(tmp_path: Path) -> None:
@@ -549,7 +571,7 @@ def test_intent_and_pending_relax_cleared_when_lease_ends(tmp_path: Path, end: s
 
 # --- gripper stall on an object counts as a grasp ---
 
-JAW_STALL = -0.07  # jaw stops on an object 0.05 rad before the closed target (within the settle tolerance)
+JAW_STALL = -0.12  # jaw stops on an object 0.045 rad before the closed target (within the settle tolerance)
 
 
 def stall_jaw_at(stop: float) -> FakeArmBackend:
@@ -582,7 +604,7 @@ def test_gripper_stall_before_closed_is_reported_as_grasp(tmp_path: Path, close_
 
 
 def test_gripper_grasp_squeeze_never_passes_closed(tmp_path: Path) -> None:
-    be = stall_jaw_at(-0.085)
+    be = stall_jaw_at(-0.13)
     arm, be = make(tmp_path, be)
     arm.cfg.limits.gripper_grasp_squeeze_rad = 0.1
     res = arm.set_gripper(open_fraction=0.0)
@@ -595,3 +617,76 @@ def test_partial_open_fraction_stall_is_not_a_grasp(tmp_path: Path) -> None:
     be.positions["gripper"] = 1.0
     res = arm.set_gripper(open_fraction=0.3)
     assert res.status != "grasped"
+
+
+# --- gripper motions keep holding the arm's intended targets ---
+
+
+def test_gripper_motion_restores_a_relaxed_arm_hold_and_rearms_the_relax(tmp_path: Path) -> None:
+    arm, be = settle_shoulder(tmp_path)
+    be.t += HOLD_S + 0.1
+    arm.keepalive_tick()  # relaxed to the sagged pose before the gripper tool is called
+    n = len(be.commands)
+    arm.set_gripper(open_fraction=0.5)
+    assert all(c["shoulder_lift"] == pytest.approx(0.5) for c in be.commands[n:])
+    arm.keepalive_tick()
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(0.5)  # still held right after the gripper finished
+    be.t += HOLD_S * 0.5
+    arm.keepalive_tick()
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(0.5)
+    measured = be.positions["shoulder_lift"]
+    be.t += HOLD_S * 0.6
+    arm.keepalive_tick()  # arm_settle_hold_s after the gripper motion finished
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(measured)
+
+
+def test_gripper_motion_does_not_arm_a_relax_for_a_converged_arm(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
+    arm.set_gripper(open_fraction=0.5)
+    be.t += HOLD_S + 0.1
+    arm.keepalive_tick()
+    assert arm._relax_hold is None
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(0.5)
+
+
+def test_grasp_on_effort_holds_the_arm_intent_not_the_sagged_pose(tmp_path: Path) -> None:
+    arm, be = settle_shoulder(tmp_path)
+    be.positions["gripper"] = CONFIG.arm.gripper_open_rad
+    be.on_sleep = lambda b: b.efforts.update(gripper=500.0 if b.positions["gripper"] < 0.8 else 0.0)
+    res = arm.set_gripper(close_until_effort=True, effort_threshold=300.0)
+    assert res.status == "grasped"
+    assert be.commands[-1]["shoulder_lift"] == pytest.approx(0.5)  # not the sagged 0.45
+    assert be.commands[-1]["gripper"] == pytest.approx(be.positions["gripper"])
+
+
+# --- close_until_effort ignores the motor-start load spike ---
+
+
+def test_effort_spike_at_motor_start_is_not_contact(tmp_path: Path) -> None:
+    be = FakeArmBackend()
+    be.positions["gripper"] = CONFIG.arm.gripper_open_rad
+    arm, be = make(tmp_path, be)
+    t0 = be.t
+    be.on_sleep = lambda b: b.efforts.update(gripper=500.0 if b.t < t0 + 0.2 else 0.0)
+    res = arm.set_gripper(close_until_effort=True, effort_threshold=300.0)
+    assert res.status == "closed_no_contact", res.message
+    assert be.commands[-1]["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)
+
+
+def test_effort_without_jaw_travel_or_stall_is_not_contact(tmp_path: Path) -> None:
+    """Past the ignore window but the jaw moved < 0.03 rad and is still creeping: not contact yet."""
+    arm, _ = make(tmp_path)
+    history = [(100.0 + 0.1 * i, 1.5 - 0.004 * i) for i in range(8)]  # 0.028 rad over 0.7 s, still moving
+    assert arm.contact_allowed(history, started=99.0) is False
+    assert arm.contact_allowed(history, started=100.6) is False  # inside the ignore window
+
+
+def test_effort_counts_after_jaw_travel_or_stall(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path)
+    moved = [(100.0 + 0.1 * i, 1.5 - 0.02 * i) for i in range(8)]
+    assert arm.contact_allowed(moved, started=99.0) is True
+    stalled = [(100.0 + 0.1 * i, 0.7) for i in range(8)]
+    assert arm.contact_allowed(stalled, started=99.0) is True
+    short = [(100.0 + 0.1 * i, 0.7) for i in range(3)]  # stall window (0.5 s) not covered yet
+    assert arm.contact_allowed(short, started=99.0) is False
