@@ -490,3 +490,10 @@ def test_mcp_gripper_closed_target_is_inside_the_follower_gripper_command_range(
     assert "direct_command_sources" in follower and "autonomy" in follower["direct_command_sources"]
     readme = (NODE_DIR / "README.md").read_text()
     assert "-0.165" in readme and "1940" in readme and "command_min_steps" in readme
+
+
+def test_shoulder_lift_upper_limit_allows_reaching_below_the_floor() -> None:
+    """2026-10-08 test: the shoulder reached 1.87 rad without collision but cannot lift the stretched arm beyond about
+    1.85 rad; 1.9 rad (1.85 usable after the margin) lets a folded arm reach about 5 cm below floor level."""
+    overrides = node_config("mcp_server")["arm"]["joint_limit_overrides_rad"]
+    assert overrides == {"shoulder_lift": [-1.745, 1.9]}

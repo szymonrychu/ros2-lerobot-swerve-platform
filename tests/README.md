@@ -497,6 +497,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_topics_match_filter_node_lease` | mcp_server autonomy command/release/active source and follower feedback topics equal filter_node's. |
 | `test_filter_node_autonomy_params` | filter_node config sets `autonomy_input_topic`, `autonomy_release_topic`, `active_source_topic`. |
 | `test_gripper_camera_enabled` | `gripper_uvc_camera` is present and enabled again. |
+| `test_shoulder_lift_upper_limit_allows_reaching_below_the_floor` | mcp_server `arm.joint_limit_overrides_rad` widens shoulder_lift to [-1.745, 1.9] rad (tested on the robot: 1.87 rad reached without collision, the stretched arm cannot be lifted beyond about 1.85). |
 | `test_gripper_camera_rotated_180_at_source` | `gripper_uvc_camera` env sets `UVC_ROTATE_DEG=180` exactly once (the wrist image is upside down at wrist roll 0; rotation happens in the camera node, not downstream). |
 | `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
 | `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` in client.yml equal the mcp_server `nav` values. |

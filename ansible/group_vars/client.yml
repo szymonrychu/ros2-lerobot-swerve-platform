@@ -976,6 +976,10 @@ ros2_nodes:
         # Tool centre point (m) in the gripper_frame_link frame: jaw closing point vs gripper_frame_link, measured
         # 2026-10-08 by closing on ruler marks.
         tool_offset_m: {x: 0.0104, y: -0.0282, z: -0.0017}
+        # URDF shoulder_lift upper limit 1.745 rad widened (tested 2026-10-08: reached 1.87 rad without collision; the
+        # servo cannot lift the stretched-out arm beyond about 1.85 rad): a folded arm reaches about 5 cm below the floor.
+        joint_limit_overrides_rad:
+          shoulder_lift: [-1.745, 1.9]
         # Optional once measured: arm base frame pose in base_link (x/y/z in m, yaw in rad; z = arm_base_height_m). Without it
         # gripper-camera results have no base_link/map coordinates and the reach/gripper overlays are skipped on the front camera.
         # base_in_base_link: {x: 0.0, y: 0.0, z: 0.165, yaw: 0.0}
