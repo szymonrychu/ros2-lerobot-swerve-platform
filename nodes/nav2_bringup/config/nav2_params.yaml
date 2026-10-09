@@ -360,6 +360,8 @@ collision_monitor:
     # self box (footprint + 1 cm), whose returns are removed from /scan_filtered. A 20 s stationary sample on the robot
     # (2026-10-03) had 0 returns within 5 cm of the footprint. To disable at runtime:
     # `ros2 param set /collision_monitor StopBox.enabled false`.
+    # Every polygon needs 4+ points: Jazzy's Polygon::getPolygonFromString rejects <= 3 (its error says "three"),
+    # and one rejected sub-polygon aborts the whole nav2 bringup. Triangles carry their outer-edge midpoint as a 4th.
     polygons: ["StopBox"]
     StopBox:
       type: "velocity_polygon"
@@ -378,7 +380,7 @@ collision_monitor:
         direction_start_angle: -3.1416
         direction_end_angle: 3.1416
       forward:
-        points: "[[0.0, 0.0], [0.255, 0.213], [0.255, -0.213]]"
+        points: "[[0.0, 0.0], [0.255, 0.213], [0.255, 0.0], [0.255, -0.213]]"
         linear_min: 0.0
         linear_max: 10.0
         theta_min: -10.0
@@ -386,7 +388,7 @@ collision_monitor:
         direction_start_angle: -0.1745
         direction_end_angle: 0.1745
       forward_left:
-        points: "[[0.255, -0.213], [0.255, 0.213], [-0.255, 0.213]]"
+        points: "[[0.255, -0.213], [0.255, 0.0], [0.255, 0.213], [-0.255, 0.213]]"
         linear_min: 0.0
         linear_max: 10.0
         theta_min: -10.0
@@ -394,7 +396,7 @@ collision_monitor:
         direction_start_angle: 0.1745
         direction_end_angle: 1.3963
       left:
-        points: "[[0.0, 0.0], [0.255, 0.213], [-0.255, 0.213]]"
+        points: "[[0.0, 0.0], [0.255, 0.213], [0.0, 0.213], [-0.255, 0.213]]"
         linear_min: 0.0
         linear_max: 10.0
         theta_min: -10.0
@@ -402,7 +404,7 @@ collision_monitor:
         direction_start_angle: 1.3963
         direction_end_angle: 1.7453
       back_left:
-        points: "[[0.255, 0.213], [-0.255, 0.213], [-0.255, -0.213]]"
+        points: "[[0.255, 0.213], [0.0, 0.213], [-0.255, 0.213], [-0.255, -0.213]]"
         linear_min: 0.0
         linear_max: 10.0
         theta_min: -10.0
@@ -410,7 +412,7 @@ collision_monitor:
         direction_start_angle: 1.7453
         direction_end_angle: 2.9671
       back:
-        points: "[[0.0, 0.0], [-0.255, 0.213], [-0.255, -0.213]]"
+        points: "[[0.0, 0.0], [-0.255, 0.213], [-0.255, 0.0], [-0.255, -0.213]]"
         linear_min: 0.0
         linear_max: 10.0
         theta_min: -10.0
@@ -418,7 +420,7 @@ collision_monitor:
         direction_start_angle: 2.9671
         direction_end_angle: -2.9671
       back_right:
-        points: "[[-0.255, 0.213], [-0.255, -0.213], [0.255, -0.213]]"
+        points: "[[-0.255, 0.213], [-0.255, 0.0], [-0.255, -0.213], [0.255, -0.213]]"
         linear_min: 0.0
         linear_max: 10.0
         theta_min: -10.0
@@ -426,7 +428,7 @@ collision_monitor:
         direction_start_angle: -2.9671
         direction_end_angle: -1.7453
       right:
-        points: "[[0.0, 0.0], [-0.255, -0.213], [0.255, -0.213]]"
+        points: "[[0.0, 0.0], [-0.255, -0.213], [0.0, -0.213], [0.255, -0.213]]"
         linear_min: 0.0
         linear_max: 10.0
         theta_min: -10.0
@@ -434,7 +436,7 @@ collision_monitor:
         direction_start_angle: -1.7453
         direction_end_angle: -1.3963
       forward_right:
-        points: "[[-0.255, -0.213], [0.255, -0.213], [0.255, 0.213]]"
+        points: "[[-0.255, -0.213], [0.0, -0.213], [0.255, -0.213], [0.255, 0.213]]"
         linear_min: 0.0
         linear_max: 10.0
         theta_min: -10.0

@@ -533,10 +533,13 @@ def test_nav2_collision_monitor_uses_scan() -> None:
         polygon = cm[name]
         assert polygon["type"] in ("polygon", "circle", "velocity_polygon")
         assert polygon["action_type"] in ("stop", "slowdown", "approach", "limit")
+        # nav2_collision_monitor (Jazzy) Polygon::getPolygonFromString rejects vvf.size() <= 3 even though its error
+        # says "at least three points", and one bad polygon aborts the whole nav2 bringup: four points minimum.
         if polygon["type"] == "polygon":
-            assert len(yaml.safe_load(polygon["points"])) >= 3
+            assert len(yaml.safe_load(polygon["points"])) >= 4
         elif polygon["type"] == "velocity_polygon":
-            assert all(len(yaml.safe_load(polygon[sub]["points"])) >= 3 for sub in polygon["velocity_polygons"])
+            for sub in polygon["velocity_polygons"]:
+                assert len(yaml.safe_load(polygon[sub]["points"])) >= 4, f"{name}.{sub} needs 4+ points"
         else:
             assert polygon["radius"] > 0
         assert isinstance(polygon["min_points"], int) and polygon["min_points"] > 0
