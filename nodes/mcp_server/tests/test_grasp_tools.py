@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import anyio
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -259,3 +260,17 @@ def test_each_straight_line_step_runs_at_its_waypoint_speed(tmp_path: Path, monk
         params.lift_speed_scale,
         params.slide_speed_scale,
     ]
+
+
+def test_grasp_tool_schemas_teach_the_scoop_gap_and_the_tall_object_params(server: Any) -> None:
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tools = {t.name: json.dumps(t.input_schema) + (t.description or "") for t in anyio.run(run)}
+    for name in ("plan_grasp", "grasp_object"):
+        text = tools[name]
+        assert "gap_below_m" in text
+        assert "only with a gap under the object" in text
+        assert "tries top_down, angled, scoop" in text
+        for param in ("scoop_gap_margin_m", "tall_ratio", "tall_grasp_height_fraction", "lift_speed_scale"):
+            assert param in text, (name, param)

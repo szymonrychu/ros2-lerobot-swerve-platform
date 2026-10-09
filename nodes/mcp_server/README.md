@@ -365,15 +365,24 @@ below or in a hole: normal speed down to that surface, slow below it) and `tilt_
 
 Input: `ObjectSpec` `{frame: 'arm'|'base_link', x, y (centre), support_z (bottom of the object = the surface it rests
 on), width_m (across the jaws), depth_m (along the approach), height_m, yaw (rad, width axis; omitted = across the
-approach)}`, a strategy and `GraspParams` (the `grasp` config section with per-call `params` overrides). The 5-DOF arm
+approach), gap_below_m (clear height under the object's bottom, e.g. an overhang or a raised object; default 0 = flat on
+its support)}`, a strategy and `GraspParams` (the `grasp` config section with per-call `params` overrides). The 5-DOF arm
 can only approach in the vertical plane of `shoulder_pan`, so every strategy approaches radially from the arm base.
 
 | Strategy | Geometry |
 |---|---|
-| `scoop` | wrist roll about 0 (fixed jaw underneath, moving jaw closes from above), horizontal radial slide at the object's bottom height until the fixed jaw tip is under the object centre. The fixed jaw top goes `below_object_offset_m` under the object bottom, clamped so the jaw (`jaw_thickness_m`) stays `skim_clearance_m` above the effective surface when the object rests on it (`skim`). Opening = height + `jaw_open_margin_m` (+ how far a skimming jaw sits above the object bottom). Approach pitch starts at `scoop_pitch_deg` (0, horizontal) and steepens in `scoop_pitch_step_deg` up to `scoop_max_pitch_deg` (25): a near-horizontal gripper cannot reach low near the base. |
-| `angled` | radial approach pitched down by `approach_pitch_deg` (default `angled_pitch_deg` 45), jaws across the object width (roll from the object yaw relative to the pan direction), object centred between the jaws (grasp shift), tool point at mid-height. |
+| `scoop` | Only for an object with room under it: `gap_below_m` must be at least `jaw_thickness_m` + `scoop_gap_margin_m` (0.008 + 0.004 m), otherwise the plan is infeasible with "no gap under object for the fixed jaw" (in the sim a scoop against a box resting flat pushes or tips it instead of getting under it). Wrist roll about 0 (fixed jaw underneath, moving jaw closes from above), horizontal radial slide at the object's bottom height until the fixed jaw tip is under the object centre. The fixed jaw top goes `below_object_offset_m` under the object bottom, clamped so the jaw (`jaw_thickness_m`) stays `skim_clearance_m` above the effective surface when the object rests on it (`skim`). Opening = height + `jaw_open_margin_m` (+ how far a skimming jaw sits above the object bottom). Approach pitch starts at `scoop_pitch_deg` (0, horizontal) and steepens in `scoop_pitch_step_deg` up to `scoop_max_pitch_deg` (40; sim: every gap scoop up to 40 deg lifted, steeper ones swing the moving jaw into the object top and slip): a near-horizontal gripper cannot reach low near the base. |
+| `angled` | radial approach pitched down by `approach_pitch_deg` (default `angled_pitch_deg` 45), jaws across the object width (roll from the object yaw relative to the pan direction), object centred between the jaws (grasp shift), tool point at mid-height (tall narrow objects: see below). |
 | `top_down` | pitch 90 deg (straight down), jaws across the width, opening = width + margin, vertical approach. |
-| `auto` | `auto_order` (default scoop, angled 45, top_down): the first feasible plan wins; `attempts` lists each try. |
+| `auto` | `auto_order` (default top_down, angled 45, scoop): the first feasible plan wins; `attempts` lists each try (a flat object's scoop attempt carries the no-gap reason). |
+
+Tall narrow objects (`height_m / width_m` above `tall_ratio`, 1.5) pivot out of the jaws when gripped at mid-height:
+`angled` and `top_down` put the tool point at `tall_grasp_height_fraction` (0.3) of the height from the bottom (never
+lower than a jaw thickness plus `skim_clearance_m` above the surface) and the `lift` waypoint carries `lift_speed_scale`
+(0.05) instead of `slide_speed_scale`; the executor runs every straight-line step at its waypoint's speed scale. Objects
+narrower across the jaws (the scoop: taller) than `min_object_width_m` (0.01) are rejected: "the jaws cannot hold it".
+The strategies and defaults are validated in the MuJoCo sim with the jaws calibrated to `arm.tool_offset_m`
+(`sim/README.md`, "Planner scenario matrix").
 
 New strategies plug into `grasp.STRATEGIES` (name -> function returning candidate `GraspGeometry`s) and the
 `GraspStrategyName` literal in `config.py`.
@@ -393,10 +402,12 @@ Infeasible plans return human-readable `reasons`; the planner never raises for a
 
 Runs a plan through `ArmController` (lease, stop, roll guard, limit clamping, tracking/stale aborts, slow zone): if the
 roll changes and the gripper is open wider than half, it first half-opens; moves to the lifted pre-grasp keeping the
-current roll, rolls there, opens to the planned opening, approaches and slides (`move_path`, `slide_speed_scale`),
+current roll, rolls there, opens to the planned opening, approaches and slides (`move_path` at the waypoint speed,
+`slide_speed_scale`),
 closes with `close_until_effort` (`close_effort_threshold`; never a full squeeze: the effort/stall detection and the
 gripper limits apply), verifies the grasp (jaw stopped at least `min_hold_gap_rad` short of closed and a load of at
-least `hold_effort_min` at the contact or after it), then lifts and retreats: `grasped`. A close on nothing
+least `hold_effort_min` at the contact or after it), then lifts (`lift_speed_scale` for tall narrow objects) and
+retreats: `grasped`. A close on nothing
 (`closed_no_contact`, `blocked` or no load) opens again, lifts and retreats: `missed`. Any other motion status, a
 refusal or a stop (stop tool, or the service `stop`) stops and holds: `aborted` with the reason.
 
@@ -413,7 +424,7 @@ Request:
 {"action": "plan" | "execute" | "release" | "stop",
  "request_id": "optional string, echoed back",
  "object": {"frame": "arm" | "base_link", "x": 0.22, "y": 0.0, "support_z": -0.15,
-            "width_m": 0.03, "depth_m": 0.03, "height_m": 0.04, "yaw": null},
+            "width_m": 0.03, "depth_m": 0.03, "height_m": 0.04, "yaw": null, "gap_below_m": 0.0},
  "strategy": "auto" | "scoop" | "angled" | "top_down",
  "params": {"lift_height_m": 0.04},
  "approach_pitch_deg": null,
@@ -597,20 +608,25 @@ grasp:                    # grasp planner defaults, overridable per call via par
   below_object_offset_m: 0.005
   skim_clearance_m: 0.003
   max_object_width_m: 0.08
+  min_object_width_m: 0.01      # narrower objects are rejected (the jaws cannot hold them)
   close_effort_threshold: 300
   hold_effort_min: 100
   min_hold_gap_rad: 0.08
   interpolation_step_m: 0.005
   max_joint_jump_rad: 0.25
   scoop_pitch_deg: 0
-  scoop_max_pitch_deg: 25
+  scoop_max_pitch_deg: 40
   scoop_pitch_step_deg: 5
+  scoop_gap_margin_m: 0.004     # scoop only when gap_below_m >= jaw_thickness_m + this
+  tall_ratio: 1.5               # height / width above this: tall narrow object
+  tall_grasp_height_fraction: 0.3
+  lift_speed_scale: 0.05        # lift speed of tall narrow objects
   angled_pitch_deg: 45
   stall_shoulder_lift_rad: 1.85
   stretched_elbow_max_rad: 0.0
   release_open_fraction: 0.6
   release_lift_m: 0.05
-  auto_order: [{strategy: scoop}, {strategy: angled, approach_pitch_deg: 45}, {strategy: top_down}]
+  auto_order: [{strategy: top_down}, {strategy: angled, approach_pitch_deg: 45}, {strategy: scoop}]
 cameras:                  # default: not calibrated (see Camera tools and calibration)
   calibration_dir: /var/lib/ros2/camera_calibration
   gripper: {parent_frame: gripper_link, intrinsics: null, mount: null}

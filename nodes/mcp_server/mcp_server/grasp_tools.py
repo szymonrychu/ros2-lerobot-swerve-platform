@@ -514,20 +514,27 @@ def register(ctx: ToolContext) -> None:
         "Object as a box: {frame: 'arm' (arm base frame, z up, floor at z = "
         f"{config.arm.floor_z_m:.3f}) or 'base_link' (robot frame, floor z = 0), x, y (centre, m), support_z (height "
         "of the object's bottom = the surface it stands on, m), width_m (across the jaws), depth_m (along the "
-        "approach), height_m, yaw (rad, direction of the width axis; omit = across the approach)}"
+        "approach), height_m, yaw (rad, direction of the width axis; omit = across the approach), gap_below_m (clear "
+        "height under the object's bottom, m: an overhang or a raised object; default 0 = resting flat)}"
     )
     strategy_desc = (
-        "'scoop': fixed jaw slides under the object horizontally (wrist_roll about 0, moving jaw closes from above; "
-        "skims the surface when the object rests on it; best for flat or low objects reachable far out), 'angled': "
+        "'scoop': fixed jaw slides under the object (wrist_roll about 0, moving jaw closes from above), only with a gap "
+        "under the object (gap_below_m >= jaw_thickness_m + scoop_gap_margin_m; a box resting flat gets pushed, so "
+        "the plan is infeasible: 'no gap under object for the fixed jaw'), 'angled': "
         "radial approach pitched down by approach_pitch_deg (default "
         f"{grasp.angled_pitch_deg:g}), jaws across the width, 'top_down': gripper straight down, jaws across the width, "
-        "'auto' (default): tries " + ", ".join(e.strategy for e in grasp.auto_order) + " and takes the first feasible"
+        "'auto' (default): tries " + ", ".join(e.strategy for e in grasp.auto_order) + " and takes the first feasible. "
+        f"Tall narrow objects (height / width above tall_ratio {grasp.tall_ratio:g}) are gripped at "
+        f"tall_grasp_height_fraction {grasp.tall_grasp_height_fraction:g} of their height and lifted at "
+        f"lift_speed_scale {grasp.lift_speed_scale:g}; objects narrower than min_object_width_m "
+        f"{grasp.min_object_width_m:g} m are rejected"
     )
     params_desc = (
         "Overrides of the grasp parameters (config grasp section), e.g. approach_distance_m, pre_grasp_clearance_m, "
         "slide_speed_scale, lift_height_m, retreat_distance_m, jaw_thickness_m, jaw_open_margin_m, "
         "below_object_offset_m, skim_clearance_m, max_object_width_m, close_effort_threshold, interpolation_step_m, "
-        "scoop_max_pitch_deg, angled_pitch_deg, release_open_fraction, release_lift_m, auto_order"
+        "scoop_max_pitch_deg, scoop_gap_margin_m, tall_ratio, tall_grasp_height_fraction, lift_speed_scale, "
+        "min_object_width_m, angled_pitch_deg, release_open_fraction, release_lift_m, auto_order"
     )
     surface_desc = (
         "Expected surface height relative to the robot plane (m, base_link z; default "
