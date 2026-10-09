@@ -329,3 +329,11 @@ def test_limit_overrides_reject_non_chain_joints_and_inverted_ranges() -> None:
         ArmKinematics(URDF, margin=MARGIN, limit_overrides={"gripper": (-0.2, 1.8)})
     with pytest.raises(ValueError, match="lower"):
         ArmKinematics(URDF, margin=MARGIN, limit_overrides={"elbow_flex": (1.0, -1.0)})
+
+
+def test_link_frames_returns_every_chain_link_from_one_forward_pass(kin: ArmKinematics) -> None:
+    joints = {"shoulder_pan": 0.3, "shoulder_lift": 0.8, "elbow_flex": -0.4, "wrist_flex": 0.6, "wrist_roll": -1.0}
+    frames = kin.link_frames(joints)
+    assert set(frames) == set(kin.link_index)
+    for link, frame in frames.items():
+        assert np.allclose(frame, kin.link_frame(joints, link))

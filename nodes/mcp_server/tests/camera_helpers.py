@@ -34,8 +34,10 @@ def camera_config(
     if gripper:
         cameras["gripper"] = {"intrinsics": HFOV, "mount": GRIPPER_MOUNT}
     data: dict[str, object] = {"cameras": cameras, **extra}
+    # These tests use their own synthetic arm mount (16.5 cm high), or none at all.
+    data["arm"] = {"arm_base_height_m": 0.165, "base_in_base_link": None}
     if arm_offset:
-        data["arm"] = {"base_in_base_link": {"x": 0.1, "y": 0.0, "z": 0.165, "yaw": 0.0}}
+        data["arm"]["base_in_base_link"] = {"x": 0.1, "y": 0.0, "z": 0.165, "yaw": 0.0}
     return McpServerConfig.model_validate(data)
 
 

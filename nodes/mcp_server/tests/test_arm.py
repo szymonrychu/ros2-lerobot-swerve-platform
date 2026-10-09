@@ -322,7 +322,7 @@ def test_state_omits_stale_joint_data(tmp_path: Path) -> None:
 
 def test_state_reports_floor_z_below_the_arm_base(tmp_path: Path) -> None:
     arm, _ = make(tmp_path)
-    assert arm.state().floor_z_m == pytest.approx(-0.165)
+    assert arm.state().floor_z_m == pytest.approx(-0.15)
 
 
 def test_state_floor_z_follows_configured_base_height(tmp_path: Path) -> None:

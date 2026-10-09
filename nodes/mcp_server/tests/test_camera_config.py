@@ -61,9 +61,9 @@ def test_unknown_camera_keys_rejected() -> None:
 
 def test_arm_base_offset_and_reach_defaults() -> None:
     arm = McpServerConfig().arm
-    assert arm.base_in_base_link is None
+    assert arm.base_in_base_link is not None  # the mount estimate
     assert 0.0 < arm.reach_inner_m < arm.reach_outer_m
-    cfg = McpServerConfig.model_validate({"arm": {"base_in_base_link": {"x": 0.1, "z": 0.165, "yaw": 3.14}}})
+    cfg = McpServerConfig.model_validate({"arm": {"base_in_base_link": {"x": 0.1, "z": 0.15, "yaw": 3.14}}})
     assert cfg.arm.base_in_base_link is not None and cfg.arm.base_in_base_link.x == 0.1
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"arm": {"reach_inner_m": 0.5, "reach_outer_m": 0.3}})

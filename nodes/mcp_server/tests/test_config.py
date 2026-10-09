@@ -141,10 +141,51 @@ def test_token_from_env_strips(monkeypatch: pytest.MonkeyPatch) -> None:
     assert token_from_env() == "a" * 48
 
 
-def test_arm_base_height_defaults_to_measured_16_5_cm_and_gives_floor_z() -> None:
+def test_arm_base_height_defaults_to_the_15_cm_mount_estimate_and_gives_floor_z() -> None:
     arm = McpServerConfig().arm
-    assert arm.arm_base_height_m == 0.165
-    assert arm.floor_z_m == pytest.approx(-0.165)
+    assert arm.arm_base_height_m == 0.15
+    assert arm.floor_z_m == pytest.approx(-0.15)
+
+
+def test_arm_mount_estimate_is_enabled_by_default() -> None:
+    mount = McpServerConfig().arm.base_in_base_link
+    assert mount is not None
+    assert (mount.x, mount.y, mount.z, mount.yaw) == (0.15, -0.04, 0.15, 0.0)
+
+
+def test_arm_mount_height_must_match_arm_base_height() -> None:
+    with pytest.raises(ValidationError, match="arm_base_height_m"):
+        McpServerConfig.model_validate({"arm": {"base_in_base_link": {"x": 0.1, "z": 0.2}}})
+    cfg = McpServerConfig.model_validate({"arm": {"arm_base_height_m": 0.2, "base_in_base_link": {"z": 0.2}}})
+    assert cfg.arm.floor_z_m == pytest.approx(-0.2)
+    assert McpServerConfig.model_validate({"arm": {"base_in_base_link": None}}).arm.base_in_base_link is None
+
+
+def test_floor_guard_defaults_and_validation() -> None:
+    guard = McpServerConfig().floor_guard
+    assert guard.enabled is True
+    assert guard.margin_m == 0.02
+    assert guard.slow_speed_scale == 0.2
+    assert guard.surface_z_m == 0.0
+    assert guard.imu_max_age_s == 1.0
+    for bad in ({"slow_speed_scale": 0.0}, {"slow_speed_scale": 1.5}, {"margin_m": -0.01}, {"imu_max_age_s": 0}):
+        with pytest.raises(ValidationError):
+            McpServerConfig.model_validate({"floor_guard": bad})
+
+
+def test_grasp_defaults_and_validation() -> None:
+    grasp = McpServerConfig().grasp
+    assert grasp.interpolation_step_m == 0.005
+    assert grasp.max_object_width_m == 0.08
+    assert [entry.strategy for entry in grasp.auto_order] == ["scoop", "angled", "top_down"]
+    assert grasp.auto_order[1].approach_pitch_deg == 45.0
+    assert 0.0 < grasp.slide_speed_scale <= 0.5
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"grasp": {"slide_speed_scale": 0.9}})
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"grasp": {"auto_order": [{"strategy": "teleport"}]}})
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"grasp": {"interpolation_step_m": 0.0}})
 
 
 def test_arm_base_height_must_be_positive() -> None:

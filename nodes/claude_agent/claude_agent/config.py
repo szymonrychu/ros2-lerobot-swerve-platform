@@ -46,7 +46,7 @@ DEFAULT_SENSOR_TOOLS = [
 # offsets in nodes/web_ui/urdf/so101_arm.urdf (shoulder_lift -> elbow_flex 11.6 + elbow_flex -> wrist_flex 13.5 +
 # wrist_flex -> wrist_roll 6.4 + wrist_roll -> gripper tip 9.8 = 41.3 cm), an upper bound with the arm fully stretched.
 ARM_REACH_CM = 41.0
-DEFAULT_ARM_BASE_HEIGHT_M = 0.165
+DEFAULT_ARM_BASE_HEIGHT_M = 0.15  # estimate, equal to mcp_server arm.arm_base_height_m
 DEFAULT_NAV_GOAL_XY_TOLERANCE_CM = 1.0
 DEFAULT_NAV_GOAL_YAW_TOLERANCE_DEG = 2.0
 DEFAULT_CAMERA_NOTE = (

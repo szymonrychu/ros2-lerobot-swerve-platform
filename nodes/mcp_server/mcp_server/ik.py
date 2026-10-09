@@ -255,8 +255,19 @@ class ArmKinematics:
         """
         if link not in self.link_index:
             raise ValueError(f"link {link!r} is not on the arm chain; use one of {sorted(self.link_index)}")
+        return self.link_frames(joints)[link]
+
+    def link_frames(self, joints: dict[str, float]) -> dict[str, np.ndarray]:
+        """Poses of every URDF link frame on the chain from a single forward kinematics pass.
+
+        Args:
+            joints (dict[str, float]): Joint name -> measured rad (missing chain joints default to 0).
+
+        Returns:
+            dict[str, np.ndarray]: Link name -> 4x4 transform T_arm_base_link.
+        """
         frames = self.chain.forward_kinematics(self.to_vector(joints), full_kinematics=True)
-        return np.array(frames[self.link_index[link]], dtype=np.float64)
+        return {link: np.array(frames[i], dtype=np.float64) for link, i in self.link_index.items()}
 
     def approach_vector(self, heading: float, pitch: float) -> np.ndarray:
         """Approach direction with the given horizontal heading, pitched down by pitch.

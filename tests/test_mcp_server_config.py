@@ -217,8 +217,11 @@ def test_gripper_camera_rotated_180_at_source() -> None:
     assert sum(e.startswith("UVC_ROTATE_DEG=") for e in env) == 1
 
 
-def test_mcp_server_arm_base_height_is_16_5_cm() -> None:
-    assert node_config("mcp_server")["arm"]["arm_base_height_m"] == 0.165
+def test_mcp_server_arm_mount_estimate_and_height_agree_with_claude_agent() -> None:
+    arm = node_config("mcp_server")["arm"]
+    assert arm["arm_base_height_m"] == 0.15
+    assert arm["base_in_base_link"] == {"x": 0.15, "y": -0.04, "z": 0.15, "yaw": 0.0}
+    assert node_config("claude_agent")["arm_base_height_m"] == arm["arm_base_height_m"]
 
 
 def test_mcp_server_monitor_block_has_ordered_thresholds() -> None:

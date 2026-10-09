@@ -3,6 +3,7 @@
 import math
 import os
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -28,6 +29,14 @@ HARD_MAX_ANGULAR_RPS = 0.5
 HARD_MAX_DRIVE_S = 2.0
 HARD_MAX_SPEED_SCALE = 0.5
 HARD_MAX_IMAGE_PX = 1024
+# Arm mount ESTIMATE in base_link (m, rad); not measured yet. The mount height is also the floor height under the arm
+# (floor_z_m = -ARM_BASE_HEIGHT_M), kept a little lower than the robot really is so the floor is treated conservatively.
+ARM_BASE_HEIGHT_M = 0.15
+ARM_MOUNT_X_M = 0.15
+ARM_MOUNT_Y_M = -0.04  # 4 cm to the right of the base_link centre line
+MOUNT_HEIGHT_TOLERANCE_M = 1e-6
+# Grasp strategies the planner registers (grasp.STRATEGIES); "auto" tries grasp.auto_order.
+GraspStrategyName = Literal["scoop", "angled", "top_down"]
 
 
 class MissingTokenError(RuntimeError):
@@ -255,13 +264,31 @@ class ArmSettings(StrictModel):
     gripper_open_rad: float = 1.5
     gripper_closed_rad: float = -0.165
     autonomy_source_name: str = "autonomy"
-    # Height of the arm mount plane (the URDF base_link origin) above the floor, measured on the robot.
-    arm_base_height_m: float = Field(default=0.165, gt=0.0, le=1.0)
-    # Arm base frame pose in the robot base_link; unset until measured (then arm and base_link coordinates are not mixed).
-    base_in_base_link: ArmBaseOffset | None = None
+    # Height of the arm mount plane (the URDF base_link origin) above the floor (ESTIMATE 0.15 m, to be measured; the
+    # earlier 0.165 m value made the floor look lower than this conservative estimate).
+    arm_base_height_m: float = Field(default=ARM_BASE_HEIGHT_M, gt=0.0, le=1.0)
+    # Arm base frame pose in the robot base_link (ESTIMATE, to be measured): 15 cm forward, 4 cm right, z equal to
+    # arm_base_height_m. null disables every arm <-> base_link conversion (camera results, grasp base_link input).
+    base_in_base_link: ArmBaseOffset | None = Field(
+        default_factory=lambda: ArmBaseOffset(x=ARM_MOUNT_X_M, y=ARM_MOUNT_Y_M, z=ARM_BASE_HEIGHT_M, yaw=0.0)
+    )
     # Horizontal reach on the floor around the shoulder pan axis, drawn as the reach annulus on annotated images.
     reach_outer_m: float = Field(default=0.25, gt=0.0, le=1.0)
     reach_inner_m: float = Field(default=0.05, ge=0.0)
+
+    @model_validator(mode="after")
+    def mount_height_consistent(self) -> "ArmSettings":
+        """Require the mount z to equal arm_base_height_m (both are the arm base height above the robot plane).
+
+        Returns:
+            ArmSettings: The validated settings.
+        """
+        mount = self.base_in_base_link
+        if mount is not None and abs(mount.z - self.arm_base_height_m) > MOUNT_HEIGHT_TOLERANCE_M:
+            raise ValueError(
+                f"arm.base_in_base_link.z ({mount.z}) must equal arm.arm_base_height_m ({self.arm_base_height_m})"
+            )
+        return self
 
     @model_validator(mode="after")
     def reach_ordered(self) -> "ArmSettings":
@@ -511,6 +538,66 @@ class PoiSettings(StrictModel):
     near_radius_m: float = Field(default=5.0, gt=0.0)  # list_pois(near=True) keeps POIs within this distance
 
 
+class FloorGuardSettings(StrictModel):
+    """Below-surface slow zone (floor_guard): arm trajectory segments with a checked point (jaw tips, wrist, elbow) below
+    the effective surface + margin_m run at slow_speed_scale of their normal speed. It never blocks a motion.
+
+    The effective surface at a point is the higher of the robot plane (base_link z = surface_z_m) and the gravity-level
+    plane through base_link (0, 0, surface_z_m) derived from the IMU roll/pitch (or a per-call tilt override).
+    """
+
+    enabled: bool = True
+    margin_m: float = Field(default=0.02, ge=0.0, le=0.2)
+    slow_speed_scale: float = Field(default=0.2, gt=0.0, le=1.0)
+    surface_z_m: float = Field(default=0.0, ge=-1.0, le=1.0)
+    imu_max_age_s: float = Field(default=1.0, gt=0.0)
+
+
+class GraspAutoEntry(StrictModel):
+    """One strategy the 'auto' grasp tries (in order); approach_pitch_deg only applies to 'angled'."""
+
+    strategy: GraspStrategyName
+    approach_pitch_deg: float | None = Field(default=None, ge=0.0, le=90.0)
+
+
+class GraspSettings(StrictModel):
+    """Grasp planner defaults (GraspParams); every value can be overridden per call by the grasp tools."""
+
+    approach_distance_m: float = Field(default=0.04, ge=0.0, le=0.2)  # straight-line approach before the object
+    pre_grasp_clearance_m: float = Field(default=0.05, ge=0.0, le=0.3)  # lift of the roll/open pose above the approach
+    slide_speed_scale: float = Field(default=0.15, gt=0.0, le=HARD_MAX_SPEED_SCALE)  # approach/slide speed scale
+    lift_height_m: float = Field(default=0.05, ge=0.0, le=0.3)
+    retreat_distance_m: float = Field(default=0.05, ge=0.0, le=0.3)
+    jaw_thickness_m: float = Field(default=0.008, gt=0.0, le=0.05)  # fixed jaw thickness below its inner face
+    jaw_open_margin_m: float = Field(default=0.015, ge=0.0, le=0.05)  # opening beyond the gripped size
+    below_object_offset_m: float = Field(default=0.005, ge=0.0, le=0.05)  # scoop: fixed jaw top below object bottom
+    skim_clearance_m: float = Field(default=0.003, ge=0.0, le=0.05)  # scoop: fixed jaw bottom above the surface
+    max_object_width_m: float = Field(default=0.08, gt=0.0, le=0.12)  # widest opening the jaws can use
+    close_effort_threshold: float = Field(default=300.0, gt=0.0)  # close_until_effort contact threshold
+    hold_effort_min: float = Field(default=100.0, ge=0.0)  # |gripper load| a verified grasp must still show
+    min_hold_gap_rad: float = Field(default=0.08, ge=0.0)  # verified grasp: jaw stopped this far short of closed
+    interpolation_step_m: float = Field(default=0.005, gt=0.0, le=0.05)  # straight-line IK sample spacing
+    max_joint_jump_rad: float = Field(default=0.25, gt=0.0, le=1.0)  # between consecutive straight-line samples
+    scoop_pitch_deg: float = Field(default=0.0, ge=-10.0, le=60.0)  # scoop approach pitch (0 = horizontal)
+    scoop_max_pitch_deg: float = Field(default=25.0, ge=0.0, le=60.0)  # steepest pitch a scoop may fall back to
+    scoop_pitch_step_deg: float = Field(default=5.0, gt=0.0, le=30.0)
+    angled_pitch_deg: float = Field(default=45.0, ge=0.0, le=90.0)
+    # A stretched arm (elbow_flex at or below stretched_elbow_max_rad, measured; negative elbow_flex stretches) with
+    # shoulder_lift above stall_shoulder_lift_rad stalls the shoulder servo: such plans are infeasible.
+    stall_shoulder_lift_rad: float = 1.85
+    stretched_elbow_max_rad: float = 0.0
+    release_open_fraction: float = Field(default=0.6, gt=0.0, le=1.0)  # release_object opening
+    release_lift_m: float = Field(default=0.05, ge=0.0, le=0.3)
+    auto_order: list[GraspAutoEntry] = Field(
+        default_factory=lambda: [
+            GraspAutoEntry(strategy="scoop"),
+            GraspAutoEntry(strategy="angled", approach_pitch_deg=45.0),
+            GraspAutoEntry(strategy="top_down"),
+        ],
+        min_length=1,
+    )
+
+
 class McpServerConfig(StrictModel):
     """Top-level mcp_server configuration."""
 
@@ -528,6 +615,8 @@ class McpServerConfig(StrictModel):
     objects: ObjectSettings = ObjectSettings()
     look_around: LookAroundSettings = LookAroundSettings()
     poi: PoiSettings = PoiSettings()
+    floor_guard: FloorGuardSettings = FloorGuardSettings()
+    grasp: GraspSettings = GraspSettings()
 
 
 def load_config(path: Path) -> McpServerConfig:
