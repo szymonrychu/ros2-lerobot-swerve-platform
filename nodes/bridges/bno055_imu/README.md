@@ -26,6 +26,8 @@ YAML config path: `BNO055_IMU_CONFIG` or `/etc/ros2/bno055_imu/config.yaml`.
 | `linear_acceleration_covariance` | `0.04` or list of 9 | Same format |
 | `operation_mode` | `IMUPLUS` | `IMUPLUS` (gyro+accel, relative heading), `NDOF` or `NDOF_FMC_OFF` (adds the magnetometer: absolute heading) |
 | `calibration_topic` | `/imu/calibration` | `std_msgs/String` JSON `{sys, gyro, accel, mag}` (0-3 each) at 1 Hz; empty disables |
+| `calibration_file` | `/var/lib/ros2/bno055_imu/calibration.json` | Persisted sensor offsets, restored at init; empty disables persistence |
+| `calibration_save_interval_s` | `60` | Minimum seconds between calibration saves (min 1) |
 
 Example:
 
@@ -39,6 +41,24 @@ orientation_covariance: 0.01
 angular_velocity_covariance: 0.01
 linear_acceleration_covariance: 0.04
 ```
+
+## Calibration persistence
+
+The BNO055 forgets its calibration on every reset, so each node restart used to drop `/imu/calibration` to 0,0,0,0.
+The node now keeps the sensor offsets in `calibration_file` (JSON: `accel_offset`, `gyro_offset`, `mag_offset`,
+`accel_radius`, `mag_radius`).
+
+- **Restore**: on every chip init (start and I2C reconnect) the offsets are written in CONFIG mode before the chip is
+  switched to `operation_mode`; the log shows `restored calibration profile from <file>`. A missing file means an
+  uncalibrated start. A corrupt or implausible file (missing keys, values outside int16, radius outside 1-2000) logs a
+  warning and the node starts uncalibrated.
+- **Save**: at most every `calibration_save_interval_s`, when `gyro`, `accel` and `mag` all report 3 (`sys` is ignored),
+  the node briefly switches to CONFIG mode, reads the offsets, switches back and writes the file atomically (temp file
+  plus `os.replace`) only if it differs from what is on disk; the log shows `saved calibration profile`. That cycle
+  publishes nothing while fusion restarts (about 1.5 s). The adafruit_bno055 offset properties do not switch modes
+  themselves (library 5.4.22), so the node does it explicitly.
+- **Reset**: delete the file and restart the node (`sudo rm /var/lib/ros2/bno055_imu/calibration.json`), then redo the
+  calibration motion. Ansible creates `/var/lib/ros2/bno055_imu` owned by the node user.
 
 ## Hardware
 

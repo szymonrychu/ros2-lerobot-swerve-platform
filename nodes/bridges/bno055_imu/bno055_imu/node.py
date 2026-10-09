@@ -2,6 +2,7 @@
 
 import json
 import time
+from pathlib import Path
 from typing import Any
 
 import rclpy
@@ -11,6 +12,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Imu
 from std_msgs.msg import String
 
+from .calibration import CalibrationProfile, apply_profile, load_profile, save_if_changed, should_save
 from .config import ImuNodeConfig
 from .covariance import CovarianceEstimator
 from .imu_msg import build_imu_message, quaternion_wxyz_to_xyzw
@@ -171,13 +173,35 @@ def _create_i2c(i2c_bus: int) -> Any:
         return busio.I2C(board.SCL, board.SDA)
 
 
-def _create_bno055(i2c_bus: int, i2c_address: int, operation_mode: str = "IMUPLUS") -> tuple[Any, int]:
+def load_saved_profile(config: ImuNodeConfig, node: Node) -> CalibrationProfile | None:
+    """Load the persisted calibration profile; a missing, corrupt or invalid file means uncalibrated.
+
+    Args:
+        config: Node config (calibration_file; None disables persistence).
+        node: ROS2 node for logging.
+
+    Returns:
+        CalibrationProfile | None: The valid profile, or None.
+    """
+    if not config.calibration_file:
+        return None
+    try:
+        return load_profile(Path(config.calibration_file))
+    except ValueError as exc:
+        node.get_logger().warn(f"ignoring calibration profile {config.calibration_file}: {exc}; starting uncalibrated")
+        return None
+
+
+def _create_bno055(
+    i2c_bus: int, i2c_address: int, operation_mode: str = "IMUPLUS", profile: CalibrationProfile | None = None
+) -> tuple[Any, int]:
     """Create BNO055 I2C driver with configured address and fallback to alternate address.
 
     Args:
         i2c_bus (int): I2C bus number.
         i2c_address (int): Preferred I2C address.
         operation_mode (str): IMUPLUS, NDOF or NDOF_FMC_OFF.
+        profile (CalibrationProfile | None): Calibration offsets written in CONFIG mode before the operation mode.
 
     Returns:
         tuple[Any, int]: (driver, address used).
@@ -202,6 +226,8 @@ def _create_bno055(i2c_bus: int, i2c_address: int, operation_mode: str = "IMUPLU
             # 10 ms, so its internal mode restore silently fails, locking the sensor in
             # CONFIG mode (0x00). Every property read then returns (None, None, None).
             time.sleep(CRYSTAL_STABILIZE_S)
+            if profile is not None:
+                apply_profile(bno, profile)
             # IMUPLUS: accel+gyro fusion (no magnetometer); NDOF adds the magnetometer for absolute heading.
             bno.mode = target_mode
             # Fusion needs 1–2 s after mode switch to produce valid data.
@@ -235,11 +261,19 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     clock = node.get_clock()
     period_s = 1.0 / max(1.0, config.publish_hz)
 
+    calibration_path = Path(config.calibration_file) if config.calibration_file else None
+    saved_profile: CalibrationProfile | None = None
+    last_save_s = time.monotonic()
+
     init_attempt = 0
     bno, used_addr = None, None
     while rclpy.ok() and bno is None:
         try:
-            bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address, config.operation_mode)
+            profile = load_saved_profile(config, node)
+            bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address, config.operation_mode, profile)
+            if profile is not None:
+                saved_profile = profile
+                node.get_logger().info(f"restored calibration profile from {config.calibration_file}")
         except Exception as e:  # noqa: BLE001
             init_attempt += 1
             backoff = min(30.0, 2 ** min(init_attempt, 5))
@@ -316,7 +350,11 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             backoff = min(30.0, 2 ** min(reconnect_count, 5))
             time.sleep(backoff)
             try:
-                bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address, config.operation_mode)
+                profile = load_saved_profile(config, node)
+                bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address, config.operation_mode, profile)
+                if profile is not None:
+                    saved_profile = profile
+                    node.get_logger().info(f"restored calibration profile from {config.calibration_file}")
                 consecutive_failures = 0
                 hard_failures = 0
                 reconnect_count += 1
@@ -463,6 +501,18 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             if payload is not None:
                 calibration_pub.publish(String(data=payload))
                 node.get_logger().debug(f"BNO055 calibration {payload}")
+        if calibration_path is not None:
+            now_s = time.monotonic()
+            if now_s - last_save_s >= config.calibration_save_interval_s:
+                last_save_s = now_s
+                try:
+                    if should_save(bno.calibration_status, 0.0, now_s, 0.0, None, saved_profile):
+                        new_profile = save_if_changed(bno, calibration_path, target_mode, saved_profile)
+                        if new_profile != saved_profile:
+                            saved_profile = new_profile
+                            node.get_logger().info(f"saved calibration profile to {calibration_path}")
+                except (RuntimeError, OSError) as e:
+                    node.get_logger().warn(f"BNO055 calibration save failed: {e}")
         _spin_once_safe(executor, timeout_sec=period_s)
 
     node.destroy_node()

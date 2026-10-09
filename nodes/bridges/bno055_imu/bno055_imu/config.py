@@ -12,6 +12,8 @@ ENV_CONFIG_PATH_KEY = "BNO055_IMU_CONFIG"
 SUPPORTED_OPERATION_MODES = ("IMUPLUS", "NDOF", "NDOF_FMC_OFF")
 DEFAULT_OPERATION_MODE = "IMUPLUS"
 DEFAULT_CALIBRATION_TOPIC = "/imu/calibration"
+DEFAULT_CALIBRATION_FILE = "/var/lib/ros2/bno055_imu/calibration.json"
+DEFAULT_CALIBRATION_SAVE_INTERVAL_S = 60.0
 
 
 def _diagonal_covariance(var: float) -> list[float]:
@@ -63,6 +65,9 @@ class ImuNodeConfig:
         operation_mode: BNO055 fusion mode: IMUPLUS (gyro+accel, relative heading) or NDOF / NDOF_FMC_OFF
             (adds the magnetometer: heading absolute, referenced to magnetic north).
         calibration_topic: Topic for std_msgs/String JSON {sys, gyro, accel, mag} (0-3 each); None disables it.
+        calibration_file: JSON file the sensor offsets are saved to and restored from at init; None disables
+            persistence.
+        calibration_save_interval_s: Minimum seconds between calibration saves (once gyro, accel, mag are all 3).
     """
 
     topic: str
@@ -78,6 +83,8 @@ class ImuNodeConfig:
     covariance_min_samples: int
     operation_mode: str = DEFAULT_OPERATION_MODE
     calibration_topic: str | None = DEFAULT_CALIBRATION_TOPIC
+    calibration_file: str | None = DEFAULT_CALIBRATION_FILE
+    calibration_save_interval_s: float = DEFAULT_CALIBRATION_SAVE_INTERVAL_S
 
 
 # Default covariance values: diagonal, low/moderate uncertainty for Nav2.
@@ -145,6 +152,12 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
     if operation_mode not in SUPPORTED_OPERATION_MODES:
         operation_mode = DEFAULT_OPERATION_MODE
     calibration_topic = str(data.get("calibration_topic", DEFAULT_CALIBRATION_TOPIC) or "").strip() or None
+    calibration_file = str(data.get("calibration_file", DEFAULT_CALIBRATION_FILE) or "").strip() or None
+    raw_interval = data.get("calibration_save_interval_s", DEFAULT_CALIBRATION_SAVE_INTERVAL_S)
+    try:
+        calibration_save_interval_s = max(1.0, float(raw_interval))
+    except (TypeError, ValueError):
+        calibration_save_interval_s = DEFAULT_CALIBRATION_SAVE_INTERVAL_S
     return ImuNodeConfig(
         topic=topic,
         frame_id=frame_id,
@@ -159,6 +172,8 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         covariance_min_samples=covariance_min_samples,
         operation_mode=operation_mode,
         calibration_topic=calibration_topic,
+        calibration_file=calibration_file,
+        calibration_save_interval_s=calibration_save_interval_s,
     )
 
 

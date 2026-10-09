@@ -175,3 +175,38 @@ def test_load_config_calibration_topic_default_and_disable(tmp_path: Path) -> No
     cfg = load_config(tmp_path / "config.yaml")
     assert cfg is not None
     assert cfg.calibration_topic is None
+
+
+def test_calibration_defaults(tmp_path: Path) -> None:
+    """Calibration persistence defaults: /var/lib/ros2 file, 60 s save interval."""
+    (tmp_path / "config.yaml").write_text("{}")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.calibration_file == "/var/lib/ros2/bno055_imu/calibration.json"
+    assert cfg.calibration_save_interval_s == 60.0
+
+
+def test_calibration_file_empty_disables(tmp_path: Path) -> None:
+    """An empty calibration_file disables persistence (None)."""
+    (tmp_path / "config.yaml").write_text('calibration_file: ""\n')
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.calibration_file is None
+
+
+def test_calibration_overrides(tmp_path: Path) -> None:
+    """Custom file and interval are honoured; bad or tiny intervals fall back or clamp."""
+    p = tmp_path / "config.yaml"
+    p.write_text("calibration_file: /tmp/x.json\ncalibration_save_interval_s: 5\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.calibration_file == "/tmp/x.json"
+    assert cfg.calibration_save_interval_s == 5.0
+    p.write_text("calibration_save_interval_s: nope\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.calibration_save_interval_s == 60.0
+    p.write_text("calibration_save_interval_s: 0\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.calibration_save_interval_s == 1.0

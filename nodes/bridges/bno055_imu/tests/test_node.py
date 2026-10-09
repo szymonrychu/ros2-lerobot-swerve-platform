@@ -482,3 +482,40 @@ def test_calibration_payload_none_when_unavailable() -> None:
     assert calibration_payload(None) is None
     assert calibration_payload((3, None, 1, 0)) is None
     assert calibration_payload((3, 2, 1)) is None
+
+
+# ---------------------------------------------------------------------------
+# _create_bno055 - calibration restore before the fusion mode
+# ---------------------------------------------------------------------------
+
+
+def test_create_bno055_restores_profile_before_operation_mode() -> None:
+    """The offsets are written (CONFIG mode) before the fusion mode is selected."""
+    from bno055_imu.calibration import CalibrationProfile
+
+    profile = CalibrationProfile((1, 2, 3), (4, 5, 6), (7, 8, 9), 1000, 480)
+    events: list[str] = []
+    bno = MagicMock()
+    type(bno).mode = property(lambda self: NDOF_MODE_VALUE, lambda self, v: events.append(f"mode:{v:#04x}"))
+    mock_bno055_cls = MagicMock(return_value=bno)
+    with (
+        patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
+        patch("bno055_imu.node.time.sleep"),
+        patch("bno055_imu.node.apply_profile", side_effect=lambda *_a: events.append("apply")),
+        patch.dict("sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls)}),
+    ):
+        _create_bno055(1, 0x28, "NDOF", profile)
+    assert events.index("apply") < events.index(f"mode:{NDOF_MODE_VALUE:#04x}")
+
+
+def test_create_bno055_without_profile_skips_apply() -> None:
+    """No profile means no offset writes."""
+    bno = _make_bno_mock_with_mode_sequence([IMUPLUS_MODE_VALUE])
+    with (
+        patch("bno055_imu.node._create_i2c", return_value=MagicMock()),
+        patch("bno055_imu.node.time.sleep"),
+        patch("bno055_imu.node.apply_profile") as apply,
+        patch.dict("sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=MagicMock(return_value=bno))}),
+    ):
+        _create_bno055(1, 0x28)
+    apply.assert_not_called()
