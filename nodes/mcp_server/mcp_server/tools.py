@@ -22,7 +22,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import body_tools, camera_tools, grasp_tools, perception_tools
+from . import body_tools, camera_tools, grasp_tools, motion_tools, perception_tools
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, McpServerConfig
@@ -40,6 +40,7 @@ from .models import (
     StopResult,
 )
 from .monitor import DIGEST_DEFAULT_SESSION, RobotMonitor
+from .motion_queue import MotionQueue
 from .poi_client import PoiStoreDown, PoiTimeout
 from .tool_context import RobotApi, ToolContext
 
@@ -70,6 +71,7 @@ TOOL_NAMES = (
     *camera_tools.TOOL_NAMES,
     *perception_tools.TOOL_NAMES,
     *grasp_tools.TOOL_NAMES,
+    *motion_tools.TOOL_NAMES,
 )
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
 # MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
@@ -88,6 +90,7 @@ MOTION_TOOLS = frozenset(
         "look_around",
         "grasp_object",
         "release_object",
+        "enqueue_motions",
     }
 )
 ALWAYS_ALLOWED_TOOLS = frozenset(
@@ -103,8 +106,14 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         *camera_tools.TOOL_NAMES,
         *perception_tools.SENSOR_TOOL_NAMES,
         "plan_grasp",
+        "get_motion_status",
+        "cancel_motions",
+        "wait_for_event",
     }
 )
+# Blocking motion tools refused while the motion queue runs (the queue's worker is the single motion owner then).
+# enqueue_motions appends to the queue and arm_set_home moves nothing.
+QUEUE_EXCLUSIVE_TOOLS = MOTION_TOOLS - {"enqueue_motions", "arm_set_home"}
 DIGEST_EVENTS_KEY = "robot_events_since_last_call"
 DIGEST_VITALS_KEY = "vitals"
 INSTRUCTIONS = """Controls a swerve-drive mobile robot with an SO101 5-DOF arm and gripper (ROS 2 Jazzy, Nav2, SLAM).
@@ -117,7 +126,11 @@ with the arm. Call stop at once if anything looks wrong; it is always available.
 robot_events_since_last_call (body events such as overheat, collision_stop, stall, bump, battery_low raised since the
 previous tool call) and a vitals one-liner (battery V, hottest servo C, CPU C); get_body_state gives the full picture.
 A motion that ends with status 'interrupted' was stopped safely because of a critical event (interrupted_by): read
-the event, check get_body_state and decide before moving again. Motion results compare expected with achieved."""
+the event, check get_body_state and decide before moving again. Motion results compare expected with achieved.
+Non-blocking motion: enqueue_motions queues several steps and returns at once (consecutive arm steps blend into one
+continuous trajectory), wait_for_event blocks until the queue drains or something relevant happens and returns the
+events plus a state digest, cancel_motions or stop clear the queue. While the queue runs the blocking motion tools are
+refused."""
 
 Camera = Literal["gripper", "front"]
 
@@ -208,6 +221,16 @@ class RobotMCPServer(MCPServer):
         """
         super().__init__(*args, **kwargs)
         self.monitor = monitor
+        self.motion_queue: MotionQueue | None = None
+        self.blocking: dict[str, int] = {}  # running blocking motion tools (QUEUE_EXCLUSIVE_TOOLS) -> count
+
+    def blocking_tool(self) -> str | None:
+        """Name of a blocking motion tool running now (the motion queue refuses to start meanwhile).
+
+        Returns:
+            str | None: A tool name, or None.
+        """
+        return next((name for name, count in list(self.blocking.items()) if count > 0), None)
 
     async def call_tool(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
         """Run a tool with its digest and log one timing line (tool, start, end, duration; arm motions also the
@@ -254,8 +277,20 @@ class RobotMCPServer(MCPServer):
         Returns:
             Any: The tool result with robot_events_since_last_call and vitals added.
         """
+        exclusive = name in QUEUE_EXCLUSIVE_TOOLS
         try:
-            result = await super().call_tool(name, arguments, context)
+            if exclusive and self.motion_queue is not None and self.motion_queue.busy():
+                raise ToolError(
+                    f"{name} refused: the motion queue is running (it owns the robot's motion). Use enqueue_motions, "
+                    "wait for it with wait_for_event, or end it with cancel_motions / stop"
+                )
+            if exclusive:
+                self.blocking[name] = self.blocking.get(name, 0) + 1
+            try:
+                result = await super().call_tool(name, arguments, context)
+            finally:
+                if exclusive:
+                    self.blocking[name] -= 1
         except UnexpectedToolError:
             raise
         except ToolError as exc:
@@ -332,7 +367,16 @@ def register_tools(
         extra_modules (tuple[Callable[[ToolContext], None], ...]): Additional tool modules.
     """
     monitor = monitor or RobotMonitor(config.monitor, guard, autonomy_source=config.arm.autonomy_source_name)
-    ctx = ToolContext(server=server, robot=robot, config=config, guard=guard, monitor=monitor)
+    queue = MotionQueue(
+        robot,
+        config,
+        guard,
+        grasp_runner=motion_tools.make_grasp_runner(robot, config),
+        external_busy=server.blocking_tool if isinstance(server, RobotMCPServer) else None,
+    )
+    if isinstance(server, RobotMCPServer):
+        server.motion_queue = queue
+    ctx = ToolContext(server=server, robot=robot, config=config, guard=guard, monitor=monitor, queue=queue)
     for module in (*TOOL_MODULES, *extra_modules):
         module(ctx)
 
@@ -552,9 +596,12 @@ def register_core_tools(ctx: ToolContext) -> None:
         """Emergency stop, always available: cancels every Nav2 navigation goal and publishes a zero velocity. The
         arm is frozen at its measured pose (aborting any arm motion) only if this server holds arm control or an arm
         motion is running; if it does not hold control the arm is not touched (arm_held false), so a human driving
-        it with the leader arm or web UI keeps it. Call it whenever anything looks wrong."""
+        it with the leader arm or web UI keeps it. The motion queue is cleared first (pending steps dropped, listed in
+        motion_queue_dropped; the running step ends with the stop). Call it whenever anything looks wrong."""
+        dropped = ctx.queue.halt_for_stop() if ctx.queue is not None else []
         with tool_errors():
-            return robot.stop()
+            result = robot.stop()
+        return result.model_copy(update={"motion_queue_dropped": dropped})
 
     @tool(
         description=(
@@ -745,6 +792,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     camera_tools.register,
     perception_tools.register,
     grasp_tools.register,
+    motion_tools.register,
 )
 
 

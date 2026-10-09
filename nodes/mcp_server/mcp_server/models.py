@@ -250,6 +250,9 @@ class StopResult(BaseModel):
     base_zeroed: bool
     arm_held: bool
     message: str = ""
+    motion_queue_dropped: list[str] = Field(
+        default_factory=list, description="Pending motion queue job ids dropped by this stop"
+    )
 
 
 EventSeverity = Literal["info", "warning", "critical"]

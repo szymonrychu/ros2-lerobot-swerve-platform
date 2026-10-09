@@ -159,6 +159,10 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "plan_grasp",
         "grasp_object",
         "release_object",
+        "enqueue_motions",
+        "get_motion_status",
+        "cancel_motions",
+        "wait_for_event",
     }
     for t in tools:
         assert t.description and len(t.description) > 60, t.name

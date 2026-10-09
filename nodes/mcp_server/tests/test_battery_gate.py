@@ -30,6 +30,7 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
         "object": {"x": 0.22, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.03}
     },
     "release_object": {},
+    "enqueue_motions": {"steps": [{"kind": "wait_s", "seconds": 0.1}]},
 }
 ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_robot_state": {},
@@ -58,6 +59,9 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "plan_grasp": {
         "object": {"x": 0.22, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.03}
     },
+    "get_motion_status": {},
+    "cancel_motions": {},
+    "wait_for_event": {"timeout_s": 0.1},
 }
 
 

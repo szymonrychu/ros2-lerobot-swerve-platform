@@ -18,6 +18,18 @@ from .topdown import TopdownInputs
 LOGGER = logging.getLogger("mcp_server.tools")
 
 
+class MotionOwner(Protocol):
+    """The motion queue as the other tools see it (motion_queue.MotionQueue)."""
+
+    def busy(self) -> bool:
+        """Whether queued motions run or are pending."""
+        ...
+
+    def halt_for_stop(self) -> list[str]:
+        """Drop every pending step at once (stop tool); returns the dropped job ids."""
+        ...
+
+
 class RobotApi(Protocol):
     """Robot operations the tools call (implemented by ros_iface.RosRobot, faked in tests)."""
 
@@ -101,6 +113,7 @@ class ToolContext:
     config: McpServerConfig
     guard: BatteryGuard | None
     monitor: RobotMonitor
+    queue: MotionOwner | None = None
 
     def battery_gate(self, tool_name: str) -> None:
         """Refuse a motion tool while the battery is below cut-off, before the robot is touched.
