@@ -1,17 +1,21 @@
 """Unit tests for BNO055 IMU node validation helper functions."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from bno055_imu.node import (
     IMUPLUS_MODE_VALUE,
+    NDOF_MODE_VALUE,
+    OPERATION_MODE_VALUES,
     _create_bno055,
     _spin_once_safe,
     _warmup,
     all_zero,
     coerce,
     has_valid_tuple,
+    mode_value,
     valid_quat,
     warmup_check,
 )
@@ -353,8 +357,10 @@ def _make_bno_mock_with_mode_sequence(mode_sequence: list[int]) -> MagicMock:
         except StopIteration:
             return IMUPLUS_MODE_VALUE
 
-    def set_mode(self: object, _value: int) -> None:
-        pass  # no-op; getter controls the sequence
+    bno.mode_writes = []
+
+    def set_mode(self: object, value: int) -> None:
+        bno.mode_writes.append(value)  # getter controls the sequence
 
     type(bno).mode = property(get_mode, set_mode)
     return bno
@@ -422,3 +428,57 @@ def test_create_bno055_raises_when_all_addresses_fail() -> None:
     ):
         with pytest.raises(RuntimeError, match="Unable to initialize BNO055"):
             _create_bno055(1, 0x28)
+
+
+# ---------------------------------------------------------------------------
+# operation mode selection
+# ---------------------------------------------------------------------------
+
+
+def test_mode_value_maps_supported_modes() -> None:
+    """mode_value returns the BNO055 OPR_MODE register value for each supported name."""
+    assert mode_value("IMUPLUS") == 0x08
+    assert mode_value("NDOF_FMC_OFF") == 0x0B
+    assert mode_value("NDOF") == 0x0C
+    assert set(OPERATION_MODE_VALUES) == {"IMUPLUS", "NDOF", "NDOF_FMC_OFF"}
+
+
+def test_mode_value_rejects_unknown_mode() -> None:
+    """An unknown mode name raises ValueError."""
+    with pytest.raises(ValueError):
+        mode_value("COMPASS")
+
+
+def test_create_bno055_sets_configured_mode() -> None:
+    """_create_bno055 writes the configured NDOF mode and verifies against it."""
+    bno = _make_bno_mock_with_mode_sequence([NDOF_MODE_VALUE])
+    mock_bno055_cls = MagicMock(return_value=bno)
+    with (
+        patch("bno055_imu.node.time"),
+        patch("bno055_imu.node._create_i2c"),
+        patch.dict("sys.modules", {"adafruit_bno055": MagicMock(BNO055_I2C=mock_bno055_cls)}),
+    ):
+        result_bno, _addr = _create_bno055(1, 0x28, "NDOF")
+    assert result_bno is bno
+    assert NDOF_MODE_VALUE in bno.mode_writes
+
+
+# ---------------------------------------------------------------------------
+# calibration payload
+# ---------------------------------------------------------------------------
+
+
+def test_calibration_payload_json() -> None:
+    """calibration_payload encodes (sys, gyro, accel, mag) as JSON with those keys."""
+    from bno055_imu.node import calibration_payload
+
+    assert json.loads(calibration_payload((3, 2, 1, 0))) == {"sys": 3, "gyro": 2, "accel": 1, "mag": 0}
+
+
+def test_calibration_payload_none_when_unavailable() -> None:
+    """Missing or None entries yield no payload (nothing fake is published)."""
+    from bno055_imu.node import calibration_payload
+
+    assert calibration_payload(None) is None
+    assert calibration_payload((3, None, 1, 0)) is None
+    assert calibration_payload((3, 2, 1)) is None

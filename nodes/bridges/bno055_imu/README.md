@@ -24,6 +24,8 @@ YAML config path: `BNO055_IMU_CONFIG` or `/etc/ros2/bno055_imu/config.yaml`.
 | `orientation_covariance` | `0.01` or list of 9 | Diagonal variance or full 9-element row-major |
 | `angular_velocity_covariance` | `0.01` or list of 9 | Same format |
 | `linear_acceleration_covariance` | `0.04` or list of 9 | Same format |
+| `operation_mode` | `IMUPLUS` | `IMUPLUS` (gyro+accel, relative heading), `NDOF` or `NDOF_FMC_OFF` (adds the magnetometer: absolute heading) |
+| `calibration_topic` | `/imu/calibration` | `std_msgs/String` JSON `{sys, gyro, accel, mag}` (0-3 each) at 1 Hz; empty disables |
 
 Example:
 
@@ -44,7 +46,7 @@ linear_acceleration_covariance: 0.04
 - **Default address**: `0x28`; alternate `0x29` depending on ADR pin.
 - **Fallback behavior**: Node tries configured `i2c_address` first, then falls back to alternate BNO055 addresses.
 - **Host**: On Raspberry Pi, enable I2C and ensure `/dev/i2c-1` is accessible (udev rules set mode 0666).
-- **Mode**: The node uses **IMUPLUS** fusion: publishes orientation (quaternion), angular velocity, and linear acceleration. When fusion fails, falls back to raw acceleration; orientation then published as identity with covariance -1. After mode switch, the node waits 1.5 s and runs a warm-up phase (up to 3 s) until the sensor returns valid gyro+accel; this addresses BNO055 needing time for fusion to stabilize after power-on or service restart.
+- **Mode**: set by `operation_mode`. `IMUPLUS` (default) fuses accel+gyro only, so heading has an arbitrary zero. `NDOF` / `NDOF_FMC_OFF` also use the magnetometer: orientation yaw is then absolute, referenced to **magnetic** north (add the local declination for true north). The magnetometer needs calibration by moving the sensor through varied orientations (watch `mag` on `/imu/calibration`, 3 = calibrated) and is disturbed by motors and servos near the sensor. The quaternion is published as the chip reports it (no axis remap): flat and facing magnetic north it is the identity, yaw increases counter-clockwise (x north, y west, z up). When fusion fails, falls back to raw acceleration; orientation then published as identity with covariance -1. After mode switch, the node waits 1.5 s and runs a warm-up phase (up to 3 s) until the sensor returns valid gyro+accel; this addresses BNO055 needing time for fusion to stabilize after power-on or service restart.
 
 ## Build and run
 

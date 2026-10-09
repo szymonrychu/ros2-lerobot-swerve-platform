@@ -51,5 +51,11 @@ def _stub_ros2_modules() -> None:
     sensor_msgs.msg = sensor_msgs_msg  # type: ignore[attr-defined]
     sensor_msgs_msg.Imu = object  # type: ignore[attr-defined]
 
+    # std_msgs.msg
+    std_msgs = _make_stub_module("std_msgs")
+    std_msgs_msg = _make_stub_module("std_msgs.msg")
+    std_msgs.msg = std_msgs_msg  # type: ignore[attr-defined]
+    std_msgs_msg.String = object  # type: ignore[attr-defined]
+
 
 _stub_ros2_modules()

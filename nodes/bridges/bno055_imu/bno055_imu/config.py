@@ -9,6 +9,9 @@ import yaml
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/bno055_imu/config.yaml")
 ENV_CONFIG_PATH_KEY = "BNO055_IMU_CONFIG"
+SUPPORTED_OPERATION_MODES = ("IMUPLUS", "NDOF", "NDOF_FMC_OFF")
+DEFAULT_OPERATION_MODE = "IMUPLUS"
+DEFAULT_CALIBRATION_TOPIC = "/imu/calibration"
 
 
 def _diagonal_covariance(var: float) -> list[float]:
@@ -57,6 +60,9 @@ class ImuNodeConfig:
             using the fixed config values. Config values are used as fallback until enough samples accumulate.
         covariance_window: Rolling window size (number of samples) for covariance estimation.
         covariance_min_samples: Minimum samples required before estimated covariance is published.
+        operation_mode: BNO055 fusion mode: IMUPLUS (gyro+accel, relative heading) or NDOF / NDOF_FMC_OFF
+            (adds the magnetometer: heading absolute, referenced to magnetic north).
+        calibration_topic: Topic for std_msgs/String JSON {sys, gyro, accel, mag} (0-3 each); None disables it.
     """
 
     topic: str
@@ -70,6 +76,8 @@ class ImuNodeConfig:
     compute_covariance: bool
     covariance_window: int
     covariance_min_samples: int
+    operation_mode: str = DEFAULT_OPERATION_MODE
+    calibration_topic: str | None = DEFAULT_CALIBRATION_TOPIC
 
 
 # Default covariance values: diagonal, low/moderate uncertainty for Nav2.
@@ -133,6 +141,10 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         covariance_min_samples = max(2, int(raw_min))
     except (TypeError, ValueError):
         covariance_min_samples = DEFAULT_COVARIANCE_MIN_SAMPLES
+    operation_mode = str(data.get("operation_mode", DEFAULT_OPERATION_MODE)).strip().upper()
+    if operation_mode not in SUPPORTED_OPERATION_MODES:
+        operation_mode = DEFAULT_OPERATION_MODE
+    calibration_topic = str(data.get("calibration_topic", DEFAULT_CALIBRATION_TOPIC) or "").strip() or None
     return ImuNodeConfig(
         topic=topic,
         frame_id=frame_id,
@@ -145,6 +157,8 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         compute_covariance=compute_covariance,
         covariance_window=covariance_window,
         covariance_min_samples=covariance_min_samples,
+        operation_mode=operation_mode,
+        calibration_topic=calibration_topic,
     )
 
 

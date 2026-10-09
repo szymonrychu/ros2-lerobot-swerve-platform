@@ -130,3 +130,48 @@ def test_load_config_covariance_window_clamped_to_minimum(tmp_path: Path) -> Non
     assert cfg is not None
     assert cfg.covariance_window == 2
     assert cfg.covariance_min_samples == 2
+
+
+def test_load_config_operation_mode_defaults_to_imuplus(tmp_path: Path) -> None:
+    """Without operation_mode the node keeps the gyro+accel IMUPLUS fusion."""
+    (tmp_path / "config.yaml").write_text("{}")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.operation_mode == "IMUPLUS"
+
+
+@pytest.mark.parametrize("mode", ["IMUPLUS", "NDOF", "NDOF_FMC_OFF"])
+def test_load_config_operation_mode_accepts_supported_modes(tmp_path: Path, mode: str) -> None:
+    """Each supported operation_mode is read back unchanged."""
+    (tmp_path / "config.yaml").write_text(f"operation_mode: {mode}")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.operation_mode == mode
+
+
+def test_load_config_operation_mode_is_case_insensitive(tmp_path: Path) -> None:
+    """operation_mode: ndof is normalised to NDOF."""
+    (tmp_path / "config.yaml").write_text("operation_mode: ndof")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.operation_mode == "NDOF"
+
+
+def test_load_config_operation_mode_invalid_falls_back(tmp_path: Path) -> None:
+    """An unsupported operation_mode falls back to IMUPLUS."""
+    (tmp_path / "config.yaml").write_text("operation_mode: COMPASS")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.operation_mode == "IMUPLUS"
+
+
+def test_load_config_calibration_topic_default_and_disable(tmp_path: Path) -> None:
+    """calibration_topic defaults to /imu/calibration and an empty value disables it."""
+    (tmp_path / "config.yaml").write_text("{}")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.calibration_topic == "/imu/calibration"
+    (tmp_path / "config.yaml").write_text("calibration_topic: ''")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.calibration_topic is None

@@ -555,6 +555,10 @@ ros2_nodes:
     config: |
       topic: /imu/data
       frame_id: imu_link
+      # NDOF fuses the magnetometer: absolute yaw (magnetic north) for the web_ui GPS compass anchor. The EKF fuses only
+      # the gyro yaw rate (imu0_config index 11), so this does not change odometry. Calibrate the magnetometer by moving
+      # the robot; see /imu/calibration.
+      operation_mode: NDOF
       publish_hz: 50
       i2c_bus: 1
       i2c_address: 0x28
