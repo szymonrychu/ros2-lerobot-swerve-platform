@@ -31,8 +31,11 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `get_arm_state` | Joint positions (measured follower values)/efforts, gripper effort, tool point pose (x, y, z, pitch; forward kinematics with `arm.joint_offsets_rad` applied), `floor_z_m` (floor height in the base_link frame), active source, lease, home stored. |
 | `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
 | `move_arm_joints(targets, speed_scale<=0.5)` | Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `speed_scale` 0.5 is the maximum, `limits.arm_max_joint_velocity_rps` (default 1.0 rad/s); the description states the configured value. A `wrist_roll` change above `limits.roll_guard_min_change_rad` is refused while the gripper is open wider than `limits.roll_max_gripper_open_rad` (see Wrist roll guard). `converged` results may carry `residual_error` (see Safety model). |
-| `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None)` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.165, measured 16.5 cm); the tool descriptions and `get_arm_state.floor_z_m` state it. No motion restriction is derived from it. |
+| `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None)` | ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.15, an ESTIMATE; see Arm mount); the tool descriptions and `get_arm_state.floor_z_m` state it. Motions near or below the effective surface are slowed (never blocked) by the floor slow zone; `surface_z_m` and `tilt_override_deg` (also on `move_arm_joints`, `set_gripper` and `arm_home`) shift it per call and results report `slow_zone`. |
 | `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.15 rad) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
+| `plan_grasp(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg)` | Dry-run grasp plan (sensor, no motion): outcome `planned` / `infeasible` with reasons, chosen strategy, pitch, wrist roll, jaw opening, waypoints and slow-zone annotations. See Grasp macros. |
+| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg)` | Plan and execute (motion): outcome `grasped` / `missed` / `aborted` / `infeasible`, with the executed steps and the final gripper position/load. See Grasp macros. |
+| `release_object(params, surface_z_m, tilt_override_deg)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
 | `pixel_to_ground(camera, u, v, surface_height_m=0.0)` | Point seen at a pixel (sensor): `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
 | `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
@@ -68,14 +71,15 @@ works before calibration; `solve_camera_calibration` needs the intrinsics.
 | Camera | Reference frame of results | Floor | Mount `parent_frame` |
 |---|---|---|---|
 | `front` (fixed overhead camera) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | `base_link` (fixed) |
-| `gripper` (on the wrist) | arm base frame (URDF `base_link` of `so101_arm.urdf`, `z = 0` on the arm mount plane) | `z = -arm_base_height_m` (`floor_z_m`, -0.165 m) | URDF link `gripper_link` (child of `wrist_roll`, the rigid gripper body carrying the fixed jaw; `gripper_frame_link` is only the tool point at the jaw tips and `moving_jaw_so101_v1_link` moves with the gripper joint, so neither is a valid mount) |
+| `gripper` (on the wrist) | arm base frame (URDF `base_link` of `so101_arm.urdf`, `z = 0` on the arm mount plane) | `z = -arm_base_height_m` (`floor_z_m`, -0.15 m with the mount estimate) | URDF link `gripper_link` (child of `wrist_roll`, the rigid gripper body carrying the fixed jaw; `gripper_frame_link` is only the tool point at the jaw tips and `moving_jaw_so101_v1_link` moves with the gripper joint, so neither is a valid mount) |
 
 For the gripper camera `T_arm_base_gripper_link` is computed from the CURRENT measured joints with the same ikpy chain
 as IK/FK (`ArmKinematics.link_frame`), so the tools need fresh `/follower/joint_states`. Mount orientation convention:
 REP-103 camera body frame (x forward, y left, z up), fixed-axis RPY in `parent_frame`.
 
-`arm.base_in_base_link` (`x`, `y`, `z`, `yaw` of the arm base frame in base_link; z = `arm_base_height_m`) is unset until
-measured. Without it, gripper results are in the arm base frame only (`ground_arm_base`; no `ground_base_link`, no
+`arm.base_in_base_link` (`x`, `y`, `z`, `yaw` of the arm base frame in base_link; z must equal `arm_base_height_m`)
+defaults to the mount ESTIMATE `{x: 0.15, y: -0.04, z: 0.15, yaw: 0.0}` (15 cm forward, 4 cm right, 15 cm above the
+robot plane; to be measured). Set it to `null` to disable the arm <-> base_link conversions. Without it, gripper results are in the arm base frame only (`ground_arm_base`; no `ground_base_link`, no
 `ground_map`; distance and bearing are measured from the arm base) and the front camera cannot place arm overlays.
 
 ### Tools
@@ -104,7 +108,7 @@ measured. Without it, gripper results are in the arm base frame only (`ground_ar
    image size) and redeploy `mcp_server`. Start the solver from a rough guess of the mount (measure it with a ruler).
 2. Place a marker (a coloured dot or tape cross) on the floor at points whose position you measured with a ruler from
    the robot: for `front` in `base_link` (x forward, y left, floor `z = 0`), for `gripper` in the arm base frame
-   (`z = -0.165` for the floor). Spread at least 6 points across the field of view and over distance.
+   (`z = -arm_base_height_m`, -0.15 with the mount estimate, for the floor). Spread at least 6 points across the field of view and over distance.
 3. Take a photo (`get_camera_image` or `get_annotated_camera_image`; the annotated image works once an approximate mount is
    set and shows how far off it is), read the marker pixel `(u, v)` and call
    `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z)`. For the `gripper` camera repeat this at
@@ -316,6 +320,125 @@ partition every tool):
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
 
+## Arm mount and floor slow zone
+
+### Arm mount (estimate)
+
+The arm base frame (URDF `base_link` of `so101_arm.urdf`) sits at `arm.base_in_base_link` in the robot `base_link`:
+x 0.15 m, y -0.04 m (4 cm right of the centre line), z 0.15 m, yaw 0. These are ESTIMATES until measured; the height
+replaces the earlier 0.165 m so the floor (arm frame `z = -0.15`) is treated conservatively (a little higher than it
+probably is). claude_agent states the same height in its prompt (`arm_base_height_m` in its config). The pure helpers
+`floor_guard.arm_to_base_link` / `base_link_to_arm` convert points (yaw supported); the grasp tools accept objects in
+either frame.
+
+### Floor slow zone (`floor_guard.py`)
+
+'Below ground' is relative to the robot: `base_link` z = 0 is the plane under the wheels. Every arm motion through
+`ArmController` (`move_joints`, `move_cartesian`, `move_path`, `set_gripper`, `home`, the grasp macros) is checked
+once when its trajectory is planned: forward kinematics of every 25 Hz sample gives the fixed jaw tip
+(`gripper_frame_link` origin), the tool point (fixed jaw inner face), the moving jaw tip (jaw model: the closed tip at
+the tool point, rotating about the URDF `gripper` pivot), the wrist (`wrist_link` origin) and the elbow
+(`lower_arm_link` origin). The effective surface at a point is the HIGHER of
+
+- (a) the robot plane shifted to the expected surface: `base_link z = surface_z_m` (config `floor_guard.surface_z_m`,
+  default 0), and
+- (b) the gravity-level plane through `base_link (0, 0, surface_z_m)` from the robot tilt: the IMU `/imu/data`
+  orientation (roll/pitch only, from the body monitor), ignored when older than `floor_guard.imu_max_age_s` (1 s; then
+  plane (a) only, logged once per outage), or the per-call `tilt_override_deg {roll, pitch}`. With pitch p (nose down
+  > 0) and roll r (left side up > 0) the level plane is `z = x tan(p) / cos(r) - y tan(r)`: a robot tilted nose down
+  raises the zone in front of it.
+
+A trajectory step whose either end has a checked point closer than `floor_guard.margin_m` (0.02 m) to that surface
+(or below it) is time-scaled to `floor_guard.slow_speed_scale` (0.2) of its normal speed: it is split into `1/scale`
+linear sub-steps at the same 25 Hz rate. The guard NEVER blocks a motion; the tracking-error and gripper effort/stall
+detection stay the contact safety net. Results carry `slow_zone` (`slowed_samples`, `samples`, `speed_scale`,
+`margin_m`, `min_clearance_m`, `lowest_point`, `surface_z_m`, `tilt_source` imu|override|none, `tilt_deg`), null when
+the whole motion ran at normal speed.
+
+Per-call overrides (arm motion tools and grasp tools; nothing else changes the zone, there is no off switch for
+agents): `surface_z_m` = expected surface height relative to the robot plane (e.g. -0.18 for an object on a stair
+below or in a hole: normal speed down to that surface, slow below it) and `tilt_override_deg` replacing the IMU tilt.
+
+## Grasp macros
+
+### Planner (`grasp.py`, pure)
+
+Input: `ObjectSpec` `{frame: 'arm'|'base_link', x, y (centre), support_z (bottom of the object = the surface it rests
+on), width_m (across the jaws), depth_m (along the approach), height_m, yaw (rad, width axis; omitted = across the
+approach)}`, a strategy and `GraspParams` (the `grasp` config section with per-call `params` overrides). The 5-DOF arm
+can only approach in the vertical plane of `shoulder_pan`, so every strategy approaches radially from the arm base.
+
+| Strategy | Geometry |
+|---|---|
+| `scoop` | wrist roll about 0 (fixed jaw underneath, moving jaw closes from above), horizontal radial slide at the object's bottom height until the fixed jaw tip is under the object centre. The fixed jaw top goes `below_object_offset_m` under the object bottom, clamped so the jaw (`jaw_thickness_m`) stays `skim_clearance_m` above the effective surface when the object rests on it (`skim`). Opening = height + `jaw_open_margin_m` (+ how far a skimming jaw sits above the object bottom). Approach pitch starts at `scoop_pitch_deg` (0, horizontal) and steepens in `scoop_pitch_step_deg` up to `scoop_max_pitch_deg` (25): a near-horizontal gripper cannot reach low near the base. |
+| `angled` | radial approach pitched down by `approach_pitch_deg` (default `angled_pitch_deg` 45), jaws across the object width (roll from the object yaw relative to the pan direction), object centred between the jaws (grasp shift), tool point at mid-height. |
+| `top_down` | pitch 90 deg (straight down), jaws across the width, opening = width + margin, vertical approach. |
+| `auto` | `auto_order` (default scoop, angled 45, top_down): the first feasible plan wins; `attempts` lists each try. |
+
+New strategies plug into `grasp.STRATEGIES` (name -> function returning candidate `GraspGeometry`s) and the
+`GraspStrategyName` literal in `config.py`.
+
+Output `GraspPlan`: ordered waypoints `pre_grasp` (lifted by `pre_grasp_clearance_m` above the approach start; the
+wrist roll changes here, gripper at most `limits.roll_max_gripper_open_rad`), `open` (opening for the object),
+`approach` (straight line to `approach_distance_m` before the object), `grasp` (straight slide), `close`, `lift`
+(`lift_height_m` up), `retreat` (`retreat_distance_m` radially back), each with the tool point target, pitch, roll,
+gripper command, speed scale and IK joints; the straight segments carry joint samples every `interpolation_step_m`
+(IK seeded from the previous sample). Feasibility: reachable (IK verified by FK), joints within limits minus margin,
+no joint jump above `max_joint_jump_rad` between samples, no stretched-arm stall pose (shoulder_lift above
+`stall_shoulder_lift_rad` 1.85 with elbow_flex at or below `stretched_elbow_max_rad` 0; negative elbow_flex stretches),
+opening within `max_object_width_m` and the gripper's reach, roll guard ordering, plus slow-zone annotations per step.
+Infeasible plans return human-readable `reasons`; the planner never raises for an infeasible object.
+
+### Executor (`grasp_tools.GraspExecutor`)
+
+Runs a plan through `ArmController` (lease, stop, roll guard, limit clamping, tracking/stale aborts, slow zone): if the
+roll changes and the gripper is open wider than half, it first half-opens; moves to the lifted pre-grasp keeping the
+current roll, rolls there, opens to the planned opening, approaches and slides (`move_path`, `slide_speed_scale`),
+closes with `close_until_effort` (`close_effort_threshold`; never a full squeeze: the effort/stall detection and the
+gripper limits apply), verifies the grasp (jaw stopped at least `min_hold_gap_rad` short of closed and a load of at
+least `hold_effort_min` at the contact or after it), then lifts and retreats: `grasped`. A close on nothing
+(`closed_no_contact`, `blocked` or no load) opens again, lifts and retreats: `missed`. Any other motion status, a
+refusal or a stop (stop tool, or the service `stop`) stops and holds: `aborted` with the reason.
+
+### Web-UI contract (`/grasp/command` -> `/grasp/result`)
+
+The web UI (or any ROS client) publishes a JSON request as `std_msgs/String` on `topics.grasp_command`
+(`/grasp/command`, reliable, depth 10) and receives the JSON answer on `topics.grasp_result` (`/grasp/result`). `stop`
+and invalid requests are answered at once; `plan`, `execute` and `release` run in a worker thread (one execute/release
+at a time).
+
+Request:
+
+```json
+{"action": "plan" | "execute" | "release" | "stop",
+ "request_id": "optional string, echoed back",
+ "object": {"frame": "arm" | "base_link", "x": 0.22, "y": 0.0, "support_z": -0.15,
+            "width_m": 0.03, "depth_m": 0.03, "height_m": 0.04, "yaw": null},
+ "strategy": "auto" | "scoop" | "angled" | "top_down",
+ "params": {"lift_height_m": 0.04},
+ "approach_pitch_deg": null,
+ "surface_z_m": null,
+ "tilt_override_deg": {"roll": 0.0, "pitch": 0.0}}
+```
+
+`object` is required for `plan` and `execute`; everything else is optional (`strategy` defaults to `auto`, `params`
+keys are `grasp` config fields). Response:
+
+```json
+{"ok": true, "request_id": "...", "action": "execute",
+ "result": {"outcome": "planned" | "infeasible" | "grasped" | "missed" | "aborted" | "released",
+            "reasons": ["..."], "plan": {"strategy": "top_down", "feasible": true, "waypoints": [...], ...},
+            "steps": [{"label": "pre_grasp", "status": "converged", "message": "...", "slow_zone": null}],
+            "gripper_position_rad": 0.21, "gripper_effort": 350.0}}
+```
+
+`stop` answers `{"ok": true, ..., "result": {"arm_held": bool, "message": str}}` and aborts a running execute/release.
+Errors answer `{"ok": false, "request_id": ..., "action": ..., "error": "..."}` (invalid JSON or fields, missing
+object, unknown params, another action running, battery cut-off for execute/release).
+
+The camera overlay `planned_gripper` of `get_annotated_camera_image` takes one point: pass a plan waypoint (x, y, z)
+to draw it.
+
 ## Safety model
 
 - **Base**: navigation goes through Nav2 (planner, controller, velocity smoother, collision monitor). `drive` publishes
@@ -382,6 +505,9 @@ partition every tool):
   works against gravity depends on the whole arm pose (needs a mass model), a motion-direction lead overshoots when
   lowering, and the result cannot be checked without the robot.
 - **No placeholder data**: nothing is published without fresh measured joint states; state tools omit stale sources.
+- **Floor slow zone**: every arm motion is checked once against the effective surface (robot plane, IMU level plane,
+  per-call `surface_z_m` / `tilt_override_deg`); steps near or below it run at `floor_guard.slow_speed_scale`. It never
+  blocks (see Arm mount and floor slow zone); the tracking-error and effort/stall checks remain the contact safety net.
 
 ## Code layout
 
@@ -390,7 +516,10 @@ partition every tool):
 | `config.py` | no | pydantic config, `MCP_SERVER_CONFIG`, `MCP_SERVER_TOKEN` |
 | `trajectory.py` | no | quintic interpolation, limit clamping, tracking error |
 | `ik.py` | no | URDF limits, ikpy FK/IK with verification |
-| `arm.py` | no | `ArmController`: lease, streaming, aborts, gripper, home |
+| `arm.py` | no | `ArmController`: lease, streaming, aborts, gripper, home, `move_path`, slow-zone time scaling |
+| `floor_guard.py` | no | arm mount conversions, effective surface (robot plane, IMU level plane, overrides), jaw model, per-sample slow zone, `retime` |
+| `grasp.py` | no | grasp planner: strategies registry, waypoints, straight-line IK samples, feasibility reasons |
+| `grasp_tools.py` | no | `GraspExecutor`, the grasp MCP tools, `GraspService` (web-UI JSON) |
 | `base_motion.py` | no | timed clamped drive loop, stop sequence (`run_stop`) |
 | `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
 | `topdown.py`, `perception_models.py` | no | robot-up top-down renderer (layers, transforms); perception result models |
@@ -419,7 +548,7 @@ server:
 arm:
   urdf_path: nodes/web_ui/urdf/so101_arm.urdf   # relative paths resolve against the repo root
   home_file: /var/lib/ros2/arm/home.yaml
-  arm_base_height_m: 0.165   # arm mount plane height above the floor (m); floor_z_m = -this
+  arm_base_height_m: 0.15    # arm mount plane height above the floor (m, ESTIMATE); floor_z_m = -this
   gripper_open_rad: 1.5       # follower gripper joint positions (rad)
   gripper_closed_rad: -0.165
   reach_outer_m: 0.25        # floor reach around the shoulder axis (annotated image annulus)
@@ -428,7 +557,38 @@ arm:
   tool_offset_m: {x: 0.0, y: 0.0, z: 0.0}   # jaw closing point in the gripper_frame_link frame
   jaw_open_axis: [-1.0, 0.0, 0.0]           # direction the moving jaw opens, gripper_frame_link (normalised)
   joint_limit_overrides_rad: {}             # e.g. {shoulder_lift: [-1.74533, 2.6]} replaces URDF limits
-  # base_in_base_link: {x: 0.0, y: 0.0, z: 0.165, yaw: 0.0}   # optional, once measured
+  base_in_base_link: {x: 0.15, y: -0.04, z: 0.15, yaw: 0.0}   # ESTIMATE (default); z = arm_base_height_m; null disables
+floor_guard:              # below-surface slow zone (see Arm mount and floor slow zone)
+  enabled: true
+  margin_m: 0.02
+  slow_speed_scale: 0.2
+  surface_z_m: 0.0
+  imu_max_age_s: 1.0
+grasp:                    # grasp planner defaults, overridable per call via params (see Grasp macros)
+  approach_distance_m: 0.04
+  pre_grasp_clearance_m: 0.05
+  slide_speed_scale: 0.15
+  lift_height_m: 0.05
+  retreat_distance_m: 0.05
+  jaw_thickness_m: 0.008
+  jaw_open_margin_m: 0.015
+  below_object_offset_m: 0.005
+  skim_clearance_m: 0.003
+  max_object_width_m: 0.08
+  close_effort_threshold: 300
+  hold_effort_min: 100
+  min_hold_gap_rad: 0.08
+  interpolation_step_m: 0.005
+  max_joint_jump_rad: 0.25
+  scoop_pitch_deg: 0
+  scoop_max_pitch_deg: 25
+  scoop_pitch_step_deg: 5
+  angled_pitch_deg: 45
+  stall_shoulder_lift_rad: 1.85
+  stretched_elbow_max_rad: 0.0
+  release_open_fraction: 0.6
+  release_lift_m: 0.05
+  auto_order: [{strategy: scoop}, {strategy: angled, approach_pitch_deg: 45}, {strategy: top_down}]
 cameras:                  # default: not calibrated (see Camera tools and calibration)
   calibration_dir: /var/lib/ros2/camera_calibration
   gripper: {parent_frame: gripper_link, intrinsics: null, mount: null}
