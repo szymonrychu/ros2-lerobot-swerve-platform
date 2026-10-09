@@ -70,6 +70,15 @@ top_down / auto, radial approach only, `release_object`, outcomes grasped / miss
 below-surface slow zone of the arm (never blocks; `surface_z_m` for a stair or hole below, `tilt_override_deg`
 replacing the IMU tilt).
 
+The motion queue section teaches the non-blocking pattern: plan several steps of a phase and send them in one
+`enqueue_motions` call (consecutive arm steps blend into one continuous motion; `settle='final'`, a gripper step or a
+precondition ends a blend), give steps preconditions (`gripper_holding`, `gripper_open`, `arm_near`, `base_still`,
+`battery_ok`) and an `on_fail` policy, keep the queue at least 2 steps deep while thinking about the next phase, call
+`wait_for_event` instead of polling (it returns events plus a state digest), verify only at checkpoints, and
+`cancel_motions` or `replace=true` on surprises. It restates that every safety rule holds for queued motions (roll
+guard, negative elbow_flex stretches the arm, slow zone, stop on errors; stop clears the queue) and that `look_around`
+spins once and ends facing its last heading unless `return_to_start=true`.
+
 ## Task plan (per-phase budgets)
 
 There are no static per-instruction caps. For each instruction the agent splits the task into phases, gives each phase a
@@ -79,13 +88,13 @@ used up) and only counted (`ro_used`, per instruction and per active phase) for 
 
 | Counter | Counts | Instruction maximum (config) | Per-phase maximum (config) |
 |---|---|---|---|
-| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`; a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (150) | `max_phase_rw_cap` (40) |
+| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` (one call however many steps it queues); a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (150) | `max_phase_rw_cap` (40) |
 | turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (200) | `max_phase_turn_cap` (40) |
 
-Sensor calls (kind `sensor`: `plan_grasp` (dry run, no motion), `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools and the POI tools) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
+Sensor calls (kind `sensor`: `plan_grasp` (dry run, no motion), `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools, the POI tools, `get_motion_status` and `wait_for_event`) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
 
-Not counted: the notes file tools, the planning tools, and the control tools `stop`, `acquire_control`, `release_control`
-(`stop` must always work). Keep `effector_tools` equal to the motion classification of `nodes/mcp_server` (`MOTION_TOOLS`;
+Not counted: the notes file tools, the planning tools, and the control tools `stop`, `acquire_control`, `release_control`,
+`cancel_motions` (`stop` and `cancel_motions` must always work). Keep `effector_tools` equal to the motion classification of `nodes/mcp_server` (`MOTION_TOOLS`;
 `tests/test_claude_agent_config.py` checks it).
 
 The in-process SDK MCP server `agent` (`claude_agent_sdk.create_sdk_mcp_server`) offers four tools:
@@ -187,6 +196,12 @@ directly through MCP, concurrently with the model interrupt (each bounded by `st
 Each stop appears in the chat as a `tool_call` (`name: "stop"`, `kind: "uncapped"`) plus its `tool_result`, both carrying
 `source`; `is_error: true` when the robot could not be reached.
 
+At service shutdown the stop call is bounded by `shutdown_stop_timeout_s` (2 s). When deploys restart mcp_server first,
+nothing listens any more: the refused connection (wrapped by the MCP transport in an `ExceptionGroup`, read through its
+cause chain in `robot_stop.call_robot_stop`) is reported as `unreachable` and logged at INFO ("robot stop at shutdown
+skipped: mcp_server already gone"); other failures, and an unreachable server outside shutdown, stay errors. mcp_server
+itself releases the arm lease when it shuts down.
+
 ## Watchdog and session start
 
 Each instruction runs under `instruction_timeout_s` (900): on expiry the model is interrupted, the robot stopped, the
@@ -227,6 +242,7 @@ unknown keys are rejected.
 | `instruction_timeout_s` | `900` | Watchdog per instruction |
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |
 | `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |
+| `shutdown_stop_timeout_s` | `2` | Shorter bound for the robot stop call at service shutdown (mcp_server may already be gone) |
 | `robot_events_topic` | `/robot_events` | std_msgs/String JSON events of the mcp_server monitor |
 | `robot_events_history` | `50` | Robot events kept in memory |
 | `robot_event_debounce_s` | `2` | A critical event does not interrupt again within this window |

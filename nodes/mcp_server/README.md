@@ -27,7 +27,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `navigate_to_pose(x, y, yaw, frame='map', timeout_s, precise=false)` | Nav2 `NavigateToPose`; by default the goal ends early (cancelled, base zeroed, status `succeeded`) as soon as the measured pose is within `nav.intermediate_xy_tolerance_m` / `nav.intermediate_yaw_tolerance_deg` (3 cm / 5 deg); `precise=true` waits for Nav2's own checker (`nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg`, 1 cm / 2 deg, slower). Blocks until result/timeout (goal cancelled on timeout or stop); returns result and final pose. The description states the goal precision from `nav.goal_xy_tolerance_m` / `nav.goal_yaw_tolerance_deg` (default 1 cm / 2 deg, keep equal to the Nav2 goal checker) and that a sideways goal first turns the robot toward the path (front leading) and turns back to the goal heading at the end. |
 | `move_relative(dx, dy, dyaw, timeout_s, precise=false)` | Same (incl. `precise`), goal given in base_link (converted to a map goal via TF). Small moves (a few cm) really move. |
 | `drive(vx, vy, wz, duration_s<=2)` | 20 Hz on `/cmd_vel_nav` (through velocity smoother + collision monitor), clamped to 0.25 m/s / 0.5 rad/s, then zero. |
-| `stop` | Always available: cancels all NavigateToPose goals and publishes a zero twist. Aborts any arm motion and holds the arm at its measured pose only if this server holds arm control (or a motion is running); otherwise the arm is not touched (`arm_held: false`). |
+| `stop` | Always available: clears the motion queue first (dropped job ids in `motion_queue_dropped`), cancels all NavigateToPose goals and publishes a zero twist. Aborts any arm motion and holds the arm at its measured pose only if this server holds arm control (or a motion is running); otherwise the arm is not touched (`arm_held: false`). |
 | `get_arm_state` | Joint positions (measured follower values)/efforts, gripper effort, tool point pose (x, y, z, pitch; forward kinematics with `arm.joint_offsets_rad` applied), `floor_z_m` (floor height in the base_link frame), active source, lease, home stored. |
 | `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
 | `move_arm_joints(targets, speed_scale<=0.5, settle=None)` | `settle`: `trajectory_end` (default; `final` when the call moves the gripper joint, `limits.arm_default_settle`) or `final`, see the safety model.  Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `speed_scale` 0.5 is the maximum, `limits.arm_max_joint_velocity_rps` (default 1.0 rad/s); the description states the configured value. A `wrist_roll` change above `limits.roll_guard_min_change_rad` is refused while the gripper is open wider than `limits.roll_max_gripper_open_rad` (see Wrist roll guard). `converged` results may carry `residual_error` (see Safety model). |
@@ -46,7 +46,11 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `clear_calibration_samples(camera)` | Delete the stored samples of a camera. |
 | `get_topdown_view(radius_m=2.5, layers=all, px=480)` | Robot-up PNG centred on the robot (see Perception and memory) plus metadata `pose`, `scale_m_per_px`, `layers_present`, `layers_missing` (reason each), `data_ages`. Sensor. |
 | `remember_object` / `list_objects` / `forget_object` | Object memory in map coordinates, stored as object POIs in poi_store (merge, distance/bearing from the robot). Sensor. |
-| `look_around(captures=4, camera='front')` | Effector, ONE motion call: full in-place turn in equal steps with a camera frame and lidar summary per stop. |
+| `look_around(captures=4, camera='front', mode=None, return_to_start=None)` | Effector, ONE motion call: in-place turn through equal headings with a camera frame and lidar summary per heading. `mode` `spin` (default, `look_around.mode`): one continuous slow rotation; `steps`: one precise Nav2 rotation per heading. Ends facing the last heading unless `return_to_start=true` (default `look_around.return_to_start`, false). |
+| `enqueue_motions(steps, replace=false)` | Effector: queue motion steps and return at once (job ids, queue length, blend groups). See [Motion queue](#motion-queue). |
+| `get_motion_status` | Queue snapshot (sensor): running, current step (elapsed, progress, blend group), pending steps, last events. |
+| `cancel_motions` | Uncapped control: drop the pending steps and abort the running one (base zeroed, arm held when a motion step runs). |
+| `wait_for_event(timeout_s, until='queue_empty', since_seq)` | Sensor: block until the queue drains or something relevant happens; returns the new events, the queue status and a compact state digest. |
 | `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. |
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
@@ -278,8 +282,10 @@ poi_store is down the file is left untouched and imported later. An unreadable f
 early return). It checks the lidar first and is **refused without moving** when the nearest return is closer than the
 footprint circumscribed radius plus `look_around.clearance_margin_m` (10 cm), or when there is no fresh scan. Then it
 rotates the base in place in `captures` equal steps (3 to 12; steps of 360 / captures degrees through
-`move_relative(0, 0, step)`), at each stop it grabs a camera frame and the lidar sector summary, and a last step
-returns to the start heading. One event mark covers the whole run and is checked before every rotation, so a critical
+`move_relative(0, 0, step)`) in `mode='steps'`, or in ONE continuous slow rotation in `mode='spin'` (the default, see
+below); at each heading it grabs a camera frame and the lidar sector summary. A last step returns to the start heading
+only with `return_to_start=true` (tool default `look_around.return_to_start`, false: the turn ends facing the last
+heading, 270 deg for 4 captures). One event mark covers the whole run and is checked before every rotation, so a critical
 body event raised while capturing between steps also ends it: `interrupted` + `interrupted_by`, the frames captured so
 far are kept, no further rotation and **no return to the start** (the message says so). A step that ends `interrupted`
 or failed, a `stop` call between steps, or an obstacle inside the rotation circle likewise ends the sequence at once.
@@ -291,6 +297,17 @@ Result: a montage JPEG (tiles labelled
 with the heading in degrees counter-clockwise from the start; a missing frame is a grey "no frame" tile), a top-down PNG,
 and structured `headings` (nearest obstacle overall and per sector at each stop), `steps`, `expected` (360 deg, stops)
 vs `achieved` (`rotation_deg`, `final_pose`, `heading_error_deg`), `returned_to_start`, `notes`.
+
+**Spin mode** (`look_around.mode: spin`, default). The steps mode stopped at every heading for a precise Nav2 goal
+(median 35 s for 4 captures plus the return). The spin mode captures heading 0, then turns once at
+`look_around.spin_speed_rps` (0.4 rad/s) through `RobotApi.spin` (`base_motion.run_spin`: `/cmd_vel_nav` at
+`spin_rate_hz` through the velocity smoother and collision monitor, the base motion lock, the stop flag, critical body
+events, a lost pose and a timeout of angle / speed + `spin_timeout_margin_s` all end it, a zero twist always follows).
+The rotation is integrated from the measured heading, and a frame plus the lidar summary is taken each time it passes
+the next heading (frames are taken while turning slowly). An obstacle inside the rotation circle at a heading ends the
+spin (`aborted_obstacle`). With `return_to_start` the spin covers the full circle and one precise corrective
+`move_relative` removes a final heading error beyond the tolerance (never after an interruption, a stop or a failure).
+Tests check that both modes give the same tiles, labels and heading summaries (`test_look_around.py`).
 
 **POI tools** (`poi_store`, see `nodes/poi_store/README.md`). `list_pois(status, near)` reads the latched `/poi/list`
 and adds `distance_m`, `bearing_deg` (areas: centroid, plus `inside`); `near=true` keeps POIs within
@@ -315,8 +332,8 @@ partition every tool):
 
 | Class | Tools |
 |---|---|
-| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around` |
-| `ALWAYS_ALLOWED_TOOLS` | `stop`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `acquire_control`, `release_control`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi` |
+| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` |
+| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `plan_grasp`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `acquire_control`, `release_control`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi` |
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
 
@@ -450,6 +467,72 @@ object, unknown params, another action running, battery cut-off for execute/rele
 The camera overlay `planned_gripper` of `get_annotated_camera_image` takes one point: pass a plan waypoint (x, y, z)
 to draw it.
 
+## Motion queue
+
+Every blocking motion tool returns only when its motion is done, and each arm move used to end at zero velocity, so the
+robot stood still while the model thought between steps (measured: 47 % of wall time model-only, median 3.3 s gaps).
+The motion queue (`motion_queue.py`, pure scheduling logic; tools in `motion_tools.py`) keeps it moving.
+
+**Steps.** `enqueue_motions(steps, replace)` validates every step and returns at once with `job_ids`, `queue_length`
+(pending steps), `replaced` and `blend_groups`. Kinds: `arm_joints {targets}`, `arm_cartesian {x, y, z, pitch,
+wrist_roll, object_width_m}` (both with `speed_scale`, `settle`, `surface_z_m`, `tilt_override_deg`), `gripper
+{open_fraction | close_until_effort, effort_threshold}`, `base_relative {dx, dy, dyaw, precise, timeout_s}`,
+`navigate_to_pose {x, y, yaw, frame, precise, timeout_s}`, `wait_s {seconds}` and `grasp {object, strategy, params,
+approach_pitch_deg}` (the `grasp_object` plan + execute through `GraspExecutor`; `grasped` succeeds, `missed` /
+`aborted` / `infeasible` fail). The call is all or nothing: an unknown joint, a bad speed, a timeout above
+`timeouts.nav_max_timeout_s` or an unreachable cartesian target (IK is solved at enqueue time, seeded with the previous
+queued arm target, else the commanded pose) refuses the whole call with every reason (`step i (kind): reason`). At most
+`motion_queue.max_steps` (32) pending steps. `replace=true` drops the pending steps first (the running one finishes).
+
+**Execution.** One background worker thread runs the FIFO through the normal code paths: `ArmController.move_blend` /
+`set_gripper` and `RobotApi.navigate` / `move_relative`, so the lease, the stop flag, the stale/tracking/effort guards,
+the roll guard, critical-event interrupts and the floor slow zone apply exactly as for the blocking tools. Before every
+step the worker checks for a stop issued outside the queue (`stop_count`), re-checks the battery cut-off and evaluates
+the step's precondition.
+
+**Blending.** Consecutive arm steps (`arm_joints` / `arm_cartesian`) form a blend group run as ONE continuous trajectory
+(`trajectory.blend_trajectory`): quintic segments with zero acceleration at their ends and velocity continuity at the via
+points (a joint's via velocity is the mean of its adjacent average slopes, zero where it changes direction, so there is
+no overshoot), durations grown until every sampled per-joint velocity and acceleration stays within the velocity cap and
+`limits.arm_max_joint_accel_rps2` (8 rad/s^2), sampled at the 25 Hz streaming rate. The floor slow zone time-scales every
+streamed step of the spline like any other motion, and convergence is judged at the last target with its settle policy.
+A step with `settle='final'` (also the default of a step naming the gripper joint), any non-arm step, a precondition
+other than `none`, or a different `speed_scale` / slow-zone override ends a group: the arm comes to rest there. The
+intermediate steps of a group report `step_done` when the stream passes their via point.
+
+**Preconditions and failure policy.** `precondition {type, joints, tol, min_fraction}` is evaluated on live state when
+its step is dispatched: `none`, `gripper_holding` (jaw at least `motion_queue.holding_min_gap_rad` short of closed, no
+more open than `limits.gripper_grasp_max_open_rad`, gripper load at least `holding_min_effort`), `gripper_open` (open
+fraction >= `min_fraction`), `arm_near` (every named joint within `tol`), `base_still` (odometry below
+`base_still_linear_mps` / `base_still_angular_rps`) and `battery_ok` (fresh reading, not in cut-off). Unknown state never
+passes. `on_fail`: `stop_queue` (default) drops the rest of the queue (`queue_stopped`), `skip` continues with the next
+step. A failed precondition affects only its own step; steps blended behind it go back to the queue front.
+
+**Events.** `step_started`, `step_done` (data: status, trajectory/settle seconds, tracking error, settling, residual,
+slow zone), `step_failed` (guard aborts such as `aborted_tracking`, `aborted_stale`, `interrupted`, `timeout`,
+`unreachable`, `blocked`, a refused call, `battery_cutoff`), `precondition_failed`, `step_skipped`, `contact` (gripper
+`grasped` / `blocked`, a `grasped` grasp step), `queue_stopped`, `cancelled`, `replaced`, `stopped`, `step_aborted` (the
+running step ended by cancel/stop) and `queue_empty`. The slow zone is not a failure (reported in the data). Events
+carry `seq`, wall time, job id, kind and label, are logged on `mcp_server.motion_queue`, and the last
+`motion_queue.event_history` (200) are kept.
+
+**Waiting.** `wait_for_event(timeout_s, until, since_seq)` blocks only until something relevant happens: `queue_empty`
+(default: drained, or a failure / precondition failure / contact / aborted step), `step_done` (also any finished or
+skipped step), `failure` (failures only) or `any`. It returns at once with reason `idle` when nothing is queued,
+returns the events not returned before (`since_seq` overrides the cursor) plus the queue status and a state digest
+(arm joints, gripper position / open fraction / effort, base pose, battery V, lease; unknown values null), so a separate
+`get_robot_state` is rarely needed. Timeout default `wait_default_s` (30 s), capped at `wait_max_s` (120 s).
+`get_motion_status` gives the same status without waiting.
+
+**Single motion owner.** While the queue is busy (a step runs or steps are pending) the worker owns the robot's motion:
+`RobotMCPServer.call_tool` refuses every tool in `QUEUE_EXCLUSIVE_TOOLS` (`MOTION_TOOLS` except `enqueue_motions` and
+`arm_set_home`) with "the motion queue is running". Conversely `enqueue_motions` is refused while one of those blocking
+tools runs, or while another arm motion holds the arm (a web-UI grasp or `/arm/home`). Should a blocking motion still
+start in between, the arm motion lock and the base motion lock make the later one fail (`step_failed`, status
+`refused`) instead of moving concurrently. `stop` calls `halt_for_stop` first (pending steps dropped at once, event
+`stopped`) and then the normal stop, which ends the running step; `cancel_motions` drops the pending steps and stops the
+robot when a motion step runs. The blocking tools stay available for simple single moves when nothing is queued.
+
 ## Safety model
 
 - **Base**: navigation goes through Nav2 (planner, controller, velocity smoother, collision monitor). `drive` publishes
@@ -547,13 +630,15 @@ to draw it.
 | Module | ROS? | Purpose |
 |---|---|---|
 | `config.py` | no | pydantic config, `MCP_SERVER_CONFIG`, `MCP_SERVER_TOKEN` |
-| `trajectory.py` | no | quintic interpolation, limit clamping, tracking error |
+| `trajectory.py` | no | quintic interpolation, limit clamping, tracking error, `blend_trajectory` (velocity-continuous spline through via points) |
 | `ik.py` | no | URDF limits, ikpy FK/IK with verification |
-| `arm.py` | no | `ArmController`: lease, streaming, aborts, gripper, home, `move_path`, slow-zone time scaling |
+| `arm.py` | no | `ArmController`: lease, streaming, aborts, gripper, home, `move_path`, `move_blend`, `solve_cartesian`, slow-zone time scaling |
 | `floor_guard.py` | no | arm mount conversions, effective surface (robot plane, IMU level plane, overrides), jaw model, per-sample slow zone, `retime` |
 | `grasp.py` | no | grasp planner: strategies registry, waypoints, straight-line IK samples, feasibility reasons |
 | `grasp_tools.py` | no | `GraspExecutor`, the grasp MCP tools, `GraspService` (web-UI JSON) |
-| `base_motion.py` | no | timed clamped drive loop, stop sequence (`run_stop`) |
+| `base_motion.py` | no | timed clamped drive loop, continuous spin with marks (`run_spin`), stop sequence (`run_stop`) |
+| `motion_queue.py` | no | motion queue: step models, blend groups, preconditions, worker thread, events, waits |
+| `motion_tools.py` | no | `enqueue_motions`, `get_motion_status`, `cancel_motions`, `wait_for_event` (one `TOOL_MODULES` entry) |
 | `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
 | `topdown.py`, `perception_models.py` | no | robot-up top-down renderer (layers, transforms); perception result models |
 | `object_memory.py`, `look_around.py`, `poi_client.py` | no | object POI memory + merge, look_around plan/loop/montage, POI request matching |
@@ -633,6 +718,7 @@ cameras:                  # default: not calibrated (see Camera tools and calibr
   front: {parent_frame: base_link, intrinsics: {hfov_deg: 66.0, width: 640, height: 480}, mount: null}
 limits:
   arm_max_joint_velocity_rps: 1.0
+  arm_max_joint_accel_rps2: 8.0      # acceleration cap of blended (queued) arm trajectories
   roll_guard_min_change_rad: 0.1     # wrist_roll changes above this are refused ...
   roll_max_gripper_open_rad: 0.8     # ... while the gripper is open wider than this (about half open)
   arm_settle_tolerance_rad: 0.08   # steady-state error reported as residual_error instead of a timeout
@@ -661,7 +747,11 @@ topics:                   # perception additions (defaults shown)
 footprint: {length_m: 0.47, width_m: 0.386}
 topdown: {default_radius_m: 2.5, default_px: 480, arm_reach_m: 0.41, plan_max_age_s: 30}
 objects: {store_path: /var/lib/ros2/objects/objects.json, merge_radius_m: 0.25}  # store_path: legacy file, imported once into poi_store
-look_around: {default_captures: 4, clearance_margin_m: 0.10, step_timeout_s: 30}
+look_around: {default_captures: 4, clearance_margin_m: 0.10, step_timeout_s: 30, mode: spin, spin_speed_rps: 0.4,
+              spin_rate_hz: 20, spin_timeout_margin_s: 10, return_to_start: false}
+motion_queue: {max_steps: 32, event_history: 200, status_events: 10, wait_events: 40, wait_default_s: 30,
+               wait_max_s: 120, poll_s: 0.05, base_still_linear_mps: 0.02, base_still_angular_rps: 0.05,
+               holding_min_effort: 100.0, holding_min_gap_rad: 0.05}
 poi: {request_timeout_s: 3.0, near_radius_m: 5.0}
 monitor:                  # all optional; thresholds of the body monitor (see Body awareness)
   servo_temp_warn_c: 60

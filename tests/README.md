@@ -255,6 +255,13 @@ Covers:
   `CLAUDE_AGENT_CONFIG` lookup, MCP token read (env-file line or bare token, missing/empty refused, token never in the error)
 - system prompt (`test_prompt.py`): the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase rw/turn guidance ranges, no ro budget and unlimited sensor calls, generous rw/turn caps (double the estimate, raise early), the grasping guidance (several viewpoints by changing the roll incl. directly above, `pixel_to_ground`, average within 1 cm, centre not edge, correct by the observed offset, NOTES.md), retry budgeting (room for retries, raise the budget before it runs out or add a retry phase), fixed vs moving jaw and `object_width_m`, the agent chooses the grasp `wrist_roll`, camera views by roll, the rolling protocol (half open, arm lifted), `surface_height_m` and below-floor reach, fast arm by default, phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections (objects are POIs on the person's map, own POIs and objects removed on a new session, the person's POIs stay), safety rules, persona,
   `system_prompt_extra` appended
+- motion queue prompt (`test_prompt.py`): the queue pattern (`enqueue_motions` with preconditions and `on_fail`,
+  blending, queue at least 2 steps deep, `wait_for_event` instead of polling, `get_motion_status`, `cancel_motions` /
+  `replace=true` on surprises, checkpoints only), the safety rules restated for queued motions (roll guard, negative
+  elbow_flex stretches the arm, slow zone, stop), `look_around` `return_to_start`
+- shutdown stop (`test_robot_stop.py`, `test_runner.py`): a refused connection is reported as `unreachable` with a plain
+  reason (no raw `ExceptionGroup`), tool errors of a reachable server are not; at shutdown an unreachable mcp_server is
+  logged at INFO (an ERROR outside shutdown) and a hanging stop is bounded by `shutdown_stop_timeout_s`
 - plan (`test_budget.py`): `PlanTracker` validation (complexity enum, 1 to 12 phases, integer caps, rw 0 allowed, names and goals, a stray `ro_cap` ignored), clamping to the
   per-phase maxima with notes, rejection when the phase caps summed exceed an instruction maximum, the phase lifecycle (first phase active,
   `complete_phase` outcomes and next activation, plan end), sensor calls never refused (no plan, plan finished, turn cap used up) but counted, rw/turn counting and exact exhausted reasons, the once-per-phase raise
@@ -443,6 +450,40 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   intermediate tolerance defaults and validation
 - path trajectory (`test_trajectory.py`): `path_trajectory` stays on the joint-space polyline, ends at its last point
   and respects the velocity cap; zero-length path
+- blended trajectory (`test_trajectory.py`): `blend_trajectory` passes the vias without stopping (non-zero, continuous
+  velocity at each via), comes to rest at a via where a joint turns (no overshoot), keeps every sampled velocity and
+  acceleration within the caps, starts and ends at rest, reports via indices and segment durations, rejects bad
+  arguments
+- blended arm motion (`test_arm_blend.py`): `ArmController.move_blend` streams one motion through every target (no rest
+  between them, `on_via` per target) and is faster than separate stop-and-go moves, respects the velocity cap, keeps
+  unnamed joints across vias, enforces the roll guard on every leg (also against a gripper target of an earlier via;
+  nothing moves), slows in the floor slow zone per streamed step, aborts on stop; `motion_running`; `solve_cartesian`
+  matches `move_cartesian` and raises for unreachable targets
+- motion queue (`test_motion_queue.py`, real worker thread on fakes): step models (kinds, defaults, unknown fields,
+  gripper exactly-one, wait bounds), blend groups split by settle 'final', gripper steps, preconditions, speed and
+  gripper-joint targets; enqueue returns at once and runs every step in order (`step_started` / `step_done` /
+  `queue_empty`); consecutive arm steps run as one `move_blend`, cartesian steps solved at enqueue and blended;
+  infeasible or invalid steps and too many steps refuse the whole call (nothing moves); precondition failure stops the
+  queue (default) or skips the step; every precondition predicate incl. unknown state; a tracking abort is a
+  `step_failed` that stops the queue; gripper contact event; `halt_for_stop` clears the queue at once; an external stop
+  between steps halts it; `cancel` aborts the running step (robot stopped) and drops the rest, but never stops an idle
+  robot; `replace` drops pending steps only; battery cut-off at dispatch; enqueue refused while a blocking tool or
+  another arm motion runs; grasp steps through the runner (grasped = contact, missed = failure, refused without a
+  runner); waits (idle at once, `step_done`, timeout, cursor), status with progress
+- motion queue tools (`test_motion_tools.py`): registration and classification (`enqueue_motions` motion,
+  status/cancel/wait always allowed, `QUEUE_EXCLUSIVE_TOOLS`); `enqueue_motions` returns job ids and blend groups and
+  `wait_for_event` returns events, status and the state digest (plus the robot event digest); blocking motion tools are
+  refused while the queue runs and allowed again afterwards; `enqueue_motions` refused while a blocking motion tool
+  runs; `stop` clears the queue and reports `motion_queue_dropped`; `cancel_motions`; infeasible steps are tool errors;
+  `replace`; `until='failure'` returns `idle` at once
+- spin (`test_base_motion.py`): `run_spin` turns the measured angle with marks in order at the right rotation and ends
+  with a zero twist, clamps the yaw rate, ends on stop, a critical event, a refused mark, a lost pose or the timeout,
+  rejects a zero angle or rate
+- look_around spin mode (`test_look_around.py`, `test_perception_tools.py`): spin mode captures the same tiles, labels
+  and heading summaries as steps mode with one spin and no Nav2 rotation; steps mode without return skips the closing
+  rotation; return_to_start spins the full circle (and corrects a final heading error with one precise rotation);
+  an obstacle at a heading ends the spin; an interruption never triggers a corrective rotation; the tool defaults to
+  one spin without returning
 - link frames (`test_ik.py`): `link_frames` returns every chain link from one FK pass
 - grasp planner (`test_grasp.py`, real URDF): strategy registry and unknown names, scoop into a tight gap skims the
   surface (roll about 0, moving jaw up, horizontal slide, opening), scoop with room under a ledge object goes below the
