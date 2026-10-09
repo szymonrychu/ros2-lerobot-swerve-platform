@@ -16,7 +16,7 @@ from .config import MissingTokenError, config_path_from_env, load_config, token_
 from .monitor import RobotMonitor
 from .ros_iface import RosRobot, init_ros
 from .spin import run_or_exit, spin_forever
-from .tools import build_app, build_mcp_server
+from .tools import build_app, build_mcp_server, stop_queued_motion
 
 EXECUTOR_THREADS = 4
 SPIN_TIMEOUT_S = 0.5
@@ -53,13 +53,16 @@ def main() -> int:
 
     spinner = threading.Thread(target=run_or_exit, args=(spin, rclpy.ok, os._exit), name="ros-executor", daemon=True)
     spinner.start()
-    app = build_app(build_mcp_server(robot, config, token, guard, monitor), config, robot, token)
+    server = build_mcp_server(robot, config, token, guard, monitor)
+    app = build_app(server, config, robot, token)
     if config.battery is not None:
         LOGGER.info("battery cut-off gate on %s (%d cells)", config.battery.topic, config.battery.cells)
     LOGGER.info("serving MCP on http://%s:%d%s", config.server.host, config.server.port, config.server.path)
     try:
         uvicorn.run(app, host=config.server.host, port=config.server.port, log_level="info")
     finally:
+        if stop_queued_motion(server, robot):
+            LOGGER.info("shutdown: motion queue cleared and robot stopped")
         robot.shutdown()
         executor.shutdown()
         rclpy.try_shutdown()

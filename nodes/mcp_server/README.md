@@ -532,6 +532,8 @@ start in between, the arm motion lock and the base motion lock make the later on
 `refused`) instead of moving concurrently. `stop` calls `halt_for_stop` first (pending steps dropped at once, event
 `stopped`) and then the normal stop, which ends the running step; `cancel_motions` drops the pending steps and stops the
 robot when a motion step runs. The blocking tools stay available for simple single moves when nothing is queued.
+When the process shuts down with a busy queue (`__main__` calls `tools.stop_queued_motion`), the queue is cleared and the
+robot stopped first, so no queued Nav2 goal outlives the server.
 
 ## Safety model
 

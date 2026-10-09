@@ -796,6 +796,24 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
 )
 
 
+def stop_queued_motion(server: MCPServer, robot: RobotApi) -> bool:
+    """Process shutdown hook: when the motion queue is busy, clear it and stop the robot (no queued goal outlives us).
+
+    Args:
+        server (MCPServer): Server from build_mcp_server.
+        robot (RobotApi): Robot.
+
+    Returns:
+        bool: True when the queue was busy and the robot was stopped.
+    """
+    queue = getattr(server, "motion_queue", None)
+    if queue is None or not queue.busy():
+        return False
+    queue.halt_for_stop()
+    robot.stop()
+    return True
+
+
 def build_app(
     server: MCPServer, config: McpServerConfig, robot: RobotApi | None = None, token: str | None = None
 ) -> Starlette:

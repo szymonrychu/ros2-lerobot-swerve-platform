@@ -9,7 +9,14 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_server.config import McpServerConfig
-from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, QUEUE_EXCLUSIVE_TOOLS, TOOL_NAMES, build_mcp_server
+from mcp_server.tools import (
+    ALWAYS_ALLOWED_TOOLS,
+    MOTION_TOOLS,
+    QUEUE_EXCLUSIVE_TOOLS,
+    TOOL_NAMES,
+    build_mcp_server,
+    stop_queued_motion,
+)
 
 from .test_motion_queue import GateRobot
 from .test_tools import TOKEN, call
@@ -173,3 +180,17 @@ def test_enqueue_replace_flag(server: Any, robot: GateRobot) -> None:
 def test_wait_for_event_until_failure_returns_idle_at_once(server: Any) -> None:
     waited = structured(call(server, "wait_for_event", {"timeout_s": 5.0, "until": "failure"}))
     assert waited["reason"] == "idle"
+
+
+def test_shutdown_halts_a_busy_queue_and_stops_the_robot(server: Any, robot: GateRobot) -> None:
+    robot.gate.clear()
+    call(server, "enqueue_motions", {"steps": [{"kind": "navigate_to_pose", "x": 1.0, "y": 0.0}]})
+    assert robot.entered.wait(5.0)
+    assert stop_queued_motion(server, robot) is True
+    assert robot.stopped.is_set()
+    assert not server.motion_queue.wait(5.0, "queue_empty").timed_out
+
+
+def test_shutdown_leaves_an_idle_robot_alone(server: Any, robot: GateRobot) -> None:
+    assert stop_queued_motion(server, robot) is False
+    assert not robot.stopped.is_set()

@@ -475,7 +475,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `wait_for_event` returns events, status and the state digest (plus the robot event digest); blocking motion tools are
   refused while the queue runs and allowed again afterwards; `enqueue_motions` refused while a blocking motion tool
   runs; `stop` clears the queue and reports `motion_queue_dropped`; `cancel_motions`; infeasible steps are tool errors;
-  `replace`; `until='failure'` returns `idle` at once
+  `replace`; `until='failure'` returns `idle` at once; the process shutdown hook (`stop_queued_motion`) clears a busy
+  queue and stops the robot, and leaves an idle robot alone
 - spin (`test_base_motion.py`): `run_spin` turns the measured angle with marks in order at the right rotation and ends
   with a zero twist, clamps the yaw rate, ends on stop, a critical event, a refused mark, a lost pose or the timeout,
   rejects a zero angle or rate
