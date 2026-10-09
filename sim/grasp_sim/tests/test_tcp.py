@@ -5,6 +5,10 @@ import hashlib
 import mujoco
 import numpy as np
 import pytest
+
+from grasp_sim.config import BoxObjectConfig, SceneConfig
+from grasp_sim.replay import Rig
+from grasp_sim.scene import ARM_XML, build_model
 from grasp_sim.tcp import (
     STOCK_CLOSING_POINT_GFL,
     client_tool_offset,
@@ -12,10 +16,6 @@ from grasp_sim.tcp import (
     gfl_to_gripper,
     gripper_to_gfl,
 )
-
-from grasp_sim.config import BoxObjectConfig, SceneConfig
-from grasp_sim.replay import Rig
-from grasp_sim.scene import ARM_XML, build_model
 
 MEASURED_TOOL_OFFSET = (0.0104, -0.0282, -0.0017)
 CALIBRATION_TOLERANCE_M = 0.002
