@@ -40,7 +40,7 @@ import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd'
 import log from '../logging'
 import { Pose2D, Vec2, yawToQuaternion } from '../map/mapMath'
 import { ActionResult, confirmClick, isCleared, parseActionResult, RESET_CONFIRM_MS } from '../map/mapActions'
-import { validAnchor } from '../map3d/geo'
+import { anchorSummary, validAnchor } from '../map3d/geo'
 import { draftGoalPose, finishGoalDraft, GoalDraft, startGoalDraft, updateGoalDraft } from '../map3d/goalGesture'
 import { Bounds, mapBounds } from '../map3d/groundMath'
 import { LAYER_LABELS, LayerKey, LayerState, readLayerState, writeLayerState } from '../map3d/layers'
@@ -630,7 +630,12 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
                         />
                         {disabled && (
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                            Needs a GPS fix: waiting for {GPS_ANCHOR_TOPIC}.
+                            Needs a GPS fix and compass heading (or drive ~5 m to fit): waiting for {GPS_ANCHOR_TOPIC}.
+                          </Typography>
+                        )}
+                        {k === 'gpsMap' && anchor && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+                            Anchor: {anchorSummary(anchor)}
                           </Typography>
                         )}
                         {k === 'localCostmap' && !tab.local_costmap_topic && (

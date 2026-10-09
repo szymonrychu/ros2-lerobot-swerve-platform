@@ -9,6 +9,7 @@ import {
   tilesAround,
   tileToLatLon,
   tileUrl,
+  anchorSummary,
   validAnchor,
 } from './geo'
 
@@ -93,6 +94,28 @@ describe('anchor placement (map frame <-> lat/lon)', () => {
     const back = latLonToMap(a, ll.latitude, ll.longitude)
     expect(back.x).toBeCloseTo(10, 6)
     expect(back.y).toBeCloseTo(0, 6)
+  })
+})
+
+const COMPASS = { lat: 54.6, lon: 18.3, heading_rad: 1.2, residual_m: null, n_points: 1, source: 'compass' }
+
+describe('compass anchor', () => {
+  it('accepts a compass payload with residual_m null and keeps the source', () => {
+    expect(validAnchor(COMPASS)).toEqual({ lat: 54.6, lon: 18.3, heading_rad: 1.2, n_points: 1, source: 'compass' })
+  })
+
+  it('keeps source fit and drops unknown sources', () => {
+    expect(validAnchor({ ...ANCHOR, source: 'fit' })?.source).toBe('fit')
+    expect(validAnchor({ ...ANCHOR, source: 'magic' })?.source).toBeUndefined()
+  })
+
+  it('summarises the anchor source for display', () => {
+    expect(anchorSummary({ lat: 1, lon: 2, heading_rad: 0, source: 'compass', n_points: 1 })).toBe('compass heading')
+    expect(anchorSummary({ lat: 1, lon: 2, heading_rad: 0, source: 'fit', n_points: 42, residual_m: 0.123 })).toBe(
+      'drive fit, 42 pts, residual 0.12 m',
+    )
+    expect(anchorSummary({ lat: 1, lon: 2, heading_rad: 0, source: 'fit' })).toBe('drive fit')
+    expect(anchorSummary({ lat: 1, lon: 2, heading_rad: 0 })).toBe('drive fit')
   })
 })
 

@@ -1,7 +1,7 @@
 /**
  * GPS map layer math: Web Mercator (slippy map) tiles and placement of lat/lon in the ROS map frame.
  *
- * The backend publishes '/web_ui/gps_anchor' as {lat, lon, heading_rad, residual_m, n_points} (or null while no fit
+ * The backend publishes '/web_ui/gps_anchor' as {lat, lon, heading_rad, residual_m, n_points, source} (or null while no anchor
  * is available): (lat, lon) is the GPS position of the map origin (0, 0) and heading_rad is the angle of the map +x
  * axis measured counter-clockwise from East, i.e. enu = R(heading_rad) * map. Around the anchor a local tangent plane
  * (equirectangular) approximation is used, which is accurate to centimetres over the few hundred metres the layer
@@ -20,7 +20,11 @@ export interface GpsAnchor {
   heading_rad: number // map +x axis, counter-clockwise from East
   residual_m?: number // fit residual (diagnostic)
   n_points?: number // samples used by the fit (diagnostic)
+  source?: AnchorSource // how the anchor was obtained
 }
+
+/** 'fit' = drive-based rigid fit, 'compass' = one fix plus the IMU compass heading (while parked). */
+export type AnchorSource = 'fit' | 'compass'
 
 export interface LatLon {
   latitude: number
@@ -59,7 +63,22 @@ export function validAnchor(raw: unknown): GpsAnchor | null {
   const out: GpsAnchor = { lat: a.lat, lon: a.lon, heading_rad: a.heading_rad }
   if (num(a.residual_m)) out.residual_m = a.residual_m
   if (num(a.n_points)) out.n_points = a.n_points
+  if (a.source === 'fit' || a.source === 'compass') out.source = a.source
   return out
+}
+
+/**
+ * One-line description of how the anchor was obtained.
+ *
+ * @param anchor - validated anchor
+ * @returns 'compass heading', or 'drive fit' with the sample count and residual when the payload has them
+ */
+export function anchorSummary(anchor: GpsAnchor): string {
+  if (anchor.source === 'compass') return 'compass heading'
+  const parts = ['drive fit']
+  if (anchor.n_points !== undefined) parts.push(`${anchor.n_points} pts`)
+  if (anchor.residual_m !== undefined) parts.push(`residual ${anchor.residual_m.toFixed(2)} m`)
+  return parts.join(', ')
 }
 
 /**
