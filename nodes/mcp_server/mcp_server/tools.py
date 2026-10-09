@@ -3,6 +3,8 @@
 import base64
 import hmac
 import json
+import logging
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Annotated, Any, Literal
@@ -34,12 +36,16 @@ from .models import (
     NavigationResult,
     RobotError,
     RobotState,
+    SettlePolicy,
     StopResult,
 )
 from .monitor import DIGEST_DEFAULT_SESSION, RobotMonitor
 from .poi_client import PoiStoreDown, PoiTimeout
 from .tool_context import RobotApi, ToolContext
 
+LOGGER = logging.getLogger("mcp_server.timing")
+# Keys of an arm motion result copied into the per-call timing line (trajectory seconds vs settle seconds apart).
+TIMING_RESULT_KEYS = ("status", "trajectory_s", "settle_s", "settle", "settling", "tracking_error_rad")
 SERVER_NAME = "robot"
 TOKEN_CLIENT_ID = "robot-mcp-client"
 ADMIN_CLEAR_AGENT_POIS_PATH = "/admin/clear_agent_pois"
@@ -204,6 +210,40 @@ class RobotMCPServer(MCPServer):
         self.monitor = monitor
 
     async def call_tool(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
+        """Run a tool with its digest and log one timing line (tool, start, end, duration; arm motions also the
+        trajectory and settle seconds apart) on the ``mcp_server.timing`` logger, also for failing calls.
+
+        Args:
+            name (str): Tool name.
+            arguments (dict[str, Any]): Tool arguments.
+            context (Any): Request context passed through to MCPServer.
+
+        Returns:
+            Any: The tool result with robot_events_since_last_call and vitals added.
+        """
+        started_at = time.time()
+        t0 = time.monotonic()
+        ok = False
+        timing: dict[str, Any] = {}
+        try:
+            result = await self.call_tool_with_digest(name, arguments, context)
+            ok = True
+            if isinstance(result, CallToolResult) and isinstance(result.structured_content, dict):
+                timing = {k: result.structured_content[k] for k in TIMING_RESULT_KEYS if k in result.structured_content}
+            return result
+        finally:
+            duration = time.monotonic() - t0
+            line = {
+                "tool": name,
+                "started_at": round(started_at, 3),
+                "ended_at": round(started_at + duration, 3),
+                "duration_s": round(duration, 3),
+                "ok": ok,
+                **timing,
+            }
+            LOGGER.info("tool_call %s", json.dumps(line))
+
+    async def call_tool_with_digest(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
         """Run a tool, then attach the digest to its result (or to its error message).
 
         Args:
@@ -308,16 +348,32 @@ def register_core_tools(ctx: ToolContext) -> None:
     nav_default = config.timeouts.nav_default_timeout_s
     nav_max = config.timeouts.nav_max_timeout_s
     nav_note = (
-        f"Nav2 goals finish within {config.nav.goal_xy_tolerance_m * 100:g} cm and "
-        f"{config.nav.goal_yaw_tolerance_deg:g} deg of the target. If the goal is to the side or behind, the robot "
+        f"By default a goal ends as soon as the robot is within {config.nav.intermediate_xy_tolerance_m * 100:g} cm "
+        f"and {config.nav.intermediate_yaw_tolerance_deg:g} deg of the target (the goal is then cancelled, status "
+        f"'succeeded'). Pass precise=true for the final approach before a grasp or fine positioning: Nav2 then "
+        f"finishes within {config.nav.goal_xy_tolerance_m * 100:g} cm and {config.nav.goal_yaw_tolerance_deg:g} deg "
+        "(slower). If the goal is to the side or behind, the robot "
         "first turns toward the path (front leading, because the lidar sees best ahead) and then turns back to the "
         "goal heading at the end."
+    )
+    precise_desc = (
+        f"true waits for Nav2's tight goal checker ({config.nav.goal_xy_tolerance_m * 100:g} cm, "
+        f"{config.nav.goal_yaw_tolerance_deg:g} deg; use it for the final approach); false (default) ends the goal "
+        f"within {config.nav.intermediate_xy_tolerance_m * 100:g} cm and {config.nav.intermediate_yaw_tolerance_deg:g} deg"
     )
     floor_note = (
         f"The floor is at z = {config.arm.floor_z_m:.3f} m in this frame "
         f"(the arm mount is {config.arm.arm_base_height_m * 100:.1f} cm above it)."
     )
     settle_note = (
+        "Settle policy (`settle`): 'trajectory_end' returns as soon as the streamed trajectory finished, with status "
+        "'converged' and settling=true plus the current tracking_error_rad when joints are still closing in (the goal "
+        "stays commanded; a following move starts the joints it names from their measured state), saving the "
+        f"convergence wait (about {config.timeouts.arm_converge_timeout_s:g} s at most); 'final' waits for convergence. "
+        f"Default: {config.limits.arm_default_settle} ('final' when the call moves the gripper joint): pass "
+        "settle='final' before closing the gripper on an object or before a camera image that must show the arm at "
+        "rest. Convergence uses per-joint tolerances (the loaded shoulder_lift and elbow_flex get wider ones) and does "
+        "not wait for a gripper that is holding an object. "
         "Joints you do not name keep their last commanded target (not their measured, gravity-sagged position). "
         f"Status 'converged' means every moved joint is within {config.limits.arm_converge_tolerance_rad} rad of its "
         "target, or stopped short of it under load (servo steady-state error) by at most "
@@ -347,6 +403,18 @@ def register_core_tools(ctx: ToolContext) -> None:
         f"{slow.slow_speed_scale:g} of its speed (never blocked; reported as slow_zone). Pass surface_z_m (e.g. -0.18 "
         "for a stair or hole below) to allow normal speed down to that surface, tilt_override_deg to replace the IMU."
     )
+    settle_desc = (
+        "'trajectory_end': return when the streamed trajectory finished (status 'converged', settling=true while "
+        "joints still close in); 'final': wait for convergence. Default: "
+        f"{config.limits.arm_default_settle}, but 'final' for a call that moves the gripper joint"
+    )
+
+    def resolve_settle(settle: SettlePolicy | None, moves_gripper: bool = False) -> SettlePolicy:
+        """Settle policy of a call: the given one, else 'final' when it moves the gripper joint, else the configured default."""
+        if settle is not None:
+            return settle
+        return "final" if moves_gripper else config.limits.arm_default_settle
+
     surface_desc = "Expected surface height relative to the robot plane (m, base_link z), e.g. -0.18 for a stair below"
     tilt_desc = (
         "Robot tilt {roll, pitch} (deg) replacing the IMU for the slow zone (roll > 0 left up, pitch > 0 nose down)"
@@ -366,11 +434,24 @@ def register_core_tools(ctx: ToolContext) -> None:
         navigation goal status, the collision monitor action (if published), arm joint positions/efforts, gripper
         effort, which arm source filter_node has active (leader, web_ui or autonomy), whether this server holds the
         arm autonomy lease, and the age in seconds of every data source. Stale sources are omitted (never invented)
-        and listed in `notes`. Call this first and after every motion."""
+        and listed in `notes`. Call this first, then at checkpoints (phase boundaries, before an irreversible action such as
+        closing the gripper, and when a tool reports a problem); a motion tool's own result already reports
+        expected vs achieved, so it needs no routine check afterwards."""
         with tool_errors():
             return robot.robot_state()
 
-    @tool(structured_output=False)
+    @tool(
+        structured_output=False,
+        description=(
+            "Take one fresh photo from a robot camera and return it as a JPEG image plus its capture timestamp. "
+            "'gripper' looks out of the gripper (use it to aim grasps); 'front' is the overhead camera (640x480) "
+            "looking down at the front of the robot, the arm and the floor in front of it: the best view for judging "
+            "gripper-to-object position (take it first for an overview, then use 'gripper' to aim). The default size "
+            f"is {config.limits.default_camera_px} px on the longest side (cheap, fine for aiming checks): pass a "
+            "larger max_px only when you must read fine detail, images are what fills the context. Fails (instead of "
+            "returning an old picture) when no frame arrives within the timeout or the newest frame is older than 1 s."
+        ),
+    )
     def get_camera_image(
         camera: Annotated[
             Camera,
@@ -378,14 +459,20 @@ def register_core_tools(ctx: ToolContext) -> None:
                 description="'gripper' (USB camera on the gripper) or 'front' (overhead camera looking down at the front of the robot, 640x480)"
             ),
         ],
-        max_px: Annotated[int, Field(ge=32, le=HARD_MAX_IMAGE_PX, description="Longest image side in pixels")] = 768,
+        max_px: Annotated[
+            int | None,
+            Field(
+                ge=32,
+                le=HARD_MAX_IMAGE_PX,
+                description=f"Longest image side in pixels (default {config.limits.default_camera_px}: enough to aim; "
+                "ask for more only to read fine detail, larger images cost more context)",
+            ),
+        ] = None,
     ) -> list[ImageContent | TextContent]:
-        """Take one fresh photo from a robot camera and return it as a JPEG image plus its capture timestamp.
-        'gripper' looks out of the gripper (use it to aim grasps); 'front' is the overhead camera (640x480) looking down at the front of the robot, the arm and the floor in front of it: the best view for judging gripper-to-object position (take it first for an overview, then use 'gripper' to aim).
-        Fails (instead of returning an old picture) when no frame arrives within the timeout or the newest frame is
-        older than 1 s."""
+        """Photo of a camera; the tool description is passed to the decorator so it can state the default size."""
         with tool_errors():
-            frame = robot.camera_image(camera, min(max_px, config.limits.max_image_px))
+            size = config.limits.default_camera_px if max_px is None else max_px
+            frame = robot.camera_image(camera, min(size, config.limits.max_image_px))
         meta = frame.model_dump_json()
         return [image_content(frame.jpeg, "image/jpeg"), TextContent(type="text", text=meta)]
 
@@ -419,11 +506,12 @@ def register_core_tools(ctx: ToolContext) -> None:
         yaw: Annotated[float, Field(description="Goal heading (rad, CCW from +x)")] = 0.0,
         frame: Annotated[str, Field(description="Frame of the goal, normally 'map'")] = "map",
         timeout_s: Annotated[float | None, Field(gt=0.0, description="Give up after this many seconds")] = None,
+        precise: Annotated[bool, Field(description=precise_desc)] = False,
     ) -> NavigationResult:
         """Nav2 NavigateToPose; the tool description is passed to the decorator (it states the goal precision)."""
         battery_gate("navigate_to_pose")
         with tool_errors():
-            return robot.navigate(x, y, yaw, frame, nav_timeout(timeout_s))
+            return robot.navigate(x, y, yaw, frame, nav_timeout(timeout_s), precise)
 
     @tool(
         description=(
@@ -438,11 +526,12 @@ def register_core_tools(ctx: ToolContext) -> None:
         dy: Annotated[float, Field(description="Leftward displacement (m), negative = right")] = 0.0,
         dyaw: Annotated[float, Field(description="Heading change (rad), positive = turn left")] = 0.0,
         timeout_s: Annotated[float | None, Field(gt=0.0, description="Give up after this many seconds")] = None,
+        precise: Annotated[bool, Field(description=precise_desc)] = False,
     ) -> NavigationResult:
         """Nav2 NavigateToPose relative to base_link; the tool description is passed to the decorator."""
         battery_gate("move_relative")
         with tool_errors():
-            return robot.move_relative(dx, dy, dyaw, nav_timeout(timeout_s))
+            return robot.move_relative(dx, dy, dyaw, nav_timeout(timeout_s), precise)
 
     @tool()
     def drive(
@@ -520,11 +609,13 @@ def register_core_tools(ctx: ToolContext) -> None:
         ] = HARD_MAX_SPEED_SCALE,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        settle: Annotated[SettlePolicy | None, Field(description=settle_desc)] = None,
     ) -> ArmMotionResult:
         """Move arm joints; the tool description is passed to the decorator so it can state the tolerances."""
         battery_gate("move_arm_joints")
+        policy = resolve_settle(settle, config.arm.gripper_joint in targets)
         with tool_errors():
-            return robot.arm.move_joints(targets, speed_scale, floor_override(surface_z_m, tilt_override_deg))
+            return robot.arm.move_joints(targets, speed_scale, floor_override(surface_z_m, tilt_override_deg), policy)
 
     @tool(
         description=(
@@ -570,13 +661,22 @@ def register_core_tools(ctx: ToolContext) -> None:
         ] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        settle: Annotated[SettlePolicy | None, Field(description=settle_desc)] = None,
     ) -> ArmMotionResult:
         """Move the tool point; the tool description is passed to the decorator so it can state the floor."""
         battery_gate("move_arm_cartesian")
         del frame  # the only supported frame
         with tool_errors():
             return robot.arm.move_cartesian(
-                x, y, z, pitch, speed_scale, wrist_roll, object_width_m, floor_override(surface_z_m, tilt_override_deg)
+                x,
+                y,
+                z,
+                pitch,
+                speed_scale,
+                wrist_roll,
+                object_width_m,
+                floor_override(surface_z_m, tilt_override_deg),
+                resolve_settle(settle),
             )
 
     @tool()

@@ -17,6 +17,9 @@ ArmMotionStatus = Literal[
     "interrupted",
 ]
 
+# final: wait for convergence after the streamed trajectory; trajectory_end: return when the trajectory finished.
+SettlePolicy = Literal["final", "trajectory_end"]
+
 
 class RobotError(RuntimeError):
     """A robot request failed (no data, timeout, server unavailable); surfaced to the MCP client as a tool error."""
@@ -137,6 +140,25 @@ class ArmMotionResult(BaseModel):
         "tolerance: target - measured (rad). Their target stays commanded.",
     )
     duration_s: float = 0.0
+    trajectory_s: float | None = Field(
+        default=None, description="Seconds spent streaming the trajectory (duration_s = trajectory_s + settle_s)"
+    )
+    settle_s: float | None = Field(
+        default=None, description="Seconds spent after the trajectory waiting for convergence (0 for trajectory_end)"
+    )
+    settle: SettlePolicy | None = Field(
+        default=None,
+        description="Settle policy of the call: 'final' waited for convergence, 'trajectory_end' returned when the "
+        "streamed trajectory finished",
+    )
+    settling: bool = Field(
+        default=False,
+        description="True when a 'trajectory_end' call returned with joints still outside the converge tolerance: the "
+        "goal stays commanded and they are still closing in; a following move starts from the measured state",
+    )
+    tracking_error_rad: float | None = Field(
+        default=None, description="Largest |goal - measured| over the judged joints when the motion ended (rad)"
+    )
     interrupted_by: str | None = Field(
         default=None,
         description="Critical robot event type that ended the motion early (status 'interrupted'; also set on "

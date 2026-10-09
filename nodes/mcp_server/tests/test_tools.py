@@ -86,12 +86,16 @@ class FakeRobot(PerceptionFakeMixin):
             png = buf.tobytes()
         return summary, png
 
-    def navigate(self, x: float, y: float, yaw: float, frame: str, timeout_s: float) -> NavigationResult:
-        self.calls.append(("navigate", (x, y, yaw, frame, timeout_s)))
+    def navigate(
+        self, x: float, y: float, yaw: float, frame: str, timeout_s: float, precise: bool = False
+    ) -> NavigationResult:
+        self.calls.append(("navigate", (x, y, yaw, frame, timeout_s, precise)))
         return NavigationResult(status="succeeded", goal=BasePose(frame=frame, x=x, y=y, yaw=yaw))
 
-    def move_relative(self, dx: float, dy: float, dyaw: float, timeout_s: float) -> NavigationResult:
-        self.calls.append(("move_relative", (dx, dy, dyaw, timeout_s)))
+    def move_relative(
+        self, dx: float, dy: float, dyaw: float, timeout_s: float, precise: bool = False
+    ) -> NavigationResult:
+        self.calls.append(("move_relative", (dx, dy, dyaw, timeout_s, precise)))
         return NavigationResult(status="succeeded")
 
     def drive(self, vx: float, vy: float, wz: float, duration_s: float) -> DriveOutcome:
@@ -200,9 +204,9 @@ def test_map_summary_with_png(server: Any) -> None:
 def test_navigate_and_move_relative_forward_arguments(server: Any, robot: FakeRobot) -> None:
     res = call(server, "navigate_to_pose", {"x": 1.0, "y": -2.0, "yaw": 0.3})
     assert res.structured_content["status"] == "succeeded"
-    assert robot.calls[-1] == ("navigate", (1.0, -2.0, 0.3, "map", 120.0))
+    assert robot.calls[-1] == ("navigate", (1.0, -2.0, 0.3, "map", 120.0, False))
     call(server, "move_relative", {"dx": 0.5, "dy": 0.0, "dyaw": 0.0, "timeout_s": 30})
-    assert robot.calls[-1] == ("move_relative", (0.5, 0.0, 0.0, 30.0))
+    assert robot.calls[-1] == ("move_relative", (0.5, 0.0, 0.0, 30.0, False))
 
 
 def test_drive_duration_capped(server: Any, robot: FakeRobot) -> None:
@@ -505,3 +509,89 @@ def test_arm_motion_tools_take_slow_zone_overrides(server: Any, robot: FakeRobot
     docs = {t.name: t.description or "" for t in anyio.run(run)}
     for name in ("move_arm_joints", "move_arm_cartesian", "set_gripper", "arm_home"):
         assert "slow" in docs[name], name
+
+
+# --- smoothness round A: image size, settle policy, precise goals, checkpoint wording, timing log ---------------
+
+
+def test_get_camera_image_defaults_to_384_px_and_larger_can_be_requested(server: Any, robot: FakeRobot) -> None:
+    call(server, "get_camera_image", {"camera": "gripper"})
+    assert robot.calls[-1] == ("camera_image", ("gripper", 384))
+    call(server, "get_camera_image", {"camera": "gripper", "max_px": 768})
+    assert robot.calls[-1] == ("camera_image", ("gripper", 768))
+    assert McpServerConfig().limits.default_camera_px == 384
+    assert "384" in tool_descriptions(server)["get_camera_image"]
+
+
+def test_precise_flag_is_forwarded_to_the_base_tools(server: Any, robot: FakeRobot) -> None:
+    call(server, "navigate_to_pose", {"x": 1.0, "y": 0.0, "precise": True})
+    assert robot.calls[-1][1][-1] is True
+    call(server, "move_relative", {"dx": 0.1, "precise": True})
+    assert robot.calls[-1][1][-1] is True
+    docs = tool_descriptions(server)
+    for name in ("navigate_to_pose", "move_relative"):
+        assert "precise" in docs[name] and "3 cm" in docs[name] and "5 deg" in docs[name]
+        assert "1 cm" in docs[name] and "2 deg" in docs[name]
+
+
+def test_arm_move_settle_defaults_to_trajectory_end_and_gripper_moves_to_final(server: Any) -> None:
+    res = call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.2}, "speed_scale": 0.5})
+    assert res.structured_content["settle"] == "trajectory_end"
+    res = call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.1, "gripper": 0.5}, "speed_scale": 0.5})
+    assert res.structured_content["settle"] == "final"
+    res = call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.2}, "speed_scale": 0.5, "settle": "final"})
+    assert res.structured_content["settle"] == "final"
+    res = call(server, "move_arm_cartesian", {"x": 0.2, "y": 0.0, "z": 0.15, "speed_scale": 0.5})
+    assert res.structured_content["settle"] == "trajectory_end"
+    res = call(server, "move_arm_cartesian", {"x": 0.2, "y": 0.0, "z": 0.16, "speed_scale": 0.5, "settle": "final"})
+    assert res.structured_content["settle"] == "final"
+    with pytest.raises(ToolError):
+        call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.2}, "settle": "later"})
+
+
+def test_default_settle_follows_the_config(robot: FakeRobot) -> None:
+    cfg = McpServerConfig()
+    cfg.limits.arm_default_settle = "final"
+    res = call(build_mcp_server(robot, cfg, TOKEN), "move_arm_joints", {"targets": {"elbow_flex": 0.2}})
+    assert res.structured_content["settle"] == "final"
+
+
+def test_descriptions_ask_for_checkpoints_not_a_check_after_every_motion(server: Any) -> None:
+    docs = tool_descriptions(server)
+    assert "after every motion" not in docs["get_robot_state"]
+    assert "checkpoint" in docs["get_robot_state"].lower()
+    for name in ("move_arm_joints", "move_arm_cartesian"):
+        assert "trajectory_end" in docs[name] and "settling" in docs[name] and "final" in docs[name]
+
+
+def test_call_tool_logs_name_start_end_and_duration(server: Any, caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("INFO", logger="mcp_server.timing"):
+        call(server, "get_robot_state", {})
+    records = [
+        json.loads(r.getMessage().split("tool_call ", 1)[1]) for r in caplog.records if r.name == "mcp_server.timing"
+    ]
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["tool"] == "get_robot_state" and rec["ok"] is True
+    assert rec["started_at"] <= rec["ended_at"] and rec["duration_s"] >= 0.0
+
+
+def test_arm_moves_log_trajectory_and_settle_seconds_separately(server: Any, caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("INFO", logger="mcp_server.timing"):
+        call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.2}, "speed_scale": 0.5})
+    rec = json.loads(
+        next(r.getMessage() for r in caplog.records if r.name == "mcp_server.timing").split("tool_call ", 1)[1]
+    )
+    assert rec["tool"] == "move_arm_joints" and rec["status"] == "converged"
+    assert rec["settle"] == "trajectory_end" and rec["settling"] is False
+    assert rec["trajectory_s"] > 0.0 and rec["settle_s"] == 0.0
+
+
+def test_failing_call_is_logged_with_ok_false(server: Any, robot: FakeRobot, caplog: pytest.LogCaptureFixture) -> None:
+    robot.camera_error = "no frame"
+    with caplog.at_level("INFO", logger="mcp_server.timing"), pytest.raises(ToolError):
+        call(server, "get_camera_image", {"camera": "front"})
+    rec = json.loads(
+        next(r.getMessage() for r in caplog.records if r.name == "mcp_server.timing").split("tool_call ", 1)[1]
+    )
+    assert rec["tool"] == "get_camera_image" and rec["ok"] is False

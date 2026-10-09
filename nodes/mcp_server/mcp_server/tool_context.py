@@ -39,11 +39,15 @@ class RobotApi(Protocol):
         """Obstacle sectors, map stats and optional PNG crop."""
         ...
 
-    def navigate(self, x: float, y: float, yaw: float, frame: str, timeout_s: float) -> NavigationResult:
-        """Blocking NavigateToPose."""
+    def navigate(
+        self, x: float, y: float, yaw: float, frame: str, timeout_s: float, precise: bool = False
+    ) -> NavigationResult:
+        """Blocking NavigateToPose (precise: wait for Nav2's tight goal checker, else end within the looser tolerance)."""
         ...
 
-    def move_relative(self, dx: float, dy: float, dyaw: float, timeout_s: float) -> NavigationResult:
+    def move_relative(
+        self, dx: float, dy: float, dyaw: float, timeout_s: float, precise: bool = False
+    ) -> NavigationResult:
         """Blocking NavigateToPose relative to base_link."""
         ...
 

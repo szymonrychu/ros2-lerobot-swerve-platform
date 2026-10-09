@@ -428,6 +428,19 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   cap and report `slow_zone`, motions above it are unchanged, `surface_z_m` and tilt overrides, stale IMU ignored,
   `move_cartesian` / `set_gripper` / `home` pass the override, `move_path` streams through samples (velocity cap,
   validation, roll guard, slow zone)
+- arm settle policy (`test_arm_settle.py`): `trajectory_end` returns right after the streamed trajectory with `settling`
+  and `tracking_error_rad` (no convergence wait), keeps the goal commanded and releases the motion lock; a following
+  move starts the joints it names from the measured state while other joints keep their intent; a stalled joint is
+  relaxed after the hold window; stale-feedback and tracking aborts still fire; `final` waits (timeout) and splits
+  `trajectory_s` / `settle_s`; a stuck gripper no longer times an arm move out, a gripper-only move still judges the
+  jaw; per-joint converge/settle tolerance defaults (loaded shoulder_lift / elbow_flex wider) and their validation
+- smoothness round A (`test_tools.py`, `test_early_return.py`, `test_config.py`): `get_camera_image` defaults to 384 px
+  (larger `max_px` still honoured); `settle` on the arm tools (default `trajectory_end`, `final` when the gripper joint
+  moves, configurable); `precise` forwarded by `navigate_to_pose` / `move_relative`; descriptions ask for checkpoints
+  instead of a check after every motion; one `mcp_server.timing` log line per call (tool, start, end, duration, ok,
+  and trajectory/settle seconds for arm moves, also for failing calls); `run_nav` ends the goal early within the
+  intermediate tolerance (xy and wrapped yaw, same frame only), precise goals run to the Nav2 result; nav
+  intermediate tolerance defaults and validation
 - path trajectory (`test_trajectory.py`): `path_trajectory` stays on the joint-space polyline, ends at its last point
   and respects the velocity cap; zero-length path
 - link frames (`test_ik.py`): `link_frames` returns every chain link from one FK pass
@@ -582,7 +595,7 @@ fake `ssh`; no ROS needed).
 | `test_shoulder_lift_upper_limit_allows_reaching_below_the_floor` | mcp_server `arm.joint_limit_overrides_rad` widens shoulder_lift to [-1.745, 1.9] rad (tested on the robot: 1.87 rad reached without collision, the stretched arm cannot be lifted beyond about 1.85). |
 | `test_gripper_camera_rotated_180_at_source` | `gripper_uvc_camera` env sets `UVC_ROTATE_DEG=180` exactly once (the wrist image is upside down at wrist roll 0; rotation happens in the camera node, not downstream). |
 | `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
-| `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` in client.yml equal the mcp_server `nav` values. |
+| `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` (and the `nav_intermediate_*` pair) in client.yml equal the mcp_server `nav` values. |
 | `test_mcp_server_arm_mount_estimate_and_height_agree_with_claude_agent` | mcp_server config `arm.arm_base_height_m` is 0.15 and `arm.base_in_base_link` is the mount estimate `{x: 0.15, y: -0.04, z: 0.15, yaw: 0.0}` (to be measured); the claude_agent `arm_base_height_m` states the same height. |
 | `test_mcp_server_floor_guard_and_grasp_blocks_are_deployed` | mcp_server config has the `floor_guard` block (enabled, 2 cm margin, 0.2 slow speed scale, surface 0, IMU max age 1 s), the `grasp` block (5 mm interpolation, 8 cm max opening, auto order scoop, angled, top_down) and the `/grasp/command` / `/grasp/result` topics; the claude_agent lists `grasp_object` / `release_object` as effectors and `plan_grasp` as a sensor. |
 | `test_mcp_server_monitor_block_has_ordered_thresholds` | mcp_server `monitor` block: servo 60/70 C, CPU 75/82 C, bump warning below critical, stall 1.0 s, tilt 10 deg, battery warning margin 0.2 V/cell. |
@@ -630,7 +643,7 @@ layout; no ROS needed).
 
 | Test (group) | Description |
 |---|---|
-| `test_claude_agent_node_type_defaults` | `claude_agent` node type: native, `nodes/claude_agent`, `python3 -m claude_agent`, 50% / 1G, nice, user `claude_agent`, group `mcp-token`, `environment_file` `/etc/ros2/claude_agent/env`, `DISABLE_AUTOUPDATER=1`, no secret in `env`. |
+| `test_claude_agent_node_type_defaults` | `claude_agent` node type: native, `nodes/claude_agent`, `python3 -m claude_agent`, 150% / 1G (the CLI needs about 1.3 s of CPU per request), nice, user `claude_agent`, group `mcp-token`, `environment_file` `/etc/ros2/claude_agent/env`, `DISABLE_AUTOUPDATER=1`, no secret in `env`. |
 | `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `poi_store` (which follows `mcp_server`). |
 | `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
 | `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (rw 150 / turns 200), the per-phase maxima (40 / 40), no ro maxima and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`; no `poi_command_topic` (the reset clears POIs over HTTP via mcp_server). |

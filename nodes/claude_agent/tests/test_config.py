@@ -149,6 +149,7 @@ def test_watchdog_and_stop_timeouts_defaults_and_bounds() -> None:
 def test_nav_goal_precision_defaults_and_validation() -> None:
     cfg = ClaudeAgentConfig()
     assert cfg.nav_goal_xy_tolerance_cm == 1.0 and cfg.nav_goal_yaw_tolerance_deg == 2.0
+    assert cfg.nav_intermediate_xy_tolerance_cm == 3.0 and cfg.nav_intermediate_yaw_tolerance_deg == 5.0
     with pytest.raises(ValidationError):
         ClaudeAgentConfig(nav_goal_xy_tolerance_cm=0)
 

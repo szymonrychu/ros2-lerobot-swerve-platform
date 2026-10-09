@@ -955,7 +955,9 @@ class RosRobot:
         """
         return self.poi.clear(created_by)
 
-    def navigate(self, x: float, y: float, yaw: float, frame: str, timeout_s: float) -> NavigationResult:
+    def navigate(
+        self, x: float, y: float, yaw: float, frame: str, timeout_s: float, precise: bool = False
+    ) -> NavigationResult:
         """Send a NavigateToPose goal and block until it finishes, times out, stop is called or a critical event fires.
 
         Args:
@@ -964,6 +966,8 @@ class RosRobot:
             yaw (float): Goal yaw (rad).
             frame (str): Goal frame.
             timeout_s (float): Timeout (s); the goal is cancelled when it expires.
+            precise (bool): Wait for Nav2's own tight goal checker; otherwise the goal ends as soon as the pose is
+                within the intermediate tolerances (nav.intermediate_xy_tolerance_m / _yaw_tolerance_deg).
 
         Returns:
             NavigationResult: Outcome (status 'interrupted' + interrupted_by on a critical event) and final pose.
@@ -985,11 +989,15 @@ class RosRobot:
                     time.monotonic,
                     time.sleep,
                     NAV_POLL_S,
+                    None if precise else self.cfg.nav.intermediate_xy_tolerance_m,
+                    None if precise else math.radians(self.cfg.nav.intermediate_yaw_tolerance_deg),
                 )
         finally:
             self.base_motion.release()
 
-    def move_relative(self, dx: float, dy: float, dyaw: float, timeout_s: float) -> NavigationResult:
+    def move_relative(
+        self, dx: float, dy: float, dyaw: float, timeout_s: float, precise: bool = False
+    ) -> NavigationResult:
         """Navigate to a displacement expressed in base_link (converted to a map goal via TF).
 
         Args:
@@ -997,6 +1005,7 @@ class RosRobot:
             dy (float): Left (m).
             dyaw (float): Yaw change (rad).
             timeout_s (float): Timeout (s).
+            precise (bool): As in navigate.
 
         Returns:
             NavigationResult: Outcome.
@@ -1005,7 +1014,7 @@ class RosRobot:
         if pose is None:
             raise RobotError("robot pose (map->base_link) unavailable; cannot plan a relative move")
         gx, gy, gyaw = compose_relative(pose.x, pose.y, pose.yaw, dx, dy, dyaw)
-        return self.navigate(gx, gy, gyaw, pose.frame, timeout_s)
+        return self.navigate(gx, gy, gyaw, pose.frame, timeout_s, precise)
 
     def drive(self, vx: float, vy: float, wz: float, duration_s: float) -> DriveOutcome:
         """Timed velocity on cmd_vel_nav (smoother + collision monitor downstream), then zero.

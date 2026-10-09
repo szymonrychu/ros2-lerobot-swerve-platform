@@ -150,12 +150,28 @@ def test_arm_reach_default_matches_urdf_link_lengths() -> None:
 
 
 def test_prompt_states_nav_goal_precision_from_config() -> None:
-    default = build_system_prompt(ClaudeAgentConfig())
-    assert "within 1 cm and 2 deg" in default
+    default = " ".join(build_system_prompt(ClaudeAgentConfig()).split())
+    assert "within 3 cm and 5 deg" in default
+    assert "precise=true" in default and "within 1 cm and 2 deg" in default
     assert "sideways" in default and "rotate first" in default
-    custom = build_system_prompt(ClaudeAgentConfig(nav_goal_xy_tolerance_cm=2.5, nav_goal_yaw_tolerance_deg=4))
-    assert "within 2.5 cm and 4 deg" in custom
+    custom = " ".join(
+        build_system_prompt(
+            ClaudeAgentConfig(
+                nav_goal_xy_tolerance_cm=2.5,
+                nav_goal_yaw_tolerance_deg=4,
+                nav_intermediate_xy_tolerance_cm=6,
+                nav_intermediate_yaw_tolerance_deg=9,
+            )
+        ).split()
+    )
+    assert "within 6 cm and 9 deg" in custom and "within 2.5 cm and 4 deg" in custom
     assert "within 1 cm" not in custom
+
+
+def test_prompt_explains_the_arm_settle_policy() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    assert "settle" in lower and "trajectory_end" in lower and "settling" in lower
+    assert "settle='final'" in lower
 
 
 def test_prompt_teaches_body_awareness() -> None:

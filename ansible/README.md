@@ -359,7 +359,7 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | web_ui | 30% | 256M |
 | mcp_server | 25% | 256M |
 | poi_store | 10% | 128M |
-| claude_agent | 50% (Nice=10) | 1G |
+| claude_agent | 150% (Nice=10) | 1G |
 
 ### POI store directory
 

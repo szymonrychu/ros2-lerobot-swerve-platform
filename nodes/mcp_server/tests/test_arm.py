@@ -21,6 +21,9 @@ def make(tmp_path: Path, backend: FakeArmBackend | None = None) -> tuple[ArmCont
     be = backend or FakeArmBackend()
     cfg = CONFIG.model_copy(deep=True)
     cfg.arm.home_file = tmp_path / "arm" / "home.yaml"
+    # These tests exercise the global tolerances; the per-joint defaults are covered by test_arm_settle.py.
+    cfg.limits.arm_converge_tolerance_overrides = {}
+    cfg.limits.arm_settle_tolerance_overrides = {}
     return ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg), be
 
 
@@ -458,7 +461,7 @@ def test_new_lease_falls_back_to_measured_pose(tmp_path: Path) -> None:
 
 def test_large_steady_state_error_still_times_out_and_holds_measured(tmp_path: Path) -> None:
     arm, be = make(tmp_path)
-    be.sag = {"shoulder_lift": -(CONFIG.limits.arm_settle_tolerance_rad + 0.02)}
+    be.sag = {"shoulder_lift": -(CONFIG.limits.settle_tolerance_for("shoulder_lift") + 0.02)}
     res = arm.move_joints({"shoulder_lift": 0.5}, speed_scale=0.5)
     assert res.status == "timeout"
     assert be.commands[-1] == res.positions  # held at the measured pose (the fake then sags further)
@@ -474,11 +477,11 @@ def test_moving_joint_within_settle_band_is_not_settled(tmp_path: Path) -> None:
 
     def wobble(b: FakeArmBackend) -> None:
         ticks[0] += 1
-        last = b.commands[-1]["elbow_flex"]
-        b.positions["elbow_flex"] = last - 0.055 + (0.015 if ticks[0] % 2 else -0.015)  # error 0.04 / 0.07
+        last = b.commands[-1]["wrist_flex"]
+        b.positions["wrist_flex"] = last - 0.055 + (0.015 if ticks[0] % 2 else -0.015)  # error 0.04 / 0.07
 
     be.on_sleep = wobble
-    res = arm.move_joints({"elbow_flex": 0.3}, speed_scale=0.5)
+    res = arm.move_joints({"wrist_flex": 0.3}, speed_scale=0.5)
     assert res.status == "timeout"
 
 

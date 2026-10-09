@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
 
+from .models import SettlePolicy
+
 CONFIG_ENV = "MCP_SERVER_CONFIG"
 TOKEN_ENV = "MCP_SERVER_TOKEN"
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/mcp_server/config.yaml")
@@ -126,6 +128,18 @@ class LimitSettings(StrictModel):
     arm_tracking_error_rad: float = Field(default=0.25, gt=0.0)
     arm_tracking_lag_s: float = Field(default=0.25, ge=0.0)
     arm_converge_tolerance_rad: float = Field(default=0.03, gt=0.0)
+    # Per-joint replacements of the converge/settle tolerances. The two gravity-loaded joints carry the arm's weight and
+    # sag by more than the global 0.03 rad (the cause of the measured convergence timeouts: 54 of the moves ran into the
+    # 3 s timeout although the joint had stopped within a few centimetres of the target).
+    arm_converge_tolerance_overrides: dict[str, float] = Field(
+        default_factory=lambda: {"shoulder_lift": 0.05, "elbow_flex": 0.05}
+    )
+    arm_settle_tolerance_overrides: dict[str, float] = Field(
+        default_factory=lambda: {"shoulder_lift": 0.12, "elbow_flex": 0.12}
+    )
+    # Settle policy of move_arm_joints / move_arm_cartesian when the call does not give one (a call that moves the
+    # gripper joint always defaults to 'final'): 'trajectory_end' returns when the streamed trajectory finished.
+    arm_default_settle: SettlePolicy = "trajectory_end"
     # Steady-state error band (position servo under gravity load): a joint that stopped moving (less than
     # arm_settle_motion_rad over arm_settle_window_s) within this error of its target has settled; its target stays
     # commanded and the motion reports 'converged' with residual_error. Must lie between the converge tolerance and
@@ -156,9 +170,34 @@ class LimitSettings(StrictModel):
     roll_max_gripper_open_rad: float = Field(default=0.8, gt=0.0)
     hold_republish_hz: float = Field(default=5.0, gt=0.0, le=25.0)
     max_image_px: int = Field(default=HARD_MAX_IMAGE_PX, ge=32, le=HARD_MAX_IMAGE_PX)
+    # get_camera_image size when the call gives no max_px: image tokens grow with the area (640x480 is about 400 tokens,
+    # 768 px wide about 4 times the 384 px cost) and ~475 kept images made contexts reach 183k tokens.
+    default_camera_px: int = Field(default=384, ge=32, le=HARD_MAX_IMAGE_PX)
     jpeg_quality: int = Field(default=80, ge=10, le=100)
     map_png_max_px: int = Field(default=256, ge=32, le=HARD_MAX_IMAGE_PX)
     scan_sectors: int = Field(default=8, ge=8, le=8)
+
+    def converge_tolerance_for(self, joint: str) -> float:
+        """Convergence tolerance of a joint.
+
+        Args:
+            joint (str): Joint name.
+
+        Returns:
+            float: The per-joint override, else arm_converge_tolerance_rad (rad).
+        """
+        return self.arm_converge_tolerance_overrides.get(joint, self.arm_converge_tolerance_rad)
+
+    def settle_tolerance_for(self, joint: str) -> float:
+        """Steady-state (settle) tolerance of a joint.
+
+        Args:
+            joint (str): Joint name.
+
+        Returns:
+            float: The per-joint override, else arm_settle_tolerance_rad (rad).
+        """
+        return self.arm_settle_tolerance_overrides.get(joint, self.arm_settle_tolerance_rad)
 
     def margin_for(self, joint: str) -> float:
         """Limit margin of a joint.
@@ -182,6 +221,11 @@ class LimitSettings(StrictModel):
             raise ValueError(
                 "arm_settle_tolerance_rad must lie between arm_converge_tolerance_rad and arm_tracking_error_rad"
             )
+        for joint in {*self.arm_converge_tolerance_overrides, *self.arm_settle_tolerance_overrides}:
+            if not self.converge_tolerance_for(joint) < self.settle_tolerance_for(joint) < self.arm_tracking_error_rad:
+                raise ValueError(
+                    f"{joint}: the settle tolerance must lie between its converge tolerance and arm_tracking_error_rad"
+                )
         return self
 
 
@@ -201,10 +245,31 @@ class TimeoutSettings(StrictModel):
 
 
 class NavSettings(StrictModel):
-    """Nav2 goal precision stated in the navigation tool descriptions (must match nav2_params.yaml goal checker)."""
+    """Nav2 goal precision stated in the navigation tool descriptions.
+
+    goal_xy_tolerance_m / goal_yaw_tolerance_deg are the precise tolerances (must match the nav2_params.yaml goal
+    checker, reached with ``precise=true``). Other goals end early, as soon as the measured pose is within the looser
+    intermediate tolerances (the goal is cancelled and the base zeroed).
+    """
 
     goal_xy_tolerance_m: float = Field(default=0.01, gt=0.0)
     goal_yaw_tolerance_deg: float = Field(default=2.0, gt=0.0)
+    intermediate_xy_tolerance_m: float = Field(default=0.03, gt=0.0)
+    intermediate_yaw_tolerance_deg: float = Field(default=5.0, gt=0.0)
+
+    @model_validator(mode="after")
+    def intermediate_not_tighter(self) -> "NavSettings":
+        """Reject intermediate tolerances tighter than the precise ones (they would never end a goal early).
+
+        Returns:
+            NavSettings: The validated settings.
+        """
+        if (
+            self.intermediate_xy_tolerance_m < self.goal_xy_tolerance_m
+            or self.intermediate_yaw_tolerance_deg < self.goal_yaw_tolerance_deg
+        ):
+            raise ValueError("intermediate nav tolerances must not be tighter than the precise goal tolerances")
+        return self
 
 
 class ArmBaseOffset(StrictModel):

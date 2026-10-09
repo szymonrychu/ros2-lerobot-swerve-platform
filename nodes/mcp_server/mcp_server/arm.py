@@ -14,7 +14,7 @@ from .config import ArmBaseOffset, LimitSettings, McpServerConfig
 from .floor_guard import FloorGuard, FloorOverride, JawModel, TiltSample, retime, step_scales
 from .home_store import HomeStoreError, load_home, save_home
 from .ik import ArmKinematics, UnreachableError, grasp_offset
-from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult
+from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult, SettlePolicy
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .staleness import Stamped, is_fresh
 from .trajectory import JointLimits, clamp_to_limits, max_abs_error, path_trajectory, plan_trajectory
@@ -42,13 +42,14 @@ def settled_residual(
 
     A position-controlled servo under gravity load stops short of its target; that residual is not a failure as
     long as it is small and the joint has stopped (less than arm_settle_motion_rad over arm_settle_window_s).
+    The converge and settle tolerances are per joint (LimitSettings.converge_tolerance_for / settle_tolerance_for).
 
     Args:
         goal (dict[str, float]): Motion goal (rad).
         history (list[tuple[float, dict[str, float]]]): (sample stamp s, measured positions of the moving joints)
             since the trajectory ended, oldest first.
         moving (list[str]): Joints the motion was asked to move.
-        limits (LimitSettings): arm_settle_* and arm_converge_tolerance_rad.
+        limits (LimitSettings): arm_settle_* and the per-joint converge/settle tolerances.
 
     Returns:
         dict[str, float] | None: target - measured (rad, rounded to 1e-4) for the joints outside the converge
@@ -61,14 +62,31 @@ def settled_residual(
         return None
     window = [positions for t, positions in history if t >= latest_t - limits.arm_settle_window_s]
     for j in moving:
-        if abs(goal[j] - latest[j]) > limits.arm_settle_tolerance_rad:
+        if abs(goal[j] - latest[j]) > limits.settle_tolerance_for(j):
             return None
         values = [positions[j] for positions in window]
         if max(values) - min(values) > limits.arm_settle_motion_rad:
             return None
     return {
-        j: round(goal[j] - latest[j], 4) for j in moving if abs(goal[j] - latest[j]) > limits.arm_converge_tolerance_rad
+        j: round(goal[j] - latest[j], 4) for j in moving if abs(goal[j] - latest[j]) > limits.converge_tolerance_for(j)
     }
+
+
+def beyond_converge(
+    goal: dict[str, float], measured: dict[str, float], joints: list[str], limits: LimitSettings
+) -> list[str]:
+    """Joints whose error to the goal exceeds their converge tolerance.
+
+    Args:
+        goal (dict[str, float]): Goal positions (rad).
+        measured (dict[str, float]): Measured positions (rad).
+        joints (list[str]): Joints to judge.
+        limits (LimitSettings): Per-joint converge tolerances.
+
+    Returns:
+        list[str]: The joints still off target (empty = converged).
+    """
+    return [j for j in joints if abs(goal[j] - measured[j]) > limits.converge_tolerance_for(j)]
 
 
 class ArmError(RuntimeError):
@@ -183,10 +201,23 @@ class ArmController:
         self._moving: list[str] = []  # joints of the running motion
         self._tracking_limit = config.limits.arm_tracking_error_rad  # abort threshold of the running motion (rad)
         self._slow_zone: dict[str, object] | None = None  # slow-zone summary of the running motion
+        self._judged: list[str] = []  # joints the running motion is judged on (convergence, tracking_error_rad)
+        self._settle_policy: SettlePolicy = "final"
+        self._trajectory_end: float | None = None  # backend time the running motion finished streaming
+        self._settling: list[str] = []  # joints a trajectory_end motion left outside the converge tolerance
         self._stop = threading.Event()
         self._motion_lock = threading.Lock()
         # Guards _held, _acquired_at, _last_setpoint, _last_target, _relax_hold, _streaming and every autonomy publish.
         self._lock = threading.Lock()
+
+    @property
+    def settling(self) -> list[str]:
+        """Joints a 'trajectory_end' motion returned with, still closing in on their commanded goal.
+
+        Returns:
+            list[str]: Joint names (empty when nothing is settling).
+        """
+        return list(self._settling)
 
     @property
     def control_held(self) -> bool:
@@ -284,6 +315,7 @@ class ArmController:
         self._last_setpoint = None
         self._last_target = None
         self._relax_hold = None
+        self._settling = []
 
     def schedule_relax(self, joints: list[str]) -> None:
         """Hold the settled target for arm_settle_hold_s, then relax these joints to their measured pose.
@@ -307,8 +339,8 @@ class ArmController:
         sample = self.fresh_sample()
         if sample is None:
             return
-        tolerance = self.cfg.limits.arm_converge_tolerance_rad
         for j in joints:
+            tolerance = self.cfg.limits.converge_tolerance_for(j)
             if j in self._last_target and abs(self._last_target[j] - sample.positions[j]) > tolerance:
                 self._last_setpoint[j] = sample.positions[j]
         self._relax_hold = None
@@ -479,7 +511,11 @@ class ArmController:
         return self.cfg.limits.arm_max_joint_velocity_rps * scale / cap
 
     def move_joints(
-        self, targets: dict[str, float], speed_scale: float | None = None, floor: FloorOverride | None = None
+        self,
+        targets: dict[str, float],
+        speed_scale: float | None = None,
+        floor: FloorOverride | None = None,
+        settle: SettlePolicy = "final",
     ) -> ArmMotionResult:
         """Stream an interpolated motion to joint targets (unnamed joints keep their last commanded target).
 
@@ -491,6 +527,8 @@ class ArmController:
                 get_arm_state (clamped to URDF limits minus margin, applied in URDF space: urdf = measured + offset).
             speed_scale (float | None): Speed scale in (0, arm_max_speed_scale]; None for the maximum.
             floor (FloorOverride | None): Per-call slow-zone overrides (expected surface height, tilt).
+            settle (SettlePolicy): 'final' waits for convergence (or the timeout); 'trajectory_end' returns when the
+                trajectory finished, reporting settling and the current tracking error.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -498,15 +536,18 @@ class ArmController:
         self.validate_targets(targets)
         vmax = self.velocity_for(speed_scale)
         with self.exclusive_motion():
-            return self.stream_to(targets, vmax, floor)
+            return self.stream_to(targets, vmax, floor, settle)
 
-    def stream_to(self, targets: dict[str, float], vmax: float, floor: FloorOverride | None = None) -> ArmMotionResult:
+    def stream_to(
+        self, targets: dict[str, float], vmax: float, floor: FloorOverride | None = None, settle: SettlePolicy = "final"
+    ) -> ArmMotionResult:
         """Motion body of move_joints; the caller holds the motion guard.
 
         Args:
             targets (dict[str, float]): Validated joint targets (rad).
             vmax (float): Per-joint velocity cap (rad/s).
             floor (FloorOverride | None): Per-call slow-zone overrides.
+            settle (SettlePolicy): Settle policy.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -520,10 +561,14 @@ class ArmController:
             self.acquire()
         start = self.command_base(self.require_sample())
         with self.holding_arm_for_gripper(list(targets)):
-            return self.stream(start, start | safe, vmax, list(targets), clamped, floor=floor)
+            return self.stream(start, start | safe, vmax, list(targets), clamped, floor=floor, settle=settle)
 
     def move_path(
-        self, path: list[dict[str, float]], speed_scale: float | None = None, floor: FloorOverride | None = None
+        self,
+        path: list[dict[str, float]],
+        speed_scale: float | None = None,
+        floor: FloorOverride | None = None,
+        settle: SettlePolicy = "final",
     ) -> ArmMotionResult:
         """Stream one smooth motion through a sequence of joint samples (e.g. a straight tool line from the planner).
 
@@ -535,6 +580,7 @@ class ArmController:
             path (list[dict[str, float]]): Joint samples (measured space), all naming the same joints.
             speed_scale (float | None): Speed scale in (0, arm_max_speed_scale]; None for the maximum.
             floor (FloorOverride | None): Per-call slow-zone overrides.
+            settle (SettlePolicy): Settle policy.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -559,7 +605,7 @@ class ArmController:
             start = self.command_base(self.require_sample())
             full = [start | s for s in safe]
             moving = sorted({j for s in path for j in s})
-            return self.stream(start, full[-1], vmax, moving, clamped, floor=floor, path=full)
+            return self.stream(start, full[-1], vmax, moving, clamped, floor=floor, path=full, settle=settle)
 
     def clamp_targets(self, targets: dict[str, float]) -> dict[str, float]:
         """Clamp measured-space targets to the URDF limits minus margin (applied in URDF space).
@@ -616,6 +662,7 @@ class ArmController:
         wrist_roll: float | None = None,
         object_width_m: float | None = None,
         floor: FloorOverride | None = None,
+        settle: SettlePolicy = "final",
     ) -> ArmMotionResult:
         """Move the gripper tool point to (x, y, z) in the arm base_link, optionally with an approach pitch.
 
@@ -631,6 +678,7 @@ class ArmController:
                 is then the object centre and the tool point (fixed jaw inner face) is placed half a width from it
                 against the jaw opening direction (arm.jaw_open_axis).
             floor (FloorOverride | None): Per-call slow-zone overrides (expected surface height, tilt).
+            settle (SettlePolicy): Settle policy of the joint motion.
 
         Returns:
             ArmMotionResult: Outcome; status "unreachable" (no motion) when IK has no solution within limits.
@@ -661,7 +709,7 @@ class ArmController:
                 achieved=self.measured(sample),
                 expected_tool_pose=expected,
             )
-        result = self.move_joints(solution, speed_scale, floor)
+        result = self.move_joints(solution, speed_scale, floor, settle)
         achieved = None
         grasp_shift = None
         if result.positions is not None and all(j in result.positions for j in self.kin.joint_names):
@@ -991,6 +1039,7 @@ class ArmController:
         started: float,
         hold: bool,
         residual: dict[str, float] | None = None,
+        settling: bool = False,
     ) -> ArmMotionResult:
         """Build a result, holding at the sample's measured pose when requested.
 
@@ -1003,9 +1052,10 @@ class ArmController:
             started (float): Motion start time.
             hold (bool): Publish the measured pose as a hold setpoint.
             residual (dict[str, float] | None): Settled residual error per joint (target - measured, rad).
+            settling (bool): A trajectory_end return with joints still outside the converge tolerance.
 
         Returns:
-            ArmMotionResult: Result.
+            ArmMotionResult: Result, with the trajectory/settle time split and the tracking error of the judged joints.
         """
         positions = None if sample is None else self.measured(sample)
         if hold and positions:
@@ -1015,6 +1065,9 @@ class ArmController:
                     intent = dict(self._last_target) if self._last_target is not None else {}
                 setpoint = positions | {j: v for j, v in intent.items() if j != self.gripper}
             self.command(setpoint)  # no-op once released
+        finished_at = self.backend.now()
+        trajectory_end = finished_at if self._trajectory_end is None else self._trajectory_end
+        judged = [j for j in self._judged if positions is not None and j in positions]
         return ArmMotionResult(
             status=status,
             message=message,
@@ -1022,7 +1075,12 @@ class ArmController:
             positions=positions,
             clamped=clamped,
             residual_error=residual or {},
-            duration_s=round(self.backend.now() - started, 3),
+            duration_s=round(finished_at - started, 3),
+            trajectory_s=round(trajectory_end - started, 3),
+            settle_s=round(finished_at - trajectory_end, 3),
+            settle=self._settle_policy,
+            settling=settling,
+            tracking_error_rad=None if positions is None else round(max_abs_error(goal, positions, judged), 4),
             interrupted_by=self._interrupted_by,
             expected=goal,
             achieved=positions,
@@ -1118,6 +1176,7 @@ class ArmController:
         effort_threshold: float | None = None,
         floor: FloorOverride | None = None,
         path: list[dict[str, float]] | None = None,
+        settle: SettlePolicy = "final",
     ) -> ArmMotionResult:
         """Stream setpoints at arm_rate_hz, then wait for convergence; abort and hold on any safety check.
 
@@ -1126,7 +1185,14 @@ class ArmController:
 
         After the trajectory the goal stays commanded until the moving joints converge (status 'converged'), settle
         with a small steady-state error (status 'converged' with residual_error; the goal stays commanded) or the
-        converge timeout passes (status 'timeout', held at the measured pose).
+        converge timeout passes (status 'timeout', held at the measured pose). Convergence uses the per-joint
+        tolerances and ignores the gripper joint when other joints move too (a jaw holding an object never reaches its
+        target and used to time the whole move out).
+
+        With settle='trajectory_end' the call returns right after the last setpoint (after the stale/tracking checks)
+        with status 'converged', settling=True when joints are still off target and the current tracking_error_rad.
+        The goal stays commanded (keepalive), a pending relax releases a stalled joint after arm_settle_hold_s, and the
+        next motion starts the joints it names from their measured state (other joints keep their intent).
 
         Args:
             start (dict[str, float]): Start pose (last commanded pose while the lease is held, else measured).
@@ -1137,6 +1203,7 @@ class ArmController:
             effort_threshold (float | None): Gripper contact threshold for close-until-effort.
             floor (FloorOverride | None): Per-call slow-zone overrides.
             path (list[dict[str, float]] | None): Full-pose samples the trajectory passes through (ends at goal).
+            settle (SettlePolicy): 'final' or 'trajectory_end' (see above).
 
         Returns:
             ArmMotionResult: Outcome.
@@ -1144,7 +1211,12 @@ class ArmController:
         rate = self.cfg.limits.arm_rate_hz
         period = 1.0 / rate
         tracked = [j for j in moving if j != self.gripper]
+        judged = tracked or list(moving)  # the gripper only counts when it is the only joint asked to move
         limits = self.cfg.limits
+        self._judged = judged
+        self._settle_policy = settle
+        self._trajectory_end = None
+        start = self.start_from_settling(start, moving)
         self._tracking_limit = tracking_limit(limits.arm_tracking_error_rad, limits.arm_tracking_lag_s, vmax)
         started = self.backend.now()
         self._moving = list(moving)
@@ -1171,6 +1243,9 @@ class ArmController:
                 if not self.command(point):
                     return self.finish("stopped", "control released", goal, sample, clamped, started, hold=False)
                 self.backend.sleep(period)
+            self._trajectory_end = self.backend.now()
+            if settle == "trajectory_end":
+                return self.finish_at_trajectory_end(goal, sample, judged, tracked, clamped, started)
             deadline = self.backend.now() + self.cfg.timeouts.arm_converge_timeout_s
             history: list[tuple[float, dict[str, float]]] = []
             while True:
@@ -1179,10 +1254,18 @@ class ArmController:
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
                 assert sample is not None
-                if max_abs_error(goal, sample.positions, moving) <= self.cfg.limits.arm_converge_tolerance_rad:
-                    return self.finish("converged", "reached target", goal, sample, clamped, started, hold=False)
-                history.append((sample.stamp, {j: sample.positions[j] for j in moving}))
-                residual = settled_residual(goal, history, moving, self.cfg.limits)
+                if not beyond_converge(goal, sample.positions, judged, limits):
+                    return self.finish(
+                        "converged",
+                        self.reached_message(goal, sample, moving, judged),
+                        goal,
+                        sample,
+                        clamped,
+                        started,
+                        hold=False,
+                    )
+                history.append((sample.stamp, {j: sample.positions[j] for j in judged}))
+                residual = settled_residual(goal, history, judged, limits)
                 if residual is not None:
                     self.schedule_relax(list(residual))
                     errors = ", ".join(f"{j} {e:+.3f} rad" for j, e in residual.items())
@@ -1198,7 +1281,7 @@ class ArmController:
                         residual=residual,
                     )
                 if self.backend.now() >= deadline:
-                    error = max_abs_error(goal, sample.positions, moving)
+                    error = max_abs_error(goal, sample.positions, judged)
                     return self.finish(
                         "timeout",
                         f"not converged (error {error:.3f} rad); holding measured pose",
@@ -1214,6 +1297,101 @@ class ArmController:
         finally:
             with self._lock:
                 self._streaming = False
+
+    def start_from_settling(self, start: dict[str, float], moving: list[str]) -> dict[str, float]:
+        """Start the joints this motion names, and that a previous trajectory_end motion left settling, from their
+        measured state; every other joint keeps its intended target. Consumes the settling marker.
+
+        Args:
+            start (dict[str, float]): Start pose from command_base.
+            moving (list[str]): Joints the new motion names.
+
+        Returns:
+            dict[str, float]: The start pose to plan from.
+        """
+        with self._lock:
+            pending, self._settling = self._settling, []
+        if not pending:
+            return start
+        sample = self.backend.joint_sample()
+        if sample is None:
+            return start
+        return start | {j: sample.positions[j] for j in pending if j in moving and j in sample.positions}
+
+    def reached_message(self, goal: dict[str, float], sample: JointSample, moving: list[str], judged: list[str]) -> str:
+        """Message of a converged motion; names the moving joints that were left out of the convergence judgement.
+
+        Args:
+            goal (dict[str, float]): Motion goal.
+            sample (JointSample): Final sample.
+            moving (list[str]): Joints the motion was asked to move.
+            judged (list[str]): Joints convergence was judged on.
+
+        Returns:
+            str: "reached target", plus the ignored joints' remaining error when there are any.
+        """
+        ignored = [j for j in moving if j not in judged and j in sample.positions]
+        if not ignored:
+            return "reached target"
+        errors = ", ".join(f"{j} {goal[j] - sample.positions[j]:+.3f} rad" for j in ignored)
+        return f"reached target ({errors} not judged: the gripper may be holding an object)"
+
+    def finish_at_trajectory_end(
+        self,
+        goal: dict[str, float],
+        sample: JointSample | None,
+        judged: list[str],
+        tracked: list[str],
+        clamped: list[str],
+        started: float,
+    ) -> ArmMotionResult:
+        """Return right after the last setpoint: abort on a failed safety check, else report the settling state.
+
+        The goal stays commanded; joints still off target are remembered (settling) so the next motion starts them from
+        the measured state, and a relax of the stalled ones is scheduled like for a settled residual.
+
+        Args:
+            goal (dict[str, float]): Motion goal.
+            sample (JointSample | None): Last sample seen while streaming.
+            judged (list[str]): Joints judged on.
+            tracked (list[str]): Joints whose tracking error is checked.
+            clamped (list[str]): Joints clamped to limits.
+            started (float): Motion start time.
+
+        Returns:
+            ArmMotionResult: Abort result, or status 'converged' with settling True when joints are still closing in.
+        """
+        sample = self.backend.joint_sample() or sample
+        verdict = self.check(sample, tracked, None)
+        if verdict is not None:
+            return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
+        assert sample is not None
+        off = beyond_converge(goal, sample.positions, judged, self.cfg.limits)
+        if not off:
+            return self.finish(
+                "converged",
+                self.reached_message(goal, sample, list(self._moving), judged),
+                goal,
+                sample,
+                clamped,
+                started,
+                hold=False,
+            )
+        with self._lock:
+            self._settling = list(off)
+        self.schedule_relax(off)
+        errors = ", ".join(f"{j} {goal[j] - sample.positions[j]:+.3f} rad" for j in off)
+        return self.finish(
+            "converged",
+            f"trajectory finished; still settling ({errors}); the target stays commanded, a following move starts "
+            "from the measured pose",
+            goal,
+            sample,
+            clamped,
+            started,
+            hold=False,
+            settling=True,
+        )
 
 
 class MotionGuard:

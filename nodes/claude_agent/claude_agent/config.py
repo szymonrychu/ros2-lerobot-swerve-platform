@@ -53,6 +53,8 @@ ARM_REACH_CM = 41.0
 DEFAULT_ARM_BASE_HEIGHT_M = 0.15  # estimate, equal to mcp_server arm.arm_base_height_m
 DEFAULT_NAV_GOAL_XY_TOLERANCE_CM = 1.0
 DEFAULT_NAV_GOAL_YAW_TOLERANCE_DEG = 2.0
+DEFAULT_NAV_INTERMEDIATE_XY_TOLERANCE_CM = 3.0
+DEFAULT_NAV_INTERMEDIATE_YAW_TOLERANCE_DEG = 5.0
 DEFAULT_CAMERA_NOTE = (
     "The gripper camera is mounted at an angle on the arm and looks slightly from left to right; "
     "its images are delivered upright (rotated 180 degrees in software). "
@@ -108,6 +110,9 @@ class ClaudeAgentConfig(BaseModel):
         arm_base_height_m: Height of the arm base above the floor in metres, stated in the prompt.
         nav_goal_xy_tolerance_cm: Nav2 goal position precision in cm, stated in the prompt (keep equal to the Nav2 goal checker).
         nav_goal_yaw_tolerance_deg: Nav2 goal heading precision in degrees, stated in the prompt.
+        nav_intermediate_xy_tolerance_cm: Position tolerance at which a default (not precise) goal ends early, stated in the
+            prompt (keep equal to mcp_server nav.intermediate_xy_tolerance_m).
+        nav_intermediate_yaw_tolerance_deg: Heading tolerance at which a default goal ends early, stated in the prompt.
         camera_note: Description of the gripper camera mounting and image orientation, stated in the prompt.
         instruction_timeout_s: Watchdog per instruction; on expiry the model is interrupted, the robot stopped and the turn ends as "timeout".
         connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
@@ -149,6 +154,8 @@ class ClaudeAgentConfig(BaseModel):
     arm_base_height_m: float = Field(default=DEFAULT_ARM_BASE_HEIGHT_M, ge=0)
     nav_goal_xy_tolerance_cm: float = Field(default=DEFAULT_NAV_GOAL_XY_TOLERANCE_CM, gt=0)
     nav_goal_yaw_tolerance_deg: float = Field(default=DEFAULT_NAV_GOAL_YAW_TOLERANCE_DEG, gt=0)
+    nav_intermediate_xy_tolerance_cm: float = Field(default=DEFAULT_NAV_INTERMEDIATE_XY_TOLERANCE_CM, gt=0)
+    nav_intermediate_yaw_tolerance_deg: float = Field(default=DEFAULT_NAV_INTERMEDIATE_YAW_TOLERANCE_DEG, gt=0)
     camera_note: str = DEFAULT_CAMERA_NOTE
     instruction_timeout_s: float = Field(default=900.0, gt=0)
     connect_timeout_s: float = Field(default=240.0, gt=0)

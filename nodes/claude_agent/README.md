@@ -222,6 +222,7 @@ unknown keys are rejected.
 | `arm_reach_cm` | `41` | Approximate max horizontal reach from the shoulder_lift axis, stated in the prompt. Computed from `nodes/web_ui/urdf/so101_arm.urdf`: 11.6 + 13.5 + 6.4 + 9.8 cm link offsets, an upper bound |
 | `arm_base_height_m` | `0.165` | Arm base height above the floor (stated as 16.5 cm) |
 | `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` | `1.0` / `2.0` | Nav2 goal precision stated in the prompt (keep equal to the Nav2 goal checker and mcp_server `nav`) |
+| `nav_intermediate_xy_tolerance_cm` / `nav_intermediate_yaw_tolerance_deg` | `3.0` / `5.0` | Tolerance at which a default navigation goal ends early (stated in the prompt; `precise=true` gives the values above; keep equal to mcp_server `nav.intermediate_*`) |
 | `camera_note` | see `config.py` | Camera mounting (angled gripper camera looks slightly from left to right, upright images) and the overhead `front` camera (640x480, looks down at the front of the robot and the arm; overview first, judge arm-to-object distance) |
 | `instruction_timeout_s` | `900` | Watchdog per instruction |
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |

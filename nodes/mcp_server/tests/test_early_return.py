@@ -1,5 +1,6 @@
 """Early-return motion: a critical event ends arm, drive and navigation motions with status 'interrupted'."""
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -337,3 +338,75 @@ def test_nav_with_real_monitor_watch_stops_on_collision() -> None:
 
         res = run_nav(port, GOAL, 10.0, lambda: False, watch.check, c.now, sleeping, 0.05)
     assert (res.status, res.interrupted_by) == ("interrupted", "collision_stop")
+
+
+# --- intermediate goal tolerance: end the Nav2 goal early once the pose is close enough ----------------------------
+
+
+class PoseNav(FakeNav):
+    """Nav2 never finishes by itself; the measured pose is the scripted one."""
+
+    def __init__(self, clock: Clock, pose: BasePose) -> None:
+        super().__init__(clock, finish_at=None)
+        self.final = pose
+
+
+def early(
+    port: FakeNav, clock: Clock, xy: float | None = 0.03, yaw_deg: float | None = 5.0, timeout: float = 5.0
+) -> Any:
+    return run_nav(
+        port,
+        GOAL,
+        timeout,
+        lambda: False,
+        lambda: None,
+        clock.now,
+        clock.sleep,
+        0.05,
+        early_xy_m=xy,
+        early_yaw_rad=None if yaw_deg is None else math.radians(yaw_deg),
+    )
+
+
+def test_goal_ends_early_within_the_intermediate_tolerance() -> None:
+    c = Clock()
+    port = PoseNav(c, BasePose(frame="map", x=0.98, y=0.01, yaw=math.radians(4.0)))
+    res = early(port, c)
+    assert res.status == "succeeded"
+    assert port.cancelled and port.zeroed
+    assert "intermediate tolerance" in res.message and "precise" in res.message
+    assert res.final_pose == port.final and c.t < 1.0
+
+
+def test_goal_keeps_running_outside_the_xy_tolerance() -> None:
+    c = Clock()
+    res = early(PoseNav(c, BasePose(frame="map", x=0.9, y=0.0, yaw=0.0)), c)
+    assert res.status == "timeout"
+
+
+def test_goal_keeps_running_outside_the_yaw_tolerance() -> None:
+    c = Clock()
+    res = early(PoseNav(c, BasePose(frame="map", x=1.0, y=0.0, yaw=math.radians(8.0))), c)
+    assert res.status == "timeout"
+
+
+def test_yaw_wraps_around_pi() -> None:
+    c = Clock()
+    goal_pose = BasePose(frame="map", x=1.0, y=0.0, yaw=math.pi - 0.01)
+    port = PoseNav(c, BasePose(frame="map", x=1.0, y=0.0, yaw=-math.pi + 0.01))
+    res = run_nav(port, goal_pose, 5.0, lambda: False, lambda: None, c.now, c.sleep, 0.05, 0.03, math.radians(5.0))
+    assert res.status == "succeeded"
+
+
+def test_precise_goals_run_to_the_nav2_result() -> None:
+    c = Clock()
+    port = FakeNav(c, finish_at=2.0)
+    port.final = BasePose(frame="map", x=1.0, y=0.0, yaw=0.0)
+    res = early(port, c, xy=None, yaw_deg=None)
+    assert res.status == "succeeded" and not port.cancelled and c.t >= 2.0
+
+
+def test_pose_in_another_frame_is_not_compared() -> None:
+    c = Clock()
+    res = early(PoseNav(c, BasePose(frame="odom", x=1.0, y=0.0, yaw=0.0)), c)
+    assert res.status == "timeout"

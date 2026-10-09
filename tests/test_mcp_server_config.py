@@ -489,6 +489,8 @@ def test_claude_agent_nav_tolerances_match_mcp_server() -> None:
     nav = node_config("mcp_server")["nav"]
     assert agent["nav_goal_xy_tolerance_cm"] == pytest.approx(nav["goal_xy_tolerance_m"] * 100)
     assert agent["nav_goal_yaw_tolerance_deg"] == pytest.approx(nav["goal_yaw_tolerance_deg"])
+    assert agent["nav_intermediate_xy_tolerance_cm"] == pytest.approx(nav["intermediate_xy_tolerance_m"] * 100)
+    assert agent["nav_intermediate_yaw_tolerance_deg"] == pytest.approx(nav["intermediate_yaw_tolerance_deg"])
 
 
 def test_mcp_server_front_camera_is_the_compressed_overview_camera() -> None:

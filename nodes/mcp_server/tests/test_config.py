@@ -314,3 +314,13 @@ def test_grasp_service_topics_default() -> None:
     topics = McpServerConfig().topics
     assert topics.grasp_command == "/grasp/command"
     assert topics.grasp_result == "/grasp/result"
+
+
+def test_nav_intermediate_tolerances_are_looser_than_the_precise_ones() -> None:
+    nav = McpServerConfig().nav
+    assert (nav.intermediate_xy_tolerance_m, nav.intermediate_yaw_tolerance_deg) == (0.03, 5.0)
+    assert (nav.goal_xy_tolerance_m, nav.goal_yaw_tolerance_deg) == (0.01, 2.0)
+    with pytest.raises(ValidationError):
+        McpServerConfig(nav={"intermediate_xy_tolerance_m": 0.005})
+    with pytest.raises(ValidationError):
+        McpServerConfig(nav={"intermediate_yaw_tolerance_deg": 1.0})

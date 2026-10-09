@@ -197,6 +197,24 @@ def nav_result(
     )
 
 
+def within_tolerance(pose: BasePose, goal: BasePose, xy_m: float, yaw_rad: float) -> bool:
+    """Whether a measured pose is within a position and heading tolerance of the goal (same frame only).
+
+    Args:
+        pose (BasePose): Measured pose.
+        goal (BasePose): Goal pose.
+        xy_m (float): Position tolerance (m).
+        yaw_rad (float): Heading tolerance (rad).
+
+    Returns:
+        bool: True when both hold; False for poses in different frames.
+    """
+    if pose.frame != goal.frame:
+        return False
+    yaw_error = math.atan2(math.sin(pose.yaw - goal.yaw), math.cos(pose.yaw - goal.yaw))
+    return math.hypot(pose.x - goal.x, pose.y - goal.y) <= xy_m and abs(yaw_error) <= yaw_rad
+
+
 def run_nav(
     port: NavPort,
     goal: BasePose,
@@ -206,8 +224,14 @@ def run_nav(
     now: Callable[[], float],
     sleep: Callable[[float], None],
     poll_s: float,
+    early_xy_m: float | None = None,
+    early_yaw_rad: float | None = None,
 ) -> NavigationResult:
     """Run one navigation goal to its end: result, stop request, timeout or a critical event (cancel + zero twist).
+
+    With both early tolerances set the goal also ends as soon as the measured pose (same frame as the goal) is within
+    early_xy_m and early_yaw_rad of it: the goal is cancelled, the base zeroed and the result is 'succeeded'. Nav2's
+    own goal checker is much tighter (1 cm / 2 deg) and its final approach is the slow part of a move.
 
     Args:
         port (NavPort): Nav2 goal access.
@@ -218,6 +242,8 @@ def run_nav(
         now (Callable[[], float]): Monotonic clock (s).
         sleep (Callable[[float], None]): Sleeps.
         poll_s (float): Poll period.
+        early_xy_m (float | None): Position tolerance (m) that ends the goal early; None waits for Nav2's result.
+        early_yaw_rad (float | None): Heading tolerance (rad) that ends the goal early; None waits for Nav2's result.
 
     Returns:
         NavigationResult: Outcome with expected (goal), achieved (final pose) and duration.
@@ -251,6 +277,16 @@ def run_nav(
             return nav_result(
                 "canceled" if stopped else "timeout", f"{reason}; goal cancelled", goal, port.pose(), now() - started
             )
+        if early_xy_m is not None and early_yaw_rad is not None:
+            pose = port.pose()
+            if pose is not None and within_tolerance(pose, goal, early_xy_m, early_yaw_rad):
+                port.cancel()
+                port.zero_velocity()
+                message = (
+                    f"within the intermediate tolerance ({early_xy_m * 100:g} cm, {math.degrees(early_yaw_rad):g} deg); "
+                    "goal ended early. Pass precise=true for the tight Nav2 tolerance"
+                )
+                return nav_result("succeeded", message, goal, port.pose() or pose, now() - started)
         sleep(poll_s)
     status, error = port.result()
     return nav_result(status, error, goal, port.pose(), now() - started)
