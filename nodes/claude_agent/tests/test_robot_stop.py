@@ -109,3 +109,16 @@ async def test_timeout_is_bounded(tmp_path: Path) -> None:
     srv.close()
     assert loop.time() - started < 5
     assert result.is_error is True and "timed out" in result.text
+
+
+async def test_unreachable_server_is_flagged_and_named_plainly(tmp_path: Path) -> None:
+    """A refused connection (mcp_server already gone) is reported as unreachable, not as a raw ExceptionGroup."""
+    result = await call_robot_stop("http://127.0.0.1:1/mcp", token_file(tmp_path), timeout_s=5)
+    assert result.is_error is True and result.unreachable is True
+    assert "ExceptionGroup" not in result.text and "unreachable" in result.text
+
+
+async def test_reachable_server_errors_are_not_flagged_unreachable(serve, tmp_path: Path) -> None:
+    url = await serve(make_server([], fail=True))
+    result = await call_robot_stop(url, token_file(tmp_path), timeout_s=10)
+    assert result.is_error is True and result.unreachable is False

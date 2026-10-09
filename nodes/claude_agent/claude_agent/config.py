@@ -120,6 +120,7 @@ class ClaudeAgentConfig(BaseModel):
         instruction_timeout_s: Watchdog per instruction; on expiry the model is interrupted, the robot stopped and the turn ends as "timeout".
         connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
         stop_timeout_s: Bound for the robot ``stop`` call and for the model interrupt, each.
+        shutdown_stop_timeout_s: Shorter bound for the robot ``stop`` call at service shutdown (mcp_server may be gone).
         robot_events_topic: ROS2 topic (std_msgs/String JSON) of the mcp_server event monitor.
         robot_events_history: Number of most recent robot events kept in memory.
         robot_event_debounce_s: A critical event does not interrupt the model again within this many seconds of the last interrupt.
@@ -163,6 +164,7 @@ class ClaudeAgentConfig(BaseModel):
     instruction_timeout_s: float = Field(default=900.0, gt=0)
     connect_timeout_s: float = Field(default=240.0, gt=0)
     stop_timeout_s: float = Field(default=5.0, gt=0)
+    shutdown_stop_timeout_s: float = Field(default=2.0, gt=0)
     robot_events_topic: str = DEFAULT_ROBOT_EVENTS_TOPIC
     robot_events_history: int = Field(default=50, ge=1)
     robot_event_debounce_s: float = Field(default=2.0, ge=0)

@@ -3,6 +3,7 @@
 import asyncio
 from pathlib import Path
 
+import pytest
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -474,6 +475,48 @@ async def test_close_stops_the_robot_when_idle(tmp_path: Path) -> None:
     runner, _, _ = make_runner(tmp_path, stopper=stopper)
     await runner.close()
     assert stopper.calls == 1
+
+
+async def test_close_logs_info_when_mcp_server_is_already_gone(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    stopper = FakeStopper()
+    stopper.result = RobotStopResult(True, "mcp_server unreachable: connection refused", unreachable=True)
+    runner, _, _ = make_runner(tmp_path, stopper=stopper)
+    with caplog.at_level("INFO", logger="claude_agent"):
+        await runner.close()
+    assert stopper.calls == 1
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
+    assert any("already gone" in r.getMessage() and r.levelname == "INFO" for r in caplog.records)
+
+
+async def test_unreachable_outside_shutdown_is_still_an_error(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    stopper = FakeStopper()
+    stopper.result = RobotStopResult(True, "mcp_server unreachable: connection refused", unreachable=True)
+    runner, _, _ = make_runner(tmp_path, stopper=stopper)
+    with caplog.at_level("INFO", logger="claude_agent"):
+        await runner.stop_robot("user_stop")
+    assert any(r.levelname == "ERROR" for r in caplog.records)
+
+
+async def test_close_bounds_a_hanging_stop_with_the_short_shutdown_timeout(tmp_path: Path) -> None:
+    class Hanging(FakeStopper):
+        async def __call__(self) -> RobotStopResult:
+            self.calls += 1
+            await asyncio.sleep(30)
+            return self.result
+
+    token = tmp_path / "token"
+    token.write_text("MCP_SERVER_TOKEN=secret-mcp\n")
+    cfg = ClaudeAgentConfig(mcp_token_file=str(token), shutdown_stop_timeout_s=0.2)
+    stopper = Hanging()
+    runner, events, _ = make_runner(tmp_path, config=cfg, stopper=stopper)
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    await runner.close()
+    assert loop.time() - started < 2.0 and stopper.calls == 1
+    results = [e for e in events.history() if e["type"] == "tool_result"]
+    assert results and results[-1]["is_error"] is True
 
 
 async def test_max_turns_after_effector_calls_stops_the_robot(tmp_path: Path) -> None:

@@ -391,8 +391,17 @@ class AgentRunner:
             input={},
             source=source,
         )
-        result = await self.robot_stopper()
-        if result.is_error:
+        if source == STOP_SOURCE_SHUTDOWN:
+            limit = self.config.shutdown_stop_timeout_s
+            try:
+                result = await asyncio.wait_for(self.robot_stopper(), limit)
+            except TimeoutError:
+                result = RobotStopResult(True, f"stop call timed out after {limit:g} s at shutdown")
+        else:
+            result = await self.robot_stopper()
+        if result.is_error and result.unreachable and source == STOP_SOURCE_SHUTDOWN:
+            self.logger.info(f"robot stop at shutdown skipped: mcp_server already gone ({result.text})")
+        elif result.is_error:
             self.logger.error(f"robot stop ({source}) failed: {result.text}")
         self.events.append(
             "tool_result",
