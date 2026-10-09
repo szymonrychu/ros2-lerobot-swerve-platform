@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 import uuid
 from pathlib import Path
@@ -23,12 +24,14 @@ from .agent_proxy import register_agent_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
 from .config import AppConfig, TabConfig
 from .tiles import (
+    API_KEY_PLACEHOLDER,
     BYTES_PER_MB,
     HTTP_OK,
     TILE_BROWSER_MAX_AGE_S,
     TILE_MEDIA_TYPE,
     TileCache,
     TileProxy,
+    tile_cache_fingerprint,
     validate_tile,
 )
 from .urdf_scanner import scan_urdf_directory
@@ -229,21 +232,69 @@ def _make_start_broadcaster(
     return start_broadcaster
 
 
+def find_tile_tab(config: AppConfig) -> TabConfig | None:
+    """Return the first map_nav tab that configures tiles.
+
+    Args:
+        config (AppConfig): Validated configuration.
+
+    Returns:
+        TabConfig | None: The tab, or None when no map_nav tab has a tile_url and tile_cache_dir.
+    """
+    return next((t for t in config.map_nav_tabs() if t.tile_url and t.tile_cache_dir), None)
+
+
+def read_tile_api_key(tab: TabConfig) -> str | None:
+    """Read the tile API key from the environment variable named by the tab's tile_api_key_env.
+
+    Args:
+        tab (TabConfig): The map_nav tab.
+
+    Returns:
+        str | None: The key, or None when unset or empty.
+    """
+    return (os.environ.get(tab.tile_api_key_env or "") if tab.tile_api_key_env else None) or None
+
+
+def tile_key_missing(config: AppConfig) -> bool:
+    """Check whether the tile template needs an API key that the environment does not provide.
+
+    Args:
+        config (AppConfig): Validated configuration.
+
+    Returns:
+        bool: True when tile_url contains {api_key} and the key env var is unset or empty.
+    """
+    tab = find_tile_tab(config)
+    return tab is not None and API_KEY_PLACEHOLDER in (tab.tile_url or "") and read_tile_api_key(tab) is None
+
+
 def make_tile_proxy(config: AppConfig, transport: httpx.AsyncBaseTransport | None = None) -> TileProxy | None:
     """Build the tile proxy from the first map_nav tab with a tile_url.
+
+    The cache lives in a subdirectory named by tile_cache_fingerprint, so changing the template or key never
+    serves tiles cached under the previous setup. A template with {api_key} but no key in the environment logs
+    one warning and yields no proxy (the tiles endpoint then answers 503) rather than fetching keyless placeholders.
 
     Args:
         config (AppConfig): Validated configuration.
         transport (httpx.AsyncBaseTransport | None): Custom httpx transport (tests), None for the network.
 
     Returns:
-        TileProxy | None: The proxy, or None when no map_nav tab configures tiles.
+        TileProxy | None: The proxy, or None when no tiles are configured or the required key is missing.
     """
-    tab = next((t for t in config.map_nav_tabs() if t.tile_url and t.tile_cache_dir), None)
+    tab = find_tile_tab(config)
     if tab is None or tab.tile_url is None or tab.tile_cache_dir is None:
         return None
-    cache = TileCache(Path(tab.tile_cache_dir), tab.tile_cache_max_mb * BYTES_PER_MB)
-    return TileProxy(tab.tile_url, tab.tile_subdomains or "", cache, transport=transport)
+    api_key = read_tile_api_key(tab)
+    if API_KEY_PLACEHOLDER in tab.tile_url and api_key is None:
+        log.warning(
+            "tile_api_key_missing", env_var=tab.tile_api_key_env, detail="tile proxy disabled, tiles answer 503"
+        )
+        return None
+    root = Path(tab.tile_cache_dir) / tile_cache_fingerprint(tab.tile_url, api_key)
+    cache = TileCache(root, tab.tile_cache_max_mb * BYTES_PER_MB)
+    return TileProxy(tab.tile_url, tab.tile_subdomains or "", cache, transport=transport, api_key=api_key or "")
 
 
 def build_app(
@@ -321,6 +372,8 @@ def build_app(
     @app.get("/api/tiles/{z}/{x}/{y}.png")
     async def get_tile(z: int, x: int, y: int) -> Response:
         if tile_proxy is None:
+            if tile_key_missing(config):
+                return JSONResponse({"error": "map tile API key not configured"}, status_code=503)
             return JSONResponse({"error": "no map tiles configured"}, status_code=404)
         if not validate_tile(z, x, y):
             return JSONResponse({"error": f"tile {z}/{x}/{y} out of range"}, status_code=400)

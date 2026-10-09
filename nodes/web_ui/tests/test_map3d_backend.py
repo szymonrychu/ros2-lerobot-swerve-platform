@@ -18,12 +18,14 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from web_ui.config import AppConfig, TabConfig, load_config
+from web_ui.tiles import tile_cache_fingerprint
 
 DEFAULT_YAML = Path(__file__).resolve().parents[1] / "config" / "default.yaml"
 REMOVED_TAB_TYPES = ("effector_graph", "nav_local", "nav_gps", "scene3d", "robot_status")
 ANCHOR_LAT = 52.2297
 ANCHOR_LON = 21.0122
 PNG_BYTES = b"\x89PNG\r\n\x1a\nfake-tile"
+FINGERPRINT = tile_cache_fingerprint("https://{s}.tiles.test/{z}/{x}/{y}.png", None)
 
 
 # ---------------------------------------------------------------------------
@@ -928,7 +930,7 @@ def test_tile_cache_miss_fetches_then_hit_serves_from_disk(tmp_path: Path, urdf_
     assert "max-age" in resp.headers["cache-control"]
     assert str(upstream.requests[0].url) == "https://b.tiles.test/3/5/2.png"
     assert "web_ui" in upstream.requests[0].headers["user-agent"]
-    assert (tmp_path / "tilecache" / "3" / "5" / "2.png").read_bytes() == PNG_BYTES
+    assert (tmp_path / "tilecache" / FINGERPRINT / "3" / "5" / "2.png").read_bytes() == PNG_BYTES
     resp = client.get("/api/tiles/3/5/2.png")
     assert resp.status_code == 200
     assert len(upstream.requests) == 1
@@ -953,7 +955,7 @@ def test_tile_non_integer_rejected(tmp_path: Path, urdf_dir: Path) -> None:
 def test_tile_upstream_failure(tmp_path: Path, urdf_dir: Path, mode: str, status: int) -> None:
     resp = tile_client(tmp_path, urdf_dir, Upstream(mode)).get("/api/tiles/2/1/1.png")
     assert resp.status_code == status
-    assert not (tmp_path / "tilecache" / "2" / "1" / "1.png").exists()
+    assert not list((tmp_path / "tilecache").rglob("*.png"))
 
 
 def test_tile_served_from_cache_when_offline(tmp_path: Path, urdf_dir: Path) -> None:

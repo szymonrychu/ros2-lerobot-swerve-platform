@@ -12,3 +12,23 @@
     - /var/cache/web_ui
     - /var/cache/web_ui/tiles
   tags: [setup]
+
+# Tiles are cached in a per-setup fingerprint subdirectory now. The old layout (z directories directly under the cache
+# root) holds keyless "API KEY REQUIRED" placeholder tiles and is never read again: delete it. Idempotent.
+- name: Find the stale pre-fingerprint tile directories
+  ansible.builtin.find:
+    paths: /var/cache/web_ui/tiles
+    patterns: '^[0-9]+$'
+    use_regex: true
+    file_type: directory
+  register: web_ui_stale_tile_dirs
+  tags: [setup]
+
+- name: Remove the stale pre-fingerprint tile directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ web_ui_stale_tile_dirs.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  tags: [setup]

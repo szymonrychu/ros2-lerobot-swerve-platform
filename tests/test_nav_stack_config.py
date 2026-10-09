@@ -692,7 +692,21 @@ def test_web_ui_has_map_nav_tab() -> None:
         "gps_anchor_imu_topic": "/imu/data",
         "gps_anchor_imu_calibration_topic": "/imu/calibration",
         "magnetic_declination_deg": 6.6,
+        # CARTO basemaps need an API key, filled into {api_key} from the env file written by web_ui_tile_key.yml.
+        "tile_url": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api_key}",
+        "tile_subdomains": "abcd",
+        "tile_api_key_env": "WEB_UI_TILE_API_KEY",
     }
+
+
+def test_web_ui_loads_the_tile_api_key_env_file_and_never_stores_the_key() -> None:
+    """The unit reads WEB_UI_TILE_API_KEY from /etc/ros2/web_ui/env (EnvironmentFile=), written from CARTO_API_KEY."""
+    defaults = client_vars()["ros2_node_type_defaults"]["web_ui"]
+    assert defaults["environment_file"] == "/etc/ros2/web_ui/env"
+    task = (ANSIBLE_DIR / "playbooks" / "tasks" / "web_ui_tile_key.yml").read_text()
+    assert "lookup('env', 'CARTO_API_KEY')" in task and "WEB_UI_TILE_API_KEY=" in task
+    assert 'mode: "0600"' in task and "no_log: true" in task and "line: web_ui" in task
+    assert "tasks/web_ui_tile_key.yml" in (ANSIBLE_DIR / "playbooks" / "deploy_nodes_client.yml").read_text()
 
 
 def test_web_ui_installs_slam_toolbox_for_its_service_imports() -> None:

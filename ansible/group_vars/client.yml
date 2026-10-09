@@ -348,6 +348,8 @@ ros2_node_type_defaults:
       - ros-jazzy-slam-toolbox
     env:
       - WEB_UI_CONFIG=/etc/ros2/web_ui/config.yaml
+    # WEB_UI_TILE_API_KEY=<CARTO key>, written by playbooks/tasks/web_ui_tile_key.yml from the deployer's CARTO_API_KEY.
+    environment_file: /etc/ros2/web_ui/env
   mcp_server:
     # Robot MCP server (Streamable HTTP, bearer token): see nodes/mcp_server/README.md.
     deploy_mode: native
@@ -918,6 +920,11 @@ ros2_nodes:
           magnetic_declination_deg: 6.6
           # Proxied map tiles are cached in /var/cache/web_ui/tiles (default tile_cache_dir, created by
           # playbooks/tasks/web_ui_tile_cache_dir.yml).
+          # CARTO basemaps need an API key: {api_key} is filled from the env var below (/etc/ros2/web_ui/env, written by
+          # playbooks/tasks/web_ui_tile_key.yml from the deployer's CARTO_API_KEY).
+          tile_url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api_key}"
+          tile_subdomains: abcd
+          tile_api_key_env: WEB_UI_TILE_API_KEY
         # Chat with the claude_agent node (127.0.0.1:18300, its http_port); the backend proxies /api/agent and /ws/agent.
         - id: agent
           type: agent_chat

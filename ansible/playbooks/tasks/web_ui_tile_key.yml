@@ -1,0 +1,75 @@
+---
+# web_ui map tile API key, run before its deploy. CARTO basemaps need a key (https://carto.com/basemaps/apikey). It is
+# read on the CONTROLLER from CARTO_API_KEY and written to /etc/ros2/web_ui/env (0600, owned by the node user) as
+# WEB_UI_TILE_API_KEY=<key>, which the web_ui unit loads through EnvironmentFile= and the map tab's tile_api_key_env names.
+# It never enters git, logs or the unit: every task that touches it has no_log. With the variable unset an existing file
+# is kept; with no file either the deploy fails here.
+- name: Remember whether the controller has CARTO_API_KEY set
+  ansible.builtin.set_fact:
+    web_ui_tile_key_given: "{{ (lookup('env', 'CARTO_API_KEY') | length) > 0 }}"
+  no_log: true
+  tags: [setup]
+
+- name: Look for an existing web_ui env file
+  ansible.builtin.stat:
+    path: /etc/ros2/web_ui/env
+  register: web_ui_env_file
+  tags: [setup]
+
+- name: Fail without a tile API key to deploy or keep
+  ansible.builtin.fail:
+    msg: >-
+      CARTO_API_KEY is not set and /etc/ros2/web_ui/env does not exist on the robot. Get a key at
+      https://carto.com/basemaps/apikey, then `export CARTO_API_KEY=<key>` and re-run
+      `./scripts/deploy-nodes.sh client web_ui`.
+  when:
+    - not web_ui_tile_key_given | bool
+    - not web_ui_env_file.stat.exists
+  tags: [setup]
+
+- name: Ensure web_ui config directory exists
+  ansible.builtin.file:
+    path: /etc/ros2/web_ui
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [setup]
+
+- name: Name the node whose restart the key change triggers
+  ansible.builtin.set_fact:
+    ros2_node_restart_now: web_ui
+    ros2_node_restart_enabled: true
+  tags: [setup]
+
+- name: Write the web_ui tile API key env file
+  ansible.builtin.copy:
+    dest: /etc/ros2/web_ui/env
+    content: "WEB_UI_TILE_API_KEY={{ lookup('env', 'CARTO_API_KEY') }}\n"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0600"
+  when: web_ui_tile_key_given | bool
+  register: web_ui_tile_key_written
+  no_log: true
+  tags: [setup]
+
+# Role handlers are not visible from playbook-level tasks, so a changed key queues the restart directly;
+# start_ros_nodes.yml restarts the queued nodes at the end.
+- name: Queue a web_ui restart when the tile API key changed
+  ansible.builtin.lineinfile:
+    path: "{{ ros2_restart_queue }}"
+    line: web_ui
+    create: true
+    mode: "0644"
+  when: web_ui_tile_key_written is changed
+  tags: [setup]
+
+- name: Keep the existing web_ui env file private to the node user
+  ansible.builtin.file:
+    path: /etc/ros2/web_ui/env
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0600"
+  when: web_ui_env_file.stat.exists
+  tags: [setup]

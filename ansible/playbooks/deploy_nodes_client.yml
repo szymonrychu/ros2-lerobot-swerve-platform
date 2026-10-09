@@ -109,6 +109,12 @@
             apply:
               tags: [web_ui]
           tags: [web_ui, setup]
+        - name: Web UI map tile API key
+          ansible.builtin.include_tasks:
+            file: tasks/web_ui_tile_key.yml
+            apply:
+              tags: [web_ui]
+          tags: [web_ui, setup]
         - name: Deploy web_ui
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml

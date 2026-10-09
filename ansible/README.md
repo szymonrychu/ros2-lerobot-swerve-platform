@@ -377,6 +377,22 @@ slam_toolbox saves and reloads its posegraph there (`slam_map.posegraph` / `slam
 `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui/tiles` (and its parent, owner `ansible_user`,
 mode `0755`) before `web_ui` is deployed, in `deploy_nodes_client.yml` (tags `setup`, `web_ui`). The
 map tab's `/api/tiles` proxy caches map tiles there (`tile_cache_dir` default) and serves them when offline.
+It also deletes the stale numeric `z` directories directly under `/var/cache/web_ui/tiles` (the pre-key cache layout,
+full of "API KEY REQUIRED" placeholder tiles; tiles now live in a fingerprint subdirectory) and is idempotent.
+
+### web_ui map tile API key
+
+`playbooks/tasks/web_ui_tile_key.yml` runs before `web_ui` is deployed (tags `setup`, `web_ui`). CARTO basemaps need an
+API key (https://carto.com/basemaps/apikey). It is read on the controller with `lookup('env', 'CARTO_API_KEY')` and
+written to `/etc/ros2/web_ui/env` as `WEB_UI_TILE_API_KEY=<key>` (mode `0600`, owner `ansible_user`, `no_log: true`);
+the web_ui unit reads it through `EnvironmentFile=` and the map tab's `tile_api_key_env` names the variable. With
+`CARTO_API_KEY` unset an existing file is kept; with neither the deploy fails with a hint. A changed file queues a
+web_ui restart. Deploy with:
+
+```bash
+export CARTO_API_KEY=...   # from https://carto.com/basemaps/apikey
+./scripts/deploy-nodes.sh client web_ui
+```
 
 ### MCP server token and arm home directory
 

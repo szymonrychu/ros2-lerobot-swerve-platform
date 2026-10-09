@@ -153,6 +153,7 @@ class TabConfig(BaseModel):
     fix_topic: str | None = None
     tile_url: str | None = None  # map_nav: XYZ tile template fetched by the /api/tiles proxy ({s} {z} {x} {y} {r})
     tile_subdomains: str | None = None  # map_nav: characters rotated into {s} of tile_url
+    tile_api_key_env: str | None = None  # map_nav: name of the env var holding the value for {api_key} in tile_url
     tile_cache_dir: str | None = None  # map_nav: disk cache directory of proxied tiles
     tile_cache_max_mb: int = DEFAULT_TILE_CACHE_MAX_MB  # map_nav: tile cache size cap; oldest tiles evicted first
     default_zoom: int = 18
