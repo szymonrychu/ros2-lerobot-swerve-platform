@@ -382,3 +382,21 @@ def test_solve_count_counts_only_ikpy_runs() -> None:
     assert n > 0
     kin.inverse(0.25, 0.0, -0.05, math.pi / 2, seed)  # served from the cache
     assert kin.solve_count == n
+
+
+def test_pitched_ik_converges_the_arm_plane_heading_in_a_few_solves(kin_tcp: ArmKinematics) -> None:
+    kin_tcp.solutions.clear()
+    before = kin_tcp.solve_count
+    seed = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
+    sol = kin_tcp.inverse(0.30, 0.0, -0.10, math.radians(45.0), seed)
+    reached = kin_tcp.forward(sol)
+    assert math.dist((reached.x, reached.y, reached.z), (0.30, 0.0, -0.10)) < 0.002
+    assert abs(reached.pitch - math.radians(45.0)) < math.radians(3.0)
+    assert kin_tcp.solve_count - before <= 12  # the fixed-point heading iteration alone needed 16 or more
+
+
+def test_a_heading_bias_start_does_not_change_the_solution_beyond_tolerance(kin_tcp: ArmKinematics) -> None:
+    seed = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
+    cold = kin_tcp.inverse(0.30, 0.02, -0.10, math.radians(45.0), seed)
+    warm = kin_tcp.inverse(0.30, 0.02, -0.10, math.radians(45.0), seed, heading_bias=kin_tcp.last_heading_bias)
+    assert max(abs(cold[j] - warm[j]) for j in cold) < 2e-3

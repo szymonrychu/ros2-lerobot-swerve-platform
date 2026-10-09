@@ -156,6 +156,9 @@ class ArmKinematics:
             sum(np.linalg.norm(getattr(link, "origin_translation", (0.0, 0.0, 0.0))) for link in chain.links)
         )
         self.solve_count = 0  # ikpy runs so far (cache hits excluded), for the planner's effort budgets
+        self.last_heading_bias = (
+            0.0  # approach heading - target bearing of the last pitched solve (a start for the next)
+        )
         self.solutions: OrderedDict[bytes, dict[str, float]] = OrderedDict()
         pan_origin = self.chain.forward_kinematics(np.zeros(len(self.chain.links)), full_kinematics=True)[
             self.index["shoulder_pan"]
@@ -312,6 +315,7 @@ class ArmKinematics:
         pitch: float | None,
         seed: dict[str, float],
         extra_offset: tuple[float, float, float] | None = None,
+        heading_bias: float = 0.0,
     ) -> dict[str, float]:
         """Joint configuration placing the tool point at (x, y, z), optionally with the given approach pitch.
 
@@ -327,6 +331,8 @@ class ArmKinematics:
             seed (dict[str, float]): Starting configuration in measured space; wrist_roll is kept.
             extra_offset (tuple[float, float, float] | None): Extra tool offset (m, gripper_frame_link axes) added to
                 the configured one for this solve only; the shared tool offset is not modified.
+            heading_bias (float): Starting guess for (approach heading - target bearing), typically
+                last_heading_bias of the previous sample of a straight line; 0 starts from the bearing.
 
         Returns:
             dict[str, float]: Chain joint name -> measured rad.
@@ -340,17 +346,17 @@ class ArmKinematics:
                 f"unreachable: target ({x:.3f}, {y:.3f}, {z:.3f}) is beyond the arm's reach of {self.max_reach_m + tool_reach:.3f} m"
             )
         if not (self.tool_offset.any() or (extra_offset is not None and any(extra_offset))):
-            return self.inverse_flange(x, y, z, pitch, seed)
+            return self.inverse_flange(x, y, z, pitch, seed, heading_bias)
         target = np.array([x, y, z])
         flange = target.copy()
-        sol = self.inverse_flange(*flange, pitch, seed)
+        sol = self.inverse_flange(*flange, pitch, seed, heading_bias)
         for _ in range(TOOL_ITERATIONS):
             reached = self.forward(sol, extra_offset)
             residual = target - np.array([reached.x, reached.y, reached.z])
             if float(np.linalg.norm(residual)) < TOOL_CONVERGENCE_M:
                 break
             flange = flange + residual
-            sol = self.inverse_flange(*flange, pitch, sol)
+            sol = self.inverse_flange(*flange, pitch, sol, self.last_heading_bias)
         reached = self.forward(sol, extra_offset)
         if math.dist((reached.x, reached.y, reached.z), (x, y, z)) > POSITION_TOLERANCE_M:
             raise UnreachableError(
@@ -359,7 +365,7 @@ class ArmKinematics:
         return sol
 
     def inverse_flange(
-        self, x: float, y: float, z: float, pitch: float | None, seed: dict[str, float]
+        self, x: float, y: float, z: float, pitch: float | None, seed: dict[str, float], heading_bias: float = 0.0
     ) -> dict[str, float]:
         """Joint configuration placing gripper_frame_link at (x, y, z), optionally with the given approach pitch.
 
@@ -373,6 +379,7 @@ class ArmKinematics:
             pitch (float | None): Approach pitch (rad, positive down), or None for position only.
             seed (dict[str, float]): Starting configuration in measured space (typically the measured pose);
                 wrist_roll is kept.
+            heading_bias (float): Starting guess for (approach heading - target bearing); only used with a pitch.
 
         Returns:
             dict[str, float]: Chain joint name -> measured rad (command space: urdf angle - offset).
@@ -389,27 +396,41 @@ class ArmKinematics:
             self.limits["wrist_roll"][1] - self.margin,
         )
         target = np.array([x, y, z])
-        heading = math.atan2(y - self.pan_axis_xy[1], x - self.pan_axis_xy[0])
+        bearing = math.atan2(y - self.pan_axis_xy[1], x - self.pan_axis_xy[0])
+        heading = bearing + heading_bias
         seeds = [dict(seed)]
         for lift, elbow, wrist in EXTRA_SEEDS:
             seeds.append({"shoulder_pan": -heading, "shoulder_lift": lift, "elbow_flex": elbow, "wrist_flex": wrist})
         best_error = math.inf
         for candidate in seeds:
             sol = self.clamp_seed(candidate | {"wrist_roll": roll})
-            # The arm plane heading depends on the solution (link offsets, wrist_roll), so refine it from each solve.
+            # The arm plane heading depends on the solution (link offsets, wrist_roll), so find the heading whose
+            # solve reaches that same heading. The plain fixed-point iteration converges at about 0.9 per step, so
+            # after two steps the heading is extrapolated with a secant step on (reached - requested).
+            previous: tuple[float, float] | None = None
             for _ in range(HEADING_REFINEMENTS if pitch is not None else 1):
                 orientation = None if pitch is None else self.approach_vector(heading, pitch)
                 sol = self.solve(target, orientation, sol, roll)
                 frame = self.chain.forward_kinematics(self.urdf_vector(sol))
                 approach = frame[:3, 2]
-                if math.hypot(float(approach[0]), float(approach[1])) > 1e-6:
-                    heading = math.atan2(float(approach[1]), float(approach[0]))
                 error = math.dist(tuple(frame[:3, 3]), (x, y, z))
                 reached = self.forward_urdf(sol)
                 best_error = min(best_error, error)
                 pitch_ok = pitch is None or abs(reached.pitch - pitch) <= PITCH_TOLERANCE_RAD
                 if error <= POSITION_TOLERANCE_M and pitch_ok and self.within_limits(sol):
+                    if pitch is not None:
+                        self.last_heading_bias = math.remainder(heading - bearing, math.tau)
                     return self.to_measured(sol)
+                if math.hypot(float(approach[0]), float(approach[1])) > 1e-6:
+                    reached_heading = math.atan2(float(approach[1]), float(approach[0]))
+                    gap = math.remainder(reached_heading - heading, math.tau)
+                    if previous is not None and abs(gap - previous[1]) > 1e-12:
+                        slope = (gap - previous[1]) / math.remainder(heading - previous[0], math.tau)
+                        next_heading = heading - gap / slope if abs(slope) > 1e-9 else reached_heading
+                    else:
+                        next_heading = reached_heading
+                    previous = (heading, gap)
+                    heading = next_heading
         raise UnreachableError(
             f"target ({x:.3f}, {y:.3f}, {z:.3f})"
             + ("" if pitch is None else f" pitch {pitch:.2f} rad")

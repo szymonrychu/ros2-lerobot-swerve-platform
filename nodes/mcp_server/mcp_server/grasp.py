@@ -654,6 +654,7 @@ class GraspPlanner:
         """
         if budget is None:
             budget = IkBudget(self.kin, MAX_IK_SOLVES_PER_CANDIDATE)
+        self.kin.last_heading_bias = 0.0  # each candidate starts cold so a plan never depends on the one planned before
         base = GraspPlan(
             strategy=strategy,
             feasible=False,
@@ -811,7 +812,7 @@ class GraspPlanner:
         if budget is not None and budget.spent():
             return [], f"{label}: IK budget of {budget.limit} solves spent (planning effort cap)"
         try:
-            sol = self.kin.inverse(*point, pitch, seed, extra)
+            sol = self.kin.inverse(*point, pitch, seed, extra, self.kin.last_heading_bias)
         except UnreachableError as exc:
             return [], f"{label} unreachable: {exc}"
         problem = self.pose_problem(label, sol, params)

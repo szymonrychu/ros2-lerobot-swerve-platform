@@ -225,12 +225,15 @@ Two environments: the planner runs in the mcp_server uv env (ikpy, the node's ow
 
 ```bash
 cd nodes/mcp_server
-uv run python ../../sim/grasp_sim/scripts/plan_matrix.py --out /tmp/matrix            # about 5 min, 240 plans
+uv run python ../../sim/grasp_sim/scripts/plan_matrix.py --out /tmp/matrix            # about 40 s, 240 plans
 uv run python ../../sim/grasp_sim/scripts/plan_matrix.py --out /tmp/m2 --params p.yaml --only 4x4x4_   # tuning
 cd ../../sim/grasp_sim
 uv run grasp-sim matrix /tmp/matrix               # about 10 s; table + /tmp/matrix/results.json
 uv run grasp-sim matrix /tmp/matrix --stock-jaws  # same plans, uncalibrated jaws
 ```
+
+Run `plan_matrix.py` only from the `nodes/mcp_server` env as above: it imports `mcp_server`, so started from
+`sim/grasp_sim` it fails with `ModuleNotFoundError: No module named 'mcp_server'`. The replay needs only the sim env.
 
 `plan_matrix.py` reads the `mcp_server` block of `ansible/group_vars/client.yml` (tool offset, joint offsets, limit
 overrides, floor guard, grasp defaults; `--params` overrides grasp values) and plans from the executor's default
@@ -253,6 +256,10 @@ Results 2026-10-09 (lifted / feasible of 16 scenarios per cell):
 | scoop (flat) | 0/0 | 0/0 | 0/0 | 0/0 (no gap) | 0/0 (no gap) | 0/0 (no gap) |
 | scoop_gap | 1/1 | 0/0 | 0/0 | 3/3 | 3/3 | 3/3 |
 | auto | 12/12 | 12/12 | 11/11 | 11/11 | 12/12 | 11/11 |
+
+Re-run 2026-10-10 after the faster angled planning (secant heading convergence in `ArmKinematics.inverse_flange`,
+joints within 2e-3 rad of the table above): the matrix plans 240 scenarios in about 40 s instead of 5 min, 80 feasible,
+and replays identically: top_down 19/19, angled45 18/18, scoop_gap 9/9, auto 34/34 lifted, scoop (flat) 0 feasible.
 
 Before = the planner and client.yml before this tuning (auto order scoop first, scoop_max_pitch_deg 25), replayed in the
 calibrated sim; with the stock jaws the same plans lifted 0 of 74. Target set (4x4x4 and 6x6x3 on floor and both

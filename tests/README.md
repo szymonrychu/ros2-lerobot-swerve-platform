@@ -497,6 +497,16 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `min_object_width_m` rejected, unreachable and too-wide reasons, roll only at the lifted half-open
   pre-grasp (`roll_guard_violations`), straight-line IK samples (spacing, line, joint jumps), joint-jump and shoulder
   stall reasons, slow-zone annotations, base_link objects and a missing mount, params overrides, JSON summary
+- IK heading convergence (`test_ik.py`): a pitched IK with the tool offset converges the arm plane heading in at most
+  12 ikpy runs (secant step; the fixed-point iteration needed 16 or more) and a `heading_bias` start lands within
+  2e-3 rad of the cold solution
+- grasp planner speed and stability (`test_grasp_speed.py`, deployed client.yml config, via `plan_matrix.py`): the 13
+  feasible sim-matrix scenarios in `tests/data/grasp_golden.json` (top_down, angled, scoop, auto; waypoint joints and
+  straight-line samples) match the current golden plans within 1e-6 rad and the `baseline` plans (before the faster
+  heading convergence) within 2e-3 rad, with the same feasibility and strategy; timing tests (skipped with
+  `GRASP_SPEED_SKIP=1`): feasible angled and auto golden scenarios and auto on the reference cube under 1 s, scoop 3 s,
+  infeasible angled/auto fail fast with reasons, unreachable object rejected in 0.2 s without an IK search, re-planning
+  served from the IK cache; the per-candidate and per-strategy IK budgets stop the search with an "IK budget" reason
 - grasp execution (`test_grasp_tools.py`): tool names and battery classification, grasp with a simulated object
   (close on load, lift, retreat, never a full squeeze), miss (open and retreat), stop between steps and lost lease
   abort, infeasible plans do not move, half-open before the roll at the lifted pre-grasp, release (open fraction and

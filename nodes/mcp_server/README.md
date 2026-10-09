@@ -429,23 +429,25 @@ heading has to be iterated) of them, so the planner avoids them where the result
   with an "IK budget" reason instead of searching until the caller times out. The largest feasible plan in the matrix
   (angled 45 deg, 4 cm cube on a 0 m ledge at x 0.25) uses about 2700 runs.
 
-Feasible plans are unchanged: `tests/test_grasp_speed.py` compares 13 of them (top_down, angled, scoop, auto) with golden
-joints within 1e-6 rad, and the 240-scenario matrix gives the same feasibility and joints as before. The speed tests (auto
-under 1 s on the reference 4 cm cube at x 0.25 on the floor, scoop 3 s, unreachable 0.2 s) are skipped with
-`GRASP_SPEED_SKIP=1`. Measured on a MacBook M4 with the deployed config, before -> after (4 cm cube on the floor at
-x 0.25 unless noted): top_down 0.22 -> 0.17 s, angled pitch 45 (infeasible) 3.8-8.3 -> 0.12-0.3 s, scoop on the floor
-(no gap, ineligible) 0.00 -> 0.00 s, scoop raised 2 cm at x 0.30 (eligible, feasible) 0.63 -> 0.58 s, scoop raised 2 cm
-at x 0.25 (eligible, every pitch unreachable) 0.57 -> 0.53 s, auto 0.15 -> 0.16 s (first strategy feasible), object
-beyond reach 0.14 -> 0.00 s (timings vary +-30% with machine load).
+Feasible plans keep their feasibility and strategy: `tests/test_grasp_speed.py` compares 13 of them (top_down, angled,
+scoop, auto) with golden joints within 1e-6 rad (`tests/data/grasp_golden.json`, regenerated after the faster angled
+solve) and each case keeps its `baseline` (the plan before that change), which the current plan must match within 2e-3
+rad (0.1 deg, far below the arm's backlash). The speed tests (feasible angled and auto golden scenarios and auto on the
+reference 4 cm cube under 1 s, scoop 3 s, unreachable 0.2 s) are skipped with `GRASP_SPEED_SKIP=1`.
 
-Remaining cost, measured and not reducible without changing joints: a feasible angled plan needs 1500 to 2700 ikpy
-runs (5 to 10 s on a Mac, so well over 30 s on the RPi 5 for those scenarios; top_down and scoop plans are under 2 s).
-Profiled, 75% of it is scipy `least_squares` bookkeeping inside ikpy and a quarter is forward kinematics; a plain-float
-forward kinematics (2x faster per call) gave no end-to-end gain and was dropped. Each sample needs 10 to 16 runs because
-the heading refinement of `inverse_flange` converges at about 0.9 per iteration, so the first seeds fail the 2 mm check
-and a later seed wins. The warm-start variant (start each sample from the previous winning seed and heading) was tried:
-it changed joints by up to 1.8e-3 rad and made 6 of the 13 golden plans infeasible, so it is not used. Pre-planning an
-angled grasp, or planning it once and executing from the cache, is the way to stay under the web UI timeout.
+The angled cost was the arm plane heading: the approach vector needs the heading the solution ends up with (link
+offsets, wrist_roll), and the fixed-point iteration converged at about 0.9 per step, so each sample needed 10 to 16
+ikpy runs. `inverse_flange` now extrapolates the heading with a secant step after the first iteration and the planner
+starts each straight-line sample from the previous sample's converged heading (`last_heading_bias`, reset for every
+candidate so a plan never depends on an earlier one): 3 to 4 runs per sample, 150 to 180 runs for a feasible angled
+plan (was 1500 to 2700). The sim matrix replays the new plans with the same results (240 scenarios, 80 feasible,
+auto 34/34, top_down 19/19, angled45 18/18, scoop_gap 9/9 lifted).
+
+Measured on a MacBook M4 with the deployed config, before -> after (4 cm cube on the floor at x 0.25 unless noted; timings
+vary +-30% with machine load): top_down 0.29 -> 0.30 s, angled 45 infeasible 0.28 -> 0.08 s, angled 45 feasible (raised
+2 cm at x 0.30) 4.0 -> 0.33 s, angled 45 feasible on a 0 m ledge at x 0.25 7.2 -> 0.35 s, scoop raised 2 cm at x 0.30
+(feasible) 1.2 -> 0.9 s, auto 0.43 -> 0.34 s, auto falling to angled (x 0.30, ledge -0.08) 4.1 -> 0.5 s, object beyond
+reach 0.00 -> 0.00 s.
 
 ### Executor (`grasp_tools.GraspExecutor`)
 
