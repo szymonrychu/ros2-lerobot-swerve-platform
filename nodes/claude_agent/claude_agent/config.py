@@ -21,10 +21,13 @@ DEFAULT_EFFECTOR_TOOLS = [
     "look_around",
     "grasp_object",
     "release_object",
+    "enqueue_motions",
 ]
-DEFAULT_UNCAPPED_TOOLS = ["stop", "acquire_control", "release_control"]
+DEFAULT_UNCAPPED_TOOLS = ["stop", "acquire_control", "release_control", "cancel_motions"]
 DEFAULT_SENSOR_TOOLS = [
     "plan_grasp",
+    "get_motion_status",
+    "wait_for_event",
     "get_robot_state",
     "get_camera_image",
     "get_map_summary",

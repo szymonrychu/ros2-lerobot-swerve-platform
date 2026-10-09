@@ -530,3 +530,19 @@ def test_claude_agent_config_has_budget_maxima_and_robot_events_topic() -> None:
     assert "effector_call_cap" not in raw and "max_turns" not in raw
     assert raw["robot_events_topic"] == "/robot_events"
     assert "poi_command_topic" not in raw, "the POI clear goes over HTTP to mcp_server, not DDS"
+
+
+def test_motion_queue_tools_classified_in_group_vars_and_defaults() -> None:
+    """enqueue_motions is an effector, cancel_motions uncapped (like stop), status and wait are sensors."""
+    pytest.importorskip("pydantic")
+    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    for effectors, uncapped, sensors in (
+        (raw["effector_tools"], raw["uncapped_tools"], raw["sensor_tools"]),
+        (module.DEFAULT_EFFECTOR_TOOLS, module.DEFAULT_UNCAPPED_TOOLS, module.DEFAULT_SENSOR_TOOLS),
+    ):
+        assert "enqueue_motions" in effectors
+        assert "cancel_motions" in uncapped
+        assert {"get_motion_status", "wait_for_event"} <= set(sensors)

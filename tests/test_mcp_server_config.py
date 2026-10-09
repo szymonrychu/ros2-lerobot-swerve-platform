@@ -182,6 +182,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "topdown",
         "objects",
         "look_around",
+        "motion_queue",
         "poi",
         "cameras",
         "floor_guard",

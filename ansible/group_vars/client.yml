@@ -1107,6 +1107,15 @@ ros2_nodes:
         default_captures: 4
         clearance_margin_m: 0.10
         step_timeout_s: 30
+      # Non-blocking motion queue (enqueue_motions / wait_for_event, nodes/mcp_server/README.md "Motion queue"):
+      # pending-step cap, wait bounds and the precondition thresholds (base_still, gripper_holding).
+      motion_queue:
+        max_steps: 32
+        wait_default_s: 30
+        wait_max_s: 120
+        base_still_linear_mps: 0.02
+        base_still_angular_rps: 0.05
+        holding_min_effort: 100.0
       poi:
         request_timeout_s: 3.0
         near_radius_m: 5.0
@@ -1224,12 +1233,16 @@ ros2_nodes:
         - look_around
         - grasp_object
         - release_object
+        - enqueue_motions
       uncapped_tools:
         - stop
         - acquire_control
         - release_control
+        - cancel_motions
       sensor_tools:
         - plan_grasp
+        - get_motion_status
+        - wait_for_event
         - get_robot_state
         - get_camera_image
         - get_map_summary
