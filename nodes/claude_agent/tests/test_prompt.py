@@ -307,3 +307,34 @@ def test_prompt_asks_for_terse_batched_calls_and_small_images() -> None:
     assert "short tool arguments" in lower
     assert "independent" in lower and "one turn" in lower
     assert "max_px" in lower and "aiming" in lower
+
+
+def test_prompt_teaches_the_motion_queue_pattern() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    for phrase in (
+        "enqueue_motions",
+        "wait_for_event",
+        "cancel_motions",
+        "get_motion_status",
+        "precondition",
+        "at least 2 steps deep",
+        "instead of polling",
+        "replace=true",
+        "blend",
+        "gripper_holding",
+        "on_fail",
+    ):
+        assert phrase in lower, phrase
+    # Verification stays at checkpoints and the safety rules hold for queued motions too.
+    assert "checkpoint" in lower and "queued" in lower
+    assert "roll" in lower and "elbow_flex" in lower and "negative" in lower and "slow zone" in lower
+
+
+def test_prompt_states_the_negative_elbow_rule() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    assert "negative elbow_flex stretches the arm" in lower
+
+
+def test_prompt_mentions_the_fast_look_around() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    assert "return_to_start" in lower
