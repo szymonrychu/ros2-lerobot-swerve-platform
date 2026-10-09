@@ -688,6 +688,10 @@ def test_web_ui_has_map_nav_tab() -> None:
         "poi_list_topic": "/poi/list",
         "poi_command_topic": "/poi/command",
         "poi_result_topic": "/poi/result",
+        # Parked GPS anchor from one fix + the BNO055 NDOF compass heading, gated by its calibration.
+        "gps_anchor_imu_topic": "/imu/data",
+        "gps_anchor_imu_calibration_topic": "/imu/calibration",
+        "magnetic_declination_deg": 6.6,
     }
 
 
