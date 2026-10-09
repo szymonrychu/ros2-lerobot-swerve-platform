@@ -12,7 +12,7 @@ import numpy as np
 from grasp_sim.config import SceneConfig, SimConfig
 from grasp_sim.plan import JOINT_ORDER, JointSample, interpolate_joints, label_at, parse_plan
 from grasp_sim.report import ClearanceStats, ContactEvent, ObjectReport, SegmentReport, SimReport
-from grasp_sim.scene import FLOOR_GEOM, OBJECT_BODY, OBJECT_GEOM, SUPPORT_GEOM, build_model
+from grasp_sim.scene import FLOOR_GEOM, OBJECT_BODY, OBJECT_GEOM, RAIL_GEOMS, SUPPORT_GEOM, build_model
 from grasp_sim.tcp import jaw_shift
 
 JAW_BODIES = ("gripper", "moving_jaw_so101_v1", "camera_mount")
@@ -49,7 +49,7 @@ class Rig:
             body = self.model.body(self.model.geom_bodyid[gid]).name
             if name == FLOOR_GEOM:
                 self.role[gid] = "floor"
-            elif name == SUPPORT_GEOM:
+            elif name == SUPPORT_GEOM or name in RAIL_GEOMS:
                 self.role[gid] = "support"
             elif name == OBJECT_GEOM:
                 self.role[gid] = "object"

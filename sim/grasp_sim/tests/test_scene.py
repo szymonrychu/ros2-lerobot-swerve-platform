@@ -89,3 +89,25 @@ def test_invalid_sizes_are_rejected() -> None:
         BoxObjectConfig(size_m=(0.0, 0.03, 0.04))
     with pytest.raises(ValidationError):
         BoxObjectConfig(mass_kg=-1.0)
+
+
+def test_gap_below_raises_the_object_on_two_rails_with_a_clear_slot() -> None:
+    cfg = SceneConfig(support_z_m=-0.08, object=BoxObjectConfig(size_m=(0.04, 0.04, 0.04), x_m=0.2, gap_below_m=0.02))
+    model = build_model(cfg)
+    names = [model.geom(i).name for i in range(model.ngeom)]
+    assert "support_rail_left" in names and "support_rail_right" in names
+    assert object_start_height(cfg) == pytest.approx(-0.08 + 0.02 + 0.02, abs=1e-3)
+    data = settle(model)
+    assert data.body("object").xpos[2] == pytest.approx(-0.08 + 0.02 + 0.02, abs=2e-3)
+    left, right = model.geom("support_rail_left"), model.geom("support_rail_right")
+    slot = abs(float(data.geom_xpos[left.id][1] - data.geom_xpos[right.id][1])) - 2 * float(left.size[1])
+    assert slot >= 0.04 - 2 * 0.004 - 1e-6
+
+
+def test_rails_are_support_geoms_for_the_report() -> None:
+    from grasp_sim.replay import Rig
+
+    rig = Rig(SceneConfig(object=BoxObjectConfig(gap_below_m=0.015)))
+    roles = {rig.model.geom(g).name: r for g, r in rig.role.items()}
+    assert roles["support_rail_left"] == "support"
+    assert roles["support_rail_right"] == "support"

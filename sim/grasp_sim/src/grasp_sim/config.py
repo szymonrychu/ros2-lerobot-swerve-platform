@@ -45,6 +45,9 @@ class BoxObjectConfig(StrictModel):
     x_m: float = DEFAULT_OBJECT_X_M
     y_m: float = 0.0
     yaw_rad: float = 0.0
+    # Clear height under the object (m): > 0 rests it on two thin rails along its x edges, leaving a slot a scoop's
+    # fixed jaw can slide into; 0 = flat on the support.
+    gap_below_m: float = Field(default=0.0, ge=0.0, le=0.2)
 
 
 class SceneConfig(StrictModel):

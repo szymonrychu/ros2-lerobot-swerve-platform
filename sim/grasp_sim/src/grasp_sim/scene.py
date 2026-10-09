@@ -14,6 +14,8 @@ OBJECT_BODY = "object"
 OBJECT_GEOM = "object_box"
 FLOOR_GEOM = "floor"
 SUPPORT_GEOM = "support"
+RAIL_GEOMS = ("support_rail_left", "support_rail_right")
+RAIL_WIDTH_M = 0.004
 SLAB_THICKNESS_M = 0.3
 FLOOR_BACK_X_M = -0.6
 FLOOR_FRONT_X_M = 1.2
@@ -67,7 +69,33 @@ def object_start_height(scene: SceneConfig) -> float:
         float: Centre z in m.
     """
     assert scene.object is not None
-    return scene.support_top_z + scene.object.size_m[2] / 2 + OBJECT_DROP_GAP_M
+    return scene.support_top_z + scene.object.gap_below_m + scene.object.size_m[2] / 2 + OBJECT_DROP_GAP_M
+
+
+def add_rails(spec: mujoco.MjSpec, scene: SceneConfig, friction: tuple[float, float, float]) -> None:
+    """Two static rails under the object's +-y edges (along its x axis) that hold it gap_below_m above the support.
+
+    Args:
+        spec (mujoco.MjSpec): Model spec to extend.
+        scene (SceneConfig): Scene with an object whose gap_below_m > 0.
+        friction (tuple[float, float, float]): MuJoCo friction triple.
+    """
+    assert scene.object is not None
+    obj = scene.object
+    across = np.array([-np.sin(obj.yaw_rad), np.cos(obj.yaw_rad)])
+    offset = obj.size_m[1] / 2 - RAIL_WIDTH_M / 2
+    quat = [float(np.cos(obj.yaw_rad / 2)), 0.0, 0.0, float(np.sin(obj.yaw_rad / 2))]
+    for name, sign in zip(RAIL_GEOMS, (1.0, -1.0), strict=True):
+        xy = np.array([obj.x_m, obj.y_m]) + sign * offset * across
+        spec.worldbody.add_geom(
+            name=name,
+            type=BOX,
+            size=[obj.size_m[0] / 2, RAIL_WIDTH_M / 2, obj.gap_below_m / 2],
+            pos=[float(xy[0]), float(xy[1]), scene.support_top_z + obj.gap_below_m / 2],
+            quat=quat,
+            friction=list(friction),
+            rgba=list(SUPPORT_RGBA),
+        )
 
 
 def build_model(scene: SceneConfig) -> mujoco.MjModel:
@@ -107,6 +135,8 @@ def build_model(scene: SceneConfig) -> mujoco.MjModel:
             scene.support_friction,
             SUPPORT_RGBA,
         )
+    if scene.object is not None and scene.object.gap_below_m > 0.0:
+        add_rails(spec, scene, scene.support_friction)
     if scene.object is not None:
         obj = scene.object
         body = spec.worldbody.add_body(
