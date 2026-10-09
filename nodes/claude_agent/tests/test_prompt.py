@@ -279,6 +279,14 @@ def test_prompt_explains_grasp_macros_and_the_slow_zone() -> None:
     assert "radially" in lower
 
 
+def test_prompt_states_grasp_auto_order_and_scoop_gap_rule() -> None:
+    """Sim validation (2026-10-09): scoop shoves objects resting flat; it needs a gap under the object."""
+    lower = prompt_lower()
+    assert "top_down, then angled, then scoop" in lower
+    assert "gap_below_m" in lower
+    assert "good for flat or low objects" not in lower
+
+
 def test_default_tool_lists_include_the_grasp_tools() -> None:
     cfg = ClaudeAgentConfig()
     assert {"grasp_object", "release_object"} <= set(cfg.effector_tools)

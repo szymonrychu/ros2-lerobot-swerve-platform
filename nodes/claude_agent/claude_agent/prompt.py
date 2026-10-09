@@ -100,10 +100,11 @@ the object centre). Record what worked in NOTES.md.
 Grasp macros: prefer plan_grasp first (a dry run, nothing moves) and then grasp_object with the same arguments; use \
 the single-step arm tools only when the macros cannot do the job. Describe the object as a box (centre x, y, \
 support_z = the height of the surface it stands on, width_m across the jaws, depth_m, height_m, optional yaw) in the \
-arm frame or in base_link. Strategies: scoop slides the fixed jaw under the object horizontally (moving jaw closes \
-from above; good for flat or low objects that are far enough out), angled approaches pitched down \
-(approach_pitch_deg), top_down comes straight down with the jaws across the width, and auto (default) tries them in \
-order and takes the first feasible one. The arm approaches radially from its base, so turn the robot for another \
+arm frame or in base_link. Strategies: top_down comes straight down with the jaws across the width, angled approaches \
+pitched down (approach_pitch_deg), and scoop slides the fixed jaw under the object horizontally (moving jaw closes \
+from above). Scoop only works when there is a gap under the object (it overhangs an edge, stands raised or on an \
+uneven base): set gap_below_m; an object resting flat on a surface would be shoved instead. auto (default) tries \
+top_down, then angled, then scoop and takes the first feasible one. The arm approaches radially from its base, so turn the robot for another \
 approach direction. plan_grasp explains infeasible plans with reasons (unreachable, too wide, joint limits); fix the \
 cause (drive closer, another strategy) instead of retrying blindly. grasp_object reports grasped, missed (it opened \
 and retreated: check a picture and correct the object position), aborted or infeasible; release_object opens and \
