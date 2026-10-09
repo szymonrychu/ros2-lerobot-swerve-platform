@@ -18,6 +18,7 @@ from mcp_server.floor_guard import (
     arm_to_base_link,
     base_link_to_arm,
     effective_surface_z,
+    monitor_tilt_sample,
     retime,
     step_scales,
     tilt_from_quaternion,
@@ -178,3 +179,11 @@ def test_retime_subdivides_slow_steps_and_ends_at_the_goal() -> None:
     assert [p["a"] for p in out[1:6]] == pytest.approx([0.12, 0.14, 0.16, 0.18, 0.2])
     assert out[-1] == {"a": 0.3}
     assert retime(start, points, [1.0, 1.0, 1.0]) == points
+
+
+def test_monitor_imu_record_becomes_a_tilt_sample() -> None:
+    assert monitor_tilt_sample(None) is None
+    sample = monitor_tilt_sample((12.5, 10.0, -5.0, 11.2))
+    assert sample is not None and sample.stamp == 12.5
+    assert sample.tilt.roll_rad == pytest.approx(math.radians(10.0))
+    assert sample.tilt.pitch_rad == pytest.approx(math.radians(-5.0))

@@ -137,6 +137,20 @@ def tilt_from_quaternion(qx: float, qy: float, qz: float, qw: float) -> Tilt:
     return Tilt(roll_rad=roll, pitch_rad=pitch)
 
 
+def monitor_tilt_sample(imu: tuple[float, float, float, float] | None) -> TiltSample | None:
+    """Tilt sample from the body monitor's latest IMU record (RobotMonitor.imu).
+
+    Args:
+        imu (tuple[float, float, float, float] | None): (monotonic receive time s, roll deg, pitch deg, tilt deg).
+
+    Returns:
+        TiltSample | None: Roll/pitch in rad with the receive time, None without IMU data.
+    """
+    if imu is None:
+        return None
+    return TiltSample(tilt=Tilt(roll_rad=math.radians(imu[1]), pitch_rad=math.radians(imu[2])), stamp=imu[0])
+
+
 def level_plane_z(x: float, y: float, tilt: Tilt) -> float:
     """Height (base_link z) at (x, y) of the gravity-level plane through the base_link origin.
 

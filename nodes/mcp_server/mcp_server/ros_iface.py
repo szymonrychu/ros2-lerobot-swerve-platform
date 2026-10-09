@@ -36,7 +36,9 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from .arm import ArmController, ArmError, JointSample
 from .base_motion import DriveError, DriveOutcome, NavPort, run_drive, run_nav, run_stop
 from .config import McpServerConfig
+from .floor_guard import monitor_tilt_sample
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
+from .grasp_tools import GraspService
 from .ik import ArmKinematics, load_joint_limits
 from .models import (
     BaseMotionBusyError,
@@ -322,8 +324,14 @@ class RosRobot:
             load_joint_limits(urdf),
             config,
             self.monitor,
+            tilt_source=lambda: monitor_tilt_sample(self.monitor.imu),
         )
         self.monitor.lease_held = lambda: self.arm.control_held
+        # Web-UI grasp actions (JSON in on grasp_command, JSON out on grasp_result); 'stop' answers at once, the
+        # other actions run in a worker thread so they never block the executor.
+        self.grasp = GraspService(self.arm, config, battery_guard, self.stop_count)
+        self.grasp_result_pub = self.node.create_publisher(String, t.grasp_result, COMMAND_QOS)
+        self.subscribe(String, t.grasp_command, self.on_grasp_command, COMMAND_QOS)
         self.node.create_timer(MONITOR_TICK_S, self.monitor.tick, callback_group=self.group)
         self.node.create_service(Trigger, t.home_service, self.on_home, callback_group=self.group)
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
@@ -528,6 +536,25 @@ class RosRobot:
             self.orphan_timer.cancel()
 
     # --- ROS services ---------------------------------------------------------------------------------------------
+
+    def on_grasp_command(self, msg: String) -> None:
+        """/grasp/command: answer a JSON grasp request on /grasp/result (worker thread except for 'stop').
+
+        Args:
+            msg (String): JSON request (contract in the README, "Grasp macros").
+        """
+
+        def answer() -> None:
+            self.grasp_result_pub.publish(String(data=self.grasp.handle_json(msg.data)))
+
+        try:
+            is_stop = json.loads(msg.data).get("action") == "stop"
+        except (json.JSONDecodeError, AttributeError):
+            is_stop = True  # invalid requests are answered at once with an error
+        if is_stop:
+            answer()
+        else:
+            threading.Thread(target=answer, name="grasp-command", daemon=True).start()
 
     def on_home(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
         """/arm/home: move to the stored home pose, then release arm control (also after a failed motion).

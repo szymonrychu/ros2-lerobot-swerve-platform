@@ -308,3 +308,9 @@ def test_joint_limit_overrides_default_empty_and_are_validated() -> None:
         McpServerConfig.model_validate({"arm": {"joint_limit_overrides_rad": {"elbow": [-1.0, 1.0]}}})
     with pytest.raises(ValidationError, match="lower"):
         McpServerConfig.model_validate({"arm": {"joint_limit_overrides_rad": {"elbow_flex": [1.0, -1.0]}}})
+
+
+def test_grasp_service_topics_default() -> None:
+    topics = McpServerConfig().topics
+    assert topics.grasp_command == "/grasp/command"
+    assert topics.grasp_result == "/grasp/result"

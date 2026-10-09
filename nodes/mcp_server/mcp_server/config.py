@@ -101,6 +101,9 @@ class TopicSettings(StrictModel):
     base_frame: str = "base_link"
     home_service: str = "/arm/home"
     set_home_service: str = "/arm/set_home"
+    # Web-UI grasp actions: JSON requests (std_msgs/String) on grasp_command, JSON results on grasp_result.
+    grasp_command: str = "/grasp/command"
+    grasp_result: str = "/grasp/result"
 
 
 class LimitSettings(StrictModel):
