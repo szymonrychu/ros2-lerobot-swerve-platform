@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -67,6 +68,11 @@ DEFAULT_ROBOT_EVENTS_TOPIC = "/robot_events"
 DEFAULT_STATE_DIR = "/var/lib/claude_agent"
 DEFAULT_WORKDIR = "/var/lib/claude_agent/workspace"
 DEFAULT_SESSION_LOG_MAX_BYTES = 50 * 1024 * 1024
+DEFAULT_EFFORT = "medium"
+DEFAULT_PROMPT_CACHE_TTL = "1h"
+# Percent of the context window at which Claude Code auto-compacts (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE); measured sessions grew to 183k tokens.
+DEFAULT_AUTOCOMPACT_PCT = 60
+DEFAULT_DIGEST_MAX_CHARS = 1500
 
 
 class MissingTokenError(RuntimeError):
@@ -109,6 +115,14 @@ class ClaudeAgentConfig(BaseModel):
         robot_events_topic: ROS2 topic (std_msgs/String JSON) of the mcp_server event monitor.
         robot_events_history: Number of most recent robot events kept in memory.
         robot_event_debounce_s: A critical event does not interrupt the model again within this many seconds of the last interrupt.
+        effort: Reasoning effort of the model (SDK ``effort``): low, medium, high, xhigh or max. Changing it invalidates the prompt cache.
+        thinking_display: ``omitted`` skips streaming the thinking text (less latency), ``summarized`` streams summaries.
+        prompt_cache_ttl: Value of CLAUDE_CODE_PROMPT_CACHE_TTL for the CLI (``1h`` keeps the cache across idle gaps over 5 min); empty leaves it unset.
+        log_api_timing: Stream partial messages and log one ``api_timing`` event per API call (time to first stream event, first block, first tool call).
+        context_policy: ``compact`` keeps one session and lowers the auto-compaction threshold (autocompact_pct); ``fresh_with_digest``
+            starts a new session per instruction and carries a short digest of the previous one; ``keep`` changes nothing.
+        autocompact_pct: Context fill percent that triggers auto-compaction under the ``compact`` policy.
+        digest_max_chars: Maximum length of the digest under ``fresh_with_digest``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -142,6 +156,13 @@ class ClaudeAgentConfig(BaseModel):
     robot_events_topic: str = DEFAULT_ROBOT_EVENTS_TOPIC
     robot_events_history: int = Field(default=50, ge=1)
     robot_event_debounce_s: float = Field(default=2.0, ge=0)
+    effort: Literal["low", "medium", "high", "xhigh", "max"] = DEFAULT_EFFORT
+    thinking_display: Literal["omitted", "summarized"] = "omitted"
+    prompt_cache_ttl: str = DEFAULT_PROMPT_CACHE_TTL
+    log_api_timing: bool = True
+    context_policy: Literal["compact", "fresh_with_digest", "keep"] = "compact"
+    autocompact_pct: int = Field(default=DEFAULT_AUTOCOMPACT_PCT, ge=1, le=95)
+    digest_max_chars: int = Field(default=DEFAULT_DIGEST_MAX_CHARS, ge=100)
 
     @property
     def max_turns(self) -> int:

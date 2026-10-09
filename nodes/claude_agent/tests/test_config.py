@@ -151,3 +151,23 @@ def test_nav_goal_precision_defaults_and_validation() -> None:
     assert cfg.nav_goal_xy_tolerance_cm == 1.0 and cfg.nav_goal_yaw_tolerance_deg == 2.0
     with pytest.raises(ValidationError):
         ClaudeAgentConfig(nav_goal_xy_tolerance_cm=0)
+
+
+def test_latency_and_context_defaults() -> None:
+    cfg = ClaudeAgentConfig()
+    assert cfg.effort == "medium"
+    assert cfg.thinking_display == "omitted"
+    assert cfg.prompt_cache_ttl == "1h"
+    assert cfg.log_api_timing is True
+    assert cfg.context_policy == "compact"
+    assert 1 <= cfg.autocompact_pct <= 95
+    assert cfg.digest_max_chars > 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("effort", "huge"), ("thinking_display", "x"), ("context_policy", "never"), ("autocompact_pct", 0)],
+)
+def test_latency_and_context_values_validated(field: str, value: object) -> None:
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig(**{field: value})

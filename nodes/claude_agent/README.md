@@ -229,6 +229,32 @@ unknown keys are rejected.
 | `robot_events_topic` | `/robot_events` | std_msgs/String JSON events of the mcp_server monitor |
 | `robot_events_history` | `50` | Robot events kept in memory |
 | `robot_event_debounce_s` | `2` | A critical event does not interrupt again within this window |
+| `effort` | `medium` | SDK `effort` (low, medium, high, xhigh, max). Output tokens dominate the measured model gap (about 1.3 s + 10 ms per output token); changing it invalidates the prompt cache |
+| `thinking_display` | `omitted` | Adaptive thinking is always on; `omitted` does not stream the thinking text, `summarized` does |
+| `prompt_cache_ttl` | `1h` | Sets `CLAUDE_CODE_PROMPT_CACHE_TTL` for the CLI so the cache survives idle gaps over 5 min; empty leaves it unset |
+| `log_api_timing` | `true` | Enables `include_partial_messages` and logs one `api_timing` event per API call (see below) |
+| `context_policy` | `compact` | `compact`: one session, auto-compaction at `autocompact_pct` of the context window (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`); `fresh_with_digest`: new session per instruction with a short digest of the previous one; `keep`: unbounded growth (old behaviour) |
+| `autocompact_pct` | `60` | Context fill percent that triggers compaction under `compact` |
+| `digest_max_chars` | `1500` | Length cap of the digest under `fresh_with_digest` |
+
+## Latency, timing and context
+
+Measured on 17 real sessions: 47 % of the wall time was model-only, median gap 3.3 s, mostly output tokens. The
+prompt therefore asks for checkpoint verification (at phase boundaries, before irreversible actions such as closing the
+gripper or releasing, and when a tool reports a problem; a motion tool's own success result is trusted otherwise),
+terse text, batched independent calls and small images (`get_camera_image max_px`).
+
+`api_timing` events (in `events.jsonl`, ignored by the web UI) carry per API call: `first_event_s` (request sent to
+the first stream event), `first_block_s` / `first_block_type` (first thinking, text or tool_use block),
+`first_tool_s` (first tool call, when there is one) and `duration_s`. Use them to tell queueing latency from
+generation time.
+
+Context growth: sessions reached 183 k tokens with hundreds of kept images. Trade-off of the policies: `compact`
+(default) keeps full continuity and lets Claude Code summarise old turns once the window is 60 % full, at the cost of
+one slow summarising call and some detail loss; `fresh_with_digest` bounds the context hard and keeps the prompt cache
+small, but the model only knows the digest (instruction, outcome, phase outcomes, last message) plus `NOTES.md` and the
+robot sensors, so it re-observes the scene; `keep` is the old unbounded behaviour. The images themselves shrink through
+the mcp_server default `max_px` of 384.
 
 ## API (contract for the web UI)
 

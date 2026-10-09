@@ -10,10 +10,18 @@ from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ClaudeSDKClient, ResultMessage, UserMessage
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ClaudeSDKClient,
+    ResultMessage,
+    StreamEvent,
+    UserMessage,
+)
 
 from .budget import PLAN_SERVER_NAME, build_plan_server
 from .config import ClaudeAgentConfig, MissingTokenError, read_mcp_token
+from .digest import build_digest
 from .events import (
     STATUS_ERROR,
     STATUS_INTERRUPTED,
@@ -57,19 +65,27 @@ class ClientLike(Protocol):
     def receive_response(self) -> Any: ...
 
 
-def build_child_env(base_env: Mapping[str, str]) -> dict[str, str]:
+def build_child_env(base_env: Mapping[str, str], config: ClaudeAgentConfig | None = None) -> dict[str, str]:
     """Environment for the Claude CLI child: OAuth subscription auth only, no auto-update.
 
     Args:
         base_env (Mapping[str, str]): Parent environment (CLAUDE_CODE_OAUTH_TOKEN comes from here).
+        config (ClaudeAgentConfig | None): Supplies the prompt cache TTL and, under the ``compact`` context policy,
+            the auto-compaction threshold.
 
     Returns:
         dict[str, str]: Copy without ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN, with DISABLE_AUTOUPDATER=1 and
-        ENABLE_CLAUDEAI_MCP_SERVERS=false (no claude.ai connectors of the subscription account).
+        ENABLE_CLAUDEAI_MCP_SERVERS=false (no claude.ai connectors of the subscription account), plus
+        CLAUDE_CODE_PROMPT_CACHE_TTL and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE when configured.
     """
     env = {key: value for key, value in base_env.items() if key not in REMOVED_ENV_KEYS}
     env["DISABLE_AUTOUPDATER"] = "1"
     env["ENABLE_CLAUDEAI_MCP_SERVERS"] = "false"
+    if config is not None:
+        if config.prompt_cache_ttl:
+            env["CLAUDE_CODE_PROMPT_CACHE_TTL"] = config.prompt_cache_ttl
+        if config.context_policy == "compact":
+            env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] = str(config.autocompact_pct)
     return env
 
 
@@ -79,7 +95,7 @@ def build_options(
     """Build the SDK options: the robot MCP tools, the in-process planning server and the five notes file tools, permissions decided by the gate.
 
     Args:
-        config (ClaudeAgentConfig): Model, absolute SDK turn limit, MCP URL, workdir.
+        config (ClaudeAgentConfig): Model, effort, thinking display, partial streaming, absolute SDK turn limit, MCP URL, workdir.
         token (str): MCP bearer token (never logged).
         gate (EffectorGate): Permission callback; its plan tracker backs the ``agent`` server's planning tools.
         env (dict[str, str]): Child environment from build_child_env.
@@ -97,6 +113,9 @@ def build_options(
         pass
     return ClaudeAgentOptions(
         model=config.model,
+        effort=config.effort,
+        thinking={"type": "adaptive", "display": config.thinking_display},
+        include_partial_messages=config.log_api_timing,
         max_turns=config.max_turns,
         system_prompt=system_prompt,
         tools=list(NOTES_TOOLS),
@@ -171,6 +190,13 @@ class AgentRunner:
         self.turn_capped = False
         self.streaming = False
         self.pending_followup: str | None = None
+        self.clock: Callable[[], float] = time.monotonic
+        self.last_instruction: str | None = None
+        self.last_status = ""
+        self.last_text = ""
+        self.digest: str | None = None
+        self.api_call: dict[str, Any] | None = None
+        self.request_sent_at = 0.0
         self.last_event_interrupt: float | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self.robot_events: deque[dict[str, Any]] = deque(maxlen=config.robot_events_history)
@@ -276,11 +302,29 @@ class AgentRunner:
         self.interrupted = False
         self.turn_capped = False
         self.pending_followup = None
+        self.digest = self.take_digest()
+        self.last_instruction, self.last_status, self.last_text = text, "", ""
         self.gate.reset()
         self.events.append("user_message", text=text)
         self.emit_state()
         self.task = asyncio.create_task(self.run_instruction(text))
         return True
+
+    def take_digest(self) -> str | None:
+        """Build the digest of the previous instruction when the ``fresh_with_digest`` policy applies.
+
+        Returns:
+            str | None: The digest, or None (other policy, or no previous instruction in this session).
+        """
+        if self.config.context_policy != "fresh_with_digest" or self.last_instruction is None:
+            return None
+        return build_digest(
+            self.last_instruction,
+            self.last_status or "unfinished",
+            self.plan.plan,
+            self.last_text,
+            self.config.digest_max_chars,
+        )
 
     async def wait_idle(self) -> None:
         """Wait until the running instruction (if any) has finished."""
@@ -299,7 +343,11 @@ class AgentRunner:
         if self.client is None:
             token = read_mcp_token(self.config.mcp_token_file)
             options = build_options(
-                self.config, token, self.gate, build_child_env(self.base_env), build_system_prompt(self.config)
+                self.config,
+                token,
+                self.gate,
+                build_child_env(self.base_env, self.config),
+                build_system_prompt(self.config),
             )
             client = self.client_factory(options)
             try:
@@ -392,6 +440,7 @@ class AgentRunner:
             str: The turn_end status.
         """
         turn_end = result_to_turn_end(result, self.interrupted, self.plan.rw_used)
+        self.last_status = turn_end["status"]
         if self.turn_capped and turn_end["status"] == STATUS_INTERRUPTED:
             turn_end["status"] = STATUS_TURN_CAP
         if turn_end["status"] == STATUS_ERROR:
@@ -476,10 +525,17 @@ class AgentRunner:
         self.streaming = True
         try:
             async for message in client.receive_response():
+                if isinstance(message, StreamEvent):
+                    self.note_stream_event(message)
+                    continue
                 if isinstance(message, AssistantMessage):
                     self.plan.count_turn()
                 for event_type, fields in normalize_message(message, self.config):
                     self.events.append(event_type, **fields)
+                    if event_type == "assistant_text":
+                        self.last_text = fields["text"]
+                if isinstance(message, UserMessage):
+                    self.request_sent_at = self.clock()
                 if isinstance(message, AssistantMessage):
                     self.emit_state()
                 if isinstance(message, UserMessage) and not self.turn_capped:
@@ -501,6 +557,36 @@ class AgentRunner:
         finally:
             self.streaming = False
         return finished, followup
+
+    def note_stream_event(self, message: StreamEvent) -> None:
+        """Time one API call from the partial stream and log it as an ``api_timing`` event at its end.
+
+        The clock starts when the request went out (the query, or the tool results that triggered the call). Subagent
+        events are ignored.
+
+        Args:
+            message (StreamEvent): A raw Anthropic stream event.
+        """
+        if message.parent_tool_use_id is not None or not self.config.log_api_timing:
+            return
+        now = self.clock()
+        kind = message.event.get("type")
+        call = self.api_call
+        if kind == "message_start":
+            self.api_call = {"first_event_s": round(now - self.request_sent_at, 3), "started": self.request_sent_at}
+        elif call is None:
+            return
+        elif kind == "content_block_start":
+            block_type = (message.event.get("content_block") or {}).get("type")
+            elapsed = round(now - call["started"], 3)
+            call.setdefault("first_block_s", elapsed)
+            call.setdefault("first_block_type", block_type)
+            if block_type == "tool_use":
+                call.setdefault("first_tool_s", elapsed)
+        elif kind == "message_stop":
+            call["duration_s"] = round(now - call.pop("started"), 3)
+            self.events.append("api_timing", **call)
+            self.api_call = None
 
     def note_phase_turn_cap(self) -> None:
         """Inject a note when the active phase just used all its turns: interrupt the model, then continue with the note.
@@ -602,13 +688,18 @@ class AgentRunner:
             text (str): The user's instruction.
         """
         try:
+            if self.digest is not None:
+                await self.drop_client()
             client = await self.start_session()
             if self.interrupted:
                 self.events.append("turn_end", status=STATUS_INTERRUPTED, cost_usd=0.0, num_turns=0, effector_calls=0)
                 return
             prompt: str | None = text
+            if self.digest is not None:
+                prompt = f"{self.digest}\n\nNew instruction:\n{text}"
             finished = False
             while prompt is not None:
+                self.request_sent_at = self.clock()
                 await client.query(prompt)
                 finished, prompt = await self.consume_response(client)
             if not finished:
@@ -663,6 +754,7 @@ class AgentRunner:
             await self.clear_agent_pois()
             await self.drop_client()
             self.gate.reset()
+            self.last_instruction, self.digest = None, None
             self.events.reset()
             self.session_started_at = time.time()
             self.emit_state()

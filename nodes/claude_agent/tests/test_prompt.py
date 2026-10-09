@@ -89,7 +89,7 @@ def test_prompt_lists_tools_by_kind(config: ClaudeAgentConfig) -> None:
 
 def test_prompt_safety_rules(config: ClaudeAgentConfig) -> None:
     text = build_system_prompt(config).lower()
-    for phrase in ("look before", "small", "call stop", "release_control", "battery", "never assume"):
+    for phrase in ("look before", "small", "call stop", "release_control", "battery", "checkpoint"):
         assert phrase in text
 
 
@@ -267,3 +267,27 @@ def test_default_tool_lists_include_the_grasp_tools() -> None:
     cfg = ClaudeAgentConfig()
     assert {"grasp_object", "release_object"} <= set(cfg.effector_tools)
     assert "plan_grasp" in cfg.sensor_tools and "plan_grasp" not in cfg.effector_tools
+
+
+def test_prompt_uses_checkpoint_verification_not_a_check_after_every_motion() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    assert "after every motion confirm" not in lower
+    assert "checkpoint" in lower
+    for phrase in ("phase boundar", "irreversible", "grasp", "release", "tool reports a problem", "trust"):
+        assert phrase in lower
+    assert "never assume success without checking" not in lower
+
+
+def test_prompt_keeps_the_motion_safety_rules() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    assert "an open moving finger has jammed" in lower
+    assert "call stop whenever you are unsure" in lower
+    assert "do not retry" in lower
+
+
+def test_prompt_asks_for_terse_batched_calls_and_small_images() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    assert "terse" in lower and "do not restate" in lower
+    assert "short tool arguments" in lower
+    assert "independent" in lower and "one turn" in lower
+    assert "max_px" in lower and "aiming" in lower

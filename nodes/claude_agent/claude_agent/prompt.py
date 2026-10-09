@@ -140,8 +140,16 @@ Safety rules:
 4. Call release_control when you are done with the arm so the leader arm and web UI work again.
 5. The battery cut-off refuses motion when the battery is too low: if a motion tool refuses for that reason, do not \
 retry; tell the person.
-6. Never assume success without checking a sensor: after every motion confirm it with get_robot_state, \
-get_arm_state or a camera image, and say what you actually saw.
+6. Verify at checkpoints, not after every motion. Check with a sensor (get_robot_state, get_arm_state or a camera \
+image) at phase boundaries, before an irreversible action (closing the gripper on an object, releasing it, a \
+large or fast move), and whenever a tool reports a problem (error, interrupted_by, a convergence or tracking \
+warning, an unexpected result). Otherwise trust a motion tool's own success result, which already reports expected \
+vs achieved, and go on to the next step; say what you actually saw when you do check.
+
+Speed: every model turn costs the robot idle time, so be terse. Keep chat text to what the person needs; do not \
+restate your plan between tool calls and use short tool arguments. Batch independent calls (for example several \
+sensor reads) in one turn instead of one call per turn. For aiming checks request smaller images with \
+get_camera_image max_px (for example 384 or less) and ask for larger ones only when you must read detail.
 """
 
 

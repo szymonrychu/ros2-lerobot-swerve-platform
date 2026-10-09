@@ -18,3 +18,19 @@ def test_input_not_mutated() -> None:
     base = {"ANTHROPIC_API_KEY": "sk-x"}
     build_child_env(base)
     assert base == {"ANTHROPIC_API_KEY": "sk-x"}
+
+
+def test_cache_ttl_and_autocompact_env_from_config() -> None:
+    from claude_agent.config import ClaudeAgentConfig
+
+    env = build_child_env({"PATH": "/bin"}, ClaudeAgentConfig(prompt_cache_ttl="1h", autocompact_pct=55))
+    assert env["CLAUDE_CODE_PROMPT_CACHE_TTL"] == "1h"
+    assert env["CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"] == "55"
+
+
+def test_empty_cache_ttl_and_other_policies_set_no_env() -> None:
+    from claude_agent.config import ClaudeAgentConfig
+
+    env = build_child_env({}, ClaudeAgentConfig(prompt_cache_ttl="", context_policy="fresh_with_digest"))
+    assert "CLAUDE_CODE_PROMPT_CACHE_TTL" not in env
+    assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" not in env

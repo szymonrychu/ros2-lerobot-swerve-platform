@@ -7,6 +7,7 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ResultMessage,
+    StreamEvent,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -821,3 +822,125 @@ async def test_turn_count_emitted_in_state_events(tmp_path: Path) -> None:
     await runner.start_instruction("go")
     await runner.wait_idle()
     assert max(e["turns_used"] for e in events.history() if e["type"] == "state") == 1
+
+
+def test_build_options_effort_thinking_and_partial_messages(config: ClaudeAgentConfig) -> None:
+    opts = build_options(config, "tok", EffectorGate(config), {}, "SYS")
+    assert opts.effort == "medium"
+    assert opts.thinking == {"type": "adaptive", "display": "omitted"}
+    assert opts.include_partial_messages is True
+    cfg = ClaudeAgentConfig(effort="high", thinking_display="summarized", log_api_timing=False)
+    opts = build_options(cfg, "tok", EffectorGate(cfg), {}, "SYS")
+    assert opts.effort == "high" and opts.thinking == {"type": "adaptive", "display": "summarized"}
+    assert opts.include_partial_messages is False
+
+
+def stream(event: dict) -> StreamEvent:
+    return StreamEvent(uuid="u", session_id="s", event=event)
+
+
+class Clock:
+    """Manual monotonic clock."""
+
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def step(self, seconds: float):
+        async def advance(_client) -> None:
+            self.now += seconds
+
+        return advance
+
+
+async def test_api_timing_event_per_api_call(tmp_path: Path) -> None:
+    clock = Clock()
+    script = [
+        clock.step(1.5),
+        stream({"type": "message_start"}),
+        clock.step(0.5),
+        stream({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking"}}),
+        clock.step(0.25),
+        stream({"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use"}}),
+        clock.step(1.0),
+        stream({"type": "message_stop"}),
+        AssistantMessage(content=[ToolUseBlock(id="t1", name="mcp__robot__get_robot_state", input={})], model="opus"),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content=[{"type": "text", "text": "ok"}])]),
+        clock.step(2.0),
+        stream({"type": "message_start"}),
+        stream({"type": "content_block_start", "index": 0, "content_block": {"type": "text"}}),
+        stream({"type": "message_stop"}),
+        AssistantMessage(content=[TextBlock(text="Done.")], model="opus"),
+        make_result(),
+    ]
+    runner, events, _ = make_runner(tmp_path, script=script)
+    runner.clock = clock
+    await runner.start_instruction("hi")
+    await runner.wait_idle()
+    timings = [e for e in events.history() if e["type"] == "api_timing"]
+    assert len(timings) == 2
+    assert timings[0]["first_event_s"] == 1.5
+    assert timings[0]["first_block_s"] == 2.0
+    assert timings[0]["first_block_type"] == "thinking"
+    assert timings[0]["first_tool_s"] == 2.25
+    assert timings[0]["duration_s"] == 3.25
+    assert timings[1]["first_event_s"] == 2.0 and timings[1]["first_block_type"] == "text"
+    assert "first_tool_s" not in timings[1] or timings[1]["first_tool_s"] is None
+
+
+async def test_no_api_timing_when_disabled(tmp_path: Path) -> None:
+    (tmp_path / "t").write_text("tok")
+    cfg = ClaudeAgentConfig(log_api_timing=False, mcp_token_file=str(tmp_path / "t"))
+    script = [stream({"type": "message_start"}), stream({"type": "message_stop"}), make_result()]
+    runner, events, _ = make_runner(tmp_path, config=cfg, script=script)
+    await runner.start_instruction("hi")
+    await runner.wait_idle()
+    assert "api_timing" not in types_of(events)
+
+
+async def test_env_reaches_the_client_options(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path, script=[make_result()])
+    await runner.start_instruction("hi")
+    await runner.wait_idle()
+    env = FakeClient.instances[0].options.env
+    assert env["CLAUDE_CODE_PROMPT_CACHE_TTL"] == "1h"
+    assert "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE" in env
+
+
+async def test_compact_policy_keeps_one_session_across_instructions(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path, script=[make_result()])
+    await runner.start_instruction("one")
+    await runner.wait_idle()
+    await runner.start_instruction("two")
+    await runner.wait_idle()
+    assert len(FakeClient.instances) == 1
+    assert FakeClient.instances[0].queries == ["one", "two"]
+
+
+async def test_fresh_policy_starts_a_new_session_with_a_digest(tmp_path: Path) -> None:
+    token = tmp_path / "token"
+    token.write_text("tok")
+    cfg = ClaudeAgentConfig(mcp_token_file=str(token), context_policy="fresh_with_digest")
+    script = [AssistantMessage(content=[TextBlock(text="Tomato is on the left.")], model="opus"), make_result()]
+    runner, _, _ = make_runner(tmp_path, config=cfg, script=script)
+    await runner.start_instruction("find the tomato")
+    await runner.wait_idle()
+    await runner.start_instruction("go there")
+    await runner.wait_idle()
+    first, second = FakeClient.instances[0], FakeClient.instances[1] if len(FakeClient.instances) > 1 else None
+    assert second is not None and first.disconnected
+    assert first.queries == ["find the tomato"]
+    sent = second.queries[0]
+    assert "find the tomato" in sent and "Tomato is on the left." in sent and sent.endswith("go there")
+
+
+async def test_fresh_policy_first_instruction_has_no_digest(tmp_path: Path) -> None:
+    token = tmp_path / "token"
+    token.write_text("tok")
+    cfg = ClaudeAgentConfig(mcp_token_file=str(token), context_policy="fresh_with_digest")
+    runner, _, _ = make_runner(tmp_path, config=cfg, script=[make_result()])
+    await runner.start_instruction("hello")
+    await runner.wait_idle()
+    assert FakeClient.instances[0].queries == ["hello"]
