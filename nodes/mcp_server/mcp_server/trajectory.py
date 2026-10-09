@@ -176,7 +176,9 @@ def path_trajectory(
     return points
 
 
-def hermite_quintic(p0: float, p1: float, v0: float, v1: float, duration: float, t: float) -> tuple[float, float, float]:
+def hermite_quintic(
+    p0: float, p1: float, v0: float, v1: float, duration: float, t: float
+) -> tuple[float, float, float]:
     """Quintic segment with given end positions and velocities and zero end accelerations.
 
     Args:

@@ -579,6 +579,22 @@ class ObjectSettings(StrictModel):
     merge_radius_m: float = Field(default=0.25, gt=0.0)  # same label within this distance is the same object
 
 
+class MotionQueueSettings(StrictModel):
+    """Non-blocking motion queue (enqueue_motions, wait_for_event): limits and precondition thresholds."""
+
+    max_steps: int = Field(default=32, ge=1, le=256)  # pending steps at most (running one excluded)
+    event_history: int = Field(default=200, ge=10, le=5000)  # events kept for get_motion_status / wait_for_event
+    status_events: int = Field(default=10, ge=1, le=100)  # last events in get_motion_status
+    wait_events: int = Field(default=40, ge=1, le=500)  # events returned by one wait_for_event at most
+    wait_default_s: float = Field(default=30.0, gt=0.0)
+    wait_max_s: float = Field(default=120.0, gt=0.0)
+    poll_s: float = Field(default=0.05, gt=0.0, le=1.0)  # wait_s slice and stop check period
+    base_still_linear_mps: float = Field(default=0.02, gt=0.0)  # base_still: |v| below this (odometry)
+    base_still_angular_rps: float = Field(default=0.05, gt=0.0)  # base_still: |wz| below this
+    holding_min_effort: float = Field(default=100.0, gt=0.0)  # gripper_holding: |gripper load| at least this
+    holding_min_gap_rad: float = Field(default=0.05, ge=0.0)  # gripper_holding: jaw at least this short of closed
+
+
 class LookAroundSettings(StrictModel):
     """look_around: rotate in place in equal steps, capture at each stop."""
 
@@ -695,6 +711,7 @@ class McpServerConfig(StrictModel):
     topdown: TopdownSettings = TopdownSettings()
     objects: ObjectSettings = ObjectSettings()
     look_around: LookAroundSettings = LookAroundSettings()
+    motion_queue: MotionQueueSettings = MotionQueueSettings()
     poi: PoiSettings = PoiSettings()
     floor_guard: FloorGuardSettings = FloorGuardSettings()
     grasp: GraspSettings = GraspSettings()

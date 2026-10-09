@@ -662,7 +662,9 @@ class ArmController:
         with self.exclusive_motion():
             sample = self.require_sample()
             safe = [self.clamp_targets(t) for t in targets]
-            clamped = sorted({j for t, c in zip(targets, safe, strict=True) for j in t if abs(c[j] - t[j]) > CHANGED_EPS})
+            clamped = sorted(
+                {j for t, c in zip(targets, safe, strict=True) for j in t if abs(c[j] - t[j]) > CHANGED_EPS}
+            )
             pose = self.command_base(sample)
             opening = -math.inf
             full: list[dict[str, float]] = []
