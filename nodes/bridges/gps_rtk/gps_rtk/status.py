@@ -55,7 +55,8 @@ def base_status(
     """Build the base status dict from a parsed GGA and caster state.
 
     Args:
-        gga (dict[str, Any]): Output of parse_gga.
+        gga (dict[str, Any]): Output of parse_gga (a GGA without a position never parses, so latitude and
+            longitude are always real).
         ntrip_clients (int): Connected NTRIP clients.
         rtcm_tx_frames (int): RTCM frames sent.
         rtcm_tx_bytes (int): RTCM bytes sent.
@@ -66,6 +67,9 @@ def base_status(
     """
     return {
         "role": "base",
+        "latitude": gga["latitude"],
+        "longitude": gga["longitude"],
+        "altitude": gga.get("altitude"),
         "quality": gga["quality"],
         "fix": display_label(gga["quality"]),
         "num_satellites": gga.get("num_satellites"),

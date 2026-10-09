@@ -38,8 +38,10 @@ Rover:
 Base:
 
 ```json
-{"role":"base","quality":4,"fix":"RTK Fixed","num_satellites":18,"hdop":0.7,"ntrip_clients":1,"rtcm_tx_frames":900,"rtcm_tx_bytes":123456,"rtcm_types":[1005,1074,1084]}
+{"role":"base","latitude":52.1,"longitude":21.0,"altitude":110.5,"quality":4,"fix":"RTK Fixed","num_satellites":18,"hdop":0.7,"ntrip_clients":1,"rtcm_tx_frames":900,"rtcm_tx_bytes":123456,"rtcm_types":[1005,1074,1084]}
 ```
+
+The base status carries the base antenna position (`latitude`/`longitude` in degrees, `altitude` in m) from its GGA; a GGA without a position does not parse, so no status is published for it. The web UI draws the base marker from it. The rover status carries no position.
 
 `num_satellites`, `hdop` and `diff_age_s` are `null` when the GGA sentence did not carry them.
 

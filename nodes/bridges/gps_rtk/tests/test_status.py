@@ -4,9 +4,18 @@ import json
 
 import pytest
 
+from gps_rtk.nmea_parser import parse_gga
 from gps_rtk.status import base_status, display_label, rover_status, status_json
 
-GGA = {"quality": 4, "num_satellites": 18, "hdop": 0.7, "diff_age_s": 1.0}
+GGA = {
+    "latitude": 52.1,
+    "longitude": 21.0,
+    "altitude": 110.5,
+    "quality": 4,
+    "num_satellites": 18,
+    "hdop": 0.7,
+    "diff_age_s": 1.0,
+}
 
 
 @pytest.mark.parametrize(
@@ -52,6 +61,9 @@ def test_base_status() -> None:
     out = base_status(GGA, ntrip_clients=1, rtcm_tx_frames=10, rtcm_tx_bytes=999, rtcm_types={1074, 1005})
     assert out == {
         "role": "base",
+        "latitude": 52.1,
+        "longitude": 21.0,
+        "altitude": 110.5,
         "quality": 4,
         "fix": "RTK Fixed",
         "num_satellites": 18,
@@ -61,6 +73,15 @@ def test_base_status() -> None:
         "rtcm_tx_bytes": 999,
         "rtcm_types": [1005, 1074],
     }
+
+
+def test_rover_status_has_no_position() -> None:
+    out = rover_status(GGA, ntrip_connected=True, ntrip_rx_bytes=1)
+    assert not {"latitude", "longitude", "altitude"} & out.keys()
+
+
+def test_gga_without_position_never_yields_a_status() -> None:
+    assert parse_gga("$GNGGA,123519,,,,,1,08,0.9,545.4,M,46.9,M,,*47") is None
 
 
 def test_status_json_compact() -> None:

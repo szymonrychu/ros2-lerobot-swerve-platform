@@ -99,6 +99,14 @@ def test_poller_stores_each_poll_and_flags_stale_when_seq_stalls() -> None:
     assert all(s["reachable"] for s in stored)
 
 
+def test_poller_keeps_base_position_in_stored_payload() -> None:
+    stored: list[dict[str, Any]] = []
+    status = {**BASE, "latitude": 52.1, "longitude": 21.0, "altitude": 110.5}
+    client = client_for(lambda req: httpx.Response(200, json=scraper_payload(status)))
+    BasePoller(URL, 1.0, 2.0, 5.0, stored.append, client=client).poll_once()
+    assert (stored[0]["latitude"], stored[0]["longitude"], stored[0]["altitude"]) == (52.1, 21.0, 110.5)
+
+
 def test_poller_unreachable_has_no_stale_or_fix_fields() -> None:
     stored: list[dict[str, Any]] = []
     client = client_for(lambda req: httpx.Response(500))
