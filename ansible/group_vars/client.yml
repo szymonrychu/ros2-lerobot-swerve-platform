@@ -551,7 +551,7 @@ ros2_nodes:
     node_type: bno055_imu
     # 50 Hz reduces I2C load; BNO055 can return None on transient read failures
     present: true
-    enabled: true
+    enabled: false  # disabled 2026-10-09: BNO055 hung on I2C init, pending a clean reboot + fresh init
     config: |
       topic: /imu/data
       frame_id: imu_link
