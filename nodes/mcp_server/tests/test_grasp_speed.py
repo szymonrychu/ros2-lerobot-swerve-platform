@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from mcp_server import grasp
 from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel
 from mcp_server.grasp import GraspPlan, GraspPlanner, ObjectSpec, grasp_params
 from mcp_server.ik import ArmKinematics
@@ -26,6 +27,9 @@ GOLDEN_TOL_RAD = 1e-6
 AUTO_BUDGET_S = 1.0
 ANGLED_BUDGET_S = 1.0
 UNREACHABLE_BUDGET_S = 0.2
+SCOOP_BUDGET_S = 3.0
+FEASIBLE_ANGLED_BUDGET_S = 10.0
+SCOOP_GAP = {"x": 0.30, "gap": 0.02, "bottom": -0.13}  # raised 2 cm: the scoop is eligible and feasible
 SKIP_TIMING = os.environ.get("GRASP_SPEED_SKIP") == "1"
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 timing = pytest.mark.skipif(SKIP_TIMING, reason="GRASP_SPEED_SKIP=1")
@@ -139,3 +143,49 @@ def test_unreachable_object_is_rejected_without_an_ik_search() -> None:
     elapsed, plan = timed("auto", x=0.80)
     assert not plan.feasible and plan.reasons
     assert elapsed < UNREACHABLE_BUDGET_S, f"unreachable took {elapsed:.2f} s"
+
+
+@timing
+def test_scoop_with_a_gap_under_the_object_plans_under_budget() -> None:
+    elapsed, plan = timed("scoop", **SCOOP_GAP)
+    assert plan.feasible, plan.reasons
+    assert elapsed < SCOOP_BUDGET_S, f"scoop took {elapsed:.2f} s"
+
+
+@timing
+def test_feasible_angled_plan_at_the_reach_edge_stays_inside_the_ik_cap() -> None:
+    KIN.solutions.clear()
+    before = KIN.solve_count
+    elapsed, plan = timed("angled", 45.0, **SCOOP_GAP)
+    assert plan.feasible, plan.reasons
+    assert KIN.solve_count - before < grasp.MAX_IK_SOLVES_PER_CANDIDATE
+    assert elapsed < FEASIBLE_ANGLED_BUDGET_S, f"angled took {elapsed:.2f} s"
+
+
+@timing
+def test_replanning_the_same_object_is_served_from_the_ik_cache() -> None:
+    _, first = timed("angled", 45.0, **SCOOP_GAP)  # cold
+    start = time.perf_counter()
+    second = run(**(REFERENCE | SCOOP_GAP), strategy="angled", pitch=45.0)
+    assert time.perf_counter() - start < 1.0
+    assert second.waypoints == first.waypoints
+
+
+def test_ik_budget_per_candidate_stops_the_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    budget = 60
+    monkeypatch.setattr(grasp, "MAX_IK_SOLVES_PER_CANDIDATE", budget)
+    KIN.solutions.clear()
+    before = KIN.solve_count
+    plan = run(**(REFERENCE | SCOOP_GAP), strategy="angled", pitch=45.0)
+    assert not plan.feasible
+    assert any("IK budget" in r for r in plan.reasons), plan.reasons
+    assert KIN.solve_count - before <= budget + 20  # the solve in flight finishes
+
+
+def test_ik_budget_per_strategy_stops_trying_more_pitches(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(grasp, "MAX_IK_SOLVES_PER_STRATEGY", 1)
+    KIN.solutions.clear()
+    plan = run(**(REFERENCE | {"gap": 0.02, "bottom": FLOOR + 0.02}), strategy="scoop", pitch=None)
+    assert not plan.feasible
+    assert any("IK budget" in r for r in plan.reasons), plan.reasons
+    assert len([r for r in plan.reasons if r.startswith("pitch")]) <= 2

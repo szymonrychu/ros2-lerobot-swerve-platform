@@ -416,15 +416,36 @@ opening within `max_object_width_m` and the gripper's reach, roll guard ordering
 Infeasible plans return human-readable `reasons`; the planner never raises for an infeasible object.
 
 Planner speed (the RPi 5 is several times slower than a Mac; the web UI `/api/grasp` plan times out at 30 s). Every
-ikpy solve costs about 5 ms and a straight-line sample needs 30 to 70 of them, so the planner avoids them where the
-result cannot change: `ArmKinematics.inverse` rejects a target beyond the summed link lengths without any search
-(`max_reach_m`); identical ikpy queries are served from a per-instance cache (`ArmKinematics.solutions`); and
-`realize` solves the key waypoints (`retreat`, `lift`, `approach`, `pre_grasp`, hardest first) before it interpolates
-any 5 mm line, so an unreachable plan fails after one or two solves instead of after walking the whole path. Feasible
-plans are unchanged (`tests/test_grasp_speed.py` compares them with golden joints within 1e-6 rad); the speed tests
-(auto under 1 s on the reference 4 cm cube at x 0.25 on the floor) are skipped with `GRASP_SPEED_SKIP=1`. Measured on a
-MacBook M4 with the deployed config, before -> after: top_down 0.40 -> 0.5 s, angled pitch 45 (infeasible) 9.3 -> 0.25 s,
-auto 0.43 -> 0.5 s (first strategy feasible), object beyond reach 0.34 -> 0.00 s.
+ikpy solve costs about 3 ms and a feasible straight-line sample needs 3 (top_down) to 30 (angled, where the arm plane
+heading has to be iterated) of them, so the planner avoids them where the result cannot change:
+
+- `ArmKinematics.inverse` rejects a target beyond the summed link lengths without any search (`max_reach_m`).
+- Identical ikpy queries are served from a per-instance cache (`ArmKinematics.solutions`), so re-planning the same
+  object (preview, then execute) is near instant.
+- `realize` solves the key waypoints (`grasp`, `retreat`, `lift`, hardest first) before it interpolates any 5 mm line,
+  so an unreachable plan fails after one to three solves instead of after walking the whole path.
+- Effort caps: a candidate may spend `MAX_IK_SOLVES_PER_CANDIDATE` (3200) ikpy runs and a strategy
+  `MAX_IK_SOLVES_PER_STRATEGY` (8000) over all its pitches (scoop offers up to 9); beyond that the plan is infeasible
+  with an "IK budget" reason instead of searching until the caller times out. The largest feasible plan in the matrix
+  (angled 45 deg, 4 cm cube on a 0 m ledge at x 0.25) uses about 2700 runs.
+
+Feasible plans are unchanged: `tests/test_grasp_speed.py` compares 13 of them (top_down, angled, scoop, auto) with golden
+joints within 1e-6 rad, and the 240-scenario matrix gives the same feasibility and joints as before. The speed tests (auto
+under 1 s on the reference 4 cm cube at x 0.25 on the floor, scoop 3 s, unreachable 0.2 s) are skipped with
+`GRASP_SPEED_SKIP=1`. Measured on a MacBook M4 with the deployed config, before -> after (4 cm cube on the floor at
+x 0.25 unless noted): top_down 0.22 -> 0.17 s, angled pitch 45 (infeasible) 3.8-8.3 -> 0.12-0.3 s, scoop on the floor
+(no gap, ineligible) 0.00 -> 0.00 s, scoop raised 2 cm at x 0.30 (eligible, feasible) 0.63 -> 0.58 s, scoop raised 2 cm
+at x 0.25 (eligible, every pitch unreachable) 0.57 -> 0.53 s, auto 0.15 -> 0.16 s (first strategy feasible), object
+beyond reach 0.14 -> 0.00 s (timings vary +-30% with machine load).
+
+Remaining cost, measured and not reducible without changing joints: a feasible angled plan needs 1500 to 2700 ikpy
+runs (5 to 10 s on a Mac, so well over 30 s on the RPi 5 for those scenarios; top_down and scoop plans are under 2 s).
+Profiled, 75% of it is scipy `least_squares` bookkeeping inside ikpy and a quarter is forward kinematics; a plain-float
+forward kinematics (2x faster per call) gave no end-to-end gain and was dropped. Each sample needs 10 to 16 runs because
+the heading refinement of `inverse_flange` converges at about 0.9 per iteration, so the first seeds fail the 2 mm check
+and a later seed wins. The warm-start variant (start each sample from the previous winning seed and heading) was tried:
+it changed joints by up to 1.8e-3 rad and made 6 of the 13 golden plans infeasible, so it is not used. Pre-planning an
+angled grasp, or planning it once and executing from the cache, is the way to stay under the web UI timeout.
 
 ### Executor (`grasp_tools.GraspExecutor`)
 

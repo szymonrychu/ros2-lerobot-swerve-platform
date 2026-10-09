@@ -36,9 +36,15 @@ MIN_DIRECTION_NORM = 1e-6
 # Waypoint labels in execution order.
 WAYPOINT_ORDER = ("pre_grasp", "open", "approach", "grasp", "close", "lift", "retreat")
 LINEAR_LABELS = ("approach", "grasp", "lift", "retreat")
-# Waypoints checked for reachability before the straight lines to them are interpolated, hardest first (the lifted
-# retreat is the closest to the base, where a pitched gripper runs out of reach).
-KEY_LABELS = ("retreat", "lift", "approach", "pre_grasp")
+# Waypoints checked for reachability before the straight lines to them are interpolated, hardest first (the grasp is
+# the lowest point; the lifted retreat and lift are the closest to the base, where a pitched gripper runs out of
+# reach; approach and pre_grasp are checked by their straight lines).
+KEY_LABELS = ("grasp", "retreat", "lift")
+# Effort caps in ikpy runs (about 3 ms each on a Mac, 4 to 5 times that on the RPi 5). The largest feasible plan seen
+# (angled 45 deg on a 0 m ledge at x 0.25) needs about 2650; a candidate or strategy beyond the cap is reported infeasible
+# instead of searching until the caller times out.
+MAX_IK_SOLVES_PER_CANDIDATE = 3200
+MAX_IK_SOLVES_PER_STRATEGY = 8000
 
 WaypointLabel = Literal["pre_grasp", "open", "approach", "grasp", "close", "lift", "retreat"]
 GripperAction = Literal["set", "close", "keep"]
@@ -177,6 +183,32 @@ class GraspGeometry:
     center_width: float | None = None
     skim: bool = False
     lift_speed: float | None = None
+
+
+@dataclass
+class IkBudget:
+    """Cap on the ikpy runs one grasp candidate may spend.
+
+    Attributes:
+        kin: Kinematics whose solve_count is watched.
+        limit: Most ikpy runs allowed from creation.
+        start: solve_count at creation.
+    """
+
+    kin: ArmKinematics
+    limit: int
+    start: int = 0
+
+    def __post_init__(self) -> None:
+        self.start = self.kin.solve_count
+
+    def spent(self) -> bool:
+        """Whether the cap has been used up.
+
+        Returns:
+            bool: True once limit ikpy runs have happened since creation.
+        """
+        return self.kin.solve_count - self.start >= self.limit
 
 
 class Ineligible(ValueError):
@@ -542,7 +574,11 @@ class GraspPlanner:
             return GraspPlan(
                 strategy=strategy, feasible=False, reasons=[str(exc)], object_arm=obj, surface=surface.describe()
             )
+        start = self.kin.solve_count
         for geo in candidates:
+            if reasons and self.kin.solve_count - start >= MAX_IK_SOLVES_PER_STRATEGY:
+                reasons.append(f"IK budget of {MAX_IK_SOLVES_PER_STRATEGY} solves spent, remaining pitches not tried")
+                break
             result = self.realize(strategy, obj, geo, params, surface, seed)
             if result.feasible:
                 return result
@@ -600,6 +636,7 @@ class GraspPlanner:
         params: GraspParams,
         surface: SurfaceModel,
         seed: dict[str, float],
+        budget: IkBudget | None = None,
     ) -> GraspPlan:
         """Turn one candidate geometry into waypoints and joint samples, checking feasibility.
 
@@ -610,10 +647,13 @@ class GraspPlanner:
             params (GraspParams): Parameters.
             surface (SurfaceModel): Effective surface.
             seed (dict[str, float]): IK seed.
+            budget (IkBudget | None): Effort cap for this candidate (default MAX_IK_SOLVES_PER_CANDIDATE).
 
         Returns:
             GraspPlan: Feasible plan or one with reasons.
         """
+        if budget is None:
+            budget = IkBudget(self.kin, MAX_IK_SOLVES_PER_CANDIDATE)
         base = GraspPlan(
             strategy=strategy,
             feasible=False,
@@ -665,7 +705,7 @@ class GraspPlanner:
         key_seed = first | {ROLL_JOINT: roll}
         points = {label: point for label, point, *_ in steps}
         for label in KEY_LABELS:
-            _, problem = self.solve_point(label, points[label], geo.pitch, key_seed, extra, params)
+            _, problem = self.solve_point(label, points[label], geo.pitch, key_seed, extra, params, budget)
             if problem is not None:
                 return base.model_copy(update={"reasons": [problem], "wrist_roll_rad": roll})
         waypoints: list[Waypoint] = []
@@ -675,9 +715,9 @@ class GraspPlanner:
         prev_point: np.ndarray | None = None
         for label, point, gripper, action, speed, linear in steps:
             if linear and prev_point is not None:
-                samples, problem = self.line(label, prev_point, point, geo.pitch, joints, extra, params)
+                samples, problem = self.line(label, prev_point, point, geo.pitch, joints, extra, params, budget)
             else:
-                samples, problem = self.solve_point(label, point, geo.pitch, joints, extra, params)
+                samples, problem = self.solve_point(label, point, geo.pitch, joints, extra, params, budget)
             if problem is not None:
                 return base.model_copy(update={"reasons": [problem], "wrist_roll_rad": roll})
             joints = samples[-1]
@@ -752,6 +792,7 @@ class GraspPlanner:
         seed: dict[str, float],
         extra: tuple[float, float, float] | None,
         params: GraspParams,
+        budget: IkBudget | None = None,
     ) -> tuple[list[dict[str, float]], str | None]:
         """IK of one waypoint with the pose checks.
 
@@ -762,10 +803,13 @@ class GraspPlanner:
             seed (dict[str, float]): IK seed (its wrist_roll is kept).
             extra (tuple[float, float, float] | None): Centring tool offset.
             params (GraspParams): Thresholds.
+            budget (IkBudget | None): Effort cap; a spent budget is a reason instead of another search.
 
         Returns:
             tuple[list[dict[str, float]], str | None]: [solution] and None, or ([], reason).
         """
+        if budget is not None and budget.spent():
+            return [], f"{label}: IK budget of {budget.limit} solves spent (planning effort cap)"
         try:
             sol = self.kin.inverse(*point, pitch, seed, extra)
         except UnreachableError as exc:
@@ -802,6 +846,7 @@ class GraspPlanner:
         seed: dict[str, float],
         extra: tuple[float, float, float] | None,
         params: GraspParams,
+        budget: IkBudget | None = None,
     ) -> tuple[list[dict[str, float]], str | None]:
         """Straight tool-point line sampled every interpolation_step_m, each IK seeded from the previous sample.
 
@@ -813,6 +858,7 @@ class GraspPlanner:
             seed (dict[str, float]): Pose at the line start.
             extra (tuple[float, float, float] | None): Centring tool offset.
             params (GraspParams): Step, jump and stall thresholds.
+            budget (IkBudget | None): Effort cap shared with the other IK of the candidate.
 
         Returns:
             tuple[list[dict[str, float]], str | None]: Samples (end included) and None, or ([], reason).
@@ -822,7 +868,7 @@ class GraspPlanner:
         prev = seed
         for i in range(1, n + 1):
             point = start + (end - start) * i / n
-            solved, problem = self.solve_point(label, point, pitch, prev, extra, params)
+            solved, problem = self.solve_point(label, point, pitch, prev, extra, params, budget)
             if problem is not None:
                 return [], problem
             sol = solved[0]

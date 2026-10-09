@@ -371,3 +371,14 @@ def test_identical_ik_queries_are_solved_once() -> None:
     assert second == first
     second["shoulder_pan"] = 9.0  # callers own their copy
     assert kin.inverse(0.25, 0.0, -0.05, math.pi / 2, seed) == first
+
+
+def test_solve_count_counts_only_ikpy_runs() -> None:
+    kin = ArmKinematics(URDF, margin=MARGIN)
+    seed = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
+    assert kin.solve_count == 0
+    kin.inverse(0.25, 0.0, -0.05, math.pi / 2, seed)
+    n = kin.solve_count
+    assert n > 0
+    kin.inverse(0.25, 0.0, -0.05, math.pi / 2, seed)  # served from the cache
+    assert kin.solve_count == n

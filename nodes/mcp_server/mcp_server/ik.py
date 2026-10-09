@@ -155,6 +155,7 @@ class ArmKinematics:
         self.max_reach_m = float(
             sum(np.linalg.norm(getattr(link, "origin_translation", (0.0, 0.0, 0.0))) for link in chain.links)
         )
+        self.solve_count = 0  # ikpy runs so far (cache hits excluded), for the planner's effort budgets
         self.solutions: OrderedDict[bytes, dict[str, float]] = OrderedDict()
         pan_origin = self.chain.forward_kinematics(np.zeros(len(self.chain.links)), full_kinematics=True)[
             self.index["shoulder_pan"]
@@ -438,6 +439,7 @@ class ArmKinematics:
         if cached is not None:
             self.solutions.move_to_end(key)
             return dict(cached)
+        self.solve_count += 1
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             q = self.chain.inverse_kinematics(
