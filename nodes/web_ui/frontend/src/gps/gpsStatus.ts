@@ -35,6 +35,10 @@ export interface BaseGpsSample {
   rtcm_tx_frames: number
   rtcm_tx_bytes: number
   rtcm_types: number[]
+  /** Base antenna position from its GGA (absent in statuses from older gps_rtk builds). */
+  latitude?: number
+  longitude?: number
+  altitude?: number
   stale?: boolean
 }
 export type BaseGpsPayload = BaseGpsSample | { reachable: false; error: string }

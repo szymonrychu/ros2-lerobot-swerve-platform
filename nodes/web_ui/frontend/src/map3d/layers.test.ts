@@ -35,6 +35,7 @@ describe('layer defaults', () => {
         'slamMap',
         'localCostmap',
         'gpsMap',
+        'rtkBase',
         'globalPlan',
         'localPlan',
         'goal',

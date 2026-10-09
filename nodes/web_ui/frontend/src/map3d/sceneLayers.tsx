@@ -4,10 +4,10 @@
  */
 import { memo, useEffect, useMemo, useState } from 'react'
 import { useThree } from '@react-three/fiber'
-import { Line } from '@react-three/drei'
+import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import log from '../logging'
-import { frontEdgeIndex, MapMeta, Pose2D } from '../map/mapMath'
+import { frontEdgeIndex, MapMeta, Pose2D, Vec2 } from '../map/mapMath'
 import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor, tilesAround } from './geo'
 import { mapPlacement } from './groundMath'
@@ -28,6 +28,7 @@ export const SCENE_COLORS = {
   globalPath: '#2ecc40',
   localPath: '#ff851b',
   goal: '#ff4136',
+  rtkBase: '#00e5ff',
   draft: '#ffdc00',
   costmap: '#c158dc',
   free: '#fefefe',
@@ -306,5 +307,58 @@ export const FootprintLayer = memo(function FootprintLayer({ footprint, pose }: 
       <Line points={outline} color={SCENE_COLORS.robot} lineWidth={2.5} />
       {front && <Line points={front} color={SCENE_COLORS.robotFront} lineWidth={5} />}
     </>
+  )
+})
+
+const BASE_POLE_HEIGHT_M = 0.6
+const BASE_POLE_RADIUS_M = 0.03
+const BASE_CONE_HEIGHT_M = 0.18
+const BASE_CONE_RADIUS_M = 0.1
+const BASE_RING_RADIUS_M = 0.3
+const BASE_RING_SEGMENTS = 40
+
+/** RTK base station marker: a pole with a cone on top, a ground ring and a label. */
+export const BaseStationMarker = memo(function BaseStationMarker({ position, label }: { position: Vec2; label: string }) {
+  const ring = useMemo(() => {
+    const pts: ThreeTuple[] = []
+    for (let i = 0; i <= BASE_RING_SEGMENTS; i++) {
+      const a = (i / BASE_RING_SEGMENTS) * Math.PI * 2
+      pts.push([Math.cos(a) * BASE_RING_RADIUS_M, 0, Math.sin(a) * BASE_RING_RADIUS_M])
+    }
+    return pts
+  }, [])
+  return (
+    <group position={rosToThree(position, LIFT.gps + 0.002)}>
+      <Line points={ring} color={SCENE_COLORS.rtkBase} lineWidth={3} />
+      <mesh position={[0, BASE_POLE_HEIGHT_M / 2, 0]}>
+        <cylinderGeometry args={[BASE_POLE_RADIUS_M, BASE_POLE_RADIUS_M, BASE_POLE_HEIGHT_M, 12]} />
+        <meshStandardMaterial color={SCENE_COLORS.rtkBase} />
+      </mesh>
+      <mesh position={[0, BASE_POLE_HEIGHT_M + BASE_CONE_HEIGHT_M / 2, 0]}>
+        <coneGeometry args={[BASE_CONE_RADIUS_M, BASE_CONE_HEIGHT_M, 16]} />
+        <meshStandardMaterial color={SCENE_COLORS.rtkBase} />
+      </mesh>
+      <Html
+        position={[0, BASE_POLE_HEIGHT_M + BASE_CONE_HEIGHT_M, 0]}
+        center
+        zIndexRange={[5, 0]}
+        style={{ pointerEvents: 'none' }}
+      >
+        <div
+          style={{
+            transform: 'translateY(-14px)',
+            whiteSpace: 'nowrap',
+            font: '600 11px sans-serif',
+            color: '#fff',
+            background: 'rgba(13, 17, 23, 0.78)',
+            border: `1px solid ${SCENE_COLORS.rtkBase}`,
+            borderRadius: 4,
+            padding: '1px 5px',
+          }}
+        >
+          {label}
+        </div>
+      </Html>
+    </group>
   )
 })

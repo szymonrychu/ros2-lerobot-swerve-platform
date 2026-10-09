@@ -21,6 +21,7 @@ import { PoiLayer } from '../poi/PoiLayer'
 import type { Poi } from '../poi/types'
 import { pickGround } from './picking'
 import {
+  BaseStationMarker,
   FootprintLayer,
   GoalMarker,
   GpsTilesLayer,
@@ -68,6 +69,9 @@ export interface MapSceneProps {
   baseJoints: JointStates | undefined
   armJoints: JointStates | undefined
   anchor: GpsAnchor | null
+  /** RTK base station in the map frame, or null when unknown (see gps/basePlacement). */
+  basePosition: Vec2 | null
+  baseLabel: string
   layers: LayerState
   topView: boolean
   /** A one-finger/left-button gesture belongs to the app (goal setting, adding a POI), not to camera panning. */
@@ -277,6 +281,9 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
           aroundY={props.robotPose?.y ?? 0}
           tileVersion={props.tileVersion}
         />
+      )}
+      {layers.gpsMap && layers.rtkBase && props.basePosition && (
+        <BaseStationMarker position={props.basePosition} label={props.baseLabel} />
       )}
       <GridImageLayer msg={props.map} lift={LIFT.map} opacity={1} visible={layers.slamMap} />
       <GridImageLayer

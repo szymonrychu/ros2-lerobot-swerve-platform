@@ -40,6 +40,8 @@ import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd'
 import log from '../logging'
 import { Pose2D, Vec2, yawToQuaternion } from '../map/mapMath'
 import { ActionResult, confirmClick, isCleared, parseActionResult, RESET_CONFIRM_MS } from '../map/mapActions'
+import { baseMarkerLabel, basePlacement } from '../gps/basePlacement'
+import { BaseGpsPayload, GPS_BASE_STATUS_KEY } from '../gps/gpsStatus'
 import { anchorSummary, validAnchor } from '../map3d/geo'
 import { draftGoalPose, finishGoalDraft, GoalDraft, startGoalDraft, updateGoalDraft } from '../map3d/goalGesture'
 import { Bounds, mapBounds } from '../map3d/groundMath'
@@ -67,6 +69,7 @@ const LAYER_SWATCH: Partial<Record<LayerKey, string>> = {
   globalPlan: '#2ecc40',
   localPlan: '#ff851b',
   goal: '#ff4136',
+  rtkBase: '#00e5ff',
   footprint: '#2f9bff',
   pois: '#ffb000',
 }
@@ -80,7 +83,7 @@ const MAP_LEGEND: [string, string][] = [
 ]
 
 const LAYER_GROUPS: { title: string; keys: LayerKey[] }[] = [
-  { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap'] },
+  { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap', 'rtkBase'] },
   { title: 'Navigation', keys: ['globalPlan', 'localPlan', 'goal', 'footprint'] },
   { title: 'Robot model', keys: ['robotBase', 'robotWheels', 'robotArm'] },
   { title: 'Points of interest', keys: ['pois'] },
@@ -160,6 +163,9 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
   const anchor = useMemo(() => validAnchor(anchorMsg), [anchorMsg])
   // The anchor is the GPS placement of the map frame origin itself, so it needs no frame check.
   const gpsAvailable = anchor !== null
+  const baseStatus = topicData[GPS_BASE_STATUS_KEY] as BaseGpsPayload | null | undefined
+  const basePosition = useMemo(() => basePlacement(anchor, baseStatus), [anchor, baseStatus])
+  const baseLabel = baseStatus && baseStatus.reachable ? baseMarkerLabel(baseStatus) : 'Base'
   const map = isCleared(mapMsg) ? null : mapMsg
   const mapBox = useMemo<Bounds | null>(() => (map ? mapBounds(map) : null), [map])
 
@@ -541,6 +547,8 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
             baseJoints={baseJoints}
             armJoints={armJoints}
             anchor={anchor}
+            basePosition={basePosition}
+            baseLabel={baseLabel}
             layers={layers}
             topView={topView}
             goalMode={goalMode || poiAdding}
@@ -613,7 +621,7 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
                     {g.title}
                   </Typography>
                   {g.keys.map((k) => {
-                    const disabled = k === 'gpsMap' && !gpsAvailable
+                    const disabled = (k === 'gpsMap' && !gpsAvailable) || (k === 'rtkBase' && basePosition === null)
                     return (
                       <Box key={k}>
                         <FormControlLabel
@@ -629,7 +637,12 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
                             </Box>
                           }
                         />
-                        {disabled && (
+                        {disabled && k === 'rtkBase' && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+                            Needs the GPS anchor and a fresh base station position.
+                          </Typography>
+                        )}
+                        {disabled && k === 'gpsMap' && (
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
                             Needs a GPS fix and compass heading (or drive ~5 m to fit): waiting for {GPS_ANCHOR_TOPIC}.
                           </Typography>
