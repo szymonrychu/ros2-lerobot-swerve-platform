@@ -67,7 +67,8 @@ warning (fine with a single camera).
 
 ## Build and boot setup (Ansible)
 
-- Boot: `camera_auto_detect=0` and `dtoverlay=imx708,cam0` in `/boot/firmware/config.txt`. Stale `dtoverlay=imx219...`
+- Boot: `camera_auto_detect=0` and `dtoverlay=imx708,cam0` in `/boot/firmware/config.txt` (the same task file also
+  sets `dtoverlay=arducam-pivariety,cam1` for the Arducam ToF camera on the second CSI port). Stale `dtoverlay=imx219...`
   lines of the retired stereo pair are removed. The client reboots only when a line was added, changed or removed
   (`ansible/playbooks/tasks/overview_camera_boot_config.yml`).
 - Source build into `/opt/ros2-ws` (colcon `--merge-install`, lowest priority): the Raspberry Pi libcamera fork at tag

@@ -644,7 +644,7 @@ Static checks of the overview_camera node from the repo files (YAML via `yaml.sa
 
 | Test | Description |
 |---|---|
-| `test_boot_tasks_set_the_imx708_overlay_in_firmware_config` | `overview_camera_boot_config.yml` writes `camera_auto_detect=0` and `dtoverlay=imx708,cam0` (and nothing else) to `/boot/firmware/config.txt`, each with a regexp that matches its own line (no duplicates on rerun). |
+| `test_boot_tasks_set_the_imx708_and_tof_overlays_in_firmware_config` | `overview_camera_boot_config.yml` writes `camera_auto_detect=0`, `dtoverlay=imx708,cam0` and `dtoverlay=arducam-pivariety,cam1` (Arducam ToF camera; and nothing else) to `/boot/firmware/config.txt`, each with a regexp that matches its own line (no duplicates on rerun). |
 | `test_boot_tasks_remove_stale_imx219_overlays_idempotently` | A first `state: absent` task deletes every `dtoverlay=imx219...` line (cam0, cam1, bare) and keeps `imx708`, `camera_auto_detect` and commented lines. |
 | `test_boot_tasks_register_results_and_reboot_only_when_changed` | Each overlay task registers its result and the single reboot task (last) runs only when one of them changed. |
 | `test_boot_overlays_use_the_same_path_as_the_uart_task` | The camera overlay edits the same config.txt path as the existing UART task in `deploy_nodes_client.yml`. |

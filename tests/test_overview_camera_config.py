@@ -117,14 +117,19 @@ def boot_tasks() -> list[dict]:
 # --- boot overlays -------------------------------------------------------------------------------------------------
 
 
-def test_boot_tasks_set_the_imx708_overlay_in_firmware_config() -> None:
+def test_boot_tasks_set_the_imx708_and_tof_overlays_in_firmware_config() -> None:
     present = [
         t["ansible.builtin.lineinfile"]
         for t in boot_tasks()
         if "ansible.builtin.lineinfile" in t and t["ansible.builtin.lineinfile"].get("state") != "absent"
     ]
     assert {task["path"] for task in present} == {BOOT_CONFIG_PATH}
-    assert {task["line"] for task in present} == {"camera_auto_detect=0", "dtoverlay=imx708,cam0"}
+    assert {task["line"] for task in present} == {
+        "camera_auto_detect=0",
+        "dtoverlay=imx708,cam0",
+        # Arducam ToF camera on the second CSI port (cam0 is the overview camera).
+        "dtoverlay=arducam-pivariety,cam1",
+    }
     for task in present:
         # Each line is replaced in place (regexp) so a rerun never appends a duplicate.
         assert re.search(task["regexp"], task["line"]), task
@@ -141,7 +146,12 @@ def test_boot_tasks_remove_stale_imx219_overlays_idempotently() -> None:
     assert task["path"] == BOOT_CONFIG_PATH and "line" not in task
     for stale in ("dtoverlay=imx219,cam0", "dtoverlay=imx219,cam1", "dtoverlay=imx219"):
         assert re.search(task["regexp"], stale), stale
-    for kept in ("dtoverlay=imx708,cam0", "camera_auto_detect=0", "# dtoverlay=imx219,cam0"):
+    for kept in (
+        "dtoverlay=imx708,cam0",
+        "dtoverlay=arducam-pivariety,cam1",
+        "camera_auto_detect=0",
+        "# dtoverlay=imx219,cam0",
+    ):
         assert not re.search(task["regexp"], kept), kept
     assert boot_tasks()[0]["ansible.builtin.lineinfile"] == task, "stale lines go before the new ones are added"
 
@@ -149,7 +159,7 @@ def test_boot_tasks_remove_stale_imx219_overlays_idempotently() -> None:
 def test_boot_tasks_register_results_and_reboot_only_when_changed() -> None:
     tasks = boot_tasks()
     registered = [t["register"] for t in tasks if "ansible.builtin.lineinfile" in t]
-    assert len(registered) == 3 and len(set(registered)) == 3
+    assert len(registered) == 4 and len(set(registered)) == 4
     reboot = [t for t in tasks if "ansible.builtin.reboot" in t]
     assert len(reboot) == 1
     condition = reboot[0]["when"]

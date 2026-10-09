@@ -1,8 +1,8 @@
 ---
-# Boot config for the Raspberry Pi Camera Module 3 (IMX708) on the Pi 5 CSI port cam0: auto detection off, one
-# explicit imx708 overlay. Stale imx219 overlay lines (from the retired stereo pair) are removed. The firmware reads
-# config.txt at boot, so the client reboots when (and only when) a line was added, changed or removed. Same pattern as
-# the UART overlay in deploy_nodes_client.yml. Included from pre_tasks (after the stop-all) by the full client
+# Boot config for the Pi 5 CSI cameras: auto detection off, one explicit imx708 overlay on cam0 (Camera Module 3) and
+# one arducam-pivariety overlay on cam1 (Arducam ToF camera). Stale imx219 overlay lines (from the retired stereo
+# pair) are removed. The firmware reads config.txt at boot, so the client reboots when (and only when) a line was
+# added, changed or removed. Same pattern as the UART overlay in deploy_nodes_client.yml. Included from pre_tasks (after the stop-all) by the full client
 # playbook (tags boot and overview_camera, so --tags overview_camera reaches it).
 - name: Remove stale IMX219 overlay lines (retired stereo pair)
   ansible.builtin.lineinfile:
@@ -34,8 +34,21 @@
   register: imx708_cam0_result
   tags: [boot]
 
+- name: Enable the Arducam ToF overlay on CSI cam1 (Pivariety driver, ships with the Ubuntu raspi kernel)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    line: "dtoverlay=arducam-pivariety,cam1"
+    regexp: "^dtoverlay=arducam-pivariety,cam1$"
+    insertafter: "^dtoverlay=imx708,cam0$"
+    create: true
+  when: ansible_machine == "aarch64"
+  register: tof_cam1_result
+  tags: [boot]
+
 - name: Reboot client if a camera boot overlay changed
-  when: imx219_overlay_result.changed or camera_auto_detect_result.changed or imx708_cam0_result.changed
+  when: >-
+    imx219_overlay_result.changed or camera_auto_detect_result.changed or imx708_cam0_result.changed
+    or tof_cam1_result.changed
   ansible.builtin.reboot:
     reboot_timeout: 120
   tags: [boot]
