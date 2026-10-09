@@ -37,6 +37,7 @@ import PolylineIcon from '@mui/icons-material/Polyline'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd'
+import BackHandIcon from '@mui/icons-material/BackHand'
 import log from '../logging'
 import { Pose2D, Vec2, yawToQuaternion } from '../map/mapMath'
 import { ActionResult, confirmClick, isCleared, parseActionResult, RESET_CONFIRM_MS } from '../map/mapActions'
@@ -52,7 +53,10 @@ import { browserStorage } from '../tabSelection'
 import { CANVAS_BG, MONO_FONT } from '../theme'
 import { TabConfig } from '../types'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
-import { canFinishArea } from '../poi/editor'
+import { canFinishArea, isClick } from '../poi/editor'
+import { DEFAULT_ARM_OFFSET, mapToBaseLink } from '../grasp/grasp'
+import { GraspPanel } from '../grasp/GraspPanel'
+import { useGrasp } from '../grasp/useGrasp'
 import { usePoiEditor } from '../poi/usePoiEditor'
 import type { PoiResult } from '../poi/types'
 
@@ -229,14 +233,44 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
     onResult: onPoiResult,
   })
   const poiAdding = poi.mode !== 'none'
+
+  const armMount = useMemo(() => tab.arm_offset ?? DEFAULT_ARM_OFFSET, [tab.arm_offset])
+  const grasp = useGrasp({ tabId: tab.id, topicData, mount: armMount, notify: setAction })
+  const [graspOpen, setGraspOpen] = useState(false)
+  const graspPicking = grasp.pickMode
+  const setGraspPick = grasp.setPickMode
   // On a phone the layers panel would cover the editor: close it when a POI is selected.
   useEffect(() => {
     if (narrow && poi.selectedId) setPanelOpen(false)
   }, [narrow, poi.selectedId])
-  // Goal setting and POI adding both own the one-finger gesture: only one at a time.
+  // Goal setting, POI adding and grasp picking all own the one-finger gesture: only one at a time.
   useEffect(() => {
-    if (poiAdding) setGoalMode(false)
-  }, [poiAdding])
+    if (poiAdding) {
+      setGoalMode(false)
+      setGraspPick(false)
+    }
+  }, [poiAdding, setGraspPick])
+  useEffect(() => {
+    if (goalMode) setGraspPick(false)
+  }, [goalMode, setGraspPick])
+  useEffect(() => {
+    if (graspPicking) {
+      setGoalMode(false)
+      poi.setMode('none')
+    }
+  }, [graspPicking])
+  useEffect(() => {
+    if (!topView) setGraspPick(false)
+  }, [topView, setGraspPick])
+  // The grasp panel shares the screen: on a phone it replaces the layers and POI panels, on wide screens the POI list.
+  useEffect(() => {
+    if (!graspOpen) return
+    if (narrow) setPanelOpen(false)
+    setPoiListOpen(false)
+  }, [graspOpen, narrow])
+  useEffect(() => {
+    if (!graspOpen) setGraspPick(false)
+  }, [graspOpen, setGraspPick])
 
   const robotPoseRef = useRef(robotPose)
   robotPoseRef.current = robotPose
@@ -304,6 +338,41 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
     }
   }, [goalMode, sendGoal])
 
+  // Grasp pick: a click that does not move fills the object x, y (base_link) from the ground point under it.
+  const applyGraspPick = grasp.applyPick
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || !graspPicking) return
+    let down: Vec2 | null = null
+    const screen = (e: PointerEvent): Vec2 => ({ x: e.clientX, y: e.clientY })
+    const onPanel = (e: PointerEvent) => e.target instanceof Element && e.target.closest('[data-grasp-panel]') !== null
+    const onDown = (e: PointerEvent) => {
+      pointersRef.current.add(e.pointerId)
+      down = pointersRef.current.size === 1 && e.button === 0 && !onPanel(e) ? screen(e) : null
+    }
+    const onUp = (e: PointerEvent) => {
+      pointersRef.current.delete(e.pointerId)
+      const start = down
+      down = null
+      if (!start || onPanel(e) || !isClick(start, screen(e)) || !controllerRef.current) return
+      const at = controllerRef.current.pick(e.clientX, e.clientY)
+      if (at) applyGraspPick(mapToBaseLink(at, robotPoseRef.current ?? { x: 0, y: 0, yaw: 0 }))
+    }
+    const onCancel = (e: PointerEvent) => {
+      pointersRef.current.delete(e.pointerId)
+      down = null
+    }
+    el.addEventListener('pointerdown', onDown)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onCancel)
+    return () => {
+      el.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onCancel)
+      pointersRef.current.clear()
+    }
+  }, [graspPicking, applyGraspPick])
+
   const draftGoal = useMemo(() => (draft ? draftGoalPose(draft, robotPose) : null), [draft, robotPose])
 
   const runAction = async (path: string, busyMessage: string) => {
@@ -365,6 +434,19 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
           >
             STOP
           </Button>
+          {grasp.executing && (
+            <Button
+              variant="contained"
+              color="error"
+              size="large"
+              startIcon={<StopCircleIcon />}
+              onClick={grasp.stop}
+              title="Stop and hold the arm, aborting the running grasp"
+              sx={{ px: 3, fontWeight: 800, letterSpacing: '0.05em' }}
+            >
+              STOP GRASP
+            </Button>
+          )}
           <Button
             variant={topView ? 'contained' : 'outlined'}
             startIcon={topView ? <VerticalAlignBottomIcon /> : <ThreeDRotationIcon />}
@@ -483,6 +565,17 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
               {resetArmed ? 'Confirm reset' : 'Reset map'}
             </Button>
           </ButtonGroup>
+          {tab.grasp_command_topic && (
+            <Button
+              variant={graspOpen ? 'contained' : 'outlined'}
+              startIcon={<BackHandIcon />}
+              aria-pressed={graspOpen}
+              onClick={() => setGraspOpen((o) => !o)}
+              title="Plan and run a grasp on an object by its pose"
+            >
+              Grasp
+            </Button>
+          )}
           {hasArm && (
             <ButtonGroup variant="outlined" aria-label="Arm home">
               <Button
@@ -516,7 +609,7 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
           position: 'relative',
           overflow: 'hidden',
           bgcolor: CANVAS_BG,
-          cursor: goalMode || poiAdding ? 'crosshair' : poi.dragging ? 'grabbing' : 'default',
+          cursor: goalMode || poiAdding || graspPicking ? 'crosshair' : poi.dragging ? 'grabbing' : 'default',
           touchAction: 'none',
         }}
         onContextMenu={(e) => e.preventDefault()}
@@ -551,10 +644,11 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
             baseLabel={baseLabel}
             layers={layers}
             topView={topView}
-            goalMode={goalMode || poiAdding}
+            goalMode={goalMode || poiAdding || graspPicking}
             pois={poi.pois}
             selectedPoiId={poi.selectedId}
             poiDraft={poi.draft}
+            graspPreview={graspOpen ? grasp.preview : null}
             controllerRef={controllerRef}
             mapFrame={mapFrame}
           />
@@ -578,7 +672,7 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
               left: 8,
               width: { xs: showPanel ? 0 : 'calc(100% - 16px)', sm: 300 },
               maxWidth: 'calc(100% - 16px)',
-              display: { xs: showPanel ? 'none' : 'flex', sm: 'flex' },
+              display: { xs: showPanel || graspOpen ? 'none' : 'flex', sm: 'flex' },
               flexDirection: 'column',
               gap: 1,
               zIndex: 1,
@@ -604,6 +698,16 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
             )}
           </Box>
         )}
+
+        <Collapse
+          in={graspOpen}
+          unmountOnExit
+          data-grasp-panel
+          sx={{ position: 'absolute', bottom: 8, left: 8, width: { xs: 'calc(100% - 16px)', sm: 360 }, zIndex: 2 }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <GraspPanel state={grasp} topView={topView} onClose={() => setGraspOpen(false)} />
+        </Collapse>
 
         <Collapse
           in={showPanel}

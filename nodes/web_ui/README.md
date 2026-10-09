@@ -39,6 +39,7 @@ Single Python process: FastAPI (uvicorn) on port 8080 serves:
 - `POST /api/map/reset?tab=<tab id>` - ask slam_toolbox to drop the current map and start a new one (see below)
 - `POST /api/nav/stop?tab=<tab id>` - cancel all Nav2 NavigateToPose goals (see below)
 - `POST /api/arm/home?tab=<tab id>` and `POST /api/arm/set_home?tab=<tab id>` - call the mcp_server arm Trigger services (see below)
+- `POST /api/grasp?tab=<tab id>` and `POST /api/grasp/stop?tab=<tab id>` - grasp plan / execute / release and stop through the mcp_server `GraspService` (see [Grasp panel](#grasp-panel))
 - `GET /api/tiles/{z}/{x}/{y}.png` - cached map tile proxy (see below)
 - `GET /api/agent/state`, `GET /api/agent/history`, `POST /api/agent/message`, `POST /api/agent/stop`, `POST /api/agent/reset` and `WS /ws/agent` - proxy of the claude_agent API (see [Agent tab](#agent-tab-agent_chat))
 - `WS /ws` — WebSocket bridge: 20 Hz topic broadcast + publish commands (rejected with an error frame while the battery is below cut-off, see [Battery](#battery-optional-battery-section))
@@ -62,7 +63,7 @@ battery:
 
 - **Guard (`ros2_common.battery.BatteryGuard`, shared package `shared/`, also used by mcp_server):** enters cut-off when the voltage is below `cells * cutoff_cell_v` and leaves it only above `cells * resume_cell_v` (hysteresis). With no reading, or a reading older than `stale_s`, the state is unknown and **nothing is blocked**. Thread-safe: the ROS callback thread updates it, the asyncio server reads it.
 - **Broadcast:** the reading is serialized (`voltage`, `cells`, `cell_voltage` = voltage / cells, `stamp`, `frame_id`) together with the guard state (`cutoff`, `stale`, `cutoff_v`, `resume_v`, thresholds) and sent to clients as a normal envelope on the battery topic. `/api/config` carries the `battery` section so the frontend knows topic and thresholds.
-- **In cut-off, rejected:** WebSocket `publish` frames (nothing is published; the client gets `{"type":"error","source":"battery","message":"battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused"}`) and `POST /api/map/save`, `/api/map/reset`, `/api/arm/home`, `/api/arm/set_home`, `/api/agent/message` and `/api/agent/reset` with HTTP **503** and `{"ok": false, "message": "battery below cut-off ..."}`. `POST /api/nav/stop` and `POST /api/agent/stop` stay allowed (safety), as do `/api/agent/state`, `/api/agent/history` and `/ws/agent`. `POST /api/poi` is also allowed: POI edits are not robot motion. Rejections are logged.
+- **In cut-off, rejected:** WebSocket `publish` frames (nothing is published; the client gets `{"type":"error","source":"battery","message":"battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused"}`) and `POST /api/map/save`, `/api/map/reset`, `/api/arm/home`, `/api/arm/set_home`, `/api/agent/message` and `/api/agent/reset` with HTTP **503** and `{"ok": false, "message": "battery below cut-off ..."}`. `POST /api/nav/stop` and `POST /api/agent/stop` stay allowed (safety), as do `/api/agent/state`, `/api/agent/history` and `/ws/agent`. `POST /api/poi` is also allowed: POI edits are not robot motion. `POST /api/grasp` with action `execute` or `release` is rejected the same way (503), while action `plan` (a dry run) and `POST /api/grasp/stop` stay allowed. Rejections are logged.
 - **Frontend:** a voltage chip in the AppBar (e.g. `11.4 V`, per-cell in the tooltip): green above the resume threshold, amber between cut-off and resume, red in cut-off, grey `--` without a recent reading. In cut-off a red banner under the AppBar reads "Battery below cut-off (x.xx V/cell) - commands are disabled"; everything else keeps rendering. Error frames from the WebSocket appear as a toast; the 503 message of a failed Map tab action appears in the existing action snackbar. Level/colour logic is in `frontend/src/battery/batteryStatus.ts` (vitest `batteryStatus.test.ts`).
 
 ## GPS status chips (optional `gps_status` section)
@@ -141,6 +142,7 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
   - **Move:** in Top view press the selected point/area and drag it (an area moves as a whole; its vertex handles move single vertices). The POI is shown at the drop position until the store's next list arrives. A press on an unselected POI only selects it, so the map still pans under normal drags.
   - **List:** a collapsible panel "Points of interest (n)" lists name, kind, creator, status and age (newest first); clicking a row selects the POI and centres the view on it. Open by default on wide screens, collapsed on a phone.
   - All edits go through `POST /api/poi` and are visible to the agent and other browsers via the latched `/poi/list`. The code is in `frontend/src/poi/` (pure logic: `geometry.ts`, `editor.ts`, `style.ts`, `api.ts`; React: `PoiLayer.tsx`, `PoiPanels.tsx`, `usePoiEditor.ts`).
+- **Grasp panel:** see [Grasp panel](#grasp-panel) (toolbar button **Grasp**; **STOP GRASP** appears in the toolbar while a grasp runs).
 - **STOP** (red) calls `POST /api/nav/stop`. **Save map** calls `POST /api/map/save`. **Reset map** needs two clicks like Set home (**Confirm reset**). Results appear as a snackbar.
 
 ### Fields
@@ -169,6 +171,10 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
 | `poi_list_topic` | `/poi/list` | `std_msgs/String` JSON `{"pois": [...], "revision": n}` from poi_store, subscribed reliable + transient_local (latched) and forwarded to clients like any topic |
 | `poi_command_topic` | `/poi/command` | `std_msgs/String` JSON commands published by `POST /api/poi` (not a client-publishable topic) |
 | `poi_result_topic` | `/poi/result` | `std_msgs/String` JSON results, matched to the pending request by `request_id` (not forwarded to clients) |
+| `grasp_command_topic` | `/grasp/command` | `std_msgs/String` JSON grasp requests published by `POST /api/grasp` (not a client-publishable topic) |
+| `grasp_result_topic` | `/grasp/result` | `std_msgs/String` JSON answers, matched to the pending request by `request_id` |
+| `grasp_timeout_s` | `30` | Seconds `POST /api/grasp` waits for a plan answer |
+| `grasp_accept_wait_s` | `1` | Seconds an execute / release waits for an immediate rejection before answering "accepted" |
 | `gps_fix_topic` | `/client/gps/fix` | `sensor_msgs/NavSatFix` used for the GPS layer and the anchor fit |
 | `gps_anchor_min_points` | `10` | Samples needed before an anchor is published |
 | `gps_anchor_min_spread_m` | `5.0` | Minimum map-frame track extent (bounding-box diagonal, m) |
@@ -184,7 +190,33 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
 | `tile_cache_dir` | `/var/cache/web_ui/tiles` | Tile disk cache (created by Ansible) |
 | `tile_cache_max_mb` | `256` | Cache size cap |
 
-All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected). `arm_offset` (optional, `[x, y, z]` in metres) places the arm URDF root on the base model. Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`.
+All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected). `arm_offset` (optional, `[x, y, z]` in metres) places the arm URDF root on the base model: ROS coordinates in `base_link`, z up from the floor (the base model stands on z = 0), no yaw. Unset, the frontend uses `[0.25, 0, 0]`; the robot sets it to the mcp_server `arm.base_in_base_link` ESTIMATE `[0.15, -0.04, 0.15]` (to be measured), so the drawn arm and the grasp preview match what the planner assumes. Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`.
+
+### Grasp panel
+
+The **Grasp** toolbar button (shown when `grasp_command_topic` is set) opens a collapsible panel at the bottom left (full width on a phone, where it replaces the layers and POI panels). It drives the mcp_server grasp macros (`nodes/mcp_server/README.md`, "Grasp macros" and "Web-UI contract"). Code: `frontend/src/grasp/` (pure logic `grasp.ts`, API client `graspApi.ts`, state `useGrasp.ts`, UI `GraspPanel.tsx`, 3D `GraspPreview.tsx`; vitest `grasp.test.ts`, `graspApi.test.ts`, `GraspPanel.test.tsx`).
+
+- **Object** (a box standing on a support): frame selector `base_link` (default, floor z = 0) or `arm` (arm base frame, floor at about z = -0.15); switching the frame converts x, y and the support height so the object stays where it is. Fields (metres, yaw in degrees, sent as radians): x, y (centre), support z (height of the object's bottom = the surface), width (across the jaws), depth (along the approach), height, yaw (blank = across the approach). **Pick on map** (Top view) fills x, y from a click on the ground (converted from the map frame to `base_link` with the robot pose; the frame switches to `base_link`).
+- **Strategy:** auto, scoop, angled (with a pitch in degrees, blank = the server default 45) or top down.
+- **Advanced** (collapsed): `surface_z_m` (expected surface height relative to the robot plane), tilt override roll / pitch (degrees, both blank = use the IMU) and every numeric `grasp` config field as a `params` override (blank = the server default, shown as the placeholder). Inputs are validated like the server (ranges), every problem is listed.
+- **Plan** is a dry run (`action: "plan"`, nothing moves): it shows feasibility, the reasons, the chosen strategy, pitch, the `auto` attempts and the plan summary. **Execute** is enabled only while the last plan was feasible AND was made for exactly the current inputs (any change disables it again); it opens a confirm step with the plan summary (strategy, pitch, wrist roll, jaw opening, waypoints, slow-zone steps) and only **Confirm execute** sends it. **Release** opens the gripper and lifts; it needs two clicks (**Confirm release**, 4 s). While a grasp runs the panel shows the running state, a large **STOP GRASP** button at the top of the panel and one in the toolbar (also with the panel closed); **Stop** in the panel is always present. The outcome (`grasped`, `missed`, `aborted`, `infeasible`, `released`), reasons, per-step statuses and the final gripper position and load come from the stream below.
+- **Preview** in the 3D scene (while the panel is open): a translucent box at the object pose (width along the yaw, or across the approach from the arm base when blank) and, for a plan that matches the inputs, a polyline through the waypoint tool positions with a labelled marker per waypoint (`pre_grasp`, `open`, `approach`, `grasp`, `close`, `lift`, `retreat`). Plan waypoints are in the arm frame; they are drawn at `arm_offset + point` in the robot group (the arm frame is `base_link` shifted by the mount, no yaw).
+
+#### API contract
+
+`POST /api/grasp?tab=<tab id>` with the mcp_server request as JSON body (`action` plan | execute | release; plan/execute need an `object`; `strategy`, `params`, `approach_pitch_deg`, `surface_z_m`, `tilt_override_deg` optional; a client `request_id` is replaced). The backend publishes it on `grasp_command_topic` with a fresh `request_id` and matches the answer on `grasp_result_topic` by it.
+
+| Action | Behaviour | Response |
+|---|---|---|
+| `plan` | waits up to `grasp_timeout_s` | the mcp_server answer `{"ok", "request_id", "action", "result": {"outcome": "planned" or "infeasible", "reasons", "plan": {...}}}`; 200, or 400 with `{"ok": false, "error"}` when mcp_server rejects it |
+| `execute`, `release` | refused with 503 in battery cut-off (like `/api/arm/home`, nothing is published); otherwise waits `grasp_accept_wait_s` for an immediate rejection | 202 `{"ok": true, "accepted": true, "request_id", "action", "message"}` (the run continues), or the immediate mcp_server answer (400 for a rejection such as another action running or the mcp_server's own cut-off) |
+
+Common errors: 404 unknown tab, 422 body without a valid `action` or without an `object` for plan/execute (`stop` has its own endpoint), 503 bridge unavailable or mcp_server not running (nothing subscribes to the command topic), 504 plan not answered in time.
+
+`POST /api/grasp/stop?tab=<tab id>` publishes `{"action": "stop"}` and returns the answer `{"ok", "result": {"arm_held", "message"}}` (it aborts a running execute/release; mcp_server answers at once, 504 after 3 s). **Never blocked by the battery cut-off.**
+
+**Streaming.** Execute / release progress is a synthetic WebSocket topic `/web_ui/grasp_result` (cached, so a reloaded browser sees the current state): `{"request_id", "action", "state": "running"}` when the request is published, then `{"ok", "request_id", "action", "state": "done", "result": {"outcome", "reasons", "steps": [...], "gripper_position_rad", "gripper_effort"}}` (or `"error"` instead of `result`) when mcp_server answers. Plan and stop answers are not streamed. The mcp_server contract has a single answer per request: there are no intermediate step messages, so `steps` arrive with the final result.
+
 
 ### Backend
 
@@ -281,7 +313,7 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 # Python tests
 cd nodes/web_ui && uv sync && uv run pytest tests/ -v
 
-# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/map3d/*.test.ts, src/poi/*.test.ts, src/tabSelection.test.ts, src/agent/*.test.ts)
+# Frontend type check + unit tests (vitest, node environment: src/map/*.test.ts, src/map3d/*.test.ts, src/poi/*.test.ts, src/grasp/*.test.ts(x), src/tabSelection.test.ts, src/agent/*.test.ts)
 cd nodes/web_ui/frontend && npx tsc --noEmit && npm test
 
 # Frontend dev server (hot reload, proxies /api and /ws to localhost:8080)

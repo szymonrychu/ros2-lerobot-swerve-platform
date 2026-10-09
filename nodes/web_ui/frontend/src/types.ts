@@ -46,6 +46,9 @@ export interface TabConfig {
   poi_list_topic?: string // default /poi/list (latched JSON list from poi_store)
   poi_command_topic?: string // default /poi/command (edits go through POST /api/poi)
   poi_result_topic?: string // default /poi/result
+  grasp_command_topic?: string // default /grasp/command (grasp requests go through POST /api/grasp)
+  grasp_result_topic?: string // default /grasp/result
+  grasp_timeout_s?: number // seconds POST /api/grasp waits for a plan (default 30)
   agent_url?: string // agent_chat tab: claude_agent API base URL proxied by the backend (default http://127.0.0.1:18300)
 }
 

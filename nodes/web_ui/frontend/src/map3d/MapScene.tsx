@@ -17,6 +17,9 @@ import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor } from './geo'
 import { Bounds, classifyBaseLink, fitDistance } from './groundMath'
 import { LayerState } from './layers'
+import { GraspPreview } from '../grasp/GraspPreview'
+import { DEFAULT_ARM_OFFSET } from '../grasp/grasp'
+import type { GraspPreviewData } from '../grasp/useGrasp'
 import { PoiLayer } from '../poi/PoiLayer'
 import type { Poi } from '../poi/types'
 import { pickGround } from './picking'
@@ -38,7 +41,6 @@ const INITIAL_CAMERA: ThreeTuple = [-3, 3, 3]
 const ORBIT_MAX_POLAR = Math.PI / 2 - 0.05 // keep the orbit camera above the ground
 const OBLIQUE_ELEVATION = Math.PI / 4 // camera elevation when leaving the top view
 const COSTMAP_OPACITY = 0.55
-const DEFAULT_ARM_OFFSET: [number, number, number] = [0.25, 0, 0]
 
 /** Imperative handle the tab uses for camera buttons and ground picking. */
 export interface SceneController {
@@ -79,6 +81,8 @@ export interface MapSceneProps {
   pois: Poi[]
   selectedPoiId: string | null
   poiDraft: Vec2[]
+  /** Grasp panel preview (object box, planned tool path) in base_link, or null. */
+  graspPreview: GraspPreviewData | null
   controllerRef: MutableRefObject<SceneController | null>
 }
 
@@ -200,6 +204,7 @@ const RobotLayer = memo(function RobotLayer({
   showBody,
   showWheels,
   showArm,
+  graspPreview,
   publish,
   orbitRef,
   onArmReady,
@@ -214,6 +219,7 @@ const RobotLayer = memo(function RobotLayer({
   showBody: boolean
   showWheels: boolean
   showArm: boolean
+  graspPreview: GraspPreviewData | null
   publish: (topic: string, msgType: string, data: unknown) => void
   orbitRef: MutableRefObject<OrbitControlsImpl | null>
   onArmReady: (ready: boolean) => void
@@ -255,6 +261,7 @@ const RobotLayer = memo(function RobotLayer({
         ) : (
           <RobotModel urdfFile={armUrdf} jointStates={armJoints} position={armPos} visible={showArm} />
         ))}
+      <GraspPreview data={graspPreview} />
     </group>
   )
 })
@@ -316,6 +323,7 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
           showBody={layers.robotBase}
           showWheels={layers.robotWheels}
           showArm={layers.robotArm}
+          graspPreview={props.graspPreview}
           publish={props.publish}
           orbitRef={orbitRef}
           onArmReady={props.onArmReady}
