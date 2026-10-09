@@ -183,6 +183,12 @@
             _deploy_node_name: topic_scraper_api
           tags: [topic_scraper_api, apt, python, build, config]
 
+        - name: BNO055 calibration state directory
+          ansible.builtin.include_tasks:
+            file: tasks/bno055_state_dir.yml
+            apply:
+              tags: [bno055_imu]
+          tags: [bno055_imu, setup]
         - name: Deploy bno055_imu
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml

@@ -372,6 +372,12 @@ deployed, in `deploy_nodes_client.yml` (tags `setup`, `poi_store`). The node kee
 `slam_toolbox` is deployed, in `deploy_nodes_client.yml` (tags `setup`, `slam_toolbox`).
 slam_toolbox saves and reloads its posegraph there (`slam_map.posegraph` / `slam_map.data`).
 
+### bno055_imu calibration directory
+
+`playbooks/tasks/bno055_state_dir.yml` creates `/var/lib/ros2/bno055_imu` (owner `ansible_user`, mode `0755`) before
+`bno055_imu` is deployed, in `deploy_nodes_client.yml` (tags `setup`, `bno055_imu`). The node saves and restores the
+BNO055 calibration offsets there (`calibration.json`); delete the file to reset them.
+
 ### web_ui tile cache directory
 
 `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui/tiles` (and its parent, owner `ansible_user`,

@@ -565,6 +565,8 @@ ros2_nodes:
       publish_hz: 50
       i2c_bus: 8  # software i2c-gpio bus, must match rpi_bno055_i2c_gpio_bus
       i2c_address: 0x28
+      # Sensor offsets survive node restarts here (directory created by tasks/bno055_state_dir.yml).
+      calibration_file: /var/lib/ros2/bno055_imu/calibration.json
       orientation_covariance: 0.01
       # Fixed small gyro covariance: the rolling-variance estimate inflated the yaw rate exactly while turning, so the
       # EKF preferred the slip-prone wheel yaw rate over the gyro.
