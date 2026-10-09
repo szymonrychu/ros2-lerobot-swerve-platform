@@ -61,6 +61,7 @@ configs (largest position error here: 2 micrometres, tolerance 2 mm). Difference
 |---|---|---|---|
 | shoulder_lift range | -1.745 .. 1.745 | mcp_server widens to -1.745 .. 1.9 (`joint_limit_overrides_rad`) | `SceneConfig.limit_overrides_rad` widens joint and actuator range |
 | `gripperframe` site | 2 cm off the fixed jaw inner face along the jaw axis | `gripper_frame_link` is the jaw face | the harness does not use the site; the test checks the URDF frame carried by the MuJoCo `gripper` body |
+| Jaw closing point | (-0.0016, 0.0002, 0.0034) m in `gripper_frame_link` | `arm.tool_offset_m` (0.0104, -0.0282, -0.0017), measured on the robot | `SceneConfig.tool_offset_m` shifts the jaws onto the measured point, see TCP calibration |
 | Actuators | position servos, kp 998, force +-2.94 Nm (STS3215 estimate) | real servos | see limitations |
 
 ### Joint convention
@@ -74,6 +75,44 @@ replay raw URDF angles. Targets beyond the actuator range are clipped and report
 
 Conventions that the example plans rely on: negative `elbow_flex` stretches the arm; at `wrist_roll` 0 the fixed
 jaw is underneath and the moving jaw closes from above; gripper 0 is about 1.6 cm open, 0.6 rad about 6 cm.
+
+## TCP calibration
+
+The real robot's jaw closing point (`arm.tool_offset_m` in `ansible/group_vars/client.yml`, measured 2026-10-08 by
+closing the jaws on ruler marks, commit ea6353a) is the truth the planner works with. The vendored Menagerie jaws close
+somewhere else, so a plan that puts the measured tool point on the object puts the sim jaws 3 cm beside it.
+
+Why they differ (checked, not a planner frame bug):
+
+- Same frame on both sides. mcp_server's IK chain ends at `gripper_frame_link` and applies the offset as
+  `T_gripper_frame_link @ [offset, 1]` (`ik.py` `forward`/`inverse`); `JawModel` maps it into `gripper_link` with the
+  same URDF transform. The MuJoCo `gripper` body is URDF `gripper_link` (`tests/test_model.py`, 2 micrometres), and
+  `grasp_sim.tcp` uses the URDF `gripper_frame_joint` (xyz -0.0079 -0.000218 -0.0981, rpy 0 pi 0).
+- In `gripper_link` the measured point is (-0.0183, -0.0284, -0.0964) m and the stock closing point (-0.0064, 0.0000,
+  -0.1011) m (`closing_point_gfl`: nearest points of the fixed finger and the moving jaw at the closed angle -0.165).
+  The SO-101 fingers are symmetric about the `gripper_link` y = 0 plane (finger geoms within +-10 mm in y, tip spheres
+  at y 0 and +-3.5 mm) and the jaw hinge axis is `gripper_link` y. The measured point is 28 mm along the hinge axis,
+  outside the 20 mm wide fingers, and 10 mm behind the fixed jaw's inner face: it is not a point on the stock jaws.
+  Reading the numbers in `gripper_link` axes instead, or swapping x and y, still leaves it at least 2.8 cm off the
+  fingers, so it is not an axis or frame mix-up either.
+- It is an effective TCP: it was solved from where the closed jaws touched the ruler marks through the arm's forward
+  kinematics with the joint zero offsets of that morning, so it also absorbs the residual kinematic error at the
+  measurement poses (joint offsets fitted to about 6 mm floor RMS, link lengths, sag). The wrist_roll offset was
+  re-solved after the measurement (-0.0162 to -0.0710 rad), which moves a point 3.4 cm off the roll axis by about 2 mm
+  only. On the robot the planner's tool point and the place the jaws close agree by construction of this calibration,
+  so the sim has to reproduce that mapping, not the stock jaw geometry. Re-measure `tool_offset_m` after any change of
+  the joint offsets or the gripper.
+
+What the harness does: `SceneConfig.tool_offset_m` (gripper_frame_link, m; None = stock jaws) translates the fixed
+finger collision geoms (`fixed_jaw_box2..7`, the tip spheres and the finger collision mesh) and the moving jaw body
+(hinge and all its geoms) by `tool_offset_m` minus the stock closing point, in `gripper_link`. The wrist housing
+(`fixed_jaw_box1`) stays; the jaw opening per gripper angle is unchanged; `so101.xml` is untouched (MjSpec edits in
+`grasp_sim.tcp.shift_jaws`). Visual meshes are not moved, so renders show the stock jaws while contacts use the shifted
+fingers. `tests/test_tcp.py` asserts the calibrated closing point equals client.yml's `tool_offset_m` within 2 mm
+(actual: 0.005 mm). `grasp_sim.tcp.client_tool_offset()` reads the deployed value.
+
+Effect: the 74 feasible plans of the "before" scenario matrix below, made by the planner with the deployed tool
+offset, lift 0 times with the stock jaws (`grasp-sim matrix <dir> --stock-jaws`) and 74 times with the calibrated jaws.
 
 ## Scene
 
@@ -95,13 +134,16 @@ object:                   # null for no object
   x_m: 0.2
   y_m: 0.0
   yaw_rad: 0.0
+  gap_below_m: 0.0          # > 0: the box rests on two 4 mm rails along its x edges, leaving a slot for a scoop
 joint_offsets_rad: {shoulder_pan: -0.0619, ...}
 limit_overrides_rad: {shoulder_lift: [-1.745, 1.9]}
+tool_offset_m: null         # jaw closing point in gripper_frame_link, e.g. [0.0104, -0.0282, -0.0017] (TCP calibration)
 ```
 
 MuJoCo combines two geoms' friction with the larger coefficient, and the jaw geoms use friction 1, so lowering the
 object friction below 1 does not make it slippier against the jaws; raise it to make it grippier on the support.
-Geoms named `floor`, `support` (ledge/stair only) and `object_box` drive the report.
+Geoms named `floor`, `support` (ledge/stair only), `support_rail_left` / `support_rail_right` (gap rails, judged as
+support) and `object_box` drive the report.
 
 ## Replay plan format
 
@@ -175,6 +217,63 @@ output; the schema it expects (aliases in brackets are also accepted):
   restart below the previous time is taken relative to the waypoint start.
 - `units`: `rad` (default) or `deg`. Values are in the measured joint space (the offsets above are applied in the sim).
 - The first sample must give all six joints, else `ValueError`.
+
+## Planner scenario matrix
+
+Reproducible validation of the deployed planner (`nodes/mcp_server/mcp_server/grasp.py`) with the deployed config.
+Two environments: the planner runs in the mcp_server uv env (ikpy, the node's own models), the replay in this one.
+
+```bash
+cd nodes/mcp_server
+uv run python ../../sim/grasp_sim/scripts/plan_matrix.py --out /tmp/matrix            # about 5 min, 240 plans
+uv run python ../../sim/grasp_sim/scripts/plan_matrix.py --out /tmp/m2 --params p.yaml --only 4x4x4_   # tuning
+cd ../../sim/grasp_sim
+uv run grasp-sim matrix /tmp/matrix               # about 10 s; table + /tmp/matrix/results.json
+uv run grasp-sim matrix /tmp/matrix --stock-jaws  # same plans, uncalibrated jaws
+```
+
+`plan_matrix.py` reads the `mcp_server` block of `ansible/group_vars/client.yml` (tool offset, joint offsets, limit
+overrides, floor guard, grasp defaults; `--params` overrides grasp values) and plans from the executor's default
+folded seed: boxes 4x4x4, 3x3x6, 6x6x3 cm (depth x width x height); centre radius 0.20, 0.25, 0.30 m straight ahead
+and 0.25 m at 30 deg; surface floor (-0.15), ledge -0.08, ledge 0.0, stair -0.25 (arm frame); strategies `top_down`,
+`angled45`, `scoop` (box flat on the surface), `scoop_gap` (box 2 cm up on rails, `gap_below_m` 0.02) and `auto`. It
+writes `index.json` (scene constants, executor timing, planner params, one entry per scenario) and one GraspPlan JSON
+per scenario. `grasp-sim matrix` replays every feasible plan the way `GraspExecutor.execute` streams it (start at the
+pre-grasp with the roll done, gripper open at `gripper_velocity_rps`, approach/grasp/lift/retreat along the planned
+joint samples with one quintic profile each at the waypoint `speed_scale`, close to `gripper_closed_rad` and hold)
+on a scene with the calibrated jaws, the box yawed to face the arm. "Lifted" = the SimReport grasp success (2 cm up and
+still between the jaws after the lift and at the end) with no arm-link contact with floor or support.
+
+Results 2026-10-09 (lifted / feasible of 16 scenarios per cell):
+
+| Strategy | Before 3x3x6 | Before 4x4x4 | Before 6x6x3 | After 3x3x6 | After 4x4x4 | After 6x6x3 |
+|---|---|---|---|---|---|---|
+| top_down | 7/7 | 7/7 | 6/6 | 6/6 | 7/7 | 6/6 |
+| angled45 | 6/6 | 6/6 | 6/6 | 6/6 | 6/6 | 6/6 |
+| scoop (flat) | 0/0 | 0/0 | 0/0 | 0/0 (no gap) | 0/0 (no gap) | 0/0 (no gap) |
+| scoop_gap | 1/1 | 0/0 | 0/0 | 3/3 | 3/3 | 3/3 |
+| auto | 12/12 | 12/12 | 11/11 | 11/11 | 12/12 | 11/11 |
+
+Before = the planner and client.yml before this tuning (auto order scoop first, scoop_max_pitch_deg 25), replayed in the
+calibrated sim; with the stock jaws the same plans lifted 0 of 74. Target set (4x4x4 and 6x6x3 on floor and both
+ledges, top_down and angled45): 24 of 48 scenarios feasible, 24/24 lifted, no arm-floor/support contact in any run.
+
+Tuning runs (`--params`): `scoop_max_pitch_deg` 25 leaves 1 of 48 gap scoops feasible; 40 gives 9 feasible, 9/9
+lifted; 45 gives 12 feasible, 9 lifted; 60 gives 29 feasible, 17 lifted (steep scoops swing the moving jaw into the box
+top or tip the 3x3x6). Default now 40. Shorter `pre_grasp_clearance_m` / `approach_distance_m` (0.03) added only 1 feasible
+plan (a gap scoop) and none for top_down/angled, so those defaults stay. Flat scoops are now infeasible with "no gap under object for the fixed jaw";
+`auto` tries top_down, angled, scoop.
+
+Remaining failure modes:
+
+- Reach: half of the target set is infeasible, all IK reach limits: top_down at r30 and on the 0.0 ledge (pre-grasp
+  too high), angled45 at r20 (too close) and on most stair cases. Only r20 reaches the stair (-0.25).
+- Stair edge: the r20 stair top_down grasp of the 4x4x4 touches the floor edge with a jaw (about 0.6 mm penetration,
+  lifted anyway); the planner has no model of a step edge, only of the surface under the object.
+- 3x3x6 on the stair at r20 is no longer reachable with the low tall-object grasp (it was before, gripped at
+  mid-height).
+- Steep scoops above 40 deg with a gap: moving jaw hits the box top, slips or tips tall boxes (why the default is 40).
+- Sim limits apply (see Limitations): exact object pose, a 2.94 Nm gripper squeeze, no compliance.
 
 ## Example plans
 
