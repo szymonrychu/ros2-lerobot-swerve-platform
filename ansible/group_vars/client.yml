@@ -578,6 +578,7 @@ ros2_nodes:
       serial_port: /dev/ttyAMA0
       baud_rate: 115200
       topic: /client/gps/fix
+      status_topic: /client/gps/status
       frame_id: gps_link
       rtcm_server_host: {{ ros2_server_hostname }}
       rtcm_server_port: 5016
@@ -870,6 +871,13 @@ ros2_nodes:
         cutoff_cell_v: 2.8
         resume_cell_v: 2.9
         stale_s: 5.0
+      # Robot and base GPS chips: rover status over DDS, base status polled from the server topic scraper.
+      gps_status:
+        rover_topic: /client/gps/status
+        base_url: http://{{ ros2_server_hostname }}:18100/topics/server/gps/status
+        base_poll_hz: 1.0
+        stale_after_s: 5.0
+        base_timeout_s: 2.0
       tabs:
         - id: map
           type: map_nav
