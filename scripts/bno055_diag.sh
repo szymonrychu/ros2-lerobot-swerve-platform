@@ -21,6 +21,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 CLIENT="${IMU_CLIENT_HOST:-client.ros2.lan}"
 PORT="${SCRAPER_PORT:-18100}"
+I2C_BUS="${IMU_I2C_BUS:-8}"  # software i2c-gpio bus on GPIO2/3 (rpi_bno055_i2c_gpio_bus)
 SSH_USER="${IMU_SSH_USER:-}"
 
 MODE="once"
@@ -77,7 +78,7 @@ section_i2c_config() {
 
   echo "--- I2C runtime config ---"
   local freq
-  if freq=$(ssh_cmd "$CLIENT" "xxd -p /sys/bus/i2c/devices/i2c-1/of_node/clock-frequency 2>/dev/null | tr -d ' \n'"); then
+  if freq=$(ssh_cmd "$CLIENT" "xxd -p /sys/bus/i2c/devices/i2c-$I2C_BUS/of_node/clock-frequency 2>/dev/null | tr -d ' \n'"); then
     if [[ -n "$freq" ]]; then
       local hz=$((16#${freq}))
       echo "  clock-frequency: ${hz} Hz ($(( hz / 1000 )) kHz)"
@@ -88,11 +89,11 @@ section_i2c_config() {
     echo "  clock-frequency: (not available via sysfs)"
   fi
   local driver
-  if driver=$(ssh_cmd "$CLIENT" "basename \$(readlink /sys/bus/i2c/devices/i2c-1/device/driver) 2>/dev/null"); then
+  if driver=$(ssh_cmd "$CLIENT" "basename \$(readlink /sys/bus/i2c/devices/i2c-$I2C_BUS/device/driver) 2>/dev/null"); then
     echo "  driver: $driver"
   fi
   local pins
-  if pins=$(ssh_cmd "$CLIENT" "cat /sys/bus/i2c/devices/i2c-1/of_node/pinctrl-names 2>/dev/null"); then
+  if pins=$(ssh_cmd "$CLIENT" "cat /sys/bus/i2c/devices/i2c-$I2C_BUS/of_node/pinctrl-names 2>/dev/null"); then
     [[ -n "$pins" ]] && echo "  pinctrl: $pins"
   fi
   local i2c_devs
@@ -102,9 +103,9 @@ section_i2c_config() {
 }
 
 section_i2c() {
-  echo "--- I2C scan (bus 1) ---"
+  echo "--- I2C scan (bus $I2C_BUS) ---"
   local scan
-  if scan=$(ssh_cmd "$CLIENT" "timeout 30 i2cdetect -y 1 2>/dev/null"); then
+  if scan=$(ssh_cmd "$CLIENT" "timeout 30 i2cdetect -y $I2C_BUS 2>/dev/null"); then
     echo "$scan" | sed 's/^/  /'
     if echo "$scan" | grep -qE '(^|[[:space:]])28([[:space:]]|$)'; then
       echo "  → BNO055 found at 0x28"

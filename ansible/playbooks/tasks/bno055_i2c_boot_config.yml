@@ -1,0 +1,40 @@
+---
+# Boot config for the BNO055 on the Pi 5: the RP1 DesignWare I2C controller does not reliably honour the BNO055's
+# clock stretching (corrupted reads, then Errno 110 lockups in NDOF), so GPIO2/3 run the kernel's bit-banged i2c-gpio
+# bus instead, which waits for stretched SCL. Hardware i2c_arm is turned off so it does not claim the same pins, and
+# the old 10 kHz baudrate workaround (Pi 3/4 era, not supported by the DesignWare controller) is removed. The bus is
+# pinned to /dev/i2c-{{ rpi_bno055_i2c_gpio_bus }} for the bno055_imu config. The firmware reads config.txt at boot,
+# so the client reboots when (and only when) a line changed. Same pattern as overview_camera_boot_config.yml.
+- name: Turn off hardware I2C on GPIO2/3 (the i2c-gpio overlay takes the pins)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^dtparam=i2c_arm="
+    line: "dtparam=i2c_arm=off"
+  when: ansible_machine == "aarch64"
+  register: i2c_arm_result
+  tags: [boot]
+
+- name: Remove the hardware I2C baudrate override
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^dtparam=i2c_arm_baudrate="
+    state: absent
+  when: ansible_machine == "aarch64"
+  register: i2c_baudrate_result
+  tags: [boot]
+
+- name: Enable the software I2C bus on GPIO2/3 for the BNO055 (honours clock stretching)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: "^dtoverlay=i2c-gpio(,.*)?$"
+    line: "dtoverlay=i2c-gpio,bus={{ rpi_bno055_i2c_gpio_bus }},i2c_gpio_sda=2,i2c_gpio_scl=3,i2c_gpio_delay_us=2"
+    insertafter: "^dtparam=i2c_arm="
+  when: ansible_machine == "aarch64"
+  register: i2c_gpio_result
+  tags: [boot]
+
+- name: Reboot client if the BNO055 I2C boot config changed
+  when: i2c_arm_result.changed or i2c_baudrate_result.changed or i2c_gpio_result.changed
+  ansible.builtin.reboot:
+    reboot_timeout: 180
+  tags: [boot]

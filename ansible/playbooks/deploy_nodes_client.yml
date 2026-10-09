@@ -78,6 +78,10 @@
       ansible.builtin.include_tasks: tasks/overview_camera_boot_config.yml
       tags: [boot, overview_camera]
 
+    - name: BNO055 software I2C bus (i2c-gpio on GPIO2/3), reboot only when changed
+      ansible.builtin.include_tasks: tasks/bno055_i2c_boot_config.yml
+      tags: [boot, bno055_imu]
+
     - name: Boot waits for any network interface only
       ansible.builtin.include_tasks: tasks/network_wait_online.yml
       tags: [boot]

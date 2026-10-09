@@ -62,7 +62,7 @@ The `system_optimize` role strips unnecessary packages and services from Ubuntu 
 - GPU memory reduced to 16 MB (headless)
 - Bluetooth disabled via device tree overlay and service masking
 - HDMI output blanked to save power (~30 mA per port)
-- I2C clock speed set to 400 kHz (`dtparam=i2c_arm_baudrate`) when `rpi_i2c_baudrate` is defined (client only, requires reboot)
+- I2C clock speed set via `dtparam=i2c_arm_baudrate` when `rpi_i2c_baudrate` is defined (unset on the client: the BNO055 uses a software i2c-gpio bus, see "BNO055 I2C bus")
 
 **Resilience:**
 - Hardware watchdog (`bcm2835_wdt`) with systemd `RuntimeWatchdogSec` — auto-reboots on kernel hang
@@ -88,7 +88,8 @@ All defaults are in `roles/system_optimize/defaults/main.yml`. Override in `grou
 | `rpi_disable_bluetooth` | `true` | Disable Bluetooth |
 | `rpi_disable_hdmi` | `true` | Blank HDMI output |
 | `rpi_wifi_power_save_off` | `true` | Disable WiFi power saving |
-| `rpi_i2c_baudrate` | _(undefined)_ | I2C clock speed in Hz; set to `10000` in `group_vars/client.yml` for BNO055 reliability |
+| `rpi_i2c_baudrate` | _(undefined)_ | Hardware I2C clock speed in Hz (unset; the client BNO055 uses i2c-gpio) |
+| `rpi_bno055_i2c_gpio_bus` | `8` (client) | Bus number of the software i2c-gpio bus on GPIO2/3 used by the BNO055 (`/dev/i2c-8`) |
 
 ### Running standalone
 
@@ -206,12 +207,15 @@ curl http://server.ros2.lan:18100/topics/leader/joint_states
 
 Use `scripts/topic_scraper_collect.py` to poll both hosts and emit merged NDJSON for dynamic comparisons.
 
-### I2C Baudrate (BNO055 Reliability)
+### BNO055 I2C bus (client)
 
-The `system_optimize` role configures I2C clock speed on the client RPi via
-`dtparam=i2c_arm_baudrate` in `/boot/firmware/config.txt`.
-Set `rpi_i2c_baudrate: 10000` in `group_vars/client.yml` (current value).
-**Requires reboot** to take effect.
+The Pi 5 hardware I2C controller (RP1 DesignWare) does not reliably honour the BNO055's clock stretching: reads come
+back corrupted, and in NDOF mode the chip locked up with `Errno 110` (2026-10-09). `deploy_nodes_client.yml` therefore
+includes `tasks/bno055_i2c_boot_config.yml` (tags `boot`, `bno055_imu`), which sets `dtparam=i2c_arm=off`, removes the
+old 10 kHz `dtparam=i2c_arm_baudrate` workaround and adds
+`dtoverlay=i2c-gpio,bus=8,i2c_gpio_sda=2,i2c_gpio_scl=3,i2c_gpio_delay_us=2` (bit-banged, ~100 kHz, waits for
+stretched SCL). The bno055_imu config uses `i2c_bus: 8` (kept equal to `rpi_bno055_i2c_gpio_bus`). The client reboots only when a
+line changed.
 
 ### IMU (client)
 
@@ -235,7 +239,7 @@ Assuming:
 
 - `RST` on GPIO17
 - `INT` on GPIO4
-- I2C on GPIO2/3 (`/dev/i2c-1`)
+- I2C on GPIO2/3 (software i2c-gpio bus, `/dev/i2c-8`)
 
 Use this reset-and-probe sequence:
 

@@ -2,7 +2,8 @@
 # Client — Raspberry Pi 5: follower, swerve, sensors, master2master
 # Network (netplan) and hostname — set for each host or here for the group:
 network_address: "192.168.1.34/24"
-rpi_i2c_baudrate: 10000
+# BNO055 runs on a software i2c-gpio bus (GPIO2/3) pinned to this number, see tasks/bno055_i2c_boot_config.yml.
+rpi_bno055_i2c_gpio_bus: 8
 network_gateway: "192.168.1.1"
 primary_dns_server: "192.168.1.1"
 secondary_dns_server: "1.1.1.1"
@@ -551,16 +552,16 @@ ros2_nodes:
     node_type: bno055_imu
     # 50 Hz reduces I2C load; BNO055 can return None on transient read failures
     present: true
-    enabled: false  # disabled 2026-10-09: BNO055 hung on I2C init, pending a clean reboot + fresh init
+    enabled: true
     config: |
       topic: /imu/data
       frame_id: imu_link
       # NDOF fuses the magnetometer: absolute yaw (magnetic north) for the web_ui GPS compass anchor. The EKF fuses only
       # the gyro yaw rate (imu0_config index 11), so this does not change odometry. Calibrate the magnetometer by moving
       # the robot; see /imu/calibration.
-      operation_mode: IMUPLUS  # NDOF stalled the BNO055 on I2C (Errno 110, re-init failed) on 2026-10-09
+      operation_mode: NDOF
       publish_hz: 50
-      i2c_bus: 1
+      i2c_bus: 8  # software i2c-gpio bus, must match rpi_bno055_i2c_gpio_bus
       i2c_address: 0x28
       orientation_covariance: 0.01
       # Fixed small gyro covariance: the rolling-variance estimate inflated the yaw rate exactly while turning, so the

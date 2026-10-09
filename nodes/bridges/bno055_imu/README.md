@@ -45,7 +45,7 @@ linear_acceleration_covariance: 0.04
 - **Sensor**: BNO055 (Bosch 9-DOF) over I2C.
 - **Default address**: `0x28`; alternate `0x29` depending on ADR pin.
 - **Fallback behavior**: Node tries configured `i2c_address` first, then falls back to alternate BNO055 addresses.
-- **Host**: On Raspberry Pi, enable I2C and ensure `/dev/i2c-1` is accessible (udev rules set mode 0666).
+- **Host**: On Raspberry Pi, the I2C device must be accessible (udev rules set mode 0666). On the Pi 5 client the BNO055 runs on the software i2c-gpio bus `/dev/i2c-8` (GPIO2/3), because the hardware controller does not reliably honour the BNO055's clock stretching; see `ansible/README.md`, "BNO055 I2C bus".
 - **Mode**: set by `operation_mode`. `IMUPLUS` (default) fuses accel+gyro only, so heading has an arbitrary zero. `NDOF` / `NDOF_FMC_OFF` also use the magnetometer: orientation yaw is then absolute, referenced to **magnetic** north (add the local declination for true north). The magnetometer needs calibration by moving the sensor through varied orientations (watch `mag` on `/imu/calibration`, 3 = calibrated) and is disturbed by motors and servos near the sensor. The quaternion is published as the chip reports it (no axis remap): flat and facing magnetic north it is the identity, yaw increases counter-clockwise (x north, y west, z up). When fusion fails, falls back to raw acceleration; orientation then published as identity with covariance -1. After mode switch, the node waits 1.5 s and runs a warm-up phase (up to 3 s) until the sensor returns valid gyro+accel; this addresses BNO055 needing time for fusion to stabilize after power-on or service restart.
 
 ## Build and run
