@@ -1027,6 +1027,7 @@ class ArmController:
             expected=goal,
             achieved=positions,
             slow_zone=self._slow_zone,
+            gripper_effort=None if sample is None else sample.efforts.get(self.gripper),
         )
 
     def check(

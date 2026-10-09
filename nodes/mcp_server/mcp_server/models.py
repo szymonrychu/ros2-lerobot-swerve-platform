@@ -159,6 +159,9 @@ class ArmMotionResult(BaseModel):
         "jaw_open_axis (gripper_frame_link), tool_point {x,y,z} of the fixed jaw's inner face in the arm base "
         "frame}. The requested x, y, z were the object centre, not the tool point.",
     )
+    gripper_effort: float | None = Field(
+        default=None, description="Gripper load (servo units) of the last joint sample of the motion"
+    )
     slow_zone: dict[str, Any] | None = Field(
         default=None,
         description="Below-surface slow zone: set when part of the trajectory ran at the reduced speed because a jaw "

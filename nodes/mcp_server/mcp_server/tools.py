@@ -20,10 +20,12 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from . import body_tools, camera_tools, perception_tools
+from . import body_tools, camera_tools, grasp_tools, perception_tools
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, McpServerConfig
+from .floor_guard import TiltOverrideDeg
+from .grasp_tools import floor_override
 from .models import (
     ArmMotionResult,
     ArmState,
@@ -61,6 +63,7 @@ TOOL_NAMES = (
     "get_body_state",
     *camera_tools.TOOL_NAMES,
     *perception_tools.TOOL_NAMES,
+    *grasp_tools.TOOL_NAMES,
 )
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
 # MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
@@ -77,6 +80,8 @@ MOTION_TOOLS = frozenset(
         "arm_home",
         "arm_set_home",
         "look_around",
+        "grasp_object",
+        "release_object",
     }
 )
 ALWAYS_ALLOWED_TOOLS = frozenset(
@@ -91,6 +96,7 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         "get_body_state",
         *camera_tools.TOOL_NAMES,
         *perception_tools.SENSOR_TOOL_NAMES,
+        "plan_grasp",
     }
 )
 DIGEST_EVENTS_KEY = "robot_events_since_last_call"
@@ -333,6 +339,19 @@ def register_core_tools(ctx: ToolContext) -> None:
         "enough to keep the finger out of the picture), lift the arm clear of the robot body and objects, then roll."
     )
 
+    slow = config.floor_guard
+    slow_note = (
+        "Below-surface slow zone: where a jaw tip, the wrist or the elbow comes within "
+        f"{slow.margin_m:g} m of the effective surface (the higher of the robot plane at surface_z_m, default "
+        f"{slow.surface_z_m:g} m in base_link, and the gravity-level plane from the IMU tilt) the motion slows to "
+        f"{slow.slow_speed_scale:g} of its speed (never blocked; reported as slow_zone). Pass surface_z_m (e.g. -0.18 "
+        "for a stair or hole below) to allow normal speed down to that surface, tilt_override_deg to replace the IMU."
+    )
+    surface_desc = "Expected surface height relative to the robot plane (m, base_link z), e.g. -0.18 for a stair below"
+    tilt_desc = (
+        "Robot tilt {roll, pitch} (deg) replacing the IMU for the slow zone (roll > 0 left up, pitch > 0 nose down)"
+    )
+
     battery_gate = ctx.battery_gate
 
     def nav_timeout(timeout_s: float | None) -> float:
@@ -483,7 +502,8 @@ def register_core_tools(ctx: ToolContext) -> None:
             "to the URDF limits minus a margin (reported in `clamped`). Blocks until converged or timed out; aborts "
             "and holds the measured pose if joint feedback goes stale (>0.3 s), the tracking error grows too large, "
             "the joints do not settle near the target (status 'timeout'), or stop is called. Takes arm control if "
-            f"not already held and keeps it afterwards: call release_control when done. {roll_note} {settle_note}"
+            f"not already held and keeps it afterwards: call release_control when done. {roll_note} {settle_note} "
+            f"{slow_note}"
         )
     )
     def move_arm_joints(
@@ -498,11 +518,13 @@ def register_core_tools(ctx: ToolContext) -> None:
             float,
             Field(gt=0.0, le=HARD_MAX_SPEED_SCALE, description=speed_desc),
         ] = HARD_MAX_SPEED_SCALE,
+        surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
+        tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
     ) -> ArmMotionResult:
         """Move arm joints; the tool description is passed to the decorator so it can state the tolerances."""
         battery_gate("move_arm_joints")
         with tool_errors():
-            return robot.arm.move_joints(targets, speed_scale)
+            return robot.arm.move_joints(targets, speed_scale, floor_override(surface_z_m, tilt_override_deg))
 
     @tool(
         description=(
@@ -520,7 +542,7 @@ def register_core_tools(ctx: ToolContext) -> None:
             "tool point itself goes to x, y, z. Returns status 'unreachable' without moving when no solution exists "
             "within joint limits (the arm can reach somewhat below the floor, limited by the joint limits). "
             "Keeps arm control afterwards like move_arm_joints: call release_control when done. "
-            f"{roll_note} {floor_note} {settle_note}"
+            f"{roll_note} {floor_note} {settle_note} {slow_note}"
         )
     )
     def move_arm_cartesian(
@@ -546,12 +568,16 @@ def register_core_tools(ctx: ToolContext) -> None:
                 description="Object width across the jaws (m): x, y, z are then the object centre, not the tool point",
             ),
         ] = None,
+        surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
+        tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
     ) -> ArmMotionResult:
         """Move the tool point; the tool description is passed to the decorator so it can state the floor."""
         battery_gate("move_arm_cartesian")
         del frame  # the only supported frame
         with tool_errors():
-            return robot.arm.move_cartesian(x, y, z, pitch, speed_scale, wrist_roll, object_width_m)
+            return robot.arm.move_cartesian(
+                x, y, z, pitch, speed_scale, wrist_roll, object_width_m, floor_override(surface_z_m, tilt_override_deg)
+            )
 
     @tool()
     def set_gripper(
@@ -562,6 +588,8 @@ def register_core_tools(ctx: ToolContext) -> None:
         effort_threshold: Annotated[
             float | None, Field(gt=0.0, description="Gripper load counted as contact (servo load units)")
         ] = None,
+        surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
+        tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
     ) -> ArmMotionResult:
         """Open the gripper to a fraction, or close it until it grips something (status 'grasped' and the gripper
         holds that position; 'closed_no_contact' if it closed fully without touching anything). Closing (also
@@ -572,10 +600,14 @@ def register_core_tools(ctx: ToolContext) -> None:
         an object, not holding it) and the measured jaw position is held without squeeze. The load is ignored for
         the first 0.3 s of a close and counts only after the jaw moved or stalled. The arm stays held at its intended
         targets while the gripper moves. Give exactly one of
-        open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done."""
+        open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done.
+        Below-surface slow zone: near the surface (the moving jaw tip is checked too) the gripper moves slow; pass
+        surface_z_m / tilt_override_deg as for the arm motion tools."""
         battery_gate("set_gripper")
         with tool_errors():
-            return robot.arm.set_gripper(open_fraction, close_until_effort, effort_threshold)
+            return robot.arm.set_gripper(
+                open_fraction, close_until_effort, effort_threshold, floor_override(surface_z_m, tilt_override_deg)
+            )
 
     @tool(
         description=(
@@ -583,14 +615,18 @@ def register_core_tools(ctx: ToolContext) -> None:
             "if it was already held before this call; otherwise it is released so the leader arm and web UI work "
             "again. (The /arm/home ROS service, used by the web UI, always releases.) Fails if no home pose has been "
             "stored yet with arm_set_home. Reports 'converged' with residual_error (target - measured, rad) when "
-            f"joints settled short of the home pose by at most {config.limits.arm_settle_tolerance_rad} rad."
+            f"joints settled short of the home pose by at most {config.limits.arm_settle_tolerance_rad} rad. "
+            f"{slow_note}"
         )
     )
-    def arm_home() -> ArmMotionResult:
+    def arm_home(
+        surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
+        tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+    ) -> ArmMotionResult:
         """Move home; the tool description is passed to the decorator so it can state the settle tolerance."""
         battery_gate("arm_home")
         with tool_errors():
-            return robot.arm.home(keep_prior_control=True)
+            return robot.arm.home(keep_prior_control=True, floor=floor_override(surface_z_m, tilt_override_deg))
 
     @tool()
     def arm_set_home() -> HomeSetResult:
@@ -608,6 +644,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     body_tools.register,
     camera_tools.register,
     perception_tools.register,
+    grasp_tools.register,
 )
 
 

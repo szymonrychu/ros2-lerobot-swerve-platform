@@ -152,6 +152,9 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "solve_camera_calibration",
         "clear_calibration_samples",
         *PERCEPTION_TOOLS,
+        "plan_grasp",
+        "grasp_object",
+        "release_object",
     }
     for t in tools:
         assert t.description and len(t.description) > 60, t.name
@@ -478,3 +481,27 @@ def test_admin_clear_is_504_on_timeout_and_502_on_rejection(robot: FakeRobot, mo
 
 def test_admin_clear_is_not_an_mcp_tool(server: Any) -> None:
     assert not any("agent_pois" in name or "admin" in name for name in TOOL_NAMES)
+
+
+def test_arm_motion_tools_take_slow_zone_overrides(server: Any, robot: FakeRobot) -> None:
+    low = {"x": 0.2, "y": 0.0, "z": McpServerConfig().arm.floor_z_m - 0.02, "pitch": 1.5708}
+    slowed = call(server, "move_arm_cartesian", low).structured_content
+    assert slowed["slow_zone"]["slowed_samples"] > 0
+    call(server, "move_arm_joints", {"targets": {"shoulder_lift": 0.0, "elbow_flex": 0.0, "wrist_flex": 0.0}})
+    stair = call(server, "move_arm_cartesian", low | {"surface_z_m": -0.2}).structured_content
+    assert stair["slow_zone"] is None
+    tilted = call(
+        server, "move_arm_joints", {"targets": {"elbow_flex": 0.1}, "tilt_override_deg": {"roll": 0.0, "pitch": 30.0}}
+    ).structured_content
+    assert tilted["status"] == "converged"
+    gripper = call(server, "set_gripper", {"open_fraction": 0.5, "surface_z_m": -0.3}).structured_content
+    assert gripper["slow_zone"] is None
+    with pytest.raises(ToolError):
+        call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.1}, "tilt_override_deg": {"roll": 80.0}})
+
+    async def run() -> Any:
+        return await server.list_tools()
+
+    docs = {t.name: t.description or "" for t in anyio.run(run)}
+    for name in ("move_arm_joints", "move_arm_cartesian", "set_gripper", "arm_home"):
+        assert "slow" in docs[name], name
