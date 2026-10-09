@@ -1122,7 +1122,8 @@ ros2_nodes:
         surface_z_m: 0.0
         imu_max_age_s: 1.0
       # Grasp planner defaults (plan_grasp / grasp_object / release_object and /grasp/command); every value can be
-      # overridden per call through `params`. Lengths in m, the tool point is the fixed jaw's inner face.
+      # overridden per call through `params`. Lengths in m, the tool point is the fixed jaw's inner face (arm.tool_offset_m).
+      # Validated in the MuJoCo sim with jaws calibrated to arm.tool_offset_m (sim/README.md, "Planner scenario matrix").
       grasp:
         approach_distance_m: 0.04       # straight approach before the object (beyond half its depth)
         pre_grasp_clearance_m: 0.05     # lifted pre-grasp (roll happens here, gripper at most half open)
@@ -1134,23 +1135,30 @@ ros2_nodes:
         below_object_offset_m: 0.005    # scoop: fixed jaw top below the object bottom (clamped to skim the surface)
         skim_clearance_m: 0.003         # scoop: fixed jaw bottom above the surface when skimming
         max_object_width_m: 0.08
+        min_object_width_m: 0.01       # narrower objects are rejected: the jaws cannot hold them
         close_effort_threshold: 300     # close_until_effort contact load
         hold_effort_min: 100            # verified grasp: load still felt after the close
         min_hold_gap_rad: 0.08          # verified grasp: jaw stopped this far short of closed
         interpolation_step_m: 0.005     # straight-line IK sample spacing
         max_joint_jump_rad: 0.25
         scoop_pitch_deg: 0              # horizontal scoop first, steeper pitches up to scoop_max_pitch_deg
-        scoop_max_pitch_deg: 25
+        scoop_max_pitch_deg: 40         # sim: gap scoops lift 9/9 up to 40 deg; steeper ones slip (25 left 1 feasible)
         scoop_pitch_step_deg: 5
+        scoop_gap_margin_m: 0.004       # scoop only when the object's gap_below_m >= jaw_thickness_m + this
+        tall_ratio: 1.5                 # height / width above this = tall narrow object:
+        tall_grasp_height_fraction: 0.3 #   gripped at this fraction of its height from the bottom
+        lift_speed_scale: 0.05          #   and lifted at this speed scale (others lift at slide_speed_scale)
         angled_pitch_deg: 45
         stall_shoulder_lift_rad: 1.85   # stretched arm (elbow_flex <= stretched_elbow_max_rad) above this stalls
         stretched_elbow_max_rad: 0.0
         release_open_fraction: 0.6
         release_lift_m: 0.05
+        # auto: top_down first, then angled; scoop last and only for objects with a gap under them (flat objects get
+        # "no gap under object for the fixed jaw").
         auto_order:
-          - {strategy: scoop}
-          - {strategy: angled, approach_pitch_deg: 45}
           - {strategy: top_down}
+          - {strategy: angled, approach_pitch_deg: 45}
+          - {strategy: scoop}
   - name: poi_store
     node_type: poi_store
     present: true

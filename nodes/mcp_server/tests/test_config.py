@@ -184,6 +184,7 @@ def test_grasp_defaults_and_validation() -> None:
     assert grasp.tall_grasp_height_fraction == pytest.approx(0.3)
     assert 0.0 < grasp.lift_speed_scale < grasp.slide_speed_scale
     assert grasp.min_object_width_m == pytest.approx(0.01)
+    assert grasp.scoop_max_pitch_deg == pytest.approx(40.0)  # sim matrix: 9/9 gap scoops lift at <= 40 deg
     assert 0.0 < grasp.slide_speed_scale <= 0.5
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"grasp": {"slide_speed_scale": 0.9}})

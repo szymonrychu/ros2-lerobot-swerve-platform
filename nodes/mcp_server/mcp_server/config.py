@@ -648,7 +648,9 @@ class GraspSettings(StrictModel):
     interpolation_step_m: float = Field(default=0.005, gt=0.0, le=0.05)  # straight-line IK sample spacing
     max_joint_jump_rad: float = Field(default=0.25, gt=0.0, le=1.0)  # between consecutive straight-line samples
     scoop_pitch_deg: float = Field(default=0.0, ge=-10.0, le=60.0)  # scoop approach pitch (0 = horizontal)
-    scoop_max_pitch_deg: float = Field(default=25.0, ge=0.0, le=60.0)  # steepest pitch a scoop may fall back to
+    # Steepest pitch a scoop may fall back to: 40 deg in the sim matrix (sim/README.md); steeper scoops swing the moving
+    # jaw into the object top and slip.
+    scoop_max_pitch_deg: float = Field(default=40.0, ge=0.0, le=60.0)
     scoop_pitch_step_deg: float = Field(default=5.0, gt=0.0, le=30.0)
     # A scoop slides the fixed jaw under the object: only eligible when the object's gap_below_m is at least
     # jaw_thickness_m + scoop_gap_margin_m (an object resting flat on a surface has no gap).
