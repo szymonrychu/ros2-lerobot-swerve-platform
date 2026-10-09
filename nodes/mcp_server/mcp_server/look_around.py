@@ -307,7 +307,7 @@ def run_look_around(
         if abs(math.degrees(delta)) <= yaw_tolerance_deg:
             return
         try:
-            nav = robot.move_relative(0.0, 0.0, delta, settings.step_timeout_s)
+            nav = robot.move_relative(0.0, 0.0, delta, settings.step_timeout_s, precise=True)
         except RobotError as exc:
             result.notes.append(f"return to start failed: {exc}")
             return
@@ -330,7 +330,7 @@ def run_look_around(
             result.status, result.message = "stopped", "stop was called; look_around ended before the next rotation"
             return None
         try:
-            nav = robot.move_relative(0.0, 0.0, plan.step_rad, settings.step_timeout_s)
+            nav = robot.move_relative(0.0, 0.0, plan.step_rad, settings.step_timeout_s, precise=True)
         except RobotError as exc:
             result.status = "failed"
             result.message = f"rotation step {index} could not start: {exc}"

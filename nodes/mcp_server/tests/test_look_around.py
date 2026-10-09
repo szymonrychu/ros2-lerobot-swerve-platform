@@ -50,6 +50,7 @@ class ScriptRobot:
         self.obstacles = list(obstacles or [])
         self.calls: list[tuple] = []
         self.stops = 0
+        self.precise_flags: list[bool] = []  # the precise argument of every move_relative call
         self.stop_after_moves: int | None = None
         self.camera_fail_at: set[int] = set()
         self.frames = 0
@@ -87,7 +88,10 @@ class ScriptRobot:
             camera=camera, topic="/x", jpeg=jpeg(40 * (index + 1)), width=64, height=48, stamp_s=1.0, age_s=0.1
         )
 
-    def move_relative(self, dx: float, dy: float, dyaw: float, timeout_s: float) -> NavigationResult:
+    def move_relative(
+        self, dx: float, dy: float, dyaw: float, timeout_s: float, precise: bool = False
+    ) -> NavigationResult:
+        self.precise_flags.append(precise)
         self.calls.append(("move", dx, dy, round(dyaw, 6), timeout_s))
         moves = sum(1 for c in self.calls if c[0] == "move")
         if moves in self.move_errors:
@@ -328,3 +332,20 @@ def test_returned_to_start_is_false_when_the_final_pose_is_unknown() -> None:
     run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
     assert run.result.status == "completed" and not run.result.returned_to_start
     assert run.result.achieved["heading_error_deg"] is None
+
+
+# --- sweeps must use the precise goal tolerance so the heading-return guarantee holds ----------------------------
+
+
+def test_every_rotation_step_requests_the_precise_goal_tolerance() -> None:
+    robot = ScriptRobot()
+    run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    assert robot.precise_flags and all(robot.precise_flags)
+
+
+def test_corrective_return_rotation_requests_the_precise_goal_tolerance() -> None:
+    robot = ScriptRobot()
+    robot.move_errors[2] = RobotError("tf lost")  # second step cannot start, so the corrective rotation runs
+    robot.yaw_error_rad = math.radians(10.0)
+    run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    assert len(robot.precise_flags) >= 3 and all(robot.precise_flags)

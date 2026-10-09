@@ -289,7 +289,9 @@ def test_list_pois_with_distance_bearing_filter_and_near(server: Any, robot: Fak
 class RotatingRobot(FakeRobot):
     """FakeRobot whose move_relative really turns the pose."""
 
-    def move_relative(self, dx: float, dy: float, dyaw: float, timeout_s: float) -> NavigationResult:
+    def move_relative(
+        self, dx: float, dy: float, dyaw: float, timeout_s: float, precise: bool = False
+    ) -> NavigationResult:
         self.calls.append(("move_relative", (dx, dy, dyaw, timeout_s)))
         self.pose = BasePose(frame="map", x=self.pose.x, y=self.pose.y, yaw=self.pose.yaw + dyaw)
         return NavigationResult(status="succeeded", final_pose=self.pose)
