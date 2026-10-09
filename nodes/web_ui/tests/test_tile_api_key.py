@@ -158,3 +158,19 @@ def test_key_never_logged_on_upstream_failure(
     out = capsys.readouterr()
     assert SECRET not in out.out + out.err
     assert logging.getLogger("httpx").level >= logging.WARNING
+
+
+def test_api_config_exposes_tile_version_as_cache_fingerprint(
+    tmp_path: Path, urdf_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The browser appends tile_version to tile URLs, so a new key or source never reuses cached tiles."""
+    monkeypatch.setenv(KEY_ENV, SECRET)
+    version = make_client(tmp_path, urdf_dir, []).get("/api/config").json()["tabs"][0]["tile_version"]
+    assert version == tile_cache_fingerprint(TEMPLATE, SECRET)
+    monkeypatch.setenv(KEY_ENV, SECRET + "2")
+    assert make_client(tmp_path, urdf_dir, []).get("/api/config").json()["tabs"][0]["tile_version"] != version
+
+
+def test_api_config_tile_version_is_none_without_proxy(tmp_path: Path, urdf_dir: Path) -> None:
+    body = make_client(tmp_path, urdf_dir, [], env=None).get("/api/config").json()
+    assert body["tabs"][0]["tile_version"] is None

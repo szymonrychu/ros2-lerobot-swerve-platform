@@ -523,6 +523,7 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
           }
         >
           <MapScene
+            tileVersion={tab.tile_version}
             baseUrdf={tab.base_urdf}
             armUrdf={tab.arm_urdf}
             armOffset={tab.arm_offset}

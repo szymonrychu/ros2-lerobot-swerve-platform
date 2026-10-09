@@ -348,10 +348,23 @@ def build_app(
 
     register_agent_routes(app, config, battery_block, agent_transport)
 
+    tile_tab = find_tile_tab(config)
+    tile_version = (
+        tile_cache_fingerprint(tile_tab.tile_url, read_tile_api_key(tile_tab))
+        if tile_proxy is not None and tile_tab is not None and tile_tab.tile_url is not None
+        else None
+    )
+
     @app.get("/api/config")
     async def get_config() -> JSONResponse:
+        """Return the config; the tile tab also carries tile_version, which the browser appends to tile URLs."""
         log.debug("api_config_requested")
-        return JSONResponse(config.model_dump())
+        body = config.model_dump()
+        if tile_tab is not None:
+            for tab in body["tabs"]:
+                if tab["id"] == tile_tab.id:
+                    tab["tile_version"] = tile_version
+        return JSONResponse(body)
 
     @app.get("/api/urdf/status")
     async def get_urdf_status() -> JSONResponse:

@@ -131,10 +131,12 @@ export function tileSizeMeters(latitude: number, zoom: number): number {
  * @param z - zoom
  * @param x - tile x
  * @param y - tile y
- * @returns '/api/tiles/{z}/{x}/{y}.png'
+ * @param version - tile source version from /api/config (busts the browser cache when the source or key changes)
+ * @returns '/api/tiles/{z}/{x}/{y}.png', with '?v={version}' when a version is given
  */
-export function tileUrl(z: number, x: number, y: number): string {
-  return `/api/tiles/${z}/${x}/${y}.png`
+export function tileUrl(z: number, x: number, y: number, version?: string | null): string {
+  const path = `/api/tiles/${z}/${x}/${y}.png`
+  return version ? `${path}?v=${encodeURIComponent(version)}` : path
 }
 
 /**
@@ -200,9 +202,16 @@ export function mapToLatLon(anchor: GpsAnchor, x: number, y: number): LatLon {
  * @param around - map point the grid is centred on (usually the robot)
  * @param zoom - tile zoom level
  * @param radius - tiles on each side of the centre tile ((2r+1)^2 tiles)
+ * @param version - tile source version appended to each url (see tileUrl)
  * @returns placed tiles (indices clamped/wrapped to the world)
  */
-export function tilesAround(anchor: GpsAnchor, around: Vec2, zoom: number, radius: number): PlacedTile[] {
+export function tilesAround(
+  anchor: GpsAnchor,
+  around: Vec2,
+  zoom: number,
+  radius: number,
+  version?: string | null,
+): PlacedTile[] {
   const n = 2 ** zoom
   const ll = mapToLatLon(anchor, around.x, around.y)
   const centre = latLonToTile(ll.latitude, ll.longitude, zoom)
@@ -226,7 +235,7 @@ export function tilesAround(anchor: GpsAnchor, around: Vec2, zoom: number, radiu
         y: ty,
         dx,
         dy,
-        url: tileUrl(zoom, tx, ty),
+        url: tileUrl(zoom, tx, ty, version),
         center: mid,
         width: Math.hypot(ne.x - nw.x, ne.y - nw.y),
         height: Math.hypot(se.x - ne.x, se.y - ne.y),

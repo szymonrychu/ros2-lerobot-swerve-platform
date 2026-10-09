@@ -215,15 +215,17 @@ export const GpsTilesLayer = memo(function GpsTilesLayer({
   anchor,
   aroundX,
   aroundY,
+  tileVersion,
 }: {
   anchor: GpsAnchor
   aroundX: number
   aroundY: number
+  tileVersion?: string | null
 }) {
   // Recomputing 25 placements per pose update is cheap; tiles are keyed by URL so meshes and textures persist.
   const tiles = useMemo(
-    () => tilesAround(anchor, { x: aroundX, y: aroundY }, GPS_TILE_ZOOM, GPS_TILE_RADIUS),
-    [anchor, aroundX, aroundY],
+    () => tilesAround(anchor, { x: aroundX, y: aroundY }, GPS_TILE_ZOOM, GPS_TILE_RADIUS, tileVersion),
+    [anchor, aroundX, aroundY, tileVersion],
   )
   return (
     <>

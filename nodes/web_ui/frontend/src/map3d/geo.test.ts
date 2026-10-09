@@ -44,6 +44,8 @@ describe('Web Mercator tile math', () => {
 
   it('builds the backend tile proxy url', () => {
     expect(tileUrl(19, 1, 2)).toBe('/api/tiles/19/1/2.png')
+    expect(tileUrl(19, 1, 2, 'ab12cd34')).toBe('/api/tiles/19/1/2.png?v=ab12cd34')
+    expect(tileUrl(19, 1, 2, null)).toBe('/api/tiles/19/1/2.png')
   })
 })
 
@@ -158,6 +160,11 @@ describe('tilesAround', () => {
     const mid = tiles.find((t) => t.x === Math.floor(centre.x) && t.y === Math.floor(centre.y))
     expect(mid).toBeDefined()
     expect(mid!.url).toBe(`/api/tiles/19/${mid!.x}/${mid!.y}.png`)
+  })
+
+  it('appends the tile version to every tile url when given', () => {
+    const tiles = tilesAround(ANCHOR, { x: 0, y: 0 }, 19, 1, 'ab12cd34')
+    expect(tiles.every((t) => t.url.endsWith('.png?v=ab12cd34'))).toBe(true)
   })
 
   it('places each tile so that its centre maps back to the tile centre lat/lon', () => {

@@ -16,6 +16,7 @@ export interface TabConfig {
   id: string
   type: string
   label: string
+  tile_version?: string | null // map_nav: tile source version from /api/config, appended to tile URLs
   topic?: string
   topics?: TabTopicSpec[]
   window_s?: number

@@ -50,6 +50,7 @@ export interface SceneController {
 }
 
 export interface MapSceneProps {
+  tileVersion?: string | null // /api/config tile_version, appended to tile URLs to bust stale browser caches
   baseUrdf?: string
   armUrdf?: string
   armOffset?: [number, number, number]
@@ -274,6 +275,7 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
           anchor={props.anchor}
           aroundX={props.robotPose?.x ?? 0}
           aroundY={props.robotPose?.y ?? 0}
+          tileVersion={props.tileVersion}
         />
       )}
       <GridImageLayer msg={props.map} lift={LIFT.map} opacity={1} visible={layers.slamMap} />
