@@ -65,6 +65,23 @@ battery:
 - **In cut-off, rejected:** WebSocket `publish` frames (nothing is published; the client gets `{"type":"error","source":"battery","message":"battery below cut-off: 8.21 V (2.74 V/cell < 2.80 V/cell); motion refused"}`) and `POST /api/map/save`, `/api/map/reset`, `/api/arm/home`, `/api/arm/set_home`, `/api/agent/message` and `/api/agent/reset` with HTTP **503** and `{"ok": false, "message": "battery below cut-off ..."}`. `POST /api/nav/stop` and `POST /api/agent/stop` stay allowed (safety), as do `/api/agent/state`, `/api/agent/history` and `/ws/agent`. `POST /api/poi` is also allowed: POI edits are not robot motion. Rejections are logged.
 - **Frontend:** a voltage chip in the AppBar (e.g. `11.4 V`, per-cell in the tooltip): green above the resume threshold, amber between cut-off and resume, red in cut-off, grey `--` without a recent reading. In cut-off a red banner under the AppBar reads "Battery below cut-off (x.xx V/cell) - commands are disabled"; everything else keeps rendering. Error frames from the WebSocket appear as a toast; the 503 message of a failed Map tab action appears in the existing action snackbar. Level/colour logic is in `frontend/src/battery/batteryStatus.ts` (vitest `batteryStatus.test.ts`).
 
+## GPS status chips (optional `gps_status` section)
+
+The `gps_rtk` nodes publish a compact JSON status (`std_msgs/String`, see the [gps_rtk README](../bridges/gps_rtk/README.md)) when their `status_topic` is set. With a top-level `gps_status:` section web_ui shows two AppBar chips next to the battery chip. Without the section nothing is subscribed or polled.
+
+```yaml
+gps_status:
+  rover_topic: /client/gps/status   # rover status, subscribed over DDS (null: no robot chip)
+  base_url: http://server.ros2.lan:18100/topics/server/gps/status   # base status via the server topic scraper (null: no base chip)
+  base_poll_hz: 1.0       # > 0
+  stale_after_s: 5.0      # > 0, no new sample for this long counts as stale
+  base_timeout_s: 2.0     # > 0, HTTP timeout of one poll
+```
+
+- **Rover:** subscribed like any topic and cached under `rover_topic`. Invalid JSON is logged (`gps_status_malformed`) and dropped, not stored.
+- **Base:** DDS is localhost-only per host, so the base status reaches web_ui only by polling the server's `topic_scraper_api` (`GET /topics/server/gps/status`, the JSON is in `message.data`) in a background thread (`web_ui/gps_status.py`, `httpx`). Each poll is stored under the synthetic WS topic `/web_ui/gps_base_status`: the base status plus `reachable: true`, `received_at` and `stale` (the scraper's `sample_seq` did not change for `stale_after_s`, i.e. the base node stopped publishing), or `{"reachable": false, "error": "timeout" | "connection error" | "HTTP <code>" | "invalid payload"}` on failure. No fix values are ever fabricated.
+- **Frontend:** `Robot: <fix> - <N> sats` and `Base: <fix> - <N> sats - link OK 1.0s`. Colour: RTK Fixed green, RTK Float and DGPS amber, GPS blue, No fix red, stale red, grey `no data` before the first sample. The link comes from the rover (`ntrip_connected`, `diff_age_s`): `link down` (chip red) when the rover NTRIP client is disconnected; `Base: unreachable` (red) when the poll fails. Tooltips list HDOP, RTCM bytes, NTRIP clients and rover NTRIP rx. On phones only `Robot: <fix>` / `Base: <fix>` is shown. Logic in `frontend/src/gps/gpsStatus.ts` (vitest `gpsStatus.test.ts`), chip in `frontend/src/components/GpsChip.tsx`.
+
 ## Agent tab (`agent_chat`)
 
 Chat with the [`claude_agent`](../claude_agent/README.md) node, which runs Claude with the robot MCP tools. web_ui does not talk to Claude itself: the backend proxies the claude_agent API (contract: "API (contract for the web UI)" in `nodes/claude_agent/README.md`), so the browser only needs web_ui's port.
