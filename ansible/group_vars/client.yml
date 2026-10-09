@@ -910,7 +910,7 @@ ros2_nodes:
           poi_command_topic: /poi/command
           poi_result_topic: /poi/result
           # GPS anchor while parked: one fix + the BNO055 NDOF compass heading (bno055_imu operation_mode: NDOF), trusted
-          # only once /imu/calibration reports mag >= 2 and sys >= 1; the drive fit replaces it when it passes.
+          # only once /imu/calibration reports mag >= 2; the drive fit replaces it when it passes.
           gps_anchor_imu_topic: /imu/data
           gps_anchor_imu_calibration_topic: /imu/calibration
           # Magnetic declination at lat 54.605 lon 18.31 (Gdansk area), east positive: approx +6.6 deg in 2026

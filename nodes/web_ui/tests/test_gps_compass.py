@@ -153,10 +153,11 @@ def test_valid_imu_orientation_rejects_unknown_covariance_and_zero_quaternion() 
     assert not valid_imu_orientation((math.nan, 0.0, 0.0, 1.0), [0.01] + [0.0] * 8)
 
 
-def test_calibration_trusted_requires_mag_and_sys() -> None:
+def test_calibration_trusted_gates_on_mag_only() -> None:
     assert calibration_trusted({"sys": 1, "gyro": 3, "accel": 3, "mag": 2})
     assert not calibration_trusted({"sys": 1, "gyro": 3, "accel": 3, "mag": 1})
-    assert not calibration_trusted({"sys": 0, "gyro": 3, "accel": 3, "mag": 3})
+    # Observed on the robot: sys stays 0 in NDOF while mag is fully calibrated.
+    assert calibration_trusted({"sys": 0, "gyro": 3, "accel": 3, "mag": 3})
     assert not calibration_trusted(None)
     assert not calibration_trusted({"sys": 3})
 

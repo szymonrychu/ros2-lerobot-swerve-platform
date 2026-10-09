@@ -42,7 +42,6 @@ COMPASS_IMU_MAX_AGE_S = 1.0
 CALIBRATION_MAX_AGE_S = 5.0
 # BNO055 calibration gates (0-3 scale): magnetometer and overall system level required to trust the heading.
 MIN_MAG_CALIBRATION = 2
-MIN_SYS_CALIBRATION = 1
 # A republished compass anchor must differ from the cached one by more than this (position metres / heading degrees).
 COMPASS_MIN_CHANGE_M = 0.05
 COMPASS_MIN_CHANGE_DEG = 0.2
@@ -119,25 +118,22 @@ def valid_imu_orientation(quat_xyzw: tuple[float, float, float, float], covarian
     return sum(v * v for v in quat_xyzw) > 0.0
 
 
-def calibration_trusted(
-    status: dict[str, Any] | None, min_mag: int = MIN_MAG_CALIBRATION, min_sys: int = MIN_SYS_CALIBRATION
-) -> bool:
+def calibration_trusted(status: dict[str, Any] | None, min_mag: int = MIN_MAG_CALIBRATION) -> bool:
     """Return True if the BNO055 calibration status is good enough to trust the compass heading.
+
+    Only the magnetometer is gated: the system status stays 0 in NDOF on the robot even with mag fully calibrated.
 
     Args:
         status (dict[str, Any] | None): {"sys", "gyro", "accel", "mag"} (each 0-3) or None when unknown.
         min_mag (int): Minimum magnetometer calibration.
-        min_sys (int): Minimum system calibration.
 
     Returns:
-        bool: True when both gates pass; False for missing or incomplete status.
+        bool: True when the magnetometer gate passes; False for missing or incomplete status.
     """
     if not status:
         return False
-    mag, sys_cal = status.get("mag"), status.get("sys")
-    if not isinstance(mag, int) or not isinstance(sys_cal, int):
-        return False
-    return mag >= min_mag and sys_cal >= min_sys
+    mag = status.get("mag")
+    return isinstance(mag, int) and mag >= min_mag
 
 
 def enu_yaw_from_imu(
