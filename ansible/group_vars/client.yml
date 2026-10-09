@@ -991,6 +991,9 @@ ros2_nodes:
         poi_list: /poi/list
         poi_command: /poi/command
         poi_result: /poi/result
+        # Web-UI grasp actions: JSON requests in, JSON results out (nodes/mcp_server/README.md, "Grasp macros").
+        grasp_command: /grasp/command
+        grasp_result: /grasp/result
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml
@@ -1095,6 +1098,47 @@ ros2_nodes:
       poi:
         request_timeout_s: 3.0
         near_radius_m: 5.0
+      # Below-surface slow zone of every arm motion (nodes/mcp_server/README.md, "Floor slow zone"): trajectory steps
+      # where a jaw tip, the wrist or the elbow is within margin_m of the effective surface (the higher of the robot
+      # plane at surface_z_m and the IMU gravity-level plane through base_link) run at slow_speed_scale of their speed.
+      # It never blocks; agents can only shift it per call (surface_z_m, tilt_override_deg). An IMU tilt older than
+      # imu_max_age_s is ignored (robot plane only).
+      floor_guard:
+        enabled: true
+        margin_m: 0.02
+        slow_speed_scale: 0.2
+        surface_z_m: 0.0
+        imu_max_age_s: 1.0
+      # Grasp planner defaults (plan_grasp / grasp_object / release_object and /grasp/command); every value can be
+      # overridden per call through `params`. Lengths in m, the tool point is the fixed jaw's inner face.
+      grasp:
+        approach_distance_m: 0.04       # straight approach before the object (beyond half its depth)
+        pre_grasp_clearance_m: 0.05     # lifted pre-grasp (roll happens here, gripper at most half open)
+        slide_speed_scale: 0.15         # approach, slide, lift and retreat speed scale
+        lift_height_m: 0.05
+        retreat_distance_m: 0.05
+        jaw_thickness_m: 0.008          # fixed jaw thickness below its inner face (estimate)
+        jaw_open_margin_m: 0.015        # opening beyond the gripped size
+        below_object_offset_m: 0.005    # scoop: fixed jaw top below the object bottom (clamped to skim the surface)
+        skim_clearance_m: 0.003         # scoop: fixed jaw bottom above the surface when skimming
+        max_object_width_m: 0.08
+        close_effort_threshold: 300     # close_until_effort contact load
+        hold_effort_min: 100            # verified grasp: load still felt after the close
+        min_hold_gap_rad: 0.08          # verified grasp: jaw stopped this far short of closed
+        interpolation_step_m: 0.005     # straight-line IK sample spacing
+        max_joint_jump_rad: 0.25
+        scoop_pitch_deg: 0              # horizontal scoop first, steeper pitches up to scoop_max_pitch_deg
+        scoop_max_pitch_deg: 25
+        scoop_pitch_step_deg: 5
+        angled_pitch_deg: 45
+        stall_shoulder_lift_rad: 1.85   # stretched arm (elbow_flex <= stretched_elbow_max_rad) above this stalls
+        stretched_elbow_max_rad: 0.0
+        release_open_fraction: 0.6
+        release_lift_m: 0.05
+        auto_order:
+          - {strategy: scoop}
+          - {strategy: angled, approach_pitch_deg: 45}
+          - {strategy: top_down}
   - name: poi_store
     node_type: poi_store
     present: true
@@ -1147,11 +1191,14 @@ ros2_nodes:
         - arm_home
         - arm_set_home
         - look_around
+        - grasp_object
+        - release_object
       uncapped_tools:
         - stop
         - acquire_control
         - release_control
       sensor_tools:
+        - plan_grasp
         - get_robot_state
         - get_camera_image
         - get_map_summary

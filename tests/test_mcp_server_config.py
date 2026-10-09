@@ -184,6 +184,8 @@ def test_mcp_server_node_entry_and_config() -> None:
         "look_around",
         "poi",
         "cameras",
+        "floor_guard",
+        "grasp",
     }
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
@@ -222,6 +224,20 @@ def test_mcp_server_arm_mount_estimate_and_height_agree_with_claude_agent() -> N
     assert arm["arm_base_height_m"] == 0.15
     assert arm["base_in_base_link"] == {"x": 0.15, "y": -0.04, "z": 0.15, "yaw": 0.0}
     assert node_config("claude_agent")["arm_base_height_m"] == arm["arm_base_height_m"]
+
+
+def test_mcp_server_floor_guard_and_grasp_blocks_are_deployed() -> None:
+    cfg = node_config("mcp_server")
+    guard = cfg["floor_guard"]
+    assert guard["enabled"] is True and guard["margin_m"] == 0.02 and guard["slow_speed_scale"] == 0.2
+    assert guard["surface_z_m"] == 0.0 and guard["imu_max_age_s"] == 1.0
+    grasp = cfg["grasp"]
+    assert grasp["interpolation_step_m"] == 0.005 and grasp["max_object_width_m"] == 0.08
+    assert [e["strategy"] for e in grasp["auto_order"]] == ["scoop", "angled", "top_down"]
+    assert cfg["topics"]["grasp_command"] == "/grasp/command" and cfg["topics"]["grasp_result"] == "/grasp/result"
+    agent = node_config("claude_agent")
+    assert {"grasp_object", "release_object"} <= set(agent["effector_tools"])
+    assert "plan_grasp" in agent["sensor_tools"]
 
 
 def test_mcp_server_monitor_block_has_ordered_thresholds() -> None:
