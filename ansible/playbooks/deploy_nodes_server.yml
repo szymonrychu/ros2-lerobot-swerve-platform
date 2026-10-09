@@ -57,6 +57,30 @@
         create: true
       tags: [boot, gps_rtk_base]
 
+    # console=serial0 makes the kernel console own ttyAMA0 (root:tty 0620), overriding the
+    # dialout udev rule, so the base node gets EACCES on the LC29H UART after every boot.
+    - name: Free ttyAMA0 from the kernel serial console for the GPS RTK base
+      when: ros2_nodes | selectattr('node_type', 'equalto', 'gps_rtk') | list | length > 0
+      ansible.builtin.replace:
+        path: /boot/firmware/cmdline.txt
+        regexp: 'console=(?:serial0|ttyAMA0),[0-9]+\s*'
+        replace: ""
+      register: serial_console_result
+      tags: [boot, gps_rtk_base]
+
+    - name: Mask the serial getty on ttyAMA0 for the GPS RTK base
+      when: ros2_nodes | selectattr('node_type', 'equalto', 'gps_rtk') | list | length > 0
+      ansible.builtin.systemd_service:
+        name: serial-getty@ttyAMA0.service
+        masked: true
+      tags: [boot, gps_rtk_base]
+
+    - name: Reboot server if the serial console was removed (frees ttyAMA0)
+      when: serial_console_result is defined and serial_console_result.changed
+      ansible.builtin.reboot:
+        reboot_timeout: 180
+      tags: [boot, gps_rtk_base]
+
     - name: Boot waits for any network interface only
       ansible.builtin.include_tasks: tasks/network_wait_online.yml
       tags: [boot]
