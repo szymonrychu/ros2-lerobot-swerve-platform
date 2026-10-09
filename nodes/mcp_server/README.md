@@ -549,7 +549,8 @@ carry `seq`, wall time, job id, kind and label, are logged on `mcp_server.motion
 `motion_queue.event_history` (200) are kept.
 
 **Waiting.** `wait_for_event(timeout_s, until, since_seq)` blocks only until something relevant happens: `queue_empty`
-(default: drained, or a failure / precondition failure / contact / aborted step), `step_done` (also any finished or
+(default: drained, or a failure / precondition failure / contact / aborted step; a failure the queue skips past with
+`on_fail: skip` does not end it), `step_done` (also any finished or
 skipped step), `failure` (failures only) or `any`. It returns at once with reason `idle` when nothing is queued,
 returns the events not returned before (`since_seq` overrides the cursor) plus the queue status and a state digest
 (arm joints, gripper position / open fraction / effort, base pose, battery V, lease; unknown values null), so a separate

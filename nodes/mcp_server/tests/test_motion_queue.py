@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from pydantic import TypeAdapter
 
+from mcp_server.arm import ArmError
 from mcp_server.config import McpServerConfig
 from mcp_server.models import BasePose, NavigationResult
 from mcp_server.motion_queue import (
@@ -263,6 +264,53 @@ def test_failed_precondition_with_skip_continues(robot: GateRobot) -> None:
     result = queue.wait(WAIT, "queue_empty")
     assert "step_skipped" in types(result.events)
     assert robot.arm_backend.commands[-1]["shoulder_pan"] == pytest.approx(0.4)
+
+
+def test_skipped_precondition_does_not_wake_a_queue_empty_wait_while_steps_remain(robot: GateRobot) -> None:
+    robot.gate.clear()
+    queue = make_queue(robot)
+    queue.enqueue(
+        steps(
+            {
+                "kind": "arm_joints",
+                "targets": {"shoulder_pan": 0.2},
+                "precondition": {"type": "gripper_holding"},
+                "on_fail": "skip",
+            },
+            {"kind": "navigate_to_pose", "x": 1.0, "y": 0.0},
+        )
+    )
+    assert robot.entered.wait(WAIT)
+    early = queue.wait(0.2, "queue_empty")
+    assert early.timed_out and early.status.running
+    assert queue.wait(0.2, "failure", since_seq=0).reason == "precondition_failed"
+    robot.gate.set()
+    done = queue.wait(WAIT, "queue_empty", since_seq=0)
+    assert done.reason == "queue_empty" and not done.status.running
+    assert {"precondition_failed", "step_skipped"} <= set(types(done.events))
+
+
+def test_skipped_step_failure_does_not_wake_a_queue_empty_wait_while_steps_remain(robot: GateRobot) -> None:
+    robot.gate.clear()
+    queue = make_queue(robot)
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise ArmError("refused for the test")
+
+    robot.arm.move_blend = refuse  # type: ignore[method-assign]
+    queue.enqueue(
+        steps(
+            {"kind": "arm_joints", "targets": {"shoulder_pan": 0.2}, "on_fail": "skip"},
+            {"kind": "navigate_to_pose", "x": 1.0, "y": 0.0},
+        )
+    )
+    assert robot.entered.wait(WAIT)
+    early = queue.wait(0.2, "queue_empty")
+    assert early.timed_out and early.status.running
+    robot.gate.set()
+    done = queue.wait(WAIT, "queue_empty", since_seq=0)
+    assert done.reason == "queue_empty" and not done.status.running
+    assert {"step_failed", "step_skipped"} <= set(types(done.events))
 
 
 def test_precondition_predicates() -> None:

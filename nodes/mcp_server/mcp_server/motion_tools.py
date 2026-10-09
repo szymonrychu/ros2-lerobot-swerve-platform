@@ -117,7 +117,7 @@ def register(ctx: ToolContext) -> None:
             "status and a compact state digest (arm joints, gripper position/open fraction/effort, base pose, battery "
             "V, lease), so a separate get_robot_state is rarely needed. until: 'queue_empty' (default: returns when "
             "the queue drained or a step failed, a precondition failed, a contact happened or a stop/cancel ended a "
-            "step), 'step_done' (also after any single step finished), 'failure' (only failures), 'any' (any new "
+            "step; a failure skipped with on_fail=skip does not end it), 'step_done' (also after any single step finished), 'failure' (only failures), 'any' (any new "
             "event). Returns at once with reason 'idle' when the queue is empty. Each call returns only events not "
             f"returned before (since_seq overrides). Default timeout {cfg.wait_default_s:g} s, at most "
             f"{cfg.wait_max_s:g} s (then reason 'timeout' and the queue keeps running)."

@@ -46,6 +46,8 @@ WAKE_EVENTS: dict[str, frozenset[str]] = {
     "step_done": FAILURE_EVENTS | {"contact", "queue_empty", "step_done", "step_skipped"},
     "failure": FAILURE_EVENTS,
 }
+# Data key marking a failure the queue continued past (on_fail='skip'): it does not end a 'queue_empty' wait.
+SKIPPED_KEY = "on_fail"
 DIGEST_DECIMALS = 3
 
 PreconditionType = Literal["none", "gripper_holding", "gripper_open", "arm_near", "base_still", "battery_ok"]
@@ -461,6 +463,23 @@ def evaluate_precondition(pre: Precondition, state: LiveState, config: McpServer
     return True, f"arm within {pre.tol:g} rad of the given pose"
 
 
+def wakes(event: MotionEvent, until: WaitUntil) -> bool:
+    """Whether an event ends a wait: a failure the queue skipped past does not end a 'queue_empty' wait.
+
+    Args:
+        event (MotionEvent): The event.
+        until (WaitUntil): The wait's condition.
+
+    Returns:
+        bool: True when the wait should return on this event.
+    """
+    if until == "any":
+        return True
+    if until == "queue_empty" and event.data.get(SKIPPED_KEY) == "skip":
+        return False
+    return event.type in WAKE_EVENTS[until]
+
+
 def read_live_state(robot: RobotApi, guard: CutoffGuard | None, need_twist: bool) -> LiveState:
     """Live state for preconditions.
 
@@ -744,10 +763,7 @@ class MotionQueue:
             reason = "timeout"
             while True:
                 fresh = [e for e in self._events if e.seq > cursor]
-                wake = next(
-                    (e.type for e in fresh if until == "any" or e.type in WAKE_EVENTS[until]),
-                    None,
-                )
+                wake = next((e.type for e in fresh if wakes(e, until)), None)
                 if wake is not None:
                     reason = wake
                     break
@@ -1098,8 +1114,9 @@ class MotionQueue:
         elif outcome.precondition:
             # Only the head carries the precondition: the steps blended behind it go back to the queue front.
             head = group[0]
-            self.emit_locked("precondition_failed", head, outcome.message)
-            if head.step.on_fail == "skip":
+            skip = head.step.on_fail == "skip"
+            self.emit_locked("precondition_failed", head, outcome.message, {SKIPPED_KEY: "skip"} if skip else None)
+            if skip:
                 self.emit_locked("step_skipped", head, f"skipped (on_fail=skip): {outcome.message}")
                 self._pending.extendleft(reversed(group[1:]))
             else:
@@ -1114,8 +1131,11 @@ class MotionQueue:
             head = rest[0] if rest else group[-1]
             if outcome.contact:
                 self.emit_locked("contact", head, outcome.message, {"status": outcome.status})
-            self.emit_locked("step_failed", head, outcome.message, {"status": outcome.status, **outcome.data})
             policy_skip = all(q.step.on_fail == "skip" for q in rest)
+            failed = {"status": outcome.status, **outcome.data}
+            if policy_skip:
+                failed[SKIPPED_KEY] = "skip"
+            self.emit_locked("step_failed", head, outcome.message, failed)
             if policy_skip:
                 for q in rest:
                     self.emit_locked("step_skipped", q, f"skipped (on_fail=skip): {outcome.message}")
