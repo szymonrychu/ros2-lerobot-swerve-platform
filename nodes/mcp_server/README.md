@@ -415,6 +415,17 @@ no joint jump above `max_joint_jump_rad` between samples, no stretched-arm stall
 opening within `max_object_width_m` and the gripper's reach, roll guard ordering, plus slow-zone annotations per step.
 Infeasible plans return human-readable `reasons`; the planner never raises for an infeasible object.
 
+Planner speed (the RPi 5 is several times slower than a Mac; the web UI `/api/grasp` plan times out at 30 s). Every
+ikpy solve costs about 5 ms and a straight-line sample needs 30 to 70 of them, so the planner avoids them where the
+result cannot change: `ArmKinematics.inverse` rejects a target beyond the summed link lengths without any search
+(`max_reach_m`); identical ikpy queries are served from a per-instance cache (`ArmKinematics.solutions`); and
+`realize` solves the key waypoints (`retreat`, `lift`, `approach`, `pre_grasp`, hardest first) before it interpolates
+any 5 mm line, so an unreachable plan fails after one or two solves instead of after walking the whole path. Feasible
+plans are unchanged (`tests/test_grasp_speed.py` compares them with golden joints within 1e-6 rad); the speed tests
+(auto under 1 s on the reference 4 cm cube at x 0.25 on the floor) are skipped with `GRASP_SPEED_SKIP=1`. Measured on a
+MacBook M4 with the deployed config, before -> after: top_down 0.40 -> 0.5 s, angled pitch 45 (infeasible) 9.3 -> 0.25 s,
+auto 0.43 -> 0.5 s (first strategy feasible), object beyond reach 0.34 -> 0.00 s.
+
 ### Executor (`grasp_tools.GraspExecutor`)
 
 Runs a plan through `ArmController` (lease, stop, roll guard, limit clamping, tracking/stale aborts, slow zone): if the

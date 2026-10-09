@@ -3,6 +3,7 @@
 import math
 import warnings
 import xml.etree.ElementTree as ET
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +22,7 @@ PITCH_TOLERANCE_RAD = math.radians(3.0)
 HEADING_REFINEMENTS = 6
 # Fixed-point iterations / convergence (m) of the IK on the flange target when the tool point is offset.
 TOOL_ITERATIONS = 6
+SOLUTION_CACHE_SIZE = 8192  # ikpy solves kept (identical queries repeat across seeds, refinements and strategies)
 TOOL_CONVERGENCE_M = 0.0005
 EXTRA_SEEDS = ((0.0, 0.0, 0.0), (-0.8, 0.8, 0.5), (0.5, -0.5, 1.0), (-1.2, 1.4, 0.0), (0.8, 0.8, -0.5))
 
@@ -149,6 +151,11 @@ class ArmKinematics:
             warnings.simplefilter("ignore")
             self.chain = ikpy.chain.Chain(chain.links, active_links_mask=mask, name="so101")
         self.joint_names = ARM_CHAIN_JOINTS
+        # A tool point can never be farther from the arm base than the sum of the link offsets (triangle inequality).
+        self.max_reach_m = float(
+            sum(np.linalg.norm(getattr(link, "origin_translation", (0.0, 0.0, 0.0))) for link in chain.links)
+        )
+        self.solutions: OrderedDict[bytes, dict[str, float]] = OrderedDict()
         pan_origin = self.chain.forward_kinematics(np.zeros(len(self.chain.links)), full_kinematics=True)[
             self.index["shoulder_pan"]
         ]
@@ -326,6 +333,11 @@ class ArmKinematics:
         Raises:
             UnreachableError: When the target cannot be reached within limits and tolerances.
         """
+        tool_reach = float(np.linalg.norm(self.tool_offset + (0.0 if extra_offset is None else np.array(extra_offset))))
+        if math.sqrt(x * x + y * y + z * z) > self.max_reach_m + tool_reach + POSITION_TOLERANCE_M:
+            raise UnreachableError(
+                f"target ({x:.3f}, {y:.3f}, {z:.3f}) is beyond the arm's reach of {self.max_reach_m + tool_reach:.3f} m"
+            )
         if not (self.tool_offset.any() or (extra_offset is not None and any(extra_offset))):
             return self.inverse_flange(x, y, z, pitch, seed)
         target = np.array([x, y, z])
@@ -417,16 +429,28 @@ class ArmKinematics:
         Returns:
             dict[str, float]: Solved chain joints (URDF angles).
         """
+        initial = self.urdf_vector(self.clamp_seed(start))
+        key = b"".join(
+            np.asarray(part, dtype=np.float64).tobytes()
+            for part in (target, np.zeros(0) if orientation is None else orientation, initial, (roll,))
+        ) + (b"p" if orientation is None else b"o")
+        cached = self.solutions.get(key)
+        if cached is not None:
+            self.solutions.move_to_end(key)
+            return dict(cached)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             q = self.chain.inverse_kinematics(
                 target,
                 orientation,
                 orientation_mode=None if orientation is None else APPROACH_AXIS,
-                initial_position=self.urdf_vector(self.clamp_seed(start)),
+                initial_position=initial,
             )
         sol = {j: float(q[self.index[j]]) for j in ARM_CHAIN_JOINTS}
         sol["wrist_roll"] = roll
+        self.solutions[key] = dict(sol)
+        if len(self.solutions) > SOLUTION_CACHE_SIZE:
+            self.solutions.popitem(last=False)
         return sol
 
     def clamp_seed(self, joints: dict[str, float]) -> dict[str, float]:

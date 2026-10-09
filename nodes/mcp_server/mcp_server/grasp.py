@@ -36,6 +36,9 @@ MIN_DIRECTION_NORM = 1e-6
 # Waypoint labels in execution order.
 WAYPOINT_ORDER = ("pre_grasp", "open", "approach", "grasp", "close", "lift", "retreat")
 LINEAR_LABELS = ("approach", "grasp", "lift", "retreat")
+# Waypoints checked for reachability before the straight lines to them are interpolated, hardest first (the lifted
+# retreat is the closest to the base, where a pitched gripper runs out of reach).
+KEY_LABELS = ("retreat", "lift", "approach", "pre_grasp")
 
 WaypointLabel = Literal["pre_grasp", "open", "approach", "grasp", "close", "lift", "retreat"]
 GripperAction = Literal["set", "close", "keep"]
@@ -658,6 +661,13 @@ class GraspPlanner:
             ("lift", lift, hold, "keep", geo.lift_speed or slow, True),
             ("retreat", retreat, hold, "keep", slow, True),
         ]
+        # Key waypoints first: an unreachable one rejects the plan before any straight-line sample is interpolated.
+        key_seed = first | {ROLL_JOINT: roll}
+        points = {label: point for label, point, *_ in steps}
+        for label in KEY_LABELS:
+            _, problem = self.solve_point(label, points[label], geo.pitch, key_seed, extra, params)
+            if problem is not None:
+                return base.model_copy(update={"reasons": [problem], "wrist_roll_rad": roll})
         waypoints: list[Waypoint] = []
         segments: dict[str, list[dict[str, float]]] = {}
         annotations: list[dict[str, Any]] = []

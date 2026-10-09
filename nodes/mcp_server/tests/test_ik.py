@@ -337,3 +337,37 @@ def test_link_frames_returns_every_chain_link_from_one_forward_pass(kin: ArmKine
     assert set(frames) == set(kin.link_index)
     for link, frame in frames.items():
         assert np.allclose(frame, kin.link_frame(joints, link))
+
+
+def test_target_beyond_the_link_lengths_is_rejected_without_an_ik_search() -> None:
+    kin = ArmKinematics(URDF, margin=MARGIN)  # its own instance: the chain is patched
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("ikpy must not run for a target beyond the arm's reach")
+
+    kin.chain.inverse_kinematics = forbidden  # type: ignore[method-assign]
+    assert kin.max_reach_m == pytest.approx(0.55, abs=0.1)
+    with pytest.raises(UnreachableError, match="beyond"):
+        kin.inverse(0.9, 0.0, 0.0, None, {})
+    with pytest.raises(UnreachableError, match="beyond"):
+        kin.inverse(0.9, 0.0, 0.0, math.pi / 2, {}, (0.01, 0.0, 0.0))
+
+
+def test_identical_ik_queries_are_solved_once() -> None:
+    kin = ArmKinematics(URDF, margin=MARGIN)  # its own instance: the chain is patched and the cache is per instance
+    calls: list[int] = []
+    real = kin.chain.inverse_kinematics
+
+    def counting(*args: object, **kwargs: object) -> object:
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    kin.chain.inverse_kinematics = counting  # type: ignore[method-assign]
+    seed = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
+    first = kin.inverse(0.25, 0.0, -0.05, math.pi / 2, seed)
+    n = len(calls)
+    second = kin.inverse(0.25, 0.0, -0.05, math.pi / 2, seed)
+    assert len(calls) == n
+    assert second == first
+    second["shoulder_pan"] = 9.0  # callers own their copy
+    assert kin.inverse(0.25, 0.0, -0.05, math.pi / 2, seed) == first
