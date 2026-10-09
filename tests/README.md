@@ -464,7 +464,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   gripper-joint targets; enqueue returns at once and runs every step in order (`step_started` / `step_done` /
   `queue_empty`); consecutive arm steps run as one `move_blend`, cartesian steps solved at enqueue and blended;
   infeasible or invalid steps and too many steps refuse the whole call (nothing moves); precondition failure stops the
-  queue (default) or skips the step; every precondition predicate incl. unknown state; a tracking abort is a
+  queue (default) or skips the step, and a skipped `precondition_failed` / `step_failed` (data `on_fail: skip`) does
+  not end a `queue_empty` wait while later steps still run (gated regression tests); every precondition predicate incl.
+  unknown state; a tracking abort is a
   `step_failed` that stops the queue; gripper contact event; `halt_for_stop` clears the queue at once; an external stop
   between steps halts it; `cancel` aborts the running step (robot stopped) and drops the rest, but never stops an idle
   robot; `replace` drops pending steps only; battery cut-off at dispatch; enqueue refused while a blocking tool or
