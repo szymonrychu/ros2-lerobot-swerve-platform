@@ -11,6 +11,7 @@ import yaml
 from grasp_sim.adapter import grasp_plan_to_replay
 from grasp_sim.config import SceneConfig, SimConfig
 from grasp_sim.examples import example_case
+from grasp_sim.matrix import DEFAULT_RESULTS_FILE, run_matrix, summary_table
 from grasp_sim.render import DEFAULT_FPS, DEFAULT_SIZE, FrameSaver, ViewerObserver
 from grasp_sim.replay import Observer, simulate
 from grasp_sim.report import SimReport
@@ -144,11 +145,28 @@ def example_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def matrix_command(args: argparse.Namespace) -> int:
+    """Replay a planner scenario matrix (scripts/plan_matrix.py output) and print the summary table.
+
+    Args:
+        args (argparse.Namespace): Parsed arguments of the matrix subcommand.
+
+    Returns:
+        int: Always 0 (the table is the result; failing scenarios are data, not errors).
+    """
+    results = run_matrix(args.dir, args.workers, args.stock_jaws)
+    out = args.out or args.dir / DEFAULT_RESULTS_FILE
+    out.write_text(json.dumps(results, indent=1))
+    print(summary_table(results))
+    print(f"wrote {out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser.
 
     Returns:
-        argparse.ArgumentParser: Parser with the run and example subcommands.
+        argparse.ArgumentParser: Parser with the run, example and matrix subcommands.
     """
     parser = argparse.ArgumentParser(prog="grasp-sim", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -169,6 +187,12 @@ def build_parser() -> argparse.ArgumentParser:
     example.add_argument("name", choices=EXAMPLE_NAMES)
     example.add_argument("--out", type=Path, default=Path("examples"))
     example.set_defaults(func=example_command)
+    matrix = sub.add_parser("matrix", help="replay a planner scenario matrix made by scripts/plan_matrix.py")
+    matrix.add_argument("dir", type=Path, help="directory with index.json and the GraspPlan files")
+    matrix.add_argument("--out", type=Path, help=f"results JSON (default <dir>/{DEFAULT_RESULTS_FILE})")
+    matrix.add_argument("--workers", type=int, default=6, help="parallel processes")
+    matrix.add_argument("--stock-jaws", action="store_true", help="replay with the uncalibrated Menagerie jaws")
+    matrix.set_defaults(func=matrix_command)
     return parser
 
 

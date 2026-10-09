@@ -42,11 +42,11 @@ ignore = ["E501"]
 [tool.poe.tasks]
 lint = { shell = """
   set -e
-  ruff check src tests
-  ruff format --check src tests
+  ruff check src tests scripts
+  ruff format --check src tests scripts
 """ }
 lint-fix = { shell = """
-  ruff check --fix src tests
-  ruff format src tests
+  ruff check --fix src tests scripts
+  ruff format src tests scripts
 """ }
 test = { shell = "pytest -q" }
