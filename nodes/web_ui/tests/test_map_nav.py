@@ -201,6 +201,7 @@ def test_topic_roles_from_map_nav_tabs() -> None:
         "/client/gps/fix": "gps",
         "/poi/list": "poi_list",
         "/poi/result": "poi_result",
+        "/grasp/result": "grasp_result",
     }
 
 

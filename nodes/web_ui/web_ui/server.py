@@ -59,6 +59,13 @@ CANCEL_GOAL_ERROR_NONE = 0
 # Seconds to wait for poi_store's /poi/result after a POI command.
 POI_TIMEOUT_S = 3.0
 POI_OPS = frozenset({"add", "update", "delete"})
+# Seconds to wait for mcp_server's answer to a grasp stop (it answers at once).
+GRASP_STOP_TIMEOUT_S = 3.0
+# Grasp actions POST /api/grasp accepts ("stop" has its own endpoint) and those that need an "object".
+GRASP_ACTIONS = frozenset({"plan", "execute", "release"})
+GRASP_OBJECT_ACTIONS = frozenset({"plan", "execute"})
+GRASP_MOTION_ACTIONS = frozenset({"execute", "release"})
+HTTP_ACCEPTED = 202
 # Browser cache lifetime of URDF and mesh files (meshes are tens of MB, e.g. wheel.stl 78.7 MB).
 URDF_CACHE_CONTROL = "public, max-age=86400"
 # Map tiles reach the browser only through /api/tiles (same origin), so img-src needs no external hosts.
@@ -71,18 +78,20 @@ CONTENT_SECURITY_POLICY = (
 )
 
 
-async def await_ros_future(future: Any, timeout_s: float) -> Any:
+async def await_ros_future(future: Any, timeout_s: float, cancel_on_timeout: bool = True) -> Any:
     """Await an rclpy Future (completed by the executor thread) from asyncio, with a timeout.
 
     Args:
         future (Any): rclpy Future exposing add_done_callback, result, exception and cancel.
         timeout_s (float): Maximum seconds to wait.
+        cancel_on_timeout (bool): Cancel the future when the wait times out (False keeps it pending).
 
     Returns:
         Any: The future's result.
 
     Raises:
-        TimeoutError: If the future does not complete within timeout_s (the future is cancelled).
+        TimeoutError: If the future does not complete within timeout_s (the future is cancelled unless
+            cancel_on_timeout is False).
         Exception: Whatever exception the future completed with.
     """
     loop = asyncio.get_running_loop()
@@ -101,7 +110,8 @@ async def await_ros_future(future: Any, timeout_s: float) -> Any:
     try:
         return await asyncio.wait_for(done, timeout_s)
     except TimeoutError:
-        future.cancel()
+        if cancel_on_timeout:
+            future.cancel()
         raise
 
 
@@ -520,6 +530,68 @@ def build_app(
         except TimeoutError:
             return action_response("poi", False, f"poi_store did not answer within {POI_TIMEOUT_S:g} s", 504)
         log.info("poi_result", op=body["op"], ok=result.get("ok"), message=result.get("message"))
+        return JSONResponse(result, status_code=200 if result.get("ok") else 400)
+
+    @app.post("/api/grasp")
+    async def grasp_command(tab: str, request: Request) -> JSONResponse:
+        tab_cfg = find_map_nav_tab(tab)
+        if tab_cfg is None:
+            return action_response("grasp", False, f"no map_nav tab {tab!r}", 404)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        action = body.get("action") if isinstance(body, dict) else None
+        if action not in GRASP_ACTIONS or (action in GRASP_OBJECT_ACTIONS and not isinstance(body.get("object"), dict)):
+            return action_response(
+                "grasp", False, 'body must be {"action": "plan"|"execute"|"release", "object": {...}, ...}', 422
+            )
+        if action in GRASP_MOTION_ACTIONS and (blocked := battery_block(f"grasp_{action}")) is not None:
+            return blocked
+        if bridge_node is None:
+            return action_response("grasp", False, "ROS bridge unavailable", 503)
+        sent = bridge_node.grasp_request_async(body)
+        if sent is None:
+            return action_response("grasp", False, "mcp_server is not running", 503)
+        request_id, future = sent
+        motion = action in GRASP_MOTION_ACTIONS
+        timeout_s = tab_cfg.grasp_accept_wait_s if motion else tab_cfg.grasp_timeout_s
+        try:
+            result = await await_ros_future(future, timeout_s, cancel_on_timeout=not motion)
+        except TimeoutError:
+            if motion:
+                log.info("grasp_accepted", action=action, request_id=request_id)
+                return JSONResponse(
+                    {
+                        "ok": True,
+                        "accepted": True,
+                        "request_id": request_id,
+                        "action": action,
+                        "message": f"{action} started; progress and result stream on /web_ui/grasp_result",
+                    },
+                    status_code=HTTP_ACCEPTED,
+                )
+            return action_response("grasp", False, f"mcp_server did not answer within {timeout_s:g} s", 504)
+        log.info("grasp_result", action=action, ok=result.get("ok"), request_id=request_id)
+        return JSONResponse(result, status_code=200 if result.get("ok") else 400)
+
+    @app.post("/api/grasp/stop")
+    async def grasp_stop(tab: str) -> JSONResponse:
+        # Stopping is never blocked (battery cut-off included).
+        if find_map_nav_tab(tab) is None:
+            return action_response("grasp_stop", False, f"no map_nav tab {tab!r}", 404)
+        if bridge_node is None:
+            return action_response("grasp_stop", False, "ROS bridge unavailable", 503)
+        sent = bridge_node.grasp_request_async({"action": "stop"})
+        if sent is None:
+            return action_response("grasp_stop", False, "mcp_server is not running", 503)
+        try:
+            result = await await_ros_future(sent[1], GRASP_STOP_TIMEOUT_S)
+        except TimeoutError:
+            return action_response(
+                "grasp_stop", False, f"mcp_server did not answer the stop within {GRASP_STOP_TIMEOUT_S:g} s", 504
+            )
+        log.info("grasp_stop_result", ok=result.get("ok"))
         return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
     app.router.add_event_handler("startup", _make_start_broadcaster(app, clients, bridge_node, broadcast_interval, log))

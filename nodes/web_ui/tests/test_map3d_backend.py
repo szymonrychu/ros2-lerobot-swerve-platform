@@ -279,11 +279,11 @@ def test_default_yaml_topics_all_have_known_types() -> None:
 
     cfg = load_config(DEFAULT_YAML)
     roles = cfg.topic_roles()
-    # poi_result is subscribed by a dedicated handler (resolves pending requests), not through a spec.
+    # poi_result and grasp_result are subscribed by dedicated handlers (resolve pending requests), not through a spec.
     unknown = [
         t
         for t in cfg.all_subscribed_topics()
-        if roles.get(t) != "poi_result" and subscription_spec(t, roles.get(t)) is None
+        if roles.get(t) not in ("poi_result", "grasp_result") and subscription_spec(t, roles.get(t)) is None
     ]
     assert unknown == []
 

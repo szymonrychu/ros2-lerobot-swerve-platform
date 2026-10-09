@@ -56,6 +56,7 @@ def main() -> None:
         gps_anchor=config.gps_anchor_estimator(),
         battery_guard=battery_guard,
         poi_command_topic=config.poi_command_topic(),
+        grasp_command_topic=config.grasp_command_topic(),
         gps_compass=config.gps_compass_settings(),
     )
     executor = create_bridge_executor(node)

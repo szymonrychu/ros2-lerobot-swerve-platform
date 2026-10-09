@@ -906,6 +906,9 @@ ros2_nodes:
           arm_urdf: so101_arm.urdf
           arm_joint_states_topic: /follower/joint_states
           arm_command_topic: /filter/web_ui_joint_commands
+          # Arm mount in base_link [x, y, z] m (z up from the floor); estimate, measure later. Same value as the
+          # mcp_server arm.base_in_base_link, so the drawn arm and the grasp preview agree with the planner.
+          arm_offset: [0.15, -0.04, 0.15]
           # Home / Set home buttons: std_srvs/Trigger services served by mcp_server.
           arm_home_service: /arm/home
           arm_set_home_service: /arm/set_home
@@ -913,6 +916,9 @@ ros2_nodes:
           poi_list_topic: /poi/list
           poi_command_topic: /poi/command
           poi_result_topic: /poi/result
+          # Grasp panel: JSON requests/answers of the mcp_server GraspService (POST /api/grasp, progress on /ws).
+          grasp_command_topic: /grasp/command
+          grasp_result_topic: /grasp/result
           # GPS anchor while parked: one fix + the BNO055 NDOF compass heading (bno055_imu operation_mode: NDOF), trusted
           # only once /imu/calibration reports mag >= 2; the drive fit replaces it when it passes.
           gps_anchor_imu_topic: /imu/data

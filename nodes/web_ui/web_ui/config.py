@@ -69,14 +69,21 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "poi_list_topic": "/poi/list",
     "poi_command_topic": "/poi/command",
     "poi_result_topic": "/poi/result",
+    "grasp_command_topic": "/grasp/command",
+    "grasp_result_topic": "/grasp/result",
 }
 # Default disk cache cap for proxied map tiles (MiB).
 DEFAULT_TILE_CACHE_MAX_MB = 256
 # Seconds to wait for an arm home / set home std_srvs/Trigger response (a home motion can take 12+ s).
 DEFAULT_ARM_SERVICE_TIMEOUT_S = 30.0
+# Seconds POST /api/grasp waits for the mcp_server answer to a grasp plan (IK sampling of every strategy).
+DEFAULT_GRASP_TIMEOUT_S = 30.0
+# Seconds POST /api/grasp waits for an immediate rejection of an execute/release before answering "accepted".
+DEFAULT_GRASP_ACCEPT_WAIT_S = 1.0
 
 BATTERY_ROLE = "battery"
 POI_RESULT_ROLE = "poi_result"
+GRASP_RESULT_ROLE = "grasp_result"
 GPS_STATUS_ROLE = "gps_status"
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
@@ -103,6 +110,7 @@ MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
     ("gps_fix_topic", "gps"),
     ("poi_list_topic", "poi_list"),
     ("poi_result_topic", "poi_result"),
+    ("grasp_result_topic", "grasp_result"),
 )
 
 
@@ -183,6 +191,12 @@ class TabConfig(BaseModel):
     poi_list_topic: str | None = None  # map_nav: std_msgs/String JSON POI list (latched, from poi_store)
     poi_command_topic: str | None = None  # map_nav: std_msgs/String JSON POI add/update/delete commands
     poi_result_topic: str | None = None  # map_nav: std_msgs/String JSON command results (matched by request_id)
+    grasp_command_topic: str | None = None  # map_nav: std_msgs/String JSON grasp requests (mcp_server GraspService)
+    grasp_result_topic: str | None = None  # map_nav: std_msgs/String JSON grasp answers (matched by request_id)
+    grasp_timeout_s: float = Field(default=DEFAULT_GRASP_TIMEOUT_S, gt=0)  # map_nav: seconds to wait for a grasp plan
+    grasp_accept_wait_s: float = Field(
+        default=DEFAULT_GRASP_ACCEPT_WAIT_S, gt=0
+    )  # map_nav: seconds an execute/release waits for an immediate rejection
     arm_home_service: str | None = None  # map_nav: std_srvs/Trigger moving the arm to its home pose
     arm_set_home_service: str | None = None  # map_nav: std_srvs/Trigger storing the current arm pose as home
     arm_service_timeout_s: float = Field(
@@ -359,7 +373,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list" and "poi_result" (std_msgs/String JSON) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_result" and "grasp_result" (std_msgs/String JSON) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -385,6 +399,15 @@ class AppConfig(BaseModel):
         """
         tab = next(iter(self.map_nav_tabs()), None)
         return tab.poi_command_topic if tab is not None else None
+
+    def grasp_command_topic(self) -> str | None:
+        """Return the grasp command topic of the first map_nav tab.
+
+        Returns:
+            str | None: Topic the bridge publishes grasp requests on, or None without a map_nav tab.
+        """
+        tab = next(iter(self.map_nav_tabs()), None)
+        return tab.grasp_command_topic if tab is not None else None
 
     def robot_pose_frames(self) -> tuple[str, str] | None:
         """Return (map_frame, base_frame) of the first map_nav tab for the robot pose TF lookup.

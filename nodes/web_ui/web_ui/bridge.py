@@ -33,7 +33,7 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from .config import BATTERY_ROLE, GPS_STATUS_ROLE, POI_RESULT_ROLE
+from .config import BATTERY_ROLE, GPS_STATUS_ROLE, GRASP_RESULT_ROLE, POI_RESULT_ROLE
 from .gps_anchor import (
     CALIBRATION_MAX_AGE_S,
     COMPASS_IMU_MAX_AGE_S,
@@ -126,6 +126,11 @@ DEFAULT_SUB_QOS_DEPTH = 10
 ROBOT_POSE_TOPIC = "/web_ui/robot_pose"
 # Synthetic WS topic carrying the fitted GPS anchor of the map frame {lat, lon, heading_rad, residual_m, n_points}.
 GPS_ANCHOR_TOPIC = "/web_ui/gps_anchor"
+# Synthetic WS topic carrying the state of the running grasp execute/release: {request_id, action, state: running|done,
+# ...the mcp_server answer once done}.
+GRASP_RESULT_TOPIC = "/web_ui/grasp_result"
+# Grasp actions that move the arm: their progress is streamed on GRASP_RESULT_TOPIC.
+GRASP_MOTION_ACTIONS = frozenset({"execute", "release"})
 # A GPS fix is paired with the latest map -> base TF only if their stamps differ by at most this (seconds).
 GPS_TF_MAX_SKEW_S = 0.25
 SERIALIZE_MAP_SERVICE = "/slam_toolbox/serialize_map"
@@ -219,6 +224,7 @@ class BridgeNode(Node):
         gps_anchor: GpsAnchorEstimator | None = None,
         battery_guard: BatteryGuard | None = None,
         poi_command_topic: str | None = None,
+        grasp_command_topic: str | None = None,
         gps_compass: CompassSettings | None = None,
     ) -> None:
         """Initialise BridgeNode.
@@ -239,6 +245,7 @@ class BridgeNode(Node):
             battery_guard (BatteryGuard | None): Guard fed with "battery" role readings, or None when battery
                 features are off.
             poi_command_topic (str | None): std_msgs/String topic POI commands are published on, or None to disable.
+            grasp_command_topic (str | None): std_msgs/String topic grasp requests are published on, or None to disable.
             gps_compass (CompassSettings | None): Compass (IMU heading) anchor settings, or None to disable it.
         """
         super().__init__("web_ui_bridge")
@@ -265,6 +272,10 @@ class BridgeNode(Node):
         self._poi_command_pub = (
             self.create_publisher(String, poi_command_topic, DEFAULT_SUB_QOS_DEPTH) if poi_command_topic else None
         )
+        self._grasp_pending: dict[str, Future] = {}
+        self._grasp_command_pub = (
+            self.create_publisher(String, grasp_command_topic, DEFAULT_SUB_QOS_DEPTH) if grasp_command_topic else None
+        )
         roles = topic_roles or {}
         if gps_compass is not None:
             # Dedicated subscriptions: the same topics may also feed UI tabs through the generic loop below.
@@ -290,6 +301,9 @@ class BridgeNode(Node):
                 continue
             if roles.get(topic) == POI_RESULT_ROLE:
                 self.create_subscription(String, topic, self.on_poi_result, DEFAULT_SUB_QOS_DEPTH)
+                continue
+            if roles.get(topic) == GRASP_RESULT_ROLE:
+                self.create_subscription(String, topic, self.on_grasp_result, DEFAULT_SUB_QOS_DEPTH)
                 continue
             spec = subscription_spec(topic, roles.get(topic))
             if spec is None:
@@ -420,6 +434,54 @@ class BridgeNode(Node):
             future.set_result(result)
         except InvalidStateError:
             log.debug("poi_result_after_cancel")
+
+    def grasp_request_async(self, payload: dict[str, Any]) -> tuple[str, Future] | None:
+        """Publish a grasp request with a fresh request_id; the future resolves with the matching /grasp/result.
+
+        An execute/release also publishes {"state": "running"} on GRASP_RESULT_TOPIC; its answer follows there.
+
+        Args:
+            payload (dict[str, Any]): The grasp contract request (a client request_id is replaced).
+
+        Returns:
+            tuple[str, Future] | None: (request_id, future resolving to the answer dict), or None when no
+                mcp_server subscribes to the command topic.
+        """
+        pub = self._grasp_command_pub
+        if pub is None or pub.get_subscription_count() == 0:
+            return None
+        request_id = uuid.uuid4().hex
+        future: Future = Future()
+        future.add_done_callback(lambda _fut: self._grasp_pending.pop(request_id, None))
+        self._grasp_pending[request_id] = future
+        action = payload.get("action")
+        if action in GRASP_MOTION_ACTIONS:
+            self.store(GRASP_RESULT_TOPIC, {"request_id": request_id, "action": action, "state": "running"})
+        pub.publish(String(data=json.dumps({**payload, "request_id": request_id})))
+        return request_id, future
+
+    def on_grasp_result(self, msg: Any) -> None:
+        """Resolve the pending grasp request a /grasp/result message answers; stream execute/release answers.
+
+        Args:
+            msg (Any): std_msgs/String with the answer JSON.
+        """
+        try:
+            result = json.loads(msg.data)
+            request_id = result["request_id"]
+            action = result.get("action")
+        except (ValueError, KeyError, TypeError, AttributeError):
+            log.warning("grasp_result_malformed")
+            return
+        if action in GRASP_MOTION_ACTIONS:
+            self.store(GRASP_RESULT_TOPIC, {**result, "state": "done"})
+        future = self._grasp_pending.pop(request_id, None)
+        if future is None:
+            return
+        try:
+            future.set_result(result)
+        except InvalidStateError:
+            log.debug("grasp_result_after_cancel")
 
     def store(self, topic: str, data: dict[str, Any]) -> None:
         """Cache data as the latest envelope for topic and mark it for broadcast.
