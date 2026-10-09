@@ -444,17 +444,24 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - path trajectory (`test_trajectory.py`): `path_trajectory` stays on the joint-space polyline, ends at its last point
   and respects the velocity cap; zero-length path
 - link frames (`test_ik.py`): `link_frames` returns every chain link from one FK pass
-- grasp planner (`test_grasp.py`, real URDF): strategy registry and unknown names, scoop on a floor object skims the
-  surface (roll about 0, moving jaw up, horizontal slide, opening), scoop on a ledge goes below the object bottom,
-  top_down (pitch 90 deg, jaws aligned with the object width for two yaws), angled (requested pitch on every waypoint,
-  jaws across the width), auto order and fallback, unreachable and too-wide reasons, roll only at the lifted half-open
+- grasp planner (`test_grasp.py`, real URDF): strategy registry and unknown names, scoop into a tight gap skims the
+  surface (roll about 0, moving jaw up, horizontal slide, opening), scoop with room under a ledge object goes below the
+  object bottom, scoop needs `gap_below_m` >= jaw thickness + margin ("no gap under object for the fixed jaw", also in
+  auto's reasons), top_down (pitch 90 deg, jaws aligned with the object width for two yaws), angled (requested pitch on
+  every waypoint, jaws across the width), auto order (top_down first) and fallback, tall narrow objects gripped at
+  `tall_grasp_height_fraction` and lifted at `lift_speed_scale` (and not below `tall_ratio`), objects below
+  `min_object_width_m` rejected, unreachable and too-wide reasons, roll only at the lifted half-open
   pre-grasp (`roll_guard_violations`), straight-line IK samples (spacing, line, joint jumps), joint-jump and shoulder
   stall reasons, slow-zone annotations, base_link objects and a missing mount, params overrides, JSON summary
 - grasp execution (`test_grasp_tools.py`): tool names and battery classification, grasp with a simulated object
   (close on load, lift, retreat, never a full squeeze), miss (open and retreat), stop between steps and lost lease
   abort, infeasible plans do not move, half-open before the roll at the lifted pre-grasp, release (open fraction and
-  lift), the `plan_grasp` / `grasp_object` / `release_object` tools (dry run, overrides, bad params), `GraspService`
-  JSON contract (plan, execute, release, stop, errors) and battery cut-off refusal
+  lift), every straight-line step at its waypoint speed (slow lift of a tall object), the `plan_grasp` /
+  `grasp_object` / `release_object` tools (dry run, overrides, bad params, schemas teach `gap_below_m`, the scoop gap
+  rule and the tall-object params), `GraspService` JSON contract (plan, execute, release, stop, errors) and battery
+  cut-off refusal
+- sim scenario planning (`test_plan_matrix.py`): `sim/grasp_sim/scripts/plan_matrix.py` writes the matrix index and
+  plans with the client.yml config (tool offset, `--only` filter, `--params` overrides)
 - arm tool overrides (`test_tools.py`): `move_arm_cartesian`, `move_arm_joints`, `set_gripper` take `surface_z_m` /
   `tilt_override_deg`, report `slow_zone` and describe the slow zone
 
@@ -597,7 +604,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
 | `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` (and the `nav_intermediate_*` pair) in client.yml equal the mcp_server `nav` values. |
 | `test_mcp_server_arm_mount_estimate_and_height_agree_with_claude_agent` | mcp_server config `arm.arm_base_height_m` is 0.15 and `arm.base_in_base_link` is the mount estimate `{x: 0.15, y: -0.04, z: 0.15, yaw: 0.0}` (to be measured); the claude_agent `arm_base_height_m` states the same height. |
-| `test_mcp_server_floor_guard_and_grasp_blocks_are_deployed` | mcp_server config has the `floor_guard` block (enabled, 2 cm margin, 0.2 slow speed scale, surface 0, IMU max age 1 s), the `grasp` block (5 mm interpolation, 8 cm max opening, auto order scoop, angled, top_down) and the `/grasp/command` / `/grasp/result` topics; the claude_agent lists `grasp_object` / `release_object` as effectors and `plan_grasp` as a sensor. |
+| `test_mcp_server_floor_guard_and_grasp_blocks_are_deployed` | mcp_server config has the `floor_guard` block (enabled, 2 cm margin, 0.2 slow speed scale, surface 0, IMU max age 1 s), the `grasp` block (5 mm interpolation, 8 cm max opening, auto order top_down, angled, scoop, scoop max pitch 40 deg and gap margin 4 mm, tall ratio 1.5 / grasp height fraction 0.3 / lift speed 0.05, min object width 1 cm) and the `/grasp/command` / `/grasp/result` topics; the claude_agent lists `grasp_object` / `release_object` as effectors and `plan_grasp` as a sensor. |
 | `test_mcp_server_monitor_block_has_ordered_thresholds` | mcp_server `monitor` block: servo 60/70 C, CPU 75/82 C, bump warning below critical, stall 1.0 s, tilt 10 deg, battery warning margin 0.2 V/cell. |
 | `test_mcp_server_monitor_topics_match_their_producers` | mcp_server monitor topics: `/follower/servo_registers`, `/imu/data`, `/robot_events`, `swerve_odom` equals the swerve controller `odom_topic`, `rf2o_twist` equals the rf2o relay `output_topic`. |
 | `test_mcp_server_readme_documents_monitor_and_events_contract` | `nodes/mcp_server/README.md` documents get_body_state, the per-call digest, the `/robot_events` contract, early-return (`interrupted_by`, expected/achieved), event types and the `monitor` thresholds. |
@@ -801,7 +808,9 @@ The dev-only MuJoCo grasp replay harness has its own uv project and tests under 
 | File | Covers |
 |------|--------|
 | `test_model.py` | Vendored SO-101 model loads with six position actuators; every body frame and the URDF gripper frame match a numpy URDF FK chain (`so101_arm.urdf`) within 2 mm at six joint configs; shoulder_lift range override. |
-| `test_scene.py` | Scene generation: floor at `-base_height`, box on floor / ledge / lower stair settles on its support with the configured size, mass and friction; support kind inference; validation. |
+| `test_scene.py` | Scene generation: floor at `-base_height`, box on floor / ledge / lower stair settles on its support with the configured size, mass and friction; support kind inference; validation; `gap_below_m` rests the box on two rails (support geoms) with a clear slot. |
+| `test_tcp.py` | Jaw calibration: gripper_frame_link transform, the stock Menagerie closing point, `tool_offset_m` read from client.yml, calibrated jaws close within 2 mm of it, only the fingers and the moving jaw move, the vendored XML stays unmodified, the replay grip point follows. |
+| `test_matrix.py` | Scenario matrix: executor-like quintic path timing, phase order and closed gripper from the close, slower lift for a lower `speed_scale`, scene per entry (calibrated or stock jaws, rails for a gap), summary table, `grasp-sim matrix` end to end. |
 | `test_plan.py` | Replay plan parsing, label timeline and linear interpolation. |
 | `test_ik.py` | Harness IK reaches position and approach pitch, raises when unreachable, respects limits and seeds. |
 | `test_replay.py` | `simulate`: trivial hold, clearance, forces, arm/jaw floor contacts, joint clipping warning, determinism, contact classification, tilt metric. |

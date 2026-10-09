@@ -233,7 +233,10 @@ def test_mcp_server_floor_guard_and_grasp_blocks_are_deployed() -> None:
     assert guard["surface_z_m"] == 0.0 and guard["imu_max_age_s"] == 1.0
     grasp = cfg["grasp"]
     assert grasp["interpolation_step_m"] == 0.005 and grasp["max_object_width_m"] == 0.08
-    assert [e["strategy"] for e in grasp["auto_order"]] == ["scoop", "angled", "top_down"]
+    assert [e["strategy"] for e in grasp["auto_order"]] == ["top_down", "angled", "scoop"]
+    assert grasp["scoop_max_pitch_deg"] == 40 and grasp["scoop_gap_margin_m"] == 0.004
+    assert grasp["tall_ratio"] == 1.5 and grasp["tall_grasp_height_fraction"] == 0.3
+    assert grasp["lift_speed_scale"] == 0.05 and grasp["min_object_width_m"] == 0.01
     assert cfg["topics"]["grasp_command"] == "/grasp/command" and cfg["topics"]["grasp_result"] == "/grasp/result"
     agent = node_config("claude_agent")
     assert {"grasp_object", "release_object"} <= set(agent["effector_tools"])
