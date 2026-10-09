@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from web_ui.config import AppConfig, load_config
 
@@ -137,3 +138,33 @@ def test_default_yaml_overview_tab_is_a_plain_camera_tab() -> None:
     assert tab.topic == "/overview_camera/image_raw/compressed"
     assert tab.label == "Overview"
     assert "/overview_camera/image_raw/compressed" in cfg.all_subscribed_topics()
+
+
+def test_gps_status_absent_means_off() -> None:
+    cfg = AppConfig()
+    assert cfg.gps_status is None
+    assert cfg.topic_roles() == {}
+
+
+def test_gps_status_defaults_and_roles_and_api_dump() -> None:
+    cfg = AppConfig.model_validate(
+        {"gps_status": {"rover_topic": "/client/gps/status", "base_url": "http://s:18100/x"}}
+    )
+    gps = cfg.gps_status
+    assert gps is not None
+    assert (gps.base_poll_hz, gps.stale_after_s, gps.base_timeout_s) == (1.0, 5.0, 2.0)
+    assert cfg.topic_roles() == {"/client/gps/status": "gps_status"}
+    assert "/client/gps/status" in cfg.all_subscribed_topics()
+    assert cfg.model_dump()["gps_status"]["base_url"] == "http://s:18100/x"
+
+
+def test_gps_status_all_optional() -> None:
+    gps = AppConfig.model_validate({"gps_status": {}}).gps_status
+    assert gps is not None
+    assert gps.rover_topic is None and gps.base_url is None
+
+
+@pytest.mark.parametrize("field", ["base_poll_hz", "stale_after_s", "base_timeout_s"])
+def test_gps_status_positive_numbers(field: str) -> None:
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate({"gps_status": {field: 0}})

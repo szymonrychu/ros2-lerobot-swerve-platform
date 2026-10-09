@@ -14,6 +14,7 @@ from ros2_common.battery import BatteryGuard
 
 from .bridge import BridgeNode, create_bridge_executor
 from .config import load_config
+from .gps_status import GPS_BASE_STATUS_KEY, BasePoller
 from .logging_setup import configure_logging
 from .server import build_app
 
@@ -66,6 +67,17 @@ def main() -> None:
 
     ros_thread = threading.Thread(target=spin_ros, daemon=True, name="rclpy-spin")
     ros_thread.start()
+
+    gps = config.gps_status
+    if gps is not None and gps.base_url:
+        poller = BasePoller(
+            gps.base_url,
+            gps.base_poll_hz,
+            gps.base_timeout_s,
+            gps.stale_after_s,
+            lambda status: node.store(GPS_BASE_STATUS_KEY, status),
+        )
+        threading.Thread(target=poller.run, args=(stop_event,), daemon=True, name="gps-base-poll").start()
 
     app = build_app(
         config=config, urdf_dir=URDF_DIR, static_dir=STATIC_DIR, bridge_node=node, battery_guard=battery_guard

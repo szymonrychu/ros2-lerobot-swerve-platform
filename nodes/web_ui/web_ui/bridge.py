@@ -32,8 +32,9 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
-from .config import BATTERY_ROLE, POI_RESULT_ROLE
+from .config import BATTERY_ROLE, GPS_STATUS_ROLE, POI_RESULT_ROLE
 from .gps_anchor import GpsAnchorEstimator
+from .gps_status import parse_status_json
 from .msg_serializer import (
     msg_to_dict,
     quaternion_to_yaw,
@@ -234,6 +235,12 @@ class BridgeNode(Node):
                     )
                     self._topic_last_rx[topic] = time.monotonic()
                 continue
+            if roles.get(topic) == GPS_STATUS_ROLE:
+                self.create_subscription(
+                    String, topic, lambda msg, t=topic: self.on_gps_status(t, msg), DEFAULT_SUB_QOS_DEPTH
+                )
+                self._topic_last_rx[topic] = time.monotonic()
+                continue
             if roles.get(topic) == POI_RESULT_ROLE:
                 self.create_subscription(String, topic, self.on_poi_result, DEFAULT_SUB_QOS_DEPTH)
                 continue
@@ -314,6 +321,19 @@ class BridgeNode(Node):
             log.debug("battery_invalid_voltage_dropped", topic=topic, voltage=data["voltage"])
             return
         self.store(topic, {**data, **guard.state()})
+
+    def on_gps_status(self, topic: str, msg: Any) -> None:
+        """Cache the rover GPS status JSON; invalid JSON is logged and dropped.
+
+        Args:
+            topic (str): Rover status topic.
+            msg (Any): std_msgs/String with the status JSON.
+        """
+        data = parse_status_json(msg.data)
+        if data is None:
+            log.warning("gps_status_malformed", topic=topic)
+            return
+        self.store(topic, data)
 
     def poi_request_async(self, payload: dict[str, Any]) -> Future | None:
         """Publish a POI command with a fresh request_id; the future resolves with the matching /poi/result.

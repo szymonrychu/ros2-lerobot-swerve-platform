@@ -76,6 +76,7 @@ DEFAULT_ARM_SERVICE_TIMEOUT_S = 30.0
 
 BATTERY_ROLE = "battery"
 POI_RESULT_ROLE = "poi_result"
+GPS_STATUS_ROLE = "gps_status"
 
 # Tab attributes holding topics the bridge subscribes to with a TOPIC_TYPE_HINTS-derived type.
 GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
@@ -222,6 +223,24 @@ class TabConfig(BaseModel):
         return self
 
 
+class GpsStatusConfig(BaseModel):
+    """GPS status chips: rover status topic (DDS) and base status endpoint (HTTP poll of the server scraper).
+
+    Attributes:
+        rover_topic: std_msgs/String JSON topic published by the rover gps_rtk node, or None.
+        base_url: Scraper URL of the base status topic (e.g. http://server:18100/topics/server/gps/status), or None.
+        base_poll_hz: Base poll rate in Hz.
+        stale_after_s: Seconds without a new sample before a status counts as stale.
+        base_timeout_s: HTTP timeout of one base poll in seconds.
+    """
+
+    rover_topic: str | None = None
+    base_url: str | None = None
+    base_poll_hz: float = Field(1.0, gt=0)
+    stale_after_s: float = Field(5.0, gt=0)
+    base_timeout_s: float = Field(2.0, gt=0)
+
+
 class AppConfig(BaseModel):
     """Full web_ui application configuration."""
 
@@ -231,6 +250,7 @@ class AppConfig(BaseModel):
     tabs: list[TabConfig] = []
     overlays: list[OverlayItem] = []
     battery: BatteryConfig | None = None  # absent: battery features off, nothing blocked
+    gps_status: GpsStatusConfig | None = None  # absent: no GPS status chips
 
     def all_subscribed_topics(self) -> list[str]:
         """Return unique ROS2 topics the bridge must subscribe to.
@@ -315,7 +335,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list" and "poi_result" (std_msgs/String JSON) and "battery" (BatteryState); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list" and "poi_result" (std_msgs/String JSON) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -329,6 +349,8 @@ class AppConfig(BaseModel):
                     roles[topic] = role
         if self.battery is not None:
             roles[self.battery.topic] = BATTERY_ROLE
+        if self.gps_status is not None and self.gps_status.rover_topic:
+            roles[self.gps_status.rover_topic] = GPS_STATUS_ROLE
         return roles
 
     def poi_command_topic(self) -> str | None:
