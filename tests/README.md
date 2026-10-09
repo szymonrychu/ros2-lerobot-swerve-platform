@@ -414,6 +414,35 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   integration and relative pose; navigation via a fake Nav port (success, interrupt cancels goal and zeroes the base,
   stop, timeout, rejected, unavailable, real monitor collision stop)
 - rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
+- config additions (`test_config.py`): arm base height 0.15 and the mount estimate `{x 0.15, y -0.04, z 0.15, yaw 0}`
+  enabled by default, mount z must equal `arm_base_height_m` (null allowed), `floor_guard` and `grasp` defaults and
+  validation, `/grasp/command` and `/grasp/result` topic defaults
+- floor slow zone (`test_floor_guard.py`): arm <-> base_link conversions (with yaw), quaternion roll/pitch, effective
+  surface (robot plane vs level plane, roll/pitch signs, shifted by `surface_z_m`), fresh IMU used / stale or missing
+  IMU ignored and logged once, tilt override replaces the IMU, flat robot slows only samples inside the margin, IMU
+  pitch raises the zone in front, `surface_z_m` allows normal speed down to a stair, configured surface/margin/scale,
+  disabled guard, elbow and wrist checked, jaw model (gap grows with opening, inverse, closed tip at the tool point),
+  monitor IMU record to tilt sample, per-step scales and constant-rate retiming of slow steps
+- arm slow zone and paths (`test_arm.py`): motions into the slow zone take more 25 Hz ticks at <= 0.2 of the velocity
+  cap and report `slow_zone`, motions above it are unchanged, `surface_z_m` and tilt overrides, stale IMU ignored,
+  `move_cartesian` / `set_gripper` / `home` pass the override, `move_path` streams through samples (velocity cap,
+  validation, roll guard, slow zone)
+- path trajectory (`test_trajectory.py`): `path_trajectory` stays on the joint-space polyline, ends at its last point
+  and respects the velocity cap; zero-length path
+- link frames (`test_ik.py`): `link_frames` returns every chain link from one FK pass
+- grasp planner (`test_grasp.py`, real URDF): strategy registry and unknown names, scoop on a floor object skims the
+  surface (roll about 0, moving jaw up, horizontal slide, opening), scoop on a ledge goes below the object bottom,
+  top_down (pitch 90 deg, jaws aligned with the object width for two yaws), angled (requested pitch on every waypoint,
+  jaws across the width), auto order and fallback, unreachable and too-wide reasons, roll only at the lifted half-open
+  pre-grasp (`roll_guard_violations`), straight-line IK samples (spacing, line, joint jumps), joint-jump and shoulder
+  stall reasons, slow-zone annotations, base_link objects and a missing mount, params overrides, JSON summary
+- grasp execution (`test_grasp_tools.py`): tool names and battery classification, grasp with a simulated object
+  (close on load, lift, retreat, never a full squeeze), miss (open and retreat), stop between steps and lost lease
+  abort, infeasible plans do not move, half-open before the roll at the lifted pre-grasp, release (open fraction and
+  lift), the `plan_grasp` / `grasp_object` / `release_object` tools (dry run, overrides, bad params), `GraspService`
+  JSON contract (plan, execute, release, stop, errors) and battery cut-off refusal
+- arm tool overrides (`test_tools.py`): `move_arm_cartesian`, `move_arm_joints`, `set_gripper` take `surface_z_m` /
+  `tilt_override_deg`, report `slow_zone` and describe the slow zone
 
 ### Per-node tests (gps_rtk)
 
