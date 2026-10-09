@@ -908,6 +908,13 @@ ros2_nodes:
           poi_list_topic: /poi/list
           poi_command_topic: /poi/command
           poi_result_topic: /poi/result
+          # GPS anchor while parked: one fix + the BNO055 NDOF compass heading (bno055_imu operation_mode: NDOF), trusted
+          # only once /imu/calibration reports mag >= 2 and sys >= 1; the drive fit replaces it when it passes.
+          gps_anchor_imu_topic: /imu/data
+          gps_anchor_imu_calibration_topic: /imu/calibration
+          # Magnetic declination at lat 54.605 lon 18.31 (Gdansk area), east positive: approx +6.6 deg in 2026
+          # (NOAA WMM model, about 6.5 deg in 2024 growing 0.2 deg/yr; recheck at https://www.ngdc.noaa.gov/geomag/).
+          magnetic_declination_deg: 6.6
           # Proxied map tiles are cached in /var/cache/web_ui/tiles (default tile_cache_dir, created by
           # playbooks/tasks/web_ui_tile_cache_dir.yml).
         # Chat with the claude_agent node (127.0.0.1:18300, its http_port); the backend proxies /api/agent and /ws/agent.

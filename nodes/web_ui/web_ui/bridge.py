@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import array
 import json
+import math
 import threading
 import time
 import uuid
@@ -33,7 +34,20 @@ from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .config import BATTERY_ROLE, GPS_STATUS_ROLE, POI_RESULT_ROLE
-from .gps_anchor import GpsAnchorEstimator
+from .gps_anchor import (
+    CALIBRATION_MAX_AGE_S,
+    COMPASS_IMU_MAX_AGE_S,
+    COMPASS_MIN_CHANGE_DEG,
+    COMPASS_MIN_CHANGE_M,
+    CompassSettings,
+    GpsAnchorEstimator,
+    calibration_trusted,
+    compass_anchor,
+    enu_yaw_from_imu,
+    latlon_to_enu,
+    normalize_angle,
+    valid_imu_orientation,
+)
 from .gps_status import parse_status_json
 from .msg_serializer import (
     msg_to_dict,
@@ -46,6 +60,7 @@ from .msg_serializer import (
     serialize_path,
     serialize_poi_list,
     serialize_polygon,
+    stamp_to_seconds,
     transform_points_2d,
     transform_to_pose_dict,
 )
@@ -167,6 +182,26 @@ def subscription_spec(topic: str, role: str | None) -> tuple[type, Any, Serializ
     return (msg_cls, qos, serializer)
 
 
+def compass_changed(cached: dict[str, Any] | None, new: dict[str, Any]) -> bool:
+    """Return True if a compass anchor should be (re)published.
+
+    A cached anchor is replaced only when the new one moved more than COMPASS_MIN_CHANGE_M or turned more than
+    COMPASS_MIN_CHANGE_DEG, so sensor noise does not spam the WebSocket.
+
+    Args:
+        cached (dict[str, Any] | None): Currently published anchor or None.
+        new (dict[str, Any]): Candidate compass anchor.
+
+    Returns:
+        bool: Whether to publish the candidate.
+    """
+    if cached is None or cached.get("source") != "compass":
+        return True
+    east, north = latlon_to_enu(new["lat"], new["lon"], cached["lat"], cached["lon"])
+    turned_deg = math.degrees(abs(normalize_angle(new["heading_rad"] - cached["heading_rad"])))
+    return math.hypot(east, north) > COMPASS_MIN_CHANGE_M or turned_deg > COMPASS_MIN_CHANGE_DEG
+
+
 class BridgeNode(Node):
     """rclpy node: subscribes to configured topics, stores latest value per topic."""
 
@@ -184,6 +219,7 @@ class BridgeNode(Node):
         gps_anchor: GpsAnchorEstimator | None = None,
         battery_guard: BatteryGuard | None = None,
         poi_command_topic: str | None = None,
+        gps_compass: CompassSettings | None = None,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -203,6 +239,7 @@ class BridgeNode(Node):
             battery_guard (BatteryGuard | None): Guard fed with "battery" role readings, or None when battery
                 features are off.
             poi_command_topic (str | None): std_msgs/String topic POI commands are published on, or None to disable.
+            gps_compass (CompassSettings | None): Compass (IMU heading) anchor settings, or None to disable it.
         """
         super().__init__("web_ui_bridge")
         self._latest: dict[str, dict[str, Any]] = {}
@@ -221,11 +258,21 @@ class BridgeNode(Node):
         self._trigger_clients: dict[str, Any] = {}
         self._gps_anchor = gps_anchor
         self._battery_guard = battery_guard
+        self._compass = gps_compass
+        self._imu_heading: tuple[tuple[float, float, float, float], float, str] | None = None
+        self._imu_calibration: tuple[dict[str, Any], float] | None = None
         self._poi_pending: dict[str, Future] = {}
         self._poi_command_pub = (
             self.create_publisher(String, poi_command_topic, DEFAULT_SUB_QOS_DEPTH) if poi_command_topic else None
         )
         roles = topic_roles or {}
+        if gps_compass is not None:
+            # Dedicated subscriptions: the same topics may also feed UI tabs through the generic loop below.
+            self.create_subscription(Imu, gps_compass.imu_topic, self.on_anchor_imu, SENSOR_SUB_QOS)
+            if gps_compass.calibration_topic:
+                self.create_subscription(
+                    String, gps_compass.calibration_topic, self.on_anchor_calibration, DEFAULT_SUB_QOS_DEPTH
+                )
 
         for topic in topics:
             if roles.get(topic) == BATTERY_ROLE:
@@ -484,12 +531,81 @@ class BridgeNode(Node):
         anchor = self._gps_anchor.add_sample(fix["latitude"], fix["longitude"], pose["x"], pose["y"])
         with self._lock:
             cached = self._latest.get(GPS_ANCHOR_TOPIC)
+        cached_data = cached["data"] if cached is not None else None
         if anchor is not None:
-            if cached is None or cached["data"] != anchor:
+            if cached_data != anchor:
                 self.store(GPS_ANCHOR_TOPIC, anchor)
             return
-        if cached is not None:
+        if cached_data is not None and cached_data.get("source") != "compass":
             self.clear_and_notify(GPS_ANCHOR_TOPIC)
+            cached_data = None
+        compass = self.compute_compass_anchor(fix, pose)
+        if compass is not None and compass_changed(cached_data, compass):
+            self.store(GPS_ANCHOR_TOPIC, compass)
+
+    def on_anchor_imu(self, msg: Any) -> None:
+        """Keep the latest usable IMU orientation (known covariance, non-zero quaternion) with its stamp.
+
+        Args:
+            msg (Any): sensor_msgs/Imu message.
+        """
+        q = msg.orientation
+        quat = (float(q.x), float(q.y), float(q.z), float(q.w))
+        if not valid_imu_orientation(quat, list(msg.orientation_covariance)):
+            return
+        self._imu_heading = (quat, stamp_to_seconds(msg.header.stamp), msg.header.frame_id)
+
+    def on_anchor_calibration(self, msg: Any) -> None:
+        """Keep the latest BNO055 calibration status; invalid JSON is logged and ignored.
+
+        Args:
+            msg (Any): std_msgs/String with JSON {sys, gyro, accel, mag}.
+        """
+        try:
+            status = json.loads(msg.data)
+        except (TypeError, ValueError):
+            log.warning("imu_calibration_invalid_json")
+            return
+        if isinstance(status, dict):
+            self._imu_calibration = (status, time.monotonic())
+
+    def compute_compass_anchor(self, fix: dict[str, Any], pose: dict[str, Any]) -> dict[str, Any] | None:
+        """Build the compass anchor from a fix, the robot map pose and the latest IMU heading.
+
+        Requires compass settings, an IMU orientation within COMPASS_IMU_MAX_AGE_S of the fix stamp and, when a
+        calibration topic is configured, a fresh calibration status passing calibration_trusted. The base_link <-
+        IMU mounting comes from TF, with imu_yaw_offset_deg as the fallback.
+
+        Args:
+            fix (dict[str, Any]): serialize_navsatfix payload (latitude, longitude, stamp).
+            pose (dict[str, Any]): Robot pose in the map frame (x, y, yaw).
+
+        Returns:
+            dict[str, Any] | None: Compass anchor, or None when any input is missing, stale or untrusted.
+        """
+        settings = self._compass
+        heading = self._imu_heading
+        if settings is None or heading is None or self._robot_pose_frames is None:
+            return None
+        quat, imu_stamp, imu_frame = heading
+        if abs(imu_stamp - fix["stamp"]) > COMPASS_IMU_MAX_AGE_S:
+            return None
+        if settings.calibration_topic:
+            calibration = self._imu_calibration
+            if calibration is None or time.monotonic() - calibration[1] > CALIBRATION_MAX_AGE_S:
+                return None
+            if not calibration_trusted(calibration[0]):
+                return None
+        base_frame = self._robot_pose_frames[1]
+        mount = None
+        if imu_frame and imu_frame != base_frame:
+            try:
+                q = self._tf_buffer.lookup_transform(base_frame, imu_frame, Time()).transform.rotation
+                mount = (float(q.x), float(q.y), float(q.z), float(q.w))
+            except TransformException as exc:
+                log.debug("gps_compass_no_imu_tf", error=str(exc))
+        enu_yaw = enu_yaw_from_imu(quat, mount, math.radians(settings.imu_yaw_offset_deg), settings.declination_deg)
+        return compass_anchor(fix["latitude"], fix["longitude"], pose["x"], pose["y"], pose["yaw"], enu_yaw)
 
     def reset_gps_anchor(self) -> None:
         """Forget all GPS anchor samples and withdraw the published anchor (the SLAM map was reset)."""

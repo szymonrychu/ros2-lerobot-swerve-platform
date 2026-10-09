@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from web_ui.config import AppConfig, load_config
+from web_ui.config import AppConfig, TabConfig, load_config
 
 
 def test_load_config_minimal(config_yaml: Path) -> None:
@@ -168,3 +168,35 @@ def test_gps_status_all_optional() -> None:
 def test_gps_status_positive_numbers(field: str) -> None:
     with pytest.raises(ValidationError):
         AppConfig.model_validate({"gps_status": {field: 0}})
+
+
+def test_map_nav_compass_anchor_defaults() -> None:
+    tab = TabConfig(id="m", type="map_nav", label="Map")
+    assert tab.gps_anchor_compass is True
+    assert tab.gps_anchor_imu_topic is None
+    assert tab.gps_anchor_imu_calibration_topic is None
+    assert tab.magnetic_declination_deg == 0.0
+    assert tab.imu_yaw_offset_deg == 0.0
+    assert AppConfig(tabs=[tab]).gps_compass_settings() is None
+
+
+def test_gps_compass_settings_from_config() -> None:
+    tab = TabConfig(
+        id="m",
+        type="map_nav",
+        label="Map",
+        gps_anchor_imu_topic="/imu/data",
+        gps_anchor_imu_calibration_topic="/imu/calibration",
+        magnetic_declination_deg=6.6,
+        imu_yaw_offset_deg=-90.0,
+    )
+    settings = AppConfig(tabs=[tab]).gps_compass_settings()
+    assert settings is not None
+    assert (settings.imu_topic, settings.calibration_topic) == ("/imu/data", "/imu/calibration")
+    assert (settings.declination_deg, settings.imu_yaw_offset_deg) == (6.6, -90.0)
+
+
+def test_gps_compass_settings_none_when_disabled_or_without_map_nav_tab() -> None:
+    off = TabConfig(id="m", type="map_nav", label="Map", gps_anchor_imu_topic="/imu/data", gps_anchor_compass=False)
+    assert AppConfig(tabs=[off]).gps_compass_settings() is None
+    assert AppConfig(tabs=[]).gps_compass_settings() is None

@@ -99,6 +99,9 @@ def make_bridge(**attrs: Any) -> Any:
     node._cancel_goal_clients = {}
     node._trigger_clients = {}
     node._gps_anchor = None
+    node._compass = None
+    node._imu_heading = None
+    node._imu_calibration = None
     for key, value in attrs.items():
         setattr(node, key, value)
     return node
@@ -600,7 +603,8 @@ def test_bridge_publishes_gps_anchor_from_fixes_and_tf() -> None:
     data = anchors[0]["data"]
     assert data["heading_rad"] == pytest.approx(0.5, abs=1e-6)
     assert data["lat"] == pytest.approx(ANCHOR_LAT, abs=1e-7)
-    assert set(data) == {"lat", "lon", "heading_rad", "residual_m", "n_points"}
+    assert set(data) == {"lat", "lon", "heading_rad", "residual_m", "n_points", "source"}
+    assert data["source"] == "fit"
 
 
 def test_bridge_gps_anchor_skips_fix_when_tf_skewed_or_missing() -> None:

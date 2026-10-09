@@ -19,6 +19,7 @@ from .gps_anchor import (
     DEFAULT_MAX_RESIDUAL_M,
     DEFAULT_MIN_POINTS,
     DEFAULT_MIN_SPREAD_M,
+    CompassSettings,
     GpsAnchorEstimator,
 )
 
@@ -189,6 +190,11 @@ class TabConfig(BaseModel):
     gps_anchor_min_points: int = DEFAULT_MIN_POINTS  # map_nav: samples needed before the GPS anchor is published
     gps_anchor_min_spread_m: float = DEFAULT_MIN_SPREAD_M  # map_nav: minimum map-frame track extent for the fit
     gps_anchor_max_residual_m: float = DEFAULT_MAX_RESIDUAL_M  # map_nav: maximum RMS fit residual
+    gps_anchor_compass: bool = True  # map_nav: anchor from one fix + compass heading until the drive fit passes
+    gps_anchor_imu_topic: str | None = None  # map_nav: sensor_msgs/Imu with an absolute (NDOF) orientation
+    gps_anchor_imu_calibration_topic: str | None = None  # map_nav: std_msgs/String JSON BNO055 calibration gate
+    magnetic_declination_deg: float = 0.0  # map_nav: magnetic declination, east positive
+    imu_yaw_offset_deg: float = 0.0  # map_nav: IMU mounting yaw in base_frame when TF base_frame -> imu is missing
 
     @field_validator("type")
     @classmethod
@@ -329,6 +335,23 @@ class AppConfig(BaseModel):
             min_points=tab.gps_anchor_min_points,
             min_spread_m=tab.gps_anchor_min_spread_m,
             max_residual_m=tab.gps_anchor_max_residual_m,
+        )
+
+    def gps_compass_settings(self) -> CompassSettings | None:
+        """Build the compass anchor settings from the first map_nav tab with a GPS fix topic.
+
+        Returns:
+            CompassSettings | None: Settings, or None when there is no such tab, gps_anchor_compass is off or no
+                gps_anchor_imu_topic is configured.
+        """
+        tab = next((t for t in self.map_nav_tabs() if t.gps_fix_topic), None)
+        if tab is None or not tab.gps_anchor_compass or not tab.gps_anchor_imu_topic:
+            return None
+        return CompassSettings(
+            imu_topic=tab.gps_anchor_imu_topic,
+            calibration_topic=tab.gps_anchor_imu_calibration_topic,
+            declination_deg=tab.magnetic_declination_deg,
+            imu_yaw_offset_deg=tab.imu_yaw_offset_deg,
         )
 
     def topic_roles(self) -> dict[str, str]:

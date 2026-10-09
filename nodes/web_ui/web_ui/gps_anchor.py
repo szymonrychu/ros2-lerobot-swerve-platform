@@ -9,6 +9,9 @@ approximation, accurate to millimetres over the few hundred metres a robot drive
 
 The anchor reported to the browser is the latitude/longitude of the map origin (t converted back to WGS84)
 plus heading_rad, the angle of the map +x axis measured counter-clockwise from East. Pure numpy, no ROS.
+
+While parked (no drive fit yet) compass_anchor builds the same anchor from one fix plus the BNO055 compass heading
+(NDOF mode: orientation referenced to magnetic north).
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from collections import deque
 from typing import Any
 
 import numpy as np
+from pydantic import BaseModel
 
 # WGS84 equatorial radius (metres), used for the local tangent-plane projection.
 EARTH_RADIUS_M = 6378137.0
@@ -29,8 +33,175 @@ DEFAULT_MAX_RESIDUAL_M = 1.5
 # A sample is kept only once the robot moved this far (map frame) from the last kept sample,
 # so a parked robot does not flood the buffer with identical points.
 DEFAULT_MIN_SAMPLE_SPACING_M = 0.2
+# BNO055 NDOF orientation is the chip's world frame: x magnetic north, y west, z up (identity when level and facing
+# north, yaw counter-clockwise). ENU yaw = this offset + chip yaw - declination (east declination is positive).
+NWU_TO_ENU_YAW_RAD = math.pi / 2.0
+# An IMU orientation is used for a fix only when its stamp is within this many seconds of the fix stamp.
+COMPASS_IMU_MAX_AGE_S = 1.0
+# /imu/calibration older than this (monotonic seconds) is treated as missing (the node publishes it at 1 Hz).
+CALIBRATION_MAX_AGE_S = 5.0
+# BNO055 calibration gates (0-3 scale): magnetometer and overall system level required to trust the heading.
+MIN_MAG_CALIBRATION = 2
+MIN_SYS_CALIBRATION = 1
+# A republished compass anchor must differ from the cached one by more than this (position metres / heading degrees).
+COMPASS_MIN_CHANGE_M = 0.05
+COMPASS_MIN_CHANGE_DEG = 0.2
 # Oldest samples are dropped beyond this many (bounds memory and refit cost).
 DEFAULT_MAX_SAMPLES = 500
+
+
+class CompassSettings(BaseModel):
+    """Settings of the compass (BNO055) GPS anchor.
+
+    Attributes:
+        imu_topic (str): sensor_msgs/Imu topic with the absolute (NDOF) orientation.
+        calibration_topic (str | None): std_msgs/String JSON {sys, gyro, accel, mag}; when set the heading is
+            trusted only while the calibration gate passes.
+        declination_deg (float): Magnetic declination in degrees, east positive (true = magnetic + declination).
+        imu_yaw_offset_deg (float): Mounting yaw of the IMU in base_link (degrees), used only without a TF.
+    """
+
+    imu_topic: str
+    calibration_topic: str | None = None
+    declination_deg: float = 0.0
+    imu_yaw_offset_deg: float = 0.0
+
+
+def normalize_angle(angle: float) -> float:
+    """Wrap an angle into (-pi, pi].
+
+    Args:
+        angle (float): Angle in radians.
+
+    Returns:
+        float: Equivalent angle in (-pi, pi].
+    """
+    wrapped = math.fmod(angle + math.pi, 2.0 * math.pi)
+    if wrapped <= 0.0:
+        wrapped += 2.0 * math.pi
+    return wrapped - math.pi
+
+
+def quat_multiply(a: tuple[float, float, float, float], b: tuple[float, float, float, float]) -> tuple[float, ...]:
+    """Hamilton product a * b of two (x, y, z, w) quaternions.
+
+    Args:
+        a (tuple[float, float, float, float]): Left quaternion (x, y, z, w).
+        b (tuple[float, float, float, float]): Right quaternion (x, y, z, w).
+
+    Returns:
+        tuple[float, ...]: Product (x, y, z, w).
+    """
+    ax, ay, az, aw = a
+    bx, by, bz, bw = b
+    return (
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    )
+
+
+def valid_imu_orientation(quat_xyzw: tuple[float, float, float, float], covariance: list[float]) -> bool:
+    """Return True if an Imu orientation carries data (known covariance, finite non-zero quaternion).
+
+    Args:
+        quat_xyzw (tuple[float, float, float, float]): Orientation (x, y, z, w).
+        covariance (list[float]): orientation_covariance; element 0 equal to -1 means "no orientation".
+
+    Returns:
+        bool: Whether the orientation may be used.
+    """
+    if len(covariance) < 1 or covariance[0] == -1.0:
+        return False
+    if not all(math.isfinite(v) for v in quat_xyzw):
+        return False
+    return sum(v * v for v in quat_xyzw) > 0.0
+
+
+def calibration_trusted(
+    status: dict[str, Any] | None, min_mag: int = MIN_MAG_CALIBRATION, min_sys: int = MIN_SYS_CALIBRATION
+) -> bool:
+    """Return True if the BNO055 calibration status is good enough to trust the compass heading.
+
+    Args:
+        status (dict[str, Any] | None): {"sys", "gyro", "accel", "mag"} (each 0-3) or None when unknown.
+        min_mag (int): Minimum magnetometer calibration.
+        min_sys (int): Minimum system calibration.
+
+    Returns:
+        bool: True when both gates pass; False for missing or incomplete status.
+    """
+    if not status:
+        return False
+    mag, sys_cal = status.get("mag"), status.get("sys")
+    if not isinstance(mag, int) or not isinstance(sys_cal, int):
+        return False
+    return mag >= min_mag and sys_cal >= min_sys
+
+
+def enu_yaw_from_imu(
+    imu_xyzw: tuple[float, float, float, float],
+    mount_xyzw: tuple[float, float, float, float] | None,
+    yaw_offset_rad: float,
+    declination_deg: float,
+) -> float:
+    """Convert a BNO055 NDOF orientation into the ENU yaw of base_link in true-north terms.
+
+    The orientation is the IMU frame in the chip world frame (x magnetic north, y west, z up). The IMU mounting
+    removes the base_link <- imu_link rotation; without it a plain yaw offset is used.
+
+    Args:
+        imu_xyzw (tuple[float, float, float, float]): Imu.orientation (x, y, z, w).
+        mount_xyzw (tuple[float, float, float, float] | None): Rotation of imu_link in base_link (TF base_link ->
+            imu_link), or None when unavailable.
+        yaw_offset_rad (float): Mounting yaw of the IMU in base_link (radians), used when mount_xyzw is None.
+        declination_deg (float): Magnetic declination in degrees, east positive.
+
+    Returns:
+        float: Yaw of base_link counter-clockwise from true East, radians in (-pi, pi].
+    """
+    if mount_xyzw is None:
+        half = yaw_offset_rad / 2.0
+        mount_xyzw = (0.0, 0.0, math.sin(half), math.cos(half))
+    mount_inv = (-mount_xyzw[0], -mount_xyzw[1], -mount_xyzw[2], mount_xyzw[3])
+    x, y, z, w = quat_multiply(imu_xyzw, mount_inv)
+    chip_yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    return normalize_angle(NWU_TO_ENU_YAW_RAD + chip_yaw - math.radians(declination_deg))
+
+
+def compass_anchor(
+    lat: float, lon: float, map_x: float, map_y: float, map_yaw_rad: float, enu_yaw_rad: float
+) -> dict[str, Any]:
+    """Build a GPS anchor from one fix and the robot's compass heading (same semantics as the drive fit).
+
+    heading_rad is the rotation map -> ENU, enu_yaw - map_yaw. The map origin lies at t = -R(heading) @ [x, y]
+    relative to the fix, so the robot's map pose maps back onto the fix.
+
+    Args:
+        lat (float): Fix latitude in degrees.
+        lon (float): Fix longitude in degrees.
+        map_x (float): Robot x in the map frame (metres).
+        map_y (float): Robot y in the map frame (metres).
+        map_yaw_rad (float): Robot yaw in the map frame (radians).
+        enu_yaw_rad (float): Robot yaw counter-clockwise from true East (radians), e.g. from enu_yaw_from_imu.
+
+    Returns:
+        dict[str, Any]: {lat, lon, heading_rad, residual_m (None), n_points (1), source ("compass")}.
+    """
+    heading = normalize_angle(enu_yaw_rad - map_yaw_rad)
+    c, s = math.cos(heading), math.sin(heading)
+    east = -(c * map_x - s * map_y)
+    north = -(s * map_x + c * map_y)
+    anchor_lat, anchor_lon = enu_to_latlon(east, north, lat, lon)
+    return {
+        "lat": anchor_lat,
+        "lon": anchor_lon,
+        "heading_rad": heading,
+        "residual_m": None,
+        "n_points": 1,
+        "source": "compass",
+    }
 
 
 def latlon_to_enu(lat: float, lon: float, ref_lat: float, ref_lon: float) -> tuple[float, float]:
@@ -153,7 +324,7 @@ class GpsAnchorEstimator:
             map_y (float): Robot y in the map frame at the fix time (metres).
 
         Returns:
-            dict[str, Any] | None: Anchor {lat, lon, heading_rad, residual_m, n_points} when every gate
+            dict[str, Any] | None: Anchor {lat, lon, heading_rad, residual_m, n_points, source} when every gate
                 passes, otherwise None.
         """
         with self.lock:
@@ -195,4 +366,11 @@ class GpsAnchorEstimator:
         if residual > self.max_residual_m:
             return None
         lat, lon = enu_to_latlon(float(t[0]), float(t[1]), *self.ref)
-        return {"lat": lat, "lon": lon, "heading_rad": theta, "residual_m": residual, "n_points": len(self.samples)}
+        return {
+            "lat": lat,
+            "lon": lon,
+            "heading_rad": theta,
+            "residual_m": residual,
+            "n_points": len(self.samples),
+            "source": "fit",
+        }
