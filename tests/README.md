@@ -748,3 +748,19 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_recover_timer_is_installed_by_the_deploy_playbooks_with_lock_taken_and_released` | `deploy_guard.yml` installs the script, service and a 2-minute enabled timer; both playbooks install it first, take the lock as the last pre-task and release it last. |
 | `test_ros2_master_and_fastdds_watch_no_repo_path` | (client, server) the ros2_master and fastdds types have `src_paths: []` (constant key). |
 
+
+## Simulation harness tests (not part of this suite)
+
+The dev-only MuJoCo grasp replay harness has its own uv project and tests under `sim/grasp_sim/tests/` (run with `cd sim/grasp_sim && uv run pytest -q`, see [sim/README.md](../sim/README.md)). They are not collected by the root `pytest tests/` run.
+
+| File | Covers |
+|------|--------|
+| `test_model.py` | Vendored SO-101 model loads with six position actuators; every body frame and the URDF gripper frame match a numpy URDF FK chain (`so101_arm.urdf`) within 2 mm at six joint configs; shoulder_lift range override. |
+| `test_scene.py` | Scene generation: floor at `-base_height`, box on floor / ledge / lower stair settles on its support with the configured size, mass and friction; support kind inference; validation. |
+| `test_plan.py` | Replay plan parsing, label timeline and linear interpolation. |
+| `test_ik.py` | Harness IK reaches position and approach pitch, raises when unreachable, respects limits and seeds. |
+| `test_replay.py` | `simulate`: trivial hold, clearance, forces, arm/jaw floor contacts, joint clipping warning, determinism, contact classification, tilt metric. |
+| `test_examples.py` | Passing floor/ledge/stair scoops lift the object; the tipping scoop fails with tipped/pushed/unintended contact; open-gripper plan never reports a grasp. |
+| `test_adapter.py` | Tolerant GraspPlan to replay conversion (aliases, units, relative times, error cases). |
+| `test_report.py` | SimReport schema and JSON round trip. |
+| `test_cli.py` | `grasp-sim example/run`, exit codes, report file, YAML scene, frames and GIF output, mjpython hint for `--render`. |

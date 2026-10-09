@@ -236,6 +236,7 @@ claude                                   # start Claude Code in this repo, appro
 │   └── group_vars/         Per-host node lists and config
 ├── scripts/                Utility scripts (calibration, verification, diagnostics)
 ├── tests/                  Root-level tests
+├── sim/                    Dev-only simulation tooling (MuJoCo grasp replay; not deployed)
 └── docs/diagrams/          PlantUML sources + generated PNGs
 ```
 
@@ -281,6 +282,7 @@ See [ansible/README.md](ansible/README.md) for full details on roles, node confi
 | [nodes/bridges/README.md](nodes/bridges/README.md) | Hardware bridges |
 | [tests/README.md](tests/README.md) | Test suite documentation |
 | [scripts/README.md](scripts/README.md) | Utility scripts (RTK calibration, verification) |
+| [sim/README.md](sim/README.md) | Dev-only MuJoCo grasp plan replay harness (macOS, no ROS2, not deployed by Ansible) |
 
 ### Per-node READMEs
 
