@@ -12,7 +12,7 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
-from .look_around import montage_jpeg, run_look_around
+from .look_around import LookMode, montage_jpeg, run_look_around
 from .models import RobotError
 from .object_memory import OBJECT_KIND, ObjectMemory, describe_objects, record_from_poi
 from .perception_models import (
@@ -275,9 +275,13 @@ def register(ctx: ToolContext) -> None:
     @server.tool(
         structured_output=False,
         description=(
-            "Look around: rotate the base in place through `captures` equal steps covering 360 degrees (Nav2 moves, "
-            "early return on critical body events), grab a camera frame and a lidar summary at every stop, then "
-            "return to the start heading. Counts as ONE motion call. Returns a montage image (each tile labelled with "
+            "Look around: turn the base in place through `captures` equal headings covering 360 degrees and grab a "
+            "camera frame and a lidar summary at every heading. mode 'spin' (default "
+            f"{la.mode!r}) turns in ONE continuous slow rotation ({la.spin_speed_rps:g} rad/s, frames taken while "
+            "turning; stop, critical events and a timeout end it), 'steps' makes one precise Nav2 rotation per "
+            "heading (slower). The turn ends facing the last heading unless return_to_start=true (default "
+            f"{str(la.return_to_start).lower()}): then it turns the full circle back to the start. Counts as ONE "
+            "motion call. Returns a montage image (each tile labelled with "
             "its heading in degrees counter-clockwise from the start), the nearest lidar obstacle per heading and "
             "per 45 degree sector, a top-down view after the turn, and the motion fields: expected vs achieved "
             "rotation and heading error, status ('interrupted' with interrupted_by when a critical event ended it "
@@ -290,11 +294,24 @@ def register(ctx: ToolContext) -> None:
             int, Field(ge=la.min_captures, le=la.max_captures, description="Number of stops (equal steps)")
         ] = la.default_captures,
         camera: Annotated[Camera, Field(description="'front' (overhead) or 'gripper' camera")] = "front",
+        mode: Annotated[
+            LookMode | None, Field(description="'spin' (continuous, fast) or 'steps' (Nav2 per heading)")
+        ] = None,
+        return_to_start: Annotated[bool | None, Field(description="Turn back to the start heading at the end")] = None,
     ) -> CallToolResult:
         """Rotate through captures stops; the tool description is passed to the decorator."""
         ctx.battery_gate("look_around")
         with tool_errors():
-            run = run_look_around(robot, la, config.footprint, captures, camera, config.nav.goal_yaw_tolerance_deg)
+            run = run_look_around(
+                robot,
+                la,
+                config.footprint,
+                captures,
+                camera,
+                config.nav.goal_yaw_tolerance_deg,
+                la.mode if mode is None else mode,
+                la.return_to_start if return_to_start is None else return_to_start,
+            )
             result: LookAroundResult = run.result
             montage = montage_jpeg(run.frames, la.frame_max_px)
             content: list[TextContent | ImageContent] = [image_block(montage, "image/jpeg")]

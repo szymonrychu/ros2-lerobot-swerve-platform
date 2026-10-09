@@ -12,7 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from starlette.testclient import TestClient
 
 from mcp_server.arm import ArmController
-from mcp_server.base_motion import DriveOutcome
+from mcp_server.base_motion import DriveOutcome, SpinOutcome
 from mcp_server.config import McpServerConfig
 from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import (
@@ -101,6 +101,12 @@ class FakeRobot(PerceptionFakeMixin):
     def drive(self, vx: float, vy: float, wz: float, duration_s: float) -> DriveOutcome:
         self.calls.append(("drive", (vx, vy, wz, duration_s)))
         return DriveOutcome(commanded=(vx, vy, wz), clamped=False, aborted=False, published=3)
+
+    def spin(self, wz: float, angle_rad: float, marks_rad: list[float], on_mark: Any, timeout_s: float) -> SpinOutcome:
+        self.calls.append(("spin", (wz, angle_rad, tuple(marks_rad), timeout_s)))
+        for index in range(len(marks_rad)):
+            on_mark(index)
+        return SpinOutcome(status="completed", commanded_wz=wz, rotated_rad=angle_rad, marks_reached=len(marks_rad))
 
     def stop(self) -> StopResult:
         self.calls.append(("stop", ()))

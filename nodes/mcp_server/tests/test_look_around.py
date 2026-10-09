@@ -1,11 +1,14 @@
 """Tests for mcp_server.look_around: step planning, clearance refusal, the rotate-capture loop and the montage."""
 
 import math
+from collections.abc import Callable
+from typing import Any
 
 import cv2
 import numpy as np
 import pytest
 
+from mcp_server.base_motion import SpinOutcome
 from mcp_server.config import FootprintSettings, LookAroundSettings
 from mcp_server.look_around import (
     build_montage,
@@ -349,3 +352,97 @@ def test_corrective_return_rotation_requests_the_precise_goal_tolerance() -> Non
     robot.yaw_error_rad = math.radians(10.0)
     run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
     assert len(robot.precise_flags) >= 3 and all(robot.precise_flags)
+
+
+# --- spin mode (continuous slow rotation, frames at angular marks) and return_to_start ---------------------------------
+
+
+class SpinScriptRobot(ScriptRobot):
+    """ScriptRobot with RobotApi.spin: the heading jumps to each mark, then to the full angle."""
+
+    def __init__(self, spin_status: str = "completed", **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.spins: list[tuple[float, float, list[float]]] = []
+        self.spin_status = spin_status
+
+    def spin(
+        self, wz: float, angle_rad: float, marks_rad: list[float], on_mark: Callable[[int], bool], timeout_s: float
+    ) -> SpinOutcome:
+        self.spins.append((wz, angle_rad, list(marks_rad)))
+        start = self.pose.yaw
+        for index, mark in enumerate(marks_rad):
+            if self.spin_status == "interrupted" and index == 1:
+                return SpinOutcome(
+                    status="interrupted", commanded_wz=wz, rotated_rad=mark, marks_reached=1, interrupted_by="bump"
+                )
+            self.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=start + mark)
+            if not on_mark(index):
+                return SpinOutcome(status="aborted", commanded_wz=wz, rotated_rad=mark, marks_reached=index + 1)
+        self.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=start + angle_rad)
+        return SpinOutcome(status="completed", commanded_wz=wz, rotated_rad=angle_rad, marks_reached=len(marks_rad))
+
+
+def test_spin_mode_captures_the_same_montage_as_steps_mode() -> None:
+    steps_robot = ScriptRobot()
+    by_steps = run_look_around(steps_robot, SETTINGS, FOOTPRINT, 4, "front", mode="steps", return_to_start=False)
+    spin_robot = SpinScriptRobot()
+    by_spin = run_look_around(spin_robot, SETTINGS, FOOTPRINT, 4, "front", mode="spin", return_to_start=False)
+    assert [label for label, _ in by_spin.frames] == [label for label, _ in by_steps.frames]
+    assert all(data is not None for _, data in by_spin.frames)
+    assert [(h.index, h.heading_deg, h.label) for h in by_spin.result.headings] == [
+        (h.index, h.heading_deg, h.label) for h in by_steps.result.headings
+    ]
+    assert by_spin.result.status == by_steps.result.status == "completed"
+    assert not by_spin.result.returned_to_start and not by_steps.result.returned_to_start
+    assert len(spin_robot.spins) == 1 and not any(c[0] == "move" for c in spin_robot.calls)
+    wz, angle, marks = spin_robot.spins[0]
+    assert angle == pytest.approx(3 * math.pi / 2) and marks == pytest.approx([math.pi / 2, math.pi, 3 * math.pi / 2])
+    assert wz == pytest.approx(SETTINGS.spin_speed_rps)
+    assert by_spin.result.expected["rotation_deg"] == 270
+    assert by_spin.result.achieved["rotation_deg"] == pytest.approx(270.0)
+
+
+def test_steps_mode_without_return_skips_the_closing_rotation() -> None:
+    robot = ScriptRobot()
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "front", mode="steps", return_to_start=False)
+    assert sum(1 for c in robot.calls if c[0] == "move") == 3
+    assert run.result.expected["rotation_deg"] == 270 and not run.result.returned_to_start
+
+
+def test_spin_mode_returns_to_start_only_when_asked() -> None:
+    robot = SpinScriptRobot()
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "front", mode="spin", return_to_start=True)
+    assert robot.spins[0][1] == pytest.approx(2 * math.pi)
+    assert run.result.returned_to_start and run.result.status == "completed"
+    assert run.result.expected["rotation_deg"] == 360
+
+
+def test_spin_mode_corrects_a_final_heading_error_when_returning() -> None:
+    robot = SpinScriptRobot()
+    original = robot.spin
+
+    def coast(*args: Any) -> SpinOutcome:
+        out = original(*args)
+        robot.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=robot.pose.yaw + 0.2)  # overshoot by ~11 deg
+        return out
+
+    robot.spin = coast  # type: ignore[method-assign]
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "front", mode="spin", return_to_start=True)
+    moves = [c for c in robot.calls if c[0] == "move"]
+    assert len(moves) == 1 and moves[0][3] == pytest.approx(-0.2, abs=1e-6)
+    assert run.result.returned_to_start
+
+
+def test_spin_mode_obstacle_at_a_mark_ends_the_spin() -> None:
+    robot = SpinScriptRobot(obstacles=[sectors(), sectors(), sectors(front=0.1)])
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "front", mode="spin")
+    assert run.result.status == "aborted_obstacle"
+    assert len(run.frames) == 2
+
+
+def test_spin_mode_interrupted_by_a_critical_event() -> None:
+    robot = SpinScriptRobot(spin_status="interrupted")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "front", mode="spin", return_to_start=True)
+    assert run.result.status == "interrupted" and run.result.interrupted_by == "bump"
+    assert not run.result.returned_to_start
+    assert not any(c[0] == "move" for c in robot.calls)  # never a corrective rotation after a critical event

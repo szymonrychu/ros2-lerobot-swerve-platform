@@ -34,7 +34,7 @@ from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .arm import ArmController, ArmError, JointSample
-from .base_motion import DriveError, DriveOutcome, NavPort, run_drive, run_nav, run_stop
+from .base_motion import DriveError, DriveOutcome, NavPort, SpinOutcome, run_drive, run_nav, run_spin, run_stop
 from .config import McpServerConfig
 from .floor_guard import monitor_tilt_sample
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
@@ -1058,6 +1058,56 @@ class RosRobot:
                 rel = relative_pose(start.x, start.y, start.yaw, end.x, end.y, end.yaw)
                 achieved = dict(zip(("dx", "dy", "dyaw"), rel, strict=True))
             return outcome.model_copy(update={"expected": expected, "achieved": achieved})
+        except DriveError as exc:
+            raise RobotError(str(exc)) from exc
+        finally:
+            self.base_motion.release()
+
+    def spin(
+        self, wz: float, angle_rad: float, marks_rad: list[float], on_mark: Callable[[int], bool], timeout_s: float
+    ) -> SpinOutcome:
+        """Continuous in-place rotation on cmd_vel_nav (smoother + collision monitor downstream), then zero.
+
+        Holds the base motion lock like drive/navigate; the stop tool, a critical event, a lost pose or the timeout
+        end it (run_spin).
+
+        Args:
+            wz (float): Yaw rate (rad/s, clamped to limits.max_angular_rps).
+            angle_rad (float): Rotation to turn (rad).
+            marks_rad (list[float]): Rotations at which on_mark fires.
+            on_mark (Callable[[int], bool]): Mark callback (False ends the spin).
+            timeout_s (float): Longest spin (s).
+
+        Returns:
+            SpinOutcome: What happened.
+        """
+        lim = self.cfg.limits
+        if not self.base_motion.acquire(blocking=False):
+            raise BaseMotionBusyError("another base motion is running; call stop first")
+        try:
+            self.base_stop.clear()
+            with self.monitor.base_motion():
+                watch = self.monitor.watch(BASE_INTERRUPTS)
+
+                def yaw() -> float | None:
+                    pose = self.robot_pose()
+                    return None if pose is None else pose.yaw
+
+                return run_spin(
+                    self.publish_twist,
+                    time.monotonic,
+                    time.sleep,
+                    self.base_stop.is_set,
+                    watch.check,
+                    yaw,
+                    wz,
+                    angle_rad,
+                    marks_rad,
+                    on_mark,
+                    self.cfg.look_around.spin_rate_hz,
+                    lim.max_angular_rps,
+                    timeout_s,
+                )
         except DriveError as exc:
             raise RobotError(str(exc)) from exc
         finally:

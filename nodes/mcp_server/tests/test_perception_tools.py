@@ -10,6 +10,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_server import perception_tools
+from mcp_server.base_motion import SpinOutcome
 from mcp_server.config import McpServerConfig
 from mcp_server.models import BasePose, NavigationResult
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, build_mcp_server
@@ -296,11 +297,20 @@ class RotatingRobot(FakeRobot):
         self.pose = BasePose(frame="map", x=self.pose.x, y=self.pose.y, yaw=self.pose.yaw + dyaw)
         return NavigationResult(status="succeeded", final_pose=self.pose)
 
+    def spin(self, wz: float, angle_rad: float, marks_rad: list[float], on_mark: Any, timeout_s: float) -> SpinOutcome:
+        self.calls.append(("spin", (wz, angle_rad, tuple(marks_rad), timeout_s)))
+        start = self.pose.yaw
+        for index, mark in enumerate(marks_rad):
+            self.pose = BasePose(frame="map", x=self.pose.x, y=self.pose.y, yaw=start + mark)
+            on_mark(index)
+        self.pose = BasePose(frame="map", x=self.pose.x, y=self.pose.y, yaw=start + angle_rad)
+        return SpinOutcome(status="completed", commanded_wz=wz, rotated_rad=angle_rad, marks_reached=len(marks_rad))
+
 
 def test_look_around_tool_returns_montage_summary_and_topdown(tmp_path: Path) -> None:
     robot = RotatingRobot(tmp_path)
     server = build_mcp_server(robot, McpServerConfig(), TOKEN)
-    res = call(server, "look_around", {"captures": 4, "camera": "gripper"})
+    res = call(server, "look_around", {"captures": 4, "camera": "gripper", "mode": "steps", "return_to_start": True})
     images = [c for c in res.content if c.type == "image"]
     assert len(images) == 2
     assert images[0].mime_type == "image/jpeg" and images[1].mime_type == "image/png"
@@ -313,6 +323,19 @@ def test_look_around_tool_returns_montage_summary_and_topdown(tmp_path: Path) ->
     assert len(moves) == 4
     cams = [c[1][0] for c in robot.calls if c[0] == "camera_image"]
     assert cams == ["gripper"] * 4
+
+
+def test_look_around_tool_defaults_to_one_spin_without_returning(tmp_path: Path) -> None:
+    robot = RotatingRobot(tmp_path)
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    sc = call(server, "look_around", {"captures": 4}).structured_content
+    spins = [c for c in robot.calls if c[0] == "spin"]
+    assert len(spins) == 1 and not [c for c in robot.calls if c[0] == "move_relative"]
+    assert sc["status"] == "completed" and sc["returned_to_start"] is False
+    assert sc["expected"]["mode"] == "spin" and sc["expected"]["rotation_deg"] == 270
+    assert [h["heading_deg"] for h in sc["headings"]] == [0, 90, 180, 270]
+    back = call(server, "look_around", {"captures": 4, "return_to_start": True}).structured_content
+    assert back["returned_to_start"] is True
 
 
 def test_look_around_defaults_come_from_config(tmp_path: Path) -> None:

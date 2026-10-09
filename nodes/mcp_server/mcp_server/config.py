@@ -604,6 +604,13 @@ class LookAroundSettings(StrictModel):
     clearance_margin_m: float = Field(default=0.10, ge=0.0)  # added to the footprint circumscribed radius
     step_timeout_s: float = Field(default=30.0, gt=0.0)
     frame_max_px: int = Field(default=320, ge=32, le=HARD_MAX_IMAGE_PX)  # camera frame size per montage tile
+    # 'spin': one continuous slow rotation (cmd_vel through the base path: stop, critical events, timeout) with a frame
+    # at every heading; 'steps': one precise Nav2 rotation per heading. Same montage either way; spin is faster.
+    mode: Literal["spin", "steps"] = "spin"
+    spin_speed_rps: float = Field(default=0.4, gt=0.0, le=HARD_MAX_ANGULAR_RPS)
+    spin_rate_hz: float = Field(default=20.0, gt=0.0, le=50.0)
+    spin_timeout_margin_s: float = Field(default=10.0, gt=0.0)  # spin timeout = angle / speed + this
+    return_to_start: bool = False  # tool default: end facing the last heading instead of turning back
 
     @model_validator(mode="after")
     def captures_in_range(self) -> "LookAroundSettings":

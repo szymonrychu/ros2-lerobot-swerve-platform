@@ -7,7 +7,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
-from .geometry import clamp_twist
+from .geometry import clamp_twist, normalize_angle
 from .models import BasePose, NavigationResult, RobotError, StopResult
 
 
@@ -100,6 +100,119 @@ def run_drive(
         published=published,
         status="interrupted" if interrupted_by else "stopped" if aborted else "completed",
         interrupted_by=interrupted_by,
+        duration_s=round(now() - start, 3),
+    )
+
+
+class SpinOutcome(BaseModel):
+    """Result of a continuous in-place rotation (run_spin)."""
+
+    status: Literal["completed", "stopped", "interrupted", "aborted", "failed", "timeout"]
+    message: str = ""
+    commanded_wz: float
+    rotated_rad: float
+    marks_reached: int
+    interrupted_by: str | None = None
+    duration_s: float = 0.0
+
+
+def run_spin(
+    publish: Callable[[float, float, float], None],
+    now: Callable[[], float],
+    sleep: Callable[[float], None],
+    should_abort: Callable[[], bool],
+    interrupt: Callable[[], str | None],
+    yaw: Callable[[], float | None],
+    wz: float,
+    angle_rad: float,
+    marks_rad: list[float],
+    on_mark: Callable[[int], bool],
+    rate_hz: float,
+    max_angular: float,
+    timeout_s: float,
+) -> SpinOutcome:
+    """Rotate in place at a constant (clamped) yaw rate until the measured rotation reaches angle_rad; always zero.
+
+    The rotation is integrated from the measured heading (wrapped deltas), so a slow or slipping base still turns
+    the full angle. on_mark(i) is called once the rotation passed marks_rad[i] (in order); it returns False to end
+    the spin (e.g. an obstacle seen at that heading). A stop request, a critical event, a lost pose or the timeout
+    also end it. A zero twist is published at the end in every case.
+
+    Args:
+        publish (Callable[[float, float, float], None]): Sends one twist (vx, vy, wz).
+        now (Callable[[], float]): Monotonic clock (s).
+        sleep (Callable[[float], None]): Sleeps.
+        should_abort (Callable[[], bool]): True after the stop tool.
+        interrupt (Callable[[], str | None]): Critical event type that ends the spin, or None.
+        yaw (Callable[[], float | None]): Current fresh heading (rad), None when unknown.
+        wz (float): Yaw rate (rad/s); its sign is the turn direction (+ = counter-clockwise).
+        angle_rad (float): Rotation to turn (rad, > 0).
+        marks_rad (list[float]): Rotations (rad, ascending) at which on_mark fires.
+        on_mark (Callable[[int], bool]): Mark callback; False ends the spin ('aborted').
+        rate_hz (float): Publish rate.
+        max_angular (float): Yaw rate clamp (rad/s).
+        timeout_s (float): Longest spin (s).
+
+    Returns:
+        SpinOutcome: Status, rotation achieved, marks reached and duration.
+
+    Raises:
+        DriveError: For a non-positive angle or a zero yaw rate.
+    """
+    if not math.isfinite(angle_rad) or angle_rad <= 0.0:
+        raise DriveError(f"angle_rad must be positive, got {angle_rad}")
+    if not math.isfinite(wz) or wz == 0.0:
+        raise DriveError("wz must be non-zero")
+    cmd = math.copysign(min(abs(wz), max_angular), wz)
+    direction = math.copysign(1.0, wz)
+    period = 1.0 / rate_hz
+    start = now()
+    rotated = 0.0
+    reached = 0
+    status: Literal["completed", "stopped", "interrupted", "aborted", "failed", "timeout"] = "completed"
+    message = ""
+    event: str | None = None
+    previous = yaw()
+    try:
+        while True:
+            if should_abort():
+                status, message = "stopped", "stop requested"
+                break
+            event = interrupt()
+            if event is not None:
+                status, message = "interrupted", f"stopped early: critical event {event}"
+                break
+            current = yaw()
+            if current is None or previous is None:
+                status, message = "failed", "robot pose unavailable: cannot measure the rotation"
+                break
+            rotated += normalize_angle(current - previous) * direction
+            previous = current
+            refused = False
+            while reached < len(marks_rad) and rotated >= marks_rad[reached] - 1e-9:
+                reached += 1
+                if not on_mark(reached - 1):
+                    refused = True
+                    break
+            if refused:
+                status, message = "aborted", f"ended at mark {reached - 1}"
+                break
+            if rotated >= angle_rad - 1e-9:
+                break
+            if now() - start >= timeout_s:
+                status, message = "timeout", f"rotation not finished after {timeout_s:g} s"
+                break
+            publish(0.0, 0.0, cmd)
+            sleep(period)
+    finally:
+        publish(0.0, 0.0, 0.0)
+    return SpinOutcome(
+        status=status,
+        message=message,
+        commanded_wz=cmd,
+        rotated_rad=round(rotated, 4),
+        marks_reached=reached,
+        interrupted_by=event,
         duration_s=round(now() - start, 3),
     )
 

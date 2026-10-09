@@ -1,6 +1,7 @@
 """Shared context handed to every tool module (one place to register modules, see tools.TOOL_MODULES)."""
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -9,7 +10,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryGuard
 
 from .arm import ArmController
-from .base_motion import DriveOutcome
+from .base_motion import DriveOutcome, SpinOutcome
 from .config import McpServerConfig
 from .models import BasePose, CameraFrame, MapSummary, NavigationResult, RobotState, ScanPoints, StopResult
 from .monitor import RobotMonitor
@@ -65,6 +66,12 @@ class RobotApi(Protocol):
 
     def drive(self, vx: float, vy: float, wz: float, duration_s: float) -> DriveOutcome:
         """Timed velocity command."""
+        ...
+
+    def spin(
+        self, wz: float, angle_rad: float, marks_rad: list[float], on_mark: Callable[[int], bool], timeout_s: float
+    ) -> SpinOutcome:
+        """Continuous in-place rotation (base motion lock, stop, critical events, timeout; zero at the end)."""
         ...
 
     def stop(self) -> StopResult:
