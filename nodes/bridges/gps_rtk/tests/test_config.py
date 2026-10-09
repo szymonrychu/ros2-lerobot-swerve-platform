@@ -88,3 +88,23 @@ def test_config_rover_with_ntrip() -> None:
     assert cfg.ntrip_user == "admin"
     assert cfg.ntrip_password == "s3cr3t"
     assert cfg.ntrip_gga_interval_s == 5.0
+
+
+def test_config_status_defaults() -> None:
+    cfg = GpsRtkConfig.model_validate({"mode": "base", "topic": "/server/gps/fix"})
+    assert cfg.status_topic is None
+    assert cfg.status_hz == 1.0
+
+
+def test_config_status_topic_set() -> None:
+    cfg = GpsRtkConfig.model_validate(
+        {"mode": "rover", "topic": "/client/gps/fix", "status_topic": "/client/gps/status", "status_hz": 2.0}
+    )
+    assert cfg.status_topic == "/client/gps/status"
+    assert cfg.status_hz == 2.0
+
+
+@pytest.mark.parametrize("hz", [0, -1.0])
+def test_config_status_hz_must_be_positive(hz: float) -> None:
+    with pytest.raises(Exception):
+        GpsRtkConfig.model_validate({"mode": "base", "topic": "/gps/fix", "status_hz": hz})

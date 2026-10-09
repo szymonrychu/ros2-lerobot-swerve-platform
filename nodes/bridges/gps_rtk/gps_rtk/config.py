@@ -34,6 +34,8 @@ class GpsRtkConfig(BaseModel):
         ntrip_user: NTRIP username for auth. Empty string disables auth (LAN-only use).
         ntrip_password: NTRIP password for auth.
         ntrip_gga_interval_s: How often (seconds) rover sends GGA position to NTRIP caster.
+        status_topic: Optional std_msgs/String topic for compact JSON status (fix, sats, link). None disables.
+        status_hz: Status publish rate in Hz (must be > 0).
     """
 
     mode: Literal["base", "rover"]
@@ -52,6 +54,8 @@ class GpsRtkConfig(BaseModel):
     ntrip_user: str = ""
     ntrip_password: str = ""
     ntrip_gga_interval_s: float = 10.0
+    status_topic: str | None = None
+    status_hz: float = Field(1.0, gt=0)
 
 
 def load_config(path: Path | None = None) -> GpsRtkConfig | None:

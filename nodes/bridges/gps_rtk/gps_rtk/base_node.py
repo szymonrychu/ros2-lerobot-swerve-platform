@@ -7,12 +7,14 @@ from typing import Any
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import NavSatFix
+from std_msgs.msg import String
 
 from .config import GpsRtkConfig
 from .nmea_parser import build_nav_sat_fix, drift_from_mean, parse_gga, quality_label
 from .ntrip_caster import NtripCaster
 from .rtcm3 import parse_rtcm3_message_type
 from .serial_handler import SerialHandler
+from .status import base_status, status_json
 
 LOG = logging.getLogger(__name__)
 
@@ -49,6 +51,7 @@ class GpsRtkBaseNode(Node):
         self._caster: NtripCaster | None = None
         self.pub = self.create_publisher(NavSatFix, config.topic, 10)
         self.serial: SerialHandler | None = None
+        self._status_pub = self.create_publisher(String, config.status_topic, 10) if config.status_topic else None
 
     def _on_nmea(self, sentence: str) -> None:
         if "GGA" not in sentence:
@@ -106,7 +109,24 @@ class GpsRtkBaseNode(Node):
 
         period_ns = int(1e9 / max(0.1, self.config.publish_hz))
         self._timer = self.create_timer(period_ns / 1e9, self._publish_cb)
+        if self._status_pub is not None:
+            self._status_timer = self.create_timer(1.0 / self.config.status_hz, self._publish_status)
         rclpy.spin(self)
+
+    def _publish_status(self) -> None:
+        """Publish compact JSON status; skipped until a real GGA has been parsed."""
+        with self._fix_lock:
+            gga = self._latest_gga
+        if gga is None or self._status_pub is None:
+            return
+        status = base_status(
+            gga,
+            ntrip_clients=self._caster.client_count if self._caster else 0,
+            rtcm_tx_frames=self._caster.tx_frames if self._caster else 0,
+            rtcm_tx_bytes=self._caster.tx_bytes if self._caster else 0,
+            rtcm_types=set(self._rtcm_types_seen),
+        )
+        self._status_pub.publish(String(data=status_json(status)))
 
     def _publish_cb(self) -> None:
         with self._fix_lock:

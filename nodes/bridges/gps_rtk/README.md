@@ -20,6 +20,28 @@ YAML config path: `GPS_RTK_CONFIG` or `/etc/ros2/gps_rtk/config.yaml`.
 - `configure_on_start`: send LC29H-BS configure commands on startup (base)
 - `rtcm_tcp_port`, `rtcm_tcp_bind`: base RTCM server
 - `rtcm_server_host`, `rtcm_server_port`, `rtcm_reconnect_interval_s`: rover RTCM client
+- `status_topic`: optional `std_msgs/String` topic for the compact JSON status below (default `null` = disabled)
+- `status_hz`: status publish rate, must be > 0 (default `1.0`)
+
+## Status topic
+
+With `status_topic` set, both modes publish compact JSON (`std_msgs/String`) at `status_hz`. Nothing is published until a real GGA sentence has been parsed. Builders live in `gps_rtk/status.py` (pure functions, unit-tested in `tests/test_status.py`).
+
+Fix labels: quality 0 `No fix`, 1 `GPS`, 2 `DGPS`, 4 `RTK Fixed`, 5 `RTK Float`, 6 `Dead reckoning`, anything else `Unknown`.
+
+Rover:
+
+```json
+{"role":"rover","quality":4,"fix":"RTK Fixed","num_satellites":18,"hdop":0.7,"diff_age_s":1.0,"ntrip_connected":true,"ntrip_rx_bytes":123456}
+```
+
+Base:
+
+```json
+{"role":"base","quality":4,"fix":"RTK Fixed","num_satellites":18,"hdop":0.7,"ntrip_clients":1,"rtcm_tx_frames":900,"rtcm_tx_bytes":123456,"rtcm_types":[1005,1074,1084]}
+```
+
+`num_satellites`, `hdop` and `diff_age_s` are `null` when the GGA sentence did not carry them.
 
 ## Serial and binary stream
 
