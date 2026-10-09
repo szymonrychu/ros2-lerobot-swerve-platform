@@ -342,7 +342,8 @@ class GraspExecutor:
                 self.step("open", steps, stop_requested, lambda: arm.set_gripper(open_fraction=open_frac, floor=floor))
             for label in ("lift", "retreat"):
                 path = arm_only(plan.segments[label], gripper)
-                self.step(label, steps, stop_requested, lambda p=path: arm.move_path(p, slide, floor))
+                speed = wp[label].speed_scale  # a tall narrow object lifts at lift_speed_scale
+                self.step(label, steps, stop_requested, lambda p=path, v=speed: arm.move_path(p, v, floor))
         except GraspAbort as exc:
             arm.stop_hold()
             return self.finish("aborted", [str(exc)], plan, steps)

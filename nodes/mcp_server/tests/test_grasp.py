@@ -42,6 +42,17 @@ def floor_object(x: float = 0.36, y: float = 0.0, **kw: float) -> ObjectSpec:
     return ObjectSpec(frame="arm", x=x, y=y, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.03, **kw)
 
 
+# Clear height under a scoopable object: just enough for the fixed jaw (jaw_thickness_m + scoop_gap_margin_m).
+SCOOP_GAP = PARAMS.jaw_thickness_m + PARAMS.scoop_gap_margin_m
+
+
+def raised_object(x: float = 0.36, gap: float = SCOOP_GAP, **kw: float) -> ObjectSpec:
+    """A 3 cm box held gap above the floor (e.g. on rails or overhanging), so a scoop's fixed jaw fits under it."""
+    return ObjectSpec(
+        frame="arm", x=x, y=0.0, support_z=FLOOR + gap, width_m=0.03, depth_m=0.03, height_m=0.03, gap_below_m=gap, **kw
+    )
+
+
 def jaw_axis_world(joints: dict[str, float]) -> np.ndarray:
     frame = KIN.link_frame(joints, "gripper_frame_link")
     return frame[:3, :3] @ np.array(CONFIG.arm.jaw_open_axis)
@@ -57,26 +68,30 @@ def test_registry_holds_the_strategies_and_unknown_names_are_reasons() -> None:
     assert not p.feasible and any("unknown strategy" in r for r in p.reasons)
 
 
-def test_scoop_on_a_floor_object_skims_the_surface() -> None:
-    p = plan(floor_object(), "scoop")
+def test_scoop_into_a_tight_gap_skims_the_surface() -> None:
+    obj = raised_object()
+    p = plan(obj, "scoop")
     assert p.feasible, p.reasons
     assert [w.label for w in p.waypoints] == ["pre_grasp", "open", "approach", "grasp", "close", "lift", "retreat"]
     grasp = waypoint(p, "grasp")
     params = PARAMS
-    assert p.skim
+    assert p.skim  # below_object_offset_m would put the jaw into the floor: it skims instead
     assert grasp.z == pytest.approx(FLOOR + params.skim_clearance_m + params.jaw_thickness_m, abs=1e-6)
     assert waypoint(p, "approach").z == pytest.approx(grasp.z)  # horizontal slide
     assert (grasp.x, grasp.y) == pytest.approx((0.36, 0.0), abs=1e-6)  # fixed jaw tip under the centre
     assert abs(p.wrist_roll_rad) < 0.2  # fixed jaw underneath, moving jaw on top
     assert jaw_axis_world(grasp.joints)[2] > 0.9
     assert 0.0 <= p.approach_pitch_rad <= math.radians(params.scoop_max_pitch_deg) + 1e-9
-    jaw_above_bottom = grasp.z - FLOOR
+    jaw_above_bottom = max(0.0, grasp.z - obj.support_z)
     assert p.opening_m == pytest.approx(0.03 + params.jaw_open_margin_m + jaw_above_bottom)
 
 
 def test_scoop_on_a_ledge_puts_the_fixed_jaw_below_the_object_bottom() -> None:
-    ledge = ObjectSpec(frame="arm", x=0.33, y=0.0, support_z=-0.08, width_m=0.03, depth_m=0.03, height_m=0.03)
-    p = plan(ledge, "scoop")
+    ledge = ObjectSpec(
+        frame="arm", x=0.33, y=0.0, support_z=-0.08, width_m=0.03, depth_m=0.03, height_m=0.03, gap_below_m=0.03
+    )
+    surface = SurfaceModel(surface_z_m=-0.11 + MOUNT.z, tilt=None, tilt_source="none", mount=MOUNT)
+    p = PLANNER.plan(ledge, "scoop", PARAMS, surface, SEED)
     assert p.feasible, p.reasons
     assert not p.skim
     assert waypoint(p, "grasp").z == pytest.approx(-0.08 - PARAMS.below_object_offset_m, abs=1e-6)
@@ -116,10 +131,11 @@ def test_auto_tries_the_configured_order_and_takes_the_first_feasible() -> None:
     p = plan(near, "auto")
     assert p.feasible, p.reasons
     tried = [a["strategy"] for a in p.attempts]
-    assert tried[0] == "scoop" and p.strategy != "scoop" and tried[-1] == p.strategy
-    assert not p.attempts[0]["feasible"] and p.attempts[0]["reasons"]
-    reordered = plan(near, "auto", auto_order=[{"strategy": "top_down"}, {"strategy": "scoop"}])
-    assert reordered.strategy == "top_down" and [a["strategy"] for a in reordered.attempts] == ["top_down"]
+    assert tried == ["top_down"] and p.strategy == "top_down"  # top_down first by default
+    scoop_first = plan(near, "auto", auto_order=[{"strategy": "scoop"}, {"strategy": "top_down"}])
+    assert [a["strategy"] for a in scoop_first.attempts] == ["scoop", "top_down"]
+    assert scoop_first.strategy == "top_down"
+    assert not scoop_first.attempts[0]["feasible"] and scoop_first.attempts[0]["reasons"]
 
 
 def test_unreachable_object_reports_reasons_without_raising() -> None:
@@ -152,7 +168,7 @@ def test_roll_changes_only_at_the_lifted_pre_grasp_half_open() -> None:
 
 
 def test_straight_line_segments_are_interpolated_ik_samples() -> None:
-    p = plan(floor_object(), "scoop")
+    p = plan(raised_object(), "scoop")
     assert p.feasible, p.reasons
     samples = p.segments["grasp"]
     step = PARAMS.interpolation_step_m
@@ -168,14 +184,14 @@ def test_straight_line_segments_are_interpolated_ik_samples() -> None:
 
 
 def test_joint_jump_and_stall_poses_are_reasons() -> None:
-    jumpy = plan(floor_object(), "scoop", max_joint_jump_rad=0.001)
+    jumpy = plan(raised_object(), "scoop", max_joint_jump_rad=0.001)
     assert not jumpy.feasible and any("jump" in r for r in jumpy.reasons)
-    stall = plan(floor_object(), "scoop", stall_shoulder_lift_rad=0.5, stretched_elbow_max_rad=3.0)
+    stall = plan(raised_object(), "scoop", stall_shoulder_lift_rad=0.5, stretched_elbow_max_rad=3.0)
     assert not stall.feasible and any("stall" in r for r in stall.reasons)
 
 
 def test_slow_zone_annotations_mark_the_low_segments() -> None:
-    p = plan(floor_object(), "scoop")
+    p = plan(raised_object(), "scoop")
     assert p.feasible, p.reasons
     by_label = {a["label"]: a for a in p.slow_zone}
     assert by_label["grasp"]["slowed_samples"] > 0
@@ -184,7 +200,7 @@ def test_slow_zone_annotations_mark_the_low_segments() -> None:
 
 
 def test_base_link_objects_are_converted_to_the_arm_frame() -> None:
-    arm_obj = floor_object()
+    arm_obj = raised_object()
     centre = arm_to_base_link((arm_obj.x, arm_obj.y, arm_obj.support_z), MOUNT)
     base_obj = ObjectSpec(
         frame="base_link",
@@ -194,8 +210,9 @@ def test_base_link_objects_are_converted_to_the_arm_frame() -> None:
         width_m=0.03,
         depth_m=0.03,
         height_m=0.03,
+        gap_below_m=SCOOP_GAP,
     )
-    assert float(centre[2]) == pytest.approx(0.0)  # the floor is base_link z = 0
+    assert float(centre[2]) == pytest.approx(SCOOP_GAP)  # the floor is base_link z = 0
     a, b = plan(arm_obj, "scoop"), plan(base_obj, "scoop")
     assert b.feasible, b.reasons
     ga, gb = waypoint(a, "grasp"), waypoint(b, "grasp")
@@ -214,8 +231,61 @@ def test_grasp_params_apply_overrides_and_reject_unknown_keys() -> None:
 
 
 def test_plan_summary_is_json_ready() -> None:
-    p = plan(floor_object(), "scoop")
+    p = plan(raised_object(), "scoop")
     summary = p.summary()
     assert summary["feasible"] is True and summary["strategy"] == "scoop"
     assert [w["label"] for w in summary["waypoints"]][0] == "pre_grasp"
     assert "joints" not in summary["waypoints"][0]
+
+
+def test_scoop_needs_a_gap_under_the_object_for_the_fixed_jaw() -> None:
+    flat = plan(floor_object(), "scoop")
+    assert not flat.feasible
+    assert any("no gap under object for the fixed jaw" in r for r in flat.reasons)
+    too_small = plan(raised_object(gap=SCOOP_GAP - 0.001), "scoop")
+    assert not too_small.feasible and any("no gap under object" in r for r in too_small.reasons)
+    assert plan(raised_object(gap=SCOOP_GAP), "scoop").feasible
+    roomy = plan(raised_object(gap=SCOOP_GAP - 0.001), "scoop", scoop_gap_margin_m=0.0)
+    assert roomy.feasible, roomy.reasons
+
+
+def test_auto_skips_the_scoop_of_a_flat_object_with_its_reason() -> None:
+    obj = ObjectSpec(frame="arm", x=1.0, y=0.0, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.03)
+    p = plan(obj, "auto")
+    assert [a["strategy"] for a in p.attempts] == ["top_down", "angled", "scoop"]
+    assert any(r.startswith("scoop: ") and "no gap under object" in r for r in p.reasons)
+
+
+def tall_object(x: float = 0.22, **kw: float) -> ObjectSpec:
+    """3 x 3 x 6 cm: height / width 2.0."""
+    return ObjectSpec(frame="arm", x=x, y=0.0, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.06, **kw)
+
+
+def test_tall_narrow_objects_are_grasped_low_and_lifted_slowly() -> None:
+    for strategy, x in (("top_down", 0.22), ("angled", 0.3)):
+        p = plan(tall_object(x=x), strategy)
+        assert p.feasible, p.reasons
+        grasp = waypoint(p, "grasp")
+        assert grasp.z == pytest.approx(FLOOR + PARAMS.tall_grasp_height_fraction * 0.06, abs=1e-6)
+        assert waypoint(p, "lift").speed_scale == pytest.approx(PARAMS.lift_speed_scale)
+        assert waypoint(p, "approach").speed_scale == pytest.approx(PARAMS.slide_speed_scale)
+    assert PARAMS.lift_speed_scale < PARAMS.slide_speed_scale
+
+
+def test_objects_below_the_tall_ratio_keep_the_mid_height_grasp_and_normal_lift() -> None:
+    cube = ObjectSpec(frame="arm", x=0.22, y=0.0, support_z=FLOOR, width_m=0.04, depth_m=0.04, height_m=0.04)
+    p = plan(cube, "top_down")
+    assert p.feasible, p.reasons
+    assert waypoint(p, "grasp").z == pytest.approx(FLOOR + 0.02, abs=1e-6)
+    assert waypoint(p, "lift").speed_scale == pytest.approx(PARAMS.slide_speed_scale)
+    relaxed = plan(tall_object(), "top_down", tall_ratio=2.5)
+    assert waypoint(relaxed, "grasp").z == pytest.approx(FLOOR + 0.03, abs=1e-6)
+    assert waypoint(relaxed, "lift").speed_scale == pytest.approx(PARAMS.slide_speed_scale)
+
+
+def test_objects_narrower_than_the_jaws_can_hold_are_rejected() -> None:
+    thin = ObjectSpec(frame="arm", x=0.22, y=0.0, support_z=FLOOR, width_m=0.006, depth_m=0.03, height_m=0.02)
+    p = plan(thin, "top_down")
+    assert not p.feasible
+    assert any("min_object_width_m" in r and "cannot hold" in r for r in p.reasons)
+    assert plan(thin, "top_down", min_object_width_m=0.005).feasible

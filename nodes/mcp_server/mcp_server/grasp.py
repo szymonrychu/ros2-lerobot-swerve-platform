@@ -53,6 +53,8 @@ class ObjectSpec(BaseModel):
         depth_m: Size along the approach (m).
         height_m: Vertical size (m); a scoop closes the jaws on it.
         yaw: Direction of the object's width axis in `frame` (rad); None = across the approach direction.
+        gap_below_m: Clear height under the object's bottom along the approach (m): the object overhangs a ledge or
+            rests on something narrower than itself. 0 = flat on its support, which rules out a scoop.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -65,6 +67,7 @@ class ObjectSpec(BaseModel):
     depth_m: float = Field(gt=0.0, le=0.5)
     height_m: float = Field(gt=0.0, le=0.5)
     yaw: float | None = None
+    gap_below_m: float = Field(default=0.0, ge=0.0, le=0.5)
 
 
 class Waypoint(BaseModel):
@@ -157,6 +160,7 @@ class GraspGeometry:
         gripped_m: Expected gap once closed on the object (m).
         center_width: Object width to centre between the jaws (grasp_offset), None to place the tool point itself.
         skim: The fixed jaw skims the surface instead of going below the object bottom.
+        lift_speed: Speed scale of the lift (None = slide_speed_scale); tall narrow objects lift slower.
     """
 
     pitch: float
@@ -169,6 +173,11 @@ class GraspGeometry:
     gripped_m: float
     center_width: float | None = None
     skim: bool = False
+    lift_speed: float | None = None
+
+
+class Ineligible(ValueError):
+    """Raised by a strategy that cannot handle the object at all; the message is the plan's reason."""
 
 
 StrategyFn = Callable[[GraspRequest], list[GraspGeometry]]
@@ -214,7 +223,9 @@ def as_tuple(v: np.ndarray) -> tuple[float, float, float]:
 def scoop_strategy(req: GraspRequest) -> list[GraspGeometry]:
     """Fixed jaw underneath (wrist_roll about 0), moving jaw closes from above, horizontal radial slide.
 
-    The fixed jaw top goes below_object_offset_m under the object bottom; when that would put the jaw into the
+    Only for objects with room under them: gap_below_m must hold the fixed jaw (jaw_thickness_m plus
+    scoop_gap_margin_m). Against an object resting flat the jaw cannot get under it; it pushes or tips the object
+    (validated in the MuJoCo sim, sim/README.md). The fixed jaw top goes below_object_offset_m under the object bottom; when that would put the jaw into the
     surface the object rests on, it skims at surface + skim_clearance_m instead. Pitches from scoop_pitch_deg up to
     scoop_max_pitch_deg are offered in order (a near-horizontal gripper cannot reach low near the base).
 
@@ -223,8 +234,17 @@ def scoop_strategy(req: GraspRequest) -> list[GraspGeometry]:
 
     Returns:
         list[GraspGeometry]: Candidates, flattest pitch first.
+
+    Raises:
+        Ineligible: When the gap under the object is too small for the fixed jaw.
     """
     p, obj = req.params, req.obj
+    needed = p.jaw_thickness_m + p.scoop_gap_margin_m
+    if obj.gap_below_m < needed:
+        raise Ineligible(
+            f"no gap under object for the fixed jaw: gap_below_m {obj.gap_below_m * 100:.1f} cm, the scoop needs "
+            f"jaw_thickness_m + scoop_gap_margin_m = {needed * 100:.1f} cm (an overhang or a raised object)"
+        )
     jaw_top = obj.support_z - p.below_object_offset_m
     skim = jaw_top - p.jaw_thickness_m < req.surface_z + p.skim_clearance_m
     if skim:
@@ -253,8 +273,9 @@ def scoop_strategy(req: GraspRequest) -> list[GraspGeometry]:
 def centred_grasp(req: GraspRequest, pitch: float, approach: np.ndarray, extent: float) -> GraspGeometry:
     """Grasp across the object width with the object centred between the jaws (angled and top_down).
 
-    The tool point goes to mid-height of the object, but never lower than a jaw thickness plus the skim clearance
-    above the surface.
+    The tool point goes to mid-height of the object; a tall narrow object (height / width above tall_ratio) is
+    gripped lower, at tall_grasp_height_fraction of its height, and lifted at lift_speed_scale so it does not pivot
+    out of the jaws. Never lower than a jaw thickness plus the skim clearance above the surface.
 
     Args:
         req (GraspRequest): Request.
@@ -266,7 +287,9 @@ def centred_grasp(req: GraspRequest, pitch: float, approach: np.ndarray, extent:
         GraspGeometry: The grasp.
     """
     p, obj = req.params, req.obj
-    z = max(obj.support_z + obj.height_m / 2.0, req.surface_z + p.skim_clearance_m + p.jaw_thickness_m)
+    tall = obj.height_m / obj.width_m > p.tall_ratio
+    fraction = p.tall_grasp_height_fraction if tall else 0.5
+    z = max(obj.support_z + obj.height_m * fraction, req.surface_z + p.skim_clearance_m + p.jaw_thickness_m)
     return GraspGeometry(
         pitch=pitch,
         grasp=(obj.x, obj.y, z),
@@ -277,6 +300,7 @@ def centred_grasp(req: GraspRequest, pitch: float, approach: np.ndarray, extent:
         opening_m=obj.width_m + p.jaw_open_margin_m,
         gripped_m=obj.width_m,
         center_width=obj.width_m,
+        lift_speed=p.lift_speed_scale if tall else None,
     )
 
 
@@ -509,7 +533,13 @@ class GraspPlanner:
         surface_z = obj.support_z - surface.clearance(centre)
         req = GraspRequest(obj, params, heading, surface_z, approach_pitch_deg)
         reasons: list[str] = []
-        for geo in fn(req):
+        try:
+            candidates = fn(req)
+        except Ineligible as exc:
+            return GraspPlan(
+                strategy=strategy, feasible=False, reasons=[str(exc)], object_arm=obj, surface=surface.describe()
+            )
+        for geo in candidates:
             result = self.realize(strategy, obj, geo, params, surface, seed)
             if result.feasible:
                 return result
@@ -625,7 +655,7 @@ class GraspPlanner:
             ("approach", approach, open_angle, "keep", slow, True),
             ("grasp", grasp, open_angle, "keep", slow, True),
             ("close", grasp, hold, "close", slow, False),
-            ("lift", lift, hold, "keep", slow, True),
+            ("lift", lift, hold, "keep", geo.lift_speed or slow, True),
             ("retreat", retreat, hold, "keep", slow, True),
         ]
         waypoints: list[Waypoint] = []
@@ -677,16 +707,21 @@ class GraspPlanner:
         )
 
     def opening_reasons(self, geo: GraspGeometry, params: GraspParams) -> list[str]:
-        """Reasons the jaws cannot open far enough for the object.
+        """Reasons the jaws cannot open far enough for the object, or cannot hold one that narrow.
 
         Args:
             geo (GraspGeometry): Candidate.
-            params (GraspParams): Parameters (max_object_width_m).
+            params (GraspParams): Parameters (max_object_width_m, min_object_width_m).
 
         Returns:
             list[str]: Reasons (empty when the opening fits).
         """
         reasons: list[str] = []
+        if geo.gripped_m < params.min_object_width_m:
+            reasons.append(
+                f"the object is {geo.gripped_m * 100:.1f} cm across the jaws, below min_object_width_m "
+                f"{params.min_object_width_m * 100:.1f} cm: the jaws cannot hold it"
+            )
         if geo.opening_m > params.max_object_width_m:
             reasons.append(
                 f"needs a {geo.opening_m * 100:.1f} cm jaw opening, more than max_object_width_m "

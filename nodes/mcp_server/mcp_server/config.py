@@ -641,6 +641,7 @@ class GraspSettings(StrictModel):
     below_object_offset_m: float = Field(default=0.005, ge=0.0, le=0.05)  # scoop: fixed jaw top below object bottom
     skim_clearance_m: float = Field(default=0.003, ge=0.0, le=0.05)  # scoop: fixed jaw bottom above the surface
     max_object_width_m: float = Field(default=0.08, gt=0.0, le=0.12)  # widest opening the jaws can use
+    min_object_width_m: float = Field(default=0.01, ge=0.0, le=0.05)  # narrowest object the jaws can hold
     close_effort_threshold: float = Field(default=300.0, gt=0.0)  # close_until_effort contact threshold
     hold_effort_min: float = Field(default=100.0, ge=0.0)  # |gripper load| a verified grasp must still show
     min_hold_gap_rad: float = Field(default=0.08, ge=0.0)  # verified grasp: jaw stopped this far short of closed
@@ -649,6 +650,14 @@ class GraspSettings(StrictModel):
     scoop_pitch_deg: float = Field(default=0.0, ge=-10.0, le=60.0)  # scoop approach pitch (0 = horizontal)
     scoop_max_pitch_deg: float = Field(default=25.0, ge=0.0, le=60.0)  # steepest pitch a scoop may fall back to
     scoop_pitch_step_deg: float = Field(default=5.0, gt=0.0, le=30.0)
+    # A scoop slides the fixed jaw under the object: only eligible when the object's gap_below_m is at least
+    # jaw_thickness_m + scoop_gap_margin_m (an object resting flat on a surface has no gap).
+    scoop_gap_margin_m: float = Field(default=0.004, ge=0.0, le=0.05)
+    # Tall narrow objects (height / width above tall_ratio) tip over when gripped high: angled and top_down grasp
+    # them at tall_grasp_height_fraction of their height from the bottom and lift at lift_speed_scale.
+    tall_ratio: float = Field(default=1.5, gt=0.0, le=20.0)
+    tall_grasp_height_fraction: float = Field(default=0.3, gt=0.0, le=0.5)
+    lift_speed_scale: float = Field(default=0.05, gt=0.0, le=HARD_MAX_SPEED_SCALE)
     angled_pitch_deg: float = Field(default=45.0, ge=0.0, le=90.0)
     # A stretched arm (elbow_flex at or below stretched_elbow_max_rad, measured; negative elbow_flex stretches) with
     # shoulder_lift above stall_shoulder_lift_rad stalls the shoulder servo: such plans are infeasible.
@@ -658,9 +667,9 @@ class GraspSettings(StrictModel):
     release_lift_m: float = Field(default=0.05, ge=0.0, le=0.3)
     auto_order: list[GraspAutoEntry] = Field(
         default_factory=lambda: [
-            GraspAutoEntry(strategy="scoop"),
-            GraspAutoEntry(strategy="angled", approach_pitch_deg=45.0),
             GraspAutoEntry(strategy="top_down"),
+            GraspAutoEntry(strategy="angled", approach_pitch_deg=45.0),
+            GraspAutoEntry(strategy="scoop"),
         ],
         min_length=1,
     )

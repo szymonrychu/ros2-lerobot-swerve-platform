@@ -235,3 +235,27 @@ def test_grasp_service_refuses_motion_in_battery_cutoff(tmp_path: Path) -> None:
     assert refused["ok"] is False and "battery" in refused["error"]
     assert service.handle({"action": "plan", "object": OBJECT})["ok"] is True
     assert be.commands == []
+
+
+def test_each_straight_line_step_runs_at_its_waypoint_speed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A tall narrow object lifts at lift_speed_scale; approach, slide and retreat keep slide_speed_scale."""
+    arm, be = make(tmp_path)
+    object_in_jaws(be)
+    speeds: list[float | None] = []
+    move_path = arm.move_path
+
+    def spy(path: Any, speed_scale: float | None = None, floor: Any = None) -> Any:
+        speeds.append(speed_scale)
+        return move_path(path, speed_scale, floor)
+
+    monkeypatch.setattr(arm, "move_path", spy)
+    tall = ObjectSpec(**(OBJECT | {"height_m": 0.06}))
+    params = grasp_params(CONFIG.grasp, None)
+    result = GraspExecutor(arm, CONFIG).grasp(tall, "top_down", params, None, None, lambda: False)
+    assert result.outcome == "grasped", result.reasons
+    assert speeds == [
+        params.slide_speed_scale,
+        params.slide_speed_scale,
+        params.lift_speed_scale,
+        params.slide_speed_scale,
+    ]

@@ -177,8 +177,13 @@ def test_grasp_defaults_and_validation() -> None:
     grasp = McpServerConfig().grasp
     assert grasp.interpolation_step_m == 0.005
     assert grasp.max_object_width_m == 0.08
-    assert [entry.strategy for entry in grasp.auto_order] == ["scoop", "angled", "top_down"]
+    assert [entry.strategy for entry in grasp.auto_order] == ["top_down", "angled", "scoop"]
     assert grasp.auto_order[1].approach_pitch_deg == 45.0
+    assert grasp.scoop_gap_margin_m == pytest.approx(0.004)
+    assert grasp.tall_ratio == pytest.approx(1.5)
+    assert grasp.tall_grasp_height_fraction == pytest.approx(0.3)
+    assert 0.0 < grasp.lift_speed_scale < grasp.slide_speed_scale
+    assert grasp.min_object_width_m == pytest.approx(0.01)
     assert 0.0 < grasp.slide_speed_scale <= 0.5
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"grasp": {"slide_speed_scale": 0.9}})
