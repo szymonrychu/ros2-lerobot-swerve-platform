@@ -64,6 +64,8 @@ class SceneConfig(StrictModel):
     support_depth_m: PositiveFloat = 0.6
     support_width_m: PositiveFloat = 0.6
     support_friction: tuple[PositiveFloat, float, float] = DEFAULT_FRICTION
+    # Jaw closing point in gripper_frame_link (m), e.g. mcp_server arm.tool_offset_m; None keeps the stock jaws.
+    tool_offset_m: tuple[float, float, float] | None = None
 
     @property
     def floor_z(self) -> float:

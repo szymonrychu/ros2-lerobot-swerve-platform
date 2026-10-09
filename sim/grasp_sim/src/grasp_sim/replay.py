@@ -13,6 +13,7 @@ from grasp_sim.config import SceneConfig, SimConfig
 from grasp_sim.plan import JOINT_ORDER, JointSample, interpolate_joints, label_at, parse_plan
 from grasp_sim.report import ClearanceStats, ContactEvent, ObjectReport, SegmentReport, SimReport
 from grasp_sim.scene import FLOOR_GEOM, OBJECT_BODY, OBJECT_GEOM, SUPPORT_GEOM, build_model
+from grasp_sim.tcp import jaw_shift
 
 JAW_BODIES = ("gripper", "moving_jaw_so101_v1", "camera_mount")
 WRIST_BODIES = ("wrist",)
@@ -60,6 +61,7 @@ class Rig:
                 self.role[gid] = "arm"
         self.groups = {r: [g for g, v in self.role.items() if v == r] for r in ("jaw", "wrist", "floor", "support")}
         self.has_object = scene.object is not None
+        self.grip_local = GRIP_POINT_LOCAL + jaw_shift(scene.tool_offset_m)
 
     def to_ctrl(self, measured: dict[str, float], warnings: set[str]) -> np.ndarray:
         """Measured joint angles to clipped MuJoCo actuator targets (urdf = measured + offset).
@@ -100,7 +102,7 @@ class Rig:
     def grip_point(self) -> np.ndarray:
         """World position of the point between the jaws near their tips."""
         body = self.data.body("gripper")
-        return body.xpos + body.xmat.reshape(3, 3) @ GRIP_POINT_LOCAL
+        return body.xpos + body.xmat.reshape(3, 3) @ self.grip_local
 
 
 def classify_contact(role_a: str, role_b: str) -> str | None:

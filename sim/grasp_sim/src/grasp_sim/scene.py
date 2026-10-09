@@ -6,6 +6,7 @@ import mujoco
 import numpy as np
 
 from grasp_sim.config import SceneConfig
+from grasp_sim.tcp import jaw_shift, shift_jaws
 
 ARM_XML = Path(__file__).resolve().parents[2] / "assets" / "so101" / "so101.xml"
 JOINT_NAMES = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
@@ -82,6 +83,8 @@ def build_model(scene: SceneConfig) -> mujoco.MjModel:
     for joint, (low, high) in scene.limit_overrides_rad.items():
         spec.joint(joint).range = [low, high]
         spec.actuator(joint).ctrlrange = [low, high]
+    if scene.tool_offset_m is not None:
+        shift_jaws(spec, jaw_shift(scene.tool_offset_m))
     kind = scene.support_kind
     floor_end = scene.support_start_x if kind == "stair" else FLOOR_FRONT_X_M
     add_slab(
