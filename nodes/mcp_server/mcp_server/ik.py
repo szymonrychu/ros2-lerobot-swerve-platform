@@ -337,7 +337,7 @@ class ArmKinematics:
         tool_reach = float(np.linalg.norm(self.tool_offset + (0.0 if extra_offset is None else np.array(extra_offset))))
         if math.sqrt(x * x + y * y + z * z) > self.max_reach_m + tool_reach + POSITION_TOLERANCE_M:
             raise UnreachableError(
-                f"target ({x:.3f}, {y:.3f}, {z:.3f}) is beyond the arm's reach of {self.max_reach_m + tool_reach:.3f} m"
+                f"unreachable: target ({x:.3f}, {y:.3f}, {z:.3f}) is beyond the arm's reach of {self.max_reach_m + tool_reach:.3f} m"
             )
         if not (self.tool_offset.any() or (extra_offset is not None and any(extra_offset))):
             return self.inverse_flange(x, y, z, pitch, seed)
