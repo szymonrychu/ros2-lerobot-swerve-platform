@@ -141,7 +141,8 @@ def should_save(
     """Decide whether the calibration profile should be read from the chip and saved now.
 
     Args:
-        status: (sys, gyro, accel, mag) calibration status; sys is ignored.
+        status: (sys, gyro, accel, mag) calibration status; only mag is gated (a wheeled robot cannot do the
+            accel 6-orientation dance, and the compass heading needs only the magnetometer offsets).
         last_save_monotonic: Monotonic time of the last save attempt.
         now: Current monotonic time.
         interval: Minimum seconds between attempts.
@@ -149,12 +150,11 @@ def should_save(
         saved_profile: Profile known to be on disk, or None.
 
     Returns:
-        bool: True when gyro, accel and mag are all 3, the interval elapsed, and the profile is not known to
-            equal the saved one.
+        bool: True when mag is 3, the interval elapsed, and the profile is not known to equal the saved one.
     """
     if not status or len(status) < 4 or any(v is None for v in status[:4]):
         return False
-    if not all(status[i] == CALIBRATED for i in (1, 2, 3)):
+    if status[3] != CALIBRATED:
         return False
     if now - last_save_monotonic < interval:
         return False

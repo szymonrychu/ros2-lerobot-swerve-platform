@@ -52,11 +52,15 @@ The node now keeps the sensor offsets in `calibration_file` (JSON: `accel_offset
   switched to `operation_mode`; the log shows `restored calibration profile from <file>`. A missing file means an
   uncalibrated start. A corrupt or implausible file (missing keys, values outside int16, radius outside 1-2000) logs a
   warning and the node starts uncalibrated.
-- **Save**: at most every `calibration_save_interval_s`, when `gyro`, `accel` and `mag` all report 3 (`sys` is ignored),
+- **Save**: at most every `calibration_save_interval_s`, when `mag` reports 3 (only the magnetometer is gated: a wheeled
+  robot cannot do the accelerometer 6-orientation motion, and the compass heading needs only the mag offsets),
   the node briefly switches to CONFIG mode, reads the offsets, switches back and writes the file atomically (temp file
   plus `os.replace`) only if it differs from what is on disk; the log shows `saved calibration profile`. That cycle
   publishes nothing while fusion restarts (about 1.5 s). The adafruit_bno055 offset properties do not switch modes
   themselves (library 5.4.22), so the node does it explicitly.
+- **Restored flag**: `/imu/calibration` JSON carries `restored: true` once a saved profile is on the chip (restored at
+  init, or just saved). The chip itself reports 0 after a restart until it re-checks, so consumers (web_ui compass
+  anchor) trust `restored` instead of waiting for `mag` to climb again.
 - **Reset**: delete the file and restart the node (`sudo rm /var/lib/ros2/bno055_imu/calibration.json`), then redo the
   calibration motion. Ansible creates `/var/lib/ros2/bno055_imu` owned by the node user.
 

@@ -472,7 +472,27 @@ def test_calibration_payload_json() -> None:
     """calibration_payload encodes (sys, gyro, accel, mag) as JSON with those keys."""
     from bno055_imu.node import calibration_payload
 
-    assert json.loads(calibration_payload((3, 2, 1, 0))) == {"sys": 3, "gyro": 2, "accel": 1, "mag": 0}
+    assert json.loads(calibration_payload((3, 2, 1, 0))) == {
+        "sys": 3,
+        "gyro": 2,
+        "accel": 1,
+        "mag": 0,
+        "restored": False,
+    }
+
+
+def test_calibration_payload_reports_restored_profile() -> None:
+    """restored=True tells consumers the offsets came from the saved profile while the chip status is still 0."""
+    from bno055_imu.node import calibration_payload
+
+    assert json.loads(calibration_payload((0, 0, 0, 0), restored=True)) == {
+        "sys": 0,
+        "gyro": 0,
+        "accel": 0,
+        "mag": 0,
+        "restored": True,
+    }
+    assert json.loads(calibration_payload((0, 0, 0, 3)))["restored"] is False
 
 
 def test_calibration_payload_none_when_unavailable() -> None:

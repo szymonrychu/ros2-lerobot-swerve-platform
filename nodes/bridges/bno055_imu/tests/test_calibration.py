@@ -102,13 +102,17 @@ def test_profile_from_dict_rejects_non_dict() -> None:
         profile_from_dict([1, 2, 3])  # type: ignore[arg-type]
 
 
-def test_should_save_requires_all_three_calibrated() -> None:
+def test_should_save_gates_on_mag_only() -> None:
+    """A wheeled robot cannot do the accel 6-orientation dance; the compass needs only the mag offsets."""
+    assert should_save((0, 0, 0, 3), 0.0, 100.0, 60.0, None, None)
+    assert not should_save((0, 3, 3, 2), 0.0, 100.0, 60.0, None, None)
+
+
+def test_should_save_full_calibration_still_saves() -> None:
     """gyro, accel and mag must be 3; sys is ignored."""
     assert should_save((0, 3, 3, 3), 0.0, 100.0, 60.0, None, None)
     assert should_save((3, 3, 3, 3), 0.0, 100.0, 60.0, None, None)
     assert not should_save((0, 3, 3, 2), 0.0, 100.0, 60.0, None, None)
-    assert not should_save((0, 2, 3, 3), 0.0, 100.0, 60.0, None, None)
-    assert not should_save((0, 3, 2, 3), 0.0, 100.0, 60.0, None, None)
 
 
 def test_should_save_invalid_status() -> None:

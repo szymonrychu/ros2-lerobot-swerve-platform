@@ -162,6 +162,12 @@ def test_calibration_trusted_gates_on_mag_only() -> None:
     assert not calibration_trusted({"sys": 3})
 
 
+def test_calibration_trusted_when_saved_profile_restored() -> None:
+    """After a restart the chip reports mag 0 until it re-checks, but the restored offsets are already valid."""
+    assert calibration_trusted({"sys": 0, "gyro": 0, "accel": 0, "mag": 0, "restored": True})
+    assert not calibration_trusted({"sys": 0, "gyro": 0, "accel": 0, "mag": 0, "restored": False})
+
+
 # ---------------------------------------------------------------------------
 # drive fit tags its anchor
 # ---------------------------------------------------------------------------

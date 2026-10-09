@@ -122,6 +122,8 @@ def calibration_trusted(status: dict[str, Any] | None, min_mag: int = MIN_MAG_CA
     """Return True if the BNO055 calibration status is good enough to trust the compass heading.
 
     Only the magnetometer is gated: the system status stays 0 in NDOF on the robot even with mag fully calibrated.
+    A status with restored=True (bno055_imu wrote its saved calibration profile at init) is trusted as well: the chip
+    reports mag 0 until it re-checks itself, but the restored offsets are already in use.
 
     Args:
         status (dict[str, Any] | None): {"sys", "gyro", "accel", "mag"} (each 0-3) or None when unknown.
@@ -132,6 +134,8 @@ def calibration_trusted(status: dict[str, Any] | None, min_mag: int = MIN_MAG_CA
     """
     if not status:
         return False
+    if status.get("restored") is True:
+        return True
     mag = status.get("mag")
     return isinstance(mag, int) and mag >= min_mag
 

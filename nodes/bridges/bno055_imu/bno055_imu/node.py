@@ -95,18 +95,23 @@ def mode_value(name: str) -> int:
     return OPERATION_MODE_VALUES[name]
 
 
-def calibration_payload(status: tuple | None) -> str | None:
+def calibration_payload(status: tuple | None, restored: bool = False) -> str | None:
     """Encode the BNO055 calibration status as JSON.
 
     Args:
         status (tuple | None): (sys, gyro, accel, mag), each 0 (uncalibrated) to 3 (fully calibrated).
+        restored (bool): True when the saved calibration profile was written to the chip at init; the chip then
+            reports 0 until it re-checks itself, although the restored offsets are already in use.
 
     Returns:
-        str | None: JSON {"sys", "gyro", "accel", "mag"}, or None when the status is unavailable or incomplete.
+        str | None: JSON {"sys", "gyro", "accel", "mag", "restored"}, or None when the status is unavailable or
+            incomplete.
     """
     if not status or len(status) < len(CALIBRATION_KEYS) or any(v is None for v in status[:4]):
         return None
-    return json.dumps({key: int(status[i]) for i, key in enumerate(CALIBRATION_KEYS)})
+    payload: dict[str, int | bool] = {key: int(status[i]) for i, key in enumerate(CALIBRATION_KEYS)}
+    payload["restored"] = restored
+    return json.dumps(payload)
 
 
 def warmup_check(bno: Any) -> bool:
@@ -495,7 +500,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         if calibration_pub is not None and time.monotonic() - last_calibration_pub_s >= CALIBRATION_PUBLISH_PERIOD_S:
             last_calibration_pub_s = time.monotonic()
             try:
-                payload = calibration_payload(bno.calibration_status)
+                payload = calibration_payload(bno.calibration_status, restored=saved_profile is not None)
             except (RuntimeError, OSError):
                 payload = None
             if payload is not None:
