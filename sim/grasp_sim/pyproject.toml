@@ -1,0 +1,52 @@
+[project]
+name = "grasp-sim"
+version = "0.1.0"
+description = "Dev-only MuJoCo grasp plan replay harness for the SO-101 arm (macOS arm64, no ROS2)"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "mujoco>=3.3",
+    "numpy>=2.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "pillow>=10.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+    "ruff==0.15.20",
+    "poethepoet>=0.42.0",
+]
+
+[project.scripts]
+grasp-sim = "grasp_sim.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/grasp_sim"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+ignore = ["E501"]
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  ruff check src tests
+  ruff format --check src tests
+""" }
+lint-fix = { shell = """
+  ruff check --fix src tests
+  ruff format src tests
+""" }
+test = { shell = "pytest -q" }
