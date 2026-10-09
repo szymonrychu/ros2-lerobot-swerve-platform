@@ -30,6 +30,9 @@ import log from './logging'
 import { batteryStatus, cutoffBanner } from './battery/batteryStatus'
 import type { BatteryPayload, BatteryStatus } from './battery/batteryStatus'
 import { BatteryChip } from './components/BatteryChip'
+import { GpsChip } from './components/GpsChip'
+import { GPS_BASE_STATUS_KEY, baseGpsStatus, roverGpsStatus } from './gps/gpsStatus'
+import type { BaseGpsPayload, RoverGpsPayload } from './gps/gpsStatus'
 import { useRosBridge } from './hooks/useRosBridge'
 import { OverlayBar } from './overlays/OverlayBar'
 import { browserStorage, initialTabIndex, orderTabs, readStoredTabId, supportedTabs, writeStoredTabId } from './tabSelection'
@@ -44,7 +47,7 @@ const MapNavTab = lazy(() => import('./tabs/MapNavTab'))
 const AgentChatTab = lazy(() => import('./tabs/AgentChatTab'))
 
 const APP_TITLE = 'Robot'
-// How often the battery chip re-evaluates staleness (ms).
+// How often the battery and GPS chips re-evaluate staleness (ms).
 const BATTERY_TICK_MS = 1000
 // How long a command-rejected toast stays visible (ms).
 const ERROR_TOAST_MS = 8000
@@ -101,6 +104,8 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [errorToast, setErrorToast] = useState<string | null>(null)
   const [batteryRxAt, setBatteryRxAt] = useState<number | null>(null)
+  const [roverRxAt, setRoverRxAt] = useState<number | null>(null)
+  const [baseRxAt, setBaseRxAt] = useState<number | null>(null)
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   // Map tabs first: the map is the primary view whatever order the config lists tabs in.
@@ -140,13 +145,24 @@ export default function App() {
   useEffect(() => {
     setBatteryRxAt(batteryData ? Date.now() : null)
   }, [batteryData])
+  const gpsCfg = config?.gps_status ?? null
+  const roverGps = gpsCfg?.rover_topic ? (topicData[gpsCfg.rover_topic] as RoverGpsPayload | null | undefined) : undefined
+  const baseGps = gpsCfg?.base_url ? (topicData[GPS_BASE_STATUS_KEY] as BaseGpsPayload | null | undefined) : undefined
   useEffect(() => {
-    if (!batteryCfg) return
+    setRoverRxAt(roverGps ? Date.now() : null)
+  }, [roverGps])
+  useEffect(() => {
+    setBaseRxAt(baseGps ? Date.now() : null)
+  }, [baseGps])
+  useEffect(() => {
+    if (!batteryCfg && !gpsCfg) return
     const id = setInterval(() => setNowMs(Date.now()), BATTERY_TICK_MS)
     return () => clearInterval(id)
-  }, [batteryCfg])
+  }, [batteryCfg, gpsCfg])
   const battery = batteryStatus(batteryData, batteryCfg, nowMs, batteryRxAt)
   const banner = cutoffBanner(battery)
+  const roverChip = roverGpsStatus(roverGps, gpsCfg, nowMs, roverRxAt)
+  const baseChip = baseGpsStatus(baseGps, roverGps, gpsCfg, nowMs, baseRxAt, roverRxAt)
 
   // Feed all graph-type tabs' buffers on every WebSocket update, regardless of active tab.
   // This ensures opening any graph tab shows a pre-filled rolling window of data.
@@ -209,6 +225,8 @@ export default function App() {
             ))}
           </Tabs>
           {batteryCfg && <BatteryChip status={battery} />}
+          {gpsCfg?.rover_topic && <GpsChip status={roverChip} role="robot" />}
+          {gpsCfg?.base_url && <GpsChip status={baseChip} role="base" />}
         </Toolbar>
       </AppBar>
       {banner && (

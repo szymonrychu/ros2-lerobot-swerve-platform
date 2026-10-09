@@ -1,4 +1,5 @@
 import type { BatteryConfig } from './battery/batteryStatus'
+import type { GpsStatusConfig } from './gps/gpsStatus'
 
 export interface TabFieldSpec {
   path: string
@@ -57,6 +58,7 @@ export interface OverlayItem {
 
 export interface AppConfig {
   battery?: BatteryConfig | null // absent/null: battery chip and cut-off banner are off
+  gps_status?: GpsStatusConfig | null // absent/null: GPS chips are off
   http_port: number
   ws_broadcast_hz: number
   tabs: TabConfig[]
