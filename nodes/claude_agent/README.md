@@ -64,8 +64,11 @@ Besides the budget and working method, the system prompt (`prompt.py`) has compa
 added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
 interrupts), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
 `mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), memory
-(`remember_object`/`list_objects`, POIs via `list_pois`/`add_poi`/`update_poi`, `NOTES.md`) and the calibration tools
-(only when the person asks).
+(`remember_object`/`list_objects`, POIs via `list_pois`/`add_poi`/`update_poi`, `NOTES.md`), the calibration tools
+(only when the person asks), the grasp macros (`plan_grasp` first, then `grasp_object`; strategies scoop / angled /
+top_down / auto, radial approach only, `release_object`, outcomes grasped / missed / aborted / infeasible) and the
+below-surface slow zone of the arm (never blocks; `surface_z_m` for a stair or hole below, `tilt_override_deg`
+replacing the IMU tilt).
 
 ## Task plan (per-phase budgets)
 
@@ -76,10 +79,10 @@ used up) and only counted (`ro_used`, per instruction and per active phase) for 
 
 | Counter | Counts | Instruction maximum (config) | Per-phase maximum (config) |
 |---|---|---|---|
-| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`; a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (150) | `max_phase_rw_cap` (40) |
+| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`; a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (150) | `max_phase_rw_cap` (40) |
 | turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (200) | `max_phase_turn_cap` (40) |
 
-Sensor calls (kind `sensor`: `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools and the POI tools) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
+Sensor calls (kind `sensor`: `plan_grasp` (dry run, no motion), `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools and the POI tools) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
 
 Not counted: the notes file tools, the planning tools, and the control tools `stop`, `acquire_control`, `release_control`
 (`stop` must always work). Keep `effector_tools` equal to the motion classification of `nodes/mcp_server` (`MOTION_TOOLS`;

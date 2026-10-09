@@ -249,3 +249,21 @@ def test_prompt_says_the_arm_is_fast_by_default() -> None:
     assert "default is full speed" in lower
     assert "lower speed_scale only for the last few centimetres of a grasp or near obstacles" in lower
     assert "0.5 rad/s" not in lower and "slow speed" not in lower
+
+
+def test_prompt_explains_grasp_macros_and_the_slow_zone() -> None:
+    lower = prompt_lower()
+    assert lower.index("plan_grasp") < lower.index("grasp_object")
+    assert "plan_grasp first" in lower
+    for word in ("scoop", "angled", "top_down", "auto", "release_object", "missed", "infeasible"):
+        assert word in lower
+    assert "surface_z_m" in lower and "stair" in lower and "hole" in lower
+    assert "slow zone" in lower and "never blocks" in lower
+    assert "tilt_override_deg" in lower and "imu" in lower
+    assert "radially" in lower
+
+
+def test_default_tool_lists_include_the_grasp_tools() -> None:
+    cfg = ClaudeAgentConfig()
+    assert {"grasp_object", "release_object"} <= set(cfg.effector_tools)
+    assert "plan_grasp" in cfg.sensor_tools and "plan_grasp" not in cfg.effector_tools

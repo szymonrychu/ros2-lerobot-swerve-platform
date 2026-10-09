@@ -18,9 +18,12 @@ DEFAULT_EFFECTOR_TOOLS = [
     "arm_home",
     "arm_set_home",
     "look_around",
+    "grasp_object",
+    "release_object",
 ]
 DEFAULT_UNCAPPED_TOOLS = ["stop", "acquire_control", "release_control"]
 DEFAULT_SENSOR_TOOLS = [
+    "plan_grasp",
     "get_robot_state",
     "get_camera_image",
     "get_map_summary",

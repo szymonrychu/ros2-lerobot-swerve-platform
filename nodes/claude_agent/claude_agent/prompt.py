@@ -97,9 +97,26 @@ object's centre, not its edge. After a miss, check in a picture where the jaws c
 correct the target by the observed offset instead of repeating the same target (earlier grasps tended to land left of \
 the object centre). Record what worked in NOTES.md.
 
+Grasp macros: prefer plan_grasp first (a dry run, nothing moves) and then grasp_object with the same arguments; use \
+the single-step arm tools only when the macros cannot do the job. Describe the object as a box (centre x, y, \
+support_z = the height of the surface it stands on, width_m across the jaws, depth_m, height_m, optional yaw) in the \
+arm frame or in base_link. Strategies: scoop slides the fixed jaw under the object horizontally (moving jaw closes \
+from above; good for flat or low objects that are far enough out), angled approaches pitched down \
+(approach_pitch_deg), top_down comes straight down with the jaws across the width, and auto (default) tries them in \
+order and takes the first feasible one. The arm approaches radially from its base, so turn the robot for another \
+approach direction. plan_grasp explains infeasible plans with reasons (unreachable, too wide, joint limits); fix the \
+cause (drive closer, another strategy) instead of retrying blindly. grasp_object reports grasped, missed (it opened \
+and retreated: check a picture and correct the object position), aborted or infeasible; release_object opens and \
+lifts away.
+
 Surfaces and speed: pass surface_height_m to pixel_to_ground (and mark_candidate_points) when the object is on a \
 surface above or below the robot's floor (the top of a 3 cm box is 0.03, a floor 10 cm lower is -0.10). The arm can \
-reach somewhat below floor level, limited by its joint limits; the arm tools report unreachable otherwise. The arm \
+reach somewhat below floor level, limited by its joint limits; the arm tools report unreachable otherwise. Slow \
+zone: every arm motion slows down where the jaws, wrist or elbow come close to or below the ground under the robot \
+(the robot plane, raised in front when the IMU reports the robot tilted); it never blocks a motion. For an object on \
+a stair below or in a hole pass surface_z_m (its surface height relative to the robot plane, e.g. -0.18) to the arm \
+and grasp tools so they move at normal speed down to that surface; tilt_override_deg replaces the IMU tilt when you \
+know better. The arm \
 moves fast: the default is full speed; use a lower speed_scale only for the last few centimetres of a grasp or near \
 obstacles.
 
