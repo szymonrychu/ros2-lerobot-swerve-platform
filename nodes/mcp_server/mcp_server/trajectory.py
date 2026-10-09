@@ -109,3 +109,42 @@ def max_abs_error(a: dict[str, float], b: dict[str, float], joints: list[str]) -
         float: Max |a - b| (0.0 for no joints).
     """
     return max((abs(a[j] - b[j]) for j in joints), default=0.0)
+
+
+def path_trajectory(
+    start: dict[str, float], path: list[dict[str, float]], max_velocity: float, rate_hz: float
+) -> list[dict[str, float]]:
+    """Sample a joint-space polyline (start, then path) with one quintic time profile over its whole length.
+
+    Progress along the polyline is measured with the largest joint change of each leg, so no joint exceeds
+    max_velocity and the motion starts and stops smoothly without halting at the intermediate samples.
+
+    Args:
+        start (dict[str, float]): Pose before the first path sample.
+        path (list[dict[str, float]]): Samples (same joints as start); the last one is the goal.
+        max_velocity (float): Per-joint velocity cap (rad/s).
+        rate_hz (float): Setpoint rate.
+
+    Returns:
+        list[dict[str, float]]: Setpoints (start excluded); the last one equals path[-1] exactly.
+    """
+    if max_velocity <= 0.0:
+        raise ValueError("max_velocity must be positive")
+    nodes = [start, *path]
+    legs = [max(abs(b[j] - a[j]) for j in b) for a, b in zip(nodes, nodes[1:], strict=False)]
+    total = sum(legs)
+    if total <= 0.0:
+        return [dict(path[-1])]
+    steps = max(1, math.ceil(QUINTIC_PEAK_VELOCITY_FACTOR * total / max_velocity * rate_hz))
+    points: list[dict[str, float]] = []
+    leg, covered = 0, 0.0
+    for i in range(1, steps):
+        distance = quintic(i / steps) * total
+        while leg < len(legs) - 1 and covered + legs[leg] < distance:
+            covered += legs[leg]
+            leg += 1
+        a, b = nodes[leg], nodes[leg + 1]
+        f = 0.0 if legs[leg] <= 0.0 else min(1.0, (distance - covered) / legs[leg])
+        points.append({j: a[j] + (b[j] - a[j]) * f for j in b})
+    points.append(dict(path[-1]))
+    return points

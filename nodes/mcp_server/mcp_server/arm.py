@@ -17,7 +17,7 @@ from .ik import ArmKinematics, UnreachableError, grasp_offset
 from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .staleness import Stamped, is_fresh
-from .trajectory import JointLimits, clamp_to_limits, max_abs_error, plan_trajectory
+from .trajectory import JointLimits, clamp_to_limits, max_abs_error, path_trajectory, plan_trajectory
 
 # Grace after acquiring before a different active source counts as losing the lease (filter_node needs a cycle).
 LEASE_GRACE_S = 0.5
@@ -513,14 +513,7 @@ class ArmController:
         """
         sample = self.require_sample()
         # Targets are in measured (follower) space, limits in URDF space: clamp in URDF space, then convert back.
-        safe = self.kin.to_measured(
-            clamp_to_limits(
-                self.kin.to_urdf(targets),
-                self.limits,
-                self.cfg.limits.arm_limit_margin_rad,
-                self.cfg.limits.arm_limit_margin_overrides,
-            )
-        )
+        safe = self.clamp_targets(targets)
         clamped = sorted(j for j in targets if abs(safe[j] - targets[j]) > CHANGED_EPS)
         self.check_roll_guard(safe, self.command_base(sample), sample)
         if not self._held:
@@ -528,6 +521,63 @@ class ArmController:
         start = self.command_base(self.require_sample())
         with self.holding_arm_for_gripper(list(targets)):
             return self.stream(start, start | safe, vmax, list(targets), clamped, floor=floor)
+
+    def move_path(
+        self, path: list[dict[str, float]], speed_scale: float | None = None, floor: FloorOverride | None = None
+    ) -> ArmMotionResult:
+        """Stream one smooth motion through a sequence of joint samples (e.g. a straight tool line from the planner).
+
+        Every sample is clamped like a move_joints target; joints a sample does not name keep their last commanded
+        target. The whole path is one quintic time profile (no stop at intermediate samples), checked against the
+        slow zone like any other motion; convergence is judged at the last sample.
+
+        Args:
+            path (list[dict[str, float]]): Joint samples (measured space), all naming the same joints.
+            speed_scale (float | None): Speed scale in (0, arm_max_speed_scale]; None for the maximum.
+            floor (FloorOverride | None): Per-call slow-zone overrides.
+
+        Returns:
+            ArmMotionResult: Outcome.
+
+        Raises:
+            ArmError: For an empty path, invalid joints or a refused wrist roll (wide open gripper).
+        """
+        if not path:
+            raise ArmError("path must hold at least one sample")
+        for sample in path:
+            self.validate_targets(sample)
+        vmax = self.velocity_for(speed_scale)
+        with self.exclusive_motion():
+            sample = self.require_sample()
+            safe = [self.clamp_targets(s) for s in path]
+            clamped = sorted({j for s, c in zip(path, safe, strict=True) for j in s if abs(c[j] - s[j]) > CHANGED_EPS})
+            base = self.command_base(sample)
+            for target in safe:
+                self.check_roll_guard(target, base, sample)
+            if not self._held:
+                self.acquire()
+            start = self.command_base(self.require_sample())
+            full = [start | s for s in safe]
+            moving = sorted({j for s in path for j in s})
+            return self.stream(start, full[-1], vmax, moving, clamped, floor=floor, path=full)
+
+    def clamp_targets(self, targets: dict[str, float]) -> dict[str, float]:
+        """Clamp measured-space targets to the URDF limits minus margin (applied in URDF space).
+
+        Args:
+            targets (dict[str, float]): Joint name -> rad (measured space).
+
+        Returns:
+            dict[str, float]: Clamped targets (measured space).
+        """
+        return self.kin.to_measured(
+            clamp_to_limits(
+                self.kin.to_urdf(targets),
+                self.limits,
+                self.cfg.limits.arm_limit_margin_rad,
+                self.cfg.limits.arm_limit_margin_overrides,
+            )
+        )
 
     def check_roll_guard(self, safe: dict[str, float], start: dict[str, float], sample: JointSample) -> None:
         """Refuse a wrist roll while the gripper is wide open (the open moving finger can jam against the robot).
@@ -1030,7 +1080,12 @@ class ArmController:
         return None
 
     def guarded_trajectory(
-        self, start: dict[str, float], goal: dict[str, float], vmax: float, floor: FloorOverride | None
+        self,
+        start: dict[str, float],
+        goal: dict[str, float],
+        vmax: float,
+        floor: FloorOverride | None,
+        path: list[dict[str, float]] | None = None,
     ) -> list[dict[str, float]]:
         """Quintic setpoints from start to goal, with the slow-zone steps time-scaled; records the slow-zone summary.
 
@@ -1039,11 +1094,14 @@ class ArmController:
             goal (dict[str, float]): Goal pose.
             vmax (float): Per-joint velocity cap (rad/s).
             floor (FloorOverride | None): Per-call slow-zone overrides.
+            path (list[dict[str, float]] | None): Full-pose samples to pass through (move_path); None for a direct
+                quintic to goal.
 
         Returns:
             list[dict[str, float]]: Setpoints at arm_rate_hz.
         """
-        points = plan_trajectory(start, goal, vmax, self.cfg.limits.arm_rate_hz)
+        rate = self.cfg.limits.arm_rate_hz
+        points = plan_trajectory(start, goal, vmax, rate) if path is None else path_trajectory(start, path, vmax, rate)
         surface = self.floor_guard.surface(floor, self.tilt_source(), self.backend.now())
         report = self.floor_guard.evaluate([start, *points], surface)
         self._slow_zone = report.summary()
@@ -1058,6 +1116,7 @@ class ArmController:
         clamped: list[str],
         effort_threshold: float | None = None,
         floor: FloorOverride | None = None,
+        path: list[dict[str, float]] | None = None,
     ) -> ArmMotionResult:
         """Stream setpoints at arm_rate_hz, then wait for convergence; abort and hold on any safety check.
 
@@ -1076,6 +1135,7 @@ class ArmController:
             clamped (list[str]): Joints clamped to limits.
             effort_threshold (float | None): Gripper contact threshold for close-until-effort.
             floor (FloorOverride | None): Per-call slow-zone overrides.
+            path (list[dict[str, float]] | None): Full-pose samples the trajectory passes through (ends at goal).
 
         Returns:
             ArmMotionResult: Outcome.
@@ -1101,7 +1161,7 @@ class ArmController:
             self._streaming = True
         try:
             sample: JointSample | None = None
-            for point in self.guarded_trajectory(start, goal, vmax, floor):
+            for point in self.guarded_trajectory(start, goal, vmax, floor, path):
                 latest = self.backend.joint_sample()
                 sample = latest or sample
                 verdict = self.check(latest, tracked, contact_threshold(latest))

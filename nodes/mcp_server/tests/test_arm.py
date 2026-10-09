@@ -1108,3 +1108,36 @@ def test_home_motion_uses_the_slow_zone(tmp_path: Path) -> None:
     be.positions.update({j: 0.0 for j in KIN.joint_names})
     res = arm.home(keep_prior_control=True)
     assert res.slow_zone is not None
+
+
+def test_move_path_streams_through_the_samples_and_converges_at_the_end(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    path = [{"elbow_flex": 0.1 * i, "wrist_flex": 0.05 * i} for i in range(1, 6)]
+    res = arm.move_path(path, speed_scale=0.25)
+    assert res.status == "converged", res.message
+    assert be.commands[-1]["elbow_flex"] == pytest.approx(0.5) and be.commands[-1]["wrist_flex"] == pytest.approx(0.25)
+    vmax = CONFIG.limits.arm_max_joint_velocity_rps * 0.25 / CONFIG.limits.arm_max_speed_scale
+    for a, b in zip(be.commands[1:], be.commands[2:], strict=False):
+        assert abs(b["elbow_flex"] - a["elbow_flex"]) * CONFIG.limits.arm_rate_hz <= vmax * 1.05
+    assert arm.control_held
+
+
+def test_move_path_rejects_empty_or_unknown_joints_and_respects_the_roll_guard(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    with pytest.raises(ArmError):
+        arm.move_path([], None)
+    with pytest.raises(ArmError):
+        arm.move_path([{"elbow": 0.1}], None)
+    be.positions["gripper"] = 1.5
+    with pytest.raises(ArmError, match="wrist_roll"):
+        arm.move_path([{"wrist_roll": 0.5}, {"wrist_roll": 1.0}], None)
+    assert be.commands == []
+
+
+def test_move_path_near_the_floor_is_slowed(tmp_path: Path) -> None:
+    low = low_pose(0.0)
+    high = low_pose(0.04)
+    start = high | {"gripper": 0.0}
+    arm, be = make_guarded(tmp_path, backend=FakeArmBackend(dict(start)))
+    res = arm.move_path([high, low], 0.5)
+    assert res.slow_zone is not None and res.slow_zone["slowed_samples"] > 0

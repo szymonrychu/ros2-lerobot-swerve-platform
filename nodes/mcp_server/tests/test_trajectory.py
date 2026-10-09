@@ -5,6 +5,7 @@ import pytest
 from mcp_server.trajectory import (
     clamp_to_limits,
     max_abs_error,
+    path_trajectory,
     plan_trajectory,
     quintic,
     trajectory_duration,
@@ -90,3 +91,23 @@ def test_max_abs_error_over_selected_joints() -> None:
     assert max_abs_error({"a": 0.0, "b": 1.0}, {"a": 0.2, "b": 0.0}, ["a"]) == pytest.approx(0.2)
     assert max_abs_error({"a": 0.0, "b": 1.0}, {"a": 0.2, "b": 0.0}, ["a", "b"]) == pytest.approx(1.0)
     assert max_abs_error({}, {}, []) == 0.0
+
+
+def test_path_trajectory_follows_the_polyline_and_ends_at_its_last_point() -> None:
+    start = {"a": 0.0, "b": 0.0}
+    path = [{"a": 0.1, "b": 0.0}, {"a": 0.1, "b": 0.2}, {"a": 0.3, "b": 0.2}]
+    points = path_trajectory(start, path, max_velocity=0.5, rate_hz=25.0)
+    assert points[-1] == path[-1]
+    for p in points:  # every setpoint lies on one of the three straight legs
+        on_leg1 = p["b"] == pytest.approx(0.0) and -1e-9 <= p["a"] <= 0.1 + 1e-9
+        on_leg2 = p["a"] == pytest.approx(0.1) and -1e-9 <= p["b"] <= 0.2 + 1e-9
+        on_leg3 = p["b"] == pytest.approx(0.2) and 0.1 - 1e-9 <= p["a"] <= 0.3 + 1e-9
+        assert on_leg1 or on_leg2 or on_leg3
+    prev = start
+    for p in points:
+        assert max(abs(p[j] - prev[j]) for j in p) * 25.0 <= 0.5 * 1.05
+        prev = p
+
+
+def test_path_trajectory_of_a_zero_length_path_is_its_end() -> None:
+    assert path_trajectory({"a": 0.2}, [{"a": 0.2}], 1.0, 25.0) == [{"a": 0.2}]
