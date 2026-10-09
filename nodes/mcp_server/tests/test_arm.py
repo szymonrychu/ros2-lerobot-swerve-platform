@@ -7,6 +7,7 @@ import pytest
 
 from mcp_server.arm import ArmController, ArmError, tracking_limit
 from mcp_server.config import McpServerConfig
+from mcp_server.floor_guard import FloorOverride, Tilt, TiltOverrideDeg, TiltSample
 from mcp_server.ik import ArmKinematics, grasp_offset, load_joint_limits
 from mcp_server.models import ArmMotionResult
 
@@ -1006,3 +1007,104 @@ def test_slow_motion_still_aborts_on_the_same_lag(tmp_path: Path) -> None:
     be.sag = {"shoulder_lift": -0.4}
     res = arm.move_joints({"shoulder_lift": 0.8}, speed_scale=0.1)
     assert res.status == "aborted_tracking"
+
+
+# --- below-surface slow zone (floor_guard) -------------------------------------------------------------------------
+
+LOW_SEED = {"shoulder_pan": 0.0, "shoulder_lift": 1.0, "elbow_flex": 0.5, "wrist_flex": 0.0, "wrist_roll": 0.0}
+
+
+def low_pose(z_above_floor: float = 0.005) -> dict[str, float]:
+    """Arm joints with the tool point (pointing down) z_above_floor above the robot plane, 20 cm in front."""
+    return KIN.inverse(0.2, 0.0, CONFIG.arm.floor_z_m + z_above_floor, math.pi / 2, LOW_SEED)
+
+
+def make_guarded(
+    tmp_path: Path,
+    enabled: bool = True,
+    tilt: TiltSample | None = None,
+    backend: FakeArmBackend | None = None,
+) -> tuple[ArmController, FakeArmBackend]:
+    be = backend or FakeArmBackend()
+    cfg = CONFIG.model_copy(deep=True)
+    cfg.arm.home_file = tmp_path / "arm" / "home.yaml"
+    cfg.floor_guard.enabled = enabled
+    arm = ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg, tilt_source=lambda: tilt)
+    return arm, be
+
+
+def test_motion_into_the_slow_zone_is_slowed_and_reported(tmp_path: Path) -> None:
+    target = low_pose()
+    plain, be_plain = make_guarded(tmp_path, enabled=False)
+    assert plain.move_joints(target, 0.5).slow_zone is None
+    arm, be = make_guarded(tmp_path)
+    res = arm.move_joints(target, 0.5)
+    assert res.status == "converged", res.message
+    assert len(be.commands) > len(be_plain.commands) + 5
+    assert res.slow_zone is not None and res.slow_zone["slowed_samples"] > 0
+    assert res.slow_zone["speed_scale"] == 0.2 and res.slow_zone["tilt_source"] == "none"
+    # Slowed steps move at most slow_speed_scale of the velocity cap per tick (25 Hz streaming kept).
+    rate, vmax = CONFIG.limits.arm_rate_hz, CONFIG.limits.arm_max_joint_velocity_rps
+    tail = be.commands[-6:]
+    for a, b in zip(tail, tail[1:], strict=False):
+        assert max(abs(b[j] - a[j]) for j in KIN.joint_names) * rate <= vmax * 0.2 * 1.05
+
+
+def test_motion_above_the_slow_zone_runs_at_normal_speed(tmp_path: Path) -> None:
+    target = low_pose(0.10)
+    plain, be_plain = make_guarded(tmp_path, enabled=False)
+    plain.move_joints(target, 0.5)
+    arm, be = make_guarded(tmp_path)
+    res = arm.move_joints(target, 0.5)
+    assert res.slow_zone is None
+    assert len(be.commands) == len(be_plain.commands)
+
+
+def test_surface_override_allows_normal_speed_down_to_a_lower_surface(tmp_path: Path) -> None:
+    target = low_pose(-0.03)  # 3 cm below the robot plane (a step down)
+    plain, be_plain = make_guarded(tmp_path, enabled=False)
+    plain.move_joints(target, 0.5)
+    arm, be = make_guarded(tmp_path)
+    res = arm.move_joints(target, 0.5, floor=FloorOverride(surface_z_m=-0.18))
+    assert res.slow_zone is None
+    assert len(be.commands) == len(be_plain.commands)
+
+
+def test_imu_tilt_and_tilt_override_reach_the_guard(tmp_path: Path) -> None:
+    target = low_pose(0.06)  # 6 cm above the robot plane: normal speed on a flat robot
+    nose_down = TiltSample(tilt=Tilt(roll_rad=0.0, pitch_rad=0.3), stamp=100.0)
+    arm, _ = make_guarded(tmp_path, tilt=nose_down)
+    res = arm.move_joints(target, 0.5)
+    assert res.slow_zone is not None and res.slow_zone["tilt_source"] == "imu"
+    arm2, _ = make_guarded(tmp_path, tilt=nose_down)
+    flat = FloorOverride(tilt_override_deg=TiltOverrideDeg(roll=0.0, pitch=0.0))
+    assert arm2.move_joints(target, 0.5, floor=flat).slow_zone is None
+    stale = TiltSample(tilt=Tilt(roll_rad=0.0, pitch_rad=0.3), stamp=90.0)
+    arm3, _ = make_guarded(tmp_path, tilt=stale)
+    assert arm3.move_joints(target, 0.5).slow_zone is None
+
+
+def test_move_cartesian_passes_the_floor_override(tmp_path: Path) -> None:
+    arm, _ = make_guarded(tmp_path)
+    z = CONFIG.arm.floor_z_m - 0.02
+    assert arm.move_cartesian(0.2, 0.0, z, math.pi / 2).slow_zone is not None
+    arm2, _ = make_guarded(tmp_path)
+    assert arm2.move_cartesian(0.2, 0.0, z, math.pi / 2, floor=FloorOverride(surface_z_m=-0.2)).slow_zone is None
+
+
+def test_gripper_motion_near_the_floor_is_slowed(tmp_path: Path) -> None:
+    start = low_pose(0.0) | {"gripper": 0.0}
+    arm, be = make_guarded(tmp_path, backend=FakeArmBackend(start))
+    res = arm.set_gripper(open_fraction=1.0)
+    assert res.slow_zone is not None
+    arm2, be2 = make_guarded(tmp_path, backend=FakeArmBackend(dict(start)))
+    arm2.set_gripper(open_fraction=1.0, floor=FloorOverride(surface_z_m=-0.2))
+    assert len(be.commands) > len(be2.commands)
+
+
+def test_home_motion_uses_the_slow_zone(tmp_path: Path) -> None:
+    arm, be = make_guarded(tmp_path, backend=FakeArmBackend(low_pose(0.0) | {"gripper": 0.0}))
+    arm.set_home()
+    be.positions.update({j: 0.0 for j in KIN.joint_names})
+    res = arm.home(keep_prior_control=True)
+    assert res.slow_zone is not None

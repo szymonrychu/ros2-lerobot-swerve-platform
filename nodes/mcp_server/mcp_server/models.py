@@ -159,6 +159,13 @@ class ArmMotionResult(BaseModel):
         "jaw_open_axis (gripper_frame_link), tool_point {x,y,z} of the fixed jaw's inner face in the arm base "
         "frame}. The requested x, y, z were the object centre, not the tool point.",
     )
+    slow_zone: dict[str, Any] | None = Field(
+        default=None,
+        description="Below-surface slow zone: set when part of the trajectory ran at the reduced speed because a jaw "
+        "tip, the wrist or the elbow came within margin_m of the effective surface: {slowed_samples, samples, "
+        "speed_scale, margin_m, min_clearance_m, lowest_point, surface_z_m, tilt_source (imu|override|none), "
+        "tilt_deg}; null when the whole motion ran at normal speed",
+    )
 
 
 class ControlResult(BaseModel):

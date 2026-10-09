@@ -5,12 +5,13 @@ All commands go to filter_node's autonomy input; filter_node arbitrates against 
 
 import math
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from .config import LimitSettings, McpServerConfig
+from .config import ArmBaseOffset, LimitSettings, McpServerConfig
+from .floor_guard import FloorGuard, FloorOverride, JawModel, TiltSample, retime, step_scales
 from .home_store import HomeStoreError, load_home, save_home
 from .ik import ArmKinematics, UnreachableError, grasp_offset
 from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult
@@ -143,6 +144,7 @@ class ArmController:
         limits: JointLimits,
         config: McpServerConfig,
         monitor: RobotMonitor | None = None,
+        tilt_source: Callable[[], TiltSample | None] | None = None,
     ) -> None:
         """Create the controller.
 
@@ -152,6 +154,8 @@ class ArmController:
             limits (JointLimits): URDF joint limits for every arm joint (incl. gripper).
             config (McpServerConfig): Node configuration.
             monitor (RobotMonitor | None): Body monitor: critical events end a motion early ('interrupted').
+            tilt_source (Callable[[], TiltSample | None] | None): Latest IMU tilt (stamped on the backend clock) for
+                the below-surface slow zone; None = no IMU (robot plane only).
         """
         self.monitor = monitor
         self._watch: MotionWatch | None = None
@@ -163,6 +167,10 @@ class ArmController:
         self.cfg = config
         self.joint_names = tuple(config.arm.joint_names)
         self.gripper = config.arm.gripper_joint
+        mount = config.arm.base_in_base_link or ArmBaseOffset(z=config.arm.arm_base_height_m)
+        self.jaw = JawModel(kinematics, config.arm.jaw_open_axis, config.arm.gripper_closed_rad)
+        self.floor_guard = FloorGuard(kinematics, config.floor_guard, mount, self.jaw, self.gripper)
+        self.tilt_source = tilt_source or (lambda: None)
         self._held = False
         self._acquired_at = -math.inf
         # Last published setpoint (keepalive, tracking check) and the intended target behind it: they differ only
@@ -174,6 +182,7 @@ class ArmController:
         self._streaming = False
         self._moving: list[str] = []  # joints of the running motion
         self._tracking_limit = config.limits.arm_tracking_error_rad  # abort threshold of the running motion (rad)
+        self._slow_zone: dict[str, object] | None = None  # slow-zone summary of the running motion
         self._stop = threading.Event()
         self._motion_lock = threading.Lock()
         # Guards _held, _acquired_at, _last_setpoint, _last_target, _relax_hold, _streaming and every autonomy publish.
@@ -469,7 +478,9 @@ class ArmController:
             raise ArmError(f"speed_scale must be in (0, {cap}], got {speed_scale}")
         return self.cfg.limits.arm_max_joint_velocity_rps * scale / cap
 
-    def move_joints(self, targets: dict[str, float], speed_scale: float | None = None) -> ArmMotionResult:
+    def move_joints(
+        self, targets: dict[str, float], speed_scale: float | None = None, floor: FloorOverride | None = None
+    ) -> ArmMotionResult:
         """Stream an interpolated motion to joint targets (unnamed joints keep their last commanded target).
 
         The trajectory starts at the last commanded pose while the lease is held (the measured pose right after
@@ -479,6 +490,7 @@ class ArmController:
             targets (dict[str, float]): Joint name -> target rad in measured (follower) joint space, as reported by
                 get_arm_state (clamped to URDF limits minus margin, applied in URDF space: urdf = measured + offset).
             speed_scale (float | None): Speed scale in (0, arm_max_speed_scale]; None for the maximum.
+            floor (FloorOverride | None): Per-call slow-zone overrides (expected surface height, tilt).
 
         Returns:
             ArmMotionResult: Outcome.
@@ -486,14 +498,15 @@ class ArmController:
         self.validate_targets(targets)
         vmax = self.velocity_for(speed_scale)
         with self.exclusive_motion():
-            return self.stream_to(targets, vmax)
+            return self.stream_to(targets, vmax, floor)
 
-    def stream_to(self, targets: dict[str, float], vmax: float) -> ArmMotionResult:
+    def stream_to(self, targets: dict[str, float], vmax: float, floor: FloorOverride | None = None) -> ArmMotionResult:
         """Motion body of move_joints; the caller holds the motion guard.
 
         Args:
             targets (dict[str, float]): Validated joint targets (rad).
             vmax (float): Per-joint velocity cap (rad/s).
+            floor (FloorOverride | None): Per-call slow-zone overrides.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -514,7 +527,7 @@ class ArmController:
             self.acquire()
         start = self.command_base(self.require_sample())
         with self.holding_arm_for_gripper(list(targets)):
-            return self.stream(start, start | safe, vmax, list(targets), clamped)
+            return self.stream(start, start | safe, vmax, list(targets), clamped, floor=floor)
 
     def check_roll_guard(self, safe: dict[str, float], start: dict[str, float], sample: JointSample) -> None:
         """Refuse a wrist roll while the gripper is wide open (the open moving finger can jam against the robot).
@@ -552,6 +565,7 @@ class ArmController:
         speed_scale: float | None = None,
         wrist_roll: float | None = None,
         object_width_m: float | None = None,
+        floor: FloorOverride | None = None,
     ) -> ArmMotionResult:
         """Move the gripper tool point to (x, y, z) in the arm base_link, optionally with an approach pitch.
 
@@ -566,6 +580,7 @@ class ArmController:
             object_width_m (float | None): Object width across the jaws (m, 0 < w <= MAX_OBJECT_WIDTH_M): (x, y, z)
                 is then the object centre and the tool point (fixed jaw inner face) is placed half a width from it
                 against the jaw opening direction (arm.jaw_open_axis).
+            floor (FloorOverride | None): Per-call slow-zone overrides (expected surface height, tilt).
 
         Returns:
             ArmMotionResult: Outcome; status "unreachable" (no motion) when IK has no solution within limits.
@@ -596,7 +611,7 @@ class ArmController:
                 achieved=self.measured(sample),
                 expected_tool_pose=expected,
             )
-        result = self.move_joints(solution, speed_scale)
+        result = self.move_joints(solution, speed_scale, floor)
         achieved = None
         grasp_shift = None
         if result.positions is not None and all(j in result.positions for j in self.kin.joint_names):
@@ -624,6 +639,7 @@ class ArmController:
         open_fraction: float | None = None,
         close_until_effort: bool = False,
         effort_threshold: float | None = None,
+        floor: FloorOverride | None = None,
     ) -> ArmMotionResult:
         """Open the gripper to a fraction, or close it until the load exceeds a threshold.
 
@@ -631,6 +647,7 @@ class ArmController:
             open_fraction (float | None): 0 = closed, 1 = fully open.
             close_until_effort (bool): Close slowly and stop (hold) on contact.
             effort_threshold (float | None): |effort| that counts as contact; None for the configured default.
+            floor (FloorOverride | None): Per-call slow-zone overrides (the moving jaw tip is checked too).
 
         Returns:
             ArmMotionResult: Outcome ("grasped" / "closed_no_contact" for close_until_effort).
@@ -646,7 +663,7 @@ class ArmController:
             vmax = self.velocity_for(None)
             with self.exclusive_motion(), self.holding_arm_for_gripper([self.gripper]):
                 start_jaw = self.require_sample().positions[self.gripper]
-                result = self.stream_to(targets, vmax)
+                result = self.stream_to(targets, vmax, floor)
                 return self.grasp_from_stall(result, start_jaw) if open_fraction == 0.0 else result
         threshold = self.cfg.limits.gripper_effort_threshold if effort_threshold is None else effort_threshold
         if not math.isfinite(threshold) or threshold <= 0.0:
@@ -663,7 +680,10 @@ class ArmController:
                 self.cfg.limits.arm_limit_margin_overrides,
             )
             result = self.grasp_from_stall(
-                self.stream(start, goal, self.cfg.limits.gripper_velocity_rps, [self.gripper], [], threshold), start_jaw
+                self.stream(
+                    start, goal, self.cfg.limits.gripper_velocity_rps, [self.gripper], [], threshold, floor=floor
+                ),
+                start_jaw,
             )
         if result.status == "converged":
             return result.model_copy(update={"status": "closed_no_contact", "message": "closed without contact"})
@@ -808,7 +828,7 @@ class ArmController:
             }
         )
 
-    def home(self, keep_prior_control: bool = True) -> ArmMotionResult:
+    def home(self, keep_prior_control: bool = True, floor: FloorOverride | None = None) -> ArmMotionResult:
         """Move to the stored home pose, then release control unless it is to be kept.
 
         Control is released after the motion completes or fails (any result, or an error once the motion was
@@ -817,6 +837,7 @@ class ArmController:
 
         Args:
             keep_prior_control (bool): Keep control afterwards if it was held before the call.
+            floor (FloorOverride | None): Per-call slow-zone overrides.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -829,7 +850,7 @@ class ArmController:
             raise ArmError(f"no home pose stored at {self.cfg.arm.home_file}; call arm_set_home first")
         keep = keep_prior_control and self._held
         try:
-            result = self.move_joints({j: v for j, v in pose.items() if j in self.joint_names})
+            result = self.move_joints({j: v for j, v in pose.items() if j in self.joint_names}, floor=floor)
         except ArmBusyError:
             raise
         except ArmError:
@@ -955,6 +976,7 @@ class ArmController:
             interrupted_by=self._interrupted_by,
             expected=goal,
             achieved=positions,
+            slow_zone=self._slow_zone,
         )
 
     def check(
@@ -1007,6 +1029,26 @@ class ArmController:
             return "grasped", f"gripper effort reached {effort_threshold}"
         return None
 
+    def guarded_trajectory(
+        self, start: dict[str, float], goal: dict[str, float], vmax: float, floor: FloorOverride | None
+    ) -> list[dict[str, float]]:
+        """Quintic setpoints from start to goal, with the slow-zone steps time-scaled; records the slow-zone summary.
+
+        Args:
+            start (dict[str, float]): Start pose.
+            goal (dict[str, float]): Goal pose.
+            vmax (float): Per-joint velocity cap (rad/s).
+            floor (FloorOverride | None): Per-call slow-zone overrides.
+
+        Returns:
+            list[dict[str, float]]: Setpoints at arm_rate_hz.
+        """
+        points = plan_trajectory(start, goal, vmax, self.cfg.limits.arm_rate_hz)
+        surface = self.floor_guard.surface(floor, self.tilt_source(), self.backend.now())
+        report = self.floor_guard.evaluate([start, *points], surface)
+        self._slow_zone = report.summary()
+        return retime(start, points, step_scales(report.scales))
+
     def stream(
         self,
         start: dict[str, float],
@@ -1015,8 +1057,12 @@ class ArmController:
         moving: list[str],
         clamped: list[str],
         effort_threshold: float | None = None,
+        floor: FloorOverride | None = None,
     ) -> ArmMotionResult:
         """Stream setpoints at arm_rate_hz, then wait for convergence; abort and hold on any safety check.
+
+        The planned trajectory is checked once against the below-surface slow zone (floor_guard): steps with a sample
+        near or below the effective surface are time-scaled to floor_guard.slow_speed_scale (same streaming rate).
 
         After the trajectory the goal stays commanded until the moving joints converge (status 'converged'), settle
         with a small steady-state error (status 'converged' with residual_error; the goal stays commanded) or the
@@ -1029,6 +1075,7 @@ class ArmController:
             moving (list[str]): Joints the caller asked to move (convergence is judged on these).
             clamped (list[str]): Joints clamped to limits.
             effort_threshold (float | None): Gripper contact threshold for close-until-effort.
+            floor (FloorOverride | None): Per-call slow-zone overrides.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -1054,7 +1101,7 @@ class ArmController:
             self._streaming = True
         try:
             sample: JointSample | None = None
-            for point in plan_trajectory(start, goal, vmax, rate):
+            for point in self.guarded_trajectory(start, goal, vmax, floor):
                 latest = self.backend.joint_sample()
                 sample = latest or sample
                 verdict = self.check(latest, tracked, contact_threshold(latest))
@@ -1125,6 +1172,7 @@ class MotionGuard:
             raise ArmBusyError("another arm motion is running; call stop first")
         self.controller._stop.clear()
         self.controller._interrupted_by = None
+        self.controller._slow_zone = None
         monitor = self.controller.monitor
         self.controller._watch = None if monitor is None else monitor.watch(ARM_INTERRUPTS)
 
