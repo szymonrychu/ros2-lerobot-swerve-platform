@@ -117,6 +117,8 @@ class LimitSettings(StrictModel):
     drive_rate_hz: float = Field(default=20.0, gt=0.0, le=50.0)
     arm_rate_hz: float = Field(default=25.0, gt=0.0, le=100.0)
     arm_max_joint_velocity_rps: float = Field(default=1.0, gt=0.0, le=1.5)
+    # Per-joint acceleration cap of blended (queued) arm trajectories through several targets (rad/s^2).
+    arm_max_joint_accel_rps2: float = Field(default=8.0, gt=0.0, le=20.0)
     arm_max_speed_scale: float = Field(default=HARD_MAX_SPEED_SCALE, gt=0.0, le=HARD_MAX_SPEED_SCALE)
     arm_limit_margin_rad: float = Field(default=0.05, ge=0.0, le=0.3)
     # Per-joint margins replacing arm_limit_margin_rad. The gripper may close to the measured physical stop

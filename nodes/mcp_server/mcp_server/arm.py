@@ -17,7 +17,14 @@ from .ik import ArmKinematics, UnreachableError, grasp_offset
 from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult, SettlePolicy
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .staleness import Stamped, is_fresh
-from .trajectory import JointLimits, clamp_to_limits, max_abs_error, path_trajectory, plan_trajectory
+from .trajectory import (
+    JointLimits,
+    blend_trajectory,
+    clamp_to_limits,
+    max_abs_error,
+    path_trajectory,
+    plan_trajectory,
+)
 
 # Grace after acquiring before a different active source counts as losing the lease (filter_node needs a cycle).
 LEASE_GRACE_S = 0.5
@@ -205,6 +212,7 @@ class ArmController:
         self._settle_policy: SettlePolicy = "final"
         self._trajectory_end: float | None = None  # backend time the running motion finished streaming
         self._settling: list[str] = []  # joints a trajectory_end motion left outside the converge tolerance
+        self._via_ticks: list[int] = []  # setpoint index at which each via of a blended motion is reached
         self._stop = threading.Event()
         self._motion_lock = threading.Lock()
         # Guards _held, _acquired_at, _last_setpoint, _last_target, _relax_hold, _streaming and every autonomy publish.
@@ -218,6 +226,15 @@ class ArmController:
             list[str]: Joint names (empty when nothing is settling).
         """
         return list(self._settling)
+
+    @property
+    def motion_running(self) -> bool:
+        """Whether an arm motion (any caller: tool, queue, grasp, home service) currently holds the motion guard.
+
+        Returns:
+            bool: True while a motion runs.
+        """
+        return self._motion_lock.locked()
 
     @property
     def control_held(self) -> bool:
@@ -607,6 +624,115 @@ class ArmController:
             moving = sorted({j for s in path for j in s})
             return self.stream(start, full[-1], vmax, moving, clamped, floor=floor, path=full, settle=settle)
 
+    def move_blend(
+        self,
+        targets: list[dict[str, float]],
+        speed_scale: float | None = None,
+        floor: FloorOverride | None = None,
+        settle: SettlePolicy = "final",
+        on_via: Callable[[int], None] | None = None,
+    ) -> ArmMotionResult:
+        """Stream ONE continuous trajectory through several joint targets (no stop at the intermediate ones).
+
+        Each target is clamped like a move_joints target and joints it does not name keep the previous target's value
+        (the first starts from the last commanded pose). The roll guard is checked for every leg, counting any gripper
+        target of this or an earlier leg. The spline (trajectory.blend_trajectory) keeps velocity continuity at the
+        vias within the per-joint velocity cap and limits.arm_max_joint_accel_rps2; the below-surface slow zone
+        time-scales every step like any other motion and all safety aborts apply. Convergence is judged at the last
+        target with the given settle policy.
+
+        Args:
+            targets (list[dict[str, float]]): Joint targets (measured space), in order.
+            speed_scale (float | None): Speed scale in (0, arm_max_speed_scale]; None for the maximum.
+            floor (FloorOverride | None): Per-call slow-zone overrides.
+            settle (SettlePolicy): Settle policy at the final target.
+            on_via (Callable[[int], None] | None): Called with the target index when the stream passes that target.
+
+        Returns:
+            ArmMotionResult: Outcome of the whole blended motion.
+
+        Raises:
+            ArmError: For no targets, invalid joints or a refused wrist roll (nothing moves).
+        """
+        if not targets:
+            raise ArmError("a blended motion needs at least one target")
+        for target in targets:
+            self.validate_targets(target)
+        vmax = self.velocity_for(speed_scale)
+        with self.exclusive_motion():
+            sample = self.require_sample()
+            safe = [self.clamp_targets(t) for t in targets]
+            clamped = sorted({j for t, c in zip(targets, safe, strict=True) for j in t if abs(c[j] - t[j]) > CHANGED_EPS})
+            pose = self.command_base(sample)
+            opening = -math.inf
+            full: list[dict[str, float]] = []
+            for target in safe:
+                opening = max(opening, target.get(self.gripper, -math.inf))
+                guard_view = target | ({self.gripper: opening} if opening > -math.inf else {})
+                self.check_roll_guard(guard_view, pose, sample)
+                pose = pose | target
+                full.append(pose)
+            if not self._held:
+                self.acquire()
+            start = self.command_base(self.require_sample())
+            moving = sorted({j for t in targets for j in t})
+            return self.stream(
+                start, full[-1], vmax, moving, clamped, floor=floor, path=full, settle=settle, blend=True, on_via=on_via
+            )
+
+    def solve_cartesian(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        pitch: float | None,
+        seed: dict[str, float],
+        wrist_roll: float | None = None,
+        object_width_m: float | None = None,
+    ) -> dict[str, float]:
+        """Joint targets (measured space) placing the tool point at (x, y, z), seeded (no motion).
+
+        Args:
+            x (float): Target x (m, arm base_link); the object centre when object_width_m is given.
+            y (float): Target y (m).
+            z (float): Target z (m).
+            pitch (float | None): Approach pitch (rad, + down), or None for position only.
+            seed (dict[str, float]): Seed pose (every arm joint, measured space).
+            wrist_roll (float | None): Wrist roll the IK keeps (rad); None keeps the seed's roll.
+            object_width_m (float | None): Object width across the jaws (m): (x, y, z) is then the object centre.
+
+        Returns:
+            dict[str, float]: Joint name -> rad for the IK joints.
+
+        Raises:
+            ArmError: For an invalid object_width_m or wrist_roll.
+            UnreachableError: When no solution exists within the joint limits.
+        """
+        if wrist_roll is not None and not math.isfinite(wrist_roll):
+            raise ArmError(f"wrist_roll must be finite, got {wrist_roll}")
+        shift = self.grasp_shift(object_width_m)
+        if wrist_roll is not None:
+            seed = seed | {ROLL_JOINT: wrist_roll}
+        return self.kin.inverse(x, y, z, pitch, seed=seed, extra_offset=shift)
+
+    def grasp_shift(self, object_width_m: float | None) -> tuple[float, float, float] | None:
+        """Tool-point shift of an object-centre target (None without a width).
+
+        Args:
+            object_width_m (float | None): Object width across the jaws (m), 0 < w <= MAX_OBJECT_WIDTH_M.
+
+        Returns:
+            tuple[float, float, float] | None: The shift, or None.
+
+        Raises:
+            ArmError: For a width outside (0, MAX_OBJECT_WIDTH_M].
+        """
+        if object_width_m is None:
+            return None
+        if not math.isfinite(object_width_m) or not 0.0 < object_width_m <= MAX_OBJECT_WIDTH_M:
+            raise ArmError(f"object_width_m must be in (0, {MAX_OBJECT_WIDTH_M}] m, got {object_width_m}")
+        return grasp_offset(object_width_m, self.cfg.arm.jaw_open_axis)
+
     def clamp_targets(self, targets: dict[str, float]) -> dict[str, float]:
         """Clamp measured-space targets to the URDF limits minus margin (applied in URDF space).
 
@@ -687,20 +813,13 @@ class ArmController:
             ArmError: For an invalid object_width_m or a refused wrist roll (wide open gripper).
         """
         self.velocity_for(speed_scale)
-        shift: tuple[float, float, float] | None = None
-        if object_width_m is not None:
-            if not math.isfinite(object_width_m) or not 0.0 < object_width_m <= MAX_OBJECT_WIDTH_M:
-                raise ArmError(f"object_width_m must be in (0, {MAX_OBJECT_WIDTH_M}] m, got {object_width_m}")
-            shift = grasp_offset(object_width_m, self.cfg.arm.jaw_open_axis)
+        shift = self.grasp_shift(object_width_m)
         if wrist_roll is not None and not math.isfinite(wrist_roll):
             raise ArmError(f"wrist_roll must be finite, got {wrist_roll}")
         sample = self.require_sample()
         expected = {"x": x, "y": y, "z": z} | ({} if pitch is None else {"pitch": pitch})
-        seed = self.command_base(sample)
-        if wrist_roll is not None:
-            seed = seed | {ROLL_JOINT: wrist_roll}
         try:
-            solution = self.kin.inverse(x, y, z, pitch, seed=seed, extra_offset=shift)
+            solution = self.solve_cartesian(x, y, z, pitch, self.command_base(sample), wrist_roll, object_width_m)
         except UnreachableError as exc:
             return ArmMotionResult(
                 status="unreachable",
@@ -1145,8 +1264,12 @@ class ArmController:
         vmax: float,
         floor: FloorOverride | None,
         path: list[dict[str, float]] | None = None,
+        blend: bool = False,
     ) -> list[dict[str, float]]:
         """Quintic setpoints from start to goal, with the slow-zone steps time-scaled; records the slow-zone summary.
+
+        With blend the path samples are via points of one continuous spline (move_blend) and the setpoint index at
+        which each via is reached (after the slow-zone time scaling) is recorded in _via_ticks.
 
         Args:
             start (dict[str, float]): Start pose.
@@ -1160,11 +1283,25 @@ class ArmController:
             list[dict[str, float]]: Setpoints at arm_rate_hz.
         """
         rate = self.cfg.limits.arm_rate_hz
-        points = plan_trajectory(start, goal, vmax, rate) if path is None else path_trajectory(start, path, vmax, rate)
+        marks: list[int] = []
+        if blend and path is not None:
+            plan = blend_trajectory(start, path, vmax, self.cfg.limits.arm_max_joint_accel_rps2, rate)
+            points, marks = plan.points, plan.via_indices
+        elif path is None:
+            points = plan_trajectory(start, goal, vmax, rate)
+        else:
+            points = path_trajectory(start, path, vmax, rate)
         surface = self.floor_guard.surface(floor, self.tilt_source(), self.backend.now())
         report = self.floor_guard.evaluate([start, *points], surface)
         self._slow_zone = report.summary()
-        return retime(start, points, step_scales(report.scales))
+        scales = step_scales(report.scales)
+        ends: list[int] = []
+        ticks = 0
+        for scale in scales:
+            ticks += max(1, math.ceil(1.0 / scale - 1e-9))
+            ends.append(ticks - 1)
+        self._via_ticks = [ends[m] for m in marks]
+        return retime(start, points, scales)
 
     def stream(
         self,
@@ -1177,6 +1314,8 @@ class ArmController:
         floor: FloorOverride | None = None,
         path: list[dict[str, float]] | None = None,
         settle: SettlePolicy = "final",
+        blend: bool = False,
+        on_via: Callable[[int], None] | None = None,
     ) -> ArmMotionResult:
         """Stream setpoints at arm_rate_hz, then wait for convergence; abort and hold on any safety check.
 
@@ -1204,6 +1343,8 @@ class ArmController:
             floor (FloorOverride | None): Per-call slow-zone overrides.
             path (list[dict[str, float]] | None): Full-pose samples the trajectory passes through (ends at goal).
             settle (SettlePolicy): 'final' or 'trajectory_end' (see above).
+            blend (bool): path holds via points of one continuous spline (move_blend).
+            on_via (Callable[[int], None] | None): Called with the via index once its setpoint was published (blend).
 
         Returns:
             ArmMotionResult: Outcome.
@@ -1234,7 +1375,9 @@ class ArmController:
             self._streaming = True
         try:
             sample: JointSample | None = None
-            for point in self.guarded_trajectory(start, goal, vmax, floor, path):
+            points = self.guarded_trajectory(start, goal, vmax, floor, path, blend)
+            via_at = {tick: index for index, tick in enumerate(self._via_ticks)}
+            for tick, point in enumerate(points):
                 latest = self.backend.joint_sample()
                 sample = latest or sample
                 verdict = self.check(latest, tracked, contact_threshold(latest))
@@ -1242,6 +1385,8 @@ class ArmController:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
                 if not self.command(point):
                     return self.finish("stopped", "control released", goal, sample, clamped, started, hold=False)
+                if on_via is not None and tick in via_at:
+                    on_via(via_at[tick])
                 self.backend.sleep(period)
             self._trajectory_end = self.backend.now()
             if settle == "trajectory_end":
