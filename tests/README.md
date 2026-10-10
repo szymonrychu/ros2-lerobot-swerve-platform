@@ -1035,8 +1035,10 @@ Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the cli
 | `test_role_files_exist` | tasks, defaults, handlers, meta, the Alloy and Prometheus templates, the dashboard and the throttling script exist. |
 | `test_every_template_and_file_the_tasks_name_exists` | Every `src:` of a template/copy task (loops resolved) is shipped with the role. |
 | `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9090/12345, 1d/2GB retention, 5s interval and 4s scrape timeout, per-unit memory caps. |
-| `test_monitoring_slice_limits` | `monitoring.slice`: CPUWeight=20, IOWeight=20, CPUQuota=40%, MemoryMax=900M, MemoryHigh=800M. |
-| `test_dropin_moves_unit_into_the_slice` | (alloy, prometheus, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, MemoryMax 250M/450M/250M, OOMScoreAdjust=500, Restart=on-failure. |
+| `test_monitoring_slice_limits` | `monitoring.slice`: CPUWeight=20, IOWeight=20, CPUQuota=40%, MemoryMax=1200M, MemoryHigh=1100M. |
+| `test_dropin_moves_unit_into_the_slice` | (alloy, prometheus, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, MemoryMax 250M/450M/450M, OOMScoreAdjust=500, Restart=on-failure. |
+| `test_services_restart_when_a_config_is_newer_than_their_start` | after starting the services, a shell task restarts prometheus / alloy / grafana-server when any of their config or drop-in files is newer than the unit's `ActiveEnterTimestamp` (a failed run loses its handlers; apt starts Prometheus with the package defaults); it runs before the readiness check. |
+| `test_grafana_admin_password_command_runs` | the password task's real command, run locally, writes a 48-hex-character file with mode 0600 (`openssl rand` takes its options before the byte count). |
 | `test_dropins_are_installed_for_every_unit` | One template task loops `monitoring_units` into `/etc/systemd/system/<unit>.service.d/`. |
 | `test_prometheus_flags` | `/etc/default/prometheus`: retention time and size, TSDB path, `0.0.0.0:9090`, remote-write receiver, config file. |
 | `test_prometheus_config_is_the_roles_own` | `prometheus.yml`: 5s scrape/evaluation interval, 4s scrape timeout, no scrape jobs. |

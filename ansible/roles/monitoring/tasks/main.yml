@@ -271,6 +271,30 @@
         state: started
       loop: [prometheus, alloy, grafana-server, nginx, rpi-throttled.timer]
 
+    # Handlers are lost when a run fails after writing a config (and the apt install already started Prometheus with
+    # the package defaults), so the next run would see nothing to change: restart any service started before a change.
+    - name: Restart the monitoring services whose config is newer than their start
+      ansible.builtin.shell: |
+        set -eu
+        restarted=""; d=/etc/systemd/system; slice=.service.d/10-monitoring-slice.conf
+        for entry in \
+          "prometheus:/etc/default/prometheus /etc/prometheus/prometheus.yml $d/prometheus$slice" \
+          "alloy:/etc/default/alloy /etc/alloy/config.alloy $d/alloy$slice" \
+          "grafana-server:/etc/grafana/grafana.ini /etc/grafana/provisioning/datasources/prometheus-robot.yaml $d/grafana-server$slice"; do
+          unit=${entry%%:*}; files=${entry#*:}
+          started=$(date -d "$(systemctl show -p ActiveEnterTimestamp --value "$unit")" +%s)
+          for f in $files; do
+            if [ -e "$f" ] && [ "$(stat -c %Y "$f")" -gt "$started" ]; then
+              systemctl restart "$unit"; restarted="$restarted $unit"; break
+            fi
+          done
+        done
+        echo "restarted:${restarted}"
+      args:
+        executable: /bin/bash
+      register: monitoring_stale_restart
+      changed_when: monitoring_stale_restart.stdout != 'restarted:'
+
     - name: Wait until Prometheus, Alloy and Grafana answer
       ansible.builtin.uri:
         url: "{{ item }}"

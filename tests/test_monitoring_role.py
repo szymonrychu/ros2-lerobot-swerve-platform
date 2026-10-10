@@ -26,7 +26,7 @@ CLIENT_PLAYBOOK = ANSIBLE_DIR / "playbooks" / "deploy_nodes_client.yml"
 SELECT_RUN = ANSIBLE_DIR / "playbooks" / "tasks" / "select_run.yml"
 DEPLOY_SCRIPT = REPO_ROOT / "scripts" / "deploy-nodes.sh"
 
-MONITORING_UNITS = {"alloy": "250M", "prometheus": "450M", "grafana-server": "250M"}
+MONITORING_UNITS = {"alloy": "250M", "prometheus": "450M", "grafana-server": "450M"}
 
 # Metric contract (shared with the cgroup-limits task) plus every node_* host metric.
 CONTRACT_METRICS = {
@@ -252,13 +252,13 @@ def test_defaults_have_enable_flag_ports_retention_and_limits() -> None:
 
 
 def test_monitoring_slice_limits() -> None:
-    """The slice caps the whole stack: low CPU/IO weight, 40% of one core, 900M hard / 800M soft memory."""
+    """The slice caps the whole stack: low CPU/IO weight, 40% of one core, 1200M hard / 1100M soft memory."""
     settings = unit_settings(render("monitoring.slice.j2"))
     assert settings["CPUWeight"] == ["20"]
     assert settings["IOWeight"] == ["20"]
     assert settings["CPUQuota"] == ["40%"]
-    assert settings["MemoryMax"] == ["900M"]
-    assert settings["MemoryHigh"] == ["800M"]
+    assert settings["MemoryMax"] == ["1200M"]
+    assert settings["MemoryHigh"] == ["1100M"]
 
 
 @pytest.mark.parametrize("unit", sorted(MONITORING_UNITS))
@@ -733,3 +733,25 @@ def test_grafana_admin_password_command_runs(tmp_path: Path) -> None:
     subprocess.run(["bash", "-c", command], check=True, capture_output=True)
     assert re.fullmatch(r"[0-9a-f]{48}\n?", target.read_text())
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
+
+
+def test_services_restart_when_a_config_is_newer_than_their_start() -> None:
+    """A lost handler (a run that failed after writing a config) must not leave a service on its old config: the role
+    restarts every monitoring service whose config files changed after it started (the apt install starts Prometheus
+    with the package defaults, before the role writes its flags)."""
+    tasks = role_tasks()
+    guard = [t for t in tasks if "newer than" in t.get("name", "")]
+    assert len(guard) == 1
+    task = guard[0]
+    script = task["ansible.builtin.shell"]
+    for unit, path in (
+        ("prometheus", "/etc/default/prometheus"),
+        ("prometheus", "/etc/prometheus/prometheus.yml"),
+        ("alloy", "/etc/alloy/config.alloy"),
+        ("grafana-server", "/etc/grafana/grafana.ini"),
+    ):
+        assert unit in script and path in script, (unit, path)
+    assert "ActiveEnterTimestamp" in script and "systemctl restart" in script
+    names = [t.get("name", "") for t in tasks]
+    assert names.index(task["name"]) > names.index("Enable and start the monitoring services and the throttling timer")
+    assert names.index(task["name"]) < names.index("Wait until Prometheus, Alloy and Grafana answer")

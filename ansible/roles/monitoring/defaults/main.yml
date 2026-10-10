@@ -38,12 +38,12 @@ monitoring_grafana_dashboards_dir: /etc/grafana/dashboards
 monitoring_slice_cpu_weight: 20
 monitoring_slice_io_weight: 20
 monitoring_slice_cpu_quota: "40%"
-monitoring_slice_memory_max: "900M"
-monitoring_slice_memory_high: "800M"
+monitoring_slice_memory_max: "1200M"
+monitoring_slice_memory_high: "1100M"
 
 # Per-unit caps inside the slice. Prometheus gets the largest share: ~5k series at 5 s with 1 d retention needs ~150-250 MB
 # of head block plus query memory; Alloy (exporters + remote-write WAL) and Grafana (idle, a few viewers) run at about
-# 100-150 MB each. The sum (950M) exceeds the slice on purpose: the slice is the hard total, the per-unit caps stop one
+# 100-150 MB each. The sum (1150M) stays just under the slice: the slice is the hard total, the per-unit caps stop one
 # service from taking all of it. OOMScoreAdjust=500 makes the kernel kill monitoring before any robot node.
 monitoring_nice: 10
 monitoring_oom_score_adjust: 500
@@ -53,4 +53,5 @@ monitoring_units:
   - name: prometheus
     memory_max: "450M"
   - name: grafana-server
-    memory_max: "250M"
+    # 250M was OOM-killed during the first start (database migrations peak ~260M), 2026-10-10.
+    memory_max: "450M"
