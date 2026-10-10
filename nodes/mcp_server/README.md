@@ -509,11 +509,11 @@ Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_
 axis, the margins and a collision-free reach envelope; with up to `reach_max_points` (20) base_link points
 {x, y, z, pitch?} each point reports `reachable` (IK within the joint limits), `collision_free`, the working
 `pitch_range_deg` (pitches -30 .. 90 deg every 15 deg, or the given one), the `limiting` obstacle / link / clearance and
-a `suggestion`. The envelope (`arm_reach.py`) is computed once, in a background thread on the first call (about 2 s on
+a `suggestion`. The envelope (`arm_reach.py`) is computed once, in a background thread on the first call (about 1.5 s on
 the dev Mac, a few seconds on the RPi5; the call waits up to `reach_wait_s` and otherwise reports `computing`): per
 shoulder_pan heading every `reach_heading_step_deg` (15) across the pan limits and tool height 0 .. `reach_height_max_m`
 (0.35) every `reach_height_step_m` (0.05) in base_link, the min / max horizontal tool distance from the pan axis over a
-17 x 17 x 9 grid of shoulder_lift x elbow_flex x wrist_flex (wrist_roll 0, gripper closed) whose body clearance is at
+13 x 13 x 7 grid of shoulder_lift x elbow_flex x wrist_flex (wrist_roll 0, gripper closed) whose body clearance is at
 least the hard margin. It is a sampled approximation (about 1 cm at full reach).
 
 ## Grasp macros

@@ -28,8 +28,8 @@ from .self_collision import SelfCollisionChecker
 
 SHOULDER_PAN = "shoulder_pan"
 ENVELOPE_JOINTS = ("shoulder_lift", "elbow_flex")
-ENVELOPE_SAMPLES_PER_JOINT = 17
-ENVELOPE_WRIST_SAMPLES = 9
+ENVELOPE_SAMPLES_PER_JOINT = 13
+ENVELOPE_WRIST_SAMPLES = 7
 POINT_PITCHES_DEG = (-30.0, -15.0, 0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0)
 DEFAULT_SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 ROUND_M = 3
@@ -128,9 +128,12 @@ class ReachEnvelope:
                 }
                 for a, b, c in np.array(np.meshgrid(grids[0], grids[1], wrist)).reshape(3, -1).T
             ]
-            values, _ = checker.clearance_matrix(samples)
-            clear = values.min(axis=1) >= cfg.hard_margin_m if values.size else np.ones(len(samples), dtype=bool)
-            tips = np.array([checker.part_points(s)["tool_point"][0] for s in samples])
+            stacked = checker.stacked_points(samples)
+            tips = stacked["tool_point"][:, 0]
+            if checker.body.obstacles:
+                clear = checker.clearances_of(stacked)[0].min(axis=1) >= cfg.hard_margin_m
+            else:
+                clear = np.ones(len(samples), dtype=bool)
             radius = np.hypot(tips[:, 0] - pan_axis[0], tips[:, 1] - pan_axis[1])
             cells = []
             for z in heights:

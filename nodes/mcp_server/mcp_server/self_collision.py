@@ -320,8 +320,30 @@ class SelfCollisionChecker:
         n, m = len(samples), len(self.body.obstacles)
         if n == 0 or m == 0:
             return np.zeros((n, m)), np.zeros((n, m), dtype=int)
+        return self.clearances_of(self.stacked_points(samples))
+
+    def stacked_points(self, samples: list[dict[str, float]]) -> dict[str, np.ndarray]:
+        """part_points of every sample stacked per part.
+
+        Args:
+            samples (list[dict[str, float]]): Joint configurations (at least one).
+
+        Returns:
+            dict[str, np.ndarray]: Part name -> (N, K, 3) points (capsules: K = 2 axis ends).
+        """
         geometry = [self.part_points(s) for s in samples]
-        stacked = {name: np.stack([g[name] for g in geometry]) for name in CHECKED_PARTS}
+        return {name: np.stack([g[name] for g in geometry]) for name in CHECKED_PARTS}
+
+    def clearances_of(self, stacked: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+        """Clearance of stacked part points to every obstacle and the closest part.
+
+        Args:
+            stacked (dict[str, np.ndarray]): stacked_points output.
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: (N, M) clearances (m) and (N, M) indices into CHECKED_PARTS.
+        """
+        n, m = stacked[CHECKED_PARTS[0]].shape[0], len(self.body.obstacles)
         out = np.empty((n, m, len(CHECKED_PARTS)))
         for k, obstacle in enumerate(self.body.obstacles):
             for p, (name, *_rest, radius) in enumerate(CAPSULES):

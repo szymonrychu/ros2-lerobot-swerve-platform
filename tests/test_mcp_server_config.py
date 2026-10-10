@@ -186,6 +186,8 @@ def test_mcp_server_node_entry_and_config() -> None:
         "poi",
         "cameras",
         "floor_guard",
+        "body",
+        "body_check",
         "grasp",
         "grip_profiles",
     }
