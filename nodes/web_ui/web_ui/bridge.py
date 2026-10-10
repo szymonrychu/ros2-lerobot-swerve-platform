@@ -83,16 +83,6 @@ MSG_TYPE_MAP: dict[str, type] = {
 }
 
 TOPIC_TYPE_HINTS: dict[str, type] = {
-    "/controller/imu/data": Imu,
-    "/controller/follower/joint_states": JointState,
-    "/controller/swerve_drive/joint_states": JointState,
-    "/controller/gps/fix": NavSatFix,
-    "/controller/scan": LaserScan,
-    "/controller/local_costmap": OccupancyGrid,
-    "/controller/odom": Odometry,
-    "/controller/camera_0/image_raw": Image,
-    "/controller/camera_0/image_compressed": CompressedImage,
-    "/controller/goal_pose": PoseStamped,
     "/stereo/left/image_rect": Image,
     "/stereo/depth/image_rect": Image,
     "/stereo/depth/camera_info": CameraInfo,
@@ -101,6 +91,11 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/swerve_drive/joint_states": JointState,
     "/odom": Odometry,  # swerve_controller wheel odometry (status bar Vel overlay)
     "/imu/data": Imu,
+    "/client/gps/fix": NavSatFix,  # gps_rtk_rover fix (status bar Lat/Lon overlays)
+    "/scan": LaserScan,
+    "/local_costmap/costmap": OccupancyGrid,
+    "/camera_0/image_raw": Image,
+    "/goal_pose": PoseStamped,
     "/camera_0/image_raw/compressed": CompressedImage,
     "/overview_camera/image_raw/compressed": CompressedImage,
 }

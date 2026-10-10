@@ -63,3 +63,11 @@ def test_fl_steer_is_selected_by_joint_name() -> None:
     assert item["topic"] == joint_states
     assert item["field"] == "position[name=fl_steer]"
     assert "fl_steer" in node_config("swerve_controller")["joint_names"]
+
+
+def test_web_ui_reads_no_master2master_relay_topics() -> None:
+    """No part of the web_ui config (tabs, overlays, map) reads a /controller/* topic: those exist only through the
+    master2master proxy to external ROS2 masters, never from the robot itself."""
+    nodes = yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"]
+    block = next(n for n in nodes if n["name"] == "web_ui")["config"]
+    assert DEAD_PREFIX not in block

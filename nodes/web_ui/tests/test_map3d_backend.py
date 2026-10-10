@@ -1131,3 +1131,22 @@ async def test_tile_proxy_writes_cache_off_the_event_loop(tmp_path: Path) -> Non
     await proxy.aclose()
     assert status == 200
     assert put_threads and put_threads[0] != threading.get_ident()
+
+
+def test_default_yaml_reads_no_master2master_relay_topics() -> None:
+    """The shipped defaults read the robot's own topics; /controller/* only exists through the master2master proxy."""
+    assert "/controller/" not in DEFAULT_YAML.read_text()
+
+
+def test_topic_type_hints_have_no_master2master_relay_topics() -> None:
+    """Type hints cover the robot's own topics (gps fix, scan, camera, goal) instead of the /controller/* relays."""
+    from nav_msgs.msg import OccupancyGrid
+    from sensor_msgs.msg import Image, LaserScan, NavSatFix
+
+    from web_ui.bridge import TOPIC_TYPE_HINTS
+
+    assert [t for t in TOPIC_TYPE_HINTS if t.startswith("/controller/")] == []
+    assert TOPIC_TYPE_HINTS["/client/gps/fix"] is NavSatFix
+    assert TOPIC_TYPE_HINTS["/scan"] is LaserScan
+    assert TOPIC_TYPE_HINTS["/local_costmap/costmap"] is OccupancyGrid
+    assert TOPIC_TYPE_HINTS["/camera_0/image_raw"] is Image

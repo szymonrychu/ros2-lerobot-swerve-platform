@@ -470,7 +470,7 @@ def test_non_map_nav_topic_with_pose_like_keys_passes_through(data: dict[str, An
     tf_buffer = MagicMock()
     tf_buffer.lookup_transform.return_value = make_transform(10.0, 0.0, 0.0)
     node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
-    node._make_callback("/controller/odom", lambda _msg: dict(data), None)(object())
+    node._make_callback("/odom", lambda _msg: dict(data), None)(object())
     assert node.flush_dirty()[0]["data"] == data
     tf_buffer.lookup_transform.assert_not_called()
 
@@ -482,7 +482,7 @@ def test_non_map_nav_topic_not_dropped_without_tf() -> None:
     tf_buffer.lookup_transform.side_effect = TransformException("no tf")
     node = make_bridge(_tf_buffer=tf_buffer, _robot_pose_frames=("map", "base_link"))
     data = {"frame_id": "odom", "x": 1.0, "y": 2.0, "yaw": 0.5}
-    node._make_callback("/controller/odom", lambda _msg: dict(data), None)(object())
+    node._make_callback("/odom", lambda _msg: dict(data), None)(object())
     assert node.flush_dirty()[0]["data"] == data
 
 
@@ -515,12 +515,12 @@ def test_bridge_init_passes_role_to_callbacks() -> None:
         patch("web_ui.bridge.TransformListener"),
     ):
         BridgeNode(
-            topics=["/plan", "/goal_pose", "/controller/odom"],
+            topics=["/plan", "/goal_pose", "/odom"],
             allowed_publish_topics=set(),
             topic_roles={"/plan": "path", "/goal_pose": "goal"},
             robot_pose_frames=("map", "base_link"),
         )
-    assert roles_seen == {"/plan": "path", "/goal_pose": "goal", "/controller/odom": None}
+    assert roles_seen == {"/plan": "path", "/goal_pose": "goal", "/odom": None}
 
 
 def test_latest_envelopes_returns_all_cached() -> None:
