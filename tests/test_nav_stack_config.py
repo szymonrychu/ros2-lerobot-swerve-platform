@@ -40,6 +40,7 @@ RF2O_FUSED_TOPIC = "/odom_rf2o_twist"
 RF2O_PARAMS = REPO_ROOT / "nodes" / "rf2o_laser_odometry" / "config" / "rf2o.yaml"
 NAV2_README = REPO_ROOT / "nodes" / "nav2_bringup" / "README.md"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
+NODES_README = REPO_ROOT / "nodes" / "README.md"
 
 LASER_FRAME = "laser_frame"
 MAPS_DIR = "/var/lib/ros2/maps"
@@ -843,6 +844,22 @@ def test_lidar_static_tf_mounted_backwards() -> None:
     # translation, none in the EKF odometry) fits one lidar offset error of (+0.8, +2.0) cm.
     assert (laser["x"], laser["y"], laser["z"]) == (0.158, 0.06, 0.20)
     assert laser["yaw"] == pytest.approx(math.pi, abs=1e-4)
+
+
+def test_tests_readme_lidar_tf_matches_client_yml() -> None:
+    """The tests/README.md row for the lidar TF test quotes the same position as client.yml."""
+    entry = node_entry("static_tf_publisher")
+    laser = next(f for f in yaml.safe_load(entry["config"])["frames"] if f["child"] == LASER_FRAME)
+    lines = TESTS_README.read_text().splitlines()
+    row = next(line for line in lines if "`test_lidar_static_tf_mounted_backwards`" in line)
+    assert f"({laser['x']}, {laser['y']}, {laser['z']:.2f})" in row, row
+
+
+def test_nodes_readme_names_the_smac_lattice_planner() -> None:
+    """nodes/README.md describes nav2_bringup with the Smac lattice planner, not the replaced NavFn."""
+    line = next(line for line in NODES_README.read_text().splitlines() if "**nav2_bringup/**" in line)
+    assert "NavFn" not in line
+    assert "Smac" in line and "lattice" in line
 
 
 def test_laser_filter_polygon_matches_the_h_outline() -> None:

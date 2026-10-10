@@ -735,7 +735,9 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | Test (group) | Description |
 |------|-------------|
 | `test_rplidar_default_frame_matches_static_tf_child` | RPLidar launch default `frame_id` (`DEFAULT_FRAME_ID`, env `RPLIDAR_FRAME_ID`) is `laser_frame`, a static TF child of `base_link`. |
-| `test_lidar_static_tf_mounted_backwards` | Static TF base_link -> laser_frame is at (0.15, 0.04, 0.20) with yaw = pi: the RPLidar is mounted rotated 180 deg (verified on the robot by driving forward). |
+| `test_lidar_static_tf_mounted_backwards` | Static TF base_link -> laser_frame is at (0.158, 0.06, 0.20) with yaw = pi (Platform dimensions.md gave (0.15, 0.04); corrected by the 2026-10-05 in-place turn test): the RPLidar is mounted rotated 180 deg (verified on the robot by driving forward). |
+| `test_tests_readme_lidar_tf_matches_client_yml` | The lidar TF row in tests/README.md quotes the same base_link -> laser_frame position as client.yml (stale doc guard). |
+| `test_nodes_readme_names_the_smac_lattice_planner` | nodes/README.md describes nav2_bringup with the Smac lattice planner, not the replaced NavFn. |
 | `test_laser_filter_polygon_matches_the_h_outline` | laser_filter is one `StaticLaserScanPolygonFilter` in `base_link` (not inverted, `polygon_padding` 0) whose polygon equals the generated H footprint + 1 cm: it contains the footprint and keeps returns in the front/rear notches and in the band just outside the body. |
 | `test_laser_filter_ansible_wiring` | laser_filter node type (apt `ros-jazzy-laser-filters`, `scan_to_scan_filter_chain` with the repo params, `/scan` -> `/scan_filtered`), enabled node entry, per-node playbook and inclusion in `deploy_nodes_client.yml`. |
 | `test_node_apt_install_refreshes_stale_cache` | The ros2_node_deploy apt install refreshes the package index (`update_cache: true`, `cache_valid_time: 3600`) so new packages do not 404 on a stale cache. |
