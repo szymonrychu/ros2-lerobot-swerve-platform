@@ -968,7 +968,7 @@ ros2_nodes:
           type: imu_orientation
           label: "IMU"
           topics:
-            - topic: /controller/imu/data
+            - topic: /imu/data
               fields: []
       # Status bar readouts from live client topics; "position[name=fl_steer]" picks the joint by name, not by index.
       overlays:

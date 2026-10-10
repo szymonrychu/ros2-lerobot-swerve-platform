@@ -24,6 +24,7 @@ from starlette.responses import Response
 from .agent_proxy import register_agent_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
 from .config import AppConfig, TabConfig, TileSourceConfig
+from .throttle import SlowCycleTracker
 from .tiles import (
     API_KEY_PLACEHOLDER,
     BYTES_PER_MB,
@@ -72,6 +73,8 @@ HTTP_NOT_FOUND = 404
 # after a reload without re-downloading unchanged meshes.
 URDF_CACHE_CONTROL = "no-cache"
 # index.html must be revalidated so a deploy is picked up; hashed /assets/* files keep Starlette's default caching.
+# uvicorn websocket implementation: the legacy "websockets" one drops browser sockets on keepalive ping failures.
+UVICORN_WS_IMPL = "websockets-sansio"
 INDEX_CACHE_CONTROL = "no-cache"
 NON_SPA_PREFIXES = ("api/", "ws")
 INDEX_PATHS = ("", ".", "index.html")
@@ -197,6 +200,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+def build_uvicorn_kwargs(port: int) -> dict[str, Any]:
+    """Build the uvicorn.run keyword arguments.
+
+    Args:
+        port (int): HTTP port to listen on.
+
+    Returns:
+        dict[str, Any]: host, port, log_level and the websocket implementation.
+    """
+    return {"host": "0.0.0.0", "port": port, "log_level": "warning", "ws": UVICORN_WS_IMPL}
+
+
 def _make_start_broadcaster(
     app: FastAPI,
     clients: dict[str, ClientConnection],
@@ -219,17 +234,15 @@ def _make_start_broadcaster(
 
     async def start_broadcaster() -> None:
         async def broadcast_loop() -> None:
+            slow_cycles = SlowCycleTracker()
             while True:
-                t0 = time.monotonic()
                 await asyncio.sleep(broadcast_interval)
                 if bridge_node is None or not clients:
                     continue
+                t0 = time.monotonic()
                 envelopes = bridge_node.flush_dirty()
                 if not envelopes:
                     continue
-                elapsed_ms = (time.monotonic() - t0) * 1000
-                if elapsed_ms > 60:
-                    logger.warning("broadcaster_slow", duration_ms=round(elapsed_ms), dirty_topics=len(envelopes))
                 logger.debug("broadcaster_cycle", dirty_topics=len(envelopes), client_count=len(clients))
                 frames = [json.dumps(e) for e in envelopes]
                 dead = []
@@ -243,6 +256,10 @@ def _make_start_broadcaster(
                             break
                 for cid in dead:
                     clients.pop(cid, None)
+                now = time.monotonic()
+                report = slow_cycles.record((now - t0) * 1000, now)
+                if report is not None:
+                    logger.warning("broadcaster_slow", **report)
 
         asyncio.create_task(broadcast_loop())
 

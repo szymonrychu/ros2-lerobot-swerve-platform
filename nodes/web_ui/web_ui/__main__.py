@@ -16,7 +16,7 @@ from .bridge import BridgeNode, create_bridge_executor
 from .config import load_config
 from .gps_status import GPS_BASE_STATUS_KEY, BasePoller
 from .logging_setup import configure_logging
-from .server import build_app
+from .server import build_app, build_uvicorn_kwargs
 
 configure_logging()
 log = structlog.get_logger(__name__)
@@ -92,7 +92,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
 
-    uvicorn.run(app, host="0.0.0.0", port=config.http_port, log_level="warning")
+    uvicorn.run(app, **build_uvicorn_kwargs(config.http_port))
 
     stop_event.set()
     node.destroy_node()

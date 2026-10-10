@@ -64,6 +64,7 @@ from .msg_serializer import (
     transform_points_2d,
     transform_to_pose_dict,
 )
+from .throttle import WarnThrottle
 
 log = structlog.get_logger(__name__)
 
@@ -257,6 +258,7 @@ class BridgeNode(Node):
         self.publishers_: dict[str, tuple[Any, type]] = {}
         self._allowed_publish_topics = allowed_publish_topics
         self._topic_last_rx: dict[str, float] = {}
+        self._stale_warn = WarnThrottle()
         self._frame_id_defaults = frame_id_defaults or {}
         self._robot_pose_frames = robot_pose_frames
         self._tf_buffer: Any = None
@@ -784,7 +786,8 @@ class BridgeNode(Node):
         now = time.monotonic()
         for topic, last_rx in self._topic_last_rx.items():
             if now - last_rx > TOPIC_STALE_S:
-                log.warning("topic_stale", topic=topic, seconds_since_rx=round(now - last_rx))
+                if self._stale_warn.allow(topic, now):
+                    log.warning("topic_stale", topic=topic, seconds_since_rx=round(now - last_rx))
 
     def _log_warning(self, msg: str) -> None:
         """Indirection used in tests to verify warning logging."""
