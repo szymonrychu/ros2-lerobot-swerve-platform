@@ -221,9 +221,9 @@ def test_settle_tolerance_must_stay_below_tracking_abort() -> None:
 
 
 def test_settle_hold_and_grasp_squeeze_defaults() -> None:
-    lim = McpServerConfig().limits
-    assert lim.arm_settle_hold_s == pytest.approx(2.0)
-    assert lim.gripper_grasp_squeeze_rad == pytest.approx(0.03)
+    cfg = McpServerConfig()
+    assert cfg.limits.arm_settle_hold_s == pytest.approx(2.0)
+    assert cfg.grip_profiles.default.squeeze_rad == pytest.approx(0.03)
 
 
 def test_perception_config_defaults() -> None:

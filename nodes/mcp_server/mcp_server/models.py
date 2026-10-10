@@ -184,6 +184,32 @@ class ArmMotionResult(BaseModel):
     gripper_effort: float | None = Field(
         default=None, description="Gripper load (servo units) of the last joint sample of the motion"
     )
+    grip_profile: dict[str, Any] | None = Field(
+        default=None,
+        description="Grip profile a close_until_effort used: {name ('gentle' / 'normal' / 'firm' or '<base>+custom'), "
+        "squeeze_rad, torque_limit, close_speed_rps, target_load, contact_effort_threshold, crush_load, capped (values "
+        "clamped to the hard caps)}; null for other motions",
+    )
+    holding_load: float | None = Field(
+        default=None,
+        description="Gripper load (decoded effort, servo units) measured a short moment after a grasp settled into "
+        "its hold; null when nothing was grasped",
+    )
+    slipping: bool | None = Field(
+        default=None,
+        description="True when the jaw kept closing after the hold (the object is slipping or giving way): retry with "
+        "a firmer profile; null when nothing was grasped",
+    )
+    crush_risk: bool | None = Field(
+        default=None,
+        description="True when the holding load exceeds the profile's crush_load: retry with a gentler profile; null "
+        "when nothing was grasped",
+    )
+    torque_limit_readback: str | None = Field(
+        default=None,
+        description="Gripper Torque_Limit write check from the bridge's register dump: 'verified', 'mismatch ...' or "
+        "'unverified ...' (no dump since the write, about every 10 s); null when no torque limit was written",
+    )
     slow_zone: dict[str, Any] | None = Field(
         default=None,
         description="Below-surface slow zone: set when part of the trajectory ran at the reduced speed because a jaw "

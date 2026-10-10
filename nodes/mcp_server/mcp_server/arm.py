@@ -3,6 +3,7 @@
 All commands go to filter_node's autonomy input; filter_node arbitrates against the leader arm and the web UI.
 """
 
+import logging
 import math
 import threading
 from collections.abc import Callable, Iterator
@@ -12,6 +13,7 @@ from typing import Literal, Protocol
 
 from .config import ArmBaseOffset, LimitSettings, McpServerConfig
 from .floor_guard import FloorGuard, FloorOverride, JawModel, TiltSample, retime, step_scales
+from .grip import GripChoice, ResolvedGrip, resolve_grip_profile
 from .home_store import HomeStoreError, load_home, save_home
 from .ik import ArmKinematics, UnreachableError, grasp_offset
 from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult, SettlePolicy
@@ -35,6 +37,9 @@ ORPHAN_LEASE_WINDOW_S = 3.0
 # Widest object the jaws can enclose (m); move_cartesian's object_width_m must lie in (0, MAX_OBJECT_WIDTH_M].
 MAX_OBJECT_WIDTH_M = 0.08
 ROLL_JOINT = "wrist_roll"
+# Gripper servo RAM register a grip profile writes (feetech bridge set_register; 0.1 % of max torque).
+TORQUE_LIMIT_REGISTER = "torque_limit"
+LOGGER = logging.getLogger("mcp_server.arm")
 
 OrphanCheck = Literal["pending", "released", "clear"]
 
@@ -132,6 +137,14 @@ class ArmBackend(Protocol):
         """Latest filter_node active source, or None."""
         ...
 
+    def set_servo_register(self, joint: str, register: str, value: int) -> None:
+        """Write a servo RAM register through the follower bridge's set_register topic."""
+        ...
+
+    def servo_register(self, joint: str, register: str) -> Stamped[int] | None:
+        """Latest value of a servo register from the bridge's register dump (receive time), or None."""
+        ...
+
     def now(self) -> float:
         """Monotonic time (s)."""
         ...
@@ -215,6 +228,9 @@ class ArmController:
         self._via_ticks: list[int] = []  # setpoint index at which each via of a blended motion is reached
         self._stop = threading.Event()
         self._motion_lock = threading.Lock()
+        # Gripper Torque_Limit last written (None = unknown, e.g. before the startup write) and when (backend time).
+        self._torque_limit: int | None = None
+        self._torque_written_at: float | None = None
         # Guards _held, _acquired_at, _last_setpoint, _last_target, _relax_hold, _streaming and every autonomy publish.
         self._lock = threading.Lock()
 
@@ -376,10 +392,11 @@ class ArmController:
             self.remember_locked(setpoint)
 
     def drop_lease(self) -> None:
-        """Forget the lease without publishing (another source took over)."""
+        """Forget the lease without publishing (another source took over) and restore the default gripper torque."""
         with self._lock:
             self._held = False
             self.forget_locked()
+        self.restore_default_torque_limit()
 
     def acquire(self) -> ControlResult:
         """Start the autonomy lease by commanding the measured pose (the arm does not move).
@@ -404,6 +421,7 @@ class ArmController:
             self._held = False
             self.forget_locked()
             self.backend.publish_release()
+        self.restore_default_torque_limit()
         return ControlResult(control_held=False, message="autonomy lease released")
 
     def check_orphan_lease(self, started_at: float) -> OrphanCheck:
@@ -486,12 +504,11 @@ class ArmController:
         if not self._held:
             return
         other = self.lease_lost_to()
+        if other is not None:
+            self.drop_lease()
+            return
         with self._lock:
             if not self._held:
-                return
-            if other is not None:
-                self._held = False
-                self.forget_locked()
                 return
             if not self._streaming and self._last_setpoint is not None:
                 self.relax_due_locked()
@@ -859,20 +876,34 @@ class ArmController:
         close_until_effort: bool = False,
         effort_threshold: float | None = None,
         floor: FloorOverride | None = None,
+        grip_profile: GripChoice = None,
     ) -> ArmMotionResult:
-        """Open the gripper to a fraction, or close it until the load exceeds a threshold.
+        """Open the gripper to a fraction, or close it with a grip profile until it holds an object.
+
+        close_until_effort resolves the grip profile (preset name or inline overrides, capped server-side), writes its
+        torque_limit to the gripper servo, closes at its close_speed_rps, stops on contact (stall, |load| >=
+        contact_effort_threshold, or closing-direction load >= target_load) and holds with its squeeze_rad. A grasp
+        keeps the profile's torque limit while holding; any other outcome (and an exception) restores the default
+        preset's torque_limit, as does every open, release and lost lease.
 
         Args:
             open_fraction (float | None): 0 = closed, 1 = fully open.
             close_until_effort (bool): Close slowly and stop (hold) on contact.
-            effort_threshold (float | None): |effort| that counts as contact; None for the configured default.
+            effort_threshold (float | None): |effort| that counts as contact; None for the profile's threshold.
             floor (FloorOverride | None): Per-call slow-zone overrides (the moving jaw tip is checked too).
+            grip_profile (GripChoice): close_until_effort only: preset name, inline overrides or None (default).
 
         Returns:
-            ArmMotionResult: Outcome ("grasped" / "closed_no_contact" for close_until_effort).
+            ArmMotionResult: Outcome ("grasped" / "closed_no_contact" for close_until_effort, with grip_profile,
+                torque_limit_readback and, for a grasp, holding_load / slipping / crush_risk).
+
+        Raises:
+            ArmError: For invalid arguments (also an unknown or invalid grip profile).
         """
         if (open_fraction is None) == (not close_until_effort):
             raise ArmError("give exactly one of open_fraction or close_until_effort=true")
+        if grip_profile is not None and not close_until_effort:
+            raise ArmError("grip_profile applies to close_until_effort=true only")
         closed, opened = self.cfg.arm.gripper_closed_rad, self.cfg.arm.gripper_open_rad
         if open_fraction is not None:
             if not 0.0 <= open_fraction <= 1.0:
@@ -881,32 +912,124 @@ class ArmController:
             self.validate_targets(targets)
             vmax = self.velocity_for(None)
             with self.exclusive_motion(), self.holding_arm_for_gripper([self.gripper]):
-                start_jaw = self.require_sample().positions[self.gripper]
-                result = self.stream_to(targets, vmax, floor)
-                return self.grasp_from_stall(result, start_jaw) if open_fraction == 0.0 else result
-        threshold = self.cfg.limits.gripper_effort_threshold if effort_threshold is None else effort_threshold
+                try:
+                    start_jaw = self.require_sample().positions[self.gripper]
+                    result = self.stream_to(targets, vmax, floor)
+                    if open_fraction == 0.0:
+                        return self.grasp_from_stall(result, start_jaw, self.cfg.grip_profiles.default.squeeze_rad)
+                    return result
+                finally:
+                    self.restore_default_torque_limit()  # after the jaw moved: never squeeze harder before opening
+        try:
+            grip = resolve_grip_profile(self.cfg.grip_profiles, self.cfg.limits, grip_profile)
+        except ValueError as exc:
+            raise ArmError(str(exc)) from exc
+        profile = grip.profile
+        threshold = profile.contact_effort_threshold if effort_threshold is None else effort_threshold
         if not math.isfinite(threshold) or threshold <= 0.0:
             raise ArmError("effort_threshold must be positive")
         with self.exclusive_motion(), self.holding_arm_for_gripper([self.gripper]):
-            if not self._held:
-                self.acquire()
-            start = self.command_base(self.require_sample())
-            start_jaw = self.require_sample().positions[self.gripper]
-            goal = start | clamp_to_limits(
-                {self.gripper: closed},
-                self.limits,
-                self.cfg.limits.arm_limit_margin_rad,
-                self.cfg.limits.arm_limit_margin_overrides,
-            )
-            result = self.grasp_from_stall(
-                self.stream(
-                    start, goal, self.cfg.limits.gripper_velocity_rps, [self.gripper], [], threshold, floor=floor
-                ),
-                start_jaw,
-            )
+            result: ArmMotionResult | None = None
+            try:
+                self.write_torque_limit(profile.torque_limit)
+                if not self._held:
+                    self.acquire()
+                start = self.command_base(self.require_sample())
+                start_jaw = self.require_sample().positions[self.gripper]
+                goal = start | clamp_to_limits(
+                    {self.gripper: closed},
+                    self.limits,
+                    self.cfg.limits.arm_limit_margin_rad,
+                    self.cfg.limits.arm_limit_margin_overrides,
+                )
+                closing = self.stream(
+                    start,
+                    goal,
+                    profile.close_speed_rps,
+                    [self.gripper],
+                    [],
+                    threshold,
+                    floor=floor,
+                    target_load=profile.target_load,
+                )
+                result = self.grasp_from_stall(closing, start_jaw, profile.squeeze_rad)
+                update: dict[str, object] = {"grip_profile": grip.report()}
+                if result.status == "grasped":
+                    update |= self.hold_report(grip)
+                update["torque_limit_readback"] = self.torque_limit_readback()
+                result = result.model_copy(update=update)
+            finally:
+                if result is None or result.status != "grasped":
+                    self.restore_default_torque_limit()
         if result.status == "converged":
             return result.model_copy(update={"status": "closed_no_contact", "message": "closed without contact"})
         return result
+
+    def write_torque_limit(self, value: int) -> None:
+        """Write the gripper servo's Torque_Limit register (RAM) through the bridge and remember it.
+
+        Args:
+            value (int): Torque limit (0.1 % of max torque), already capped by the grip profile.
+        """
+        self.backend.set_servo_register(self.gripper, TORQUE_LIMIT_REGISTER, int(value))
+        self._torque_limit = int(value)
+        self._torque_written_at = self.backend.now()
+        LOGGER.info("gripper %s set to %d", TORQUE_LIMIT_REGISTER, value)
+
+    def restore_default_torque_limit(self) -> None:
+        """Write the default grip preset's torque_limit unless it is known to be active already."""
+        default = self.cfg.grip_profiles.default.torque_limit
+        if self._torque_limit != default:
+            self.write_torque_limit(default)
+
+    def apply_startup_torque_limit(self) -> None:
+        """mcp_server startup: write the default torque_limit (a crashed predecessor may have left it low)."""
+        self.write_torque_limit(self.cfg.grip_profiles.default.torque_limit)
+
+    def torque_limit_readback(self) -> str:
+        """Check the last torque_limit write against the bridge's register dump (published about every 10 s).
+
+        Returns:
+            str: 'verified', 'mismatch: ...' or 'unverified: ...' (nothing written, or no dump since the write).
+        """
+        if self._torque_written_at is None:
+            return "unverified: no torque_limit written"
+        dumped = self.backend.servo_register(self.gripper, TORQUE_LIMIT_REGISTER)
+        if dumped is None or dumped.stamp < self._torque_written_at:
+            return f"unverified: no servo register dump since writing {self._torque_limit}"
+        if dumped.value == self._torque_limit:
+            return "verified"
+        message = f"mismatch: servo reports {TORQUE_LIMIT_REGISTER} {dumped.value}, wrote {self._torque_limit}"
+        LOGGER.warning("gripper %s", message)
+        return message
+
+    def hold_report(self, grip: ResolvedGrip) -> dict[str, object]:
+        """Measure a fresh grasp's hold: two samples hold_check_delay_s apart (caller holds the motion guard).
+
+        Args:
+            grip (ResolvedGrip): Profile of the close (crush_load).
+
+        Returns:
+            dict[str, object]: holding_load (decoded effort of the second sample), slipping (the jaw closed more than
+                slip_threshold_rad between the samples), crush_risk (|holding_load| above crush_load); None values
+                without fresh joint states.
+        """
+        cfg = self.cfg.grip_profiles
+        self.backend.sleep(cfg.hold_check_delay_s)
+        first = self.fresh_sample()
+        self.backend.sleep(cfg.hold_check_delay_s)
+        second = self.fresh_sample()
+        if first is None or second is None:
+            return {"holding_load": None, "slipping": None, "crush_risk": None}
+        toward_closed = math.copysign(1.0, self.cfg.arm.gripper_closed_rad - self.cfg.arm.gripper_open_rad)
+        closed_more = (second.positions[self.gripper] - first.positions[self.gripper]) * toward_closed
+        load = second.efforts.get(self.gripper, 0.0)
+        crush = grip.profile.crush_load
+        return {
+            "holding_load": load,
+            "slipping": closed_more > cfg.slip_threshold_rad,
+            "crush_risk": crush is not None and abs(load) > crush,
+        }
 
     @contextmanager
     def holding_arm_for_gripper(self, moving: list[str]) -> Iterator[None]:
@@ -1006,11 +1129,11 @@ class ArmController:
             self.command(intent | {self.gripper: result.positions[self.gripper]})
         return result.model_copy(update={"status": "blocked", "message": message})
 
-    def grasp_from_stall(self, result: ArmMotionResult, start_jaw: float) -> ArmMotionResult:
+    def grasp_from_stall(self, result: ArmMotionResult, start_jaw: float, squeeze_rad: float) -> ArmMotionResult:
         """Treat a closing jaw that settled before the closed target as a grasp (caller holds the motion guard).
 
         Without this the full closed target would stay commanded and the servo would keep squeezing the object.
-        The hold becomes the stalled position plus gripper_grasp_squeeze_rad toward closed (never past closed).
+        The hold becomes the stalled position plus squeeze_rad toward closed (never past closed).
         An effort contact ('grasped' from the load) and a stall both need the jaw to have closed
         gripper_grasp_min_travel_rad from start_jaw and to stop no more open than gripper_grasp_max_open_rad;
         otherwise the result is 'blocked' and the measured jaw position is held.
@@ -1018,6 +1141,7 @@ class ArmController:
         Args:
             result (ArmMotionResult): Outcome of a close motion.
             start_jaw (float): Gripper position when the close started (rad).
+            squeeze_rad (float): Grip profile squeeze past the stall (rad).
 
         Returns:
             ArmMotionResult: 'grasped' (contact), 'blocked' (contact without a real closure) with the hold
@@ -1041,7 +1165,7 @@ class ArmController:
         loose = self.loose_grasp_message(start_jaw, stalled)
         if loose is not None:
             return self.hold_blocked(result, loose)
-        squeeze = min(self.cfg.limits.gripper_grasp_squeeze_rad, abs(toward_closed))
+        squeeze = min(squeeze_rad, abs(toward_closed))
         hold = stalled + math.copysign(squeeze, toward_closed)
         if not self.command(intent | {self.gripper: hold}):
             return result
@@ -1216,14 +1340,20 @@ class ArmController:
         )
 
     def check(
-        self, sample: JointSample | None, tracked: list[str], effort_threshold: float | None
+        self,
+        sample: JointSample | None,
+        tracked: list[str],
+        effort_threshold: float | None,
+        target_load: float | None = None,
     ) -> tuple[ArmMotionStatus, str] | None:
         """Safety checks run every cycle.
 
         Args:
             sample (JointSample | None): Latest sample.
             tracked (list[str]): Joints whose tracking error is checked.
-            effort_threshold (float | None): Gripper contact threshold, or None.
+            effort_threshold (float | None): Gripper contact threshold (|load|), or None.
+            target_load (float | None): Gripper load in the closing direction (grip_profiles.closing_load_sign) that
+                ends a close, or None.
 
         Returns:
             tuple[ArmMotionStatus, str] | None: Abort status and message, or None to continue.
@@ -1261,7 +1391,10 @@ class ArmController:
                         {"tracking_error_rad": round(error, 4)},
                     )
                 return "aborted_tracking", f"tracking error {error:.3f} rad exceeds {limit:.3f}"
-        if effort_threshold is not None and abs(sample.efforts.get(self.gripper, 0.0)) >= effort_threshold:
+        load = sample.efforts.get(self.gripper, 0.0)
+        if target_load is not None and self.cfg.grip_profiles.closing_load_sign * load >= target_load:
+            return "grasped", f"closing load {load:g} reached the grip profile target_load {target_load:g}"
+        if effort_threshold is not None and abs(load) >= effort_threshold:
             return "grasped", f"gripper effort reached {effort_threshold}"
         return None
 
@@ -1324,6 +1457,7 @@ class ArmController:
         settle: SettlePolicy = "final",
         blend: bool = False,
         on_via: Callable[[int], None] | None = None,
+        target_load: float | None = None,
     ) -> ArmMotionResult:
         """Stream setpoints at arm_rate_hz, then wait for convergence; abort and hold on any safety check.
 
@@ -1353,6 +1487,7 @@ class ArmController:
             settle (SettlePolicy): 'final' or 'trajectory_end' (see above).
             blend (bool): path holds via points of one continuous spline (move_blend).
             on_via (Callable[[int], None] | None): Called with the via index once its setpoint was published (blend).
+            target_load (float | None): Close-until-effort: stop once the closing-direction load reaches this.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -1371,15 +1506,17 @@ class ArmController:
         self._moving = list(moving)
         jaw_history: list[tuple[float, float, float]] = []
 
-        def contact_threshold(latest: JointSample | None) -> float | None:
-            """Effort threshold to apply this cycle: None while the load cannot be contact yet."""
+        def contact_gate(latest: JointSample | None) -> tuple[float | None, float | None]:
+            """(effort threshold, target load) to apply this cycle: both None while the load cannot be contact yet."""
             if effort_threshold is None or latest is None or self.gripper not in latest.positions:
-                return None
+                return None, None
             with self._lock:
                 commanded = (self._last_setpoint or start).get(self.gripper, start[self.gripper])
             if not jaw_history or jaw_history[-1][0] != latest.stamp:
                 jaw_history.append((latest.stamp, latest.positions[self.gripper], commanded))
-            return effort_threshold if self.contact_allowed(jaw_history, started) else None
+            if not self.contact_allowed(jaw_history, started):
+                return None, None
+            return effort_threshold, target_load
 
         with self._lock:
             self._streaming = True
@@ -1390,7 +1527,7 @@ class ArmController:
             for tick, point in enumerate(points):
                 latest = self.backend.joint_sample()
                 sample = latest or sample
-                verdict = self.check(latest, tracked, contact_threshold(latest))
+                verdict = self.check(latest, tracked, *contact_gate(latest))
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
                 if not self.command(point):
@@ -1405,7 +1542,7 @@ class ArmController:
             history: list[tuple[float, dict[str, float]]] = []
             while True:
                 sample = self.backend.joint_sample() or sample
-                verdict = self.check(sample, tracked, contact_threshold(sample))
+                verdict = self.check(sample, tracked, *contact_gate(sample))
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
                 assert sample is not None

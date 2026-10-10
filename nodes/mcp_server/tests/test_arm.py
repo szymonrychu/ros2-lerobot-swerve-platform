@@ -602,7 +602,7 @@ def test_gripper_stall_before_closed_is_reported_as_grasp(tmp_path: Path, close_
         res = arm.set_gripper(open_fraction=0.0)
     assert res.status == "grasped", res.message
     assert "stalled" in res.message
-    squeeze = CONFIG.limits.gripper_grasp_squeeze_rad
+    squeeze = CONFIG.grip_profiles.default.squeeze_rad
     # Hold at the stall position plus a small squeeze toward closed, not at the full closed target.
     assert be.commands[-1]["gripper"] == pytest.approx(JAW_STALL - squeeze)
     be.t += HOLD_S + 1.0
@@ -613,7 +613,7 @@ def test_gripper_stall_before_closed_is_reported_as_grasp(tmp_path: Path, close_
 def test_gripper_grasp_squeeze_never_passes_closed(tmp_path: Path) -> None:
     be = stall_jaw_at(-0.13)
     arm, be = make(tmp_path, be)
-    arm.cfg.limits.gripper_grasp_squeeze_rad = 0.1
+    arm.cfg.grip_profiles.presets["normal"].squeeze_rad = 0.1
     res = arm.set_gripper(open_fraction=0.0)
     assert res.status == "grasped", res.message
     assert be.commands[-1]["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)

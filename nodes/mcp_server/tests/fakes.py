@@ -33,6 +33,14 @@ class FakeArmBackend:
         self.on_publish_command: Callable[[FakeArmBackend], None] | None = None
         # Ordered log of everything published on the autonomy topics: ("command", positions) / ("release", None).
         self.events: list[tuple[str, dict[str, float] | None]] = []
+        # Servo register writes (joint, register, value) on the follower set_register topic; with echo_registers the
+        # bridge's register dump reports each write at once (read-back), else registers holds what was put there.
+        self.register_writes: list[tuple[str, str, int]] = []
+        self.registers: dict[tuple[str, str], Stamped[int]] = {}
+        self.echo_registers = False
+        self.last_sleep = 0.0
+        # Autonomy commands and register writes in publish order (events keeps the autonomy topics only).
+        self.timeline: list[tuple[str, dict[str, float]]] = []
 
     def joint_sample(self) -> JointSample | None:
         if self.no_samples:
@@ -46,12 +54,22 @@ class FakeArmBackend:
             hook(self)
         self.commands.append(dict(positions))
         self.events.append(("command", dict(positions)))
+        self.timeline.append(("command", dict(positions)))
         if self.follow and (self.stale_after is None or self.t < self.stale_after):
             self.positions.update({j: v + self.sag.get(j, 0.0) for j, v in positions.items()})
 
     def publish_release(self) -> None:
         self.releases += 1
         self.events.append(("release", None))
+
+    def set_servo_register(self, joint: str, register: str, value: int) -> None:
+        self.register_writes.append((joint, register, value))
+        self.timeline.append(("register", {register: float(value)}))
+        if self.echo_registers:
+            self.registers[(joint, register)] = Stamped(value=value, stamp=self.t)
+
+    def servo_register(self, joint: str, register: str) -> Stamped[int] | None:
+        return self.registers.get((joint, register))
 
     def active_source(self) -> Stamped[str] | None:
         if self.on_active_source is not None:
@@ -64,6 +82,7 @@ class FakeArmBackend:
 
     def sleep(self, seconds: float) -> None:
         self.t += seconds
+        self.last_sleep = seconds
         if self.on_sleep is not None:
             self.on_sleep(self)
 

@@ -90,6 +90,8 @@ CANCEL_WAIT_S = 1.0
 NAV_POLL_S = 0.05
 # Startup orphan-lease check cadence (the window itself is arm.ORPHAN_LEASE_WINDOW_S).
 ORPHAN_CHECK_PERIOD_S = 0.2
+# Startup gripper torque_limit write: retried at this period until the follower bridge subscribes set_register.
+STARTUP_TORQUE_PERIOD_S = 1.0
 GOAL_STATUS_NAMES = {
     GoalStatus.STATUS_UNKNOWN: "unknown",
     GoalStatus.STATUS_ACCEPTED: "accepted",
@@ -311,6 +313,7 @@ class RosRobot:
             CancelGoal, t.navigate_action + CANCEL_SUFFIX, callback_group=self.group
         )
 
+        self.set_register_pub = self.node.create_publisher(String, t.follower_set_register, COMMAND_QOS)
         urdf = config.arm.urdf_path
         self.arm = ArmController(
             self,
@@ -337,6 +340,9 @@ class RosRobot:
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
         self.node.create_timer(
             1.0 / config.limits.hold_republish_hz, self.arm.keepalive_tick, callback_group=self.group
+        )
+        self.startup_torque_timer = self.node.create_timer(
+            STARTUP_TORQUE_PERIOD_S, self.startup_torque_limit, callback_group=self.group
         )
         self.orphan_started = time.monotonic()
         self.orphan_timer = self.node.create_timer(
@@ -523,6 +529,40 @@ class RosRobot:
             seconds (float): Duration.
         """
         time.sleep(seconds)
+
+    def set_servo_register(self, joint: str, register: str, value: int) -> None:
+        """Write a servo RAM register through the follower bridge (JSON {joint_name, register, value}).
+
+        Args:
+            joint (str): Joint name.
+            register (str): Register name (feetech_servos REGISTER_MAP, RAM only).
+            value (int): Raw value.
+        """
+        payload = json.dumps({"joint_name": joint, "register": register, "value": int(value)})
+        self.set_register_pub.publish(String(data=payload))
+
+    def servo_register(self, joint: str, register: str) -> Stamped[int] | None:
+        """Latest value of a servo register from the /follower/servo_registers dump (about every 10 s).
+
+        Args:
+            joint (str): Joint name.
+            register (str): Register name.
+
+        Returns:
+            Stamped[int] | None: Value with the dump's receive time (monotonic s), or None when not dumped yet.
+        """
+        entry = self.monitor.servos.get(joint)
+        if entry is None or register not in entry[1]:
+            return None
+        return Stamped(value=entry[1][register], stamp=entry[0])
+
+    def startup_torque_limit(self) -> None:
+        """Startup timer: once the bridge subscribes set_register, write the default gripper torque_limit, then stop."""
+        if self.set_register_pub.get_subscription_count() == 0:
+            return
+        self.arm.apply_startup_torque_limit()
+        self.log.info("gripper torque_limit set to the default grip profile's value")
+        self.startup_torque_timer.cancel()
 
     def check_orphan_lease(self) -> None:
         """Startup timer: release an autonomy lease orphaned by a crashed predecessor, then cancel itself."""

@@ -31,6 +31,10 @@ HARD_MAX_ANGULAR_RPS = 0.5
 HARD_MAX_DRIVE_S = 2.0
 HARD_MAX_SPEED_SCALE = 0.5
 HARD_MAX_IMAGE_PX = 1024
+# Gripper Torque_Limit register range (0.1 % of max torque); below the minimum the jaw cannot close reliably.
+HARD_MAX_GRIP_TORQUE_LIMIT = 1000
+HARD_MIN_GRIP_TORQUE_LIMIT = 50
+HARD_MAX_GRIP_SQUEEZE_RAD = 0.2
 # Arm mount (URDF base_link origin) in base_link (m), measured on the robot 2026-10-10: shoulder_pan axis 98 mm forward and
 # 50 mm right of the centre between the wheels, URDF origin 38.8 mm behind and 62.4 mm below it; height from tip
 # touch-downs on the floor. The mount height is also the floor height under the arm (floor_z_m = -ARM_BASE_HEIGHT_M).
@@ -107,6 +111,8 @@ class TopicSettings(StrictModel):
     # Web-UI grasp actions: JSON requests (std_msgs/String) on grasp_command, JSON results on grasp_result.
     grasp_command: str = "/grasp/command"
     grasp_result: str = "/grasp/result"
+    # feetech bridge RAM register writes (JSON {joint_name, register, value}): the gripper torque_limit of grip profiles.
+    follower_set_register: str = "/follower/set_register"
 
 
 class LimitSettings(StrictModel):
@@ -154,8 +160,8 @@ class LimitSettings(StrictModel):
     # joints still outside the converge tolerance relaxes to the measured pose (no pushing at the torque limit
     # indefinitely). The intended target is kept for the next motion's unnamed joints and IK seed.
     arm_settle_hold_s: float = Field(default=2.0, gt=0.0)
+    # Fastest gripper close: a grip profile's close_speed_rps is capped to it (the normal preset closes at this speed).
     gripper_velocity_rps: float = Field(default=0.5, gt=0.0, le=1.5)
-    gripper_effort_threshold: float = Field(default=300.0, gt=0.0)
     # close_until_effort ignores the load for this long after the close starts (motor start-up spike) and afterwards
     # counts it only once the jaw travelled gripper_contact_travel_rad or stalled (arm_settle_* window and motion,
     # with the command at least gripper_stall_lead_rad ahead).
@@ -164,8 +170,6 @@ class LimitSettings(StrictModel):
     # A stall only counts while the commanded jaw stays at least this far ahead of the measured jaw: the real jaw
     # needs up to about 0.9 s to break away from rest (straining with a high load) while the close command ramps up.
     gripper_stall_lead_rad: float = Field(default=0.15, gt=0.0)
-    # A closing jaw that stalls before the closed target grips an object: hold the stall position this far toward closed.
-    gripper_grasp_squeeze_rad: float = Field(default=0.03, ge=0.0, le=0.2)
     # A stall/effort contact only counts as 'grasped' when the jaw closed at least gripper_grasp_min_travel_rad from its
     # start AND stopped no more open than gripper_grasp_max_open_rad; otherwise status 'blocked' (pressing on something).
     gripper_grasp_min_travel_rad: float = Field(default=0.15, ge=0.0)
@@ -650,6 +654,105 @@ class FloorGuardSettings(StrictModel):
     imu_max_age_s: float = Field(default=1.0, gt=0.0)
 
 
+class GripProfile(StrictModel):
+    """How the gripper closes on and holds one kind of object (values in servo units, tune on the real gripper).
+
+    torque_limit is written to the gripper servo's Torque_Limit RAM register (0.1 % of max torque) before the close;
+    loads are the decoded signed Present_Load of /follower/joint_states effort (0.1 % of max torque).
+    """
+
+    squeeze_rad: float = Field(ge=0.0, le=HARD_MAX_GRIP_SQUEEZE_RAD)  # hold past a stall toward closed
+    torque_limit: int = Field(ge=HARD_MIN_GRIP_TORQUE_LIMIT, le=HARD_MAX_GRIP_TORQUE_LIMIT)
+    close_speed_rps: float = Field(gt=0.0, le=1.5)  # capped to limits.gripper_velocity_rps
+    # Stop the close once the load in the closing direction reaches this, then hold; None = stall/contact only.
+    target_load: float | None = Field(default=None, gt=0.0)
+    contact_effort_threshold: float = Field(gt=0.0)  # |load| counted as contact while closing
+    # A holding |load| above this reports crush_risk (the object is squeezed too hard for this profile); None = never.
+    crush_load: float | None = Field(default=None, gt=0.0)
+
+
+def default_grip_presets() -> dict[str, GripProfile]:
+    """Built-in grip presets gentle / normal / firm.
+
+    Returns:
+        dict[str, GripProfile]: Preset name -> profile. normal is the behaviour before grip profiles (0.03 rad
+            squeeze, 0.5 rad/s close, contact at 300) with the gripper torque at 50 % (LeRobot's burn-out guard).
+    """
+    return {
+        "gentle": GripProfile(
+            squeeze_rad=0.02,
+            torque_limit=250,
+            close_speed_rps=0.25,
+            target_load=120.0,
+            contact_effort_threshold=150.0,
+            crush_load=220.0,
+        ),
+        "normal": GripProfile(
+            squeeze_rad=0.03, torque_limit=500, close_speed_rps=0.5, contact_effort_threshold=300.0, crush_load=450.0
+        ),
+        "firm": GripProfile(
+            squeeze_rad=0.06, torque_limit=700, close_speed_rps=0.5, contact_effort_threshold=400.0, crush_load=650.0
+        ),
+    }
+
+
+class GripProfileSettings(StrictModel):
+    """Per-object grip profiles (set_gripper close_until_effort, grasp_object, the motion queue and /grasp/command).
+
+    Hard caps apply to every profile, preset or inline: torque_limit <= torque_limit_max, squeeze_rad <= squeeze_max_rad
+    (presets above a cap fail validation, inline overrides are clamped). The default preset's torque_limit is restored
+    after every open, release, abort or failed close and on mcp_server startup.
+    """
+
+    presets: dict[str, GripProfile] = Field(default_factory=default_grip_presets, min_length=1)
+    default_grip_profile: str = "normal"
+    torque_limit_max: int = Field(default=800, ge=HARD_MIN_GRIP_TORQUE_LIMIT, le=HARD_MAX_GRIP_TORQUE_LIMIT)
+    squeeze_max_rad: float = Field(default=0.08, ge=0.0, le=HARD_MAX_GRIP_SQUEEZE_RAD)
+    # Sign of the decoded gripper effort while the jaw closes on an object (feetech bridge: + for a non-inverted joint).
+    closing_load_sign: Literal[1, -1] = 1
+    # After a grasp: wait this long, sample, wait again and sample: holding_load is the second sample's load, slipping
+    # when the jaw closed more than slip_threshold_rad between the two samples.
+    hold_check_delay_s: float = Field(default=0.25, ge=0.0, le=2.0)
+    slip_threshold_rad: float = Field(default=0.01, gt=0.0, le=0.2)
+
+    @model_validator(mode="after")
+    def presets_within_caps(self) -> "GripProfileSettings":
+        """The default must be a preset and no preset may exceed the hard caps.
+
+        Returns:
+            GripProfileSettings: The validated settings.
+        """
+        if self.default_grip_profile not in self.presets:
+            raise ValueError(f"grip_profiles.default_grip_profile {self.default_grip_profile!r} is not a preset")
+        for name, profile in self.presets.items():
+            if profile.torque_limit > self.torque_limit_max:
+                raise ValueError(f"grip preset {name!r} torque_limit {profile.torque_limit} > {self.torque_limit_max}")
+            if profile.squeeze_rad > self.squeeze_max_rad:
+                raise ValueError(f"grip preset {name!r} squeeze_rad {profile.squeeze_rad} > {self.squeeze_max_rad}")
+        return self
+
+    @property
+    def default(self) -> GripProfile:
+        """The default preset.
+
+        Returns:
+            GripProfile: presets[default_grip_profile].
+        """
+        return self.presets[self.default_grip_profile]
+
+
+class GripProfileOverride(StrictModel):
+    """Inline grip profile: a base preset (default: default_grip_profile) with some values replaced."""
+
+    base: str | None = None
+    squeeze_rad: float | None = Field(default=None, ge=0.0, le=HARD_MAX_GRIP_SQUEEZE_RAD)
+    torque_limit: int | None = Field(default=None, ge=HARD_MIN_GRIP_TORQUE_LIMIT, le=HARD_MAX_GRIP_TORQUE_LIMIT)
+    close_speed_rps: float | None = Field(default=None, gt=0.0, le=1.5)
+    target_load: float | None = Field(default=None, gt=0.0)
+    contact_effort_threshold: float | None = Field(default=None, gt=0.0)
+    crush_load: float | None = Field(default=None, gt=0.0)
+
+
 class GraspAutoEntry(StrictModel):
     """One strategy the 'auto' grasp tries (in order); approach_pitch_deg only applies to 'angled'."""
 
@@ -671,7 +774,11 @@ class GraspSettings(StrictModel):
     skim_clearance_m: float = Field(default=0.003, ge=0.0, le=0.05)  # scoop: fixed jaw bottom above the surface
     max_object_width_m: float = Field(default=0.08, gt=0.0, le=0.12)  # widest opening the jaws can use
     min_object_width_m: float = Field(default=0.01, ge=0.0, le=0.05)  # narrowest object the jaws can hold
-    close_effort_threshold: float = Field(default=300.0, gt=0.0)  # close_until_effort contact threshold
+    # close_until_effort contact threshold; None = the grip profile's contact_effort_threshold.
+    close_effort_threshold: float | None = Field(default=None, gt=0.0)
+    # Grip profile of the close: a grip_profiles preset name or inline overrides {base?, squeeze_rad?, torque_limit?,
+    # close_speed_rps?, target_load?, contact_effort_threshold?, crush_load?}; None = grip_profiles.default_grip_profile.
+    grip_profile: str | GripProfileOverride | None = None
     hold_effort_min: float = Field(default=100.0, ge=0.0)  # |gripper load| a verified grasp must still show
     min_hold_gap_rad: float = Field(default=0.08, ge=0.0)  # verified grasp: jaw stopped this far short of closed
     interpolation_step_m: float = Field(default=0.005, gt=0.0, le=0.05)  # straight-line IK sample spacing
@@ -726,6 +833,7 @@ class McpServerConfig(StrictModel):
     poi: PoiSettings = PoiSettings()
     floor_guard: FloorGuardSettings = FloorGuardSettings()
     grasp: GraspSettings = GraspSettings()
+    grip_profiles: GripProfileSettings = GripProfileSettings()
 
 
 def load_config(path: Path) -> McpServerConfig:
