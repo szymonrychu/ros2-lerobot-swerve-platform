@@ -1,0 +1,178 @@
+// {{ ansible_managed }}
+// Grafana Alloy on {{ monitoring_host }}: collects this host's metrics and journal and pushes them to the server (Mimir for
+// metrics, Loki for logs). Every series and log stream carries host="{{ monitoring_host }}".
+
+// ---- destinations --------------------------------------------------------------------------------------------------
+// The remote-write WAL (under --storage.path, /var/lib/alloy/data) buffers samples while Mimir is unreachable and
+// replays them once it is back; loki.write retries each batch with backoff.
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "{{ monitoring_agent_metrics_url }}"
+  }
+  external_labels = {host = "{{ monitoring_host }}"}
+}
+
+loki.write "server" {
+  endpoint {
+    url = "{{ monitoring_agent_logs_url }}"
+  }
+  external_labels = {host = "{{ monitoring_host }}"}
+}
+
+// ---- host metrics (node_*) ----------------------------------------------------------------------------------------
+// Default collectors (cpu, loadavg, meminfo, diskstats, filesystem, netdev, hwmon, thermal_zone, ...), the textfile
+// collector that picks up rpi_throttled.prom from the rpi-throttled timer, and the systemd collector (unit state,
+// restarts, start time) for the ROS2 nodes and the monitoring services only.
+
+prometheus.exporter.unix "host" {
+  enable_collectors = ["systemd"]
+
+  textfile {
+    directory = "{{ monitoring_agent_textfile_dir }}"
+  }
+
+  systemd {
+    enable_restarts = true
+    start_time      = true
+    unit_include    = "{{ monitoring_agent_systemd_unit_include | replace('\\', '\\\\') }}"
+  }
+
+  netdev {
+    device_exclude = "^(lo|veth.*|docker.*|br-.*)$"
+  }
+}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  job_name        = "integrations/unix"
+  scrape_interval = "{{ monitoring_agent_interval }}"
+  scrape_timeout  = "{{ monitoring_agent_scrape_timeout }}"
+}
+
+// ---- per-systemd-unit cgroup metrics (container_*) ----------------------------------------------------------------
+// docker_only = false: cAdvisor's raw cgroup v2 handler reports every cgroup, so each service shows up with
+// id="/system.slice/<unit>.service" (ROS2 nodes) or id="/monitoring.slice/<unit>.service" (monitoring services).
+// Only CPU, memory, block IO and OOM events are collected: network stats of host-netns services repeat the host
+// interfaces per unit, and disk/percpu/process series are not needed.
+
+prometheus.exporter.cadvisor "units" {
+  docker_only            = false
+  store_container_labels = false
+  disabled_metrics       = [
+    "advtcp", "app", "cpuLoad", "cpu_topology", "cpuset", "disk", "hugetlb", "memory_numa", "network", "percpu",
+    "perf_event", "process", "referenced_memory", "resctrl", "sched", "tcp", "udp",
+  ]
+}
+
+prometheus.scrape "cadvisor" {
+  targets         = prometheus.exporter.cadvisor.units.targets
+  forward_to      = [prometheus.relabel.cadvisor.receiver]
+  job_name        = "integrations/cadvisor"
+  scrape_interval = "{{ monitoring_agent_interval }}"
+  scrape_timeout  = "{{ monitoring_agent_scrape_timeout }}"
+}
+
+// Keep the root cgroup, the three slices, the services in system.slice / monitoring.slice and the per-user slices;
+// drop every scope, session and nested cgroup (they come and go and only add series).
+prometheus.relabel "cadvisor" {
+  forward_to = [prometheus.remote_write.mimir.receiver]
+
+  rule {
+    source_labels = ["id"]
+    regex         = "/|/(system|user|monitoring)\\.slice|/(system|monitoring)\\.slice/[^/]+\\.service|/user\\.slice/user-[0-9]+\\.slice"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["interface"]
+    regex         = "veth.*|docker.*|br-.*"
+    action        = "drop"
+  }
+}
+{% if monitoring_agent_node_targets %}
+
+// ---- our ROS2 nodes (ros2_metrics /metrics endpoints) ---------------------------------------------------------------
+// One target per node with a `node` label. honor_labels keeps the helper's own robot_node_info{node} label instead of
+// renaming it to exported_node (both carry the same value). A stopped node is simply up == 0.
+
+prometheus.scrape "nodes" {
+  targets = [
+{% for target in monitoring_agent_node_targets %}
+    {"__address__" = "{{ target.address }}", "node" = "{{ target.node }}"},
+{% endfor %}
+  ]
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  job_name        = "ros2_nodes"
+  metrics_path    = "/metrics"
+  honor_labels    = true
+  scrape_interval = "{{ monitoring_agent_interval }}"
+  scrape_timeout  = "{{ monitoring_agent_scrape_timeout }}"
+}
+{% endif %}
+
+// ---- the monitoring services' own metrics -------------------------------------------------------------------------
+
+prometheus.exporter.self "alloy" { }
+
+prometheus.scrape "alloy" {
+  targets         = prometheus.exporter.self.alloy.targets
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  job_name        = "alloy"
+  scrape_interval = "{{ monitoring_agent_interval }}"
+  scrape_timeout  = "{{ monitoring_agent_scrape_timeout }}"
+}
+{% if monitoring_agent_stack_targets %}
+
+prometheus.scrape "stack" {
+  targets = [
+{% for target in monitoring_agent_stack_targets %}
+    {"__address__" = "{{ target.address }}", "job" = "{{ target.job }}"},
+{% endfor %}
+  ]
+  forward_to      = [prometheus.remote_write.mimir.receiver]
+  scrape_interval = "{{ monitoring_agent_interval }}"
+  scrape_timeout  = "{{ monitoring_agent_scrape_timeout }}"
+}
+{% endif %}
+
+// ---- journal -> Loki ----------------------------------------------------------------------------------------------
+// Each line gets the systemd unit (absent for kernel lines), the priority keyword as level (emerg, alert, crit, err,
+// warning, notice, info, debug) and the transport (kernel lines: OOM kills, USB resets). Debug lines are dropped.
+
+loki.relabel "journal" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+
+  rule {
+    source_labels = ["__journal_priority_keyword"]
+    target_label  = "level"
+  }
+
+  rule {
+    source_labels = ["__journal__transport"]
+    target_label  = "transport"
+  }
+}
+
+loki.source.journal "system" {
+  max_age       = "{{ monitoring_agent_journal_max_age }}"
+  relabel_rules = loki.relabel.journal.rules
+  labels        = {job = "systemd-journal"}
+  forward_to    = [loki.process.journal.receiver]
+}
+
+loki.process "journal" {
+  forward_to = [loki.write.server.receiver]
+
+  stage.match {
+    selector            = "{level=\"debug\"}"
+    action              = "drop"
+    drop_counter_reason = "debug"
+  }
+}

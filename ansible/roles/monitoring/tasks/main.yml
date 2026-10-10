@@ -1,82 +1,32 @@
 ---
-# Monitoring stack on the client RPi5 (Ubuntu 24.04, aarch64): Grafana Alloy collects host, per-unit cgroup and
-# throttling metrics and remote-writes them to a local Prometheus; Grafana shows them. Everything runs in
-# monitoring.slice so it never starves the robot nodes. Deploy: ./scripts/deploy-nodes.sh client monitoring
+# Monitoring stack on the server RPi4 (Ubuntu 24.04, aarch64): Grafana Mimir (metrics, Prometheus API), Grafana Loki
+# (logs) and Grafana, all from apt.grafana.com, in monitoring.slice (installed by roles/monitoring_agent, which the
+# playbook runs first). Alloy on both hosts pushes into Mimir and Loki. Deploy: ./scripts/deploy-nodes.sh server monitoring
 # A second run reports no changes (packages present, password created once, templates unchanged).
 
-- name: Gather the service list (node exporter present? stack installed?)
+- name: Gather the service list (stack installed?)
   ansible.builtin.service_facts:
 
 - name: Install and configure the monitoring stack
   when: monitoring_enabled | bool
   block:
     # ---- packages -------------------------------------------------------------------------------------------------
-    - name: Install the apt repository prerequisites (deb822_repository needs python3-debian)
+    - name: Add the Grafana apt repository
+      ansible.builtin.include_role:
+        name: monitoring_agent
+        tasks_from: grafana_repo.yml
+
+    # The mimir and loki debs (arm64 builds on apt.grafana.com) bring their own systemd units and users and start
+    # with the package configs; the restart guard below moves them onto ours.
+    - name: Install Mimir, Loki and Grafana
       ansible.builtin.apt:
-        name: [ca-certificates, python3-debian, openssl]
-        state: present
-        cache_valid_time: 3600
-
-    - name: Create the apt keyring directory
-      ansible.builtin.file:
-        path: /etc/apt/keyrings
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Download the Grafana apt signing key
-      ansible.builtin.get_url:
-        url: https://apt.grafana.com/gpg.key
-        dest: /etc/apt/keyrings/grafana.asc
-        owner: root
-        group: root
-        mode: "0644"
-
-    - name: Add the Grafana stable apt repository (Alloy and Grafana OSS)
-      ansible.builtin.deb822_repository:
-        name: grafana
-        types: deb
-        uris: https://apt.grafana.com
-        suites: stable
-        components: main
-        signed_by: /etc/apt/keyrings/grafana.asc
-        state: present
-      register: monitoring_grafana_repo
-
-    - name: Refresh the apt cache after adding the repository
-      ansible.builtin.apt:
-        update_cache: true
-      when: monitoring_grafana_repo.changed  # noqa: no-handler - the install below needs the fresh cache now
-
-    # Recommends are skipped: Ubuntu's prometheus recommends prometheus-node-exporter, which Alloy replaces.
-    # libraspberrypi-bin provides vcgencmd for the throttling flags.
-    - name: Install Alloy, Grafana, Prometheus and vcgencmd
-      ansible.builtin.apt:
-        name: "{{ ['alloy', 'grafana', 'prometheus', 'nginx'] + (['libraspberrypi-bin'] if ansible_machine == 'aarch64' else []) }}"
+        name: [mimir, loki, grafana]
         state: present
         install_recommends: false
         cache_valid_time: 3600
 
-    - name: Stop, disable and mask prometheus-node-exporter (Alloy provides host metrics)
-      ansible.builtin.systemd_service:
-        name: prometheus-node-exporter
-        state: stopped
-        enabled: false
-        masked: true
-      when: "'prometheus-node-exporter.service' in ansible_facts.services"
-
     # ---- resource isolation ---------------------------------------------------------------------------------------
-    - name: Install monitoring.slice (CPU, IO and memory caps of the whole stack)
-      ansible.builtin.template:
-        src: monitoring.slice.j2
-        dest: /etc/systemd/system/monitoring.slice
-        owner: root
-        group: root
-        mode: "0644"
-      notify: [Reload systemd, Restart prometheus, Restart alloy, Restart grafana-server]
-
-    - name: Create the drop-in directories of the monitoring services
+    - name: Create the drop-in directories of the stack services
       ansible.builtin.file:
         path: "/etc/systemd/system/{{ item.name }}.service.d"
         state: directory
@@ -87,7 +37,7 @@
       loop_control:
         label: "{{ item.name }}"
 
-    - name: Put each monitoring service into monitoring.slice with its own memory cap
+    - name: Put each stack service into monitoring.slice with its own memory cap
       ansible.builtin.template:
         src: monitoring-dropin.conf.j2
         dest: "/etc/systemd/system/{{ item.name }}.service.d/10-monitoring-slice.conf"
@@ -97,95 +47,57 @@
       loop: "{{ monitoring_units }}"
       loop_control:
         label: "{{ item.name }}"
-      notify: [Reload systemd, Restart prometheus, Restart alloy, Restart grafana-server]
+      notify: [Reload systemd, Restart mimir, Restart loki, Restart grafana-server]
 
-    # ---- prometheus -----------------------------------------------------------------------------------------------
-    - name: Create the Prometheus TSDB directory on the NVMe root
+    # ---- mimir ----------------------------------------------------------------------------------------------------
+    - name: Create the Mimir data directory (blocks, TSDB and WAL)
       ansible.builtin.file:
-        path: "{{ monitoring_prometheus_data_dir }}"
+        path: "{{ monitoring_mimir_data_dir }}"
         state: directory
-        owner: prometheus
-        group: prometheus
-        mode: "0755"
+        owner: mimir
+        group: mimir
+        mode: "0750"
 
-    - name: Prometheus flags (retention, listener, remote-write receiver)
+    - name: Mimir service settings (log level; the deb's unit reads /etc/mimir/config.yml)
       ansible.builtin.template:
-        src: prometheus.default.j2
-        dest: /etc/default/prometheus
+        src: mimir.default.j2
+        dest: /etc/default/mimir
         owner: root
         group: root
         mode: "0644"
-      notify: [Restart prometheus]
+      notify: [Restart mimir]
 
-    - name: Prometheus config (no scrape jobs, Alloy pushes everything)
+    - name: Mimir config (monolithic, filesystem blocks, 24 h retention)
       ansible.builtin.template:
-        src: prometheus.yml.j2
-        dest: /etc/prometheus/prometheus.yml
+        src: mimir.yml.j2
+        dest: /etc/mimir/config.yml
         owner: root
-        group: root
-        mode: "0644"
-        validate: promtool check config %s
-      notify: [Restart prometheus]
+        group: mimir
+        mode: "0640"
+      notify: [Restart mimir]
 
-    # ---- alloy ----------------------------------------------------------------------------------------------------
-    - name: Create the Alloy textfile collector directory
+    # ---- loki -----------------------------------------------------------------------------------------------------
+    - name: Create the Loki data directory (chunks, index and WAL)
       ansible.builtin.file:
-        path: "{{ monitoring_textfile_dir }}"
+        path: "{{ monitoring_loki_data_dir }}"
         state: directory
-        owner: root
-        group: root
-        mode: "0755"
+        owner: loki
+        mode: "0750"
 
-    - name: Alloy service settings (config path, LAN listener, no reporting)
+    - name: Loki config (monolithic, filesystem, tsdb v13, 24 h retention)
       ansible.builtin.template:
-        src: alloy.default.j2
-        dest: /etc/default/alloy
+        src: loki.yml.j2
+        dest: /etc/loki/config.yml
         owner: root
         group: root
         mode: "0644"
-      notify: [Restart alloy]
-
-    - name: Alloy config
-      ansible.builtin.template:
-        src: config.alloy.j2
-        dest: /etc/alloy/config.alloy
-        owner: root
-        group: root
-        mode: "0644"
-        validate: alloy fmt %s
-      notify: [Restart alloy]
-
-    # ---- raspberry pi throttling flags ----------------------------------------------------------------------------
-    - name: Create the monitoring script directory
-      ansible.builtin.file:
-        path: /usr/local/lib/monitoring
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Install the throttling textfile script
-      ansible.builtin.copy:
-        src: rpi_throttled_textfile.py
-        dest: /usr/local/lib/monitoring/rpi_throttled_textfile.py
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Install the throttling service and timer
-      ansible.builtin.template:
-        src: "{{ item }}.j2"
-        dest: "/etc/systemd/system/{{ item }}"
-        owner: root
-        group: root
-        mode: "0644"
-      loop: [rpi-throttled.service, rpi-throttled.timer]
-      notify: [Reload systemd]
+        validate: /usr/bin/loki -config.file=%s -verify-config
+      notify: [Restart loki]
 
     # ---- grafana --------------------------------------------------------------------------------------------------
-    # Created once on the robot, never on the controller; Grafana applies it when it creates its database (first
+    # Created once on the server, never on the controller; Grafana applies it when it creates its database (first
     # start). The grafana package does not start the service on install, so the file exists before that start.
-    - name: Generate the Grafana admin password on the robot (first deploy only)
+    - name: Generate the Grafana admin password on the server (first deploy only)
       ansible.builtin.shell: umask 077 && openssl rand -hex -out {{ monitoring_grafana_admin_password_file }} 24
       args:
         creates: "{{ monitoring_grafana_admin_password_file }}"
@@ -197,7 +109,7 @@
         group: grafana
         mode: "0600"
 
-    - name: Grafana settings (LAN listener, anonymous Viewer, no phoning home)
+    - name: Grafana settings (localhost behind nginx, anonymous Editor, no phoning home)
       ansible.builtin.template:
         src: grafana.ini.j2
         dest: /etc/grafana/grafana.ini
@@ -206,10 +118,10 @@
         mode: "0640"
       notify: [Restart grafana-server]
 
-    - name: Provision the Prometheus datasource
+    - name: Provision the Mimir and Loki datasources
       ansible.builtin.template:
-        src: grafana-datasource.yaml.j2
-        dest: /etc/grafana/provisioning/datasources/prometheus-robot.yaml
+        src: grafana-datasources.yaml.j2
+        dest: /etc/grafana/provisioning/datasources/robot.yaml
         owner: root
         group: grafana
         mode: "0640"
@@ -243,47 +155,28 @@
       loop_control:
         label: "{{ item | basename }}"
 
-    # ---- nginx on port 80 ---------------------------------------------------------------------------------------------
-    - name: Remove the distro default nginx site (it claims port 80)
-      ansible.builtin.file:
-        path: /etc/nginx/sites-enabled/default
-        state: absent
-      notify: Reload nginx
-
-    - name: nginx site of the robot (web UI at /, Grafana at the sub path)
-      ansible.builtin.template:
-        src: nginx-robot.conf.j2
-        dest: /etc/nginx/conf.d/robot.conf
-        owner: root
-        group: root
-        mode: "0644"
-      notify: Reload nginx
-
-    - name: Check the nginx config before the reload
-      ansible.builtin.command: nginx -t
-      changed_when: false
-
     # ---- start and check ------------------------------------------------------------------------------------------
     - name: Apply unit and config changes before starting
       ansible.builtin.meta: flush_handlers
 
-    - name: Enable and start the monitoring services and the throttling timer
+    - name: Enable and start Mimir, Loki and Grafana
       ansible.builtin.systemd_service:
         name: "{{ item }}"
         enabled: true
         state: started
-      loop: [prometheus, alloy, grafana-server, nginx, rpi-throttled.timer]
+      loop: [mimir, loki, grafana-server]
 
-    # Handlers are lost when a run fails after writing a config (and the apt install already started Prometheus with
-    # the package defaults), so the next run would see nothing to change: restart any service started before a change.
-    - name: Restart the monitoring services whose config is newer than their start
+    # Handlers are lost when a run fails after writing a config (and the debs already started Mimir and Loki with
+    # the package configs), so the next run would see nothing to change: restart any service started before a change
+    # of its config, its drop-in or the shared slice.
+    - name: Restart the stack services whose config is newer than their start
       ansible.builtin.shell: |
         set -eu
         restarted=""; d=/etc/systemd/system; slice=.service.d/10-monitoring-slice.conf
         for entry in \
-          "prometheus:/etc/default/prometheus /etc/prometheus/prometheus.yml $d/prometheus$slice" \
-          "alloy:/etc/default/alloy /etc/alloy/config.alloy $d/alloy$slice" \
-          "grafana-server:/etc/grafana/grafana.ini /etc/grafana/provisioning/datasources/prometheus-robot.yaml $d/grafana-server$slice"; do
+          "mimir:/etc/default/mimir /etc/mimir/config.yml $d/mimir$slice $d/monitoring.slice" \
+          "loki:/etc/loki/config.yml $d/loki$slice $d/monitoring.slice" \
+          "grafana-server:/etc/grafana/grafana.ini /etc/grafana/provisioning/datasources/robot.yaml $d/grafana-server$slice $d/monitoring.slice"; do
           unit=${entry%%:*}; files=${entry#*:}
           started=$(date -d "$(systemctl show -p ActiveEnterTimestamp --value "$unit")" +%s)
           for f in $files; do
@@ -298,32 +191,31 @@
       register: monitoring_stale_restart
       changed_when: monitoring_stale_restart.stdout != 'restarted:'
 
-    - name: Wait until Prometheus, Alloy and Grafana answer
+    # Mimir's ingester reports ready only after its ring min_ready_duration (15 s) past the start.
+    - name: Wait until Mimir, Loki and Grafana answer
       ansible.builtin.uri:
         url: "{{ item }}"
         status_code: 200
       loop:
-        - "http://127.0.0.1:{{ monitoring_prometheus_port }}/-/ready"
-        - "http://127.0.0.1:{{ monitoring_alloy_port }}/-/ready"
+        - "http://127.0.0.1:{{ monitoring_mimir_port }}/ready"
+        - "http://127.0.0.1:{{ monitoring_loki_port }}/ready"
         - "http://127.0.0.1:{{ monitoring_grafana_port }}/api/health"
         - "http://127.0.0.1{{ monitoring_grafana_subpath }}api/health"
       register: monitoring_ready
       until: monitoring_ready.status == 200
-      retries: 24
+      retries: 36
       delay: 5
       changed_when: false
 
-# service_facts lists .service units only, so the timer is probed through its service.
 - name: Stop and disable the monitoring stack (monitoring_enabled is false)
   ansible.builtin.systemd_service:
     name: "{{ item.unit }}"
     enabled: false
     state: stopped
   loop:
-    - {unit: rpi-throttled.timer, probe: rpi-throttled.service}
     - {unit: grafana-server, probe: grafana-server.service}
-    - {unit: alloy, probe: alloy.service}
-    - {unit: prometheus, probe: prometheus.service}
+    - {unit: loki, probe: loki.service}
+    - {unit: mimir, probe: mimir.service}
   loop_control:
     label: "{{ item.unit }}"
   when:

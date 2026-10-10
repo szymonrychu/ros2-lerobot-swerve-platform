@@ -1,0 +1,68 @@
+# {{ ansible_managed }}
+# Grafana Loki as ONE process (monolithic, all targets) on the server RPi4: the journals of both hosts behind Grafana's
+# loki-robot datasource. Alloy pushes to /loki/api/v1/push. No tenants (auth_enabled false), one replica, in-memory
+# ring, internal addresses on 127.0.0.1, chunks and the tsdb index on the local filesystem.
+auth_enabled: false
+
+server:
+  http_listen_address: 0.0.0.0
+  http_listen_port: {{ monitoring_loki_port }}
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: {{ monitoring_loki_grpc_port }}
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: {{ monitoring_loki_data_dir }}
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: {{ monitoring_loki_data_dir }}/chunks
+      rules_directory: {{ monitoring_loki_data_dir }}/rules
+
+memberlist:
+  bind_addr: [127.0.0.1]
+  advertise_addr: 127.0.0.1
+
+schema_config:
+  configs:
+    - from: "2026-01-01"
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: {{ monitoring_loki_data_dir }}/tsdb-index
+    cache_location: {{ monitoring_loki_data_dir }}/tsdb-cache
+
+ingester:
+  wal:
+    dir: {{ monitoring_loki_data_dir }}/wal
+
+limits_config:
+  # 1 d of logs, enforced by the compactor below.
+  retention_period: {{ monitoring_loki_retention }}
+  # Alloy reads up to 12 h of journal on its first start.
+  reject_old_samples: true
+  reject_old_samples_max_age: 24h
+
+compactor:
+  working_directory: {{ monitoring_loki_data_dir }}/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+frontend:
+  address: 127.0.0.1
+
+pattern_ingester:
+  enabled: false
+
+analytics:
+  reporting_enabled: false

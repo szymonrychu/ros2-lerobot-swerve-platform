@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+# Read by the deb's mimir.service: ExecStart=/usr/local/bin/mimir --config.file=/etc/mimir/config.yml
+#   --runtime-config.file=/etc/mimir/runtime_config.yml --log.level $LOG_LEVEL $CUSTOM_ARGS
+LOG_LEVEL="warn"
+
+# Everything else lives in /etc/mimir/config.yml.
+CUSTOM_ARGS=""
+
+RESTART_ON_UPGRADE="true"

@@ -1,18 +1,18 @@
 ---
-# Order matters: handlers run in the order listed here, so systemd picks up unit and drop-in changes before restarts.
+# Order matters: handlers run in the order listed here, so systemd picks up drop-in changes before restarts.
 - name: Reload systemd
   ansible.builtin.systemd_service:
     daemon_reload: true
 
-- name: Restart prometheus
+- name: Restart mimir
   ansible.builtin.systemd_service:
-    name: prometheus
+    name: mimir
     state: restarted
   when: monitoring_enabled | bool
 
-- name: Restart alloy
+- name: Restart loki
   ansible.builtin.systemd_service:
-    name: alloy
+    name: loki
     state: restarted
   when: monitoring_enabled | bool
 
@@ -21,8 +21,3 @@
     name: grafana-server
     state: restarted
   when: monitoring_enabled | bool
-
-- name: Reload nginx
-  ansible.builtin.systemd_service:
-    name: nginx
-    state: reloaded

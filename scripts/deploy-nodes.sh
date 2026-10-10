@@ -4,7 +4,7 @@
 #
 # Usage:
 #   deploy-nodes.sh <target> <node1> [node2 ...] [ansible-playbook options]   # = --tags node1,node2
-#   (a name may also be a non-node target of the target, see non_node_targets: client has "monitoring")
+#   (a name may also be a non-node target of the target, see non_node_targets: both have "monitoring")
 #   deploy-nodes.sh <target> --all [ansible-playbook options]                # every node, no tag filter
 #
 # Targets:  client | server
@@ -19,7 +19,8 @@
 # Examples:
 #   ./scripts/deploy-nodes.sh client web_ui
 #   ./scripts/deploy-nodes.sh client web_ui mcp_server
-#   ./scripts/deploy-nodes.sh client monitoring             # Alloy + Prometheus + Grafana (not a ros2_nodes entry)
+#   ./scripts/deploy-nodes.sh server monitoring             # Mimir + Loki + Grafana + nginx + Alloy (deploy first)
+#   ./scripts/deploy-nodes.sh client monitoring             # Alloy + nginx; removes the old Prometheus + Grafana
 #   ./scripts/deploy-nodes.sh server lerobot_leader
 #   ./scripts/deploy-nodes.sh client --all
 #   ./scripts/deploy-nodes.sh client --all --tags config,restart
@@ -41,10 +42,12 @@ case "$TARGET" in
 esac
 
 # Deploy targets that are not ros2_nodes entries, one per line (bash 3.2: no associative arrays).
-#   monitoring - Alloy + Prometheus + Grafana on the client (roles/monitoring)
+#   monitoring - client: Alloy + nginx (roles/monitoring_agent, roles/web_proxy)
+#                server: Mimir + Loki + Grafana + nginx + Alloy (roles/monitoring, roles/web_proxy, roles/monitoring_agent)
 non_node_targets() {
   case "$1" in
     client) echo "monitoring" ;;
+    server) echo "monitoring" ;;
     *) echo "" ;;
   esac
 }

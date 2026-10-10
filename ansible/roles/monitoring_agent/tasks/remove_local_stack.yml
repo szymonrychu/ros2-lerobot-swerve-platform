@@ -1,0 +1,34 @@
+---
+# The robot ran Prometheus (TSDB) and Grafana itself; both moved to the server (Mimir, Grafana). Every step is
+# state-based, so the second run reports no changes: the units are gone from service_facts, the packages and paths
+# are absent.
+- name: Stop and disable the robot's former Prometheus and Grafana
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: [prometheus, grafana-server]
+  # A purged unit can linger in service_facts as not-found until systemd forgets it.
+  when: (ansible_facts.services[item + '.service'] | default({})).status | default('not-found') != 'not-found'
+
+- name: Purge the prometheus and grafana packages
+  ansible.builtin.apt:
+    name: [prometheus, grafana]
+    state: absent
+    purge: true
+
+# Purge leaves what the packages did not ship: our drop-ins, the generated admin password and dashboards under
+# /etc/grafana, and the data (1 d of old Prometheus samples, the Grafana database).
+- name: Remove their drop-ins, config and data
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/prometheus.service.d
+    - /etc/systemd/system/grafana-server.service.d
+    - /etc/grafana
+    - /etc/prometheus
+    - /etc/default/prometheus
+    - /var/lib/prometheus
+    - /var/lib/grafana
+  notify: [Reload systemd]

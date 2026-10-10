@@ -1,81 +1,56 @@
 ---
-# Monitoring stack on the client RPi5: Grafana Alloy collects, Prometheus stores, Grafana shows. Deploy with
-#   ./scripts/deploy-nodes.sh client monitoring
-# false stops and disables the stack (packages, data and config stay).
+# Monitoring stack on the server RPi4: Grafana Mimir stores the metrics of both hosts, Grafana Loki their journals and
+# Grafana shows them at http://server.ros2.lan/grafana/ (nginx: roles/web_proxy). Alloy on each host (roles/monitoring_agent)
+# pushes into it. Deploy with
+#   ./scripts/deploy-nodes.sh server monitoring
+# false stops and disables Mimir, Loki and Grafana (packages, data and config stay).
 monitoring_enabled: true
 
-# Ports (all on 0.0.0.0, LAN only: the robot has no public address).
+# Ports. Mimir and Loki HTTP are on 0.0.0.0 (the robot's Alloy pushes over the LAN, no auth: there is no public
+# address); their gRPC and Grafana stay on localhost.
+monitoring_mimir_port: 9009
+monitoring_mimir_grpc_port: 9095
+monitoring_loki_port: 3100
+monitoring_loki_grpc_port: 9096
 monitoring_grafana_port: 3000
-# nginx on port 80 fronts the robot: web UI at /, Grafana at monitoring_grafana_subpath (Grafana listens on localhost).
-monitoring_http_port: 80
 monitoring_grafana_subpath: /grafana/
-monitoring_web_ui_port: 8080
-monitoring_prometheus_port: 9090
-monitoring_alloy_port: 12345
 
-# Scrape and collection interval of every target.
+# Alloy's scrape interval (Grafana's datasource timeInterval: the shortest step a query uses).
 monitoring_interval: "5s"
-# Scrape timeout: below the interval (Alloy and Prometheus reject a timeout above it; their default is 10 s).
-monitoring_scrape_timeout: "4s"
 
-# Our ROS2 nodes' Prometheus endpoints (ros2_metrics helper or the node's own HTTP server), scraped by Alloy job
-# ros2_nodes with a `node` label. Ports follow ansible/group_vars/client.yml (metrics_port, METRICS_PORT or the node's
-# HTTP port); tests/test_node_metrics_wiring.py keeps both in sync.
-monitoring_node_targets:
-  - {node: lerobot_follower, address: "127.0.0.1:19101", path: /metrics}
-  - {node: filter_node, address: "127.0.0.1:19102", path: /metrics}
-  - {node: bno055_imu, address: "127.0.0.1:19103", path: /metrics}
-  - {node: gps_rtk_rover, address: "127.0.0.1:19104", path: /metrics}
-  - {node: gripper_uvc_camera, address: "127.0.0.1:19105", path: /metrics}
-  - {node: rplidar_a1, address: "127.0.0.1:19106", path: /metrics}
-  - {node: swerve_controller, address: "127.0.0.1:19107", path: /metrics}
-  - {node: rf2o_odom_relay, address: "127.0.0.1:19108", path: /metrics}
-  - {node: poi_store, address: "127.0.0.1:19109", path: /metrics}
-  - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
-  - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
-  - {node: topic_scraper_api, address: "127.0.0.1:18100", path: /metrics}
-  - {node: mcp_server, address: "127.0.0.1:18200", path: /metrics}
-  - {node: claude_agent, address: "127.0.0.1:18300", path: /metrics}
+# Data on the SD card (wear accepted for 1 d of retention): Mimir blocks + TSDB/WAL, Loki chunks + index + WAL.
+monitoring_mimir_data_dir: /var/lib/mimir
+monitoring_loki_data_dir: /var/lib/loki
+# Retention of both: the compactors delete what is older.
+monitoring_mimir_retention: "24h"
+monitoring_loki_retention: "24h"
 
-# systemd units the unix exporter's systemd collector reports (node_systemd_unit_state, restarts, start time).
-# Plain regex (the template escapes it for Alloy).
-monitoring_systemd_unit_include: 'ros2-.*\.service|alloy\.service|prometheus\.service|grafana-server\.service|nginx\.service'
+# Mimir ingestion limits (one tenant, "anonymous", holds both hosts). Each host sends ~5-10k active series every 5 s,
+# so ~20k series and ~4k samples/s in steady state. max_global_series_per_user keeps Mimir's default of 150k (7x
+# headroom). ingestion_rate is raised from the default 10k samples/s to 50k (burst 500k, default 200k): after a server
+# outage Alloy replays its remote-write WAL as fast as Mimir accepts it, and a 429 there only slows the catch-up.
+monitoring_mimir_max_series: 150000
+monitoring_mimir_ingestion_rate: 50000
+monitoring_mimir_ingestion_burst: 500000
+# Small-RAM caps for the Pi4: the ingester refuses series past this bound instead of growing into the OOM killer,
+# the querier evaluates few queries at a time (default 8).
+monitoring_mimir_ingester_max_series: 100000
+monitoring_mimir_querier_max_concurrent: 4
 
-# Prometheus TSDB on the NVMe root; whichever limit is hit first drops the oldest blocks.
-monitoring_prometheus_data_dir: /var/lib/prometheus/metrics2
-monitoring_prometheus_retention_time: "1d"
-monitoring_prometheus_retention_size: "2GB"
-
-# Alloy textfile collector directory (the RPi throttling script writes rpi_throttled.prom here).
-monitoring_textfile_dir: /var/lib/alloy/textfile
-# How often the throttling script runs (vcgencmd get_throttled).
-monitoring_throttled_interval: "5s"
-
-# Grafana admin password: generated on the robot on the first deploy (openssl rand), never on the controller.
+# Grafana admin password: generated on the server on the first deploy (openssl rand), never on the controller.
 monitoring_grafana_admin_password_file: /etc/grafana/admin-password
 monitoring_grafana_dashboards_dir: /etc/grafana/dashboards
 
-# monitoring.slice caps the whole stack so it never starves the robot nodes (CPU ~80% busy at the robot's baseline):
-# a low CPU/IO weight loses every contention, CPUQuota is 40% of ONE core in total, MemoryHigh throttles before the
-# hard MemoryMax.
-monitoring_slice_cpu_weight: 20
-monitoring_slice_io_weight: 20
-monitoring_slice_cpu_quota: "40%"
-monitoring_slice_memory_max: "1600M"
-monitoring_slice_memory_high: "1500M"
-
-# Per-unit caps inside the slice. Prometheus gets the largest share: ~5k series at 5 s with 1 d retention needs ~150-250 MB
-# of head block plus query memory; Alloy (exporters + remote-write WAL) and Grafana (idle, a few viewers) run at about
-# 100-150 MB each. The sum (1468M) stays under the slice: the slice is the hard total, the per-unit caps stop one
-# service from taking all of it. OOMScoreAdjust=500 makes the kernel kill monitoring before any robot node.
+# Per-unit caps inside monitoring.slice (the slice itself and its totals: roles/monitoring_agent, server values in
+# group_vars/server.yml). Mimir holds 2 h of head series (~20k) plus query memory; Loki holds the recent chunks of a
+# few hundred streams; Grafana was OOM-killed at 250M and 450M on the robot while browsing (2026-10-10) and keeps 768M.
+# OOMScoreAdjust=500 makes the kernel kill monitoring before any ROS unit.
 monitoring_nice: 10
 monitoring_oom_score_adjust: 500
 monitoring_units:
-  - name: alloy
-    memory_max: "250M"
-  - name: prometheus
-    memory_max: "450M"
+  - name: mimir
+    memory_max: "700M"
+  - name: loki
+    memory_max: "400M"
   - name: grafana-server
-    # OOM-killed at 250M (first-start migrations) and at 450M (anon ~230M + page cache while browsing dashboards), both
-    # 2026-10-10; the unused datasource plugins are disabled in grafana.ini, this leaves room for queries and cache.
     memory_max: "768M"

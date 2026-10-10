@@ -130,3 +130,26 @@ ros2_nodes:
       ntrip_mountpoint: /rtk
       ntrip_user: ""
       ntrip_password: ""
+
+# ---- monitoring (roles/monitoring_agent + roles/web_proxy + roles/monitoring; deploy-nodes.sh server monitoring) -----
+# The server stores everything: Mimir (metrics, 1 d), Loki (logs, 1 d) and Grafana at http://server.ros2.lan/grafana/.
+# `host` label of every series and log stream this host sends.
+monitoring_host: server
+# Mimir and Loki run here: push over loopback.
+monitoring_agent_metrics_url: http://127.0.0.1:9009/api/v1/push
+monitoring_agent_logs_url: http://127.0.0.1:3100/loki/api/v1/push
+# No ROS node here exports metrics (they are robot-only); Alloy scrapes the stack's own /metrics instead.
+monitoring_agent_node_targets: []
+monitoring_agent_stack_targets:
+  - {job: mimir, address: "127.0.0.1:9009"}
+  - {job: loki, address: "127.0.0.1:3100"}
+  - {job: grafana, address: "127.0.0.1:3000"}
+# monitoring.slice of the RPi4 (4 cores, 3.8 GB, ~3.3 GB free before the stack): Mimir 700M + Loki 400M + Grafana 768M
+# + Alloy 250M = 2118M of per-unit caps fit under the 2200M hard total, which leaves ~1.1 GB for the ROS units and the
+# page cache; MemoryHigh starts reclaiming at 2000M first. 150% CPU: compaction and dashboard queries are bursty, the
+# CPUWeight of 20 still hands the CPU to lerobot_leader and the other ROS units whenever they want it.
+monitoring_agent_slice_cpu_quota: "150%"
+monitoring_agent_slice_memory_max: "2200M"
+monitoring_agent_slice_memory_high: "2000M"
+# nginx on port 80: / -> /grafana/, /grafana/ -> Grafana (roles/web_proxy).
+web_proxy_site: server

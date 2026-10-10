@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+# The uids are what every dashboard refers to: prometheus-robot (now Mimir's Prometheus API, both hosts, `host` label)
+# and loki-robot (both hosts' journals).
+apiVersion: 1
+
+datasources:
+  - name: Mimir (robot + server)
+    uid: prometheus-robot
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:{{ monitoring_mimir_port }}/prometheus
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: {{ monitoring_interval }}
+      prometheusType: Mimir
+
+  - name: Loki (robot + server)
+    uid: loki-robot
+    type: loki
+    access: proxy
+    url: http://127.0.0.1:{{ monitoring_loki_port }}
+    editable: false
+    jsonData:
+      maxLines: 1000

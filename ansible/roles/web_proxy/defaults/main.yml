@@ -1,0 +1,22 @@
+---
+# nginx on port 80 of each host (deployed with the monitoring target: ./scripts/deploy-nodes.sh <host> monitoring).
+# Which site this host serves (group_vars/<host>.yml):
+#   robot  - the web UI at / (web_ui on 8080, WebSockets), /grafana/... redirected to the server (path and query kept)
+#   server - Grafana at /grafana/ (127.0.0.1:3000, WebSockets for Grafana Live), / redirected to /grafana/
+web_proxy_site: robot
+
+web_proxy_web_ui_port: 8080
+web_proxy_grafana_port: 3000
+web_proxy_grafana_subpath: /grafana/
+# Where the robot sends /grafana/ (scheme + host; nginx appends the original path and query, $request_uri).
+web_proxy_grafana_redirect: http://server.ros2.lan
+
+# Post-deploy probe of each site: GET <path> must answer 302 with this Location (nginx makes a relative redirect
+# absolute, absolute_redirect on).
+web_proxy_probes:
+  robot:
+    path: /grafana/d/robot-health?orgId=1
+    location: http://server.ros2.lan/grafana/d/robot-health?orgId=1
+  server:
+    path: /
+    location: http://127.0.0.1/grafana/

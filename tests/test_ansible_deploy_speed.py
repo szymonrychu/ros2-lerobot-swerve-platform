@@ -157,9 +157,9 @@ def test_every_task_in_role_and_task_files_carries_a_documented_tag(path: Path) 
 
 
 def test_non_node_targets_are_parsed() -> None:
-    """Guard against a vacuous pass: the client has the monitoring target, the server none."""
+    """Guard against a vacuous pass: both hosts have the monitoring target (agent on both, stack on the server)."""
     assert non_node_targets("client") == {"monitoring"}
-    assert non_node_targets("server") == set()
+    assert non_node_targets("server") == {"monitoring"}
 
 
 @pytest.mark.parametrize("target", TARGETS)

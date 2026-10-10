@@ -2,6 +2,7 @@
 # Deploy all ROS2 nodes on Server RPi4b, or only some of them: every node's steps carry its node name as a tag, so
 #   ./scripts/deploy-nodes.sh server lerobot_leader          # = this playbook with --tags lerobot_leader
 #   ./scripts/deploy-nodes.sh server --all --tags config,restart
+#   ./scripts/deploy-nodes.sh server monitoring              # Mimir + Loki + Grafana + nginx + Alloy (not a node)
 # Phase tags: apt, python, build, config, boot, setup, sync, restart, verify (documented in ansible/README.md, "Deploy tags").
 # Node list and config live in group_vars/server.yml; repo vars in group_vars/all.yml.
 # For a no-change run nothing is stopped or restarted; see the client playbook for the reasoning.
@@ -147,6 +148,30 @@
           vars:
             _deploy_node_name: gps_rtk_base
           tags: [gps_rtk_base, apt, python, build, config]
+
+        # Not ROS nodes: only `./scripts/deploy-nodes.sh server monitoring` (--tags monitoring) or an untagged run
+        # (--all without --tags) installs them; node and phase tags never pull them in. Order: the agent installs
+        # monitoring.slice (and Alloy), nginx fronts Grafana, then the stack, whose readiness check goes through nginx.
+        - name: Monitoring agent (Alloy -> local Mimir and Loki, monitoring.slice)
+          ansible.builtin.include_role:
+            name: monitoring_agent
+            apply:
+              tags: [monitoring]
+          tags: [monitoring]
+
+        - name: nginx on port 80 (Grafana at /grafana/)
+          ansible.builtin.include_role:
+            name: web_proxy
+            apply:
+              tags: [monitoring]
+          tags: [monitoring]
+
+        - name: Monitoring stack (Mimir, Loki, Grafana in monitoring.slice)
+          ansible.builtin.include_role:
+            name: monitoring
+            apply:
+              tags: [monitoring]
+          tags: [monitoring]
 
       # A failure anywhere above (after a heavy step stopped the nodes, say) must not leave the robot down: restart the
       # queued nodes and start the stopped ones, whatever that start does, then fail the run with the original error.

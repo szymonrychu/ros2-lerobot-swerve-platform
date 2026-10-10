@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: szymonrychu
+  description: Grafana Alloy (metrics to Mimir, journal to Loki) and monitoring.slice on every host
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+dependencies: []

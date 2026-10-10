@@ -15,8 +15,8 @@
   tags: [always]
 
 # Scope of the end-of-play start and the verify: every node for a full run or a phase-only filter (--tags config),
-# the selected nodes for a node filter, none for a non-node target alone (--tags monitoring). Nodes in the restart
-# queue are restarted whatever the scope.
+# the selected nodes for a node filter, none for a non-node target alone (--tags monitoring, on the client and on
+# the server: both playbooks include this file). Nodes in the restart queue are restarted whatever the scope.
 - name: Nodes the start and verify steps cover
   ansible.builtin.set_fact:
     ros2_scope_nodes: >-

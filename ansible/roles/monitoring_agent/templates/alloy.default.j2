@@ -3,6 +3,6 @@
 CONFIG_FILE="/etc/alloy/config.alloy"
 
 # UI and /metrics on the LAN; no usage reporting to Grafana Labs.
-CUSTOM_ARGS="--server.http.listen-addr=0.0.0.0:{{ monitoring_alloy_port }} --disable-reporting"
+CUSTOM_ARGS="--server.http.listen-addr=0.0.0.0:{{ monitoring_agent_alloy_port }} --disable-reporting"
 
 RESTART_ON_UPGRADE=true

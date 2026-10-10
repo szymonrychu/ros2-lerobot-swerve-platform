@@ -1,0 +1,100 @@
+# {{ ansible_managed }}
+# Grafana Mimir as ONE process (-target=all) on the server RPi4: the metrics store of both hosts behind Grafana's
+# prometheus-robot datasource (Prometheus API under /prometheus). Alloy remote-writes to /api/v1/push.
+# Single node: filesystem blocks storage, one replica, in-memory rings, every internal address on 127.0.0.1 (the
+# Pi's LAN interface is not eth0, so Mimir must not guess one). No tenants: everything lands in "anonymous".
+target: all
+multitenancy_enabled: false
+
+server:
+  http_listen_address: 0.0.0.0
+  http_listen_port: {{ monitoring_mimir_port }}
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: {{ monitoring_mimir_grpc_port }}
+  log_level: warn
+
+common:
+  storage:
+    backend: filesystem
+    filesystem:
+      dir: {{ monitoring_mimir_data_dir }}/data
+
+blocks_storage:
+  storage_prefix: blocks
+  tsdb:
+    # Ingester head and WAL: 2 h blocks are cut, shipped to the filesystem bucket above and kept locally 13 h
+    # (Mimir's default, matching querier.query_ingesters_within).
+    dir: {{ monitoring_mimir_data_dir }}/tsdb
+  bucket_store:
+    sync_dir: {{ monitoring_mimir_data_dir }}/tsdb-sync
+
+# Nothing else gossips: memberlist (unused by the in-memory rings) is bound to localhost.
+memberlist:
+  bind_addr: [127.0.0.1]
+  advertise_addr: 127.0.0.1
+
+distributor:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+ingester:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+    replication_factor: 1
+  instance_limits:
+    max_series: {{ monitoring_mimir_ingester_max_series }}
+
+querier:
+  max_concurrent: {{ monitoring_mimir_querier_max_concurrent }}
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+frontend:
+  address: 127.0.0.1
+
+query_scheduler:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+compactor:
+  data_dir: {{ monitoring_mimir_data_dir }}/compactor
+  sharding_ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+store_gateway:
+  sharding_ring:
+    instance_addr: 127.0.0.1
+    replication_factor: 1
+    kvstore:
+      store: inmemory
+
+ruler:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+ruler_storage:
+  storage_prefix: rules
+
+limits:
+  # 1 d of metrics: the compactor deletes older blocks.
+  compactor_blocks_retention_period: {{ monitoring_mimir_retention }}
+  # ~20k active series from two hosts at 5 s (~4k samples/s); see monitoring_mimir_* in defaults/main.yml for the
+  # headroom reasoning.
+  max_global_series_per_user: {{ monitoring_mimir_max_series }}
+  ingestion_rate: {{ monitoring_mimir_ingestion_rate }}
+  ingestion_burst_size: {{ monitoring_mimir_ingestion_burst }}
+
+usage_stats:
+  enabled: false

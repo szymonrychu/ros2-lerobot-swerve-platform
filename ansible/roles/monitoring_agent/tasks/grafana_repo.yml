@@ -1,0 +1,39 @@
+---
+# apt.grafana.com stable (Alloy, Mimir, Loki, Grafana OSS; arm64 debs). Shared: roles/monitoring includes this file.
+- name: Install the apt repository prerequisites (deb822_repository needs python3-debian)
+  ansible.builtin.apt:
+    name: [ca-certificates, python3-debian, openssl]
+    state: present
+    cache_valid_time: 3600
+
+- name: Create the apt keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download the Grafana apt signing key
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg.key
+    dest: /etc/apt/keyrings/grafana.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add the Grafana stable apt repository
+  ansible.builtin.deb822_repository:
+    name: grafana
+    types: deb
+    uris: https://apt.grafana.com
+    suites: stable
+    components: main
+    signed_by: /etc/apt/keyrings/grafana.asc
+    state: present
+  register: monitoring_agent_grafana_repo
+
+- name: Refresh the apt cache after adding the repository
+  ansible.builtin.apt:
+    update_cache: true
+  when: monitoring_agent_grafana_repo.changed  # noqa: no-handler - the install after this needs the fresh cache now

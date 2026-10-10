@@ -397,11 +397,19 @@
             _deploy_node_name: claude_agent
           tags: [claude_agent, apt, python, build, config]
 
-        # Not a ROS node: only `./scripts/deploy-nodes.sh client monitoring` (--tags monitoring) or an untagged run
-        # (--all without --tags) installs it; node and phase tags never pull it in.
-        - name: Monitoring stack (Alloy, Prometheus, Grafana in monitoring.slice)
+        # Not ROS nodes: only `./scripts/deploy-nodes.sh client monitoring` (--tags monitoring) or an untagged run
+        # (--all without --tags) installs them; node and phase tags never pull them in. Deploy the server first so
+        # Alloy has a destination (it buffers in its WAL until then).
+        - name: Monitoring agent (Alloy -> the server's Mimir and Loki, in monitoring.slice)
           ansible.builtin.include_role:
-            name: monitoring
+            name: monitoring_agent
+            apply:
+              tags: [monitoring]
+          tags: [monitoring]
+
+        - name: nginx on port 80 (web UI at /, /grafana/ redirected to the server)
+          ansible.builtin.include_role:
+            name: web_proxy
             apply:
               tags: [monitoring]
           tags: [monitoring]

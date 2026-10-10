@@ -1,4 +1,4 @@
-"""Node metrics wiring: client group_vars ports, shared/ros2_metrics dependencies and the Alloy node scrape targets."""
+"""Node metrics wiring: client group_vars ports, shared/ros2_metrics dependencies and the robot's Alloy node targets."""
 
 from pathlib import Path
 
@@ -10,7 +10,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ANSIBLE_DIR = REPO_ROOT / "ansible"
 CLIENT_VARS = ANSIBLE_DIR / "group_vars" / "client.yml"
 SERVER_VARS = ANSIBLE_DIR / "group_vars" / "server.yml"
-MONITORING_DEFAULTS = ANSIBLE_DIR / "roles" / "monitoring" / "defaults" / "main.yml"
+AGENT_DEFAULTS = ANSIBLE_DIR / "roles" / "monitoring_agent" / "defaults" / "main.yml"
 RENDER_VARS = {"ros2_server_hostname": "server.ros2.lan", "ros2_repo_dest": "/opt/ros2-lerobot-swerve-platform"}
 
 # Port contract: nodes without an HTTP server get `metrics_port` (config) or METRICS_PORT (env).
@@ -132,14 +132,14 @@ def expected_port(entry: dict) -> int:
 
 
 def node_targets() -> dict[str, dict]:
-    """Return monitoring_node_targets by node name.
+    """Return the robot's monitoring_agent_node_targets (group_vars/client.yml) by node name.
 
     Returns:
         dict[str, dict]: Node name to its target.
     """
-    targets = yaml.safe_load(MONITORING_DEFAULTS.read_text())["monitoring_node_targets"]
+    targets = client_vars()["monitoring_agent_node_targets"]
     by_node = {t["node"]: t for t in targets}
-    assert len(by_node) == len(targets), "duplicate node in monitoring_node_targets"
+    assert len(by_node) == len(targets), "duplicate node in monitoring_agent_node_targets"
     return by_node
 
 
@@ -184,9 +184,11 @@ def test_node_types_using_ros2_metrics_declare_src_shared(node_type: str) -> Non
 
 
 def test_server_group_vars_untouched() -> None:
-    """Metrics are robot (client) only: no metrics_port or METRICS_PORT on the server."""
+    """Node metrics are robot (client) only: no metrics_port, METRICS_PORT or node scrape targets on the server."""
     text = SERVER_VARS.read_text()
     assert "metrics_port" not in text and "METRICS_PORT" not in text
+    assert yaml.safe_load(text)["monitoring_agent_node_targets"] == []
+    assert yaml.safe_load(AGENT_DEFAULTS.read_text())["monitoring_agent_node_targets"] == []
 
 
 def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:

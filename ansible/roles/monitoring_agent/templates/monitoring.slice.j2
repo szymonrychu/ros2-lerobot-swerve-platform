@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# Every monitoring unit of this host runs here ({{ 'Mimir, Loki, Grafana, ' if monitoring_host == 'server' else '' }}Alloy, rpi-throttled), capped so it never starves
+# the ROS2 nodes: low CPU/IO weight (units in system.slice have the default 100), a CPU and a memory total.
+[Unit]
+Description=Monitoring units (roles/monitoring_agent, roles/monitoring)
+Before=slices.target
+
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes
+CPUWeight={{ monitoring_agent_slice_cpu_weight }}
+IOWeight={{ monitoring_agent_slice_io_weight }}
+CPUQuota={{ monitoring_agent_slice_cpu_quota }}
+MemoryHigh={{ monitoring_agent_slice_memory_high }}
+MemoryMax={{ monitoring_agent_slice_memory_max }}

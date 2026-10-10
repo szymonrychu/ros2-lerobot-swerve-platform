@@ -1453,3 +1453,29 @@ ros2_nodes:
         - add_poi
         - update_poi
         - delete_poi
+
+# ---- monitoring (roles/monitoring_agent + roles/web_proxy; ./scripts/deploy-nodes.sh client monitoring) ---------------
+# `host` label of every series and log stream this host sends to the server's Mimir and Loki.
+monitoring_host: client
+# The robot ran Prometheus + Grafana until 2026-10-10: stop, disable and purge them (roles/monitoring_agent).
+monitoring_agent_remove_local_stack: true
+# Our ROS2 nodes' Prometheus endpoints (ros2_metrics helper or the node's own HTTP server), scraped by Alloy job
+# ros2_nodes with a `node` label. Ports follow the ros2_nodes entries above (metrics_port, METRICS_PORT or the node's
+# HTTP port); tests/test_node_metrics_wiring.py keeps both in sync.
+monitoring_agent_node_targets:
+  - {node: lerobot_follower, address: "127.0.0.1:19101", path: /metrics}
+  - {node: filter_node, address: "127.0.0.1:19102", path: /metrics}
+  - {node: bno055_imu, address: "127.0.0.1:19103", path: /metrics}
+  - {node: gps_rtk_rover, address: "127.0.0.1:19104", path: /metrics}
+  - {node: gripper_uvc_camera, address: "127.0.0.1:19105", path: /metrics}
+  - {node: rplidar_a1, address: "127.0.0.1:19106", path: /metrics}
+  - {node: swerve_controller, address: "127.0.0.1:19107", path: /metrics}
+  - {node: rf2o_odom_relay, address: "127.0.0.1:19108", path: /metrics}
+  - {node: poi_store, address: "127.0.0.1:19109", path: /metrics}
+  - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
+  - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
+  - {node: topic_scraper_api, address: "127.0.0.1:18100", path: /metrics}
+  - {node: mcp_server, address: "127.0.0.1:18200", path: /metrics}
+  - {node: claude_agent, address: "127.0.0.1:18300", path: /metrics}
+# nginx on port 80: web UI at /, /grafana/ redirected to the server (roles/web_proxy defaults).
+web_proxy_site: robot

@@ -1,0 +1,48 @@
+---
+# nginx on port 80: the site of this host (web_proxy_site: robot or server). Checked with nginx -t before every reload.
+- name: Install nginx
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+    install_recommends: false
+    cache_valid_time: 3600
+
+- name: Remove the distro default nginx site (it claims port 80)
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: [Reload nginx]
+
+- name: nginx site of this host
+  ansible.builtin.template:
+    src: "nginx-{{ web_proxy_site }}.conf.j2"
+    dest: "/etc/nginx/conf.d/{{ web_proxy_site }}.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: [Reload nginx]
+
+- name: Check the nginx config before the reload
+  ansible.builtin.command: nginx -t
+  changed_when: false
+
+- name: Reload nginx with the checked config
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: Check the redirect nginx answers on port 80
+  ansible.builtin.uri:
+    url: "http://127.0.0.1{{ web_proxy_probes[web_proxy_site].path }}"
+    status_code: 302
+    follow_redirects: none
+  register: web_proxy_probe_result
+  failed_when: web_proxy_probe_result.location | default('') != web_proxy_probes[web_proxy_site].location
+  retries: 5
+  delay: 2
+  until: web_proxy_probe_result is succeeded
+  changed_when: false

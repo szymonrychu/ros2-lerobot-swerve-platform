@@ -1,0 +1,190 @@
+---
+# Grafana Alloy on every host (client RPi5 and server RPi4, Ubuntu 24.04 aarch64): host, per-unit cgroup, systemd and
+# RPi throttling metrics are remote-written to the server's Mimir, the journal is pushed to the server's Loki, every
+# series and stream labelled host=<monitoring_host>. Alloy runs in monitoring.slice so it never starves the ROS2 nodes.
+# Deploy: ./scripts/deploy-nodes.sh <client|server> monitoring. A second run reports no changes.
+
+- name: Gather the service list (node exporter present? former robot stack installed?)
+  ansible.builtin.service_facts:
+
+- name: Install and configure Alloy
+  when: monitoring_agent_enabled | bool
+  block:
+    - name: Require the host label (group_vars/<host>.yml monitoring_host)
+      ansible.builtin.assert:
+        that: monitoring_host is defined and monitoring_host | length > 0
+        fail_msg: set monitoring_host (client or server) in group_vars/<host>.yml
+        quiet: true
+
+    # ---- the robot's former Prometheus + Grafana --------------------------------------------------------------------
+    - name: Remove the former local Prometheus and Grafana (robot)
+      ansible.builtin.include_tasks: remove_local_stack.yml
+      when: monitoring_agent_remove_local_stack | bool
+
+    # ---- packages -------------------------------------------------------------------------------------------------
+    - name: Add the Grafana apt repository
+      ansible.builtin.include_tasks: grafana_repo.yml
+
+    # libraspberrypi-bin provides vcgencmd for the throttling flags.
+    - name: Install Alloy and vcgencmd
+      ansible.builtin.apt:
+        name: "{{ ['alloy'] + (['libraspberrypi-bin'] if ansible_machine == 'aarch64' else []) }}"
+        state: present
+        install_recommends: false
+        cache_valid_time: 3600
+
+    - name: Stop, disable and mask prometheus-node-exporter (Alloy provides host metrics)
+      ansible.builtin.systemd_service:
+        name: prometheus-node-exporter
+        state: stopped
+        enabled: false
+        masked: true
+      when: "'prometheus-node-exporter.service' in ansible_facts.services"
+
+    # ---- resource isolation ---------------------------------------------------------------------------------------
+    # Owned here because both hosts run this role; roles/monitoring puts Mimir, Loki and Grafana into the same slice
+    # (and its restart guard restarts them when this file changes).
+    - name: Install monitoring.slice (CPU, IO and memory caps of the monitoring units)
+      ansible.builtin.template:
+        src: monitoring.slice.j2
+        dest: /etc/systemd/system/monitoring.slice
+        owner: root
+        group: root
+        mode: "0644"
+      notify: [Reload systemd, Restart alloy]
+
+    - name: Create the drop-in directories of the agent services
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ item.name }}.service.d"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop: "{{ monitoring_agent_units }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Put each agent service into monitoring.slice with its own memory cap
+      ansible.builtin.template:
+        src: monitoring-dropin.conf.j2
+        dest: "/etc/systemd/system/{{ item.name }}.service.d/10-monitoring-slice.conf"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: "{{ monitoring_agent_units }}"
+      loop_control:
+        label: "{{ item.name }}"
+      notify: [Reload systemd, Restart alloy]
+
+    # ---- alloy ----------------------------------------------------------------------------------------------------
+    - name: Create the Alloy textfile collector directory
+      ansible.builtin.file:
+        path: "{{ monitoring_agent_textfile_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Alloy service settings (config path, LAN listener, no reporting)
+      ansible.builtin.template:
+        src: alloy.default.j2
+        dest: /etc/default/alloy
+        owner: root
+        group: root
+        mode: "0644"
+      notify: [Restart alloy]
+
+    - name: Alloy config
+      ansible.builtin.template:
+        src: config.alloy.j2
+        dest: /etc/alloy/config.alloy
+        owner: root
+        group: root
+        mode: "0644"
+        validate: alloy fmt %s
+      notify: [Restart alloy]
+
+    # ---- raspberry pi throttling flags ----------------------------------------------------------------------------
+    - name: Create the monitoring script directory
+      ansible.builtin.file:
+        path: /usr/local/lib/monitoring
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the throttling textfile script
+      ansible.builtin.copy:
+        src: rpi_throttled_textfile.py
+        dest: /usr/local/lib/monitoring/rpi_throttled_textfile.py
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the throttling service and timer
+      ansible.builtin.template:
+        src: "{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: [rpi-throttled.service, rpi-throttled.timer]
+      notify: [Reload systemd]
+
+    # ---- start and check ------------------------------------------------------------------------------------------
+    - name: Apply unit and config changes before starting
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start Alloy and the throttling timer
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop: [alloy, rpi-throttled.timer]
+
+    # Handlers are lost when a run fails after writing a config, so the next run would see nothing to change: restart
+    # Alloy when its config, drop-in or the slice is newer than its start.
+    - name: Restart Alloy when its config is newer than its start
+      ansible.builtin.shell: |
+        set -eu
+        restarted=""; d=/etc/systemd/system; slice=.service.d/10-monitoring-slice.conf
+        for entry in \
+          "alloy:/etc/default/alloy /etc/alloy/config.alloy $d/alloy$slice $d/monitoring.slice"; do
+          unit=${entry%%:*}; files=${entry#*:}
+          started=$(date -d "$(systemctl show -p ActiveEnterTimestamp --value "$unit")" +%s)
+          for f in $files; do
+            if [ -e "$f" ] && [ "$(stat -c %Y "$f")" -gt "$started" ]; then
+              systemctl restart "$unit"; restarted="$restarted $unit"; break
+            fi
+          done
+        done
+        echo "restarted:${restarted}"
+      args:
+        executable: /bin/bash
+      register: monitoring_agent_stale_restart
+      changed_when: monitoring_agent_stale_restart.stdout != 'restarted:'
+
+    - name: Wait until Alloy answers
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ monitoring_agent_alloy_port }}/-/ready"
+        status_code: 200
+      register: monitoring_agent_ready
+      until: monitoring_agent_ready.status == 200
+      retries: 24
+      delay: 5
+      changed_when: false
+
+# service_facts lists .service units only, so the timer is probed through its service.
+- name: Stop and disable Alloy and the throttling timer (monitoring_agent_enabled is false)
+  ansible.builtin.systemd_service:
+    name: "{{ item.unit }}"
+    enabled: false
+    state: stopped
+  loop:
+    - {unit: rpi-throttled.timer, probe: rpi-throttled.service}
+    - {unit: alloy, probe: alloy.service}
+  loop_control:
+    label: "{{ item.unit }}"
+  when:
+    - not monitoring_agent_enabled | bool
+    - item.probe in ansible_facts.services

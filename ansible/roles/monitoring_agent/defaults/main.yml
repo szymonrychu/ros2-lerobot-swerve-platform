@@ -1,0 +1,63 @@
+---
+# Grafana Alloy on every host: collects host, per-unit cgroup, systemd unit and RPi throttling metrics plus the journal,
+# and pushes metrics to the server's Mimir and logs to the server's Loki. Deploy with
+#   ./scripts/deploy-nodes.sh server monitoring   # first: the destination (roles/monitoring) must exist
+#   ./scripts/deploy-nodes.sh client monitoring
+# These defaults describe a host that runs only Alloy (the robot). Per-host keys live in group_vars/<host>.yml:
+# monitoring_host (required: the `host` label of every series and log stream), and on the server the 127.0.0.1 push
+# URLs, the stack scrape targets and the bigger slice; on the robot the node scrape targets and the cleanup flag.
+# false stops and disables Alloy and the throttling timer (packages, data and config stay).
+monitoring_agent_enabled: true
+
+# Alloy's HTTP server (UI, /metrics, /-/ready) on 0.0.0.0, LAN only.
+monitoring_agent_alloy_port: 12345
+
+# Scrape and collection interval of every target.
+monitoring_agent_interval: "5s"
+# Scrape timeout: below the interval (Alloy rejects a timeout above it; its default is 10 s).
+monitoring_agent_scrape_timeout: "4s"
+
+# Where Alloy pushes: Mimir's remote-write endpoint and Loki's push API on the server (LAN, no auth). While the server
+# is down Alloy keeps the samples in its remote-write WAL (/var/lib/alloy/data) and loki.write retries with backoff.
+monitoring_agent_metrics_url: http://server.ros2.lan:9009/api/v1/push
+monitoring_agent_logs_url: http://server.ros2.lan:3100/loki/api/v1/push
+
+# Our ROS2 nodes' /metrics endpoints ({node, address, path}), scraped as job ros2_nodes with a `node` label. Only the
+# robot has them (group_vars/client.yml); tests/test_node_metrics_wiring.py keeps them in sync with the node ports.
+monitoring_agent_node_targets: []
+# The monitoring services' own /metrics ({job, address}); the server lists Mimir, Loki and Grafana.
+monitoring_agent_stack_targets: []
+
+# systemd units the unix exporter's systemd collector reports (node_systemd_unit_state, restarts, start time): the
+# ROS2 nodes and every monitoring service of either host. Plain regex (the template escapes it for Alloy).
+monitoring_agent_systemd_unit_include: 'ros2-.*\.service|alloy\.service|mimir\.service|loki\.service|grafana-server\.service|nginx\.service'
+
+# How far back Alloy reads the journal on its first start (later starts resume from the saved position).
+monitoring_agent_journal_max_age: "12h"
+
+# Alloy textfile collector directory (the RPi throttling script writes rpi_throttled.prom here).
+monitoring_agent_textfile_dir: /var/lib/alloy/textfile
+# How often the throttling script runs (vcgencmd get_throttled).
+monitoring_agent_throttled_interval: "5s"
+
+# The robot ran Prometheus and Grafana itself until 2026-10-10; true (group_vars/client.yml) stops, disables and
+# purges them with their drop-ins, config and data. Never on the server, which runs Grafana now.
+monitoring_agent_remove_local_stack: false
+
+# monitoring.slice caps every monitoring unit of the host so it never starves the ROS2 nodes: a low CPU/IO weight loses
+# every contention (ROS units in system.slice have 100), CPUQuota is the CPU total, MemoryHigh throttles before the hard
+# MemoryMax. On the robot only Alloy runs there (~100-150 MB): 40% of one core and 300M. The server overrides these
+# for Mimir + Loki + Grafana + Alloy.
+monitoring_agent_slice_cpu_weight: 20
+monitoring_agent_slice_io_weight: 20
+monitoring_agent_slice_cpu_quota: "40%"
+monitoring_agent_slice_memory_max: "300M"
+monitoring_agent_slice_memory_high: "280M"
+
+# Per-unit caps of this role's units inside the slice. OOMScoreAdjust=500 makes the kernel kill monitoring before any
+# robot node.
+monitoring_agent_nice: 10
+monitoring_agent_oom_score_adjust: 500
+monitoring_agent_units:
+  - name: alloy
+    memory_max: "250M"
