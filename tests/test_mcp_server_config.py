@@ -187,6 +187,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "cameras",
         "floor_guard",
         "grasp",
+        "grip_profiles",
     }
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
@@ -242,6 +243,31 @@ def test_mcp_server_floor_guard_and_grasp_blocks_are_deployed() -> None:
     agent = node_config("claude_agent")
     assert {"grasp_object", "release_object"} <= set(agent["effector_tools"])
     assert "plan_grasp" in agent["sensor_tools"]
+
+
+def test_mcp_server_grip_profiles_block_is_deployed() -> None:
+    """grip_profiles: gentle < normal < firm presets within the hard caps, default normal, follower register topic."""
+    cfg = node_config("mcp_server")
+    grip = cfg["grip_profiles"]
+    presets = grip["presets"]
+    assert set(presets) == {"gentle", "normal", "firm"}
+    assert grip["default_grip_profile"] == "normal"
+    assert grip["torque_limit_max"] == 800 and grip["squeeze_max_rad"] == 0.08
+    torque = [presets[n]["torque_limit"] for n in ("gentle", "normal", "firm")]
+    squeeze = [presets[n]["squeeze_rad"] for n in ("gentle", "normal", "firm")]
+    assert torque == sorted(torque) and squeeze == sorted(squeeze)
+    assert all(t <= grip["torque_limit_max"] for t in torque)
+    assert all(q <= grip["squeeze_max_rad"] for q in squeeze)
+    assert presets["gentle"]["close_speed_rps"] < presets["normal"]["close_speed_rps"]
+    assert presets["gentle"]["target_load"] < presets["gentle"]["contact_effort_threshold"]
+    for preset in presets.values():
+        assert preset["close_speed_rps"] <= 0.5  # limits.gripper_velocity_rps default caps it
+        assert preset["crush_load"] > preset.get("target_load", 0)
+    # the grasp threshold comes from the profile now (a fixed close_effort_threshold would override every profile)
+    assert "close_effort_threshold" not in cfg["grasp"]
+    follower = yaml.safe_load(node_entry("lerobot_follower")["config"])
+    assert cfg["topics"]["follower_set_register"] == f"/{follower['namespace']}/set_register"
+    assert "gripper" in follower["publish_effort_joints"]  # holding_load / target_load read the gripper effort
 
 
 def test_mcp_server_monitor_block_has_ordered_thresholds() -> None:

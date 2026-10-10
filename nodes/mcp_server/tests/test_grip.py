@@ -1,9 +1,10 @@
 """Tests for per-object grip profiles: config (grip_profiles section, caps) and profile resolution (mcp_server.grip)."""
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
-from mcp_server.config import GripProfile, McpServerConfig
+from mcp_server.config import REPO_ROOT, GripProfile, McpServerConfig
 from mcp_server.grip import GripProfileOverride, resolve_grip_profile
 
 
@@ -111,3 +112,12 @@ def test_report_lists_the_applied_values() -> None:
     assert report["torque_limit"] == 700
     assert report["capped"] == []
     assert set(report) >= {"squeeze_rad", "close_speed_rps", "target_load", "contact_effort_threshold", "crush_load"}
+
+
+def test_deployed_grip_profiles_validate_and_match_the_defaults() -> None:
+    nodes = yaml.safe_load((REPO_ROOT / "ansible" / "group_vars" / "client.yml").read_text())["ros2_nodes"]
+    entry = next(n for n in nodes if n["name"] == "mcp_server")
+    cfg = McpServerConfig.model_validate(yaml.safe_load(entry["config"]))
+    assert cfg.grip_profiles == McpServerConfig().grip_profiles
+    assert cfg.grasp.close_effort_threshold is None
+    assert cfg.topics.follower_set_register == "/follower/set_register"

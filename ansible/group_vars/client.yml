@@ -1019,6 +1019,8 @@ ros2_nodes:
         # Web-UI grasp actions: JSON requests in, JSON results out (nodes/mcp_server/README.md, "Grasp macros").
         grasp_command: /grasp/command
         grasp_result: /grasp/result
+        # Gripper torque_limit writes of grip profiles go to the follower bridge (RAM registers only).
+        follower_set_register: /follower/set_register
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml
@@ -1178,7 +1180,6 @@ ros2_nodes:
         skim_clearance_m: 0.003         # scoop: fixed jaw bottom above the surface when skimming
         max_object_width_m: 0.08
         min_object_width_m: 0.01       # narrower objects are rejected: the jaws cannot hold them
-        close_effort_threshold: 300     # close_until_effort contact load
         hold_effort_min: 100            # verified grasp: load still felt after the close
         min_hold_gap_rad: 0.08          # verified grasp: jaw stopped this far short of closed
         interpolation_step_m: 0.005     # straight-line IK sample spacing
@@ -1201,6 +1202,38 @@ ros2_nodes:
           - {strategy: top_down}
           - {strategy: angled, approach_pitch_deg: 45}
           - {strategy: scoop}
+      # Per-object grip strength (nodes/mcp_server/README.md, "Grip profiles"): set_gripper / grasp_object /
+      # the motion queue / the web UI pick a preset (or inline overrides) per object. Values in servo units, tune on
+      # the real gripper: torque_limit is the gripper servo's Torque_Limit RAM register (0.1 % of max torque, written
+      # before the close, default restored after every open, release, abort and at startup), loads are the decoded
+      # gripper effort. Hard caps torque_limit_max / squeeze_max_rad apply to every profile, preset or inline.
+      grip_profiles:
+        default_grip_profile: normal
+        torque_limit_max: 800         # never above 80 % torque (the SO-101 gripper burns out squeezing blocked objects)
+        squeeze_max_rad: 0.08
+        closing_load_sign: 1          # decoded effort sign while closing on an object (gripper not inverted)
+        hold_check_delay_s: 0.25      # holding_load / slipping sampled this long after the hold (twice)
+        slip_threshold_rad: 0.01      # jaw closing more than this between the samples = slipping
+        presets:
+          gentle:                     # fragile, soft or light objects
+            squeeze_rad: 0.02
+            torque_limit: 250
+            close_speed_rps: 0.25
+            target_load: 120          # stop closing once the closing load reaches this
+            contact_effort_threshold: 150
+            crush_load: 220           # holding load above this reports crush_risk
+          normal:                     # ordinary objects (squeeze, speed and contact load used before profiles)
+            squeeze_rad: 0.03
+            torque_limit: 500
+            close_speed_rps: 0.5
+            contact_effort_threshold: 300
+            crush_load: 450
+          firm:                       # heavy or slippery objects, tools
+            squeeze_rad: 0.06
+            torque_limit: 700
+            close_speed_rps: 0.5
+            contact_effort_threshold: 400
+            crush_load: 650
   - name: poi_store
     node_type: poi_store
     present: true
