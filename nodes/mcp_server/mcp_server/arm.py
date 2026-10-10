@@ -3,21 +3,23 @@
 All commands go to filter_node's autonomy input; filter_node arbitrates against the leader arm and the web UI.
 """
 
+import json
 import logging
 import math
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal, Protocol
 
 from .config import ArmBaseOffset, LimitSettings, McpServerConfig
-from .floor_guard import FloorGuard, FloorOverride, JawModel, TiltSample, retime, step_scales
+from .floor_guard import FloorGuard, FloorOverride, GuardReport, JawModel, TiltSample, retime, step_scales
 from .grip import GripChoice, ResolvedGrip, resolve_grip_profile
 from .home_store import HomeStoreError, load_home, save_home
 from .ik import ArmKinematics, UnreachableError, grasp_offset
 from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult, SettlePolicy
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
+from .sag import SETTLE_LOG_MARKER, GravityModel, SagCompensator, compensate
 from .staleness import Stamped, is_fresh
 from .trajectory import (
     JointLimits,
@@ -40,6 +42,10 @@ ROLL_JOINT = "wrist_roll"
 # Gripper servo RAM register a grip profile writes (feetech bridge set_register; 0.1 % of max torque).
 TORQUE_LIMIT_REGISTER = "torque_limit"
 LOGGER = logging.getLogger("mcp_server.arm")
+# A trajectory_end motion's settle record (commanded vs settled pose, for the sag fit) is logged by the keepalive this
+# long after the motion returned, unless another motion started meanwhile.
+SETTLE_PROBE_S = 1.0
+SAG_LOGGER = logging.getLogger("mcp_server.sag")
 
 OrphanCheck = Literal["pending", "released", "clear"]
 
@@ -99,6 +105,31 @@ def beyond_converge(
         list[str]: The joints still off target (empty = converged).
     """
     return [j for j in joints if abs(goal[j] - measured[j]) > limits.converge_tolerance_for(j)]
+
+
+def lower_clearance(target: GuardReport, commanded: GuardReport) -> GuardReport:
+    """Merge the slow-zone reports of the target samples and of their sag-compensated (over-commanded) versions.
+
+    The arm should settle on the target, but an arm that does not sag (load-free, or resting on something) goes to
+    the over-commanded pose: each sample keeps the lower clearance (and the slower scale) of the two.
+
+    Args:
+        target (GuardReport): Report of the uncompensated samples.
+        commanded (GuardReport): Report of the compensated samples (same length).
+
+    Returns:
+        GuardReport: The merged report (surface and settings of the target report).
+    """
+    picks = [c < t for t, c in zip(target.clearances, commanded.clearances, strict=True)]
+    return replace(
+        target,
+        scales=[min(a, b) for a, b in zip(target.scales, commanded.scales, strict=True)],
+        clearances=[c if p else t for p, t, c in zip(picks, target.clearances, commanded.clearances, strict=True)],
+        lowest_points=[
+            f"{c} (sag over-command)" if p else t
+            for p, t, c in zip(picks, target.lowest_points, commanded.lowest_points, strict=True)
+        ],
+    )
 
 
 class ArmError(RuntimeError):
@@ -233,6 +264,78 @@ class ArmController:
         self._torque_written_at: float | None = None
         # Guards _held, _acquired_at, _last_setpoint, _last_target, _relax_hold, _streaming and every autonomy publish.
         self._lock = threading.Lock()
+        # Gravity sag compensation: every published setpoint (motion, hold, keepalive) is target - predicted deflection;
+        # _last_setpoint/_last_target, convergence and tracking stay in target (uncompensated) space.
+        sag = config.arm.sag_compensation
+        self.sag: SagCompensator | None = (
+            SagCompensator(GravityModel(config.arm.urdf_path), sag.k, sag.max_rad, kinematics.offsets, sag.k_lowering)
+            if sag.enabled
+            else None
+        )
+        self._sag_modes: dict[str, str] = {} if self.sag is None else self.sag.hold_modes()
+        self._sag_gains: dict[str, float] = {} if self.sag is None else self.sag.gains_for(self._sag_modes)
+        # Gain ramp of the running motion: (gains at the start, gains at the goal, approach modes at the goal).
+        self._sag_plan: tuple[dict[str, float], dict[str, float], dict[str, str]] | None = None
+        # Pending settle record of a trajectory_end motion: (monotonic due time, goal, status).
+        self._settle_probe: tuple[float, dict[str, float], str] | None = None
+
+    @property
+    def sag_modes(self) -> dict[str, str]:
+        """Approach mode per sag-compensated joint (lifting, lowering or hold); empty when compensation is off.
+
+        Returns:
+            dict[str, str]: Joint name -> mode.
+        """
+        return dict(self._sag_modes)
+
+    def commanded(self, setpoint: dict[str, float], gains: dict[str, float] | None = None) -> dict[str, float]:
+        """Setpoint actually published: the target minus the predicted gravity deflection of the loaded joints.
+
+        Compensation is applied in URDF space inside the joint limits minus margin (a target already inside the margin
+        is never pushed further out); wrist_roll, shoulder_pan and the gripper pass through. Without compensation (or
+        without every arm joint in the setpoint) the setpoint itself is returned. Never takes the lock.
+
+        Args:
+            setpoint (dict[str, float]): Target joint positions (measured space).
+            gains (dict[str, float] | None): Gains to apply; None for the current ones.
+
+        Returns:
+            dict[str, float]: Commanded joint positions (measured space).
+        """
+        if self.sag is None or any(j not in setpoint for j in self.kin.joint_names):
+            return setpoint
+        chain = {j: setpoint[j] for j in self.kin.joint_names}
+        deflection = self.sag.deflection(chain, self._sag_gains if gains is None else gains)
+        limits = self.cfg.limits
+        urdf = compensate(
+            self.kin.to_urdf(chain),
+            deflection,
+            self.limits,
+            limits.arm_limit_margin_rad,
+            limits.arm_limit_margin_overrides,
+        )
+        return setpoint | self.kin.to_measured({j: urdf[j] for j in deflection})
+
+    def use_hold_modes_locked(self) -> None:
+        """Switch the compensation to the hold gains (lock held): a hold at a measured pose sits mid friction band."""
+        if self.sag is not None:
+            self._sag_modes = self.sag.hold_modes()
+            self._sag_gains = self.sag.gains_for(self._sag_modes)
+
+    def ramp_sag(self, tick: int, ticks: int) -> None:
+        """Move the compensation gains tick/ticks of the way to the running motion's goal gains.
+
+        Args:
+            tick (int): Setpoints published so far, including the next one.
+            ticks (int): Setpoints of the motion.
+        """
+        if self.sag is None or self._sag_plan is None:
+            return
+        start, end, modes = self._sag_plan
+        with self._lock:
+            self._sag_gains = SagCompensator.blend_gains(start, end, tick / ticks if ticks else 1.0)
+            if tick >= ticks:
+                self._sag_modes = dict(modes)
 
     @property
     def settling(self) -> list[str]:
@@ -329,7 +432,7 @@ class ArmController:
         with self._lock:
             if not self._held:
                 return False
-            self.backend.publish_command(setpoint)
+            self.backend.publish_command(self.commanded(setpoint))
             self.remember_locked(setpoint)
         return True
 
@@ -349,6 +452,7 @@ class ArmController:
         self._last_target = None
         self._relax_hold = None
         self._settling = []
+        self._settle_probe = None
 
     def schedule_relax(self, joints: list[str]) -> None:
         """Hold the settled target for arm_settle_hold_s, then relax these joints to their measured pose.
@@ -363,7 +467,9 @@ class ArmController:
     def relax_due_locked(self) -> None:
         """Relax a due residual hold (lock held): joints still outside the converge tolerance get the measured pose
         as hold setpoint, so a joint stalled against an obstacle is not pushed at the torque limit indefinitely. The
-        intent (_last_target) is kept. Without fresh joint states nothing changes and the relax is retried."""
+        intent (_last_target) is kept. Without fresh joint states nothing changes and the relax is retried. With sag
+        compensation the published hold is the measured pose plus its compensation (commanded()), so the arm does not
+        sag back after the relax."""
         if self._relax_hold is None or self._last_setpoint is None or self._last_target is None:
             return
         due, joints = self._relax_hold
@@ -388,7 +494,8 @@ class ArmController:
             if not self._held:
                 self._held = True
                 self._acquired_at = self.backend.now()
-            self.backend.publish_command(setpoint)
+            self.use_hold_modes_locked()  # acquire / hold publish a measured pose
+            self.backend.publish_command(self.commanded(setpoint))
             self.remember_locked(setpoint)
 
     def drop_lease(self) -> None:
@@ -512,7 +619,8 @@ class ArmController:
                 return
             if not self._streaming and self._last_setpoint is not None:
                 self.relax_due_locked()
-                self.backend.publish_command(self._last_setpoint)
+                self.backend.publish_command(self.commanded(self._last_setpoint))
+                self.settle_probe_due_locked()
 
     def validate_targets(self, targets: dict[str, float]) -> None:
         """Reject empty, unknown or non-finite joint targets.
@@ -1315,7 +1423,11 @@ class ArmController:
                 with self._lock:
                     intent = dict(self._last_target) if self._last_target is not None else {}
                 setpoint = positions | {j: v for j, v in intent.items() if j != self.gripper}
+            else:
+                with self._lock:
+                    self.use_hold_modes_locked()
             self.command(setpoint)  # no-op once released
+        self.note_settle(status, goal, sample)
         finished_at = self.backend.now()
         trajectory_end = finished_at if self._trajectory_end is None else self._trajectory_end
         judged = [j for j in self._judged if positions is not None and j in positions]
@@ -1409,6 +1521,10 @@ class ArmController:
     ) -> list[dict[str, float]]:
         """Quintic setpoints from start to goal, with the slow-zone steps time-scaled; records the slow-zone summary.
 
+        With sag compensation the approach mode of every loaded joint is taken from the planned final approach, the
+        compensation gains ramp from their current values to the goal's over the motion (_sag_plan), and the slow zone
+        is evaluated on the target samples AND on their over-commanded versions (lower clearance wins).
+
         With blend the path samples are via points of one continuous spline (move_blend) and the setpoint index at
         which each via is reached (after the slow-zone time scaling) is recorded in _via_ticks.
 
@@ -1434,6 +1550,19 @@ class ArmController:
             points = path_trajectory(start, path, vmax, rate)
         surface = self.floor_guard.surface(floor, self.tilt_source(), self.backend.now())
         report = self.floor_guard.evaluate([start, *points], surface)
+        self._sag_plan = None
+        if self.sag is not None:
+            with self._lock:
+                prior_gains, prior_modes = dict(self._sag_gains), dict(self._sag_modes)
+            modes = self.sag.approach_modes(points, goal, prior_modes)
+            final = self.sag.gains_for(modes)
+            self._sag_plan = (prior_gains, final, modes)
+            n = len(points)
+            over = [self.commanded(start, prior_gains)] + [
+                self.commanded(p, SagCompensator.blend_gains(prior_gains, final, (i + 1) / n))
+                for i, p in enumerate(points)
+            ]
+            report = lower_clearance(report, self.floor_guard.evaluate(over, surface))
         self._slow_zone = report.summary()
         scales = step_scales(report.scales)
         ends: list[int] = []
@@ -1504,6 +1633,7 @@ class ArmController:
         self._tracking_limit = tracking_limit(limits.arm_tracking_error_rad, limits.arm_tracking_lag_s, vmax)
         started = self.backend.now()
         self._moving = list(moving)
+        self._settle_probe = None
         jaw_history: list[tuple[float, float, float]] = []
 
         def contact_gate(latest: JointSample | None) -> tuple[float | None, float | None]:
@@ -1530,11 +1660,13 @@ class ArmController:
                 verdict = self.check(latest, tracked, *contact_gate(latest))
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
+                self.ramp_sag(tick + 1, len(points))
                 if not self.command(point):
                     return self.finish("stopped", "control released", goal, sample, clamped, started, hold=False)
                 if on_via is not None and tick in via_at:
                     on_via(via_at[tick])
                 self.backend.sleep(period)
+            self.ramp_sag(len(points), len(points))
             self._trajectory_end = self.backend.now()
             if settle == "trajectory_end":
                 return self.finish_at_trajectory_end(goal, sample, judged, tracked, clamped, started)
@@ -1564,7 +1696,8 @@ class ArmController:
                     return self.finish(
                         "converged",
                         f"settled with residual error ({errors}); target kept commanded for "
-                        f"{self.cfg.limits.arm_settle_hold_s} s, then relaxed to the measured pose",
+                        f"{self.cfg.limits.arm_settle_hold_s} s, then relaxed to the measured pose"
+                        + (" plus its sag compensation" if self.sag is not None else ""),
                         goal,
                         sample,
                         clamped,
@@ -1589,6 +1722,78 @@ class ArmController:
         finally:
             with self._lock:
                 self._streaming = False
+
+    def settle_record(
+        self,
+        status: str,
+        goal: dict[str, float],
+        sample: JointSample,
+        settled: bool,
+        gains: dict[str, float],
+        modes: dict[str, str],
+    ) -> dict[str, object]:
+        """Structured record of one arm move for the sag fit: target, commanded, settled measured pose, residual.
+
+        Args:
+            status (str): Motion status.
+            goal (dict[str, float]): Uncompensated goal (measured space).
+            sample (JointSample): Joint sample of the settled (or final) pose.
+            settled (bool): Whether the arm had settled (final policy convergence, or the trajectory_end probe).
+            gains (dict[str, float]): Compensation gains of the hold.
+            modes (dict[str, str]): Approach modes of the hold.
+
+        Returns:
+            dict[str, object]: JSON-ready record (rad, rounded to 1e-4); commanded equals target when compensation is
+                off.
+        """
+        chain = [j for j in self.kin.joint_names if j in goal and j in sample.positions]
+        commanded = self.commanded(goal, gains)
+        return {
+            "status": status,
+            "settled": settled,
+            "compensation_enabled": self.sag is not None,
+            "target": {j: round(goal[j], 4) for j in chain},
+            "commanded": {j: round(commanded[j], 4) for j in chain},
+            "measured": {j: round(sample.positions[j], 4) for j in chain},
+            "residual": {j: round(goal[j] - sample.positions[j], 4) for j in chain},
+            "modes": dict(modes),
+            "gains": {j: round(v, 5) for j, v in gains.items()},
+        }
+
+    def note_settle(self, status: str, goal: dict[str, float], sample: JointSample | None) -> None:
+        """Log the settle record of a finished arm move now ('final' policy) or arm the keepalive probe
+        (trajectory_end: the arm settles after the call returned). Gripper-only motions and aborts log nothing.
+
+        Args:
+            status (str): Motion status.
+            goal (dict[str, float]): Uncompensated goal.
+            sample (JointSample | None): Last sample.
+        """
+        if sample is None or status not in ("converged", "timeout") or self._moving == [self.gripper]:
+            return
+        if self._settle_policy == "final" or status == "timeout":
+            with self._lock:
+                gains, modes = dict(self._sag_gains), dict(self._sag_modes)
+            record = self.settle_record(status, goal, sample, status == "converged", gains, modes)
+            SAG_LOGGER.info("%s %s", SETTLE_LOG_MARKER, json.dumps(record))
+            return
+        with self._lock:
+            if self._held:
+                self._settle_probe = (self.backend.now() + SETTLE_PROBE_S, dict(goal), status)
+
+    def settle_probe_due_locked(self) -> None:
+        """Log a due trajectory_end settle record with the current fresh sample (lock held; retried without one)."""
+        if self._settle_probe is None:
+            return
+        due, goal, status = self._settle_probe
+        if self.backend.now() < due:
+            return
+        sample = self.fresh_sample()
+        if sample is None:
+            return
+        self._settle_probe = None
+        record = self.settle_record(status, goal, sample, True, dict(self._sag_gains), dict(self._sag_modes))
+        SAG_LOGGER.info("%s %s", SETTLE_LOG_MARKER, json.dumps(record))
 
     def start_from_settling(self, start: dict[str, float], moving: list[str]) -> dict[str, float]:
         """Start the joints this motion names, and that a previous trajectory_end motion left settling, from their

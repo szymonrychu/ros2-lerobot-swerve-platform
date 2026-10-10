@@ -11,6 +11,7 @@ from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
 
 from .models import SettlePolicy
+from .sag import SAG_JOINTS
 
 CONFIG_ENV = "MCP_SERVER_CONFIG"
 TOKEN_ENV = "MCP_SERVER_TOKEN"
@@ -42,6 +43,8 @@ ARM_BASE_HEIGHT_M = 0.100
 ARM_MOUNT_X_M = 0.0592
 ARM_MOUNT_Y_M = -0.05  # 5 cm to the right of the base_link centre line
 MOUNT_HEIGHT_TOLERANCE_M = 1e-6
+# Largest configurable sag compensation per joint (rad): compensation only ever adds commanded travel up to this.
+HARD_MAX_SAG_RAD = 0.2
 # Grasp strategies the planner registers (grasp.STRATEGIES); "auto" tries grasp.auto_order.
 GraspStrategyName = Literal["scoop", "angled", "top_down"]
 
@@ -317,6 +320,42 @@ class ToolOffset(StrictModel):
     z: float = 0.0
 
 
+class SagCompensationSettings(StrictModel):
+    """Gravity sag compensation (mcp_server.sag): commanded joint target = target - predicted deflection.
+
+    The deflection of a gravity-loaded joint is k * tau (tau: static gravity torque from the URDF inertials at the
+    target, N m), saturated at max_rad. k applies after a lifting approach (the joint's last motion went against
+    gravity), k_lowering after a lowering one; a hold at a measured pose uses their mean. Convergence and the tracking
+    check still compare the measured joints with the uncompensated target. Off by default; gains are fitted from the
+    logged arm_settle records (nodes/mcp_server/README.md, "Gravity sag compensation").
+    """
+
+    enabled: bool = False
+    # Compliance per joint (rad per N m) after a lifting approach; missing joints are not compensated.
+    k: dict[str, float] = Field(default_factory=dict)
+    # Compliance per joint (rad per N m) after a lowering approach; missing joints are not compensated.
+    k_lowering: dict[str, float] = Field(default_factory=dict)
+    max_rad: float = Field(default=0.12, gt=0.0, le=HARD_MAX_SAG_RAD)
+
+    @field_validator("k", "k_lowering")
+    @classmethod
+    def check_gains(cls, v: dict[str, float]) -> dict[str, float]:
+        """Require modelled joints and finite, non-negative gains.
+
+        Args:
+            v (dict[str, float]): Joint name -> gain (rad per N m).
+
+        Returns:
+            dict[str, float]: The validated gains.
+        """
+        for name, gain in v.items():
+            if name not in SAG_JOINTS:
+                raise ValueError(f"sag compensation: unknown joint {name!r}; use one of {list(SAG_JOINTS)}")
+            if not math.isfinite(gain) or gain < 0.0:
+                raise ValueError(f"sag compensation gain for {name} must be finite and >= 0, got {gain}")
+        return v
+
+
 class ArmSettings(StrictModel):
     """Arm model, home pose storage and gripper mapping."""
 
@@ -354,6 +393,8 @@ class ArmSettings(StrictModel):
     # Horizontal reach on the floor around the shoulder pan axis, drawn as the reach annulus on annotated images.
     reach_outer_m: float = Field(default=0.25, gt=0.0, le=1.0)
     reach_inner_m: float = Field(default=0.05, ge=0.0)
+    # Gravity sag compensation of arm joint targets and holds (off by default).
+    sag_compensation: SagCompensationSettings = Field(default_factory=SagCompensationSettings)
 
     @model_validator(mode="after")
     def mount_height_consistent(self) -> "ArmSettings":
