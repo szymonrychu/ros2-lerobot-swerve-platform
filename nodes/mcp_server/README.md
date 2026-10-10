@@ -21,7 +21,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | Tool | What it does |
 |---|---|
 | `get_robot_state` | map -> base_link pose (TF), odometry twist, latest Nav2 goal status, collision monitor action (if published), arm joints/efforts, gripper effort, filter_node active source, lease state, data age per source. Stale data is omitted and listed in `notes`. |
-| `get_camera_image(camera, max_px<=1024)` | Default size `limits.default_camera_px` (384 px on the longest side; ask for more only to read detail, images fill the context: 640x480 is about 400 tokens). Waits for the next frame on a persistent per-camera subscription (created at startup, never destroyed: per-call subscriptions raced the executor and killed it), with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.front_camera` (default `/overview_camera/image_raw/compressed`, 640x480 overhead Camera Module 3 looking down at the front of the robot, the arm and the floor in front; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + capture stamp; error if no frame within `image_timeout_s` or the frame is older than 1 s. |
+| `get_camera_image(camera, max_px<=1024)` | Default size `limits.default_camera_px` (384 px on the longest side; ask for more only to read detail, images fill the context: 640x480 is about 400 tokens). Waits for the next frame on a persistent per-camera subscription (created at startup, never destroyed: per-call subscriptions raced the executor and killed it), with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.front_camera` (default `/overview_camera/image_raw/compressed`, 640x480 overhead Camera Module 3 looking down at the front of the robot, the arm and the floor in front; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + metadata: capture stamp, the picture's `width` x `height`, `calibrated_image` (the size the pixel tools work in, 640x480 here), `scale_to_calibrated` and a `pixel_note` saying to pass `image_width` / `image_height` with pixels read from this picture; error if no frame within `image_timeout_s` or the frame is older than 1 s. |
 | `get_body_state` | Body vitals (sensor, always allowed): per-servo latest temperature / load / current / voltage / status flags with data age, hottest servo, battery V, per-cell V, margin to cut-off and cut-off state, IMU roll/pitch/tilt and last bump, wheel slip residual, commanded vs measured base speed, CPU temperature and firmware throttling flag, active source + lease, last 10 events. Missing data is `null` with a reason in `notes`. |
 | `get_map_summary(include_png, radius_m)` | Nearest `/scan_filtered` obstacle in 8 sectors around base_link, `/map` size and known/occupied/free cells, robot pose, optional small PNG of the map around the robot. |
 | `navigate_to_pose(x, y, yaw, frame='map', timeout_s, precise=false)` | Nav2 `NavigateToPose`; by default the goal ends early (cancelled, base zeroed, status `succeeded`) as soon as the measured pose is within `nav.intermediate_xy_tolerance_m` / `nav.intermediate_yaw_tolerance_deg` (3 cm / 5 deg); `precise=true` waits for Nav2's own checker (`nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg`, 1 cm / 2 deg, slower). Blocks until result/timeout (goal cancelled on timeout or stop); returns result and final pose. The description states the goal precision from `nav.goal_xy_tolerance_m` / `nav.goal_yaw_tolerance_deg` (default 1 cm / 2 deg, keep equal to the Nav2 goal checker) and that a sideways goal first turns the robot toward the path (front leading) and turns back to the goal heading at the end. |
@@ -32,16 +32,16 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
 | `move_arm_joints(targets, speed_scale<=0.5, settle=None)` | `settle`: `trajectory_end` (default; `final` when the call moves the gripper joint, `limits.arm_default_settle`) or `final`, see the safety model.  Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `speed_scale` 0.5 is the maximum, `limits.arm_max_joint_velocity_rps` (default 1.0 rad/s); the description states the configured value. A `wrist_roll` change above `limits.roll_guard_min_change_rad` is refused while the gripper is open wider than `limits.roll_max_gripper_open_rad` (see Wrist roll guard). `converged` results may carry `residual_error` (see Safety model). |
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None, settle=None)` | `settle` as for `move_arm_joints`.  ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.104, measured 2026-10-10; see Arm mount); the tool descriptions and `get_arm_state.floor_z_m` state it. Motions near or below the effective surface are slowed (never blocked) by the floor slow zone; `surface_z_m`, `tilt_override_deg` and `surfaces` (also on `move_arm_joints`, `set_gripper` and `arm_home`; see Surface regions) shift it per call and results report `slow_zone`. |
-| `set_gripper(open_fraction | close_until_effort, effort_threshold, grip_profile, surfaces)` | Open to a fraction (0 closed, 1 open) or close with a grip profile (see Grip profiles) until `abs(effort) >= threshold` (default: the profile's `contact_effort_threshold`) or the closing load reaches the profile's `target_load` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.15 rad) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled with the command at least `gripper_stall_lead_rad` (0.15) ahead of it. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
+| `set_gripper(open_fraction | close_until_effort, effort_threshold, grip_profile, surfaces)` | Open to a fraction (0 closed, 1 open) or close with a grip profile (see Grip profiles) until `abs(effort) >= threshold` (default: the profile's `contact_effort_threshold`) or the closing load reaches the profile's `target_load` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.10 rad; was 0.15 until a 39 mm jar was refused at 0.147 rad on 2026-10-10) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). A stall or contact within `limits.gripper_empty_stall_rad` (0.08 rad, about 6 mm) of closed is an empty jaw: `closed_no_contact` with "closed without contact: the jaw stopped X rad before closed ...", never `grasped` (2026-10-10: the empty firm close stalled 0.055 rad before closed at load 148). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled with the command at least `gripper_stall_lead_rad` (0.15) ahead of it. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
 | `plan_grasp(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Dry-run grasp plan (sensor, no motion): outcome `planned` / `infeasible` with reasons, the resolved `grip_profile` (an unknown profile is refused), chosen strategy, pitch, wrist roll, jaw opening, waypoints and slow-zone annotations. See Grasp macros. |
-| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Plan and execute (motion): outcome `grasped` / `missed` / `aborted` / `infeasible`, with the executed steps, the final gripper position/load and the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`; see Grip profiles). See Grasp macros. |
+| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Plan and execute (motion): outcome `grasped` / `missed` / `aborted` / `infeasible`, with the executed steps (each with the `residual_error` of arm joints off their intended target), the final gripper position/load, the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`; see Grip profiles), `residual_error` and `warnings` (joints off their target beyond their converge tolerance) and `held_pose` (measured jaw centre and tool point against the last waypoint). See Grasp macros. |
 | `release_object(params, surface_z_m, tilt_override_deg, surfaces)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
-| `pixel_to_ground(camera, u, v, surface_height_m=0.0)` | Point seen at a pixel (sensor): `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
+| `pixel_to_ground(camera, u, v, surface_height_m=0.0, image_width, image_height)` | Point seen at a pixel (sensor). **u, v are pixels of the calibrated image size** (640x480; `get_annotated_camera_image` and `mark_candidate_points` images) unless `image_width` / `image_height` give the size of the image the pixel came from: `get_camera_image` returns 384x288 by default, and an unscaled small-image pixel lands at the wrong place (2026-10-10). Both sizes are needed and must keep the calibrated aspect (a crop is refused); the result then also reports `pixel_input` (what was passed and the scale). Returns `pixel` (calibrated size), `image` (calibrated size), `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
 | `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
-| `mark_candidate_points(camera, region, spacing_px=40, max_points=40, surface_height_m=0.0)` | Image with numbered dots on a pixel grid plus a table `{set_id, surface_height_m, points:[{n, u, v, ground_base_link{x,y,z}, ground_map}]}`; the points are intersected with the plane at floor + `surface_height_m` (as in `pixel_to_ground`); the last 10 sets are kept. |
-| `resolve_candidate(set_id, n)` | Stored coordinates of one numbered point, with its age and whether the base/arm moved since. |
-| `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z=0.0)` | Store one marker sample (pixel + measured floor point + parent-link pose + the raw measured arm `joints` when fresh joint states exist) in `cameras.calibration_dir`. |
+| `mark_candidate_points(camera, region, spacing_px=40, max_points=40, surface_height_m=0.0, image_width, image_height)` | Image (calibrated size) with numbered dots on a pixel grid plus a table `{set_id, surface_height_m, image {width, height}, points:[{n, u, v, ground_base_link{x,y,z}, ground_map}]}`; the points are intersected with the plane at floor + `surface_height_m` (as in `pixel_to_ground`); the last 10 sets are kept. `region` is in calibrated pixels unless `image_width` / `image_height` give the size it was read in. |
+| `resolve_candidate(set_id, n)` | Stored coordinates of one numbered point (its u, v in the calibrated `image` size), with its age and whether the base/arm moved since. |
+| `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z=0.0, image_width, image_height)` | Store one marker sample (u, v scaled from `image_width` x `image_height` to the intrinsics' size when given; needs the intrinsics) (pixel + measured floor point + parent-link pose + the raw measured arm `joints` when fresh joint states exist) in `cameras.calibration_dir`. |
 | `solve_camera_calibration(camera, initial)` | Fit the mount pose to the stored samples; returns `rms_px` and a YAML snippet for `client.yml` (never edits the config). |
 | `clear_calibration_samples(camera)` | Delete the stored samples of a camera. |
 | `get_topdown_view(radius_m=2.5, layers=all, px=480)` | Robot-up PNG centred on the robot (see Perception and memory) plus metadata `pose`, `scale_m_per_px`, `layers_present`, `layers_missing` (reason each), `data_ages`. Sensor. |
@@ -103,6 +103,12 @@ defaults to the mount measured on the robot 2026-10-10 `{x: 0.0592, y: -0.05, z:
   the STORED values with `age_s`, `robot_moved_since` and `arm_moved_since`: after the base moved `ground_base_link` is stale
   (`ground_map` stays valid); after the arm moved the pixel no longer matches the live image. `resolve_candidate` also
   returns the `surface_height_m` the set was made with.
+- Image sizes: the pixel tools work in the calibrated image size (the intrinsics' width x height, 640x480 for both
+  cameras). `get_camera_image` defaults to 384x288 (`limits.default_camera_px`), so a pixel read from it must be passed
+  with `image_width` / `image_height` (scaled by `camera_scene.pixel_scale`; both or neither, same aspect within 2 %).
+  Without them the pixel is taken as a calibrated-size pixel (the behaviour before 2026-10-10, kept for pixels from
+  `get_annotated_camera_image` / `mark_candidate_points`). The claude_agent prompt tells the agent to always pass the
+  size or to pick pixels on the annotated image.
 - Uncertainty: flat floor assumed; error grows with distance (about 1 px of pixel error is several cm far away); the
   gripper camera pose comes from measured joints (servo sag shifts it by millimetres); hfov intrinsics are approximate.
 
@@ -464,8 +470,15 @@ New strategies plug into `grasp.STRATEGIES` (name -> function returning candidat
 Output `GraspPlan`: ordered waypoints `pre_grasp` (lifted by `pre_grasp_clearance_m` above the approach start; the
 wrist roll changes here, gripper at most `limits.roll_max_gripper_open_rad`), `open` (opening for the object),
 `approach` (straight line to `approach_distance_m` before the object), `grasp` (straight slide), `close`, `lift`
-(`lift_height_m` up), `retreat` (`retreat_distance_m` radially back), each with the tool point target, pitch, roll,
-gripper command, speed scale and IK joints; the straight segments carry joint samples every `interpolation_step_m`
+(`lift_height_m` up), `retreat` (`retreat_distance_m` radially back), each with the target x, y, z, pitch, roll,
+gripper command, speed scale (`pre_grasp` / `open`: `approach_speed_scale`, default 0.3, capped to
+`limits.arm_max_speed_scale`; the straight lines `slide_speed_scale` or `lift_speed_scale`), IK joints and
+`tool_point` (FK of the fixed jaw inner face at those joints). `angled` and `top_down` centre the object between the
+jaws: the plan's `grasp_shift` `{object_width_m, shift_m (half the width), jaw_open_axis}` says so, the waypoint x, y, z
+is then the **jaw centre** (the object centre) and `tool_point` lies `shift_m` beside it against the opening direction.
+The arm therefore stands sideways of a plain `move_arm_cartesian` to the same x, y, z (6.5 cm cube at 0.37 m reach:
+shoulder_pan -0.732 centred vs -0.636 plain, the tool point 3.3 cm off the object centre). `scoop` has no shift
+(x, y, z is the tool point); the straight segments carry joint samples every `interpolation_step_m`
 (IK seeded from the previous sample). Feasibility: reachable (IK verified by FK), joints within limits minus margin,
 no joint jump above `max_joint_jump_rad` between samples, no stretched-arm stall pose (shoulder_lift above
 `stall_shoulder_lift_rad` 1.85 with elbow_flex at or below `stretched_elbow_max_rad` 0; negative elbow_flex stretches),
@@ -511,7 +524,9 @@ reach 0.00 -> 0.00 s.
 
 Runs a plan through `ArmController` (lease, stop, roll guard, limit clamping, tracking/stale aborts, slow zone): if the
 roll changes and the gripper is open wider than half, it first half-opens; moves to the lifted pre-grasp keeping the
-current roll, rolls there, opens to the planned opening, approaches and slides (`move_path` at the waypoint speed,
+current roll (at the planned `approach_speed_scale`, per-call via `params`, default 0.3, never above
+`limits.arm_max_speed_scale`; before 2026-10-10 these moves ran at the maximum 0.5 with no override), rolls there at
+the same speed, opens to the planned opening, approaches and slides (`move_path` at the waypoint speed,
 `slide_speed_scale`),
 closes with `close_until_effort` using `params.grip_profile` (see Grip profiles; `close_effort_threshold` overrides the
 profile's contact threshold when set; never a full squeeze: the effort/stall detection and the
@@ -522,6 +537,27 @@ retreats: `grasped`. A close on nothing
 refusal or a stop (stop tool, or the service `stop`) stops and holds: `aborted` with the reason, and the default
 gripper torque limit is restored. Results carry the close's `grip_profile`, `holding_load`, `slipping` and
 `crush_risk`.
+
+Hold at the intent: every arm joint stays commanded at its planned target through approach, close, lift and hold
+(gripper-only steps re-publish the arm intent, never the sagged measured pose; sag compensation never touches
+shoulder_pan, wrist_roll or the gripper). After each step the executor compares every arm joint (also those a gripper
+step does not move, e.g. a pan pushed while squeezing) with the step's planned pose: joints off by more than
+`limits.converge_tolerance_for(joint)` are the step's `residual_error` (target - measured, rad, merged with the motion's
+own settled residual) and a `warnings` line (`close: shoulder_pan -0.060 rad off its target (tolerance 0.03 rad)`). The
+result's `residual_error` is the same check at the end against the last executed waypoint (the hold), and `held_pose`
+gives `{waypoint, expected_jaw_centre, jaw_centre, tool_point, error_m}` from the measured joints.
+
+2026-10-10 "sideways drift": during the holds of the grip tuning session the measured tool point was 1.5 cm (jar,
+3.9 cm wide) to 3.4 cm (cube, 6.5 cm) beside the object, shoulder_pan -0.735 against the -0.636 a plain move to the
+same spot needs, and nothing reported it. The cause is the centring above, not a hold error: the mcp_server journal's
+`arm_settle` records of those grasps show shoulder_pan within 0.03 rad of its commanded target at every step (for
+example cube lift: target -0.7317, commanded -0.7317, measured -0.7348), commanded equal to target for pan (no
+compensation), and IK at the cube's lift point gives pan -0.7317 with the half-width shift and -0.6364 without it;
+the measured jaw centre was 1.4 mm from the object centre. The tool description called the waypoints "tool point", and
+the result had neither the shift nor the tool point, so the agent read the centring as drift. The descriptions, the
+plan (`grasp_shift`, `tool_point`), `held_pose` and the residual checks now make both visible. Tests:
+`tests/test_grasp_hold.py` (full grasp sequence on a follower that sags with sag compensation on, with and without a
+pan push while squeezing).
 
 ### Web-UI contract (`/grasp/command` -> `/grasp/result`)
 
@@ -555,12 +591,17 @@ keys are `grasp` config fields; `grip_profile` defaults to `grip_profiles.defaul
 {"ok": true, "request_id": "...", "action": "execute",
  "result": {"outcome": "planned" | "infeasible" | "grasped" | "missed" | "aborted" | "released",
             "reasons": ["..."], "plan": {"strategy": "top_down", "feasible": true, "waypoints": [...], ...},
-            "steps": [{"label": "pre_grasp", "status": "converged", "message": "...", "slow_zone": null}],
+            "steps": [{"label": "pre_grasp", "status": "converged", "message": "...", "slow_zone": null,
+                       "residual_error": {}}],
             "gripper_position_rad": 0.21, "gripper_effort": 350.0,
-            "grip_profile": {"name": "gentle", "squeeze_rad": 0.02, "torque_limit": 250, "close_speed_rps": 0.25,
-                             "target_load": 120.0, "contact_effort_threshold": 150.0, "crush_load": 220.0,
+            "grip_profile": {"name": "gentle", "squeeze_rad": 0.01, "torque_limit": 250, "close_speed_rps": 0.2,
+                             "target_load": 80.0, "contact_effort_threshold": 120.0, "crush_load": 200.0,
                              "capped": []},
-            "holding_load": 130.0, "slipping": false, "crush_risk": false}}
+            "holding_load": 130.0, "slipping": false, "crush_risk": false,
+            "residual_error": {}, "warnings": [],
+            "held_pose": {"waypoint": "retreat", "expected_jaw_centre": {"x": 0.17, "y": 0.0, "z": -0.03},
+                          "jaw_centre": {"x": 0.1702, "y": 0.0001, "z": -0.0303},
+                          "tool_point": {"x": 0.1701, "y": 0.0151, "z": -0.0304}, "error_m": 0.0004}}}
 ```
 
 `stop` answers `{"ok": true, ..., "result": {"arm_held": bool, "message": str}}` and aborts a running execute/release.
@@ -574,13 +615,24 @@ to draw it.
 
 How hard the gripper grips is set per object (`grip.py`, config section `grip_profiles`). A profile is
 `{squeeze_rad, torque_limit, close_speed_rps, target_load, contact_effort_threshold, crush_load}` in servo units
-(loads and torque limit in 0.1 % of max torque; tune on the real gripper). Presets:
+(loads and torque limit in 0.1 % of max torque). Presets, tuned on the real gripper in the 2026-10-10 grip tuning
+session (config defaults and `client.yml`):
 
 | Preset | torque_limit | squeeze_rad | close_speed_rps | target_load | contact threshold | crush_load | For |
 |---|---|---|---|---|---|---|---|
-| `gentle` | 250 | 0.02 | 0.25 | 120 | 150 | 220 | fragile, soft or light objects |
-| `normal` (default) | 500 | 0.03 | 0.5 | - | 300 | 450 | ordinary objects (the squeeze, speed and threshold used before profiles) |
-| `firm` | 700 | 0.06 | 0.5 | - | 400 | 650 | heavy or slippery objects, tools |
+| `gentle` | 250 | 0.01 | 0.2 | 80 | 120 | 200 | fragile, soft or light objects |
+| `normal` (default) | 500 | 0.03 | 0.5 | 200 | 300 | 450 | ordinary objects (the squeeze, speed and threshold used before profiles, plus a closing-load stop) |
+| `firm` | 650 | 0.05 | 0.4 | 300 | 350 | 600 | heavy or slippery objects, tools |
+
+Session findings behind them: the closing load is positive (+36 holding a plush, +148 on an empty firm jaw; opening
+-24 to -36), so `closing_load_sign` 1 is right. Only gentle has a successful hold behind it (plush croc tail); the
+earlier gentle (target_load 120) compressed the 4 cm tail to about 7 mm before the load reached the target and the hold
+relaxed to 36. **A load-based `crush_load` cannot detect squashing a soft object**: plush gives way without the load
+rising, so `crush_risk` stays false while the object is flattened; look at a picture. normal refused the jar at
+0.147 rad travel (hence `gripper_grasp_min_travel_rad` 0.10), firm is unvalidated on a held object (both firm attempts
+missed). The empty firm close stalled 0.055 rad before closed at load 148, above `hold_effort_min` 100: the
+`gripper_empty_stall_rad` check (0.08) in the arm controller and the executor's `min_hold_gap_rad` (0.08) both report it
+as no grasp (`closed_no_contact` / `missed`).
 
 `grip_profile` is a preset name or inline overrides `{base?, <field>?...}` (base defaults to `default_grip_profile`;
 the result names it `<base>+custom`). It is accepted by `set_gripper` (close_until_effort only), `plan_grasp` /
@@ -621,9 +673,9 @@ grip_profiles:
   hold_check_delay_s: 0.25
   slip_threshold_rad: 0.01
   presets:
-    gentle: {squeeze_rad: 0.02, torque_limit: 250, close_speed_rps: 0.25, target_load: 120, contact_effort_threshold: 150, crush_load: 220}
-    normal: {squeeze_rad: 0.03, torque_limit: 500, close_speed_rps: 0.5, contact_effort_threshold: 300, crush_load: 450}
-    firm: {squeeze_rad: 0.06, torque_limit: 700, close_speed_rps: 0.5, contact_effort_threshold: 400, crush_load: 650}
+    gentle: {squeeze_rad: 0.01, torque_limit: 250, close_speed_rps: 0.2, target_load: 80, contact_effort_threshold: 120, crush_load: 200}
+    normal: {squeeze_rad: 0.03, torque_limit: 500, close_speed_rps: 0.5, target_load: 200, contact_effort_threshold: 300, crush_load: 450}
+    firm: {squeeze_rad: 0.05, torque_limit: 650, close_speed_rps: 0.4, target_load: 300, contact_effort_threshold: 350, crush_load: 600}
 ```
 
 ## Motion queue
@@ -843,7 +895,8 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
   position (residual outside the converge tolerance), the result is `grasped` with "contact inferred: jaw stalled
   ..." and the gripper holds the stall position plus the grip profile's `squeeze_rad` (normal 0.03) toward closed (never past
   closed) instead of squeezing to the full closed target. Both this and an effort contact must pass the closure check
-  (`gripper_grasp_min_travel_rad` from the start, at most `gripper_grasp_max_open_rad` open), else `blocked`.
+  (`gripper_grasp_min_travel_rad` from the start, at most `gripper_grasp_max_open_rad` open), else `blocked`; and a
+  jaw within `gripper_empty_stall_rad` of closed is empty (`closed_no_contact`, never `grasped`).
 - **Gravity sag compensation** (optional, `arm.sag_compensation`): with a URDF mass model and per-approach gains the
   published setpoints lead the target against gravity so the arm settles on it; see "Gravity sag compensation".
 - **No placeholder data**: nothing is published without fresh measured joint states; state tools omit stale sources.
@@ -919,6 +972,7 @@ floor_guard:              # below-surface slow zone (see Arm mount and floor slo
 grasp:                    # grasp planner defaults, overridable per call via params (see Grasp macros)
   approach_distance_m: 0.04
   pre_grasp_clearance_m: 0.05
+  approach_speed_scale: 0.3     # free moves to the lifted pre-grasp and its roll (capped to arm_max_speed_scale)
   slide_speed_scale: 0.15
   lift_height_m: 0.05
   retreat_distance_m: 0.05
@@ -966,7 +1020,8 @@ limits:
   gripper_effort_ignore_s: 0.3      # ignore the load spike when the motor starts
   gripper_contact_travel_rad: 0.03  # jaw travel (or a stall) required before effort counts as contact
   gripper_stall_lead_rad: 0.15      # a stall only counts while the command leads the jaw by this much
-  gripper_grasp_min_travel_rad: 0.15  # closure from the start required for 'grasped' (else 'blocked')
+  gripper_grasp_min_travel_rad: 0.10  # closure from the start required for 'grasped' (else 'blocked')
+  gripper_empty_stall_rad: 0.08       # a stall/contact this close to closed is an empty jaw ('closed_no_contact')
   gripper_grasp_max_open_rad: 1.2     # a stall more open than this is pushing on something ('blocked')
   arm_limit_margin_rad: 0.05
   arm_limit_margin_overrides: {gripper: 0.005}   # per-joint margins; the gripper may close to its physical stop

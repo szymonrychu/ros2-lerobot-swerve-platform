@@ -259,7 +259,7 @@ Covers:
 - config (`test_config.py`): defaults (opus, hard maxima rw 150 / turns 200, no `max_ro_cap` / `max_phase_ro_cap`, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
   tool lists disjoint (stop can never be an effector), invalid numbers and unknown keys rejected, YAML loading,
   `CLAUDE_AGENT_CONFIG` lookup, MCP token read (env-file line or bare token, missing/empty refused, token never in the error)
-- system prompt (`test_prompt.py`): grip profiles (`grip_profile` on set_gripper / grasp_object, gentle for fragile, soft or light objects, normal for ordinary ones, firm for heavy, slippery objects and tools, check `holding_load` / `slipping` / `crush_risk` and retry firmer or gentler), the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase rw/turn guidance ranges, no ro budget and unlimited sensor calls, generous rw/turn caps (double the estimate, raise early), the grasping guidance (several viewpoints by changing the roll incl. directly above, `pixel_to_ground`, average within 1 cm, centre not edge, correct by the observed offset, NOTES.md), retry budgeting (room for retries, raise the budget before it runs out or add a retry phase), fixed vs moving jaw and `object_width_m`, the agent chooses the grasp `wrist_roll`, camera views by roll, the rolling protocol (half open, arm lifted), `surface_height_m` and below-floor reach, stairs / tables / holes described as `surfaces` (step edge point and direction or polygon, height relative to the robot floor) instead of a single `surface_z_m` with `support_z` that must match, fast arm by default, phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections (objects are POIs on the person's map, own POIs and objects removed on a new session, the person's POIs stay), safety rules, persona,
+- system prompt (`test_prompt.py`): grip profiles (`grip_profile` on set_gripper / grasp_object, gentle for fragile, soft or light objects, normal for ordinary ones, firm for heavy, slippery objects and tools, check `holding_load` / `slipping` / `crush_risk` and retry firmer or gentler, soft plush gets squashed whatever the load), pixel sizes (always pass `image_width` / `image_height` with pixels from a 384x288 `get_camera_image` picture, or use `get_annotated_camera_image`), the centred grasp (`grasp_shift`, `tool_point` beside the jaw centre is not a drift, `residual_error` / `warnings` / `held_pose`, `approach_speed_scale`), the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase rw/turn guidance ranges, no ro budget and unlimited sensor calls, generous rw/turn caps (double the estimate, raise early), the grasping guidance (several viewpoints by changing the roll incl. directly above, `pixel_to_ground`, average within 1 cm, centre not edge, correct by the observed offset, NOTES.md), retry budgeting (room for retries, raise the budget before it runs out or add a retry phase), fixed vs moving jaw and `object_width_m`, the agent chooses the grasp `wrist_roll`, camera views by roll, the rolling protocol (half open, arm lifted), `surface_height_m` and below-floor reach, stairs / tables / holes described as `surfaces` (step edge point and direction or polygon, height relative to the robot floor) instead of a single `surface_z_m` with `support_z` that must match, fast arm by default, phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections (objects are POIs on the person's map, own POIs and objects removed on a new session, the person's POIs stay), safety rules, persona,
   `system_prompt_extra` appended
 - motion queue prompt (`test_prompt.py`): the queue pattern (`enqueue_motions` with preconditions and `on_fail`,
   blending, queue at least 2 steps deep, `wait_for_event` instead of polling, `get_motion_status`, `cancel_motions` /
@@ -374,7 +374,11 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `arm_settle_hold_s`, relaxed to the measured pose after it (only joints still off target), the next motion starts
   from the intended target, intent and pending relax cleared on release / drop_lease / lease loss; grasp from stall:
   a jaw stalling before closed (close_until_effort and open_fraction=0) reports `grasped` and holds stall + squeeze
-  (also after the hold window), the squeeze never passes closed, a partial open_fraction stall is not a grasp; wrist roll
+  (also after the hold window), the squeeze never passes closed, a partial open_fraction stall is not a grasp; the
+  2026-10-10 cases: a 39 mm jar contact after 0.147 rad travel is a grasp (`gripper_grasp_min_travel_rad` 0.10), the
+  empty firm close stalling 0.055 rad before closed at load 148 and a load contact there are `closed_no_contact`
+  ("empty"), never `grasped`, with the default torque restored, the threshold from `gripper_empty_stall_rad` (0.08);
+  wrist roll
   guard (refused with a wide open gripper measured or targeted in the same call, nothing published and no lease taken,
   allowed at half open or for a change under the minimum, thresholds from config); `move_cartesian` with `wrist_roll`
   (replaces the current roll, clamped and reported in `clamped`, guard applies) and `object_width_m` (centre reached with the
@@ -416,7 +420,13 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `pixel_to_ground` (front/gripper, arm offset, missing map pose, stale joints, sky), annotated images (all overlays,
   notes for overlays that cannot be drawn, validation), candidate points (table vs projection, sky skipped, region, last
   10 sets, stored values with moved flags), `surface_height_m` for `pixel_to_ground` and `mark_candidate_points` (raised
-  plane hit, validation, stored and resolved with the set), capture/solve/clear round trip
+  plane hit, validation, stored and resolved with the set), capture/solve/clear round trip; pixels from a smaller
+  image (2026-10-10: 384x288 `get_camera_image` vs the 640x480 calibration): `pixel_to_ground` with `image_width` /
+  `image_height` scales to the calibrated size (same floor point, `pixel_input` reported, `image` always reported,
+  unchanged without a size), both sizes required and the aspect kept, `mark_candidate_points` scales its region and
+  reports `image`, `resolve_candidate` states the image size, `capture_calibration_sample` stores the scaled pixel,
+  `get_camera_image` reports `calibrated_image`, `scale_to_calibrated` and a `pixel_note`, and the descriptions
+  explain `image_width` / `image_height` (384x288)
 - IK link frames (`test_ik.py`): `link_frame` for base, `gripper_link`, `gripper_frame_link` and rejected off-chain links
 - digest + body state (`test_digest.py`): every tool result carries `robot_events_since_last_call` and `vitals` (text,
   structured content, `_meta` for image tools, appended to tool errors), events reported once, events raised during the
@@ -559,9 +569,21 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   rule and the tall-object params), `GraspService` JSON contract (plan, execute, release, stop, errors) and battery
   cut-off refusal; `surfaces`: `floor_override` carries them, `plan_grasp` reports them and the support_z mismatch,
   `GraspService` takes call and object surfaces and rejects an invalid region, the tool schemas explain step edges
-  and half-planes
-- grip profiles config and resolution (`test_grip.py`): gentle / normal / firm presets (normal = the squeeze, speed and
-  contact threshold used before profiles), default must be a preset, presets above the torque or squeeze cap rejected,
+  and half-planes; the pre-grasp and roll moves run at `approach_speed_scale` (default 0.3, also the planned
+  pre_grasp / open speed), per call via `params`, capped to `limits.arm_max_speed_scale` and refused above the hard
+  maximum, and the plan_grasp / grasp_object schemas offer it
+- grasp hold regressions of the 2026-10-10 grip tuning session (`test_grasp_hold.py`, fake follower that sags by the
+  gravity model with sag compensation on): the full grasp_object sequence keeps shoulder_pan commanded at the planned
+  grasp pose through the close and its hold check, within the planned samples through lift and retreat and at the
+  retreat target after the settle hold time (every joint within its converge tolerance, no residual_error, no
+  warnings); a pan pushed 0.06 rad off target while squeezing stays commanded at its intent and is reported in the
+  close step's and the result's residual_error and as close / retreat warnings; a centred grasp reports `grasp_shift`,
+  each waypoint's `tool_point` half the width beside the jaw centre, and `held_pose` (jaw centre from the measured
+  joints, expected = retreat waypoint, error under 1 cm); the empty firm close stalling 0.055 rad short of closed at
+  load 148 is `closed_no_contact` and the grasp `missed`
+- grip profiles config and resolution (`test_grip.py`): gentle / normal / firm presets with the 2026-10-10 tuned values
+  (gentle 0.01 / 250 / 0.2 / target_load 80 / contact 120 / crush 200, normal the pre-profile squeeze, speed and
+  contact threshold plus target_load 200, firm 0.05 / 650 / 0.4 / 300 / 350 / 600; target_load < contact < crush), default must be a preset, presets above the torque or squeeze cap rejected,
   torque cap within the register range, preset / inline resolution (`<base>+custom`), inline values clamped to the
   hard caps and listed in `capped`, invalid overrides refused, the report fields, and the client.yml block validates
   and equals the built-in defaults
@@ -572,7 +594,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   after an open (after the jaw moved), on release / a lost lease and at startup (no write when already default),
   inline profiles capped before the write, unknown profiles and grip_profile without close_until_effort refused before
   anything moves, holding_load / slipping / crush_risk reporting and the torque_limit read-back (verified, unverified,
-  mismatch)
+  mismatch); stall-path tests lower `gripper_empty_stall_rad` so their thin-object stall (0.075 rad before closed)
+  counts as an object
 - grip profiles through the interfaces (`test_grip_tools.py`): `grasp_params` takes grip_profile, a grasp applies and
   reports the profile (default normal), a grasp aborted after the close, a miss and a release restore the default
   torque, the `set_gripper` / `plan_grasp` / `grasp_object` tools take grip_profile (capped, unknown refused, a dry
@@ -728,7 +751,7 @@ fake `ssh`; no ROS needed).
 | `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` (and the `nav_intermediate_*` pair) in client.yml equal the mcp_server `nav` values. |
 | `test_mcp_server_arm_mount_measured_and_height_agree_with_claude_agent` | mcp_server config `arm.arm_base_height_m` is 0.100 and `arm.base_in_base_link` is the mount measured 2026-10-10 `{x: 0.0592, y: -0.05, z: 0.104, yaw: 0.0}`; the claude_agent `arm_base_height_m` states the same height. |
 | `test_mcp_server_floor_guard_and_grasp_blocks_are_deployed` | mcp_server config has the `floor_guard` block (enabled, 2 cm margin, 0.2 slow speed scale, surface 0, IMU max age 1 s), the `grasp` block (5 mm interpolation, 8 cm max opening, auto order top_down, angled, scoop, scoop max pitch 40 deg and gap margin 4 mm, tall ratio 1.5 / grasp height fraction 0.3 / lift speed 0.05, min object width 1 cm) and the `/grasp/command` / `/grasp/result` topics; the claude_agent lists `grasp_object` / `release_object` as effectors and `plan_grasp` as a sensor. |
-| `test_mcp_server_grip_profiles_block_is_deployed` | mcp_server config has the `grip_profiles` block: presets gentle / normal / firm with increasing torque_limit and squeeze, all within the hard caps (torque_limit_max 800, squeeze_max_rad 0.08), default `normal`, gentle closing slower with a target_load below its contact threshold, close speeds within the 0.5 rad/s gripper cap and crush loads above the target loads; the grasp block sets no fixed `close_effort_threshold`; `topics.follower_set_register` is the follower bridge's `set_register` topic and the follower publishes the gripper effort. |
+| `test_mcp_server_grip_profiles_block_is_deployed` | mcp_server config has the `grip_profiles` block: presets gentle / normal / firm with increasing torque_limit and squeeze, all within the hard caps (torque_limit_max 800, squeeze_max_rad 0.08), default `normal`, gentle closing slower with a target_load below its contact threshold, close speeds within the 0.5 rad/s gripper cap and crush loads above the target loads; the presets equal the 2026-10-10 tuned values (gentle 0.01 / 250 / 0.2 / 80 / 120 / 200, normal 0.03 / 500 / 0.5 / 200 / 300 / 450, firm 0.05 / 650 / 0.4 / 300 / 350 / 600); `grasp.approach_speed_scale` is 0.3, within `arm_max_speed_scale`; the grasp block sets no fixed `close_effort_threshold`; `topics.follower_set_register` is the follower bridge's `set_register` topic and the follower publishes the gripper effort. |
 | `test_mcp_server_monitor_block_has_ordered_thresholds` | mcp_server `monitor` block: servo 60/70 C, CPU 75/82 C, bump warning below critical, stall 1.0 s, tilt 10 deg, battery warning margin 0.2 V/cell. |
 | `test_mcp_server_monitor_topics_match_their_producers` | mcp_server monitor topics: `/follower/servo_registers`, `/imu/data`, `/robot_events`, `swerve_odom` equals the swerve controller `odom_topic`, `rf2o_twist` equals the rf2o relay `output_topic`. |
 | `test_mcp_server_readme_documents_monitor_and_events_contract` | `nodes/mcp_server/README.md` documents get_body_state, the per-call digest, the `/robot_events` contract, early-return (`interrupted_by`, expected/achieved), event types and the `monitor` thresholds. |
