@@ -61,6 +61,11 @@ class GraspStep(BaseModel):
     status: str
     message: str = ""
     slow_zone: dict[str, Any] | None = None
+    residual_error: dict[str, float] = Field(
+        default_factory=dict,
+        description="Arm joints off their intended target of this step by more than their converge tolerance when "
+        "it ended: target - measured (rad). Also joints a gripper step does not move (e.g. pushed while closing)",
+    )
 
 
 class GraspResult(BaseModel):
@@ -88,6 +93,21 @@ class GraspResult(BaseModel):
     )
     crush_risk: bool | None = Field(
         default=None, description="Holding load above the profile's crush_load: squeezed too hard (try gentler)"
+    )
+    residual_error: dict[str, float] = Field(
+        default_factory=dict,
+        description="Arm joints off their intended target (the last executed waypoint) by more than their converge "
+        "tolerance at the end: target - measured (rad); empty when every joint is held on target",
+    )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="One line per step and joint that ended off its intended target by more than its tolerance",
+    )
+    held_pose: dict[str, Any] | None = Field(
+        default=None,
+        description="Where the gripper ended, from the measured joints: {waypoint, expected_jaw_centre {x,y,z} (that "
+        "waypoint's x, y, z), jaw_centre {x,y,z}, tool_point {x,y,z} (fixed jaw inner face), error_m (jaw centre to "
+        "expected)}. With a centred grasp (plan grasp_shift) the tool point is shift_m beside the jaw centre by design",
     )
 
 
@@ -270,6 +290,7 @@ class GraspExecutor:
         stop_requested: Callable[[], bool],
         motion: Callable[[], ArmMotionResult],
         ok: frozenset[str] = MOTION_OK,
+        intent: dict[str, float] | None = None,
     ) -> ArmMotionResult:
         """Run one motion step, recording it; abort the run on a stop, a refusal or an unexpected status.
 
@@ -279,6 +300,8 @@ class GraspExecutor:
             stop_requested (Callable[[], bool]): Stop check.
             motion (Callable[[], ArmMotionResult]): The arm call.
             ok (frozenset[str]): Statuses that continue the run.
+            intent (dict[str, float] | None): Intended arm pose at the end of the step (every arm joint, also for a
+                gripper step); joints off it beyond their tolerance are recorded as the step's residual_error.
 
         Returns:
             ArmMotionResult: The motion result.
@@ -293,10 +316,85 @@ class GraspExecutor:
         except ArmError as exc:
             steps.append(GraspStep(label=label, status="refused", message=str(exc)))
             raise GraspAbort(f"{label}: {exc}") from exc
-        steps.append(GraspStep(label=label, status=result.status, message=result.message, slow_zone=result.slow_zone))
+        residual = {j: e for j, e in result.residual_error.items() if j != self.arm.gripper}
+        if intent is not None:
+            residual |= self.intent_errors(intent)
+        steps.append(
+            GraspStep(
+                label=label,
+                status=result.status,
+                message=result.message,
+                slow_zone=result.slow_zone,
+                residual_error=residual,
+            )
+        )
         if result.status not in ok:
             raise GraspAbort(f"{label}: {result.status}: {result.message}")
         return result
+
+    def intent_errors(self, intent: dict[str, float]) -> dict[str, float]:
+        """Arm joints of the current fresh sample off their intended target by more than their converge tolerance.
+
+        Args:
+            intent (dict[str, float]): Intended arm joint positions (measured space).
+
+        Returns:
+            dict[str, float]: target - measured (rad, rounded to 1e-4); empty without fresh joint states.
+        """
+        sample = self.arm.fresh_sample()
+        if sample is None:
+            return {}
+        limits = self.cfg.limits
+        return {
+            j: round(intent[j] - sample.positions[j], 4)
+            for j in self.arm.joint_names
+            if j in intent
+            and j in sample.positions
+            and abs(intent[j] - sample.positions[j]) > limits.converge_tolerance_for(j)
+        }
+
+    def step_warnings(self, steps: list[GraspStep]) -> list[str]:
+        """One warning per step and joint that ended off its intended target.
+
+        Args:
+            steps (list[GraspStep]): Step log.
+
+        Returns:
+            list[str]: The warnings.
+        """
+        limits = self.cfg.limits
+        return [
+            f"{s.label}: {j} {e:+.3f} rad off its target (tolerance {limits.converge_tolerance_for(j):g} rad)"
+            for s in steps
+            for j, e in s.residual_error.items()
+        ]
+
+    def held_pose(self, plan: GraspPlan, waypoint: Waypoint) -> dict[str, Any] | None:
+        """Where the jaw centre and the tool point are now (measured joints) against a waypoint's target.
+
+        Args:
+            plan (GraspPlan): Executed plan (its centring decides the jaw centre).
+            waypoint (Waypoint): Last executed waypoint.
+
+        Returns:
+            dict[str, Any] | None: {waypoint, expected_jaw_centre, jaw_centre, tool_point, error_m}; None without
+                fresh joint states.
+        """
+        sample = self.arm.fresh_sample()
+        if sample is None:
+            return None
+        joints = self.arm.measured(sample)
+        tool = self.arm.kin.forward(joints)
+        centre = self.arm.kin.forward(joints, self.planner.center_offset(plan))
+        expected = {"x": round(waypoint.x, 4), "y": round(waypoint.y, 4), "z": round(waypoint.z, 4)}
+        error = math.dist((centre.x, centre.y, centre.z), (waypoint.x, waypoint.y, waypoint.z))
+        return {
+            "waypoint": waypoint.label,
+            "expected_jaw_centre": expected,
+            "jaw_centre": {"x": round(centre.x, 4), "y": round(centre.y, 4), "z": round(centre.z, 4)},
+            "tool_point": {"x": round(tool.x, 4), "y": round(tool.y, 4), "z": round(tool.z, 4)},
+            "error_m": round(error, 4),
+        }
 
     def finish(
         self,
@@ -305,8 +403,9 @@ class GraspExecutor:
         plan: GraspPlan | None,
         steps: list[GraspStep],
         close: ArmMotionResult | None = None,
+        reached: Waypoint | None = None,
     ) -> GraspResult:
-        """Result with the final gripper state and the close's grip report.
+        """Result with the final gripper state, the close's grip report and the hold check against the intent.
 
         Args:
             outcome (GraspOutcome): Outcome.
@@ -314,12 +413,17 @@ class GraspExecutor:
             plan (GraspPlan | None): Executed plan.
             steps (list[GraspStep]): Step log.
             close (ArmMotionResult | None): Close result (grip_profile, holding_load, slipping, crush_risk).
+            reached (Waypoint | None): Last waypoint the run commanded (the intended hold); None for a release.
 
         Returns:
             GraspResult: The result.
         """
         sample = self.arm.fresh_sample()
         gripper = self.arm.gripper
+        residual = {} if reached is None else self.intent_errors(reached.joints)
+        warnings = self.step_warnings(steps)
+        if residual and (not steps or steps[-1].residual_error != residual):
+            warnings.append(f"hold: {', '.join(f'{j} {e:+.3f} rad' for j, e in residual.items())} off the target")
         return GraspResult(
             outcome=outcome,
             reasons=reasons,
@@ -331,6 +435,9 @@ class GraspExecutor:
             holding_load=None if close is None else close.holding_load,
             slipping=None if close is None else close.slipping,
             crush_risk=None if close is None else close.crush_risk,
+            residual_error=residual,
+            warnings=warnings,
+            held_pose=None if plan is None or reached is None else self.held_pose(plan, reached),
         )
 
     def verify(self, close: ArmMotionResult, params: GraspParams) -> str | None:
@@ -384,6 +491,7 @@ class GraspExecutor:
         wp: dict[str, Waypoint] = {w.label: w for w in plan.waypoints}
         slide = params.slide_speed_scale
         close: ArmMotionResult | None = None
+        reached: Waypoint | None = None  # last waypoint commanded: the arm's intended pose
         try:
             try:
                 sample = arm.require_sample()
@@ -399,14 +507,29 @@ class GraspExecutor:
             targets = dict(pre.joints)
             if roll_change:
                 targets[ROLL_JOINT] = current[ROLL_JOINT]  # roll only once lifted at the pre-grasp
-            self.step("pre_grasp", steps, stop_requested, lambda: arm.move_joints(targets, None, floor))
+            reached = pre
+            self.step("pre_grasp", steps, stop_requested, lambda: arm.move_joints(targets, None, floor), intent=targets)
             if roll_change:
-                self.step("roll", steps, stop_requested, lambda: arm.move_joints({ROLL_JOINT: pre.roll}, None, floor))
+                self.step(
+                    "roll",
+                    steps,
+                    stop_requested,
+                    lambda: arm.move_joints({ROLL_JOINT: pre.roll}, None, floor),
+                    intent=pre.joints,
+                )
             open_frac = self.fraction(wp["open"].gripper or self.cfg.arm.gripper_open_rad)
-            self.step("open", steps, stop_requested, lambda: arm.set_gripper(open_fraction=open_frac, floor=floor))
+            self.step(
+                "open",
+                steps,
+                stop_requested,
+                lambda: arm.set_gripper(open_fraction=open_frac, floor=floor),
+                intent=pre.joints,
+            )
             for label in ("approach", "grasp"):
                 path = arm_only(plan.segments[label], gripper)
-                self.step(label, steps, stop_requested, lambda p=path: arm.move_path(p, slide, floor))
+                reached = wp[label]
+                self.step(label, steps, stop_requested, lambda p=path: arm.move_path(p, slide, floor), intent=path[-1])
+            held = wp["grasp"].joints
             close = self.step(
                 "close",
                 steps,
@@ -418,21 +541,31 @@ class GraspExecutor:
                     grip_profile=params.grip_profile,
                 ),
                 CLOSE_OK,
+                intent=held,
             )
             missed = self.verify(close, params)
             if missed is not None:
-                self.step("open", steps, stop_requested, lambda: arm.set_gripper(open_fraction=open_frac, floor=floor))
+                self.step(
+                    "open",
+                    steps,
+                    stop_requested,
+                    lambda: arm.set_gripper(open_fraction=open_frac, floor=floor),
+                    intent=held,
+                )
             for label in ("lift", "retreat"):
                 path = arm_only(plan.segments[label], gripper)
                 speed = wp[label].speed_scale  # a tall narrow object lifts at lift_speed_scale
-                self.step(label, steps, stop_requested, lambda p=path, v=speed: arm.move_path(p, v, floor))
+                reached = wp[label]
+                self.step(
+                    label, steps, stop_requested, lambda p=path, v=speed: arm.move_path(p, v, floor), intent=path[-1]
+                )
         except GraspAbort as exc:
             arm.stop_hold()
             arm.restore_default_torque_limit()  # never leave the gripper weakened (or firm) after an abort
-            return self.finish("aborted", [str(exc)], plan, steps, close)
+            return self.finish("aborted", [str(exc)], plan, steps, close, reached)
         if missed is not None:
-            return self.finish("missed", [missed], plan, steps, close)
-        return self.finish("grasped", [], plan, steps, close)
+            return self.finish("missed", [missed], plan, steps, close, reached)
+        return self.finish("grasped", [], plan, steps, close, reached)
 
     def release(
         self, params: GraspParams, floor: FloorOverride | None, stop_requested: Callable[[], bool]
@@ -680,8 +813,12 @@ def register(ctx: ToolContext) -> None:
             "Dry run of a grasp (no motion): plans waypoints pre_grasp (lifted; roll set here with the gripper at most "
             "half open), open, approach, grasp (slide), close, lift, retreat with IK along straight lines, and "
             "returns feasibility, human-readable reasons when infeasible, the chosen strategy, approach pitch, wrist "
-            "roll, jaw opening, the waypoints (tool point = fixed jaw inner face, arm frame) and where the slow zone "
-            "applies. The 5-DOF arm can only approach radially from its base: turn the robot for another approach "
+            "roll, jaw opening, the waypoints (arm frame) and where the slow zone applies. angled and top_down centre "
+            "the object between the jaws (plan grasp_shift): waypoint x, y, z is then the JAW CENTRE (the object "
+            "centre) and each waypoint's tool_point (the fixed jaw inner face, what get_arm_state reports as the tool "
+            "pose) lies shift_m (half the object width) beside it, so the arm stands sideways of a plain "
+            "move_arm_cartesian to the same x, y, z: that is the centring, not a drift. The 5-DOF arm can only "
+            "approach radially from its base: turn the robot for another approach "
             f"direction. Call it before grasp_object. {slow_note}"
         )
     )
@@ -714,7 +851,10 @@ def register(ctx: ToolContext) -> None:
             "gripper half open, opens to the object size plus a margin, approaches and slides in slowly, closes until "
             "the gripper feels the object (never a full squeeze), verifies the grasp (jaw stopped short of closed and "
             "load above threshold), then lifts and retreats. The grip_profile sets how hard it grips (torque limit, close "
-            "speed, squeeze); the result reports grip_profile, holding_load, slipping and crush_risk. Outcome: grasped, missed (closed on nothing: opened and "
+            "speed, squeeze); the result reports grip_profile, holding_load, slipping and crush_risk. Every arm joint "
+            "stays commanded at its planned target; residual_error and warnings list joints that ended a step (or the "
+            "hold) off it by more than their tolerance, held_pose where the jaw centre and the tool point ended. "
+            "Outcome: grasped, missed (closed on nothing: opened and "
             "retreated - check a picture and correct the object position), aborted (stopped and held; reasons say "
             "why) or infeasible (nothing moved). A stop call aborts it. Keeps arm control: call release_control when "
             f"done. {slow_note}"

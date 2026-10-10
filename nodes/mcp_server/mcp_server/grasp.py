@@ -158,6 +158,11 @@ class Waypoint(BaseModel):
     speed_scale: float
     linear: bool = Field(description="Reached along a straight line through the interpolated joint samples")
     joints: dict[str, float] = Field(description="IK solution of the five arm joints (measured space)")
+    tool_point: dict[str, float] | None = Field(
+        default=None,
+        description="Tool point (fixed jaw inner face, arm frame, m) at this waypoint. x, y, z is the jaw centre "
+        "(the object centre) when the plan centres the object between the jaws (grasp_shift), else the tool point",
+    )
 
 
 class GraspPlan(BaseModel):
@@ -173,6 +178,13 @@ class GraspPlan(BaseModel):
     open_gripper_rad: float | None = None
     half_open_gripper_rad: float | None = None
     center_width_m: float | None = Field(default=None, description="Object width centred between the jaws, if any")
+    grasp_shift: dict[str, Any] | None = Field(
+        default=None,
+        description="Centred grasp: {object_width_m, shift_m (half the width), jaw_open_axis (gripper_frame_link)}. "
+        "Waypoint x, y, z are then the jaw centre; the tool point (fixed jaw) is shift_m beside it, against the "
+        "opening direction, so the arm sits sideways of a plain move to the same x, y, z (a 6.5 cm object at 0.37 m "
+        "reach: about 0.09 rad more shoulder_pan, 3.3 cm off at the tool point). Null when x, y, z is the tool point",
+    )
     skim: bool = False
     waypoints: list[Waypoint] = Field(default_factory=list)
     segments: dict[str, list[dict[str, float]]] = Field(default_factory=dict)
@@ -201,6 +213,7 @@ class GraspPlan(BaseModel):
             "opening_m": None if self.opening_m is None else round(self.opening_m, 4),
             "open_gripper_rad": None if self.open_gripper_rad is None else round(self.open_gripper_rad, 3),
             "skim": self.skim,
+            "grasp_shift": self.grasp_shift,
             "waypoints": [
                 {k: (round(v, 4) if isinstance(v, float) else v) for k, v in w.model_dump(exclude={"joints"}).items()}
                 for w in self.waypoints
@@ -956,6 +969,13 @@ class GraspPlanner:
             approach_pitch_rad=geo.pitch,
             opening_m=geo.opening_m,
             center_width_m=geo.center_width,
+            grasp_shift=None
+            if geo.center_width is None
+            else {
+                "object_width_m": round(geo.center_width, 4),
+                "shift_m": round(geo.center_width / 2.0, 4),
+                "jaw_open_axis": list(self.cfg.arm.jaw_open_axis),
+            },
             skim=geo.skim,
             surface=surface.describe(),
         )
@@ -1044,6 +1064,7 @@ class GraspPlanner:
                     speed_scale=speed,
                     linear=linear,
                     joints=dict(joints),
+                    tool_point=self.tool_point(joints),
                 )
             )
             prev_point = point
@@ -1060,6 +1081,18 @@ class GraspPlanner:
                 "slow_zone": annotations,
             }
         )
+
+    def tool_point(self, joints: dict[str, float]) -> dict[str, float]:
+        """Tool point (fixed jaw inner face) of a joint configuration.
+
+        Args:
+            joints (dict[str, float]): Arm joints (measured space).
+
+        Returns:
+            dict[str, float]: x, y, z in the arm frame (m, rounded to 0.1 mm).
+        """
+        pose = self.kin.forward(joints)
+        return {"x": round(pose.x, 4), "y": round(pose.y, 4), "z": round(pose.z, 4)}
 
     def opening_reasons(self, geo: GraspGeometry, params: GraspParams) -> list[str]:
         """Reasons the jaws cannot open far enough for the object, or cannot hold one that narrow.
