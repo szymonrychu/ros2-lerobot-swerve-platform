@@ -117,7 +117,8 @@ cause (drive closer, another strategy) instead of retrying blindly. grasp_object
 and retreated: check a picture and correct the object position), aborted or infeasible; release_object opens and \
 lifts away. top_down and angled centre the object between the jaws (the plan's grasp_shift): the waypoint x, y, z is \
 the jaw centre (the object centre) while the tool point that get_arm_state reports (the fixed jaw, each waypoint's \
-tool_point) sits half the object width beside it, so the arm stands sideways of a plain move_arm_cartesian to the same \
+tool_point) sits shift_m (half the object width plus the fixed jaw clearance, so neither jaw touches the object \
+before closing) beside it, so the arm stands sideways of a plain move_arm_cartesian to the same \
 spot. That is the centring, not a drift: compare held_pose jaw_centre with the object, not the tool point. Joints \
 that end a step or the hold off their planned target are listed in residual_error and warnings: then check a picture \
 before trusting the grasp. The free moves to the lifted pre-grasp run at approach_speed_scale (params, default 0.3) \

@@ -71,7 +71,8 @@ added after the 2026-10-10 grip session placed objects from unscaled small-image
 (only when the person asks), the grasp macros (`plan_grasp` first, then `grasp_object`; strategies scoop / angled /
 top_down / auto, radial approach only, `release_object`, outcomes grasped / missed / aborted / infeasible; top_down and
 angled centre the object between the jaws, so the waypoints are the jaw centre and the reported tool point (fixed jaw,
-`tool_point`, `grasp_shift`) sits half the width beside it: that is the centring, not a drift, compare `held_pose`
+`tool_point`, `grasp_shift`) sits `shift_m` (half the width plus the fixed jaw clearance, both jaws clear of the object
+before closing) beside it: that is the centring, not a drift, compare `held_pose`
 `jaw_centre` with the object; joints off their planned target are listed in `residual_error` / `warnings`; the
 pre-grasp moves run at `approach_speed_scale`), grip
 strength (`grip_profile` on `grasp_object`, `set_gripper` and queued gripper steps: gentle for fragile, soft or light

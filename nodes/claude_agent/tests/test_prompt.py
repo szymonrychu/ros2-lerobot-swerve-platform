@@ -403,6 +403,9 @@ def test_prompt_explains_the_centred_grasp_shift_and_residual_reports() -> None:
     assert "not a drift" in para
     assert "residual_error" in para and "warnings" in para and "held_pose" in para
     assert "approach_speed_scale" in para
+    # 2026-10-10 JC1: the opening is centred on the object, so the fixed jaw clears the side face too
+    assert "half the object width beside it" not in para
+    assert "half the object width plus the fixed jaw clearance" in para and "shift_m" in para
 
 
 def test_prompt_states_soft_objects_get_squashed_whatever_the_load() -> None:
