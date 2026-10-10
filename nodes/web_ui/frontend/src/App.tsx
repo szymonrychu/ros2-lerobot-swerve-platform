@@ -272,7 +272,12 @@ export default function App() {
         </Alert>
       </Snackbar>
 
-      <OverlayBar overlays={config.overlays} topicData={topicData} connected={connected} />
+      <OverlayBar
+        overlays={config.overlays}
+        topicData={topicData}
+        jointStatesTopic={config.tabs.find((t) => t.type === 'map_nav')?.base_joint_states_topic}
+        connected={connected}
+      />
     </>
   )
 }

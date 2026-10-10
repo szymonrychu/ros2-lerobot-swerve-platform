@@ -969,22 +969,23 @@ ros2_nodes:
           topics:
             - topic: /controller/imu/data
               fields: []
+      # Status bar readouts from live client topics; "position[name=fl_steer]" picks the joint by name, not by index.
       overlays:
-        - topic: /controller/gps/fix
+        - topic: /client/gps/fix
           field: "latitude"
           label: "Lat"
           format: ".6f"
-        - topic: /controller/gps/fix
+        - topic: /client/gps/fix
           field: "longitude"
           label: "Lon"
           format: ".6f"
-        - topic: /controller/odom
+        - topic: /odom
           field: "twist.twist.linear.x"
           label: "Vel"
           format: ".2f"
           unit: "m/s"
-        - topic: /controller/swerve_drive/joint_states
-          field: "position[1]"
+        - topic: /swerve_drive/joint_states
+          field: "position[name=fl_steer]"
           label: "FL Steer"
           format: ".2f"
           unit: "rad"

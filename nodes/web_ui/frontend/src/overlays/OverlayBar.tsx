@@ -10,12 +10,15 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { OverlayItem } from '../types'
 import { extractField } from '../utils/fieldExtract'
-import { WheelYawMini } from '../components3d/WheelYawMini'
+import { RobotIcon } from '../components/RobotIcon'
+import { BaseJointMessage } from '../map3d/baseJoints'
 import { MONO_FONT } from '../theme'
 
 interface Props {
   overlays: OverlayItem[]
   topicData: Record<string, unknown>
+  /** Topic of the swerve JointState driving the robot icon. */
+  jointStatesTopic?: string
   connected: boolean
 }
 
@@ -24,7 +27,7 @@ interface Props {
  * Items wrap onto further lines when space runs out; on phones (below 'sm') the values collapse
  * behind a toggle so the bar takes one line and leaves the height to the tab.
  */
-export function OverlayBar({ overlays, topicData, connected }: Props) {
+export function OverlayBar({ overlays, topicData, jointStatesTopic, connected }: Props) {
   const theme = useTheme()
   const narrow = useMediaQuery(theme.breakpoints.down('sm'))
   const [expanded, setExpanded] = useState(false)
@@ -76,7 +79,7 @@ export function OverlayBar({ overlays, topicData, connected }: Props) {
               </Box>
             )
           })}
-        <WheelYawMini topicData={topicData} />
+        <RobotIcon joints={jointStatesTopic ? (topicData[jointStatesTopic] as BaseJointMessage | undefined) : undefined} />
       </Stack>
       <Chip
         size="small"

@@ -77,3 +77,22 @@ export function advanceBaseJoints(
   })
   return out
 }
+
+/** Real base footprint (m): length along x (forward), width along y; same box the URDF outline spans. */
+export const BASE_LENGTH_M = 0.47
+export const BASE_WIDTH_M = 0.386
+/** Steering axes at (+-half_length, +-half_width) from the base centre (m), as in swerve_controller. */
+export const SWERVE_HALF_LENGTH_M = 0.1525
+export const SWERVE_HALF_WIDTH_M = 0.1333
+/** Roller (wheel) radius and width (m). */
+export const WHEEL_RADIUS_M = 0.06
+export const WHEEL_WIDTH_M = 0.03
+/** Swerve modules: name prefix of `<module>_steer` and the signs of its position (front/left positive). */
+export const SWERVE_MODULES: { id: string; xSign: 1 | -1; ySign: 1 | -1 }[] = [
+  { id: 'fl', xSign: 1, ySign: 1 },
+  { id: 'fr', xSign: 1, ySign: -1 },
+  { id: 'rl', xSign: -1, ySign: 1 },
+  { id: 'rr', xSign: -1, ySign: -1 },
+]
+/** Suffix of the steering joints in the swerve joint names. */
+export const STEER_JOINT_SUFFIX = '_steer'

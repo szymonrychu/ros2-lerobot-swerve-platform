@@ -1,5 +1,6 @@
 """Wiring of the web_ui status bar overlays in Ansible group_vars: live client topics, name-based steer selection."""
 
+import re
 from pathlib import Path
 
 import yaml
@@ -39,7 +40,10 @@ def test_overlays_use_no_relay_only_topics() -> None:
 
 def test_lat_lon_come_from_the_client_gps_fix() -> None:
     """Lat/Lon read latitude/longitude of the rover fix published by gps_rtk_rover."""
-    rover = node_config("gps_rtk_rover")["topic"]
+    nodes = yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"]
+    block = next(n for n in nodes if n["name"] == "gps_rtk_rover")["config"]
+    # The block holds Jinja placeholders, so it is not valid YAML before rendering: match the topic line.
+    rover = re.search(r"^topic: (\S+)$", block, re.MULTILINE).group(1)
     assert rover == "/client/gps/fix"
     assert (overlays()["Lat"]["topic"], overlays()["Lat"]["field"]) == (rover, "latitude")
     assert (overlays()["Lon"]["topic"], overlays()["Lon"]["field"]) == (rover, "longitude")

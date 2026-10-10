@@ -23,7 +23,7 @@ The frontend uses Material Design via [MUI](https://mui.com/) (`@mui/material`, 
 Responsive behaviour (phones from 360x640 to 1920x1080+ screens, portrait and landscape):
 - The shell is an `AppBar` with scrollable MUI `Tabs` (scroll buttons appear when the tabs do not fit, so any number of tabs works). Below the `sm` breakpoint (600 px) a menu button opens a drawer listing every tab, the title is hidden and tab icons are dropped to save width.
 - The active tab fills the remaining viewport height exactly (`100vh`, then `100dvh` where supported, so mobile browser chrome is excluded); the page itself never scrolls. Canvases, uPlot graphs and 3D views follow their container with `ResizeObserver` (or react-three-fiber's own resize handling).
-- The overlay bar (configured `overlays`) wraps onto more lines when needed; below `sm` the values collapse behind a toggle so the bar stays one line high.
+- The overlay bar (configured `overlays`) wraps onto more lines when needed; below `sm` the values collapse behind a toggle so the bar stays one line high. Overlay `field` is a dot path with array indexing; `position[name=fl_steer]` selects the element of `position` whose sibling `name` entry matches, so JointState joints do not depend on order. Client config reads Lat/Lon from `/client/gps/fix`, Vel from `/odom` (`twist.twist.linear.x`) and FL Steer from `/swerve_drive/joint_states` (overlay topics are subscribed once, shared with other roles). Next to the values the bar shows a mini top view of the robot (`components/RobotIcon.tsx`, geometry in `components/robotIconGeometry.ts`): the 0.47 x 0.386 m footprint, a front marker (up) and four rollers at the real module positions, each rotated by its `<module>_steer` angle from the map tab's `base_joint_states_topic` (matched by joint name); straight and greyed before the first message.
 - Panels stack vertically on narrow screens: the RGBD previews stack (below `sm`), the map tab's layers panel sits over the 3D view and its toolbar wraps.
 
 Tab selection: the app opens on the first `map_nav` tab, and `map_nav` tabs are always listed first whatever the config order (`frontend/src/tabSelection.ts`). The last tab the viewer selected is remembered in `localStorage` (key `web_ui.activeTabId`) and restored on reload only while a tab with that id still exists; otherwise the map tab (or the first tab, if no map tab is configured) is shown. Storage errors (private mode, blocked site data) are ignored.
@@ -33,7 +33,8 @@ Tab selection: the app opens on the first `map_nav` tab, and `map_nav` tabs are 
 Single Python process: FastAPI (uvicorn) on port 8080 serves:
 - `GET /` — React SPA (pre-built by Vite, embedded in the service)
 - `GET /api/config` — AppConfig as JSON
-- `GET /api/urdf/{path}` - URDF and mesh files (`Cache-Control: public, max-age=86400`, since meshes are tens of MB)
+- `GET /` and unknown client-side routes - `index.html` with `Cache-Control: no-cache` (a deploy is picked up at once; hashed `/assets/*` keep default caching); `/api/*` and `/ws*` misses stay 404
+- `GET /api/urdf/{path}` - URDF and mesh files (`Cache-Control: no-cache`: revalidated with ETag so model changes show after a reload, unchanged meshes answer 304)
 - `GET /api/urdf/status` — URDF directory scan result
 - `POST /api/map/save?tab=<tab id>` - ask slam_toolbox to save the map of a `map_nav` tab (see below)
 - `POST /api/map/reset?tab=<tab id>` - ask slam_toolbox to drop the current map and start a new one (see below)
