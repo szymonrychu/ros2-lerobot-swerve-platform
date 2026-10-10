@@ -171,7 +171,7 @@ Arm sources: leader (via master2master) | web_ui (/filter/web_ui_joint_commands)
   → filter_node arbitration (autonomy > web_ui > leader), active source on /filter/active_source
 ```
 
-Robot resource monitoring (Alloy + Prometheus + Grafana on the client, deploy with `./scripts/deploy-nodes.sh client monitoring`): nginx on port 80 serves the web UI at `http://client.ros2.lan/` and Grafana at `http://client.ros2.lan/grafana/` (no login, dashboard Robot resources), Prometheus at `http://client.ros2.lan:9090`. See [ansible/README.md](ansible/README.md#monitoring-stack-client).
+Monitoring (metrics and logs of both Pis, 1 d): Grafana at `http://server.ros2.lan/grafana/` (no login; `http://client.ros2.lan/grafana/` redirects there), Mimir's Prometheus API at `http://server.ros2.lan:9009/prometheus`, Loki at `http://server.ros2.lan:3100`; the robot's nginx on port 80 serves the web UI at `http://client.ros2.lan/`. Deploy the server first: `./scripts/deploy-nodes.sh server monitoring`, then `./scripts/deploy-nodes.sh client monitoring`. See [ansible/README.md](ansible/README.md#monitoring).
 
 ## Controlling the robot from Claude Code (MCP)
 

@@ -73,8 +73,10 @@ The playbook syncs the repo once, deploys the selected nodes, restarts what chan
 | Changed multiple independent nodes | `deploy-nodes.sh <target> node1 node2 node3` |
 | First deploy, major refactor, or unknown scope | `deploy-nodes.sh <target> --all` |
 | After Ansible role/config structure changes | `deploy-nodes.sh <target> --all` |
-| Monitoring stack (Alloy + Prometheus + Grafana at `/grafana/`, nginx on port 80 in front of the web UI; client only; not a ROS node, never part of a node deploy) | `deploy-nodes.sh client monitoring` |
-| Changed a node's metrics port or `monitoring_node_targets` (Alloy scrapes our nodes' `/metrics`) | the node(s), then `deploy-nodes.sh client monitoring` |
+| Server monitoring stack (Mimir + Loki + Grafana at `http://server.ros2.lan/grafana/`, nginx on port 80, Alloy for the server's own metrics and journal; not a ROS node, never part of a node deploy). Deploy it before the client | `deploy-nodes.sh server monitoring` |
+| Robot monitoring agent (Alloy pushing metrics to the server's Mimir and the journal to its Loki, nginx on port 80 in front of the web UI with `/grafana/` redirected to the server; removes the robot's old Prometheus + Grafana; not a ROS node) | `deploy-nodes.sh client monitoring` |
+| Changed a node's metrics port or `monitoring_agent_node_targets` (group_vars/client.yml; the robot's Alloy scrapes our nodes' `/metrics`) | the node(s), then `deploy-nodes.sh client monitoring` |
+| Changed a dashboard (`roles/monitoring/files/*.json`), the Mimir/Loki/Grafana config or the server's slice | `deploy-nodes.sh server monitoring` |
 
 A node list is one tag-filtered run, so there is nothing to parallelise. Servo nodes (`lerobot_follower`,
 `lerobot_leader`) are restarted only when their files changed, together with the other changed nodes at the end.

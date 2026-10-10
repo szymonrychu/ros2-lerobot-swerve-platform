@@ -156,7 +156,8 @@ Unit tests for `scripts/propose_unit_limits.py` with fixture Prometheus JSON (no
 
 | Test | Description |
 |------|-------------|
-| `test_settings_defaults`, `test_load_settings_from_yaml`, `test_settings_reject_bad_values` | pydantic config defaults, file loading and validation. |
+| `test_settings_defaults`, `test_load_settings_from_yaml`, `test_settings_reject_bad_values` | pydantic config defaults (Mimir's Prometheus API `http://server.ros2.lan:9009/prometheus`, `host: client`), file loading and validation. |
+| `test_shipped_yaml_queries_the_robot_series_in_mimir` | `scripts/propose_unit_limits.yaml` points at the server's Mimir with `host: client`. |
 | `test_round_up` | Rounding to a step. |
 | `test_cpu_quota_rounds_up_to_five_with_margin`, `test_cpu_quota_minimum` | CPUQuota = p99 * margin rounded up to 5 %, at least the minimum. |
 | `test_memory_max_uses_larger_of_margin_and_headroom`, `test_memory_max_minimum` | MemoryMax = max(p99 * margin, max * 1.2) rounded up to 16 MiB, at least the minimum. |
@@ -165,6 +166,7 @@ Unit tests for `scripts/propose_unit_limits.py` with fixture Prometheus JSON (no
 | `test_parse_vector_keys_by_unit_and_filters_regex`, `test_parse_vector_ignores_error_response` | Prometheus vector parsing and unit filtering. |
 | `test_load_node_limits_maps_node_to_type` | Node name -> node_type -> limits from a fixture group_vars, template defaults, `present: false` skipped. |
 | `test_build_queries_use_window_and_percentile` | PromQL uses the window, percentile and 1m rate. |
+| `test_build_queries_select_the_configured_host` | (client, server) every query selects `host="<host>"`. |
 | `test_build_rows_proposals_and_flags` | Proposals and the throttle / OOM risk flags. |
 | `test_build_rows_reports_no_data_and_unknown_units` | Units without a full set of series are `no data` with no proposal. |
 | `test_render_table_shows_columns_and_no_data`, `test_render_yaml_roundtrips` | Table columns and YAML output. |
@@ -983,7 +985,7 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_ansible_cfg_gathers_minimal_facts_and_caches_them` | `gather_subset = min`, smart gathering, jsonfile fact cache (cache dir gitignored). |
 | `test_documented_tag_set_lists_every_phase_tag` | The "Deploy tags" table in `ansible/README.md` lists exactly sync, apt, python, build, config, boot, setup, restart, verify, always. |
 | `test_every_task_in_role_and_task_files_carries_a_documented_tag` | (parametrized per file) every task (block tags inherited) in the role, the verify role and `playbooks/tasks/*.yml` has a documented tag. |
-| `test_non_node_targets_are_parsed` | `non_node_targets` reads the client's `monitoring` target (and none for the server) from `scripts/deploy-nodes.sh`. |
+| `test_non_node_targets_are_parsed` | `non_node_targets` reads the `monitoring` target of both the client and the server from `scripts/deploy-nodes.sh`. |
 | `test_every_task_in_the_deploy_playbooks_carries_a_documented_or_node_tag` | (client, server) every pre/main/post task of the deploy playbooks has a documented, node-name or non-node-target (`monitoring`) tag. |
 | `test_every_node_has_a_tagged_deploy_step` | (client, server) each `ros2_nodes` entry has exactly one deploy include tagged with its name plus apt/python/build/config, applying the node tag to the included tasks. |
 | `test_node_specific_setup_files_carry_their_node_tag` | The mcp_server token, claude_agent token, poi_store, slam maps, web_ui tile cache and overview_camera boot task files carry their node tag. |
@@ -1047,7 +1049,7 @@ The dev-only MuJoCo grasp replay harness has its own uv project and tests under 
 
 ### `test_node_metrics_wiring.py`
 
-Node metrics wiring in `ansible/group_vars/client.yml` against the port contract, and the Alloy node targets in `roles/monitoring/defaults/main.yml`. Node `config: |` blocks are rendered with jinja2 and parsed as YAML; env lists merge type and node entries as `resolve_and_deploy.yml` does.
+Node metrics wiring in `ansible/group_vars/client.yml` against the port contract, and the robot's Alloy node targets (`monitoring_agent_node_targets` in `group_vars/client.yml`). Node `config: |` blocks are rendered with jinja2 and parsed as YAML; env lists merge type and node entries as `resolve_and_deploy.yml` does.
 
 | Test | Description |
 |------|-------------|
@@ -1056,58 +1058,139 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
 | `test_node_types_using_ros2_metrics_declare_src_shared` | Every venv node type that imports ros2_metrics sets `src_shared: true`. |
-| `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`. |
+| `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`; the server's and the agent defaults' node target lists are empty. |
 | `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each of the 14 enabled contract nodes has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. |
+
+### `monitoring_helpers.py`
+
+Not a test file: shared helpers of the monitoring tests. Role paths (`roles/monitoring_agent`, `roles/monitoring`, `roles/web_proxy`), per-host variables (every monitoring role's defaults with the `monitoring_*` / `web_proxy_*` keys of `group_vars/<host>.yml` on top), jinja2 rendering of role templates and task values like `ansible.builtin.template` (StrictUndefined, `trim_blocks`), task walking through blocks, systemd unit parsing, the playbooks' `include_role` tasks and a docker image check.
 
 ### `test_monitoring_role.py`
 
-Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the client RPi5) and its deploy integration. Templates are rendered with jinja2 and the role defaults; the throttling script runs against a fake `vcgencmd` on PATH; `deploy-nodes.sh` runs against a fake `ansible-playbook`.
+The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the server RPi4) and the deploy integration of all monitoring roles. Templates are rendered with the server's variables.
 
 | Test | Description |
 |------|-------------|
-| `test_role_files_exist` | tasks, defaults, handlers, meta, the Alloy and Prometheus templates, the dashboard and the throttling script exist. |
+| `test_role_files_exist` | tasks, defaults, handlers, meta, the Mimir, Loki and Grafana templates, the drop-in and the dashboards exist. |
+| `test_robot_only_pieces_left_the_stack_role` | The Prometheus, Alloy, slice, nginx templates and the throttling script are no longer in the stack role. |
 | `test_every_template_and_file_the_tasks_name_exists` | Every `src:` of a template/copy task (loops and `with_fileglob` resolved) is shipped with the role. |
-| `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9090/12345, 1d/2GB retention, 5s interval and 4s scrape timeout, per-unit memory caps. |
-| `test_monitoring_slice_limits` | `monitoring.slice`: CPUWeight=20, IOWeight=20, CPUQuota=40%, MemoryMax=1600M, MemoryHigh=1500M. |
-| `test_dropin_moves_unit_into_the_slice` | (alloy, prometheus, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, MemoryMax 250M/450M/768M, OOMScoreAdjust=500, Restart=on-failure. |
-| `test_services_restart_when_a_config_is_newer_than_their_start` | after starting the services, a shell task restarts prometheus / alloy / grafana-server when any of their config or drop-in files is newer than the unit's `ActiveEnterTimestamp` (a failed run loses its handlers; apt starts Prometheus with the package defaults); it runs before the readiness check. |
-| `test_grafana_admin_password_command_runs` | the password task's real command, run locally, writes a 48-hex-character file with mode 0600 (`openssl rand` takes its options before the byte count). |
+| `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9009/3100, 24h Mimir and Loki retention, 5s interval, per-unit caps mimir 700M, loki 400M, grafana-server 768M. |
+| `test_packages_from_the_grafana_apt_repo` | The role includes `monitoring_agent`'s `grafana_repo.yml` before one apt task installing mimir, loki and grafana without recommends. |
+| `test_data_directories_belong_to_the_service_users` | `/var/lib/mimir` belongs to mimir, `/var/lib/loki` to loki. |
+| `test_dropin_moves_unit_into_the_slice` | (mimir, loki, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, the unit's MemoryMax, OOMScoreAdjust=500. |
 | `test_dropins_are_installed_for_every_unit` | One template task loops `monitoring_units` into `/etc/systemd/system/<unit>.service.d/`. |
-| `test_prometheus_flags` | `/etc/default/prometheus`: retention time and size, TSDB path, `0.0.0.0:9090`, remote-write receiver, config file. |
-| `test_prometheus_config_is_the_roles_own` | `prometheus.yml`: 5s scrape/evaluation interval, 4s scrape timeout, no scrape jobs. |
-| `test_node_exporter_is_masked` | prometheus-node-exporter is masked and the prometheus apt install skips recommends. |
-| `test_alloy_config` | Alloy config has unix (textfile dir), cadvisor (`docker_only = false`), self exporters, scrapes of Prometheus and Grafana, remote write to local Prometheus, 5s interval and 4s timeout on every scrape. |
-| `test_alloy_drops_high_cardinality_cgroups_and_veth` | The `id` keep rule keeps root, slices and services, drops scopes and sessions; veth interfaces are dropped. |
-| `test_alloy_listens_on_lan_port` | `/etc/default/alloy`: `0.0.0.0:12345`, reporting off, config path. |
-| `test_alloy_scrapes_every_node_target` | One `prometheus.scrape "nodes"` renders all 14 `monitoring_node_targets` as `127.0.0.1:<port>` with a `node` label, job `ros2_nodes`, path `/metrics`, `honor_labels = true`, 5s/4s, remote write. |
-| `test_alloy_systemd_collector_limited_to_robot_and_stack_units` | The unix exporter enables the systemd collector with `enable_restarts` and `start_time`; `unit_include` matches `ros2-*.service`, alloy, prometheus, grafana-server, nginx and nothing else. |
+| `test_mimir_is_one_monolithic_single_tenant_process` | Mimir: `target: all`, `multitenancy_enabled: false`, HTTP `0.0.0.0:9009`, gRPC on 127.0.0.1, usage stats off. |
+| `test_mimir_stores_blocks_on_the_local_filesystem` | Filesystem backend; data, TSDB, sync and compactor dirs under `/var/lib/mimir/`. |
+| `test_mimir_rings_are_in_memory_on_localhost` | Replication factor 1; distributor, ingester, querier, compactor, store-gateway, ruler and query-scheduler rings `inmemory` on 127.0.0.1; frontend address and memberlist bound to 127.0.0.1. |
+| `test_mimir_keeps_one_day_and_accepts_both_hosts` | `compactor_blocks_retention_period: 24h`; series, ingestion rate and burst limits cover ~10k series at 5 s from two hosts with headroom. |
+| `test_mimir_is_sized_for_the_pi4` | Ingester `instance_limits.max_series` bounded, querier `max_concurrent` at most 4. |
+| `test_mimir_service_flags` | `/etc/default/mimir`: `LOG_LEVEL="warn"`, `RESTART_ON_UPGRADE="true"`; the config goes to `/etc/mimir/config.yml`. |
+| `test_loki_is_monolithic_without_auth` | Loki: `auth_enabled: false`, HTTP `0.0.0.0:3100`, gRPC on 127.0.0.1, one replica, `inmemory` ring on 127.0.0.1, analytics off. |
+| `test_loki_stores_tsdb_v13_on_the_filesystem` | `path_prefix /var/lib/loki`, filesystem chunks, one tsdb/filesystem/v13 schema, WAL under `/var/lib/loki/`. |
+| `test_loki_deletes_logs_after_one_day` | `retention_period: 24h`, compactor `retention_enabled`, `delete_request_store: filesystem`, working dir under `/var/lib/loki/`. |
+| `test_loki_config_is_verified_before_it_is_installed` | The template task validates with `/usr/bin/loki -config.file=%s -verify-config`. |
 | `test_grafana_behind_nginx_at_subpath_without_login` | grafana.ini: `127.0.0.1:3000`, `root_url` ending `/grafana/`, `serve_from_sub_path`, anonymous enabled with role Editor. |
-| `test_grafana_runs_only_the_prometheus_backend_plugin` | grafana.ini `[plugins]`: `disable_plugins` lists exactly the 12 unused bundled datasources (not prometheus), `preinstall_disabled = true` (13 backend processes used 302 MB and got Grafana OOM-killed). |
-| `test_nginx_site_fronts_web_ui_and_grafana_on_port_80` | nginx site: `listen 80 default_server`, `/` -> 127.0.0.1:8080, `/grafana/` -> 127.0.0.1:3000, Upgrade/Connection headers on both, the `$connection_upgrade` map. |
-| `test_nginx_installed_enabled_and_default_site_removed` | the role installs nginx, writes `/etc/nginx/conf.d/robot.conf`, removes `sites-enabled/default`, runs `nginx -t`, starts nginx, checks `http://127.0.0.1/grafana/api/health`, and the disable path leaves nginx running. |
 | `test_grafana_phones_nowhere` | Reporting, update checks, plugin update checks, gravatar and news are off. |
+| `test_grafana_runs_only_the_prometheus_and_loki_backend_plugins` | `disable_plugins` lists exactly the 11 other bundled datasources (neither prometheus nor loki), `preinstall_disabled = true`. |
 | `test_grafana_admin_password_from_host_file` | The drop-in loads `/etc/grafana/admin-password` via LoadCredential into `GF_SECURITY_ADMIN_PASSWORD__FILE`; grafana.ini holds no password. |
 | `test_grafana_admin_password_generated_on_the_host` | No Ansible password lookup; one `openssl rand` task with `creates:`; the file is 0600 root:grafana. |
-| `test_grafana_apt_repo_signed_by_keyring` | deb822 repo `https://apt.grafana.com stable main` signed by the key downloaded to `/etc/apt/keyrings/`. |
-| `test_grafana_datasource_provisioned` | Provisioned Prometheus datasource uid `prometheus-robot` at `http://127.0.0.1:9090`. |
+| `test_grafana_admin_password_command_runs` | The password task's real command, run locally, writes a 48-hex-character file with mode 0600. |
+| `test_grafana_datasources_mimir_and_loki` | `/etc/grafana/provisioning/datasources/robot.yaml`: `prometheus-robot` (prometheus type, `http://127.0.0.1:9009/prometheus`, default, `prometheusType: Mimir`, 5s) and `loki-robot` (`http://127.0.0.1:3100`). |
 | `test_grafana_dashboard_provider` | Folder Robot; one copy task installs every `files/*.json` (`with_fileglob`) into the provider path under its own name. |
-| `test_dashboard_set_is_exactly_the_five_files` | `files/` holds robot-resources, robot-agent, robot-slam, robot-grasping and robot-health. |
-| `test_dashboard_is_valid_json_with_required_panels` | (each dashboard) parses, has its title and uid, every required panel by title and unique panel ids. |
-| `test_dashboard_common_settings` | (each dashboard) refresh 5s, last 1h, tag `robot`, one dashboard link by tag `robot`, datasource `prometheus-robot` on every panel and target. |
-| `test_dashboard_queries_use_contract_metrics_only` | (each dashboard) every expression names only node metric contract names (histograms with `_bucket/_sum/_count`), `node_*`, `container_*`, `rpi_throttled*`, `robot_node_*` or `up`. |
-| `test_resources_dashboard_still_covers_units_and_throttling` | Robot resources still queries unit CPU, CPUQuota and throttling. |
-| `test_agent_dashboard_queries` | Robot agent: p50/p95 from `agent_instruction_duration_seconds_bucket` and per-tool `mcp_tool_duration_seconds_bucket`, MCP errors by `outcome="error"`, tokens, cost, claude_agent/mcp_server cgroup CPU and memory. |
-| `test_slam_dashboard_queries` | Robot SLAM: cgroup CPU/memory of the six upstream SLAM units, lidar gap, relay rejections, odom rate, pose TF, nav goal duration, IMU and GPS panels. |
-| `test_grasping_dashboard_queries` | Robot grasping: servo load/temperature/torque per arm joint, success ratio, bus failures, grasp tool latencies, tracking error buckets. |
-| `test_health_dashboard_queries` | Robot health: `node_systemd_unit_state` and restarts, `up{job="ros2_nodes"}`, node start time, every per-node error counter, throttling, disk and memory pressure. |
-| `test_metric_names_helper` | The PromQL metric extractor skips functions, label matchers, `by (...)` lists, ranges and Grafana variables. |
+| `test_services_restart_when_a_config_is_newer_than_their_start` | After starting, a shell task restarts mimir / loki / grafana-server when their config, drop-in or `monitoring.slice` is newer than the start; it runs between the start and the readiness wait. |
+| `test_readiness_checks` | Waits for Mimir `/ready`, Loki `/ready`, Grafana `/api/health` and `/grafana/api/health` through nginx, at least 2 min. |
+| `test_disabled_stack_stops_its_services` | `monitoring_enabled: false` stops and disables mimir, loki and grafana-server. |
+| `test_playbooks_include_the_host_roles_tagged_monitoring_only` | (client, server) the client includes `monitoring_agent` and `web_proxy`, the server `monitoring_agent`, `web_proxy`, `monitoring` in that order, each tagged and applied `[monitoring]` only. |
+| `test_robot_no_longer_includes_the_stack_role` | The client playbook does not include `monitoring`. |
+| `test_monitoring_only_run_starts_and_verifies_no_nodes` | (client, server) `select_run.yml` with the host's `ros2_nodes`: `--tags monitoring` gives an empty node scope; full, phase and node runs keep theirs. |
+| `test_deploy_script_accepts_monitoring` | (client, server) `deploy-nodes.sh <host> monitoring` (and with a node name) runs the host's playbook with `--tags monitoring`. |
+| `test_deploy_script_lists_monitoring_on_unknown_name` | (client, server) an unknown name fails and the error lists `monitoring` next to the nodes. |
+
+### `test_monitoring_agent_role.py`
+
+`ansible/roles/monitoring_agent` (Grafana Alloy, `monitoring.slice`, the RPi throttling timer and the robot cleanup), rendered for each host (client, server). The throttling script runs against a fake `vcgencmd` on PATH.
+
+| Test | Description |
+|------|-------------|
+| `test_role_files_exist` | tasks (main, grafana_repo, remove_local_stack), defaults, handlers, meta, the Alloy and slice templates and the throttling script exist. |
+| `test_every_template_and_file_the_tasks_name_exists` | (client, server) every `src:` of a template/copy task is shipped with the role. |
+| `test_defaults_are_the_agent_only_host` | Defaults: enabled, port 12345, 5s/4s, push URLs `http://server.ros2.lan:9009/api/v1/push` and `:3100/loki/api/v1/push`, no node or stack targets, no cleanup, alloy 250M, no default `monitoring_host`. |
+| `test_group_vars_set_the_host_label` | (client, server) `group_vars/<host>.yml` sets `monitoring_host` to the host's name. |
+| `test_monitoring_slice_caps_per_host` | (client, server) CPUWeight=20, IOWeight=20; client CPUQuota=40%, 280M/300M; server CPUQuota=150%, 2000M/2200M. |
+| `test_server_unit_caps_fit_the_server_slice` | The server's mimir, loki, grafana-server and alloy caps add up to no more than the slice's MemoryMax. |
+| `test_alloy_dropin_moves_it_into_the_slice` | (client, server) the alloy drop-in: monitoring.slice, Nice=10, 250M, OOMScoreAdjust=500, Restart=on-failure, User=root. |
+| `test_dropins_are_installed_for_every_agent_unit` | One template task loops `monitoring_agent_units` into `/etc/systemd/system/<unit>.service.d/`. |
+| `test_agent_installs_alloy_only` | One apt install: alloy (+ libraspberrypi-bin on aarch64), no recommends, never prometheus or grafana. |
+| `test_node_exporter_is_masked` | prometheus-node-exporter is masked. |
+| `test_grafana_apt_repo_signed_by_keyring` | `grafana_repo.yml`: deb822 repo `https://apt.grafana.com stable main` signed by the key downloaded to `/etc/apt/keyrings/`; main.yml includes it. |
+| `test_alloy_remote_writes_to_mimir_with_the_host_label` | (client, server) `prometheus.remote_write "mimir"` url: robot `http://server.ros2.lan:9009/api/v1/push`, server `http://127.0.0.1:9009/api/v1/push`; `external_labels = {host = "<host>"}`. |
+| `test_alloy_pushes_logs_to_loki_with_the_host_label` | (client, server) `loki.write "server"` url: robot `http://server.ros2.lan:3100/loki/api/v1/push`, server 127.0.0.1; `external_labels` host. |
+| `test_alloy_scrapes_every_5s_and_writes_to_mimir` | (client, server) every scrape 5s / 4s, every metrics `forward_to` ends in the Mimir remote write (directly or via the cadvisor relabel). |
+| `test_alloy_collects_host_cgroup_and_self_metrics` | (client, server) unix (textfile dir), cadvisor (`docker_only = false`) and self exporters. |
+| `test_alloy_drops_high_cardinality_cgroups_and_veth` | (client, server) the `id` keep rule keeps root, slices and services, drops scopes and sessions; veth interfaces are dropped. |
+| `test_alloy_listens_on_lan_port` | `/etc/default/alloy`: `0.0.0.0:12345`, reporting off, config path. |
+| `test_robot_alloy_scrapes_every_node_target` | The robot's `prometheus.scrape "nodes"` renders all 14 `monitoring_agent_node_targets` as `127.0.0.1:<port>` with a `node` label, job `ros2_nodes`, `honor_labels`, 5s/4s. |
+| `test_robot_alloy_scrapes_no_stack` | The robot scrapes no Prometheus or Grafana any more. |
+| `test_server_alloy_scrapes_the_stack_and_no_nodes` | The server's `prometheus.scrape "stack"` targets mimir 9009, loki 3100, grafana 3000; no node scrape. |
+| `test_alloy_systemd_collector_limited_to_ros_and_stack_units` | (client, server) systemd collector with restarts and start time; `unit_include` matches ros2-*, alloy, mimir, loki, grafana-server, nginx and not prometheus, ssh, sockets. |
+| `test_alloy_reads_the_journal_with_unit_and_level_labels` | (client, server) `loki.source.journal` with `max_age 12h`, `job="systemd-journal"`, relabel rules unit, level and transport. |
+| `test_alloy_drops_debug_lines_before_loki` | (client, server) `loki.process` drops `{level="debug"}` and forwards to `loki.write`. |
 | `test_parse_throttled` | `parse_throttled` reads `throttled=0x...` as hex and rejects other output. |
 | `test_throttled_metrics_names_every_bit` | `rpi_throttled_flags` plus `rpi_throttled{bit=...}` for bits 0-3 (`_now`) and 16-19 (`_occurred`). |
 | `test_script_writes_textfile_atomically` | With a fake `vcgencmd` the script writes the textfile and leaves no temp file. |
 | `test_script_removes_stale_textfile_on_failure` | A failing `vcgencmd` removes the old file and exits non-zero. |
-| `test_throttle_timer_runs_every_5s` | `rpi-throttled.timer` fires every 5s; the oneshot service runs in monitoring.slice with the textfile path. |
-| `test_client_playbook_includes_role_tagged_monitoring_only` | `deploy_nodes_client.yml` includes the role once, tagged (and applied) `[monitoring]` only. |
-| `test_monitoring_only_run_starts_and_verifies_no_nodes` | `select_run.yml`: `--tags monitoring` gives an empty node scope; full, phase and node runs keep theirs. |
-| `test_deploy_script_accepts_monitoring` | `deploy-nodes.sh client monitoring` (and with a node name) runs the client playbook with `--tags monitoring`. |
-| `test_deploy_script_lists_monitoring_on_unknown_name` | An unknown name fails and the error lists `monitoring` next to the nodes. |
-| `test_deploy_script_rejects_monitoring_on_server` | The server has no monitoring target. |
+| `test_throttle_timer_runs_every_5s` | (client, server) `rpi-throttled.timer` fires every 5s; the oneshot service runs in monitoring.slice with the textfile path. |
+| `test_alloy_and_timer_started_then_guarded_then_checked` | Alloy and the timer start, then a shell task restarts alloy when `/etc/default/alloy`, its config, drop-in or `monitoring.slice` is newer than its start, then `/-/ready` is awaited. |
+| `test_disabled_agent_stops_alloy_and_timer` | `monitoring_agent_enabled: false` stops and disables alloy and the timer. |
+| `test_cleanup_runs_on_the_robot_only` | `monitoring_agent_remove_local_stack` is true on the client, false on the server; main.yml includes `remove_local_stack.yml` under it. |
+| `test_cleanup_stops_and_disables_prometheus_and_grafana_when_present` | Stop + disable of prometheus and grafana-server only while service_facts still knows them. |
+| `test_cleanup_purges_the_packages_and_their_leftovers` | apt purges prometheus and grafana; drop-ins, `/etc/grafana`, `/etc/prometheus`, `/etc/default/prometheus`, `/var/lib/prometheus`, `/var/lib/grafana` are removed (systemd reloaded); no shell/command task, so a second run changes nothing. |
+| `test_cleanup_runs_before_the_slice_is_installed` | The cleanup comes before the (smaller) slice is written. |
+
+### `test_web_proxy_role.py`
+
+`ansible/roles/web_proxy` (nginx on port 80 of both hosts), rendered per host.
+
+| Test | Description |
+|------|-------------|
+| `test_site_per_host` | (client, server) `web_proxy_site` is robot / server and the template exists. |
+| `test_robot_site_proxies_web_ui_with_websockets` | Robot: `listen 80 default_server`, `/` -> 127.0.0.1:8080 with Upgrade/Connection headers and `proxy_buffering off`. |
+| `test_robot_site_redirects_grafana_to_the_server` | Robot `/grafana/`: `return 302 http://server.ros2.lan$request_uri;` (path and query kept), no proxy. |
+| `test_server_site_serves_grafana_and_redirects_root` | Server: `/` -> `302 /grafana/`, `/grafana/` -> 127.0.0.1:3000 with WebSocket upgrade. |
+| `test_nginx_installed_default_site_removed_and_checked` | (client, server) nginx installed, the host's site written to `/etc/nginx/conf.d/<site>.conf`, `sites-enabled/default` removed, `nginx -t` before the handler flush, nginx enabled and started. |
+| `test_readiness_checks_per_host` | The probe expects 302 without following: robot `/grafana/d/robot-health?orgId=1` -> `http://server.ros2.lan/grafana/d/robot-health?orgId=1`, server `/` -> `http://127.0.0.1/grafana/`. |
+
+### `test_monitoring_dashboards.py`
+
+The Grafana dashboards in `ansible/roles/monitoring/files/` (JSON structure, metric contract, host scoping, Loki panels). Selectors are found with a small PromQL scanner (strings, ranges, `by (...)` lists, functions and Grafana variables skipped).
+
+| Test | Description |
+|------|-------------|
+| `test_selector_helper` | Guard against vacuous passes: the scanner finds selectors with their matchers and skips functions, labels, ranges, numbers and variables. |
+| `test_dashboard_set_is_exactly_the_five_files` | `files/` holds robot-resources, robot-agent, robot-slam, robot-grasping and robot-health. |
+| `test_dashboard_is_valid_json_with_required_panels` | (each dashboard) parses, has its title and uid, every required panel by title and unique panel ids. |
+| `test_dashboard_common_settings` | (each dashboard) refresh 5s, last 1h, tag `robot`, one dashboard link by tag `robot`; datasource `prometheus-robot` on every panel and target, `loki-robot` on the two Loki panels. |
+| `test_dashboard_queries_use_contract_metrics_only` | (each dashboard) every PromQL expression names only node metric contract names (histograms with `_bucket/_sum/_count`), `node_*`, `container_*`, `rpi_throttled*`, `robot_node_*` or `up`. |
+| `test_host_dashboards_have_a_host_picker` | (Robot resources, Robot health) a single-value query variable `host` from `label_values(up, host)` on prometheus-robot, default `client`. |
+| `test_every_selector_is_scoped_to_a_host` | (each dashboard) every vector selector carries `host="$host"` (resources, health) or `host="client"` (agent, SLAM, grasping). |
+| `test_robot_only_dashboards_have_no_host_picker` | Agent, SLAM and grasping have no host variable. |
+| `test_resources_dashboard_still_covers_units_and_throttling` | Robot resources still queries unit CPU, CPUQuota and throttling; the per-unit regex names mimir, loki, grafana-server and alloy, not prometheus. |
+| `test_agent_dashboard_queries` | Robot agent: p50/p95 from `agent_instruction_duration_seconds_bucket` and per-tool `mcp_tool_duration_seconds_bucket`, MCP errors by `outcome="error"`, tokens, cost, claude_agent/mcp_server cgroup CPU and memory. |
+| `test_slam_dashboard_queries` | Robot SLAM: cgroup CPU/memory of the six upstream SLAM units, lidar gap, relay rejections, odom rate, pose TF, nav goal duration, IMU and GPS panels. |
+| `test_grasping_dashboard_queries` | Robot grasping: servo load/temperature/torque per arm joint, success ratio, bus failures, grasp tool latencies, tracking error buckets. |
+| `test_health_dashboard_queries` | Robot health: `node_systemd_unit_state` for ros2-*, alloy, mimir, loki, grafana-server and nginx, restarts, `up{job="ros2_nodes"}`, node start time, every per-node error counter, throttling, disk and memory pressure. |
+| `test_health_dashboard_loki_panels` | Robot health: `Error log lines per unit` = `sum by (unit) (rate({host="$host", level=~"emerg\|alert\|crit\|err"}[$__auto]))` (timeseries) and `Recent error log lines` = the same selector (logs panel); exactly two LogQL queries. |
+
+### `test_monitoring_real_binaries.py`
+
+The rendered configs and every dashboard query checked by the real binaries in Docker. Skipped when docker or one of the images (`grafana/mimir:3.2.2`, `grafana/loki:3.7.8`, `grafana/alloy:latest`, `nginx:stable`, `prom/prometheus:v2.45.3`, `busybox:1.36`) is not present locally; the tests never pull. Mimir and Loki run with `--network none` (loopback only) and are probed from a busybox container in their network namespace (the images are distroless).
+
+| Test | Description |
+|------|-------------|
+| `test_mimir_config_starts_and_is_ready` | Mimir started from the rendered config answers `/ready`; its effective config has 1d block retention and multitenancy off. |
+| `test_loki_config_verifies_starts_and_is_ready` | `loki -verify-config` accepts the rendered config and Loki started from it answers `/ready`. |
+| `test_every_promql_query_parses` | `promtool check rules` parses every dashboard PromQL expression (Grafana variables substituted) as recording rules. |
+| `test_every_logql_query_parses` | Loki's `/loki/api/v1/format_query` accepts both dashboard LogQL expressions and rejects a broken one. |
+| `test_alloy_config_runs` | (client, server) `alloy run` on the rendered config logs "now listening" with no "failed to evaluate". |
+| `test_nginx_site_passes_nginx_t` | (robot, server) `nginx -t` accepts the rendered site. |
+| `test_robot_nginx_redirects_grafana_keeping_path_and_query` | The running robot site answers `/grafana/d/robot-health?orgId=1&var-host=server` with 302 to `http://server.ros2.lan/grafana/d/robot-health?orgId=1&var-host=server`. |
