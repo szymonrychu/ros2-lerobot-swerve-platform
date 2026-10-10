@@ -909,9 +909,14 @@ ros2_nodes:
           arm_urdf: so101_arm.urdf
           arm_joint_states_topic: /follower/joint_states
           arm_command_topic: /filter/web_ui_joint_commands
-          # Arm mount in base_link [x, y, z] m (z up from the floor); estimate, measure later. Same value as the
-          # mcp_server arm.base_in_base_link, so the drawn arm and the grasp preview agree with the planner.
-          arm_offset: [0.15, -0.04, 0.15]
+          # Arm mount (URDF base origin) in base_link [x, y, z] m (z up from the floor), measured 2026-10-10 on the
+          # robot: shoulder_pan axis centre 98 mm forward, 50 mm right of the centre between the
+          # wheels (user, from the CAD model); URDF base origin = pan axis - (38.8 mm forward, 62.4 mm up); height from tip
+          # touch-downs at x 0.20 and 0.25 m (contact at tool-point z -0.104 in the arm frame). Note: the configured
+          # tool_offset_m is an effective TCP, a pose 21 cm above the front-left axis was off by about 3.6 cm, so a full
+          # kinematic calibration (joint offsets + mount + physical tip) is still pending.
+          # Same value as the mcp_server arm.base_in_base_link, so the drawn arm and the grasp preview agree with the planner.
+          arm_offset: [0.0592, -0.05, 0.104]
           # Home / Set home buttons: std_srvs/Trigger services served by mcp_server.
           arm_home_service: /arm/home
           arm_set_home_service: /arm/set_home
@@ -1021,9 +1026,9 @@ ros2_nodes:
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml
-        # Arm mount plane (URDF base_link origin) height above the floor: ESTIMATE 15 cm (to be measured). Slightly lower
-        # than the earlier 16.5 cm so the floor is treated conservatively (floor_z_m = -0.15 in the arm frame).
-        arm_base_height_m: 0.15
+        # Arm mount plane (URDF base_link origin) height above the floor: 10.4 cm, measured 2026-10-10 by touching the floor
+        # with the tip (contact at tool-point z -0.104 in the arm frame; floor_z_m = -0.104). Was a 15 cm estimate.
+        arm_base_height_m: 0.104
         # Arm reach on the floor around the shoulder pan axis, drawn as the reach annulus on annotated camera images
         # (approximate: measure it and adjust).
         reach_outer_m: 0.25
@@ -1044,10 +1049,15 @@ ros2_nodes:
         # servo cannot lift the stretched-out arm beyond about 1.85 rad): a folded arm reaches about 5 cm below the floor.
         joint_limit_overrides_rad:
           shoulder_lift: [-1.745, 1.9]
-        # Arm base frame pose in base_link (x/y/z in m, yaw in rad; z must equal arm_base_height_m). ESTIMATE, to be
-        # measured: 15 cm forward, 4 cm right of the centre line. Used for arm <-> base_link conversions (gripper-camera
-        # base_link/map coordinates, grasp objects given in base_link, the floor slow zone). null disables them.
-        base_in_base_link: {x: 0.15, y: -0.04, z: 0.15, yaw: 0.0}
+        # Arm base frame pose in base_link (x/y/z in m, yaw in rad; z must equal arm_base_height_m), measured
+        # 2026-10-10 on the robot: shoulder_pan axis centre 98 mm forward, 50 mm right of the centre between the
+        # wheels (user, from the CAD model); URDF base origin = pan axis - (38.8 mm forward, 62.4 mm up); height from tip
+        # touch-downs at x 0.20 and 0.25 m (contact at tool-point z -0.104 in the arm frame). Note: the configured
+        # tool_offset_m is an effective TCP, a pose 21 cm above the front-left axis was off by about 3.6 cm, so a full
+        # kinematic calibration (joint offsets + mount + physical tip) is still pending.
+        # Used for arm <-> base_link conversions (gripper-camera base_link/map coordinates, grasp objects given in
+        # base_link, the floor slow zone). null disables them.
+        base_in_base_link: {x: 0.0592, y: -0.05, z: 0.104, yaw: 0.0}
       # Camera geometry for pixel_to_ground, annotated images and candidate points (nodes/mcp_server/README.md, "Camera
       # tools and calibration"). Both cameras are NOT calibrated until intrinsics and mount are set. intrinsics is
       # {calibration_file: <camera_calibration yaml>} or an approximation {hfov_deg: 66.0, width: 640, height: 480};
@@ -1223,9 +1233,9 @@ ros2_nodes:
       # Session log: <state_dir>/session/events.jsonl (paged history for the web UI; POST /api/reset deletes it).
       state_dir: /var/lib/claude_agent
       # Hardware facts stated in the system prompt (SO-101: reach from the shoulder_lift axis, base height above floor;
-      # keep arm_base_height_m equal to mcp_server arm.arm_base_height_m, an estimate until measured).
+      # keep arm_base_height_m equal to mcp_server arm.arm_base_height_m, measured 2026-10-10).
       arm_reach_cm: 41
-      arm_base_height_m: 0.15
+      arm_base_height_m: 0.104
       # Nav2 goal precision stated in the system prompt (same values as mcp_server nav and the Nav2 goal checker).
       nav_goal_xy_tolerance_cm: 1.0
       nav_goal_yaw_tolerance_deg: 2.0
