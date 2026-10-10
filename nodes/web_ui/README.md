@@ -298,14 +298,14 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 
 | File | Description |
 |---|---|
-| `urdf/robot.urdf` | Swerve base: 0.47 x 0.386 m body box + 4 roller wheels (cylinders), real module positions, no meshes |
+| `urdf/robot.urdf` | Swerve base: 0.47 x 0.386 m footprint outline on the floor (no solid body) + 4 roller wheels (cylinders), real module positions, no meshes |
 | `urdf/so101_arm.urdf` | SO-101 follower arm (from TheRobotStudio/SO-ARM100) |
 
 ### Robot base model
 
 `urdf/robot.urdf` is the single source of the base model; `base_link` is the ground-projected centre between the wheels, so z = 0 is the floor.
 
-- **Geometry (from `ansible/group_vars/client.yml`):** steering axes at x +-0.1525, y +-0.1333 m (`swerve_controller` `half_length_m` / `half_width_m`), wheel radius 0.06 m, steering limit +-1.5708 rad, body box 0.47 x 0.386 m (mcp_server `footprint`). Estimates, marked in the URDF: wheel width 0.03 m, body from 0.05 to 0.15 m above the floor (top = the arm mount height of `arm_offset`).
+- **Geometry (from `ansible/group_vars/client.yml`):** steering axes at x +-0.1525, y +-0.1333 m (`swerve_controller` `half_length_m` / `half_width_m`), wheel radius 0.06 m, steering limit +-1.5708 rad, footprint outline 0.47 x 0.386 m on the floor (mcp_server `footprint`; four 1 cm bars, no solid placeholder body). Estimate, marked in the URDF: wheel width 0.03 m.
 - **Joints:** named exactly like `/swerve_drive/joint_states` (`fl|fr|rl|rr` + `_steer` / `_drive`). `*_steer` is revolute about z (rad, positive = CCW seen from above, 0 = straight ahead, the same convention as the controller commands), `*_drive` is continuous about the axle (+y, positive = rolling forward). Each roller is a plain cylinder with a contrasting bar across the tread so the rotation is visible.
 - **Live update:** the `base_joint_states_topic` samples are applied like the arm's, one subscription and one WebSocket rate. The feetech bridge already undoes `inverted` in both position and velocity, so no sign handling is needed in the scene. The wheel servos run in wheel mode: their `position` is a wrapping encoder reading, so `frontend/src/map3d/baseJoints.ts` integrates `velocity` (rad/s) over the time between messages (capped at 0.25 s per step, wrapped to [-pi, pi)) into the `*_drive` angle; steering angles are used as sent.
 - The body is drawn translucent so the wheels inside the footprint stay visible; the Body and Wheels layers toggle them separately.

@@ -1,13 +1,12 @@
 <?xml version="1.0"?>
 <!--
-  Swerve base: body box plus four steerable roller wheels (plain cylinders). base_link is the ground-projected
+  Swerve base: footprint outline plus four steerable roller wheels (plain cylinders). base_link is the ground-projected
   centre between the wheels, so z = 0 is the floor and a wheel axle is one radius above it.
 
   Real geometry (ansible/group_vars/client.yml, swerve_controller and mcp_server footprint):
     - steering axes at x +-0.1525, y +-0.1333 (half_length_m, half_width_m), wheel radius 0.06 m
     - outer footprint 0.47 x 0.386 m
-  Estimates (not measured, adjust here only): wheel width 0.03 m, body bottom 0.05 m above the floor, body top 0.15 m
-  (the arm mount height, arm_offset z in the web_ui map tab).
+  Estimates (not measured, adjust here only): wheel width 0.03 m.
 
   Joint names are the /swerve_drive/joint_states names. <module>_steer: rad, positive = CCW seen from above (URDF +z),
   0 = straight ahead. <module>_drive: rad about the axle (+y), positive = rolling forward; the topic carries wheel
@@ -15,15 +14,31 @@
 -->
 <robot name="swerve_robot">
 
-  <material name="body_grey"><color rgba="0.55 0.58 0.62 0.55"/></material>
+  <material name="body_grey"><color rgba="0.75 0.78 0.82 1.0"/></material>
   <material name="tyre"><color rgba="0.12 0.12 0.12 1.0"/></material>
   <material name="stripe"><color rgba="0.95 0.75 0.1 1.0"/></material>
 
-  <!-- Body: outer footprint 0.47 x 0.386 m, z 0.05 .. 0.15 (centre 0.10, height 0.10 estimated). -->
+  <!-- Body: no solid placeholder, only the 0.47 x 0.386 m outer footprint as an outline on the floor
+       (four bars 0.01 m wide, 0.005 m high; outer edges = footprint). -->
   <link name="base_link">
     <visual>
-      <origin xyz="0 0 0.10" rpy="0 0 0"/>
-      <geometry><box size="0.47 0.386 0.10"/></geometry>
+      <origin xyz="0.230 0 0.0025" rpy="0 0 0"/>
+      <geometry><box size="0.01 0.386 0.005"/></geometry>
+      <material name="body_grey"/>
+    </visual>
+    <visual>
+      <origin xyz="-0.230 0 0.0025" rpy="0 0 0"/>
+      <geometry><box size="0.01 0.386 0.005"/></geometry>
+      <material name="body_grey"/>
+    </visual>
+    <visual>
+      <origin xyz="0 0.188 0.0025" rpy="0 0 0"/>
+      <geometry><box size="0.47 0.01 0.005"/></geometry>
+      <material name="body_grey"/>
+    </visual>
+    <visual>
+      <origin xyz="0 -0.188 0.0025" rpy="0 0 0"/>
+      <geometry><box size="0.47 0.01 0.005"/></geometry>
       <material name="body_grey"/>
     </visual>
   </link>

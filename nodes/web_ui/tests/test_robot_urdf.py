@@ -110,18 +110,22 @@ def test_roller_is_a_cylinder_of_wheel_radius(swerve: dict[str, Any], urdf: ET.E
         assert not list(urdf.iter("mesh")), "base URDF must not need meshes"
 
 
-def test_body_matches_footprint_and_arm_mount(urdf: ET.Element) -> None:
-    """The body box is the 0.47 x 0.386 m outer footprint and its top is the arm mount height."""
+def test_body_is_an_outline_of_the_footprint(urdf: ET.Element) -> None:
+    """No solid placeholder body: four thin bars on the floor whose outer edges span the 0.47 x 0.386 m footprint."""
     mcp = ros2_node_config("mcp_server")
     foot = mcp["footprint"]
-    web = ros2_node_config("web_ui")
-    tab = next(t for t in web["tabs"] if t.get("type") == "map_nav")
     base = next(link for link in urdf.findall("link") if link.get("name") == "base_link")
-    box = base.find("visual/geometry/box")
-    assert box is not None
-    size = vec(box.get("size"))
-    assert size[0] == pytest.approx(foot["length_m"], abs=TOL)
-    assert size[1] == pytest.approx(foot["width_m"], abs=TOL)
-    z = vec(base.find("visual/origin").get("xyz"))[2]  # type: ignore[union-attr]
-    assert z + size[2] / 2 == pytest.approx(tab["arm_offset"][2], abs=TOL)
-    assert z - size[2] / 2 > 0, "body must clear the floor"
+    bars = []
+    for visual in base.findall("visual"):
+        box = visual.find("geometry/box")
+        assert box is not None, "base_link visuals must be outline bars"
+        size = vec(box.get("size"))
+        xyz = vec(visual.find("origin").get("xyz"))  # type: ignore[union-attr]
+        assert min(size[0], size[1]) <= 0.02, f"bar {size} is a solid block, not an outline edge"
+        assert xyz[2] - size[2] / 2 >= 0.0 and xyz[2] + size[2] / 2 <= 0.02, "outline lies on the floor"
+        bars.append((xyz, size))
+    assert len(bars) == 4
+    xs = [x + sx / 2 for (x, _, _), (sx, _, _) in bars] + [x - sx / 2 for (x, _, _), (sx, _, _) in bars]
+    ys = [y + sy / 2 for (_, y, _), (_, sy, _) in bars] + [y - sy / 2 for (_, y, _), (_, sy, _) in bars]
+    assert max(xs) - min(xs) == pytest.approx(foot["length_m"], abs=TOL)
+    assert max(ys) - min(ys) == pytest.approx(foot["width_m"], abs=TOL)
