@@ -684,19 +684,29 @@ def test_effort_spike_at_motor_start_is_not_contact(tmp_path: Path) -> None:
 def test_effort_without_jaw_travel_or_stall_is_not_contact(tmp_path: Path) -> None:
     """Past the ignore window but the jaw moved < 0.03 rad and is still creeping: not contact yet."""
     arm, _ = make(tmp_path)
-    history = [(100.0 + 0.1 * i, 1.5 - 0.004 * i) for i in range(8)]  # 0.028 rad over 0.7 s, still moving
+    history = [(100.0 + 0.1 * i, 1.5 - 0.004 * i, 1.0) for i in range(8)]  # 0.028 rad over 0.7 s, still moving
     assert arm.contact_allowed(history, started=99.0) is False
     assert arm.contact_allowed(history, started=100.6) is False  # inside the ignore window
 
 
 def test_effort_counts_after_jaw_travel_or_stall(tmp_path: Path) -> None:
     arm, _ = make(tmp_path)
-    moved = [(100.0 + 0.1 * i, 1.5 - 0.02 * i) for i in range(8)]
+    moved = [(100.0 + 0.1 * i, 1.5 - 0.02 * i, 1.2) for i in range(8)]
     assert arm.contact_allowed(moved, started=99.0) is True
-    stalled = [(100.0 + 0.1 * i, 0.7) for i in range(8)]
+    stalled = [(100.0 + 0.1 * i, 0.7, 0.5) for i in range(8)]  # commanded 0.2 rad further closed
     assert arm.contact_allowed(stalled, started=99.0) is True
-    short = [(100.0 + 0.1 * i, 0.7) for i in range(3)]  # stall window (0.5 s) not covered yet
+    short = [(100.0 + 0.1 * i, 0.7, 0.5) for i in range(3)]  # stall window (0.5 s) not covered yet
     assert arm.contact_allowed(short, started=99.0) is False
+
+
+def test_still_jaw_is_not_stalled_until_the_command_leads_it(tmp_path: Path) -> None:
+    """A jaw that has not broken away yet while the close command ramps up is not stalled."""
+    arm, _ = make(tmp_path)
+    lead = arm.cfg.limits.gripper_stall_lead_rad
+    ramping = [(100.0 + 0.1 * i, 0.66, 0.66 - 0.02 * i) for i in range(10)]  # lead 0.0 .. 0.18 rad
+    assert arm.contact_allowed(ramping, started=99.0) is False  # window starts below the lead
+    led = [(100.0 + 0.1 * i, 0.66, 0.66 - lead - 0.01) for i in range(8)]
+    assert arm.contact_allowed(led, started=99.0) is True
 
 
 # --- joint zero offsets: kinematics in URDF space (urdf = measured + offset), joint commands stay measured ---
@@ -1144,3 +1154,66 @@ def test_move_path_near_the_floor_is_slowed(tmp_path: Path) -> None:
     arm, be = make_guarded(tmp_path, backend=FakeArmBackend(dict(start)))
     res = arm.move_path([high, low], 0.5)
     assert res.slow_zone is not None and res.slow_zone["slowed_samples"] > 0
+
+
+# --- close_until_effort with a jaw that starts late (live 2026-10-10: blocked after 0.000 rad travel) ---
+
+START_LAG_S = 0.9  # live: the real jaw first moved 0.65-0.9 s after a close from rest started
+
+
+def late_jaw(start_load: float) -> FakeArmBackend:
+    """Follower whose jaw, once at rest, ignores the command for START_LAG_S after it is commanded away, reporting
+    `start_load` while it strains to break away, then follows freely with no load (nothing between the jaws).
+    A pause between motions (no sleep for more than a few control periods) puts the jaw at rest again."""
+    be = FakeArmBackend()
+    be.follow = False
+    be.positions["gripper"] = -0.15
+    state: dict[str, float | None] = {"moving_since": None, "last_sleep": None}
+    period = 1.0 / CONFIG.limits.arm_rate_hz
+
+    def lag(b: FakeArmBackend) -> None:
+        last, state["last_sleep"] = state["last_sleep"], b.t
+        if last is not None and b.t - last > 3 * period:
+            state["moving_since"] = None  # the jaw rested between motions
+        if not b.commands:
+            return
+        cmd = b.commands[-1]
+        b.positions.update({j: v for j, v in cmd.items() if j != "gripper"})
+        apart = abs(cmd["gripper"] - b.positions["gripper"]) > 1e-6
+        if not apart:
+            state["moving_since"] = None
+            b.efforts["gripper"] = 0.0
+            return
+        since = state["moving_since"]
+        if since is None:
+            state["moving_since"] = since = b.t
+        if b.t - since < START_LAG_S:
+            b.efforts["gripper"] = start_load
+            return
+        b.positions["gripper"] = cmd["gripper"]
+        b.efforts["gripper"] = 0.0
+
+    be.on_sleep = lag
+    return be
+
+
+def test_close_until_effort_waits_for_a_late_starting_jaw_instead_of_reporting_blocked(tmp_path: Path) -> None:
+    arm, be = make(tmp_path, late_jaw(start_load=500.0))
+    opened = arm.set_gripper(open_fraction=0.5)
+    assert opened.status == "converged", opened.message
+    be.t += 1.4  # live: the close was called 1.4 s after the open returned
+    arm.keepalive_tick()
+    res = arm.set_gripper(close_until_effort=True, effort_threshold=300.0)
+    assert res.status == "closed_no_contact", res.message
+    assert be.positions["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)
+
+
+def test_close_until_effort_with_nothing_between_the_jaws_and_no_load_travels_to_closed(tmp_path: Path) -> None:
+    arm, be = make(tmp_path, late_jaw(start_load=0.0))
+    arm.set_gripper(open_fraction=0.5)
+    be.t += 1.4
+    arm.keepalive_tick()
+    res = arm.set_gripper(close_until_effort=True, effort_threshold=300.0)
+    assert res.status == "closed_no_contact", res.message
+    assert be.commands[-1]["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)
+    assert be.positions["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)

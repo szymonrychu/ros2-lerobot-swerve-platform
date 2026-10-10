@@ -939,16 +939,19 @@ class ArmController:
             if pending:
                 self.schedule_relax(pending)
 
-    def contact_allowed(self, history: list[tuple[float, float]], started: float) -> bool:
+    def contact_allowed(self, history: list[tuple[float, float, float]], started: float) -> bool:
         """Whether a gripper load counts as contact yet (close_until_effort).
 
         The load spikes when the motor starts, so it is ignored for gripper_effort_ignore_s after the close started
-        and afterwards only counts once the jaw travelled gripper_contact_travel_rad from its start or stalled (moved
-        less than arm_settle_motion_rad over arm_settle_window_s).
+        and afterwards only counts once the jaw travelled gripper_contact_travel_rad from its start or stalled: moved
+        less than arm_settle_motion_rad over arm_settle_window_s while the commanded jaw stayed at least
+        gripper_stall_lead_rad ahead of it the whole window. A jaw that has not started to follow the slowly ramping
+        command yet (the real servo needs up to about 0.9 s to break away from rest, straining with a high load) is
+        not stalled.
 
         Args:
-            history (list[tuple[float, float]]): (sample stamp s, gripper position rad) since the close started,
-                oldest first.
+            history (list[tuple[float, float, float]]): (sample stamp s, gripper position rad, commanded gripper rad)
+                since the close started, oldest first.
             started (float): Close start (monotonic s).
 
         Returns:
@@ -957,13 +960,16 @@ class ArmController:
         limits = self.cfg.limits
         if not history or history[-1][0] - started < limits.gripper_effort_ignore_s:
             return False
-        latest_t, latest = history[-1]
+        latest_t, latest, _ = history[-1]
         if abs(latest - history[0][1]) >= limits.gripper_contact_travel_rad:
             return True
         if latest_t - history[0][0] < limits.arm_settle_window_s:
             return False
-        window = [p for t, p in history if t >= latest_t - limits.arm_settle_window_s]
-        return max(window) - min(window) <= limits.arm_settle_motion_rad
+        window = [(p, c) for t, p, c in history if t >= latest_t - limits.arm_settle_window_s]
+        if any(abs(c - p) < limits.gripper_stall_lead_rad for p, c in window):
+            return False
+        positions = [p for p, _ in window]
+        return max(positions) - min(positions) <= limits.arm_settle_motion_rad
 
     def loose_grasp_message(self, start_jaw: float, stopped: float) -> str | None:
         """Why a contact at `stopped` is not a hold of an object (None when the jaw really closed onto something).
@@ -1363,14 +1369,16 @@ class ArmController:
         self._tracking_limit = tracking_limit(limits.arm_tracking_error_rad, limits.arm_tracking_lag_s, vmax)
         started = self.backend.now()
         self._moving = list(moving)
-        jaw_history: list[tuple[float, float]] = []
+        jaw_history: list[tuple[float, float, float]] = []
 
         def contact_threshold(latest: JointSample | None) -> float | None:
             """Effort threshold to apply this cycle: None while the load cannot be contact yet."""
             if effort_threshold is None or latest is None or self.gripper not in latest.positions:
                 return None
+            with self._lock:
+                commanded = (self._last_setpoint or start).get(self.gripper, start[self.gripper])
             if not jaw_history or jaw_history[-1][0] != latest.stamp:
-                jaw_history.append((latest.stamp, latest.positions[self.gripper]))
+                jaw_history.append((latest.stamp, latest.positions[self.gripper], commanded))
             return effort_threshold if self.contact_allowed(jaw_history, started) else None
 
         with self._lock:

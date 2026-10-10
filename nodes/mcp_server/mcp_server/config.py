@@ -156,9 +156,13 @@ class LimitSettings(StrictModel):
     gripper_velocity_rps: float = Field(default=0.5, gt=0.0, le=1.5)
     gripper_effort_threshold: float = Field(default=300.0, gt=0.0)
     # close_until_effort ignores the load for this long after the close starts (motor start-up spike) and afterwards
-    # counts it only once the jaw travelled gripper_contact_travel_rad or stalled (arm_settle_* window and motion).
+    # counts it only once the jaw travelled gripper_contact_travel_rad or stalled (arm_settle_* window and motion,
+    # with the command at least gripper_stall_lead_rad ahead).
     gripper_effort_ignore_s: float = Field(default=0.3, ge=0.0)
     gripper_contact_travel_rad: float = Field(default=0.03, ge=0.0)
+    # A stall only counts while the commanded jaw stays at least this far ahead of the measured jaw: the real jaw
+    # needs up to about 0.9 s to break away from rest (straining with a high load) while the close command ramps up.
+    gripper_stall_lead_rad: float = Field(default=0.15, gt=0.0)
     # A closing jaw that stalls before the closed target grips an object: hold the stall position this far toward closed.
     gripper_grasp_squeeze_rad: float = Field(default=0.03, ge=0.0, le=0.2)
     # A stall/effort contact only counts as 'grasped' when the jaw closed at least gripper_grasp_min_travel_rad from its
