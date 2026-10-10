@@ -230,8 +230,10 @@ overrides, floor guard, grasp defaults; `--params` overrides grasp values) and p
 folded seed: boxes 4x4x4, 3x3x6, 6x6x3 cm (depth x width x height); centre radius 0.20, 0.25, 0.30 m straight ahead
 and 0.25 m at 30 deg; surfaces placed relative to the configured floor (`arm.floor_z_m`, -0.100 in the arm frame):
 floor, `ledge+0.07` and `ledge+0.15` (7 and 15 cm above it), `stair-0.10` (10 cm below it); strategies `top_down`,
-`angled45`, `scoop` (box flat on the surface), `scoop_gap` (box 2 cm up on rails, `gap_below_m` 0.02) and `auto`. It
-writes `index.json` (scene constants, executor timing, planner params, one entry per scenario) and one GraspPlan JSON
+`angled45`, `scoop` (box flat on the surface), `scoop_gap` (box 2 cm up on rails, `gap_below_m` 0.02) and `auto`. Ledges
+and the stair start 8 cm before the box centre along arm x (`support_edge_x`, the scene's support edge). The stair is
+passed to the planner as a surface region (`surfaces`: the robot floor up to the edge, a half-plane 10 cm lower beyond
+it), so the planner sees the step edge; floor and ledges keep a single surface height. It writes `index.json` (scene constants, executor timing, planner params, one entry per scenario) and one GraspPlan JSON
 per scenario. `grasp-sim matrix` replays every feasible plan the way `GraspExecutor.execute` streams it (start at the
 pre-grasp with the roll done, gripper open at `gripper_velocity_rps`, approach/grasp/lift/retreat along the planned
 joint samples with one quintic profile each at the waypoint `speed_scale`, close to `gripper_closed_rad` and hold)
@@ -304,7 +306,31 @@ The 4 mm change adds one more stair reach at r30 for angled45 (4x4x4 and 3x3x6),
 plans) hit the floor with the wrist link (4 arm contacts, all on the stair at r30); the high-ledge scoop_gap that did
 not lift before now lifts. The floor, low-ledge and top_down results are otherwise unchanged.
 
-Per strategy over the whole matrix: top_down 19/19 lifted (19 of 19 feasible, 29 infeasible), angled45 19/21, scoop_gap
+Re-run 2026-10-10 with the step-edge model (`mcp_server/surfaces.py`; the stair passed as a step surface at the scene
+edge; planner checks of jaw points, gripper body hull and forearm / wrist capsules against surfaces and step faces;
+pre-grasp and lift above the step and steeper pitches for an object beyond it). Before = the table above (93 feasible,
+85 lifted, 4 arm contacts, 4 jaw-surface contacts); after = 104 feasible, 100 lifted, 0 arm contacts, 0 jaw-surface
+contacts (lifted / feasible):
+
+| Strategy | Floor before | Floor after | Low ledge before | Low ledge after | High ledge before | High ledge after | Stair before | Stair after |
+|---|---|---|---|---|---|---|---|---|
+| top_down | 10/10 | 10/10 | 0/0 | 0/0 | 0/0 | 0/0 | 9/9 | 9/9 |
+| angled45 | 3/3 | 3/3 | 7/9 | 7/9 | 9/9 | 9/9 | 0/2 | 12/12 |
+| scoop (flat) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 |
+| scoop_gap | 3/3 | 3/3 | 3/3 | 3/3 | 4/4 | 4/4 | 0/0 | 0/0 |
+| auto | 12/12 | 12/12 | 7/9 | 7/9 | 9/9 | 9/9 | 9/11 | 12/12 |
+
+Floor and ledge results are identical (no surfaces there, plans unchanged). On the stair the 45 deg candidates that
+ran the wrist into the step edge (r30) are now rejected with "wrist link clearance ... to the step edge of 'stair'"
+and a steeper candidate over the step is chosen: angled45 plans at 65 deg (75 deg for 6x6x3 at r25a30, where the
+fixed jaw body grazed the diagonal edge at 65 deg; 75 deg at r20, where the 65 deg retreat above the step is out of reach), all 12 stair angled
+plans lift, and auto lifts all 12 stair cases (top_down where it reaches, angled 65 deg at r30). Calibration of the
+clearances from this matrix: wrist capsule (radius 2 cm) clearance 1.1 cm still touched the edge, 1.9 cm and more did
+not (`surface_link_clearance_m` 0.015); a 5 cm lift below the upper floor dragged the gripper body over the edge in
+the retreat (the lift now clears the upper surface); the jaw tip points alone missed a fixed-jaw body contact at a
+diagonal edge (the gripper body hull is checked now).
+
+Per strategy over the whole matrix (before the step-edge model): top_down 19/19 lifted (19 of 19 feasible, 29 infeasible), angled45 19/21, scoop_gap
 10/10, auto 37/39, scoop (flat) 0 feasible. The only failures are 6x6x3 angled45 and auto on the low ledge at r25 and
 r25a30 (box not lifted, no contact with floor or support). The stair is now fully lifted (the former step-edge
 contacts disappeared: all stair plans are top_down, 9/9) and no plan touches the floor or support with an arm link.
@@ -325,9 +351,8 @@ Remaining failure modes:
   angled45 at r20 on the floor (too close) and on the stair.
 - 6x6x3 angled45 and auto on the low ledge at r25 and r25a30: feasible but the box is not lifted (no contact with floor
   or support).
-- Stair edge: the planner still has no model of a step edge, only of the surface under the object; with the grid
-  calibration the 9 feasible stair plans (top_down) all lift, so the earlier edge contacts no longer occur, but the
-  risk remains.
+- Stair edge: modelled when the caller passes `surfaces` (the matrix does for the stair); a caller that gives only
+  `surface_z_m` for a stair still gets the single-surface plan without edge checks.
 - Steep scoops above 40 deg with a gap: moving jaw hits the box top, slips or tips tall boxes (why the default is 40).
 - Sim limits apply (see Limitations): exact object pose, a 2.94 Nm gripper squeeze, no compliance.
 

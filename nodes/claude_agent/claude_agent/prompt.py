@@ -126,7 +126,16 @@ zone: every arm motion slows down where the jaws, wrist or elbow come close to o
 (the robot plane, raised in front when the IMU reports the robot tilted); it never blocks a motion. For an object on \
 a stair below or in a hole pass surface_z_m (its surface height relative to the robot plane, e.g. -0.18) to the arm \
 and grasp tools so they move at normal speed down to that surface; tilt_override_deg replaces the IMU tilt when you \
-know better. The arm \
+know better. When the robot's floor and the object's surface differ (the object is on a stair below, a table top or \
+a ledge, or in a hole), pass surfaces instead of a single surface_z_m: a list of regions, each with name, height_m \
+relative to the robot floor (-0.10 for a stair 10 cm down, 0.15 for a table top) and either an edge (point [x, y] on \
+the step edge and direction [dx, dy] along it, the surface on the left of the direction; side 'right' flips it) or \
+a convex polygon of corners, in the arm frame (default) or base_link. Example: a stair 10 cm down whose step edge \
+runs across the robot 28 cm ahead is name 'stair', frame 'base_link', height_m -0.10, edge with point [0.28, 0] \
+and direction [0, -1]. The planner then keeps the jaws, wrist and forearm clear of the step edge (reasons name the \
+step edge), tries a higher pre-grasp and steeper pitches for an object beyond a step, and the object's support_z \
+must match the region under it. Estimate the step edge position from a picture (pixel_to_ground on the edge) and \
+its height from the surface heights. The arm \
 moves fast: the default is full speed; use a lower speed_scale only for the last few centimetres of a grasp or near \
 obstacles.
 

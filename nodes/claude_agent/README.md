@@ -71,7 +71,10 @@ strength (`grip_profile` on `grasp_object`, `set_gripper` and queued gripper ste
 objects, normal by default, firm for heavy or slippery objects and tools; after a grasp the agent checks
 `holding_load`, `slipping` and `crush_risk` and retries with a firmer or gentler profile) and the
 below-surface slow zone of the arm (never blocks; `surface_z_m` for a stair or hole below, `tilt_override_deg`
-replacing the IMU tilt).
+replacing the IMU tilt). When the robot floor and the object's surface differ (stair, table top, ledge, hole) it tells
+the agent to pass `surfaces` instead of a single `surface_z_m`: regions with `height_m` relative to the robot floor and
+a step `edge` (point + direction, surface on the left) or a convex `polygon`, so the planner keeps the jaws, wrist
+and forearm clear of the step edge and checks the object's `support_z` against the region under it.
 
 The motion queue section teaches the non-blocking pattern: plan several steps of a phase and send them in one
 `enqueue_motions` call (consecutive arm steps blend into one continuous motion; `settle='final'`, a gripper step or a

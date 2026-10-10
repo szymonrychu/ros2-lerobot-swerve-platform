@@ -279,6 +279,17 @@ def test_prompt_explains_grasp_macros_and_the_slow_zone() -> None:
     assert "radially" in lower
 
 
+def test_prompt_teaches_describing_stairs_tables_and_holes_as_surfaces() -> None:
+    """Step-edge model (2026-10-10): when the robot floor and the object's surface differ, pass surfaces with the step
+    edge position and height instead of one surface_z_m, so the planner keeps the wrist clear of the edge."""
+    lower = prompt_lower()
+    assert "surfaces" in lower and "step edge" in lower
+    for word in ("edge", "point", "direction", "polygon", "height_m", "table", "hole"):
+        assert word in lower, word
+    assert "instead of a single surface_z_m" in lower
+    assert "support_z" in lower and "must match" in lower
+
+
 def test_prompt_states_grasp_auto_order_and_scoop_gap_rule() -> None:
     """Sim validation (2026-10-09): scoop shoves objects resting flat; it needs a gap under the object."""
     lower = prompt_lower()

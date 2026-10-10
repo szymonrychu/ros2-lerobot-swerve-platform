@@ -126,6 +126,16 @@ export const DEFAULT_FORM: GraspForm = {
   gripProfile: DEFAULT_GRIP_PROFILE,
 }
 
+/** Surface region of the mcp_server contract (stair, table top, hole): height relative to the robot floor, bounded
+ * by a half-plane edge (surface on the left of direction unless side is 'right') or a convex polygon. */
+export interface GraspSurface {
+  name?: string
+  height_m: number
+  frame?: GraspFrame
+  edge?: { point: [number, number]; direction: [number, number]; side?: 'left' | 'right' }
+  polygon?: [number, number][]
+}
+
 export interface GraspObject {
   frame: GraspFrame
   x: number
@@ -136,6 +146,7 @@ export interface GraspObject {
   height_m: number
   yaw?: number
   gap_below_m?: number
+  surfaces?: GraspSurface[]
 }
 
 export interface GraspRequest {
@@ -147,6 +158,7 @@ export interface GraspRequest {
   surface_z_m?: number
   tilt_override_deg?: { roll: number; pitch: number }
   grip_profile?: GripProfileName
+  surfaces?: GraspSurface[]
 }
 
 export type BuildResult<T> = { ok: true; value: T } | { ok: false; errors: string[] }

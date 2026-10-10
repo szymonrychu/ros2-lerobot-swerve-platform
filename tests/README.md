@@ -246,7 +246,7 @@ The **web_ui** node has tests under `nodes/web_ui/tests/`. Run from `nodes/web_u
 - Base joint helper (`nodes/web_ui/frontend/src/map3d/baseJoints.test.ts`, vitest): steering angles passed through, drive angle integrated from `velocity` over dt (positive = forward, encoder position ignored), angle wrap, dt cap and negative dt, NaN/null velocities and steering skipped, drive angles carried across messages, empty/malformed messages.
 - GPS tiles frontend (`frontend/src/map3d/tileSources.test.ts`, `tileStatus.test.ts` and the `tilesAround`/`tileUrl` cases of `geo.test.ts`, vitest): overzoom parent tile and sub-rectangle (z19 from z18 is 2x2 quadrants, z20 from z18 is 4x4), crop to plane UVs, source choice (stored, default, first) and its storage round trip incl. throwing storage, failure caption (HTTP status, unavailable, partial counts, ignores other URLs), per-source tile URLs and overzoomed placement.
 - POI backend (`test_poi.py`; object POIs with their sighting fields pass through `serialize_poi_list` unchanged): `poi_list_topic` / `poi_command_topic` / `poi_result_topic` defaults and roles (`poi_list`, `poi_result`), `/poi/list` subscribed latched (reliable + transient_local) and parsed by `serialize_poi_list` (malformed payloads rejected), `BridgeNode.poi_request_async` publishes the command with a fresh `request_id` and resolves on the matching `/poi/result` (None when no poi_store subscribes, cancelled requests forgotten), `POST /api/poi` (200 with the store result, 400 on store rejection, 503 without poi_store or bridge, 504 on timeout, 422 for bad bodies, 404 unknown tab) and that it is NOT blocked by the battery cut-off.
-- Grasp backend (`nodes/web_ui/tests/test_grasp.py`): `grasp_command_topic` / `grasp_result_topic` / `grasp_timeout_s` / `grasp_accept_wait_s` defaults and validation, the `grasp_result` role (command topic not subscribed), `BridgeNode.grasp_request_async` publishes with a fresh `request_id` (a client id is replaced) and resolves on the matching `/grasp/result` (None without mcp_server, cancelled requests forgotten), execute/release publish `running` then stream the answer on `/web_ui/grasp_result` (plan and stop answers are not streamed and never overwrite the running state), malformed answers ignored; `POST /api/grasp` plan result / mcp error (400) / timeout (504), execute and release return 202 accepted without cancelling the pending request or the immediate rejection, execute/release refused in battery cut-off (503, nothing published) while plan and `POST /api/grasp/stop` are not, 503 without mcp_server or bridge, 422 bad bodies, 404 unknown tab; `grip_profile` (preset name or inline object) is passed through unchanged with execute, a malformed one (number, list, empty string, bool) is 422 with nothing published.
+- Grasp backend (`nodes/web_ui/tests/test_grasp.py`): `grasp_command_topic` / `grasp_result_topic` / `grasp_timeout_s` / `grasp_accept_wait_s` defaults and validation, the `grasp_result` role (command topic not subscribed), `BridgeNode.grasp_request_async` publishes with a fresh `request_id` (a client id is replaced) and resolves on the matching `/grasp/result` (None without mcp_server, cancelled requests forgotten), execute/release publish `running` then stream the answer on `/web_ui/grasp_result` (plan and stop answers are not streamed and never overwrite the running state), malformed answers ignored; `POST /api/grasp` plan result / mcp error (400) / timeout (504), `surfaces` (call and object level) forwarded unchanged, execute and release return 202 accepted without cancelling the pending request or the immediate rejection, execute/release refused in battery cut-off (503, nothing published) while plan and `POST /api/grasp/stop` are not, 503 without mcp_server or bridge, 422 bad bodies, 404 unknown tab; `grip_profile` (preset name or inline object) is passed through unchanged with execute, a malformed one (number, list, empty string, bool) is 422 with nothing published.
 - Grasp frontend grip strength (`frontend/src/grasp/grasp.test.ts`, `objectSettings.test.ts`, `GraspPanel.test.tsx`, vitest): Gentle / Normal / Firm options with Normal as the default, `grip_profile` sent with execute only (not plan or release) and left out of the plan key so changing it keeps a feasible plan executable, the grip report of a result parsed (profile name, torque limit, holding load, slipping, crush risk; junk ignored) and described ("Grip gentle, holding load 131" plus slipping / crush hints), the choice remembered in `localStorage` (`grasp.gripProfile`; unknown values and throwing storage fall back to Normal), the panel's grip strength selector marks the current profile and the result view shows the profile and holding load.
 - POI frontend (`frontend/src/poi/*.test.ts`, vitest): geometry and hit testing (`geometry.test.ts`: area, centroid, point-in-polygon, hit priority, objects hit only within the pointer tolerance), editor state (`editor.test.ts`: click detection, area drafting, new-POI fields, drag previews and update commands incl. objects moving like points, optimistic override), styling and list helpers (`style.test.ts`: colour by status, creator marker, `/poi/list` validation, sort, relative time, object POIs: own colour, parsing with defaulted sighting fields, tooltip details), and the `POST /api/poi` client (`api.test.ts`). `map3d/layers.test.ts` covers the `pois` layer toggle.
 
@@ -259,7 +259,7 @@ Covers:
 - config (`test_config.py`): defaults (opus, hard maxima rw 150 / turns 200, no `max_ro_cap` / `max_phase_ro_cap`, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
   tool lists disjoint (stop can never be an effector), invalid numbers and unknown keys rejected, YAML loading,
   `CLAUDE_AGENT_CONFIG` lookup, MCP token read (env-file line or bare token, missing/empty refused, token never in the error)
-- system prompt (`test_prompt.py`): grip profiles (`grip_profile` on set_gripper / grasp_object, gentle for fragile, soft or light objects, normal for ordinary ones, firm for heavy, slippery objects and tools, check `holding_load` / `slipping` / `crush_risk` and retry firmer or gentler), the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase rw/turn guidance ranges, no ro budget and unlimited sensor calls, generous rw/turn caps (double the estimate, raise early), the grasping guidance (several viewpoints by changing the roll incl. directly above, `pixel_to_ground`, average within 1 cm, centre not edge, correct by the observed offset, NOTES.md), retry budgeting (room for retries, raise the budget before it runs out or add a retry phase), fixed vs moving jaw and `object_width_m`, the agent chooses the grasp `wrist_roll`, camera views by roll, the rolling protocol (half open, arm lifted), `surface_height_m` and below-floor reach, fast arm by default, phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections (objects are POIs on the person's map, own POIs and objects removed on a new session, the person's POIs stay), safety rules, persona,
+- system prompt (`test_prompt.py`): grip profiles (`grip_profile` on set_gripper / grasp_object, gentle for fragile, soft or light objects, normal for ordinary ones, firm for heavy, slippery objects and tools, check `holding_load` / `slipping` / `crush_risk` and retry firmer or gentler), the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase rw/turn guidance ranges, no ro budget and unlimited sensor calls, generous rw/turn caps (double the estimate, raise early), the grasping guidance (several viewpoints by changing the roll incl. directly above, `pixel_to_ground`, average within 1 cm, centre not edge, correct by the observed offset, NOTES.md), retry budgeting (room for retries, raise the budget before it runs out or add a retry phase), fixed vs moving jaw and `object_width_m`, the agent chooses the grasp `wrist_roll`, camera views by roll, the rolling protocol (half open, arm lifted), `surface_height_m` and below-floor reach, stairs / tables / holes described as `surfaces` (step edge point and direction or polygon, height relative to the robot floor) instead of a single `surface_z_m` with `support_z` that must match, fast arm by default, phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections (objects are POIs on the person's map, own POIs and objects removed on a new session, the person's POIs stay), safety rules, persona,
   `system_prompt_extra` appended
 - motion queue prompt (`test_prompt.py`): the queue pattern (`enqueue_motions` with preconditions and `on_fail`,
   blending, queue at least 2 steps deep, `wait_for_event` instead of polling, `get_motion_status`, `cancel_motions` /
@@ -438,7 +438,22 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   IMU ignored and logged once, tilt override replaces the IMU, flat robot slows only samples inside the margin, IMU
   pitch raises the zone in front, `surface_z_m` allows normal speed down to a stair, configured surface/margin/scale,
   disabled guard, elbow and wrist checked, jaw model (gap grows with opening, inverse, closed tip at the tool point),
-  monitor IMU record to tilt sample, per-step scales and constant-rate retiming of slow steps
+  monitor IMU record to tilt sample, per-step scales and constant-rate retiming of slow steps; with `surfaces`: the
+  local region height (normal speed over a stair, slow below the robot floor before its edge, flat model unchanged),
+  slow near a step face (`lowest_feature`, `surfaces` in the summary), surfaces combined with a tilt override and
+  `surface_z_m`, surfaces only described when given
+- surface regions (`test_surfaces.py`, pure): exactly one shape and a convex polygon (either winding), height lookup
+  with the default outside, later regions win (a hole in a table), arm-frame regions converted with a yawed mount,
+  vertical clearance and its feature, step faces as vertical walls (beside, above the corner, near), polygon faces
+  and no face between equal heights, lift (tilt) term, capsule clearance, steps crossed along a line, vectorized
+  `clearance_many` equal to the single queries, JSON description
+- grasp planner with surfaces (`test_grasp_surfaces.py`, deployed client.yml, the matrix stair 10 cm down with its
+  edge 8 cm before the box): the single-surface angled 45 deg plan runs the wrist into the step, with surfaces the
+  45 deg candidate is rejected naming the step edge, a steeper candidate clearing the edge is chosen (rejected tries
+  in `rejected_candidates`), the pre-grasp and the lift clear the upper surface, auto plans clear every surface, the
+  gripper body keeps the jaw clearance from a diagonal step edge (r25 at 30 deg), `support_z` must match the region
+  under the object (a gap is allowed for), object surfaces merged into the call override, forearm / wrist / gripper
+  body clearances
 - arm slow zone and paths (`test_arm.py`): motions into the slow zone take more 25 Hz ticks at <= 0.2 of the velocity
   cap and report `slow_zone`, motions above it are unchanged, `surface_z_m` and tilt overrides, stale IMU ignored,
   `move_cartesian` / `set_gripper` / `home` pass the override, `move_path` streams through samples (velocity cap,
@@ -487,7 +502,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   nothing moves), slows in the floor slow zone per streamed step, aborts on stop; `motion_running`; `solve_cartesian`
   matches `move_cartesian` and raises for unreachable targets
 - motion queue (`test_motion_queue.py`, real worker thread on fakes): step models (kinds, defaults, unknown fields,
-  gripper exactly-one, wait bounds), blend groups split by settle 'final', gripper steps, preconditions, speed and
+  gripper exactly-one, wait bounds, `surfaces` on arm / gripper steps carried into the floor override), blend groups split by settle 'final', gripper steps, preconditions, speed and
   gripper-joint targets; enqueue returns at once and runs every step in order (`step_started` / `step_done` /
   `queue_empty`); consecutive arm steps run as one `move_blend`, cartesian steps solved at enqueue and blended;
   infeasible or invalid steps and too many steps refuse the whole call (nothing moves); precondition failure stops the
@@ -542,7 +557,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   lift), every straight-line step at its waypoint speed (slow lift of a tall object), the `plan_grasp` /
   `grasp_object` / `release_object` tools (dry run, overrides, bad params, schemas teach `gap_below_m`, the scoop gap
   rule and the tall-object params), `GraspService` JSON contract (plan, execute, release, stop, errors) and battery
-  cut-off refusal
+  cut-off refusal; `surfaces`: `floor_override` carries them, `plan_grasp` reports them and the support_z mismatch,
+  `GraspService` takes call and object surfaces and rejects an invalid region, the tool schemas explain step edges
+  and half-planes
 - grip profiles config and resolution (`test_grip.py`): gentle / normal / firm presets (normal = the squeeze, speed and
   contact threshold used before profiles), default must be a preset, presets above the torque or squeeze cap rejected,
   torque cap within the register range, preset / inline resolution (`<base>+custom`), inline values clamped to the
@@ -563,9 +580,12 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   takes it (refused without close_until_effort) and reports the grip fields in `step_done`
 - sim scenario planning (`test_plan_matrix.py`): `sim/grasp_sim/scripts/plan_matrix.py` writes the matrix index and
   plans with the client.yml config (tool offset, `--only` filter, `--params` overrides); supports are placed relative
-  to the configured floor (-0.100): ledges 7 and 15 cm above it, the stair 10 cm below
+  to the configured floor (-0.100): ledges 7 and 15 cm above it, the stair 10 cm below; the stair is passed as a
+  step surface (half-plane at `support_edge_x` = box x - 0.08, the sim scene's edge), its angled plan is steeper than
+  45 deg, ledges keep a single surface height
 - arm tool overrides (`test_tools.py`): `move_arm_cartesian`, `move_arm_joints`, `set_gripper` take `surface_z_m` /
-  `tilt_override_deg`, report `slow_zone` and describe the slow zone
+  `tilt_override_deg`, report `slow_zone` and describe the slow zone; they and `arm_home` take `surfaces` (a stair
+  allows normal speed below the robot floor past its edge, an invalid region is refused)
 
 ### Per-node tests (gps_rtk)
 
@@ -916,7 +936,7 @@ The dev-only MuJoCo grasp replay harness has its own uv project and tests under 
 | `test_model.py` | Vendored SO-101 model loads with six position actuators; every body frame and the URDF gripper frame match a numpy URDF FK chain (`so101_arm.urdf`) within 2 mm at six joint configs; shoulder_lift range override. |
 | `test_scene.py` | Scene generation: floor at `-base_height` (default 0.100, the measured mount), box on floor / ledge / lower stair settles on its support with the configured size, mass and friction; support kind inference; validation; `gap_below_m` rests the box on two rails (support geoms) with a clear slot. |
 | `test_tcp.py` | Jaw calibration: gripper_frame_link transform, the stock Menagerie closing point, `tool_offset_m` read from client.yml, calibrated jaws close within 2 mm of it, only the fingers and the moving jaw move, the vendored XML stays unmodified, the replay grip point follows. |
-| `test_matrix.py` | Scenario matrix: executor-like quintic path timing, phase order and closed gripper from the close, slower lift for a lower `speed_scale`, scene per entry (calibrated or stock jaws, rails for a gap), summary table, `grasp-sim matrix` end to end. |
+| `test_matrix.py` | Scenario matrix: executor-like quintic path timing, phase order and closed gripper from the close, slower lift for a lower `speed_scale`, scene per entry (calibrated or stock jaws, rails for a gap, the stair edge at the entry's `support_edge_x`), summary table, `grasp-sim matrix` end to end. |
 | `test_plan.py` | Replay plan parsing, label timeline and linear interpolation. |
 | `test_ik.py` | Harness IK reaches position and approach pitch, raises when unreachable, respects limits and seeds. |
 | `test_replay.py` | `simulate`: trivial hold, clearance, forces, arm/jaw floor contacts, joint clipping warning, determinism, contact classification, tilt metric. |

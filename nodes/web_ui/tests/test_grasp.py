@@ -191,6 +191,21 @@ def test_api_grasp_plan_returns_matching_result(tmp_path: Path) -> None:
     assert bridge.payloads == [PLAN_BODY]
 
 
+def test_api_grasp_passes_surfaces_through_unchanged(tmp_path: Path) -> None:
+    """The mcp_server contract takes surface regions (stairs, tables, holes); the backend forwards them as given."""
+    stair = {
+        "name": "stair",
+        "height_m": -0.1,
+        "frame": "base_link",
+        "edge": {"point": [0.28, 0.0], "direction": [0.0, -1.0]},
+    }
+    body = PLAN_BODY | {"surfaces": [stair], "object": PLAN_BODY["object"] | {"surfaces": [stair]}}
+    bridge = FakeBridge(PLANNED)
+    resp = make_client(tmp_path, bridge).post("/api/grasp?tab=map", json=body)
+    assert resp.status_code == 200
+    assert bridge.payloads == [body]
+
+
 def test_api_grasp_plan_not_battery_blocked(tmp_path: Path) -> None:
     resp = make_client(tmp_path, FakeBridge(PLANNED), cutoff_guard()).post("/api/grasp?tab=map", json=PLAN_BODY)
     assert resp.status_code == 200

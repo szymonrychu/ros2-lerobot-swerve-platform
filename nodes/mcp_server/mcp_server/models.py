@@ -215,7 +215,8 @@ class ArmMotionResult(BaseModel):
         description="Below-surface slow zone: set when part of the trajectory ran at the reduced speed because a jaw "
         "tip, the wrist or the elbow came within margin_m of the effective surface: {slowed_samples, samples, "
         "speed_scale, margin_m, min_clearance_m, lowest_point, surface_z_m, tilt_source (imu|override|none), "
-        "tilt_deg}; null when the whole motion ran at normal speed",
+        "tilt_deg; with surfaces also lowest_feature (e.g. a step edge) and surfaces}; null when the whole motion ran "
+        "at normal speed",
     )
 
 

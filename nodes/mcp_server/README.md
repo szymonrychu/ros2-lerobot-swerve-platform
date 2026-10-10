@@ -31,11 +31,11 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `get_arm_state` | Joint positions (measured follower values)/efforts, gripper effort, tool point pose (x, y, z, pitch; forward kinematics with `arm.joint_offsets_rad` applied), `floor_z_m` (floor height in the base_link frame), active source, lease, home stored. |
 | `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
 | `move_arm_joints(targets, speed_scale<=0.5, settle=None)` | `settle`: `trajectory_end` (default; `final` when the call moves the gripper joint, `limits.arm_default_settle`) or `final`, see the safety model.  Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `speed_scale` 0.5 is the maximum, `limits.arm_max_joint_velocity_rps` (default 1.0 rad/s); the description states the configured value. A `wrist_roll` change above `limits.roll_guard_min_change_rad` is refused while the gripper is open wider than `limits.roll_max_gripper_open_rad` (see Wrist roll guard). `converged` results may carry `residual_error` (see Safety model). |
-| `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None, settle=None)` | `settle` as for `move_arm_joints`.  ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.104, measured 2026-10-10; see Arm mount); the tool descriptions and `get_arm_state.floor_z_m` state it. Motions near or below the effective surface are slowed (never blocked) by the floor slow zone; `surface_z_m` and `tilt_override_deg` (also on `move_arm_joints`, `set_gripper` and `arm_home`) shift it per call and results report `slow_zone`. |
-| `set_gripper(open_fraction | close_until_effort, effort_threshold, grip_profile)` | Open to a fraction (0 closed, 1 open) or close with a grip profile (see Grip profiles) until `abs(effort) >= threshold` (default: the profile's `contact_effort_threshold`) or the closing load reaches the profile's `target_load` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.15 rad) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled with the command at least `gripper_stall_lead_rad` (0.15) ahead of it. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
-| `plan_grasp(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile)` | Dry-run grasp plan (sensor, no motion): outcome `planned` / `infeasible` with reasons, the resolved `grip_profile` (an unknown profile is refused), chosen strategy, pitch, wrist roll, jaw opening, waypoints and slow-zone annotations. See Grasp macros. |
-| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile)` | Plan and execute (motion): outcome `grasped` / `missed` / `aborted` / `infeasible`, with the executed steps, the final gripper position/load and the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`; see Grip profiles). See Grasp macros. |
-| `release_object(params, surface_z_m, tilt_override_deg)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. |
+| `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None, settle=None)` | `settle` as for `move_arm_joints`.  ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.104, measured 2026-10-10; see Arm mount); the tool descriptions and `get_arm_state.floor_z_m` state it. Motions near or below the effective surface are slowed (never blocked) by the floor slow zone; `surface_z_m`, `tilt_override_deg` and `surfaces` (also on `move_arm_joints`, `set_gripper` and `arm_home`; see Surface regions) shift it per call and results report `slow_zone`. |
+| `set_gripper(open_fraction | close_until_effort, effort_threshold, grip_profile, surfaces)` | Open to a fraction (0 closed, 1 open) or close with a grip profile (see Grip profiles) until `abs(effort) >= threshold` (default: the profile's `contact_effort_threshold`) or the closing load reaches the profile's `target_load` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.15 rad) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled with the command at least `gripper_stall_lead_rad` (0.15) ahead of it. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
+| `plan_grasp(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Dry-run grasp plan (sensor, no motion): outcome `planned` / `infeasible` with reasons, the resolved `grip_profile` (an unknown profile is refused), chosen strategy, pitch, wrist roll, jaw opening, waypoints and slow-zone annotations. See Grasp macros. |
+| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Plan and execute (motion): outcome `grasped` / `missed` / `aborted` / `infeasible`, with the executed steps, the final gripper position/load and the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`; see Grip profiles). See Grasp macros. |
+| `release_object(params, surface_z_m, tilt_override_deg, surfaces)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
 | `pixel_to_ground(camera, u, v, surface_height_m=0.0)` | Point seen at a pixel (sensor): `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
 | `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
@@ -381,12 +381,57 @@ A trajectory step whose either end has a checked point closer than `floor_guard.
 (or below it) is time-scaled to `floor_guard.slow_speed_scale` (0.2) of its normal speed: it is split into `1/scale`
 linear sub-steps at the same 25 Hz rate. The guard NEVER blocks a motion; the tracking-error and gripper effort/stall
 detection stay the contact safety net. Results carry `slow_zone` (`slowed_samples`, `samples`, `speed_scale`,
-`margin_m`, `min_clearance_m`, `lowest_point`, `surface_z_m`, `tilt_source` imu|override|none, `tilt_deg`), null when
-the whole motion ran at normal speed.
+`margin_m`, `min_clearance_m`, `lowest_point`, `surface_z_m`, `tilt_source` imu|override|none, `tilt_deg`; with
+surfaces also `lowest_feature` and `surfaces`), null when the whole motion ran at normal speed.
 
-Per-call overrides (arm motion tools and grasp tools; nothing else changes the zone, there is no off switch for
-agents): `surface_z_m` = expected surface height relative to the robot plane (e.g. -0.18 for an object on a stair
-below or in a hole: normal speed down to that surface, slow below it) and `tilt_override_deg` replacing the IMU tilt.
+Per-call overrides (arm motion tools, grasp tools and queue steps; nothing else changes the zone, there is no off
+switch for agents): `surface_z_m` = expected surface height relative to the robot plane (e.g. -0.18 for an object on a
+stair below or in a hole: normal speed down to that surface, slow below it), `tilt_override_deg` replacing the IMU tilt
+and `surfaces` (below). All of them travel in `floor_guard.FloorOverride`.
+
+### Surface regions (`surfaces.py`, pure)
+
+One `surface_z_m` cannot describe a robot standing on the floor and an object on a stair below: the arm passes the
+upper floor's edge on the way down. `surfaces` is a list (at most 16) of planar regions:
+
+```json
+{"name": "stair", "height_m": -0.10, "frame": "base_link",
+ "edge": {"point": [0.28, 0.0], "direction": [0.0, -1.0], "side": "left"}}
+{"name": "table", "height_m": 0.15, "frame": "arm", "polygon": [[0.2, -0.1], [0.4, -0.1], [0.4, 0.1], [0.2, 0.1]]}
+```
+
+- `height_m`: surface height relative to the robot floor (base_link z = 0), -1..1 m.
+- `frame`: `arm` (default, the arm base frame) or `base_link`; regions are converted to `base_link` with the arm mount.
+- Exactly one shape: `edge` = a half-plane bounded by the line through `point` along `direction`, the surface on its
+  `side` (`left` default, looking along the direction; the example is the stair beyond x 0.28 m), or `polygon` = a
+  convex polygon (either winding; split a concave area into several regions). A hole is a polygon below the floor.
+- Outside every region `surface_z_m` applies (default the robot floor); where regions overlap the later one wins.
+- Between regions of different height the boundary is a vertical step face from the lower to the higher surface. The
+  clearance of a point is the smaller of its height above the local surface and its distance to the nearest step face
+  (`Terrain.clearance`, `clearance_many`, `capsule_clearance`).
+
+Slow zone: the effective surface uses the local region height plus the same tilt term, and a checked point near a step
+face (within `margin_m`) is slowed like one near the surface (`lowest_feature` says which, e.g. "step edge of 'stair'
+(0.10 m step)").
+
+Planner (only with surfaces; without them plans are unchanged, the golden plans prove it):
+
+- Every waypoint and straight-line sample is checked: the jaw points (fixed jaw tip, tool point, moving jaw tip) and the
+  gripper body hull (`grasp.GRIPPER_BODY_POINTS`: housing and fixed finger collision geometry of the sim model, in
+  `gripper_link`) need `surface_jaw_clearance_m` (0.003), the forearm (elbow to wrist) and wrist link (wrist to
+  gripper_link) capsules (radius 0.02) need `surface_link_clearance_m` (0.015, from the sim matrix: 1.1 cm still
+  touched, 1.9 cm did not). A violation rejects the candidate with a reason naming the part and the feature, e.g.
+  "grasp: wrist link clearance -1.4 cm to the step edge of 'stair' (0.10 m step), needs 1.5 cm".
+- The object's `support_z - gap_below_m` must match the region height under its centre within
+  `surface_mismatch_tolerance_m` (0.01), otherwise the plan is infeasible with "does not match the surface under the
+  object".
+- An object beyond a step (a higher surface between the shoulder pan axis and the object): after the strategy's own
+  candidates the planner tries each again with the pre-grasp and the lift at least `step_pre_grasp_clearance_m` (0.05)
+  above the upper surface, then (angled) the steeper `step_pitches_deg` (55, 65, 75, 90) over the step, and takes the
+  first that clears. A feasible plan lists the rejected tries in `rejected_candidates`. The IK budget of the strategy
+  is tripled when these candidates exist.
+- `ObjectSpec.surfaces` (regions described with the object) are appended to the call's `surfaces` for the plan and the
+  whole grasp execution.
 
 ## Grasp macros
 
@@ -395,7 +440,7 @@ below or in a hole: normal speed down to that surface, slow below it) and `tilt_
 Input: `ObjectSpec` `{frame: 'arm'|'base_link', x, y (centre), support_z (bottom of the object = the surface it rests
 on), width_m (across the jaws), depth_m (along the approach), height_m, yaw (rad, width axis; omitted = across the
 approach), gap_below_m (clear height under the object's bottom, e.g. an overhang or a raised object; default 0 = flat on
-its support)}`, a strategy and `GraspParams` (the `grasp` config section with per-call `params` overrides). The 5-DOF arm
+its support), surfaces (optional regions around the object, see Surface regions)}`, a strategy and `GraspParams` (the `grasp` config section with per-call `params` overrides). The 5-DOF arm
 can only approach in the vertical plane of `shoulder_pan`, so every strategy approaches radially from the arm base.
 
 | Strategy | Geometry |
@@ -424,7 +469,8 @@ gripper command, speed scale and IK joints; the straight segments carry joint sa
 (IK seeded from the previous sample). Feasibility: reachable (IK verified by FK), joints within limits minus margin,
 no joint jump above `max_joint_jump_rad` between samples, no stretched-arm stall pose (shoulder_lift above
 `stall_shoulder_lift_rad` 1.85 with elbow_flex at or below `stretched_elbow_max_rad` 0; negative elbow_flex stretches),
-opening within `max_object_width_m` and the gripper's reach, roll guard ordering, plus slow-zone annotations per step.
+opening within `max_object_width_m` and the gripper's reach, roll guard ordering, with surfaces the surface and step
+edge clearance (see Surface regions), plus slow-zone annotations per step.
 Infeasible plans return human-readable `reasons`; the planner never raises for an infeasible object.
 
 Planner speed (the RPi 5 is several times slower than a Mac; the web UI `/api/grasp` plan times out at 30 s). Every
@@ -496,7 +542,9 @@ Request:
  "approach_pitch_deg": null,
  "surface_z_m": null,
  "tilt_override_deg": {"roll": 0.0, "pitch": 0.0},
- "grip_profile": "gentle" | "normal" | "firm" | {"base": "gentle", "squeeze_rad": 0.01}}
+ "grip_profile": "gentle" | "normal" | "firm" | {"base": "gentle", "squeeze_rad": 0.01},
+ "surfaces": [{"name": "stair", "height_m": -0.10, "frame": "arm",
+               "edge": {"point": [0.16, 0.0], "direction": [0.0, -1.0]}}]}
 ```
 
 `object` is required for `plan` and `execute`; everything else is optional (`strategy` defaults to `auto`, `params`
@@ -586,10 +634,10 @@ The motion queue (`motion_queue.py`, pure scheduling logic; tools in `motion_too
 
 **Steps.** `enqueue_motions(steps, replace)` validates every step and returns at once with `job_ids`, `queue_length`
 (pending steps), `replaced` and `blend_groups`. Kinds: `arm_joints {targets}`, `arm_cartesian {x, y, z, pitch,
-wrist_roll, object_width_m}` (both with `speed_scale`, `settle`, `surface_z_m`, `tilt_override_deg`), `gripper
-{open_fraction | close_until_effort, effort_threshold}`, `base_relative {dx, dy, dyaw, precise, timeout_s}`,
+wrist_roll, object_width_m}` (both with `speed_scale`, `settle`, `surface_z_m`, `tilt_override_deg`, `surfaces`),
+`gripper {open_fraction | close_until_effort, effort_threshold}` (also with the slow-zone fields), `base_relative {dx, dy, dyaw, precise, timeout_s}`,
 `navigate_to_pose {x, y, yaw, frame, precise, timeout_s}`, `wait_s {seconds}` and `grasp {object, strategy, params,
-approach_pitch_deg}` (the `grasp_object` plan + execute through `GraspExecutor`; `grasped` succeeds, `missed` /
+approach_pitch_deg, surface_z_m, tilt_override_deg, surfaces}` (the `grasp_object` plan + execute through `GraspExecutor`; `grasped` succeeds, `missed` /
 `aborted` / `infeasible` fail). The call is all or nothing: an unknown joint, a bad speed, a timeout above
 `timeouts.nav_max_timeout_s` or an unreachable cartesian target (IK is solved at enqueue time, seeded with the previous
 queued arm target, else the commanded pose) refuses the whole call with every reason (`step i (kind): reason`). At most
@@ -812,8 +860,9 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
 | `ik.py` | no | URDF limits, ikpy FK/IK with verification |
 | `arm.py` | no | `ArmController`: lease, streaming, aborts, gripper, home, `move_path`, `move_blend`, `solve_cartesian`, slow-zone time scaling |
 | `sag.py` | no | gravity sag model: URDF gravity torques, deflection k * tau per approach mode, limit-band compensation, gain fit, leave-one-out validation, `arm_settle` record parsing |
-| `floor_guard.py` | no | arm mount conversions, effective surface (robot plane, IMU level plane, overrides), jaw model, per-sample slow zone, `retime` |
-| `grasp.py` | no | grasp planner: strategies registry, waypoints, straight-line IK samples, feasibility reasons |
+| `floor_guard.py` | no | arm mount conversions, effective surface (robot plane, IMU level plane, surface regions, overrides), jaw model, per-sample slow zone, `retime` |
+| `surfaces.py` | no | surface regions (half-plane / convex polygon), local height, step faces, point / capsule clearance |
+| `grasp.py` | no | grasp planner: strategies registry, waypoints, straight-line IK samples, feasibility reasons, surface / step-edge checks |
 | `grasp_tools.py` | no | `GraspExecutor`, the grasp MCP tools, `GraspService` (web-UI JSON) |
 | `grip.py` | no | grip profiles: resolve a preset name / inline overrides to a capped `GripProfile` |
 | `base_motion.py` | no | timed clamped drive loop, continuous spin with marks (`run_spin`), stop sequence (`run_stop`) |
@@ -895,6 +944,11 @@ grasp:                    # grasp planner defaults, overridable per call via par
   angled_pitch_deg: 45
   stall_shoulder_lift_rad: 1.85
   stretched_elbow_max_rad: 0.0
+  surface_jaw_clearance_m: 0.003     # with surfaces: jaw points and gripper body vs surfaces / step faces
+  surface_link_clearance_m: 0.015    # with surfaces: forearm and wrist link capsules vs surfaces / step faces
+  surface_mismatch_tolerance_m: 0.01 # support_z - gap_below_m vs the region under the object
+  step_pitches_deg: [55, 65, 75, 90] # angled pitches tried for an object beyond a step
+  step_pre_grasp_clearance_m: 0.05   # pre-grasp and lift above the upper surface of a step
   release_open_fraction: 0.6
   release_lift_m: 0.05
   auto_order: [{strategy: top_down}, {strategy: angled, approach_pitch_deg: 45}, {strategy: scoop}]

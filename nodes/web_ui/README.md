@@ -211,7 +211,7 @@ The toolbar **Grasp** dropdown (shown when `grasp_command_topic` is set) has the
 
 #### API contract
 
-`POST /api/grasp?tab=<tab id>` with the mcp_server request as JSON body (`action` plan | execute | release; plan/execute need an `object`; `strategy`, `params`, `approach_pitch_deg`, `surface_z_m`, `tilt_override_deg`, `grip_profile` optional; `grip_profile` must be a non-empty preset name or an inline-overrides object, else 422; it is passed through unchanged and mcp_server checks the name; a client `request_id` is replaced). The backend publishes it on `grasp_command_topic` with a fresh `request_id` and matches the answer on `grasp_result_topic` by it.
+`POST /api/grasp?tab=<tab id>` with the mcp_server request as JSON body (`action` plan | execute | release; plan/execute need an `object`; `strategy`, `params`, `approach_pitch_deg`, `surface_z_m`, `tilt_override_deg`, `grip_profile`, `surfaces` optional; `grip_profile` must be a non-empty preset name or an inline-overrides object, else 422; it is passed through unchanged and mcp_server checks the name; a client `request_id` is replaced). `surfaces` (also `object.surfaces`) are the mcp_server surface regions for a stair, table top or hole: `{name, height_m (relative to the robot floor), frame ('arm' | 'base_link'), edge: {point, direction, side} | polygon: [[x, y], ...]}` (type `GraspSurface` in `grasp.ts`); the backend forwards them unchanged and the plan then keeps the arm clear of the step edge (mcp_server README, "Surface regions"). The panel itself sends no surfaces; API clients (or agents) add them to the body. The backend publishes it on `grasp_command_topic` with a fresh `request_id` and matches the answer on `grasp_result_topic` by it.
 
 | Action | Behaviour | Response |
 |---|---|---|
