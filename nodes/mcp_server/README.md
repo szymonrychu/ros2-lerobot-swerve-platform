@@ -179,11 +179,13 @@ The gripper has one FIXED and one MOVING jaw; the tool point is (about) the fixe
 centre pushes the fixed jaw into the object.
 
 - **Grasp shift.** `move_arm_cartesian(object_width_m=w)` treats (x, y, z) as the object centre: for that solve the tool offset
-  is extended by `(w / 2) * arm.jaw_open_axis` (a unit vector in `gripper_frame_link`, default `[-1, 0, 0]`: the moving jaw opens
-  toward -x; normalised on load). The tool point (fixed jaw face) therefore ends w/2 from the centre against the opening
-  direction, the object centred between the jaws. `ArmKinematics.forward` / `inverse` take a per-call `extra_offset` (the shared
+  is extended by `(w / 2 + c) * arm.jaw_open_axis` (a unit vector in `gripper_frame_link`, default `[-1, 0, 0]`: the moving jaw
+  opens toward -x; normalised on load), with `c = max(grasp.jaw_open_margin_m / 2, grasp.fixed_jaw_clearance_m)` (7.5 mm by
+  default), the same clearance a planned centred grasp uses. The tool point (fixed jaw face) therefore ends w/2 + c from the
+  centre against the opening direction, clear of the object side face, the object centred between the jaws (before
+  2026-10-10 JC1 it was w/2: the fixed jaw on the side face, 0 mm). `ArmKinematics.forward` / `inverse` take a per-call `extra_offset` (the shared
   `tool_offset` is never modified; `ik.grasp_offset` builds it). The result carries `grasp_shift`
-  `{object_width_m, shift_m, jaw_open_axis, tool_point}` (`tool_point` = the fixed jaw point reached, arm base frame);
+  `{object_width_m, shift_m, fixed_jaw_clearance_m, jaw_open_axis, tool_point}` (`tool_point` = the fixed jaw point reached, arm base frame);
   `expected_tool_pose` / `achieved_tool_pose` refer to the object centre. Widths outside (0, 0.08] m are an error.
 - **Wrist roll guard.** A motion (`move_arm_joints`, or `move_arm_cartesian` with `wrist_roll`; also `arm_home`) that changes
   `wrist_roll` by more than `limits.roll_guard_min_change_rad` (0.1) is refused with an `ArmError`/tool error and NO motion

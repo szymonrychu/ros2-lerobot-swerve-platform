@@ -177,8 +177,8 @@ class ArmMotionResult(BaseModel):
     )
     grasp_shift: dict[str, Any] | None = Field(
         default=None,
-        description="move_arm_cartesian with object_width_m: {object_width_m, shift_m (half the width), "
-        "jaw_open_axis (gripper_frame_link), tool_point {x,y,z} of the fixed jaw's inner face in the arm base "
+        description="move_arm_cartesian with object_width_m: {object_width_m, shift_m (half the width + "
+        "fixed_jaw_clearance_m), fixed_jaw_clearance_m (fixed jaw inner face to the object side face), jaw_open_axis (gripper_frame_link), tool_point {x,y,z} of the fixed jaw's inner face in the arm base "
         "frame}. The requested x, y, z were the object centre, not the tool point.",
     )
     gripper_effort: float | None = Field(

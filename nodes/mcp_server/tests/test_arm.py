@@ -8,6 +8,7 @@ import pytest
 from mcp_server.arm import ArmController, ArmError, tracking_limit
 from mcp_server.config import McpServerConfig
 from mcp_server.floor_guard import FloorOverride, Tilt, TiltOverrideDeg, TiltSample
+from mcp_server.grasp import jaw_clearance
 from mcp_server.ik import ArmKinematics, grasp_offset, load_joint_limits
 from mcp_server.models import ArmMotionResult
 
@@ -975,14 +976,19 @@ def test_move_cartesian_object_width_targets_the_object_centre(tmp_path: Path) -
     res = arm.move_cartesian(target.x, target.y, target.z, target.pitch, wrist_roll=-1.57, object_width_m=width)
     assert res.status == "converged", res.message
     final = {j: be.commands[-1][j] for j in KIN.joint_names}
-    shift = grasp_offset(width, tuple(CONFIG.arm.jaw_open_axis))
+    clearance = jaw_clearance(CONFIG.grasp)
+    assert clearance == pytest.approx(0.0075)
+    shift = grasp_offset(width, tuple(CONFIG.arm.jaw_open_axis), clearance)
     centre = KIN.forward(final, extra_offset=shift)
     assert (centre.x, centre.y, centre.z) == pytest.approx((target.x, target.y, target.z), abs=0.003)
     tool = KIN.forward(final)
-    assert math.dist((tool.x, tool.y, tool.z), (target.x, target.y, target.z)) == pytest.approx(width / 2, abs=0.003)
+    # the fixed jaw inner face clears the object side face by the fixed-jaw clearance, not 0 mm
+    gap = math.dist((tool.x, tool.y, tool.z), (target.x, target.y, target.z))
+    assert gap == pytest.approx(width / 2 + clearance, abs=0.003)
     assert res.grasp_shift is not None
     assert res.grasp_shift["object_width_m"] == width
-    assert res.grasp_shift["shift_m"] == pytest.approx(width / 2)
+    assert res.grasp_shift["shift_m"] == pytest.approx(width / 2 + clearance)
+    assert res.grasp_shift["fixed_jaw_clearance_m"] == pytest.approx(clearance)
     assert res.grasp_shift["tool_point"] == pytest.approx({"x": tool.x, "y": tool.y, "z": tool.z}, abs=0.003)
     assert res.expected_tool_pose == pytest.approx({"x": target.x, "y": target.y, "z": target.z, "pitch": target.pitch})
 

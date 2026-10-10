@@ -433,7 +433,9 @@ def test_move_arm_cartesian_accepts_wrist_roll_and_object_width(server: Any, rob
     assert data["status"] == "converged", data["message"]
     assert robot.arm_backend.positions["wrist_roll"] == pytest.approx(-1.57)
     assert data["grasp_shift"]["object_width_m"] == 0.03
-    assert data["grasp_shift"]["shift_m"] == pytest.approx(0.015)
+    # half the width plus the fixed jaw clearance (7.5 mm), as in a planned centred grasp
+    assert data["grasp_shift"]["shift_m"] == pytest.approx(0.015 + 0.0075)
+    assert data["grasp_shift"]["fixed_jaw_clearance_m"] == pytest.approx(0.0075)
 
 
 @pytest.mark.parametrize("width", [0.0, -0.01, 0.2])

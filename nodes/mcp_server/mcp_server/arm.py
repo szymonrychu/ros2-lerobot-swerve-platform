@@ -14,6 +14,7 @@ from typing import Literal, Protocol
 
 from .config import ArmBaseOffset, LimitSettings, McpServerConfig
 from .floor_guard import FloorGuard, FloorOverride, GuardReport, JawModel, TiltSample, retime, step_scales
+from .grasp import jaw_clearance
 from .grip import GripChoice, ResolvedGrip, resolve_grip_profile
 from .home_store import HomeStoreError, load_home, save_home
 from .ik import ArmKinematics, UnreachableError, grasp_offset
@@ -845,6 +846,9 @@ class ArmController:
     def grasp_shift(self, object_width_m: float | None) -> tuple[float, float, float] | None:
         """Tool-point shift of an object-centre target (None without a width).
 
+        The jaw opening is centred on the object like a planned centred grasp: the fixed jaw inner face clears the
+        object side face by grasp.jaw_clearance (max(jaw_open_margin_m / 2, fixed_jaw_clearance_m)).
+
         Args:
             object_width_m (float | None): Object width across the jaws (m), 0 < w <= MAX_OBJECT_WIDTH_M.
 
@@ -858,7 +862,7 @@ class ArmController:
             return None
         if not math.isfinite(object_width_m) or not 0.0 < object_width_m <= MAX_OBJECT_WIDTH_M:
             raise ArmError(f"object_width_m must be in (0, {MAX_OBJECT_WIDTH_M}] m, got {object_width_m}")
-        return grasp_offset(object_width_m, self.cfg.arm.jaw_open_axis)
+        return grasp_offset(object_width_m, self.cfg.arm.jaw_open_axis, jaw_clearance(self.cfg.grasp))
 
     def clamp_targets(self, targets: dict[str, float]) -> dict[str, float]:
         """Clamp measured-space targets to the URDF limits minus margin (applied in URDF space).
@@ -928,8 +932,8 @@ class ArmController:
             wrist_roll (float | None): Wrist roll (rad, measured space) the IK keeps for this target and the motion
                 moves to (clamped to the limits); None keeps the current roll.
             object_width_m (float | None): Object width across the jaws (m, 0 < w <= MAX_OBJECT_WIDTH_M): (x, y, z)
-                is then the object centre and the tool point (fixed jaw inner face) is placed half a width from it
-                against the jaw opening direction (arm.jaw_open_axis).
+                is then the object centre and the tool point (fixed jaw inner face) is placed half a width plus the fixed
+                jaw clearance (jaw_clearance) from it against the jaw opening direction (arm.jaw_open_axis).
             floor (FloorOverride | None): Per-call slow-zone overrides (expected surface height, tilt).
             settle (SettlePolicy): Settle policy of the joint motion.
 
@@ -963,9 +967,11 @@ class ArmController:
             achieved = {"x": pose.x, "y": pose.y, "z": pose.z, "pitch": pose.pitch}
             if shift is not None and object_width_m is not None:
                 jaw = self.kin.forward(result.positions)
+                clearance = jaw_clearance(self.cfg.grasp)
                 grasp_shift = {
                     "object_width_m": object_width_m,
-                    "shift_m": object_width_m / 2.0,
+                    "shift_m": object_width_m / 2.0 + clearance,
+                    "fixed_jaw_clearance_m": clearance,
                     "jaw_open_axis": list(self.cfg.arm.jaw_open_axis),
                     "tool_point": {"x": round(jaw.x, 4), "y": round(jaw.y, 4), "z": round(jaw.z, 4)},
                 }
