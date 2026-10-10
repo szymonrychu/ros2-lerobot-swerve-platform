@@ -666,6 +666,16 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `tilt_override_deg`, report `slow_zone` and describe the slow zone; they and `arm_home` take `surfaces` (a stair
   allows normal speed below the robot floor past its edge, an invalid region is refused)
 
+- metrics (`test_metrics.py`, default Prometheus registry, deltas per test): one test per code point. Tool calls and
+  duration for an ok and a failing call (`mcp_tool_calls_total`, `mcp_tool_duration_seconds`); motion queue steps by
+  kind and status (converged, aborted_tracking, blended), tracking error samples and queue depth (waiting steps, zero
+  after cancel and after draining); `plan_grasp` plans by mode and outcome; the grasp result mapping and
+  `mcp_grasp_attempts_total` for lifted / missed / aborted / infeasible; grip profile uses and the gripper effort gauge
+  (motion result and arm state); floor guard slowdowns by closest point (nothing counted with the guard off); robot
+  events by severity (debounced repeats not counted); `staleness.sample_ages` and the sample age collector (no series
+  without a source); navigation goals by result with their duration (errors without a goal not counted); `GET /metrics`
+  (200 Prometheus text without a token for 127.0.0.1 and ::1, 403 for other clients, the MCP path stays 401)
+
 ### Per-node tests (gps_rtk)
 
 The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `nodes/bridges/gps_rtk`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers: config loading and validation (`test_config.py`: minimal base/rover, rover with rtcm_server_host, invalid mode rejected, load_config from file/missing/empty); NMEA GGA parsing (`test_nmea_parser.py`: lat/lon N/S/E/W, altitude, fix quality, full sentence, RTK fixed quality 4, quality-to-NavSatStatus mapping); serial stream handling (`test_serial_handler.py`: NMEA checksum and append_checksum_if_missing, RTCM3 length parsing, CRC24Q, valid RTCM3 frame build/validation, parser emits NMEA with valid checksum, ignores invalid NMEA, discards unknown bytes). Rover metrics (`test_metrics.py`: GGA gauges with NaN for unreported fields, published-fix counter, NTRIP client connected/rx bytes/reconnects against a fake caster, serial open and read error counters by `op`); `metrics_port` config field (`test_config.py`).
@@ -776,7 +786,7 @@ Static wiring invariants of the poi_store node (Ansible, playbooks, lint script,
 | `test_lint_script_and_node_files` | `scripts/lint-all-nodes.sh` lists the node; pyproject, uv.lock, README and tests exist. |
 | `test_docs_mention_poi_store` | nodes/README.md, ansible/README.md and the ansible-deploy skill mention `poi_store`. |
 
-The node's own tests (store, models, config; including `kind: object` POIs with their sighting fields and defaults for old files, and the `clear` op that deletes every POI of one `created_by`, persists and keeps the revision when nothing was removed) live in `nodes/poi_store/tests/` and need no ROS: `cd nodes/poi_store && uv run pytest tests -q`.
+The node's own tests (store, models, config and `test_metrics.py`: `poi_commands_total{op,ok}` for ok, failed and unparseable (`invalid`) commands, `poi_count` after adds, clear and load, `poi_save_failures_total` with the rollback, the `metrics_port` config field; including `kind: object` POIs with their sighting fields and defaults for old files, and the `clear` op that deletes every POI of one `created_by`, persists and keeps the revision when nothing was removed) live in `nodes/poi_store/tests/` and need no ROS: `cd nodes/poi_store && uv run pytest tests -q`.
 
 ### test_mcp_camera_config.py
 

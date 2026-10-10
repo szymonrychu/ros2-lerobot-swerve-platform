@@ -11,10 +11,11 @@ from pydantic import ValidationError
 from rclpy._rclpy_pybind11 import InvalidHandle
 from rclpy.executors import MultiThreadedExecutor
 from ros2_common.battery import BatteryGuard
+from ros2_metrics import register_node_info
 
 from .config import MissingTokenError, config_path_from_env, load_config, token_from_env
 from .monitor import RobotMonitor
-from .ros_iface import RosRobot, init_ros
+from .ros_iface import NODE_NAME, RosRobot, init_ros
 from .spin import run_or_exit, spin_forever
 from .tools import build_app, build_mcp_server, stop_queued_motion
 
@@ -41,6 +42,7 @@ def main() -> int:
     except (OSError, ValidationError, ValueError) as exc:
         LOGGER.error("invalid or missing config %s: %s", path, exc)
         return 1
+    register_node_info(NODE_NAME)
     init_ros()
     guard = BatteryGuard.from_config(config.battery) if config.battery is not None else None
     monitor = RobotMonitor(config.monitor, guard, autonomy_source=config.arm.autonomy_source_name)

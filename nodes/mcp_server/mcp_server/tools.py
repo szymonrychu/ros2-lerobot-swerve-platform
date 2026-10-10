@@ -17,10 +17,11 @@ from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 from ros2_common.battery import BatteryGuard
+from ros2_metrics import render_latest
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from . import body_tools, camera_tools, grasp_tools, motion_tools, perception_tools
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
@@ -29,6 +30,7 @@ from .camera_scene import camera_setup, pixel_scale
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
 from .floor_guard import TiltOverrideDeg
 from .grasp_tools import SURFACES_DESC, floor_override, grip_profile_description
+from .metrics import TOOL_CALLS, TOOL_DURATION
 from .models import (
     ArmMotionResult,
     ArmState,
@@ -52,6 +54,8 @@ TIMING_RESULT_KEYS = ("status", "trajectory_s", "settle_s", "settle", "settling"
 SERVER_NAME = "robot"
 TOKEN_CLIENT_ID = "robot-mcp-client"
 ADMIN_CLEAR_AGENT_POIS_PATH = "/admin/clear_agent_pois"
+METRICS_PATH = "/metrics"
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 ADMIN_POI_CREATOR = "agent"
 TOOL_NAMES = (
     "get_robot_state",
@@ -295,6 +299,8 @@ class RobotMCPServer(MCPServer):
             return result
         finally:
             duration = time.monotonic() - t0
+            TOOL_CALLS.labels(name, "ok" if ok else "error").inc()
+            TOOL_DURATION.labels(name).observe(duration)
             line = {
                 "tool": name,
                 "started_at": round(started_at, 3),
@@ -891,7 +897,10 @@ def stop_queued_motion(server: MCPServer, robot: RobotApi) -> bool:
 def build_app(
     server: MCPServer, config: McpServerConfig, robot: RobotApi | None = None, token: str | None = None
 ) -> Starlette:
-    """Streamable HTTP ASGI app at config.server.path plus the admin route, both behind the bearer token.
+    """Streamable HTTP ASGI app at config.server.path plus the admin route, both behind the bearer token, and GET /metrics.
+
+    GET /metrics (Prometheus text format, scraped by Grafana Alloy on the robot) needs no token but answers loopback
+    clients only (403 otherwise), so exposing the server on the LAN does not expose the metrics.
 
     The admin route is plain HTTP, not an MCP tool, so the model cannot call it. It exists for claude_agent, which runs
     as another Linux user and cannot reach poi_store over DDS.
@@ -906,6 +915,14 @@ def build_app(
         Starlette: ASGI app for uvicorn.
     """
     app = server.streamable_http_app(streamable_http_path=config.server.path, host=config.server.host)
+
+    async def metrics(request: Request) -> Response:
+        if request.client is None or request.client.host not in LOOPBACK_HOSTS:
+            return JSONResponse({"ok": False, "error": "metrics are served to loopback clients only"}, status_code=403)
+        body, content_type = render_latest()
+        return Response(body, media_type=content_type)
+
+    app.add_route(METRICS_PATH, metrics, methods=["GET"])
     if robot is not None and token:
         verifier = StaticTokenVerifier(token)
 

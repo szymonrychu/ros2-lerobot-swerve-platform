@@ -1,6 +1,8 @@
 """Data age bookkeeping: every cached ROS sample carries the monotonic time it was received."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 
 def age_s(stamp: float | None, now: float) -> float | None:
@@ -60,3 +62,16 @@ class Stamped[T]:
             bool: True when fresh.
         """
         return is_fresh(self.stamp, now, max_age_s)
+
+
+def sample_ages(latest: Mapping[str, "Stamped[Any]"], now: float) -> dict[str, float]:
+    """Return the age of every cached feed (the mcp_sample_age_seconds metric).
+
+    Args:
+        latest (Mapping[str, Stamped[Any]]): Latest sample per feed key.
+        now (float): Current time in the same clock as the stamps.
+
+    Returns:
+        dict[str, float]: Age in seconds per feed key.
+    """
+    return {feed: item.age(now) for feed, item in latest.items()}

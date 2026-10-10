@@ -16,6 +16,7 @@ from .config import GripProfileOverride, McpServerConfig
 from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, grasp_params
 from .grip import ResolvedGrip, resolve_grip_profile
+from .metrics import GRASP_ATTEMPTS, GRASP_PLANS, GRASP_RESULT_BY_OUTCOME
 from .models import ArmMotionResult
 from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import ToolContext
@@ -279,9 +280,11 @@ class GraspExecutor:
         grip = self.resolve_grip(params)  # an invalid profile refuses before anything moves
         floor = with_object_surfaces(floor, obj)
         plan, notes = self.plan(obj, strategy, params, approach_pitch_deg, floor)
-        if not plan.feasible:
-            return plan_result(plan, notes, grip)
-        return self.execute(plan, params, floor, stop_requested)
+        result = (
+            plan_result(plan, notes, grip) if not plan.feasible else self.execute(plan, params, floor, stop_requested)
+        )
+        GRASP_ATTEMPTS.labels(strategy, GRASP_RESULT_BY_OUTCOME[result.outcome]).inc()
+        return result
 
     def step(
         self,
@@ -846,6 +849,7 @@ def register(ctx: ToolContext) -> None:
             grasp_call = grasp_params(grasp, params, grip_profile)
             grip = executor.resolve_grip(grasp_call)
             plan, notes = executor.plan(object, strategy, grasp_call, approach_pitch_deg, floor)
+            GRASP_PLANS.labels(strategy, "feasible" if plan.feasible else "infeasible").inc()
             return plan_result(plan, notes, grip)
 
         return run(body)

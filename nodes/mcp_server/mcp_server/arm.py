@@ -18,6 +18,7 @@ from .grasp import jaw_clearance
 from .grip import GripChoice, ResolvedGrip, resolve_grip_profile
 from .home_store import HomeStoreError, load_home, save_home
 from .ik import ArmKinematics, UnreachableError, grasp_offset
+from .metrics import FLOOR_GUARD_SLOWDOWNS, GRIP_PROFILE_USES, GRIPPER_EFFORT
 from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult, SettlePolicy
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .sag import SETTLE_LOG_MARKER, GravityModel, SagCompensator, compensate
@@ -1038,6 +1039,7 @@ class ArmController:
             grip = resolve_grip_profile(self.cfg.grip_profiles, self.cfg.limits, grip_profile)
         except ValueError as exc:
             raise ArmError(str(exc)) from exc
+        GRIP_PROFILE_USES.labels(grip.name).inc()
         profile = grip.profile
         threshold = profile.contact_effort_threshold if effort_threshold is None else effort_threshold
         if not math.isfinite(threshold) or threshold <= 0.0:
@@ -1410,6 +1412,8 @@ class ArmController:
             state.positions = self.measured(sample)
             state.efforts = {j: sample.efforts[j] for j in self.joint_names if j in sample.efforts}
             state.gripper_effort = sample.efforts.get(self.gripper)
+            if state.gripper_effort is not None:
+                GRIPPER_EFFORT.set(state.gripper_effort)
             state.tool_pose = {"x": pose.x, "y": pose.y, "z": pose.z, "pitch": pose.pitch}
         return state
 
@@ -1464,6 +1468,9 @@ class ArmController:
         finished_at = self.backend.now()
         trajectory_end = finished_at if self._trajectory_end is None else self._trajectory_end
         judged = [j for j in self._judged if positions is not None and j in positions]
+        effort = None if sample is None else sample.efforts.get(self.gripper)
+        if effort is not None:
+            GRIPPER_EFFORT.set(effort)
         return ArmMotionResult(
             status=status,
             message=message,
@@ -1481,7 +1488,7 @@ class ArmController:
             expected=goal,
             achieved=positions,
             slow_zone=self._slow_zone,
-            gripper_effort=None if sample is None else sample.efforts.get(self.gripper),
+            gripper_effort=effort,
         )
 
     def check(
@@ -1597,6 +1604,8 @@ class ArmController:
             ]
             report = lower_clearance(report, self.floor_guard.evaluate(over, surface))
         self._slow_zone = report.summary()
+        if self._slow_zone is not None:
+            FLOOR_GUARD_SLOWDOWNS.labels(str(self._slow_zone["lowest_point"])).inc()
         scales = step_scales(report.scales)
         ends: list[int] = []
         ticks = 0

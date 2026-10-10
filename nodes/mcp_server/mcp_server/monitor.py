@@ -19,6 +19,7 @@ from typing import Any
 from ros2_common.battery import BatteryGuard
 
 from .config import MonitorSettings
+from .metrics import ROBOT_EVENTS
 from .models import (
     BaseSpeed,
     BatteryVitals,
@@ -287,6 +288,7 @@ class RobotMonitor:
             seq=self.seq, ts=self.wall(), type=type_, severity=severity, source=source, message=message, data=data or {}
         )
         self.events.append(event)
+        ROBOT_EVENTS.labels(severity).inc()
         self.last_emit[key] = (now, severity)
         self.outbox.append(event)
         LOGGER.log(

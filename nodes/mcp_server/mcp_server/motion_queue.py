@@ -26,6 +26,7 @@ from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import ObjectSpec
 from .grasp_tools import floor_override
 from .ik import UnreachableError
+from .metrics import MOTION_QUEUE_DEPTH, MOTION_STEPS, MOTION_TRACKING_ERROR
 from .models import ArmMotionResult, BasePose, NavigationResult, RobotError, SettlePolicy
 from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import RobotApi
@@ -709,6 +710,7 @@ class MotionQueue:
                 self._next_job += 1
                 item.job_id = f"m{self._next_job}"
                 self._pending.append(item)
+            MOTION_QUEUE_DEPTH.set(len(self._pending))
             self.ensure_worker_locked()
             self._cond.notify_all()
             return EnqueueResult(
@@ -899,6 +901,7 @@ class MotionQueue:
         group = [self._pending.popleft()]
         while self._pending and can_blend(group[-1], self._pending[0], self.cfg):
             group.append(self._pending.popleft())
+        MOTION_QUEUE_DEPTH.set(len(self._pending))
         return group
 
     def stop_seen(self) -> bool:
@@ -970,6 +973,7 @@ class MotionQueue:
                 if index < len(group) - 1:
                     item = group[index]
                     self._running.done.add(item.job_id)
+                    MOTION_STEPS.labels(item.step.kind, "blended").inc()
                     self.emit_locked("step_done", item, "passed (blended, no stop)", {"blended": True})
 
         try:
@@ -1111,6 +1115,7 @@ class MotionQueue:
         done = set() if running is None else running.done
         rest = [q for q in group if q.job_id not in done]
         self._running = None
+        self.count_steps(group, rest, outcome)
         if generation != self._generation:
             for q in rest:
                 self.emit_locked("step_aborted", q, outcome.message, {"status": outcome.status, **outcome.data})
@@ -1159,11 +1164,30 @@ class MotionQueue:
                     f"queue stopped after {head.job_id} failed: {outcome.message}",
                     {"dropped": [q.job_id for q in rest[1:]] + dropped},
                 )
+        MOTION_QUEUE_DEPTH.set(len(self._pending))
         if not self._pending:
             self.emit_locked("queue_empty", message="queue drained")
         self._cond.notify_all()
 
     # --- helpers --------------------------------------------------------------------------------------------------
+
+    @staticmethod
+    def count_steps(group: list[QueuedStep], rest: list[QueuedStep], outcome: "Outcome") -> None:
+        """Count the steps a group ended (mcp_motion_steps_total) and its tracking error.
+
+        A failed precondition ends only the group's head (the steps blended behind it go back to the queue).
+
+        Args:
+            group (list[QueuedStep]): The finished group.
+            rest (list[QueuedStep]): Its steps that did not end earlier as a blended pass-through.
+            outcome (Outcome): What happened.
+        """
+        ended = group[:1] if outcome.precondition else rest
+        for q in ended:
+            MOTION_STEPS.labels(q.step.kind, outcome.status).inc()
+        error = outcome.data.get("tracking_error_rad")
+        if error is not None:
+            MOTION_TRACKING_ERROR.labels(group[-1].step.kind).observe(error)
 
     def busy_locked(self) -> bool:
         """busy() with the lock held.
@@ -1186,6 +1210,7 @@ class MotionQueue:
         dropped = [q.job_id for q in self._pending]
         self._pending.clear()
         running = None if self._running is None else [q.job_id for q in self._running.group]
+        MOTION_QUEUE_DEPTH.set(0)
         if running is not None or dropped:
             self._generation += 1
         if event is not None:

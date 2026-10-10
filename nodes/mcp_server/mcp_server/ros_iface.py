@@ -40,6 +40,7 @@ from .floor_guard import monitor_tilt_sample
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
 from .grasp_tools import GraspService
 from .ik import ArmKinematics, load_joint_limits
+from .metrics import set_sample_age_source
 from .models import (
     BaseMotionBusyError,
     BasePose,
@@ -66,7 +67,7 @@ from .perception import (
 )
 from .poi_client import PoiRequests, parse_poi_list
 from .spin import FrameCache
-from .staleness import Stamped
+from .staleness import Stamped, sample_ages
 from .topdown import TopdownInputs, grid_layer, transform_points
 
 NODE_NAME = "mcp_server"
@@ -235,6 +236,7 @@ class RosRobot:
         self.group = ReentrantCallbackGroup()
         self.lock = threading.Lock()
         self.latest: dict[str, Stamped[Any]] = {}
+        set_sample_age_source(self.feed_ages)
         self.base_stop = threading.Event()
         self.base_motion = threading.Lock()
 
@@ -407,6 +409,16 @@ class RosRobot:
             event (RobotEvent): Event (JSON contract: seq, ts, type, severity, source, message, data).
         """
         self.events_pub.publish(String(data=event.model_dump_json()))
+
+    def feed_ages(self) -> dict[str, float]:
+        """Age of the latest cached sample of every feed that delivered one (mcp_sample_age_seconds).
+
+        Returns:
+            dict[str, float]: Seconds per cache key.
+        """
+        with self.lock:
+            latest = dict(self.latest)
+        return sample_ages(latest, time.monotonic())
 
     def get(self, key: str, max_age_s: float | None = None) -> Stamped[Any] | None:
         """Latest cached message, optionally only when fresh.

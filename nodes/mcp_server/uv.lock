@@ -360,6 +360,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "ros2-common" },
+    { name = "ros2-metrics" },
     { name = "scipy" },
     { name = "uvicorn" },
 ]
@@ -382,6 +383,7 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.13.5" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "ros2-common", editable = "../../shared" },
+    { name = "ros2-metrics", editable = "../../shared/ros2_metrics" },
     { name = "scipy", specifier = "==1.18.1" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
@@ -546,6 +548,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5c/92/93a4af9511b8c7c647874521d9e6c904266be98067c2ee1eb2e74520d208/poethepoet-0.48.0.tar.gz", hash = "sha256:a06f49d244fadfc2e2e7faa78b54e64a9694727e4ce1d50e08f23cea3ded74f1", size = 148679, upload-time = "2026-07-05T21:48:30.106Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/59/8d/d7c9455b15f8d2d7ce57e7b71a8ef8d02d9992ae4283c9777120620c9022/poethepoet-0.48.0-py3-none-any.whl", hash = "sha256:98da6096d060f49b8d84034770265863fb7dc92a40233b7694b9d216ac68737d", size = 185808, upload-time = "2026-07-05T21:48:28.601Z" },
+]
+
+[[package]]
+name = "prometheus-client"
+version = "0.26.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/52/73/f1334c29c2af4cd9dba6c7817e61b611bd0215e2eb5565c6064a4de18802/prometheus_client-0.26.0.tar.gz", hash = "sha256:04a91bcf94e2cf74a44a1a874d651a2e853ed354b6e822f3b7487751465d5c2b", size = 92910, upload-time = "2026-07-24T19:36:41.893Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/a3/b69efbf4143b5b9859b977770bbbabcc2796b702fa69dc40271e45cd5a56/prometheus_client-0.26.0-py3-none-any.whl", hash = "sha256:fa93d06737aa02bacd05794768508bb97d2fbee28cb3bca04eaae92f0ca953d6", size = 64494, upload-time = "2026-07-24T19:36:40.854Z" },
 ]
 
 [[package]]
@@ -797,6 +808,17 @@ dev = [
     { name = "ruff", specifier = "==0.15.20" },
     { name = "vulture", specifier = ">=2.11" },
 ]
+
+[[package]]
+name = "ros2-metrics"
+version = "0.1.0"
+source = { editable = "../../shared/ros2_metrics" }
+dependencies = [
+    { name = "prometheus-client" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "prometheus-client", specifier = ">=0.20" }]
 
 [[package]]
 name = "rpds-py"

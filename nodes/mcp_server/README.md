@@ -980,7 +980,44 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |
 | `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services |
 | `spin.py` | no | `spin_forever` (executor loop that survives rclpy stale-handle errors), `run_or_exit` (exits the process when the executor thread dies, so systemd restarts the node instead of serving stale data), `FrameCache` (latest camera frame) |
+| `metrics.py` | no | Prometheus `mcp_*` metric objects, the per-feed sample age collector |
 | `__main__.py` | yes | entry point: executor thread + uvicorn |
+
+## Metrics
+
+`GET /metrics` on the MCP port (18200, Prometheus text format) is scraped by Grafana Alloy on the robot. It needs no
+bearer token but answers loopback clients only (127.0.0.1, ::1; anything else gets 403), so the 0.0.0.0 bind does not
+expose it on the LAN. The MCP path and the admin route stay behind the token. `robot_node_info{node="mcp_server"}` and
+`robot_node_start_time_seconds` come from `ros2_metrics.register_node_info` at start-up.
+
+| Metric | Where it is updated |
+|---|---|
+| `mcp_tool_calls_total{tool,outcome}` (ok/error), `mcp_tool_duration_seconds{tool}` | `McpServer.call_tool` in `tools.py`, the same wrapper that writes the `tool_call` timing log line (also for failing calls) |
+| `mcp_motion_queue_depth` | steps waiting in the motion queue (the running group is not counted); set on enqueue, when the worker takes a group, on cancel/stop and when a group ends |
+| `mcp_motion_steps_total{kind,status}` | `MotionQueue.finish_locked`: every step that ends, with the outcome status (`converged`, `stopped`, `aborted_tracking`, `unreachable`, `precondition_failed`, `refused`, `grasped`, `succeeded`, ...); a blended arm step that is passed through without a stop counts as `blended` |
+| `mcp_motion_tracking_error_rad{kind}` | worst joint tracking error of a finished queued motion (the group's last step kind) |
+| `mcp_grasp_plans_total{mode,outcome}` | `plan_grasp`; mode is the requested strategy (auto/scoop/angled/top_down), outcome feasible/infeasible |
+| `mcp_grasp_attempts_total{mode,result}` | `GraspExecutor.grasp`, which `grasp_object`, the queue's `grasp` step and the web UI `execute` all use; see the mapping below |
+| `mcp_gripper_effort` | last gripper effort seen in an arm state or an arm motion result |
+| `mcp_grip_profile_uses_total{profile}` | every `close_until_effort` close, by resolved profile name |
+| `mcp_floor_guard_slowdowns_total{reason}` | arm motions the slow zone slowed; reason is the checked point that came closest to the surface (`elbow`, `wrist`, `jaw_tip`, `tool_point`, `moving_jaw_tip`) |
+| `mcp_robot_events_total{severity}` | `RobotMonitor.emit` (debounced repeats are not counted) |
+| `mcp_sample_age_seconds{feed}` | age of the latest cached sample per ROS feed (`RosRobot.latest` keys, via `staleness.sample_ages`), read at scrape time; a feed without a sample has no series |
+| `mcp_nav_goals_total{result}`, `mcp_nav_goal_duration_seconds` | `nav_result` in `base_motion.py`, so every Nav2 goal that was sent (`succeeded`, `canceled`, `timeout`, `interrupted`, `rejected`, ...); errors before a goal exists (Nav2 not available) raise and are not counted |
+
+### Grasp result mapping
+
+`mcp_grasp_attempts_total` counts one attempt per `GraspExecutor.grasp` call that got past grip profile validation.
+The `result` label is derived from `GraspResult.outcome` (`metrics.GRASP_RESULT_BY_OUTCOME`):
+
+| `GraspResult.outcome` | `result` | Meaning |
+|---|---|---|
+| `grasped` | `lifted` | closed on the object, verified, lifted and retreated while holding it |
+| `missed` | `missed` | closed without load: opened again, lifted and retreated |
+| `aborted` | `aborted` | stop, refusal or unexpected motion status: stopped and held |
+| `infeasible` | `infeasible` | no feasible plan, nothing moved |
+
+`mode` is the strategy that was requested (`auto` stays `auto`).
 
 ## Configuration
 

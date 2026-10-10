@@ -8,6 +8,7 @@ from typing import Literal, Protocol
 from pydantic import BaseModel
 
 from .geometry import clamp_twist, normalize_angle
+from .metrics import NAV_DURATION, NAV_GOALS
 from .models import BasePose, NavigationResult, RobotError, StopResult
 
 
@@ -298,6 +299,8 @@ def nav_result(
     Returns:
         NavigationResult: Result.
     """
+    NAV_GOALS.labels(status).inc()
+    NAV_DURATION.observe(duration_s)
     return NavigationResult(
         status=status,
         message=message,

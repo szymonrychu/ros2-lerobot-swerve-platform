@@ -14,6 +14,7 @@ dependencies = [
     "uvicorn==0.54.0",
     "pyyaml==6.0.3",
     "ros2-common",
+    "ros2-metrics",
 ]
 
 [dependency-groups]
@@ -27,6 +28,7 @@ dev = [
 
 [tool.uv.sources]
 ros2-common = { path = "../../shared", editable = true }
+ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
 
 [build-system]
 requires = ["hatchling"]
