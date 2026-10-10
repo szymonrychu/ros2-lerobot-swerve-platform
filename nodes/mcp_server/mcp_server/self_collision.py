@@ -345,11 +345,13 @@ class SelfCollisionChecker:
             {o.name: (float(values[0, k]), CHECKED_PARTS[int(parts[0, k])]) for k, o in enumerate(self.body.obstacles)}
         )
 
-    def path(self, samples: list[dict[str, float]]) -> BodyReport:
+    def path(self, samples: list[dict[str, float]], allow_escape: bool = True) -> BodyReport:
         """Speed scale of every sample and the hard verdict of a trajectory (samples[0] = the start pose).
 
         Args:
             samples (list[dict[str, float]]): Joint samples the arm will follow, start first.
+            allow_escape (bool): A start inside the hard margin may move out (the clearance must not get worse);
+                False holds every sample to the hard margin (the planner's own waypoints).
 
         Returns:
             BodyReport: Scales, clearances, limiting obstacle/part per sample and the verdict.
@@ -371,7 +373,9 @@ class SelfCollisionChecker:
             hints={o.name: obstacle_hint(o, "arm", cfg) for o in self.body.obstacles},
         )
         start = values[0]
-        limit = np.where(start >= cfg.hard_margin_m, cfg.hard_margin_m, start - ESCAPE_TOLERANCE_M)
+        limit = np.where(
+            (start >= cfg.hard_margin_m) | (not allow_escape), cfg.hard_margin_m, start - ESCAPE_TOLERANCE_M
+        )
         broken = values < limit[None, :]
         if broken.any():
             i = int(np.argmax(broken.any(axis=1)))

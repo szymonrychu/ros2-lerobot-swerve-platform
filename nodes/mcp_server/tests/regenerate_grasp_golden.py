@@ -6,6 +6,11 @@ set equal to the new plans (the change is intended, so the old plans are no long
 longer feasible stops the regeneration with its reasons: decide about it before writing anything.
 
     cd nodes/mcp_server && uv run python -m tests.regenerate_grasp_golden
+    cd nodes/mcp_server && uv run python -m tests.regenerate_grasp_golden --drop-body-collisions
+
+--drop-body-collisions drops (and prints) the cases that became infeasible with a robot body collision among the
+reasons ('body_collision:', mcp_server.self_collision): their plans are now rejected by design. Any other infeasible case still
+stops the regeneration.
 """
 
 import json
@@ -15,6 +20,12 @@ from typing import Any
 from tests.test_grasp_speed import GOLDEN, run
 
 JSON_SEPARATORS = (",", ":")
+DROP_FLAG = "--drop-body-collisions"
+BODY_REASON = "body_collision:"
+
+
+class BodyCollisionCase(ValueError):
+    """A golden case that became infeasible only because its plans would hit the robot body."""
 
 
 def plan_record(case: dict[str, Any]) -> dict[str, Any]:
@@ -40,7 +51,10 @@ def plan_record(case: dict[str, Any]) -> dict[str, Any]:
         surface_z=case["surface_z"],
     )
     if not plan.feasible:
-        raise ValueError(f"{case['key']} is no longer feasible: {plan.reasons}")
+        message = f"{case['key']} is no longer feasible: {plan.reasons}"
+        if any(BODY_REASON in r for r in plan.reasons):  # it was feasible: the body check rejected its plan
+            raise BodyCollisionCase(message)
+        raise ValueError(message)
     return {
         "chosen": plan.strategy,
         "pitch_rad": plan.approach_pitch_rad,
@@ -50,18 +64,25 @@ def plan_record(case: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def regenerate(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def regenerate(cases: list[dict[str, Any]], drop_body: bool = False) -> list[dict[str, Any]]:
     """New golden cases: scenario fields kept, plan and baseline replaced by the current plans.
 
     Args:
         cases (list[dict[str, Any]]): Current golden cases.
+        drop_body (bool): Drop cases rejected only for robot body collisions instead of stopping.
 
     Returns:
         list[dict[str, Any]]: Regenerated cases in the same order.
     """
     out: list[dict[str, Any]] = []
     for case in cases:
-        record = plan_record(case)
+        try:
+            record = plan_record(case)
+        except BodyCollisionCase as exc:
+            if not drop_body:
+                raise
+            print(f"dropped: {exc}")
+            continue
         baseline = {k: record[k] for k in ("pitch_rad", "roll", "waypoints", "segments")}
         out.append(case | record | {"baseline": baseline})
     return out
@@ -75,7 +96,7 @@ def main() -> int:
     """
     cases = json.loads(GOLDEN.read_text())
     try:
-        new = regenerate(cases)
+        new = regenerate(cases, DROP_FLAG in sys.argv[1:])
     except ValueError as exc:
         print(exc)
         return 1

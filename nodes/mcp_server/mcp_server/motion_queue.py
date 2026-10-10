@@ -20,7 +20,7 @@ from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .arm import ArmError
+from .arm import ArmError, SelfCollisionError
 from .config import HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
 from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import ObjectSpec
@@ -597,7 +597,15 @@ def arm_result_data(result: ArmMotionResult) -> dict[str, Any]:
         "settle_s": result.settle_s,
         "tracking_error_rad": result.tracking_error_rad,
     }
-    for key in ("settling", "residual_error", "slow_zone", "interrupted_by", "clamped", "gripper_effort"):
+    for key in (
+        "settling",
+        "residual_error",
+        "slow_zone",
+        "self_collision",
+        "interrupted_by",
+        "clamped",
+        "gripper_effort",
+    ):
         value = getattr(result, key)
         if value:
             data[key] = value
@@ -842,9 +850,48 @@ class MotionQueue:
             if targets is not None:
                 chain = (chain or {}) | targets
             items.append(QueuedStep("", step, targets))
+        if not reasons:
+            reasons = self.body_reasons(items, kept)
         if reasons:
             raise QueueError("nothing queued: " + "; ".join(reasons))
         return items
+
+    def body_reasons(self, items: list[QueuedStep], kept: list[QueuedStep]) -> list[str]:
+        """Enqueue-time robot body check of the new arm blend groups, from the pose the queue will be in.
+
+        The start is the current commanded pose plus the targets of the pending arm steps; each blend group is checked
+        as the move_blend it becomes. A grasp step leaves the arm pose unknown, so groups after it are only checked when
+        they start (the worker's motion re-checks every group from its actual start pose anyway).
+
+        Args:
+            items (list[QueuedStep]): New items (targets resolved).
+            kept (list[QueuedStep]): Pending items they follow.
+
+        Returns:
+            list[str]: Self-collision reasons (empty = clear, or no fresh joint states to check from).
+        """
+        arm = self.robot.arm
+        sample = arm.fresh_sample()
+        if sample is None or any(q.step.kind == "grasp" for q in kept):
+            return []
+        pose = arm.command_base(sample)
+        for item in kept:
+            pose = pose | (item.targets or {})
+        reasons: list[str] = []
+        index = {id(q): i for i, q in enumerate(items)}
+        for group in group_queued(items, self.cfg):
+            if group[0].step.kind == "grasp":
+                break
+            if group[0].step.kind not in ARM_KINDS:
+                continue
+            try:
+                arm.preview_blend([q.targets or {} for q in group], group[0].step.speed_scale, pose)
+            except SelfCollisionError as exc:
+                where = ", ".join(str(index[id(q)]) for q in group)
+                reasons.append(f"step {where} ({group[0].step.kind}): {exc}")
+            for q in group:
+                pose = pose | (q.targets or {})
+        return reasons
 
     def solve(self, step: ArmCartesianStep, chain: dict[str, float] | None) -> dict[str, float]:
         """IK of a cartesian step seeded with the previous queued arm target (or the current commanded pose).
@@ -984,6 +1031,8 @@ class MotionQueue:
                 resolve_settle(last, self.cfg, group[-1].targets),
                 on_via=passed,
             )
+        except SelfCollisionError as exc:
+            return Outcome(ok=False, status="self_collision", message=str(exc), data={"self_collision": exc.details})
         except ArmError as exc:
             return Outcome(ok=False, status="refused", message=str(exc))
         data = arm_result_data(result)

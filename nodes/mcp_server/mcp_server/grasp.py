@@ -28,6 +28,7 @@ from .arm_geometry import FOREARM_CAPSULE, GRIPPER_BODY, GRIPPER_BODY_POINTS, JA
 from .config import GraspSettings, GripProfileOverride, LimitSettings, McpServerConfig
 from .floor_guard import FloorGuard, JawModel, SurfaceModel, arm_to_base_link, base_link_to_arm, rotate
 from .ik import ArmKinematics, UnreachableError, grasp_offset
+from .self_collision import SelfCollisionChecker, joint_line
 from .surfaces import Clearance, SurfaceRegion
 
 GraspParams = GraspSettings  # per-call grasp parameters: the configured defaults with overrides applied
@@ -633,19 +634,48 @@ def roll_guard_violations(waypoints: list[Waypoint], limits: LimitSettings) -> l
 class GraspPlanner:
     """Plans grasps on the arm kinematics; see the module docstring."""
 
-    def __init__(self, kin: ArmKinematics, config: McpServerConfig, guard: FloorGuard, jaw: JawModel) -> None:
+    def __init__(
+        self,
+        kin: ArmKinematics,
+        config: McpServerConfig,
+        guard: FloorGuard,
+        jaw: JawModel,
+        body: SelfCollisionChecker | None = None,
+    ) -> None:
         """Bind the planner to the arm model.
 
         Args:
             kin (ArmKinematics): Kinematics on the arm URDF.
-            config (McpServerConfig): Node configuration (arm, limits).
+            config (McpServerConfig): Node configuration (arm, limits, body, body_check).
             guard (FloorGuard): Slow-zone evaluator for the annotations.
             jaw (JawModel): Jaw opening model.
+            body (SelfCollisionChecker | None): Robot body check (the arm controller's); None builds one from config.
         """
         self.kin = kin
         self.cfg = config
         self.guard = guard
         self.jaw = jaw
+        self.body = body or SelfCollisionChecker.from_config(kin, config, jaw)
+
+    def body_problem(self, label: str, samples: list[dict[str, float]], escape: bool = False) -> str | None:
+        """Robot body check of plan samples: a sample within body_check.hard_margin_m makes the candidate infeasible.
+
+        Args:
+            label (str): Waypoint label.
+            samples (list[dict[str, float]]): Joint samples including the gripper.
+            escape (bool): samples[0] is the current pose, which may already be close (allowed to move out).
+
+        Returns:
+            str | None: 'body_collision:<obstacle>: ...' reason, or None (also when the check is disabled).
+        """
+        report = self.body.path(samples, allow_escape=escape)
+        if not report.rejected:
+            return None
+        r = report.rejection()
+        return (
+            f"body_collision:{r['obstacle']}: {label}: the {r['link']} comes {r['clearance_m']:.3f} m from the robot "
+            f"body obstacle {r['obstacle']} (hard margin {r['hard_margin_m']:g} m)"
+        )
 
     def center_offset(self, plan: GraspPlan) -> tuple[float, float, float] | None:
         """Extra tool offset that makes the waypoint targets the object centre (None when the tool point is the target).
@@ -1059,12 +1089,15 @@ class GraspPlanner:
                 problem = self.surface_problem(
                     label, [s | {self.guard.gripper: jaws[label]} for s in solved], surface, params
                 )
+            if problem is None:
+                problem = self.body_problem(label, [s | {self.guard.gripper: jaws[label]} for s in solved])
             if problem is not None:
                 return base.model_copy(update={"reasons": [problem], "wrist_roll_rad": roll})
         waypoints: list[Waypoint] = []
         segments: dict[str, list[dict[str, float]]] = {}
         annotations: list[dict[str, Any]] = []
         joints = seed | {ROLL_JOINT: roll}
+        joints_before, jaw_before = dict(seed), self.cfg.arm.gripper_closed_rad
         prev_point: np.ndarray | None = None
         for label, point, gripper, action, speed, linear in steps:
             if linear and prev_point is not None:
@@ -1077,8 +1110,17 @@ class GraspPlanner:
             jaw = gripper if gripper is not None else open_angle
             with_jaw = [s | {self.guard.gripper: jaw} for s in samples]
             problem = self.surface_problem(label, with_jaw, surface, params)
+            if problem is None:
+                previous = joints_before | {self.guard.gripper: jaw_before}
+                if linear:
+                    problem = self.body_problem(label, [previous, *with_jaw])
+                else:  # a free joint move from the previous pose (from the start pose for the pre-grasp)
+                    problem = self.body_problem(
+                        label, joint_line(previous, with_jaw[-1]), escape=label == WAYPOINT_ORDER[0]
+                    )
             if problem is not None:
                 return base.model_copy(update={"reasons": [problem], "wrist_roll_rad": roll})
+            joints_before, jaw_before = joints, jaw
             if linear:
                 segments[label] = with_jaw
             annotations.append(self.annotate(label, with_jaw, surface))

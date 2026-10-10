@@ -18,10 +18,18 @@ from .grasp import jaw_clearance
 from .grip import GripChoice, ResolvedGrip, resolve_grip_profile
 from .home_store import HomeStoreError, load_home, save_home
 from .ik import ArmKinematics, UnreachableError, grasp_offset
-from .metrics import FLOOR_GUARD_SLOWDOWNS, GRIP_PROFILE_USES, GRIPPER_EFFORT
+from .metrics import (
+    FLOOR_GUARD_SLOWDOWNS,
+    GRIP_PROFILE_USES,
+    GRIPPER_EFFORT,
+    SELF_COLLISION_MIN_CLEARANCE,
+    SELF_COLLISION_REJECTIONS,
+    SELF_COLLISION_SLOWDOWNS,
+)
 from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult, SettlePolicy
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .sag import SETTLE_LOG_MARKER, GravityModel, SagCompensator, compensate
+from .self_collision import BodyReport, SelfCollisionChecker, combine_scales, joint_line
 from .staleness import Stamped, is_fresh
 from .trajectory import (
     JointLimits,
@@ -48,6 +56,12 @@ LOGGER = logging.getLogger("mcp_server.arm")
 # long after the motion returned, unless another motion started meanwhile.
 SETTLE_PROBE_S = 1.0
 SAG_LOGGER = logging.getLogger("mcp_server.sag")
+# Safe intermediates tried by home() when the straight joint path to home would hit the robot body, in order; the
+# 'lift' entries move the tool point straight up by that much first (IK seeded from the start, same pitch).
+HOME_LIFTS_M = (0.05, 0.10, 0.15)
+SHOULDER_LIFT = "shoulder_lift"
+ELBOW_FLEX = "elbow_flex"
+WRIST_FLEX = "wrist_flex"
 
 OrphanCheck = Literal["pending", "released", "clear"]
 
@@ -136,6 +150,24 @@ def lower_clearance(target: GuardReport, commanded: GuardReport) -> GuardReport:
 
 class ArmError(RuntimeError):
     """Raised for a rejected arm request (bad arguments, no fresh joint states, no home pose, busy)."""
+
+
+class SelfCollisionError(ArmError):
+    """A motion was refused before it started because the arm would hit the robot body (self_collision).
+
+    Attributes:
+        details (dict[str, object]): obstacle, link, clearance_m, hard_margin_m, sample, samples, hint.
+    """
+
+    def __init__(self, report: BodyReport, prefix: str = "") -> None:
+        """Build the error from the rejecting body report.
+
+        Args:
+            report (BodyReport): Report with a violation.
+            prefix (str): Context put before the report message.
+        """
+        self.details: dict[str, object] = report.rejection()
+        super().__init__(prefix + report.message())
 
 
 class ArmBusyError(ArmError):
@@ -241,6 +273,7 @@ class ArmController:
         mount = config.arm.base_in_base_link or ArmBaseOffset(z=config.arm.arm_base_height_m)
         self.jaw = JawModel(kinematics, config.arm.jaw_open_axis, config.arm.gripper_closed_rad)
         self.floor_guard = FloorGuard(kinematics, config.floor_guard, mount, self.jaw, self.gripper)
+        self.body_check = SelfCollisionChecker.from_config(kinematics, config, self.jaw)
         self.tilt_source = tilt_source or (lambda: None)
         self._held = False
         self._acquired_at = -math.inf
@@ -254,6 +287,7 @@ class ArmController:
         self._moving: list[str] = []  # joints of the running motion
         self._tracking_limit = config.limits.arm_tracking_error_rad  # abort threshold of the running motion (rad)
         self._slow_zone: dict[str, object] | None = None  # slow-zone summary of the running motion
+        self._self_collision: dict[str, object] | None = None  # body soft-boundary summary of the running motion
         self._judged: list[str] = []  # joints the running motion is judged on (convergence, tracking_error_rad)
         self._settle_policy: SettlePolicy = "final"
         self._trajectory_end: float | None = None  # backend time the running motion finished streaming
@@ -1333,6 +1367,10 @@ class ArmController:
 
         Returns:
             ArmMotionResult: Outcome.
+
+        When the straight joint path home would hit the robot body, home goes via a safe intermediate (home_routes:
+        raise shoulder_lift and elbow_flex first, fold the elbow, lift the tool straight up, ...); it raises
+        SelfCollisionError only when no route clears the body.
         """
         try:
             pose = load_home(self.cfg.arm.home_file)
@@ -1342,7 +1380,7 @@ class ArmController:
             raise ArmError(f"no home pose stored at {self.cfg.arm.home_file}; call arm_set_home first")
         keep = keep_prior_control and self._held
         try:
-            result = self.move_joints({j: v for j, v in pose.items() if j in self.joint_names}, floor=floor)
+            result = self.home_motion({j: v for j, v in pose.items() if j in self.joint_names}, floor)
         except ArmBusyError:
             raise
         except ArmError:
@@ -1352,6 +1390,28 @@ class ArmController:
         if not keep and self._held:
             self.release()
         return result
+
+    def home_motion(self, pose: dict[str, float], floor: FloorOverride | None) -> ArmMotionResult:
+        """Move to the home pose along the first collision-free route (plan_home), leg by leg.
+
+        Args:
+            pose (dict[str, float]): Home pose (arm joints, measured space).
+            floor (FloorOverride | None): Per-call slow-zone overrides.
+
+        Returns:
+            ArmMotionResult: Result of the last leg run (an intermediate that did not converge ends the motion).
+        """
+        note, legs = self.plan_home(pose)
+        names = [j for j in self.joint_names if j in pose]
+        result: ArmMotionResult | None = None
+        for index, leg in enumerate(legs):
+            result = self.move_joints({j: leg[j] for j in names}, floor=floor)
+            if result.status != "converged" and index < len(legs) - 1:
+                break
+        assert result is not None
+        if note == "direct":
+            return result
+        return result.model_copy(update={"message": f"home via a safe intermediate ({note}): {result.message}"})
 
     def home_service_call(self) -> tuple[bool, str]:
         """/arm/home service body: move home and always release control afterwards.
@@ -1488,6 +1548,7 @@ class ArmController:
             expected=goal,
             achieved=positions,
             slow_zone=self._slow_zone,
+            self_collision=self._self_collision,
             gripper_effort=effort,
         )
 
@@ -1561,6 +1622,10 @@ class ArmController:
     ) -> list[dict[str, float]]:
         """Quintic setpoints from start to goal, with the slow-zone steps time-scaled; records the slow-zone summary.
 
+        The samples are checked against the robot body first (self_collision): a motion that would hit it raises
+        SelfCollisionError before anything is published; samples inside the body soft margin are slowed like the floor
+        slow zone (per sample the slower scale wins) and reported as self_collision.
+
         With sag compensation the approach mode of every loaded joint is taken from the planned final approach, the
         compensation gains ramp from their current values to the goal's over the motion (_sag_plan), and the slow zone
         is evaluated on the target samples AND on their over-commanded versions (lower clearance wins).
@@ -1578,16 +1643,12 @@ class ArmController:
 
         Returns:
             list[dict[str, float]]: Setpoints at arm_rate_hz.
+
+        Raises:
+            SelfCollisionError: When a sample would hit the robot body (nothing was published).
         """
-        rate = self.cfg.limits.arm_rate_hz
-        marks: list[int] = []
-        if blend and path is not None:
-            plan = blend_trajectory(start, path, vmax, self.cfg.limits.arm_max_joint_accel_rps2, rate)
-            points, marks = plan.points, plan.via_indices
-        elif path is None:
-            points = plan_trajectory(start, goal, vmax, rate)
-        else:
-            points = path_trajectory(start, path, vmax, rate)
+        points, marks = self.plan_points(start, goal, vmax, path, blend)
+        body = self.check_body([start, *points], execute=True)
         surface = self.floor_guard.surface(floor, self.tilt_source(), self.backend.now())
         report = self.floor_guard.evaluate([start, *points], surface)
         self._sag_plan = None
@@ -1606,7 +1667,10 @@ class ArmController:
         self._slow_zone = report.summary()
         if self._slow_zone is not None:
             FLOOR_GUARD_SLOWDOWNS.labels(str(self._slow_zone["lowest_point"])).inc()
-        scales = step_scales(report.scales)
+        self._self_collision = body.summary()
+        if self._self_collision is not None:
+            SELF_COLLISION_SLOWDOWNS.labels(str(self._self_collision["obstacle"])).inc()
+        scales = step_scales(combine_scales(report.scales, body.scales))
         ends: list[int] = []
         ticks = 0
         for scale in scales:
@@ -1614,6 +1678,156 @@ class ArmController:
             ends.append(ticks - 1)
         self._via_ticks = [ends[m] for m in marks]
         return retime(start, points, scales)
+
+    def plan_points(
+        self,
+        start: dict[str, float],
+        goal: dict[str, float],
+        vmax: float,
+        path: list[dict[str, float]] | None = None,
+        blend: bool = False,
+    ) -> tuple[list[dict[str, float]], list[int]]:
+        """Trajectory samples at arm_rate_hz (before any slow-zone time scaling) and the via indices of a blend.
+
+        Args:
+            start (dict[str, float]): Start pose.
+            goal (dict[str, float]): Goal pose.
+            vmax (float): Per-joint velocity cap (rad/s).
+            path (list[dict[str, float]] | None): Samples to pass through; None for a direct quintic to goal.
+            blend (bool): path holds the vias of one continuous spline.
+
+        Returns:
+            tuple[list[dict[str, float]], list[int]]: Setpoints and via indices (empty unless blended).
+        """
+        rate = self.cfg.limits.arm_rate_hz
+        if blend and path is not None:
+            plan = blend_trajectory(start, path, vmax, self.cfg.limits.arm_max_joint_accel_rps2, rate)
+            return plan.points, plan.via_indices
+        if path is None:
+            return plan_trajectory(start, goal, vmax, rate), []
+        return path_trajectory(start, path, vmax, rate), []
+
+    def check_body(self, samples: list[dict[str, float]], execute: bool = False) -> BodyReport:
+        """Body check of trajectory samples (start first); raises when the motion would hit the robot body.
+
+        Args:
+            samples (list[dict[str, float]]): Joint samples the arm will follow.
+            execute (bool): The motion is about to run: count a slowdown later and set the min-clearance gauge.
+
+        Returns:
+            BodyReport: The report (not rejected).
+
+        Raises:
+            SelfCollisionError: When a sample breaks the hard margin (counted in mcp_self_collision_rejections_total).
+        """
+        report = self.body_check.path(samples)
+        if report.enabled and math.isfinite(report.min_clearance) and execute:
+            SELF_COLLISION_MIN_CLEARANCE.set(report.min_clearance)
+        if report.rejected:
+            SELF_COLLISION_REJECTIONS.labels(report.violation_obstacle).inc()
+            LOGGER.warning("arm motion refused: %s", report.message())
+            raise SelfCollisionError(report)
+        return report
+
+    def preview_blend(
+        self, targets: list[dict[str, float]], speed_scale: float | None, start: dict[str, float]
+    ) -> BodyReport:
+        """Body check of the trajectory a move_blend through targets would stream from start (nothing moves).
+
+        Args:
+            targets (list[dict[str, float]]): Joint targets in order (measured space).
+            speed_scale (float | None): Speed scale of the motion.
+            start (dict[str, float]): Pose the motion would start from (every arm joint).
+
+        Returns:
+            BodyReport: The report.
+
+        Raises:
+            SelfCollisionError: When the motion would hit the robot body.
+        """
+        vmax = self.velocity_for(speed_scale)
+        pose = dict(start)
+        full: list[dict[str, float]] = []
+        for target in targets:
+            pose = pose | self.clamp_targets(target)
+            full.append(pose)
+        if not full:
+            return self.body_check.path([start])
+        if len(full) == 1:
+            points, _ = self.plan_points(start, full[0], vmax)
+        else:
+            points, _ = self.plan_points(start, full[-1], vmax, full, blend=True)
+        return self.check_body([start, *points])
+
+    def home_routes(self, start: dict[str, float], goal: dict[str, float]) -> list[tuple[str, list[dict[str, float]]]]:
+        """Candidate routes home, the straight joint path first, then via safe intermediates (see HOME_LIFTS_M).
+
+        Args:
+            start (dict[str, float]): Start pose (every arm joint).
+            goal (dict[str, float]): Home pose (every arm joint).
+
+        Returns:
+            list[tuple[str, list[dict[str, float]]]]: (description, legs) per route; the last leg is the goal.
+        """
+        folded = start | {SHOULDER_LIFT: goal[SHOULDER_LIFT], ELBOW_FLEX: goal[ELBOW_FLEX]}
+        routes: list[tuple[str, list[dict[str, float]]]] = [
+            ("direct", [goal]),
+            ("raise shoulder_lift and elbow_flex to home first", [folded, goal]),
+            ("fold elbow_flex first", [start | {ELBOW_FLEX: goal[ELBOW_FLEX]}, folded, goal]),
+            ("raise shoulder_lift first", [start | {SHOULDER_LIFT: goal[SHOULDER_LIFT]}, folded, goal]),
+            ("straighten wrist_flex first", [start | {WRIST_FLEX: goal[WRIST_FLEX]}, folded, goal]),
+        ]
+        tool = self.kin.forward(start)
+        for lift in HOME_LIFTS_M:
+            try:
+                up = start | self.kin.inverse(tool.x, tool.y, tool.z + lift, tool.pitch, seed=start)
+            except UnreachableError:
+                continue
+            routes.append((f"lift the tool {lift * 100:.0f} cm straight up first", [up, goal]))
+            routes.append(
+                (
+                    f"lift the tool {lift * 100:.0f} cm up, then raise shoulder_lift and elbow_flex",
+                    [up, up | {SHOULDER_LIFT: goal[SHOULDER_LIFT], ELBOW_FLEX: goal[ELBOW_FLEX]}, goal],
+                )
+            )
+        return routes
+
+    def plan_home(self, pose: dict[str, float]) -> tuple[str, list[dict[str, float]]]:
+        """First home route whose every leg (a straight joint path) clears the robot body.
+
+        Args:
+            pose (dict[str, float]): Stored home pose (measured space).
+
+        Returns:
+            tuple[str, list[dict[str, float]]]: Route description and its legs (arm joints, clamped).
+
+        Raises:
+            SelfCollisionError: When no route clears the body (names every route tried).
+        """
+        sample = self.require_sample()
+        start = self.command_base(sample)
+        goal = start | self.clamp_targets(pose)
+        if not self.body_check.settings.enabled:
+            return "direct", [goal]
+        first: BodyReport | None = None
+        tried: list[str] = []
+        for note, legs in self.home_routes(start, goal):
+            prev, failed = start, None
+            for leg in legs:
+                report = self.body_check.path(joint_line(prev, leg))
+                if report.rejected:
+                    failed = report
+                    break
+                prev = leg
+            if failed is None:
+                return note, legs
+            first = first or failed
+            tried.append(f"{note} ({failed.violation_part} at {failed.violation_obstacle})")
+        assert first is not None
+        SELF_COLLISION_REJECTIONS.labels(first.violation_obstacle).inc()
+        raise SelfCollisionError(
+            first, f"no collision-free route home from the current pose; tried {'; '.join(tried)}. Direct route: "
+        )
 
     def stream(
         self,

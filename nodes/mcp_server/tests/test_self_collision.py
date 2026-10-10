@@ -9,11 +9,11 @@ import math
 import numpy as np
 import pytest
 import yaml
-from mcp_server.self_collision import CHECKED_PARTS, SelfCollisionChecker, combine_scales, joint_line
 
 from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
 from mcp_server.floor_guard import JawModel, arm_to_base_link, base_link_to_arm
 from mcp_server.ik import ArmKinematics
+from mcp_server.self_collision import CHECKED_PARTS, SelfCollisionChecker, combine_scales, joint_line
 
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
@@ -211,4 +211,7 @@ def test_checked_points_follow_the_arm_into_base_link() -> None:
     """The checked part points are in base_link: the tool point part is the FK tool point converted."""
     joints = clear_pose()
     parts = CHECKER.part_points(joints)
-    assert np.allclose(parts["tool_point"][0], arm_to_base_link(np.array([KIN.forward(joints).x, KIN.forward(joints).y, KIN.forward(joints).z]), MOUNT))
+    assert np.allclose(
+        parts["tool_point"][0],
+        arm_to_base_link(np.array([KIN.forward(joints).x, KIN.forward(joints).y, KIN.forward(joints).z]), MOUNT),
+    )

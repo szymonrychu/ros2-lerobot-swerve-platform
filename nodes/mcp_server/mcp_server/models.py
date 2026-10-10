@@ -210,6 +210,13 @@ class ArmMotionResult(BaseModel):
         description="Gripper Torque_Limit write check from the bridge's register dump: 'verified', 'mismatch ...' or "
         "'unverified ...' (no dump since the write, about every 10 s); null when no torque limit was written",
     )
+    self_collision: dict[str, Any] | None = Field(
+        default=None,
+        description="Robot body soft boundary: set when part of the trajectory ran at the reduced speed because an arm "
+        "link came within soft_margin_m of the robot body (wheels, side frames, crossbar, lidar): {obstacle, link, "
+        "min_clearance_m, speed_scale, soft_margin_m, slowed_samples, samples, obstacles}; null when no sample was near "
+        "the body. A motion that would hit the body is refused before it starts (tool error naming the obstacle)",
+    )
     slow_zone: dict[str, Any] | None = Field(
         default=None,
         description="Below-surface slow zone: set when part of the trajectory ran at the reduced speed because a jaw "

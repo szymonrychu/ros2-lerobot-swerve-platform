@@ -6,7 +6,7 @@ import math
 import numpy as np
 import pytest
 
-from mcp_server.config import GraspSettings, McpServerConfig
+from mcp_server.config import BodyCheckSettings, GraspSettings, McpServerConfig
 from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel, arm_to_base_link
 from mcp_server.grasp import (
     STRATEGIES,
@@ -115,7 +115,10 @@ def test_top_down_points_down_and_aligns_the_jaws_with_the_object_width() -> Non
 
 def test_angled_uses_the_requested_pitch() -> None:
     obj = ObjectSpec(frame="arm", x=0.31, y=0.0, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.03, yaw=1.0)
-    p = PLANNER.plan(obj, "angled", PARAMS, FLAT, SEED, approach_pitch_deg=40.0)
+    # The 40 deg retreat at 31 cm passes the front-right side frame (forearm 9 mm, inside the body hard margin):
+    # this test is about the pitch, the body check is covered by tests/test_self_collision_wiring.py.
+    no_body = GraspPlanner(KIN, CONFIG.model_copy(update={"body_check": BodyCheckSettings(enabled=False)}), GUARD, JAW)
+    p = no_body.plan(obj, "angled", PARAMS, FLAT, SEED, approach_pitch_deg=40.0)
     assert p.feasible, p.reasons
     assert p.approach_pitch_rad == pytest.approx(math.radians(40.0))
     for w in p.waypoints:

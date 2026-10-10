@@ -154,6 +154,7 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "arm_home",
         "arm_set_home",
         "get_body_state",
+        "get_arm_reach",
         "pixel_to_ground",
         "get_annotated_camera_image",
         "mark_candidate_points",

@@ -13,6 +13,7 @@ from types import ModuleType
 import numpy as np
 import pytest
 
+from mcp_server.config import BodyCheckSettings
 from mcp_server.floor_guard import FloorGuard, FloorOverride, JawModel, SurfaceModel
 from mcp_server.grasp import GraspPlan, GraspPlanner, ObjectSpec, grasp_params
 from mcp_server.ik import ArmKinematics
@@ -46,6 +47,9 @@ assert MOUNT is not None
 JAW = JawModel(KIN, CFG.arm.jaw_open_axis, CFG.arm.gripper_closed_rad)
 GUARD = FloorGuard(KIN, CFG.floor_guard, MOUNT, JAW)
 PLANNER = GraspPlanner(KIN, CFG, GUARD, JAW)
+# Planner without the robot body check: the step-edge scenarios at 20 cm and at 25 cm / 30 deg also pass the lidar
+# dome or the front-right wheel under the assumed body; these tests are about the surfaces only.
+NO_BODY = GraspPlanner(KIN, CFG.model_copy(update={"body_check": BodyCheckSettings(enabled=False)}), GUARD, JAW)
 PARAMS = grasp_params(CFG.grasp, None)
 FLOOR = CFG.arm.floor_z_m
 STAIR_Z = FLOOR - STEP_M
@@ -71,8 +75,15 @@ def flat_stair() -> SurfaceModel:
     return SurfaceModel(surface_z_m=STAIR_Z + MOUNT.z, tilt=None, tilt_source="none", mount=MOUNT)
 
 
-def plan(obj: ObjectSpec, strategy: str, surf: SurfaceModel, pitch: float | None = None, **params: object) -> GraspPlan:
-    return PLANNER.plan(obj, strategy, grasp_params(CFG.grasp, params or None), surf, dict(SEED), pitch)
+def plan(
+    obj: ObjectSpec,
+    strategy: str,
+    surf: SurfaceModel,
+    pitch: float | None = None,
+    planner: GraspPlanner = PLANNER,
+    **params: object,
+) -> GraspPlan:
+    return planner.plan(obj, strategy, grasp_params(CFG.grasp, params or None), surf, dict(SEED), pitch)
 
 
 def link_clearance(p: GraspPlan, surf: SurfaceModel, part: str | None = None) -> float:
@@ -125,7 +136,7 @@ def test_raised_pre_grasp_keeps_the_tool_above_the_upper_surface() -> None:
 def test_beyond_a_step_the_lift_clears_the_upper_surface_before_the_retreat() -> None:
     """The sim showed the retreat dragging the gripper body over the step edge when the lift stayed below the floor."""
     obj = stair_box(0.20, (0.06, 0.06, 0.03))
-    result = plan(obj, "angled", surface([stair(obj.x - EDGE_BEFORE_OBJECT_M)]), 45.0)
+    result = plan(obj, "angled", surface([stair(obj.x - EDGE_BEFORE_OBJECT_M)]), 45.0, NO_BODY)
     assert result.feasible, result.reasons
     lift = next(w for w in result.waypoints if w.label == "lift")
     retreat = next(w for w in result.waypoints if w.label == "retreat")
@@ -184,7 +195,7 @@ def test_the_gripper_body_keeps_the_jaw_clearance_from_a_diagonal_step_edge() ->
         height_m=0.03,
     )
     surf = surface([stair(obj.x - EDGE_BEFORE_OBJECT_M)])
-    result = plan(obj, "angled", surf, 45.0)
+    result = plan(obj, "angled", surf, 45.0, NO_BODY)
     if result.feasible:
         assert link_clearance(result, surf, "gripper body") >= PARAMS.surface_jaw_clearance_m
     assert any("gripper body" in r for r in result.rejected_candidates + result.reasons)

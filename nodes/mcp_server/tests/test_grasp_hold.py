@@ -47,6 +47,9 @@ def make(tmp_path: Path) -> tuple[ArmController, FakeArmBackend, McpServerConfig
     be = FakeArmBackend(dict(START))
     be.follow = False  # object_in_jaws / sagging place the measured joints
     cfg = CONFIG.model_copy(deep=True)
+    # The cube at (0.22, 0.06) is retreated from past the lidar dome (inside the assumed body hard margin); the hold
+    # tests are about the grip, the body check is covered by tests/test_self_collision_wiring.py.
+    cfg.body_check.enabled = False
     cfg.arm.home_file = tmp_path / "home.yaml"
     cfg.arm.sag_compensation = SAG_GAINS
     return ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg), be, cfg

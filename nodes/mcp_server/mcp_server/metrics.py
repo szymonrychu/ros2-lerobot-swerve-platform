@@ -40,6 +40,19 @@ FLOOR_GUARD_SLOWDOWNS = Counter(
     "Arm motions the floor guard slowed, by the checked point that came closest to the surface",
     ["reason"],
 )
+SELF_COLLISION_REJECTIONS = Counter(
+    "mcp_self_collision_rejections_total",
+    "Arm motions refused before they started because a link would hit the robot body, by obstacle",
+    ["obstacle"],
+)
+SELF_COLLISION_SLOWDOWNS = Counter(
+    "mcp_self_collision_slowdowns_total",
+    "Arm motions slowed near the robot body (soft margin), by the obstacle that came closest",
+    ["obstacle"],
+)
+SELF_COLLISION_MIN_CLEARANCE = Gauge(
+    "mcp_self_collision_min_clearance_m", "Smallest arm-to-body clearance of the last checked arm motion (m)"
+)
 ROBOT_EVENTS = Counter("mcp_robot_events_total", "Robot events emitted by the monitor, by severity", ["severity"])
 NAV_GOALS = Counter("mcp_nav_goals_total", "Navigation goals by final result status", ["result"])
 NAV_DURATION = Histogram(

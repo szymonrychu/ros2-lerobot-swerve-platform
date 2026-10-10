@@ -138,4 +138,6 @@ def test_tipover_writes_the_2026_10_10_jar_scenarios(tmp_path: Path) -> None:
         toward_fixed = (grasp["tool_point"]["x"] - grasp["x"], grasp["tool_point"]["y"] - grasp["y"])
         assert offset[0] * toward_fixed[0] + offset[1] * toward_fixed[1] > 0.0
     assert entries["jar39x60_base0.316_floor_top_down_err0"]["feasible"]
-    assert entries["jar39x60_base0.316_floor_angled50_err0"]["feasible"]
+    # angled 50: the retreat brings the gripper body within the hard margin of the lidar dome (robot body check)
+    angled = entries["jar39x60_base0.316_floor_angled50_err0"]
+    assert not angled["feasible"] and any("body_collision:lidar" in r for r in angled["reasons"])

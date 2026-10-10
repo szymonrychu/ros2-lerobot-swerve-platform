@@ -1014,6 +1014,9 @@ def test_limit_overrides_apply_to_the_clamp_of_move_joints(tmp_path: Path) -> No
     be = FakeArmBackend()
     cfg = CONFIG.model_copy(deep=True)
     cfg.arm.joint_limit_overrides_rad = {"shoulder_lift": (-1.74533, 2.6)}
+    # shoulder_lift 2.4 rad (far past the URDF limit) swings the forearm into the front-right wheel: the robot body
+    # check (tests/test_self_collision_wiring.py) would refuse it; these tests are about the limit clamp only.
+    cfg.body_check.enabled = False
     arm = ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg)
     res = arm.move_joints({"shoulder_lift": 2.4})
     assert be.commands[-1]["shoulder_lift"] == pytest.approx(2.4) and res.clamped == []
@@ -1029,6 +1032,9 @@ def test_move_cartesian_below_the_floor_with_wider_limits(tmp_path: Path) -> Non
     be = FakeArmBackend()
     cfg = CONFIG.model_copy(deep=True)
     cfg.arm.joint_limit_overrides_rad = {"shoulder_lift": (-1.74533, 2.6)}
+    # shoulder_lift 2.4 rad (far past the URDF limit) swings the forearm into the front-right wheel: the robot body
+    # check (tests/test_self_collision_wiring.py) would refuse it; these tests are about the limit clamp only.
+    cfg.body_check.enabled = False
     kin = ArmKinematics(
         cfg.arm.urdf_path,
         margin=cfg.limits.arm_limit_margin_rad,

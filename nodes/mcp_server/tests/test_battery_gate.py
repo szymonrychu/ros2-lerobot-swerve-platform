@@ -41,6 +41,7 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "acquire_control": {},
     "release_control": {},
     "get_body_state": {},
+    "get_arm_reach": {},
     "pixel_to_ground": {"camera": "front", "u": 100.0, "v": 100.0},
     "get_annotated_camera_image": {"camera": "front"},
     "mark_candidate_points": {"camera": "front"},

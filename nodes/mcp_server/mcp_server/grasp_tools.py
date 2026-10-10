@@ -62,6 +62,9 @@ class GraspStep(BaseModel):
     status: str
     message: str = ""
     slow_zone: dict[str, Any] | None = None
+    self_collision: dict[str, Any] | None = Field(
+        default=None, description="Robot body slowdown of this step (ArmMotionResult.self_collision); null when none"
+    )
     residual_error: dict[str, float] = Field(
         default_factory=dict,
         description="Arm joints off their intended target of this step by more than their converge tolerance when "
@@ -196,7 +199,7 @@ class GraspExecutor:
         """
         self.arm = arm
         self.cfg = config
-        self.planner = GraspPlanner(arm.kin, config, arm.floor_guard, arm.jaw)
+        self.planner = GraspPlanner(arm.kin, config, arm.floor_guard, arm.jaw, arm.body_check)
 
     def fraction(self, angle: float) -> float:
         """Gripper open fraction of a gripper angle.
@@ -328,6 +331,7 @@ class GraspExecutor:
                 status=result.status,
                 message=result.message,
                 slow_zone=result.slow_zone,
+                self_collision=result.self_collision,
                 residual_error=residual,
             )
         )
