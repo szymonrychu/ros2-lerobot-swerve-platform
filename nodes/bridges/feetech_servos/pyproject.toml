@@ -8,6 +8,7 @@ dependencies = [
     "pyyaml>=6.0",
     "st3215>=0.4.0",
     "numpy>=1.26.0",
+    "ros2-metrics",
 ]
 
 [dependency-groups]
@@ -20,6 +21,9 @@ dev = [
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+ros2-metrics = { path = "../../../shared/ros2_metrics", editable = true }
 
 [tool.ruff]
 line-length = 120

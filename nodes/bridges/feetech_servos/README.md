@@ -75,6 +75,27 @@ The watchdog stops a wheel (goal_speed = 0) only when it is moving and **no driv
 
 **Root cause of the periodic wheel stops (fixed):** the loop used to process only one callback per iteration (`spin_once` at the end of the loop, ~85 Hz). `swerve_drive_controller` publishes a steer message and a drive message back to back (~215 msg/s), so the subscription queue (depth 10) was always full, and after each new pair arrived its oldest entry - the one processed next - was always a steer message. Drive commands were only handled when loop jitter let one through; when none got through for 0.3 s the watchdog wrote goal_speed = 0 to all four wheels, which then stood still for 0.4-0.8 s until the next drive message slipped through.
 
+## Metrics
+
+Prometheus exporter on `127.0.0.1:19101/metrics` (ros2_nodes name `lerobot_follower`), served by `ros2-metrics`
+(`shared/ros2_metrics`) in a daemon thread. Config key `metrics_port` (top level of the config YAML; int, default unset =
+exporter disabled; env `METRICS_PORT` is used when the key is absent). The helper also registers `robot_node_info{node}`
+and `robot_node_start_time_seconds{node}`. Metric objects live in `metrics.py`. The same code runs on the server as `lerobot_leader` with `metrics_port` unset, so nothing is served there.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `servo_bus_read_failures_total` | counter | `joint` | State reads (sync read plus per-servo fallback) that got no answer for that joint. |
+| `servo_bus_up` | gauge |  | 1 when at least one servo answered the last state read, else 0 (also 0 at start-up and with no bus). |
+| `servo_cycle_duration_seconds` | histogram |  | Work time of one loop iteration, before the sleep; buckets 2 ms to 100 ms. |
+| `servo_present_load` | gauge | `joint` | Signed present load from the last register dump (decoded, inverted joints flipped). |
+| `servo_temperature_celsius` | gauge | `joint` | Servo temperature from the last register dump. |
+| `servo_voltage_volts` | gauge | `joint` | Servo supply voltage from the last register dump (0.1 V units converted). |
+| `servo_torque_enabled` | gauge | `joint` | 1 when `torque_enable` is set (last register dump). |
+| `servo_set_register_failures_total` | counter | `reason` | `set_register` messages that did not write: `no_bus`, `invalid_json`, `missing_field`, `unknown_register`, `unknown_joint`, `bad_value`, `eprom_rejected`, `write_failed`. |
+| `servo_commands_total` | counter |  | Joint command targets processed by the loop (one per joint per cycle with a pending target). |
+
+Load, temperature, voltage and torque come from the full register dump (`register_publish_interval_s`, one servo per cycle); with the dump disabled (0) they stay unset. Gauges for registers that could not be read are never set to a placeholder.
+
 ## Build and run
 
 Node source lives under `nodes/bridges/feetech_servos`. Ansible deploys by cloning the repo on the node and syncing the uv venv (`uv sync --frozen --no-dev`) from this path; run the deploy playbook for client or server to install and start the service.

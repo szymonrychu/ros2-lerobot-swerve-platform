@@ -20,24 +20,25 @@ from typing import Any
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import BatteryState, JointState
 from std_msgs.msg import String
 
 from .battery import BatteryMonitor, battery_fields
-from .bridge_cycle import MAX_STEPS, MIN_STEPS, BridgeCycle, drain_callbacks, remaining_sleep_s
+from .bridge_cycle import MAX_STEPS, MIN_STEPS, BridgeCycle, drain_callbacks, end_cycle
 from .command_mapping import speed_register_to_velocity, steps_to_radians
 from .config import BridgeConfig, JointGroup, load_config_from_env
 from .joint_updates import get_position_updates
+from .metrics import BUS_UP, init_joints, record_read_cycle, record_register_dump
 from .register_dump import RegisterDumpScheduler
 from .registers import (
-    WRITABLE_REGISTER_NAMES,
     decode_present_load,
     get_register_entry_by_name,
     read_all_registers,
-    runtime_writable_entry,
     write_register,
 )
 from .registers import read_register as read_register_raw
+from .set_register import apply_set_register
 from .startup_torque import hold_current_positions, set_startup_torque_state
 from .sync_read import PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH, read_positions_and_speeds
 
@@ -47,6 +48,7 @@ TORQUE_WRITE_ATTEMPTS = 8
 TORQUE_VERIFY_SLEEP_S = 0.02
 WHEEL_MODE = 1  # STS mode register: 0 = position servo, 1 = continuous rotation (wheel)
 MISSING_READ_LOG_INTERVAL_S = 5.0
+NODE_NAME = "lerobot_follower"  # ros2_nodes name on the robot; the server runs this code as lerobot_leader
 
 
 def _wait_for_servos(servo: Any, expected_ids: list[int], node: Node) -> None:
@@ -80,12 +82,17 @@ def run_bridge(config: BridgeConfig) -> None:
     wheel mode and are driven by JointState.velocity (goal_speed, rad/s). Velocity joints are stopped when
     commands go stale (velocity_command_timeout_s) and on shutdown.
     """
+    # Port unset (the server's lerobot_leader) disables the exporter; the registered metrics are then never served.
+    start_metrics_server(resolve_metrics_port(config.metrics_port), NODE_NAME)
     rclpy.init()
     node = Node("feetech_servos_bridge")
     control_loop_period_s = 1.0 / max(1.0, config.control_loop_hz)
     groups = config.groups
     all_joints = config.all_joints
     velocity_joints = [j for j in all_joints if j.mode == "velocity"]
+    init_joints([j.name for j in all_joints])
+    joint_ids = [(j.name, j.id) for j in all_joints]
+    joint_inverted = {j.name: j.inverted for j in all_joints}
 
     pub_state = {
         g.namespace: node.create_publisher(JointState, f"/{g.namespace}/joint_states", DEFAULT_QOS_DEPTH)
@@ -215,42 +222,7 @@ def run_bridge(config: BridgeConfig) -> None:
 
     def on_set_register(msg: String) -> None:
         callbacks_run[0] += 1
-        if servo is None:
-            return
-        try:
-            data = json.loads(msg.data)
-        except (json.JSONDecodeError, TypeError):
-            node.get_logger().warn("set_register: invalid JSON")
-            return
-        joint_name = data.get("joint_name") or data.get("joint")
-        reg_name = data.get("register") or data.get("register_name")
-        raw = data.get("value")
-        if joint_name is None or reg_name is None or raw is None:
-            node.get_logger().warn("set_register: missing joint_name, register, or value")
-            return
-        if reg_name not in WRITABLE_REGISTER_NAMES:
-            node.get_logger().warn(f"set_register: unknown or read-only register '{reg_name}'")
-            return
-        sid = config.servo_id_for_joint_name(str(joint_name))
-        if sid is None:
-            node.get_logger().warn(f"set_register: unknown joint '{joint_name}'")
-            return
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            node.get_logger().warn("set_register: value must be int")
-            return
-        # Reject EPROM writes from ROS: PID/current/t limits must be set once via calibrate_servos load-config.
-        entry = runtime_writable_entry(reg_name)
-        if entry is None:
-            node.get_logger().warn(
-                f"set_register: rejecting EPROM register '{reg_name}'; set once via calibrate_servos load-config"
-            )
-            return
-        if sid not in last_written:
-            last_written[sid] = {}
-        if not write_register(servo, sid, entry, value, last_written[sid]):
-            node.get_logger().warn(f"set_register: write failed for {joint_name}/{reg_name}={value}")
+        apply_set_register(servo, config, last_written, msg.data, node.get_logger().warn)
 
     for group in groups:
         node.create_subscription(
@@ -273,6 +245,7 @@ def run_bridge(config: BridgeConfig) -> None:
     register_dump = RegisterDumpScheduler([(j.name, j.id) for j in all_joints], config.register_publish_interval_s)
     battery = BatteryMonitor([j.id for j in all_joints], config.battery_interval_s, config.battery_stale_s)
     last_missing_log = 0.0
+    BUS_UP.set(0.0)
     if servo is None:
         node.get_logger().error("No servo bus available: not publishing joint_states (no placeholder data).")
 
@@ -295,6 +268,7 @@ def run_bridge(config: BridgeConfig) -> None:
                 # Velocity watchdog: stop wheels with no drive command within velocity_command_timeout_s.
                 cycle.stop_expired()
                 readings = read_positions_and_speeds(expected_ids, make_sync_group, fallback_read)
+                record_read_cycle(joint_ids, readings)
                 stamp = node.get_clock().now().to_msg()
                 for group in groups:
                     missing = [j.name for j in group.joints if j.id not in readings]
@@ -340,6 +314,7 @@ def run_bridge(config: BridgeConfig) -> None:
                 # Full register dump, one servo per cycle (0 interval = disabled) so the loop never stalls.
                 dump = register_dump.step(time.monotonic(), lambda sid: read_all_registers(servo, sid))
                 if dump is not None:
+                    record_register_dump(dump, joint_inverted)
                     pub_registers.publish(String(data=json.dumps(dump, separators=(",", ":"))))
 
                 # Pack voltage: one servo per interval; nothing is published without a fresh reading.
@@ -355,7 +330,7 @@ def run_bridge(config: BridgeConfig) -> None:
                             setattr(battery_msg, name, value)
                         pub_battery.publish(battery_msg)
 
-            time.sleep(remaining_sleep_s(control_loop_period_s, time.monotonic() - cycle_start))
+            time.sleep(end_cycle(control_loop_period_s, time.monotonic() - cycle_start))
     finally:
         if servo is not None:
             cycle.stop(velocity_joints)

@@ -14,6 +14,7 @@ from typing import Any
 
 from .command_mapping import is_finite_command, map_position_to_steps, position_to_raw_steps, velocity_to_speed_register
 from .config import JointEntry, JointGroup
+from .metrics import COMMANDS, CYCLE_DURATION
 from .registers import RegisterEntry, write_register
 from .velocity_watchdog import apply_velocity_command, expired_velocity_joints
 
@@ -53,6 +54,20 @@ def remaining_sleep_s(period_s: float, elapsed_s: float) -> float:
         float: Seconds to sleep (never negative).
     """
     return max(0.0, period_s - elapsed_s)
+
+
+def end_cycle(period_s: float, elapsed_s: float) -> float:
+    """Record the work time of one loop iteration and return how long to sleep.
+
+    Args:
+        period_s: Target loop period in seconds.
+        elapsed_s: Work time of this iteration, seconds.
+
+    Returns:
+        float: Seconds to sleep (never negative).
+    """
+    CYCLE_DURATION.observe(elapsed_s)
+    return remaining_sleep_s(period_s, elapsed_s)
 
 
 @dataclass
@@ -233,7 +248,9 @@ class BridgeCycle:
             )
         for target in velocities.values():
             self.write_velocity(target.joint, target.value, received_at=target.received_at)
-        return len(positions) + len(velocities)
+        processed = len(positions) + len(velocities)
+        COMMANDS.inc(processed)
+        return processed
 
     def stop_expired(self) -> list[int]:
         """Velocity watchdog: stop wheels whose drive commands went stale.

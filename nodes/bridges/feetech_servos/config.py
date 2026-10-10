@@ -131,6 +131,7 @@ class BridgeConfig:
         direct_command_sources: joint_commands header.frame_id values (filter_node source tags) whose positions
             are follower joint radians; joints with a source range mapping pass them through unmapped. Empty
             (default): the mapping applies to every command.
+        metrics_port: Prometheus /metrics port on 127.0.0.1; None (default) disables the exporter.
     """
 
     namespace: str
@@ -153,6 +154,7 @@ class BridgeConfig:
     battery_frame_id: str = DEFAULT_BATTERY_FRAME_ID
     battery_stale_s: float = DEFAULT_BATTERY_STALE_S
     direct_command_sources: list[str] = field(default_factory=list)
+    metrics_port: int | None = None
 
     @property
     def groups(self) -> list[JointGroup]:
@@ -392,6 +394,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
     if not isinstance(raw_direct_sources, list):
         return None
     direct_command_sources = [str(s).strip() for s in raw_direct_sources if str(s).strip()]
+    raw_metrics_port = data.get("metrics_port")
     return BridgeConfig(
         namespace=namespace,
         joints=joints,
@@ -413,6 +416,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         battery_frame_id=battery_frame_id,
         battery_stale_s=battery_stale_s,
         direct_command_sources=direct_command_sources,
+        metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
     )
 
 
