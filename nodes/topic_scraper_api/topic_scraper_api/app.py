@@ -4,7 +4,9 @@ import asyncio
 from typing import Any
 
 from aiohttp import web
+from ros2_metrics import render_latest
 
+from . import metrics  # noqa: F401  (registers the node info and scraper metrics)
 from .paths import PREVIEW_PREFIX, STREAM_PREFIX, endpoint_to_topic, preview_endpoint_to_topic, stream_endpoint_to_topic
 
 MJPEG_BOUNDARY = b"frame"
@@ -21,6 +23,10 @@ def create_app(scraper: Any, observer: Any = None) -> web.Application:
     """
 
     app = web.Application()
+
+    async def get_metrics(_request: web.Request) -> web.Response:
+        body, content_type = render_latest()
+        return web.Response(body=body, headers={"Content-Type": content_type})
 
     async def get_topics(_request: web.Request) -> web.Response:
         return web.json_response({"topics": scraper.get_topics_summary()})
@@ -92,6 +98,7 @@ def create_app(scraper: Any, observer: Any = None) -> web.Application:
             return web.Response(body=jpeg, content_type="image/jpeg")
         return _preview_html_response(path, topic)
 
+    app.router.add_get("/metrics", get_metrics)
     app.router.add_get("/topics", get_topics)
     app.router.add_get(r"/topics/{suffix:.*}", get_topic_by_path)
     app.router.add_get("/rules", get_rules)

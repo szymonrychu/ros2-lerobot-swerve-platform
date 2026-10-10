@@ -9,6 +9,7 @@ dependencies = [
     "pyyaml>=6.0",
     "numpy>=1.26.0",
     "pillow>=10.0.0",
+    "ros2-metrics",
 ]
 
 [dependency-groups]
@@ -54,6 +55,9 @@ test = { shell = "pytest tests/ -v" }
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.uv.sources]
+ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
 
 [tool.uv]
 constraint-dependencies = [

@@ -13,6 +13,7 @@ This node replaces infrastructure monitoring as the default runtime debug path f
   - Example: ROS topic `/leader/joint_states` maps to endpoint `/topics/leader/joint_states`.
 - `GET /rules` — list observation rules and last result summary (has_result, oscillation_detected, last_updated_ns). Empty when no `observation_rules` in config.
 - `GET /rules/<name>` — full result for a rule: comparison (per-joint position delta between first two topics), oscillation_detected, oscillation_score, last_updated_ns.
+- `GET /metrics` — Prometheus exposition of the scraper's own health (see Metrics).
 
 ### Image topics (streams and previews)
 
@@ -41,6 +42,17 @@ Sample response shape:
   }
 }
 ```
+
+## Metrics
+
+`GET /metrics` on the API port (18100), via `ros2-metrics`; defined in `topic_scraper_api/metrics.py`. Scraper health only, no per-topic labels.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `robot_node_info{node}`, `robot_node_start_time_seconds{node}` | gauge | Node is running, process start time |
+| `scraper_messages_total` | counter | Messages received by all subscriptions |
+| `scraper_subscriptions` | gauge | Live topic subscriptions (set after each topic sync) |
+| `scraper_callback_seconds` | histogram | Time in one subscription callback (serialize and JPEG encode) |
 
 ## Configuration
 

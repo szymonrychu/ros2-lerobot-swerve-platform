@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .image_encoding import image_message_to_jpeg_bytes, is_image_type
+from .metrics import CALLBACK_SECONDS, MESSAGES, SUBSCRIPTIONS
 from .paths import normalize_topic, topic_to_endpoint, topic_to_preview_endpoint, topic_to_stream_endpoint
 from .serializer import ros_message_to_builtin, ros_time_to_ns
 
@@ -82,7 +83,9 @@ class TopicScraper:
     def _callback_for_topic(self, topic: str, type_name: str) -> Any:
         """Build subscription callback for specific topic."""
 
+        @CALLBACK_SECONDS.time()
         def callback(msg: Any) -> None:
+            MESSAGES.inc()
             header_stamp_ns = None
             header = getattr(msg, "header", None)
             if header is not None:
@@ -142,6 +145,7 @@ class TopicScraper:
             self.node.get_logger().info(f"Unsubscribed from {topic}")
 
         self._topic_meta = next_topics
+        SUBSCRIPTIONS.set(len(self._subscriptions))
 
     def get_topics_summary(self) -> list[dict[str, Any]]:
         """Return metadata list for all currently tracked topics.
