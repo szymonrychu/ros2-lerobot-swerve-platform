@@ -79,7 +79,7 @@ def test_topdown_reach_circle_is_centred_on_the_configured_shoulder_pan_axis() -
     style = perception_tools.topdown_style(McpServerConfig())
     assert (style.reach_x_m, style.reach_y_m) == pytest.approx((0.0592 + 0.0388353, -0.05))
     turned = McpServerConfig.model_validate(
-        {"arm": {"base_in_base_link": {"x": 0.1, "y": 0.0, "z": 0.104, "yaw": 1.5708}}}
+        {"arm": {"base_in_base_link": {"x": 0.1, "y": 0.0, "z": 0.100, "yaw": 1.5708}}}
     )
     style = perception_tools.topdown_style(turned)
     assert (style.reach_x_m, style.reach_y_m) == pytest.approx((0.1, 0.0388353), abs=1e-5)

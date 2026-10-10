@@ -51,7 +51,7 @@ def test_persistence_and_hardware_defaults() -> None:
     assert cfg.workdir == "/var/lib/claude_agent/workspace"
     assert cfg.state_dir == "/var/lib/claude_agent"
     assert cfg.session_log_max_bytes == 50 * 1024 * 1024
-    assert cfg.arm_base_height_m == 0.104
+    assert cfg.arm_base_height_m == 0.100
     assert 30 <= cfg.arm_reach_cm <= 50
     assert "left to right" in cfg.camera_note and "upright" in cfg.camera_note
     assert not hasattr(cfg, "work_dir")

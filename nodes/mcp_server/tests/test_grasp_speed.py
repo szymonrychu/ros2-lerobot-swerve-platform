@@ -4,8 +4,8 @@ Mac, so plan time on the Mac is budgeted well below the web UI /api/grasp 30 s t
 Set GRASP_SPEED_SKIP=1 to skip the timing tests on slow CI; the golden-plan test always runs.
 tests/data/grasp_golden.json holds the current plans of feasible scenarios of the 2026-10-09 sim matrix (waypoint joints
 and straight-line samples); they must stay within GOLDEN_TOL_RAD. Their surfaces are fixed arm-frame heights of that
-matrix (floor -0.15, ledges -0.08 and 0.0, stair -0.204, 10 cm below the configured floor), planner regression geometry independent of the floor now
-configured (-0.104; the matrix now places its supports relative to it). Each case also keeps the "baseline" plan of the planner
+matrix (floor -0.15, ledges -0.08 and 0.0, stair -0.204, 10 cm below the former floor -0.104), planner regression geometry independent of the floor now
+configured (-0.100; the matrix now places its supports relative to it). Each case also keeps the "baseline" plan of the planner
 before the faster heading convergence (secant step and carried heading in ArmKinematics.inverse_flange): the current
 plans may differ from it by at most BASELINE_TOL_RAD (0.1 deg, far below the arm's backlash) and must keep feasibility
 and strategy. The 2026-10-10 regeneration set the baseline equal to the current plans (the pre-secant planner was not rerun).

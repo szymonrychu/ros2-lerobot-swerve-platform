@@ -123,13 +123,13 @@ def test_prompt_hardware_facts_from_config(config: ClaudeAgentConfig) -> None:
     text = build_system_prompt(config)
     assert "SO-101" in text
     assert f"{config.arm_reach_cm:g} cm" in text
-    assert "10.4 cm above the floor" in text
+    assert "10 cm above the floor" in text
     assert "left to right" in text and "upright" in text
     assert "front" in text and "overhead" in text and "realsense" not in text.lower() and "stereo" not in text.lower()
     assert "overview first" in text and "arm-to-object distance" in text
     custom = build_system_prompt(ClaudeAgentConfig(arm_reach_cm=33, arm_base_height_m=0.2, camera_note="faces down"))
     assert "33 cm" in custom and "20 cm above the floor" in custom and "faces down" in custom
-    assert "10.4 cm above" not in custom
+    assert "10 cm above" not in custom
 
 
 def test_arm_reach_default_matches_urdf_link_lengths() -> None:

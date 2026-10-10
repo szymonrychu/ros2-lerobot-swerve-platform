@@ -17,7 +17,7 @@ def export(tmp_path: Path, name: str) -> tuple[Path, Path]:
 def test_example_command_writes_plan_and_scene_files(tmp_path: Path) -> None:
     plan, scene = export(tmp_path, "floor")
     assert isinstance(json.loads(plan.read_text()), list)
-    assert json.loads(scene.read_text())["base_height_m"] == 0.104
+    assert json.loads(scene.read_text())["base_height_m"] == 0.100
 
 
 def test_run_passing_plan_exits_zero_and_writes_report(tmp_path: Path, capsys) -> None:

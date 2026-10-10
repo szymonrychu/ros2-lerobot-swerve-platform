@@ -34,7 +34,7 @@ HARD_MAX_IMAGE_PX = 1024
 # Arm mount (URDF base_link origin) in base_link (m), measured on the robot 2026-10-10: shoulder_pan axis 98 mm forward and
 # 50 mm right of the centre between the wheels, URDF origin 38.8 mm behind and 62.4 mm below it; height from tip
 # touch-downs on the floor. The mount height is also the floor height under the arm (floor_z_m = -ARM_BASE_HEIGHT_M).
-ARM_BASE_HEIGHT_M = 0.104
+ARM_BASE_HEIGHT_M = 0.100
 ARM_MOUNT_X_M = 0.0592
 ARM_MOUNT_Y_M = -0.05  # 5 cm to the right of the base_link centre line
 MOUNT_HEIGHT_TOLERANCE_M = 1e-6
@@ -339,8 +339,8 @@ class ArmSettings(StrictModel):
     gripper_open_rad: float = 1.5
     gripper_closed_rad: float = -0.165
     autonomy_source_name: str = "autonomy"
-    # Height of the arm mount plane (the URDF base_link origin) above the floor (0.104 m, measured 2026-10-10 by touching
-    # the floor with the tip; earlier estimates 0.165 and 0.15 m).
+    # Height of the arm mount plane (the URDF base_link origin) above the floor (0.100 m, corrected 2026-10-10 from a
+    # tip-on-floor check; earlier 0.104 from tip touch-downs, 0.165 and 0.15 m before).
     arm_base_height_m: float = Field(default=ARM_BASE_HEIGHT_M, gt=0.0, le=1.0)
     # Arm base frame pose in the robot base_link (measured 2026-10-10): 5.92 cm forward, 5 cm right, z equal to
     # arm_base_height_m. null disables every arm <-> base_link conversion (camera results, grasp base_link input).

@@ -46,8 +46,8 @@ def test_scene_without_object_has_no_object_report() -> None:
 
 
 def test_clearance_tracks_support_height() -> None:
-    low = simulate(hold_plan(), SceneConfig(support_z_m=-0.10)).segments[0].min_clearance
-    high = simulate(hold_plan(), SceneConfig(support_z_m=0.0)).segments[0].min_clearance
+    low = simulate(hold_plan(), SceneConfig(support_z_m=-0.05)).segments[0].min_clearance
+    high = simulate(hold_plan(), SceneConfig(support_z_m=0.05)).segments[0].min_clearance
     assert low.jaws_support is not None and high.jaws_support is not None
     assert low.jaws_support - high.jaws_support == pytest.approx(0.10, abs=0.01)
 

@@ -511,7 +511,7 @@ def test_claude_agent_config_workdir_state_dir_and_hardware_facts() -> None:
     raw = yaml.safe_load(node_entry("claude_agent")["config"])
     assert raw["workdir"] == WORKDIR and "work_dir" not in raw
     assert raw["state_dir"] == STATE_DIR
-    assert raw["arm_base_height_m"] == 0.104
+    assert raw["arm_base_height_m"] == 0.100
     assert "arm_reach_cm" in raw
     home = [e for e in client_vars()["ros2_node_type_defaults"]["claude_agent"]["env"] if e.startswith("HOME=")]
     assert home == [f"HOME={STATE_DIR}"], "HOME stays separate from (and above) the workdir"

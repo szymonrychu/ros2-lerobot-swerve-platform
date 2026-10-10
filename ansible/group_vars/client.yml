@@ -912,7 +912,7 @@ ros2_nodes:
           # Arm mount (URDF base origin) in base_link [x, y, z] m (z up from the floor), measured 2026-10-10 (pan axis from
           # CAD, height from tip touch-downs). Same value as the mcp_server arm.base_in_base_link, so the drawn arm and
           # the grasp preview agree with the planner.
-          arm_offset: [0.0592, -0.05, 0.104]
+          arm_offset: [0.0592, -0.05, 0.100]
           # Home / Set home buttons: std_srvs/Trigger services served by mcp_server.
           arm_home_service: /arm/home
           arm_set_home_service: /arm/set_home
@@ -1022,9 +1022,12 @@ ros2_nodes:
       arm:
         urdf_path: nodes/web_ui/urdf/so101_arm.urdf
         home_file: /var/lib/ros2/arm/home.yaml
-        # Arm mount plane (URDF base_link origin) height above the floor: 10.4 cm, measured 2026-10-10 by touching the floor
-        # with the tip (contact at tool-point z -0.104 in the arm frame; floor_z_m = -0.104). Was a 15 cm estimate.
-        arm_base_height_m: 0.104
+        # Arm mount plane (URDF base_link origin) height above the floor: 10.0 cm (floor_z_m = -0.100). Was 10.4 cm from tip
+        # touch-downs, 15 cm before. Corrected 2026-10-10 after the grid calibration was deployed: the fixed-jaw tip
+        # commanded 1 cm above base_link (0.30, 0) had FK X/Y confirmed exactly by the user, FK height 6.9 mm, physically
+        # 3 mm above the floor, so the floor is 3.9 mm higher than configured (the grid fit with the floor free also
+        # moved it about 3 mm). Mount x/y unchanged.
+        arm_base_height_m: 0.100
         # Arm reach on the floor around the shoulder pan axis, drawn as the reach annulus on annotated camera images
         # (approximate: measure it and adjust).
         reach_outer_m: 0.25
@@ -1049,12 +1052,12 @@ ros2_nodes:
           shoulder_lift: [-1.745, 1.9]
         # Arm base frame pose in base_link (x/y/z in m, yaw in rad; z must equal arm_base_height_m), measured 2026-10-10:
         # shoulder_pan axis centre 98 mm forward, 50 mm right of the centre between the wheels (user, from the CAD
-        # model); URDF base origin = pan axis - (38.8 mm forward, 62.4 mm up); height 0.104 from tip touch-downs (floor
-        # contact at z -0.104 in the arm frame, confirmed within 3 mm by the grid sheet fit). The grid sheet fit wanted
+        # model); URDF base origin = pan axis - (38.8 mm forward, 62.4 mm up); height 0.100 (floor
+        # at z -0.100 in the arm frame, corrected 2026-10-10 from the deployed-tip floor check, see arm_base_height_m). The grid sheet fit wanted
         # the sheet 22.3 mm further forward than its labels: the sheet was shifted (user), the mount stays.
         # Used for arm <-> base_link conversions (gripper-camera base_link/map coordinates, grasp objects given in
         # base_link, the floor slow zone). null disables them.
-        base_in_base_link: {x: 0.0592, y: -0.05, z: 0.104, yaw: 0.0}
+        base_in_base_link: {x: 0.0592, y: -0.05, z: 0.100, yaw: 0.0}
       # Camera geometry for pixel_to_ground, annotated images and candidate points (nodes/mcp_server/README.md, "Camera
       # tools and calibration"). Both cameras are NOT calibrated until intrinsics and mount are set. intrinsics is
       # {calibration_file: <camera_calibration yaml>} or an approximation {hfov_deg: 66.0, width: 640, height: 480};
@@ -1235,7 +1238,7 @@ ros2_nodes:
       # Hardware facts stated in the system prompt (SO-101: reach from the shoulder_lift axis, base height above floor;
       # keep arm_base_height_m equal to mcp_server arm.arm_base_height_m, measured 2026-10-10).
       arm_reach_cm: 41
-      arm_base_height_m: 0.104
+      arm_base_height_m: 0.100
       # Nav2 goal precision stated in the system prompt (same values as mcp_server nav and the Nav2 goal checker).
       nav_goal_xy_tolerance_cm: 1.0
       nav_goal_yaw_tolerance_deg: 2.0

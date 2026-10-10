@@ -75,15 +75,15 @@ works before calibration; `solve_camera_calibration` needs the intrinsics.
 | Camera | Reference frame of results | Floor | Mount `parent_frame` |
 |---|---|---|---|
 | `front` (fixed overhead camera) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | `base_link` (fixed) |
-| `gripper` (on the wrist) | arm base frame (URDF `base_link` of `so101_arm.urdf`, `z = 0` on the arm mount plane) | `z = -arm_base_height_m` (`floor_z_m`, -0.104 m with the measured mount) | URDF link `gripper_link` (child of `wrist_roll`, the rigid gripper body carrying the fixed jaw; `gripper_frame_link` is only the tool point at the jaw tips and `moving_jaw_so101_v1_link` moves with the gripper joint, so neither is a valid mount) |
+| `gripper` (on the wrist) | arm base frame (URDF `base_link` of `so101_arm.urdf`, `z = 0` on the arm mount plane) | `z = -arm_base_height_m` (`floor_z_m`, -0.100 m with the measured mount) | URDF link `gripper_link` (child of `wrist_roll`, the rigid gripper body carrying the fixed jaw; `gripper_frame_link` is only the tool point at the jaw tips and `moving_jaw_so101_v1_link` moves with the gripper joint, so neither is a valid mount) |
 
 For the gripper camera `T_arm_base_gripper_link` is computed from the CURRENT measured joints with the same ikpy chain
 as IK/FK (`ArmKinematics.link_frame`), so the tools need fresh `/follower/joint_states`. Mount orientation convention:
 REP-103 camera body frame (x forward, y left, z up), fixed-axis RPY in `parent_frame`.
 
 `arm.base_in_base_link` (`x`, `y`, `z`, `yaw` of the arm base frame in base_link; z must equal `arm_base_height_m`)
-defaults to the mount measured on the robot 2026-10-10 `{x: 0.0592, y: -0.05, z: 0.104, yaw: 0.0}` (5.92 cm forward,
-5 cm right, 10.4 cm above the robot plane). Set it to `null` to disable the arm <-> base_link conversions. Without it, gripper results are in the arm base frame only (`ground_arm_base`; no `ground_base_link`, no
+defaults to the mount measured on the robot 2026-10-10 `{x: 0.0592, y: -0.05, z: 0.100, yaw: 0.0}` (5.92 cm forward,
+5 cm right, 10 cm above the robot plane). Set it to `null` to disable the arm <-> base_link conversions. Without it, gripper results are in the arm base frame only (`ground_arm_base`; no `ground_base_link`, no
 `ground_map`; distance and bearing are measured from the arm base) and the front camera cannot place arm overlays.
 
 ### Tools
@@ -112,7 +112,7 @@ defaults to the mount measured on the robot 2026-10-10 `{x: 0.0592, y: -0.05, z:
    image size) and redeploy `mcp_server`. Start the solver from a rough guess of the mount (measure it with a ruler).
 2. Place a marker (a coloured dot or tape cross) on the floor at points whose position you measured with a ruler from
    the robot: for `front` in `base_link` (x forward, y left, floor `z = 0`), for `gripper` in the arm base frame
-   (`z = -arm_base_height_m`, -0.104 with the measured mount, for the floor). Spread at least 6 points across the field of view and over distance.
+   (`z = -arm_base_height_m`, -0.100 with the measured mount, for the floor). Spread at least 6 points across the field of view and over distance.
 3. Take a photo (`get_camera_image` or `get_annotated_camera_image`; the annotated image works once an approximate mount is
    set and shows how far off it is), read the marker pixel `(u, v)` and call
    `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z)`. For the `gripper` camera repeat this at
@@ -352,10 +352,10 @@ partition every tool):
 ### Arm mount (measured)
 
 The arm base frame (URDF `base_link` of `so101_arm.urdf`) sits at `arm.base_in_base_link` in the robot `base_link`:
-x 0.0592 m, y -0.05 m (5 cm right of the centre line), z 0.104 m, yaw 0, measured on the robot 2026-10-10: the
+x 0.0592 m, y -0.05 m (5 cm right of the centre line), z 0.100 m, yaw 0, measured on the robot 2026-10-10: the
 shoulder_pan axis is 98 mm forward and 50 mm right of the centre between the wheels (CAD), the URDF origin is 38.8 mm
 behind and 62.4 mm below it, and the height comes from two tip touch-downs on the floor (contact at tool-point
-`z = -0.104` in the arm frame, so the floor is arm frame `z = -0.104`). Earlier estimates were 0.165 m and 0.15 m high
+`z = -0.104`, corrected 2026-10-10 to 0.100 after a deployed-tip floor check: tip FK height 6.9 mm, physically 3 mm above the floor; the floor is arm frame `z = -0.100`). Earlier estimates were 0.165 m and 0.15 m high
 (15 cm forward, 4 cm right). claude_agent states the same height in its prompt (`arm_base_height_m` in its config). The pure helpers
 `floor_guard.arm_to_base_link` / `base_link_to_arm` convert points (yaw supported); the grasp tools accept objects in
 either frame.
@@ -486,7 +486,7 @@ Request:
 ```json
 {"action": "plan" | "execute" | "release" | "stop",
  "request_id": "optional string, echoed back",
- "object": {"frame": "arm" | "base_link", "x": 0.22, "y": 0.0, "support_z": -0.104,
+ "object": {"frame": "arm" | "base_link", "x": 0.22, "y": 0.0, "support_z": -0.100,
             "width_m": 0.03, "depth_m": 0.03, "height_m": 0.04, "yaw": null, "gap_below_m": 0.0},
  "strategy": "auto" | "scoop" | "angled" | "top_down",
  "params": {"lift_height_m": 0.04},
@@ -718,7 +718,7 @@ server:
 arm:
   urdf_path: nodes/web_ui/urdf/so101_arm.urdf   # relative paths resolve against the repo root
   home_file: /var/lib/ros2/arm/home.yaml
-  arm_base_height_m: 0.104   # arm mount plane height above the floor (m, measured 2026-10-10); floor_z_m = -this
+  arm_base_height_m: 0.100   # arm mount plane height above the floor (m, corrected 2026-10-10); floor_z_m = -this
   gripper_open_rad: 1.5       # follower gripper joint positions (rad)
   gripper_closed_rad: -0.165
   reach_outer_m: 0.25        # floor reach around the shoulder axis (annotated image annulus)
@@ -727,7 +727,7 @@ arm:
   tool_offset_m: {x: 0.0, y: 0.0, z: 0.0}   # jaw closing point in the gripper_frame_link frame
   jaw_open_axis: [-1.0, 0.0, 0.0]           # direction the moving jaw opens, gripper_frame_link (normalised)
   joint_limit_overrides_rad: {}             # e.g. {shoulder_lift: [-1.74533, 2.6]} replaces URDF limits
-  base_in_base_link: {x: 0.0592, y: -0.05, z: 0.104, yaw: 0.0}   # measured (default); z = arm_base_height_m; null disables
+  base_in_base_link: {x: 0.0592, y: -0.05, z: 0.100, yaw: 0.0}   # measured (default); z = arm_base_height_m; null disables
 floor_guard:              # below-surface slow zone (see Arm mount and floor slow zone)
   enabled: true
   margin_m: 0.02

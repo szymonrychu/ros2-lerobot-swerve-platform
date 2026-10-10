@@ -72,12 +72,12 @@ def test_params_file_overrides_the_grasp_defaults(tmp_path: Path) -> None:
 
 
 def test_supports_are_placed_relative_to_the_configured_floor(tmp_path: Path) -> None:
-    """Ledges 7 and 15 cm above the floor, the stair 10 cm below it, the floor at client.yml arm.floor_z_m (-0.104)."""
+    """Ledges 7 and 15 cm above the floor, the stair 10 cm below it, the floor at client.yml arm.floor_z_m (-0.100)."""
     script = load_script()
     assert script.main(["--out", str(tmp_path), "--only", "4x4x4_r20_"]) == 0
     index = json.loads((tmp_path / "index.json").read_text())
     floor = index["floor_z_m"]
-    assert floor == pytest.approx(-0.104) and index["base_height_m"] == pytest.approx(0.104)
+    assert floor == pytest.approx(-0.100) and index["base_height_m"] == pytest.approx(0.100)
     surfaces = {e["support"]: e["surface_z"] for e in index["entries"]}
     assert surfaces == pytest.approx(
         {"floor": floor, "ledge+0.07": floor + 0.07, "ledge+0.15": floor + 0.15, "stair-0.10": floor - 0.10}

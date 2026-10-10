@@ -143,14 +143,14 @@ def test_token_from_env_strips(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_arm_base_height_defaults_to_the_measured_10_4_cm_mount_and_gives_floor_z() -> None:
     arm = McpServerConfig().arm
-    assert arm.arm_base_height_m == 0.104
-    assert arm.floor_z_m == pytest.approx(-0.104)
+    assert arm.arm_base_height_m == 0.100
+    assert arm.floor_z_m == pytest.approx(-0.100)
 
 
 def test_arm_mount_measured_on_the_robot_is_enabled_by_default() -> None:
     mount = McpServerConfig().arm.base_in_base_link
     assert mount is not None
-    assert (mount.x, mount.y, mount.z, mount.yaw) == (0.0592, -0.05, 0.104, 0.0)
+    assert (mount.x, mount.y, mount.z, mount.yaw) == (0.0592, -0.05, 0.100, 0.0)
 
 
 def test_arm_mount_height_must_match_arm_base_height() -> None:

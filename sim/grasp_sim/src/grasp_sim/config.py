@@ -6,8 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, model_validato
 
 SUPPORT_Z_TOLERANCE_M = 1e-6
 # Arm base (URDF base_link origin) height above the floor measured on the robot 2026-10-10 (client.yml
-# arm.arm_base_height_m): the floor is at z = -0.104 in the arm frame.
-DEFAULT_BASE_HEIGHT_M = 0.104
+# arm.arm_base_height_m): the floor is at z = -0.100 in the arm frame.
+DEFAULT_BASE_HEIGHT_M = 0.100
 DEFAULT_OBJECT_X_M = 0.20
 DEFAULT_SUPPORT_MARGIN_M = 0.08
 DEFAULT_FRICTION = (1.0, 0.005, 0.0001)

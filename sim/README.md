@@ -107,13 +107,13 @@ Effect (historical, with the 2026-10-08 effective TCP): the 74 feasible plans of
 ## Scene
 
 Frame: the arm base (URDF `base_link` origin) is the world origin, z up, x forward. The floor top is at
-`z = -base_height_m` (default 0.104, the arm mount height measured on the robot 2026-10-10 and set in `client.yml` as
+`z = -base_height_m` (default 0.100, the arm mount height corrected on the robot 2026-10-10 and set in `client.yml` as
 `arm_base_height_m`; earlier estimates were 0.165 and 0.15).
 
 ```yaml
 # SceneConfig (JSON or YAML; unknown keys are rejected)
-base_height_m: 0.104
-support_z_m: -0.034       # null/floor height = box on the floor; above = ledge/table; below = lower stair
+base_height_m: 0.100
+support_z_m: -0.030       # null/floor height = box on the floor; above = ledge/table; below = lower stair
 support_edge_x_m: null    # where the ledge/stair starts (default: object x - 0.08); the floor ends there for a stair
 support_depth_m: 0.6
 support_width_m: 0.6
@@ -228,7 +228,7 @@ Run `plan_matrix.py` only from the `nodes/mcp_server` env as above: it imports `
 `plan_matrix.py` reads the `mcp_server` block of `ansible/group_vars/client.yml` (tool offset, joint offsets, limit
 overrides, floor guard, grasp defaults; `--params` overrides grasp values) and plans from the executor's default
 folded seed: boxes 4x4x4, 3x3x6, 6x6x3 cm (depth x width x height); centre radius 0.20, 0.25, 0.30 m straight ahead
-and 0.25 m at 30 deg; surfaces placed relative to the configured floor (`arm.floor_z_m`, -0.104 in the arm frame):
+and 0.25 m at 30 deg; surfaces placed relative to the configured floor (`arm.floor_z_m`, -0.100 in the arm frame):
 floor, `ledge+0.07` and `ledge+0.15` (7 and 15 cm above it), `stair-0.10` (10 cm below it); strategies `top_down`,
 `angled45`, `scoop` (box flat on the surface), `scoop_gap` (box 2 cm up on rails, `gap_below_m` 0.02) and `auto`. It
 writes `index.json` (scene constants, executor timing, planner params, one entry per scenario) and one GraspPlan JSON
@@ -286,6 +286,23 @@ feasible, 73 lifted, 5 arm contacts); after = 89 feasible, 85 lifted, 0 arm cont
 | scoop (flat) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 |
 | scoop_gap | 3/3 | 3/3 | 3/3 | 3/3 | 3/4 | 4/4 | 0/0 | 0/0 |
 | auto | 12/12 | 12/12 | 8/8 | 7/9 | 9/9 | 9/9 | 3/11 | 9/9 |
+
+Re-run 2026-10-10 with the corrected arm mount height (floor at -0.100 instead of -0.104, base 0.100 m above it; supports
+keep their heights relative to the floor, so every surface moves up 4 mm; the golden plans are unchanged). Before = the
+table above (89 feasible, 85 lifted, 0 arm contacts, 0 jaw-surface contacts); after = 93 feasible, 85 lifted, 4 arm
+contacts, 4 jaw-surface contacts (lifted / feasible):
+
+| Strategy | Floor before | Floor after | Low ledge before | Low ledge after | High ledge before | High ledge after | Stair before | Stair after |
+|---|---|---|---|---|---|---|---|---|
+| top_down | 10/10 | 10/10 | 0/0 | 0/0 | 0/0 | 0/0 | 9/9 | 9/9 |
+| angled45 | 3/3 | 3/3 | 7/9 | 7/9 | 9/9 | 9/9 | 0/0 | 0/2 |
+| scoop (flat) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 |
+| scoop_gap | 3/3 | 3/3 | 3/3 | 3/3 | 3/4 | 4/4 | 0/0 | 0/0 |
+| auto | 12/12 | 12/12 | 7/9 | 7/9 | 9/9 | 9/9 | 9/9 | 9/11 |
+
+The 4 mm change adds one more stair reach at r30 for angled45 (4x4x4 and 3x3x6), and those plans (and the matching auto
+plans) hit the floor with the wrist link (4 arm contacts, all on the stair at r30); the high-ledge scoop_gap that did
+not lift before now lifts. The floor, low-ledge and top_down results are otherwise unchanged.
 
 Per strategy over the whole matrix: top_down 19/19 lifted (19 of 19 feasible, 29 infeasible), angled45 19/21, scoop_gap
 10/10, auto 37/39, scoop (flat) 0 feasible. The only failures are 6x6x3 angled45 and auto on the low ledge at r25 and

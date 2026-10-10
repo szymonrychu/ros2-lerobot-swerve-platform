@@ -36,7 +36,7 @@ POSITIONS = {
     "r30": (0.30, 0.0),
     "r25a30": (0.25 * math.cos(math.radians(30)), 0.25 * math.sin(math.radians(30))),
 }
-# Supports: name -> height of the surface under the object above the floor (m; the floor is arm.floor_z_m, -0.104 in
+# Supports: name -> height of the surface under the object above the floor (m; the floor is arm.floor_z_m, -0.100 in
 # the arm frame): two ledges and a lower stair.
 SUPPORTS = {"floor": 0.0, "ledge+0.07": 0.07, "ledge+0.15": 0.15, "stair-0.10": -0.10}
 # Strategies: name -> (planner strategy, approach pitch deg for angled, gap under the object in m).

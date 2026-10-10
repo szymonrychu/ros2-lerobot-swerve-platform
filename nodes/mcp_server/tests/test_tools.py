@@ -353,7 +353,7 @@ def test_http_app_serves_configured_path(robot: FakeRobot) -> None:
 def test_cartesian_and_arm_state_descriptions_state_the_floor_height(server: Any) -> None:
     docs = tool_descriptions(server)
     for name in ("move_arm_cartesian", "get_arm_state"):
-        assert "floor is at z = -0.104 m" in docs[name], name
+        assert "floor is at z = -0.100 m" in docs[name], name
     assert "floor_z_m" in docs["get_arm_state"]
 
 

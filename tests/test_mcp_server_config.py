@@ -222,8 +222,8 @@ def test_gripper_camera_rotated_180_at_source() -> None:
 
 def test_mcp_server_arm_mount_measured_and_height_agree_with_claude_agent() -> None:
     arm = node_config("mcp_server")["arm"]
-    assert arm["arm_base_height_m"] == 0.104
-    assert arm["base_in_base_link"] == {"x": 0.0592, "y": -0.05, "z": 0.104, "yaw": 0.0}
+    assert arm["arm_base_height_m"] == 0.100
+    assert arm["base_in_base_link"] == {"x": 0.0592, "y": -0.05, "z": 0.100, "yaw": 0.0}
     assert node_config("claude_agent")["arm_base_height_m"] == arm["arm_base_height_m"]
 
 
