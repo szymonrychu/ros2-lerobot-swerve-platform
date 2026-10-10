@@ -2,8 +2,10 @@
 Mac, so plan time on the Mac is budgeted well below the web UI /api/grasp 30 s timeout).
 
 Set GRASP_SPEED_SKIP=1 to skip the timing tests on slow CI; the golden-plan test always runs.
-tests/data/grasp_golden.json holds the current plans of feasible scenarios of the sim matrix (waypoint joints and
-straight-line samples); they must stay within GOLDEN_TOL_RAD. Each case also keeps the "baseline" plan of the planner
+tests/data/grasp_golden.json holds the current plans of feasible scenarios of the 2026-10-09 sim matrix (waypoint joints
+and straight-line samples); they must stay within GOLDEN_TOL_RAD. Their surfaces are fixed arm-frame heights of that
+matrix (floor -0.15, ledges -0.08 and 0.0, stair -0.25), planner regression geometry independent of the floor now
+configured (-0.104; the matrix now places its supports relative to it). Each case also keeps the "baseline" plan of the planner
 before the faster heading convergence (secant step and carried heading in ArmKinematics.inverse_flange): the current
 plans may differ from it by at most BASELINE_TOL_RAD (0.1 deg, far below the arm's backlash) and must keep feasibility
 and strategy.
@@ -61,7 +63,7 @@ assert MOUNT is not None
 JAW = JawModel(KIN, CFG.arm.jaw_open_axis, CFG.arm.gripper_closed_rad)
 PLANNER = GraspPlanner(KIN, CFG, FloorGuard(KIN, CFG.floor_guard, MOUNT, JAW), JAW)
 PARAMS = grasp_params(CFG.grasp, None)
-FLOOR = -CFG.arm.arm_base_height_m
+FLOOR = CFG.arm.floor_z_m
 REFERENCE = {"x": 0.25, "y": 0.0, "bottom": FLOOR, "size": (0.04, 0.04, 0.04), "gap": 0.0}
 
 

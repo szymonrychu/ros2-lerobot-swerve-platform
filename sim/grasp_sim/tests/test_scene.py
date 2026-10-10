@@ -22,12 +22,13 @@ def floor_top(model: mujoco.MjModel) -> float:
     return float(model.geom_pos[gid][2] + model.geom_size[gid][2])
 
 
-def test_default_floor_is_base_height_below_arm_origin() -> None:
+def test_default_floor_is_the_measured_base_height_below_arm_origin() -> None:
+    """Default: the arm mount measured on the robot (client.yml arm.arm_base_height_m 0.104, floor -0.104)."""
     cfg = SceneConfig()
-    assert cfg.base_height_m == pytest.approx(0.15)
-    assert cfg.floor_z == pytest.approx(-0.15)
+    assert cfg.base_height_m == pytest.approx(0.104)
+    assert cfg.floor_z == pytest.approx(-0.104)
     model = build_model(cfg)
-    assert floor_top(model) == pytest.approx(-0.15)
+    assert floor_top(model) == pytest.approx(-0.104)
 
 
 def test_base_height_is_configurable() -> None:
@@ -37,9 +38,9 @@ def test_base_height_is_configurable() -> None:
 
 def test_support_kind_is_inferred_from_support_z() -> None:
     assert SceneConfig().support_kind == "floor"
-    assert SceneConfig(support_z_m=-0.15).support_kind == "floor"
-    assert SceneConfig(support_z_m=-0.07).support_kind == "ledge"
-    assert SceneConfig(support_z_m=-0.23).support_kind == "stair"
+    assert SceneConfig(support_z_m=-0.104).support_kind == "floor"
+    assert SceneConfig(support_z_m=-0.034).support_kind == "ledge"
+    assert SceneConfig(support_z_m=-0.184).support_kind == "stair"
 
 
 def test_box_on_floor_rests_on_floor_with_configured_mass_and_friction() -> None:
@@ -49,7 +50,7 @@ def test_box_on_floor_rests_on_floor_with_configured_mass_and_friction() -> None
     assert model.geom("object_box").friction[0] == pytest.approx(0.7)
     assert np.allclose(model.geom("object_box").size, [0.02, 0.015, 0.025])
     data = settle(model)
-    assert data.body("object").xpos[2] == pytest.approx(-0.15 + 0.025, abs=2e-3)
+    assert data.body("object").xpos[2] == pytest.approx(cfg.floor_z + 0.025, abs=2e-3)
     assert "support" not in [model.geom(i).name for i in range(model.ngeom)]
 
 

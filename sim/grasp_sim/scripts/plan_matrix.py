@@ -36,8 +36,9 @@ POSITIONS = {
     "r30": (0.30, 0.0),
     "r25a30": (0.25 * math.cos(math.radians(30)), 0.25 * math.sin(math.radians(30))),
 }
-# Supports: name -> top of the surface under the object (arm frame, m); the floor is arm.floor_z_m (-0.15).
-SUPPORTS = {"floor": None, "ledge-0.08": -0.08, "ledge0.0": 0.0, "stair-0.25": -0.25}
+# Supports: name -> height of the surface under the object above the floor (m; the floor is arm.floor_z_m, -0.104 in
+# the arm frame): two ledges and a lower stair.
+SUPPORTS = {"floor": 0.0, "ledge+0.07": 0.07, "ledge+0.15": 0.15, "stair-0.10": -0.10}
 # Strategies: name -> (planner strategy, approach pitch deg for angled, gap under the object in m).
 GAP_BELOW_M = 0.02
 STRATEGIES = {
@@ -114,13 +115,13 @@ def plan_all(out: Path, overrides: dict[str, Any] | None, only: str | None = Non
     jaw = JawModel(kin, cfg.arm.jaw_open_axis, cfg.arm.gripper_closed_rad)
     planner = GraspPlanner(kin, cfg, FloorGuard(kin, cfg.floor_guard, mount, jaw), jaw)
     params = grasp_params(cfg.grasp, overrides)
-    floor_z = -cfg.arm.arm_base_height_m
+    floor_z = cfg.arm.floor_z_m
     out.mkdir(parents=True, exist_ok=True)
     entries: list[dict[str, Any]] = []
     for box, size in BOXES.items():
         for position, (x, y) in POSITIONS.items():
-            for support, top in SUPPORTS.items():
-                surface_z = floor_z if top is None else top
+            for support, height in SUPPORTS.items():
+                surface_z = floor_z + height
                 for name, (strategy, pitch, gap) in STRATEGIES.items():
                     key = f"{box}_{position}_{support}_{name}"
                     if only is not None and only not in key:

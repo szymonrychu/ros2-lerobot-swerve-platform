@@ -32,7 +32,7 @@ Library API:
 ```python
 from grasp_sim.config import SceneConfig, SimConfig
 from grasp_sim.replay import simulate
-report = simulate(plan_json, SceneConfig(support_z_m=-0.08), SimConfig())   # -> SimReport
+report = simulate(plan_json, SceneConfig(support_z_m=-0.034), SimConfig())   # -> SimReport
 ```
 
 ## View and record
@@ -117,13 +117,13 @@ offset, lift 0 times with the stock jaws (`grasp-sim matrix <dir> --stock-jaws`)
 ## Scene
 
 Frame: the arm base (URDF `base_link` origin) is the world origin, z up, x forward. The floor top is at
-`z = -base_height_m` (default 0.15 as specified for this harness; the value measured on the robot and set in
-`client.yml` as `arm_base_height_m` is 0.165, use `base_height_m: 0.165` to match it).
+`z = -base_height_m` (default 0.104, the arm mount height measured on the robot 2026-10-10 and set in `client.yml` as
+`arm_base_height_m`; earlier estimates were 0.165 and 0.15).
 
 ```yaml
 # SceneConfig (JSON or YAML; unknown keys are rejected)
-base_height_m: 0.15
-support_z_m: -0.08        # null/floor height = box on the floor; above = ledge/table; below = lower stair
+base_height_m: 0.104
+support_z_m: -0.034       # null/floor height = box on the floor; above = ledge/table; below = lower stair
 support_edge_x_m: null    # where the ledge/stair starts (default: object x - 0.08); the floor ends there for a stair
 support_depth_m: 0.6
 support_width_m: 0.6
@@ -238,7 +238,8 @@ Run `plan_matrix.py` only from the `nodes/mcp_server` env as above: it imports `
 `plan_matrix.py` reads the `mcp_server` block of `ansible/group_vars/client.yml` (tool offset, joint offsets, limit
 overrides, floor guard, grasp defaults; `--params` overrides grasp values) and plans from the executor's default
 folded seed: boxes 4x4x4, 3x3x6, 6x6x3 cm (depth x width x height); centre radius 0.20, 0.25, 0.30 m straight ahead
-and 0.25 m at 30 deg; surface floor (-0.15), ledge -0.08, ledge 0.0, stair -0.25 (arm frame); strategies `top_down`,
+and 0.25 m at 30 deg; surfaces placed relative to the configured floor (`arm.floor_z_m`, -0.104 in the arm frame):
+floor, `ledge+0.07` and `ledge+0.15` (7 and 15 cm above it), `stair-0.10` (10 cm below it); strategies `top_down`,
 `angled45`, `scoop` (box flat on the surface), `scoop_gap` (box 2 cm up on rails, `gap_below_m` 0.02) and `auto`. It
 writes `index.json` (scene constants, executor timing, planner params, one entry per scenario) and one GraspPlan JSON
 per scenario. `grasp-sim matrix` replays every feasible plan the way `GraspExecutor.execute` streams it (start at the
@@ -261,6 +262,27 @@ Re-run 2026-10-10 after the faster angled planning (secant heading convergence i
 joints within 2e-3 rad of the table above): the matrix plans 240 scenarios in about 40 s instead of 5 min, 80 feasible,
 and replays identically: top_down 19/19, angled45 18/18, scoop_gap 9/9, auto 34/34 lifted, scoop (flat) 0 feasible.
 
+Re-run 2026-10-10 with the measured arm mount (floor at -0.104 instead of -0.15, base 0.104 m above it; supports
+kept at the same heights relative to the floor and now named by that height: ledge -0.08 is `ledge+0.07`, ledge 0.0
+is `ledge+0.15`, stair -0.25 is `stair-0.10`). Before = the same planner with the 2026-10-09 client.yml (floor -0.15),
+reproduced exactly (80 feasible, 80 lifted, no arm contact); after = 93 feasible, 73 lifted, 5 arm contacts
+(lifted / feasible):
+
+| Strategy | Floor before | Floor after | Low ledge before | Low ledge after | High ledge before | High ledge after | Stair before | Stair after |
+|---|---|---|---|---|---|---|---|---|
+| top_down | 9/9 | 9/9 | 9/9 | 0/0 | 0/0 | 0/0 | 1/1 | 3/9 |
+| angled45 | 6/6 | 3/3 | 3/3 | 8/8 | 9/9 | 9/9 | 0/0 | 0/5 |
+| scoop (flat) | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 | 0/0 |
+| scoop_gap | 3/3 | 3/3 | 3/3 | 3/3 | 3/3 | 3/4 | 0/0 | 0/0 |
+| auto | 12/12 | 12/12 | 12/12 | 8/8 | 9/9 | 9/9 | 1/1 | 3/11 |
+
+Every floor and ledge plan still lifts except one: the 3x3x6 gap scoop at r25a30 on the high ledge (jaw on the ledge,
+not lifted). With the higher floor the stair is reachable at r20, r25, r30 and r25a30 (before only r20), and those new
+plans expose the missing step-edge model: the jaws touch the upper floor edge (about 0.5 mm) and the box is not lifted
+(4x4x4 and 6x6x3 top_down, angled45), and at r30/r25a30 the angled45 wrist hits the floor edge (5 arm contacts, all
+on the stair). Coverage moved: top_down no longer reaches the low ledge (3.4 cm below the arm base, pre-grasp too
+high) and angled45 loses three floor plans, while angled45 gains five low-ledge plans.
+
 Before = the planner and client.yml before this tuning (auto order scoop first, scoop_max_pitch_deg 25), replayed in the
 calibrated sim; with the stock jaws the same plans lifted 0 of 74. Target set (4x4x4 and 6x6x3 on floor and both
 ledges, top_down and angled45): 24 of 48 scenarios feasible, 24/24 lifted, no arm-floor/support contact in any run.
@@ -273,10 +295,11 @@ plan (a gap scoop) and none for top_down/angled, so those defaults stay. Flat sc
 
 Remaining failure modes:
 
-- Reach: half of the target set is infeasible, all IK reach limits: top_down at r30 and on the 0.0 ledge (pre-grasp
-  too high), angled45 at r20 (too close) and on most stair cases. Only r20 reaches the stair (-0.25).
-- Stair edge: the r20 stair top_down grasp of the 4x4x4 touches the floor edge with a jaw (about 0.6 mm penetration,
-  lifted anyway); the planner has no model of a step edge, only of the surface under the object.
+- Reach (2026-10-10 geometry): top_down is infeasible at r30 and on both ledges (pre-grasp too high), angled45 at
+  r20 on the floor (too close).
+- Stair edge: the planner has no model of a step edge, only of the surface under the object. With the measured
+  mount the 10 cm stair is reachable from r20 to r30 and 11 of the 14 feasible top_down/angled45 stair plans fail: jaws on the upper floor
+  edge (about 0.5 mm penetration) and, for angled45 at r30/r25a30, the wrist on the edge.
 - 3x3x6 on the stair at r20 is no longer reachable with the low tall-object grasp (it was before, gripped at
   mid-height).
 - Steep scoops above 40 deg with a gap: moving jaw hits the box top, slips or tips tall boxes (why the default is 40).
@@ -288,7 +311,8 @@ Remaining failure modes:
 approach pitch; the 5-DOF arm cannot choose the approach direction freely): jaws opened with `wrist_roll` -1.57 so
 the jaws straddle the object sideways, a line approach (5 mm steps) with the jaw tips 2 mm above the support,
 close, 6 cm lift, 4 cm retreat. The arm is short: a target about 0.2 m ahead and 0.13 m below the shoulder needs a
-steep approach (pitch about 57 deg; the stair case about 69 deg and 0.17 m).
+steep approach (pitch about 57 deg; the ledge case, 3.4 cm below the arm base with the measured mount, about 69 deg;
+the stair case about 69 deg and 0.17 m).
 
 - `floor`, `ledge` (7 cm above the floor), `stair` (6 cm below the floor plane): pass, object lifted about 6 cm.
 - `tip`: a 2x2x7 cm box and a 2.5 cm sideways offset: a jaw hits the box in the approach, it tips (about 90 deg) and

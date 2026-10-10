@@ -9,7 +9,7 @@ from typing import Literal
 
 import numpy as np
 
-from grasp_sim.config import BoxObjectConfig, SceneConfig
+from grasp_sim.config import DEFAULT_BASE_HEIGHT_M, BoxObjectConfig, SceneConfig
 from grasp_sim.ik import ArmIK
 from grasp_sim.plan import JOINT_ORDER, LABELS
 
@@ -39,9 +39,11 @@ LEDGE_HEIGHT_M = 0.07
 STAIR_DEPTH_M = 0.06
 STAIR_OBJECT_X_M = 0.17
 STAIR_PITCH_RAD = 1.2
+# The ledge top is 3.4 cm below the arm base with the measured mount: a flatter approach cannot reach the pre-grasp.
+LEDGE_PITCH_RAD = 1.2
 
 
-def example_case(name: CaseName, base_height_m: float = 0.15) -> tuple[SceneConfig, list[dict]]:
+def example_case(name: CaseName, base_height_m: float = DEFAULT_BASE_HEIGHT_M) -> tuple[SceneConfig, list[dict]]:
     """A scene and its example scoop plan.
 
     - floor: 3x3x4 cm box on the floor, passing scoop.
@@ -64,8 +66,12 @@ def example_case(name: CaseName, base_height_m: float = 0.15) -> tuple[SceneConf
         box = BoxObjectConfig(x_m=STAIR_OBJECT_X_M)
         scene = SceneConfig(base_height_m=base_height_m, support_z_m=floor_z - STAIR_DEPTH_M, object=box)
         return scene, build_plan(scene, "pass", STAIR_PITCH_RAD)
-    support = floor_z + LEDGE_HEIGHT_M if name == "ledge" else None
-    scene = SceneConfig(base_height_m=base_height_m, support_z_m=support, object=BoxObjectConfig(x_m=0.2))
+    if name == "ledge":
+        scene = SceneConfig(
+            base_height_m=base_height_m, support_z_m=floor_z + LEDGE_HEIGHT_M, object=BoxObjectConfig(x_m=0.2)
+        )
+        return scene, build_plan(scene, "pass", LEDGE_PITCH_RAD)
+    scene = SceneConfig(base_height_m=base_height_m, object=BoxObjectConfig(x_m=0.2))
     return scene, build_plan(scene, "pass")
 
 
