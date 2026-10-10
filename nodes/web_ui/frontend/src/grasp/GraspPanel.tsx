@@ -1,6 +1,8 @@
 /**
- * Grasp panel of the map tab (presentational): object and strategy inputs, advanced parameters, Plan / Execute /
- * Release / Stop, the execute confirmation and the feasibility / outcome readout. State lives in useGrasp.
+ * Grasp panel of the map tab (presentational): where the grasp result is shown. The object position comes from a map
+ * click after choosing a strategy in the toolbar Grasp dropdown; the panel holds the pick hint, the collapsed object size
+ * and advanced settings, Plan again / Execute / Release / Stop, the execute confirmation and the feasibility /
+ * outcome readout. State lives in useGrasp.
  */
 import { useState } from 'react'
 import Alert from '@mui/material/Alert'
@@ -8,26 +10,21 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Collapse from '@mui/material/Collapse'
 import IconButton from '@mui/material/IconButton'
-import MenuItem from '@mui/material/MenuItem'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import CloseIcon from '@mui/icons-material/Close'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import StopCircleIcon from '@mui/icons-material/StopCircle'
-import AdsClickIcon from '@mui/icons-material/AdsClick'
-import { ADVANCED_PARAMS, describeOutcome, GraspAnswer, GraspFrame, GraspStrategy, STRATEGIES, summarizePlan } from './grasp'
+import { ADVANCED_PARAMS, describeOutcome, GraspAnswer, summarizePlan } from './grasp'
+import { GRASP_MENU } from './pick'
 import type { GraspPanelState } from './useGrasp'
 import { MONO_FONT } from '../theme'
 
 interface Props {
   state: GraspPanelState
-  /** Pick-on-map needs the top view. */
-  topView: boolean
   onClose: () => void
 }
 
@@ -112,13 +109,15 @@ function Result({ answer, title }: { answer: GraspAnswer; title: string }) {
   )
 }
 
-export function GraspPanel({ state, topView, onClose }: Props) {
+export function GraspPanel({ state, onClose }: Props) {
+  const [objectOpen, setObjectOpen] = useState(false)
   const [advanced, setAdvanced] = useState(false)
   const { form, setForm } = state
   const executing = state.executing
   const planAnswer = state.plan?.outcome ?? (state.lastAnswer?.action === 'plan' ? state.lastAnswer : null)
   const run = state.stream?.state === 'done' ? state.stream.outcome : null
   const actionBusy = executing || state.planning
+  const feasiblePlan = state.planFresh && state.plan?.outcome.plan?.feasible === true
 
   return (
     <Paper
@@ -150,69 +149,52 @@ export function GraspPanel({ state, topView, onClose }: Props) {
           </Button>
         )}
 
-        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={form.frame}
-            onChange={(_e, v: GraspFrame | null) => v && state.setFrame(v)}
-            aria-label="Object frame"
+        {state.pickMode ? (
+          <Alert
+            severity="info"
+            action={
+              <Button color="inherit" size="small" onClick={state.cancelPick}>
+                Cancel
+              </Button>
+            }
           >
-            <ToggleButton value="base_link" aria-label="Frame base_link">
-              base_link
-            </ToggleButton>
-            <ToggleButton value="arm" aria-label="Frame arm">
-              arm
-            </ToggleButton>
-          </ToggleButtonGroup>
-          <Button
-            size="small"
-            variant={state.pickMode ? 'contained' : 'outlined'}
-            startIcon={<AdsClickIcon />}
-            disabled={!topView}
-            aria-pressed={state.pickMode}
-            onClick={() => state.setPickMode(!state.pickMode)}
-            title={topView ? 'Click the map ground to fill x and y (base_link)' : 'Switch to Top view to pick on the map'}
-          >
-            {state.pickMode ? 'Click map' : 'Pick on map'}
-          </Button>
-        </Stack>
+            Click the object on the map ({GRASP_MENU.find((m) => m.strategy === state.pickStrategy)?.label ?? 'grasp'}). Esc cancels.
+          </Alert>
+        ) : (
+          <Typography variant="caption" color="text.secondary">
+            {state.hasTarget
+              ? `Object at x ${form.x} m, y ${form.y} m (base_link), standing on the floor. Choose a strategy in the Grasp menu to pick again.`
+              : 'Choose Auto, Scoop, Angled or Top down in the Grasp menu, then click the object on the map.'}
+          </Typography>
+        )}
 
-        <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: 'wrap' }}>
-          <Field label="x" unit="m" value={form.x} onChange={(x) => setForm({ x })} />
-          <Field label="y" unit="m" value={form.y} onChange={(y) => setForm({ y })} />
-          <Field label="Support z" unit="m" value={form.supportZ} onChange={(supportZ) => setForm({ supportZ })} />
-        </Stack>
-        <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: 'wrap' }}>
-          <Field label="Width" unit="m" value={form.width} onChange={(width) => setForm({ width })} />
-          <Field label="Depth" unit="m" value={form.depth} onChange={(depth) => setForm({ depth })} />
-          <Field label="Height" unit="m" value={form.height} onChange={(height) => setForm({ height })} />
-          <Field label="Yaw" unit="deg" placeholder="across" value={form.yaw} onChange={(yaw) => setForm({ yaw })} />
-        </Stack>
-        <Typography variant="caption" color="text.secondary">
-          Support z is the height of the object bottom (the surface it stands on) in the chosen frame. Width is across the
-          jaws, depth along the approach.
-        </Typography>
-
-        <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: 'wrap' }}>
-          <TextField
-            select
-            size="small"
-            label="Strategy"
-            value={form.strategy}
-            onChange={(e) => setForm({ strategy: e.target.value as GraspStrategy })}
-            sx={{ flex: '2 1 160px', minWidth: 160 }}
-          >
-            {STRATEGIES.map((s) => (
-              <MenuItem key={s.value} value={s.value}>
-                {s.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          {form.strategy === 'angled' && (
-            <Field label="Pitch" unit="deg" placeholder="45" value={form.pitchDeg} onChange={(pitchDeg) => setForm({ pitchDeg })} />
-          )}
-        </Stack>
+        <Button
+          size="small"
+          color="inherit"
+          onClick={() => setObjectOpen((o) => !o)}
+          endIcon={objectOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          aria-expanded={objectOpen}
+          sx={{ justifyContent: 'space-between' }}
+        >
+          Object
+        </Button>
+        <Collapse in={objectOpen}>
+          <Stack spacing={1}>
+            <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: 'wrap' }}>
+              <Field label="Width" unit="m" value={form.width} onChange={(width) => setForm({ width })} />
+              <Field label="Depth" unit="m" value={form.depth} onChange={(depth) => setForm({ depth })} />
+              <Field label="Height" unit="m" value={form.height} onChange={(height) => setForm({ height })} />
+              {form.strategy === 'scoop' && (
+                <Field label="Gap below" unit="m" value={form.gapBelow} onChange={(gapBelow) => setForm({ gapBelow })} />
+              )}
+              <Field label="Yaw" unit="deg" placeholder="across" value={form.yaw} onChange={(yaw) => setForm({ yaw })} />
+            </Stack>
+            <Typography variant="caption" color="text.secondary">
+              Width is across the jaws, depth along the approach. Saved in this browser. Gap below is the clear height
+              under the object (Scoop needs room under it).
+            </Typography>
+          </Stack>
+        </Collapse>
 
         <Button
           size="small"
@@ -224,12 +206,15 @@ export function GraspPanel({ state, topView, onClose }: Props) {
         >
           Advanced
         </Button>
-        <Collapse in={advanced} unmountOnExit>
+        <Collapse in={advanced}>
           <Stack spacing={1}>
             <Typography variant="caption" color="text.secondary">
               Blank = the server default (shown in grey).
             </Typography>
             <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: 'wrap' }}>
+              {form.strategy === 'angled' && (
+                <Field label="Pitch" unit="deg" placeholder="45" value={form.pitchDeg} onChange={(pitchDeg) => setForm({ pitchDeg })} />
+              )}
               <Field label="Surface z" unit="m" placeholder="0" value={form.surfaceZ} onChange={(surfaceZ) => setForm({ surfaceZ })} />
               <Field label="Tilt roll" unit="deg" placeholder="IMU" value={form.tiltRoll} onChange={(tiltRoll) => setForm({ tiltRoll })} />
               <Field label="Tilt pitch" unit="deg" placeholder="IMU" value={form.tiltPitch} onChange={(tiltPitch) => setForm({ tiltPitch })} />
@@ -260,19 +245,23 @@ export function GraspPanel({ state, topView, onClose }: Props) {
         )}
 
         <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: 'wrap' }}>
-          <Button variant="outlined" disabled={actionBusy} onClick={state.requestPlan} sx={{ flex: '1 1 90px' }}>
-            {state.planning ? 'Planning...' : 'Plan'}
-          </Button>
-          <Button
-            variant="contained"
-            color="warning"
-            disabled={!state.canExecute}
-            onClick={state.requestExecute}
-            title="Needs a feasible plan for exactly these inputs"
-            sx={{ flex: '1 1 90px' }}
-          >
-            Execute
-          </Button>
+          {state.hasTarget && (
+            <Button variant="outlined" disabled={actionBusy} onClick={state.requestPlan} sx={{ flex: '1 1 90px' }}>
+              {state.planning ? 'Planning...' : 'Plan again'}
+            </Button>
+          )}
+          {feasiblePlan && (
+            <Button
+              variant="contained"
+              color="warning"
+              disabled={!state.canExecute}
+              onClick={state.requestExecute}
+              title="Needs a feasible plan for exactly these inputs"
+              sx={{ flex: '1 1 90px' }}
+            >
+              Execute
+            </Button>
+          )}
           <Button
             variant={state.releaseArmed ? 'contained' : 'outlined'}
             color={state.releaseArmed ? 'warning' : 'primary'}
@@ -286,7 +275,7 @@ export function GraspPanel({ state, topView, onClose }: Props) {
         </Stack>
         {state.plan && !state.planFresh && (
           <Typography variant="caption" color="warning.main">
-            Inputs changed since the last plan: plan again to enable Execute.
+            Settings changed since the last plan: plan again to get Execute.
           </Typography>
         )}
 

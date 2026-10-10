@@ -1,12 +1,14 @@
 /**
- * Grasp panel state of the map tab: the form, the last plan (and whether it still matches the inputs), the execute
- * confirmation, the two-click release, stop, and the execute/release state streamed on /web_ui/grasp_result.
+ * Grasp state of the map tab: the dropdown pick mode (a map click sets the object and plans at once), the form, the
+ * last plan (and whether it still matches the inputs), the execute confirmation, the two-click release, stop, and the
+ * execute/release state streamed on /web_ui/grasp_result.
  *
  * Execute is only ever sent from confirmExecute(), which re-checks that the plan is feasible and was made for exactly
  * the current inputs. Stop is never gated.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { Vec2 } from '../map/mapMath'
+import type { Pose2D, Vec2 } from '../map/mapMath'
+import { browserStorage } from '../tabSelection'
 import { confirmClick, RESET_CONFIRM_MS } from '../map/mapActions'
 import type { ActionResult } from '../map/mapActions'
 import { postGrasp, postGraspStop } from './graspApi'
@@ -14,23 +16,25 @@ import {
   ArmMount,
   buildGraspRequest,
   canExecute,
-  convertFormFrame,
   DEFAULT_FORM,
-  formFromPick,
+  formFromClick,
   GraspAnswer,
   GraspForm,
-  GraspFrame,
   GraspObject,
+  GraspStrategy,
   GraspStream,
   objectBox,
   ObjectBox,
   parseGraspStream,
+  parseNumber,
   planKey,
   PlanState,
   previewObject,
   SceneWaypoint,
   waypointScenePoints,
 } from './grasp'
+import { loadObjectSettings, saveObjectSettings } from './objectSettings'
+import { IDLE_PICK, pickStep, PickState } from './pick'
 
 /** Synthetic WS topic carrying the state of the running execute/release (see the backend bridge). */
 export const GRASP_STREAM_TOPIC = '/web_ui/grasp_result'
@@ -44,7 +48,6 @@ export interface GraspPreviewData {
 export interface GraspPanelState {
   form: GraspForm
   setForm: (patch: Partial<GraspForm>) => void
-  setFrame: (frame: GraspFrame) => void
   setParam: (key: string, value: string) => void
   plan: PlanState | null
   /** The plan was made for exactly the current inputs. */
@@ -59,9 +62,16 @@ export interface GraspPanelState {
   stream: GraspStream | null
   lastAnswer: GraspAnswer | null
   releaseArmed: boolean
+  /** Armed by a dropdown item: the next map click sets the object. */
   pickMode: boolean
-  setPickMode: (on: boolean) => void
-  applyPick: (point: Vec2) => void
+  /** Strategy armed in pick mode. */
+  pickStrategy: GraspStrategy | null
+  startPick: (strategy: GraspStrategy) => void
+  cancelPick: () => void
+  /** The pick click: a ground point in the map frame and the robot pose in the map (null when unknown). */
+  applyClick: (point: Vec2, pose: Pose2D | null) => void
+  /** An object was clicked, so the plan can be redone for changed settings. */
+  hasTarget: boolean
   preview: GraspPreviewData | null
   requestPlan: () => void
   requestExecute: () => void
@@ -79,7 +89,7 @@ export interface GraspArgs {
 }
 
 export function useGrasp({ tabId, topicData, mount, notify }: GraspArgs): GraspPanelState {
-  const [form, setFormState] = useState<GraspForm>(DEFAULT_FORM)
+  const [form, setFormState] = useState<GraspForm>(() => ({ ...DEFAULT_FORM, ...loadObjectSettings(browserStorage()) }))
   const [plan, setPlan] = useState<PlanState | null>(null)
   const [planning, setPlanning] = useState(false)
   const [starting, setStarting] = useState(false)
@@ -87,10 +97,12 @@ export function useGrasp({ tabId, topicData, mount, notify }: GraspArgs): GraspP
   const [showErrors, setShowErrors] = useState(false)
   const [lastAnswer, setLastAnswer] = useState<GraspAnswer | null>(null)
   const [releaseArmedAt, setReleaseArmedAt] = useState<number | null>(null)
-  const [pickMode, setPickMode] = useState(false)
+  const [pick, setPick] = useState<PickState>(IDLE_PICK)
 
   const stream = useMemo(() => parseGraspStream(topicData[GRASP_STREAM_TOPIC]), [topicData[GRASP_STREAM_TOPIC]])
   const executing = starting || stream?.state === 'running'
+  const { width, depth, height, gapBelow } = form
+  useEffect(() => saveObjectSettings(browserStorage(), { width, depth, height, gapBelow }), [width, depth, height, gapBelow])
 
   const planRequest = useMemo(() => buildGraspRequest('plan', form), [form])
   const errors = planRequest.ok ? [] : planRequest.errors
@@ -109,39 +121,57 @@ export function useGrasp({ tabId, topicData, mount, notify }: GraspArgs): GraspP
   }, [releaseArmedAt])
 
   const setForm = useCallback((patch: Partial<GraspForm>) => setFormState((f) => ({ ...f, ...patch })), [])
-  const setFrame = useCallback(
-    (frame: GraspFrame) => setFormState((f) => convertFormFrame(f, frame, mount)),
-    [mount],
-  )
   const setParam = useCallback(
     (key: string, value: string) => setFormState((f) => ({ ...f, params: { ...f.params, [key]: value } })),
     [],
   )
-  const applyPick = useCallback(
-    (point: Vec2) => {
-      setFormState((f) => formFromPick(f, point, mount))
-      setPickMode(false)
-    },
-    [mount],
-  )
 
-  const requestPlan = useCallback(() => {
-    setShowErrors(true)
-    const built = buildGraspRequest('plan', form)
-    if (!built.ok) return
-    const key = planKey(built.request)
-    setPlanning(true)
-    setConfirming(false)
-    void postGrasp(tabId, built.request).then((answer) => {
-      setPlanning(false)
-      setLastAnswer(answer)
-      if (answer.ok && answer.plan) setPlan({ key, outcome: answer })
-      else {
-        setPlan(null)
-        notify({ state: 'error', message: `Grasp plan: ${answer.error ?? 'no plan returned'}` })
+  const runPlan = useCallback(
+    (planForm: GraspForm) => {
+      setShowErrors(true)
+      const built = buildGraspRequest('plan', planForm)
+      if (!built.ok) return
+      const key = planKey(built.request)
+      setPlanning(true)
+      setConfirming(false)
+      void postGrasp(tabId, built.request).then((answer) => {
+        setPlanning(false)
+        setLastAnswer(answer)
+        if (answer.ok && answer.plan) setPlan({ key, outcome: answer })
+        else {
+          setPlan(null)
+          notify({ state: 'error', message: `Grasp plan: ${answer.error ?? 'no plan returned'}` })
+        }
+      })
+    },
+    [tabId, notify],
+  )
+  const requestPlan = useCallback(() => runPlan(form), [runPlan, form])
+
+  const startPick = useCallback(
+    (strategy: GraspStrategy) => {
+      if (executing || planning) return
+      setConfirming(false)
+      setPick((p) => pickStep(p, { type: 'select', strategy }).state)
+    },
+    [executing, planning],
+  )
+  const cancelPick = useCallback(() => setPick((p) => pickStep(p, { type: 'cancel' }).state), [])
+  const applyClick = useCallback(
+    (point: Vec2, pose: Pose2D | null) => {
+      const step = pickStep(pick, { type: 'click', point })
+      setPick(step.state)
+      if (!step.plan) return
+      const next = formFromClick(form, step.plan.strategy, step.plan.point, pose)
+      if (!next) {
+        notify({ state: 'error', message: 'Grasp: robot pose unknown, cannot place the object' })
+        return
       }
-    })
-  }, [form, tabId, notify])
+      setFormState(next)
+      runPlan(next)
+    },
+    [pick, form, runPlan, notify],
+  )
 
   const requestExecute = useCallback(() => {
     setShowErrors(true)
@@ -201,7 +231,6 @@ export function useGrasp({ tabId, topicData, mount, notify }: GraspArgs): GraspP
   return {
     form,
     setForm,
-    setFrame,
     setParam,
     plan,
     planFresh,
@@ -214,9 +243,12 @@ export function useGrasp({ tabId, topicData, mount, notify }: GraspArgs): GraspP
     stream,
     lastAnswer,
     releaseArmed: releaseArmedAt !== null,
-    pickMode,
-    setPickMode,
-    applyPick,
+    pickMode: pick.kind === 'picking',
+    pickStrategy: pick.kind === 'picking' ? pick.strategy : null,
+    startPick,
+    cancelPick,
+    applyClick,
+    hasTarget: parseNumber(form.x) !== null && parseNumber(form.y) !== null,
     preview,
     requestPlan,
     requestExecute,

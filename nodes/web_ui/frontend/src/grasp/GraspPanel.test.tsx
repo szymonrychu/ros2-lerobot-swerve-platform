@@ -9,7 +9,6 @@ function state(patch: Partial<GraspPanelState> = {}): GraspPanelState {
   return {
     form: DEFAULT_FORM,
     setForm: noop,
-    setFrame: noop,
     setParam: noop,
     plan: null,
     planFresh: false,
@@ -23,8 +22,11 @@ function state(patch: Partial<GraspPanelState> = {}): GraspPanelState {
     lastAnswer: null,
     releaseArmed: false,
     pickMode: false,
-    setPickMode: noop,
-    applyPick: noop,
+    pickStrategy: null,
+    startPick: noop,
+    cancelPick: noop,
+    applyClick: noop,
+    hasTarget: false,
     preview: null,
     requestPlan: noop,
     requestExecute: noop,
@@ -36,15 +38,42 @@ function state(patch: Partial<GraspPanelState> = {}): GraspPanelState {
   }
 }
 
-const render = (s: GraspPanelState) => renderToStaticMarkup(<GraspPanel state={s} topView onClose={() => undefined} />)
+const render = (s: GraspPanelState) => renderToStaticMarkup(<GraspPanel state={s} onClose={() => undefined} />)
 
 describe('GraspPanel', () => {
-  it('shows the inputs and the action buttons, Execute disabled without a plan', () => {
+  it('has no position inputs and no strategy selector', () => {
     const html = render(state())
-    for (const text of ['Plan', 'Execute', 'Release', 'Stop', 'Strategy', 'Advanced', 'Pick on map']) {
-      expect(html).toContain(text)
+    for (const text of ['Object', 'Advanced', 'Release', 'Stop']) expect(html).toContain(text)
+    for (const text of ['Pick on map', 'Strategy', 'base_link', 'label="x', 'Support z']) expect(html).not.toContain(text)
+    expect(html).not.toMatch(/<label[^>]*>x</)
+    expect(html).toContain('Choose Auto, Scoop, Angled or Top down')
+  })
+
+  it('shows the pick banner with Cancel while picking', () => {
+    const html = render(state({ pickMode: true, pickStrategy: 'scoop' }))
+    expect(html).toContain('Click the object on the map')
+    expect(html).toContain('Cancel')
+  })
+
+  it('offers Plan again once an object was clicked, Execute only for a feasible fresh plan', () => {
+    expect(render(state())).not.toContain('Plan again')
+    expect(render(state({ hasTarget: true }))).toContain('Plan again')
+    expect(render(state({ hasTarget: true }))).not.toContain('>Execute<')
+    const feasible = {
+      key: 'k',
+      outcome: {
+        ok: true, accepted: false, requestId: 'r', action: 'plan', outcome: 'planned' as const, reasons: [], steps: [],
+        plan: { strategy: 'angled', feasible: true, reasons: [], skim: false, waypoints: [], slowZone: [], attempts: [] },
+      },
     }
-    expect(html).toMatch(/<button[^>]*disabled[^>]*>Execute/)
+    const html = render(state({ hasTarget: true, plan: feasible, planFresh: true, canExecute: true }))
+    expect(html).toMatch(/<button[^>]*>Execute/)
+    expect(render(state({ hasTarget: true, plan: feasible, planFresh: false }))).not.toMatch(/<button[^>]*>Execute/)
+  })
+
+  it('shows the gap below field for Scoop only', () => {
+    expect(render(state({ form: { ...DEFAULT_FORM, strategy: 'scoop' } }))).toContain('Gap below (m)')
+    expect(render(state({ form: { ...DEFAULT_FORM, strategy: 'auto' } }))).not.toContain('Gap below (m)')
   })
 
   it('keeps a prominent Stop while executing', () => {

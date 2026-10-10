@@ -25,7 +25,7 @@ export type GraspAction = 'plan' | 'execute' | 'release'
 export type GraspOutcomeName = 'planned' | 'infeasible' | 'grasped' | 'missed' | 'aborted' | 'released'
 
 export const STRATEGIES: { value: GraspStrategy; label: string }[] = [
-  { value: 'auto', label: 'Auto (scoop, angled, top down)' },
+  { value: 'auto', label: 'Auto' },
   { value: 'scoop', label: 'Scoop' },
   { value: 'angled', label: 'Angled' },
   { value: 'top_down', label: 'Top down' },
@@ -77,6 +77,8 @@ export interface GraspForm {
   width: string
   depth: string
   height: string
+  /** Clear height under the object bottom (Scoop only). */
+  gapBelow: string
   yaw: string
   strategy: GraspStrategy
   pitchDeg: string
@@ -91,9 +93,10 @@ export const DEFAULT_FORM: GraspForm = {
   x: '',
   y: '',
   supportZ: '0',
-  width: '0.03',
-  depth: '0.03',
+  width: '0.04',
+  depth: '0.04',
   height: '0.04',
+  gapBelow: '0',
   yaw: '',
   strategy: 'auto',
   pitchDeg: '',
@@ -112,6 +115,7 @@ export interface GraspObject {
   depth_m: number
   height_m: number
   yaw?: number
+  gap_below_m?: number
 }
 
 export interface GraspRequest {
@@ -169,6 +173,14 @@ export function buildObject(form: GraspForm): BuildResult<GraspObject> {
   const width = size(form.width, 'width')
   const depth = size(form.depth, 'depth')
   const height = size(form.height, 'height')
+  let gap: number | undefined
+  if (form.strategy === 'scoop') {
+    gap = isBlank(form.gapBelow) ? 0 : (parseNumber(form.gapBelow) ?? undefined)
+    if (gap === undefined || gap < 0 || gap > MAX_OBJECT_SIZE_M) {
+      errors.push(`gap below must be a number from 0 to ${MAX_OBJECT_SIZE_M} m`)
+      gap = undefined
+    }
+  }
   let yaw: number | undefined
   if (!isBlank(form.yaw)) {
     const deg = parseNumber(form.yaw)
@@ -186,6 +198,7 @@ export function buildObject(form: GraspForm): BuildResult<GraspObject> {
     height_m: height,
   }
   if (yaw !== undefined) object.yaw = yaw
+  if (gap !== undefined) object.gap_below_m = gap
   return { ok: true, value: object }
 }
 
@@ -270,30 +283,20 @@ export function mapToBaseLink(p: Vec2, pose: Pose2D): Vec2 {
   return { x: c * dx + s * dy, y: -s * dx + c * dy }
 }
 
-function fmt(n: number, digits: number): string {
-  return String(+n.toFixed(digits))
-}
-
-/** Re-express the object position and support height in another frame so the physical object stays put. */
-export function convertFormFrame(form: GraspForm, frame: GraspFrame, mount: ArmMount): GraspForm {
-  if (frame === form.frame) return form
-  const sign = frame === 'arm' ? -1 : 1
-  const shift = (text: string, offset: number): string => {
-    const n = parseNumber(text)
-    return n === null ? text : fmt(n + sign * offset, 4)
-  }
-  return {
-    ...form,
-    frame,
-    x: shift(form.x, mount[0]),
-    y: shift(form.y, mount[1]),
-    supportZ: shift(form.supportZ, mount[2]),
-  }
-}
-
-/** Fill x, y from a base_link ground point (the frame switches to base_link, the support height follows). */
-export function formFromPick(form: GraspForm, point: Vec2, mount: ArmMount): GraspForm {
-  return { ...convertFormFrame(form, 'base_link', mount), x: point.x.toFixed(3), y: point.y.toFixed(3) }
+/**
+ * The form for a map click: the object stands on the floor (support z 0 in base_link, whose origin is on the floor)
+ * at the clicked ground point converted from the map frame with the robot pose.
+ *
+ * @param form - current form (size, overrides are kept)
+ * @param strategy - strategy chosen in the Grasp dropdown
+ * @param click - clicked ground point in the map frame
+ * @param pose - robot pose in the map, or null when unknown
+ * @returns the form with frame, x, y, support z and strategy set, or null when the pose is unknown
+ */
+export function formFromClick(form: GraspForm, strategy: GraspStrategy, click: Vec2, pose: Pose2D | null): GraspForm | null {
+  if (pose === null) return null
+  const p = mapToBaseLink(click, pose)
+  return { ...form, frame: 'base_link', x: p.x.toFixed(3), y: p.y.toFixed(3), supportZ: '0', strategy }
 }
 
 // --- scene transforms -----------------------------------------------------------------------------------------

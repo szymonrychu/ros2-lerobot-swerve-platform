@@ -5,11 +5,10 @@ import {
   baseLinkPointToArm,
   buildGraspRequest,
   canExecute,
-  convertFormFrame,
   DEFAULT_ARM_OFFSET,
   DEFAULT_FORM,
   describeOutcome,
-  formFromPick,
+  formFromClick,
   GraspForm,
   mapToBaseLink,
   objectBox,
@@ -34,7 +33,7 @@ describe('buildGraspRequest', () => {
   it('builds a plan request with the contract field names', () => {
     expect(ok(FORM)).toEqual({
       action: 'plan',
-      object: { frame: 'base_link', x: 0.4, y: 0.05, support_z: 0, width_m: 0.03, depth_m: 0.03, height_m: 0.04 },
+      object: { frame: 'base_link', x: 0.4, y: 0.05, support_z: 0, width_m: 0.04, depth_m: 0.04, height_m: 0.04 },
       strategy: 'auto',
     })
   })
@@ -168,30 +167,46 @@ describe('frames', () => {
     expect(p.y).toBeCloseTo(-1)
   })
 
-  it('switching the frame keeps the physical object in place', () => {
-    const arm = convertFormFrame({ ...FORM, x: '0.35', y: '0.06', supportZ: '0' }, 'arm', MOUNT)
-    expect(arm.frame).toBe('arm')
-    expect(Number(arm.x)).toBeCloseTo(0.2)
-    expect(Number(arm.y)).toBeCloseTo(0.1)
-    expect(Number(arm.supportZ)).toBeCloseTo(-0.15)
-    const back = convertFormFrame(arm, 'base_link', MOUNT)
-    expect(Number(back.x)).toBeCloseTo(0.35)
-    expect(Number(back.supportZ)).toBeCloseTo(0)
-  })
-
-  it('switching the frame leaves blank or invalid fields alone', () => {
-    const f = convertFormFrame({ ...FORM, x: '', supportZ: 'abc' }, 'arm', MOUNT)
-    expect(f.x).toBe('')
-    expect(f.supportZ).toBe('abc')
-    expect(convertFormFrame(FORM, 'base_link', MOUNT)).toEqual(FORM)
-  })
-
-  it('a map pick fills x, y in base_link (converting the support height when coming from arm)', () => {
-    const f = formFromPick({ ...DEFAULT_FORM, frame: 'arm', supportZ: '-0.15' }, { x: 0.5, y: -0.1 }, MOUNT)
+  it('a map click becomes a base_link object standing on the floor (support z 0)', () => {
+    const f = formFromClick(DEFAULT_FORM, 'scoop', { x: 3, y: 2 }, { x: 2, y: 2, yaw: Math.PI / 2 })
+    if (!f) throw new Error('no form')
     expect(f.frame).toBe('base_link')
-    expect(f.x).toBe('0.500')
-    expect(f.y).toBe('-0.100')
-    expect(Number(f.supportZ)).toBeCloseTo(0)
+    expect(f.strategy).toBe('scoop')
+    expect(f.supportZ).toBe('0')
+    expect(Number(f.x)).toBeCloseTo(0)
+    expect(Number(f.y)).toBeCloseTo(-1)
+    const req = ok(f)
+    expect(req.object).toMatchObject({ frame: 'base_link', support_z: 0, width_m: 0.04, depth_m: 0.04, height_m: 0.04 })
+    expect(req.object?.y).toBeCloseTo(-1)
+    expect(req.strategy).toBe('scoop')
+  })
+
+  it('a click without a robot pose cannot be converted', () => {
+    expect(formFromClick(DEFAULT_FORM, 'auto', { x: 1, y: 1 }, null)).toBeNull()
+  })
+
+  it('a click overrides a stale support height and the form size is kept', () => {
+    const f = formFromClick({ ...DEFAULT_FORM, supportZ: '-0.15', width: '0.06' }, 'auto', { x: 0.5, y: 0 }, { x: 0, y: 0, yaw: 0 })
+    expect(f?.supportZ).toBe('0')
+    expect(f?.width).toBe('0.06')
+  })
+})
+
+describe('gap below', () => {
+  it('is sent as object.gap_below_m for scoop only', () => {
+    const scoop = ok({ ...FORM, strategy: 'scoop', gapBelow: '0.02' })
+    expect(scoop.object?.gap_below_m).toBeCloseTo(0.02)
+    expect(ok({ ...FORM, strategy: 'auto', gapBelow: '0.02' }).object?.gap_below_m).toBeUndefined()
+    expect(ok({ ...FORM, strategy: 'top_down', gapBelow: '0.02' }).object?.gap_below_m).toBeUndefined()
+  })
+
+  it('rejects a negative or non-numeric gap for scoop', () => {
+    expect(buildGraspRequest('plan', { ...FORM, strategy: 'scoop', gapBelow: '-0.01' }).ok).toBe(false)
+    expect(buildGraspRequest('plan', { ...FORM, strategy: 'scoop', gapBelow: 'x' }).ok).toBe(false)
+  })
+
+  it('a blank gap means 0', () => {
+    expect(ok({ ...FORM, strategy: 'scoop', gapBelow: '' }).object?.gap_below_m).toBe(0)
   })
 })
 
