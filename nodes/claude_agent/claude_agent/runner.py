@@ -140,6 +140,7 @@ class AgentRunner:
     Attributes:
         busy (bool): True while an instruction runs.
         session_started_at (float): Unix time the current session was created.
+        last_activity_at (float | None): Unix time of the latest instruction start or end, stop or reset (None before any).
     """
 
     def __init__(
@@ -183,6 +184,7 @@ class AgentRunner:
         self.plan = self.gate.plan
         self.busy = False
         self.session_started_at = time.time()
+        self.last_activity_at: float | None = None
         self.client: ClientLike | None = None
         self.task: asyncio.Task[None] | None = None
         self.interrupted = False
@@ -299,6 +301,7 @@ class AgentRunner:
         if self.busy or self.resetting:
             return False
         self.busy = True
+        self.last_activity_at = time.time()
         self.interrupted = False
         self.turn_capped = False
         self.pending_followup = None
@@ -490,6 +493,7 @@ class AgentRunner:
         finally:
             self.pending_followup = None
             self.busy = False
+            self.last_activity_at = time.time()
             self.emit_state()
 
     async def abort_on_timeout(self) -> None:
@@ -731,6 +735,7 @@ class AgentRunner:
         if not self.busy:
             return False
         self.interrupted = True
+        self.last_activity_at = time.time()
         await self.halt(STOP_SOURCE_USER)
         return True
 
@@ -765,7 +770,7 @@ class AgentRunner:
             self.gate.reset()
             self.last_instruction, self.digest = None, None
             self.events.reset()
-            self.session_started_at = time.time()
+            self.session_started_at = self.last_activity_at = time.time()
             self.emit_state()
         finally:
             self.resetting = False

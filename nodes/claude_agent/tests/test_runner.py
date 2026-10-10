@@ -987,3 +987,32 @@ async def test_fresh_policy_first_instruction_has_no_digest(tmp_path: Path) -> N
     await runner.start_instruction("hello")
     await runner.wait_idle()
     assert FakeClient.instances[0].queries == ["hello"]
+
+
+async def test_last_activity_is_none_before_any_activity(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path)
+    assert runner.last_activity_at is None
+
+
+async def test_last_activity_moves_at_instruction_start_and_end(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path, block=True)
+    await runner.start_instruction("one")
+    started = runner.last_activity_at
+    assert started is not None
+    await asyncio.sleep(0.01)
+    await runner.interrupt()
+    stopped = runner.last_activity_at
+    assert stopped is not None and stopped > started
+    await runner.wait_idle()
+    assert runner.last_activity_at >= stopped
+
+
+async def test_last_activity_is_set_by_an_instruction_end_and_a_reset(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path, script=[make_result()])
+    await runner.start_instruction("one")
+    await runner.wait_idle()
+    ended = runner.last_activity_at
+    assert ended is not None
+    await asyncio.sleep(0.01)
+    assert await runner.reset() is True
+    assert runner.last_activity_at > ended

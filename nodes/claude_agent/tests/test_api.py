@@ -1,5 +1,7 @@
 """HTTP/WebSocket API contract with a fake agent runner."""
 
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -46,6 +48,7 @@ class FakeRunner:
             "active_phase": 0,
         }
         self.session_started_at = 1234.5
+        self.last_activity_at: float | None = None
         self.started: list[str] = []
         self.interrupt_result = True
         self.resets = 0
@@ -93,7 +96,17 @@ def test_state(setup) -> None:
         "plan": PLAN,
         "active_phase": 0,
         "session_started_at": 1234.5,
+        "last_activity_at": None,
+        "now": pytest.approx(time.time(), abs=5),
     }
+
+
+def test_state_reports_last_activity_and_the_robot_clock(setup) -> None:
+    client, runner, _ = setup
+    runner.last_activity_at = 1700000000.25
+    body = client.get("/api/state").json()
+    assert body["last_activity_at"] == 1700000000.25
+    assert abs(body["now"] - time.time()) < 5
 
 
 def test_history(setup) -> None:

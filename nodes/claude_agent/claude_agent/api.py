@@ -1,6 +1,7 @@
 """FastAPI app: the HTTP/WebSocket contract consumed by the web UI."""
 
 import asyncio
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any, Protocol
@@ -20,6 +21,7 @@ class RunnerLike(Protocol):
 
     busy: bool
     session_started_at: float
+    last_activity_at: float | None
 
     def usage_fields(self) -> dict[str, Any]: ...
 
@@ -71,6 +73,8 @@ def create_app(
             },
             **runner.usage_fields(),
             "session_started_at": runner.session_started_at,
+            "last_activity_at": runner.last_activity_at,
+            "now": time.time(),
         }
 
     @app.get("/api/history")
