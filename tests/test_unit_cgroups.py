@@ -21,7 +21,7 @@ LIMITS_SNAPSHOT = {
     "filter_node": ["25%", "128M"],
     "test_joint_api": ["15%", "64M"],
     "topic_scraper_api": ["25%", "128M"],
-    "bno055_imu": ["15%", "64M"],
+    "bno055_imu": ["45%", "64M"],
     "haptic_controller": ["25%", "64M"],
     "gps_rtk": ["25%", "64M"],
     "rplidar_a1": ["30%", "128M"],

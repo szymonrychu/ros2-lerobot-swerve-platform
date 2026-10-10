@@ -122,7 +122,8 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/bridges/bno055_imu"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "15%"
+    # Measured 2026-10-10: ~6.8 ms CPU per sample (i2c-gpio bit-bang in kernel time counts here); 50 Hz needs ~34%.
+    cpu_quota: "45%"
     memory_max: "64M"
     cpu_weight: 400
     io_weight: 400
