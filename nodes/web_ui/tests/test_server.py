@@ -54,6 +54,9 @@ def test_urdf_file_serves(app) -> None:
 def test_urdf_path_traversal_blocked(app) -> None:
     client = TestClient(app)
     resp = client.get("/api/urdf/../../../etc/passwd")
+    # The client normalizes the URL to /etc/passwd, which the SPA fallback answers with index.html.
+    assert b"root:" not in resp.content
+    resp = client.get("/api/urdf/%2e%2e/%2e%2e/etc/passwd")
     assert resp.status_code in (400, 404)
 
 
