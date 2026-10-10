@@ -37,6 +37,8 @@ STS_ACC = 41
 STS_GOAL_POSITION_L = 42
 STS_GOAL_TIME_L = 44
 STS_GOAL_SPEED_L = 46
+# Torque_Limit (RAM): 0..1000 = 0.1 % of max torque; initialised from max_torque_limit at power-on.
+STS_TORQUE_LIMIT_L = 48
 STS_LOCK = 55
 STS_PRESENT_POSITION_L = 56
 STS_PRESENT_SPEED_L = 58
@@ -101,6 +103,7 @@ REGISTER_MAP: list[RegisterEntry] = [
     RegisterEntry(STS_GOAL_POSITION_L, 2, "goal_position", False, False),  # RAM
     RegisterEntry(STS_GOAL_TIME_L, 2, "goal_time", False, False),  # RAM
     RegisterEntry(STS_GOAL_SPEED_L, 2, "goal_speed", False, False),  # RAM
+    RegisterEntry(STS_TORQUE_LIMIT_L, 2, "torque_limit", False, False),  # RAM
     RegisterEntry(STS_LOCK, 1, "lock", False, False),  # special: used internally for EPROM lock
     RegisterEntry(STS_PRESENT_POSITION_L, 2, "present_position", True, False),
     RegisterEntry(STS_PRESENT_SPEED_L, 2, "present_speed", True, False),
@@ -202,3 +205,18 @@ def get_register_entry_by_name(name: str) -> RegisterEntry | None:
         if r.name == name:
             return r
     return None
+
+
+def runtime_writable_entry(name: str) -> RegisterEntry | None:
+    """Return the register entry if it may be written at runtime over ROS (RAM, writable, not lock).
+
+    Args:
+        name (str): Register name.
+
+    Returns:
+        RegisterEntry | None: The entry, or None for unknown, read-only, lock or EPROM registers.
+    """
+    entry = get_register_entry_by_name(name)
+    if entry is None or entry.name not in WRITABLE_REGISTER_NAMES or entry.eprom:
+        return None
+    return entry

@@ -34,6 +34,7 @@ from .registers import (
     decode_present_load,
     get_register_entry_by_name,
     read_all_registers,
+    runtime_writable_entry,
     write_register,
 )
 from .registers import read_register as read_register_raw
@@ -239,11 +240,9 @@ def run_bridge(config: BridgeConfig) -> None:
         except (TypeError, ValueError):
             node.get_logger().warn("set_register: value must be int")
             return
-        entry = get_register_entry_by_name(reg_name)
-        if entry is None:
-            return
         # Reject EPROM writes from ROS: PID/current/t limits must be set once via calibrate_servos load-config.
-        if entry.eprom:
+        entry = runtime_writable_entry(reg_name)
+        if entry is None:
             node.get_logger().warn(
                 f"set_register: rejecting EPROM register '{reg_name}'; set once via calibrate_servos load-config"
             )

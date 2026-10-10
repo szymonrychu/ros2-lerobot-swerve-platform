@@ -6,6 +6,8 @@ from feetech_servos.registers import (
     get_register_entry_by_name,
     read_all_registers,
     read_register,
+    runtime_writable_entry,
+    write_register,
 )
 
 
@@ -103,3 +105,49 @@ def test_read_register_comm_error_returns_none() -> None:
     assert entry1 is not None and entry2 is not None
     assert read_register(MockServo(), 1, entry1) is None
     assert read_register(MockServo(), 1, entry2) is None
+
+
+def test_torque_limit_is_two_byte_ram_register_at_48() -> None:
+    """torque_limit (STS3215 Torque_Limit, addr 48, 0..1000) is a writable 2-byte RAM register."""
+    entry = get_register_entry_by_name("torque_limit")
+    assert entry is not None
+    assert entry.address == 48
+    assert entry.size == 2
+    assert entry.read_only is False
+    assert entry.eprom is False
+    assert "torque_limit" in WRITABLE_REGISTER_NAMES
+
+
+def test_runtime_writable_entry_accepts_torque_limit_and_rejects_eprom() -> None:
+    """runtime_writable_entry returns RAM registers (torque_limit) and None for EPROM / read-only / lock."""
+    entry = runtime_writable_entry("torque_limit")
+    assert entry is not None and entry.name == "torque_limit"
+    assert runtime_writable_entry("max_torque_limit") is None
+    assert runtime_writable_entry("present_load") is None
+    assert runtime_writable_entry("lock") is None
+    assert runtime_writable_entry("nonexistent") is None
+
+
+def test_torque_limit_runtime_write_is_two_bytes_without_eprom_unlock() -> None:
+    """Writing torque_limit writes 2 bytes at address 48 and never unlocks the EPROM."""
+    calls: list[tuple] = []
+
+    class MockServo:
+        def write2ByteTxRx(self, sts_id: int, address: int, value: int):
+            calls.append(("w2", sts_id, address, value))
+            return 0, 0
+
+        def UnLockEprom(self, sts_id: int) -> int:  # noqa: N802
+            calls.append(("unlock", sts_id))
+            return 0
+
+        def LockEprom(self, sts_id: int) -> int:  # noqa: N802
+            calls.append(("lock", sts_id))
+            return 0
+
+    entry = runtime_writable_entry("torque_limit")
+    assert entry is not None
+    cache: dict[str, int] = {}
+    assert write_register(MockServo(), 6, entry, 250, cache) is True
+    assert calls == [("w2", 6, 48, 250)]
+    assert cache["torque_limit"] == 250
