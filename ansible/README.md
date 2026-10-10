@@ -361,6 +361,42 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | poi_store | 10% | 128M |
 | claude_agent | 150% (Nice=10) | 1G |
 
+### Cgroup weights and priority tiers
+
+Besides `CPUQuota` / `MemoryMax`, the native unit template (`ros2-node-native.service.j2`) renders four optional directives,
+only when the value is set. They come from the `ros2_node_type_defaults` keys below via `playbooks/tasks/resolve_and_deploy.yml`.
+Weights are priorities under contention, not limits; a unit change queues the usual daemon-reload + restart handlers.
+
+| `ros2_node_type_defaults` key | Template variable | Unit directive |
+|---|---|---|
+| `cpu_weight` | `node_cpu_weight` | `CPUWeight=` |
+| `io_weight` | `node_io_weight` | `IOWeight=` |
+| `memory_high` | `node_memory_high` | `MemoryHigh=` |
+| `oom_score_adjust` | `node_oom_score_adjust` | `OOMScoreAdjust=` |
+
+Client tiers (set per node type in `group_vars/client.yml`; `cpu_quota` / `memory_max` are unchanged by the tiers):
+
+| Tier | cpu_weight | io_weight | oom_score_adjust | Node types |
+|---|---|---|---|---|
+| critical | 400 | 400 | -500 | `feetech_servos` (lerobot_follower, swerve_drive_servos), `swerve_controller`, `ros2_master`, `filter_node`, `static_tf_publisher`, `bno055_imu` |
+| normal | 100 | unset | 0 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `overview_camera`, `uvc_camera`, `test_joint_api` |
+| low | 50 | 50 | 300 | `web_ui`, `mcp_server`, `claude_agent`, `topic_scraper_api`, `master2master`, `haptic_controller` |
+
+`realsense_d435i` (retired) is left alone. The server shares the template; only its `feetech_servos` type (lerobot_leader) is critical.
+
+### Proposing limits from Prometheus
+
+`scripts/propose_unit_limits.py` queries the robot's Prometheus (`container_cpu_usage_seconds_total`,
+`container_memory_working_set_bytes` for `/system.slice/ros2-*.service`) and prints, per unit, the current limits, the observed p99 CPU and
+p99/max memory, and a proposed `CPUQuota`, `MemoryMax` and `MemoryHigh`, flagging units whose current limit is below what was observed.
+Options (URL, window, percentile, margins, minimums, output `format: table|yaml`) live in `scripts/propose_unit_limits.yaml`; there are no CLI flags.
+
+```bash
+uv run python scripts/propose_unit_limits.py
+```
+
+The script never edits `client.yml`: applying a proposal is a manual, reviewed edit of `cpu_quota` / `memory_max` / `memory_high`.
+
 ### POI store directory
 
 `playbooks/tasks/poi_store_dir.yml` creates `/var/lib/ros2/poi` (owner `ansible_user`, mode `0755`) before `poi_store` is

@@ -14,6 +14,18 @@ RestartSec=15
 TimeoutStopSec=30
 CPUQuota={{ node_cpu_quota | default('50%') }}
 MemoryMax={{ node_memory_max | default('256M') }}
+{% if node_cpu_weight | default('') | string | length > 0 %}
+CPUWeight={{ node_cpu_weight }}
+{% endif %}
+{% if node_io_weight | default('') | string | length > 0 %}
+IOWeight={{ node_io_weight }}
+{% endif %}
+{% if node_memory_high | default('') | string | length > 0 %}
+MemoryHigh={{ node_memory_high }}
+{% endif %}
+{% if node_oom_score_adjust | default('') | string | length > 0 %}
+OOMScoreAdjust={{ node_oom_score_adjust }}
+{% endif %}
 {% if node_nice | default('') | string | length > 0 %}
 Nice={{ node_nice }}
 {% endif %}

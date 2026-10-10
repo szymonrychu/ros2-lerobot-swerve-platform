@@ -1,0 +1,18 @@
+# Config for scripts/propose_unit_limits.py (validated by its pydantic Settings model).
+# The script only prints proposals; applying them to ansible/group_vars/client.yml is a manual, reviewed edit.
+prometheus_url: http://client.ros2.lan:9090
+# Look-back window of the percentile / max queries (Prometheus duration: 30m, 48h, 7d).
+window: 48h
+# Percentile of the 1m CPU rate and of the memory working set over the window (0 < p <= 1).
+percentile: 0.99
+cpu_margin: 1.5
+mem_margin: 1.5
+min_cpu_quota_pct: 10
+min_memory_mib: 64
+unit_regex: '^ros2-.*\.service$'
+# Output format: table | yaml
+format: table
+# Where the current cpu_quota / memory_max per node are read from (relative to the repo root).
+group_vars_path: ansible/group_vars/client.yml
+# HTTP timeout per Prometheus query in seconds.
+timeout_s: 30

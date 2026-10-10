@@ -128,6 +128,43 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 | `test_shared_pyproject_defines_ros2_common` | `shared/pyproject.toml` is named `ros2-common` and ships the `ros2_common` module. |
 | `test_nodes_depend_on_shared_by_relative_develop_path` | Consumer nodes (mcp_server) declare a editable `[tool.uv.sources]` path dependency whose relative path resolves to `shared/`; the same layout holds on the Pi (whole repo in `ros2_repo_dest`, `uv sync --frozen --no-dev` run in `nodes/<node>`). |
 
+### `test_unit_cgroups.py`
+
+Cgroup tiers and the unit template directives (`CPUWeight`, `IOWeight`, `MemoryHigh`, `OOMScoreAdjust`).
+
+| Test | Description |
+|------|-------------|
+| `test_template_omits_new_directives_when_unset` | Unset variables render no new directive; `CPUQuota` / `MemoryMax` stay. |
+| `test_template_omits_directives_for_empty_strings` | Empty strings (unset type keys) render nothing. |
+| `test_template_renders_directives_when_set` | Each directive renders with its value, `OOMScoreAdjust=0` included. |
+| `test_directives_sit_in_the_service_section` | Directives land between `[Service]` and `[Install]`. |
+| `test_resolve_maps_new_keys` | `resolve_and_deploy.yml` maps the four type default keys. |
+| `test_tiers_have_expected_weights` | Every client node type of the critical / normal / low tiers has its weights. |
+| `test_tiers_do_not_overlap` | A node type is in one tier only. |
+| `test_untiered_types_have_no_weights` | Types outside the tiers carry no new keys. |
+| `test_existing_limits_unchanged` | `cpu_quota` / `memory_max` match a hard-coded snapshot of main. |
+| `test_limits_unchanged_versus_main` | Same comparison against `git show main:` when the ref exists. |
+| `test_server_feetech_servos_is_critical` | The server's `feetech_servos` (lerobot_leader) is critical, limits unchanged. |
+
+### `test_propose_unit_limits.py`
+
+Unit tests for `scripts/propose_unit_limits.py` with fixture Prometheus JSON (no network).
+
+| Test | Description |
+|------|-------------|
+| `test_settings_defaults`, `test_load_settings_from_yaml`, `test_settings_reject_bad_values` | pydantic config defaults, file loading and validation. |
+| `test_round_up` | Rounding to a step. |
+| `test_cpu_quota_rounds_up_to_five_with_margin`, `test_cpu_quota_minimum` | CPUQuota = p99 * margin rounded up to 5 %, at least the minimum. |
+| `test_memory_max_uses_larger_of_margin_and_headroom`, `test_memory_max_minimum` | MemoryMax = max(p99 * margin, max * 1.2) rounded up to 16 MiB, at least the minimum. |
+| `test_memory_high_is_85_percent` | MemoryHigh is about 85 % of the proposed MemoryMax. |
+| `test_parse_quota_and_memory` | `50%`, `128M`, `1G` parsing. |
+| `test_parse_vector_keys_by_unit_and_filters_regex`, `test_parse_vector_ignores_error_response` | Prometheus vector parsing and unit filtering. |
+| `test_load_node_limits_maps_node_to_type` | Node name -> node_type -> limits from a fixture group_vars, template defaults, `present: false` skipped. |
+| `test_build_queries_use_window_and_percentile` | PromQL uses the window, percentile and 1m rate. |
+| `test_build_rows_proposals_and_flags` | Proposals and the throttle / OOM risk flags. |
+| `test_build_rows_reports_no_data_and_unknown_units` | Units without a full set of series are `no data` with no proposal. |
+| `test_render_table_shows_columns_and_no_data`, `test_render_yaml_roundtrips` | Table columns and YAML output. |
+
 ### `test_topic_scraper_collect.py`
 
 Unit tests for `scripts/topic_scraper_collect.py` parser/format helpers.
