@@ -26,14 +26,14 @@ class StrictModel(BaseModel):
 class JointOffsets(StrictModel):
     """Follower-vs-URDF zero offsets in rad: urdf_angle = measured_angle + offset.
 
-    Defaults are the values solved on 2026-10-08 and set in ansible/group_vars/client.yml (mcp_server
+    Defaults are the values solved on 2026-10-10 (grid sheet, wrist_roll kept from 2026-10-08) and set in ansible/group_vars/client.yml (mcp_server
     joint_offsets_rad). The gripper has no offset. Use all zeros to replay in raw URDF/MuJoCo angles.
     """
 
-    shoulder_pan: float = -0.0619
-    shoulder_lift: float = -0.0103
-    elbow_flex: float = -0.1381
-    wrist_flex: float = 0.2477
+    shoulder_pan: float = 0.0182
+    shoulder_lift: float = -0.0345
+    elbow_flex: float = -0.1070
+    wrist_flex: float = 0.0988
     wrist_roll: float = -0.0710
     gripper: float = 0.0
 

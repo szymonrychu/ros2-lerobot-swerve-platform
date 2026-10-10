@@ -508,8 +508,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   12 ikpy runs (secant step; the fixed-point iteration needed 16 or more) and a `heading_bias` start lands within
   2e-3 rad of the cold solution
 - grasp planner speed and stability (`test_grasp_speed.py`, deployed client.yml config, via `plan_matrix.py`): the 13
-  feasible 2026-10-09 sim-matrix scenarios in `tests/data/grasp_golden.json` (fixed arm-frame surfaces of that run:
-  floor -0.15, ledges -0.08 / 0.0, stair -0.25; planner regression geometry, independent of the configured floor) (top_down, angled, scoop, auto; waypoint joints and
+  feasible sim-matrix scenarios in `tests/data/grasp_golden.json`, regenerated 2026-10-10 with the grid-sheet client.yml
+  calibration (joint offsets, tool point = physical fixed-jaw tip; fixed arm-frame surfaces: floor -0.15, ledges -0.08 / 0.0,
+  stair -0.204 = 10 cm below the configured floor -0.104; the old -0.25 stair became unreachable) (top_down, angled, scoop, auto; waypoint joints and
   straight-line samples) match the current golden plans within 1e-6 rad and the `baseline` plans (before the faster
   heading convergence) within 2e-3 rad, with the same feasibility and strategy; timing tests (skipped with
   `GRASP_SPEED_SKIP=1`): feasible angled and auto golden scenarios and auto on the reference cube under 1 s, scoop 3 s,

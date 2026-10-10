@@ -120,9 +120,9 @@ def entry(**changes: object) -> MatrixEntry:
 
 
 def test_scene_for_an_entry_uses_the_calibrated_jaws_and_faces_the_object_radially() -> None:
-    index = MatrixIndex(base_height_m=0.15, floor_z_m=-0.15, tool_offset_m=(0.0104, -0.0282, -0.0017), entries=[])
+    index = MatrixIndex(base_height_m=0.15, floor_z_m=-0.15, tool_offset_m=(0.0010, -0.0056, -0.0014), entries=[])
     scene = scene_for(entry(x=0.2, y=0.1), index, stock_jaws=False)
-    assert scene.tool_offset_m == pytest.approx((0.0104, -0.0282, -0.0017))
+    assert scene.tool_offset_m == pytest.approx((0.0010, -0.0056, -0.0014))
     assert scene.support_z_m == pytest.approx(-0.08)
     assert scene.object is not None and scene.object.yaw_rad == pytest.approx(math.atan2(0.1, 0.2))
     assert scene_for(entry(), index, stock_jaws=True).tool_offset_m is None
@@ -152,7 +152,7 @@ def test_matrix_command_replays_feasible_plans_and_writes_results(tmp_path: Path
     index = MatrixIndex(
         base_height_m=0.15,
         floor_z_m=-0.15,
-        tool_offset_m=(0.0104, -0.0282, -0.0017),
+        tool_offset_m=(0.0010, -0.0056, -0.0014),
         entries=[entry(), entry(key="skipped", feasible=False, reasons=["unreachable"])],
     )
     (tmp_path / "index.json").write_text(index.model_dump_json())

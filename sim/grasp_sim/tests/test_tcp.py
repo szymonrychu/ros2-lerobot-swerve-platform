@@ -17,12 +17,12 @@ from grasp_sim.tcp import (
     gripper_to_gfl,
 )
 
-MEASURED_TOOL_OFFSET = (0.0104, -0.0282, -0.0017)
+MEASURED_TOOL_OFFSET = (0.0010, -0.0056, -0.0014)
 CALIBRATION_TOLERANCE_M = 0.002
 
 
 def test_gripper_frame_link_round_trip() -> None:
-    point = np.array([0.0104, -0.0282, -0.0017])
+    point = np.array([0.0010, -0.0056, -0.0014])
     assert np.allclose(gripper_to_gfl(gfl_to_gripper(point)), point)
     # gripper_frame_link is gripper_link turned pi about y, 9.8 cm down the jaws.
     assert np.allclose(gfl_to_gripper(np.zeros(3)), [-0.0079, -0.000218121, -0.0981274])
@@ -56,7 +56,7 @@ def test_calibration_moves_only_the_fingers_not_the_wrist_housing() -> None:
     calibrated = build_model(SceneConfig(object=None, tool_offset_m=MEASURED_TOOL_OFFSET))
     assert np.allclose(stock.geom("fixed_jaw_box1").pos, calibrated.geom("fixed_jaw_box1").pos)
     shift = calibrated.geom("fixed_jaw_sph_tip1").pos - stock.geom("fixed_jaw_sph_tip1").pos
-    assert float(np.linalg.norm(shift)) > 0.02
+    assert 0.002 < float(np.linalg.norm(shift)) < 0.02  # the physical fixed-jaw tip is close to the stock jaws
     moving = calibrated.body("moving_jaw_so101_v1").pos - stock.body("moving_jaw_so101_v1").pos
     assert np.allclose(moving, shift)
 

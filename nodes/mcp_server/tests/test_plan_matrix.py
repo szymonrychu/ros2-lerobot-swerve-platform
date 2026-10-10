@@ -46,7 +46,7 @@ def test_plan_matrix_writes_the_index_and_plans_with_the_deployed_config(tmp_pat
     assert script.main(["--out", str(tmp_path), "--only", "4x4x4_r20_floor_"]) == 0
     index = json.loads((tmp_path / "index.json").read_text())
     assert set(index) == INDEX_KEYS
-    assert index["tool_offset_m"] == pytest.approx([0.0104, -0.0282, -0.0017])  # client.yml arm.tool_offset_m
+    assert index["tool_offset_m"] == pytest.approx([0.0010, -0.0056, -0.0014])  # client.yml arm.tool_offset_m
     entries = {e["key"]: e for e in index["entries"]}
     assert set(entries) == {f"4x4x4_r20_floor_{s}" for s in ("top_down", "angled45", "scoop", "scoop_gap", "auto")}
     for entry in entries.values():

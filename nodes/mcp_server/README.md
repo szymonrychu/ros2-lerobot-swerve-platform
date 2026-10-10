@@ -143,17 +143,21 @@ the URDF model angles by a constant per joint. `arm.joint_offsets_rad` (`shoulde
   are then re-solved from the stored samples (jointly with the mount, minimising reprojection error over the samples'
   `joints`), written to `arm.joint_offsets_rad` in `ansible/group_vars/client.yml` and `mcp_server` redeployed. After
   changing them, redo the camera mount solve (the stored `t_frame_parent` of old samples used the old offsets).
-- Re-check 2026-10-10 with the measured floor (`z = -0.104` instead of the -0.164/-0.165 the 2026-10-08 samples
-  assumed): neither the camera mount nor the joint offsets improved (mount-only solve on the 58 stored samples 38.1 px
-  at -0.164 vs 43.1 px at -0.104; joint + mount solve 17.4 vs 18.3 px; the original 159-point solve 12.18 vs 12.15 px
-  with a wrist_flex offset of -11 deg), so the deployed values stay. Numbers, per-observation checks and the floor-
-  corrected samples: `docs/calibration/2026-10-10/README.md`.
+- Grid calibration 2026-10-10 (current): joint offsets, gripper camera mount and intrinsics and the tool point were
+  solved jointly on a 50 mm grid sheet (234 camera points from 20 views, 6 tip touch-downs, floor fixed at the measured
+  `z = -0.104`): pan 0.0182, lift -0.0345, elbow -0.1070, wrist_flex 0.0988 rad (wrist_roll -0.0710 kept: not
+  identifiable from these data); camera mount (-0.0046, 0.0364, -0.0364) m rpy (-1.5622, 1.1950, -1.4466) on
+  `gripper_link`; intrinsics f 410.6, k1 -0.1666 (`calibration/gripper_camera.yaml`). Held out: floor error 4.1 mm
+  (2026-10-08 set: 44.9 mm), tip 6 mm (35 mm), home tip height 243.6 mm vs 243 mm measured. Data and results:
+  `docs/calibration/2026-10-10/session/results.yaml`. The earlier 2026-10-10 floor re-check of the 2026-10-08 set
+  (`docs/calibration/2026-10-10/README.md`) found no improvement from re-solving with the old samples.
 
 ### Tool centre point
 
 The tool point is where the jaws actually close, not the URDF frame `gripper_frame_link`. `arm.tool_offset_m` (`x`, `y`,
-`z` in m, default all 0.0) is that point expressed IN the `gripper_frame_link` frame (measured on the robot by closing
-the jaws on ruler marks).
+`z` in m, default all 0.0) is that point expressed IN the `gripper_frame_link` frame. Since 2026-10-10 it is the physical
+fixed-jaw tip (0.0010, -0.0056, -0.0014), fitted with the joint offsets (grid sheet tip touches); the 2026-10-08 value
+was an effective TCP (0.0104, -0.0282, -0.0017) that absorbed kinematic errors.
 
 - Applied in ONE place, `ArmKinematics` (`ik.py`): `forward` / `tool_pose` report `T_base_tool @ [offset, 1]`; the pitch is
   that of the tool frame, unchanged.
@@ -161,7 +165,7 @@ the jaws on ruler marks).
   `target - R_tool @ offset`, iterated (R_tool depends on the solution) until the tool point is within 0.5 mm. The
   pitch handling, floor/approach logic and unreachable errors are unchanged; a zero offset takes the old code path.
 - Camera tools (gripper overlay, planned gripper marker) use `forward`, so they draw the corrected point.
-- Re-measure after any gripper or jaw change; the repeatability of the current measurement is about 3 mm.
+- Re-fit it with the joint offsets after any gripper or jaw change; the held-out tip error of the current fit is 6 mm.
 
 ### Grasp shift, wrist roll guard and limit overrides
 
@@ -438,8 +442,8 @@ heading has to be iterated) of them, so the planner avoids them where the result
   (angled 45 deg, 4 cm cube on a 0 m ledge at x 0.25) uses about 2700 runs.
 
 Feasible plans keep their feasibility and strategy: `tests/test_grasp_speed.py` compares 13 of them (top_down, angled,
-scoop, auto) with golden joints within 1e-6 rad (`tests/data/grasp_golden.json`, regenerated after the faster angled
-solve) and each case keeps its `baseline` (the plan before that change), which the current plan must match within 2e-3
+scoop, auto) with golden joints within 1e-6 rad (`tests/data/grasp_golden.json`, regenerated 2026-10-10 with the grid
+calibration; the stair case moved from -0.25 to -0.204 and the baseline of that regeneration equals the current plans) and each case keeps its `baseline` (the plan before that change), which the current plan must match within 2e-3
 rad (0.1 deg, far below the arm's backlash). The speed tests (feasible angled and auto golden scenarios and auto on the
 reference 4 cm cube under 1 s, scoop 3 s, unreachable 0.2 s) are skipped with `GRASP_SPEED_SKIP=1`.
 
