@@ -49,6 +49,7 @@ from .gps_anchor import (
     valid_imu_orientation,
 )
 from .gps_status import parse_status_json
+from .metrics import BATTERY_CUTOFF_ACTIVE, MAP_UPDATES, ROBOT_POSE_OK, TOPIC_STALE, touch_map
 from .msg_serializer import (
     msg_to_dict,
     quaternion_to_yaw,
@@ -254,6 +255,7 @@ class BridgeNode(Node):
         self._allowed_publish_topics = allowed_publish_topics
         self._topic_last_rx: dict[str, float] = {}
         self._stale_warn = WarnThrottle()
+        self._stale_topics: set[str] = set()
         self._frame_id_defaults = frame_id_defaults or {}
         self._robot_pose_frames = robot_pose_frames
         self._tf_buffer: Any = None
@@ -354,6 +356,9 @@ class BridgeNode(Node):
                 return
             log.debug("ros2_msg_rx", topic=topic, msg_type=type(msg).__name__)
             self.store(topic, data)
+            if role == "map":
+                MAP_UPDATES.inc()
+                touch_map()
             if role == "gps":
                 self.feed_gps_anchor(data)
 
@@ -380,6 +385,7 @@ class BridgeNode(Node):
             log.debug("battery_invalid_voltage_dropped", topic=topic, voltage=data["voltage"])
             return
         self.store(topic, {**data, **guard.state()})
+        BATTERY_CUTOFF_ACTIVE.set(int(guard.is_cutoff()))
 
     def on_gps_status(self, topic: str, msg: Any) -> None:
         """Cache the rover GPS status JSON; invalid JSON is logged and dropped.
@@ -551,14 +557,17 @@ class BridgeNode(Node):
             tf = self._tf_buffer.lookup_transform(map_frame, base_frame, Time())
         except TransformException as exc:
             log.debug("robot_pose_unavailable", error=str(exc))
+            ROBOT_POSE_OK.set(0)
             self.clear(ROBOT_POSE_TOPIC)
             return False
         pose = transform_to_pose_dict(tf)
         age_s = self.get_clock().now().nanoseconds / 1e9 - pose["stamp"]
         if age_s > ROBOT_POSE_STALE_S:
             log.debug("robot_pose_stale", age_s=round(age_s, 2))
+            ROBOT_POSE_OK.set(0)
             self.clear(ROBOT_POSE_TOPIC)
             return False
+        ROBOT_POSE_OK.set(1)
         with self._lock:
             cached = self._latest.get(ROBOT_POSE_TOPIC)
             if cached is not None and cached["data"] == pose:
@@ -780,9 +789,14 @@ class BridgeNode(Node):
     def _check_topic_health(self) -> None:
         now = time.monotonic()
         for topic, last_rx in self._topic_last_rx.items():
-            if now - last_rx > TOPIC_STALE_S:
-                if self._stale_warn.allow(topic, now):
-                    log.warning("topic_stale", topic=topic, seconds_since_rx=round(now - last_rx))
+            if now - last_rx <= TOPIC_STALE_S:
+                self._stale_topics.discard(topic)
+                continue
+            if topic not in self._stale_topics:
+                self._stale_topics.add(topic)
+                TOPIC_STALE.labels(topic).inc()
+            if self._stale_warn.allow(topic, now):
+                log.warning("topic_stale", topic=topic, seconds_since_rx=round(now - last_rx))
 
     def _log_warning(self, msg: str) -> None:
         """Indirection used in tests to verify warning logging."""

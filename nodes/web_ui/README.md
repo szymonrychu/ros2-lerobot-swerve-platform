@@ -286,6 +286,24 @@ Because tiles come from the same origin, the Content-Security-Policy keeps `img-
 | 503 | ROS bridge or the cancel service is unavailable (Nav2 not running) |
 | 504 | No response within 5 s |
 
+## Metrics
+
+`GET /metrics` on the web port (8080), via `ros2-metrics`; registered before the SPA catch-all mount so the static fallback never shadows it (`tests/test_metrics.py`). Defined in `web_ui/metrics.py`. Grafana Alloy scrapes it every 5 s (also reachable through nginx on port 80 like every other route).
+
+| Metric | Type | Labels | Where it moves |
+|---|---|---|---|
+| `robot_node_info`, `robot_node_start_time_seconds` | gauge | `node` | Process start |
+| `webui_ws_clients` | gauge | | `/ws` connect and disconnect, broadcaster dropping a dead client |
+| `webui_ws_disconnects_total` | counter | | End of every `/ws` session |
+| `webui_broadcast_duration_seconds` | histogram | | Work time of each broadcaster cycle that had data |
+| `webui_broadcaster_slow_total` | counter | | Cycles over `SlowCycleTracker.threshold_ms` (every one, not only the rate-limited warning) |
+| `webui_topic_stale_total` | counter | `topic` | A subscribed topic going stale (once per outage) |
+| `webui_http_requests_total` | counter | `route`, `status` | Middleware; `route` is the matched template, `static` for the SPA mount |
+| `webui_map_updates_total` | counter | | Each cached SLAM map message |
+| `webui_map_age_seconds` | gauge | | Computed at scrape time; absent before the first map |
+| `webui_robot_pose_ok` | gauge | | 1 when TF map to base_link is fresh, 0 when missing or stale; absent before the first lookup |
+| `webui_battery_cutoff_active` | gauge | | Battery guard state after each valid reading; absent without battery data |
+
 ## Configuration
 
 Config file: `/etc/ros2/web_ui/config.yaml` (managed by Ansible).

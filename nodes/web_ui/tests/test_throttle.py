@@ -65,6 +65,7 @@ def test_topic_stale_warning_throttled_per_topic(monkeypatch) -> None:
     fake = SimpleNamespace(
         _topic_last_rx={"/a": 0.0, "/b": 0.0},
         _stale_warn=WarnThrottle(),
+        _stale_topics=set(),
     )
     for _ in range(6):  # six checks, TOPIC_STALE_S apart: 50 s
         BridgeNode._check_topic_health(fake)

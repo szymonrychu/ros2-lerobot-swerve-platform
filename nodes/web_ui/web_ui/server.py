@@ -16,6 +16,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from ros2_common.battery import BatteryGuard
+from ros2_metrics import render_latest
 from starlette.exceptions import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -24,6 +25,13 @@ from starlette.responses import Response
 from .agent_proxy import register_agent_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
 from .config import AppConfig, TabConfig, TileSourceConfig
+from .metrics import (
+    BROADCAST_SECONDS,
+    BROADCASTER_SLOW,
+    HTTP_REQUESTS,
+    WS_CLIENTS,
+    WS_DISCONNECTS,
+)
 from .throttle import SlowCycleTracker
 from .tiles import (
     API_KEY_PLACEHOLDER,
@@ -78,6 +86,8 @@ UVICORN_WS_IMPL = "websockets-sansio"
 INDEX_CACHE_CONTROL = "no-cache"
 NON_SPA_PREFIXES = ("api/", "ws")
 INDEX_PATHS = ("", ".", "index.html")
+# Metrics route label of requests answered by the static mount (no route template).
+STATIC_ROUTE_LABEL = "static"
 # Map tiles reach the browser only through /api/tiles (same origin), so img-src needs no external hosts.
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
@@ -200,6 +210,32 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """Count HTTP requests by matched route template (never the raw path) and status."""
+
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
+        try:
+            response = await call_next(request)
+        except Exception:
+            HTTP_REQUESTS.labels(route_label(request), "500").inc()
+            raise
+        HTTP_REQUESTS.labels(route_label(request), str(response.status_code)).inc()
+        return response
+
+
+def route_label(request: Request) -> str:
+    """Return the matched route template for the metrics label.
+
+    Args:
+        request (Request): Request after the router matched it.
+
+    Returns:
+        str: The route path template (for example /api/tiles/{z}/{x}/{y}.png), or "static" for the SPA mount.
+    """
+    route = request.scope.get("route")
+    return getattr(route, "path", "") or STATIC_ROUTE_LABEL
+
+
 def build_uvicorn_kwargs(port: int) -> dict[str, Any]:
     """Build the uvicorn.run keyword arguments.
 
@@ -256,8 +292,13 @@ def _make_start_broadcaster(
                             break
                 for cid in dead:
                     clients.pop(cid, None)
+                WS_CLIENTS.set(len(clients))
                 now = time.monotonic()
-                report = slow_cycles.record((now - t0) * 1000, now)
+                work_ms = (now - t0) * 1000
+                BROADCAST_SECONDS.observe(work_ms / 1000)
+                if work_ms > slow_cycles.threshold_ms:
+                    BROADCASTER_SLOW.inc()
+                report = slow_cycles.record(work_ms, now)
                 if report is not None:
                     logger.warning("broadcaster_slow", **report)
 
@@ -407,6 +448,7 @@ def build_app(
     """
     app = FastAPI(title="web_ui", docs_url=None, redoc_url=None)
     app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(MetricsMiddleware)
     tile_proxies = make_tile_proxies(config, tile_transport)
     for tile_proxy in tile_proxies.values():
         if tile_proxy is not None:
@@ -439,6 +481,12 @@ def build_app(
         for sid, proxy in tile_proxies.items()
         if proxy is not None
     }
+
+    @app.get("/metrics")
+    async def get_metrics() -> Response:
+        """Prometheus exposition of the default registry (registered before the SPA catch-all mount)."""
+        body, content_type = render_latest()
+        return Response(content=body, headers={"Content-Type": content_type})
 
     @app.get("/api/config")
     async def get_config() -> JSONResponse:
@@ -710,6 +758,7 @@ def build_app(
             # behind it instead of writing to the WebSocket concurrently, and none are missed.
             async with conn.send_lock:
                 clients[client_id] = conn
+                WS_CLIENTS.set(len(clients))
                 log.info("ws_client_connected", client_id=client_id, remote_addr=remote, total_clients=len(clients))
                 for envelope in bridge_node.latest_envelopes() if bridge_node is not None else []:
                     await ws.send_text(json.dumps(envelope))
@@ -735,6 +784,8 @@ def build_app(
             pass
         finally:
             clients.pop(client_id, None)
+            WS_CLIENTS.set(len(clients))
+            WS_DISCONNECTS.inc()
             log.info("ws_client_disconnected", client_id=client_id, total_clients=len(clients))
 
     if static_dir.exists():

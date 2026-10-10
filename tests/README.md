@@ -216,6 +216,8 @@ The **filter_node** node has tests under `nodes/filter_node/tests/`. Run from `n
 
 The **test_joint_api** node has tests under `nodes/test_joint_api/tests/`. Run from `nodes/test_joint_api`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers: config (`test_config.py`); GET/POST `/joint-updates` (`test_app.py`: empty GET, single/multiple POST, validation errors, gripper-only POST). Async tests require **pytest-asyncio** (included in the node's uv dev dependency group; if running with system pytest, install it: `pip install pytest-asyncio`). Endpoint use in tests is limited to gripper joints (joint_5, joint_6) for safety. The utility script `scripts/joint_api_client.py` can GET or POST joint updates (see script docstring for examples).
 
+- Metrics (`test_metrics.py`): `GET /metrics` serves the `ros2-metrics` registry with `robot_node_info{node="test_joint_api"}`; the middleware counts `jointapi_requests_total{status}` for 200, 400 and 404 responses.
+
 ### Per-node tests (topic_scraper_api)
 
 The **topic_scraper_api** node has tests under `nodes/topic_scraper_api/tests/`. Run from `nodes/topic_scraper_api`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers:
@@ -227,6 +229,8 @@ The **topic_scraper_api** node has tests under `nodes/topic_scraper_api/tests/`.
 - dynamic subscription bookkeeping (`test_scraper.py`: allow-list handling, add/remove topic subscriptions; image topic metadata and JPEG cache)
 - HTTP API behavior (`test_app.py`: `/topics`, `/topics/<topic-path>`, `/rules`, `/rules/<name>`; `/streams`, `/previews` lists; stream/preview HTML pages; `/previews/<topic>/image.jpg` JPEG snapshot; 404 when no image sample for stream/preview image)
 - observation rules (`test_observer.py`: RulesObserver empty rules, compare rule produces position delta, missing payload yields None comparison, rules summary)
+
+- Metrics (`test_metrics.py`): `scraper_subscriptions` follows `sync_topics` (add and remove), each callback bumps `scraper_messages_total` and `scraper_callback_seconds`, no `scraper_*` sample carries a topic label, `GET /metrics` returns the registry with `robot_node_info{node="topic_scraper_api"}`.
 
 ### Per-node tests (bno055_imu)
 
@@ -293,6 +297,8 @@ The **web_ui** node has tests under `nodes/web_ui/tests/`. Run from `nodes/web_u
 - Grasp frontend grip strength (`frontend/src/grasp/grasp.test.ts`, `objectSettings.test.ts`, `GraspPanel.test.tsx`, vitest): Gentle / Normal / Firm options with Normal as the default, `grip_profile` sent with execute only (not plan or release) and left out of the plan key so changing it keeps a feasible plan executable, the grip report of a result parsed (profile name, torque limit, holding load, slipping, crush risk; junk ignored) and described ("Grip gentle, holding load 131" plus slipping / crush hints), the choice remembered in `localStorage` (`grasp.gripProfile`; unknown values and throwing storage fall back to Normal), the panel's grip strength selector marks the current profile and the result view shows the profile and holding load.
 - POI frontend (`frontend/src/poi/*.test.ts`, vitest): geometry and hit testing (`geometry.test.ts`: area, centroid, point-in-polygon, hit priority, objects hit only within the pointer tolerance), editor state (`editor.test.ts`: click detection, area drafting, new-POI fields, drag previews and update commands incl. objects moving like points, optimistic override), styling and list helpers (`style.test.ts`: colour by status, creator marker, `/poi/list` validation, sort, relative time, object POIs: own colour, parsing with defaulted sighting fields, tooltip details), and the `POST /api/poi` client (`api.test.ts`). `map3d/layers.test.ts` covers the `pois` layer toggle.
 
+- Metrics (`nodes/web_ui/tests/test_metrics.py`): `GET /metrics` is not shadowed by the SPA static catch-all; `webui_http_requests_total` uses the matched route template (`/api/urdf/{path:path}`, `/api/tiles/{z}/{x}/{y}.png`, `static`) and status; `webui_ws_clients` / `webui_ws_disconnects_total` around a `/ws` session; `webui_broadcast_duration_seconds` and `webui_broadcaster_slow_total` with a slow bridge flush; `webui_topic_stale_total{topic}` once per outage; `webui_map_updates_total` (map role only) and `webui_map_age_seconds`; `webui_robot_pose_ok` for fresh and missing TF; `webui_battery_cutoff_active` for low and recovered voltage.
+
 ### Per-node tests (claude_agent)
 
 The **claude_agent** node has tests under `nodes/claude_agent/tests/` (no network, no real Claude calls; rclpy is stubbed in
@@ -342,6 +348,8 @@ Covers:
 - API (`test_api.py`): `/api/state` (plan, active phase, usage, hard and per-phase maxima), `/api/history`, `/api/message` (202 / 409 busy / 400 empty or invalid), `/api/stop`,
   `/api/reset` (409 while busy), `/ws/events` history on connect then live events, shutdown hook
 - entry point (`test_main.py`): loopback bind and port from config, the `/robot_events` subscription (volatile QoS) and its callback, no POI publisher is created (the clear goes over HTTP), ROS2 logger, API key removed from the process env, invalid config exits 1
+
+- Metrics (`test_metrics.py`): `agent_busy` during and after an instruction; `agent_instructions_total{status}` and `agent_instruction_duration_seconds` for done, interrupted, error and timeout; `agent_watchdog_fires_total`; `agent_turns_total` and `agent_tool_uses_total{tool}` from a scripted stream; `agent_session_resets_total` (refused reset not counted); `agent_tokens_total{kind}` and `agent_cost_usd_total` as session-total deltas (absent usage adds nothing); `agent_seconds_since_activity` computed at scrape time; `GET /metrics` route.
 
 ### Per-node tests (mcp_server)
 
