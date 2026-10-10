@@ -7,9 +7,12 @@ import {
   canExecute,
   DEFAULT_ARM_OFFSET,
   DEFAULT_FORM,
+  DEFAULT_GRIP_PROFILE,
+  describeHold,
   describeOutcome,
   formFromClick,
   GraspForm,
+  GRIP_PROFILES,
   mapToBaseLink,
   objectBox,
   parseGraspResponse,
@@ -354,5 +357,70 @@ describe('text', () => {
     expect(lines).toContain('Wrist roll: -90 deg')
     expect(lines).toContain('Jaw opening: 50 mm')
     expect(lines.join(' ')).toContain('slow zone')
+  })
+})
+
+describe('grip strength', () => {
+  it('offers Gentle / Normal / Firm with Normal as the default', () => {
+    expect(GRIP_PROFILES.map((g) => g.label)).toEqual(['Gentle', 'Normal', 'Firm'])
+    expect(GRIP_PROFILES.map((g) => g.value)).toEqual(['gentle', 'normal', 'firm'])
+    expect(DEFAULT_GRIP_PROFILE).toBe('normal')
+    expect(DEFAULT_FORM.gripProfile).toBe('normal')
+  })
+
+  it('sends the grip profile with execute only', () => {
+    const form = { ...FORM, gripProfile: 'gentle' as const }
+    expect(ok(form, 'execute').grip_profile).toBe('gentle')
+    expect(ok(form, 'plan').grip_profile).toBeUndefined()
+    expect(ok(form, 'release').grip_profile).toBeUndefined()
+  })
+
+  it('changing the grip strength keeps a feasible plan executable', () => {
+    const planned = ok(FORM, 'plan')
+    const plan = {
+      key: planKey(planned),
+      outcome: parseGraspResponse({ ok: true, action: 'plan', result: { outcome: 'planned', plan: { feasible: true } } }, 200),
+    }
+    expect(canExecute(plan, { ...FORM, gripProfile: 'firm' })).toBe(true)
+    expect(planKey(ok({ ...FORM, gripProfile: 'firm' }, 'execute'))).toBe(plan.key)
+  })
+
+  it('parses the grip report of a grasp result', () => {
+    const answer = parseGraspResponse(
+      {
+        ok: true,
+        action: 'execute',
+        result: {
+          outcome: 'grasped',
+          grip_profile: { name: 'gentle', torque_limit: 250, squeeze_rad: 0.02, capped: [] },
+          holding_load: 130,
+          slipping: false,
+          crush_risk: true,
+        },
+      },
+      200,
+    )
+    expect(answer.gripProfile).toBe('gentle')
+    expect(answer.gripTorqueLimit).toBe(250)
+    expect(answer.holdingLoad).toBe(130)
+    expect(answer.slipping).toBe(false)
+    expect(answer.crushRisk).toBe(true)
+    const bare = parseGraspResponse({ ok: true, result: { outcome: 'missed', grip_profile: 'junk', slipping: 'x' } }, 200)
+    expect(bare.gripProfile).toBeUndefined()
+    expect(bare.holdingLoad).toBeUndefined()
+    expect(bare.slipping).toBeUndefined()
+  })
+
+  it('describes the hold for the result view', () => {
+    expect(describeHold({ gripProfile: 'firm', holdingLoad: 412.4, slipping: false, crushRisk: false })).toBe(
+      'Grip firm, holding load 412',
+    )
+    expect(describeHold({ gripProfile: 'normal', holdingLoad: 80, slipping: true, crushRisk: false })).toBe(
+      'Grip normal, holding load 80, slipping: try a firmer grip',
+    )
+    expect(describeHold({ gripProfile: 'gentle', holdingLoad: 300, slipping: false, crushRisk: true })).toBe(
+      'Grip gentle, holding load 300, crush risk: try a gentler grip',
+    )
+    expect(describeHold({})).toBeNull()
   })
 })

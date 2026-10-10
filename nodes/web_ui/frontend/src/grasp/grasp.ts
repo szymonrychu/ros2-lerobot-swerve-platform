@@ -24,6 +24,22 @@ export type GraspStrategy = 'auto' | 'scoop' | 'angled' | 'top_down'
 export type GraspAction = 'plan' | 'execute' | 'release'
 export type GraspOutcomeName = 'planned' | 'infeasible' | 'grasped' | 'missed' | 'aborted' | 'released'
 
+/** mcp_server grip_profiles preset: how hard the gripper grips (torque limit, close speed, squeeze). */
+export type GripProfileName = 'gentle' | 'normal' | 'firm'
+
+export const GRIP_PROFILES: { value: GripProfileName; label: string; hint: string }[] = [
+  { value: 'gentle', label: 'Gentle', hint: 'fragile, soft or light objects' },
+  { value: 'normal', label: 'Normal', hint: 'ordinary objects' },
+  { value: 'firm', label: 'Firm', hint: 'heavy or slippery objects, tools' },
+]
+
+export const DEFAULT_GRIP_PROFILE: GripProfileName = 'normal'
+
+/** Type guard for a grip profile name (stored or typed values). */
+export function isGripProfile(value: unknown): value is GripProfileName {
+  return GRIP_PROFILES.some((g) => g.value === value)
+}
+
 export const STRATEGIES: { value: GraspStrategy; label: string }[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'scoop', label: 'Scoop' },
@@ -53,6 +69,7 @@ export const ADVANCED_PARAMS: ParamDef[] = [
   { key: 'below_object_offset_m', label: 'Scoop depth below object', unit: 'm', min: 0, max: 0.05, default: 0.005 },
   { key: 'skim_clearance_m', label: 'Skim clearance', unit: 'm', min: 0, max: 0.05, default: 0.003 },
   { key: 'max_object_width_m', label: 'Max object width', unit: 'm', min: 0.01, max: 0.12, default: 0.08 },
+  // Blank: the grip profile's contact threshold (normal 300).
   { key: 'close_effort_threshold', label: 'Close effort threshold', unit: '', min: 1, max: 1000, default: 300 },
   { key: 'hold_effort_min', label: 'Hold effort minimum', unit: '', min: 0, max: 1000, default: 100 },
   { key: 'min_hold_gap_rad', label: 'Min hold gap', unit: 'rad', min: 0, max: 1.5, default: 0.08 },
@@ -86,6 +103,8 @@ export interface GraspForm {
   surfaceZ: string
   tiltRoll: string
   tiltPitch: string
+  /** Grip strength sent with execute (not part of the plan: changing it keeps the plan executable). */
+  gripProfile: GripProfileName
 }
 
 export const DEFAULT_FORM: GraspForm = {
@@ -104,6 +123,7 @@ export const DEFAULT_FORM: GraspForm = {
   surfaceZ: '',
   tiltRoll: '',
   tiltPitch: '',
+  gripProfile: DEFAULT_GRIP_PROFILE,
 }
 
 export interface GraspObject {
@@ -126,6 +146,7 @@ export interface GraspRequest {
   approach_pitch_deg?: number
   surface_z_m?: number
   tilt_override_deg?: { roll: number; pitch: number }
+  grip_profile?: GripProfileName
 }
 
 export type BuildResult<T> = { ok: true; value: T } | { ok: false; errors: string[] }
@@ -235,12 +256,18 @@ export function buildGraspRequest(action: GraspAction, form: GraspForm): Request
     const pitch = optional(form.tiltPitch, 'tilt pitch (deg)', -MAX_TILT_DEG, MAX_TILT_DEG, errors)
     if (errors.length === before) request.tilt_override_deg = { roll: roll ?? 0, pitch: pitch ?? 0 }
   }
+  if (action === 'execute') request.grip_profile = form.gripProfile
   return errors.length > 0 ? { ok: false, errors } : { ok: true, request }
 }
 
-/** Identity of a plan: the request with the action fixed to plan, so execute matches the plan it follows. */
+/**
+ * Identity of a plan: the request with the action fixed to plan and without the grip profile (it does not change the
+ * plan), so execute matches the plan it follows.
+ */
 export function planKey(request: GraspRequest): string {
-  return JSON.stringify({ ...request, action: 'plan' })
+  const key: GraspRequest = { ...request, action: 'plan' }
+  delete key.grip_profile
+  return JSON.stringify(key)
 }
 
 /** A parsed plan answer with the key of the inputs it was planned for. */
@@ -394,6 +421,12 @@ export interface GraspAnswer {
   steps: GraspStep[]
   gripperPositionRad?: number
   gripperEffort?: number
+  /** Grip report of the close (mcp_server grip_profile, holding_load, slipping, crush_risk). */
+  gripProfile?: string
+  gripTorqueLimit?: number
+  holdingLoad?: number
+  slipping?: boolean
+  crushRisk?: boolean
 }
 
 const OUTCOMES: readonly string[] = ['planned', 'infeasible', 'grasped', 'missed', 'aborted', 'released']
@@ -410,6 +443,10 @@ function strings(v: unknown): string[] {
 
 function num(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+}
+
+function bool(v: unknown): boolean | undefined {
+  return typeof v === 'boolean' ? v : undefined
 }
 
 function parseWaypoint(v: unknown): GraspWaypoint | null {
@@ -489,6 +526,13 @@ export function parseGraspResponse(body: unknown, status: number): GraspAnswer {
     }))
     answer.gripperPositionRad = num(result.gripper_position_rad)
     answer.gripperEffort = num(result.gripper_effort)
+    if (isRec(result.grip_profile) && typeof result.grip_profile.name === 'string') {
+      answer.gripProfile = result.grip_profile.name
+      answer.gripTorqueLimit = num(result.grip_profile.torque_limit)
+    }
+    answer.holdingLoad = num(result.holding_load)
+    answer.slipping = bool(result.slipping)
+    answer.crushRisk = bool(result.crush_risk)
   }
   return answer
 }
@@ -526,6 +570,23 @@ const OUTCOME_TEXT: Record<GraspOutcomeName, { text: string; severity: Severity 
 
 export function describeOutcome(outcome: GraspOutcomeName): { text: string; severity: Severity } {
   return OUTCOME_TEXT[outcome]
+}
+
+/**
+ * One line about the hold of a grasp result: profile, holding load and the slipping / crush hints.
+ *
+ * @param answer - grip report fields of a parsed answer
+ * @returns the line, or null when the answer carries no grip report
+ */
+export function describeHold(
+  answer: Pick<GraspAnswer, 'gripProfile' | 'holdingLoad' | 'slipping' | 'crushRisk'>,
+): string | null {
+  if (answer.gripProfile === undefined && answer.holdingLoad === undefined) return null
+  const parts = [`Grip ${answer.gripProfile ?? '?'}`]
+  if (answer.holdingLoad !== undefined) parts.push(`holding load ${Math.round(answer.holdingLoad)}`)
+  if (answer.slipping) parts.push('slipping: try a firmer grip')
+  if (answer.crushRisk) parts.push('crush risk: try a gentler grip')
+  return parts.join(', ')
 }
 
 /** Lines for the execute confirmation: what the plan will do. */

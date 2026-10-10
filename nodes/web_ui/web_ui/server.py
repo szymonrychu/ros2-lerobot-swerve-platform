@@ -351,6 +351,18 @@ class SpaStaticFiles(StaticFiles):
         return response
 
 
+def valid_grip_profile(value: object) -> bool:
+    """Whether a grasp request's grip_profile has a passable shape (mcp_server checks the name and values).
+
+    Args:
+        value (object): The request's grip_profile (None when absent).
+
+    Returns:
+        bool: True for None, a non-empty preset name or an inline-overrides object.
+    """
+    return value is None or (isinstance(value, str) and bool(value)) or isinstance(value, dict)
+
+
 def build_app(
     config: AppConfig,
     urdf_dir: Path,
@@ -614,6 +626,10 @@ def build_app(
         if action not in GRASP_ACTIONS or (action in GRASP_OBJECT_ACTIONS and not isinstance(body.get("object"), dict)):
             return action_response(
                 "grasp", False, 'body must be {"action": "plan"|"execute"|"release", "object": {...}, ...}', 422
+            )
+        if not valid_grip_profile(body.get("grip_profile")):
+            return action_response(
+                "grasp", False, "grip_profile must be a preset name (gentle, normal, firm) or an object", 422
             )
         if action in GRASP_MOTION_ACTIONS and (blocked := battery_block(f"grasp_{action}")) is not None:
             return blocked

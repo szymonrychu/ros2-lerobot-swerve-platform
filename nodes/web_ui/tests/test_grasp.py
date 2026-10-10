@@ -242,6 +242,23 @@ def test_api_grasp_release_forwarded(tmp_path: Path) -> None:
     assert resp.status_code == 202 and bridge.payloads == [{"action": "release"}]
 
 
+@pytest.mark.parametrize("grip", ["gentle", "firm", {"base": "gentle", "squeeze_rad": 0.01}])
+def test_api_grasp_execute_passes_the_grip_profile_through(tmp_path: Path, grip: Any) -> None:
+    bridge = FakeBridge(never=True)
+    body = EXEC_BODY | {"grip_profile": grip}
+    resp = make_client(tmp_path, bridge, grasp_accept_wait_s=0.05).post("/api/grasp?tab=map", json=body)
+    assert resp.status_code == 202
+    assert bridge.payloads == [body]
+
+
+@pytest.mark.parametrize("grip", [3, ["gentle"], "", True])
+def test_api_grasp_bad_grip_profile_is_422(tmp_path: Path, grip: Any) -> None:
+    bridge = FakeBridge(PLANNED)
+    resp = make_client(tmp_path, bridge).post("/api/grasp?tab=map", json=EXEC_BODY | {"grip_profile": grip})
+    assert resp.status_code == 422
+    assert bridge.payloads == []
+
+
 def test_api_grasp_503_when_mcp_server_not_running(tmp_path: Path) -> None:
     resp = make_client(tmp_path, FakeBridge(none=True)).post("/api/grasp?tab=map", json=PLAN_BODY)
     assert resp.status_code == 503 and resp.json()["ok"] is False

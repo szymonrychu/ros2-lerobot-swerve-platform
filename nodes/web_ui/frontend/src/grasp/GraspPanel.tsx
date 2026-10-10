@@ -13,12 +13,14 @@ import IconButton from '@mui/material/IconButton'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import CloseIcon from '@mui/icons-material/Close'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import StopCircleIcon from '@mui/icons-material/StopCircle'
-import { ADVANCED_PARAMS, describeOutcome, GraspAnswer, summarizePlan } from './grasp'
+import { ADVANCED_PARAMS, describeHold, describeOutcome, GraspAnswer, GRIP_PROFILES, isGripProfile, summarizePlan } from './grasp'
 import { GRASP_MENU } from './pick'
 import type { GraspPanelState } from './useGrasp'
 import { MONO_FONT } from '../theme'
@@ -63,6 +65,7 @@ function Result({ answer, title }: { answer: GraspAnswer; title: string }) {
   if (!answer.outcome) return null
   const { text, severity } = describeOutcome(answer.outcome)
   const plan = answer.plan
+  const hold = describeHold(answer)
   return (
     <Alert severity={severity} sx={{ '& .MuiAlert-message': { width: '100%' } }}>
       <Typography variant="body2" sx={{ fontWeight: 700 }}>
@@ -99,6 +102,11 @@ function Result({ answer, title }: { answer: GraspAnswer; title: string }) {
             </Typography>
           ))}
         </Box>
+      )}
+      {hold && (
+        <Typography variant="body2" color={answer.slipping || answer.crushRisk ? 'warning.main' : undefined}>
+          {hold}
+        </Typography>
       )}
       {(answer.gripperPositionRad !== undefined || answer.gripperEffort !== undefined) && (
         <Typography variant="caption" sx={{ display: 'block', fontFamily: MONO_FONT }}>
@@ -195,6 +203,28 @@ export function GraspPanel({ state, onClose }: Props) {
             </Typography>
           </Stack>
         </Collapse>
+
+        <Stack spacing={0.5}>
+          <Typography variant="caption" color="text.secondary" id="grip-strength-label">
+            Grip strength
+          </Typography>
+          <ToggleButtonGroup
+            exclusive
+            fullWidth
+            size="small"
+            aria-labelledby="grip-strength-label"
+            value={form.gripProfile}
+            onChange={(_e, value: unknown) => {
+              if (isGripProfile(value)) setForm({ gripProfile: value })
+            }}
+          >
+            {GRIP_PROFILES.map((g) => (
+              <ToggleButton key={g.value} value={g.value} title={g.hint}>
+                {g.label}
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+        </Stack>
 
         <Button
           size="small"

@@ -109,4 +109,21 @@ describe('GraspPanel', () => {
     expect(render(state({ errors: ['x must be a number'], showErrors: true }))).toContain('x must be a number')
     expect(render(state({ errors: ['x must be a number'], showErrors: false }))).not.toContain('x must be a number')
   })
+
+  it('has a grip strength selector showing the current profile', () => {
+    const html = render(state({ form: { ...DEFAULT_FORM, gripProfile: 'firm' } }))
+    expect(html).toContain('Grip strength')
+    for (const label of ['Gentle', 'Normal', 'Firm']) expect(html).toContain(label)
+    const pressed = [...html.matchAll(/<button[^>]*aria-pressed="true"[^>]*>([A-Za-z]+)/g)].map((m) => m[1])
+    expect(pressed).toEqual(['Firm'])
+  })
+
+  it('shows the grip profile and holding load of a grasp result', () => {
+    const run = {
+      ok: true, accepted: false, requestId: 'r', action: 'execute', outcome: 'grasped' as const, reasons: [], steps: [],
+      gripProfile: 'gentle', holdingLoad: 131, slipping: false, crushRisk: false,
+    }
+    const html = render(state({ stream: { requestId: 'r', action: 'execute', state: 'done', outcome: run } }))
+    expect(html).toContain('Grip gentle, holding load 131')
+  })
 })

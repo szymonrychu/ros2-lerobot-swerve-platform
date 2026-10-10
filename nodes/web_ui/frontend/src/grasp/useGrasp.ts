@@ -33,7 +33,7 @@ import {
   SceneWaypoint,
   waypointScenePoints,
 } from './grasp'
-import { loadObjectSettings, saveObjectSettings } from './objectSettings'
+import { loadGripProfile, loadObjectSettings, saveGripProfile, saveObjectSettings } from './objectSettings'
 import { IDLE_PICK, pickStep, PickState } from './pick'
 
 /** Synthetic WS topic carrying the state of the running execute/release (see the backend bridge). */
@@ -89,7 +89,11 @@ export interface GraspArgs {
 }
 
 export function useGrasp({ tabId, topicData, mount, notify }: GraspArgs): GraspPanelState {
-  const [form, setFormState] = useState<GraspForm>(() => ({ ...DEFAULT_FORM, ...loadObjectSettings(browserStorage()) }))
+  const [form, setFormState] = useState<GraspForm>(() => ({
+    ...DEFAULT_FORM,
+    ...loadObjectSettings(browserStorage()),
+    gripProfile: loadGripProfile(browserStorage()),
+  }))
   const [plan, setPlan] = useState<PlanState | null>(null)
   const [planning, setPlanning] = useState(false)
   const [starting, setStarting] = useState(false)
@@ -103,6 +107,7 @@ export function useGrasp({ tabId, topicData, mount, notify }: GraspArgs): GraspP
   const executing = starting || stream?.state === 'running'
   const { width, depth, height, gapBelow } = form
   useEffect(() => saveObjectSettings(browserStorage(), { width, depth, height, gapBelow }), [width, depth, height, gapBelow])
+  useEffect(() => saveGripProfile(browserStorage(), form.gripProfile), [form.gripProfile])
 
   const planRequest = useMemo(() => buildGraspRequest('plan', form), [form])
   const errors = planRequest.ok ? [] : planRequest.errors

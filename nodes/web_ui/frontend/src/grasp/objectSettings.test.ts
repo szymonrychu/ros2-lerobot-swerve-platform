@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_OBJECT_SETTINGS, loadObjectSettings, OBJECT_SETTINGS_KEY, saveObjectSettings } from './objectSettings'
+import {
+  DEFAULT_OBJECT_SETTINGS,
+  GRIP_PROFILE_KEY,
+  loadGripProfile,
+  loadObjectSettings,
+  OBJECT_SETTINGS_KEY,
+  saveGripProfile,
+  saveObjectSettings,
+} from './objectSettings'
 
 function memory(initial: Record<string, string> = {}) {
   const data = { ...initial }
@@ -41,5 +49,22 @@ describe('object settings persistence', () => {
   it('saving never throws when storage does', () => {
     expect(() => saveObjectSettings(throwing, DEFAULT_OBJECT_SETTINGS)).not.toThrow()
     expect(() => saveObjectSettings(undefined, DEFAULT_OBJECT_SETTINGS)).not.toThrow()
+  })
+})
+
+describe('grip strength persistence', () => {
+  it('defaults to normal and round-trips a valid profile', () => {
+    expect(loadGripProfile(undefined)).toBe('normal')
+    const s = memory()
+    saveGripProfile(s, 'gentle')
+    expect(s.data[GRIP_PROFILE_KEY]).toBe('gentle')
+    expect(loadGripProfile(s)).toBe('gentle')
+  })
+
+  it('ignores unknown stored values and storage that throws', () => {
+    expect(loadGripProfile(memory({ [GRIP_PROFILE_KEY]: 'crushing' }))).toBe('normal')
+    expect(loadGripProfile(throwing)).toBe('normal')
+    expect(() => saveGripProfile(throwing, 'firm')).not.toThrow()
+    expect(() => saveGripProfile(undefined, 'firm')).not.toThrow()
   })
 })
