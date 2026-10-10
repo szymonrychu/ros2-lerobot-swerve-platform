@@ -14,9 +14,12 @@ from .fakes import FakeArmBackend
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
 HOLD_DELAY = 0.37  # distinct hold_check_delay_s so the fake can tell the post-grasp hold check sleeps apart
-STALL = -0.09  # jaw stops on an object 0.075 rad before closed, within the settle tolerance (0.59 rad travel)
+STALL = -0.09  # jaw stops on a thin object 0.075 rad before closed, within the settle tolerance (0.59 rad travel)
 DEFAULT_TORQUE = CONFIG.grip_profiles.presets["normal"].torque_limit
 GENTLE = CONFIG.grip_profiles.presets["gentle"]
+# Stall-path grasps only exist between the converge and settle tolerances of closed, where the default
+# gripper_empty_stall_rad (0.08) calls them empty jaws: these tests lower it to exercise the stall-path hold.
+EMPTY_STALL = 0.05
 
 
 def make(tmp_path: Path, be: FakeArmBackend | None = None) -> tuple[ArmController, FakeArmBackend]:
@@ -24,6 +27,7 @@ def make(tmp_path: Path, be: FakeArmBackend | None = None) -> tuple[ArmControlle
     cfg = CONFIG.model_copy(deep=True)
     cfg.arm.home_file = tmp_path / "home.yaml"
     cfg.grip_profiles.hold_check_delay_s = HOLD_DELAY
+    cfg.limits.gripper_empty_stall_rad = EMPTY_STALL  # STALL is a thin object here, not an empty jaw
     return ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg), be
 
 
@@ -97,15 +101,17 @@ def test_target_load_stops_the_close_once_the_closing_load_reaches_it(tmp_path: 
     assert res.status == "grasped", res.message
     assert "target_load" in res.message
     jaw = res.positions["gripper"]
-    # Stopped near 0.6 - 120/1000 = 0.48 rad, well before the 150 contact threshold (0.45 rad) and closed.
-    assert 0.44 < jaw < 0.5
+    # Stopped near 0.6 - target_load/1000 (0.52 rad for 80), before the contact threshold (0.48 rad for 120).
+    stop = 0.6 - GENTLE.target_load / 1000.0
+    assert stop - 0.04 < jaw < stop + 0.02
+    assert jaw > 0.6 - GENTLE.contact_effort_threshold / 1000.0
     assert be.commands[-1]["gripper"] == pytest.approx(jaw)  # holds where the load reached the target
 
 
 def test_target_load_ignores_load_in_the_opening_direction(tmp_path: Path) -> None:
     be = FakeArmBackend()
     be.positions["gripper"] = 1.0
-    be.on_sleep = lambda b: b.efforts.update(gripper=-130.0 if b.positions["gripper"] < 0.6 else 0.0)
+    be.on_sleep = lambda b: b.efforts.update(gripper=-110.0 if b.positions["gripper"] < 0.6 else 0.0)
     arm, be = make(tmp_path, be)
     res = arm.set_gripper(close_until_effort=True, grip_profile="gentle")
     assert res.status == "closed_no_contact", res.message
@@ -146,7 +152,7 @@ def test_torque_restored_when_the_close_is_aborted(tmp_path: Path) -> None:
     be.on_sleep = stop_soon
     res = arm.set_gripper(close_until_effort=True, grip_profile="firm")
     assert res.status == "stopped"
-    assert torque_writes(be) == [700, DEFAULT_TORQUE]
+    assert torque_writes(be) == [CONFIG.grip_profiles.presets["firm"].torque_limit, DEFAULT_TORQUE]
 
 
 def test_torque_restored_when_the_close_raises(tmp_path: Path) -> None:

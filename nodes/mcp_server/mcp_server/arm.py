@@ -1070,7 +1070,10 @@ class ArmController:
                 if result is None or result.status != "grasped":
                     self.restore_default_torque_limit()
         if result.status == "converged":
-            return result.model_copy(update={"status": "closed_no_contact", "message": "closed without contact"})
+            message = (
+                result.message if result.message.startswith("closed without contact") else "closed without contact"
+            )
+            return result.model_copy(update={"status": "closed_no_contact", "message": message})
         return result
 
     def write_torque_limit(self, value: int) -> None:
@@ -1221,6 +1224,24 @@ class ArmController:
             "- likely pressing on an object rather than holding it"
         )
 
+    def empty_jaw_message(self, stopped: float) -> str | None:
+        """Why a contact at `stopped` is an empty jaw (None when the jaw stopped far enough from closed to hold).
+
+        Args:
+            stopped (float): Gripper position at the stall or contact (rad).
+
+        Returns:
+            str | None: The closed_no_contact message, or None when something can be between the jaws.
+        """
+        short = abs(stopped - self.cfg.arm.gripper_closed_rad)
+        limit = self.cfg.limits.gripper_empty_stall_rad
+        if short >= limit:
+            return None
+        return (
+            f"closed without contact: the jaw stopped {short:.3f} rad before closed (< gripper_empty_stall_rad "
+            f"{limit:g}): empty jaws, nothing gripped"
+        )
+
     def hold_blocked(self, result: ArmMotionResult, message: str) -> ArmMotionResult:
         """'blocked' result holding the measured jaw position with no squeeze (caller holds the motion guard).
 
@@ -1257,7 +1278,10 @@ class ArmController:
         """
         if result.status == "grasped" and result.positions is not None:
             loose = self.loose_grasp_message(start_jaw, result.positions[self.gripper])
-            return result if loose is None else self.hold_blocked(result, loose)
+            if loose is not None:
+                return self.hold_blocked(result, loose)
+            empty = self.empty_jaw_message(result.positions[self.gripper])
+            return result if empty is None else result.model_copy(update={"status": "converged", "message": empty})
         residual = result.residual_error.get(self.gripper)
         if result.status != "converged" or residual is None or result.positions is None:
             return result
@@ -1273,6 +1297,9 @@ class ArmController:
         loose = self.loose_grasp_message(start_jaw, stalled)
         if loose is not None:
             return self.hold_blocked(result, loose)
+        empty = self.empty_jaw_message(stalled)
+        if empty is not None:
+            return result.model_copy(update={"message": empty})
         squeeze = min(squeeze_rad, abs(toward_closed))
         hold = stalled + math.copysign(squeeze, toward_closed)
         if not self.command(intent | {self.gripper: hold}):

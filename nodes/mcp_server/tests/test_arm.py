@@ -596,6 +596,7 @@ def stall_jaw_at(stop: float) -> FakeArmBackend:
 @pytest.mark.parametrize("close_until_effort", [True, False])
 def test_gripper_stall_before_closed_is_reported_as_grasp(tmp_path: Path, close_until_effort: bool) -> None:
     arm, be = make(tmp_path, stall_jaw_at(JAW_STALL))
+    arm.cfg.limits.gripper_empty_stall_rad = 0.0  # a thin object here; empty-jaw stalls: test_empty_* below
     if close_until_effort:
         res = arm.set_gripper(close_until_effort=True, effort_threshold=300.0)
     else:
@@ -614,6 +615,7 @@ def test_gripper_grasp_squeeze_never_passes_closed(tmp_path: Path) -> None:
     be = stall_jaw_at(-0.13)
     arm, be = make(tmp_path, be)
     arm.cfg.grip_profiles.presets["normal"].squeeze_rad = 0.1
+    arm.cfg.limits.gripper_empty_stall_rad = 0.0  # a thin object here, not an empty jaw
     res = arm.set_gripper(open_fraction=0.0)
     assert res.status == "grasped", res.message
     assert be.commands[-1]["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)
@@ -821,8 +823,45 @@ def test_grasp_thresholds_come_from_config(tmp_path: Path) -> None:
     arm, _ = make(tmp_path, stall_from(1.5, 1.0, effort=500.0))
     arm.cfg.limits.gripper_grasp_max_open_rad = 0.9
     assert close_on_load(arm).status == "blocked"
-    assert McpServerConfig().limits.gripper_grasp_min_travel_rad == 0.15
+    assert McpServerConfig().limits.gripper_grasp_min_travel_rad == 0.10
     assert McpServerConfig().limits.gripper_grasp_max_open_rad == 1.2
+
+
+def test_jar_contact_after_0147_rad_travel_is_a_grasp(tmp_path: Path) -> None:
+    """2026-10-10: the normal close on a 39 mm jar touched at 0.336 rad after 0.147 rad travel (opened for a 4 mm
+    smaller width estimate) and was refused as 'blocked' by the 0.15 rad minimum travel."""
+    arm, _ = make(tmp_path, stall_from(0.483, 0.336, effort=400.0))
+    res = close_on_load(arm)
+    assert res.status == "grasped", res.message
+
+
+def test_empty_firm_close_stalling_short_of_closed_is_not_a_grasp(tmp_path: Path) -> None:
+    """2026-10-10: the empty jaw closing with the firm profile stalled 0.055 rad before closed (-0.110 rad) at load
+    148 (above hold_effort_min 100): nothing is between the jaws, so it must never be reported as grasped."""
+    closed = CONFIG.arm.gripper_closed_rad
+    arm, be = make(tmp_path, stall_from(0.914, closed + 0.055, effort=148.0))
+    res = arm.set_gripper(close_until_effort=True, grip_profile="firm")
+    assert res.status == "closed_no_contact", res.message
+    assert "empty" in res.message
+    assert res.holding_load is None
+    # the default torque limit is restored (no grasp keeps the firm torque)
+    assert be.register_writes[-1] == ("gripper", "torque_limit", CONFIG.grip_profiles.default.torque_limit)
+
+
+def test_load_contact_next_to_closed_is_not_a_grasp(tmp_path: Path) -> None:
+    """A load spike on an empty jaw just before closed (effort path) is not an object either."""
+    closed = CONFIG.arm.gripper_closed_rad
+    arm, _ = make(tmp_path, stall_from(0.914, closed + 0.055, effort=500.0))
+    res = close_on_load(arm)
+    assert res.status == "closed_no_contact", res.message
+
+
+def test_empty_stall_threshold_comes_from_config(tmp_path: Path) -> None:
+    closed = CONFIG.arm.gripper_closed_rad
+    arm, _ = make(tmp_path, stall_from(0.914, closed + 0.055, effort=148.0))
+    arm.cfg.limits.gripper_empty_stall_rad = 0.04
+    assert arm.set_gripper(close_until_effort=True, grip_profile="firm").status == "grasped"
+    assert McpServerConfig().limits.gripper_empty_stall_rad == 0.08
 
 
 # --- wrist roll guard: no big roll with a wide open gripper ---

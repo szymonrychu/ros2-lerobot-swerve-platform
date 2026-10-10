@@ -260,6 +260,33 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
     assert all(q <= grip["squeeze_max_rad"] for q in squeeze)
     assert presets["gentle"]["close_speed_rps"] < presets["normal"]["close_speed_rps"]
     assert presets["gentle"]["target_load"] < presets["gentle"]["contact_effort_threshold"]
+    # tuned on the real gripper 2026-10-10 (grip tuning session); the deployed presets equal the config defaults
+    assert presets == {
+        "gentle": {
+            "squeeze_rad": 0.01,
+            "torque_limit": 250,
+            "close_speed_rps": 0.2,
+            "target_load": 80,
+            "contact_effort_threshold": 120,
+            "crush_load": 200,
+        },
+        "normal": {
+            "squeeze_rad": 0.03,
+            "torque_limit": 500,
+            "close_speed_rps": 0.5,
+            "target_load": 200,
+            "contact_effort_threshold": 300,
+            "crush_load": 450,
+        },
+        "firm": {
+            "squeeze_rad": 0.05,
+            "torque_limit": 650,
+            "close_speed_rps": 0.4,
+            "target_load": 300,
+            "contact_effort_threshold": 350,
+            "crush_load": 600,
+        },
+    }
     for preset in presets.values():
         assert preset["close_speed_rps"] <= 0.5  # limits.gripper_velocity_rps default caps it
         assert preset["crush_load"] > preset.get("target_load", 0)

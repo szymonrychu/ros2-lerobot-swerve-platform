@@ -1225,26 +1225,28 @@ ros2_nodes:
         closing_load_sign: 1          # decoded effort sign while closing on an object (gripper not inverted)
         hold_check_delay_s: 0.25      # holding_load / slipping sampled this long after the hold (twice)
         slip_threshold_rad: 0.01      # jaw closing more than this between the samples = slipping
-        presets:
-          gentle:                     # fragile, soft or light objects
-            squeeze_rad: 0.02
+        presets:                      # tuned on the real gripper 2026-10-10 (grip tuning session, mcp_server README)
+          gentle:                     # fragile, soft or light objects (a plush still gets squashed: load cannot see it)
+            squeeze_rad: 0.01
             torque_limit: 250
-            close_speed_rps: 0.25
-            target_load: 120          # stop closing once the closing load reaches this
-            contact_effort_threshold: 150
-            crush_load: 220           # holding load above this reports crush_risk
+            close_speed_rps: 0.2
+            target_load: 80           # stop closing once the closing load reaches this
+            contact_effort_threshold: 120
+            crush_load: 200           # holding load above this reports crush_risk
           normal:                     # ordinary objects (squeeze, speed and contact load used before profiles)
             squeeze_rad: 0.03
             torque_limit: 500
             close_speed_rps: 0.5
+            target_load: 200
             contact_effort_threshold: 300
             crush_load: 450
-          firm:                       # heavy or slippery objects, tools
-            squeeze_rad: 0.06
-            torque_limit: 700
-            close_speed_rps: 0.5
-            contact_effort_threshold: 400
-            crush_load: 650
+          firm:                       # heavy or slippery objects, tools (unvalidated on a held object)
+            squeeze_rad: 0.05
+            torque_limit: 650
+            close_speed_rps: 0.4
+            target_load: 300
+            contact_effort_threshold: 350
+            crush_load: 600
   - name: poi_store
     node_type: poi_store
     present: true

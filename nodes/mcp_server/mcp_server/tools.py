@@ -758,9 +758,11 @@ def register_core_tools(ctx: ToolContext) -> None:
         holds that position; 'closed_no_contact' if it closed fully without touching anything). Closing (also
         open_fraction=0) reports 'grasped' too when the jaw stalls before the closed position: contact is inferred
         from the stall and the gripper holds the stall position plus a small squeeze. A contact only counts as
-        'grasped' when the jaw closed at least gripper_grasp_min_travel_rad (0.15) from where it started and stopped
+        'grasped' when the jaw closed at least gripper_grasp_min_travel_rad (0.10) from where it started and stopped
         no more open than gripper_grasp_max_open_rad (1.2); otherwise the status is 'blocked' (the jaw is pressing on
-        an object, not holding it) and the measured jaw position is held without squeeze. The load is ignored for
+        an object, not holding it) and the measured jaw position is held without squeeze. A jaw that stops within
+        gripper_empty_stall_rad (0.08, about 6 mm) of closed is empty: 'closed_no_contact', never 'grasped' (an
+        empty jaw stalls short of closed under a high torque limit). The load is ignored for
         the first 0.3 s of a close and counts only after the jaw moved or stalled. The arm stays held at its intended
         targets while the gripper moves. Give exactly one of
         open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done.

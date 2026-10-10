@@ -175,8 +175,14 @@ class LimitSettings(StrictModel):
     gripper_stall_lead_rad: float = Field(default=0.15, gt=0.0)
     # A stall/effort contact only counts as 'grasped' when the jaw closed at least gripper_grasp_min_travel_rad from its
     # start AND stopped no more open than gripper_grasp_max_open_rad; otherwise status 'blocked' (pressing on something).
-    gripper_grasp_min_travel_rad: float = Field(default=0.15, ge=0.0)
+    # 0.10 since 2026-10-10: a 39 mm jar touched after 0.147 rad (the width was estimated 4 mm too small).
+    gripper_grasp_min_travel_rad: float = Field(default=0.10, ge=0.0)
     gripper_grasp_max_open_rad: float = Field(default=1.2, gt=0.0)
+    # A stall/effort contact within this of closed is an empty jaw, not an object: 'closed_no_contact', never
+    # 'grasped'. The empty jaw stalls short of closed under a high torque limit (2026-10-10, firm: 0.055 rad before
+    # closed at load 148, above grasp.hold_effort_min). 0.08 rad is a 6 mm gap; the narrowest object
+    # (grasp.min_object_width_m 1 cm) stops about 0.13 rad before closed.
+    gripper_empty_stall_rad: float = Field(default=0.08, ge=0.0)
     # Wrist roll guard: a motion that changes wrist_roll by more than roll_guard_min_change_rad is refused while the
     # gripper (measured, or targeted in the same call) is more open than roll_max_gripper_open_rad (about half open of
     # the -0.17 .. 1.75 range): the open moving finger can jam against the robot body or an object.
@@ -716,23 +722,36 @@ def default_grip_presets() -> dict[str, GripProfile]:
     """Built-in grip presets gentle / normal / firm.
 
     Returns:
-        dict[str, GripProfile]: Preset name -> profile. normal is the behaviour before grip profiles (0.03 rad
-            squeeze, 0.5 rad/s close, contact at 300) with the gripper torque at 50 % (LeRobot's burn-out guard).
+        dict[str, GripProfile]: Preset name -> profile, tuned on the real gripper 2026-10-10. normal is the
+            behaviour before grip profiles (0.03 rad squeeze, 0.5 rad/s close, contact at 300, torque at 50 %:
+            LeRobot's burn-out guard) plus a closing-load stop at 200. gentle stops earlier on soft objects (it still
+            squashed a 4 cm plush tail to about 7 mm: a load-based crush_load cannot detect squashing a soft object).
+            firm is unvalidated on a held object (its 2026-10-10 attempts missed).
     """
     return {
         "gentle": GripProfile(
-            squeeze_rad=0.02,
+            squeeze_rad=0.01,
             torque_limit=250,
-            close_speed_rps=0.25,
-            target_load=120.0,
-            contact_effort_threshold=150.0,
-            crush_load=220.0,
+            close_speed_rps=0.2,
+            target_load=80.0,
+            contact_effort_threshold=120.0,
+            crush_load=200.0,
         ),
         "normal": GripProfile(
-            squeeze_rad=0.03, torque_limit=500, close_speed_rps=0.5, contact_effort_threshold=300.0, crush_load=450.0
+            squeeze_rad=0.03,
+            torque_limit=500,
+            close_speed_rps=0.5,
+            target_load=200.0,
+            contact_effort_threshold=300.0,
+            crush_load=450.0,
         ),
         "firm": GripProfile(
-            squeeze_rad=0.06, torque_limit=700, close_speed_rps=0.5, contact_effort_threshold=400.0, crush_load=650.0
+            squeeze_rad=0.05,
+            torque_limit=650,
+            close_speed_rps=0.4,
+            target_load=300.0,
+            contact_effort_threshold=350.0,
+            crush_load=600.0,
         ),
     }
 

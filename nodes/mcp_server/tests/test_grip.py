@@ -9,21 +9,41 @@ from mcp_server.grip import GripProfileOverride, resolve_grip_profile
 
 
 def test_default_presets_gentle_normal_firm() -> None:
+    """Presets tuned on the real gripper 2026-10-10 (grip tuning session: jar, plush croc, cube)."""
     grip = McpServerConfig().grip_profiles
     assert grip.default_grip_profile == "normal"
     assert set(grip.presets) == {"gentle", "normal", "firm"}
     gentle, normal, firm = grip.presets["gentle"], grip.presets["normal"], grip.presets["firm"]
-    assert gentle.squeeze_rad == pytest.approx(0.02)
-    assert gentle.torque_limit == 250
-    assert gentle.close_speed_rps < normal.close_speed_rps
-    # normal = the behaviour before grip profiles: 0.03 rad squeeze, 0.5 rad/s close, 300 contact load.
-    assert normal.squeeze_rad == pytest.approx(0.03)
-    assert normal.close_speed_rps == pytest.approx(0.5)
-    assert normal.contact_effort_threshold == pytest.approx(300.0)
-    assert normal.target_load is None
-    assert firm.squeeze_rad > normal.squeeze_rad
-    assert firm.torque_limit == 700
+    assert gentle.model_dump() == {
+        "squeeze_rad": 0.01,
+        "torque_limit": 250,
+        "close_speed_rps": 0.2,
+        "target_load": 80.0,
+        "contact_effort_threshold": 120.0,
+        "crush_load": 200.0,
+    }
+    # normal = the behaviour before grip profiles (0.03 rad squeeze, 0.5 rad/s close, 300 contact load) plus a
+    # closing-load stop at 200.
+    assert normal.model_dump() == {
+        "squeeze_rad": 0.03,
+        "torque_limit": 500,
+        "close_speed_rps": 0.5,
+        "target_load": 200.0,
+        "contact_effort_threshold": 300.0,
+        "crush_load": 450.0,
+    }
+    assert firm.model_dump() == {
+        "squeeze_rad": 0.05,
+        "torque_limit": 650,
+        "close_speed_rps": 0.4,
+        "target_load": 300.0,
+        "contact_effort_threshold": 350.0,
+        "crush_load": 600.0,
+    }
     assert gentle.torque_limit < normal.torque_limit < firm.torque_limit
+    assert gentle.squeeze_rad < normal.squeeze_rad < firm.squeeze_rad
+    for p in grip.presets.values():
+        assert p.target_load is not None and p.target_load < p.contact_effort_threshold < (p.crush_load or 0.0)
     assert grip.torque_limit_max == 800
     assert all(p.torque_limit <= grip.torque_limit_max for p in grip.presets.values())
     assert all(p.squeeze_rad <= grip.squeeze_max_rad for p in grip.presets.values())
@@ -109,7 +129,7 @@ def test_report_lists_the_applied_values() -> None:
     cfg = McpServerConfig()
     report = resolve_grip_profile(cfg.grip_profiles, cfg.limits, "firm").report()
     assert report["name"] == "firm"
-    assert report["torque_limit"] == 700
+    assert report["torque_limit"] == 650
     assert report["capped"] == []
     assert set(report) >= {"squeeze_rad", "close_speed_rps", "target_load", "contact_effort_threshold", "crush_load"}
 
