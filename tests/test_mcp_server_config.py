@@ -550,3 +550,21 @@ def test_shoulder_lift_upper_limit_allows_reaching_below_the_floor() -> None:
     1.85 rad; 1.9 rad (1.85 usable after the margin) lets a folded arm reach about 5 cm below floor level."""
     overrides = node_config("mcp_server")["arm"]["joint_limit_overrides_rad"]
     assert overrides == {"shoulder_lift": [-1.745, 1.9]}
+
+
+def test_mcp_server_sag_compensation_uses_the_held_out_fit() -> None:
+    """Gravity sag compensation is enabled with the gains of docs/calibration/2026-10-10/sag_fit_results.json (held-out
+    residual reduction above 50% for shoulder_lift and elbow_flex); wrist_flex stays uncompensated (its data cover
+    only a sliver of its torque range) and the README documents the feature and how to re-fit it."""
+    sag = node_config("mcp_server")["arm"]["sag_compensation"]
+    fit = json.loads((REPO_ROOT / "docs" / "calibration" / "2026-10-10" / "sag_fit_results.json").read_text())
+    assert sag["enabled"] is True
+    assert set(sag["k"]) == {"shoulder_lift", "elbow_flex"}
+    for joint, gain in sag["k"].items():
+        assert gain == pytest.approx(fit["k"][joint], abs=5e-4)
+        assert fit["held_out_pooled"]["reduction"][joint] > 0.5
+    assert sag["k_lowering"] == {"shoulder_lift": pytest.approx(fit["k_lowering"]["shoulder_lift"], abs=5e-4)}
+    assert 0.0 < sag["max_rad"] <= 0.12
+    assert (REPO_ROOT / "docs" / "calibration" / "2026-10-10" / "sag_fit.md").is_file()
+    readme = (NODE_DIR / "README.md").read_text()
+    assert "Gravity sag compensation" in readme and "arm_settle" in readme and "sag_fit.py" in readme

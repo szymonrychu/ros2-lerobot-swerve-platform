@@ -1,0 +1,172 @@
+{
+  "inputs": {
+    "touches": 8,
+    "journal_records": 0
+  },
+  "samples": {
+    "lifting": {
+      "shoulder_lift": 14,
+      "elbow_flex": 8,
+      "wrist_flex": 6
+    },
+    "lowering": {
+      "shoulder_lift": 8,
+      "wrist_flex": 2
+    }
+  },
+  "k": {
+    "shoulder_lift": 0.1411530680270211,
+    "elbow_flex": 0.16896316949170312,
+    "wrist_flex": 1.060611904102819
+  },
+  "k_lowering": {
+    "shoulder_lift": 0.00405083661521497,
+    "elbow_flex": 0.0,
+    "wrist_flex": 0.0
+  },
+  "held_out_by_mode": {
+    "lifting": {
+      "before": {
+        "shoulder_lift": 0.08379320633900715,
+        "elbow_flex": 0.04156946174472757,
+        "wrist_flex": 0.011996943006185276
+      },
+      "after": {
+        "shoulder_lift": 0.005422996111375773,
+        "elbow_flex": 0.007084455647019851,
+        "wrist_flex": 0.003142240052269767
+      },
+      "reduction": {
+        "shoulder_lift": 0.935281195835428,
+        "elbow_flex": 0.8295754780149781,
+        "wrist_flex": 0.7380799383101413
+      },
+      "samples": {
+        "shoulder_lift": 14,
+        "elbow_flex": 8,
+        "wrist_flex": 6
+      }
+    },
+    "lowering": {
+      "before": {
+        "shoulder_lift": 0.0038545723909529897,
+        "wrist_flex": 0.006330163936762531
+      },
+      "after": {
+        "shoulder_lift": 0.0033815100337466065,
+        "wrist_flex": 0.006330163936762531
+      },
+      "reduction": {
+        "shoulder_lift": 0.12272758408084405,
+        "wrist_flex": 0.0
+      },
+      "samples": {
+        "shoulder_lift": 8,
+        "wrist_flex": 2
+      }
+    }
+  },
+  "held_out_pooled": {
+    "before": {
+      "shoulder_lift": 0.06688425613990212,
+      "elbow_flex": 0.04156946174472757,
+      "wrist_flex": 0.010861064634133045
+    },
+    "after": {
+      "shoulder_lift": 0.004782550177480375,
+      "elbow_flex": 0.007084455647019851,
+      "wrist_flex": 0.004174086519963195
+    },
+    "reduction": {
+      "shoulder_lift": 0.9284951279494431,
+      "elbow_flex": 0.8295754780149781,
+      "wrist_flex": 0.6156834840255621
+    },
+    "samples": {
+      "shoulder_lift": 22,
+      "elbow_flex": 8,
+      "wrist_flex": 8
+    }
+  },
+  "held_out_single_gain": {
+    "before": {
+      "shoulder_lift": 0.06688425613990212,
+      "elbow_flex": 0.04156946174472757,
+      "wrist_flex": 0.010861064634133047
+    },
+    "after": {
+      "shoulder_lift": 0.04012214618389854,
+      "elbow_flex": 0.007084455647019851,
+      "wrist_flex": 0.00896668320014522
+    },
+    "reduction": {
+      "shoulder_lift": 0.40012570222841604,
+      "elbow_flex": 0.8295754780149781,
+      "wrist_flex": 0.1744194973331029
+    },
+    "samples": {
+      "shoulder_lift": 22,
+      "elbow_flex": 8,
+      "wrist_flex": 8
+    },
+    "gains": {
+      "shoulder_lift": 0.08972134502543423,
+      "elbow_flex": 0.16896316949170312,
+      "wrist_flex": 0.6859327724734161
+    }
+  },
+  "hover_tool_point": {
+    "per_touch": {
+      "t1": {
+        "before_mm": 13.73,
+        "after_mm": 2.63
+      },
+      "t2": {
+        "before_mm": 12.57,
+        "after_mm": 3.05
+      },
+      "t4": {
+        "before_mm": 12.87,
+        "after_mm": 5.0
+      },
+      "t5": {
+        "before_mm": 12.84,
+        "after_mm": 3.5
+      },
+      "t6": {
+        "before_mm": 15.92,
+        "after_mm": 3.9
+      },
+      "t7": {
+        "before_mm": 9.04,
+        "after_mm": 2.92
+      },
+      "t8": {
+        "before_mm": 9.99,
+        "after_mm": 3.14
+      },
+      "t9": {
+        "before_mm": 13.84,
+        "after_mm": 2.53
+      }
+    },
+    "rms": {
+      "before_mm": 12.76,
+      "after_mm": 3.42
+    }
+  },
+  "torque_range": {
+    "shoulder_lift": [
+      0.391,
+      0.7403
+    ],
+    "elbow_flex": [
+      0.1349,
+      0.3344
+    ],
+    "wrist_flex": [
+      0.0093,
+      0.0124
+    ]
+  }
+}

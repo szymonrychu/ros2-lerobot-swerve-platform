@@ -1060,6 +1060,17 @@ ros2_nodes:
         # Used for arm <-> base_link conversions (gripper-camera base_link/map coordinates, grasp objects given in
         # base_link, the floor slow zone). null disables them.
         base_in_base_link: {x: 0.0592, y: -0.05, z: 0.100, yaw: 0.0}
+        # Gravity sag compensation (nodes/mcp_server/README.md, "Gravity sag compensation"): commanded joint target =
+        # target - k * gravity torque (URDF inertials), k after a lifting approach, k_lowering after a lowering one
+        # (rad per N m), at most max_rad. Fitted 2026-10-10 from the grid-sheet touch-downs
+        # (docs/calibration/2026-10-10/sag_fit.md): held-out residual shoulder_lift 0.067 -> 0.005 rad, elbow_flex
+        # 0.042 -> 0.007 rad, hover tool point 12.8 -> 3.4 mm RMS. wrist_flex is not compensated (its data cover only
+        # 0.009-0.012 N m of a torque range up to 0.117 N m). Re-fit with sag_fit.py from the arm_settle records.
+        sag_compensation:
+          enabled: true
+          k: {shoulder_lift: 0.141, elbow_flex: 0.169}
+          k_lowering: {shoulder_lift: 0.004}
+          max_rad: 0.12
       # Camera geometry for pixel_to_ground, annotated images and candidate points (nodes/mcp_server/README.md, "Camera
       # tools and calibration"). Both cameras are NOT calibrated until intrinsics and mount are set. intrinsics is
       # {calibration_file: <camera_calibration yaml>} or an approximation {hfov_deg: 66.0, width: 640, height: 480};

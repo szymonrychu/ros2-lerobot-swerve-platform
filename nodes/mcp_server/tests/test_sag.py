@@ -18,7 +18,9 @@ from mcp_server.sag import (
     cross_validate,
     fit_gains,
     parse_settle_records,
+    pool_reports,
     predict_deflection,
+    record_pairs,
     rms_by_joint,
 )
 
@@ -234,6 +236,17 @@ def test_cross_validation_holds_each_group_out() -> None:
     assert report["after"]["shoulder_lift"] == pytest.approx(0.0, abs=1e-12)
     assert report["before"]["shoulder_lift"] > 0.0
     assert report["reduction"]["shoulder_lift"] == pytest.approx(1.0)
+    assert report["samples"] == {"shoulder_lift": 3}
+
+
+def test_pooled_rms_combines_reports_by_sample_count() -> None:
+    a = {"before": {"shoulder_lift": 0.1}, "after": {"shoulder_lift": 0.0}, "samples": {"shoulder_lift": 1}}
+    b = {"before": {"shoulder_lift": 0.0}, "after": {"shoulder_lift": 0.02}, "samples": {"shoulder_lift": 3}}
+    pooled = pool_reports([a, b])
+    assert pooled["before"]["shoulder_lift"] == pytest.approx(math.sqrt(0.01 / 4))
+    assert pooled["after"]["shoulder_lift"] == pytest.approx(math.sqrt(3 * 0.0004 / 4))
+    assert pooled["samples"] == {"shoulder_lift": 4}
+    assert pooled["reduction"]["shoulder_lift"] == pytest.approx(1 - pooled["after"]["shoulder_lift"] / 0.05)
 
 
 # --- structured log records ------------------------------------------------------------------------------------
@@ -255,3 +268,24 @@ def test_parse_settle_records_from_journal_lines() -> None:
     ]
     records = parse_settle_records(lines)
     assert records == [record]
+
+
+def test_record_pairs_split_by_approach_mode() -> None:
+    model = GravityModel(URDF)
+    pose = {"shoulder_pan": 0.0, "shoulder_lift": 0.8, "elbow_flex": -0.5, "wrist_flex": 0.2, "wrist_roll": 0.0}
+    record = {
+        "settled": True,
+        "commanded": pose | {"shoulder_lift": 0.74},
+        "measured": pose | {"shoulder_lift": 0.8, "elbow_flex": -0.47},
+        "modes": {"shoulder_lift": APPROACH_LIFTING, "elbow_flex": APPROACH_LOWERING, "wrist_flex": APPROACH_HOLD},
+    }
+    unsettled = record | {"settled": False}
+    split = record_pairs([record, unsettled], model, {"elbow_flex": 0.1})
+    tau = model.torques(record["measured"] | {"elbow_flex": -0.37})
+    ((lift_tau, lift_d, group),) = split[APPROACH_LIFTING]
+    assert group == "0"
+    assert lift_d == pytest.approx({"shoulder_lift": 0.06})
+    assert lift_tau == pytest.approx({"shoulder_lift": tau["shoulder_lift"]})
+    ((low_tau, low_d, _),) = split[APPROACH_LOWERING]
+    assert low_d == pytest.approx({"elbow_flex": 0.03})
+    assert low_tau == pytest.approx({"elbow_flex": tau["elbow_flex"]})

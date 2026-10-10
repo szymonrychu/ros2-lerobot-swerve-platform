@@ -78,3 +78,8 @@ arm stood 5 cm lower relative to the floor on 2026-10-08, or the follower joint 
 days; the stored data cannot separate the two. A fresh capture (gripper-camera samples with raw `joints`, floor
 touch-downs and tip positions at several poses, all on the same day) is needed before changing the offsets, the
 camera mount or the tool point.
+
+## Gravity sag fit
+
+The touch-downs also give the servo deflection under gravity load: `sag_fit.md` (gains of
+`arm.sag_compensation`, fitted and validated by `sag_fit.py` from `sag_fit.yaml`, output `sag_fit_results.json`).

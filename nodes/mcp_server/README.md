@@ -647,6 +647,68 @@ robot when a motion step runs. The blocking tools stay available for simple sing
 When the process shuts down with a busy queue (`__main__` calls `tools.stop_queued_motion`), the queue is cleared and the
 robot stopped first, so no queued Nav2 goal outlives the server.
 
+## Gravity sag compensation
+
+The STS3215 position servos are proportional controllers with gearbox friction: under the arm's weight a joint settles
+short of its target. Measured 2026-10-10: after lifting, shoulder_lift stops 0.06-0.10 rad below the target
+(`settled with residual error (shoulder_lift -0.061 rad)`), and after a top-down descent the tool point lands 9-16 mm
+short in reach and lower (elbow_flex 0.03-0.07 rad). Forward kinematics reports the true (short) pose; the
+compensation makes the arm land ON the target.
+
+**Model (`sag.py`, pure).** `GravityModel` reads the link masses and centres of mass (`<inertial>`) of
+`so101_arm.urdf` and computes the static gravity torque tau about shoulder_lift, elbow_flex and wrist_flex (the arm base
+level, gravity -z; shoulder_pan and wrist_roll carry none). The predicted deflection is d = k * tau, saturated at
+`max_rad`, in the direction gravity turns the joint. The friction band makes k depend on the final approach of the
+joint: `k` after a lifting approach (the last planned motion went against gravity: full load deflection) and
+`k_lowering` after a lowering one (the joint came down with gravity and stops early, about no deflection). A hold at a
+measured pose (lease acquire, stop, abort, timeout) uses the middle of the band, (k + k_lowering) / 2, where the arm
+neither rises nor sags.
+
+**Controller (`ArmController`).** With `enabled: true` every published setpoint (streamed moves of `move_joints`,
+`move_cartesian`, `move_path`, blended queue moves, `home`, the end-of-motion hold, the keepalive and the gripper
+streams' arm joints) is `commanded = target - d(target)`:
+
+- The approach mode of each joint comes from the planned final approach to the goal; a joint the motion does not move
+  (e.g. during a gripper motion) keeps its mode. The gains ramp from the current to the goal's values along the
+  motion, so a mode change never steps the command.
+- The compensation is applied in URDF space inside the joint limits minus margin (`arm_limit_margin_rad` and its
+  overrides): it never commands past a limit, and a target already inside the margin (a measured hold) is never pushed
+  further out. shoulder_pan, wrist_roll and the gripper are never changed, so the roll guard is unaffected.
+- `_last_setpoint` / `_last_target`, the tracking-error check, convergence and the settled-residual detection all use
+  the UNcompensated target: a compensated move that lands on its target converges with `reached target` instead of
+  reporting an overshoot, and `target` / `positions` / `residual_error` in results stay in target terms.
+- The bounded residual hold keeps the compensation: after `arm_settle_hold_s` a stalled joint is held at its measured
+  pose plus its compensation (not the bare measured pose), so the arm does not sag back.
+- Floor slow zone: the planned samples are checked as targets (where the arm should settle) AND as over-commanded
+  poses (where an arm that does not sag, e.g. load-free or resting on something, would go); each sample keeps the lower
+  clearance of the two (`lowest_point` then ends in `(sag over-command)`). The grasp planner and other FK floor checks
+  keep using the targets.
+- Off (`enabled: false`, the code default) the controller behaves exactly as before (tested).
+
+**Settle records.** Every arm move logs one structured line on the `mcp_server.sag` logger:
+`arm_settle {"status", "settled", "compensation_enabled", "target", "commanded", "measured", "residual", "modes",
+"gains"}` (rad, measured space): immediately for `settle: final` moves (converged or timeout), and for `trajectory_end`
+moves by the keepalive `SETTLE_PROBE_S` (1 s) after the move returned, unless another motion started first. Gripper-only
+motions and aborts log nothing. `measured - commanded` is the servo deflection under load whether or not compensation
+was on, so the records keep accumulating fit data.
+
+**Re-fit from logs.**
+
+1. Save the journal: `ssh client.ros2.lan 'sudo journalctl -u ros2-mcp_server --since <date> --no-pager' >
+   docs/calibration/2026-10-10/settle_<date>.log` (or a new dated calibration folder with a copy of the script).
+2. Add the file to `journals:` in `docs/calibration/2026-10-10/sag_fit.yaml` (and update `joint_offsets_rad` if the
+   offsets changed).
+3. `cd nodes/mcp_server && uv run python ../../docs/calibration/2026-10-10/sag_fit.py`: fits `k` (lifting records) and
+   `k_lowering` (lowering records) per joint with `sag.fit_gains` (least squares through the origin, never negative),
+   scores them leave-one-group-out (`sag.cross_validate`, `sag.pool_reports`) and writes `sag_fit_results.json`.
+4. Put the gains in `client.yml` (`arm.sag_compensation`) only for joints whose held-out reduction is clearly above 50%
+   and whose data cover the torques the arm uses; redeploy mcp_server.
+
+Fit 2026-10-10 (`docs/calibration/2026-10-10/sag_fit.md`): k shoulder_lift 0.141, elbow_flex 0.169, k_lowering
+shoulder_lift 0.004 rad per N m; held-out residual shoulder_lift 0.067 -> 0.005 rad, elbow_flex 0.042 -> 0.007 rad, hover
+tool point 12.8 -> 3.4 mm RMS. wrist_flex is not compensated (data only at 0.009-0.012 N m of a range up to 0.117 N m).
+Not modelled: a payload in the gripper (adds torque the model does not know), a tilted base, temperature.
+
 ## Safety model
 
 - **Base**: navigation goes through Nav2 (planner, controller, velocity smoother, collision monitor). `drive` publishes
@@ -734,9 +796,8 @@ robot stopped first, so no queued Nav2 goal outlives the server.
   ..." and the gripper holds the stall position plus the grip profile's `squeeze_rad` (normal 0.03) toward closed (never past
   closed) instead of squeezing to the full closed target. Both this and an effort contact must pass the closure check
   (`gripper_grasp_min_travel_rad` from the start, at most `gripper_grasp_max_open_rad` open), else `blocked`.
-- **No gravity lead**: a feed-forward offset (target + k in the lift direction) is not applied: whether a joint
-  works against gravity depends on the whole arm pose (needs a mass model), a motion-direction lead overshoots when
-  lowering, and the result cannot be checked without the robot.
+- **Gravity sag compensation** (optional, `arm.sag_compensation`): with a URDF mass model and per-approach gains the
+  published setpoints lead the target against gravity so the arm settles on it; see "Gravity sag compensation".
 - **No placeholder data**: nothing is published without fresh measured joint states; state tools omit stale sources.
 - **Floor slow zone**: every arm motion is checked once against the effective surface (robot plane, IMU level plane,
   per-call `surface_z_m` / `tilt_override_deg`); steps near or below it run at `floor_guard.slow_speed_scale`. It never
@@ -750,6 +811,7 @@ robot stopped first, so no queued Nav2 goal outlives the server.
 | `trajectory.py` | no | quintic interpolation, limit clamping, tracking error, `blend_trajectory` (velocity-continuous spline through via points) |
 | `ik.py` | no | URDF limits, ikpy FK/IK with verification |
 | `arm.py` | no | `ArmController`: lease, streaming, aborts, gripper, home, `move_path`, `move_blend`, `solve_cartesian`, slow-zone time scaling |
+| `sag.py` | no | gravity sag model: URDF gravity torques, deflection k * tau per approach mode, limit-band compensation, gain fit, leave-one-out validation, `arm_settle` record parsing |
 | `floor_guard.py` | no | arm mount conversions, effective surface (robot plane, IMU level plane, overrides), jaw model, per-sample slow zone, `retime` |
 | `grasp.py` | no | grasp planner: strategies registry, waypoints, straight-line IK samples, feasibility reasons |
 | `grasp_tools.py` | no | `GraspExecutor`, the grasp MCP tools, `GraspService` (web-UI JSON) |
@@ -794,6 +856,11 @@ arm:
   jaw_open_axis: [-1.0, 0.0, 0.0]           # direction the moving jaw opens, gripper_frame_link (normalised)
   joint_limit_overrides_rad: {}             # e.g. {shoulder_lift: [-1.74533, 2.6]} replaces URDF limits
   base_in_base_link: {x: 0.0592, y: -0.05, z: 0.100, yaw: 0.0}   # measured (default); z = arm_base_height_m; null disables
+  sag_compensation:                         # gravity sag compensation (default off; see "Gravity sag compensation")
+    enabled: false
+    k: {}                                   # rad per N m after a lifting approach, e.g. {shoulder_lift: 0.141}
+    k_lowering: {}                          # rad per N m after a lowering approach
+    max_rad: 0.12                           # saturation per joint (at most 0.2)
 floor_guard:              # below-surface slow zone (see Arm mount and floor slow zone)
   enabled: true
   margin_m: 0.02

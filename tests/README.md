@@ -449,6 +449,25 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   relaxed after the hold window; stale-feedback and tracking aborts still fire; `final` waits (timeout) and splits
   `trajectory_s` / `settle_s`; a stuck gripper no longer times an arm move out, a gripper-only move still judges the
   jaw; per-joint converge/settle tolerance defaults (loaded shoulder_lift / elbow_flex wider) and their validation
+- gravity sag model (`test_sag.py`): URDF gravity torques of a synthetic two-joint chain (horizontal point masses,
+  hanging link, cosine law, missing joints, unknown joint rejected) and of the SO-101 (no torque on the vertical pan
+  axis, stretched arm loads the shoulder most, shoulder > elbow > wrist, plausible total mass); deflection k * tau with
+  saturation; compensation against gravity inside the limit band (never pushes a target already inside the margin
+  further out, per-joint margins); the compensator in URDF space with zero offsets and explicit gains; lifting /
+  lowering / hold gains and the approach mode from the final approach (reversal counts); gain blending; least-squares
+  gain fit (exact on noise-free data, no negative gain, joints without samples), RMS before/after, leave-one-group-out
+  validation with sample counts, pooled reports; `arm_settle` journal line parsing and settled records split by mode
+- arm sag compensation (`test_arm_sag.py`): disabled config (even with gains) publishes exactly what the default
+  controller publishes; published targets are target - predicted deflection for the loaded joints only (pan, roll,
+  gripper unchanged) with the uncompensated target in the result; `max_rad` saturation; commands stay in the limit band
+  and are not pushed below the trajectory; joint offsets applied in URDF space; no step when the compensation ramps in;
+  lifting vs lowering gains; gripper-only motions keep the arm compensation; a compensated move under model-matching
+  sag converges on the uncompensated target with `reached target` (and the same sag without compensation settles
+  short); keepalive republishes the compensated target; the relax after `arm_settle_hold_s` holds measured plus
+  compensation; a hold at a measured pose uses the mid-band gain; tracking judged against the uncompensated setpoint;
+  `home`, blended and Cartesian moves compensated; the slow zone checks the over-command too; `arm_settle` records for
+  `final` moves, for `trajectory_end` moves once settled (probe after 1 s, logged once), none for gripper-only moves;
+  config validation (unknown joints, negative gains, `max_rad` cap)
 - smoothness round A (`test_tools.py`, `test_early_return.py`, `test_config.py`): `get_camera_image` defaults to 384 px
   (larger `max_px` still honoured); `settle` on the arm tools (default `trajectory_end`, `final` when the gripper joint
   moves, configurable); `precise` forwarded by `navigate_to_pose` / `move_relative`; descriptions ask for checkpoints
@@ -713,6 +732,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_node_package_layout` | `nodes/mcp_server` has a uv project (PEP 621) with the `mcp` dependency and `mcp_server` package, a lock file, `__main__.py`, and a README with the `claude mcp add` setup. |
 | `test_mcp_server_listed_in_nodes_readme_index` | `nodes/README.md` Layout index has an `mcp_server/` entry describing the MCP server. |
 | `test_mcp_gripper_closed_target_is_inside_the_follower_gripper_command_range` | The mcp_server closed gripper target (-0.165 rad = 1940 steps, follower gripper not inverted) is at or above the follower gripper `command_min_steps` (1900), `autonomy` is a direct command source, and the mcp_server README documents the steps and `command_min_steps`. |
+| `test_mcp_server_sag_compensation_uses_the_held_out_fit` | mcp_server `arm.sag_compensation` is enabled with `k` (shoulder_lift, elbow_flex) and `k_lowering` (shoulder_lift) equal to `docs/calibration/2026-10-10/sag_fit_results.json` within 5e-4, each with a held-out reduction above 50%, `max_rad` in (0, 0.12]; `sag_fit.md` exists and the mcp_server README documents the compensation, `arm_settle` and `sag_fit.py`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_mcp_server_config.py` is listed in this section. |
 
 ### test_battery_config.py

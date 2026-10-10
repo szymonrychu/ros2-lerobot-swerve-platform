@@ -445,8 +445,36 @@ def cross_validate(
         "before": before,
         "after": after,
         "reduction": reduction,
+        "samples": {j: len(held_raw[j]) for j in joints if held_raw[j]},
         "gains": fit_gains(pairs, joints),
         "fold_gains": fold_gains,
+    }
+
+
+def pool_reports(reports: Sequence[Mapping[str, Mapping[str, float]]]) -> dict[str, dict[str, float]]:
+    """Pool held-out RMS of several cross_validate reports (e.g. the lifting and the lowering moves), weighted by
+    their sample counts.
+
+    Args:
+        reports (Sequence[Mapping[str, Mapping[str, float]]]): Reports with before, after and samples per joint.
+
+    Returns:
+        dict[str, dict[str, float]]: Pooled before, after, reduction and samples per joint.
+    """
+    sums: dict[str, list[float]] = {}
+    for report in reports:
+        for j, n in report["samples"].items():
+            acc = sums.setdefault(j, [0.0, 0.0, 0.0])
+            acc[0] += n * report["before"][j] ** 2
+            acc[1] += n * report["after"][j] ** 2
+            acc[2] += n
+    before = {j: math.sqrt(b / n) for j, (b, _, n) in sums.items()}
+    after = {j: math.sqrt(a / n) for j, (_, a, n) in sums.items()}
+    return {
+        "before": before,
+        "after": after,
+        "reduction": {j: (1.0 - after[j] / before[j]) if before[j] > 0.0 else 0.0 for j in before},
+        "samples": {j: int(n) for j, (_, _, n) in sums.items()},
     }
 
 
@@ -472,3 +500,35 @@ def parse_settle_records(lines: Iterable[str]) -> list[dict[str, object]]:
         if isinstance(record, dict):
             records.append(record)
     return records
+
+
+def record_pairs(
+    records: Sequence[Mapping[str, object]], model: GravityModel, offsets: Mapping[str, float] | None = None
+) -> dict[str, list[tuple[dict[str, float], dict[str, float], str]]]:
+    """Fit pairs from settled arm_settle records, split by the approach mode of each joint.
+
+    The observed deflection is measured - commanded (the servo compliance under load, whether or not compensation
+    was on); the torque is evaluated at the settled measured pose. Joints held (mode hold) or unsettled records are
+    skipped.
+
+    Args:
+        records (Sequence[Mapping[str, object]]): parse_settle_records output.
+        model (GravityModel): Gravity torque model.
+        offsets (Mapping[str, float] | None): Follower zero offsets of the logged poses (urdf = measured + offset).
+
+    Returns:
+        dict[str, list[tuple[dict[str, float], dict[str, float], str]]]: APPROACH_LIFTING / APPROACH_LOWERING ->
+            ({joint: torque}, {joint: deflection}, group = record index) per joint and record.
+    """
+    out: dict[str, list[tuple[dict[str, float], dict[str, float], str]]] = {APPROACH_LIFTING: [], APPROACH_LOWERING: []}
+    for index, record in enumerate(records):
+        measured, commanded, modes = record.get("measured"), record.get("commanded"), record.get("modes")
+        if not record.get("settled") or not isinstance(measured, dict) or not isinstance(commanded, dict):
+            continue
+        modes = modes if isinstance(modes, dict) else {}
+        torques = model.torques({j: float(v) + (offsets or {}).get(j, 0.0) for j, v in measured.items()})
+        for j in model.joints:
+            mode = modes.get(j)
+            if mode in out and j in measured and j in commanded:
+                out[mode].append(({j: torques[j]}, {j: float(measured[j]) - float(commanded[j])}, str(index)))
+    return out
