@@ -389,7 +389,7 @@ Client tiers (set per node type in `group_vars/client.yml`; `cpu_quota` / `memor
 `scripts/propose_unit_limits.py` queries the robot's Prometheus (`container_cpu_usage_seconds_total`,
 `container_memory_working_set_bytes` for `/system.slice/ros2-*.service`) and prints, per unit, the current limits, the observed p99 CPU and
 p99/max memory, and a proposed `CPUQuota`, `MemoryMax` and `MemoryHigh`, flagging units whose current limit is below what was observed.
-Options (URL, window, percentile, margins, minimums, output `format: table|yaml`) live in `scripts/propose_unit_limits.yaml`; there are no CLI flags.
+Options (URL, window (default 24h, the whole Prometheus retention), percentile, margins, minimums, output `format: table|yaml`) live in `scripts/propose_unit_limits.yaml`; there are no CLI flags.
 
 ```bash
 uv run python scripts/propose_unit_limits.py
@@ -481,7 +481,7 @@ npm install is needed; `DISABLE_AUTOUPDATER=1` is set in the unit environment.
 | `alloy.service` | `alloy` (apt.grafana.com stable) | 12345 (UI, `/metrics`) | Collects everything: host (`prometheus.exporter.unix` incl. hwmon, thermal_zone and the textfile collector), per-systemd-unit cgroups (`prometheus.exporter.cadvisor`, `docker_only = false`), Alloy itself, and scrapes Prometheus and Grafana; every 15 s |
 | `prometheus.service` | Ubuntu `prometheus` (2.45) | 9090 | Storage + query only, fed by Alloy through `--web.enable-remote-write-receiver` |
 | `grafana-server.service` | `grafana` (apt.grafana.com stable) | 3000 | Dashboards; anonymous Viewer for the LAN |
-| `rpi-throttled.timer` | `libraspberrypi-bin` (`vcgencmd`) | - | Every 15 s writes `vcgencmd get_throttled` to the textfile collector |
+| `rpi-throttled.timer` | `libraspberrypi-bin` (`vcgencmd`) | - | Every 5 s writes `vcgencmd get_throttled` to the textfile collector |
 
 Open `http://client.ros2.lan:3000` (dashboard **Robot / Robot resources**), `http://client.ros2.lan:9090` (Prometheus) or `http://client.ros2.lan:12345` (Alloy pipeline UI).
 
@@ -491,7 +491,7 @@ Open `http://client.ros2.lan:3000` (dashboard **Robot / Robot resources**), `htt
 
 **Cardinality cuts.** cAdvisor collects only CPU, memory, block IO and OOM events (`disabled_metrics` drops network, disk, percpu, process and the rest: network stats of host-netns services repeat the host interfaces per unit). A relabel keep rule keeps cgroup `id`s `/`, `/system.slice`, `/user.slice`, `/monitoring.slice`, `/system.slice/<unit>.service`, `/monitoring.slice/<unit>.service` and `/user.slice/user-<uid>.slice`, dropping scopes and sessions; `veth*`/`docker*`/`br-*` interfaces are dropped (cAdvisor) and excluded (netdev).
 
-**Retention.** TSDB in `/var/lib/prometheus/metrics2` on the NVMe root, `--storage.tsdb.retention.time=30d` and `--storage.tsdb.retention.size=5GB` (whichever is hit first).
+**Retention.** TSDB in `/var/lib/prometheus/metrics2` on the NVMe root, `--storage.tsdb.retention.time=1d` and `--storage.tsdb.retention.size=2GB` (whichever is hit first): short history, fast rate. Every target is collected every 5 s with a 4 s scrape timeout (the timeout must stay below the interval).
 
 **Admin password.** Generated on the robot on the first deploy (`openssl rand -hex 24`, never on the controller or in git) into `/etc/grafana/admin-password` (0600 root:grafana). systemd reads it as root (`LoadCredential=admin_password:/etc/grafana/admin-password`) and Grafana gets it through `GF_SECURITY_ADMIN_PASSWORD__FILE=%d/admin_password`. Read it with `sudo cat /etc/grafana/admin-password`; user `admin`. Grafana applies it when it creates its database (first start), so a later change of the file needs `grafana cli admin reset-admin-password`. Analytics, update checks, news and gravatar are off.
 

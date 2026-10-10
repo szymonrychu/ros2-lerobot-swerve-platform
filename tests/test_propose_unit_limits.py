@@ -73,7 +73,7 @@ def settings(**overrides: object) -> Settings:
 def test_settings_defaults() -> None:
     cfg = settings()
     assert cfg.prometheus_url == "http://client.ros2.lan:9090"
-    assert cfg.window == "48h"
+    assert cfg.window == "24h"
     assert cfg.percentile == 0.99
     assert (cfg.cpu_margin, cfg.mem_margin) == (1.5, 1.5)
     assert (cfg.min_cpu_quota_pct, cfg.min_memory_mib) == (10, 64)

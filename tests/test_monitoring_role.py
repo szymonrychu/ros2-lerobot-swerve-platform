@@ -242,9 +242,9 @@ def test_defaults_have_enable_flag_ports_retention_and_limits() -> None:
     assert defaults["monitoring_grafana_port"] == 3000
     assert defaults["monitoring_prometheus_port"] == 9090
     assert defaults["monitoring_alloy_port"] == 12345
-    assert defaults["monitoring_prometheus_retention_time"] == "30d"
-    assert defaults["monitoring_prometheus_retention_size"] == "5GB"
-    assert defaults["monitoring_interval"] == "15s"
+    assert defaults["monitoring_prometheus_retention_time"] == "1d"
+    assert defaults["monitoring_prometheus_retention_size"] == "2GB"
+    assert defaults["monitoring_interval"] == "5s"
     assert {u["name"]: u["memory_max"] for u in defaults["monitoring_units"]} == MONITORING_UNITS
 
 
@@ -287,11 +287,11 @@ def test_dropins_are_installed_for_every_unit() -> None:
 
 
 def test_prometheus_flags() -> None:
-    """Retention 30d / 5GB on the NVMe root, LAN listener, remote-write receiver for Alloy."""
+    """Retention 1d / 2GB on the NVMe root, LAN listener, remote-write receiver for Alloy."""
     args = render("prometheus.default.j2")
     for flag in [
-        "--storage.tsdb.retention.time=30d",
-        "--storage.tsdb.retention.size=5GB",
+        "--storage.tsdb.retention.time=1d",
+        "--storage.tsdb.retention.size=2GB",
         "--storage.tsdb.path=/var/lib/prometheus/metrics2",
         "--web.listen-address=0.0.0.0:9090",
         "--web.enable-remote-write-receiver",
@@ -301,10 +301,11 @@ def test_prometheus_flags() -> None:
 
 
 def test_prometheus_config_is_the_roles_own() -> None:
-    """prometheus.yml: 15 s intervals and no scrape of exporters the robot does not run."""
+    """prometheus.yml: 5 s intervals and no scrape of exporters the robot does not run."""
     config = yaml.safe_load(render("prometheus.yml.j2"))
-    assert config["global"]["scrape_interval"] == "15s"
-    assert config["global"]["evaluation_interval"] == "15s"
+    assert config["global"]["scrape_interval"] == "5s"
+    assert config["global"]["evaluation_interval"] == "5s"
+    assert config["global"]["scrape_timeout"] == "4s"  # must not exceed the 5 s interval (default is 10 s)
     assert not config.get("scrape_configs")
 
 
@@ -321,7 +322,7 @@ def test_node_exporter_is_masked() -> None:
 
 
 def test_alloy_config() -> None:
-    """Alloy: host + cgroup + self metrics, Prometheus and Grafana scraped at 15 s, all written to local Prometheus."""
+    """Alloy: host + cgroup + self metrics, Prometheus and Grafana scraped at 5 s, all written to local Prometheus."""
     config = render("config.alloy.j2")
     assert 'prometheus.exporter.unix "host"' in config
     assert 'directory = "/var/lib/alloy/textfile"' in config
@@ -332,7 +333,9 @@ def test_alloy_config() -> None:
     assert 'url = "http://127.0.0.1:9090/api/v1/write"' in config
     scrapes = re.findall(r'prometheus\.scrape "[^"]+"', config)
     assert len(scrapes) >= 4
-    assert config.count('scrape_interval = "15s"') == len(scrapes)
+    assert config.count('scrape_interval = "5s"') == len(scrapes)
+    # Alloy rejects a scrape whose timeout (default 10 s) exceeds its interval.
+    assert config.count('scrape_timeout  = "4s"') == len(scrapes)
 
 
 def test_alloy_drops_high_cardinality_cgroups_and_veth() -> None:
@@ -571,10 +574,10 @@ def test_script_removes_stale_textfile_on_failure(tmp_path: Path) -> None:
     assert not out.exists()
 
 
-def test_throttle_timer_runs_every_15s() -> None:
+def test_throttle_timer_runs_every_5s() -> None:
     """The timer fires the oneshot service every 15 s; the service runs in monitoring.slice."""
     timer = unit_settings(render("rpi-throttled.timer.j2"))
-    assert timer["OnUnitActiveSec"] == ["15s"]
+    assert timer["OnUnitActiveSec"] == ["5s"]
     service = unit_settings(render("rpi-throttled.service.j2"))
     assert service["Type"] == ["oneshot"]
     assert service["Slice"] == ["monitoring.slice"]

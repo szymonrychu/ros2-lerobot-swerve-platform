@@ -29,6 +29,7 @@ prometheus.scrape "host" {
   forward_to      = [prometheus.remote_write.local.receiver]
   job_name        = "integrations/unix"
   scrape_interval = "{{ monitoring_interval }}"
+  scrape_timeout  = "{{ monitoring_scrape_timeout }}"
 }
 
 // ---- per-systemd-unit cgroup metrics (container_*) ----------------------------------------------------------------
@@ -51,6 +52,7 @@ prometheus.scrape "cadvisor" {
   forward_to      = [prometheus.relabel.cadvisor.receiver]
   job_name        = "integrations/cadvisor"
   scrape_interval = "{{ monitoring_interval }}"
+  scrape_timeout  = "{{ monitoring_scrape_timeout }}"
 }
 
 // Keep the root cgroup, the three slices, the services in system.slice / monitoring.slice and the per-user slices;
@@ -80,6 +82,7 @@ prometheus.scrape "alloy" {
   forward_to      = [prometheus.remote_write.local.receiver]
   job_name        = "alloy"
   scrape_interval = "{{ monitoring_interval }}"
+  scrape_timeout  = "{{ monitoring_scrape_timeout }}"
 }
 
 prometheus.scrape "stack" {
@@ -89,4 +92,5 @@ prometheus.scrape "stack" {
   ]
   forward_to      = [prometheus.remote_write.local.receiver]
   scrape_interval = "{{ monitoring_interval }}"
+  scrape_timeout  = "{{ monitoring_scrape_timeout }}"
 }

@@ -10,17 +10,19 @@ monitoring_prometheus_port: 9090
 monitoring_alloy_port: 12345
 
 # Scrape and collection interval of every target.
-monitoring_interval: "15s"
+monitoring_interval: "5s"
+# Scrape timeout: below the interval (Alloy and Prometheus reject a timeout above it; their default is 10 s).
+monitoring_scrape_timeout: "4s"
 
 # Prometheus TSDB on the NVMe root; whichever limit is hit first drops the oldest blocks.
 monitoring_prometheus_data_dir: /var/lib/prometheus/metrics2
-monitoring_prometheus_retention_time: "30d"
-monitoring_prometheus_retention_size: "5GB"
+monitoring_prometheus_retention_time: "1d"
+monitoring_prometheus_retention_size: "2GB"
 
 # Alloy textfile collector directory (the RPi throttling script writes rpi_throttled.prom here).
 monitoring_textfile_dir: /var/lib/alloy/textfile
 # How often the throttling script runs (vcgencmd get_throttled).
-monitoring_throttled_interval: "15s"
+monitoring_throttled_interval: "5s"
 
 # Grafana admin password: generated on the robot on the first deploy (openssl rand), never on the controller.
 monitoring_grafana_admin_password_file: /etc/grafana/admin-password
@@ -35,7 +37,7 @@ monitoring_slice_cpu_quota: "40%"
 monitoring_slice_memory_max: "900M"
 monitoring_slice_memory_high: "800M"
 
-# Per-unit caps inside the slice. Prometheus gets the largest share: ~5k series with 30 d retention needs ~150-250 MB
+# Per-unit caps inside the slice. Prometheus gets the largest share: ~5k series at 5 s with 1 d retention needs ~150-250 MB
 # of head block plus query memory; Alloy (exporters + remote-write WAL) and Grafana (idle, a few viewers) run at about
 # 100-150 MB each. The sum (950M) exceeds the slice on purpose: the slice is the hard total, the per-unit caps stop one
 # service from taking all of it. OOMScoreAdjust=500 makes the kernel kill monitoring before any robot node.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write the Raspberry Pi throttling flags (vcgencmd get_throttled) into the Alloy textfile collector.
 
-Run every 15 s by rpi-throttled.timer. Produces rpi_throttled_flags (raw value) and rpi_throttled{bit=...} (0/1 per
+Run every 5 s by rpi-throttled.timer. Produces rpi_throttled_flags (raw value) and rpi_throttled{bit=...} (0/1 per
 named bit). The file is replaced atomically (temp file + rename) so the collector never reads half a file; when
 vcgencmd fails the old file is removed instead, so no stale value is published, and the run exits non-zero.
 

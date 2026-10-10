@@ -1030,14 +1030,14 @@ Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the cli
 |------|-------------|
 | `test_role_files_exist` | tasks, defaults, handlers, meta, the Alloy and Prometheus templates, the dashboard and the throttling script exist. |
 | `test_every_template_and_file_the_tasks_name_exists` | Every `src:` of a template/copy task (loops resolved) is shipped with the role. |
-| `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9090/12345, 30d/5GB retention, 15s interval, per-unit memory caps. |
+| `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9090/12345, 1d/2GB retention, 5s interval and 4s scrape timeout, per-unit memory caps. |
 | `test_monitoring_slice_limits` | `monitoring.slice`: CPUWeight=20, IOWeight=20, CPUQuota=40%, MemoryMax=900M, MemoryHigh=800M. |
 | `test_dropin_moves_unit_into_the_slice` | (alloy, prometheus, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, MemoryMax 250M/450M/250M, OOMScoreAdjust=500, Restart=on-failure. |
 | `test_dropins_are_installed_for_every_unit` | One template task loops `monitoring_units` into `/etc/systemd/system/<unit>.service.d/`. |
 | `test_prometheus_flags` | `/etc/default/prometheus`: retention time and size, TSDB path, `0.0.0.0:9090`, remote-write receiver, config file. |
-| `test_prometheus_config_is_the_roles_own` | `prometheus.yml`: 15s scrape/evaluation interval, no scrape jobs. |
+| `test_prometheus_config_is_the_roles_own` | `prometheus.yml`: 5s scrape/evaluation interval, 4s scrape timeout, no scrape jobs. |
 | `test_node_exporter_is_masked` | prometheus-node-exporter is masked and the prometheus apt install skips recommends. |
-| `test_alloy_config` | Alloy config has unix (textfile dir), cadvisor (`docker_only = false`), self exporters, scrapes of Prometheus and Grafana, remote write to local Prometheus, 15s on every scrape. |
+| `test_alloy_config` | Alloy config has unix (textfile dir), cadvisor (`docker_only = false`), self exporters, scrapes of Prometheus and Grafana, remote write to local Prometheus, 5s interval and 4s timeout on every scrape. |
 | `test_alloy_drops_high_cardinality_cgroups_and_veth` | The `id` keep rule keeps root, slices and services, drops scopes and sessions; veth interfaces are dropped. |
 | `test_alloy_listens_on_lan_port` | `/etc/default/alloy`: `0.0.0.0:12345`, reporting off, config path. |
 | `test_grafana_listens_on_lan_with_anonymous_viewer` | grafana.ini: `0.0.0.0:3000`, anonymous enabled with role Viewer. |
@@ -1054,7 +1054,7 @@ Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the cli
 | `test_throttled_metrics_names_every_bit` | `rpi_throttled_flags` plus `rpi_throttled{bit=...}` for bits 0-3 (`_now`) and 16-19 (`_occurred`). |
 | `test_script_writes_textfile_atomically` | With a fake `vcgencmd` the script writes the textfile and leaves no temp file. |
 | `test_script_removes_stale_textfile_on_failure` | A failing `vcgencmd` removes the old file and exits non-zero. |
-| `test_throttle_timer_runs_every_15s` | `rpi-throttled.timer` fires every 15s; the oneshot service runs in monitoring.slice with the textfile path. |
+| `test_throttle_timer_runs_every_5s` | `rpi-throttled.timer` fires every 5s; the oneshot service runs in monitoring.slice with the textfile path. |
 | `test_client_playbook_includes_role_tagged_monitoring_only` | `deploy_nodes_client.yml` includes the role once, tagged (and applied) `[monitoring]` only. |
 | `test_monitoring_only_run_starts_and_verifies_no_nodes` | `select_run.yml`: `--tags monitoring` gives an empty node scope; full, phase and node runs keep theirs. |
 | `test_deploy_script_accepts_monitoring` | `deploy-nodes.sh client monitoring` (and with a node name) runs the client playbook with `--tags monitoring`. |

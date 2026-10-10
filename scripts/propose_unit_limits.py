@@ -53,7 +53,7 @@ class Settings(BaseModel):
     """Validated contents of propose_unit_limits.yaml."""
 
     prometheus_url: str = "http://client.ros2.lan:9090"
-    window: str = Field(default="48h", pattern=r"^\d+[smhdwy]$")
+    window: str = Field(default="24h", pattern=r"^\d+[smhdwy]$")
     percentile: float = Field(default=0.99, gt=0, le=1)
     cpu_margin: float = Field(default=1.5, gt=0)
     mem_margin: float = Field(default=1.5, gt=0)
