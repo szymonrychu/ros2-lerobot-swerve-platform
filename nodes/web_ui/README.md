@@ -129,7 +129,7 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
 
 ### In the browser
 
-- **Robot:** `base_urdf` (default `robot.urdf`) is placed at the synthetic `/web_ui/robot_pose` (TF `map_frame -> base_frame`), with `arm_urdf` (`so101_arm.urdf`) mounted on it. Wheels follow `base_joint_states_topic`, the arm follows `arm_joint_states_topic`. Without a map pose the robot is drawn at the map origin, so arm control still works without SLAM.
+- **Robot:** `base_urdf` (default `robot.urdf`) is placed at the synthetic `/web_ui/robot_pose` (TF `map_frame -> base_frame`), with `arm_urdf` (`so101_arm.urdf`) mounted on it. Wheels follow `base_joint_states_topic` (steering angles as sent, roller angles integrated from the wheel speeds, see [Robot base model](#robot-base-model)), the arm follows `arm_joint_states_topic`. Without a map pose the robot is drawn at the map origin, so arm control still works without SLAM.
 - **Layers panel** (toggle button in the toolbar, also holds the legend): SLAM map, Local costmap, GPS map, RTK base, Global plan, Local plan, Goal, Footprint, Robot body, Wheels, Arm, POIs. Everything is on by default except GPS map (it needs an anchor and fetches tiles). **RTK base** (default on, shown only while GPS map is on) draws the RTK base station as a cyan pole with a cone, a ground ring and a label `Base - <fix> - <N> sats`, at the base antenna position (`latitude`/`longitude` of `/web_ui/gps_base_status`, placed with the GPS anchor; `frontend/src/gps/basePlacement.ts`, vitest `basePlacement.test.ts`). The toggle is disabled with a hint, and no marker is drawn, while the anchor is missing, the base is unreachable or stale, or its position is absent. The state is stored per browser in `localStorage` (key `web_ui.map3d.layers`, see `map3d/layers.ts`); storage errors are ignored.
 - **Footprint:** the Nav2 footprint (`footprint_topic`, `geometry_msgs/PolygonStamped` re-expressed in `map_frame` by the backend) is drawn with the front edge highlighted; until one arrives a small arrow at the pose is shown.
 - **Camera:** free orbit by default (drag rotates, right button or two fingers pan, wheel or pinch zooms). **Top view** locks the camera straight down (drag pans, wheel zooms). The toolbar also has **Center on robot** and **Fit map**.
@@ -190,7 +190,7 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
 | `tile_cache_dir` | `/var/cache/web_ui/tiles` | Tile disk cache (created by Ansible) |
 | `tile_cache_max_mb` | `256` | Cache size cap |
 
-All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected). `arm_offset` (optional, `[x, y, z]` in metres) places the arm URDF root on the base model: ROS coordinates in `base_link`, z up from the floor (the base model stands on z = 0), no yaw. Unset, the frontend uses `[0.25, 0, 0]`; the robot sets it to the mcp_server `arm.base_in_base_link` ESTIMATE `[0.15, -0.04, 0.15]` (to be measured), so the drawn arm and the grasp preview match what the planner assumes. Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`.
+All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected). `arm_offset` (optional, `[x, y, z]` in metres) places the arm URDF root on the base model: ROS coordinates in `base_link`, z up from the floor (the base model stands on z = 0), no yaw. Unset, the frontend uses the same estimate `[0.15, -0.04, 0.15]`; the robot sets it to the mcp_server `arm.base_in_base_link` ESTIMATE `[0.15, -0.04, 0.15]` (to be measured), so the drawn arm and the grasp preview match what the planner assumes. Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`.
 
 ### Grasp panel
 
@@ -298,8 +298,17 @@ localStorage.setItem('WEB_UI_DEBUG', 'true'); location.reload()
 
 | File | Description |
 |---|---|
-| `urdf/robot.urdf` | Placeholder: box body + 4 swerve wheels (primitive geometry, no meshes) |
+| `urdf/robot.urdf` | Swerve base: 0.47 x 0.386 m body box + 4 roller wheels (cylinders), real module positions, no meshes |
 | `urdf/so101_arm.urdf` | SO-101 follower arm (from TheRobotStudio/SO-ARM100) |
+
+### Robot base model
+
+`urdf/robot.urdf` is the single source of the base model; `base_link` is the ground-projected centre between the wheels, so z = 0 is the floor.
+
+- **Geometry (from `ansible/group_vars/client.yml`):** steering axes at x +-0.1525, y +-0.1333 m (`swerve_controller` `half_length_m` / `half_width_m`), wheel radius 0.06 m, steering limit +-1.5708 rad, body box 0.47 x 0.386 m (mcp_server `footprint`). Estimates, marked in the URDF: wheel width 0.03 m, body from 0.05 to 0.15 m above the floor (top = the arm mount height of `arm_offset`).
+- **Joints:** named exactly like `/swerve_drive/joint_states` (`fl|fr|rl|rr` + `_steer` / `_drive`). `*_steer` is revolute about z (rad, positive = CCW seen from above, 0 = straight ahead, the same convention as the controller commands), `*_drive` is continuous about the axle (+y, positive = rolling forward). Each roller is a plain cylinder with a contrasting bar across the tread so the rotation is visible.
+- **Live update:** the `base_joint_states_topic` samples are applied like the arm's, one subscription and one WebSocket rate. The feetech bridge already undoes `inverted` in both position and velocity, so no sign handling is needed in the scene. The wheel servos run in wheel mode: their `position` is a wrapping encoder reading, so `frontend/src/map3d/baseJoints.ts` integrates `velocity` (rad/s) over the time between messages (capped at 0.25 s per step, wrapped to [-pi, pi)) into the `*_drive` angle; steering angles are used as sent.
+- The body is drawn translucent so the wheels inside the footprint stay visible; the Body and Wheels layers toggle them separately.
 
 ### Fusion 360 → URDF conversion
 

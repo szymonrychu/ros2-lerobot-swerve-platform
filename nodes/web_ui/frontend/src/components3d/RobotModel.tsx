@@ -11,8 +11,7 @@ const GHOST_COLOR = 0x66aaff
 const MESH_COLOR = 0x888888
 
 /**
- * Parsed STL geometry per mesh URL, shared by every model in the session: the four wheels of the base share one
- * (78 MB) download, and InteractiveArm's ghost arm reuses the solid arm's meshes instead of fetching them again.
+ * Parsed STL geometry per mesh URL, shared by every model in the session: InteractiveArm's ghost arm reuses the solid arm's meshes instead of fetching them again.
  */
 const GEOMETRY_CACHE = new Map<string, Promise<THREE.BufferGeometry>>()
 

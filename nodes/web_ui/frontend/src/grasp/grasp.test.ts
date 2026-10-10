@@ -157,8 +157,8 @@ describe('frames', () => {
     expect(p.z).toBeCloseTo(-0.15)
   })
 
-  it('tabs without an arm_offset keep the legacy default mount', () => {
-    expect(DEFAULT_ARM_OFFSET).toEqual([0.25, 0, 0])
+  it('tabs without an arm_offset mount the arm on top of the base body', () => {
+    expect(DEFAULT_ARM_OFFSET).toEqual([0.15, -0.04, 0.15])
   })
 
   it('map point to base_link uses the robot pose', () => {

@@ -66,7 +66,7 @@ GRASP_ACTIONS = frozenset({"plan", "execute", "release"})
 GRASP_OBJECT_ACTIONS = frozenset({"plan", "execute"})
 GRASP_MOTION_ACTIONS = frozenset({"execute", "release"})
 HTTP_ACCEPTED = 202
-# Browser cache lifetime of URDF and mesh files (meshes are tens of MB, e.g. wheel.stl 78.7 MB).
+# Browser cache lifetime of URDF and mesh files (the arm meshes are tens of MB).
 URDF_CACHE_CONTROL = "public, max-age=86400"
 # Map tiles reach the browser only through /api/tiles (same origin), so img-src needs no external hosts.
 CONTENT_SECURITY_POLICY = (

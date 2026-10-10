@@ -1,15 +1,31 @@
 <?xml version="1.0"?>
+<!--
+  Swerve base: body box plus four steerable roller wheels (plain cylinders). base_link is the ground-projected
+  centre between the wheels, so z = 0 is the floor and a wheel axle is one radius above it.
+
+  Real geometry (ansible/group_vars/client.yml, swerve_controller and mcp_server footprint):
+    - steering axes at x +-0.1525, y +-0.1333 (half_length_m, half_width_m), wheel radius 0.06 m
+    - outer footprint 0.47 x 0.386 m
+  Estimates (not measured, adjust here only): wheel width 0.03 m, body bottom 0.05 m above the floor, body top 0.15 m
+  (the arm mount height, arm_offset z in the web_ui map tab).
+
+  Joint names are the /swerve_drive/joint_states names. <module>_steer: rad, positive = CCW seen from above (URDF +z),
+  0 = straight ahead. <module>_drive: rad about the axle (+y), positive = rolling forward; the topic carries wheel
+  speed only, so the frontend integrates JointState.velocity into this angle (frontend/src/map3d/baseJoints.ts).
+-->
 <robot name="swerve_robot">
 
-  <!-- Body -->
+  <material name="body_grey"><color rgba="0.55 0.58 0.62 0.55"/></material>
+  <material name="tyre"><color rgba="0.12 0.12 0.12 1.0"/></material>
+  <material name="stripe"><color rgba="0.95 0.75 0.1 1.0"/></material>
+
+  <!-- Body: outer footprint 0.47 x 0.386 m, z 0.05 .. 0.15 (centre 0.10, height 0.10 estimated). -->
   <link name="base_link">
     <visual>
-      <geometry><box size="0.4 0.3 0.1"/></geometry>
-      <material name="grey"><color rgba="0.5 0.5 0.5 1.0"/></material>
+      <origin xyz="0 0 0.10" rpy="0 0 0"/>
+      <geometry><box size="0.47 0.386 0.10"/></geometry>
+      <material name="body_grey"/>
     </visual>
-    <collision>
-      <geometry><box size="0.4 0.3 0.1"/></geometry>
-    </collision>
   </link>
 
   <!-- Front-Left -->
@@ -17,23 +33,29 @@
   <joint name="fl_steer" type="revolute">
     <parent link="base_link"/>
     <child link="fl_steer_link"/>
-    <origin xyz="0.2 0.15 -0.05" rpy="0 0 0"/>
+    <origin xyz="0.1525 0.1333 0.06" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="5"/>
+    <limit lower="-1.5708" upper="1.5708" effort="10" velocity="5"/>
   </joint>
 
   <link name="fl_wheel_link">
     <visual>
       <origin xyz="0 0 0" rpy="1.5708 0 0"/>
-      <geometry><mesh filename="meshes/wheel.stl"/></geometry>
-      <material name="dark"><color rgba="0.1 0.1 0.1 1.0"/></material>
+      <geometry><cylinder radius="0.06" length="0.03"/></geometry>
+      <material name="tyre"/>
+    </visual>
+    <!-- Contrasting bar across the tread so the rotation is visible. -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.118 0.032 0.008"/></geometry>
+      <material name="stripe"/>
     </visual>
   </link>
   <joint name="fl_drive" type="continuous">
     <parent link="fl_steer_link"/>
     <child link="fl_wheel_link"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
-    <axis xyz="1 0 0"/>
+    <axis xyz="0 1 0"/>
   </joint>
 
   <!-- Front-Right -->
@@ -41,23 +63,29 @@
   <joint name="fr_steer" type="revolute">
     <parent link="base_link"/>
     <child link="fr_steer_link"/>
-    <origin xyz="0.2 -0.15 -0.05" rpy="0 0 0"/>
+    <origin xyz="0.1525 -0.1333 0.06" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="5"/>
+    <limit lower="-1.5708" upper="1.5708" effort="10" velocity="5"/>
   </joint>
 
   <link name="fr_wheel_link">
     <visual>
       <origin xyz="0 0 0" rpy="1.5708 0 0"/>
-      <geometry><mesh filename="meshes/wheel.stl"/></geometry>
-      <material name="dark"/>
+      <geometry><cylinder radius="0.06" length="0.03"/></geometry>
+      <material name="tyre"/>
+    </visual>
+    <!-- Contrasting bar across the tread so the rotation is visible. -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.118 0.032 0.008"/></geometry>
+      <material name="stripe"/>
     </visual>
   </link>
   <joint name="fr_drive" type="continuous">
     <parent link="fr_steer_link"/>
     <child link="fr_wheel_link"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
-    <axis xyz="1 0 0"/>
+    <axis xyz="0 1 0"/>
   </joint>
 
   <!-- Rear-Left -->
@@ -65,23 +93,29 @@
   <joint name="rl_steer" type="revolute">
     <parent link="base_link"/>
     <child link="rl_steer_link"/>
-    <origin xyz="-0.2 0.15 -0.05" rpy="0 0 0"/>
+    <origin xyz="-0.1525 0.1333 0.06" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="5"/>
+    <limit lower="-1.5708" upper="1.5708" effort="10" velocity="5"/>
   </joint>
 
   <link name="rl_wheel_link">
     <visual>
       <origin xyz="0 0 0" rpy="1.5708 0 0"/>
-      <geometry><mesh filename="meshes/wheel.stl"/></geometry>
-      <material name="dark"/>
+      <geometry><cylinder radius="0.06" length="0.03"/></geometry>
+      <material name="tyre"/>
+    </visual>
+    <!-- Contrasting bar across the tread so the rotation is visible. -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.118 0.032 0.008"/></geometry>
+      <material name="stripe"/>
     </visual>
   </link>
   <joint name="rl_drive" type="continuous">
     <parent link="rl_steer_link"/>
     <child link="rl_wheel_link"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
-    <axis xyz="1 0 0"/>
+    <axis xyz="0 1 0"/>
   </joint>
 
   <!-- Rear-Right -->
@@ -89,23 +123,29 @@
   <joint name="rr_steer" type="revolute">
     <parent link="base_link"/>
     <child link="rr_steer_link"/>
-    <origin xyz="-0.2 -0.15 -0.05" rpy="0 0 0"/>
+    <origin xyz="-0.1525 -0.1333 0.06" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit lower="-3.14159" upper="3.14159" effort="10" velocity="5"/>
+    <limit lower="-1.5708" upper="1.5708" effort="10" velocity="5"/>
   </joint>
 
   <link name="rr_wheel_link">
     <visual>
       <origin xyz="0 0 0" rpy="1.5708 0 0"/>
-      <geometry><mesh filename="meshes/wheel.stl"/></geometry>
-      <material name="dark"/>
+      <geometry><cylinder radius="0.06" length="0.03"/></geometry>
+      <material name="tyre"/>
+    </visual>
+    <!-- Contrasting bar across the tread so the rotation is visible. -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.118 0.032 0.008"/></geometry>
+      <material name="stripe"/>
     </visual>
   </link>
   <joint name="rr_drive" type="continuous">
     <parent link="rr_steer_link"/>
     <child link="rr_wheel_link"/>
     <origin xyz="0 0 0" rpy="0 0 0"/>
-    <axis xyz="1 0 0"/>
+    <axis xyz="0 1 0"/>
   </joint>
 
 </robot>

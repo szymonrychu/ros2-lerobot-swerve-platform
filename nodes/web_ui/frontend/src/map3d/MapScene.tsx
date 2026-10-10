@@ -3,7 +3,7 @@
  * in the ROS map frame. Rendering is on demand; the component is memoised so unrelated topic updates do not
  * re-render the canvas.
  */
-import { memo, Suspense, useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
@@ -13,6 +13,7 @@ import { RobotModel } from '../components3d/RobotModel'
 import { InteractiveArm } from '../components3d/InteractiveArm'
 import { Pose2D, Vec2 } from '../map/mapMath'
 import { CANVAS_BG } from '../theme'
+import { advanceBaseJoints, BaseJointValues } from './baseJoints'
 import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor } from './geo'
 import { Bounds, classifyBaseLink, fitDistance } from './groundMath'
@@ -89,6 +90,7 @@ export interface MapSceneProps {
 interface JointStates {
   name?: string[]
   position?: number[]
+  velocity?: number[]
 }
 
 /** Configure OrbitControls for free orbit or the locked top view, and expose the controller. */
@@ -192,6 +194,26 @@ function CameraRig({
   return null
 }
 
+/**
+ * Base URDF joint values for the latest swerve joint-state message: steering angles as sent, wheel angles integrated
+ * from the wheel speeds by the time between messages (see baseJoints.ts).
+ *
+ * @param msg - latest base JointState from the bridge, if any
+ * @returns values for RobotModel, or undefined before the first message
+ */
+function useBaseJointValues(msg: JointStates | undefined): BaseJointValues | undefined {
+  const [values, setValues] = useState<BaseJointValues | undefined>(undefined)
+  const lastMs = useRef<number | null>(null)
+  useEffect(() => {
+    if (!msg) return
+    const now = performance.now()
+    const dtSec = lastMs.current === null ? 0 : (now - lastMs.current) / 1000
+    lastMs.current = now
+    setValues((prev) => advanceBaseJoints(prev, msg, dtSec))
+  }, [msg])
+  return values
+}
+
 /** Base URDF at the robot pose with the arm mounted on it; robot-part layers toggle link visibility. */
 const RobotLayer = memo(function RobotLayer({
   pose,
@@ -231,6 +253,7 @@ const RobotLayer = memo(function RobotLayer({
     (link: string) => (classifyBaseLink(link) === 'wheels' ? showWheels : showBody),
     [showBody, showWheels],
   )
+  const baseValues = useBaseJointValues(baseJoints)
   const armPos = useMemo(
     () => rosToThree({ x: armOffset[0], y: armOffset[1], z: armOffset[2] }),
     [armOffset],
@@ -241,7 +264,7 @@ const RobotLayer = memo(function RobotLayer({
       {baseUrdf && (
         <RobotModel
           urdfFile={baseUrdf}
-          jointStates={baseJoints}
+          jointStates={baseValues}
           visible={showBody || showWheels}
           linkVisible={linkVisible}
         />
