@@ -1396,6 +1396,9 @@ ros2_nodes:
         reach_heading_step_deg: 15
         reach_height_max_m: 0.35
         reach_height_step_m: 0.05
+        # Envelope cache: started at server start and reused across restarts unless the body, mount, limits, grid or
+        # margins changed (first computation takes ~95 s on the RPi5 under the unit's CPU quota).
+        reach_cache_file: /var/lib/ros2/arm/reach_envelope.json
       # Grasp planner defaults (plan_grasp / grasp_object / release_object and /grasp/command); every value can be
       # overridden per call through `params`. Lengths in m, the tool point is the fixed jaw's inner face (arm.tool_offset_m).
       # Validated in the MuJoCo sim with jaws calibrated to arm.tool_offset_m (sim/README.md, "Planner scenario matrix").

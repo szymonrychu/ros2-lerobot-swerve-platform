@@ -4,6 +4,7 @@ the metrics. Poses come from IK and are FK-checked in tests/test_self_collision.
 
 import itertools
 import math
+import time
 from pathlib import Path
 from typing import Any
 
@@ -333,3 +334,43 @@ def test_reach_envelope_is_computed_once_and_cached(tmp_path: Path) -> None:
     assert first is not None and first is second
     assert envelope.compute_count == 1
     assert first["compute_s"] < 20.0
+
+
+def test_reach_envelope_starts_in_the_background_and_persists(tmp_path: Path) -> None:
+    """start() computes without a tool call and writes the cache; a new envelope with the same inputs loads it."""
+    arm, _ = make(tmp_path, clear_pose())
+    cache = tmp_path / "reach.json"
+    first = ReachEnvelope(arm.body_check, CONFIG.body_check, cache)
+    first.start()
+    result = first.get(30.0)
+    assert result is not None and first.compute_count == 1 and cache.exists()
+    second = ReachEnvelope(arm.body_check, CONFIG.body_check, cache)
+    second.start()
+    assert second.compute_count == 0
+    assert second.get(0.1) == result
+
+
+def test_reach_envelope_cache_is_invalidated_by_changed_inputs(tmp_path: Path) -> None:
+    """A changed margin (or a corrupt file) recomputes instead of serving a stale envelope."""
+    arm, _ = make(tmp_path, clear_pose())
+    cache = tmp_path / "reach.json"
+    ReachEnvelope(arm.body_check, CONFIG.body_check, cache).get(30.0)
+    changed = CONFIG.body_check.model_copy(update={"hard_margin_m": 0.02})
+    other = ReachEnvelope(arm.body_check, changed, cache)
+    other.start()
+    assert other.get(30.0) is not None and other.compute_count == 1
+    cache.write_text("{not json")
+    broken = ReachEnvelope(arm.body_check, CONFIG.body_check, cache)
+    broken.start()
+    assert broken.get(30.0) is not None and broken.compute_count == 1
+
+
+def test_get_arm_reach_envelope_is_started_when_the_server_is_built(tmp_path: Path) -> None:
+    """Building the server starts the envelope, so the first tool call does not pay for it."""
+    cfg = McpServerConfig()
+    cfg.body_check.reach_cache_file = tmp_path / "reach.json"
+    build_mcp_server(robot_at(tmp_path, clear_pose()), cfg, TOKEN)
+    deadline = time.monotonic() + 30.0
+    while not cfg.body_check.reach_cache_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert cfg.body_check.reach_cache_file.exists()

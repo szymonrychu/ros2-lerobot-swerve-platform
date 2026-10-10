@@ -850,6 +850,9 @@ class BodyCheckSettings(StrictModel):
     reach_height_step_m: float = Field(default=0.05, ge=0.01, le=0.5)
     reach_wait_s: float = Field(default=10.0, gt=0.0, le=60.0)  # get_arm_reach waits this long for the envelope
     reach_max_points: int = Field(default=20, ge=1, le=50)
+    # Envelope cache on disk, keyed by every input (body, mount, joint limits, grid, margins): a restart reuses it
+    # instead of recomputing (95 s on the busy RPi5 under the unit's CPU quota). None keeps it in memory only.
+    reach_cache_file: Path | None = None
 
     @model_validator(mode="after")
     def hard_below_soft(self) -> "BodyCheckSettings":

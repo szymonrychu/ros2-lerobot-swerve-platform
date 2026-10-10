@@ -7,16 +7,22 @@ wrist_roll 0, gripper closed): ENVELOPE_SAMPLES_PER_JOINT, ENVELOPE_WRIST_SAMPLE
 is at least hard_margin_m (not rejected) and whose tool point lies within half a height step of a grid height gives
 that cell's horizontal tool distance from the pan axis; a cell reports the min / max of them (null = no collision-free
 pose there). It is a sampled approximation (about a centimetre at full reach), computed once in a background thread
-on the first request (a few seconds on the RPi5) and cached.
+started when the MCP server is built (about 95 s on the busy RPi5) and cached in memory and, with
+BodyCheckSettings.reach_cache_file, on disk under a key of every input, so a restart loads it instead of recomputing.
 
 Per point (base_link x, y, z and optional pitch): IK within the joint limits for the given pitch, or for every pitch
 of POINT_PITCHES_DEG, the body clearance of each solution, the pitches that are reachable and collision-free, the
 limiting obstacle/link and a suggestion when the point does not work.
 """
 
+import hashlib
+import json
+import logging
 import math
+import os
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -33,6 +39,9 @@ ENVELOPE_WRIST_SAMPLES = 7
 POINT_PITCHES_DEG = (-30.0, -15.0, 0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0)
 DEFAULT_SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 ROUND_M = 3
+CACHE_VERSION = 1
+
+log = logging.getLogger(__name__)
 
 
 def joint_range(checker: SelfCollisionChecker, joint: str) -> tuple[float, float]:
@@ -54,15 +63,19 @@ def joint_range(checker: SelfCollisionChecker, joint: str) -> tuple[float, float
 class ReachEnvelope:
     """Lazily computed, cached collision-free reach envelope (see the module docstring)."""
 
-    def __init__(self, checker: SelfCollisionChecker, settings: BodyCheckSettings) -> None:
+    def __init__(
+        self, checker: SelfCollisionChecker, settings: BodyCheckSettings, cache_file: Path | None = None
+    ) -> None:
         """Bind to the checker; nothing is computed yet.
 
         Args:
             checker (SelfCollisionChecker): Body checker (kinematics, body, mount).
             settings (BodyCheckSettings): Grid and margins.
+            cache_file (Path | None): JSON cache of the envelope on disk; None keeps it in memory only.
         """
         self.checker = checker
         self.settings = settings
+        self.cache_file = cache_file
         self.compute_count = 0
         self._result: dict[str, Any] | None = None
         self._thread: threading.Thread | None = None
@@ -89,6 +102,73 @@ class ReachEnvelope:
         n = math.floor(self.settings.reach_height_max_m / step + 1e-9)
         return [round(k * step, 6) for k in range(n + 1)]
 
+    def cache_key(self) -> str:
+        """Hash of every input of the envelope: a change of any of them invalidates the disk cache.
+
+        Returns:
+            str: Hex digest.
+        """
+        kin = self.checker.kin
+        inputs = {
+            "version": CACHE_VERSION,
+            "body": self.checker.body.describe(),
+            "mount": self.checker.mount.model_dump(),
+            "limits": {k: list(v) for k, v in sorted(kin.limits.items())},
+            "offsets": dict(sorted(kin.offsets.items())),
+            "margin": kin.margin,
+            "settings": self.settings.model_dump(
+                include={"hard_margin_m", "reach_heading_step_deg", "reach_height_max_m", "reach_height_step_m"}
+            ),
+            "samples": [ENVELOPE_SAMPLES_PER_JOINT, ENVELOPE_WRIST_SAMPLES],
+        }
+        return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
+
+    def load_cache(self) -> dict[str, Any] | None:
+        """The envelope from the disk cache when its key matches the current inputs.
+
+        Returns:
+            dict[str, Any] | None: The cached envelope, or None (no file, other key, unreadable).
+        """
+        if self.cache_file is None or not self.cache_file.exists():
+            return None
+        try:
+            data = json.loads(self.cache_file.read_text())
+        except (OSError, ValueError) as exc:
+            log.warning("ignoring the reach envelope cache %s: %s", self.cache_file, exc)
+            return None
+        if not isinstance(data, dict) or data.get("key") != self.cache_key():
+            return None
+        envelope = data.get("envelope")
+        return envelope if isinstance(envelope, dict) else None
+
+    def save_cache(self, envelope: dict[str, Any]) -> None:
+        """Write the envelope to the disk cache atomically; a failure is logged, the in-memory result stays.
+
+        Args:
+            envelope (dict[str, Any]): Computed envelope.
+        """
+        if self.cache_file is None:
+            return
+        try:
+            self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp = self.cache_file.with_suffix(self.cache_file.suffix + ".tmp")
+            tmp.write_text(json.dumps({"key": self.cache_key(), "envelope": envelope}))
+            os.replace(tmp, self.cache_file)
+        except OSError as exc:
+            log.warning("could not write the reach envelope cache %s: %s", self.cache_file, exc)
+
+    def start(self) -> None:
+        """Load the envelope from the disk cache, or start computing it in a background thread (idempotent)."""
+        with self._lock:
+            if self._result is not None or self._thread is not None:
+                return
+            cached = self.load_cache()
+            if cached is not None:
+                self._result = cached
+                return
+            self._thread = threading.Thread(target=self.compute, name="arm-reach-envelope", daemon=True)
+            self._thread.start()
+
     def get(self, wait_s: float) -> dict[str, Any] | None:
         """The envelope, starting its computation in a background thread on the first call.
 
@@ -98,11 +178,8 @@ class ReachEnvelope:
         Returns:
             dict[str, Any] | None: The envelope, or None while it is still being computed.
         """
-        with self._lock:
-            if self._result is None and self._thread is None:
-                self._thread = threading.Thread(target=self.compute, name="arm-reach-envelope", daemon=True)
-                self._thread.start()
-            thread = self._thread
+        self.start()
+        thread = self._thread
         if self._result is None and thread is not None:
             thread.join(wait_s)
         return self._result
@@ -161,6 +238,7 @@ class ReachEnvelope:
         }
         self.compute_count += 1
         self._result = result
+        self.save_cache(result)
 
     def cell(self, heading_deg: float, z: float) -> dict[str, Any] | None:
         """Envelope cell nearest a heading and height (None until computed).

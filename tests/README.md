@@ -537,7 +537,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `body_collision:lidar` (also a top_down retreat into the lidar) and not without the check, the executor refusing a
   step of an unchecked plan; `get_arm_reach` (obstacles, mount, margins, envelope grid and cells, points: reachable and
   clear, into the lidar with the limiting obstacle, out of reach with a suggestion; more than 20 points refused) and
-  the envelope computed once and cached
+  the envelope computed once and cached; with a cache file it starts in the background when the server is built,
+  is written to disk and loaded by a new envelope without recomputing, and a changed hard margin or a corrupt file
+  recomputes
 - floor slow zone (`test_floor_guard.py`, a synthetic 15 cm mount with its own floor, independent of the configured
   one): arm <-> base_link conversions (with yaw), quaternion roll/pitch, effective
   surface (robot plane vs level plane, roll/pitch signs, shifted by `surface_z_m`), fresh IMU used / stale or missing

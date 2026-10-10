@@ -71,7 +71,11 @@ def register(ctx: ToolContext) -> None:
     arm = ctx.robot.arm
     checker = arm.body_check
     settings = ctx.config.body_check
-    envelope = ReachEnvelope(checker, settings)
+    envelope = ReachEnvelope(checker, settings, settings.reach_cache_file)
+    # With a disk cache (the robot sets one) start now or load it, so the agent's first get_arm_reach call does not wait
+    # for the computation; without one the envelope stays lazy (first call), which keeps test servers cheap.
+    if settings.reach_cache_file is not None:
+        envelope.start()
     mount = checker.mount
 
     @ctx.server.tool(
@@ -84,8 +88,8 @@ def register(ctx: ToolContext) -> None:
             "refused before it starts. Returns the obstacles with dimensions (base_link: x forward, y left, z up from "
             "the floor), the arm mount, the margins and a collision-free reach envelope (per shoulder_pan heading every "
             f"{settings.reach_heading_step_deg:g} deg and tool height 0..{settings.reach_height_max_m:g} m every "
-            f"{settings.reach_height_step_m:g} m: min/max horizontal tool distance from the pan axis; computed once, "
-            "the first call can take a few seconds). With points (up to "
+            f"{settings.reach_height_step_m:g} m: min/max horizontal tool distance from the pan axis; computed in the "
+            "background at server start; while it is still computing the envelope reports status computing). With points (up to "
             f"{settings.reach_max_points}, base_link x/y/z and optional pitch) each point reports reachable (IK within "
             "joint limits), collision_free, the working pitch range, the limiting obstacle/link/clearance and a "
             "suggestion. Call it when unsure whether a target near the robot body is safe."

@@ -509,8 +509,12 @@ Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_
 axis, the margins and a collision-free reach envelope; with up to `reach_max_points` (20) base_link points
 {x, y, z, pitch?} each point reports `reachable` (IK within the joint limits), `collision_free`, the working
 `pitch_range_deg` (pitches -30 .. 90 deg every 15 deg, or the given one), the `limiting` obstacle / link / clearance and
-a `suggestion`. The envelope (`arm_reach.py`) is computed once, in a background thread on the first call (about 1.5 s on
-the dev Mac, a few seconds on the RPi5; the call waits up to `reach_wait_s` and otherwise reports `computing`): per
+a `suggestion`. The envelope (`arm_reach.py`) is computed once in a background thread (about 1.5 s on the dev Mac, about
+95 s on the busy RPi5 under the unit's CPU quota; a call waits up to `reach_wait_s` and otherwise reports `computing`).
+With `reach_cache_file` set (the robot: `/var/lib/ros2/arm/reach_envelope.json`) it starts when the server is built
+and is saved to that file under a hash of every input (body, mount, joint limits and offsets, grid, hard margin), so
+a restart loads it instead of recomputing and any changed input recomputes; without it the envelope is computed on
+the first call. Per
 shoulder_pan heading every `reach_heading_step_deg` (15) across the pan limits and tool height 0 .. `reach_height_max_m`
 (0.35) every `reach_height_step_m` (0.05) in base_link, the min / max horizontal tool distance from the pan axis over a
 13 x 13 x 7 grid of shoulder_lift x elbow_flex x wrist_flex (wrist_roll 0, gripper closed) whose body clearance is at
