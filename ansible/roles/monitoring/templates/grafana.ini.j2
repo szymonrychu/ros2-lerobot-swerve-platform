@@ -20,6 +20,12 @@ enabled = true
 org_name = Main Org.
 org_role = Editor
 
+; Each bundled datasource runs its own backend process: 13 of them used 302 MB and got Grafana OOM-killed
+; (2026-10-10). Only the Prometheus one is used; nothing is preinstalled from grafana.com.
+[plugins]
+disable_plugins = loki,grafana-pyroscope-datasource,influxdb,stackdriver,elasticsearch,mssql,tempo,jaeger,opentsdb,zipkin,mysql,grafana-postgresql-datasource
+preinstall_disabled = true
+
 [analytics]
 reporting_enabled = false
 check_for_updates = false

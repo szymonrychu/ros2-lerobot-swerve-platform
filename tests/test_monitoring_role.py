@@ -26,7 +26,7 @@ CLIENT_PLAYBOOK = ANSIBLE_DIR / "playbooks" / "deploy_nodes_client.yml"
 SELECT_RUN = ANSIBLE_DIR / "playbooks" / "tasks" / "select_run.yml"
 DEPLOY_SCRIPT = REPO_ROOT / "scripts" / "deploy-nodes.sh"
 
-MONITORING_UNITS = {"alloy": "250M", "prometheus": "450M", "grafana-server": "450M"}
+MONITORING_UNITS = {"alloy": "250M", "prometheus": "450M", "grafana-server": "768M"}
 
 # Metric contract (shared with the cgroup-limits task) plus every node_* host metric.
 CONTRACT_METRICS = {
@@ -414,13 +414,13 @@ def test_defaults_have_enable_flag_ports_retention_and_limits() -> None:
 
 
 def test_monitoring_slice_limits() -> None:
-    """The slice caps the whole stack: low CPU/IO weight, 40% of one core, 1200M hard / 1100M soft memory."""
+    """The slice caps the whole stack: low CPU/IO weight, 40% of one core, 1600M hard / 1500M soft memory."""
     settings = unit_settings(render("monitoring.slice.j2"))
     assert settings["CPUWeight"] == ["20"]
     assert settings["IOWeight"] == ["20"]
     assert settings["CPUQuota"] == ["40%"]
-    assert settings["MemoryMax"] == ["1200M"]
-    assert settings["MemoryHigh"] == ["1100M"]
+    assert settings["MemoryMax"] == ["1600M"]
+    assert settings["MemoryHigh"] == ["1500M"]
 
 
 @pytest.mark.parametrize("unit", sorted(MONITORING_UNITS))
@@ -1109,3 +1109,19 @@ def test_services_restart_when_a_config_is_newer_than_their_start() -> None:
     names = [t.get("name", "") for t in tasks]
     assert names.index(task["name"]) > names.index("Enable and start the monitoring services and the throttling timer")
     assert names.index(task["name"]) < names.index("Wait until Prometheus, Alloy and Grafana answer")
+
+
+UNUSED_GRAFANA_PLUGINS = {
+    "loki", "grafana-pyroscope-datasource", "influxdb", "stackdriver", "elasticsearch", "mssql", "tempo", "jaeger",
+    "opentsdb", "zipkin", "mysql", "grafana-postgresql-datasource",
+}
+
+
+def test_grafana_runs_only_the_prometheus_backend_plugin() -> None:
+    """Every bundled datasource runs its own backend process (13 used 302 MB and got Grafana OOM-killed, 2026-10-10):
+    all but Prometheus are disabled and nothing is preinstalled."""
+    ini = grafana_ini()
+    disabled = {p.strip() for p in ini["plugins"]["disable_plugins"].split(",")}
+    assert disabled == UNUSED_GRAFANA_PLUGINS
+    assert "prometheus" not in disabled
+    assert ini["plugins"]["preinstall_disabled"] == "true"

@@ -1068,8 +1068,8 @@ Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the cli
 | `test_role_files_exist` | tasks, defaults, handlers, meta, the Alloy and Prometheus templates, the dashboard and the throttling script exist. |
 | `test_every_template_and_file_the_tasks_name_exists` | Every `src:` of a template/copy task (loops and `with_fileglob` resolved) is shipped with the role. |
 | `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9090/12345, 1d/2GB retention, 5s interval and 4s scrape timeout, per-unit memory caps. |
-| `test_monitoring_slice_limits` | `monitoring.slice`: CPUWeight=20, IOWeight=20, CPUQuota=40%, MemoryMax=1200M, MemoryHigh=1100M. |
-| `test_dropin_moves_unit_into_the_slice` | (alloy, prometheus, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, MemoryMax 250M/450M/450M, OOMScoreAdjust=500, Restart=on-failure. |
+| `test_monitoring_slice_limits` | `monitoring.slice`: CPUWeight=20, IOWeight=20, CPUQuota=40%, MemoryMax=1600M, MemoryHigh=1500M. |
+| `test_dropin_moves_unit_into_the_slice` | (alloy, prometheus, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, MemoryMax 250M/450M/768M, OOMScoreAdjust=500, Restart=on-failure. |
 | `test_services_restart_when_a_config_is_newer_than_their_start` | after starting the services, a shell task restarts prometheus / alloy / grafana-server when any of their config or drop-in files is newer than the unit's `ActiveEnterTimestamp` (a failed run loses its handlers; apt starts Prometheus with the package defaults); it runs before the readiness check. |
 | `test_grafana_admin_password_command_runs` | the password task's real command, run locally, writes a 48-hex-character file with mode 0600 (`openssl rand` takes its options before the byte count). |
 | `test_dropins_are_installed_for_every_unit` | One template task loops `monitoring_units` into `/etc/systemd/system/<unit>.service.d/`. |
@@ -1082,6 +1082,7 @@ Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the cli
 | `test_alloy_scrapes_every_node_target` | One `prometheus.scrape "nodes"` renders all 14 `monitoring_node_targets` as `127.0.0.1:<port>` with a `node` label, job `ros2_nodes`, path `/metrics`, `honor_labels = true`, 5s/4s, remote write. |
 | `test_alloy_systemd_collector_limited_to_robot_and_stack_units` | The unix exporter enables the systemd collector with `enable_restarts` and `start_time`; `unit_include` matches `ros2-*.service`, alloy, prometheus, grafana-server, nginx and nothing else. |
 | `test_grafana_behind_nginx_at_subpath_without_login` | grafana.ini: `127.0.0.1:3000`, `root_url` ending `/grafana/`, `serve_from_sub_path`, anonymous enabled with role Editor. |
+| `test_grafana_runs_only_the_prometheus_backend_plugin` | grafana.ini `[plugins]`: `disable_plugins` lists exactly the 12 unused bundled datasources (not prometheus), `preinstall_disabled = true` (13 backend processes used 302 MB and got Grafana OOM-killed). |
 | `test_nginx_site_fronts_web_ui_and_grafana_on_port_80` | nginx site: `listen 80 default_server`, `/` -> 127.0.0.1:8080, `/grafana/` -> 127.0.0.1:3000, Upgrade/Connection headers on both, the `$connection_upgrade` map. |
 | `test_nginx_installed_enabled_and_default_site_removed` | the role installs nginx, writes `/etc/nginx/conf.d/robot.conf`, removes `sites-enabled/default`, runs `nginx -t`, starts nginx, checks `http://127.0.0.1/grafana/api/health`, and the disable path leaves nginx running. |
 | `test_grafana_phones_nowhere` | Reporting, update checks, plugin update checks, gravatar and news are off. |
