@@ -736,7 +736,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 |------|-------------|
 | `test_rplidar_default_frame_matches_static_tf_child` | RPLidar launch default `frame_id` (`DEFAULT_FRAME_ID`, env `RPLIDAR_FRAME_ID`) is `laser_frame`, a static TF child of `base_link`. |
 | `test_lidar_static_tf_mounted_backwards` | Static TF base_link -> laser_frame is at (0.15, 0.04, 0.20) with yaw = pi: the RPLidar is mounted rotated 180 deg (verified on the robot by driving forward). |
-| `test_laser_filter_box_covers_footprint` | laser_filter box filter (base_link, not inverted) covers the outer footprint with at most 5 cm margin. |
+| `test_laser_filter_polygon_matches_the_h_outline` | laser_filter is one `StaticLaserScanPolygonFilter` in `base_link` (not inverted, `polygon_padding` 0) whose polygon equals the generated H footprint + 1 cm: it contains the footprint and keeps returns in the front/rear notches and in the band just outside the body. |
 | `test_laser_filter_ansible_wiring` | laser_filter node type (apt `ros-jazzy-laser-filters`, `scan_to_scan_filter_chain` with the repo params, `/scan` -> `/scan_filtered`), enabled node entry, per-node playbook and inclusion in `deploy_nodes_client.yml`. |
 | `test_node_apt_install_refreshes_stale_cache` | The ros2_node_deploy apt install refreshes the package index (`update_cache: true`, `cache_valid_time: 3600`) so new packages do not 404 on a stale cache. |
 | `test_rplidar_runs_under_scan_supervisor` | rplidar_a1 is launched through `scan_supervisor.py` (runs the launch file, exits 1 for a systemd restart when `/scan` never starts or goes silent). |
@@ -746,7 +746,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_ekf_frames_inputs_and_tf` | Both EKF configs: 2D, `publish_tf`, odom/base_link frames, `/odom` fuses vx/vy/vyaw, `/imu/data` fuses yaw rate (absolute yaw only with `imu0_relative: true`). |
 | `test_ekf_launch_uses_repo_launch_and_deployed_config` | Ansible launches the repo EKF launch file, which reads `ROBOT_LOCALIZATION_EKF_CONFIG` (default the deployed config path). |
 | `test_swerve_controller_does_not_publish_odom_tf` | swerve_controller config sets `publish_tf: false` (EKF owns `odom -> base_link`). |
-| `test_slam_params_frames_and_topics` | slam_toolbox params: base_link/odom/map frames, `/scan_filtered`, mapping mode, 0.05 m resolution, no hard-coded `map_file_name`. |
+| `test_slam_params_frames_and_topics` | slam_toolbox params: base_link/odom/map frames, `/scan_filtered`, mapping mode, 0.025 m resolution, no hard-coded `map_file_name`. |
 | `test_slam_launch_starts_async_lifecycle_node` | Launch starts `async_slam_toolbox_node` as a lifecycle node with configure + activate transitions. |
 | `test_slam_launch_resumes_only_when_posegraph_exists` | `map_resume_parameters` (compiled out of the launch file) returns `map_file_name` + `map_start_at_dock` only when `<base>.posegraph` exists; otherwise it returns `map_file_name: ""` so a `map_file_name` from a params file never makes slam_toolbox load a missing file. |
 | `test_slam_launch_appends_override_params_only_when_present` | `params_files` returns the repo `slam_params.yaml` first and appends the deployed config only when it exists and is non-empty (ROS params files: later wins). |
@@ -758,19 +758,24 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_launch_passes_repo_params_without_localization` | Nav2 launch passes the repo `params_file`, keeps `use_localization:=False`. |
 | `test_nav2_has_every_server_section` | `nav2_params.yaml` has a section for every server started by Jazzy `navigation_launch.py`. |
 | `test_nav2_frames` | bt_navigator, costmaps, collision_monitor, behavior_server, docking_server and route_server frames/topics. |
-| `test_nav2_costmap_layers_and_footprint` | Both costmaps: 370 x 286 mm planner footprint (outer frame minus the 5 cm wheel margin), obstacle layer on `/scan`, inflation; global static layer on `/map` (transient local). |
+| `test_nav2_costmap_layers_and_footprint` | Both costmaps: footprint equals the H outline from `scripts/gen_nav_footprint.py`, obstacle layer on `/scan_filtered`, inflation; global static layer on `/map` (transient local). |
 | `test_nav2_mppi_omni_with_swerve_limits` | MPPI Omni, vx +-0.25, vy 0.25, wz 0.5, `visualize: true` (local plan on `/optimal_trajectory`). |
-| `test_nav2_planner_navfn_allows_unknown` | NavFn with `allow_unknown: true`. |
+| `test_nav2_planner_is_footprint_aware_smac_lattice` | `GridBased` (only planner, name kept for the BT and web UI) is `nav2_smac_planner::SmacPlannerLattice` with `allow_unknown: true`, tolerance 0.5 m, `max_planning_time` <= 2 s, no reverse expansion, moderate `cost_penalty` (1-3), analytic expansion <= 3 m. |
+| `test_nav2_lattice_primitives_are_omni_at_the_costmap_resolution` | `lattice_filepath` lies under `ros2_repo_dest` and points at the committed `nodes/nav2_bringup/config/lattice/output.json`; its metadata equals `config.json` (omni, 0.5 m turning radius), trajectory count matches, and `grid_resolution` equals both costmap resolutions. |
+| `test_nav2_costmaps_match_the_slam_map_resolution` | Both costmaps use the slam_toolbox `resolution`, 0.025 m. |
+| `test_nav2_obstacle_layer_keeps_obstacles_in_the_notches` | Both costmaps: obstacle layer `footprint_clearing_enabled: false` (its column fill treats the H as convex and would erase obstacles in the notches). |
+| `test_slam_map_resolution_cost_is_bounded` | slam_toolbox correlation and loop search windows are whole numbers of their own cells, the correlation grid is no coarser than the map, and `map_update_interval` is 10 s (the 2.5 cm raster has 4x the cells). |
 | `test_nav2_velocity_smoother_matches_swerve` | Smoother limits `[0.25, 0.25, 0.5]`, odom `/odometry/filtered`. |
 | `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) and a `/scan` observation source. |
 | `test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan` | collision_monitor stays in the `cmd_vel_smoothed -> cmd_vel` chain with its core keys; `StopBox` (holonomic stop `velocity_polygon`, min 4 points) is enabled on the footprint-filtered scan. |
 | `test_stopbox_covers_every_velocity` | Every command (directions in 5 deg steps, speeds 0 to 0.25 m/s, yaw rates -0.5 to 0.5) selects a StopBox sub-polygon, as Nav2 keeps the previous one for an uncovered velocity. |
-| `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side, a return in the band just outside the self-filter box stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
+| `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side (ahead of a front wheel, behind a rear wheel, beside each side frame), a return 1.5 cm outside the H footprint (just outside the self-filter polygon) stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
+| `test_stopbox_ignores_notch_obstacles_unless_moving_into_them` | A return deep in the front notch stops no translation (only rotation in place); a return 1.5 cm ahead of the crossbar stops only forward motion, one 1.5 cm behind it only backward motion. |
 | `test_nav2_goal_tolerance_tight_enough_for_swerve` | Goal checker tolerances 0.01 m / 0.035 rad (1 cm / 2 deg), stateful: the latch only holds because the BT no longer replans periodically. |
 | `test_nav2_replans_only_when_path_invalid` | `bt_navigator` uses the "replanning only if path becomes invalid" BT: periodic replans reset the goal checker latch and the rotation shim position check. |
 | `test_nav2_progress_checker_counts_rotation` | `progress_checker` is `PoseProgressChecker` (counts rotation), movement radius <= 0.05 m and a required angle set. |
-| `test_costmaps_add_no_margin_beyond_given_dimensions` | Both costmaps: `footprint_padding` 0 and inflation only to the planner footprint's circumscribed radius (0.24 m, `cost_scaling_factor` >= 10). |
-| `test_safety_boxes_hug_the_given_dimensions` | laser_filter self box is footprint + 1 cm and every collision-monitor StopBox sub-polygon is bounded by footprint + 2 cm, strictly outside the filter box so obstacles stay visible to it. |
+| `test_costmaps_add_no_margin_beyond_the_footprint` | Both costmaps: `footprint_padding` 0, inflation only to the H footprint's circumscribed radius rounded up to one cell (0.275 m), `cost_scaling_factor` 20-30, identical inflation on both. |
+| `test_safety_polygons_hug_the_footprint` | The laser_filter polygon reaches at most 1.5 cm beyond the footprint, each directional StopBox sub-polygon at most its 2 cm sweep (2.45 cm on a diagonal sector), and `rotate` is the footprint bounding box + 2 cm. |
 | `test_costmaps_wait_for_odom_through_a_gradual_restart` | Both costmaps: `initial_transform_timeout` >= 300 s, so a deploy that restarts nav2 before the gradual ramp brings up the servos and EKF (odom TF) does not abort the bringup. |
 | `test_ekf_rate_fits_the_cpu_budget` | EKF `frequency` 30 Hz: at 50 Hz it missed its rate on the loaded Pi and its odom TF lagged the scans. |
 | `test_slam_waits_for_a_lagging_odom_transform` | slam_toolbox `transform_timeout` >= 0.5 s so scans are not dropped when the odom TF lags. |
@@ -799,6 +804,34 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_rf2o_odom_relay_declares_numpy` | `rf2o_odom_relay/pyproject.toml` lists `numpy` in `[project].dependencies` (numpy guard, parsed with `tomllib`). |
 | `test_launcher_sources_the_colcon_workspace_after_ros` | The launcher template sources the colcon `install/setup.bash` after `/opt/ros/jazzy/setup.bash`, and `resolve_and_deploy.yml` passes `colcon_source`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_nav_stack_config.py` is listed in this section. |
+
+### test_nav_footprint.py
+
+Unit tests for `scripts/gen_nav_footprint.py` (shapely geometry, no ROS) and the check that the committed
+`nav2_params.yaml` and `footprint_filter.yaml` equal its output.
+
+| Test (group) | Description |
+|------|-------------|
+| `test_default_body_has_frames_crossbar_wheels_and_lidar` | `gen_nav_footprint.yaml` body has both side frames, the crossbar, four wheels and the lidar. |
+| `test_body_is_read_from_client_vars_mcp_server_when_present` | A `body:` in the mcp_server `config: |` block of client.yml is used instead of the yaml defaults. |
+| `test_body_falls_back_to_generator_yaml_without_client_body` | Without a client.yml `body:` (or without client.yml) the yaml defaults are used. |
+| `test_footprint_is_one_simple_polygon` | The footprint is one valid, simple (no self-intersection), counter-clockwise polygon without a repeated closing point. |
+| `test_footprint_contains_every_body_part` | Every frame, the crossbar, every wheel envelope circle and the lidar circle lie inside the footprint (0.15 mm rounding tolerance). |
+| `test_footprint_keeps_the_front_and_rear_notches` | Points in the front and rear notch are inside the convex hull but outside the footprint. |
+| `test_footprint_hugs_the_body_parts` | The footprint adds under 1 % area to the union of the parts and reaches nowhere more than one costmap cell beyond it. |
+| `test_footprint_changes_with_a_body_number` | Larger wheel radii give a larger footprint. |
+| `test_radii_follow_nav2_definitions` | Circumscribed radius = farthest vertex, inscribed = nearest edge (Nav2 `calculateMinAndMaxDistances`). |
+| `test_inflation_radius_is_the_circumscribed_radius_rounded_up_to_a_cell` | Inflation radius = circumscribed radius rounded up to the 2.5 cm cell. |
+| `test_cost_scaling_is_steep_but_keeps_the_circumscribed_cost_positive` | `cost_scaling_factor` 20-30, the inflation cost at the circumscribed radius stays >= 1 (MPPI / Smac footprint-check speed-up) and is under 1/4 of the inscribed cost 6 cm out. |
+| `test_laser_polygon_is_the_footprint_plus_margin_and_keeps_the_notches` | The laser polygon is simple, contains the footprint + 1 cm, reaches at most 1.5 cm beyond it and leaves the notch points outside. |
+| `test_offset_polygon_grows_by_the_margin` | A square grows by exactly the margin (mitred corners). |
+| `test_stopbox_sub_polygons_sweep_the_footprint_toward_their_motion` | Nine sub-polygons (rotate + 8 sectors), each simple with 4+ points, containing the footprint and reaching beyond the self-filter polygon; each directional one contains the footprint moved 2 cm along every direction of its sector but not the footprint moved 1.5 cm away. |
+| `test_stopbox_rotate_is_the_bounding_box_plus_margin` | `rotate` is the 4-point footprint bounding box + 2 cm. |
+| `test_stopbox_polygons_function_matches_generate` | `stopbox_polygons` gives the same result as `generate`. |
+| `test_nav2_params_equal_the_generator_output` | Re-rendering `nav2_params.yaml` changes nothing. |
+| `test_laser_filter_equals_the_generator_output` | Re-rendering `footprint_filter.yaml` changes nothing. |
+| `test_generated_values_land_in_the_parsed_yaml` | Parsed footprints, padding, inflation, StopBox order/points/ranges and the laser polygon equal the generator output. |
+| `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config, `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
 
 ### test_poi_store_config.py
 

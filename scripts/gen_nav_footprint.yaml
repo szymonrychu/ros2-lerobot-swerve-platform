@@ -1,0 +1,47 @@
+# Config for scripts/gen_nav_footprint.py (validated by its pydantic Settings model).
+# The script derives the Nav2 costmap footprint (top-view H outline of the body), the inflation radius, the
+# collision_monitor StopBox sub-polygons and the laser_filter self polygon, and writes them into the marked regions of
+# nav2_params.yaml and footprint_filter.yaml. tests/test_nav_footprint.py fails when the files and the output differ.
+#
+# Body source: the mcp_server `body:` block in client_vars_path (the arm self-collision model) when it exists, else the
+# `body:` below. Same schema: boxes (centre and size, base_link, m) and vertical cylinders (x, y, radius, z range).
+# Every part counts for the 2D footprint whatever its height. Base_link: x forward, y left.
+body:
+  boxes:
+    # Side frames (the H strokes) above the wheels.
+    - {name: frame_left, center: [0.0, 0.1333, 0.145], size: [0.425, 0.06, 0.05]}
+    - {name: frame_right, center: [0.0, -0.1333, 0.145], size: [0.425, 0.06, 0.05]}
+    # Crossbar (the H bar) between the frames.
+    - {name: crossbar, center: [-0.025, 0.0, 0.08], size: [0.25, 0.2066, 0.04]}
+  cylinders:
+    # Swerve modules: the steering wheel sweeps a circle of the wheel radius around the steer axis.
+    - {name: wheel_fl, x: 0.1525, y: 0.1333, radius: 0.06, z_min: 0.0, z_max: 0.12}
+    - {name: wheel_fr, x: 0.1525, y: -0.1333, radius: 0.06, z_min: 0.0, z_max: 0.12}
+    - {name: wheel_rl, x: -0.1525, y: 0.1333, radius: 0.06, z_min: 0.0, z_max: 0.12}
+    - {name: wheel_rr, x: -0.1525, y: -0.1333, radius: 0.06, z_min: 0.0, z_max: 0.12}
+    # RPLidar column (scan plane z 0.20).
+    - {name: lidar, x: 0.158, y: 0.06, radius: 0.045, z_min: 0.10, z_max: 0.215}
+# Relative to the repo root.
+client_vars_path: ansible/group_vars/client.yml
+nav2_params_path: nodes/nav2_bringup/config/nav2_params.yaml
+laser_filter_path: nodes/laser_filter/config/footprint_filter.yaml
+# Costmap cell size (m): the inflation radius is rounded up to a whole cell.
+costmap_resolution: 0.025
+# Vertices per wheel / lidar circle (multiple of 4). The polygon circumscribes the circle (edges tangent at the axes),
+# so it never cuts into the real envelope; 16 overshoots by r * (1 / cos(11.25 deg) - 1) = 1.2 mm for r 6 cm.
+circle_segments: 16
+# Gaps between parts narrower than 2 x this are closed (a slit narrower than a costmap cell holds no obstacle and only
+# adds outline vertices, i.e. footprint-check CPU). 0.01 closes the 13 mm slit between the lidar and the crossbar
+# (and the pocket behind it, enclosed by the lidar, crossbar, left frame and wheel).
+close_gap_m: 0.01
+# laser_filter self polygon = footprint + this (removes the robot's own returns, keeps returns in the notches).
+laser_filter_margin_m: 0.01
+# collision_monitor StopBox: the footprint swept this far toward the commanded direction (outside the filter margin).
+stopbox_margin_m: 0.02
+# Inflation falloff (1/m), the same on both costmaps. Steep so the penalty zone hugs the footprint: cost drops to 1/4 of
+# the inscribed cost within 6 cm. Upper bound: the cost at the circumscribed radius must stay >= 1, otherwise MPPI's
+# CostCritic and the Smac collision checker log "inflation is not set sufficiently" and check the full footprint
+# everywhere; 25 leaves it at 3 (bound ~33 for this footprint).
+cost_scaling_factor: 25.0
+# Decimal places of the written coordinates (4 = 0.1 mm).
+decimals: 4

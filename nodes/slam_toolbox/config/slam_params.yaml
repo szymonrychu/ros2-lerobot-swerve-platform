@@ -27,8 +27,13 @@ slam_toolbox:
     debug_logging: false
     throttle_scans: 1
     transform_publish_period: 0.05   # map -> odom at 20 Hz
-    map_update_interval: 5.0         # /map raster every 5 s (CPU heavy on large maps)
-    resolution: 0.05
+    # 2.5 cm map (was 5 cm): the occupancy raster has 4x the cells (memory, /map message size, global costmap static
+    # layer copy and web UI decode all 4x) and every scan ray crosses 2x the cells when the map is re-rasterised from
+    # all scans. Scan matching is unaffected (it runs on its own correlation grids, resolutions below). To keep the
+    # average raster CPU near the 5 cm level the raster is rebuilt every 10 s instead of 5 s; live obstacles reach
+    # the costmaps from the scan within one update, so only the drawn map and new static walls refresh slower.
+    map_update_interval: 10.0
+    resolution: 0.025
     min_laser_range: 0.15            # ignore returns from the robot's own frame
     max_laser_range: 12.0            # RPLidar A1 range
     minimum_time_interval: 0.5
@@ -62,7 +67,8 @@ slam_toolbox:
     correlation_search_space_resolution: 0.01
     correlation_search_space_smear_deviation: 0.1
 
-    # Loop closure parameters
+    # Loop closure parameters (coarse loop search grid of 5 cm = 2 map cells; independent of the map resolution,
+    # 8.0 / 0.05 = 160 cells)
     loop_search_space_dimension: 8.0
     loop_search_space_resolution: 0.05
     loop_search_space_smear_deviation: 0.03

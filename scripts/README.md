@@ -156,3 +156,20 @@ Prints proposed `CPUQuota`, `MemoryMax` and `MemoryHigh` for the `ros2-*` system
 ```bash
 uv run python scripts/propose_unit_limits.py
 ```
+
+## gen_nav_footprint.py
+
+Single source of the navigation footprint geometry. Builds the robot's top-view H outline (side frames, crossbar,
+steering wheel envelopes, lidar column) from the body model - the mcp_server `body:` block in
+`ansible/group_vars/client.yml` when present, else the `body:` in `scripts/gen_nav_footprint.yaml` - and writes the
+Nav2 costmap footprint, inflation radius and `cost_scaling_factor`, the collision_monitor StopBox sub-polygons and the
+laser_filter self polygon into the marked regions (`# >>> gen_nav_footprint: <name>` ... `# <<< ...`) of
+`nodes/nav2_bringup/config/nav2_params.yaml` and `nodes/laser_filter/config/footprint_filter.yaml`. Configured by
+`scripts/gen_nav_footprint.yaml` (pydantic-validated: costmap resolution, circle vertices, gap closing, filter and
+StopBox margins, falloff, decimals). Uses shapely for the polygon union, offsets and sweeps.
+`tests/test_nav_footprint.py` fails while the committed files differ from its output. See `nodes/nav2_bringup/README.md`
+(Footprint).
+
+```bash
+uv run python scripts/gen_nav_footprint.py
+```

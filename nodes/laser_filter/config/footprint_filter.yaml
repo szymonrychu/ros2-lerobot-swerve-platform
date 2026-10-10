@@ -1,18 +1,22 @@
 # laser_filters scan_to_scan_filter_chain: drop RPLidar returns that hit the robot itself.
-# The lidar sees the robot body 0.22-0.24 m from the sensor (inside the 470 x 386 mm outer footprint); left in /scan
-# those points become obstacles in the SLAM map and costmaps and the planner sees the robot boxed in by itself.
-# Box = outer footprint (+-0.235 x, +-0.193 y in base_link) plus 1 cm margin. Output: /scan_filtered.
+# The lidar sees the robot body 0.22-0.24 m from the sensor; left in /scan those points become obstacles in the SLAM map
+# and costmaps and the planner sees the robot boxed in by itself. Output: /scan_filtered.
+# Polygon = the H footprint (scripts/gen_nav_footprint.py) grown by 1 cm, in base_link: returns inside the front and
+# rear notches (between the wheels, ahead of / behind the crossbar) are real obstacles and are KEPT (the old box filter
+# removed them). StaticLaserScanPolygonFilter: the lidar mount is a static TF, so the polygon is transformed into the
+# laser frame once and each scan is a precomputed cos/sin lookup plus a ray-crossing point-in-polygon test (works for
+# non-convex polygons). polygon_padding stays 0: laser_filters pads by moving each vertex along sign(x), sign(y),
+# which shrinks a non-convex outline at the notch walls; the 1 cm margin is generated into the polygon instead.
 scan_to_scan_filter_chain:
   ros__parameters:
     filter1:
-      name: footprint_box
-      type: laser_filters/LaserScanBoxFilter
+      name: footprint_polygon
+      type: laser_filters/StaticLaserScanPolygonFilter
       params:
-        box_frame: base_link
-        min_x: -0.245
-        max_x: 0.245
-        min_y: -0.203
-        max_y: 0.203
-        min_z: -1.0
-        max_z: 1.0
+        polygon_frame: base_link
+        # >>> gen_nav_footprint: laser_polygon
+        polygon: "[[0.2225, 0.1733], [0.2115, 0.1733], [0.1922, 0.1927], [0.1664, 0.2033], [0.1386, 0.2033], [0.1128, 0.1927], [0.0935, 0.1733], [-0.0935, 0.1733], [-0.1128, 0.1927], [-0.1386, 0.2033], [-0.1664, 0.2033], [-0.1922, 0.1927], [-0.2115, 0.1733], [-0.2225, 0.1733], [-0.2225, 0.0933], [-0.2115, 0.0933], [-0.1922, 0.0739], [-0.1664, 0.0633], [-0.16, 0.0633], [-0.16, -0.0633], [-0.1664, -0.0633], [-0.1922, -0.0739], [-0.2115, -0.0933], [-0.2225, -0.0933], [-0.2225, -0.1733], [-0.2115, -0.1733], [-0.1922, -0.1927], [-0.1664, -0.2033], [-0.1386, -0.2033], [-0.1128, -0.1927], [-0.0935, -0.1733], [0.0935, -0.1733], [0.1128, -0.1927], [0.1386, -0.2033], [0.1664, -0.2033], [0.1922, -0.1927], [0.2115, -0.1733], [0.2225, -0.1733], [0.2225, -0.0933], [0.2115, -0.0933], [0.1922, -0.0739], [0.1664, -0.0633], [0.1386, -0.0633], [0.1128, -0.0739], [0.11, -0.0768], [0.11, 0.0323], [0.1114, 0.0288], [0.1268, 0.0134], [0.147, 0.005], [0.169, 0.005], [0.1892, 0.0134], [0.2046, 0.0288], [0.213, 0.049], [0.213, 0.071], [0.206, 0.0878], [0.2115, 0.0933], [0.2225, 0.0933]]"
+        polygon_padding: 0.0
+        # <<< gen_nav_footprint: laser_polygon
         invert: false
+        transform_timeout: 5.0

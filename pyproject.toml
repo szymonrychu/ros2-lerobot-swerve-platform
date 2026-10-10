@@ -23,6 +23,7 @@ dev = [
     "poethepoet>=0.42.0",
     "ansible-lint>=26.0",
     "httpx>=0.27",
+    "shapely>=2.0",
 ]
 
 [tool.uv]

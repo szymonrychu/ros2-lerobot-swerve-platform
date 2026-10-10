@@ -11,7 +11,7 @@ robot in it, providing the `map` frame that Nav2's global costmap and the web UI
 | sub | `/scan_filtered` (footprint-filtered by `nodes/laser_filter`) | `sensor_msgs/LaserScan` | frame `laser_frame` (static TF child of `base_link`). |
 | TF in | `odom -> base_link` | | from robot_localization_ekf. |
 | TF out | `map -> odom` | | published every 50 ms (`transform_publish_period`). |
-| pub | `/map` | `nav_msgs/OccupancyGrid` | reliable + transient_local, depth 1; re-rastered every 5 s (`map_update_interval`). |
+| pub | `/map` | `nav_msgs/OccupancyGrid` | reliable + transient_local, depth 1; 2.5 cm cells, re-rastered every 10 s (`map_update_interval`). |
 | srv | `/slam_toolbox/serialize_map` | `slam_toolbox/srv/SerializePoseGraph` | `filename: /var/lib/ros2/maps/slam_map` writes `slam_map.posegraph` + `slam_map.data`. |
 | srv | `/slam_toolbox/deserialize_map` | `slam_toolbox/srv/DeserializePoseGraph` | load a posegraph at runtime. |
 | srv | `/slam_toolbox/save_map` | `slam_toolbox/srv/SaveMap` | export a `.pgm`/`.yaml` image map (needs `nav2_map_server`). |
@@ -19,10 +19,26 @@ robot in it, providing the `map` frame that Nav2's global costmap and the web UI
 ## Files
 
 - `config/slam_params.yaml` - parameters based on slam_toolbox jazzy `mapper_params_online_async.yaml`:
-  `base_frame: base_link`, `odom_frame: odom`, `map_frame: map`, `scan_topic: /scan`, `resolution: 0.05`,
+  `base_frame: base_link`, `odom_frame: odom`, `map_frame: map`, `scan_topic: /scan_filtered`, `resolution: 0.025` (see [Map resolution](#map-resolution)),
   `max_laser_range: 12.0` (A1 range), `minimum_travel_distance/heading: 0.3`, interactive mode off.
 - `launch/slam.launch.py` - starts `async_slam_toolbox_node` as a lifecycle node and drives it through configure and
   activate itself (no lifecycle manager), `use_sim_time: false`. Loads the params files described below.
+
+## Map resolution
+
+The map is 2.5 cm per cell (was 5 cm), matching the Nav2 costmaps and the Smac lattice primitives
+(`nodes/nav2_bringup/README.md`), so the planner sees doorways and furniture legs at the size it can now use with
+the H-shaped footprint.
+
+- Scan matching is unchanged: Karto matches on its own correlation grids, `correlation_search_space_resolution` 0.01
+  (window 0.8 m = 80 cells) and `loop_search_space_resolution` 0.05 (window 8.0 m = 160 cells). Each window must be a
+  whole number of its own cells; neither has to be a multiple of `resolution`. No other slam_toolbox parameter depends
+  on `resolution`.
+- Cost: the occupancy raster has 4x the cells (memory, `/map` message size, the global costmap's static layer copy and
+  the web UI map decode all grow 4x with the map area), and re-rasterising from all scans crosses 2x the cells per ray.
+  `map_update_interval` goes from 5 s to 10 s to keep the average raster CPU near the 5 cm level; live obstacles reach
+  the costmaps from the scan directly, so only the drawn map and new static walls refresh more slowly.
+- A saved posegraph keeps its scans, not a raster: a map saved at 5 cm is re-rasterised at 2.5 cm when resumed.
 
 ## Configuration (ros2_nodes `config: |`)
 
