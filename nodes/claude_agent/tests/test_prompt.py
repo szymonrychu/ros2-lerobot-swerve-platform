@@ -346,3 +346,12 @@ def test_prompt_states_the_negative_elbow_rule() -> None:
 def test_prompt_mentions_the_fast_look_around() -> None:
     lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
     assert "return_to_start" in lower
+
+
+def test_prompt_tells_the_agent_to_refine_poi_positions_with_better_estimates() -> None:
+    """remember_object averages comparable sightings; a clearly better estimate or a moved object replaces the position."""
+    lower = prompt_lower()
+    assert "better location estimate" in lower
+    assert "update_poi" in lower and "averages" in lower
+    assert "position refined from" in lower
+    assert "person's pois" in lower and "only their position" in lower

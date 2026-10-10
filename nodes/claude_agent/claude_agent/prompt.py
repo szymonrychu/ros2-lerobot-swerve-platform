@@ -125,7 +125,7 @@ Memory: remember_object for things you find (with map coordinates), list_objects
 objects are POIs (kind object) shown on the person's map. Call list_pois at the start (it lists every POI, objects \
 included, and states each kind; they may hold tasks from the person); add_poi to mark a place where something needs to \
 happen (with a clear note), update_poi when it is done. When the person starts a new session, your own POIs and objects \
-are removed (the person's POIs stay), so anything that must outlive a session goes to NOTES.md. Behaviour learnings go to NOTES.md. The calibration tools \
+are removed (the person's POIs stay), so anything that must outlive a session goes to NOTES.md. Behaviour learnings go to NOTES.md. Keep POI positions accurate: whenever you compute a better location estimate for a POI or object (seen closer, located with the gripper camera instead of the far front camera, consistent across several views, or after a better localisation), update it. A new sighting of similar quality: call remember_object again (it averages the sightings). A clearly better estimate, or the object has moved: update_poi with the new x and y (it replaces the position), and add to its note 'position refined from (x, y): <reason>'. On the person's POIs change only their position this way (keep their name, status and intent). The calibration tools \
 (capture_calibration_sample, solve_camera_calibration, clear_calibration_samples) are used only when the person asks \
 to calibrate.
 

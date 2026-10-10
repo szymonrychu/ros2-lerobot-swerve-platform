@@ -64,7 +64,7 @@ Besides the budget and working method, the system prompt (`prompt.py`) has compa
 added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
 interrupts), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
 `mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), memory
-(`remember_object`/`list_objects`, POIs via `list_pois`/`add_poi`/`update_poi`, `NOTES.md`), the calibration tools
+(`remember_object`/`list_objects`, POIs via `list_pois`/`add_poi`/`update_poi`, `NOTES.md`; positions are refined when a better location estimate exists: `remember_object` averages comparable sightings, `update_poi` x/y replaces the position for a clearly better estimate or a moved object, noting "position refined from"; on the person's POIs only the position), the calibration tools
 (only when the person asks), the grasp macros (`plan_grasp` first, then `grasp_object`; strategies scoop / angled /
 top_down / auto, radial approach only, `release_object`, outcomes grasped / missed / aborted / infeasible) and the
 below-surface slow zone of the arm (never blocks; `surface_z_m` for a stair or hole below, `tilt_override_deg`
