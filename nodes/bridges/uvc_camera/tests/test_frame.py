@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from frame import frame_due, rotate_frame
+from frame import REOPEN_AFTER_FAILURES, frame_due, reopen_due, rotate_frame
 
 FRAME = np.arange(2 * 3 * 3, dtype=np.uint8).reshape(2, 3, 3)  # height 2, width 3, bgr
 
@@ -63,3 +63,11 @@ def test_frame_due_respects_the_period() -> None:
     """At 10 fps a frame 50 ms after the last publish is dropped, one 100 ms after is published."""
     assert not frame_due(1.0, 1.05, 10.0)
     assert frame_due(1.0, 1.1, 10.0)
+
+
+def test_reopen_due_only_after_enough_consecutive_failures() -> None:
+    """The capture is reopened once the consecutive read failures reach the threshold."""
+    assert not reopen_due(0)
+    assert not reopen_due(REOPEN_AFTER_FAILURES - 1)
+    assert reopen_due(REOPEN_AFTER_FAILURES)
+    assert reopen_due(REOPEN_AFTER_FAILURES * 3)

@@ -97,3 +97,13 @@ def test_max_fps_rejects_invalid_values(monkeypatch: pytest.MonkeyPatch, value: 
     monkeypatch.setenv("UVC_MAX_FPS", value)
     with pytest.raises(ValueError, match="UVC_MAX_FPS"):
         get_max_fps()
+
+
+def test_metrics_port_comes_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The bridge resolves its /metrics port through ros2_metrics from METRICS_PORT; unset disables it."""
+    from ros2_metrics import resolve_metrics_port
+
+    monkeypatch.delenv("METRICS_PORT", raising=False)
+    assert resolve_metrics_port(None) is None
+    monkeypatch.setenv("METRICS_PORT", "19105")
+    assert resolve_metrics_port(None) == 19105

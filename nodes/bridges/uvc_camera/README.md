@@ -8,6 +8,7 @@
 
 - **Environment:** `UVC_DEVICE` (default `/dev/video0`, or use integer index e.g. `0`), `UVC_TOPIC` (default `/camera/image_raw`), `UVC_FRAME_ID` (default `camera_optical_frame`), `UVC_ROTATE_DEG` (`0`/`90`/`180`/`270` clockwise, default `0`; any other value fails at startup), `UVC_MAX_FPS` (positive number, default unset = publish every frame; requested from the device and enforced by dropping frames before rotation/encoding, any other value fails at startup).
 - **Device:** The camera device path is configured in `group_vars/client.yml` via `extra_args`; with native install the process runs as the ansible_user who has system group membership. On open failure the process exits with a clear error.
+- **`METRICS_PORT`** (robot `gripper_uvc_camera`: `19105`): Prometheus `/metrics` on 127.0.0.1 via `ros2-metrics`; unset disables it (see Metrics).
 - Base: ROS2 Jazzy; uses `rclpy`, `sensor_msgs/Image`, and `opencv-python-headless`.
 
 ## Code layout
@@ -15,6 +16,17 @@
 - **`config.py`** — Env-based config only (no ROS/OpenCV); `get_config()` returns (device, topic, frame_id). Used by bridge and by unit tests.
 - **`frame.py`** — `rotate_frame(frame, rotate_deg)`: pure numpy rotation by a multiple of 90 degrees.
 - **`bridge.py`** — Imports `get_config` from config; `run_bridge(device, topic, frame_id)` opens the device with OpenCV, reads frames, publishes `sensor_msgs/Image` with header stamp and frame_id. Entry via `__main__.py`.
+
+## Metrics
+
+Node name `gripper_uvc_camera`, served on `127.0.0.1:$METRICS_PORT`.
+
+| Metric | Type | Meaning |
+|--------|------|---------|
+| `camera_frames_published_total` | counter | Frames published on the raw topic |
+| `camera_frames_dropped_total{reason}` | counter | `read_fail` (device returned no frame) or `fps_cap` (dropped by `UVC_MAX_FPS`) |
+| `camera_encode_seconds` | histogram | JPEG encode time (buckets 1 ms to 200 ms) |
+| `camera_reopens_total` | counter | Device close and reopen after 50 consecutive failed reads (about 5 s), which recovers a hung camera |
 
 ## Rotation
 

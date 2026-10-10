@@ -7,6 +7,8 @@ requires-python = ">=3.12"
 dependencies = [
     "opencv-python-headless>=4.8.0,<5",
     "pyyaml>=6.0",
+    "prometheus-client>=0.20",
+    "ros2-metrics",
 ]
 
 [dependency-groups]
@@ -19,6 +21,9 @@ dev = [
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+ros2-metrics = { path = "../../../shared/ros2_metrics", editable = true }
 
 [tool.ruff]
 line-length = 120

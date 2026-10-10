@@ -4,6 +4,7 @@ import numpy as np
 
 # Clockwise degrees -> number of counter-clockwise quarter turns for np.rot90.
 QUARTER_TURNS_CCW = {0: 0, 90: 3, 180: 2, 270: 1}
+REOPEN_AFTER_FAILURES = 50  # about 5 s of failed reads at the 0.1 s retry spin
 
 
 def rotate_frame(frame: np.ndarray, rotate_deg: int) -> np.ndarray:
@@ -40,3 +41,15 @@ def frame_due(last_publish_s: float | None, now_s: float, max_fps: float | None)
     if max_fps is None or last_publish_s is None:
         return True
     return now_s - last_publish_s >= 1.0 / max_fps - 1e-9
+
+
+def reopen_due(consecutive_read_failures: int) -> bool:
+    """Decide whether the capture device should be closed and reopened.
+
+    Args:
+        consecutive_read_failures (int): Frame reads that failed in a row.
+
+    Returns:
+        bool: True once the failures reach REOPEN_AFTER_FAILURES (a hung UVC device needs a reopen to recover).
+    """
+    return consecutive_read_failures >= REOPEN_AFTER_FAILURES

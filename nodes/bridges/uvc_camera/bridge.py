@@ -8,13 +8,17 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import Header
 
+from . import metrics
 from .config import get_config, get_max_fps, get_rotate_deg
-from .frame import frame_due, rotate_frame
+from .frame import frame_due, reopen_due, rotate_frame
 
+NODE_NAME = "gripper_uvc_camera"
 PUBLISH_QOS_DEPTH = 10
+REOPEN_LOG_S = 5
 JPEG_QUALITY = 70
 
 
@@ -66,6 +70,7 @@ def run_bridge(device: str | int, topic: str, frame_id: str, rotate_deg: int = 0
     if max_fps is not None:
         cap.set(cv2.CAP_PROP_FPS, max_fps)
 
+    start_metrics_server(resolve_metrics_port(None), NODE_NAME)
     rclpy.init()
     node = Node("uvc_camera_bridge")
     pub_raw = node.create_publisher(Image, topic, PUBLISH_QOS_DEPTH)
@@ -76,6 +81,7 @@ def run_bridge(device: str | int, topic: str, frame_id: str, rotate_deg: int = 0
     )
 
     last_publish_s: float | None = None
+    read_failures = 0
     try:
         while rclpy.ok():
             ret, frame = cap.read()
@@ -84,11 +90,25 @@ def run_bridge(device: str | int, topic: str, frame_id: str, rotate_deg: int = 0
                     "Failed to read frame; retrying next cycle.",
                     throttle_duration_sec=5.0,
                 )
+                metrics.FRAMES_DROPPED.labels("read_fail").inc()
+                read_failures += 1
+                if reopen_due(read_failures):
+                    read_failures = 0
+                    metrics.REOPENS.inc()
+                    logger.warning(f"No frame for {REOPEN_LOG_S} s; reopening {device}.")
+                    cap.release()
+                    reopened = open_capture(device)
+                    if reopened is not None:
+                        cap = reopened
+                        if max_fps is not None:
+                            cap.set(cv2.CAP_PROP_FPS, max_fps)
                 rclpy.spin_once(node, timeout_sec=0.1)
                 continue
 
+            read_failures = 0
             now_s = time.monotonic()
             if not frame_due(last_publish_s, now_s, max_fps):
+                metrics.FRAMES_DROPPED.labels("fps_cap").inc()
                 rclpy.spin_once(node, timeout_sec=0.001)
                 continue
             last_publish_s = now_s
@@ -108,8 +128,10 @@ def run_bridge(device: str | int, topic: str, frame_id: str, rotate_deg: int = 0
             raw_msg.step = frame.shape[1] * 3
             raw_msg.data = np.asarray(frame).tobytes()
             pub_raw.publish(raw_msg)
+            metrics.FRAMES_PUBLISHED.inc()
 
-            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+            with metrics.ENCODE_SECONDS.time():
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
             if ok:
                 compressed_msg = CompressedImage()
                 compressed_msg.header = header
