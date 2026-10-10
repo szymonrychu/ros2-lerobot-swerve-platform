@@ -1043,7 +1043,9 @@ ros2_nodes:
           # wrist_roll re-solved 2026-10-08 (afternoon) with views at wrist_roll 0 .. -154 deg.
           wrist_roll: -0.0710
         # Tool centre point (m) in the gripper_frame_link frame: jaw closing point vs gripper_frame_link, measured
-        # 2026-10-08 by closing on ruler marks.
+        # 2026-10-08 by closing on ruler marks (one pose; horizontal jaw-to-tool-frame offset from the gripper image, height
+        # difference taken as 0, so the floor height did not enter it). Kept 2026-10-10: a re-solve with the measured floor
+        # would need a 5 cm vertical offset, which the jaws cannot have (docs/calibration/2026-10-10/README.md).
         tool_offset_m: {x: 0.0104, y: -0.0282, z: -0.0017}
         # URDF shoulder_lift upper limit 1.745 rad widened (tested 2026-10-08: reached 1.87 rad without collision; the
         # servo cannot lift the stretched-out arm beyond about 1.85 rad): a folded arm reaches about 5 cm below the floor.
@@ -1071,6 +1073,10 @@ ros2_nodes:
         # Mount re-solved 2026-10-08 (afternoon) from 15 views at wrist_roll 0, -0.8, -1.57, -2.3, -2.69 over a steel
         # ruler (3 arm poses, 115 points; intrinsics and the pan/lift/elbow/wrist_flex offsets kept): floor RMS 6.6 mm,
         # held-out views 4-14 mm. The previous mount fitted only low oblique views at roll 0 (35 mm on these views).
+        # Re-checked 2026-10-10 with the floor at the measured -0.104 instead of -0.164/-0.165: no solve improved (58 stored
+        # samples, mount only 38.1 px at -0.164 vs 43.1 px at -0.104; joint offsets + mount 17.4 vs 18.3 px; the original
+        # 159-point solve 12.18 vs 12.15 px with an implausible -11 deg wrist_flex offset), so mount, intrinsics and
+        # joint_offsets_rad stay (docs/calibration/2026-10-10/README.md).
         gripper:
           parent_frame: gripper_link
           intrinsics:

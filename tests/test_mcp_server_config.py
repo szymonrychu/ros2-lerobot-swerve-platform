@@ -220,7 +220,7 @@ def test_gripper_camera_rotated_180_at_source() -> None:
     assert sum(e.startswith("UVC_ROTATE_DEG=") for e in env) == 1
 
 
-def test_mcp_server_arm_mount_estimate_and_height_agree_with_claude_agent() -> None:
+def test_mcp_server_arm_mount_measured_and_height_agree_with_claude_agent() -> None:
     arm = node_config("mcp_server")["arm"]
     assert arm["arm_base_height_m"] == 0.104
     assert arm["base_in_base_link"] == {"x": 0.0592, "y": -0.05, "z": 0.104, "yaw": 0.0}

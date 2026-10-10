@@ -684,7 +684,7 @@ def test_web_ui_has_map_nav_tab() -> None:
         "arm_urdf": "so101_arm.urdf",
         "arm_joint_states_topic": "/follower/joint_states",
         "arm_command_topic": "/filter/web_ui_joint_commands",
-        # Arm mount in base_link (x, y, z m): the mcp_server arm.base_in_base_link ESTIMATE, to be measured.
+        # Arm mount in base_link (x, y, z m): the mcp_server arm.base_in_base_link measured 2026-10-10.
         "arm_offset": [0.0592, -0.05, 0.104],
         # Home / Set home buttons call the std_srvs/Trigger services served by mcp_server.
         "arm_home_service": "/arm/home",

@@ -351,7 +351,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   timeout, 502 on rejection, and no MCP tool exposes it
 - perception tools (`test_perception_tools.py`): the nine new tools registered and classified (`look_around` in
   `MOTION_TOOLS`, the rest always allowed), `get_topdown_view` PNG + metadata (pose, scale, layers present/missing,
-  data ages), layer selection and validation, POI/object layers (each POI drawn once: `pois` without objects, `objects` only object POIs; both missing with the reason when poi_store is down), object tools round trip and merge as object POIs (`list_objects` only objects, `list_pois` states `kind`), legacy `objects.json` import through the server, POI tools
+  data ages), the reach circle centred on the shoulder_pan axis (`arm.base_in_base_link` plus the 38.8 mm URDF pan
+  origin, rotated by the mount yaw; base_link origin without a mount), layer selection and validation, POI/object layers (each POI drawn once: `pois` without objects, `objects` only object POIs; both missing with the reason when poi_store is down), object tools round trip and merge as object POIs (`list_objects` only objects, `list_pois` states `kind`), legacy `objects.json` import through the server, POI tools
   (point defaults to the robot position, area polygon, `created_by` agent, argument errors, store not running),
   `list_pois` distance/bearing/status/near, `look_around` (montage + top-down images, summary, config default
   captures, argument validation, refusal does not move)
@@ -427,10 +428,11 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   integration and relative pose; navigation via a fake Nav port (success, interrupt cancels goal and zeroes the base,
   stop, timeout, rejected, unavailable, real monitor collision stop)
 - rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
-- config additions (`test_config.py`): arm base height 0.15 and the mount estimate `{x 0.15, y -0.04, z 0.15, yaw 0}`
-  enabled by default, mount z must equal `arm_base_height_m` (null allowed), `floor_guard` and `grasp` defaults and
+- config additions (`test_config.py`): arm base height 0.104 (floor_z -0.104) and the mount measured 2026-10-10
+  `{x 0.0592, y -0.05, z 0.104, yaw 0}` enabled by default, mount z must equal `arm_base_height_m` (null allowed), `floor_guard` and `grasp` defaults and
   validation, `/grasp/command` and `/grasp/result` topic defaults
-- floor slow zone (`test_floor_guard.py`): arm <-> base_link conversions (with yaw), quaternion roll/pitch, effective
+- floor slow zone (`test_floor_guard.py`, a synthetic 15 cm mount with its own floor, independent of the configured
+  one): arm <-> base_link conversions (with yaw), quaternion roll/pitch, effective
   surface (robot plane vs level plane, roll/pitch signs, shifted by `surface_z_m`), fresh IMU used / stale or missing
   IMU ignored and logged once, tilt override replaces the IMU, flat robot slows only samples inside the margin, IMU
   pitch raises the zone in front, `surface_z_m` allows normal speed down to a stair, configured surface/margin/scale,
@@ -506,7 +508,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   12 ikpy runs (secant step; the fixed-point iteration needed 16 or more) and a `heading_bias` start lands within
   2e-3 rad of the cold solution
 - grasp planner speed and stability (`test_grasp_speed.py`, deployed client.yml config, via `plan_matrix.py`): the 13
-  feasible sim-matrix scenarios in `tests/data/grasp_golden.json` (top_down, angled, scoop, auto; waypoint joints and
+  feasible 2026-10-09 sim-matrix scenarios in `tests/data/grasp_golden.json` (fixed arm-frame surfaces of that run:
+  floor -0.15, ledges -0.08 / 0.0, stair -0.25; planner regression geometry, independent of the configured floor) (top_down, angled, scoop, auto; waypoint joints and
   straight-line samples) match the current golden plans within 1e-6 rad and the `baseline` plans (before the faster
   heading convergence) within 2e-3 rad, with the same feasibility and strategy; timing tests (skipped with
   `GRASP_SPEED_SKIP=1`): feasible angled and auto golden scenarios and auto on the reference cube under 1 s, scoop 3 s,
@@ -520,7 +523,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   rule and the tall-object params), `GraspService` JSON contract (plan, execute, release, stop, errors) and battery
   cut-off refusal
 - sim scenario planning (`test_plan_matrix.py`): `sim/grasp_sim/scripts/plan_matrix.py` writes the matrix index and
-  plans with the client.yml config (tool offset, `--only` filter, `--params` overrides)
+  plans with the client.yml config (tool offset, `--only` filter, `--params` overrides); supports are placed relative
+  to the configured floor (-0.104): ledges 7 and 15 cm above it, the stair 10 cm below
 - arm tool overrides (`test_tools.py`): `move_arm_cartesian`, `move_arm_joints`, `set_gripper` take `surface_z_m` /
   `tilt_override_deg`, report `slow_zone` and describe the slow zone
 
@@ -600,7 +604,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_docking_server_configures_without_docks` | Non-empty `dock_plugins`, no docks. |
 | `test_nav2_readme_documents_plan_topics` | Nav2 README names `/plan` and `/optimal_trajectory`. |
 | `test_overlays_use_no_relay_only_topics`, `test_lat_lon_come_from_the_client_gps_fix`, `test_vel_comes_from_the_swerve_odometry`, `test_fl_steer_is_selected_by_joint_name` (`test_web_ui_overlays_config.py`) | web_ui status bar overlays read live client topics: no `/controller/*`, Lat/Lon from the gps_rtk_rover `/client/gps/fix`, Vel from the swerve_controller `odom_topic`, FL Steer from its `joint_states_topic` as `position[name=fl_steer]`. |
-| `test_web_ui_has_map_nav_tab` | web_ui config has the `map` tab of type `map_nav` with exactly the expected fields, including the POI topics (`/poi/list`, `/poi/command`, `/poi/result`), the grasp topics (`/grasp/command`, `/grasp/result`), the arm mount `arm_offset` `[0.15, -0.04, 0.15]` and the merged 3D view contract fields (`local_costmap_topic`, `base_urdf`, `base_joint_states_topic`, `arm_urdf`, `arm_joint_states_topic`, arm command topic `/filter/web_ui_joint_commands`) and the arm Trigger services `/arm/home` / `/arm/set_home`, and the keyed CARTO `tile_url` (`?key={api_key}`) with `tile_api_key_env: WEB_UI_TILE_API_KEY` and the `tile_sources` list (Esri satellite max zoom 20 in `{z}/{y}/{x}` order, keyed CARTO street max zoom 18) with `default_tile_source: satellite` and `tile_display_zoom: 19`. |
+| `test_web_ui_has_map_nav_tab` | web_ui config has the `map` tab of type `map_nav` with exactly the expected fields, including the POI topics (`/poi/list`, `/poi/command`, `/poi/result`), the grasp topics (`/grasp/command`, `/grasp/result`), the arm mount `arm_offset` `[0.0592, -0.05, 0.104]` (measured 2026-10-10) and the merged 3D view contract fields (`local_costmap_topic`, `base_urdf`, `base_joint_states_topic`, `arm_urdf`, `arm_joint_states_topic`, arm command topic `/filter/web_ui_joint_commands`) and the arm Trigger services `/arm/home` / `/arm/set_home`, and the keyed CARTO `tile_url` (`?key={api_key}`) with `tile_api_key_env: WEB_UI_TILE_API_KEY` and the `tile_sources` list (Esri satellite max zoom 20 in `{z}/{y}/{x}` order, keyed CARTO street max zoom 18) with `default_tile_source: satellite` and `tile_display_zoom: 19`. |
 | `test_web_ui_arm_offset_matches_mcp_server_arm_mount` | The web_ui map tab `arm_offset` equals the mcp_server `arm.base_in_base_link` x, y, z, so the drawn arm and the grasp planner agree. |
 | `test_web_ui_loads_the_tile_api_key_env_file_and_never_stores_the_key` | web_ui's unit loads `/etc/ros2/web_ui/env` via `environment_file`; `web_ui_tile_key.yml` reads `CARTO_API_KEY` from the controller, writes `WEB_UI_TILE_API_KEY=` with mode `0600`, `no_log: true` and queues a web_ui restart, and is included by `deploy_nodes_client.yml`. |
 | `test_web_ui_installs_slam_toolbox_for_its_service_imports` | web_ui node type installs `ros-jazzy-slam-toolbox` (it imports `slam_toolbox.srv`), so deploying web_ui alone does not fail with ImportError. |
@@ -663,7 +667,7 @@ fake `ssh`; no ROS needed).
 | `test_gripper_camera_rotated_180_at_source` | `gripper_uvc_camera` env sets `UVC_ROTATE_DEG=180` exactly once (the wrist image is upside down at wrist roll 0; rotation happens in the camera node, not downstream). |
 | `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
 | `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` (and the `nav_intermediate_*` pair) in client.yml equal the mcp_server `nav` values. |
-| `test_mcp_server_arm_mount_estimate_and_height_agree_with_claude_agent` | mcp_server config `arm.arm_base_height_m` is 0.15 and `arm.base_in_base_link` is the mount estimate `{x: 0.15, y: -0.04, z: 0.15, yaw: 0.0}` (to be measured); the claude_agent `arm_base_height_m` states the same height. |
+| `test_mcp_server_arm_mount_measured_and_height_agree_with_claude_agent` | mcp_server config `arm.arm_base_height_m` is 0.104 and `arm.base_in_base_link` is the mount measured 2026-10-10 `{x: 0.0592, y: -0.05, z: 0.104, yaw: 0.0}`; the claude_agent `arm_base_height_m` states the same height. |
 | `test_mcp_server_floor_guard_and_grasp_blocks_are_deployed` | mcp_server config has the `floor_guard` block (enabled, 2 cm margin, 0.2 slow speed scale, surface 0, IMU max age 1 s), the `grasp` block (5 mm interpolation, 8 cm max opening, auto order top_down, angled, scoop, scoop max pitch 40 deg and gap margin 4 mm, tall ratio 1.5 / grasp height fraction 0.3 / lift speed 0.05, min object width 1 cm) and the `/grasp/command` / `/grasp/result` topics; the claude_agent lists `grasp_object` / `release_object` as effectors and `plan_grasp` as a sensor. |
 | `test_mcp_server_monitor_block_has_ordered_thresholds` | mcp_server `monitor` block: servo 60/70 C, CPU 75/82 C, bump warning below critical, stall 1.0 s, tilt 10 deg, battery warning margin 0.2 V/cell. |
 | `test_mcp_server_monitor_topics_match_their_producers` | mcp_server monitor topics: `/follower/servo_registers`, `/imu/data`, `/robot_events`, `swerve_odom` equals the swerve controller `odom_topic`, `rf2o_twist` equals the rf2o relay `output_topic`. |
@@ -739,7 +743,7 @@ layout; no ROS needed).
 | `test_claude_agent_config_has_watchdog_and_sdk_initialize_timeout` | The entry's config sets `instruction_timeout_s: 900` and the node env raises the SDK initialize timeout (`CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=180000`). |
 | `test_setup_tasks_create_persistent_workdir_owned_0750` | `claude_agent_setup.yml` creates `/var/lib/claude_agent/workspace` (the agent's persistent notes volume) as a directory owned by `claude_agent`, mode 0750, after its parent HOME directory. |
 | `test_ansible_never_removes_the_workdir_or_state_dir` | No Ansible task (file `state: absent`, `rm` in command/shell) deletes anything under `/var/lib/claude_agent`, so notes and the session log survive deploys. |
-| `test_claude_agent_config_workdir_state_dir_and_hardware_facts` | The entry's config sets `workdir`, `state_dir`, `arm_base_height_m` 0.15 (mount estimate, equal to mcp_server) and `arm_reach_cm`; the service `HOME` stays `/var/lib/claude_agent`, separate from the workdir. |
+| `test_claude_agent_config_workdir_state_dir_and_hardware_facts` | The entry's config sets `workdir`, `state_dir`, `arm_base_height_m` 0.104 (measured mount, equal to mcp_server) and `arm_reach_cm`; the service `HOME` stays `/var/lib/claude_agent`, separate from the workdir. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_claude_agent_config.py` is listed in this section. |
 
 ### test_web_ui_agent_tab.py
@@ -869,7 +873,7 @@ The dev-only MuJoCo grasp replay harness has its own uv project and tests under 
 | File | Covers |
 |------|--------|
 | `test_model.py` | Vendored SO-101 model loads with six position actuators; every body frame and the URDF gripper frame match a numpy URDF FK chain (`so101_arm.urdf`) within 2 mm at six joint configs; shoulder_lift range override. |
-| `test_scene.py` | Scene generation: floor at `-base_height`, box on floor / ledge / lower stair settles on its support with the configured size, mass and friction; support kind inference; validation; `gap_below_m` rests the box on two rails (support geoms) with a clear slot. |
+| `test_scene.py` | Scene generation: floor at `-base_height` (default 0.104, the measured mount), box on floor / ledge / lower stair settles on its support with the configured size, mass and friction; support kind inference; validation; `gap_below_m` rests the box on two rails (support geoms) with a clear slot. |
 | `test_tcp.py` | Jaw calibration: gripper_frame_link transform, the stock Menagerie closing point, `tool_offset_m` read from client.yml, calibrated jaws close within 2 mm of it, only the fingers and the moving jaw move, the vendored XML stays unmodified, the replay grip point follows. |
 | `test_matrix.py` | Scenario matrix: executor-like quintic path timing, phase order and closed gripper from the close, slower lift for a lower `speed_scale`, scene per entry (calibrated or stock jaws, rails for a gap), summary table, `grasp-sim matrix` end to end. |
 | `test_plan.py` | Replay plan parsing, label timeline and linear interpolation. |
