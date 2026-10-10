@@ -42,6 +42,20 @@ Priority is **autonomy > web_ui > leader**. The logic lives in `filter_node/arbi
 - When the leader resumes after a release, the Kalman state is reset to the new leader measurement so stale pre-lease estimates are never published.
 - When no autonomy command ever arrives, leader / web UI behaviour is unchanged.
 
+## Metrics
+
+Prometheus exporter on `127.0.0.1:19102/metrics` (ros2_nodes name `filter_node`), served by `ros2-metrics`
+(`shared/ros2_metrics`) in a daemon thread. Config key `metrics_port` (top level of the config YAML; int, default unset =
+exporter disabled; env `METRICS_PORT` is used when the key is absent). The helper also registers `robot_node_info{node}`
+and `robot_node_start_time_seconds{node}`. Metric objects live in `metrics.py`.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `filter_input_age_seconds` | gauge | `source` (leader, web_ui, autonomy) | Seconds since the last message of that source; absent until the source sent its first message. Refreshed every 0.1 s. |
+| `filter_active_source` | gauge | `source` (leader, web_ui, autonomy, none) | 1 for the arbiter's active source, 0 for the others. |
+| `filter_source_switches_total` | counter |  | Changes of the active source. |
+| `filter_loop_overruns_total` | counter |  | Control-loop iterations that started more than 1.5 control periods after the previous one. |
+
 ## Build and run
 
 Ansible deploys the node on the client from `nodes/filter_node`. Run the client deploy playbook to install and start the service.

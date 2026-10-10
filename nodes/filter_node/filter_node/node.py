@@ -7,6 +7,7 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, String
 
@@ -14,7 +15,9 @@ from .algorithms import get_algorithm
 from .arbitration import SOURCE_AUTONOMY, SOURCE_LEADER, SOURCE_WEB_UI, ActiveSourceReporter, SourceArbiter
 from .command import fill_command
 from .config import FilterConfig
+from .metrics import FilterMetrics
 
+NODE_NAME = "filter_node"
 FILTER_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     history=HistoryPolicy.KEEP_LAST,
@@ -41,8 +44,10 @@ def joint_positions(msg: JointState) -> dict[str, float]:
 
 def run_filter_node(config: FilterConfig) -> None:
     """Run the filter node: subscribe input_topic, publish filtered output_topic at control_loop_hz."""
+    start_metrics_server(resolve_metrics_port(config.metrics_port), NODE_NAME)
+    metrics = FilterMetrics()
     rclpy.init()
-    node = Node("filter_node")
+    node = Node(NODE_NAME)
     algorithm_cls = get_algorithm(config.algorithm)
     algorithm = algorithm_cls(config.algorithm_params)
     pub = node.create_publisher(JointState, config.output_topic, FILTER_QOS)
@@ -68,7 +73,8 @@ def run_filter_node(config: FilterConfig) -> None:
         pub.publish(fill_command(JointState(), clock.now().to_msg(), msg.name, msg.position, source))
 
     def report_source() -> None:
-        """Publish the active source when it changed or the 1 Hz period elapsed."""
+        """Update metrics, then publish the active source when it changed or the 1 Hz period elapsed."""
+        metrics.refresh(arbiter.active_source, time.monotonic())
         if source_pub is not None and reporter.due(arbiter.active_source, time.monotonic()):
             source_msg = String()
             source_msg.data = arbiter.active_source
@@ -76,6 +82,7 @@ def run_filter_node(config: FilterConfig) -> None:
 
     def on_input(msg: JointState) -> None:
         previous = arbiter.active_source
+        metrics.record_input(SOURCE_LEADER, time.monotonic())
         decision = arbiter.on_leader_input(joint_positions(msg), time.monotonic())
         if not decision.accepted:
             return
@@ -108,12 +115,14 @@ def run_filter_node(config: FilterConfig) -> None:
 
     def on_web_ui_input(msg: JointState) -> None:
         # Web UI sends clean data, no Kalman needed; ignored while autonomy holds the lease
+        metrics.record_input(SOURCE_WEB_UI, time.monotonic())
         if arbiter.on_web_ui_command(time.monotonic()):
             publish_direct(msg, SOURCE_WEB_UI)
             report_source()
 
     def on_autonomy_input(msg: JointState) -> None:
         # The MCP server already streams smooth, rate-limited setpoints: republish directly
+        metrics.record_input(SOURCE_AUTONOMY, time.monotonic())
         if not arbiter.autonomy_held:
             log.info("Autonomy lease taken: web UI and leader input ignored until release")
         arbiter.on_autonomy_command()
@@ -150,8 +159,8 @@ def run_filter_node(config: FilterConfig) -> None:
         log.info(f"Autonomy lease enabled: {config.autonomy_input_topic} (release {config.autonomy_release_topic})")
         if not config.follower_feedback_topic:
             log.warning("No follower_feedback_topic: leader cannot resume after an autonomy release")
-    if source_pub is not None:
-        node.create_timer(ACTIVE_SOURCE_POLL_S, report_source)
+    # Always poll: keeps the input-age and active-source gauges fresh even when no active_source topic is set.
+    node.create_timer(ACTIVE_SOURCE_POLL_S, report_source)
     node.get_logger().info(f"Filter node: {config.input_topic} -> {config.output_topic} [{config.algorithm}]")
 
     executor = SingleThreadedExecutor()
@@ -161,6 +170,7 @@ def run_filter_node(config: FilterConfig) -> None:
     was_idle = False
 
     while rclpy.ok():
+        metrics.observe_loop(time.monotonic(), control_period_s)
         if state_by_joint and joint_order:
             now = time.monotonic()
             input_age = now - last_input_time[0]

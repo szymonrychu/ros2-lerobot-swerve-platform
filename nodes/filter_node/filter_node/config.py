@@ -46,6 +46,7 @@ class FilterConfig:
         autonomy_release_topic: std_msgs/Bool topic; ``true`` ends the autonomy lease (``false`` is ignored).
         active_source_topic: std_msgs/String topic on which the active source (leader, web_ui, autonomy,
             none) is published on change and at 1 Hz. Empty string disables it.
+        metrics_port: Prometheus /metrics port on 127.0.0.1; None disables the exporter.
     """
 
     input_topic: str
@@ -62,6 +63,7 @@ class FilterConfig:
     autonomy_input_topic: str = DEFAULT_AUTONOMY_INPUT_TOPIC
     autonomy_release_topic: str = DEFAULT_AUTONOMY_RELEASE_TOPIC
     active_source_topic: str = DEFAULT_ACTIVE_SOURCE_TOPIC
+    metrics_port: int | None = None
 
 
 def read_topic(data: dict[str, Any], key: str, default: str) -> str:
@@ -127,6 +129,7 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         takeover_threshold_rad = max(0.0, float(raw_threshold))
     except (TypeError, ValueError):
         takeover_threshold_rad = 0.15
+    raw_metrics_port = data.get("metrics_port")
     return FilterConfig(
         input_topic=input_topic,
         output_topic=output_topic,
@@ -142,6 +145,7 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         autonomy_input_topic=read_topic(data, "autonomy_input_topic", DEFAULT_AUTONOMY_INPUT_TOPIC),
         autonomy_release_topic=read_topic(data, "autonomy_release_topic", DEFAULT_AUTONOMY_RELEASE_TOPIC),
         active_source_topic=read_topic(data, "active_source_topic", DEFAULT_ACTIVE_SOURCE_TOPIC),
+        metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
     )
 
 
