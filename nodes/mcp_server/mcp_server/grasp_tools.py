@@ -508,13 +508,14 @@ class GraspExecutor:
             if roll_change:
                 targets[ROLL_JOINT] = current[ROLL_JOINT]  # roll only once lifted at the pre-grasp
             reached = pre
-            self.step("pre_grasp", steps, stop_requested, lambda: arm.move_joints(targets, None, floor), intent=targets)
+            free = min(pre.speed_scale, limits.arm_max_speed_scale)  # approach_speed_scale (planned)
+            self.step("pre_grasp", steps, stop_requested, lambda: arm.move_joints(targets, free, floor), intent=targets)
             if roll_change:
                 self.step(
                     "roll",
                     steps,
                     stop_requested,
-                    lambda: arm.move_joints({ROLL_JOINT: pre.roll}, None, floor),
+                    lambda: arm.move_joints({ROLL_JOINT: pre.roll}, free, floor),
                     intent=pre.joints,
                 )
             open_frac = self.fraction(wp["open"].gripper or self.cfg.arm.gripper_open_rad)
@@ -777,7 +778,9 @@ def register(ctx: ToolContext) -> None:
     )
     params_desc = (
         "Overrides of the grasp parameters (config grasp section), e.g. approach_distance_m, pre_grasp_clearance_m, "
-        "slide_speed_scale, lift_height_m, retreat_distance_m, jaw_thickness_m, jaw_open_margin_m, "
+        f"approach_speed_scale (free moves to the lifted pre-grasp and its roll, default {grasp.approach_speed_scale:g}, "
+        f"capped to {config.limits.arm_max_speed_scale:g}), slide_speed_scale (straight approach, slide and retreat, "
+        f"default {grasp.slide_speed_scale:g}), lift_height_m, retreat_distance_m, jaw_thickness_m, jaw_open_margin_m, "
         "below_object_offset_m, skim_clearance_m, max_object_width_m, close_effort_threshold (default: the grip "
         "profile's contact_effort_threshold), grip_profile, interpolation_step_m, "
         "scoop_max_pitch_deg, scoop_gap_margin_m, tall_ratio, tall_grasp_height_fraction, lift_speed_scale, "

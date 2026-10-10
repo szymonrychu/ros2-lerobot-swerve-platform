@@ -825,6 +825,8 @@ class GraspSettings(StrictModel):
 
     approach_distance_m: float = Field(default=0.04, ge=0.0, le=0.2)  # straight-line approach before the object
     pre_grasp_clearance_m: float = Field(default=0.05, ge=0.0, le=0.3)  # lift of the roll/open pose above the approach
+    # Speed scale of the free moves to the lifted pre-grasp (and its roll); capped to limits.arm_max_speed_scale.
+    approach_speed_scale: float = Field(default=0.3, gt=0.0, le=HARD_MAX_SPEED_SCALE)
     slide_speed_scale: float = Field(default=0.15, gt=0.0, le=HARD_MAX_SPEED_SCALE)  # approach/slide speed scale
     lift_height_m: float = Field(default=0.05, ge=0.0, le=0.3)
     retreat_distance_m: float = Field(default=0.05, ge=0.0, le=0.3)

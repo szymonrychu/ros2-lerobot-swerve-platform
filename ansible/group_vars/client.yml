@@ -1182,6 +1182,7 @@ ros2_nodes:
       grasp:
         approach_distance_m: 0.04       # straight approach before the object (beyond half its depth)
         pre_grasp_clearance_m: 0.05     # lifted pre-grasp (roll happens here, gripper at most half open)
+        approach_speed_scale: 0.3       # free moves to the lifted pre-grasp and its roll (capped to arm_max_speed_scale)
         slide_speed_scale: 0.15         # approach, slide, lift and retreat speed scale
         lift_height_m: 0.05
         retreat_distance_m: 0.05

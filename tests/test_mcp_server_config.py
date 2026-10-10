@@ -290,6 +290,8 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
     for preset in presets.values():
         assert preset["close_speed_rps"] <= 0.5  # limits.gripper_velocity_rps default caps it
         assert preset["crush_load"] > preset.get("target_load", 0)
+    # the free pre-grasp moves run slower than the arm maximum (2026-10-10: they ran at 0.5 with no override)
+    assert cfg["grasp"]["approach_speed_scale"] == 0.3 <= cfg.get("limits", {}).get("arm_max_speed_scale", 0.5)
     # the grasp threshold comes from the profile now (a fixed close_effort_threshold would override every profile)
     assert "close_effort_threshold" not in cfg["grasp"]
     follower = yaml.safe_load(node_entry("lerobot_follower")["config"])

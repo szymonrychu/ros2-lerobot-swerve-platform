@@ -1007,7 +1007,7 @@ class GraspPlanner:
             return base.model_copy(
                 update={"reasons": ["the wrist roll that aligns the jaws is outside the roll limits"]}
             )
-        fast = self.cfg.limits.arm_max_speed_scale
+        fast = min(params.approach_speed_scale, self.cfg.limits.arm_max_speed_scale)
         slow = params.slide_speed_scale
         steps: list[tuple[WaypointLabel, np.ndarray, float | None, GripperAction, float, bool]] = [
             ("pre_grasp", pre, half, "set", fast, False),

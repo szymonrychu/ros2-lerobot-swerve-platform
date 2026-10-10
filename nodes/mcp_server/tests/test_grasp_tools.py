@@ -325,3 +325,63 @@ def test_grasp_tool_schemas_explain_surfaces(server: Any) -> None:
         schema = json.dumps(tools[name].input_schema)
         assert "surfaces" in tools[name].input_schema["properties"], name
         assert "step edge" in schema and "half-plane" in schema, name
+
+
+def test_pre_grasp_and_roll_moves_run_at_approach_speed_scale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """2026-10-10: the pre-grasp and roll moves ran at arm_max_speed_scale (0.5) with no per-call override."""
+    arm, be = make(tmp_path, START | {"wrist_roll": 1.2, "gripper": 1.5})
+    object_in_jaws(be)
+    speeds: list[float | None] = []
+    move_joints = arm.move_joints
+
+    def spy(targets: Any, speed_scale: float | None = None, floor: Any = None, **kw: Any) -> Any:
+        speeds.append(speed_scale)
+        return move_joints(targets, speed_scale, floor, **kw)
+
+    monkeypatch.setattr(arm, "move_joints", spy)
+    result = run_grasp(arm)
+    assert result.outcome == "grasped", result.reasons
+    assert CONFIG.grasp.approach_speed_scale == 0.3
+    assert speeds == [0.3, 0.3]  # pre_grasp, roll
+    planned = {w["label"]: w["speed_scale"] for w in result.plan["waypoints"]}
+    assert planned["pre_grasp"] == planned["open"] == 0.3
+
+
+def test_approach_speed_scale_is_a_per_call_param_capped_by_the_arm_maximum(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arm, be = make(tmp_path)
+    object_in_jaws(be)
+    speeds: list[float | None] = []
+    move_joints = arm.move_joints
+
+    def spy(targets: Any, speed_scale: float | None = None, floor: Any = None, **kw: Any) -> Any:
+        speeds.append(speed_scale)
+        return move_joints(targets, speed_scale, floor, **kw)
+
+    monkeypatch.setattr(arm, "move_joints", spy)
+    executor = GraspExecutor(arm, CONFIG)
+    slow = grasp_params(CONFIG.grasp, {"approach_speed_scale": 0.1})
+    assert executor.grasp(ObjectSpec(**OBJECT), "top_down", slow, None, None, lambda: False).outcome == "grasped"
+    assert speeds and set(speeds) == {0.1}  # pre_grasp (and roll)
+    # above the configured arm maximum: capped to it (never faster than limits.arm_max_speed_scale)
+    capped_cfg = CONFIG.model_copy(deep=True)
+    capped_cfg.limits.arm_max_speed_scale = 0.2
+    arm2, be2 = make(tmp_path)
+    arm2.cfg.limits.arm_max_speed_scale = 0.2
+    object_in_jaws(be2)
+    fast = grasp_params(capped_cfg.grasp, {"approach_speed_scale": 0.4})
+    plan, _ = GraspExecutor(arm2, capped_cfg).plan(ObjectSpec(**OBJECT), "top_down", fast, None, None)
+    assert {w.label: w.speed_scale for w in plan.waypoints}["pre_grasp"] == 0.2
+    # above the hard maximum: refused
+    with pytest.raises(ValueError, match="approach_speed_scale"):
+        grasp_params(CONFIG.grasp, {"approach_speed_scale": 0.6})
+
+
+def test_grasp_object_schema_offers_approach_speed_scale(server: Any) -> None:
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tools = {t.name: json.dumps(t.input_schema) + (t.description or "") for t in anyio.run(run)}
+    assert "approach_speed_scale" in tools["grasp_object"]
+    assert "approach_speed_scale" in tools["plan_grasp"]
