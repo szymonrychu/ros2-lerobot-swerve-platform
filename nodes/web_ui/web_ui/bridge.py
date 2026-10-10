@@ -98,6 +98,7 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     # Local (client-side) topics shown by the map tab and the default camera/IMU tabs.
     "/follower/joint_states": JointState,
     "/swerve_drive/joint_states": JointState,
+    "/odom": Odometry,  # swerve_controller wheel odometry (status bar Vel overlay)
     "/imu/data": Imu,
     "/camera_0/image_raw/compressed": CompressedImage,
     "/overview_camera/image_raw/compressed": CompressedImage,

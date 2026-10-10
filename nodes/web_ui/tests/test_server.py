@@ -122,3 +122,36 @@ def test_ws_snapshot_and_broadcast_never_send_concurrently(urdf_dir: Path, tmp_p
     topics = [e["topic"] for e in ws.sent]
     assert topics[:5] == [e["topic"] for e in snapshot]
     assert "/live" in topics[5:]
+
+
+def test_index_html_is_not_cached(app) -> None:
+    """index.html is served with no-cache so a deploy is picked up (and the hashed bundle it names)."""
+    resp = TestClient(app).get("/")
+    assert resp.headers["cache-control"] == "no-cache"
+    resp = TestClient(app).get("/index.html")
+    assert resp.headers["cache-control"] == "no-cache"
+
+
+def test_spa_fallback_is_not_cached(app) -> None:
+    """An unknown client-side route falls back to index.html, also with no-cache."""
+    resp = TestClient(app).get("/some/spa/route")
+    assert resp.status_code == 200
+    assert b"ok" in resp.content
+    assert resp.headers["cache-control"] == "no-cache"
+
+
+def test_hashed_assets_keep_long_caching(app, tmp_path: Path) -> None:
+    """Hashed /assets/* files are not forced to no-cache."""
+    assets = tmp_path / "static" / "assets"
+    assets.mkdir()
+    (assets / "app-abc123.js").write_text("x")
+    resp = TestClient(app).get("/assets/app-abc123.js")
+    assert resp.status_code == 200
+    assert resp.headers.get("cache-control") != "no-cache"
+    assert "max-age" in resp.headers.get("cache-control", "max-age")
+
+
+def test_urdf_files_are_no_cache(app) -> None:
+    """URDF responses revalidate so model changes show after a reload."""
+    resp = TestClient(app).get("/api/urdf/robot.urdf")
+    assert resp.headers["cache-control"] == "no-cache"

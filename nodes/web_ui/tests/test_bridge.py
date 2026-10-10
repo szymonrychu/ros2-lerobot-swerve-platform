@@ -77,3 +77,12 @@ def test_stereo_topics_have_type_hints() -> None:
     assert subscription_spec("/stereo/left/image_rect", None)[0] is Image
     assert subscription_spec("/stereo/depth/image_rect", None)[0] is Image
     assert subscription_spec("/stereo/depth/camera_info", None)[0] is CameraInfo
+
+
+def test_odom_topic_is_an_odometry_subscription() -> None:
+    """The client /odom topic (status bar Vel overlay) resolves to an Odometry subscription without a role."""
+    from nav_msgs.msg import Odometry
+
+    from web_ui.bridge import subscription_spec
+
+    assert subscription_spec("/odom", None)[0] is Odometry

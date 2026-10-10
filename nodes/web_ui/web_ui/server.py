@@ -16,6 +16,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from ros2_common.battery import BatteryGuard
+from starlette.exceptions import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -66,8 +67,14 @@ GRASP_ACTIONS = frozenset({"plan", "execute", "release"})
 GRASP_OBJECT_ACTIONS = frozenset({"plan", "execute"})
 GRASP_MOTION_ACTIONS = frozenset({"execute", "release"})
 HTTP_ACCEPTED = 202
-# Browser cache lifetime of URDF and mesh files (the arm meshes are tens of MB).
-URDF_CACHE_CONTROL = "public, max-age=86400"
+HTTP_NOT_FOUND = 404
+# URDF and mesh files (arm meshes are tens of MB) are revalidated on each load (ETag / 304), so model changes show
+# after a reload without re-downloading unchanged meshes.
+URDF_CACHE_CONTROL = "no-cache"
+# index.html must be revalidated so a deploy is picked up; hashed /assets/* files keep Starlette's default caching.
+INDEX_CACHE_CONTROL = "no-cache"
+NON_SPA_PREFIXES = ("api/", "ws")
+INDEX_PATHS = ("", ".", "index.html")
 # Map tiles reach the browser only through /api/tiles (same origin), so img-src needs no external hosts.
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; "
@@ -316,6 +323,32 @@ def make_tile_proxies(
             source.url, source.subdomains or "", cache, transport=transport, api_key=api_key or ""
         )
     return proxies
+
+
+class SpaStaticFiles(StaticFiles):
+    """StaticFiles serving index.html with no-cache and as the fallback for unknown client-side routes."""
+
+    async def get_response(self, path: str, scope: Any) -> Response:
+        """Serve a static file; index.html (also as the SPA fallback) carries Cache-Control: no-cache.
+
+        Args:
+            path (str): Path relative to the static directory.
+            scope (Any): ASGI scope.
+
+        Returns:
+            Response: The file, or index.html for an unknown path outside the API and WebSocket routes.
+        """
+        is_index = path in INDEX_PATHS
+        try:
+            response = await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code != HTTP_NOT_FOUND or path.startswith(NON_SPA_PREFIXES):
+                raise
+            response = await super().get_response("index.html", scope)
+            is_index = True
+        if is_index:
+            response.headers["Cache-Control"] = INDEX_CACHE_CONTROL
+        return response
 
 
 def build_app(
@@ -672,6 +705,6 @@ def build_app(
             log.info("ws_client_disconnected", client_id=client_id, total_clients=len(clients))
 
     if static_dir.exists():
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+        app.mount("/", SpaStaticFiles(directory=static_dir, html=True), name="static")
 
     return app

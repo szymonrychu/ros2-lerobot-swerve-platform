@@ -802,13 +802,13 @@ def plain_app(tmp_path: Path, urdf_dir: Path) -> TestClient:
     return TestClient(build_app(config=AppConfig(), urdf_dir=urdf_dir, static_dir=tmp_path / "none"))
 
 
-def test_urdf_files_have_cache_control(plain_app: TestClient, urdf_dir: Path) -> None:
+def test_urdf_files_are_revalidated(plain_app: TestClient, urdf_dir: Path) -> None:
     (urdf_dir / "meshes").mkdir()
     (urdf_dir / "meshes" / "wheel.stl").write_bytes(b"solid x")
     for path in ("robot.urdf", "meshes/wheel.stl"):
         resp = plain_app.get(f"/api/urdf/{path}")
         assert resp.status_code == 200
-        assert "max-age=86400" in resp.headers["cache-control"]
+        assert resp.headers["cache-control"] == "no-cache"
 
 
 def test_urdf_status_not_cached(plain_app: TestClient) -> None:
