@@ -1,0 +1,51 @@
+# Live arm + gripper-camera calibration, 2026-10-10 (grid sheet, 50 mm step, labels in base_link mm).
+# Nothing here is applied: config (ansible/group_vars/client.yml) and the intrinsics yaml are unchanged.
+# Recommended set = variant D (camera samples + near-floor grid lines + tip touches, floor fixed at -0.104,
+# label->arm registration free). wrist_roll offset is NOT identifiable (a constant roll offset is absorbed exactly by
+# the camera mount and the tool point, both on gripper_link), so it is kept at the deployed -0.071.
+
+recommended:
+  arm:
+    joint_offsets_rad: {shoulder_pan: 0.0182, shoulder_lift: -0.0345, elbow_flex: -0.1070, wrist_flex: 0.0988, wrist_roll: -0.071}
+    tool_offset_m: {x: 0.0010, y: -0.0056, z: -0.0014}   # physical fixed-jaw tip in gripper_frame_link
+    # Fitted label->arm registration (22.3, -2.8) mm. If the sheet labels are right, the arm base origin is here
+    # instead of the measured (0.0592, -0.05): verify with a tape (pan axis = base origin x + 0.0388).
+    base_in_base_link_if_sheet_is_right: {x: 0.0369, y: -0.0472, z: 0.104, yaw: 0.0}
+  cameras:
+    gripper:
+      mount: {parent_frame: gripper_link, x: -0.0046, y: 0.0364, z: -0.0364, roll: -1.5622, pitch: 1.1950, yaw: -1.4466}
+      intrinsics:   # principal point fixed at the image centre, single radial term
+        camera_matrix: [410.6, 0.0, 320.0, 0.0, 410.6, 240.0, 0.0, 0.0, 1.0]
+        distortion_coefficients: [-0.1666, 0.0, 0.0, 0.0, 0.0]
+
+deployed:
+  joint_offsets_rad: {shoulder_pan: -0.0619, shoulder_lift: -0.0103, elbow_flex: -0.1381, wrist_flex: 0.2477, wrist_roll: -0.071}
+  tool_offset_m: {x: 0.0104, y: -0.0282, z: -0.0017}
+  gripper_mount: {x: 0.0002, y: 0.0305, z: -0.1073, roll: -1.6171, pitch: 1.1845, yaw: -1.4629}
+  intrinsics: {f: 367.83, k1: -0.1523}
+
+data:
+  camera_images: 20          # c01..c20, tool 3.4..14 cm above the floor, pitch 1.0..1.57, wrist_roll -1.2 / -1.6 / -2.0
+  camera_points: 234         # refined grid intersections; held out: c03 c09 c15 c19 (59 points)
+  near_floor_line_points: 228  # traced grid lines in the 5 touch images (t7 held out)
+  touches_z: 6               # t1 t2 t5 t7 t8 t9 (t7 held out); t4 t6 hover only (next step unreachable)
+  touches_xy: 4              # t1 t2 t7 t8 (tip located in the image); t7 held out
+
+validation:   # held-out images / held-out touch t7; mm = floor distance of the back-projected pixel
+  deployed:  {hold_px: 96.2, hold_floor_mm: 44.9, t7_tip_xy_mm: [-28.8, 19.4], t7_tip_z_mm: -0.2, t7_lines_mm: 38.4, home_tip_above_floor_mm: 205.1}
+  A_cam_only_reg_fixed:      {hold_px: 11.8, hold_floor_mm: 7.8, t7_tip_xy_mm: [-25.3, 11.2], t7_tip_z_mm: 0.8, t7_lines_mm: 3.8, home_tip_above_floor_mm: 203.5}
+  B_all_reg_fixed:           {hold_px: 10.7, hold_floor_mm: 6.7, t7_tip_xy_mm: [-5.5, 0.2], t7_tip_z_mm: 0.9, t7_lines_mm: 1.7, home_tip_above_floor_mm: 221.5}
+  C_cam_only_reg_free:       {hold_px: 3.7, hold_floor_mm: 2.2, t7_tip_xy_mm: [-29.4, 10.0], t7_tip_z_mm: -1.1, t7_lines_mm: 2.6, home_tip_above_floor_mm: 222.0}
+  D_all_reg_free_RECOMMENDED: {hold_px: 5.5, hold_floor_mm: 4.1, t7_tip_xy_mm: [-6.0, 1.4], t7_tip_z_mm: 0.5, t7_lines_mm: 1.9, home_tip_above_floor_mm: 243.6}
+  E_D_plus_floor_free:       {hold_px: 5.5, hold_floor_mm: 3.3, floor_shift_mm: 3.1, home_tip_above_floor_mm: 243.0}
+  F_D_plus_base_tilt_free:   {hold_px: 5.4, tilt_deg: [0.10, 0.02]}
+  user_observations:
+    a_home_static_tip_243mm: "D 243.6 mm (deployed 205.1)"
+    c_front_left_177.5_156.3: "joints recovered with the deployed IK, wrist_roll assumed -1.6: D (197.6, 151.1) mm with the measured mount, (175.3, 153.9) mm with the registration-corrected mount (deployed 154.0, 128.6)"
+
+touch_tip_positions_label_frame_mm:   # commanded with the deployed model -> measured physical tip (homography)
+  t1: {commanded: [300, 0], measured: [320.5, -26.7]}
+  t2: {commanded: [250, 50], measured: [258.3, 36.6]}
+  t7: {commanded: [250, 0], measured: [268.9, -22.6]}
+  t8: {commanded: [250, -50], measured: [258.1, -80.1]}
+  contact_fk_z_deployed_m: "-0.1028 .. -0.1039 at the onset (all 6), i.e. floor -0.104 confirmed"

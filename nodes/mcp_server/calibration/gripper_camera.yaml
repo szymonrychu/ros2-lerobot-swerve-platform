@@ -1,16 +1,17 @@
-# Gripper UVC camera (Arducam 5MP USB, 640x480) intrinsics, solved 2026-10-08 together with its mount AND the arm joint
-# zero offsets (mcp_server arm.joint_offsets_rad) from 45 floor points (steel ruler + Lego at 25 cm) over 10 arm poses,
-# far and close-up: floor error RMS 6.1 mm (median 5.2 mm; held-out poses 5.8 / 8.1 mm). Principal point fixed at the
-# image centre, single radial term k1. ROS camera_info format (ros2_common.camera_geometry.from_calibration_yaml).
+# Gripper UVC camera (Arducam 5MP USB, 640x480) intrinsics, re-solved 2026-10-10 together with its mount, the arm joint
+# zero offsets and the tool point from a 50 mm grid sheet (234 floor points, 20 views, floor at -0.104 in the arm frame):
+# held-out 5.5 px / 4.1 mm floor error (docs/calibration/2026-10-10/session/results.yaml). Previous 2026-10-08 solve:
+# f 367.83, k1 -0.1523. Principal point fixed at the image centre, single radial term k1. ROS camera_info format
+# (ros2_common.camera_geometry.from_calibration_yaml).
 image_width: 640
 image_height: 480
 camera_name: gripper_camera
 camera_matrix:
   rows: 3
   cols: 3
-  data: [367.83, 0.0, 320.0, 0.0, 367.83, 240.0, 0.0, 0.0, 1.0]
+  data: [410.6, 0.0, 320.0, 0.0, 410.6, 240.0, 0.0, 0.0, 1.0]
 distortion_model: plumb_bob
 distortion_coefficients:
   rows: 1
   cols: 5
-  data: [-0.1523, 0.0, 0.0, 0.0, 0.0]
+  data: [-0.1666, 0.0, 0.0, 0.0, 0.0]

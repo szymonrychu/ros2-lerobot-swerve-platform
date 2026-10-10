@@ -909,13 +909,9 @@ ros2_nodes:
           arm_urdf: so101_arm.urdf
           arm_joint_states_topic: /follower/joint_states
           arm_command_topic: /filter/web_ui_joint_commands
-          # Arm mount (URDF base origin) in base_link [x, y, z] m (z up from the floor), measured 2026-10-10 on the
-          # robot: shoulder_pan axis centre 98 mm forward, 50 mm right of the centre between the
-          # wheels (user, from the CAD model); URDF base origin = pan axis - (38.8 mm forward, 62.4 mm up); height from tip
-          # touch-downs at x 0.20 and 0.25 m (contact at tool-point z -0.104 in the arm frame). Note: the configured
-          # tool_offset_m is an effective TCP, a pose 21 cm above the front-left axis was off by about 3.6 cm, so a full
-          # kinematic calibration (joint offsets + mount + physical tip) is still pending.
-          # Same value as the mcp_server arm.base_in_base_link, so the drawn arm and the grasp preview agree with the planner.
+          # Arm mount (URDF base origin) in base_link [x, y, z] m (z up from the floor), measured 2026-10-10 (pan axis from
+          # CAD, height from tip touch-downs). Same value as the mcp_server arm.base_in_base_link, so the drawn arm and
+          # the grasp preview agree with the planner.
           arm_offset: [0.0592, -0.05, 0.104]
           # Home / Set home buttons: std_srvs/Trigger services served by mcp_server.
           arm_home_service: /arm/home
@@ -1034,29 +1030,28 @@ ros2_nodes:
         reach_outer_m: 0.25
         reach_inner_m: 0.05
         # Follower-vs-URDF joint zero offsets (rad): urdf_angle = measured_angle + offset (nodes/mcp_server/README.md).
-        # Solved 2026-10-08 with the gripper camera calibration (ruler + Lego, 45 points, 10 poses, floor RMS 6.1 mm).
+        # Solved 2026-10-10 on a 50 mm grid sheet (234 camera points from 20 views, 6 tip touch-downs, floor fixed at
+        # -0.104; held out: floor error 4.1 mm vs 44.9 mm with the 2026-10-08 set, tip 6 mm vs 35 mm; home tip height
+        # 243.6 mm vs 243 mm measured), docs/calibration/2026-10-10/session/results.yaml. wrist_roll is not identifiable from these
+        # data (absorbed by the camera mount and tool point) and keeps the 2026-10-08 value.
         joint_offsets_rad:
-          shoulder_pan: -0.0619
-          shoulder_lift: -0.0103
-          elbow_flex: -0.1381
-          wrist_flex: 0.2477
-          # wrist_roll re-solved 2026-10-08 (afternoon) with views at wrist_roll 0 .. -154 deg.
+          shoulder_pan: 0.0182
+          shoulder_lift: -0.0345
+          elbow_flex: -0.1070
+          wrist_flex: 0.0988
           wrist_roll: -0.0710
-        # Tool centre point (m) in the gripper_frame_link frame: jaw closing point vs gripper_frame_link, measured
-        # 2026-10-08 by closing on ruler marks (one pose; horizontal jaw-to-tool-frame offset from the gripper image, height
-        # difference taken as 0, so the floor height did not enter it). Kept 2026-10-10: a re-solve with the measured floor
-        # would need a 5 cm vertical offset, which the jaws cannot have (docs/calibration/2026-10-10/README.md).
-        tool_offset_m: {x: 0.0104, y: -0.0282, z: -0.0017}
+        # Tool point (m) in the gripper_frame_link frame: the physical fixed-jaw tip, fitted 2026-10-10 with the joint
+        # offsets above (grid sheet tip touches). Replaces the 2026-10-08 effective TCP (0.0104, -0.0282, -0.0017).
+        tool_offset_m: {x: 0.0010, y: -0.0056, z: -0.0014}
         # URDF shoulder_lift upper limit 1.745 rad widened (tested 2026-10-08: reached 1.87 rad without collision; the
         # servo cannot lift the stretched-out arm beyond about 1.85 rad): a folded arm reaches about 5 cm below the floor.
         joint_limit_overrides_rad:
           shoulder_lift: [-1.745, 1.9]
-        # Arm base frame pose in base_link (x/y/z in m, yaw in rad; z must equal arm_base_height_m), measured
-        # 2026-10-10 on the robot: shoulder_pan axis centre 98 mm forward, 50 mm right of the centre between the
-        # wheels (user, from the CAD model); URDF base origin = pan axis - (38.8 mm forward, 62.4 mm up); height from tip
-        # touch-downs at x 0.20 and 0.25 m (contact at tool-point z -0.104 in the arm frame). Note: the configured
-        # tool_offset_m is an effective TCP, a pose 21 cm above the front-left axis was off by about 3.6 cm, so a full
-        # kinematic calibration (joint offsets + mount + physical tip) is still pending.
+        # Arm base frame pose in base_link (x/y/z in m, yaw in rad; z must equal arm_base_height_m), measured 2026-10-10:
+        # shoulder_pan axis centre 98 mm forward, 50 mm right of the centre between the wheels (user, from the CAD
+        # model); URDF base origin = pan axis - (38.8 mm forward, 62.4 mm up); height 0.104 from tip touch-downs (floor
+        # contact at z -0.104 in the arm frame, confirmed within 3 mm by the grid sheet fit). The grid sheet fit wanted
+        # the sheet 22.3 mm further forward than its labels: the sheet was shifted (user), the mount stays.
         # Used for arm <-> base_link conversions (gripper-camera base_link/map coordinates, grasp objects given in
         # base_link, the floor slow zone). null disables them.
         base_in_base_link: {x: 0.0592, y: -0.05, z: 0.104, yaw: 0.0}
@@ -1073,22 +1068,21 @@ ros2_nodes:
         # Mount re-solved 2026-10-08 (afternoon) from 15 views at wrist_roll 0, -0.8, -1.57, -2.3, -2.69 over a steel
         # ruler (3 arm poses, 115 points; intrinsics and the pan/lift/elbow/wrist_flex offsets kept): floor RMS 6.6 mm,
         # held-out views 4-14 mm. The previous mount fitted only low oblique views at roll 0 (35 mm on these views).
-        # Re-checked 2026-10-10 with the floor at the measured -0.104 instead of -0.164/-0.165: no solve improved (58 stored
-        # samples, mount only 38.1 px at -0.164 vs 43.1 px at -0.104; joint offsets + mount 17.4 vs 18.3 px; the original
-        # 159-point solve 12.18 vs 12.15 px with an implausible -11 deg wrist_flex offset), so mount, intrinsics and
-        # joint_offsets_rad stay (docs/calibration/2026-10-10/README.md).
+        # Superseded 2026-10-10: the gripper mount and intrinsics below were re-solved jointly with joint_offsets_rad and
+        # the tool point on a 50 mm grid sheet (234 points, 20 views, floor at the measured -0.104): held-out 5.5 px /
+        # 4.1 mm floor error (2026-10-08 set: 96 px / 45 mm), docs/calibration/2026-10-10/session/results.yaml.
         gripper:
           parent_frame: gripper_link
           intrinsics:
             calibration_file: "{{ ros2_repo_dest }}/nodes/mcp_server/calibration/gripper_camera.yaml"
           mount:
             parent_frame: gripper_link
-            x: 0.0002
-            y: 0.0305
-            z: -0.1073
-            roll: -1.6171
-            pitch: 1.1845
-            yaw: -1.4629
+            x: -0.0046
+            y: 0.0364
+            z: -0.0364
+            roll: -1.5622
+            pitch: 1.1950
+            yaw: -1.4466
         front:
           parent_frame: base_link
           intrinsics: null
