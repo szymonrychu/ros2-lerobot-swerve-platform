@@ -33,6 +33,7 @@ DEFAULT_SENSOR_TOOLS = [
     "get_map_summary",
     "get_arm_state",
     "get_body_state",
+    "get_arm_reach",
     "pixel_to_ground",
     "get_annotated_camera_image",
     "mark_candidate_points",

@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from claude_agent.config import (
@@ -172,3 +173,20 @@ def test_latency_and_context_defaults() -> None:
 def test_latency_and_context_values_validated(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
         ClaudeAgentConfig(**{field: value})
+
+
+CLIENT_GROUP_VARS = Path(__file__).resolve().parents[3] / "ansible" / "group_vars" / "client.yml"
+
+
+def test_get_arm_reach_is_a_free_sensor_tool() -> None:
+    cfg = ClaudeAgentConfig()
+    assert "get_arm_reach" in cfg.sensor_tools
+    assert "get_arm_reach" not in cfg.effector_tools
+
+
+def test_client_group_vars_lists_get_arm_reach_as_sensor_tool() -> None:
+    nodes = yaml.safe_load(CLIENT_GROUP_VARS.read_text())["ros2_nodes"]
+    agent = next(node for node in nodes if node["name"] == "claude_agent")
+    cfg = ClaudeAgentConfig(**yaml.safe_load(agent["config"]))
+    assert "get_arm_reach" in cfg.sensor_tools
+    assert "get_arm_reach" not in cfg.effector_tools
