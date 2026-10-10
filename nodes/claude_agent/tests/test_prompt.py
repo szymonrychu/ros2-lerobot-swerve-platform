@@ -287,6 +287,21 @@ def test_prompt_states_grasp_auto_order_and_scoop_gap_rule() -> None:
     assert "good for flat or low objects" not in lower
 
 
+def test_prompt_explains_grip_profiles_and_when_to_choose_them() -> None:
+    lower = prompt_lower()
+    assert "grip_profile" in lower
+    for profile in ("gentle", "normal", "firm"):
+        assert profile in lower
+    para = lower[lower.index("grip strength") :]
+    para = para[: para.index("surfaces and speed:")]
+    assert para.index("gentle") < para.index("fragile")
+    for word in ("soft", "light", "ordinary", "heavy", "slippery", "tools"):
+        assert word in para
+    assert "holding_load" in para and "slipping" in para and "crush_risk" in para
+    assert "firmer" in para and "gentler" in para and "retry" in para
+    assert "set_gripper" in para and "grasp_object" in para
+
+
 def test_default_tool_lists_include_the_grasp_tools() -> None:
     cfg = ClaudeAgentConfig()
     assert {"grasp_object", "release_object"} <= set(cfg.effector_tools)

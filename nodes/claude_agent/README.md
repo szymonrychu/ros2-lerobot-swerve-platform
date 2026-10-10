@@ -66,7 +66,10 @@ interrupts), the spatial perception workflow (`get_topdown_view`, `look_around`,
 `mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), memory
 (`remember_object`/`list_objects`, POIs via `list_pois`/`add_poi`/`update_poi`, `NOTES.md`; positions are refined when a better location estimate exists: `remember_object` averages comparable sightings, `update_poi` x/y replaces the position for a clearly better estimate or a moved object, noting "position refined from"; on the person's POIs only the position), the calibration tools
 (only when the person asks), the grasp macros (`plan_grasp` first, then `grasp_object`; strategies scoop / angled /
-top_down / auto, radial approach only, `release_object`, outcomes grasped / missed / aborted / infeasible) and the
+top_down / auto, radial approach only, `release_object`, outcomes grasped / missed / aborted / infeasible), grip
+strength (`grip_profile` on `grasp_object`, `set_gripper` and queued gripper steps: gentle for fragile, soft or light
+objects, normal by default, firm for heavy or slippery objects and tools; after a grasp the agent checks
+`holding_load`, `slipping` and `crush_risk` and retries with a firmer or gentler profile) and the
 below-surface slow zone of the arm (never blocks; `surface_z_m` for a stair or hole below, `tilt_override_deg`
 replacing the IMU tilt).
 
