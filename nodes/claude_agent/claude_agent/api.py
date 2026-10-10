@@ -7,8 +7,10 @@ from contextlib import asynccontextmanager
 from typing import Any, Protocol
 
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from ros2_metrics import render_latest
 
+from . import metrics as metrics  # noqa: PLC0414  (registers the node info and the agent metrics)
 from .config import ClaudeAgentConfig
 from .events import RESET_MARKER, EventLog
 
@@ -59,6 +61,11 @@ def create_app(
             await on_shutdown()
 
     app = FastAPI(title="claude_agent", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+
+    @app.get("/metrics")
+    async def get_metrics() -> Response:
+        body, content_type = render_latest()
+        return Response(content=body, headers={"Content-Type": content_type})
 
     @app.get("/api/state")
     async def get_state() -> dict[str, Any]:

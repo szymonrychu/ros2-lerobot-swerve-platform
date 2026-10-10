@@ -16,6 +16,7 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     ResultMessage,
     StreamEvent,
+    ToolUseBlock,
     UserMessage,
 )
 
@@ -32,6 +33,19 @@ from .events import (
     detect_auth_error,
     normalize_message,
     result_to_turn_end,
+)
+from .metrics import (
+    BUSY,
+    COST_USD,
+    INSTRUCTION_SECONDS,
+    INSTRUCTIONS,
+    SECONDS_SINCE_ACTIVITY,
+    SESSION_RESETS,
+    TOKENS,
+    TOOL_USES,
+    TURNS,
+    USAGE_TOKEN_KINDS,
+    WATCHDOG_FIRES,
 )
 from .poi_clear import PoiClearResult, call_clear_agent_pois
 from .prompt import build_system_prompt
@@ -183,6 +197,7 @@ class AgentRunner:
         )
         self.plan = self.gate.plan
         self.busy = False
+        BUSY.set(0)
         self.session_started_at = time.time()
         self.last_activity_at: float | None = None
         self.client: ClientLike | None = None
@@ -205,6 +220,49 @@ class AgentRunner:
         self.event_tasks: set[asyncio.Task[None]] = set()
         self.robot_stopper = robot_stopper or self.default_robot_stopper
         self.poi_clearer = poi_clearer or self.default_poi_clearer
+        self.instruction_started_at = time.monotonic()
+        self.session_totals: dict[str, float] = {}
+        SECONDS_SINCE_ACTIVITY.set_function(self.seconds_since_activity)
+
+    def seconds_since_activity(self) -> float:
+        """Seconds since the last activity (the session start before any), for the scrape-time gauge.
+
+        Returns:
+            float: Elapsed wall-clock seconds.
+        """
+        return time.time() - (self.last_activity_at or self.session_started_at)
+
+    def end_turn(self, **fields: Any) -> None:
+        """Emit the turn_end event of the instruction and count its status and duration.
+
+        Args:
+            **fields: Payload of the turn_end event (must contain ``status``).
+        """
+        self.events.append("turn_end", **fields)
+        INSTRUCTIONS.labels(fields["status"]).inc()
+        INSTRUCTION_SECONDS.observe(time.monotonic() - self.instruction_started_at)
+
+    def record_usage(self, result: ResultMessage) -> None:
+        """Add the growth of the session's token usage and cost (the SDK reports session totals) to the counters.
+
+        Args:
+            result (ResultMessage): Result whose ``usage`` and ``total_cost_usd`` are read; absent values are skipped.
+        """
+        totals = {"cost": result.total_cost_usd}
+        for key in USAGE_TOKEN_KINDS:
+            totals[key] = (result.usage or {}).get(key)
+        for key, total in totals.items():
+            if total is None:
+                continue
+            seen = self.session_totals.get(key, 0.0)
+            delta = total - seen if total >= seen else total
+            self.session_totals[key] = total
+            if delta <= 0:
+                continue
+            if key == "cost":
+                COST_USD.inc(delta)
+            else:
+                TOKENS.labels(USAGE_TOKEN_KINDS[key]).inc(delta)
 
     async def default_robot_stopper(self) -> RobotStopResult:
         """Call the robot MCP stop tool with the configured endpoint.
@@ -301,6 +359,8 @@ class AgentRunner:
         if self.busy or self.resetting:
             return False
         self.busy = True
+        BUSY.set(1)
+        self.instruction_started_at = time.monotonic()
         self.last_activity_at = time.time()
         self.interrupted = False
         self.turn_capped = False
@@ -375,6 +435,7 @@ class AgentRunner:
     async def drop_client(self) -> None:
         """Disconnect and forget the session client, ignoring disconnect errors."""
         client, self.client = self.client, None
+        self.session_totals = {}
         if client is not None:
             await self.disconnect_quietly(client)
 
@@ -462,7 +523,7 @@ class AgentRunner:
                 else (result.result or "; ".join(result.errors or []) or "agent error")
             )
             self.events.append("error", message=message)
-        self.events.append("turn_end", **turn_end)
+        self.end_turn(**turn_end)
         return turn_end["status"]
 
     def fail_turn(self, message: str) -> None:
@@ -473,7 +534,7 @@ class AgentRunner:
         """
         self.logger.error(message)
         self.events.append("error", message=message)
-        self.events.append("turn_end", status=STATUS_ERROR, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
+        self.end_turn(status=STATUS_ERROR, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
 
     async def run_instruction(self, text: str) -> None:
         """Run one instruction under the watchdog and publish its events.
@@ -493,19 +554,19 @@ class AgentRunner:
         finally:
             self.pending_followup = None
             self.busy = False
+            BUSY.set(0)
             self.last_activity_at = time.time()
             self.emit_state()
 
     async def abort_on_timeout(self) -> None:
         """The watchdog expired: stop the robot, interrupt and discard the session, end the turn as "timeout"."""
+        WATCHDOG_FIRES.inc()
         message = f"instruction timed out after {self.config.instruction_timeout_s:g} s"
         self.logger.error(message)
         await self.halt(STOP_SOURCE_TIMEOUT)
         await self.drop_client()
         self.events.append("error", message=message)
-        self.events.append(
-            "turn_end", status=STATUS_TIMEOUT, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used
-        )
+        self.end_turn(status=STATUS_TIMEOUT, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
 
     async def start_session(self) -> ClientLike:
         """Create the session client within connect_timeout_s.
@@ -543,6 +604,10 @@ class AgentRunner:
                     continue
                 if isinstance(message, AssistantMessage):
                     self.plan.count_turn()
+                    TURNS.inc()
+                    for block in message.content:
+                        if isinstance(block, ToolUseBlock):
+                            TOOL_USES.labels(block.name).inc()
                 for event_type, fields in normalize_message(message, self.config):
                     self.events.append(event_type, **fields)
                     if event_type == "assistant_text":
@@ -559,6 +624,7 @@ class AgentRunner:
                         self.note_phase_turn_cap()
                 if isinstance(message, ResultMessage):
                     finished = True
+                    self.record_usage(message)
                     followup = self.take_followup(message)
                     if followup is not None:
                         continue
@@ -705,7 +771,7 @@ class AgentRunner:
                 await self.drop_client()
             client = await self.start_session()
             if self.interrupted:
-                self.events.append("turn_end", status=STATUS_INTERRUPTED, cost_usd=0.0, num_turns=0, effector_calls=0)
+                self.end_turn(status=STATUS_INTERRUPTED, cost_usd=0.0, num_turns=0, effector_calls=0)
                 return
             prompt: str | None = text
             if self.digest is not None:
@@ -772,6 +838,7 @@ class AgentRunner:
             self.events.reset()
             self.session_started_at = self.last_activity_at = time.time()
             self.emit_state()
+            SESSION_RESETS.inc()
         finally:
             self.resetting = False
         return True

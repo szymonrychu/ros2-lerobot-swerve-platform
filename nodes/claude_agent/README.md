@@ -322,6 +322,24 @@ Every event is `{seq: int, ts: float, type, ...}`:
 Text in tool results is cut at 4000 characters (`truncated: true`); images are downscaled to `image_thumbnail_max_px`
 and re-encoded as JPEG.
 
+## Metrics
+
+`GET /metrics` on the API port (18300), via `ros2-metrics`; defined in `claude_agent/metrics.py`, updated in `runner.py`. Grafana Alloy scrapes it every 5 s.
+
+| Metric | Type | Labels | Where it moves |
+|---|---|---|---|
+| `robot_node_info`, `robot_node_start_time_seconds` | gauge | `node` | Process start |
+| `agent_busy` | gauge | | 1 from `start_instruction` until the instruction task ends |
+| `agent_instructions_total` | counter | `status` | Every `turn_end` (`done`, `interrupted`, `error`, `max_turns`, `turn_cap`, `timeout`) |
+| `agent_instruction_duration_seconds` | histogram (5..1800 s) | | Observed with each `turn_end` |
+| `agent_turns_total` | counter | | Each assistant message |
+| `agent_tool_uses_total` | counter | `tool` | Each `ToolUseBlock` in an assistant message, by full tool name |
+| `agent_seconds_since_activity` | gauge | | Computed at scrape time from `last_activity_at` (session start before any activity) |
+| `agent_watchdog_fires_total` | counter | | Instruction watchdog expiry |
+| `agent_session_resets_total` | counter | | Completed `reset()` |
+| `agent_tokens_total` | counter | `kind` (`input`, `output`, `cache_read`, `cache_creation`) | `ResultMessage.usage`; the SDK reports session totals, so only the growth since the previous result is added (cleared when the session is dropped) |
+| `agent_cost_usd_total` | counter | | `ResultMessage.total_cost_usd`, same delta rule |
+
 ## Authentication and deployment
 
 System prompt summary: persona and tone; the tool lists; the task plan workflow (phases with goals and caps, `set_task_plan`, `complete_phase`, `revise_plan`, `raise_phase_budget`, guidance, maxima); the working method (top-level view first, then gentle exploration with small moves, then the task); notes in `NOTES.md`; hardware facts (SO-101, small reach from `arm_reach_cm`, base `arm_base_height_m` above the floor, angled gripper camera, upright images, base goals finishing within the nav tolerances and sideways goals rotating first); the safety rules.

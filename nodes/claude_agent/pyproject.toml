@@ -12,6 +12,7 @@ dependencies = [
     "pillow==12.3.0",
     "pydantic==2.13.5",
     "pyyaml==6.0.3",
+    "ros2-metrics",
 ]
 
 [dependency-groups]
@@ -60,3 +61,6 @@ test = { shell = "pytest tests/ -v" }
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.uv.sources]
+ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
