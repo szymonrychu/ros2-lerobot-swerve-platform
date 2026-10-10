@@ -71,6 +71,13 @@ reach envelope, planned gripper marker) to judge distances. To pick a precise fl
 then resolve_candidate by number instead of guessing coordinates; pixel_to_ground converts any pixel to floor \
 coordinates. If a camera reports "not calibrated", fall back to visual estimates and say so.
 
+Pixel sizes: pixel_to_ground, mark_candidate_points (region) and capture_calibration_sample work in the CALIBRATED \
+image size (640x480 here; get_annotated_camera_image and mark_candidate_points images have that size), but \
+get_camera_image returns a smaller picture (384x288 by default; its metadata states width, height, calibrated_image \
+and scale_to_calibrated). A pixel read from a get_camera_image picture must always be passed with image_width and \
+image_height of that picture (for example image_width 384, image_height 288), otherwise the floor position is wrong. \
+Simplest: pick pixels on get_annotated_camera_image.
+
 Gripper: it has one fixed jaw and one moving jaw, and the tool point is the fixed jaw's inner face. In gripper-camera \
 pictures at wrist roll 0 the fixed jaw is the dark shape at the lower right and the moving jaw closes in from the top \
 of the image. Put the fixed jaw beside or under the object's side, never onto the object; the moving jaw then closes \
@@ -108,7 +115,13 @@ top_down, then angled, then scoop and takes the first feasible one. The arm appr
 approach direction. plan_grasp explains infeasible plans with reasons (unreachable, too wide, joint limits); fix the \
 cause (drive closer, another strategy) instead of retrying blindly. grasp_object reports grasped, missed (it opened \
 and retreated: check a picture and correct the object position), aborted or infeasible; release_object opens and \
-lifts away.
+lifts away. top_down and angled centre the object between the jaws (the plan's grasp_shift): the waypoint x, y, z is \
+the jaw centre (the object centre) while the tool point that get_arm_state reports (the fixed jaw, each waypoint's \
+tool_point) sits half the object width beside it, so the arm stands sideways of a plain move_arm_cartesian to the same \
+spot. That is the centring, not a drift: compare held_pose jaw_centre with the object, not the tool point. Joints \
+that end a step or the hold off their planned target are listed in residual_error and warnings: then check a picture \
+before trusting the grasp. The free moves to the lifted pre-grasp run at approach_speed_scale (params, default 0.3) \
+and the slide, lift and retreat at slide_speed_scale.
 
 Grip strength: grasp_object, set_gripper (close_until_effort) and queued gripper steps take grip_profile, which sets \
 how hard the gripper grips (servo torque limit, close speed, squeeze). Choose it per object: gentle for fragile, soft \
@@ -117,7 +130,9 @@ slippery objects and tools. After a grasp check the reported holding_load and th
 (also look at a picture): slipping means the object slides or gives way, so release it and retry with a firmer \
 profile; crush_risk means it is squeezed too hard, so release it and retry with a gentler profile; a missed grasp of \
 a light object with gentle can be retried with normal. Hard torque and squeeze caps apply whatever you pass, and the \
-default torque comes back after every open, release or abort.
+default torque comes back after every open, release or abort. The grip only feels the servo load, so it cannot tell \
+when a soft object gets squashed: gentle squashed a 4 cm plush tail to about 7 mm with no crush_risk. For plush and \
+other soft objects look at a picture of the hold; an empty close (nothing between the jaws) is reported as missed.
 
 Surfaces and speed: pass surface_height_m to pixel_to_ground (and mark_candidate_points) when the object is on a \
 surface above or below the robot's floor (the top of a 3 cm box is 0.03, a floor 10 cm lower is -0.10). The arm can \

@@ -63,13 +63,21 @@ workdir is not touched.
 Besides the budget and working method, the system prompt (`prompt.py`) has compact sections (about 1.4 k characters
 added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
 interrupts), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
-`mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), memory
+`mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), pixel
+sizes (`Pixel sizes:`: the pixel tools work in the calibrated 640x480 size while `get_camera_image` returns 384x288 by
+default, so pixels from it always go with `image_width` / `image_height`, or are picked on `get_annotated_camera_image`;
+added after the 2026-10-10 grip session placed objects from unscaled small-image pixels), memory
 (`remember_object`/`list_objects`, POIs via `list_pois`/`add_poi`/`update_poi`, `NOTES.md`; positions are refined when a better location estimate exists: `remember_object` averages comparable sightings, `update_poi` x/y replaces the position for a clearly better estimate or a moved object, noting "position refined from"; on the person's POIs only the position), the calibration tools
 (only when the person asks), the grasp macros (`plan_grasp` first, then `grasp_object`; strategies scoop / angled /
-top_down / auto, radial approach only, `release_object`, outcomes grasped / missed / aborted / infeasible), grip
+top_down / auto, radial approach only, `release_object`, outcomes grasped / missed / aborted / infeasible; top_down and
+angled centre the object between the jaws, so the waypoints are the jaw centre and the reported tool point (fixed jaw,
+`tool_point`, `grasp_shift`) sits half the width beside it: that is the centring, not a drift, compare `held_pose`
+`jaw_centre` with the object; joints off their planned target are listed in `residual_error` / `warnings`; the
+pre-grasp moves run at `approach_speed_scale`), grip
 strength (`grip_profile` on `grasp_object`, `set_gripper` and queued gripper steps: gentle for fragile, soft or light
 objects, normal by default, firm for heavy or slippery objects and tools; after a grasp the agent checks
-`holding_load`, `slipping` and `crush_risk` and retries with a firmer or gentler profile) and the
+`holding_load`, `slipping` and `crush_risk` and retries with a firmer or gentler profile; the load cannot see a soft
+object being squashed (gentle flattened a 4 cm plush tail to about 7 mm), so it checks a picture of plush holds) and the
 below-surface slow zone of the arm (never blocks; `surface_z_m` for a stair or hole below, `tilt_override_deg`
 replacing the IMU tilt). When the robot floor and the object's surface differ (stair, table top, ledge, hole) it tells
 the agent to pass `surfaces` instead of a single `surface_z_m`: regions with `height_m` relative to the robot floor and

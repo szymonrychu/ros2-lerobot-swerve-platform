@@ -381,3 +381,32 @@ def test_prompt_tells_the_agent_to_refine_poi_positions_with_better_estimates() 
     assert "update_poi" in lower and "averages" in lower
     assert "position refined from" in lower
     assert "person's pois" in lower and "only their position" in lower
+
+
+def test_prompt_says_to_pass_the_image_size_with_pixels() -> None:
+    """2026-10-10: get_camera_image returns 384x288 but the pixel tools expect the calibrated 640x480 pixels."""
+    lower = prompt_lower()
+    assert "image_width" in lower and "image_height" in lower
+    assert "384x288" in lower and "get_annotated_camera_image" in lower
+    para = lower[lower.index("pixel sizes:") :]
+    para = para[: para.index("gripper: it has")]
+    assert "pixel_to_ground" in para and "mark_candidate_points" in para
+    assert "calibrated" in para
+
+
+def test_prompt_explains_the_centred_grasp_shift_and_residual_reports() -> None:
+    """2026-10-10: the centring shift of grasp_object was read as a sideways drift."""
+    lower = prompt_lower()
+    para = lower[lower.index("grasp macros:") :]
+    para = para[: para.index("grip strength:")]
+    assert "grasp_shift" in para and "tool_point" in para and "jaw centre" in para
+    assert "not a drift" in para
+    assert "residual_error" in para and "warnings" in para and "held_pose" in para
+    assert "approach_speed_scale" in para
+
+
+def test_prompt_states_soft_objects_get_squashed_whatever_the_load() -> None:
+    lower = prompt_lower()
+    para = lower[lower.index("grip strength:") :]
+    para = para[: para.index("surfaces and speed:")]
+    assert "squash" in para and "plush" in para
