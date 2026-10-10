@@ -8,6 +8,7 @@
  * covers.
  */
 import { Vec2 } from '../map/mapMath'
+import { overzoomTile, type TileCrop } from './tileSources'
 
 export const EARTH_RADIUS_M = 6378137
 export const EARTH_CIRCUMFERENCE_M = 2 * Math.PI * EARTH_RADIUS_M // 40075016.686 m
@@ -38,7 +39,8 @@ export interface PlacedTile {
   y: number
   dx: number // column offset from the centre tile
   dy: number // row offset from the centre tile (down = south)
-  url: string
+  url: string // the tile fetched: the display tile, or its ancestor at the source max zoom when overzooming
+  crop: TileCrop // part of that image this display tile shows
   center: Vec2 // map frame, metres
   width: number // metres along the tile's east edge direction
   height: number // metres along the tile's north edge direction
@@ -132,10 +134,11 @@ export function tileSizeMeters(latitude: number, zoom: number): number {
  * @param x - tile x
  * @param y - tile y
  * @param version - tile source version from /api/config (busts the browser cache when the source or key changes)
- * @returns '/api/tiles/{z}/{x}/{y}.png', with '?v={version}' when a version is given
+ * @param source - tile source id; omitted uses the legacy route of the default source
+ * @returns '/api/tiles[/{source}]/{z}/{x}/{y}.png', with '?v={version}' when a version is given
  */
-export function tileUrl(z: number, x: number, y: number, version?: string | null): string {
-  const path = `/api/tiles/${z}/${x}/${y}.png`
+export function tileUrl(z: number, x: number, y: number, version?: string | null, source?: string | null): string {
+  const path = source ? `/api/tiles/${encodeURIComponent(source)}/${z}/${x}/${y}.png` : `/api/tiles/${z}/${x}/${y}.png`
   return version ? `${path}?v=${encodeURIComponent(version)}` : path
 }
 
@@ -203,6 +206,8 @@ export function mapToLatLon(anchor: GpsAnchor, x: number, y: number): LatLon {
  * @param zoom - tile zoom level
  * @param radius - tiles on each side of the centre tile ((2r+1)^2 tiles)
  * @param version - tile source version appended to each url (see tileUrl)
+ * @param source - tile source id in the url (see tileUrl)
+ * @param maxZoom - highest zoom the source serves; above it the parent tile at maxZoom is fetched and cropped
  * @returns placed tiles (indices clamped/wrapped to the world)
  */
 export function tilesAround(
@@ -211,6 +216,8 @@ export function tilesAround(
   zoom: number,
   radius: number,
   version?: string | null,
+  source?: string | null,
+  maxZoom: number = zoom,
 ): PlacedTile[] {
   const n = 2 ** zoom
   const ll = mapToLatLon(anchor, around.x, around.y)
@@ -229,13 +236,15 @@ export function tilesAround(
       const se = latLonToMap(anchor, ...latLonPair(tileToLatLon(rawX + 1, ty + 1, zoom)))
       const ne = latLonToMap(anchor, ...latLonPair(tileToLatLon(rawX + 1, ty, zoom)))
       const mid = latLonToMap(anchor, ...latLonPair(tileToLatLon(rawX + 0.5, ty + 0.5, zoom)))
+      const fetched = overzoomTile(zoom, tx, ty, maxZoom)
       tiles.push({
         z: zoom,
         x: tx,
         y: ty,
         dx,
         dy,
-        url: tileUrl(zoom, tx, ty, version),
+        url: tileUrl(fetched.z, fetched.x, fetched.y, version, source),
+        crop: { u0: fetched.u0, v0: fetched.v0, u1: fetched.u1, v1: fetched.v1 },
         center: mid,
         width: Math.hypot(ne.x - nw.x, ne.y - nw.y),
         height: Math.hypot(se.x - ne.x, se.y - ne.y),

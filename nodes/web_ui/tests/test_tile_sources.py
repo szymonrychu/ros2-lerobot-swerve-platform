@@ -123,3 +123,11 @@ def test_api_config_exposes_public_source_list_without_urls_or_keys(
     ]  # fmt: skip
     text = str(tab)
     assert SECRET not in text and "sat.test" not in text and KEY_ENV not in text
+
+
+def test_tile_display_zoom_defaults_to_19_is_range_checked_and_exposed(tmp_path: Path, urdf_dir: Path) -> None:
+    assert TabConfig(id="m", type="map_nav", label="M").tile_display_zoom == 19
+    with pytest.raises(ValidationError):
+        TabConfig(id="m", type="map_nav", label="M", tile_display_zoom=23)
+    tab = make_client(tmp_path, urdf_dir, [], tile_display_zoom=20).get("/api/config").json()["tabs"][0]
+    assert tab["tile_display_zoom"] == 20

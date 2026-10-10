@@ -700,12 +700,27 @@ def test_web_ui_has_map_nav_tab() -> None:
         "gps_anchor_imu_topic": "/imu/data",
         "gps_anchor_imu_calibration_topic": "/imu/calibration",
         "magnetic_declination_deg": 6.6,
-        # CARTO basemaps need an API key, filled into {api_key} from the env file written by web_ui_tile_key.yml.
-        "tile_url": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api_key}",
-        "tile_subdomains": "abcd",
-        "tile_api_key_env": "WEB_UI_TILE_API_KEY",
-        # The CARTO key tier serves zoom <= 18; z19 answers 403 and rendered the GPS layer black.
-        "tile_max_zoom": 18,
+        # Satellite (Esri, {z}/{y}/{x} order) and street (keyed CARTO, key tier serves z <= 18); satellite first.
+        "tile_display_zoom": 19,
+        "default_tile_source": "satellite",
+        "tile_sources": [
+            {
+                "id": "satellite",
+                "label": "Satellite",
+                "url": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                "max_zoom": 20,
+                "attribution": "Esri, Maxar, Earthstar Geographics",
+            },
+            {
+                "id": "street",
+                "label": "Street",
+                "url": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api_key}",
+                "subdomains": "abcd",
+                "max_zoom": 18,
+                "api_key_env": "WEB_UI_TILE_API_KEY",
+                "attribution": "CARTO, OpenStreetMap contributors",
+            },
+        ],
     }
 
 

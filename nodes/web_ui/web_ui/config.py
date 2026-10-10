@@ -75,6 +75,7 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
 # Default disk cache cap for proxied map tiles (MiB).
 DEFAULT_TILE_CACHE_MAX_MB = 256
 DEFAULT_TILE_MAX_ZOOM = 18
+DEFAULT_TILE_DISPLAY_ZOOM = 19
 LEGACY_TILE_SOURCE_ID = "default"
 # Seconds to wait for an arm home / set home std_srvs/Trigger response (a home motion can take 12+ s).
 DEFAULT_ARM_SERVICE_TIMEOUT_S = 30.0
@@ -193,6 +194,9 @@ class TabConfig(BaseModel):
     )  # map_nav: highest zoom the tile source serves; the proxy answers 404 above it and the UI never asks
     tile_sources: list[TileSourceConfig] = []  # map_nav: tile sources; when set they replace the single tile_url fields
     default_tile_source: str | None = None  # map_nav: id of the source shown first (default: the first source)
+    tile_display_zoom: int = Field(
+        DEFAULT_TILE_DISPLAY_ZOOM, ge=1, le=22
+    )  # map_nav: preferred GPS tile zoom; above a source's max_zoom its tiles are stretched
     default_zoom: int = 18
     agent_url: str = (
         DEFAULT_AGENT_URL  # agent_chat: base URL of the claude_agent API proxied under /api/agent and /ws/agent

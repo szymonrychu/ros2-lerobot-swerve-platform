@@ -930,14 +930,26 @@ ros2_nodes:
           # (NOAA WMM model, about 6.5 deg in 2024 growing 0.2 deg/yr; recheck at https://www.ngdc.noaa.gov/geomag/).
           magnetic_declination_deg: 6.6
           # Proxied map tiles are cached in /var/cache/web_ui/tiles (default tile_cache_dir, created by
-          # playbooks/tasks/web_ui_tile_cache_dir.yml).
-          # CARTO basemaps need an API key: {api_key} is filled from the env var below (/etc/ros2/web_ui/env, written by
-          # playbooks/tasks/web_ui_tile_key.yml from the deployer's CARTO_API_KEY).
-          tile_url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api_key}"
-          tile_subdomains: abcd
-          tile_api_key_env: WEB_UI_TILE_API_KEY
-          # Highest zoom this CARTO key tier serves (z19/z20 answer 403, which rendered the GPS layer black).
-          tile_max_zoom: 18
+          # playbooks/tasks/web_ui_tile_cache_dir.yml), one subdirectory per source. The layers panel switches between
+          # the sources; above a source's max_zoom the UI stretches its max-zoom tiles up to tile_display_zoom.
+          tile_display_zoom: 19
+          default_tile_source: satellite
+          tile_sources:
+            # Esri template order is {z}/{y}/{x} (row before column). Real imagery z18-z20 at the robot; z21 is a placeholder.
+            - id: satellite
+              label: Satellite
+              url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+              max_zoom: 20
+              attribution: "Esri, Maxar, Earthstar Geographics"
+            # CARTO basemaps need an API key: {api_key} is filled from the env var below (/etc/ros2/web_ui/env, written by
+            # playbooks/tasks/web_ui_tile_key.yml from the deployer's CARTO_API_KEY). The key tier serves z <= 18 (403 above).
+            - id: street
+              label: Street
+              url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api_key}"
+              subdomains: abcd
+              max_zoom: 18
+              api_key_env: WEB_UI_TILE_API_KEY
+              attribution: "CARTO, OpenStreetMap contributors"
         # Chat with the claude_agent node (127.0.0.1:18300, its http_port); the backend proxies /api/agent and /ws/agent.
         - id: agent
           type: agent_chat

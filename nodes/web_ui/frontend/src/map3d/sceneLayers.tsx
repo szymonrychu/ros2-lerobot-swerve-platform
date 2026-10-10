@@ -11,6 +11,8 @@ import { frontEdgeIndex, MapMeta, Pose2D, Vec2 } from '../map/mapMath'
 import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor, tilesAround } from './geo'
 import { mapPlacement } from './groundMath'
+import { cropUvs, type TileCrop } from './tileSources'
+import { recordTileResult, tileFailureCaption, type TileResult, type TileResults } from './tileStatus'
 
 /** Stacking heights (three y, metres) so ground layers never z-fight. */
 export const LIFT = {
@@ -36,7 +38,7 @@ export const SCENE_COLORS = {
   unknown: '#cdcdcd',
 } as const
 
-export const GPS_TILE_ZOOM = 19
+export const DEFAULT_GPS_TILE_ZOOM = 19 // preferred display zoom; above the source max zoom tiles are stretched
 export const GPS_TILE_RADIUS = 2
 
 /** OccupancyGrid image payload (msg_serializer.serialize_occupancy_grid; also the local costmap contract). */
@@ -64,6 +66,7 @@ const GroundRect = memo(function GroundRect({
   lift,
   opacity = 1,
   visible = true,
+  crop,
 }: {
   texture: THREE.Texture
   center: { x: number; y: number }
@@ -73,11 +76,18 @@ const GroundRect = memo(function GroundRect({
   lift: number
   opacity?: number
   visible?: boolean
+  crop?: TileCrop
 }) {
+  const geometry = useMemo(() => {
+    const g = new THREE.PlaneGeometry(width, height)
+    if (crop) g.setAttribute('uv', new THREE.Float32BufferAttribute(cropUvs(crop), 2))
+    return g
+  }, [width, height, crop?.u0, crop?.v0, crop?.u1, crop?.v1]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => geometry.dispose(), [geometry])
   return (
     <group position={rosToThree(center, lift)} rotation={[0, rosYawToThreeY(yaw), 0]} visible={visible}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={lift > 0 ? 1 : 0}>
-        <planeGeometry args={[width, height]} />
+        <primitive object={geometry} attach="geometry" />
         <meshBasicMaterial
           map={texture}
           transparent={opacity < 1}
@@ -168,14 +178,35 @@ export const GridImageLayer = memo(function GridImageLayer({
 /** Texture cache for GPS tiles (session lifetime; the tile set around the robot changes slowly). */
 const TILE_TEXTURES = new Map<string, THREE.Texture>()
 
+/** Load outcomes of tile URLs; shared so the layers panel can show why the GPS layer is empty. */
+let tileResults: TileResults = {}
+const tileResultListeners = new Set<() => void>()
+
+function reportTile(url: string, result: TileResult): void {
+  tileResults = recordTileResult(tileResults, url, result)
+  tileResultListeners.forEach((l) => l())
+}
+
+/** HTTP status of a tile URL (the image loader hides it), or null when the request itself fails. */
+async function probeTileStatus(url: string): Promise<number | null> {
+  try {
+    return (await fetch(url)).status
+  } catch {
+    return null
+  }
+}
+
+/** One tile: a textured ground rectangle showing a crop of its image; nothing is drawn while loading or on failure. */
 const GpsTile = memo(function GpsTile({
   url,
+  crop,
   center,
   width,
   height,
   yaw,
 }: {
   url: string
+  crop: TileCrop
   center: { x: number; y: number }
   width: number
   height: number
@@ -187,51 +218,91 @@ const GpsTile = memo(function GpsTile({
     const cached = TILE_TEXTURES.get(url)
     if (cached) {
       setTexture(cached)
+      reportTile(url, { ok: true })
       return
     }
+    setTexture(null)
     let cancelled = false
     new THREE.TextureLoader().load(
       url,
       (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace
         TILE_TEXTURES.set(url, tex)
+        reportTile(url, { ok: true })
         if (!cancelled) {
           setTexture(tex)
           invalidate()
         }
       },
       undefined,
-      () => log.debug('[map3d] tile load failed:', url),
+      () => {
+        log.debug('[map3d] tile load failed:', url)
+        reportTile(url, { ok: false, status: null })
+        void probeTileStatus(url).then((status) => reportTile(url, { ok: false, status }))
+      },
     )
     return () => {
       cancelled = true
     }
   }, [url, invalidate])
   if (!texture) return null
-  return <GroundRect texture={texture} center={center} width={width} height={height} yaw={yaw} lift={LIFT.gps} />
+  return (
+    <GroundRect texture={texture} crop={crop} center={center} width={width} height={height} yaw={yaw} lift={LIFT.gps} />
+  )
 })
 
-/** Map tiles from the backend tile proxy, placed around the robot with the GPS anchor (Web Mercator). */
+/**
+ * Map tiles from the backend tile proxy, placed around the robot with the GPS anchor (Web Mercator). Above the
+ * source's max zoom the parent tile at max zoom is fetched and each display tile shows its sub-rectangle.
+ */
 export const GpsTilesLayer = memo(function GpsTilesLayer({
   anchor,
   aroundX,
   aroundY,
   tileVersion,
+  tileSource,
+  zoom,
+  maxZoom,
+  onTileCaption,
 }: {
   anchor: GpsAnchor
   aroundX: number
   aroundY: number
   tileVersion?: string | null
+  tileSource?: string | null
+  zoom: number
+  maxZoom: number
+  onTileCaption?: (caption: string | null) => void
 }) {
-  // Recomputing 25 placements per pose update is cheap; tiles are keyed by URL so meshes and textures persist.
+  // Recomputing 25 placements per pose update is cheap; tiles are keyed by display tile so meshes persist.
   const tiles = useMemo(
-    () => tilesAround(anchor, { x: aroundX, y: aroundY }, GPS_TILE_ZOOM, GPS_TILE_RADIUS, tileVersion),
-    [anchor, aroundX, aroundY, tileVersion],
+    () => tilesAround(anchor, { x: aroundX, y: aroundY }, zoom, GPS_TILE_RADIUS, tileVersion, tileSource, maxZoom),
+    [anchor, aroundX, aroundY, tileVersion, tileSource, zoom, maxZoom],
   )
+  const urlKey = useMemo(() => [...new Set(tiles.map((t) => t.url))].sort().join('\n'), [tiles])
+  useEffect(() => {
+    if (!onTileCaption) return
+    const urls = urlKey.split('\n')
+    const report = () => onTileCaption(tileFailureCaption(tileResults, urls))
+    tileResultListeners.add(report)
+    report()
+    return () => {
+      tileResultListeners.delete(report)
+      onTileCaption(null)
+    }
+  }, [urlKey, onTileCaption])
   return (
     <>
       {tiles.map((t) => (
-        <GpsTile key={t.url} url={t.url} center={t.center} width={t.width} height={t.height} yaw={t.yaw} />
+        <GpsTile
+          key={`${t.z}/${t.x}/${t.y}`}
+          url={t.url}
+          crop={t.crop}
+          center={t.center}
+          width={t.width}
+          height={t.height}
+          yaw={t.yaw}
+        />
       ))}
     </>
   )

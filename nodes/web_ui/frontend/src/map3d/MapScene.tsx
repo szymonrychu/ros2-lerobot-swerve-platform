@@ -24,10 +24,12 @@ import type { GraspPreviewData } from '../grasp/useGrasp'
 import { PoiLayer } from '../poi/PoiLayer'
 import type { Poi } from '../poi/types'
 import { pickGround } from './picking'
+import type { TileSourceInfo } from './tileSources'
 import {
   BaseStationMarker,
   FootprintLayer,
   GoalMarker,
+  DEFAULT_GPS_TILE_ZOOM,
   GpsTilesLayer,
   GridImageLayer,
   GridImageMsg,
@@ -54,7 +56,9 @@ export interface SceneController {
 }
 
 export interface MapSceneProps {
-  tileVersion?: string | null // /api/config tile_version, appended to tile URLs to bust stale browser caches
+  tileSource?: TileSourceInfo | null // active tile source (id, max zoom, version appended to tile URLs for cache busting)
+  tileZoom?: number // preferred GPS tile display zoom; above the source max zoom tiles are stretched
+  onTileCaption?: (caption: string | null) => void // reports why GPS tiles failed to load (null when fine)
   baseUrdf?: string
   armUrdf?: string
   armOffset?: [number, number, number]
@@ -304,12 +308,16 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
       <directionalLight position={[5, 10, 5]} intensity={1} />
       <gridHelper args={[20, 20, '#2a3038', '#1a1f26']} position={[0, LIFT.gps - 0.002, 0]} />
 
-      {layers.gpsMap && props.anchor && (
+      {layers.gpsMap && props.anchor && props.tileSource && (
         <GpsTilesLayer
           anchor={props.anchor}
           aroundX={props.robotPose?.x ?? 0}
           aroundY={props.robotPose?.y ?? 0}
-          tileVersion={props.tileVersion}
+          tileVersion={props.tileSource.version}
+          tileSource={props.tileSource.id}
+          zoom={props.tileZoom ?? DEFAULT_GPS_TILE_ZOOM}
+          maxZoom={props.tileSource.max_zoom}
+          onTileCaption={props.onTileCaption}
         />
       )}
       {layers.gpsMap && layers.rtkBase && props.basePosition && (

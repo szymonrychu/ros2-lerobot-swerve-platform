@@ -1,5 +1,6 @@
 import type { BatteryConfig } from './battery/batteryStatus'
 import type { GpsStatusConfig } from './gps/gpsStatus'
+import type { TileSourceInfo } from './map3d/tileSources'
 
 export interface TabFieldSpec {
   path: string
@@ -16,7 +17,10 @@ export interface TabConfig {
   id: string
   type: string
   label: string
-  tile_version?: string | null // map_nav: tile source version from /api/config, appended to tile URLs
+  tile_version?: string | null // map_nav: default tile source version from /api/config (legacy single-source field)
+  tile_sources?: TileSourceInfo[] // map_nav: public tile source list (id, label, max_zoom, attribution, version)
+  default_tile_source?: string | null // map_nav: id of the source shown first
+  tile_display_zoom?: number // map_nav: preferred GPS tile zoom (stretched above the source max zoom)
   topic?: string
   topics?: TabTopicSpec[]
   window_s?: number

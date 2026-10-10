@@ -21,6 +21,8 @@ import Paper from '@mui/material/Paper'
 import Snackbar from '@mui/material/Snackbar'
 import Stack from '@mui/material/Stack'
 import Tooltip from '@mui/material/Tooltip'
+import ToggleButton from '@mui/material/ToggleButton'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import useMediaQuery from '@mui/material/useMediaQuery'
 import { useTheme } from '@mui/material/styles'
@@ -49,6 +51,11 @@ import { BaseGpsPayload, GPS_BASE_STATUS_KEY } from '../gps/gpsStatus'
 import { anchorSummary, validAnchor } from '../map3d/geo'
 import { draftGoalPose, finishGoalDraft, GoalDraft, startGoalDraft, updateGoalDraft } from '../map3d/goalGesture'
 import { Bounds, mapBounds } from '../map3d/groundMath'
+import {
+  pickTileSource,
+  readStoredTileSource,
+  writeStoredTileSource,
+} from '../map3d/tileSources'
 import { LAYER_LABELS, LayerKey, LayerState, readLayerState, writeLayerState } from '../map3d/layers'
 import type { SceneController } from '../map3d/MapScene'
 import type { GridImageMsg, PathMsg } from '../map3d/sceneLayers'
@@ -146,6 +153,13 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
   const [setHomeArmedAt, setSetHomeArmedAt] = useState<number | null>(null)
   const [armReady, setArmReady] = useState(false)
   const [layers, setLayers] = useState<LayerState>(() => readLayerState(browserStorage()))
+  const [storedTileSource, setStoredTileSource] = useState<string | null>(() => readStoredTileSource(browserStorage()))
+  const [tileCaption, setTileCaption] = useState<string | null>(null)
+  const tileSources = useMemo(() => tab.tile_sources ?? [], [tab.tile_sources])
+  const tileSource = useMemo(
+    () => pickTileSource(tileSources, storedTileSource, tab.default_tile_source ?? null),
+    [tileSources, storedTileSource, tab.default_tile_source],
+  )
   const muiTheme = useTheme()
   const narrow = useMediaQuery(muiTheme.breakpoints.down('sm'))
   const [panelOpen, setPanelOpen] = useState<boolean | null>(null) // null = follow screen size
@@ -658,7 +672,9 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
           }
         >
           <MapScene
-            tileVersion={tab.tile_version}
+            tileSource={tileSource}
+            tileZoom={tab.tile_display_zoom}
+            onTileCaption={setTileCaption}
             baseUrdf={tab.base_urdf}
             armUrdf={tab.arm_urdf}
             armOffset={tab.arm_offset}
@@ -689,6 +705,23 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
             mapFrame={mapFrame}
           />
         </Suspense>
+        {layers.gpsMap && anchor && tileSource?.attribution && (
+          <Typography
+            variant="caption"
+            sx={{
+              position: 'absolute',
+              right: 4,
+              bottom: 2,
+              px: 0.5,
+              color: 'text.secondary',
+              bgcolor: 'rgba(0,0,0,0.45)',
+              pointerEvents: 'none',
+              fontSize: '0.65rem',
+            }}
+          >
+            {tileSource.attribution}
+          </Typography>
+        )}
 
         {!map && (
           <Typography
@@ -801,6 +834,31 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
                         {disabled && k === 'gpsMap' && (
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
                             Needs a GPS fix and compass heading (or drive ~5 m to fit): waiting for {GPS_ANCHOR_TOPIC}.
+                          </Typography>
+                        )}
+                        {k === 'gpsMap' && tileSources.length > 1 && tileSource && (
+                          <ToggleButtonGroup
+                            exclusive
+                            size="small"
+                            value={tileSource.id}
+                            onChange={(_, id: string | null) => {
+                              if (id === null) return
+                              setStoredTileSource(id)
+                              writeStoredTileSource(browserStorage(), id)
+                            }}
+                            aria-label="Map tile source"
+                            sx={{ ml: 4, mb: 0.5 }}
+                          >
+                            {tileSources.map((src) => (
+                              <ToggleButton key={src.id} value={src.id} sx={{ py: 0, px: 1, textTransform: 'none' }}>
+                                {src.label}
+                              </ToggleButton>
+                            ))}
+                          </ToggleButtonGroup>
+                        )}
+                        {k === 'gpsMap' && layers.gpsMap && tileCaption && (
+                          <Typography variant="caption" color="warning.main" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+                            {tileCaption}
                           </Typography>
                         )}
                         {k === 'gpsMap' && anchor && (

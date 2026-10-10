@@ -46,6 +46,8 @@ describe('Web Mercator tile math', () => {
     expect(tileUrl(19, 1, 2)).toBe('/api/tiles/19/1/2.png')
     expect(tileUrl(19, 1, 2, 'ab12cd34')).toBe('/api/tiles/19/1/2.png?v=ab12cd34')
     expect(tileUrl(19, 1, 2, null)).toBe('/api/tiles/19/1/2.png')
+    expect(tileUrl(19, 1, 2, 'ab12cd34', 'satellite')).toBe('/api/tiles/satellite/19/1/2.png?v=ab12cd34')
+    expect(tileUrl(19, 1, 2, null, 'street')).toBe('/api/tiles/street/19/1/2.png')
   })
 })
 
@@ -160,6 +162,23 @@ describe('tilesAround', () => {
     const mid = tiles.find((t) => t.x === Math.floor(centre.x) && t.y === Math.floor(centre.y))
     expect(mid).toBeDefined()
     expect(mid!.url).toBe(`/api/tiles/19/${mid!.x}/${mid!.y}.png`)
+  })
+
+  it('overzooms: at display zoom 19 with max zoom 18 each tile crops a quadrant of its z18 parent', () => {
+    const tiles = tilesAround(ANCHOR, { x: 0, y: 0 }, 19, 1, null, 'satellite', 18)
+    expect(tiles).toHaveLength(9)
+    for (const t of tiles) {
+      expect(t.z).toBe(19)
+      expect(t.url).toBe(`/api/tiles/satellite/18/${t.x >> 1}/${t.y >> 1}.png`)
+      expect(t.crop.u1 - t.crop.u0).toBe(0.5)
+      expect(t.crop.u0).toBe((t.x & 1) / 2)
+      expect(t.crop.v0).toBe((t.y & 1) / 2)
+    }
+  })
+
+  it('uses full-tile crops when the display zoom is within the max zoom', () => {
+    const tiles = tilesAround(ANCHOR, { x: 0, y: 0 }, 18, 1, null, 'street', 18)
+    expect(tiles.every((t) => t.crop.u0 === 0 && t.crop.v1 === 1 && t.url.includes('/18/'))).toBe(true)
   })
 
   it('appends the tile version to every tile url when given', () => {
