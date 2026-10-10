@@ -55,3 +55,10 @@ ros2_recover_after_min: 15
 # A deploy lock older than this is stale (controller died mid-run) and no longer blocks the recovery. Must exceed the
 # longest single task (a source build).
 ros2_deploy_lock_max_age_min: 240
+# Agent idle guard (playbooks/tasks/agent_idle_guard.yml, client deploy): wait until the robot agent has been quiet
+# (not busy, no instruction/stop/reset) for ros2_agent_quiet_min minutes, polling every ros2_agent_idle_poll_s seconds
+# for at most ros2_agent_idle_wait_min minutes, then fail. -e ros2_deploy_ignore_agent=true skips the guard.
+ros2_agent_quiet_min: 5
+ros2_agent_idle_wait_min: 15
+ros2_agent_idle_poll_s: 15
+ros2_deploy_ignore_agent: false

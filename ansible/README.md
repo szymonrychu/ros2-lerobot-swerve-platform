@@ -539,6 +539,8 @@ See [nodes/steamdeck_ui/README.md](../nodes/steamdeck_ui/README.md) for architec
 ./scripts/deploy-nodes.sh server --all --tags config,restart
 ```
 
+**Agent idle guard (client).** A client deploy restarts nodes, which kills a running robot-agent session. The first pre-task, `playbooks/tasks/agent_idle_guard.yml` (tag `always`, so it runs for every `--tags` filter), reads `GET http://127.0.0.1:<http_port>/api/state` of `claude_agent` on the client (port from the node's config, default 18300) before anything can stop or restart a unit. It waits, polling every `ros2_agent_idle_poll_s` (15 s), until `busy` is false and `last_activity_at` is at least `ros2_agent_quiet_min` (5) minutes before the robot's own `now`, for at most `ros2_agent_idle_wait_min` (15) minutes, then fails with a message naming the override. It proceeds at once when `claude_agent` is absent or disabled, or the API does not answer; an older agent without `last_activity_at` is judged by `busy` alone. Override: `./scripts/deploy-nodes.sh client web_ui -e ros2_deploy_ignore_agent=true`. Defaults are in `group_vars/all.yml`.
+
 Node names match the `name` field in `group_vars/client.yml` or `group_vars/server.yml` under `ros2_nodes`. The script rejects names that are not `ros2_nodes` entries of the target; each node's steps carry its name as tag (see [Deploy tags](#deploy-tags)).
 
 ## Running playbooks

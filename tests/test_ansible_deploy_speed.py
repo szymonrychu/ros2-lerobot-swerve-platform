@@ -1090,3 +1090,20 @@ def test_system_optimize_mounts_use_the_posix_mount_module_with_the_same_effect(
     assert rendered == fstab, "same fields as the lineinfile entry, so the module leaves fstab untouched"
     for name in ("Remount root with noatime", "Mount /tmp as tmpfs now", "Mount /var/tmp as tmpfs now"):
         assert tasks[name]["failed_when"] is False and tasks[name]["changed_when"] is False
+
+
+def test_client_deploy_waits_for_an_idle_agent_before_anything_can_stop_a_unit() -> None:
+    """The agent idle guard is the first pre_task (always tagged), ahead of the deploy lock, with overridable defaults."""
+    pre = load(PLAYBOOKS_DIR / "deploy_nodes_client.yml")[0]["pre_tasks"]
+    includes = [str(t.get("ansible.builtin.include_tasks", "")) for t in pre]
+    guard = next(i for i, inc in enumerate(includes) if "agent_idle_guard.yml" in inc)
+    paths = [t.get("ansible.builtin.file", {}).get("path") for t in pre]
+    lock = paths.index("{{ ros2_deploy_lock }}")
+    assert guard == 0 < lock and "always" in pre[guard]["tags"]
+    text = (TASKS_DIR / "agent_idle_guard.yml").read_text()
+    assert "/api/state" in text and "ros2_deploy_ignore_agent" in text and "last_activity_at" in text
+    assert "ansible.builtin.uri" in text and "ros2_agent_idle_wait_min" in text and "ros2_agent_quiet_min" in text
+    all_vars = load(ANSIBLE_DIR / "group_vars" / "all.yml")
+    assert all_vars["ros2_agent_quiet_min"] == 5 and all_vars["ros2_agent_idle_wait_min"] == 15
+    assert all_vars["ros2_deploy_ignore_agent"] is False and all_vars["ros2_agent_idle_poll_s"] == 15
+    assert "ros2_deploy_ignore_agent=true" in DEPLOY_SCRIPT.read_text()

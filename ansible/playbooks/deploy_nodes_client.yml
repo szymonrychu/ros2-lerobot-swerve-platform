@@ -13,6 +13,10 @@
   vars:
     ros2_apt_batched: true
   pre_tasks:
+    - name: Wait for an idle robot agent (a deploy restarts nodes under a running session)
+      ansible.builtin.include_tasks: tasks/agent_idle_guard.yml
+      tags: [always]
+
     - name: Work out which nodes and phases this run covers
       ansible.builtin.include_tasks: tasks/select_run.yml
       tags: [always]

@@ -1,0 +1,66 @@
+---
+# Deploy guard: do not restart the robot under a working agent. Included first in the client playbook's pre_tasks, before
+# anything can stop or restart a unit (deploy lock, stop_for_build, queued restarts).
+# Asks the claude_agent API on this host (GET /api/state) and waits until the agent is idle: not busy and no activity
+# (instruction start/end, stop, reset) for ros2_agent_quiet_min minutes, judged on the robot's clock ("now" in the
+# response), polling every ros2_agent_idle_poll_s seconds for at most ros2_agent_idle_wait_min minutes, then fails.
+# Proceeds at once when the claude_agent node is absent/disabled or its API is unreachable. An older agent without
+# last_activity_at is judged by "busy" alone. Skipped with -e ros2_deploy_ignore_agent=true.
+- name: Find the enabled claude_agent node
+  ansible.builtin.set_fact:
+    agent_idle_guard_nodes: >-
+      {{ ros2_nodes | default([]) | selectattr('name', 'equalto', 'claude_agent')
+         | selectattr('present', 'equalto', true) | selectattr('enabled', 'equalto', true) | list }}
+  tags: [always]
+
+- name: Wait for an idle robot agent
+  when:
+    - not (ros2_deploy_ignore_agent | bool)
+    - agent_idle_guard_nodes | length > 0
+  tags: [always]
+  vars:
+    # Idle = the API did not answer 200, or not busy and quiet long enough on the robot's clock (older agents lack
+    # last_activity_at / now: busy alone decides).
+    agent_idle_guard_idle: >-
+      {{ agent_idle_guard_state.status | default(-1) != 200
+      or (not (agent_idle_guard_state.json.busy | default(false) | bool)
+      and (agent_idle_guard_state.json.last_activity_at | default(none) is none
+      or agent_idle_guard_state.json.now | default(none) is none
+      or (agent_idle_guard_state.json.now - agent_idle_guard_state.json.last_activity_at)
+      >= ros2_agent_quiet_min | float * 60)) }}
+  block:
+    - name: Take the claude_agent API port from its node config
+      ansible.builtin.set_fact:
+        agent_idle_guard_url: >-
+          http://127.0.0.1:{{ (agent_idle_guard_nodes[0].config | default('') | from_yaml
+          | default({}, true)).http_port | default(18300) }}/api/state
+      tags: [always]
+
+    - name: Poll the agent until it is idle
+      ansible.builtin.uri:
+        url: "{{ agent_idle_guard_url }}"
+        return_content: true
+        timeout: 5
+        status_code: [200]
+      register: agent_idle_guard_state
+      failed_when: false
+      retries: "{{ ((ros2_agent_idle_wait_min | int * 60) / ros2_agent_idle_poll_s | int) | int }}"
+      delay: "{{ ros2_agent_idle_poll_s }}"
+      until: agent_idle_guard_idle | bool
+      tags: [always]
+
+    - name: Agent API unreachable, nothing to wait for
+      ansible.builtin.debug:
+        msg: "claude_agent API at {{ agent_idle_guard_url }} did not answer (status {{ agent_idle_guard_state.status | default(-1) }}); deploying."
+      when: agent_idle_guard_state.status | default(-1) != 200
+      tags: [always]
+
+    - name: Fail when the agent is still in use
+      ansible.builtin.fail:
+        msg: >-
+          The robot agent is in use (busy={{ agent_idle_guard_state.json.busy | default('unknown') }},
+          last activity {{ ((agent_idle_guard_state.json.now | default(0)) - (agent_idle_guard_state.json.last_activity_at | default(0))) | int }} s ago).
+          Waited {{ ros2_agent_idle_wait_min }} min for {{ ros2_agent_quiet_min }} min of quiet; a deploy would restart nodes under it.
+          Retry later, or deploy anyway with: -e ros2_deploy_ignore_agent=true
+      when: not (agent_idle_guard_idle | bool)
+      tags: [always]

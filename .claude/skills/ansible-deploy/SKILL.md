@@ -42,6 +42,9 @@ Phase tags: `sync`, `apt`, `python` (uv), `build` (npm/colcon), `config` (config
 also tagged with the node name. Details: `ansible/README.md`, "Deploy tags". Builds, uv syncs and restarts only
 happen for what changed (stamps); a no-change deploy restarts nothing. The log ends with a per-task timing recap.
 
+Client deploys first wait (up to 15 min) for an idle robot agent (not busy, quiet 5 min) and fail if it stays in use;
+override with `-e ros2_deploy_ignore_agent=true` (appended to the deploy-nodes.sh command).
+
 ---
 
 ## Playbook Structure

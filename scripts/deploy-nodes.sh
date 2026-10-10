@@ -11,6 +11,10 @@
 # --tags / --skip-tags (and any other ansible-playbook option) are passed through; --tags cannot be combined with a node
 # list because ansible would run the union of both.
 #
+# Client deploys first wait (max 15 min) until the robot agent (claude_agent) is idle: not busy and quiet for 5 min,
+# because a deploy restarts nodes under a running session; then they fail. Skip the wait with
+#   deploy-nodes.sh client web_ui -e ros2_deploy_ignore_agent=true
+#
 # Examples:
 #   ./scripts/deploy-nodes.sh client web_ui
 #   ./scripts/deploy-nodes.sh client web_ui mcp_server
