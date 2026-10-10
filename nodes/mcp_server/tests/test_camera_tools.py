@@ -509,3 +509,120 @@ def test_mark_candidate_points_surface_height_is_stored_and_resolved(tmp_path: P
     assert resolved["point"] == table["points"][0] and resolved["surface_height_m"] == 0.04
     flat = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 120}))
     assert flat["surface_height_m"] == 0.0
+
+
+# --- pixels from a smaller image (2026-10-10: get_camera_image returns 384x288, the calibration is 640x480) ---
+
+SMALL_W, SMALL_H = 384, 288
+SMALL = SMALL_W / WIDTH  # 0.6
+
+
+def test_pixel_to_ground_scales_a_pixel_from_a_smaller_image(tmp_path: Path) -> None:
+    server, _, _ = make(tmp_path)
+    full = call(server, "pixel_to_ground", {"camera": "front", "u": WIDTH / 2 + 40, "v": HEIGHT / 2 + 30})
+    small = call(
+        server,
+        "pixel_to_ground",
+        {
+            "camera": "front",
+            "u": (WIDTH / 2 + 40) * SMALL,
+            "v": (HEIGHT / 2 + 30) * SMALL,
+            "image_width": SMALL_W,
+            "image_height": SMALL_H,
+        },
+    )
+    a, b = full.structured_content, small.structured_content
+    assert b["ground_base_link"] == pytest.approx(a["ground_base_link"], abs=1e-6)
+    assert b["pixel"] == pytest.approx({"u": WIDTH / 2 + 40, "v": HEIGHT / 2 + 30})
+    assert b["pixel_input"] == {
+        "u": pytest.approx((WIDTH / 2 + 40) * SMALL),
+        "v": pytest.approx((HEIGHT / 2 + 30) * SMALL),
+        "image_width": SMALL_W,
+        "image_height": SMALL_H,
+        "scale": pytest.approx(1 / SMALL),
+    }
+    assert b["image"] == {"width": WIDTH, "height": HEIGHT}
+    assert a["image"] == {"width": WIDTH, "height": HEIGHT}
+    assert "pixel_input" not in a  # omitted size: the pixel is taken in the calibrated size, as before
+
+
+def test_pixel_image_size_must_be_complete_and_keep_the_aspect(tmp_path: Path) -> None:
+    server, _, _ = make(tmp_path)
+    with pytest.raises(ToolError, match="image_width and image_height"):
+        call(server, "pixel_to_ground", {"camera": "front", "u": 10.0, "v": 10.0, "image_width": SMALL_W})
+    with pytest.raises(ToolError, match="aspect"):
+        call(
+            server,
+            "pixel_to_ground",
+            {"camera": "front", "u": 10.0, "v": 10.0, "image_width": 384, "image_height": 384},
+        )
+
+
+def test_mark_candidate_points_scales_a_region_from_a_smaller_image(tmp_path: Path) -> None:
+    server, _, _ = make(tmp_path)
+    region = {"u0": 100 * SMALL, "v0": 200 * SMALL, "u1": 300 * SMALL, "v1": 300 * SMALL}
+    table = text_json(
+        call(
+            server,
+            "mark_candidate_points",
+            {"camera": "front", "region": region, "spacing_px": 50, "image_width": SMALL_W, "image_height": SMALL_H},
+        )
+    )
+    assert table["points"] and all(100 <= p["u"] <= 300 and 200 <= p["v"] <= 300 for p in table["points"])
+    assert table["image"] == {"width": WIDTH, "height": HEIGHT}
+
+
+def test_resolve_candidate_states_the_pixel_image_size(tmp_path: Path) -> None:
+    server, _, _ = make(tmp_path)
+    table = text_json(call(server, "mark_candidate_points", {"camera": "front"}))
+    data = call(server, "resolve_candidate", {"set_id": table["set_id"], "n": 1}).structured_content
+    assert data["image"] == {"width": WIDTH, "height": HEIGHT}
+
+
+def test_capture_calibration_sample_scales_a_pixel_from_a_smaller_image(tmp_path: Path) -> None:
+    server, _, cfg = make(tmp_path)
+    call(
+        server,
+        "capture_calibration_sample",
+        {
+            "camera": "front",
+            "u": 100 * SMALL,
+            "v": 200 * SMALL,
+            "ground_x": 1.0,
+            "ground_y": 0.0,
+            "image_width": SMALL_W,
+            "image_height": SMALL_H,
+        },
+    )
+    data = json.loads((cfg.cameras.calibration_dir / "front.json").read_text())
+    assert data["samples"][0]["pixel"] == pytest.approx([100.0, 200.0])
+
+
+def test_get_camera_image_states_its_size_and_the_scale_to_the_calibrated_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server, robot, _ = make(tmp_path)
+    frame = robot.camera_image("front", 384)
+    monkeypatch.setattr(
+        robot, "camera_image", lambda camera, max_px: frame.model_copy(update={"width": SMALL_W, "height": SMALL_H})
+    )
+    meta = text_json(call(server, "get_camera_image", {"camera": "front"}))
+    assert (meta["width"], meta["height"]) == (SMALL_W, SMALL_H)
+    assert meta["calibrated_image"] == {"width": WIDTH, "height": HEIGHT}
+    assert meta["scale_to_calibrated"] == pytest.approx(1 / SMALL)
+    assert "image_width" in meta["pixel_note"]
+
+
+def test_pixel_tool_descriptions_explain_the_image_size(tmp_path: Path) -> None:
+    import anyio
+
+    server, _, _ = make(tmp_path)
+
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tools = {t.name: json.dumps(t.input_schema) + (t.description or "") for t in anyio.run(run)}
+    for name in ("pixel_to_ground", "mark_candidate_points", "capture_calibration_sample"):
+        assert "image_width" in tools[name] and "image_height" in tools[name], name
+    assert "384x288" in tools["pixel_to_ground"]
+    assert "image_width" in tools["get_camera_image"]

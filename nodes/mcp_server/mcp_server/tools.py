@@ -25,6 +25,7 @@ from starlette.responses import JSONResponse
 from . import body_tools, camera_tools, grasp_tools, motion_tools, perception_tools
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
+from .camera_scene import camera_setup, pixel_scale
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
 from .floor_guard import TiltOverrideDeg
 from .grasp_tools import SURFACES_DESC, floor_override, grip_profile_description
@@ -185,6 +186,43 @@ def image_content(data: bytes, mime_type: str) -> ImageContent:
         ImageContent: Content block.
     """
     return ImageContent(type="image", data=base64.b64encode(data).decode(), mime_type=mime_type)
+
+
+def camera_image_scale(config: McpServerConfig, camera: str, width: int, height: int) -> dict[str, Any]:
+    """get_camera_image metadata relating the picture's size to the calibrated size the camera tools use.
+
+    Args:
+        config (McpServerConfig): Node configuration (camera intrinsics).
+        camera (str): Camera name.
+        width (int): Picture width (px).
+        height (int): Picture height (px).
+
+    Returns:
+        dict[str, Any]: {calibrated_image {width, height} | None, scale_to_calibrated | None, pixel_note}.
+    """
+    try:
+        intr = camera_setup(config, camera, need_mount=False).intrinsics
+    except ValueError:
+        return {
+            "calibrated_image": None,
+            "scale_to_calibrated": None,
+            "pixel_note": f"the {camera} camera has no intrinsics: the pixel tools cannot use it",
+        }
+    try:
+        scale = pixel_scale(width, height, intr.width, intr.height)
+    except ValueError as exc:
+        return {
+            "calibrated_image": {"width": intr.width, "height": intr.height},
+            "scale_to_calibrated": None,
+            "pixel_note": str(exc),
+        }
+    return {
+        "calibrated_image": {"width": intr.width, "height": intr.height},
+        "scale_to_calibrated": None if scale is None else round(scale, 6),
+        "pixel_note": f"pixels of this {width}x{height} picture: pass image_width {width}, image_height {height} to "
+        f"pixel_to_ground / mark_candidate_points / capture_calibration_sample (they work in {intr.width}x"
+        f"{intr.height}), or pick pixels on get_annotated_camera_image",
+    }
 
 
 def session_key(context: Any) -> str:
@@ -496,8 +534,12 @@ def register_core_tools(ctx: ToolContext) -> None:
             "looking down at the front of the robot, the arm and the floor in front of it: the best view for judging "
             "gripper-to-object position (take it first for an overview, then use 'gripper' to aim). The default size "
             f"is {config.limits.default_camera_px} px on the longest side (cheap, fine for aiming checks): pass a "
-            "larger max_px only when you must read fine detail, images are what fills the context. Fails (instead of "
-            "returning an old picture) when no frame arrives within the timeout or the newest frame is older than 1 s."
+            "larger max_px only when you must read fine detail, images are what fills the context. The metadata "
+            "states the picture's width x height, the calibrated_image size the camera tools use and "
+            "scale_to_calibrated: a pixel read from this picture must go to pixel_to_ground (and the other "
+            "pixel-taking tools) WITH image_width / image_height, or be read from get_annotated_camera_image instead. "
+            "Fails (instead of returning an old picture) when no frame arrives within the timeout or the newest frame "
+            "is older than 1 s."
         ),
     )
     def get_camera_image(
@@ -521,8 +563,8 @@ def register_core_tools(ctx: ToolContext) -> None:
         with tool_errors():
             size = config.limits.default_camera_px if max_px is None else max_px
             frame = robot.camera_image(camera, min(size, config.limits.max_image_px))
-        meta = frame.model_dump_json()
-        return [image_content(frame.jpeg, "image/jpeg"), TextContent(type="text", text=meta)]
+        meta = frame.model_dump(mode="json") | camera_image_scale(config, camera, frame.width, frame.height)
+        return [image_content(frame.jpeg, "image/jpeg"), TextContent(type="text", text=json.dumps(meta))]
 
     @tool(structured_output=False)
     def get_map_summary(

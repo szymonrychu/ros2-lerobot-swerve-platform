@@ -37,8 +37,59 @@ class CameraNotCalibratedError(ValueError):
     """Raised when a camera lacks intrinsics and/or a mount."""
 
 
+# Aspect ratio difference (relative) up to which an image size counts as a resize of the calibrated image.
+PIXEL_ASPECT_TOLERANCE = 0.02
+
+
 class PixelError(ValueError):
     """Raised when a pixel has no valid floor point (outside the image, above the horizon or behind the camera)."""
+
+
+def pixel_scale(image_width: int | None, image_height: int | None, width: int, height: int) -> float | None:
+    """Factor from the pixels of a (smaller or larger) image of the same camera to the calibrated image size.
+
+    get_camera_image returns 384x288 by default while the camera tools work in the calibrated size (640x480): a pixel
+    picked on the small image must be multiplied by this factor.
+
+    Args:
+        image_width (int | None): Width of the image the pixel came from; None = the calibrated size.
+        image_height (int | None): Its height; None = the calibrated size.
+        width (int): Calibrated image width.
+        height (int): Calibrated image height.
+
+    Returns:
+        float | None: Scale (calibrated / given); None when no size was given (pixels are calibrated-size pixels).
+
+    Raises:
+        PixelError: When only one of the sizes is given or the aspect ratio differs (a crop, not a resize).
+    """
+    if image_width is None and image_height is None:
+        return None
+    if image_width is None or image_height is None:
+        raise PixelError("give both image_width and image_height (the size of the image the pixel came from)")
+    sx, sy = width / image_width, height / image_height
+    if abs(sx - sy) > PIXEL_ASPECT_TOLERANCE * max(sx, sy):
+        raise PixelError(
+            f"image {image_width}x{image_height} does not have the aspect of the calibrated {width}x{height} image "
+            "(a crop cannot be scaled): use the calibrated size, e.g. get_annotated_camera_image"
+        )
+    return (sx + sy) / 2.0
+
+
+def pixel_input(u: float, v: float, image_width: int, image_height: int, scale: float) -> dict[str, float]:
+    """Report of a pixel given in another image size.
+
+    Args:
+        u (float): Given pixel x.
+        v (float): Given pixel y.
+        image_width (int): Given image width.
+        image_height (int): Given image height.
+        scale (float): Factor to the calibrated size.
+
+    Returns:
+        dict[str, float]: {u, v, image_width, image_height, scale}.
+    """
+    return {"u": u, "v": v, "image_width": image_width, "image_height": image_height, "scale": round(scale, 6)}
 
 
 @dataclass(frozen=True)
@@ -378,6 +429,7 @@ def ground_report(
     return {
         "camera": camera,
         "pixel": {"u": u, "v": v},
+        "image": {"width": scene.intr.width, "height": scene.intr.height},
         "surface_height_m": surface_height_m,
         **ground_fields(scene, ground, pose),
         "method": GROUND_METHOD,

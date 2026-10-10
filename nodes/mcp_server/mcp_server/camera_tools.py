@@ -44,6 +44,8 @@ from .camera_scene import (
     ground_fields,
     ground_report,
     parent_transform,
+    pixel_input,
+    pixel_scale,
 )
 from .config import HARD_MAX_IMAGE_PX
 from .models import BasePose, RobotError
@@ -70,7 +72,30 @@ SurfaceHeight = Annotated[
         ),
     ),
 ]
+ImageWidth = Annotated[
+    int | None,
+    Field(
+        ge=16,
+        le=4096,
+        description=(
+            "Width (px) of the image the pixel was read from, e.g. 384 for a default get_camera_image picture; "
+            "with image_height the pixel is scaled to the calibrated image size. Omit only for pixels read from the "
+            "calibrated-size image (get_annotated_camera_image, mark_candidate_points)"
+        ),
+    ),
+]
+ImageHeight = Annotated[
+    int | None,
+    Field(ge=16, le=4096, description="Height (px) of the image the pixel was read from (288 for 384x288)"),
+]
 Overlay = Literal["grid", "reach", "gripper", "planned_gripper", "lidar"]
+# Warning in the pixel-taking tool descriptions: pixels of a smaller picture are wrong without the image size.
+PIXEL_SIZE_NOTE = (
+    "IMPORTANT: u, v are pixels of the CALIBRATED image size (get_annotated_camera_image and mark_candidate_points "
+    "images, the result's 'image') unless image_width and image_height give the size of the image the pixel came "
+    "from: get_camera_image returns 384x288 by default, so pass image_width 384, image_height 288 for its pixels "
+    "(an unscaled small-image pixel lands at the wrong place)."
+)
 MAX_GROUND_RANGE_M = 6.0  # candidate points whose floor point is farther are skipped (near-horizon pixels are noise)
 MIN_GOOD_SAMPLES = 6  # six mount parameters
 HIGH_RMS_PX = 3.0
@@ -205,6 +230,14 @@ def register(ctx: ToolContext) -> None:
         """Arm-base-frame point in the scene's reference frame (None when the arm offset is unknown)."""
         return point if scene.camera == "gripper" else scene.arm_to_ref(point)
 
+    def candidate_image(camera: str) -> dict[str, int] | None:
+        """Calibrated image size the candidate pixels refer to (None when the camera has no intrinsics)."""
+        try:
+            intr = camera_setup(config, camera, need_mount=False).intrinsics
+        except ValueError:
+            return None
+        return {"width": intr.width, "height": intr.height}
+
     def draw_point_with_floor(
         img: np.ndarray, scene: Scene, ref_point: np.ndarray, color: tuple[int, int, int], shape: str, label: str
     ) -> bool:
@@ -228,9 +261,9 @@ def register(ctx: ToolContext) -> None:
             "coordinates have z = floor + surface_height_m. 'gripper' uses the CURRENT measured arm joints (the camera moves with "
             "the arm); 'front' is the fixed overhead camera. Returns ground_base_link {x,y,z} (m, x forward, y left, "
             "floor z = 0), ground_map {x,y} when the map pose is known, distance_from_base_m, bearing_deg, method and "
-            f"uncertainty_note. {floor_note} Pixel (u right, v down) is in the calibrated image size, e.g. read it "
-            "from get_annotated_camera_image or mark_candidate_points. Errors if the camera is not calibrated "
-            "(intrinsics and mount missing in the config) or the pixel does not see the floor."
+            f"uncertainty_note. {floor_note} Pixel (u right, v down). {PIXEL_SIZE_NOTE} The result reports pixel "
+            "(calibrated size), image (calibrated size) and pixel_input (what you passed) when scaled. Errors if the "
+            "camera is not calibrated (intrinsics and mount missing in the config) or the pixel does not see the floor."
         )
     )
     def pixel_to_ground(
@@ -238,11 +271,19 @@ def register(ctx: ToolContext) -> None:
         u: Annotated[float, Field(description="Pixel x (right)")],
         v: Annotated[float, Field(description="Pixel y (down)")],
         surface_height_m: SurfaceHeight = 0.0,
+        image_width: ImageWidth = None,
+        image_height: ImageHeight = None,
     ) -> CallToolResult:
         """Pixel -> floor point; the tool description is passed to the decorator (it states the frames)."""
         with camera_errors():
             scene, _, _ = scene_for(camera)
-            return data_result(ground_report(scene, camera, u, v, map_pose(), surface_height_m))
+            scale = pixel_scale(image_width, image_height, scene.intr.width, scene.intr.height)
+            if scale is None:
+                return data_result(ground_report(scene, camera, u, v, map_pose(), surface_height_m))
+            assert image_width is not None and image_height is not None
+            report = ground_report(scene, camera, u * scale, v * scale, map_pose(), surface_height_m)
+            report["pixel_input"] = pixel_input(u, v, image_width, image_height, scale)
+            return data_result(report)
 
     @server.tool(
         structured_output=False,
@@ -348,22 +389,32 @@ def register(ctx: ToolContext) -> None:
             f"the surface (sky, behind) or lies beyond {MAX_GROUND_RANGE_M:g} m are skipped and counted in "
             "skipped_no_ground. The last 10 sets are kept; look at the picture, choose a number, then call "
             "resolve_candidate(set_id, n). Optional region {u0,v0,u1,v1} limits the grid; spacing_px sets the grid; "
-            "at most max_points dots (evenly thinned). Errors if the camera is not calibrated."
+            "at most max_points dots (evenly thinned). The image and the points' u, v are in the calibrated image "
+            "size (table 'image'); region is in that size too unless image_width / image_height give the size of "
+            "the image you read it from (384x288 for a default get_camera_image picture). Errors if the camera is "
+            "not calibrated."
         ),
     )
     def mark_candidate_points(
         camera: Annotated[Camera, Field(description="'gripper' or 'front'")],
         region: Annotated[Region | None, Field(description="Pixel rectangle; the whole image when omitted")] = None,
-        spacing_px: Annotated[int, Field(ge=8, le=320, description="Grid spacing in pixels")] = 40,
+        spacing_px: Annotated[
+            int, Field(ge=8, le=320, description="Grid spacing in pixels of the calibrated image")
+        ] = 40,
         max_points: Annotated[int, Field(ge=1, le=200, description="Maximum number of dots")] = 40,
         surface_height_m: SurfaceHeight = 0.0,
+        image_width: ImageWidth = None,
+        image_height: ImageHeight = None,
     ) -> list[ImageContent | TextContent]:
         """Numbered candidate dots; the tool description is passed to the decorator."""
         with camera_errors():
             scene, setup, joints = scene_for(camera)
+            scale = pixel_scale(image_width, image_height, scene.intr.width, scene.intr.height) or 1.0
             pose = map_pose()
             img = grab(camera, setup)
-            box = None if region is None else (region.u0, region.v0, region.u1, region.v1)
+            box = (
+                None if region is None else (region.u0 * scale, region.v0 * scale, region.u1 * scale, region.v1 * scale)
+            )
             pixels = candidate_pixels(scene.intr.width, scene.intr.height, box, spacing_px, 10**6)
             valid: list[dict[str, Any]] = []
             skipped = 0
@@ -397,6 +448,7 @@ def register(ctx: ToolContext) -> None:
                 "camera": camera,
                 "frame": scene.frame_name,
                 "surface_height_m": surface_height_m,
+                "image": {"width": scene.intr.width, "height": scene.intr.height},
                 "points": kept,
                 "skipped_no_ground": skipped,
                 "approximate_intrinsics": scene.approximate,
@@ -443,6 +495,7 @@ def register(ctx: ToolContext) -> None:
                     "camera": item.camera,
                     "surface_height_m": item.surface_height_m,
                     "point": point,
+                    "image": candidate_image(item.camera),
                     "age_s": round(time.monotonic() - item.created, 1),
                     "robot_moved_since": robot_moved,
                     "arm_moved_since": arm_moved_flag,
@@ -457,7 +510,9 @@ def register(ctx: ToolContext) -> None:
             f"frame for 'gripper', where the floor is z = {config.arm.floor_z_m:.3f}; base_link for 'front', floor z = 0) "
             "and the parent-link pose at this moment (current arm joints for 'gripper', identity for 'front'). Returns "
             "the sample count. Use several well spread markers (and for 'gripper' several arm poses), then call "
-            "solve_camera_calibration. Works before the camera is calibrated."
+            "solve_camera_calibration. Works before the camera is calibrated. The pixel is in the calibrated image "
+            "size (the intrinsics' width x height) unless image_width / image_height give the size of the image it "
+            "came from (384x288 for a default get_camera_image picture; scaling needs the intrinsics)."
         )
     )
     def capture_calibration_sample(
@@ -467,9 +522,15 @@ def register(ctx: ToolContext) -> None:
         ground_x: Annotated[float, Field(description="Marker x (m) in the camera's reference frame")],
         ground_y: Annotated[float, Field(description="Marker y (m) in the camera's reference frame")],
         ground_z: Annotated[float, Field(description="Marker z (m); 0 for the front camera on the floor")] = 0.0,
+        image_width: ImageWidth = None,
+        image_height: ImageHeight = None,
     ) -> CallToolResult:
         """Store a calibration sample; the tool description is passed to the decorator."""
         with camera_errors():
+            if image_width is not None or image_height is not None:
+                intr = camera_setup(config, camera, need_mount=False).intrinsics
+                scale = pixel_scale(image_width, image_height, intr.width, intr.height) or 1.0
+                u, v = u * scale, v * scale
             parent = str(getattr(config.cameras, camera).parent_frame)
             joints = arm_joints(required=camera == "gripper")
             t_parent = parent_transform(config, camera, kin, joints)
