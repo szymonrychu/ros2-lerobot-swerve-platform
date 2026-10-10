@@ -15,6 +15,7 @@ from pathlib import Path
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from ros2_metrics import resolve_metrics_port, start_metrics_server
 from scan_watch import ScanWatch
 from sensor_msgs.msg import LaserScan
 
@@ -24,6 +25,7 @@ STARTUP_GRACE_S = 30.0
 SILENCE_TIMEOUT_S = 5.0
 CHILD_STOP_TIMEOUT_S = 10.0
 EXIT_RESTART = 1
+NODE_NAME = "rplidar_a1"
 
 
 def stop_child(child: subprocess.Popen) -> None:
@@ -48,6 +50,7 @@ def main() -> int:
     Returns:
         int: Exit status: the child's status if it exited by itself, EXIT_RESTART when the watchdog fired, 0 on SIGTERM.
     """
+    start_metrics_server(resolve_metrics_port(None), NODE_NAME)
     child = subprocess.Popen(["ros2", "launch", str(LAUNCH_FILE)])
     watch = ScanWatch(time.monotonic(), STARTUP_GRACE_S, SILENCE_TIMEOUT_S)
     rclpy.init()
@@ -65,7 +68,11 @@ def main() -> int:
                 node.get_logger().error(f"rplidar launch exited with {child.returncode}")
                 status = child.returncode or EXIT_RESTART
                 break
-            if watch.should_restart(time.monotonic()):
+            now = time.monotonic()
+            watch.export_metrics(now)
+            reason = watch.restart_reason(now)
+            if reason is not None:
+                ScanWatch.record_restart(reason)
                 node.get_logger().error(
                     f"no {SCAN_TOPIC} within {STARTUP_GRACE_S:.0f} s of start or silent for {SILENCE_TIMEOUT_S:.0f} s;"
                     " restarting the driver"

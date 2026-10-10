@@ -188,7 +188,7 @@ Bridge cycle (`test_bridge_cycle.py`, rclpy-free `bridge_cycle.py`): regression 
 
 ### Per-node tests (uvc_camera)
 
-The **uvc_camera** node has tests under `nodes/bridges/uvc_camera/tests/`. Run from `nodes/bridges/uvc_camera`: `uv run pytest tests/ -v` (or `uv run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, device as path or index, stripping whitespace and fallback for empty topic/frame_id; `UVC_ROTATE_DEG` and `UVC_MAX_FPS` (`get_max_fps`: unset is no cap, positive number, invalid values raise). `test_frame.py` covers `rotate_frame` and `frame_due` (publish-rate throttle: no cap, first frame, period). Config lives in `config.py` (no ROS/OpenCV deps) for testability.
+The **uvc_camera** node has tests under `nodes/bridges/uvc_camera/tests/`. Run from `nodes/bridges/uvc_camera`: `uv run pytest tests/ -v` (or `uv run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, device as path or index, stripping whitespace and fallback for empty topic/frame_id; `UVC_ROTATE_DEG` and `UVC_MAX_FPS` (`get_max_fps`: unset is no cap, positive number, invalid values raise). `test_frame.py` covers `rotate_frame` and `frame_due` (publish-rate throttle: no cap, first frame, period). Config lives in `config.py` (no ROS/OpenCV deps) for testability. Metrics (`test_metrics.py`: `camera_frames_published_total`, `camera_frames_dropped_total{reason}` read_fail/fps_cap, `camera_encode_seconds` histogram buckets, `camera_reopens_total`); `reopen_due` threshold (`test_frame.py`); `METRICS_PORT` resolved through `resolve_metrics_port(None)` (`test_config.py`).
 
 ### Per-node tests (lerobot_teleop)
 
@@ -232,6 +232,7 @@ The **topic_scraper_api** node has tests under `nodes/topic_scraper_api/tests/`.
 
 The **bno055_imu** node has tests under `nodes/bridges/bno055_imu/tests/`. Run from `nodes/bridges/bno055_imu`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers:
 
+- metrics (`test_metrics.py`: `imu_soft_restores_total`, `imu_reinits_total{reason}` by recovery code, calibration levels per subsystem and the incomplete-status case, published counter and `imu_seconds_since_publish`, read errors, init attempts, mode); `Decision.code` stable escalation codes (`test_recovery.py`); `metrics_port` config field (`test_config.py`).
 - Tile API key (`test_tile_api_key.py`): `tile_api_key_env` default, `{api_key}` substitution in `build_tile_url`, `tile_cache_fingerprint` (8 hex, hides the key, differs per key/template/no key), key read from the env var and cached under the fingerprint directory, a changed key refetches, missing or empty key (or no env name) gives 503 with no fetch and one `tile_api_key_missing` warning, keyless templates unchanged, the key absent from `/api/config` and from logs, `tile_max_zoom` (default 18, range 1..22; tiles above it answer 404 without contacting upstream).
 - Tile sources (`test_tile_sources.py`): `tile_sources` resolution (legacy `tile_url` fields become the `default` source, unknown default / duplicate ids rejected), per-source proxy route with explicit template order (Esri `{z}/{y}/{x}`), separate cache subdirectories per fingerprint, zoom above a source's `max_zoom` is 404 without upstream, unknown source 404, old route serves the default source, a missing key is 503 for that source only, `/api/config` exposes the public source list (no URL, key or env name) and `tile_display_zoom`.
 - config loading (`test_config.py`: missing/empty file, defaults, explicit topic/frame_id/publish_hz/i2c_bus/i2c_address/covariances, publish_hz clamping, load_config_from_env)
@@ -667,7 +668,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 
 ### Per-node tests (gps_rtk)
 
-The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `nodes/bridges/gps_rtk`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers: config loading and validation (`test_config.py`: minimal base/rover, rover with rtcm_server_host, invalid mode rejected, load_config from file/missing/empty); NMEA GGA parsing (`test_nmea_parser.py`: lat/lon N/S/E/W, altitude, fix quality, full sentence, RTK fixed quality 4, quality-to-NavSatStatus mapping); serial stream handling (`test_serial_handler.py`: NMEA checksum and append_checksum_if_missing, RTCM3 length parsing, CRC24Q, valid RTCM3 frame build/validation, parser emits NMEA with valid checksum, ignores invalid NMEA, discards unknown bytes).
+The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `nodes/bridges/gps_rtk`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers: config loading and validation (`test_config.py`: minimal base/rover, rover with rtcm_server_host, invalid mode rejected, load_config from file/missing/empty); NMEA GGA parsing (`test_nmea_parser.py`: lat/lon N/S/E/W, altitude, fix quality, full sentence, RTK fixed quality 4, quality-to-NavSatStatus mapping); serial stream handling (`test_serial_handler.py`: NMEA checksum and append_checksum_if_missing, RTCM3 length parsing, CRC24Q, valid RTCM3 frame build/validation, parser emits NMEA with valid checksum, ignores invalid NMEA, discards unknown bytes). Rover metrics (`test_metrics.py`: GGA gauges with NaN for unreported fields, published-fix counter, NTRIP client connected/rx bytes/reconnects against a fake caster, serial open and read error counters by `op`); `metrics_port` config field (`test_config.py`).
 
 ---
 
@@ -675,7 +676,7 @@ The **gps_rtk** node has tests under `nodes/bridges/gps_rtk/tests/`. Run from `n
 
 ### test_rplidar_scan_watch.py
 
-Decision logic of the RPLidar scan watchdog (`nodes/bridges/rplidar_a1/scan_watch.py`): no restart during the startup grace, restart when no scan arrives after it, no restart while scans keep arriving, restart when scans stop for the silence timeout, and the silence timeout applies once the first scan has arrived.
+Decision logic of the RPLidar scan watchdog (`nodes/bridges/rplidar_a1/scan_watch.py`): no restart during the startup grace, restart when no scan arrives after it, no restart while scans keep arriving, restart when scans stop for the silence timeout, and the silence timeout applies once the first scan has arrived. Also covers the metrics logic: restart reason (startup vs gap), scan rate over the last 10 s (unknown until two scans, 0 after silence), max gap over the last 60 s including the open gap, `lidar_*` export (scans total, rate, max gap), restart counter series by reason, and that `scan_supervisor.py` starts the metrics server from the env port.
 
 ### test_client_cpu_load.py
 
