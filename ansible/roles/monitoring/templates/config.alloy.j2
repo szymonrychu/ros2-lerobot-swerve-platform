@@ -1,0 +1,92 @@
+// {{ ansible_managed }}
+// Grafana Alloy on the client RPi5: collects everything and pushes it to the local Prometheus (remote write).
+// One collector, one config: Prometheus is storage + query only and scrapes nothing itself.
+
+// ---- destination ---------------------------------------------------------------------------------------------------
+
+prometheus.remote_write "local" {
+  endpoint {
+    url = "http://127.0.0.1:{{ monitoring_prometheus_port }}/api/v1/write"
+  }
+}
+
+// ---- host metrics (node_*) ----------------------------------------------------------------------------------------
+// Default collectors (cpu, loadavg, meminfo, diskstats, filesystem, netdev, hwmon, thermal_zone, ...) plus the
+// textfile collector that picks up rpi_throttled.prom from the rpi-throttled timer.
+
+prometheus.exporter.unix "host" {
+  textfile {
+    directory = "{{ monitoring_textfile_dir }}"
+  }
+
+  netdev {
+    device_exclude = "^(lo|veth.*|docker.*|br-.*)$"
+  }
+}
+
+prometheus.scrape "host" {
+  targets         = prometheus.exporter.unix.host.targets
+  forward_to      = [prometheus.remote_write.local.receiver]
+  job_name        = "integrations/unix"
+  scrape_interval = "{{ monitoring_interval }}"
+}
+
+// ---- per-systemd-unit cgroup metrics (container_*) ----------------------------------------------------------------
+// docker_only = false: cAdvisor's raw cgroup v2 handler reports every cgroup, so each service shows up with
+// id="/system.slice/<unit>.service" (robot nodes) or id="/monitoring.slice/<unit>.service" (this stack).
+// Only CPU, memory, block IO and OOM events are collected: network stats of host-netns services repeat the host
+// interfaces per unit, and disk/percpu/process series are not needed.
+
+prometheus.exporter.cadvisor "units" {
+  docker_only            = false
+  store_container_labels = false
+  disabled_metrics       = [
+    "advtcp", "app", "cpuLoad", "cpu_topology", "cpuset", "disk", "hugetlb", "memory_numa", "network", "percpu",
+    "perf_event", "process", "referenced_memory", "resctrl", "sched", "tcp", "udp",
+  ]
+}
+
+prometheus.scrape "cadvisor" {
+  targets         = prometheus.exporter.cadvisor.units.targets
+  forward_to      = [prometheus.relabel.cadvisor.receiver]
+  job_name        = "integrations/cadvisor"
+  scrape_interval = "{{ monitoring_interval }}"
+}
+
+// Keep the root cgroup, the three slices, the services in system.slice / monitoring.slice and the per-user slices;
+// drop every scope, session and nested cgroup (they come and go and only add series).
+prometheus.relabel "cadvisor" {
+  forward_to = [prometheus.remote_write.local.receiver]
+
+  rule {
+    source_labels = ["id"]
+    regex         = "/|/(system|user|monitoring)\\.slice|/(system|monitoring)\\.slice/[^/]+\\.service|/user\\.slice/user-[0-9]+\\.slice"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["interface"]
+    regex         = "veth.*|docker.*|br-.*"
+    action        = "drop"
+  }
+}
+
+// ---- the stack's own metrics --------------------------------------------------------------------------------------
+
+prometheus.exporter.self "alloy" { }
+
+prometheus.scrape "alloy" {
+  targets         = prometheus.exporter.self.alloy.targets
+  forward_to      = [prometheus.remote_write.local.receiver]
+  job_name        = "alloy"
+  scrape_interval = "{{ monitoring_interval }}"
+}
+
+prometheus.scrape "stack" {
+  targets = [
+    {"__address__" = "127.0.0.1:{{ monitoring_prometheus_port }}", "job" = "prometheus"},
+    {"__address__" = "127.0.0.1:{{ monitoring_grafana_port }}", "job" = "grafana"},
+  ]
+  forward_to      = [prometheus.remote_write.local.receiver]
+  scrape_interval = "{{ monitoring_interval }}"
+}

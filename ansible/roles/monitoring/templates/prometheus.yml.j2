@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+# Storage and query only: Grafana Alloy scrapes every target (host, cgroups, Alloy, Prometheus, Grafana) and pushes
+# the samples to /api/v1/write (--web.enable-remote-write-receiver), so there are no scrape_configs here.
+global:
+  scrape_interval: {{ monitoring_interval }}
+  evaluation_interval: {{ monitoring_interval }}
+  external_labels:
+    robot: client
+
+scrape_configs: []

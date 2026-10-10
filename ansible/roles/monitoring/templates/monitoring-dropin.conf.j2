@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+# Moves {{ item.name }}.service into monitoring.slice with its own memory cap; the OOM killer picks it before robot nodes.
+[Service]
+Slice=monitoring.slice
+Nice={{ monitoring_nice }}
+MemoryMax={{ item.memory_max }}
+OOMScoreAdjust={{ monitoring_oom_score_adjust }}
+Restart=on-failure
+RestartSec=10
+{% if item.name == 'alloy' %}
+# prometheus.exporter.cadvisor reads every cgroup under /sys/fs/cgroup and /proc of the host; run it as root so no
+# unit's stats are hidden by permissions (the package default is User=alloy).
+User=root
+Group=root
+{% elif item.name == 'grafana-server' %}
+# The admin password file stays 0600 root:grafana; systemd reads it as root and hands the service a private copy in
+# $CREDENTIALS_DIRECTORY (%d), which Grafana reads through the GF_<SECTION>_<KEY>__FILE convention.
+LoadCredential=admin_password:{{ monitoring_grafana_admin_password_file }}
+Environment=GF_SECURITY_ADMIN_PASSWORD__FILE=%d/admin_password
+{% endif %}

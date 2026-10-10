@@ -58,6 +58,19 @@ def node_names(target: str) -> list[str]:
     return [n["name"] for n in load(ANSIBLE_DIR / "group_vars" / f"{target}.yml")["ros2_nodes"]]
 
 
+def non_node_targets(target: str) -> set[str]:
+    """Deploy targets of a target that are not ros2_nodes entries (non_node_targets in scripts/deploy-nodes.sh).
+
+    Args:
+        target: client or server.
+
+    Returns:
+        set[str]: Target names, each also the tag of its playbook step.
+    """
+    match = re.search(rf'^\s*{target}\) echo "([^"]*)" ;;$', DEPLOY_SCRIPT.read_text(), re.M)
+    return set(match.group(1).split()) if match else set()
+
+
 def effective_tasks(tasks: list[dict], inherited: tuple[str, ...] = ()) -> list[tuple[dict, set[str]]]:
     """Flatten tasks (descending into blocks) with the tags each one effectively carries.
 
@@ -143,10 +156,16 @@ def test_every_task_in_role_and_task_files_carries_a_documented_tag(path: Path) 
         assert tags & allowed, f"{path.name}: task {task.get('name')!r} has no documented tag ({sorted(tags)})"
 
 
+def test_non_node_targets_are_parsed() -> None:
+    """Guard against a vacuous pass: the client has the monitoring target, the server none."""
+    assert non_node_targets("client") == {"monitoring"}
+    assert non_node_targets("server") == set()
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_every_task_in_the_deploy_playbooks_carries_a_documented_or_node_tag(target: str) -> None:
     play = load(PLAYBOOKS_DIR / f"deploy_nodes_{target}.yml")[0]
-    allowed = documented_tags() | set(node_names(target))
+    allowed = documented_tags() | set(node_names(target)) | non_node_targets(target)
     for section in ("pre_tasks", "tasks", "post_tasks"):
         for task, tags in effective_tasks(play.get(section, [])):
             assert tags & allowed, f"{target} {section}: {task.get('name')!r} has no tag"

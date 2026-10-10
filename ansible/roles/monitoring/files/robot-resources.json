@@ -1,0 +1,1173 @@
+{
+  "title": "Robot resources",
+  "uid": "robot-resources",
+  "description": "Host, per-systemd-unit and monitoring-stack resources of the client RPi5 (Alloy -> Prometheus).",
+  "tags": [
+    "robot",
+    "resources"
+  ],
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Host",
+      "id": 1,
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Host CPU % by mode",
+      "id": 2,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Share of all 4 cores per CPU mode (idle excluded), stacked.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "max": 100,
+          "min": 0,
+          "custom": {
+            "stacking": {
+              "mode": "normal"
+            },
+            "fillOpacity": 30
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "100 * sum by (mode) (rate(node_cpu_seconds_total{mode!=\"idle\"}[$__rate_interval])) / scalar(count(node_cpu_seconds_total{mode=\"idle\"}))",
+          "legendFormat": "{{mode}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Load average",
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Load averages against the number of cores.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "cores"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "node_load1",
+          "legendFormat": "1m"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "node_load5",
+          "legendFormat": "5m"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "C",
+          "expr": "node_load15",
+          "legendFormat": "15m"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "D",
+          "expr": "count(node_cpu_seconds_total{mode=\"idle\"})",
+          "legendFormat": "cores"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory used / available",
+      "id": 4,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "total"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
+          "legendFormat": "used"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "node_memory_MemAvailable_bytes",
+          "legendFormat": "available"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "C",
+          "expr": "node_memory_MemTotal_bytes",
+          "legendFormat": "total"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU temperature",
+      "id": 5,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "SoC thermal zone and hwmon sensors. The RPi 5 soft-throttles from 80 C, hard at 85 C.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "node_thermal_zone_temp",
+          "legendFormat": "{{zone}} {{type}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "node_hwmon_temp_celsius",
+          "legendFormat": "{{chip}} {{sensor}}"
+        }
+      ]
+    },
+    {
+      "type": "state-timeline",
+      "title": "Throttling flags",
+      "id": 6,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "vcgencmd get_throttled per bit (1 = set). _now: currently, _occurred: since boot.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "rpi_throttled",
+          "legendFormat": "{{bit}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Throttling flags (raw)",
+      "id": 7,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Raw get_throttled value; 0x0 means never throttled since boot.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "hex0x",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "rpi_throttled_flags",
+          "legendFormat": "flags"
+        }
+      ]
+    },
+    {
+      "type": "gauge",
+      "title": "Root disk usage",
+      "id": 8,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 25
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"}",
+          "legendFormat": "used"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Root disk IO",
+      "id": 9,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Bytes per second on the root device (NVMe, SD card as fallback).",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 25
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "rate(node_disk_read_bytes_total{device=~\"nvme0n1|mmcblk0\"}[$__rate_interval])",
+          "legendFormat": "read {{device}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "rate(node_disk_written_bytes_total{device=~\"nvme0n1|mmcblk0\"}[$__rate_interval])",
+          "legendFormat": "write {{device}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Network rx/tx",
+      "id": 10,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "rate(node_network_receive_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[$__rate_interval])",
+          "legendFormat": "rx {{device}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[$__rate_interval])",
+          "legendFormat": "tx {{device}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Per systemd unit (cgroups)",
+      "id": 11,
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-unit CPU cores used vs CPUQuota",
+      "id": 12,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "CPU cores used by each ros2-* and monitoring unit; dashed: the unit's CPUQuota in cores (only units with a quota).",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "quota .*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "{{unit}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "label_replace(container_spec_cpu_quota{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"} / container_spec_cpu_period{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "quota {{unit}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-unit memory working set vs MemoryMax",
+      "id": 13,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Working set (what the OOM killer and MemoryMax act on); dashed: the unit's MemoryMax (only units with a limit).",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "MemoryMax .*"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(container_memory_working_set_bytes{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "{{unit}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "label_replace(container_spec_memory_limit_bytes{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"} > 0, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "MemoryMax {{unit}}"
+        }
+      ]
+    },
+    {
+      "type": "bargauge",
+      "title": "Top 10 units by CPU",
+      "id": 14,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "CPU cores over the last 5 minutes, every service on the host.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(topk(10, sum by (id) (rate(container_cpu_usage_seconds_total{id=~\"/(system|monitoring)\\\\.slice/.+\\\\.service\"}[5m]))), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "{{unit}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-unit memory RSS",
+      "id": 15,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(container_memory_rss{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "{{unit}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Per-unit disk IO",
+      "id": 16,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 62
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(rate(container_fs_reads_bytes_total{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}[$__rate_interval]), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "read {{unit}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "label_replace(rate(container_fs_writes_bytes_total{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}[$__rate_interval]), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "write {{unit}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Monitoring stack",
+      "id": 17,
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 70
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Monitoring stack overhead",
+      "id": 18,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "CPU cores used by Alloy, Prometheus, Grafana and the throttling timer; dashed: the slice quota.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 71
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "slice CPUQuota"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{id=~\"/monitoring\\\\.slice/.+\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "{{unit}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{id=\"/monitoring.slice\"}[$__rate_interval]))",
+          "legendFormat": "monitoring.slice total"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "C",
+          "expr": "container_spec_cpu_quota{id=\"/monitoring.slice\"} / container_spec_cpu_period{id=\"/monitoring.slice\"}",
+          "legendFormat": "slice CPUQuota"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Monitoring stack memory",
+      "id": 19,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 71
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "slice MemoryMax"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(container_memory_working_set_bytes{id=~\"/monitoring\\\\.slice/.+\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "{{unit}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "container_memory_working_set_bytes{id=\"/monitoring.slice\"}",
+          "legendFormat": "monitoring.slice total"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "C",
+          "expr": "container_spec_memory_limit_bytes{id=\"/monitoring.slice\"} > 0",
+          "legendFormat": "slice MemoryMax"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Monitoring stack disk writes",
+      "id": 20,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 79
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "label_replace(rate(container_fs_writes_bytes_total{id=~\"/monitoring\\\\.slice/.+\\\\.service\"}[$__rate_interval]), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "legendFormat": "{{unit}}"
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

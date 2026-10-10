@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# The monitoring stack (Alloy, Prometheus, Grafana, rpi-throttled) runs here, capped so it never starves robot nodes:
+# low CPU/IO weight (robot units in system.slice have the default 100), 40% of one core and 900M in total.
+[Unit]
+Description=Monitoring stack (Alloy, Prometheus, Grafana)
+Before=slices.target
+
+[Slice]
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes
+CPUWeight={{ monitoring_slice_cpu_weight }}
+IOWeight={{ monitoring_slice_io_weight }}
+CPUQuota={{ monitoring_slice_cpu_quota }}
+MemoryHigh={{ monitoring_slice_memory_high }}
+MemoryMax={{ monitoring_slice_memory_max }}

@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Read the Raspberry Pi throttling flags every {{ monitoring_throttled_interval }}
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec={{ monitoring_throttled_interval }}
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

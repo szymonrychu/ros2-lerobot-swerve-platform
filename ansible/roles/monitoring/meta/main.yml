@@ -1,0 +1,11 @@
+---
+galaxy_info:
+  author: szymonrychu
+  description: Grafana Alloy + Prometheus + Grafana on the client RPi5, capped in monitoring.slice
+  license: MIT
+  min_ansible_version: "2.15"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - noble
+dependencies: []

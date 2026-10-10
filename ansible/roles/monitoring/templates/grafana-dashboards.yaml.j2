@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+apiVersion: 1
+
+providers:
+  - name: robot
+    folder: Robot
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: {{ monitoring_grafana_dashboards_dir }}

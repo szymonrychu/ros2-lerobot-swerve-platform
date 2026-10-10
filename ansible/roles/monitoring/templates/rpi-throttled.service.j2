@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Write vcgencmd get_throttled into the Alloy textfile collector
+
+[Service]
+Type=oneshot
+Slice=monitoring.slice
+Nice={{ monitoring_nice }}
+Environment=RPI_THROTTLED_TEXTFILE={{ monitoring_textfile_dir }}/rpi_throttled.prom
+ExecStart=/usr/bin/python3 /usr/local/lib/monitoring/rpi_throttled_textfile.py

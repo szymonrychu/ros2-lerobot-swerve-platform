@@ -1,0 +1,50 @@
+---
+# Monitoring stack on the client RPi5: Grafana Alloy collects, Prometheus stores, Grafana shows. Deploy with
+#   ./scripts/deploy-nodes.sh client monitoring
+# false stops and disables the stack (packages, data and config stay).
+monitoring_enabled: true
+
+# Ports (all on 0.0.0.0, LAN only: the robot has no public address).
+monitoring_grafana_port: 3000
+monitoring_prometheus_port: 9090
+monitoring_alloy_port: 12345
+
+# Scrape and collection interval of every target.
+monitoring_interval: "15s"
+
+# Prometheus TSDB on the NVMe root; whichever limit is hit first drops the oldest blocks.
+monitoring_prometheus_data_dir: /var/lib/prometheus/metrics2
+monitoring_prometheus_retention_time: "30d"
+monitoring_prometheus_retention_size: "5GB"
+
+# Alloy textfile collector directory (the RPi throttling script writes rpi_throttled.prom here).
+monitoring_textfile_dir: /var/lib/alloy/textfile
+# How often the throttling script runs (vcgencmd get_throttled).
+monitoring_throttled_interval: "15s"
+
+# Grafana admin password: generated on the robot on the first deploy (openssl rand), never on the controller.
+monitoring_grafana_admin_password_file: /etc/grafana/admin-password
+monitoring_grafana_dashboards_dir: /etc/grafana/dashboards
+
+# monitoring.slice caps the whole stack so it never starves the robot nodes (CPU ~80% busy at the robot's baseline):
+# a low CPU/IO weight loses every contention, CPUQuota is 40% of ONE core in total, MemoryHigh throttles before the
+# hard MemoryMax.
+monitoring_slice_cpu_weight: 20
+monitoring_slice_io_weight: 20
+monitoring_slice_cpu_quota: "40%"
+monitoring_slice_memory_max: "900M"
+monitoring_slice_memory_high: "800M"
+
+# Per-unit caps inside the slice. Prometheus gets the largest share: ~5k series with 30 d retention needs ~150-250 MB
+# of head block plus query memory; Alloy (exporters + remote-write WAL) and Grafana (idle, a few viewers) run at about
+# 100-150 MB each. The sum (950M) exceeds the slice on purpose: the slice is the hard total, the per-unit caps stop one
+# service from taking all of it. OOMScoreAdjust=500 makes the kernel kill monitoring before any robot node.
+monitoring_nice: 10
+monitoring_oom_score_adjust: 500
+monitoring_units:
+  - name: alloy
+    memory_max: "250M"
+  - name: prometheus
+    memory_max: "450M"
+  - name: grafana-server
+    memory_max: "250M"

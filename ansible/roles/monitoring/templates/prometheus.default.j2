@@ -1,0 +1,4 @@
+# {{ ansible_managed }}
+# Read by the Ubuntu prometheus.service (EnvironmentFile=/etc/default/prometheus, ExecStart=/usr/bin/prometheus $ARGS).
+# Alloy pushes every sample through the remote-write receiver; Prometheus itself scrapes nothing.
+ARGS="--config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path={{ monitoring_prometheus_data_dir }} --storage.tsdb.retention.time={{ monitoring_prometheus_retention_time }} --storage.tsdb.retention.size={{ monitoring_prometheus_retention_size }} --web.listen-address=0.0.0.0:{{ monitoring_prometheus_port }} --web.enable-remote-write-receiver"

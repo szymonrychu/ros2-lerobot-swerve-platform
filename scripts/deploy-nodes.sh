@@ -4,6 +4,7 @@
 #
 # Usage:
 #   deploy-nodes.sh <target> <node1> [node2 ...] [ansible-playbook options]   # = --tags node1,node2
+#   (a name may also be a non-node target of the target, see non_node_targets: client has "monitoring")
 #   deploy-nodes.sh <target> --all [ansible-playbook options]                # every node, no tag filter
 #
 # Targets:  client | server
@@ -18,6 +19,7 @@
 # Examples:
 #   ./scripts/deploy-nodes.sh client web_ui
 #   ./scripts/deploy-nodes.sh client web_ui mcp_server
+#   ./scripts/deploy-nodes.sh client monitoring             # Alloy + Prometheus + Grafana (not a ros2_nodes entry)
 #   ./scripts/deploy-nodes.sh server lerobot_leader
 #   ./scripts/deploy-nodes.sh client --all
 #   ./scripts/deploy-nodes.sh client --all --tags config,restart
@@ -37,6 +39,15 @@ case "$TARGET" in
     exit 1
     ;;
 esac
+
+# Deploy targets that are not ros2_nodes entries, one per line (bash 3.2: no associative arrays).
+#   monitoring - Alloy + Prometheus + Grafana on the client (roles/monitoring)
+non_node_targets() {
+  case "$1" in
+    client) echo "monitoring" ;;
+    *) echo "" ;;
+  esac
+}
 
 ALL=false
 NODES=()
@@ -64,12 +75,19 @@ if [[ "$ALL" == false ]]; then
     fi
   done
 
-  # Every requested node must be a ros2_nodes entry of the target.
+  # Every requested name must be a ros2_nodes entry of the target or one of its non-node targets (roles tagged with
+  # their name in playbooks/deploy_nodes_<target>.yml).
   KNOWN="$(sed -n 's/^  - name: \([A-Za-z0-9_-]*\)$/\1/p' "$ANSIBLE_DIR/group_vars/${TARGET}.yml")"
+  EXTRA_TARGETS="$(non_node_targets "$TARGET")"
   for NODE in "${NODES[@]}"; do
-    if ! grep -qxF -- "$NODE" <<<"$KNOWN"; then
-      echo "ERROR: '$NODE' is not a ros2_nodes entry in group_vars/${TARGET}.yml. Available nodes for $TARGET:" >&2
+    if ! grep -qxF -- "$NODE" <<<"$KNOWN" && ! grep -qxF -- "$NODE" <<<"$EXTRA_TARGETS"; then
+      echo "ERROR: '$NODE' is not a ros2_nodes entry in group_vars/${TARGET}.yml nor a deploy target of $TARGET." >&2
+      echo "Available nodes for $TARGET:" >&2
       sed 's/^/  /' <<<"$KNOWN" >&2
+      if [[ -n "$EXTRA_TARGETS" ]]; then
+        echo "Other deploy targets for $TARGET:" >&2
+        sed 's/^/  /' <<<"$EXTRA_TARGETS" >&2
+      fi
       exit 1
     fi
   done

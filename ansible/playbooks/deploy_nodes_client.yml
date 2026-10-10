@@ -397,6 +397,15 @@
             _deploy_node_name: claude_agent
           tags: [claude_agent, apt, python, build, config]
 
+        # Not a ROS node: only `./scripts/deploy-nodes.sh client monitoring` (--tags monitoring) or an untagged run
+        # (--all without --tags) installs it; node and phase tags never pull it in.
+        - name: Monitoring stack (Alloy, Prometheus, Grafana in monitoring.slice)
+          ansible.builtin.include_role:
+            name: monitoring
+            apply:
+              tags: [monitoring]
+          tags: [monitoring]
+
       # A failure anywhere above (after a heavy step stopped the nodes, say) must not leave the robot down: restart the
       # queued nodes and start the stopped ones, whatever that start does, then fail the run with the original error.
       rescue:
