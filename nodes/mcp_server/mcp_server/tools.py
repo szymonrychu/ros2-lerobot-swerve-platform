@@ -25,9 +25,9 @@ from starlette.responses import JSONResponse
 from . import body_tools, camera_tools, grasp_tools, motion_tools, perception_tools
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
-from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, McpServerConfig
+from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
 from .floor_guard import TiltOverrideDeg
-from .grasp_tools import floor_override
+from .grasp_tools import floor_override, grip_profile_description
 from .models import (
     ArmMotionResult,
     ArmState,
@@ -464,6 +464,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         "Robot tilt {roll, pitch} (deg) replacing the IMU for the slow zone (roll > 0 left up, pitch > 0 nose down)"
     )
 
+    grip_desc = "close_until_effort only. " + grip_profile_description(config)
     battery_gate = ctx.battery_gate
 
     def nav_timeout(timeout_s: float | None) -> float:
@@ -737,6 +738,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         ] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
     ) -> ArmMotionResult:
         """Open the gripper to a fraction, or close it until it grips something (status 'grasped' and the gripper
         holds that position; 'closed_no_contact' if it closed fully without touching anything). Closing (also
@@ -749,11 +751,19 @@ def register_core_tools(ctx: ToolContext) -> None:
         targets while the gripper moves. Give exactly one of
         open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done.
         Below-surface slow zone: near the surface (the moving jaw tip is checked too) the gripper moves slow; pass
-        surface_z_m / tilt_override_deg as for the arm motion tools."""
+        surface_z_m / tilt_override_deg as for the arm motion tools. close_until_effort uses a grip profile
+        (grip_profile: gentle / normal / firm or inline overrides): it writes the profile's gripper torque limit,
+        closes at its speed, stops at its target_load and holds with its squeeze; a grasp reports grip_profile,
+        holding_load, slipping and crush_risk. Any other close outcome, every open and release_control restore the
+        default torque limit."""
         battery_gate("set_gripper")
         with tool_errors():
             return robot.arm.set_gripper(
-                open_fraction, close_until_effort, effort_threshold, floor_override(surface_z_m, tilt_override_deg)
+                open_fraction,
+                close_until_effort,
+                effort_threshold,
+                floor_override(surface_z_m, tilt_override_deg),
+                grip_profile,
             )
 
     @tool(

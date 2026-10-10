@@ -12,9 +12,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .arm import ROLL_JOINT, ArmController, ArmError
-from .config import McpServerConfig
+from .config import GripProfileOverride, McpServerConfig
 from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, grasp_params
+from .grip import ResolvedGrip, resolve_grip_profile
 from .models import ArmMotionResult
 from .tool_context import ToolContext
 
@@ -61,6 +62,20 @@ class GraspResult(BaseModel):
     steps: list[GraspStep] = Field(default_factory=list)
     gripper_position_rad: float | None = None
     gripper_effort: float | None = None
+    grip_profile: dict[str, Any] | None = Field(
+        default=None,
+        description="Grip profile of the close (planned for a dry run): {name, squeeze_rad, torque_limit, "
+        "close_speed_rps, target_load, contact_effort_threshold, crush_load, capped}",
+    )
+    holding_load: float | None = Field(
+        default=None, description="Gripper load (decoded effort) a short moment after the hold; null without a grasp"
+    )
+    slipping: bool | None = Field(
+        default=None, description="Jaw kept closing after the hold: the object slips or gives way (try firmer)"
+    )
+    crush_risk: bool | None = Field(
+        default=None, description="Holding load above the profile's crush_load: squeezed too hard (try gentler)"
+    )
 
 
 class GraspAbort(Exception):
@@ -82,12 +97,13 @@ def floor_override(surface_z_m: float | None, tilt_override_deg: TiltOverrideDeg
     return FloorOverride(surface_z_m=surface_z_m, tilt_override_deg=tilt_override_deg)
 
 
-def plan_result(plan: GraspPlan, notes: list[str] | None = None) -> GraspResult:
+def plan_result(plan: GraspPlan, notes: list[str] | None = None, grip: ResolvedGrip | None = None) -> GraspResult:
     """Dry-run result of a plan.
 
     Args:
         plan (GraspPlan): The plan.
         notes (list[str] | None): Extra notes (e.g. planned from a default seed).
+        grip (ResolvedGrip | None): Grip profile the close would use.
 
     Returns:
         GraspResult: 'planned' or 'infeasible'.
@@ -96,6 +112,7 @@ def plan_result(plan: GraspPlan, notes: list[str] | None = None) -> GraspResult:
         outcome="planned" if plan.feasible else "infeasible",
         reasons=[*plan.reasons, *(notes or [])],
         plan=plan.summary(),
+        grip_profile=None if grip is None else grip.report(),
     )
 
 
@@ -137,6 +154,20 @@ class GraspExecutor:
         """
         closed, opened = self.cfg.arm.gripper_closed_rad, self.cfg.arm.gripper_open_rad
         return min(1.0, max(0.0, (angle - closed) / (opened - closed)))
+
+    def resolve_grip(self, params: GraspParams) -> ResolvedGrip:
+        """Resolve the grip profile of a grasp (params.grip_profile, None = the default preset).
+
+        Args:
+            params (GraspParams): Parameters.
+
+        Returns:
+            ResolvedGrip: The capped profile.
+
+        Raises:
+            ValueError: For an unknown preset or invalid overrides.
+        """
+        return resolve_grip_profile(self.cfg.grip_profiles, self.cfg.limits, params.grip_profile)
 
     def plan(
         self,
@@ -190,9 +221,10 @@ class GraspExecutor:
         Returns:
             GraspResult: infeasible / grasped / missed / aborted.
         """
+        grip = self.resolve_grip(params)  # an invalid profile refuses before anything moves
         plan, notes = self.plan(obj, strategy, params, approach_pitch_deg, floor)
         if not plan.feasible:
-            return plan_result(plan, notes)
+            return plan_result(plan, notes, grip)
         return self.execute(plan, params, floor, stop_requested)
 
     def step(
@@ -231,15 +263,21 @@ class GraspExecutor:
         return result
 
     def finish(
-        self, outcome: GraspOutcome, reasons: list[str], plan: GraspPlan | None, steps: list[GraspStep]
+        self,
+        outcome: GraspOutcome,
+        reasons: list[str],
+        plan: GraspPlan | None,
+        steps: list[GraspStep],
+        close: ArmMotionResult | None = None,
     ) -> GraspResult:
-        """Result with the final gripper state.
+        """Result with the final gripper state and the close's grip report.
 
         Args:
             outcome (GraspOutcome): Outcome.
             reasons (list[str]): Reasons.
             plan (GraspPlan | None): Executed plan.
             steps (list[GraspStep]): Step log.
+            close (ArmMotionResult | None): Close result (grip_profile, holding_load, slipping, crush_risk).
 
         Returns:
             GraspResult: The result.
@@ -253,6 +291,10 @@ class GraspExecutor:
             steps=steps,
             gripper_position_rad=None if sample is None else sample.positions.get(gripper),
             gripper_effort=None if sample is None else sample.efforts.get(gripper),
+            grip_profile=None if close is None else close.grip_profile,
+            holding_load=None if close is None else close.holding_load,
+            slipping=None if close is None else close.slipping,
+            crush_risk=None if close is None else close.crush_risk,
         )
 
     def verify(self, close: ArmMotionResult, params: GraspParams) -> str | None:
@@ -305,6 +347,7 @@ class GraspExecutor:
         arm, gripper, limits = self.arm, self.arm.gripper, self.cfg.limits
         wp: dict[str, Waypoint] = {w.label: w for w in plan.waypoints}
         slide = params.slide_speed_scale
+        close: ArmMotionResult | None = None
         try:
             try:
                 sample = arm.require_sample()
@@ -333,7 +376,10 @@ class GraspExecutor:
                 steps,
                 stop_requested,
                 lambda: arm.set_gripper(
-                    close_until_effort=True, effort_threshold=params.close_effort_threshold, floor=floor
+                    close_until_effort=True,
+                    effort_threshold=params.close_effort_threshold,
+                    floor=floor,
+                    grip_profile=params.grip_profile,
                 ),
                 CLOSE_OK,
             )
@@ -346,10 +392,11 @@ class GraspExecutor:
                 self.step(label, steps, stop_requested, lambda p=path, v=speed: arm.move_path(p, v, floor))
         except GraspAbort as exc:
             arm.stop_hold()
-            return self.finish("aborted", [str(exc)], plan, steps)
+            arm.restore_default_torque_limit()  # never leave the gripper weakened (or firm) after an abort
+            return self.finish("aborted", [str(exc)], plan, steps, close)
         if missed is not None:
-            return self.finish("missed", [missed], plan, steps)
-        return self.finish("grasped", [], plan, steps)
+            return self.finish("missed", [missed], plan, steps, close)
+        return self.finish("grasped", [], plan, steps, close)
 
     def release(
         self, params: GraspParams, floor: FloorOverride | None, stop_requested: Callable[[], bool]
@@ -402,6 +449,7 @@ class GraspServiceRequest(BaseModel):
     approach_pitch_deg: float | None = Field(default=None, ge=0.0, le=90.0)
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
+    grip_profile: str | GripProfileOverride | None = None
 
 
 class GraspService:
@@ -452,7 +500,7 @@ class GraspService:
 
         Args:
             request (dict[str, Any]): {action, request_id?, object?, strategy?, params?, approach_pitch_deg?,
-                surface_z_m?, tilt_override_deg?}.
+                surface_z_m?, tilt_override_deg?, grip_profile?}.
 
         Returns:
             dict[str, Any]: {ok, request_id, action, result} or {ok: false, request_id, action, error}.
@@ -469,7 +517,8 @@ class GraspService:
         if req.action != "plan" and self.guard is not None and self.guard.is_cutoff():
             return head | {"ok": False, "error": self.guard.rejection_message()}
         try:
-            params = grasp_params(self.cfg.grasp, req.params)
+            params = grasp_params(self.cfg.grasp, req.params, req.grip_profile)
+            grip = self.executor.resolve_grip(params)
         except ValueError as exc:
             return head | {"ok": False, "error": str(exc)}
         floor = floor_override(req.surface_z_m, req.tilt_override_deg)
@@ -478,7 +527,7 @@ class GraspService:
         if req.action == "plan":
             assert req.object is not None
             plan, notes = self.executor.plan(req.object, req.strategy, params, req.approach_pitch_deg, floor)
-            return head | {"ok": True, "result": plan_result(plan, notes).model_dump(mode="json")}
+            return head | {"ok": True, "result": plan_result(plan, notes, grip).model_dump(mode="json")}
         if not self.busy.acquire(blocking=False):
             return head | {"ok": False, "error": "another grasp action is running; send action 'stop' first"}
         try:
@@ -498,6 +547,31 @@ class GraspService:
         finally:
             self.busy.release()
         return head | {"ok": True, "result": result.model_dump(mode="json")}
+
+
+def grip_profile_description(config: McpServerConfig) -> str:
+    """Tool argument description of grip_profile with the configured presets.
+
+    Args:
+        config (McpServerConfig): Node configuration.
+
+    Returns:
+        str: The description.
+    """
+    grip = config.grip_profiles
+    presets = "; ".join(
+        f"{name}: torque_limit {p.torque_limit}, squeeze {p.squeeze_rad:g} rad, close {p.close_speed_rps:g} rad/s"
+        + (f", stop at closing load {p.target_load:g}" if p.target_load is not None else "")
+        for name, p in grip.presets.items()
+    )
+    return (
+        f"Grip strength: a preset name ({presets}) or inline overrides {{base?, squeeze_rad?, torque_limit?, "
+        "close_speed_rps?, target_load?, contact_effort_threshold?, crush_load?}. Default "
+        f"{grip.default_grip_profile!r}. gentle for fragile, soft or light objects; normal for ordinary ones; firm "
+        "for heavy, slippery objects and tools. Hard caps (enforced whatever you pass): torque_limit <= "
+        f"{grip.torque_limit_max}, squeeze_rad <= {grip.squeeze_max_rad:g}. The default torque limit is restored "
+        "after an open, release or abort."
+    )
 
 
 def register(ctx: ToolContext) -> None:
@@ -532,7 +606,8 @@ def register(ctx: ToolContext) -> None:
     params_desc = (
         "Overrides of the grasp parameters (config grasp section), e.g. approach_distance_m, pre_grasp_clearance_m, "
         "slide_speed_scale, lift_height_m, retreat_distance_m, jaw_thickness_m, jaw_open_margin_m, "
-        "below_object_offset_m, skim_clearance_m, max_object_width_m, close_effort_threshold, interpolation_step_m, "
+        "below_object_offset_m, skim_clearance_m, max_object_width_m, close_effort_threshold (default: the grip "
+        "profile's contact_effort_threshold), grip_profile, interpolation_step_m, "
         "scoop_max_pitch_deg, scoop_gap_margin_m, tall_ratio, tall_grasp_height_fraction, lift_speed_scale, "
         "min_object_width_m, angled_pitch_deg, release_open_fraction, release_lift_m, auto_order"
     )
@@ -544,6 +619,7 @@ def register(ctx: ToolContext) -> None:
     )
     tilt_desc = "Robot tilt {roll, pitch} in deg replacing the IMU for the slow zone (roll > 0 left side up, pitch > 0 nose down)"
     pitch_desc = "Approach pitch for 'angled' (deg, 0 horizontal, 90 straight down)"
+    grip_desc = grip_profile_description(config)
     slow_note = (
         "Every arm motion slows (never stops) where a jaw tip, the wrist or the elbow comes within "
         f"{slow.margin_m:g} m of the effective surface: the higher of the robot plane at surface_z_m and the level "
@@ -573,13 +649,16 @@ def register(ctx: ToolContext) -> None:
         approach_pitch_deg: Annotated[float | None, Field(ge=0.0, le=90.0, description=pitch_desc)] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
     ) -> GraspResult:
         """Plan a grasp; the tool description is passed to the decorator so it can state the slow zone."""
 
         def body() -> GraspResult:
             floor = floor_override(surface_z_m, tilt_override_deg)
-            plan, notes = executor.plan(object, strategy, grasp_params(grasp, params), approach_pitch_deg, floor)
-            return plan_result(plan, notes)
+            grasp_call = grasp_params(grasp, params, grip_profile)
+            grip = executor.resolve_grip(grasp_call)
+            plan, notes = executor.plan(object, strategy, grasp_call, approach_pitch_deg, floor)
+            return plan_result(plan, notes, grip)
 
         return run(body)
 
@@ -588,7 +667,8 @@ def register(ctx: ToolContext) -> None:
             "Plan and execute a grasp (see plan_grasp): takes arm control, rolls only at the lifted pre-grasp with the "
             "gripper half open, opens to the object size plus a margin, approaches and slides in slowly, closes until "
             "the gripper feels the object (never a full squeeze), verifies the grasp (jaw stopped short of closed and "
-            "load above threshold), then lifts and retreats. Outcome: grasped, missed (closed on nothing: opened and "
+            "load above threshold), then lifts and retreats. The grip_profile sets how hard it grips (torque limit, close "
+            "speed, squeeze); the result reports grip_profile, holding_load, slipping and crush_risk. Outcome: grasped, missed (closed on nothing: opened and "
             "retreated - check a picture and correct the object position), aborted (stopped and held; reasons say "
             "why) or infeasible (nothing moved). A stop call aborts it. Keeps arm control: call release_control when "
             f"done. {slow_note}"
@@ -601,6 +681,7 @@ def register(ctx: ToolContext) -> None:
         approach_pitch_deg: Annotated[float | None, Field(ge=0.0, le=90.0, description=pitch_desc)] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
     ) -> GraspResult:
         """Grasp an object; the tool description is passed to the decorator."""
         ctx.battery_gate("grasp_object")
@@ -611,7 +692,7 @@ def register(ctx: ToolContext) -> None:
             return executor.grasp(
                 object,
                 strategy,
-                grasp_params(grasp, params),
+                grasp_params(grasp, params, grip_profile),
                 approach_pitch_deg,
                 floor,
                 lambda: robot.stop_count() != baseline,

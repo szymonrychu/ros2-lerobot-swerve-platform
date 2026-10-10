@@ -21,7 +21,7 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .arm import ArmError
-from .config import HARD_MAX_SPEED_SCALE, McpServerConfig
+from .config import HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
 from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import ObjectSpec
 from .grasp_tools import floor_override
@@ -153,18 +153,21 @@ class GripperStep(StepBase):
     open_fraction: float | None = Field(default=None, ge=0.0, le=1.0)
     close_until_effort: bool = False
     effort_threshold: float | None = Field(default=None, gt=0.0)
+    grip_profile: str | GripProfileOverride | None = None  # close_until_effort only (as set_gripper)
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
 
     @model_validator(mode="after")
     def exactly_one(self) -> "GripperStep":
-        """Exactly one of open_fraction and close_until_effort.
+        """Exactly one of open_fraction and close_until_effort; grip_profile only with close_until_effort.
 
         Returns:
             GripperStep: The validated step.
         """
         if (self.open_fraction is None) == (not self.close_until_effort):
             raise ValueError("give exactly one of open_fraction or close_until_effort=true")
+        if self.grip_profile is not None and not self.close_until_effort:
+            raise ValueError("grip_profile applies to close_until_effort=true only")
         return self
 
 
@@ -580,7 +583,8 @@ def arm_result_data(result: ArmMotionResult) -> dict[str, Any]:
         result (ArmMotionResult): Result.
 
     Returns:
-        dict[str, Any]: status, durations, tracking error and (when set) settling, residual, slow zone, interrupt.
+        dict[str, Any]: status, durations, tracking error and (when set) settling, residual, slow zone, interrupt,
+            gripper effort and the grip report of a close (grip_profile, holding_load, slipping, crush_risk).
     """
     data: dict[str, Any] = {
         "status": result.status,
@@ -591,6 +595,10 @@ def arm_result_data(result: ArmMotionResult) -> dict[str, Any]:
     for key in ("settling", "residual_error", "slow_zone", "interrupted_by", "clamped", "gripper_effort"):
         value = getattr(result, key)
         if value:
+            data[key] = value
+    for key in ("grip_profile", "holding_load", "slipping", "crush_risk"):
+        value = getattr(result, key)
+        if value is not None:
             data[key] = value
     return data
 
@@ -990,7 +998,7 @@ class MotionQueue:
         """
         try:
             result = self.robot.arm.set_gripper(
-                step.open_fraction, step.close_until_effort, step.effort_threshold, step_floor(step)
+                step.open_fraction, step.close_until_effort, step.effort_threshold, step_floor(step), step.grip_profile
             )
         except ArmError as exc:
             return Outcome(ok=False, status="refused", message=str(exc))

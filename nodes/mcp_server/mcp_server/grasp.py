@@ -18,7 +18,7 @@ from typing import Any, Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .config import GraspSettings, LimitSettings, McpServerConfig
+from .config import GraspSettings, GripProfileOverride, LimitSettings, McpServerConfig
 from .floor_guard import FloorGuard, JawModel, SurfaceModel, base_link_to_arm, rotate
 from .ik import ArmKinematics, UnreachableError, grasp_offset
 
@@ -373,12 +373,19 @@ STRATEGIES: dict[str, StrategyFn] = {
 }
 
 
-def grasp_params(settings: GraspSettings, overrides: dict[str, Any] | None) -> GraspParams:
+def grasp_params(
+    settings: GraspSettings,
+    overrides: dict[str, Any] | None,
+    grip_profile: str | GripProfileOverride | dict[str, Any] | None = None,
+) -> GraspParams:
     """Grasp parameters: the configured defaults with per-call overrides, validated.
 
     Args:
         settings (GraspSettings): Configured defaults.
         overrides (dict[str, Any] | None): Field -> value.
+        grip_profile (str | GripProfileOverride | dict[str, Any] | None): Grip profile of the call (a top-level tool
+            or request argument); replaces overrides['grip_profile'] when given. The name is checked when it is
+            applied (GraspExecutor.resolve_grip).
 
     Returns:
         GraspParams: Validated parameters.
@@ -386,6 +393,10 @@ def grasp_params(settings: GraspSettings, overrides: dict[str, Any] | None) -> G
     Raises:
         ValueError: For unknown keys or invalid values.
     """
+    if grip_profile is not None:
+        if isinstance(grip_profile, GripProfileOverride):
+            grip_profile = grip_profile.model_dump(exclude_unset=True)
+        overrides = {**(overrides or {}), "grip_profile": grip_profile}
     if not overrides:
         return settings
     try:
