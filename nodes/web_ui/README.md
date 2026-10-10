@@ -195,7 +195,7 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
 | `tile_display_zoom` | `19` | Preferred GPS tile zoom (1..22); above a source's `max_zoom` its tiles are stretched |
 | `tile_max_zoom` | `18` | `max_zoom` of the single `tile_url` source (1..22) |
 
-All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected). `arm_offset` (optional, `[x, y, z]` in metres) places the arm URDF root on the base model: ROS coordinates in `base_link`, z up from the floor (the base model stands on z = 0), no yaw. Unset, the frontend uses the same estimate `[0.15, -0.04, 0.15]`; the robot sets it to the mcp_server `arm.base_in_base_link` ESTIMATE `[0.15, -0.04, 0.15]` (to be measured), so the drawn arm and the grasp preview match what the planner assumes. Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`.
+All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected). `arm_offset` (optional, `[x, y, z]` in metres) places the arm URDF root on the base model: ROS coordinates in `base_link`, z up from the floor (the base model stands on z = 0), no yaw. Unset, the frontend uses the same measured mount `[0.0592, -0.05, 0.104]` (2026-10-10); the robot sets it to the same mcp_server `arm.base_in_base_link` value in `client.yml`, so the drawn arm and the grasp preview match what the planner assumes. Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`.
 
 ### Grasp panel
 

@@ -11,8 +11,8 @@ import type { ThreeTuple } from '../map3d/coords'
 /** Arm mount in base_link [x, y, z] metres (tab arm_offset); the mount has no yaw. */
 export type ArmMount = readonly [number, number, number]
 
-/** Mount used when a tab has no arm_offset: the estimated arm mount on top of the base body (mcp_server arm.base_in_base_link). */
-export const DEFAULT_ARM_OFFSET: [number, number, number] = [0.15, -0.04, 0.15]
+/** Mount used when a tab has no arm_offset: the arm mount measured on the robot 2026-10-10 (mcp_server arm.base_in_base_link). */
+export const DEFAULT_ARM_OFFSET: [number, number, number] = [0.0592, -0.05, 0.104]
 
 export const MAX_OBJECT_SIZE_M = 0.5
 export const MAX_TILT_DEG = 45
