@@ -27,7 +27,8 @@ from mcp_server.ik import ArmKinematics
 
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
-MOUNT = ArmBaseOffset(x=0.15, y=-0.04, z=0.15, yaw=0.0)
+MOUNT = ArmBaseOffset(x=0.15, y=-0.04, z=0.15, yaw=0.0)  # synthetic mount, independent of the configured one
+FLOOR_Z = -MOUNT.z  # the guard's robot plane in the arm frame
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 1.0, "elbow_flex": 0.5, "wrist_flex": 0.0, "wrist_roll": 0.0}
 NOW = 50.0
 
@@ -101,7 +102,7 @@ def test_flat_robot_slows_only_samples_below_the_floor_margin() -> None:
     g = guard()
     surface = g.surface(None, None, NOW)
     high = pose_at(0.2, -0.05)  # tool 10 cm above the floor
-    low = pose_at(0.2, CONFIG.arm.floor_z_m + 0.01)  # tool 1 cm above the floor: inside the 2 cm margin
+    low = pose_at(0.2, FLOOR_Z + 0.01)  # tool 1 cm above the floor: inside the 2 cm margin
     report = g.evaluate([high, low], surface)
     assert report.scales == [1.0, 0.2]
     assert report.clearances[0] > 0.02 > report.clearances[1]
@@ -120,7 +121,7 @@ def test_tilted_robot_moves_the_slow_zone_up_in_front() -> None:
 
 def test_surface_override_allows_normal_speed_down_to_a_stair() -> None:
     g = guard()
-    below_floor = pose_at(0.2, CONFIG.arm.floor_z_m - 0.02)  # 2 cm below the robot plane
+    below_floor = pose_at(0.2, FLOOR_Z - 0.02)  # 2 cm below the robot plane
     assert g.evaluate([below_floor], g.surface(None, None, NOW)).scales == [0.2]
     stair = g.surface(FloorOverride(surface_z_m=-0.18), None, NOW)
     assert stair.surface_z_m == -0.18
@@ -129,7 +130,7 @@ def test_surface_override_allows_normal_speed_down_to_a_stair() -> None:
 
 def test_config_surface_and_margin_and_slow_scale_are_used() -> None:
     g = guard(margin_m=0.0, slow_speed_scale=0.5, surface_z_m=-0.05)
-    pose = pose_at(0.2, CONFIG.arm.floor_z_m - 0.02)
+    pose = pose_at(0.2, FLOOR_Z - 0.02)
     assert g.evaluate([pose], g.surface(None, None, NOW)).scales == [1.0]
     g2 = guard(margin_m=0.0, slow_speed_scale=0.5)
     assert g2.evaluate([pose], g2.surface(None, None, NOW)).scales == [0.5]
@@ -137,7 +138,7 @@ def test_config_surface_and_margin_and_slow_scale_are_used() -> None:
 
 def test_disabled_guard_never_slows() -> None:
     g = guard(enabled=False)
-    pose = pose_at(0.2, CONFIG.arm.floor_z_m - 0.02)
+    pose = pose_at(0.2, FLOOR_Z - 0.02)
     assert g.evaluate([pose], g.surface(None, None, NOW)).scales == [1.0]
 
 

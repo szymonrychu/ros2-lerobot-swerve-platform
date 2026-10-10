@@ -74,6 +74,20 @@ def test_topdown_returns_png_and_metadata_with_missing_layers(server: Any) -> No
     assert meta["orientation"].startswith("robot-up")
 
 
+def test_topdown_reach_circle_is_centred_on_the_configured_shoulder_pan_axis() -> None:
+    """The reach circle sits on the shoulder_pan axis: the arm mount plus the URDF pan joint origin (38.8 mm forward)."""
+    style = perception_tools.topdown_style(McpServerConfig())
+    assert (style.reach_x_m, style.reach_y_m) == pytest.approx((0.0592 + 0.0388353, -0.05))
+    turned = McpServerConfig.model_validate(
+        {"arm": {"base_in_base_link": {"x": 0.1, "y": 0.0, "z": 0.104, "yaw": 1.5708}}}
+    )
+    style = perception_tools.topdown_style(turned)
+    assert (style.reach_x_m, style.reach_y_m) == pytest.approx((0.1, 0.0388353), abs=1e-5)
+    unmounted = McpServerConfig.model_validate({"arm": {"base_in_base_link": None}})
+    style = perception_tools.topdown_style(unmounted)
+    assert (style.reach_x_m, style.reach_y_m) == (0.0, 0.0)
+
+
 def test_topdown_layer_selection_and_validation(server: Any) -> None:
     res = call(server, "get_topdown_view", {"layers": ["footprint"]})
     assert res.structured_content["layers_present"] == ["footprint"]

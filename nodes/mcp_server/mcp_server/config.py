@@ -31,11 +31,12 @@ HARD_MAX_ANGULAR_RPS = 0.5
 HARD_MAX_DRIVE_S = 2.0
 HARD_MAX_SPEED_SCALE = 0.5
 HARD_MAX_IMAGE_PX = 1024
-# Arm mount ESTIMATE in base_link (m, rad); not measured yet. The mount height is also the floor height under the arm
-# (floor_z_m = -ARM_BASE_HEIGHT_M), kept a little lower than the robot really is so the floor is treated conservatively.
-ARM_BASE_HEIGHT_M = 0.15
-ARM_MOUNT_X_M = 0.15
-ARM_MOUNT_Y_M = -0.04  # 4 cm to the right of the base_link centre line
+# Arm mount (URDF base_link origin) in base_link (m), measured on the robot 2026-10-10: shoulder_pan axis 98 mm forward and
+# 50 mm right of the centre between the wheels, URDF origin 38.8 mm behind and 62.4 mm below it; height from tip
+# touch-downs on the floor. The mount height is also the floor height under the arm (floor_z_m = -ARM_BASE_HEIGHT_M).
+ARM_BASE_HEIGHT_M = 0.104
+ARM_MOUNT_X_M = 0.0592
+ARM_MOUNT_Y_M = -0.05  # 5 cm to the right of the base_link centre line
 MOUNT_HEIGHT_TOLERANCE_M = 1e-6
 # Grasp strategies the planner registers (grasp.STRATEGIES); "auto" tries grasp.auto_order.
 GraspStrategyName = Literal["scoop", "angled", "top_down"]
@@ -338,10 +339,10 @@ class ArmSettings(StrictModel):
     gripper_open_rad: float = 1.5
     gripper_closed_rad: float = -0.165
     autonomy_source_name: str = "autonomy"
-    # Height of the arm mount plane (the URDF base_link origin) above the floor (ESTIMATE 0.15 m, to be measured; the
-    # earlier 0.165 m value made the floor look lower than this conservative estimate).
+    # Height of the arm mount plane (the URDF base_link origin) above the floor (0.104 m, measured 2026-10-10 by touching
+    # the floor with the tip; earlier estimates 0.165 and 0.15 m).
     arm_base_height_m: float = Field(default=ARM_BASE_HEIGHT_M, gt=0.0, le=1.0)
-    # Arm base frame pose in the robot base_link (ESTIMATE, to be measured): 15 cm forward, 4 cm right, z equal to
+    # Arm base frame pose in the robot base_link (measured 2026-10-10): 5.92 cm forward, 5 cm right, z equal to
     # arm_base_height_m. null disables every arm <-> base_link conversion (camera results, grasp base_link input).
     base_in_base_link: ArmBaseOffset | None = Field(
         default_factory=lambda: ArmBaseOffset(x=ARM_MOUNT_X_M, y=ARM_MOUNT_Y_M, z=ARM_BASE_HEIGHT_M, yaw=0.0)
@@ -568,9 +569,8 @@ class TopdownSettings(StrictModel):
 
     default_radius_m: float = Field(default=2.5, ge=0.5, le=10.0)
     default_px: int = Field(default=480, ge=64, le=HARD_MAX_IMAGE_PX)
-    arm_reach_m: float = Field(default=0.41, gt=0.0)  # horizontal reach of the arm, drawn as a circle
-    arm_mount_x_m: float = 0.0  # reach circle centre in base_link (arm shoulder position)
-    arm_mount_y_m: float = 0.0
+    # Horizontal reach of the arm, drawn as a circle about the shoulder_pan axis (from arm.base_in_base_link).
+    arm_reach_m: float = Field(default=0.41, gt=0.0)
     plan_max_age_s: float = Field(default=30.0, gt=0.0)  # an older /plan is a finished navigation: not drawn
     costmap_stale_s: float = Field(default=5.0, gt=0.0)
     costmap_wait_s: float = Field(default=1.5, gt=0.0)  # wait for the first costmap after the lazy subscription

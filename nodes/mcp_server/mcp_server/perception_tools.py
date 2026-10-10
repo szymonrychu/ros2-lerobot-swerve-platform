@@ -3,6 +3,7 @@
 import base64
 import dataclasses
 import json
+import math
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Annotated, Any, Literal
@@ -27,6 +28,8 @@ from .poi_client import describe_pois
 from .tool_context import RobotApi, ToolContext
 from .topdown import ALL_LAYERS, ORIENTATION, TopdownStyle, encode_png, render_topdown
 
+# URDF shoulder_pan joint origin x in the arm base frame (so101_arm.urdf): the pan axis is this far ahead of the mount.
+SHOULDER_PAN_X_M = 0.0388353
 SENSOR_TOOL_NAMES = (
     "get_topdown_view",
     "remember_object",
@@ -86,6 +89,24 @@ def pose_tuple(robot: RobotApi) -> tuple[float, float, float] | None:
     return None if pose is None else (pose.x, pose.y, pose.yaw)
 
 
+def shoulder_pan_axis_xy(config: McpServerConfig) -> tuple[float, float]:
+    """Shoulder_pan axis position in base_link: the configured arm mount plus the URDF pan joint origin.
+
+    Args:
+        config (McpServerConfig): Node configuration.
+
+    Returns:
+        tuple[float, float]: (x, y) in m; (0, 0) when arm.base_in_base_link is not configured.
+    """
+    mount = config.arm.base_in_base_link
+    if mount is None:
+        return 0.0, 0.0
+    return (
+        mount.x + SHOULDER_PAN_X_M * math.cos(mount.yaw),
+        mount.y + SHOULDER_PAN_X_M * math.sin(mount.yaw),
+    )
+
+
 def topdown_style(config: McpServerConfig) -> TopdownStyle:
     """Footprint and reach geometry from the config.
 
@@ -95,13 +116,13 @@ def topdown_style(config: McpServerConfig) -> TopdownStyle:
     Returns:
         TopdownStyle: Geometry for the renderer.
     """
-    td = config.topdown
+    reach_x, reach_y = shoulder_pan_axis_xy(config)
     return TopdownStyle(
         footprint_length_m=config.footprint.length_m,
         footprint_width_m=config.footprint.width_m,
-        reach_m=td.arm_reach_m,
-        reach_x_m=td.arm_mount_x_m,
-        reach_y_m=td.arm_mount_y_m,
+        reach_m=config.topdown.arm_reach_m,
+        reach_x_m=reach_x,
+        reach_y_m=reach_y,
     )
 
 
