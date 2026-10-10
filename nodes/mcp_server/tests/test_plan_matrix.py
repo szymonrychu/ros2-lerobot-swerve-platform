@@ -12,7 +12,16 @@ from types import ModuleType
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[3] / "sim" / "grasp_sim" / "scripts" / "plan_matrix.py"
-INDEX_KEYS = {"base_height_m", "floor_z_m", "tool_offset_m", "pan_axis_xy", "timing", "planner_params", "entries"}
+INDEX_KEYS = {
+    "base_height_m",
+    "floor_z_m",
+    "tool_offset_m",
+    "pan_axis_xy",
+    "timing",
+    "planner_params",
+    "body",
+    "entries",
+}
 ENTRY_KEYS = {
     "key",
     "box",
@@ -71,6 +80,9 @@ def test_params_file_overrides_the_grasp_defaults(tmp_path: Path) -> None:
     assert script.main(["--out", str(tmp_path / "run"), "--params", str(params), "--only", "4x4x4_r20_floor_top"]) == 0
     index = json.loads((tmp_path / "run" / "index.json").read_text())
     assert index["planner_params"]["scoop_max_pitch_deg"] == 60
+    # the robot body for the sim scene: the deployed obstacles and the arm mount
+    assert [c["name"] for c in index["body"]["cylinders"]][-1] == "lidar"
+    assert index["body"]["mount_xyz_m"] == [0.0592, -0.05, 0.1]
     assert [e["key"] for e in index["entries"]] == ["4x4x4_r20_floor_top_down"]
 
 

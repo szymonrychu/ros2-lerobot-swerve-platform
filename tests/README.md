@@ -513,6 +513,30 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - config additions (`test_config.py`): arm base height 0.100 (floor_z -0.100) and the mount measured 2026-10-10
   `{x 0.0592, y -0.05, z 0.100, yaw 0}` enabled by default, mount z must equal `arm_base_height_m` (null allowed), `floor_guard` and `grasp` defaults and
   validation, `/grasp/command` and `/grasp/result` topic defaults
+- robot body model (`test_body_model.py`): exact signed distances of points to a box (face, edge, corner, inside, on
+  the surface) and a vertical cylinder (mantle, discs, rim, inside), capsule vs box and capsule vs cylinder against
+  hand-computed values (parallel, through the centre, nearest at an end, degenerate segment), vectorised evaluation;
+  the default H body (names, lidar, crossbar, side frame, wheel dimensions) and its `describe()`; config validation
+  (positive box sizes, positive cylinder radius and height, unique names, hard margin below the soft margin) and the
+  client.yml `body:` / `body_check:` blocks equal the defaults
+- self-collision checker (`test_self_collision.py`, IK poses FK-checked): the checked parts (upper arm, forearm, wrist
+  link, gripper body hull, jaw points), a clear pose, the 2026-10-10 home pose clear, the gripper pointing into the lidar
+  column penetrating `lidar`, low over the front-right wheel penetrating `wheel_fr`, every measured 2026-10-10 floor
+  touch-down in front of the robot clear (deployed offsets); path checks: into the lidar rejected with obstacle, link,
+  clearance, margin and hint, lowering toward the lidar slowed (scale 0.3, clearance in the slow band) not rejected, a
+  clear path untouched, escaping from a colliding start allowed while going deeper is rejected, the disabled check,
+  `combine_scales` (slower wins), `joint_line` sampling and the part points in base_link
+- self-collision wiring (`test_self_collision_wiring.py`): move_joints into the lidar refused before anything moves
+  (details, rejection metric), a move near the lidar slowed and reported (`self_collision`, slowdown metric, min
+  clearance gauge, more setpoints than unchecked), floor and body reports together, move_cartesian refused, disabled
+  check moves, set_gripper checked; home via a safe intermediate when the straight path hits the right side frame,
+  direct from a clear pose, and never rejected from any valid start of a grid around the robot; the motion queue
+  refusing an arm step into the body at enqueue, checking a blend from the queued pose, and re-checking at execution
+  start (`self_collision` outcome, ok false, details); the grasp planner rejecting candidates with
+  `body_collision:lidar` (also a top_down retreat into the lidar) and not without the check, the executor refusing a
+  step of an unchecked plan; `get_arm_reach` (obstacles, mount, margins, envelope grid and cells, points: reachable and
+  clear, into the lidar with the limiting obstacle, out of reach with a suggestion; more than 20 points refused) and
+  the envelope computed once and cached
 - floor slow zone (`test_floor_guard.py`, a synthetic 15 cm mount with its own floor, independent of the configured
   one): arm <-> base_link conversions (with yaw), quaternion roll/pitch, effective
   surface (robot plane vs level plane, roll/pitch signs, shifted by `surface_z_m`), fresh IMU used / stale or missing

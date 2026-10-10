@@ -1,7 +1,9 @@
 """Pydantic configuration for the scene, the joint mapping and the replay thresholds."""
 
+from pathlib import Path
 from typing import Literal
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, model_validator
 
 SUPPORT_Z_TOLERANCE_M = 1e-6
@@ -15,6 +17,9 @@ DEFAULT_FRICTION = (1.0, 0.005, 0.0001)
 DEFAULT_LIMIT_OVERRIDES: dict[str, tuple[float, float]] = {"shoulder_lift": (-1.745, 1.9)}
 
 SupportKind = Literal["floor", "ledge", "stair"]
+# Arm mount in the robot base_link (client.yml mcp_server arm.base_in_base_link, measured 2026-10-10).
+DEFAULT_MOUNT_XYZ_M = (0.0592, -0.05, DEFAULT_BASE_HEIGHT_M)
+MCP_SERVER_NODE = "mcp_server"
 
 
 class StrictModel(BaseModel):
@@ -71,6 +76,81 @@ class BoxObjectConfig(StrictModel):
         return self
 
 
+class BodyBoxConfig(StrictModel):
+    """Axis-aligned robot body box in the ROBOT base_link (same schema as the mcp_server body.boxes entries)."""
+
+    name: str = Field(min_length=1)
+    center: tuple[float, float, float]
+    size: tuple[PositiveFloat, PositiveFloat, PositiveFloat]
+
+
+class BodyCylinderConfig(StrictModel):
+    """Vertical robot body cylinder in the ROBOT base_link (same schema as mcp_server body.cylinders)."""
+
+    name: str = Field(min_length=1)
+    x: float
+    y: float
+    radius: PositiveFloat
+    z_min: float
+    z_max: float
+
+    @model_validator(mode="after")
+    def positive_height(self) -> "BodyCylinderConfig":
+        """Require z_max above z_min.
+
+        Returns:
+            BodyCylinderConfig: The validated obstacle.
+        """
+        if not self.z_max > self.z_min:
+            raise ValueError(f"body cylinder {self.name}: z_max must be above z_min")
+        return self
+
+
+class BodyConfig(StrictModel):
+    """The robot body the arm must not hit (wheels, side frames, crossbar, lidar) and the arm mount in base_link.
+
+    Obstacles are in the robot base_link (x forward, y left, z up from the floor) exactly as in the mcp_server config
+    `body:` block; the scene converts them to the arm frame with mount_xyz_m / mount_yaw_rad
+    (arm.base_in_base_link).
+    """
+
+    boxes: list[BodyBoxConfig] = Field(default_factory=list)
+    cylinders: list[BodyCylinderConfig] = Field(default_factory=list)
+    mount_xyz_m: tuple[float, float, float] = DEFAULT_MOUNT_XYZ_M
+    mount_yaw_rad: float = 0.0
+
+
+def load_client_body(path: Path) -> BodyConfig:
+    """The robot body and the arm mount from the mcp_server config block of ansible/group_vars/client.yml.
+
+    Args:
+        path (Path): client.yml.
+
+    Returns:
+        BodyConfig: Obstacles and mount.
+
+    Raises:
+        ValueError: When the file has no mcp_server node config.
+    """
+    nodes = yaml.safe_load(path.read_text())["ros2_nodes"]
+    node = next((n for n in nodes if n.get("name") == MCP_SERVER_NODE), None)
+    if node is None:
+        raise ValueError(f"{path}: no {MCP_SERVER_NODE} node")
+    config = yaml.safe_load(node["config"]) or {}
+    mount = (config.get("arm") or {}).get("base_in_base_link") or {}
+    body = config.get("body") or {}
+    return BodyConfig(
+        boxes=body.get("boxes", []),
+        cylinders=body.get("cylinders", []),
+        mount_xyz_m=(
+            mount.get("x", DEFAULT_MOUNT_XYZ_M[0]),
+            mount.get("y", DEFAULT_MOUNT_XYZ_M[1]),
+            mount.get("z", DEFAULT_MOUNT_XYZ_M[2]),
+        ),
+        mount_yaw_rad=mount.get("yaw", 0.0),
+    )
+
+
 class SceneConfig(StrictModel):
     """Arm mount, ground, optional ledge/stair support and the object. Frame: the arm base frame (z up).
 
@@ -90,6 +170,8 @@ class SceneConfig(StrictModel):
     support_friction: tuple[PositiveFloat, float, float] = DEFAULT_FRICTION
     # Jaw closing point in gripper_frame_link (m), e.g. mcp_server arm.tool_offset_m; None keeps the stock jaws.
     tool_offset_m: tuple[float, float, float] | None = None
+    # Robot body volumes as static collision geoms (contacts with any arm geom are reported as arm_body); None = none.
+    body: BodyConfig | None = None
 
     @property
     def floor_z(self) -> float:

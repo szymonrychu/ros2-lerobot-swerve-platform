@@ -175,6 +175,7 @@ def write_index(out: Path, run: Setup, entries: list[dict[str, Any]]) -> None:
         entries (list[dict[str, Any]]): Index entries.
     """
     cfg = run.cfg
+    mount = cfg.arm.base_in_base_link or ArmBaseOffset(z=cfg.arm.arm_base_height_m)
     index = {
         "base_height_m": cfg.arm.arm_base_height_m,
         "floor_z_m": cfg.arm.floor_z_m,
@@ -188,6 +189,12 @@ def write_index(out: Path, run: Setup, entries: list[dict[str, Any]]) -> None:
             "gripper_closed_rad": cfg.arm.gripper_closed_rad,
         },
         "planner_params": run.params.model_dump(mode="json"),
+        # Robot body (base_link) and arm mount for the sim scene: the planner's own body config, as deployed.
+        "body": {
+            **cfg.body.model_dump(mode="json"),
+            "mount_xyz_m": [mount.x, mount.y, mount.z],
+            "mount_yaw_rad": mount.yaw,
+        },
         "entries": entries,
     }
     (out / INDEX_FILE).write_text(json.dumps(index, indent=1))

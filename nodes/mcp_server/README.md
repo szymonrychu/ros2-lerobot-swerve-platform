@@ -441,6 +441,81 @@ Planner (only with surfaces; without them plans are unchanged, the golden plans 
 - `ObjectSpec.surfaces` (regions described with the object) are appended to the call's `surfaces` for the plan and the
   whole grasp execution.
 
+## Body collision
+
+The arm can hit its own robot. Seen from above the robot is an H, and those are the only parts the arm can reach
+(`body_model.py`, `self_collision.py`, pure geometry, base_link: x forward, y left, z up from the floor):
+
+| Obstacle | Model | Default (m) |
+|---|---|---|
+| `wheel_fl`, `wheel_fr`, `wheel_rl`, `wheel_rr` | vertical cylinder around the steer axis (the wheels steer, so the whole steering circle counts) | axes (+-0.1525, +-0.1333), radius 0.06, z 0 .. 0.12 |
+| `frame_left`, `frame_right` | box along x over both wheels of a side (the H strokes, about 5 cm of frame holding the steering servos) | x -0.2125 .. 0.2125, y centred +-0.1333, width 0.06, z 0.12 .. 0.17 |
+| `crossbar` | box between the strokes (the H bar, carries the arm base and the lidar) | x -0.15 .. 0.10, y -0.1033 .. 0.1033, z 0.06 .. 0.10 |
+| `lidar` | vertical cylinder from the crossbar top to the RPLidar A1 dome top | axis (0.158, 0.06), radius 0.045, z 0.10 .. 0.215 |
+
+The defaults are ASSUMED (2026-10-10) from the swerve geometry (`swerve_controller` half_length_m / half_width_m,
+wheel radius), the `laser_frame` TF and the arm mount. They live in `ansible/group_vars/client.yml` (`body:` in the
+mcp_server config, pydantic `BodySettings`: positive sizes, cylinder z_max above z_min, unique names).
+
+How to measure and correct each number (tape, robot on a flat floor, base_link = centre between the four steer axes on
+the floor; x forward, y left):
+
+- Wheels: `x`, `y` = the steer axis (the vertical axis the wheel turns about) from the centre; `radius` = the largest
+  distance from that axis to anything that turns with the wheel (tyre edge, steering bracket) seen from above, plus a few
+  mm; `z_max` = the top of the tyre / bracket.
+- Side frames: `center` x = middle of the frame bar, y = middle of its width; `size` = full length along x, width along
+  y and height (bottom of the frame to the top of the servo housings); `center` z = (bottom + top) / 2.
+- Crossbar: the deck between the side frames: front and back edge, its width (inner edge to inner edge of the side
+  frames), its bottom and top heights.
+- Lidar: `x`, `y` = the centre of the dome; `radius` = half the widest diameter (dome or base, whichever is wider);
+  `z_min` = where it stands (crossbar top), `z_max` = the top of the dome.
+
+Checked arm parts (one FK pass per joint sample, the arm mount `arm.base_in_base_link` converts to base_link): the upper
+arm (shoulder_lift axis to elbow), forearm (elbow to wrist_flex axis) and wrist link (wrist_flex axis to gripper_link)
+as capsules of radius 0.02 (half the STS3215 width, shared with the grasp planner in `arm_geometry.py`), the gripper body
+/ fixed jaw hull points and the jaw tip, tool point and moving jaw tip. The arm base and the shoulder link stand on the
+crossbar and only turn in place about the pan axis: they are not checked at all, in particular not against the
+crossbar. Distances are exact signed distances (negative = penetration): points to boxes and finite vertical cylinders
+in closed form, capsules by a golden-section minimum along the axis (the distance to a convex obstacle is convex along
+it).
+
+Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_margin_m):
+
+- Every streamed arm trajectory is checked sample by sample (the same samples the floor slow zone checks, start pose
+  first): `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home` and the `/arm/home` service, the motion
+  queue's blended arm groups, every grasp macro step (`grasp_object`, `release_object`, the web UI `/grasp/command`).
+  `look_around` and the base tools do not move arm joints.
+- A sample with a clearance below `soft_margin_m` (default 0.03) runs at `slow_speed_scale` (0.3); the floor slow
+  zone's scale applies too and the slower one wins per sample. The result reports `self_collision` {obstacle, link,
+  min_clearance_m, speed_scale, slowed_samples, ...} next to `slow_zone`.
+- A sample below `hard_margin_m` (0.01) or inside an obstacle rejects the whole motion before anything is published:
+  the tool fails (`ok` false) with "refused (self-collision): the <link> would come <clearance> m from the robot body
+  obstacle <obstacle> ... Hint: ...". A start that already is inside the hard margin may move out (no clearance may
+  drop more than 2 mm below its start value).
+- Motion queue: arm groups are checked at enqueue (from the current commanded pose plus the pending targets, as the
+  blend will run) and again when they start (the pose can differ): a refused group ends with status `self_collision`,
+  ok false and `data.self_collision` {obstacle, link, clearance_m, hard_margin_m, sample, hint}.
+- Grasp planner: a candidate whose waypoint, straight-line segment or free joint move (from the start pose to the
+  pre-grasp) comes within the hard margin is infeasible with the reason `body_collision:<obstacle>: <label>: ...`.
+- Home: when the straight joint path home would hit the body, `home` goes leg by leg via the first safe intermediate
+  of `ArmController.home_routes` (raise shoulder_lift and elbow_flex to their home values first, fold the elbow first,
+  raise the shoulder first, straighten the wrist first, lift the tool 5 / 10 / 15 cm straight up first, then the
+  rest); the result message names it. Only when no route clears the body does it fail, naming every route tried.
+- `body_check.enabled: false` switches all of it off (no slowdown, no rejection, no planner reasons).
+- Metrics: `mcp_self_collision_rejections_total{obstacle}`, `mcp_self_collision_slowdowns_total{obstacle}`,
+  `mcp_self_collision_min_clearance_m` (last executed motion).
+
+`get_arm_reach(points?)` (in `body_tools.py`, never refused): the obstacle list with dimensions, the arm mount and pan
+axis, the margins and a collision-free reach envelope; with up to `reach_max_points` (20) base_link points
+{x, y, z, pitch?} each point reports `reachable` (IK within the joint limits), `collision_free`, the working
+`pitch_range_deg` (pitches -30 .. 90 deg every 15 deg, or the given one), the `limiting` obstacle / link / clearance and
+a `suggestion`. The envelope (`arm_reach.py`) is computed once, in a background thread on the first call (about 2 s on
+the dev Mac, a few seconds on the RPi5; the call waits up to `reach_wait_s` and otherwise reports `computing`): per
+shoulder_pan heading every `reach_heading_step_deg` (15) across the pan limits and tool height 0 .. `reach_height_max_m`
+(0.35) every `reach_height_step_m` (0.05) in base_link, the min / max horizontal tool distance from the pan axis over a
+17 x 17 x 9 grid of shoulder_lift x elbow_flex x wrist_flex (wrist_roll 0, gripper closed) whose body clearance is at
+least the hard margin. It is a sampled approximation (about 1 cm at full reach).
+
 ## Grasp macros
 
 ### Planner (`grasp.py`, pure)
@@ -1001,6 +1076,9 @@ expose it on the LAN. The MCP path and the admin route stay behind the token. `r
 | `mcp_gripper_effort` | last gripper effort seen in an arm state or an arm motion result |
 | `mcp_grip_profile_uses_total{profile}` | every `close_until_effort` close, by resolved profile name |
 | `mcp_floor_guard_slowdowns_total{reason}` | arm motions the slow zone slowed; reason is the checked point that came closest to the surface (`elbow`, `wrist`, `jaw_tip`, `tool_point`, `moving_jaw_tip`) |
+| `mcp_self_collision_rejections_total{obstacle}` | arm motions refused before they started because a link would hit the robot body (`ArmController.check_body`: executed motions, queue enqueue checks, home routes with no clear route) |
+| `mcp_self_collision_slowdowns_total{obstacle}` | executed arm motions slowed inside the body soft margin, by the obstacle that came closest |
+| `mcp_self_collision_min_clearance_m` | smallest arm-to-body clearance of the last executed arm motion (m) |
 | `mcp_robot_events_total{severity}` | `RobotMonitor.emit` (debounced repeats are not counted) |
 | `mcp_sample_age_seconds{feed}` | age of the latest cached sample per ROS feed (`RosRobot.latest` keys, via `staleness.sample_ages`), read at scrape time; a feed without a sample has no series |
 | `mcp_nav_goals_total{result}`, `mcp_nav_goal_duration_seconds` | `nav_result` in `base_motion.py`, so every Nav2 goal that was sent (`succeeded`, `canceled`, `timeout`, `interrupted`, `rejected`, ...); errors before a goal exists (Nav2 not available) raise and are not counted |

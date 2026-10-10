@@ -401,6 +401,42 @@ Remaining failure modes:
 - Steep scoops above 40 deg with a gap: moving jaw hits the box top, slips or tips tall boxes (why the default is 40).
 - Sim limits apply (see Limitations): exact object pose, a 2.94 Nm gripper squeeze, no compliance.
 
+### Robot body in the matrix (2026-10-10)
+
+The sim scene can carry the robot body as static collision geoms (`SceneConfig.body`, `grasp_sim.config.BodyConfig`:
+the same boxes and vertical cylinders in the robot base_link as the mcp_server `body:` block, plus the arm mount;
+`load_client_body` reads them from `ansible/group_vars/client.yml`, `scene.add_body` places them in the arm frame as
+`body_<name>` geoms). `plan_matrix.py` writes the planner's body and mount into `index.json` (`body`), `grasp-sim
+matrix` builds every scene with it and reports per plan `body_contacts` (contact samples between any arm geom and a
+body geom, contact kind `arm_body`; such a plan is never "lifted", failure mode "body contact") and a
+`body contacts: N in M plans` line.
+
+Re-run with the self-collision soft boundary in the planner (`nodes/mcp_server/README.md`, "Body collision"; assumed
+body defaults). Before = the previous planner (104 feasible) replayed on the scene WITH the body; after = the planner
+with the body check:
+
+| | Feasible | Lifted | Arm contacts (floor/support) | Body contacts |
+|---|---|---|---|---|
+| Before, scene without the body (the result above) | 104 | 100 | 0 | not modelled |
+| Before, same plans on the scene with the body | 104 | 73 | 0 | 29 plans |
+| After | 70 | 68 | 0 | 0 (every executed plan) |
+
+Per strategy after (lifted / feasible of 48): top_down 12/12, angled45 22/23, scoop_gap 6/6, auto 28/29, scoop 0/0.
+The 34 plans that became infeasible all ran an arm link into the body under the assumed geometry: straight-ahead
+scoops and 30 cm angled plans swing the forearm low past the front-right wheel (`body_collision:wheel_fr`), retreats
+and the 30 deg-left plans bring the gripper body or upper arm within 1 cm of the lidar dome (`body_collision:lidar`),
+some retreats pass the right side frame. The two plans that are feasible but not lifted are the known 6x6x3 low-ledge
+slips (angled45 and auto). In the tip-over set the angled 50 plans are now infeasible (retreat 7 mm from the lidar);
+top_down and auto still plan. The body numbers are assumptions (wheels as full steering circles): measured values in
+client.yml will change these counts; re-run the matrix after correcting them. Golden plans
+(`tests/data/grasp_golden.json`) were regenerated with `--drop-body-collisions`: the 5 golden cases that now hit the
+body are dropped, 8 remain.
+
+Tests (`tests/test_body.py`): the client.yml body and mount load, the eight `body_<name>` geoms sit at their arm-frame
+positions and sizes, a scene without a body has none, the gripper pointing into the lidar column touches `body_lidar`
+while a clear forward pose touches nothing, `arm_body` contact classification, the index body reaches the scene and a
+plan with body contacts fails as "body contact" and is counted in the summary.
+
 ## Example plans
 
 `grasp_sim/examples.py` builds scoop plans with a small damped-least-squares IK on the MuJoCo model (position plus

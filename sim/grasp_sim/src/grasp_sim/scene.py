@@ -5,7 +5,7 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from grasp_sim.config import SceneConfig
+from grasp_sim.config import BodyConfig, SceneConfig
 from grasp_sim.tcp import jaw_shift, shift_jaws
 
 ARM_XML = Path(__file__).resolve().parents[2] / "assets" / "so101" / "so101.xml"
@@ -15,6 +15,8 @@ OBJECT_GEOM = "object_box"
 FLOOR_GEOM = "floor"
 SUPPORT_GEOM = "support"
 RAIL_GEOMS = ("support_rail_left", "support_rail_right")
+BODY_GEOM_PREFIX = "body_"  # robot body geoms: body_<obstacle name>
+BODY_RGBA = (0.25, 0.25, 0.28, 0.6)
 RAIL_WIDTH_M = 0.004
 SLAB_THICKNESS_M = 0.3
 FLOOR_BACK_X_M = -0.6
@@ -99,6 +101,40 @@ def add_rails(spec: mujoco.MjSpec, scene: SceneConfig, friction: tuple[float, fl
         )
 
 
+def add_body(spec: mujoco.MjSpec, body: BodyConfig) -> None:
+    """Add the robot body (base_link boxes and vertical cylinders) as static geoms in the arm frame.
+
+    Args:
+        spec (mujoco.MjSpec): Model spec to extend.
+        body (BodyConfig): Obstacles in base_link and the arm mount.
+    """
+    yaw = body.mount_yaw_rad
+    rot = np.array([[np.cos(yaw), np.sin(yaw), 0.0], [-np.sin(yaw), np.cos(yaw), 0.0], [0.0, 0.0, 1.0]])  # R(yaw)^T
+    mount = np.array(body.mount_xyz_m)
+    quat = [float(np.cos(-yaw / 2)), 0.0, 0.0, float(np.sin(-yaw / 2))]
+
+    def to_arm(p: tuple[float, float, float]) -> list[float]:
+        return [float(v) for v in rot @ (np.array(p) - mount)]
+
+    for box in body.boxes:
+        spec.worldbody.add_geom(
+            name=BODY_GEOM_PREFIX + box.name,
+            type=BOX,
+            size=[s / 2 for s in box.size],
+            pos=to_arm(box.center),
+            quat=quat,
+            rgba=list(BODY_RGBA),
+        )
+    for cyl in body.cylinders:
+        spec.worldbody.add_geom(
+            name=BODY_GEOM_PREFIX + cyl.name,
+            type=CYLINDER,
+            size=[cyl.radius, (cyl.z_max - cyl.z_min) / 2, 0.0],
+            pos=to_arm((cyl.x, cyl.y, (cyl.z_min + cyl.z_max) / 2)),
+            rgba=list(BODY_RGBA),
+        )
+
+
 def build_model(scene: SceneConfig) -> mujoco.MjModel:
     """Compile the arm, the ground and the configured object into one MuJoCo model.
 
@@ -136,6 +172,8 @@ def build_model(scene: SceneConfig) -> mujoco.MjModel:
             scene.support_friction,
             SUPPORT_RGBA,
         )
+    if scene.body is not None:
+        add_body(spec, scene.body)
     if scene.object is not None and scene.object.gap_below_m > 0.0:
         add_rails(spec, scene, scene.support_friction)
     if scene.object is not None:

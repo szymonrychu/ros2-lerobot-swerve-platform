@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from grasp_sim.config import BoxObjectConfig, ObjectShape, SceneConfig, SimConfig
+from grasp_sim.config import BodyConfig, BoxObjectConfig, ObjectShape, SceneConfig, SimConfig
 from grasp_sim.plan import JOINT_ORDER
 from grasp_sim.replay import simulate
 from grasp_sim.report import SegmentReport
@@ -97,6 +97,8 @@ class MatrixIndex(StrictModel):
     pan_axis_xy: tuple[float, float] = (0.0, 0.0)
     timing: ExecutorTiming = ExecutorTiming()
     planner_params: dict[str, Any] = {}
+    # Robot body of the run (client.yml mcp_server body + arm mount); None for indexes written before 2026-10-10.
+    body: BodyConfig | None = None
     entries: list[MatrixEntry]
 
 
@@ -204,6 +206,7 @@ def scene_for(entry: MatrixEntry, index: MatrixIndex, stock_jaws: bool) -> Scene
         support_z_m=None if on_floor else entry.surface_z,
         support_edge_x_m=None if on_floor else entry.support_edge_x,
         tool_offset_m=None if stock_jaws else index.tool_offset_m,
+        body=index.body,
         object=BoxObjectConfig(
             shape=entry.shape,
             size_m=entry.size_m,
@@ -230,6 +233,7 @@ def base_result(entry: MatrixEntry) -> dict[str, Any]:
         "plan_reasons": entry.reasons,
         "lifted": False,
         "arm_contact": False,
+        "body_contacts": 0,
         "reasons": [],
     }
 
@@ -250,6 +254,7 @@ def run_entry(job: tuple[MatrixEntry, MatrixIndex, Path, bool]) -> dict[str, Any
     plan = json.loads((root / entry.plan_file).read_text())
     report = simulate(executor_samples(plan, index.timing), scene_for(entry, index, stock_jaws), SimConfig())
     arm_contacts = sum(report.event_counts.get(k, 0) for k in ARM_CONTACT_KINDS)
+    body_hits = report.event_counts.get("arm_body", 0)
     clearances = {
         key: min(
             (getattr(s.min_clearance, key) for s in report.segments if getattr(s.min_clearance, key) is not None),
@@ -261,8 +266,9 @@ def run_entry(job: tuple[MatrixEntry, MatrixIndex, Path, bool]) -> dict[str, Any
     descent = descent_motion(report.segments)
     result.update(
         {
-            "lifted": bool(report.grasp_success) and arm_contacts == 0,
+            "lifted": bool(report.grasp_success) and arm_contacts == 0 and body_hits == 0,
             "arm_contact": arm_contacts > 0,
+            "body_contacts": body_hits,
             "jaw_surface_contacts": report.event_counts.get("jaw_floor", 0) + report.event_counts.get("jaw_support", 0),
             "reasons": report.reasons,
             "min_clearance_m": clearances,
@@ -301,6 +307,8 @@ def failure_mode(result: dict[str, Any]) -> str:
         return "infeasible"
     if result["lifted"]:
         return "lifted"
+    if result.get("body_contacts"):
+        return "body contact"
     if result.get("arm_contact"):
         return "arm contact"
     text = " ".join(result.get("reasons", []))
@@ -335,6 +343,8 @@ def summary_table(results: list[dict[str, Any]]) -> str:
     for strategy in strategies:
         modes = Counter(failure_mode(r) for r in results if r["strategy"] == strategy)
         lines.append(f"{strategy:<12}" + ", ".join(f"{k} {v}" for k, v in sorted(modes.items())))
+    hits = [r for r in results if r.get("body_contacts")]
+    lines.append(f"body contacts: {sum(r['body_contacts'] for r in hits)} in {len(hits)} plans")
     return "\n".join(lines)
 
 

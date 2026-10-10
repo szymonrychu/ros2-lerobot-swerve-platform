@@ -12,7 +12,15 @@ import numpy as np
 from grasp_sim.config import SceneConfig, SimConfig
 from grasp_sim.plan import JOINT_ORDER, JointSample, interpolate_joints, label_at, parse_plan
 from grasp_sim.report import ClearanceStats, ContactEvent, ObjectReport, SegmentReport, SimReport
-from grasp_sim.scene import FLOOR_GEOM, OBJECT_BODY, OBJECT_GEOM, RAIL_GEOMS, SUPPORT_GEOM, build_model
+from grasp_sim.scene import (
+    BODY_GEOM_PREFIX,
+    FLOOR_GEOM,
+    OBJECT_BODY,
+    OBJECT_GEOM,
+    RAIL_GEOMS,
+    SUPPORT_GEOM,
+    build_model,
+)
 from grasp_sim.tcp import jaw_shift
 
 JAW_BODIES = ("gripper", "moving_jaw_so101_v1", "camera_mount")
@@ -53,6 +61,8 @@ class Rig:
                 self.role[gid] = "support"
             elif name == OBJECT_GEOM:
                 self.role[gid] = "object"
+            elif name.startswith(BODY_GEOM_PREFIX):
+                self.role[gid] = "body"
             elif body in JAW_BODIES:
                 self.role[gid] = "jaw"
             elif body in WRIST_BODIES:
@@ -113,7 +123,8 @@ def classify_contact(role_a: str, role_b: str) -> str | None:
         role_b (str): Role of the second geom.
 
     Returns:
-        str | None: arm_floor, arm_support, jaw_object, arm_object, jaw_floor, jaw_support, or None.
+        str | None: arm_floor, arm_support, jaw_object, arm_object, jaw_floor, jaw_support, arm_body (any arm part
+            against the robot body), or None.
     """
     pair = {role_a, role_b}
     arm_roles = pair & {"jaw", "wrist", "arm"}
@@ -121,9 +132,29 @@ def classify_contact(role_a: str, role_b: str) -> str | None:
     if len(arm_roles) != 1 or len(other) != 1 or role_a == role_b:
         return None
     arm_role, surface = next(iter(arm_roles)), next(iter(other))
+    if surface == "body":
+        return "arm_body"
     if surface in ("floor", "support"):
         return f"jaw_{surface}" if arm_role == "jaw" else f"arm_{surface}"
     return "jaw_object" if arm_role == "jaw" else "arm_object"
+
+
+def body_contacts(rig: Rig) -> list[tuple[str, str]]:
+    """Active contacts between an arm geom and a robot body geom (after mj_forward or a step).
+
+    Args:
+        rig (Rig): Scene rig.
+
+    Returns:
+        list[tuple[str, str]]: (arm geom, body geom) names.
+    """
+    out: list[tuple[str, str]] = []
+    for c in rig.data.contact[: rig.data.ncon]:
+        a, b = int(c.geom1), int(c.geom2)
+        if classify_contact(rig.role.get(a, ""), rig.role.get(b, "")) == "arm_body":
+            arm, body = (a, b) if rig.role.get(b) == "body" else (b, a)
+            out.append((rig.geom_name(arm), rig.geom_name(body)))
+    return out
 
 
 def object_tilt_deg(xmat: np.ndarray) -> float:
@@ -142,7 +173,7 @@ def is_unintended(kind: str, label: str | None, cfg: SimConfig) -> bool:
     """Whether a contact of this kind in this label counts against the plan."""
     if kind in ("jaw_floor", "jaw_support"):
         return not cfg.allow_jaw_surface_contact
-    if kind in ("arm_floor", "arm_support"):
+    if kind in ("arm_floor", "arm_support", "arm_body"):
         return True
     return label not in cfg.contact_allowed_labels
 
