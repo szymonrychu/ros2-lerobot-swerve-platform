@@ -59,6 +59,25 @@ Served on `127.0.0.1:<metrics_port>` (`19103` on the robot) via `ros2-metrics`, 
 | `imu_published_total` | counter | Imu samples published |
 | `imu_mode` | gauge | OPR_MODE register value (0x08 IMUPLUS, 0x0b NDOF_FMC_OFF, 0x0c NDOF) |
 | `imu_seconds_since_publish` | gauge | Seconds since the last published sample |
+| `imu_cycle_seconds` | histogram | Work time of one cycle (burst read, decode, publish, periodic calibration); buckets 0.002 to 0.1 s |
+| `imu_cycle_overruns_total` | counter | Cycles that finished after their next slot; the missed slots were skipped |
+
+## Read and pacing
+
+- **Burst read** (`bno055_imu/burst.py`): the data registers gyro (0x14), euler (0x1A), quaternion (0x20) and linear
+  acceleration (0x28) are contiguous, so each cycle does ONE I2C transaction (write register 0x14, read 26 bytes) instead
+  of the library's separate property reads (each also reads the mode register first). `decode_burst` applies the same
+  scale factors as `adafruit_bno055.BNO055_I2C` (gyro 0.001090830782496456 rad/s per LSB, euler 1/16 deg, quaternion
+  1/2^14, linear acceleration 1/100 m/s^2) so published values are identical to the old ones. An all-zero block (what the
+  chip returns in CONFIG mode) is an invalid sample: it is retried, then the recovery policy takes over, and nothing is
+  published.
+- **Fixed-rate pacing** (`bno055_imu/pacing.py`): cycles start on a fixed grid (`next_tick`, period `1 / publish_hz`), and
+  only the time left until the next slot is spent in the ROS executor (`spin_until`, so callbacks still run). A cycle that
+  overruns its slot skips the missed slots without bursting to catch up and increments `imu_cycle_overruns_total`.
+- **Calibration status** is read every 1 s inside the same cycle as a publish, it never costs an extra cycle.
+- **CPU note**: the BNO055 sits on the kernel bit-banged `i2c-gpio` bus, so the time an I2C transaction takes is system
+  CPU of this process and counts against the unit's `cpu_quota`. Fewer transactions per cycle is what lets the node reach
+  `publish_hz`; watch `imu_cycle_seconds` and `imu_cycle_overruns_total` when tuning `publish_hz` or the quota.
 
 ## Recovery
 

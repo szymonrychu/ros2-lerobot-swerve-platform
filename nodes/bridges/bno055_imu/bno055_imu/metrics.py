@@ -6,7 +6,7 @@ tested without hardware or ROS2.
 
 import time
 
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter, Gauge, Histogram
 
 from .recovery import Action, Decision
 
@@ -20,6 +20,13 @@ CALIBRATION_LEVEL = Gauge("imu_calibration_level", "BNO055 calibration level 0-3
 PUBLISHED = Counter("imu_published_total", "sensor_msgs/Imu samples published")
 MODE = Gauge("imu_mode", "BNO055 OPR_MODE register value as last read")
 SECONDS_SINCE_PUBLISH = Gauge("imu_seconds_since_publish", "Seconds since the last published sample")
+
+CYCLE_SECONDS = Histogram(
+    "imu_cycle_seconds",
+    "Work time of one IMU cycle (burst read, decode, publish, periodic calibration)",
+    buckets=(0.002, 0.005, 0.01, 0.02, 0.03, 0.05, 0.1),
+)
+CYCLE_OVERRUNS = Counter("imu_cycle_overruns_total", "IMU cycles that finished after their next slot (slots skipped)")
 
 last_publish_s: float = time.monotonic()
 SECONDS_SINCE_PUBLISH.set_function(lambda: time.monotonic() - last_publish_s)
@@ -73,3 +80,17 @@ def record_mode(value: int) -> None:
         value (int): OPR_MODE register value.
     """
     MODE.set(value)
+
+
+def record_cycle(seconds: float) -> None:
+    """Observe the work time of one cycle.
+
+    Args:
+        seconds (float): Read plus publish work time.
+    """
+    CYCLE_SECONDS.observe(seconds)
+
+
+def record_overrun() -> None:
+    """Count a cycle that overran its slot."""
+    CYCLE_OVERRUNS.inc()

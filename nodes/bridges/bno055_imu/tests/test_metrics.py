@@ -72,3 +72,18 @@ def test_read_error_init_attempt_and_mode() -> None:
     assert sample("imu_read_errors_total") == errors + 1
     assert sample("imu_init_attempts_total") == attempts + 1
     assert sample("imu_mode") == 0x08
+
+
+def test_cycle_seconds_histogram_buckets_and_observation() -> None:
+    before = sample("imu_cycle_seconds_count")
+    metrics.record_cycle(0.012)
+    assert sample("imu_cycle_seconds_count") == before + 1
+    assert sample("imu_cycle_seconds_bucket", {"le": "0.002"}) <= sample("imu_cycle_seconds_bucket", {"le": "0.1"})
+    assert REGISTRY.get_sample_value("imu_cycle_seconds_bucket", {"le": "0.002"}) is not None
+    assert REGISTRY.get_sample_value("imu_cycle_seconds_bucket", {"le": "0.1"}) is not None
+
+
+def test_cycle_overruns_counter() -> None:
+    before = sample("imu_cycle_overruns_total")
+    metrics.record_overrun()
+    assert sample("imu_cycle_overruns_total") == before + 1

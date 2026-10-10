@@ -14,10 +14,12 @@ from sensor_msgs.msg import Imu
 from std_msgs.msg import String
 
 from . import metrics
+from .burst import read_sample
 from .calibration import CalibrationProfile, apply_profile, load_profile, save_if_changed, should_save
 from .config import ImuNodeConfig
 from .covariance import CovarianceEstimator
 from .imu_msg import build_imu_message, quaternion_wxyz_to_xyzw
+from .pacing import next_tick, spin_until
 from .recovery import Action, RecoveryPolicy
 
 I2C_RECONNECT_THRESHOLD = 10
@@ -145,6 +147,24 @@ def _spin_once_safe(executor: SingleThreadedExecutor, timeout_sec: float = 0.01)
         executor.spin_once(timeout_sec=timeout_sec)
     except Exception:  # noqa: BLE001
         pass  # context may be invalid during shutdown or reconnect
+
+
+def pace_cycle(executor: SingleThreadedExecutor, slot_s: float, period_s: float) -> float:
+    """End a read cycle: count an overrun and run ROS callbacks until the next fixed slot.
+
+    Args:
+        executor (SingleThreadedExecutor): Executor spun for the remaining time only.
+        slot_s (float): Scheduled start (time.monotonic) of the cycle that just finished.
+        period_s (float): Cycle period in seconds.
+
+    Returns:
+        float: Scheduled start of the next cycle; after an overrun the missed slots are skipped, not caught up.
+    """
+    following_s, overrun = next_tick(slot_s, time.monotonic(), period_s)
+    if overrun:
+        metrics.record_overrun()
+    spin_until(executor, following_s)
+    return following_s
 
 
 def _warmup(bno: Any, node: Node, executor: SingleThreadedExecutor, timeout_s: float = WARMUP_TIMEOUT_S) -> bool:
@@ -383,6 +403,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     consecutive_failures: int = 0
     hard_failures: int = 0  # OSError/RuntimeError - tracks true I2C bus errors
     total_reinits: int = 0
+    slot_s = time.monotonic()
     while rclpy.ok():
         decision = policy.decide(
             recovery_needed=consecutive_failures >= I2C_RECONNECT_THRESHOLD,
@@ -406,6 +427,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 hard_failures += 1
                 node.get_logger().warn(f"BNO055 soft mode restore failed: {e}")
             _spin_once_safe(executor, timeout_sec=period_s)
+            slot_s = time.monotonic()  # recovery is not a paced cycle
             continue
         if decision.action is Action.FULL_REINIT:
             total_reinits += 1
@@ -441,34 +463,35 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 node.get_logger().error(f"BNO055 re-init failed: {e}")
             policy.on_reinit(success=reinit_ok)
             _spin_once_safe(executor, timeout_sec=period_s)
+            slot_s = time.monotonic()  # recovery is not a paced cycle
             continue
 
+        cycle_start_s = time.monotonic()
+        sample = None
         quat, gyro, accel = None, None, None
         for _ in range(5):
             try:
-                quat = bno.quaternion
-                gyro = bno.gyro
-                accel = bno.linear_acceleration
+                sample = read_sample(bno)  # one I2C transaction: gyro, euler, quaternion, linear acceleration
             except (RuntimeError, OSError) as e:
                 metrics.record_read_error()
                 node.get_logger().warn(f"BNO055 read error: {e}", throttle_duration_sec=5.0)
-                quat = gyro = accel = None
+                sample = None
                 hard_failures += 1
                 break
-            has_gyro = has_valid_tuple(gyro, 3, allow_zeros=True)
-            has_accel = has_valid_tuple(accel, 3, allow_zeros=True)
-            if has_gyro and has_accel:
+            if sample is not None:
+                quat, gyro, accel = sample.quaternion, sample.gyro, sample.linear_acceleration
                 break
             time.sleep(0.01)
         else:
             node.get_logger().warn(
-                f"BNO055 no valid gyro/accel after 5 retries (gyro={gyro!r}, accel={accel!r}); attempting mode restore",
+                "BNO055 no valid data after 5 retries (all-zero data block); attempting mode restore",
                 throttle_duration_sec=5.0,
             )
-            # All-None returns indicate CONFIG mode (0x00), not a transient I2C glitch: ask the recovery policy
+            # An all-zero block indicates CONFIG mode (0x00), not a transient I2C glitch: ask the recovery policy
             # (soft restore or escalation) on the next iteration instead of waiting for 10 failing cycles.
             consecutive_failures = I2C_RECONNECT_THRESHOLD
-            _spin_once_safe(executor, timeout_sec=period_s)
+            metrics.record_cycle(time.monotonic() - cycle_start_s)
+            slot_s = pace_cycle(executor, slot_s, period_s)
             continue
 
         if not has_valid_tuple(accel, 3, allow_zeros=True):
@@ -482,7 +505,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 f"BNO055 accel fallback still invalid (gyro_ok={has_valid_tuple(gyro, 3, allow_zeros=True)}, accel_ok={has_valid_tuple(accel, 3, allow_zeros=True)}); skipping publish",
                 throttle_duration_sec=5.0,
             )
-            _spin_once_safe(executor, timeout_sec=period_s)
+            metrics.record_cycle(time.monotonic() - cycle_start_s)
+            slot_s = pace_cycle(executor, slot_s, period_s)
             continue
 
         consecutive_failures = 0
@@ -500,16 +524,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         if accel_est is not None:
             accel_est.add(accel_vals[0], accel_vals[1], accel_vals[2])
         if orient_est is not None:
-            try:
-                euler = bno.euler  # (heading_deg, roll_deg, pitch_deg) or None
-                if euler and len(euler) >= 3 and all(euler[i] is not None for i in range(3)):
-                    orient_est.add(
-                        coerce(euler[0]) * DEG_TO_RAD,
-                        coerce(euler[1]) * DEG_TO_RAD,
-                        coerce(euler[2]) * DEG_TO_RAD,
-                    )
-            except (RuntimeError, OSError):
-                pass
+            euler = sample.euler  # (heading_deg, roll_deg, pitch_deg)
+            orient_est.add(coerce(euler[0]) * DEG_TO_RAD, coerce(euler[1]) * DEG_TO_RAD, coerce(euler[2]) * DEG_TO_RAD)
 
         if valid_quat(quat):
             quat_vals = tuple(coerce(quat[i]) for i in range(4)) if quat else IDENTITY_QUAT_WXYZ
@@ -569,7 +585,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                             node.get_logger().info(f"saved calibration profile to {calibration_path}")
                 except (RuntimeError, OSError) as e:
                     node.get_logger().warn(f"BNO055 calibration save failed: {e}")
-        _spin_once_safe(executor, timeout_sec=period_s)
+        metrics.record_cycle(time.monotonic() - cycle_start_s)
+        slot_s = pace_cycle(executor, slot_s, period_s)
 
     node.destroy_node()
     rclpy.shutdown()
