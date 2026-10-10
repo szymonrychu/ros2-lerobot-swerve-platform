@@ -112,3 +112,20 @@ def test_rails_are_support_geoms_for_the_report() -> None:
     roles = {rig.model.geom(g).name: r for g, r in rig.role.items()}
     assert roles["support_rail_left"] == "support"
     assert roles["support_rail_right"] == "support"
+
+
+def test_cylinder_object_stands_upright_with_the_diameter_and_height_of_its_size() -> None:
+    """The 2026-10-10 tip-over jar: 39 mm across, 6 cm tall, light."""
+    cfg = SceneConfig(object=BoxObjectConfig(shape="cylinder", size_m=(0.039, 0.039, 0.06), mass_kg=0.03))
+    model = build_model(cfg)
+    geom = model.geom("object_box")
+    assert geom.type[0] == mujoco.mjtGeom.mjGEOM_CYLINDER
+    assert geom.size[:2] == pytest.approx([0.0195, 0.03])
+    assert model.body("object").mass[0] == pytest.approx(0.03)
+    data = settle(model)
+    assert data.body("object").xpos[2] == pytest.approx(cfg.floor_z + 0.03, abs=2e-3)
+
+
+def test_cylinder_needs_equal_x_and_y_sizes() -> None:
+    with pytest.raises(ValidationError):
+        BoxObjectConfig(shape="cylinder", size_m=(0.04, 0.03, 0.06))

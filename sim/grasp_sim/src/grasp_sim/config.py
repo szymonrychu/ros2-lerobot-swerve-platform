@@ -38,9 +38,14 @@ class JointOffsets(StrictModel):
     gripper: float = 0.0
 
 
-class BoxObjectConfig(StrictModel):
-    """A free box to grasp. Sizes are full edge lengths in metres (x forward from the arm, y left, z up)."""
+ObjectShape = Literal["box", "cylinder"]
 
+
+class BoxObjectConfig(StrictModel):
+    """A free box (or upright cylinder) to grasp. Sizes are full edge lengths in metres (x forward from the arm, y left,
+    z up); a cylinder takes its diameter from size_m x and y (equal) and its height from z."""
+
+    shape: ObjectShape = "box"
     size_m: tuple[PositiveFloat, PositiveFloat, PositiveFloat] = (0.03, 0.03, 0.04)
     mass_kg: PositiveFloat = 0.05
     friction: tuple[PositiveFloat, float, float] = DEFAULT_FRICTION
@@ -50,6 +55,20 @@ class BoxObjectConfig(StrictModel):
     # Clear height under the object (m): > 0 rests it on two thin rails along its x edges, leaving a slot a scoop's
     # fixed jaw can slide into; 0 = flat on the support.
     gap_below_m: float = Field(default=0.0, ge=0.0, le=0.2)
+
+    @model_validator(mode="after")
+    def cylinder_is_round(self) -> "BoxObjectConfig":
+        """A cylinder has one diameter: size_m x and y must be equal.
+
+        Returns:
+            BoxObjectConfig: The validated config.
+
+        Raises:
+            ValueError: For a cylinder with different x and y sizes.
+        """
+        if self.shape == "cylinder" and abs(self.size_m[0] - self.size_m[1]) > SUPPORT_Z_TOLERANCE_M:
+            raise ValueError(f"a cylinder needs equal x and y sizes (its diameter), got {self.size_m[:2]}")
+        return self
 
 
 class SceneConfig(StrictModel):

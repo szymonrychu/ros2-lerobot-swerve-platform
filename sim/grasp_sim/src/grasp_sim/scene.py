@@ -1,4 +1,4 @@
-"""Programmatic MuJoCo scene: the vendored SO-101 plus floor, optional ledge/stair and a free box."""
+"""Programmatic MuJoCo scene: the vendored SO-101 plus floor, optional ledge/stair and a free box or cylinder."""
 
 from pathlib import Path
 
@@ -26,6 +26,7 @@ FLOOR_RGBA = (0.35, 0.4, 0.5, 1.0)
 SUPPORT_RGBA = (0.6, 0.45, 0.3, 1.0)
 OBJECT_RGBA = (0.1, 0.9, 0.2, 1.0)
 BOX = mujoco.mjtGeom.mjGEOM_BOX
+CYLINDER = mujoco.mjtGeom.mjGEOM_CYLINDER
 
 
 def add_slab(
@@ -147,8 +148,10 @@ def build_model(scene: SceneConfig) -> mujoco.MjModel:
         body.add_freejoint()
         body.add_geom(
             name=OBJECT_GEOM,
-            type=BOX,
-            size=[s / 2 for s in obj.size_m],
+            type=CYLINDER if obj.shape == "cylinder" else BOX,
+            size=[obj.size_m[0] / 2, obj.size_m[2] / 2, 0.0]
+            if obj.shape == "cylinder"
+            else [s / 2 for s in obj.size_m],
             mass=obj.mass_kg,
             friction=list(obj.friction),
             solref=list(OBJECT_SOLREF),

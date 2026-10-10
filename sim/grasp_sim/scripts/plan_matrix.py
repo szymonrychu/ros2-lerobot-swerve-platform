@@ -8,6 +8,10 @@ per scenario; `grasp-sim matrix <out>` (sim/grasp_sim environment) replays them:
 
 Optional --params <yaml/json> overrides grasp parameters on top of client.yml (for tuning runs).
 
+--tipover plans the 2026-10-10 jar tip-over scenarios instead of the matrix: a light 39 mm x 6 cm upright cylinder
+standing on the floor at base_link (0.316, 0.0), top_down / angled 50 / auto, replayed with the jar where the planner
+was told (err0) and 3 mm toward the fixed jaw (err3, a perception error of the size seen on the robot).
+
 Ledges and the stair start SUPPORT_EDGE_MARGIN_M before the object centre (the sim scene's default support edge, recorded
 per entry as support_edge_x). The stair is passed to the planner as a surface region: the robot floor up to the edge,
 a half-plane 10 cm lower beyond it, so the planner sees the step edge. Floor and ledge scenarios keep a single surface
@@ -18,13 +22,14 @@ import argparse
 import json
 import math
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
 from mcp_server.config import ArmBaseOffset, McpServerConfig
 from mcp_server.floor_guard import FloorGuard, FloorOverride, JawModel, SurfaceModel
-from mcp_server.grasp import GraspPlanner, ObjectSpec, grasp_params
+from mcp_server.grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, grasp_params
 from mcp_server.ik import ArmKinematics
 from mcp_server.surfaces import HalfPlaneEdge, SurfaceRegion
 
@@ -58,6 +63,17 @@ STRATEGIES = {
     "auto": ("auto", None, 0.0),
 }
 INDEX_FILE = "index.json"
+# 2026-10-10 tip-over jar (grip session report): 39 mm across (jaw contact), 5.5-6.3 cm tall, light, on the floor.
+JAR_BOX = "jar39x60"
+JAR_SIZE_M = (0.039, 0.039, 0.06)
+JAR_MASS_KG = 0.03
+JAR_BASE_LINK_XY = (0.316, 0.0)
+JAR_POSITION = "base0.316"
+# Strategies: name -> (planner strategy, approach pitch deg). Angled 45 cannot reach the approach start here (3 mm short),
+# 50 deg is the flattest feasible angled pitch.
+JAR_STRATEGIES = {"top_down": ("top_down", None), "angled50": ("angled", 50.0), "auto": ("auto", None)}
+# Sim placement error toward the fixed jaw (m): the camera put the jar within a few mm (3.4-3.7 vs 3.9 cm).
+JAR_ERRORS_M = {"err0": 0.0, "err3": 0.003}
 
 
 def client_config() -> McpServerConfig:
@@ -115,6 +131,162 @@ def stair_region(edge_x: float, height: float) -> SurfaceRegion:
     )
 
 
+@dataclass(frozen=True)
+class Setup:
+    """The deployed planner and what the index records about it."""
+
+    cfg: McpServerConfig
+    kin: ArmKinematics
+    mount: ArmBaseOffset
+    guard: FloorGuard
+    planner: GraspPlanner
+    params: GraspParams
+
+
+def setup(overrides: dict[str, Any] | None) -> Setup:
+    """Planner on the deployed client.yml config.
+
+    Args:
+        overrides (dict[str, Any] | None): Grasp parameter overrides on top of the client.yml grasp block.
+
+    Returns:
+        Setup: Config, kinematics, arm mount, floor guard, planner and grasp parameters.
+    """
+    cfg = client_config()
+    kin = ArmKinematics(
+        cfg.arm.urdf_path,
+        margin=cfg.limits.arm_limit_margin_rad,
+        joint_offsets=cfg.arm.joint_offsets_rad.model_dump(),
+        tool_offset=tuple(cfg.arm.tool_offset_m.model_dump().values()),
+        limit_overrides=cfg.arm.joint_limit_overrides_rad,
+    )
+    mount = cfg.arm.base_in_base_link or ArmBaseOffset(z=cfg.arm.arm_base_height_m)
+    jaw = JawModel(kin, cfg.arm.jaw_open_axis, cfg.arm.gripper_closed_rad)
+    guard = FloorGuard(kin, cfg.floor_guard, mount, jaw)
+    return Setup(cfg, kin, mount, guard, GraspPlanner(kin, cfg, guard, jaw), grasp_params(cfg.grasp, overrides))
+
+
+def write_index(out: Path, run: Setup, entries: list[dict[str, Any]]) -> None:
+    """Write index.json: the scene constants, executor timing, planner parameters and the entries.
+
+    Args:
+        out (Path): Output directory.
+        run (Setup): Planner setup.
+        entries (list[dict[str, Any]]): Index entries.
+    """
+    cfg = run.cfg
+    index = {
+        "base_height_m": cfg.arm.arm_base_height_m,
+        "floor_z_m": cfg.arm.floor_z_m,
+        "tool_offset_m": list(cfg.arm.tool_offset_m.model_dump().values()),
+        "pan_axis_xy": list(run.kin.pan_axis_xy),
+        "timing": {
+            "rate_hz": cfg.limits.arm_rate_hz,
+            "arm_max_joint_velocity_rps": cfg.limits.arm_max_joint_velocity_rps,
+            "arm_max_speed_scale": cfg.limits.arm_max_speed_scale,
+            "gripper_velocity_rps": cfg.limits.gripper_velocity_rps,
+            "gripper_closed_rad": cfg.arm.gripper_closed_rad,
+        },
+        "planner_params": run.params.model_dump(mode="json"),
+        "entries": entries,
+    }
+    (out / INDEX_FILE).write_text(json.dumps(index, indent=1))
+
+
+def plan_summary(plan: GraspPlan) -> dict[str, Any]:
+    """Index fields of a plan's outcome.
+
+    Args:
+        plan (GraspPlan): Plan.
+
+    Returns:
+        dict[str, Any]: feasible, reasons, chosen, approach_pitch_deg.
+    """
+    return {
+        "feasible": plan.feasible,
+        "reasons": plan.reasons,
+        "chosen": plan.strategy,
+        "approach_pitch_deg": None
+        if plan.approach_pitch_rad is None
+        else round(math.degrees(plan.approach_pitch_rad), 1),
+    }
+
+
+def toward_fixed_jaw(plan: GraspPlan) -> tuple[float, float]:
+    """Horizontal unit direction from the object centre to the fixed jaw at the grasp of a centred plan.
+
+    Args:
+        plan (GraspPlan): Feasible plan (with a grasp shift the grasp waypoint x, y is the jaw centre and its
+            tool_point the fixed jaw).
+
+    Returns:
+        tuple[float, float]: Unit (x, y) in the arm frame; (0, 0) without a grasp shift.
+    """
+    grasp = next(w for w in plan.waypoints if w.label == "grasp")
+    if grasp.tool_point is None or plan.grasp_shift is None:
+        return (0.0, 0.0)
+    dx, dy = grasp.tool_point["x"] - grasp.x, grasp.tool_point["y"] - grasp.y
+    norm = math.hypot(dx, dy)
+    return (0.0, 0.0) if norm == 0.0 else (dx / norm, dy / norm)
+
+
+def plan_tipover(out: Path, overrides: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Plan the jar tip-over scenarios and write the plans and index.json into out.
+
+    Args:
+        out (Path): Output directory.
+        overrides (dict[str, Any] | None): Grasp parameter overrides on top of the client.yml grasp block.
+
+    Returns:
+        list[dict[str, Any]]: Index entries.
+    """
+    run = setup(overrides)
+    floor_z = run.cfg.arm.floor_z_m
+    out.mkdir(parents=True, exist_ok=True)
+    surface = SurfaceModel(surface_z_m=floor_z + run.mount.z, tilt=None, tilt_source="none", mount=run.mount)
+    jar = ObjectSpec(
+        frame="base_link",
+        x=JAR_BASE_LINK_XY[0],
+        y=JAR_BASE_LINK_XY[1],
+        support_z=floor_z + run.mount.z,
+        depth_m=JAR_SIZE_M[0],
+        width_m=JAR_SIZE_M[1],
+        height_m=JAR_SIZE_M[2],
+    )
+    arm_jar = run.planner.to_arm(jar)
+    entries: list[dict[str, Any]] = []
+    for name, (strategy, pitch) in JAR_STRATEGIES.items():
+        plan = run.planner.plan(jar, strategy, run.params, surface, dict(SEED), pitch)
+        direction = toward_fixed_jaw(plan) if plan.feasible else (0.0, 0.0)
+        for err, distance in JAR_ERRORS_M.items():
+            key = f"{JAR_BOX}_{JAR_POSITION}_floor_{name}_{err}"
+            (out / f"{key}.json").write_text(plan.model_dump_json())
+            entries.append(
+                {
+                    "key": key,
+                    "box": JAR_BOX,
+                    "position": JAR_POSITION,
+                    "support": "floor",
+                    "strategy": f"{name}_{err}",
+                    "x": arm_jar.x,
+                    "y": arm_jar.y,
+                    "support_z": arm_jar.support_z,
+                    "surface_z": floor_z,
+                    "size_m": list(JAR_SIZE_M),
+                    "gap_below_m": 0.0,
+                    "shape": "cylinder",
+                    "mass_kg": JAR_MASS_KG,
+                    "sim_offset_xy_m": [direction[0] * distance, direction[1] * distance],
+                    "support_edge_x": None,
+                    "surfaces": None,
+                    **plan_summary(plan),
+                    "plan_file": f"{key}.json",
+                }
+            )
+    write_index(out, run, entries)
+    return entries
+
+
 def plan_all(out: Path, overrides: dict[str, Any] | None, only: str | None = None) -> list[dict[str, Any]]:
     """Plan every scenario (or those whose key contains only) and write the plans and index.json into out.
 
@@ -126,21 +298,9 @@ def plan_all(out: Path, overrides: dict[str, Any] | None, only: str | None = Non
     Returns:
         list[dict[str, Any]]: Index entries.
     """
-    cfg = client_config()
-    tool = tuple(cfg.arm.tool_offset_m.model_dump().values())
-    kin = ArmKinematics(
-        cfg.arm.urdf_path,
-        margin=cfg.limits.arm_limit_margin_rad,
-        joint_offsets=cfg.arm.joint_offsets_rad.model_dump(),
-        tool_offset=tool,
-        limit_overrides=cfg.arm.joint_limit_overrides_rad,
-    )
-    mount = cfg.arm.base_in_base_link or ArmBaseOffset(z=cfg.arm.arm_base_height_m)
-    jaw = JawModel(kin, cfg.arm.jaw_open_axis, cfg.arm.gripper_closed_rad)
-    guard = FloorGuard(kin, cfg.floor_guard, mount, jaw)
-    planner = GraspPlanner(kin, cfg, guard, jaw)
-    params = grasp_params(cfg.grasp, overrides)
-    floor_z = cfg.arm.floor_z_m
+    run = setup(overrides)
+    mount, guard, planner, params = run.mount, run.guard, run.planner, run.params
+    floor_z = run.cfg.arm.floor_z_m
     out.mkdir(parents=True, exist_ok=True)
     entries: list[dict[str, Any]] = []
     for box, size in BOXES.items():
@@ -179,30 +339,11 @@ def plan_all(out: Path, overrides: dict[str, Any] | None, only: str | None = Non
                             "gap_below_m": gap,
                             "support_edge_x": edge_x,
                             "surfaces": None if regions is None else [r.model_dump(mode="json") for r in regions],
-                            "feasible": plan.feasible,
-                            "reasons": plan.reasons,
-                            "chosen": plan.strategy,
-                            "approach_pitch_deg": None
-                            if plan.approach_pitch_rad is None
-                            else round(math.degrees(plan.approach_pitch_rad), 1),
+                            **plan_summary(plan),
                             "plan_file": f"{key}.json",
                         }
                     )
-    index = {
-        "base_height_m": cfg.arm.arm_base_height_m,
-        "floor_z_m": floor_z,
-        "tool_offset_m": list(tool),
-        "timing": {
-            "rate_hz": cfg.limits.arm_rate_hz,
-            "arm_max_joint_velocity_rps": cfg.limits.arm_max_joint_velocity_rps,
-            "arm_max_speed_scale": cfg.limits.arm_max_speed_scale,
-            "gripper_velocity_rps": cfg.limits.gripper_velocity_rps,
-            "gripper_closed_rad": cfg.arm.gripper_closed_rad,
-        },
-        "planner_params": params.model_dump(mode="json"),
-        "entries": entries,
-    }
-    (out / INDEX_FILE).write_text(json.dumps(index, indent=1))
+    write_index(out, run, entries)
     return entries
 
 
@@ -219,9 +360,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True, help="output directory")
     parser.add_argument("--params", type=Path, help="grasp parameter overrides (.yaml/.json)")
     parser.add_argument("--only", help="plan only scenarios whose key contains this text, e.g. 4x4x4_r20_")
+    parser.add_argument("--tipover", action="store_true", help="plan the 2026-10-10 jar tip-over scenarios instead")
     args = parser.parse_args(argv)
     overrides = yaml.safe_load(args.params.read_text()) if args.params else None
-    entries = plan_all(args.out, overrides, args.only)
+    entries = plan_tipover(args.out, overrides) if args.tipover else plan_all(args.out, overrides, args.only)
     feasible = sum(e["feasible"] for e in entries)
     print(f"planned {len(entries)} scenarios, {feasible} feasible; wrote {args.out / INDEX_FILE}")
     return 0

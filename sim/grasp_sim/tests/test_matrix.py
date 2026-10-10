@@ -11,11 +11,13 @@ from grasp_sim.matrix import (
     ExecutorTiming,
     MatrixEntry,
     MatrixIndex,
+    descent_motion,
     executor_samples,
     path_samples,
     scene_for,
     summary_table,
 )
+from grasp_sim.report import ClearanceStats, SegmentReport
 
 ARM = {"shoulder_pan": 0.0, "shoulder_lift": -0.3, "elbow_flex": 0.6, "wrist_flex": 0.9, "wrist_roll": -1.57}
 
@@ -128,6 +130,17 @@ def test_scene_for_an_entry_uses_the_calibrated_jaws_and_faces_the_object_radial
     assert scene_for(entry(), index, stock_jaws=True).tool_offset_m is None
 
 
+def test_scene_for_turns_the_box_to_face_the_shoulder_pan_axis() -> None:
+    """The planner puts the jaws across the heading from the pan axis (ObjectSpec yaw omitted); a box facing the arm
+    base origin instead stood 5 deg off the jaws at r25a30 (pan axis 3.9 cm ahead of the origin)."""
+    index = MatrixIndex(
+        base_height_m=0.1, floor_z_m=-0.1, tool_offset_m=(0.0, 0.0, 0.0), pan_axis_xy=(0.0388, 0.0), entries=[]
+    )
+    scene = scene_for(entry(x=0.2165, y=0.125), index, stock_jaws=False)
+    assert scene.object is not None
+    assert scene.object.yaw_rad == pytest.approx(math.atan2(0.125, 0.2165 - 0.0388))
+
+
 def test_scene_for_a_gap_entry_puts_the_rails_on_the_surface_under_the_object() -> None:
     index = MatrixIndex(base_height_m=0.15, floor_z_m=-0.15, tool_offset_m=(0.0, 0.0, 0.0), entries=[])
     scene = scene_for(
@@ -172,3 +185,43 @@ def test_matrix_command_replays_feasible_plans_and_writes_results(tmp_path: Path
     assert replayed["feasible"] is True
     assert replayed["lifted"] is False
     assert "arm_contact" in replayed and "reasons" in replayed
+    assert replayed["descent_tilt_deg"] is not None and replayed["descent_push_m"] is not None
+
+
+def test_descent_motion_is_the_worst_object_tilt_and_push_of_the_approach_and_grasp_slide() -> None:
+    """The slide onto the object is labelled grasp (contact allowed), so the SimReport approach_* figures miss a jaw
+    landing on the object rim there (the 2026-10-10 jar tip-over)."""
+    none = ClearanceStats()
+
+    def seg(label: str, tilt: float, push: float) -> SegmentReport:
+        return SegmentReport(
+            label=label,
+            t_start=0.0,
+            t_end=1.0,
+            min_clearance=none,
+            max_actuator_force_nm=0.0,
+            max_object_tilt_deg=tilt,
+            max_object_displacement_m=push,
+        )
+
+    segments = [seg("approach", 1.0, 0.001), seg("grasp", 12.0, 0.008), seg("close", 30.0, 0.02)]
+    assert descent_motion(segments) == pytest.approx((12.0, 0.008))
+    assert descent_motion([seg("lift", 5.0, 0.01)]) == (0.0, 0.0)
+
+
+def test_scene_for_takes_the_entry_shape_mass_and_sim_placement_offset() -> None:
+    index = MatrixIndex(base_height_m=0.1, floor_z_m=-0.1, tool_offset_m=(0.0, 0.0, 0.0), entries=[])
+    jar = entry(
+        x=0.2568,
+        y=0.05,
+        size_m=(0.039, 0.039, 0.06),
+        shape="cylinder",
+        mass_kg=0.03,
+        sim_offset_xy_m=(0.001, -0.003),
+    )
+    scene = scene_for(jar, index, stock_jaws=False)
+    assert scene.object is not None
+    assert scene.object.shape == "cylinder" and scene.object.mass_kg == pytest.approx(0.03)
+    assert (scene.object.x_m, scene.object.y_m) == pytest.approx((0.2578, 0.047))
+    plain = scene_for(entry(), index, stock_jaws=False).object
+    assert plain is not None and plain.shape == "box" and plain.mass_kg == pytest.approx(0.05)

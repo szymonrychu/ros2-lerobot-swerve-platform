@@ -15,9 +15,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from grasp_sim.config import BoxObjectConfig, SceneConfig, SimConfig
+from grasp_sim.config import BoxObjectConfig, ObjectShape, SceneConfig, SimConfig
 from grasp_sim.plan import JOINT_ORDER
 from grasp_sim.replay import simulate
+from grasp_sim.report import SegmentReport
 
 ARM_JOINTS = JOINT_ORDER[:5]
 GRIPPER = "gripper"
@@ -26,6 +27,7 @@ FLOOR_TOLERANCE_M = 1e-6
 ARM_CONTACT_KINDS = ("arm_floor", "arm_support")
 INDEX_FILE = "index.json"
 DEFAULT_RESULTS_FILE = "results.json"
+DESCENT_LABELS = ("approach", "grasp")  # the open jaws travel down onto the object
 
 
 class StrictModel(BaseModel):
@@ -71,6 +73,10 @@ class MatrixEntry(StrictModel):
     surface_z: float  # top of the slab under the object (arm frame, m); support_z - gap_below_m
     size_m: tuple[float, float, float]  # depth (radial), width (across the jaws), height
     gap_below_m: float = 0.0
+    shape: ObjectShape = "box"  # cylinder: upright, diameter size_m[0]
+    mass_kg: float | None = None  # None = the scene default (0.05 kg)
+    # Where the sim puts the object relative to where the planner was told (arm frame x, y, m): a perception error.
+    sim_offset_xy_m: tuple[float, float] = (0.0, 0.0)
     support_edge_x: float | None = None  # where the ledge/stair starts (arm x, m); None = the scene default
     surfaces: list[dict[str, Any]] | None = None  # surface regions the planner was given (the stair step)
     feasible: bool
@@ -86,6 +92,9 @@ class MatrixIndex(StrictModel):
     base_height_m: float
     floor_z_m: float
     tool_offset_m: tuple[float, float, float]
+    # Shoulder pan axis (arm frame x, y, m): the planner puts the jaws across the heading from it (yaw omitted), so the
+    # box faces it. (0, 0) for indexes written before 2026-10-10 evening (the box then faced the arm base origin).
+    pan_axis_xy: tuple[float, float] = (0.0, 0.0)
     timing: ExecutorTiming = ExecutorTiming()
     planner_params: dict[str, Any] = {}
     entries: list[MatrixEntry]
@@ -178,7 +187,8 @@ def executor_samples(plan: dict[str, Any], timing: ExecutorTiming) -> list[dict[
 
 
 def scene_for(entry: MatrixEntry, index: MatrixIndex, stock_jaws: bool) -> SceneConfig:
-    """Scene of one scenario: the slab at surface_z, the box (rails when gap_below_m > 0) facing the arm radially.
+    """Scene of one scenario: the slab at surface_z, the box (rails when gap_below_m > 0) facing the shoulder pan
+    axis radially, square to the jaws the planner aligned across that heading.
 
     Args:
         entry (MatrixEntry): Scenario.
@@ -195,10 +205,12 @@ def scene_for(entry: MatrixEntry, index: MatrixIndex, stock_jaws: bool) -> Scene
         support_edge_x_m=None if on_floor else entry.support_edge_x,
         tool_offset_m=None if stock_jaws else index.tool_offset_m,
         object=BoxObjectConfig(
+            shape=entry.shape,
             size_m=entry.size_m,
-            x_m=entry.x,
-            y_m=entry.y,
-            yaw_rad=math.atan2(entry.y, entry.x),
+            **({} if entry.mass_kg is None else {"mass_kg": entry.mass_kg}),
+            x_m=entry.x + entry.sim_offset_xy_m[0],
+            y_m=entry.y + entry.sim_offset_xy_m[1],
+            yaw_rad=math.atan2(entry.y - index.pan_axis_xy[1], entry.x - index.pan_axis_xy[0]),
             gap_below_m=entry.gap_below_m,
         ),
     )
@@ -246,6 +258,7 @@ def run_entry(job: tuple[MatrixEntry, MatrixIndex, Path, bool]) -> dict[str, Any
         for key in ("jaws_floor", "jaws_support")
     }
     obj = report.object
+    descent = descent_motion(report.segments)
     result.update(
         {
             "lifted": bool(report.grasp_success) and arm_contacts == 0,
@@ -255,11 +268,31 @@ def run_entry(job: tuple[MatrixEntry, MatrixIndex, Path, bool]) -> dict[str, Any
             "min_clearance_m": clearances,
             "approach_tilt_deg": None if obj is None else round(obj.approach_max_tilt_deg, 1),
             "approach_push_m": None if obj is None else round(obj.approach_max_displacement_m, 4),
+            "descent_tilt_deg": round(descent[0], 1),
+            "descent_push_m": round(descent[1], 4),
             "lift_height_m": None if obj is None else round(obj.lift_height_m, 4),
             "saturated": report.saturated_actuators,
         }
     )
     return result
+
+
+def descent_motion(segments: list[SegmentReport]) -> tuple[float, float]:
+    """Worst object tilt and push while the open jaws come down onto the object (approach and grasp slide).
+
+    The slide into the grasp is labelled grasp, where contact is allowed, so the SimReport approach_* figures leave it
+    out; a fixed jaw landing on the object rim (the 2026-10-10 jar tip-over) shows here.
+
+    Args:
+        segments (list[SegmentReport]): SimReport segments.
+
+    Returns:
+        tuple[float, float]: (max tilt in deg, max horizontal displacement in m); zeros without such segments.
+    """
+    picked = [s for s in segments if s.label in DESCENT_LABELS]
+    tilt = max((s.max_object_tilt_deg or 0.0 for s in picked), default=0.0)
+    push = max((s.max_object_displacement_m or 0.0 for s in picked), default=0.0)
+    return tilt, push
 
 
 def failure_mode(result: dict[str, Any]) -> str:
