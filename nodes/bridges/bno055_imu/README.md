@@ -30,6 +30,7 @@ YAML config path: `BNO055_IMU_CONFIG` or `/etc/ros2/bno055_imu/config.yaml`.
 | `calibration_save_interval_s` | `60` | Minimum seconds between calibration saves (min 1) |
 | `max_soft_restores` | `3` | Consecutive soft mode restores without a published sample before a full re-init (min 0) |
 | `reinit_after_s` | `10.0` | Seconds without a published sample before a full re-init, whatever the failure path (min 1) |
+| `metrics_port` | unset | Prometheus `/metrics` port on 127.0.0.1 (robot: `19103`); unset falls back to env `METRICS_PORT`, then disabled |
 
 Example:
 
@@ -43,6 +44,21 @@ orientation_covariance: 0.01
 angular_velocity_covariance: 0.01
 linear_acceleration_covariance: 0.04
 ```
+
+## Metrics
+
+Served on `127.0.0.1:<metrics_port>` (`19103` on the robot) via `ros2-metrics`, node name `bno055_imu`.
+
+| Metric | Type | Meaning |
+|--------|------|---------|
+| `imu_read_errors_total` | counter | I2C read errors in the publish loop |
+| `imu_soft_restores_total` | counter | Soft mode restores issued by the recovery policy |
+| `imu_reinits_total{reason}` | counter | Full re-inits; reason `watchdog`, `i2c_hard_errors` or `soft_exhausted` |
+| `imu_init_attempts_total` | counter | Driver creation attempts (start-up and re-init) |
+| `imu_calibration_level{subsystem}` | gauge | 0-3 for `sys`, `gyro`, `accel`, `mag` |
+| `imu_published_total` | counter | Imu samples published |
+| `imu_mode` | gauge | OPR_MODE register value (0x08 IMUPLUS, 0x0b NDOF_FMC_OFF, 0x0c NDOF) |
+| `imu_seconds_since_publish` | gauge | Seconds since the last published sample |
 
 ## Recovery
 

@@ -72,6 +72,7 @@ class ImuNodeConfig:
         calibration_save_interval_s: Minimum seconds between calibration saves (once gyro, accel, mag are all 3).
         max_soft_restores: Consecutive soft mode restores without a published sample before a full re-init (min 0).
         reinit_after_s: Seconds without a published sample before a full re-init regardless of failure path (min 1).
+        metrics_port: Port of the Prometheus /metrics endpoint on 127.0.0.1; None falls back to env METRICS_PORT.
     """
 
     topic: str
@@ -91,6 +92,7 @@ class ImuNodeConfig:
     calibration_save_interval_s: float = DEFAULT_CALIBRATION_SAVE_INTERVAL_S
     max_soft_restores: int = DEFAULT_MAX_SOFT_RESTORES
     reinit_after_s: float = DEFAULT_REINIT_AFTER_S
+    metrics_port: int | None = None
 
 
 # Default covariance values: diagonal, low/moderate uncertainty for Nav2.
@@ -174,6 +176,11 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         reinit_after_s = max(1.0, float(raw_reinit))
     except (TypeError, ValueError):
         reinit_after_s = DEFAULT_REINIT_AFTER_S
+    raw_metrics_port = data.get("metrics_port")
+    try:
+        metrics_port = int(raw_metrics_port) if raw_metrics_port is not None else None
+    except (TypeError, ValueError):
+        metrics_port = None
     return ImuNodeConfig(
         topic=topic,
         frame_id=frame_id,
@@ -192,6 +199,7 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         calibration_save_interval_s=calibration_save_interval_s,
         max_soft_restores=max_soft_restores,
         reinit_after_s=reinit_after_s,
+        metrics_port=metrics_port,
     )
 
 

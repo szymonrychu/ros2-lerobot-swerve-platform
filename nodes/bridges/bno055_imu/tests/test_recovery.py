@@ -113,3 +113,12 @@ def test_failed_reinit_forces_another_full_reinit_not_soft() -> None:
     policy, _ = make_policy()
     policy.on_reinit(success=False)
     assert policy.decide(True, True).action is Action.FULL_REINIT
+
+
+def test_full_reinit_decisions_carry_a_stable_code() -> None:
+    policy, clock = make_policy(max_soft=1, reinit_after_s=10.0)
+    assert policy.decide(True, False).code == "i2c_hard_errors"
+    policy.decide(True, True)
+    assert policy.decide(True, True).code == "soft_exhausted"
+    clock.advance(11.0)
+    assert policy.decide(False, True).code == "watchdog"

@@ -9,9 +9,11 @@ import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import Imu
 from std_msgs.msg import String
 
+from . import metrics
 from .calibration import CalibrationProfile, apply_profile, load_profile, save_if_changed, should_save
 from .config import ImuNodeConfig
 from .covariance import CovarianceEstimator
@@ -36,6 +38,8 @@ OPERATION_MODE_VALUES = {
 }
 CALIBRATION_KEYS = ("sys", "gyro", "accel", "mag")
 CALIBRATION_PUBLISH_PERIOD_S = 1.0
+
+NODE_NAME = "bno055_imu"
 
 IMU_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -310,7 +314,8 @@ def create_sensor(config: ImuNodeConfig, node: Node) -> tuple[Any, int, Calibrat
 def run_imu_node(config: ImuNodeConfig) -> None:
     """Run the IMU node: read BNO055, publish Imu at config.publish_hz."""
     rclpy.init()
-    node = Node("bno055_imu")
+    node = Node(NODE_NAME)
+    start_metrics_server(resolve_metrics_port(config.metrics_port), NODE_NAME)
     executor = SingleThreadedExecutor()
     executor.add_node(node)
     target_mode = mode_value(config.operation_mode)
@@ -329,6 +334,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     init_attempt = 0
     bno, used_addr = None, None
     while rclpy.ok() and bno is None:
+        metrics.record_init_attempt()
         try:
             bno, used_addr, profile = create_sensor(config, node)
             if profile is not None:
@@ -345,6 +351,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         return
 
     actual_mode = bno.mode
+    metrics.record_mode(actual_mode)
     node.get_logger().info(
         f"BNO055 IMU: mode=0x{actual_mode:02x}, publishing {config.topic} at {config.publish_hz:.1f} Hz "
         f"(frame_id={config.frame_id}, i2c={config.i2c_bus}, address=0x{used_addr:02x})"
@@ -355,6 +362,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         )
     try:
         sys_c, gyro_c, accel_c, mag_c = bno.calibration_status
+        metrics.record_calibration((sys_c, gyro_c, accel_c, mag_c))
         node.get_logger().info(
             f"BNO055 calibration (sys, gyro, accel, mag): {sys_c}, {gyro_c}, {accel_c}, {mag_c} (0=uncal, 3=full)"
         )
@@ -380,6 +388,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             recovery_needed=consecutive_failures >= I2C_RECONNECT_THRESHOLD,
             soft_possible=hard_failures < I2C_RECONNECT_THRESHOLD,
         )
+        metrics.record_decision(decision)
         if decision.action is Action.SOFT_RESTORE:
             # Re-write the mode register only (no crystal switch: at slow I2C speeds that sequence can corrupt the
             # bus). Do not read the mode back, the read can fail with the same corruption. This does not clear the
@@ -409,6 +418,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             try:
                 chip_reset(bno)
                 release_driver(bno)
+                metrics.record_init_attempt()
                 bno, used_addr, profile = create_sensor(config, node)
                 if profile is not None:
                     saved_profile = profile
@@ -416,6 +426,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 hard_failures = 0
                 reinit_ok = True
                 reinit_mode = bno.mode
+                metrics.record_mode(reinit_mode)
                 node.get_logger().info(
                     f"BNO055 re-initialised on 0x{used_addr:02x}, mode=0x{reinit_mode:02x} (reinit #{total_reinits})"
                 )
@@ -439,6 +450,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 gyro = bno.gyro
                 accel = bno.linear_acceleration
             except (RuntimeError, OSError) as e:
+                metrics.record_read_error()
                 node.get_logger().warn(f"BNO055 read error: {e}", throttle_duration_sec=5.0)
                 quat = gyro = accel = None
                 hard_failures += 1
@@ -532,11 +544,14 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             linear_acceleration_covariance=linear_accel_cov,
         )
         pub.publish(msg)
+        metrics.record_publish()
         policy.on_publish()  # a restore only counts as successful once a valid sample is published
         if calibration_pub is not None and time.monotonic() - last_calibration_pub_s >= CALIBRATION_PUBLISH_PERIOD_S:
             last_calibration_pub_s = time.monotonic()
             try:
-                payload = calibration_payload(bno.calibration_status, restored=saved_profile is not None)
+                calibration_status = bno.calibration_status
+                metrics.record_calibration(calibration_status)
+                payload = calibration_payload(calibration_status, restored=saved_profile is not None)
             except (RuntimeError, OSError):
                 payload = None
             if payload is not None:

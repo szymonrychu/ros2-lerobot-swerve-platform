@@ -10,7 +10,12 @@ dependencies = [
     "adafruit-circuitpython-bno055>=1.0.0",
     "adafruit-blinka>=8.0.0,<9",
     "adafruit-extended-bus>=1.0.0",
+    "prometheus-client>=0.20",
+    "ros2-metrics",
 ]
+
+[tool.uv.sources]
+ros2-metrics = { path = "../../../shared/ros2_metrics", editable = true }
 
 [dependency-groups]
 dev = [

@@ -243,3 +243,14 @@ def test_recovery_overrides_and_validation(tmp_path: Path) -> None:
     cfg = load_config(p)
     assert cfg is not None
     assert cfg.max_soft_restores == 3
+
+
+def test_metrics_port_defaults_to_none_and_is_read(tmp_path: Path) -> None:
+    """metrics_port is optional: unset or invalid means disabled."""
+    path = tmp_path / "config.yaml"
+    path.write_text("topic: /imu/data\n")
+    assert load_config(path).metrics_port is None
+    path.write_text("metrics_port: 19103\n")
+    assert load_config(path).metrics_port == 19103
+    path.write_text("metrics_port: bogus\n")
+    assert load_config(path).metrics_port is None

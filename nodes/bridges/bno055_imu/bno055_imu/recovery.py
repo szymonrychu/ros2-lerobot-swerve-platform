@@ -10,6 +10,9 @@ from enum import Enum
 
 MAX_BACKOFF_S = 30.0
 MAX_BACKOFF_EXPONENT = 5
+CODE_WATCHDOG = "watchdog"
+CODE_HARD_ERRORS = "i2c_hard_errors"
+CODE_SOFT_EXHAUSTED = "soft_exhausted"
 
 
 class Action(Enum):
@@ -27,10 +30,12 @@ class Decision:
     Attributes:
         action: The action to take.
         reason: Human-readable escalation reason (empty for CONTINUE and SOFT_RESTORE).
+        code: Stable escalation code for metric labels (empty for CONTINUE and SOFT_RESTORE).
     """
 
     action: Action
     reason: str = ""
+    code: str = ""
 
 
 class RecoveryPolicy:
@@ -93,12 +98,14 @@ class RecoveryPolicy:
         """
         silent_s = self.clock() - self.last_progress_s
         if silent_s >= self.reinit_after_s:
-            return Decision(Action.FULL_REINIT, f"watchdog: {silent_s:.0f} s without data")
+            return Decision(Action.FULL_REINIT, f"watchdog: {silent_s:.0f} s without data", CODE_WATCHDOG)
         if not recovery_needed:
             return Decision(Action.CONTINUE)
         if not soft_possible:
-            return Decision(Action.FULL_REINIT, "I2C hard errors, soft restore not possible")
+            return Decision(Action.FULL_REINIT, "I2C hard errors, soft restore not possible", CODE_HARD_ERRORS)
         if self.soft_restores >= self.max_soft_restores:
-            return Decision(Action.FULL_REINIT, f"soft restores exhausted ({self.soft_restores} without data)")
+            return Decision(
+                Action.FULL_REINIT, f"soft restores exhausted ({self.soft_restores} without data)", CODE_SOFT_EXHAUSTED
+            )
         self.soft_restores += 1
         return Decision(Action.SOFT_RESTORE)
