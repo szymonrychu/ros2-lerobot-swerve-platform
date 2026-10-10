@@ -19,12 +19,14 @@ class PoiStoreConfig(BaseModel):
         list_topic: Latched std_msgs/String list topic.
         command_topic: std_msgs/String command topic.
         result_topic: std_msgs/String result topic.
+        metrics_port: Prometheus /metrics port on 127.0.0.1; None falls back to env METRICS_PORT, else disabled.
     """
 
     store_path: str = DEFAULT_STORE_PATH
     list_topic: str = "/poi/list"
     command_topic: str = "/poi/command"
     result_topic: str = "/poi/result"
+    metrics_port: int | None = None
 
 
 def load_config(path: Path | None = None) -> PoiStoreConfig | None:

@@ -60,7 +60,17 @@ store_path: /var/lib/ros2/poi/poi.json
 list_topic: /poi/list
 command_topic: /poi/command
 result_topic: /poi/result
+metrics_port: 19109   # Prometheus /metrics on 127.0.0.1; omit to disable (env METRICS_PORT is the fallback)
 ```
+
+## Metrics
+
+Served on `127.0.0.1:<metrics_port>` (19109) at `/metrics`, scraped by Alloy. Besides `robot_node_info{node}` and
+`robot_node_start_time_seconds{node}`:
+
+- `poi_commands_total{op,ok}`: commands handled (`op` is add/update/delete/clear, or `invalid` for unparseable ones).
+- `poi_save_failures_total`: store file writes that failed (the change is rolled back).
+- `poi_count`: POIs in the store.
 
 ## Layout and tests
 

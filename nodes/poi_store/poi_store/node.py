@@ -3,6 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
+from ros2_metrics import resolve_metrics_port, start_metrics_server
 from std_msgs.msg import String
 
 from .config import PoiStoreConfig
@@ -23,6 +24,7 @@ def run_node(config: PoiStoreConfig) -> None:
     Args:
         config: Node configuration.
     """
+    start_metrics_server(resolve_metrics_port(config.metrics_port), "poi_store")
     rclpy.init()
     node = Node("poi_store")
     store = PoiStore(config.store_path)

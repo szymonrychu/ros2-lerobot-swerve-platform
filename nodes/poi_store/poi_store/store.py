@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from .metrics import POI_COMMANDS, POI_COUNT, POI_SAVE_FAILURES
 from .models import Command, Poi
 
 LOGGER = logging.getLogger("poi_store")
@@ -38,6 +39,7 @@ class PoiStore:
         self.revision = 0
         self.pois: dict[str, Poi] = {}
         self.load()
+        POI_COUNT.set(len(self.pois))
 
     def load(self) -> None:
         """Read the file; on any parse/validation failure log, move it to .corrupt-<ts> and start empty."""
@@ -103,8 +105,11 @@ class PoiStore:
             return False, "; ".join("{}: {}".format(".".join(map(str, e["loc"])), e["msg"]) for e in exc.errors()), None
         except OSError as exc:
             self.pois, self.revision = pois_before, revision_before
+            POI_SAVE_FAILURES.inc()
             LOGGER.error("could not save %s (%s); %s rolled back", self.path, exc, command.op)
             return False, f"could not save POI store {self.path}: {exc}", None
+        finally:
+            POI_COUNT.set(len(self.pois))
 
     def op_add(self, fields: dict[str, Any]) -> tuple[bool, str, dict[str, Any] | None]:
         """Add a POI, assigning id and timestamps when absent.
@@ -199,6 +204,8 @@ class PoiStore:
                 request_id = str(data.get("request_id", ""))
             command = Command(**data)
         except (ValueError, TypeError, ValidationError) as exc:
+            POI_COMMANDS.labels("invalid", "false").inc()
             return json.dumps({"request_id": request_id, "ok": False, "message": f"bad command: {exc}", "poi": None})
         ok, message, poi = self.apply(command)
+        POI_COMMANDS.labels(command.op, str(ok).lower()).inc()
         return json.dumps({"request_id": command.request_id, "ok": ok, "message": message, "poi": poi})
