@@ -210,3 +210,36 @@ def test_calibration_overrides(tmp_path: Path) -> None:
     cfg = load_config(p)
     assert cfg is not None
     assert cfg.calibration_save_interval_s == 1.0
+
+
+def test_recovery_defaults(tmp_path: Path) -> None:
+    """max_soft_restores defaults to 3 and reinit_after_s to 10.0."""
+    (tmp_path / "config.yaml").write_text("{}")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg is not None
+    assert cfg.max_soft_restores == 3
+    assert cfg.reinit_after_s == 10.0
+
+
+def test_recovery_overrides_and_validation(tmp_path: Path) -> None:
+    """Valid values are honoured; invalid ones fall back to defaults; limits are clamped."""
+    p = tmp_path / "config.yaml"
+    p.write_text("max_soft_restores: 5\nreinit_after_s: 20\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.max_soft_restores == 5
+    assert cfg.reinit_after_s == 20.0
+    p.write_text("max_soft_restores: 0\nreinit_after_s: 0.5\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.max_soft_restores == 0
+    assert cfg.reinit_after_s == 1.0
+    p.write_text("max_soft_restores: -2\nreinit_after_s: nope\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.max_soft_restores == 0
+    assert cfg.reinit_after_s == 10.0
+    p.write_text("max_soft_restores: many\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.max_soft_restores == 3

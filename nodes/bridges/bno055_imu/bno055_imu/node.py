@@ -16,12 +16,16 @@ from .calibration import CalibrationProfile, apply_profile, load_profile, save_i
 from .config import ImuNodeConfig
 from .covariance import CovarianceEstimator
 from .imu_msg import build_imu_message, quaternion_wxyz_to_xyzw
+from .recovery import Action, RecoveryPolicy
 
 I2C_RECONNECT_THRESHOLD = 10
 WARMUP_TIMEOUT_S = 10.0
 CRYSTAL_STABILIZE_S = 1.0  # BNO055 needs time after crystal switch before mode writes take effect
 MODE_SWITCH_DELAY_S = 1.5  # Fusion needs time after mode switch to produce valid data
 MODE_VERIFY_RETRIES = 3
+SYS_TRIGGER_REGISTER = 0x3F
+SYS_TRIGGER_RST_SYS = 0x20  # reset the whole chip; it reboots into CONFIG mode
+CHIP_RESET_WAIT_S = 0.65  # BNO055 boot time after RST_SYS
 IMUPLUS_MODE_VALUE = 0x08  # adafruit_bno055.IMUPLUS_MODE — kept here for testability without hardware libs
 NDOF_FMC_OFF_MODE_VALUE = 0x0B
 NDOF_MODE_VALUE = 0x0C
@@ -251,6 +255,58 @@ def _create_bno055(
     raise RuntimeError(f"Unable to initialize BNO055 on i2c-{i2c_bus}; tried {tried_desc}")
 
 
+def chip_reset(bno: Any) -> bool:
+    """Reset the BNO055 via SYS_TRIGGER RST_SYS and wait for it to reboot; never raises.
+
+    Args:
+        bno (Any): Driver instance exposing _write_register (adafruit_bno055.BNO055_I2C).
+
+    Returns:
+        bool: True if the reset was issued, False if the driver lacks _write_register or the write failed.
+    """
+    try:
+        bno._write_register(SYS_TRIGGER_REGISTER, SYS_TRIGGER_RST_SYS)
+    except Exception:  # noqa: BLE001
+        return False
+    time.sleep(CHIP_RESET_WAIT_S)
+    return True
+
+
+def release_driver(bno: Any) -> None:
+    """Release the I2C bus object of a driver being replaced; never raises."""
+    try:
+        bno.i2c_device.i2c.deinit()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def make_estimators(config: ImuNodeConfig) -> tuple[CovarianceEstimator | None, ...]:
+    """Build fresh (orientation, gyro, accel) covariance estimators, or Nones when estimation is disabled."""
+    if not config.compute_covariance:
+        return (None, None, None)
+    return tuple(CovarianceEstimator(config.covariance_window, config.covariance_min_samples) for _ in range(3))
+
+
+def create_sensor(config: ImuNodeConfig, node: Node) -> tuple[Any, int, CalibrationProfile | None]:
+    """Create the I2C bus and driver (crystal, saved calibration, operation mode set and verified).
+
+    Args:
+        config (ImuNodeConfig): Node config.
+        node (Node): ROS2 node for logging.
+
+    Returns:
+        tuple[Any, int, CalibrationProfile | None]: (driver, address used, restored profile or None).
+
+    Raises:
+        RuntimeError: If no address answers.
+    """
+    profile = load_saved_profile(config, node)
+    bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address, config.operation_mode, profile)
+    if profile is not None:
+        node.get_logger().info(f"restored calibration profile from {config.calibration_file}")
+    return bno, used_addr, profile
+
+
 def run_imu_node(config: ImuNodeConfig) -> None:
     """Run the IMU node: read BNO055, publish Imu at config.publish_hz."""
     rclpy.init()
@@ -274,11 +330,9 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     bno, used_addr = None, None
     while rclpy.ok() and bno is None:
         try:
-            profile = load_saved_profile(config, node)
-            bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address, config.operation_mode, profile)
+            bno, used_addr, profile = create_sensor(config, node)
             if profile is not None:
                 saved_profile = profile
-                node.get_logger().info(f"restored calibration profile from {config.calibration_file}")
         except Exception as e:  # noqa: BLE001
             init_attempt += 1
             backoff = min(30.0, 2 ** min(init_attempt, 5))
@@ -310,78 +364,71 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     _warmup(bno, node, executor)
 
     # Optional rolling-window covariance estimation (disabled by default).
-    orient_est: CovarianceEstimator | None = None
-    gyro_est: CovarianceEstimator | None = None
-    accel_est: CovarianceEstimator | None = None
+    orient_est, gyro_est, accel_est = make_estimators(config)
     if config.compute_covariance:
-        orient_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
-        gyro_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
-        accel_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
         node.get_logger().info(
             f"BNO055: real covariance estimation enabled "
             f"(window={config.covariance_window}, min_samples={config.covariance_min_samples})"
         )
 
+    policy = RecoveryPolicy(config.max_soft_restores, config.reinit_after_s)
     consecutive_failures: int = 0
-    hard_failures: int = 0  # OSError/RuntimeError — tracks true I2C bus errors
-    reconnect_count: int = 0  # increments on each full reconnect; reset only on successful publish
+    hard_failures: int = 0  # OSError/RuntimeError - tracks true I2C bus errors
+    total_reinits: int = 0
     while rclpy.ok():
-        if consecutive_failures >= I2C_RECONNECT_THRESHOLD:
-            # First try a soft mode restore: just re-write the mode register without
-            # touching use_external_crystal.  At slow I2C speeds (e.g. 10 kHz), the
-            # crystal-switch sequence in _create_bno055 can corrupt the bus; a simple
-            # mode write is much safer for transient mode-register read failures.
-            soft_ok = False
-            if hard_failures < I2C_RECONNECT_THRESHOLD:
-                try:
-                    bno.mode = target_mode
-                    time.sleep(MODE_SWITCH_DELAY_S)
-                    # Don't read mode back — at 10 kHz the read itself can fail with
-                    # the same transient corruption that caused the None readings.
-                    # Assume the write worked; the next publish attempt will confirm.
-                    consecutive_failures = 0
-                    hard_failures = 0
-                    soft_ok = True
-                    node.get_logger().info("BNO055 soft mode restore (no bus reinit)")
-                    _warmup(bno, node, executor)
-                except Exception:  # noqa: BLE001
-                    pass
-            if soft_ok:
-                _spin_once_safe(executor, timeout_sec=period_s)
-                continue
-
-            node.get_logger().warn(f"BNO055: {consecutive_failures} consecutive failures — attempting I2C reconnect")
-            # Backoff grows with reconnect_count to slow down repeated reconnect loops.
-            backoff = min(30.0, 2 ** min(reconnect_count, 5))
-            time.sleep(backoff)
+        decision = policy.decide(
+            recovery_needed=consecutive_failures >= I2C_RECONNECT_THRESHOLD,
+            soft_possible=hard_failures < I2C_RECONNECT_THRESHOLD,
+        )
+        if decision.action is Action.SOFT_RESTORE:
+            # Re-write the mode register only (no crystal switch: at slow I2C speeds that sequence can corrupt the
+            # bus). Do not read the mode back, the read can fail with the same corruption. This does not clear the
+            # policy's escalation state; only a published sample does.
             try:
-                profile = load_saved_profile(config, node)
-                bno, used_addr = _create_bno055(config.i2c_bus, config.i2c_address, config.operation_mode, profile)
-                if profile is not None:
-                    saved_profile = profile
-                    node.get_logger().info(f"restored calibration profile from {config.calibration_file}")
+                bno.mode = target_mode
+                time.sleep(MODE_SWITCH_DELAY_S)
+                node.get_logger().info(
+                    f"BNO055 soft mode restore {policy.soft_restores}/{policy.max_soft_restores} (no bus reinit)"
+                )
                 consecutive_failures = 0
                 hard_failures = 0
-                reconnect_count += 1
-                reconnect_mode = bno.mode
-                node.get_logger().info(
-                    f"BNO055 reconnected on 0x{used_addr:02x}, mode=0x{reconnect_mode:02x} (reconnect #{reconnect_count})"
-                )
-                if reconnect_mode != target_mode:
-                    node.get_logger().warn(
-                        f"BNO055 mode mismatch after reconnect: expected 0x{target_mode:02x}, got 0x{reconnect_mode:02x}"
-                    )
-                # Reset estimators so stale pre-reconnect samples don't pollute covariance.
-                if orient_est is not None:
-                    orient_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
-                if gyro_est is not None:
-                    gyro_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
-                if accel_est is not None:
-                    accel_est = CovarianceEstimator(config.covariance_window, config.covariance_min_samples)
                 _warmup(bno, node, executor)
             except Exception as e:  # noqa: BLE001
-                node.get_logger().error(f"BNO055 reconnect failed: {e}")
-                # Don't reset counter — will retry again after threshold
+                hard_failures += 1
+                node.get_logger().warn(f"BNO055 soft mode restore failed: {e}")
+            _spin_once_safe(executor, timeout_sec=period_s)
+            continue
+        if decision.action is Action.FULL_REINIT:
+            total_reinits += 1
+            backoff = policy.backoff_s()
+            node.get_logger().warn(
+                f"BNO055 full re-init (reinit #{total_reinits}): {decision.reason}; backing off {backoff:.0f}s"
+            )
+            time.sleep(backoff)
+            reinit_ok = False
+            try:
+                chip_reset(bno)
+                release_driver(bno)
+                bno, used_addr, profile = create_sensor(config, node)
+                if profile is not None:
+                    saved_profile = profile
+                consecutive_failures = 0
+                hard_failures = 0
+                reinit_ok = True
+                reinit_mode = bno.mode
+                node.get_logger().info(
+                    f"BNO055 re-initialised on 0x{used_addr:02x}, mode=0x{reinit_mode:02x} (reinit #{total_reinits})"
+                )
+                if reinit_mode != target_mode:
+                    node.get_logger().warn(
+                        f"BNO055 mode mismatch after re-init: expected 0x{target_mode:02x}, got 0x{reinit_mode:02x}"
+                    )
+                # Reset estimators so stale pre-reinit samples don't pollute covariance.
+                orient_est, gyro_est, accel_est = make_estimators(config)
+                _warmup(bno, node, executor)
+            except Exception as e:  # noqa: BLE001
+                node.get_logger().error(f"BNO055 re-init failed: {e}")
+            policy.on_reinit(success=reinit_ok)
             _spin_once_safe(executor, timeout_sec=period_s)
             continue
 
@@ -406,20 +453,9 @@ def run_imu_node(config: ImuNodeConfig) -> None:
                 f"BNO055 no valid gyro/accel after 5 retries (gyro={gyro!r}, accel={accel!r}); attempting mode restore",
                 throttle_duration_sec=5.0,
             )
-            # All-None returns indicate CONFIG mode (0x00), not a transient I2C glitch.
-            # Restore immediately instead of waiting for 10 consecutive failure cycles.
-            if hard_failures < I2C_RECONNECT_THRESHOLD:
-                try:
-                    bno.mode = target_mode
-                    time.sleep(MODE_SWITCH_DELAY_S)
-                    consecutive_failures = 0
-                    hard_failures = 0
-                    node.get_logger().info("BNO055 inline mode restore after stale reads")
-                    _warmup(bno, node, executor)
-                except Exception:  # noqa: BLE001
-                    consecutive_failures += 1
-            else:
-                consecutive_failures += 1
+            # All-None returns indicate CONFIG mode (0x00), not a transient I2C glitch: ask the recovery policy
+            # (soft restore or escalation) on the next iteration instead of waiting for 10 failing cycles.
+            consecutive_failures = I2C_RECONNECT_THRESHOLD
             _spin_once_safe(executor, timeout_sec=period_s)
             continue
 
@@ -439,7 +475,6 @@ def run_imu_node(config: ImuNodeConfig) -> None:
 
         consecutive_failures = 0
         hard_failures = 0
-        reconnect_count = 0  # successful publish — backoff resets
         gyro_vals = tuple(coerce(gyro[i]) for i in range(min(3, len(gyro or [])))) if gyro else (0.0, 0.0, 0.0)
         accel_vals = tuple(coerce(accel[i]) for i in range(min(3, len(accel or [])))) if accel else (0.0, 0.0, 0.0)
         while len(gyro_vals) < 3:
@@ -497,6 +532,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             linear_acceleration_covariance=linear_accel_cov,
         )
         pub.publish(msg)
+        policy.on_publish()  # a restore only counts as successful once a valid sample is published
         if calibration_pub is not None and time.monotonic() - last_calibration_pub_s >= CALIBRATION_PUBLISH_PERIOD_S:
             last_calibration_pub_s = time.monotonic()
             try:

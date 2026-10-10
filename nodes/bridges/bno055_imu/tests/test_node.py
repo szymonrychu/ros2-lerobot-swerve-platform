@@ -6,13 +6,18 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from bno055_imu.node import (
+    CHIP_RESET_WAIT_S,
     IMUPLUS_MODE_VALUE,
     NDOF_MODE_VALUE,
     OPERATION_MODE_VALUES,
+    SYS_TRIGGER_REGISTER,
+    SYS_TRIGGER_RST_SYS,
     _create_bno055,
     _spin_once_safe,
     _warmup,
     all_zero,
+    calibration_payload,
+    chip_reset,
     coerce,
     has_valid_tuple,
     mode_value,
@@ -470,8 +475,6 @@ def test_create_bno055_sets_configured_mode() -> None:
 
 def test_calibration_payload_json() -> None:
     """calibration_payload encodes (sys, gyro, accel, mag) as JSON with those keys."""
-    from bno055_imu.node import calibration_payload
-
     assert json.loads(calibration_payload((3, 2, 1, 0))) == {
         "sys": 3,
         "gyro": 2,
@@ -483,8 +486,6 @@ def test_calibration_payload_json() -> None:
 
 def test_calibration_payload_reports_restored_profile() -> None:
     """restored=True tells consumers the offsets came from the saved profile while the chip status is still 0."""
-    from bno055_imu.node import calibration_payload
-
     assert json.loads(calibration_payload((0, 0, 0, 0), restored=True)) == {
         "sys": 0,
         "gyro": 0,
@@ -497,8 +498,6 @@ def test_calibration_payload_reports_restored_profile() -> None:
 
 def test_calibration_payload_none_when_unavailable() -> None:
     """Missing or None entries yield no payload (nothing fake is published)."""
-    from bno055_imu.node import calibration_payload
-
     assert calibration_payload(None) is None
     assert calibration_payload((3, None, 1, 0)) is None
     assert calibration_payload((3, 2, 1)) is None
@@ -539,3 +538,26 @@ def test_create_bno055_without_profile_skips_apply() -> None:
     ):
         _create_bno055(1, 0x28)
     apply.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# chip_reset
+# ---------------------------------------------------------------------------
+
+
+def test_chip_reset_writes_rst_sys_and_waits() -> None:
+    """chip_reset writes 0x20 to SYS_TRIGGER (0x3F) and waits for the chip to reboot."""
+    bno = MagicMock()
+    with patch("bno055_imu.node.time.sleep") as sleep:
+        assert chip_reset(bno) is True
+    bno._write_register.assert_called_once_with(SYS_TRIGGER_REGISTER, SYS_TRIGGER_RST_SYS)
+    assert (SYS_TRIGGER_REGISTER, SYS_TRIGGER_RST_SYS) == (0x3F, 0x20)
+    sleep.assert_called_once_with(CHIP_RESET_WAIT_S)
+
+
+def test_chip_reset_failure_does_not_raise() -> None:
+    """A failing write (or a driver without _write_register) must not abort the re-init."""
+    bno = MagicMock()
+    bno._write_register.side_effect = OSError("bus")
+    assert chip_reset(bno) is False
+    assert chip_reset(object()) is False

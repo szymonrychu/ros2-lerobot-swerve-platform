@@ -26,7 +26,7 @@ Run `scripts/bno055_diag.sh` for a complete one-command IMU diagnostic. Never SS
 | I2C boot config | Lines from `/boot/firmware/config.txt` — confirms `dtparam=i2c_arm=on` and `dtparam=i2c_arm_baudrate=<N>` are present. Takes effect after power cycle. |
 | I2C runtime config | `clock-frequency: 100000 Hz` = running at 100 kHz (correct for BNO055). Driver should be `i2c_designware_platform` on RPi5. |
 | I2C scan | `BNO055 found at 0x28` (or 0x29). If NOT found, sensor not wired or not powered. |
-| IMU logs | `warm-up complete` = sensor ready. `warm-up timed out` = I2C unreliable. `consecutive failures` = persistent I2C errors triggering reconnect. |
+| IMU logs | `warm-up complete` = sensor ready. `warm-up timed out` = I2C unreliable. `full re-init` = automatic recovery (see reason). |
 | Topic scraper | Non-zero accel/gyro + `orientation_covariance[0] != -1` = sensor calibrated and publishing. |
 
 ## Interpreting Results — Common Patterns
@@ -37,6 +37,10 @@ Run `scripts/bno055_diag.sh` for a complete one-command IMU diagnostic. Never SS
 | `BNO055 NOT found` in I2C scan | Wrong address, wiring, or module not powered | Check physical connection; try `i2c_address: 0x29` in config |
 | `warm-up timed out` | Sensor not returning valid gyro/accel within 10 s | Keep sensor still for a few seconds; power-cycle module; check I2C baudrate |
 | `consecutive failures — attempting I2C reconnect` | Intermittent I2C bus errors | Check wiring integrity; verify `i2c_baudrate` Ansible var is ≤ 400000 |
+| `soft mode restore N/M` | Chip fell into CONFIG mode, node re-wrote the operation mode | Harmless if data resumes; repeated means unstable bus or power |
+| `full re-init (reinit #N): soft restores exhausted` | `max_soft_restores` restores in a row without a published sample | Node recreated the I2C bus and driver; check wiring and supply if N keeps growing |
+| `full re-init (reinit #N): watchdog: N s without data` | No sample published for `reinit_after_s` | Same; the watchdog fires on any failure path |
+| `re-init failed` | Re-initialisation could not bring the chip up | Hardware-level I2C failure; node retries with 1-30 s backoff; power-cycle client RPi |
 | `reconnect failed` | Hardware-level I2C failure | Power-cycle client RPi; check `/dev/i2c-1` is accessible |
 | `orientation_covariance[0]=-1` in scraper | Orientation unknown — quaternion invalid or sensor uncalibrated | Move sensor slowly in figure-8; wait for sys/gyro/accel calibration ≥ 1 |
 | All accel/gyro zero in scraper | Data valid but all readings zero | Check sensor not on perfectly flat surface; verify it's not publishing placeholder data |

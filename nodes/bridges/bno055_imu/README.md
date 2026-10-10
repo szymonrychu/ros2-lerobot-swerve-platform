@@ -28,6 +28,8 @@ YAML config path: `BNO055_IMU_CONFIG` or `/etc/ros2/bno055_imu/config.yaml`.
 | `calibration_topic` | `/imu/calibration` | `std_msgs/String` JSON `{sys, gyro, accel, mag}` (0-3 each) at 1 Hz; empty disables |
 | `calibration_file` | `/var/lib/ros2/bno055_imu/calibration.json` | Persisted sensor offsets, restored at init; empty disables persistence |
 | `calibration_save_interval_s` | `60` | Minimum seconds between calibration saves (min 1) |
+| `max_soft_restores` | `3` | Consecutive soft mode restores without a published sample before a full re-init (min 0) |
+| `reinit_after_s` | `10.0` | Seconds without a published sample before a full re-init, whatever the failure path (min 1) |
 
 Example:
 
@@ -41,6 +43,23 @@ orientation_covariance: 0.01
 angular_velocity_covariance: 0.01
 linear_acceleration_covariance: 0.04
 ```
+
+## Recovery
+
+`bno055_imu/recovery.py` (`RecoveryPolicy`, pure Python, injectable clock) decides between continue, soft mode restore
+and full re-initialisation:
+
+- **Soft restore**: re-writes the operation mode (no crystal switch). It only counts as successful once a valid sample is
+  published, so restores do not clear the escalation state. After `max_soft_restores` in a row without a publish the node
+  escalates. Log: `BNO055 soft mode restore N/M`.
+- **Watchdog**: no published sample for `reinit_after_s` (`time.monotonic`) forces a full re-init regardless of which
+  failure path the node is in.
+- **Full re-init**: waits the backoff `min(30, 2**n)` s (n = re-inits since the last publish, capped at 5; a publish
+  resets it), issues a guarded chip reset (`SYS_TRIGGER` 0x3F = 0x20 `RST_SYS`, ~650 ms; a failure there is ignored),
+  recreates the I2C bus object and driver (crystal, saved calibration profile, operation mode set and verified), resets
+  the covariance estimators and warms up. Logged at warn: `BNO055 full re-init (reinit #N): <reason>` with reason
+  `soft restores exhausted (...)`, `watchdog: N s without data` or `I2C hard errors, soft restore not possible`.
+- Nothing is published while reads are invalid (no placeholder data).
 
 ## Calibration persistence
 

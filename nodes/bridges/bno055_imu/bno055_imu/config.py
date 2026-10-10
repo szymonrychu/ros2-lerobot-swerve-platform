@@ -14,6 +14,8 @@ DEFAULT_OPERATION_MODE = "IMUPLUS"
 DEFAULT_CALIBRATION_TOPIC = "/imu/calibration"
 DEFAULT_CALIBRATION_FILE = "/var/lib/ros2/bno055_imu/calibration.json"
 DEFAULT_CALIBRATION_SAVE_INTERVAL_S = 60.0
+DEFAULT_MAX_SOFT_RESTORES = 3
+DEFAULT_REINIT_AFTER_S = 10.0
 
 
 def _diagonal_covariance(var: float) -> list[float]:
@@ -68,6 +70,8 @@ class ImuNodeConfig:
         calibration_file: JSON file the sensor offsets are saved to and restored from at init; None disables
             persistence.
         calibration_save_interval_s: Minimum seconds between calibration saves (once gyro, accel, mag are all 3).
+        max_soft_restores: Consecutive soft mode restores without a published sample before a full re-init (min 0).
+        reinit_after_s: Seconds without a published sample before a full re-init regardless of failure path (min 1).
     """
 
     topic: str
@@ -85,6 +89,8 @@ class ImuNodeConfig:
     calibration_topic: str | None = DEFAULT_CALIBRATION_TOPIC
     calibration_file: str | None = DEFAULT_CALIBRATION_FILE
     calibration_save_interval_s: float = DEFAULT_CALIBRATION_SAVE_INTERVAL_S
+    max_soft_restores: int = DEFAULT_MAX_SOFT_RESTORES
+    reinit_after_s: float = DEFAULT_REINIT_AFTER_S
 
 
 # Default covariance values: diagonal, low/moderate uncertainty for Nav2.
@@ -158,6 +164,16 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         calibration_save_interval_s = max(1.0, float(raw_interval))
     except (TypeError, ValueError):
         calibration_save_interval_s = DEFAULT_CALIBRATION_SAVE_INTERVAL_S
+    raw_soft = data.get("max_soft_restores", DEFAULT_MAX_SOFT_RESTORES)
+    try:
+        max_soft_restores = max(0, int(raw_soft))
+    except (TypeError, ValueError):
+        max_soft_restores = DEFAULT_MAX_SOFT_RESTORES
+    raw_reinit = data.get("reinit_after_s", DEFAULT_REINIT_AFTER_S)
+    try:
+        reinit_after_s = max(1.0, float(raw_reinit))
+    except (TypeError, ValueError):
+        reinit_after_s = DEFAULT_REINIT_AFTER_S
     return ImuNodeConfig(
         topic=topic,
         frame_id=frame_id,
@@ -174,6 +190,8 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         calibration_topic=calibration_topic,
         calibration_file=calibration_file,
         calibration_save_interval_s=calibration_save_interval_s,
+        max_soft_restores=max_soft_restores,
+        reinit_after_s=reinit_after_s,
     )
 
 
