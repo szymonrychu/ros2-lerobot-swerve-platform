@@ -74,6 +74,8 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
 }
 # Default disk cache cap for proxied map tiles (MiB).
 DEFAULT_TILE_CACHE_MAX_MB = 256
+DEFAULT_TILE_MAX_ZOOM = 18
+LEGACY_TILE_SOURCE_ID = "default"
 # Seconds to wait for an arm home / set home std_srvs/Trigger response (a home motion can take 12+ s).
 DEFAULT_ARM_SERVICE_TIMEOUT_S = 30.0
 # Seconds POST /api/grasp waits for the mcp_server answer to a grasp plan (IK sampling of every strategy).
@@ -146,6 +148,28 @@ class TabTopicSpec(BaseModel):
     fields: list[TabFieldSpec] = []
 
 
+class TileSourceConfig(BaseModel):
+    """One raster tile source of a map_nav tab, fetched through the /api/tiles/{id} proxy.
+
+    Attributes:
+        id: Source id used in the proxy route and the layers panel selector.
+        label: Name shown in the selector.
+        url: XYZ template with {z}, {x}, {y} (any order, e.g. Esri uses {z}/{y}/{x}), optionally {s}, {r}, {api_key}.
+        subdomains: Characters rotated into {s}.
+        max_zoom: Highest zoom the source serves; the proxy answers 404 above it and the UI overzooms parent tiles.
+        api_key_env: Name of the env var holding the value for {api_key}.
+        attribution: Credit text shown in the corner of the 3D view.
+    """
+
+    id: str
+    label: str
+    url: str
+    subdomains: str | None = None
+    max_zoom: int = Field(DEFAULT_TILE_MAX_ZOOM, ge=1, le=22)
+    api_key_env: str | None = None
+    attribution: str | None = None
+
+
 class TabConfig(BaseModel):
     id: str
     type: str
@@ -164,6 +188,11 @@ class TabConfig(BaseModel):
     tile_api_key_env: str | None = None  # map_nav: name of the env var holding the value for {api_key} in tile_url
     tile_cache_dir: str | None = None  # map_nav: disk cache directory of proxied tiles
     tile_cache_max_mb: int = DEFAULT_TILE_CACHE_MAX_MB  # map_nav: tile cache size cap; oldest tiles evicted first
+    tile_max_zoom: int = Field(
+        DEFAULT_TILE_MAX_ZOOM, ge=1, le=22
+    )  # map_nav: highest zoom the tile source serves; the proxy answers 404 above it and the UI never asks
+    tile_sources: list[TileSourceConfig] = []  # map_nav: tile sources; when set they replace the single tile_url fields
+    default_tile_source: str | None = None  # map_nav: id of the source shown first (default: the first source)
     default_zoom: int = 18
     agent_url: str = (
         DEFAULT_AGENT_URL  # agent_chat: base URL of the claude_agent API proxied under /api/agent and /ws/agent
@@ -241,7 +270,42 @@ class TabConfig(BaseModel):
                 setattr(self, field, default)
             elif not value.strip():
                 raise ValueError(f"map_nav tab {self.id!r}: {field} must not be empty")
+        ids = [src.id for src in self.tile_sources]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"map_nav tab {self.id!r}: tile_sources ids must be unique, got {ids}")
+        if self.default_tile_source is not None and self.default_tile_source not in ids:
+            raise ValueError(f"map_nav tab {self.id!r}: default_tile_source {self.default_tile_source!r} not in {ids}")
         return self
+
+    def resolved_tile_sources(self) -> list[TileSourceConfig]:
+        """Return the tile sources: tile_sources, or the single legacy tile_url fields as the source "default".
+
+        Returns:
+            list[TileSourceConfig]: Sources in selector order, empty when the tab has no tile_url and no sources.
+        """
+        if self.tile_sources:
+            return self.tile_sources
+        if self.tile_url is None:
+            return []
+        return [
+            TileSourceConfig(
+                id=LEGACY_TILE_SOURCE_ID,
+                label="Map",
+                url=self.tile_url,
+                subdomains=self.tile_subdomains,
+                max_zoom=self.tile_max_zoom,
+                api_key_env=self.tile_api_key_env,
+            )
+        ]
+
+    def default_source_id(self) -> str | None:
+        """Return the id of the source shown first.
+
+        Returns:
+            str | None: default_tile_source, else the first resolved source id, else None.
+        """
+        sources = self.resolved_tile_sources()
+        return self.default_tile_source or (sources[0].id if sources else None)
 
 
 class GpsStatusConfig(BaseModel):

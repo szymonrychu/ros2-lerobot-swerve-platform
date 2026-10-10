@@ -22,7 +22,7 @@ from starlette.responses import Response
 
 from .agent_proxy import register_agent_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
-from .config import AppConfig, TabConfig
+from .config import AppConfig, TabConfig, TileSourceConfig
 from .tiles import (
     API_KEY_PLACEHOLDER,
     BYTES_PER_MB,
@@ -249,62 +249,73 @@ def find_tile_tab(config: AppConfig) -> TabConfig | None:
         config (AppConfig): Validated configuration.
 
     Returns:
-        TabConfig | None: The tab, or None when no map_nav tab has a tile_url and tile_cache_dir.
+        TabConfig | None: The tab, or None when no map_nav tab has tile sources and a tile_cache_dir.
     """
-    return next((t for t in config.map_nav_tabs() if t.tile_url and t.tile_cache_dir), None)
+    return next((t for t in config.map_nav_tabs() if t.resolved_tile_sources() and t.tile_cache_dir), None)
 
 
-def read_tile_api_key(tab: TabConfig) -> str | None:
-    """Read the tile API key from the environment variable named by the tab's tile_api_key_env.
+def read_tile_api_key(source: TileSourceConfig) -> str | None:
+    """Read the tile API key from the environment variable named by the source's api_key_env.
 
     Args:
-        tab (TabConfig): The map_nav tab.
+        source (TileSourceConfig): The tile source.
 
     Returns:
         str | None: The key, or None when unset or empty.
     """
-    return (os.environ.get(tab.tile_api_key_env or "") if tab.tile_api_key_env else None) or None
+    return (os.environ.get(source.api_key_env or "") if source.api_key_env else None) or None
 
 
-def tile_key_missing(config: AppConfig) -> bool:
-    """Check whether the tile template needs an API key that the environment does not provide.
+def source_key_missing(source: TileSourceConfig) -> bool:
+    """Check whether a source's template needs an API key that the environment does not provide.
 
     Args:
-        config (AppConfig): Validated configuration.
+        source (TileSourceConfig): The tile source.
 
     Returns:
-        bool: True when tile_url contains {api_key} and the key env var is unset or empty.
+        bool: True when the url contains {api_key} and the key env var is unset or empty.
     """
-    tab = find_tile_tab(config)
-    return tab is not None and API_KEY_PLACEHOLDER in (tab.tile_url or "") and read_tile_api_key(tab) is None
+    return API_KEY_PLACEHOLDER in source.url and read_tile_api_key(source) is None
 
 
-def make_tile_proxy(config: AppConfig, transport: httpx.AsyncBaseTransport | None = None) -> TileProxy | None:
-    """Build the tile proxy from the first map_nav tab with a tile_url.
+def make_tile_proxies(
+    config: AppConfig, transport: httpx.AsyncBaseTransport | None = None
+) -> dict[str, TileProxy | None]:
+    """Build one tile proxy per source of the first map_nav tab with tiles.
 
-    The cache lives in a subdirectory named by tile_cache_fingerprint, so changing the template or key never
-    serves tiles cached under the previous setup. A template with {api_key} but no key in the environment logs
-    one warning and yields no proxy (the tiles endpoint then answers 503) rather than fetching keyless placeholders.
+    Each cache lives in a subdirectory named by tile_cache_fingerprint, so changing a template or key never
+    serves tiles cached under the previous setup and sources never share tiles. A template with {api_key} but no
+    key in the environment logs one warning and yields None for that source (its tiles answer 503) rather than
+    fetching keyless placeholders.
 
     Args:
         config (AppConfig): Validated configuration.
         transport (httpx.AsyncBaseTransport | None): Custom httpx transport (tests), None for the network.
 
     Returns:
-        TileProxy | None: The proxy, or None when no tiles are configured or the required key is missing.
+        dict[str, TileProxy | None]: Source id to proxy (None when its key is missing); empty without tiles.
     """
     tab = find_tile_tab(config)
-    if tab is None or tab.tile_url is None or tab.tile_cache_dir is None:
-        return None
-    api_key = read_tile_api_key(tab)
-    if API_KEY_PLACEHOLDER in tab.tile_url and api_key is None:
-        log.warning(
-            "tile_api_key_missing", env_var=tab.tile_api_key_env, detail="tile proxy disabled, tiles answer 503"
+    if tab is None or tab.tile_cache_dir is None:
+        return {}
+    proxies: dict[str, TileProxy | None] = {}
+    for source in tab.resolved_tile_sources():
+        api_key = read_tile_api_key(source)
+        if source_key_missing(source):
+            log.warning(
+                "tile_api_key_missing",
+                source=source.id,
+                env_var=source.api_key_env,
+                detail="tile source disabled, its tiles answer 503",
+            )
+            proxies[source.id] = None
+            continue
+        root = Path(tab.tile_cache_dir) / tile_cache_fingerprint(source.url, api_key)
+        cache = TileCache(root, tab.tile_cache_max_mb * BYTES_PER_MB)
+        proxies[source.id] = TileProxy(
+            source.url, source.subdomains or "", cache, transport=transport, api_key=api_key or ""
         )
-        return None
-    root = Path(tab.tile_cache_dir) / tile_cache_fingerprint(tab.tile_url, api_key)
-    cache = TileCache(root, tab.tile_cache_max_mb * BYTES_PER_MB)
-    return TileProxy(tab.tile_url, tab.tile_subdomains or "", cache, transport=transport, api_key=api_key or "")
+    return proxies
 
 
 def build_app(
@@ -334,9 +345,10 @@ def build_app(
     """
     app = FastAPI(title="web_ui", docs_url=None, redoc_url=None)
     app.add_middleware(SecurityHeadersMiddleware)
-    tile_proxy = make_tile_proxy(config, tile_transport)
-    if tile_proxy is not None:
-        app.router.add_event_handler("shutdown", tile_proxy.aclose)
+    tile_proxies = make_tile_proxies(config, tile_transport)
+    for tile_proxy in tile_proxies.values():
+        if tile_proxy is not None:
+            app.router.add_event_handler("shutdown", tile_proxy.aclose)
 
     broadcast_interval = 1.0 / config.ws_broadcast_hz
     clients: dict[str, ClientConnection] = {}
@@ -359,21 +371,34 @@ def build_app(
     register_agent_routes(app, config, battery_block, agent_transport)
 
     tile_tab = find_tile_tab(config)
-    tile_version = (
-        tile_cache_fingerprint(tile_tab.tile_url, read_tile_api_key(tile_tab))
-        if tile_proxy is not None and tile_tab is not None and tile_tab.tile_url is not None
-        else None
-    )
+    tile_sources = {src.id: src for src in tile_tab.resolved_tile_sources()} if tile_tab is not None else {}
+    tile_versions = {
+        sid: tile_cache_fingerprint(tile_sources[sid].url, read_tile_api_key(tile_sources[sid]))
+        for sid, proxy in tile_proxies.items()
+        if proxy is not None
+    }
 
     @app.get("/api/config")
     async def get_config() -> JSONResponse:
-        """Return the config; the tile tab also carries tile_version, which the browser appends to tile URLs."""
+        """Return the config; the tile tab also carries the public tile source list (no URLs or keys) and the
+        default source's tile_version, which the browser appends to tile URLs."""
         log.debug("api_config_requested")
         body = config.model_dump()
         if tile_tab is not None:
             for tab in body["tabs"]:
                 if tab["id"] == tile_tab.id:
-                    tab["tile_version"] = tile_version
+                    tab["default_tile_source"] = tile_tab.default_source_id()
+                    tab["tile_version"] = tile_versions.get(tile_tab.default_source_id() or "")
+                    tab["tile_sources"] = [
+                        {
+                            "id": src.id,
+                            "label": src.label,
+                            "max_zoom": src.max_zoom,
+                            "attribution": src.attribution,
+                            "version": tile_versions.get(src.id),
+                        }
+                        for src in tile_sources.values()
+                    ]
         return JSONResponse(body)
 
     @app.get("/api/urdf/status")
@@ -392,20 +417,31 @@ def build_app(
         log.debug("urdf_file_served", path=path, size_bytes=requested.stat().st_size)
         return FileResponse(requested, headers={"Cache-Control": URDF_CACHE_CONTROL})
 
-    @app.get("/api/tiles/{z}/{x}/{y}.png")
-    async def get_tile(z: int, x: int, y: int) -> Response:
+    async def serve_tile(source_id: str | None, z: int, x: int, y: int) -> Response:
+        source = tile_sources.get(source_id or "")
+        if source is None:
+            return JSONResponse({"error": f"no tile source {source_id!r} configured"}, status_code=404)
+        tile_proxy = tile_proxies[source.id]
         if tile_proxy is None:
-            if tile_key_missing(config):
-                return JSONResponse({"error": "map tile API key not configured"}, status_code=503)
-            return JSONResponse({"error": "no map tiles configured"}, status_code=404)
+            return JSONResponse({"error": "map tile API key not configured"}, status_code=503)
         if not validate_tile(z, x, y):
             return JSONResponse({"error": f"tile {z}/{x}/{y} out of range"}, status_code=400)
+        if z > source.max_zoom:
+            return JSONResponse({"error": f"tile zoom {z} above max_zoom {source.max_zoom}"}, status_code=404)
         status, data = await tile_proxy.get(z, x, y)
         if status != HTTP_OK or data is None:
             return JSONResponse({"error": f"tile {z}/{x}/{y} unavailable"}, status_code=status)
         return Response(
             data, media_type=TILE_MEDIA_TYPE, headers={"Cache-Control": f"public, max-age={TILE_BROWSER_MAX_AGE_S}"}
         )
+
+    @app.get("/api/tiles/{source_id}/{z}/{x}/{y}.png")
+    async def get_source_tile(source_id: str, z: int, x: int, y: int) -> Response:
+        return await serve_tile(source_id, z, x, y)
+
+    @app.get("/api/tiles/{z}/{x}/{y}.png")
+    async def get_tile(z: int, x: int, y: int) -> Response:
+        return await serve_tile(tile_tab.default_source_id() if tile_tab is not None else None, z, x, y)
 
     def find_map_nav_tab(tab: str) -> TabConfig | None:
         return next((t for t in config.map_nav_tabs() if t.id == tab), None)

@@ -936,6 +936,8 @@ ros2_nodes:
           tile_url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api_key}"
           tile_subdomains: abcd
           tile_api_key_env: WEB_UI_TILE_API_KEY
+          # Highest zoom this CARTO key tier serves (z19/z20 answer 403, which rendered the GPS layer black).
+          tile_max_zoom: 18
         # Chat with the claude_agent node (127.0.0.1:18300, its http_port); the backend proxies /api/agent and /ws/agent.
         - id: agent
           type: agent_chat

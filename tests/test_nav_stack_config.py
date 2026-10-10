@@ -704,6 +704,8 @@ def test_web_ui_has_map_nav_tab() -> None:
         "tile_url": "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key={api_key}",
         "tile_subdomains": "abcd",
         "tile_api_key_env": "WEB_UI_TILE_API_KEY",
+        # The CARTO key tier serves zoom <= 18; z19 answers 403 and rendered the GPS layer black.
+        "tile_max_zoom": 18,
     }
 
 

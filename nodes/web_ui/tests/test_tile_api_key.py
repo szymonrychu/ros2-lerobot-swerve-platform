@@ -8,9 +8,10 @@ from pathlib import Path
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from web_ui.config import AppConfig, TabConfig
-from web_ui.server import build_app, make_tile_proxy
+from web_ui.server import build_app, make_tile_proxies
 from web_ui.tiles import build_tile_url, tile_cache_fingerprint
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\nfake-tile"
@@ -20,7 +21,12 @@ TEMPLATE = "https://{s}.tiles.test/{z}/{x}/{y}.png?key={api_key}"
 
 
 def make_client(
-    tmp_path: Path, urdf_dir: Path, requests: list[httpx.Request], template: str = TEMPLATE, env: str | None = KEY_ENV
+    tmp_path: Path,
+    urdf_dir: Path,
+    requests: list[httpx.Request],
+    template: str = TEMPLATE,
+    env: str | None = KEY_ENV,
+    tile_max_zoom: int | None = None,
 ) -> TestClient:
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
@@ -34,6 +40,7 @@ def make_client(
         tile_subdomains="ab",
         tile_cache_dir=str(tmp_path / "cache"),
         tile_api_key_env=env,
+        **({} if tile_max_zoom is None else {"tile_max_zoom": tile_max_zoom}),
     )
     app = build_app(
         config=AppConfig(tabs=[tab]),
@@ -119,7 +126,7 @@ def test_missing_key_logs_warning_once_at_startup_without_key(
 ) -> None:
     monkeypatch.delenv(KEY_ENV, raising=False)
     tab = TabConfig(id="map", type="map_nav", label="Map", tile_url=TEMPLATE, tile_api_key_env=KEY_ENV)
-    assert make_tile_proxy(AppConfig(tabs=[tab])) is None
+    assert make_tile_proxies(AppConfig(tabs=[tab])) == {"default": None}
     out = capsys.readouterr()
     assert (out.out + out.err).count("tile_api_key_missing") == 1
     assert KEY_ENV in out.out + out.err
@@ -174,3 +181,30 @@ def test_api_config_exposes_tile_version_as_cache_fingerprint(
 def test_api_config_tile_version_is_none_without_proxy(tmp_path: Path, urdf_dir: Path) -> None:
     body = make_client(tmp_path, urdf_dir, [], env=None).get("/api/config").json()
     assert body["tabs"][0]["tile_version"] is None
+
+
+def test_tile_max_zoom_defaults_to_18_and_is_range_checked() -> None:
+    assert TabConfig(id="m", type="map_nav", label="Map").tile_max_zoom == 18
+    for bad in (0, 23):
+        with pytest.raises(ValidationError):
+            TabConfig(id="m", type="map_nav", label="Map", tile_max_zoom=bad)
+
+
+def test_api_config_exposes_tile_max_zoom(tmp_path: Path, urdf_dir: Path) -> None:
+    assert (
+        make_client(tmp_path, urdf_dir, [], tile_max_zoom=17).get("/api/config").json()["tabs"][0]["tile_max_zoom"]
+        == 17
+    )
+    assert make_client(tmp_path, urdf_dir, []).get("/api/config").json()["tabs"][0]["tile_max_zoom"] == 18
+
+
+def test_tile_above_max_zoom_is_404_without_contacting_upstream(
+    tmp_path: Path, urdf_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(KEY_ENV, SECRET)
+    requests: list[httpx.Request] = []
+    client = make_client(tmp_path, urdf_dir, requests, tile_max_zoom=18)
+    assert client.get("/api/tiles/19/5/2.png").status_code == 404
+    assert requests == []
+    assert client.get("/api/tiles/18/5/2.png").status_code == 200
+    assert len(requests) == 1
