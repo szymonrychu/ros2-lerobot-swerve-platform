@@ -1,5 +1,6 @@
 """Tests for the feetech_servos Prometheus metrics: metrics_port config and updates at each code point."""
 
+import ast
 import json
 from pathlib import Path
 
@@ -161,3 +162,28 @@ def test_set_register_without_bus_counts_no_bus() -> None:
     before = value("servo_set_register_failures_total", labels) or 0.0
     assert apply_set_register(None, make_config(), {}, "{}", lambda _m: None) is False
     assert value("servo_set_register_failures_total", labels) == before + 1
+
+
+def test_bridge_passes_record_read_cycle_one_list_of_name_id_pairs() -> None:
+    """Regression (2026-10-10 crash loop): run_bridge rebound the list it passed to record_read_cycle to a list of plain
+    servo ids. The argument must be a name assigned once in run_bridge, to (name, id) pairs."""
+    tree = ast.parse((Path(__file__).resolve().parents[1] / "bridge.py").read_text())
+    run_bridge = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "run_bridge")
+    call = next(
+        n
+        for n in ast.walk(run_bridge)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "record_read_cycle"
+    )
+    arg = call.args[0]
+    assert isinstance(arg, ast.Name)
+    assigns = [
+        n
+        for n in ast.walk(run_bridge)
+        if isinstance(n, (ast.Assign, ast.AnnAssign))
+        and any(
+            isinstance(t, ast.Name) and t.id == arg.id for t in (n.targets if isinstance(n, ast.Assign) else [n.target])
+        )
+    ]
+    assert len(assigns) == 1, f"{arg.id} is assigned {len(assigns)} times in run_bridge"
+    value = assigns[0].value
+    assert isinstance(value, ast.ListComp) and isinstance(value.elt, ast.Tuple) and len(value.elt.elts) == 2

@@ -91,7 +91,7 @@ def run_bridge(config: BridgeConfig) -> None:
     all_joints = config.all_joints
     velocity_joints = [j for j in all_joints if j.mode == "velocity"]
     init_joints([j.name for j in all_joints])
-    joint_ids = [(j.name, j.id) for j in all_joints]
+    metric_joints = [(j.name, j.id) for j in all_joints]
     joint_inverted = {j.name: j.inverted for j in all_joints}
 
     pub_state = {
@@ -268,7 +268,7 @@ def run_bridge(config: BridgeConfig) -> None:
                 # Velocity watchdog: stop wheels with no drive command within velocity_command_timeout_s.
                 cycle.stop_expired()
                 readings = read_positions_and_speeds(expected_ids, make_sync_group, fallback_read)
-                record_read_cycle(joint_ids, readings)
+                record_read_cycle(metric_joints, readings)
                 stamp = node.get_clock().now().to_msg()
                 for group in groups:
                     missing = [j.name for j in group.joints if j.id not in readings]
