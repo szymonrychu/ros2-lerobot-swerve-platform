@@ -2,7 +2,8 @@
 
 Checked parts (CHECKED_PARTS), all from one FK pass per joint sample and converted to base_link with the arm mount:
 the upper arm (shoulder_lift axis -> elbow), forearm (elbow -> wrist_flex axis) and wrist link (wrist_flex axis ->
-gripper_link) as capsules of half the STS3215 width, the gripper body / fixed jaw hull points and the three jaw points
+gripper_link), each as a capsule of half the STS3215 width; the forearm and wrist link also as points on the faces of their
+grasp_sim collision boxes (arm_geometry.LINK_COLLISION_BOXES, which sit off the origin line), the gripper body / fixed jaw hull points and the three jaw points
 of the floor guard (jaw tip, tool point, moving jaw tip). The arm base and the shoulder link stand on the crossbar and
 only turn in place about the pan axis, so they are not checked at all (in particular not against the crossbar).
 
@@ -23,9 +24,11 @@ from .arm_geometry import (
     GRIPPER_BODY,
     GRIPPER_BODY_POINTS,
     JAW_POINTS,
+    LINK_COLLISION_BOXES,
     LINK_ORIGINS,
     UPPER_ARM_CAPSULE,
     WRIST_CAPSULE,
+    box_surface_points,
 )
 from .body_model import BodyModel, Obstacle, capsule_signed_distance
 from .config import ArmBaseOffset, BodyCheckSettings, McpServerConfig
@@ -34,6 +37,11 @@ from .ik import ArmKinematics
 
 CAPSULES = (UPPER_ARM_CAPSULE, FOREARM_CAPSULE, WRIST_CAPSULE)
 CHECKED_PARTS = (*(c[0] for c in CAPSULES), GRIPPER_BODY, *JAW_POINTS)
+# Box face points per capsule part: (link, (K, 3) points in the link frame).
+BOX_POINTS = {
+    name: [(box.link, box_surface_points(box)) for box in LINK_COLLISION_BOXES if box.part == name]
+    for name, *_ in CAPSULES
+}
 NORMAL_SCALE = 1.0
 # A start inside the hard margin may move out as long as no clearance drops more than this below its start value (m).
 ESCAPE_TOLERANCE_M = 0.002
@@ -290,12 +298,18 @@ class SelfCollisionChecker:
             joints (dict[str, float]): Joint name -> rad (measured space; gripper optional).
 
         Returns:
-            dict[str, np.ndarray]: capsule parts -> (2, 3) axis ends; 'gripper body' -> (K, 3) hull points; jaw
-                points -> (1, 3).
+            dict[str, np.ndarray]: capsule parts -> (2 + K, 3): the capsule axis ends, then the K points on their
+                collision box faces (BOX_POINTS); 'gripper body' -> (K, 3) hull points; jaw points -> (1, 3).
         """
         frames = self.kin.link_frames(joints)
         origins = {key: frames[link][:3, 3] for key, link in LINK_ORIGINS.items()}
-        out = {name: self.to_base_link(np.array([origins[a], origins[b]])) for name, a, b, _ in CAPSULES}
+        out = {}
+        for name, a, b, _ in CAPSULES:
+            ends = [origins[a], origins[b]]
+            for link, points in BOX_POINTS[name]:
+                frame = frames[link]
+                ends += list(points @ frame[:3, :3].T + frame[:3, 3])
+            out[name] = self.to_base_link(np.array(ends))
         gripper = frames[GRIPPER_LINK]
         out[GRIPPER_BODY] = self.to_base_link(GRIPPER_BODY_POINTS @ gripper[:3, :3].T + gripper[:3, 3])
         tool = frames[TOOL_FRAME_LINK]
@@ -329,7 +343,7 @@ class SelfCollisionChecker:
             samples (list[dict[str, float]]): Joint configurations (at least one).
 
         Returns:
-            dict[str, np.ndarray]: Part name -> (N, K, 3) points (capsules: K = 2 axis ends).
+            dict[str, np.ndarray]: Part name -> (N, K, 3) points (capsules: K = 2 axis ends + box points).
         """
         geometry = [self.part_points(s) for s in samples]
         return {name: np.stack([g[name] for g in geometry]) for name in CHECKED_PARTS}
@@ -349,6 +363,8 @@ class SelfCollisionChecker:
             for p, (name, *_rest, radius) in enumerate(CAPSULES):
                 ends = stacked[name]
                 out[:, k, p] = capsule_signed_distance(obstacle, ends[:, 0], ends[:, 1], radius)
+                if ends.shape[1] > 2:
+                    out[:, k, p] = np.minimum(out[:, k, p], obstacle.signed_distance(ends[:, 2:]).min(axis=1))
             for p in range(len(CAPSULES), len(CHECKED_PARTS)):
                 out[:, k, p] = obstacle.signed_distance(stacked[CHECKED_PARTS[p]]).min(axis=1)
         return out.min(axis=2), out.argmin(axis=2)

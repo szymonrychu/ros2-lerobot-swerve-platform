@@ -33,7 +33,7 @@ TOUCHES = json.loads((REPO_ROOT / "docs/calibration/2026-10-10/session/touches.j
 LIDAR = CHECKER.body.by_name("lidar")
 WHEEL_FR = CHECKER.body.by_name("wheel_fr")
 # Touch-downs the measured lidar dome rejects (test_measured_ground_touches_in_front_are_clear).
-LIDAR_REJECTED_TOUCHES = {"t4"}
+LIDAR_REJECTED_TOUCHES = {"t2", "t4"}
 
 
 def deployed_config() -> McpServerConfig:
@@ -56,7 +56,9 @@ def solve_base_link(x: float, y: float, z: float, pitch: float) -> dict[str, flo
 
 
 def clear_pose() -> dict[str, float]:
-    return solve_base_link(0.30, -0.05, 0.15, 0.8)
+    """Front-right of the arm, 3.5 cm from the right side frame and further from the lidar dome (at (0.30, -0.05) the
+    wrist box stands 2.5 cm from the measured dome)."""
+    return solve_base_link(0.33, -0.10, 0.12, 0.8)
 
 
 def lidar_pose() -> dict[str, float]:
@@ -83,13 +85,13 @@ def test_clear_pose_has_full_clearance() -> None:
 
 
 def test_home_pose_is_clear_of_the_hard_margin_and_in_the_lidar_slow_band() -> None:
-    """The folded home is never rejected, but the gripper body stands 2.6 cm from the measured lidar dome (radius
-    74 mm, top 210 mm): inside the soft margin, so moves near home run slowed."""
+    """The folded home is never rejected, but the wrist link (its sim collision box) stands 1.5 cm from the measured
+    lidar dome (radius 74 mm, top 210 mm): inside the soft margin, so moves near home run slowed."""
     tip = tool_base_link(KIN, HOME)
     assert tip[2] > 0.15  # FK check: the folded home keeps the tool well above the body
     check = CHECKER.pose(HOME)
     assert CONFIG.body_check.hard_margin_m < check.min_clearance < CONFIG.body_check.soft_margin_m
-    assert (check.obstacle, check.part) == ("lidar", "gripper body")
+    assert (check.obstacle, check.part) == ("lidar", "wrist link")
 
 
 def test_lidar_pose_penetrates_the_lidar() -> None:
@@ -110,9 +112,9 @@ def test_low_over_front_wheel_hits_the_wheel() -> None:
 @pytest.mark.parametrize("touch", [t["name"] for t in TOUCHES])
 def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
     """The 2026-10-10 tip touch-downs (deployed offsets) are in front of the robot on the floor: never rejected, except
-    t4 (front-left, tip at base_link (0.30, 0.10)): with the measured lidar dome its elbow end of the upper arm dips
-    3.5 mm into the dome (FK z 0.194 beside it). The arm reached t4 on the robot, so the dome model (a full-radius
-    cylinder up to the top face) or the FK is that much conservative there; the check rejects it."""
+    t2 and t4 (front-left): with the measured lidar dome the forearm (its sim collision box) comes within 4 mm of the
+    dome at t2 and dips 3.5 mm into it at t4. The arm reached both on the robot, so the dome model (a full-radius
+    cylinder up to the top face, at the assumed laser_frame position) or the FK is that much conservative there."""
     cfg = deployed_config()
     kin = ArmKinematics(
         cfg.arm.urdf_path,
@@ -130,7 +132,7 @@ def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
     assert tip[0] > 0.2 and abs(tip[2]) < 0.03  # FK check: in front of the robot, at the floor
     check = checker.pose(joints)
     if touch in LIDAR_REJECTED_TOUCHES:
-        assert (check.obstacle, check.part) == ("lidar", "upper arm")
+        assert check.obstacle == "lidar" and check.part in ("upper arm", "forearm")
         assert -0.01 < check.min_clearance < cfg.body_check.hard_margin_m
     else:
         assert check.min_clearance > cfg.body_check.hard_margin_m

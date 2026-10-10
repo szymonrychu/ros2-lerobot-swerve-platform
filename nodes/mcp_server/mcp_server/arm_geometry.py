@@ -2,8 +2,12 @@
 
 Link bodies are capsules between FK link origins (radius = half the STS3215 servo body each link carries, about 4 cm
 across); the gripper body and fixed jaw are a hull of points in gripper_link; the jaw points come from the floor guard
-(FloorGuard.checked_points).
+(FloorGuard.checked_points). The body check adds the arm collision boxes of the grasp_sim MuJoCo model
+(LINK_COLLISION_BOXES) as points on their faces (box_surface_points).
 """
+
+import math
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -65,3 +69,67 @@ LINK_ORIGINS = {
     "wrist": "wrist_link",
     "gripper": "gripper_link",
 }
+
+
+@dataclass(frozen=True)
+class LinkBox:
+    """A collision box of an arm link: centre and orientation in the URDF link frame, half sizes (m)."""
+
+    part: str
+    link: str
+    pos: tuple[float, float, float]
+    quat: tuple[float, float, float, float]  # MuJoCo (w, x, y, z), not necessarily normalised (as in the MJCF)
+    half_size: tuple[float, float, float]
+
+
+# Collision boxes of the forearm and wrist in sim/grasp_sim/assets/so101/so101.xml (its lower_arm and wrist bodies are
+# the URDF links' frames). The body check covers them in addition to the link capsules: the boxes sit off the line
+# between the link origins (the forearm box reaches 4.8 cm from it), where the 2 cm capsules alone let plans through
+# that the sim arm ran into the lidar dome. The upper arm keeps its origin capsule only: its sim boxes stand 7 mm from
+# the measured lidar dome at the folded home and at most poses (the shoulder end, which only turns with the pan), inside
+# the 1 cm hard margin, so covering them would reject the home pose itself.
+LINK_COLLISION_BOXES = (
+    LinkBox("forearm", "lower_arm_link", (-0.05, 0.0, 0.0182), (0.0, 1.0, 0.0, 0.0), (0.07, 0.01, 0.03)),
+    LinkBox("forearm", "lower_arm_link", (-0.125, 0.005, 0.018), (0.0, -1.0, 0.0, 0.0), (0.023, 0.013, 0.018)),
+    LinkBox("wrist link", "wrist_link", (0.0, -0.0424, 0.0256), (1.0, 1.0, 1.0, -1.0), (0.029, 0.015, 0.018)),
+    LinkBox("wrist link", "wrist_link", (0.0, -0.02, 0.0191), (1.0, -1.0, -1.0, -1.0), (0.027, 0.01, 0.03)),
+)
+# Spacing of the sample points on the box faces (m). Between the points a sharp obstacle edge can come up to
+# spacing / sqrt(2) = 7 mm closer than the points say, inside the 1 cm body hard margin.
+BOX_POINT_SPACING_M = 0.01
+
+
+def quat_matrix(quat: tuple[float, float, float, float]) -> np.ndarray:
+    """Rotation matrix of a (w, x, y, z) quaternion.
+
+    Args:
+        quat (tuple[float, float, float, float]): Quaternion (normalised here).
+
+    Returns:
+        np.ndarray: (3, 3) rotation.
+    """
+    w, x, y, z = np.asarray(quat, dtype=np.float64) / np.linalg.norm(quat)
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+
+
+def box_surface_points(box: LinkBox, spacing: float = BOX_POINT_SPACING_M) -> np.ndarray:
+    """Points on every face of the box (a grid at most spacing apart, corners and edges included), link frame.
+
+    Args:
+        box (LinkBox): Collision box.
+        spacing (float): Largest grid step (m).
+
+    Returns:
+        np.ndarray: (K, 3) points in the link frame.
+    """
+    half = np.asarray(box.half_size, dtype=np.float64)
+    axes = [np.linspace(-h, h, max(2, math.ceil(2 * h / spacing) + 1)) for h in half]
+    grid = np.array(np.meshgrid(*axes, indexing="ij")).reshape(3, -1).T
+    on_face = (np.abs(np.abs(grid) - half) < 1e-12).any(axis=1)
+    return grid[on_face] @ quat_matrix(box.quat).T + np.asarray(box.pos, dtype=np.float64)
