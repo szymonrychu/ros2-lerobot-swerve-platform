@@ -16,12 +16,16 @@ from mcp_server.arm_geometry import BOX_POINT_SPACING_M, LINK_COLLISION_BOXES, b
 from mcp_server.config import REPO_ROOT, McpServerConfig
 from mcp_server.floor_guard import JawModel
 from mcp_server.ik import ArmKinematics
-from mcp_server.self_collision import SelfCollisionChecker
+from mcp_server.self_collision import SelfCollisionChecker, joint_line
 
+CONFIG_HARD_MARGIN_M = 0.01
 MJCF = REPO_ROOT / "sim/grasp_sim/assets/so101/so101.xml"
-# MJCF body -> URDF link (the frames coincide: same origins and axes for the same raw joint angles). The upper arm is
-# not covered (arm_geometry.LINK_COLLISION_BOXES says why); test_the_upper_arm_boxes_are_left_out pins that choice.
-BODY_LINKS = {"lower_arm": "lower_arm_link", "wrist": "wrist_link"}
+# MJCF body -> URDF link (the frames coincide: same origins and axes for the same raw joint angles).
+BODY_LINKS = {"upper_arm": "upper_arm_link", "lower_arm": "lower_arm_link", "wrist": "wrist_link"}
+# The upper arm boxes are contact-only (arm_geometry.LINK_COLLISION_BOXES says why): the hard check credits them with
+# the hard margin, so it rejects only their contact, and they never slow a motion.
+CONTACT_ONLY = {"upper_arm_link": True, "lower_arm_link": False, "wrist_link": False}
+ALLOWANCE_M = {link: CONFIG_HARD_MARGIN_M if only else 0.0 for link, only in CONTACT_ONLY.items()}
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
 CHECKER = SelfCollisionChecker.from_config(
@@ -29,6 +33,23 @@ CHECKER = SelfCollisionChecker.from_config(
 )
 SURFACE_STEPS = 6  # samples per box edge (corners included)
 POSES = 300
+# Raw joints of the 6x6x3 stair (25 cm, top_down) plan of the 2026-10-10 matrix whose sim upper arm box dipped 4.7 mm
+# into the measured lidar dome (body_lidar vs upper_arm in grasp_sim) while the planner saw 12 mm.
+UPPER_ARM_IN_DOME = {
+    "shoulder_pan": -0.1351,
+    "shoulder_lift": 1.5986,
+    "elbow_flex": -0.573,
+    "wrist_flex": 0.5451,
+    "wrist_roll": -1.5646,
+}
+# Home pose of the 2026-10-10 calibration (raw joints here: tests/test_self_collision.py HOME).
+HOME = {
+    "shoulder_pan": -0.0138,
+    "shoulder_lift": -1.3622,
+    "elbow_flex": 1.5769,
+    "wrist_flex": -0.0752,
+    "wrist_roll": -1.6245,
+}
 SEED = 20261010
 BOUND = BOX_POINT_SPACING_M / math.sqrt(2) + 1e-6
 
@@ -81,16 +102,18 @@ def box_surface(pos: np.ndarray, quat: np.ndarray, size: np.ndarray, steps: int 
 
 def test_the_link_boxes_are_the_sim_collision_boxes() -> None:
     boxes = mjcf_boxes()
-    assert len(boxes) == 4
+    assert len(boxes) == 6
     assert len(LINK_COLLISION_BOXES) == len(boxes)
+    assert CONFIG.body_check.hard_margin_m == CONFIG_HARD_MARGIN_M
     for (link, pos, quat, size), box in zip(boxes, LINK_COLLISION_BOXES, strict=True):
         assert box.link == link
+        assert box.contact_only == CONTACT_ONLY[link]
         assert box.pos == pytest.approx(tuple(pos))
         assert np.array(box.quat) / np.linalg.norm(box.quat) == pytest.approx(quat / np.linalg.norm(quat))
         assert box.half_size == pytest.approx(tuple(size))
 
 
-@pytest.mark.parametrize("index", range(4))
+@pytest.mark.parametrize("index", range(6))
 def test_box_points_cover_every_face_within_the_spacing(index: int) -> None:
     """Every point of the box surface (a fine grid) lies within spacing / sqrt(2) of a checked point."""
     _link, pos, quat, size = mjcf_boxes()[index]
@@ -102,18 +125,46 @@ def test_box_points_cover_every_face_within_the_spacing(index: int) -> None:
 
 def test_body_clearance_never_exceeds_the_clearance_of_the_sim_link_boxes() -> None:
     """Random poses over the joint limits: per obstacle, the checker's clearance exceeds the smallest signed distance
-    of the sampled sim box surface points by at most the point spacing bound (spacing / sqrt(2), the SDF being
-    1-Lipschitz): the sim arm boxes never come closer than the check says minus that bound."""
+    of the sampled sim box surface points (plus the box allowance) by at most the point spacing bound (spacing /
+    sqrt(2), the SDF being 1-Lipschitz): the sim arm boxes never come closer than the check says minus that bound and
+    the allowance, so a check that passes the hard margin keeps every sim box out of contact."""
     rng = np.random.default_rng(SEED)
     limits = {j: KIN.limits[j] for j in KIN.joint_names}
     boxes = [(link, box_surface(pos, quat, size)) for link, pos, quat, size in mjcf_boxes()]
     for _ in range(POSES):
         joints = {j: float(rng.uniform(*limits[j])) for j in KIN.joint_names}
         frames = KIN.link_frames(joints)
-        points = np.vstack(
-            [CHECKER.to_base_link(pts @ frames[link][:3, :3].T + frames[link][:3, 3]) for link, pts in boxes]
-        )
+        placed = [
+            (ALLOWANCE_M[link], CHECKER.to_base_link(pts @ frames[link][:3, :3].T + frames[link][:3, 3]))
+            for link, pts in boxes
+        ]
         check = CHECKER.pose(joints)
         for obstacle in CHECKER.body.obstacles:
-            sim = float(obstacle.signed_distance(points).min())
+            sim = min(float(obstacle.signed_distance(points).min()) + allowance for allowance, points in placed)
             assert check.per_obstacle[obstacle.name][0] <= sim + BOUND, (obstacle.name, joints)
+
+
+def test_an_upper_arm_box_in_the_lidar_dome_is_rejected() -> None:
+    """The matrix pose whose sim upper arm box dipped into the dome is below the hard margin (rejected)."""
+    tool = KIN.forward(UPPER_ARM_IN_DOME)
+    assert tool.x > 0.2 and tool.z < -0.1  # FK check: reaching forward and down past the stair edge (arm frame)
+    check = CHECKER.pose(UPPER_ARM_IN_DOME)
+    assert check.obstacle == "lidar" and check.part == "upper arm"
+    assert check.min_clearance < CONFIG.body_check.hard_margin_m
+
+
+def test_home_stays_clear_of_the_hard_margin_with_the_upper_arm_boxes() -> None:
+    """Home: its upper arm box stands 7 mm from the measured dome, clear of the hard check (contact only)."""
+    assert CHECKER.pose(HOME).min_clearance > CONFIG.body_check.hard_margin_m
+    assert not CHECKER.path([HOME, HOME]).rejected
+
+
+def test_the_upper_arm_boxes_never_slow_a_motion() -> None:
+    """The stretched zero pose holds its upper arm box 7 mm over the dome top edge: no slowdown from it (contact
+    only); the hard check still sees it (the effective clearance is the box distance plus the hard margin)."""
+    zero = dict.fromkeys(KIN.joint_names, 0.0)
+    report = CHECKER.path(joint_line(zero, zero | {"elbow_flex": 0.3}, 0.05))
+    assert not report.rejected
+    assert report.scales == [1.0] * len(report.scales)
+    assert CHECKER.pose(zero).part == "upper arm"
+    assert CHECKER.pose(zero).min_clearance < CONFIG.body_check.soft_margin_m

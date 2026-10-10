@@ -2,8 +2,9 @@
 
 Checked parts (CHECKED_PARTS), all from one FK pass per joint sample and converted to base_link with the arm mount:
 the upper arm (shoulder_lift axis -> elbow), forearm (elbow -> wrist_flex axis) and wrist link (wrist_flex axis ->
-gripper_link), each as a capsule of half the STS3215 width; the forearm and wrist link also as points on the faces of their
-grasp_sim collision boxes (arm_geometry.LINK_COLLISION_BOXES, which sit off the origin line), the gripper body / fixed jaw hull points and the three jaw points
+gripper_link), each as a capsule of half the STS3215 width and as points on the faces of its grasp_sim collision boxes
+(arm_geometry.LINK_COLLISION_BOXES, which sit off the origin line; the upper arm boxes are contact-only), the gripper
+body / fixed jaw hull points and the three jaw points
 of the floor guard (jaw tip, tool point, moving jaw tip). The arm base and the shoulder link stand on the crossbar and
 only turn in place about the pan axis, so they are not checked at all (in particular not against the crossbar).
 
@@ -14,12 +15,13 @@ the limit becomes the start clearance minus ESCAPE_TOLERANCE_M (the clearance mu
 """
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import numpy as np
 
 from .arm_geometry import (
+    BOX_POINT_SPACING_M,
     FOREARM_CAPSULE,
     GRIPPER_BODY,
     GRIPPER_BODY_POINTS,
@@ -37,17 +39,49 @@ from .ik import ArmKinematics
 
 CAPSULES = (UPPER_ARM_CAPSULE, FOREARM_CAPSULE, WRIST_CAPSULE)
 CHECKED_PARTS = (*(c[0] for c in CAPSULES), GRIPPER_BODY, *JAW_POINTS)
-# Box face points per capsule part: (link, (K, 3) points in the link frame).
+# Box face points per capsule part, (link, (K, 3) points in the link frame): held to the margins (BOX_POINTS) and
+# contact-only (CONTACT_POINTS, stacked under contact_key(part)).
 BOX_POINTS = {
-    name: [(box.link, box_surface_points(box)) for box in LINK_COLLISION_BOXES if box.part == name]
+    name: [(b.link, box_surface_points(b)) for b in LINK_COLLISION_BOXES if b.part == name and not b.contact_only]
     for name, *_ in CAPSULES
 }
+CONTACT_POINTS = {
+    name: [(b.link, box_surface_points(b)) for b in LINK_COLLISION_BOXES if b.part == name and b.contact_only]
+    for name, *_ in CAPSULES
+}
+
+
+def contact_key(part: str) -> str:
+    """part_points key of the contact-only box points of a capsule part.
+
+    Args:
+        part (str): Capsule part name.
+
+    Returns:
+        str: The key.
+    """
+    return f"{part} (contact only)"
+
+
 NORMAL_SCALE = 1.0
 # A start inside the hard margin may move out as long as no clearance drops more than this below its start value (m).
 ESCAPE_TOLERANCE_M = 0.002
 # Joint-space step (rad) of a straight joint line sampled for a check (planner free moves, home routes).
 JOINT_LINE_STEP_RAD = 0.02
 ROUND_M = 4
+
+
+def link_model_description() -> dict[str, Any]:
+    """The arm link model the check covers (capsules, collision boxes and their face point spacing), for cache keys.
+
+    Returns:
+        dict[str, Any]: capsules (name, from, to, radius), boxes (LinkBox fields), spacing_m.
+    """
+    return {
+        "capsules": [list(c) for c in CAPSULES],
+        "boxes": [asdict(box) for box in LINK_COLLISION_BOXES],
+        "spacing_m": BOX_POINT_SPACING_M,
+    }
 
 
 def joint_line(
@@ -110,9 +144,20 @@ def obstacle_hint(obstacle: Obstacle, part: str, settings: BodyCheckSettings) ->
 
 @dataclass(frozen=True)
 class PoseClearance:
-    """Clearance of one joint configuration to every obstacle: name -> (clearance m, closest part)."""
+    """Clearance of one joint configuration to every obstacle: name -> (clearance m, closest part), as the hard check
+    sees it, and name -> soft clearance (m, what the slow band uses: without the contact-only boxes)."""
 
     per_obstacle: dict[str, tuple[float, str]]
+    soft: dict[str, float] = field(default_factory=dict)
+
+    @property
+    def min_soft_clearance(self) -> float:
+        """Smallest soft clearance (m; inf without obstacles): below body_check.soft_margin_m a motion runs slowed.
+
+        Returns:
+            float: Clearance.
+        """
+        return min(self.soft.values(), default=math.inf)
 
     @property
     def obstacle(self) -> str:
@@ -144,7 +189,8 @@ class PoseClearance:
 
 @dataclass
 class BodyReport:
-    """Per-sample body check of a trajectory: speed scales, smallest clearance, its obstacle and part, the verdict."""
+    """Per-sample body check of a trajectory: speed scales, smallest soft clearance (without the contact-only boxes),
+    its obstacle and part, and the hard verdict."""
 
     scales: list[float]
     clearances: list[float]
@@ -299,17 +345,20 @@ class SelfCollisionChecker:
 
         Returns:
             dict[str, np.ndarray]: capsule parts -> (2 + K, 3): the capsule axis ends, then the K points on their
-                collision box faces (BOX_POINTS); 'gripper body' -> (K, 3) hull points; jaw points -> (1, 3).
+                collision box faces (BOX_POINTS); contact_key(part) -> (K, 3) contact-only box points (CONTACT_POINTS,
+                parts that have them); 'gripper body' -> (K, 3) hull points; jaw points -> (1, 3).
         """
         frames = self.kin.link_frames(joints)
         origins = {key: frames[link][:3, 3] for key, link in LINK_ORIGINS.items()}
+
+        def placed(boxes: list[tuple[str, np.ndarray]]) -> list[np.ndarray]:
+            return [points @ frames[link][:3, :3].T + frames[link][:3, 3] for link, points in boxes]
+
         out = {}
         for name, a, b, _ in CAPSULES:
-            ends = [origins[a], origins[b]]
-            for link, points in BOX_POINTS[name]:
-                frame = frames[link]
-                ends += list(points @ frame[:3, :3].T + frame[:3, 3])
-            out[name] = self.to_base_link(np.array(ends))
+            out[name] = self.to_base_link(np.vstack([origins[a], origins[b], *placed(BOX_POINTS[name])]))
+            if CONTACT_POINTS[name]:
+                out[contact_key(name)] = self.to_base_link(np.vstack(placed(CONTACT_POINTS[name])))
         gripper = frames[GRIPPER_LINK]
         out[GRIPPER_BODY] = self.to_base_link(GRIPPER_BODY_POINTS @ gripper[:3, :3].T + gripper[:3, 3])
         tool = frames[TOOL_FRAME_LINK]
@@ -322,18 +371,21 @@ class SelfCollisionChecker:
             out[name] = self.to_base_link(jaw[name][None, :])
         return out
 
-    def clearance_matrix(self, samples: list[dict[str, float]]) -> tuple[np.ndarray, np.ndarray]:
+    def clearance_matrix(
+        self, samples: list[dict[str, float]]
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Clearance of every sample to every obstacle and the closest part.
 
         Args:
             samples (list[dict[str, float]]): Joint configurations.
 
         Returns:
-            tuple[np.ndarray, np.ndarray]: (N, M) clearances (m) and (N, M) indices into CHECKED_PARTS.
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: clearances_of output.
         """
         n, m = len(samples), len(self.body.obstacles)
         if n == 0 or m == 0:
-            return np.zeros((n, m)), np.zeros((n, m), dtype=int)
+            empty, parts = np.zeros((n, m)), np.zeros((n, m), dtype=int)
+            return empty, parts, empty, parts
         return self.clearances_of(self.stacked_points(samples))
 
     def stacked_points(self, samples: list[dict[str, float]]) -> dict[str, np.ndarray]:
@@ -343,19 +395,24 @@ class SelfCollisionChecker:
             samples (list[dict[str, float]]): Joint configurations (at least one).
 
         Returns:
-            dict[str, np.ndarray]: Part name -> (N, K, 3) points (capsules: K = 2 axis ends + box points).
+            dict[str, np.ndarray]: Part key -> (N, K, 3) points (capsules: K = 2 axis ends + box points).
         """
         geometry = [self.part_points(s) for s in samples]
-        return {name: np.stack([g[name] for g in geometry]) for name in CHECKED_PARTS}
+        return {key: np.stack([g[key] for g in geometry]) for key in geometry[0]}
 
-    def clearances_of(self, stacked: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    def clearances_of(self, stacked: dict[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Clearance of stacked part points to every obstacle and the closest part.
+
+        The hard check's clearance of a contact-only box is its signed distance plus hard_margin_m (it breaks the
+        hard margin exactly when it touches); the soft clearance leaves those boxes out (they never slow a motion).
 
         Args:
             stacked (dict[str, np.ndarray]): stacked_points output.
 
         Returns:
-            tuple[np.ndarray, np.ndarray]: (N, M) clearances (m) and (N, M) indices into CHECKED_PARTS.
+            tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: (N, M) clearances (m) and (N, M) indices into
+                CHECKED_PARTS of the closest part as the hard check sees them, then the same two without the
+                contact-only boxes (the soft clearances the slow band uses).
         """
         n, m = stacked[CHECKED_PARTS[0]].shape[0], len(self.body.obstacles)
         out = np.empty((n, m, len(CHECKED_PARTS)))
@@ -367,7 +424,14 @@ class SelfCollisionChecker:
                     out[:, k, p] = np.minimum(out[:, k, p], obstacle.signed_distance(ends[:, 2:]).min(axis=1))
             for p in range(len(CAPSULES), len(CHECKED_PARTS)):
                 out[:, k, p] = obstacle.signed_distance(stacked[CHECKED_PARTS[p]]).min(axis=1)
-        return out.min(axis=2), out.argmin(axis=2)
+        soft, soft_parts = out.min(axis=2), out.argmin(axis=2)
+        for p, (name, *_rest) in enumerate(CAPSULES):
+            if contact_key(name) in stacked:
+                contact = np.stack(
+                    [o.signed_distance(stacked[contact_key(name)]).min(axis=1) for o in self.body.obstacles], axis=1
+                )
+                out[:, :, p] = np.minimum(out[:, :, p], contact + self.settings.hard_margin_m)
+        return out.min(axis=2), out.argmin(axis=2), soft, soft_parts
 
     def pose(self, joints: dict[str, float]) -> PoseClearance:
         """Clearance of one configuration to every obstacle (computed even when the check is disabled).
@@ -378,9 +442,11 @@ class SelfCollisionChecker:
         Returns:
             PoseClearance: Per obstacle (clearance, closest part).
         """
-        values, parts = self.clearance_matrix([joints])
+        values, parts, soft, _soft_parts = self.clearance_matrix([joints])
+        obstacles = self.body.obstacles
         return PoseClearance(
-            {o.name: (float(values[0, k]), CHECKED_PARTS[int(parts[0, k])]) for k, o in enumerate(self.body.obstacles)}
+            {o.name: (float(values[0, k]), CHECKED_PARTS[int(parts[0, k])]) for k, o in enumerate(obstacles)},
+            {o.name: float(soft[0, k]) for k, o in enumerate(obstacles)},
         )
 
     def path(self, samples: list[dict[str, float]], allow_escape: bool = True) -> BodyReport:
@@ -398,15 +464,15 @@ class SelfCollisionChecker:
         n = len(samples)
         if not cfg.enabled or n == 0:
             return BodyReport([NORMAL_SCALE] * n, [math.inf] * n, [""] * n, [""] * n, cfg, enabled=False)
-        values, parts = self.clearance_matrix(samples)
+        values, parts, soft, soft_parts = self.clearance_matrix(samples)
         names = [o.name for o in self.body.obstacles]
-        worst = values.argmin(axis=1)
-        clearances = [float(values[i, worst[i]]) for i in range(n)]
+        worst = soft.argmin(axis=1)
+        clearances = [float(soft[i, worst[i]]) for i in range(n)]
         report = BodyReport(
             scales=[cfg.slow_speed_scale if c < cfg.soft_margin_m else NORMAL_SCALE for c in clearances],
             clearances=clearances,
             obstacles=[names[int(worst[i])] for i in range(n)],
-            parts=[CHECKED_PARTS[int(parts[i, worst[i]])] for i in range(n)],
+            parts=[CHECKED_PARTS[int(soft_parts[i, worst[i]])] for i in range(n)],
             settings=cfg,
             hints={o.name: obstacle_hint(o, "arm", cfg) for o in self.body.obstacles},
         )

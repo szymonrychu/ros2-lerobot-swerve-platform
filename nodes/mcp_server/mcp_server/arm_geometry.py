@@ -3,7 +3,7 @@
 Link bodies are capsules between FK link origins (radius = half the STS3215 servo body each link carries, about 4 cm
 across); the gripper body and fixed jaw are a hull of points in gripper_link; the jaw points come from the floor guard
 (FloorGuard.checked_points). The body check adds the arm collision boxes of the grasp_sim MuJoCo model
-(LINK_COLLISION_BOXES) as points on their faces (box_surface_points).
+(LINK_COLLISION_BOXES) as points on their faces (box_surface_points), the upper arm boxes contact-only.
 """
 
 import math
@@ -73,22 +73,42 @@ LINK_ORIGINS = {
 
 @dataclass(frozen=True)
 class LinkBox:
-    """A collision box of an arm link: centre and orientation in the URDF link frame, half sizes (m)."""
+    """A collision box of an arm link: centre and orientation in the URDF link frame, half sizes (m); a contact-only
+    box rejects a motion only when it would touch an obstacle and never slows one."""
 
     part: str
     link: str
     pos: tuple[float, float, float]
     quat: tuple[float, float, float, float]  # MuJoCo (w, x, y, z), not necessarily normalised (as in the MJCF)
     half_size: tuple[float, float, float]
+    contact_only: bool = False
 
 
-# Collision boxes of the forearm and wrist in sim/grasp_sim/assets/so101/so101.xml (its lower_arm and wrist bodies are
-# the URDF links' frames). The body check covers them in addition to the link capsules: the boxes sit off the line
-# between the link origins (the forearm box reaches 4.8 cm from it), where the 2 cm capsules alone let plans through
-# that the sim arm ran into the lidar dome. The upper arm keeps its origin capsule only: its sim boxes stand 7 mm from
-# the measured lidar dome at the folded home and at most poses (the shoulder end, which only turns with the pan), inside
-# the 1 cm hard margin, so covering them would reject the home pose itself.
+# Collision boxes of the upper arm, forearm and wrist in sim/grasp_sim/assets/so101/so101.xml (its upper_arm,
+# lower_arm and wrist bodies are the URDF links' frames), in MJCF order. The body check covers them in addition to the
+# link capsules: the boxes sit off the line between the link origins (the forearm box reaches 4.8 cm from it), where
+# the 2 cm capsules alone let plans through that the sim arm ran into the lidar dome. The upper arm boxes are
+# contact-only: with the measured lidar dome at the assumed laser_frame position their shoulder end stands 7 mm from
+# the dome at the folded home pose and the slab passes 2..7 mm over the dome top edge at most forward reaches, so held
+# to the margins they would reject home and slow nearly every motion; the sim upper arm touched the dome only in the
+# low stair reaches, which the contact check rejects.
 LINK_COLLISION_BOXES = (
+    LinkBox(
+        "upper arm",
+        "upper_arm_link",
+        (-0.06, 0.0, 0.02),
+        (0.0, -1.0, 1.0, 0.0),
+        (0.01, 0.07, 0.03),
+        contact_only=True,
+    ),
+    LinkBox(
+        "upper arm",
+        "upper_arm_link",
+        (-0.12, -0.014, 0.0182),
+        (0.0, 1.0, 0.0, 0.0),
+        (0.01, 0.02, 0.015),
+        contact_only=True,
+    ),
     LinkBox("forearm", "lower_arm_link", (-0.05, 0.0, 0.0182), (0.0, 1.0, 0.0, 0.0), (0.07, 0.01, 0.03)),
     LinkBox("forearm", "lower_arm_link", (-0.125, 0.005, 0.018), (0.0, -1.0, 0.0, 0.0), (0.023, 0.013, 0.018)),
     LinkBox("wrist link", "wrist_link", (0.0, -0.0424, 0.0256), (1.0, 1.0, 1.0, -1.0), (0.029, 0.015, 0.018)),

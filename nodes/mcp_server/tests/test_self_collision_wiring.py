@@ -13,6 +13,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from prometheus_client import REGISTRY
 from pydantic import TypeAdapter
 
+from mcp_server import self_collision
 from mcp_server.arm import ArmController, SelfCollisionError
 from mcp_server.arm_reach import ReachEnvelope
 from mcp_server.config import BodyCheckSettings, McpServerConfig
@@ -151,7 +152,7 @@ def valid_starts() -> list[dict[str, float]]:
     checker = SelfCollisionChecker.from_config(KIN, CONFIG, JAW)
     starts = []
     for x, y, z, p in itertools.product(
-        [0.0, 0.1, 0.2, 0.3], [-0.3, -0.2, -0.1, 0.1, 0.2, 0.3], [0.0, 0.05, 0.12, 0.2], [0.0, 0.8, 1.57]
+        [0.0, 0.1, 0.2, 0.25, 0.3], [-0.3, -0.2, -0.1, 0.1, 0.2, 0.3], [0.0, 0.05, 0.12, 0.2], [0.0, 0.8, 1.57]
     ):
         try:
             joints = solve_base_link(x, y, z, p)
@@ -365,6 +366,15 @@ def test_reach_envelope_cache_is_invalidated_by_changed_inputs(tmp_path: Path) -
     broken = ReachEnvelope(arm.body_check, CONFIG.body_check, cache)
     broken.start()
     assert broken.get(30.0) is not None and broken.compute_count == 1
+
+
+def test_reach_envelope_cache_key_covers_the_arm_link_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A changed arm link model (the collision boxes the check covers) invalidates the cached envelope: a server
+    updated with new link boxes must not serve the envelope of the old ones."""
+    arm, _ = make(tmp_path, clear_pose())
+    before = ReachEnvelope(arm.body_check, CONFIG.body_check).cache_key()
+    monkeypatch.setattr(self_collision, "LINK_COLLISION_BOXES", self_collision.LINK_COLLISION_BOXES[2:])
+    assert ReachEnvelope(arm.body_check, CONFIG.body_check).cache_key() != before
 
 
 def test_get_arm_reach_envelope_is_started_when_the_server_is_built(tmp_path: Path) -> None:

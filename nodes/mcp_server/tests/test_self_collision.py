@@ -79,8 +79,11 @@ def test_checked_parts_cover_links_hull_and_jaws() -> None:
 
 
 def test_clear_pose_has_full_clearance() -> None:
+    """Outside the slow band; the hard check's clearance is lower (the upper arm box passes 1.5 cm over the dome top
+    edge, contact-only: it counts its distance plus the hard margin) but clear of the hard margin."""
     check = CHECKER.pose(clear_pose())
-    assert check.min_clearance > CONFIG.body_check.soft_margin_m
+    assert check.min_soft_clearance > CONFIG.body_check.soft_margin_m
+    assert check.min_clearance > CONFIG.body_check.hard_margin_m
     assert set(check.per_obstacle) == {o.name for o in CHECKER.body.obstacles}
 
 
@@ -112,9 +115,11 @@ def test_low_over_front_wheel_hits_the_wheel() -> None:
 @pytest.mark.parametrize("touch", [t["name"] for t in TOUCHES])
 def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
     """The 2026-10-10 tip touch-downs (deployed offsets) are in front of the robot on the floor: never rejected, except
-    t2 and t4 (front-left): with the measured lidar dome the forearm (its sim collision box) comes within 4 mm of the
-    dome at t2 and dips 3.5 mm into it at t4. The arm reached both on the robot, so the dome model (a full-radius
-    cylinder up to the top face, at the assumed laser_frame position) or the FK is that much conservative there."""
+    t2 and t4 (front-left): with the measured lidar dome the forearm (its sim collision box face points) comes within
+    a few mm of the dome at t2 and dips 22 mm into it at t4. The arm reached both on the robot without touching the
+    lidar, so the dome model (a full-radius cylinder up to the top face, at the assumed laser_frame position
+    (0.158, 0.06)) is that much conservative there: the lidar position or radius needs re-measuring. The bound pins
+    the penetration below 3 cm so a regression that grows it further still fails."""
     cfg = deployed_config()
     kin = ArmKinematics(
         cfg.arm.urdf_path,
@@ -133,7 +138,7 @@ def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
     check = checker.pose(joints)
     if touch in LIDAR_REJECTED_TOUCHES:
         assert check.obstacle == "lidar" and check.part in ("upper arm", "forearm")
-        assert -0.01 < check.min_clearance < cfg.body_check.hard_margin_m
+        assert -0.03 < check.min_clearance < cfg.body_check.hard_margin_m
     else:
         assert check.min_clearance > cfg.body_check.hard_margin_m
 
@@ -163,13 +168,13 @@ def beside_lidar(z: float) -> dict[str, float]:
 
 def hover_over_lidar() -> dict[str, float]:
     """Tool beside the dome edge, lowered in 2 mm steps from just above the dome top until the closest link is
-    inside the slow band."""
+    inside the slow band (its soft clearance)."""
     z = LIDAR.z_max + 0.008
     while z > LIDAR.z_max - 0.06:
         joints = beside_lidar(z)
-        clearance = CHECKER.pose(joints).per_obstacle["lidar"][0]
-        if clearance < (CONFIG.body_check.soft_margin_m + CONFIG.body_check.hard_margin_m) / 2.0:
-            assert clearance > CONFIG.body_check.hard_margin_m
+        check = CHECKER.pose(joints)
+        if check.soft["lidar"] < (CONFIG.body_check.soft_margin_m + CONFIG.body_check.hard_margin_m) / 2.0:
+            assert check.per_obstacle["lidar"][0] > CONFIG.body_check.hard_margin_m
             return joints
         z -= 0.002
     raise AssertionError("no hover pose in the slow band")
@@ -190,7 +195,7 @@ def inside_lidar_margin() -> dict[str, float]:
 def test_path_near_the_lidar_is_slowed_not_rejected() -> None:
     """Lowering the tool beside the dome from above its top: the end runs slow, nothing is rejected."""
     above = beside_lidar(LIDAR.z_max + 0.008)
-    assert CHECKER.pose(above).min_clearance > CONFIG.body_check.soft_margin_m
+    assert CHECKER.pose(above).min_soft_clearance > CONFIG.body_check.soft_margin_m
     samples = joint_line(above, hover_over_lidar(), 0.01)
     report = CHECKER.path(samples)
     assert not report.rejected
@@ -206,7 +211,7 @@ def test_path_near_the_lidar_is_slowed_not_rejected() -> None:
 
 def test_clear_path_is_neither_slowed_nor_rejected() -> None:
     goal = solve_base_link(0.30, -0.05, 0.25, 0.6)  # 10 cm above the clear pose
-    assert CHECKER.pose(goal).min_clearance > CONFIG.body_check.soft_margin_m
+    assert CHECKER.pose(goal).min_soft_clearance > CONFIG.body_check.soft_margin_m
     report = CHECKER.path(joint_line(clear_pose(), goal, 0.02))
     assert not report.rejected
     assert report.summary() is None

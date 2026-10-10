@@ -30,7 +30,7 @@ import numpy as np
 from .config import BodyCheckSettings
 from .floor_guard import arm_to_base_link, base_link_to_arm
 from .ik import UnreachableError
-from .self_collision import SelfCollisionChecker
+from .self_collision import SelfCollisionChecker, link_model_description
 
 SHOULDER_PAN = "shoulder_pan"
 ENVELOPE_JOINTS = ("shoulder_lift", "elbow_flex")
@@ -112,6 +112,7 @@ class ReachEnvelope:
         inputs = {
             "version": CACHE_VERSION,
             "body": self.checker.body.describe(),
+            "links": link_model_description(),
             "mount": self.checker.mount.model_dump(),
             "limits": {k: list(v) for k, v in sorted(kin.limits.items())},
             "offsets": dict(sorted(kin.offsets.items())),
