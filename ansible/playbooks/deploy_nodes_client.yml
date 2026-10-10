@@ -343,6 +343,15 @@
             _deploy_node_name: slam_toolbox
           tags: [slam_toolbox, apt, python, build, config]
 
+        - name: Deploy map_guard
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [map_guard]
+          vars:
+            _deploy_node_name: map_guard
+          tags: [map_guard, apt, python, build, config]
+
         - name: Deploy nav2_bringup
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml
