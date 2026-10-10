@@ -30,6 +30,7 @@ class RelayConfig:
         var_vx_vy: Variance of vx and vy, (m/s)^2.
         var_vyaw: Variance of the yaw rate, (rad/s)^2.
         max_dt_s: Largest time between two rf2o poses that still yields a twist, s.
+        metrics_port: Prometheus /metrics port on 127.0.0.1; None disables the exporter.
     """
 
     input_topic: str
@@ -37,6 +38,7 @@ class RelayConfig:
     var_vx_vy: float
     var_vyaw: float
     max_dt_s: float
+    metrics_port: int | None = None
 
 
 def load_config(path: Path | None = None) -> RelayConfig | None:
@@ -54,12 +56,14 @@ def load_config(path: Path | None = None) -> RelayConfig | None:
     data = yaml.safe_load(path.read_text())
     if not isinstance(data, dict):
         return None
+    raw_port = data.get("metrics_port")
     return RelayConfig(
         input_topic=str(data.get("input_topic") or DEFAULT_INPUT_TOPIC).strip(),
         output_topic=str(data.get("output_topic") or DEFAULT_OUTPUT_TOPIC).strip(),
         var_vx_vy=max(1e-6, float(data.get("var_vx_vy", DEFAULT_VAR_VX_VY))),
         var_vyaw=max(1e-6, float(data.get("var_vyaw", DEFAULT_VAR_VYAW))),
         max_dt_s=max(0.01, float(data.get("max_dt_s", DEFAULT_MAX_DT_S))),
+        metrics_port=int(raw_port) if raw_port is not None else None,
     )
 
 

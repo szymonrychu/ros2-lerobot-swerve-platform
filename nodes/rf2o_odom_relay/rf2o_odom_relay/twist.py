@@ -3,6 +3,8 @@
 import math
 from dataclasses import dataclass
 
+from .metrics import DT_REJECTED, MESSAGES
+
 # Default upper bound on the time between two poses that still yields a twist, s.
 DEFAULT_MAX_DT_S = 1.0
 # nav_msgs/Odometry twist covariance is a row-major 6x6: x, y, z, roll, pitch, yaw.
@@ -68,6 +70,25 @@ def body_twist(
     cos_yaw = math.cos(mid_yaw)
     sin_yaw = math.sin(mid_yaw)
     return ((cos_yaw * dx + sin_yaw * dy) / dt, (-sin_yaw * dx + cos_yaw * dy) / dt, dyaw / dt)
+
+
+def relay_twist(previous: PoseSample, current: PoseSample, max_dt_s: float) -> tuple[float, float, float] | None:
+    """body_twist plus the relay counters: published messages and time-step rejections.
+
+    Args:
+        previous: Earlier pose.
+        current: Later pose.
+        max_dt_s: Largest usable time step, s.
+
+    Returns:
+        tuple[float, float, float] | None: Same as body_twist.
+    """
+    twist = body_twist(previous, current, max_dt_s)
+    if twist is None:
+        DT_REJECTED.inc()
+    else:
+        MESSAGES.inc()
+    return twist
 
 
 def twist_covariance(var_vx_vy: float, var_vyaw: float) -> list[float]:

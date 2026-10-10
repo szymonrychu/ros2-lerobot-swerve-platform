@@ -6,10 +6,12 @@ import rclpy
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from ros2_metrics import resolve_metrics_port, start_metrics_server
 
 from .config import RelayConfig
-from .twist import PoseSample, body_twist, twist_covariance
+from .twist import PoseSample, relay_twist, twist_covariance
 
+NODE_NAME = "rf2o_odom_relay"
 QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
 
 
@@ -34,8 +36,9 @@ def run_relay(config: RelayConfig) -> None:
     Args:
         config: Relay configuration.
     """
+    start_metrics_server(resolve_metrics_port(config.metrics_port), NODE_NAME)
     rclpy.init()
-    node = Node("rf2o_odom_relay")
+    node = Node(NODE_NAME)
     publisher = node.create_publisher(Odometry, config.output_topic, QOS)
     covariance = twist_covariance(config.var_vx_vy, config.var_vyaw)
     previous: list[PoseSample] = []
@@ -46,7 +49,7 @@ def run_relay(config: RelayConfig) -> None:
         previous[:] = [current]
         if last is None:
             return
-        twist = body_twist(last, current, config.max_dt_s)
+        twist = relay_twist(last, current, config.max_dt_s)
         if twist is None:
             return
         out = Odometry()

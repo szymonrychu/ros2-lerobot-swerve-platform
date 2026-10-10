@@ -26,6 +26,18 @@ lateral speed of the holonomic base to zero. The pose is correct, so the relay d
 | `var_vyaw` | `0.05` | (rad/s)^2. Large against the gyro (0.0004); the EKF does not fuse the rf2o yaw rate anyway. |
 | `max_dt_s` | `1.0` | Largest usable gap between two rf2o poses, s. |
 
+## Metrics
+
+Prometheus exporter on `127.0.0.1:19108/metrics` (ros2_nodes name `rf2o_odom_relay`), served by `ros2-metrics`
+(`shared/ros2_metrics`) in a daemon thread. Config key `metrics_port` (top level of the config YAML; int, default unset =
+exporter disabled; env `METRICS_PORT` is used when the key is absent). The helper also registers `robot_node_info{node}`
+and `robot_node_start_time_seconds{node}`. Metric objects live in `metrics.py`.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `relay_messages_total` | counter |  | Twist messages published. |
+| `relay_dt_rejected_total` | counter |  | Pose pairs dropped because the time step was not in (0, `max_dt_s`]. |
+
 ## Develop
 
 ```bash
