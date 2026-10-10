@@ -1,6 +1,7 @@
 """Propose CPUQuota / MemoryMax / MemoryHigh for the ros2-* systemd units from Prometheus history.
 
-Reads scripts/propose_unit_limits.yaml (pydantic-validated), queries the Prometheus HTTP API for the per-unit cgroup
+Reads scripts/propose_unit_limits.yaml (pydantic-validated), queries the Prometheus HTTP API (the server's Mimir at
+/prometheus, which stores the series of both hosts under a `host` label) for one host's per-unit cgroup
 CPU and memory metrics (container_cpu_usage_seconds_total, container_memory_working_set_bytes) and compares them
 with the limits configured in ansible/group_vars/client.yml. It prints a table (or YAML) and never edits any file.
 
@@ -52,7 +53,9 @@ TABLE_COLUMNS = (
 class Settings(BaseModel):
     """Validated contents of propose_unit_limits.yaml."""
 
-    prometheus_url: str = "http://client.ros2.lan:9090"
+    prometheus_url: str = "http://server.ros2.lan:9009/prometheus"
+    # Value of the `host` label (Alloy external label) whose units are proposed: client (robot) or server.
+    host: str = Field(default="client", pattern=r"^[A-Za-z0-9_.-]+$")
     window: str = Field(default="24h", pattern=r"^\d+[smhdwy]$")
     percentile: float = Field(default=0.99, gt=0, le=1)
     cpu_margin: float = Field(default=1.5, gt=0)
@@ -251,15 +254,15 @@ def load_node_limits(path: Path) -> dict[str, NodeLimits]:
 
 
 def build_queries(settings: Settings) -> Queries:
-    """Build the PromQL for p99 CPU (cores), p99 and max memory working set.
+    """Build the PromQL for p99 CPU (cores), p99 and max memory working set of one host's units.
 
     Args:
-        settings (Settings): Window and percentile.
+        settings (Settings): Window, percentile and host label value.
 
     Returns:
         Queries: The three expressions.
     """
-    selector = f'id=~"{CGROUP_ID_REGEX}"'
+    selector = f'host="{settings.host}", id=~"{CGROUP_ID_REGEX}"'
     cpu_rate = f"sum by (id) (rate(container_cpu_usage_seconds_total{{{selector}}}[{CPU_RATE_WINDOW}]))"
     memory = f"container_memory_working_set_bytes{{{selector}}}"
     return Queries(

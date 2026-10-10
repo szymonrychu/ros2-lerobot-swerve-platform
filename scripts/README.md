@@ -151,7 +151,7 @@ Read-only health check of the swerve drive on the client: service states (`lerob
 
 ## propose_unit_limits.py
 
-Prints proposed `CPUQuota`, `MemoryMax` and `MemoryHigh` for the `ros2-*` systemd units from Prometheus history (p99 CPU, p99/max memory working set) next to the limits configured in `ansible/group_vars/client.yml`, flagging units whose limit is below the observed usage. Configured by `scripts/propose_unit_limits.yaml` (Prometheus URL, window, percentile, margins, minimums, `format: table|yaml`); read-only, it never edits `client.yml`. See `ansible/README.md` (Cgroup weights and priority tiers).
+Prints proposed `CPUQuota`, `MemoryMax` and `MemoryHigh` for the `ros2-*` systemd units from metrics history (p99 CPU, p99/max memory working set) next to the limits configured in `ansible/group_vars/client.yml`, flagging units whose limit is below the observed usage. It queries the Prometheus API of the server's Mimir (`prometheus_url: http://server.ros2.lan:9009/prometheus`, 1 d retention), which stores both hosts' series, and selects one host with `host: client` (the `host` label set by Alloy; use `server` together with `group_vars_path: ansible/group_vars/server.yml` for the server's units). Configured by `scripts/propose_unit_limits.yaml` (URL, host, window, percentile, margins, minimums, `format: table|yaml`); read-only, it never edits `client.yml`. See `ansible/README.md` (Cgroup weights and priority tiers).
 
 ```bash
 uv run python scripts/propose_unit_limits.py

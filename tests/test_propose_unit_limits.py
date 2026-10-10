@@ -5,6 +5,7 @@ import pytest
 import yaml
 
 from scripts.propose_unit_limits import (
+    DEFAULT_CONFIG,
     Settings,
     build_queries,
     build_rows,
@@ -72,7 +73,9 @@ def settings(**overrides: object) -> Settings:
 
 def test_settings_defaults() -> None:
     cfg = settings()
-    assert cfg.prometheus_url == "http://client.ros2.lan:9090"
+    # Mimir on the server stores the robot's metrics; its Prometheus API lives under /prometheus.
+    assert cfg.prometheus_url == "http://server.ros2.lan:9009/prometheus"
+    assert cfg.host == "client"
     assert cfg.window == "24h"
     assert cfg.percentile == 0.99
     assert (cfg.cpu_margin, cfg.mem_margin) == (1.5, 1.5)
@@ -86,6 +89,13 @@ def test_load_settings_from_yaml(tmp_path) -> None:
     path.write_text(yaml.safe_dump({"window": "24h", "format": "yaml"}))
     cfg = load_settings(path)
     assert cfg.window == "24h" and cfg.format == "yaml"
+
+
+def test_shipped_yaml_queries_the_robot_series_in_mimir() -> None:
+    """scripts/propose_unit_limits.yaml points at the server's Mimir and selects the robot's series (host label)."""
+    cfg = load_settings(DEFAULT_CONFIG)
+    assert cfg.prometheus_url == "http://server.ros2.lan:9009/prometheus"
+    assert cfg.host == "client"
 
 
 def test_settings_reject_bad_values() -> None:
@@ -175,6 +185,14 @@ def test_build_queries_use_window_and_percentile() -> None:
     assert "container_memory_working_set_bytes" in queries.mem_p
     assert "max_over_time" in queries.mem_max and "[12h]" in queries.mem_max
     assert "/system.slice/ros2-.*.service" in queries.cpu_p
+
+
+def test_build_queries_select_the_configured_host() -> None:
+    """Mimir holds both hosts' series: every selector carries host="<host>" (default client, configurable)."""
+    for host in ("client", "server"):
+        queries = build_queries(settings(host=host))
+        for expr in (queries.cpu_p, queries.mem_p, queries.mem_max):
+            assert f'host="{host}"' in expr, expr
 
 
 def test_build_rows_proposals_and_flags(tmp_path) -> None:
