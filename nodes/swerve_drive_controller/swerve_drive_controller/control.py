@@ -1,5 +1,6 @@
 """Pure per-cycle control logic for the swerve controller (no rclpy imports, unit-testable)."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from .config import SwerveControllerConfig
@@ -11,6 +12,7 @@ from .kinematics import (
     wheel_states,
     wheels_parked,
 )
+from .metrics import CMD_VEL_AGE, JOINT_STATES_STALE, LOOP_DURATION, ODOM_PUBLISHED, SLIP_RESIDUAL
 
 CMD_VEL_DEADBAND = 0.005  # m/s and rad/s
 NAN = float("nan")
@@ -133,7 +135,10 @@ def control_step(
     steer_joints = [names[1], names[3], names[5], names[7]]
     drive_joints = [names[0], names[2], names[4], names[6]]
     measured = wheel_states(joints.positions, joints.velocities, steer_joints, drive_joints)
+    if cmd.time_s > 0.0:
+        CMD_VEL_AGE.set(now - cmd.time_s)
     if measured is None or now - joints.time_s > config.joint_states_timeout_s:
+        JOINT_STATES_STALE.inc()
         return None, replace(state, last_odom_time=None)
     steer_angles, drive_velocities = measured
 
@@ -173,6 +178,7 @@ def control_step(
         config.wheel_radius_m,
         config.slip_residual_threshold_mps,
     )
+    SLIP_RESIDUAL.set(residual)
     pose = state.pose
     if state.last_odom_time is not None:
         pose = integrate_odometry(pose, twist, now - state.last_odom_time)
@@ -194,3 +200,34 @@ def control_step(
         steer_flip=steer_flip,
         stopped_since=stopped_since,
     )
+
+
+def run_cycle(
+    config: SwerveControllerConfig,
+    state: ControlState,
+    cmd: CmdVelSample,
+    joints: JointSample,
+    now: float,
+    publish: Callable[[ControlOutput, ControlState], None],
+) -> tuple[ControlState, bool]:
+    """Run one timed control cycle: control_step, then publish when there is an output.
+
+    Args:
+        config: Controller configuration.
+        state: State from the previous cycle.
+        cmd: Latest cmd_vel and its receive time.
+        joints: Latest joint states and their update time.
+        now: Current monotonic time, s.
+        publish: Called with (output, new state) when joint states are fresh and complete; publishes the
+            joint command, odometry and TF. Odometry is counted after it returns.
+
+    Returns:
+        tuple[ControlState, bool]: State for the next cycle and whether anything was published.
+    """
+    with LOOP_DURATION.time():
+        output, new_state = control_step(config, state, cmd, joints, now)
+        if output is None:
+            return new_state, False
+        publish(output, new_state)
+        ODOM_PUBLISHED.inc()
+    return new_state, True

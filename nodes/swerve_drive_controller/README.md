@@ -82,6 +82,21 @@ uv run python scripts/calibrate_servos.py center --device /dev/serial/by-id/usb-
 # repeat for --id 34, 37, 38
 ```
 
+## Metrics
+
+Prometheus exporter on `127.0.0.1:19107/metrics` (ros2_nodes name `swerve_controller`), served by `ros2-metrics`
+(`shared/ros2_metrics`) in a daemon thread. Config key `metrics_port` (top level of the config YAML; int, default unset =
+exporter disabled; env `METRICS_PORT` is used when the key is absent). The helper also registers `robot_node_info{node}`
+and `robot_node_start_time_seconds{node}`. Metric objects live in `metrics.py`.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `swerve_cmd_vel_age_seconds` | gauge |  | Seconds since the last cmd_vel, every cycle; unset before the first message. |
+| `swerve_joint_states_stale_total` | counter |  | Cycles skipped because the joint states were stale or incomplete (nothing is published then). |
+| `swerve_slip_residual` | gauge |  | Wheel-consistency residual of the measured twist, m/s. |
+| `swerve_loop_duration_seconds` | histogram |  | Duration of one timer cycle including publishing; buckets 0.2 ms to 100 ms. |
+| `swerve_odom_published_total` | counter |  | Odometry messages published. |
+
 ## Build and run
 
 Ansible deploys this node on the client as `swerve_controller`. Locally: `cd nodes/swerve_drive_controller && uv sync && uv run python -m swerve_drive_controller` (with config and ROS2 sourced). Tests: `uv run pytest tests/ -v`.

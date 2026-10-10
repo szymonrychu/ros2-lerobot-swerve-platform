@@ -8,13 +8,15 @@ from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import JointState
 from tf2_ros import TransformBroadcaster
 
 from .config import SwerveControllerConfig
-from .control import CmdVelSample, ControlOutput, ControlState, JointSample, control_step
+from .control import CmdVelSample, ControlOutput, ControlState, JointSample, run_cycle
 from .kinematics import odometry_twist_variances
 
+NODE_NAME = "swerve_controller"
 WAIT_LOG_INTERVAL_S = 5.0
 
 CONTROL_QOS = QoSProfile(
@@ -121,6 +123,7 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
     Args:
         config: Controller configuration.
     """
+    start_metrics_server(resolve_metrics_port(config.metrics_port), NODE_NAME)
     rclpy.init()
     node = Node("swerve_drive_controller")
     clock = node.get_clock()
@@ -148,17 +151,7 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
         latest_velocities.update(velocities)
         last_joint_states_time = time.monotonic()
 
-    def on_timer() -> None:
-        nonlocal state, last_wait_log
-        now = time.monotonic()
-        joints = JointSample(latest_positions, latest_velocities, last_joint_states_time)
-        output, state = control_step(config, state, latest_cmd, joints, now)
-        if output is None:
-            # No fresh, complete wheel state: publish nothing (bridge watchdog stops the wheels).
-            if now - last_wait_log > WAIT_LOG_INTERVAL_S:
-                last_wait_log = now
-                logger.warn(f"Waiting for fresh joint states on {config.joint_states_topic}")
-            return
+    def publish_cycle(output: ControlOutput, new_state: ControlState) -> None:
         stamp = clock.now().to_msg()
         cmd = JointState()
         cmd.header.stamp = stamp
@@ -166,9 +159,19 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
         cmd.position = output.positions
         cmd.velocity = output.velocities
         pub_cmd.publish(cmd)
-        pub_odom.publish(build_odometry(config, output, state.pose, stamp))
+        pub_odom.publish(build_odometry(config, output, new_state.pose, stamp))
         if tf_broadcaster is not None:
-            tf_broadcaster.sendTransform(build_transform(config, state.pose, stamp))
+            tf_broadcaster.sendTransform(build_transform(config, new_state.pose, stamp))
+
+    def on_timer() -> None:
+        nonlocal state, last_wait_log
+        now = time.monotonic()
+        joints = JointSample(latest_positions, latest_velocities, last_joint_states_time)
+        # Nothing is published without fresh, complete wheel state (the bridge watchdog stops the wheels).
+        state, published = run_cycle(config, state, latest_cmd, joints, now, publish_cycle)
+        if not published and now - last_wait_log > WAIT_LOG_INTERVAL_S:
+            last_wait_log = now
+            logger.warn(f"Waiting for fresh joint states on {config.joint_states_topic}")
 
     node.create_subscription(Twist, config.cmd_vel_topic, on_cmd_vel, CONTROL_QOS)
     node.create_subscription(JointState, config.joint_states_topic, on_joint_states, CONTROL_QOS)

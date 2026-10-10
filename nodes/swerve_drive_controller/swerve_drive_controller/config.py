@@ -86,6 +86,7 @@ class SwerveControllerConfig:
     publish_tf: bool
     imu_offset_xyyaw: tuple[float, float, float]
     rplidar_offset_xyyaw: tuple[float, float, float]
+    metrics_port: int | None = None
 
 
 def parse_bool(value: Any, default: bool) -> bool:
@@ -189,6 +190,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
     imu_offset_xyyaw = _parse_offset(data.get("imu_offset_xyyaw"))
     rplidar_offset_xyyaw = _parse_offset(data.get("rplidar_offset_xyyaw"))
 
+    raw_metrics_port = data.get("metrics_port")
     return SwerveControllerConfig(
         half_length_m=half_length_m,
         half_width_m=half_width_m,
@@ -212,6 +214,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
         publish_tf=publish_tf,
         imu_offset_xyyaw=imu_offset_xyyaw,
         rplidar_offset_xyyaw=rplidar_offset_xyyaw,
+        metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
     )
 
 
