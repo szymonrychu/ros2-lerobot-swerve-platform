@@ -167,6 +167,23 @@ def test_jaw_model_gap_grows_with_opening_and_inverts() -> None:
     assert tip_closed == pytest.approx([tool.x, tool.y, tool.z], abs=1e-6)
 
 
+def test_jaw_inner_gap_at_the_tips_is_the_tip_gap_and_narrows_deeper_into_the_jaws() -> None:
+    """The moving jaw face is tilted once open (MOVING_JAW_INNER_PROFILE): 2026-10-10 jar case in the sim, the moving jaw
+    mesh touched a 39 mm jar 2.75 cm into the jaws at 0.534 rad where the tips stood 54 mm apart."""
+    jaw = JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
+    for angle in (0.0, 0.336, 0.534):  # 3 mm in: the pads just behind the rounded tips
+        assert jaw.inner_gap(angle, 0.003) == pytest.approx(jaw.gap(angle), abs=0.0025)
+    assert jaw.inner_gap(0.534, 0.0) == math.inf  # the open tips retract: no jaw beside an object only at the tips
+    gaps = [jaw.inner_gap(0.534, depth) for depth in (0.0, 0.01, 0.0275, 0.042)]
+    assert gaps == sorted(gaps, reverse=True)
+    assert gaps[2] == pytest.approx(0.0465, abs=0.005)  # sim contact: 46.5 mm (the model is the tighter of the two)
+    assert gaps[3] < jaw.gap(0.534) - 0.012
+    angle = jaw.angle_for_inner_gap(0.0465, 0.042)
+    assert jaw.inner_gap(angle, 0.042) == pytest.approx(0.0465, abs=1e-4)
+    assert angle > jaw.angle_for_gap(0.0465)
+    assert jaw.angle_for_inner_gap(0.0465, 0.003) == pytest.approx(jaw.angle_for_gap(0.0465), abs=0.05)
+
+
 def test_step_scales_take_the_slower_end_of_each_step() -> None:
     assert step_scales([1.0, 1.0, 0.2, 1.0]) == [1.0, 0.2, 0.2]
     assert step_scales([1.0]) == []

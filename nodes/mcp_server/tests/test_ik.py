@@ -299,6 +299,12 @@ def test_grasp_offset_scales_the_normalised_open_axis() -> None:
     assert grasp_offset(0.06, (0.0, 0.6, 0.8)) == pytest.approx((0.0, 0.018, 0.024))
 
 
+def test_grasp_offset_adds_the_fixed_jaw_clearance_beyond_the_half_width() -> None:
+    # 40 mm object, fixed jaw 7.5 mm off its side face: the opening centre (object centre) is 27.5 mm from the tool point
+    assert grasp_offset(0.04, (-1.0, 0.0, 0.0), 0.0075) == pytest.approx((-0.0275, 0.0, 0.0))
+    assert grasp_offset(0.06, (0.0, 0.6, 0.8), 0.01) == pytest.approx((0.0, 0.024, 0.032))
+
+
 # --- joint limit overrides ---
 
 

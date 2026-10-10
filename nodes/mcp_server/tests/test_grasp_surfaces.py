@@ -22,6 +22,7 @@ SCRIPT = Path(__file__).resolve().parents[3] / "sim" / "grasp_sim" / "scripts" /
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 STEP_M = 0.10
 EDGE_BEFORE_OBJECT_M = 0.08  # the sim scene's default support margin
+WRIST_HITS_STEP_PITCH_DEG = 50.0  # angled pitch whose wrist crosses the stair edge for the 4 cm box at x 0.30
 
 
 def load_script() -> ModuleType:
@@ -85,16 +86,20 @@ def link_clearance(p: GraspPlan, surf: SurfaceModel, part: str | None = None) ->
 
 
 def test_single_surface_angled_plan_runs_the_wrist_into_the_step() -> None:
-    """The matrix case that hits the step in the sim: feasible with one flat surface, but its wrist crosses the edge."""
+    """The matrix case that hit the step in the sim (45 deg before the jaw opening was centred on the object; with the
+    7.5 mm fixed-jaw clearance 45 deg is out of reach there, 50 deg is the same failure): feasible with one flat
+    surface, but its wrist crosses the edge."""
     obj = stair_box()
-    flat = plan(obj, "angled", flat_stair(), 45.0)
-    assert flat.feasible and flat.approach_pitch_rad == pytest.approx(math.radians(45.0))
+    flat = plan(obj, "angled", flat_stair(), WRIST_HITS_STEP_PITCH_DEG)
+    assert flat.feasible and flat.approach_pitch_rad == pytest.approx(math.radians(WRIST_HITS_STEP_PITCH_DEG))
     assert link_clearance(flat, surface([stair(obj.x - EDGE_BEFORE_OBJECT_M)])) < PARAMS.surface_link_clearance_m
 
 
 def test_step_edge_rejects_the_candidate_with_a_reason_naming_the_edge() -> None:
     obj = stair_box()
-    result = plan(obj, "angled", surface([stair(obj.x - EDGE_BEFORE_OBJECT_M)]), 45.0, step_pitches_deg=[])
+    result = plan(
+        obj, "angled", surface([stair(obj.x - EDGE_BEFORE_OBJECT_M)]), WRIST_HITS_STEP_PITCH_DEG, step_pitches_deg=[]
+    )
     assert not result.feasible
     assert any("step edge of 'stair'" in r for r in result.reasons), result.reasons
 

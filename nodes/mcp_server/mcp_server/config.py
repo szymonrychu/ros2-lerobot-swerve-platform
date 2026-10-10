@@ -832,6 +832,10 @@ class GraspSettings(StrictModel):
     retreat_distance_m: float = Field(default=0.05, ge=0.0, le=0.3)
     jaw_thickness_m: float = Field(default=0.008, gt=0.0, le=0.05)  # fixed jaw thickness below its inner face
     jaw_open_margin_m: float = Field(default=0.015, ge=0.0, le=0.05)  # opening beyond the gripped size
+    # angled / top_down centre the jaw opening on the object: each jaw clears its side face by
+    # max(jaw_open_margin_m / 2, fixed_jaw_clearance_m) (the opening grows when this minimum is larger). Before
+    # 2026-10-10 the fixed jaw went onto the side face with 0 clearance and tipped a 39 mm jar over on approach.
+    fixed_jaw_clearance_m: float = Field(default=0.0075, ge=0.0, le=0.03)
     below_object_offset_m: float = Field(default=0.005, ge=0.0, le=0.05)  # scoop: fixed jaw top below object bottom
     skim_clearance_m: float = Field(default=0.003, ge=0.0, le=0.05)  # scoop: fixed jaw bottom above the surface
     max_object_width_m: float = Field(default=0.08, gt=0.0, le=0.12)  # widest opening the jaws can use

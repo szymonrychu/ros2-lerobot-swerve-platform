@@ -167,15 +167,18 @@ def test_result_reports_the_jaw_centre_and_the_tool_point_of_a_centred_grasp(
     assert plan.center_width_m == pytest.approx(OBJECT["width_m"])
     shift = result.plan["grasp_shift"]
     assert shift["object_width_m"] == pytest.approx(OBJECT["width_m"])
-    assert shift["shift_m"] == pytest.approx(OBJECT["width_m"] / 2.0)
+    clearance = cfg.grasp.fixed_jaw_clearance_m
+    assert shift["fixed_jaw_clearance_m"] == pytest.approx(clearance)
+    assert shift["shift_m"] == pytest.approx(OBJECT["width_m"] / 2.0 + clearance)
     assert shift["jaw_open_axis"] == list(cfg.arm.jaw_open_axis)
     grasp_wp = next(w for w in result.plan["waypoints"] if w["label"] == "grasp")
-    # the waypoint x, y, z is the jaw centre (object centre); tool_point is the fixed jaw, half the width beside it
+    # the waypoint x, y, z is the jaw centre (object centre); tool_point is the fixed jaw, half the width plus the
+    # fixed-jaw clearance beside it
     tool = grasp_wp["tool_point"]
     gap = (
         (tool["x"] - grasp_wp["x"]) ** 2 + (tool["y"] - grasp_wp["y"]) ** 2 + (tool["z"] - grasp_wp["z"]) ** 2
     ) ** 0.5
-    assert gap == pytest.approx(OBJECT["width_m"] / 2.0, abs=0.002)
+    assert gap == pytest.approx(shift["shift_m"], abs=0.002)
     wp = {w.label: w for w in plan.waypoints}
     fk = KIN.forward(wp["grasp"].joints)
     assert (tool["x"], tool["y"], tool["z"]) == pytest.approx((fk.x, fk.y, fk.z), abs=1e-3)
@@ -183,7 +186,7 @@ def test_result_reports_the_jaw_centre_and_the_tool_point_of_a_centred_grasp(
     held = result.held_pose
     assert held is not None
     centre = KIN.forward(
-        {j: be.positions[j] for j in ARM_JOINTS}, grasp_offset(OBJECT["width_m"], cfg.arm.jaw_open_axis)
+        {j: be.positions[j] for j in ARM_JOINTS}, grasp_offset(OBJECT["width_m"], cfg.arm.jaw_open_axis, clearance)
     )
     assert (held["jaw_centre"]["x"], held["jaw_centre"]["y"]) == pytest.approx((centre.x, centre.y), abs=1e-3)
     retreat = next(w for w in result.plan["waypoints"] if w["label"] == "retreat")

@@ -59,21 +59,25 @@ def load_joint_limits(urdf_path: Path) -> dict[str, tuple[float, float]]:
     return limits
 
 
-def grasp_offset(object_width_m: float, jaw_open_axis: tuple[float, float, float]) -> tuple[float, float, float]:
+def grasp_offset(
+    object_width_m: float, jaw_open_axis: tuple[float, float, float], fixed_jaw_clearance_m: float = 0.0
+) -> tuple[float, float, float]:
     """Extra tool offset that makes the controlled point the centre between the jaws of an object.
 
-    The configured tool point is the fixed jaw's inner face; the object centre lies half its width away in the
-    direction the moving jaw opens.
+    The configured tool point is the fixed jaw's inner face; the object centre lies half its width plus the clearance
+    left between the fixed jaw and the object's side face away, in the direction the moving jaw opens.
 
     Args:
         object_width_m (float): Object width across the jaws (m).
         jaw_open_axis (tuple[float, float, float]): Unit opening direction in gripper_frame_link.
+        fixed_jaw_clearance_m (float): Gap between the fixed jaw inner face and the object side face (m); 0 puts the
+            fixed jaw on the face.
 
     Returns:
         tuple[float, float, float]: Offset (m) in gripper_frame_link, added to the configured tool offset.
     """
-    half = object_width_m / 2.0
-    return (half * jaw_open_axis[0], half * jaw_open_axis[1], half * jaw_open_axis[2])
+    shift = object_width_m / 2.0 + fixed_jaw_clearance_m
+    return (shift * jaw_open_axis[0], shift * jaw_open_axis[1], shift * jaw_open_axis[2])
 
 
 def pitch_of(approach: np.ndarray) -> float:

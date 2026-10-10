@@ -239,6 +239,8 @@ def test_mcp_server_floor_guard_and_grasp_blocks_are_deployed() -> None:
     assert grasp["scoop_max_pitch_deg"] == 40 and grasp["scoop_gap_margin_m"] == 0.004
     assert grasp["tall_ratio"] == 1.5 and grasp["tall_grasp_height_fraction"] == 0.3
     assert grasp["lift_speed_scale"] == 0.05 and grasp["min_object_width_m"] == 0.01
+    # centred grasps keep the fixed jaw 7.5 mm off the object's side face (half of jaw_open_margin_m)
+    assert grasp["fixed_jaw_clearance_m"] == 0.0075 and grasp["jaw_open_margin_m"] == 0.015
     assert cfg["topics"]["grasp_command"] == "/grasp/command" and cfg["topics"]["grasp_result"] == "/grasp/result"
     agent = node_config("claude_agent")
     assert {"grasp_object", "release_object"} <= set(agent["effector_tools"])

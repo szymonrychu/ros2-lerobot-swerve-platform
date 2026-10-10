@@ -1188,6 +1188,9 @@ ros2_nodes:
         retreat_distance_m: 0.05
         jaw_thickness_m: 0.008          # fixed jaw thickness below its inner face (estimate)
         jaw_open_margin_m: 0.015        # opening beyond the gripped size
+        # angled / top_down centre the opening on the object: each jaw clears its side face by at least this
+        # (2026-10-10: the fixed jaw went onto the face and tipped a 39 mm jar over on approach)
+        fixed_jaw_clearance_m: 0.0075
         below_object_offset_m: 0.005    # scoop: fixed jaw top below the object bottom (clamped to skim the surface)
         skim_clearance_m: 0.003         # scoop: fixed jaw bottom above the surface when skimming
         max_object_width_m: 0.08

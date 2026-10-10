@@ -289,3 +289,135 @@ def test_objects_narrower_than_the_jaws_can_hold_are_rejected() -> None:
     assert not p.feasible
     assert any("min_object_width_m" in r and "cannot hold" in r for r in p.reasons)
     assert plan(thin, "top_down", min_object_width_m=0.005).feasible
+
+
+# --- centred grasps: the jaw opening is centred on the object (fixed-jaw clearance) ---
+
+CUBE_40 = {"width_m": 0.04, "depth_m": 0.04, "height_m": 0.04}
+
+
+def jaw_clearances(p: GraspPlan, obj: ObjectSpec) -> tuple[float, float, float]:
+    """Clearances of a centred grasp at the grasp waypoint, measured along the world jaw opening axis.
+
+    Returns:
+        tuple[float, float, float]: (fixed jaw inner face to the object's near side face, moving jaw tip (open, arc
+        model) to the far side face, distance of the tool point from the opening axis through the object centre).
+    """
+    grasp = waypoint(p, "grasp")
+    centre = np.array([obj.x, obj.y, grasp.z])
+    u = jaw_axis_world(grasp.joints)
+    tool = KIN.forward(grasp.joints)
+    tool_p = np.array([tool.x, tool.y, tool.z])
+    along = float((centre - tool_p) @ u)  # tool point lies against the opening direction from the centre
+    fixed = along - obj.width_m / 2.0
+    # the moving jaw over the object's depth in the jaws (its face is tilted once open: narrowest at the deepest point)
+    assert p.grasp_shift is not None
+    moving = JAW.inner_gap(p.open_gripper_rad, p.grasp_shift["jaw_depth_m"]) - obj.width_m - fixed
+    off_axis = float(np.linalg.norm((centre - tool_p) - along * u))
+    return fixed, moving, off_axis
+
+
+def jaw_depth(obj: ObjectSpec, p: GraspPlan) -> float:
+    """How far the object reaches into the jaws: its near top corner along the jaws from the grasp point."""
+    pitch = p.approach_pitch_rad
+    assert pitch is not None
+    top = obj.support_z + obj.height_m
+    return math.cos(pitch) * obj.depth_m / 2.0 + math.sin(pitch) * (top - waypoint(p, "grasp").z)
+
+
+@pytest.mark.parametrize(
+    ("strategy", "x", "pitch"), [("top_down", 0.22, None), ("angled", 0.31, 45.0), ("angled", 0.26, 60.0)]
+)
+def test_centred_grasp_puts_the_fixed_jaw_inner_face_7_5_mm_off_a_40_mm_object(
+    strategy: str, x: float, pitch: float | None
+) -> None:
+    obj = ObjectSpec(frame="arm", x=x, y=0.0, support_z=FLOOR, **CUBE_40)
+    p = PLANNER.plan(obj, strategy, PARAMS, FLAT, SEED, approach_pitch_deg=pitch)
+    assert p.feasible, p.reasons
+    assert PARAMS.fixed_jaw_clearance_m == pytest.approx(0.0075)
+    fixed, moving, off_axis = jaw_clearances(p, obj)
+    assert fixed == pytest.approx(0.0075, abs=0.002)  # was 0: the fixed jaw face sat on the object side face
+    assert moving == pytest.approx(0.0075, abs=0.002)  # the moving jaw clears the other side by the same
+    assert off_axis < 0.003
+    assert p.opening_m == pytest.approx(0.04 + 2 * 0.0075)
+    assert p.center_shift_m == pytest.approx(0.0275)
+    shift = p.grasp_shift
+    assert shift is not None
+    assert shift["object_width_m"] == pytest.approx(0.04)
+    assert shift["shift_m"] == pytest.approx(0.0275)
+    assert shift["fixed_jaw_clearance_m"] == pytest.approx(0.0075)
+    assert shift["moving_jaw_clearance_m"] == pytest.approx(0.0075, abs=0.0005)
+    assert shift["jaw_depth_m"] == pytest.approx(jaw_depth(obj, p), abs=1e-4)
+    # the tips open wider than the opening: the tilted moving jaw keeps the clearance at the object's top edge
+    assert JAW.gap(p.open_gripper_rad) > p.opening_m
+    grasp = waypoint(p, "grasp")
+    # the waypoint x, y, z is the opening centre = the object centre; tool_point is shift_m beside it
+    centre = KIN.forward(grasp.joints, PLANNER.center_offset(p))
+    assert (centre.x, centre.y, centre.z) == pytest.approx((grasp.x, grasp.y, grasp.z), abs=0.002)
+    tool = grasp.tool_point
+    assert tool is not None
+    gap = math.dist((tool["x"], tool["y"], tool["z"]), (grasp.x, grasp.y, grasp.z))
+    assert gap == pytest.approx(shift["shift_m"], abs=0.002)
+
+
+def test_fixed_jaw_clearance_above_half_the_margin_widens_the_opening_on_both_sides() -> None:
+    obj = ObjectSpec(frame="arm", x=0.22, y=0.0, support_z=FLOOR, **CUBE_40)
+    p = plan(obj, "top_down", fixed_jaw_clearance_m=0.01)
+    assert p.feasible, p.reasons
+    fixed, moving, _ = jaw_clearances(p, obj)
+    assert fixed == pytest.approx(0.01, abs=0.002)
+    assert moving == pytest.approx(0.01, abs=0.002)
+    assert p.opening_m == pytest.approx(0.06)
+    assert p.grasp_shift is not None and p.grasp_shift["shift_m"] == pytest.approx(0.03)
+
+
+def test_a_zero_minimum_still_centres_the_margin_on_the_object() -> None:
+    obj = ObjectSpec(frame="arm", x=0.22, y=0.0, support_z=FLOOR, **CUBE_40)
+    p = plan(obj, "top_down", fixed_jaw_clearance_m=0.0, jaw_open_margin_m=0.02)
+    assert p.feasible, p.reasons
+    fixed, moving, _ = jaw_clearances(p, obj)
+    assert fixed == pytest.approx(0.01, abs=0.002)  # half of the 2 cm margin on each side
+    assert moving == pytest.approx(0.01, abs=0.002)
+    assert p.opening_m == pytest.approx(0.06)
+
+
+def test_scoop_keeps_the_tool_point_target_without_a_shift() -> None:
+    p = plan(raised_object(), "scoop")
+    assert p.feasible, p.reasons
+    assert p.grasp_shift is None and p.center_shift_m is None and PLANNER.center_offset(p) is None
+
+
+def test_tall_jar_opens_wide_enough_for_the_tilted_moving_jaw_to_clear_its_top_edge() -> None:
+    """2026-10-10 jar (39 mm, 6 cm tall) gripped low: it reaches 4.2 cm into the jaws, where the open moving jaw stands
+    1.6 cm closer than at its tip. Opening for the tips alone, the moving jaw mesh touched the jar top in the sim."""
+    jar = ObjectSpec(frame="arm", x=0.2568, y=0.05, support_z=FLOOR, width_m=0.039, depth_m=0.039, height_m=0.06)
+    p = plan(jar, "top_down")
+    assert p.feasible, p.reasons
+    shift = p.grasp_shift
+    assert shift is not None
+    depth = jar.height_m * (1.0 - PARAMS.tall_grasp_height_fraction)
+    assert shift["jaw_depth_m"] == pytest.approx(depth, abs=1e-4)
+    fixed, moving, _ = jaw_clearances(p, jar)
+    assert fixed == pytest.approx(0.0075, abs=0.002)
+    assert moving >= 0.0075 - 0.002
+    assert p.open_gripper_rad is not None
+    assert p.open_gripper_rad > JAW.angle_for_gap(p.opening_m) + 0.2  # far wider than the tip-only opening
+    assert JAW.inner_gap(p.open_gripper_rad, depth) == pytest.approx(p.opening_m, abs=2e-4)
+
+
+def test_an_object_too_deep_for_the_moving_jaw_to_clear_is_a_reason() -> None:
+    deep = ObjectSpec(frame="arm", x=0.22, y=0.0, support_z=FLOOR, width_m=0.05, depth_m=0.03, height_m=0.12)
+    p = plan(deep, "top_down")
+    assert not p.feasible
+    assert any("into the jaws" in r and "moving jaw" in r for r in p.reasons), p.reasons
+
+
+def test_scoop_opens_for_the_object_depth_in_the_jaws_too() -> None:
+    obj = raised_object()
+    p = plan(obj, "scoop")
+    assert p.feasible, p.reasons
+    assert p.open_gripper_rad is not None and p.approach_pitch_rad is not None
+    depth = math.cos(p.approach_pitch_rad) * obj.depth_m / 2.0 + math.sin(p.approach_pitch_rad) * (
+        obj.support_z + obj.height_m - waypoint(p, "grasp").z
+    )
+    assert JAW.inner_gap(p.open_gripper_rad, depth) >= p.opening_m - 2e-4

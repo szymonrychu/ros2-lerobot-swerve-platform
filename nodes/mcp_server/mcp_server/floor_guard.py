@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import ArmBaseOffset, FloorGuardSettings
 from .ik import ArmKinematics
+from .jaw_profile import MOVING_JAW_INNER_PROFILE
 from .surfaces import MAX_REGIONS, Clearance, SurfaceRegion, Terrain
 
 LOGGER = logging.getLogger("mcp_server.floor_guard")
@@ -318,7 +319,8 @@ def rotate(vector: np.ndarray, axis: np.ndarray, angle: float) -> np.ndarray:
 class JawModel:
     """Approximate moving-jaw geometry: the closed moving jaw tip sits on the tool point (fixed jaw inner face) and
     opens by rotating about the URDF gripper joint pivot. Gives the jaw gap (m, across the jaws) for a gripper angle
-    and back, and the moving jaw tip position for the floor check."""
+    and back, the moving jaw tip position for the floor check, and the narrower gap deeper into the jaws
+    (inner_gap, from the moving jaw's inner silhouette MOVING_JAW_INNER_PROFILE)."""
 
     def __init__(self, kin: ArmKinematics, jaw_open_axis: tuple[float, float, float], closed_rad: float) -> None:
         """Derive the closed tip and the opening direction in gripper_link from the URDF chain.
@@ -337,6 +339,14 @@ class JawModel:
         self.axis = np.array(JAW_AXIS_IN_GRIPPER_LINK)
         probe = rotate(self.closed_tip - self.pivot, self.axis, JAW_SIGN_PROBE_RAD) + self.pivot
         self.sign = 1.0 if float((probe - self.closed_tip) @ self.open_axis) > 0.0 else -1.0
+        # into the jaws = against the approach (tool frame z) axis
+        self.depth_axis = -(t_gl_tool[:3, :3] @ np.array([0.0, 0.0, 1.0]))
+        self.profile = np.array(
+            [
+                self.closed_tip + offset * self.open_axis + depth * self.depth_axis
+                for offset, depth in MOVING_JAW_INNER_PROFILE
+            ]
+        )
 
     def tip_in_gripper_link(self, angle: float) -> np.ndarray:
         """Moving jaw tip in gripper_link for a gripper angle.
@@ -360,6 +370,53 @@ class JawModel:
             float: Distance of the moving jaw tip from the fixed jaw inner face along the opening direction.
         """
         return float((self.tip_in_gripper_link(angle) - self.closed_tip) @ self.open_axis)
+
+    def inner_gap(self, angle: float, depth: float) -> float:
+        """Narrowest jaw opening from the tips to a depth into the jaws, for a gripper angle.
+
+        The moving jaw's inner silhouette (closed) is rotated about the pivot; its points from beyond the tips up to
+        depth (along the jaws, from the closed tips toward the palm) give the opening, measured from the fixed jaw
+        inner face along the opening direction. The open jaw is tilted, so deeper means narrower.
+
+        Args:
+            angle (float): Gripper joint position (rad).
+            depth (float): How far the object reaches into the jaws from the tips (m, >= 0).
+
+        Returns:
+            float: Opening (m); inf when the jaw has no material up to that depth.
+        """
+        turned = np.array(
+            [rotate(p - self.pivot, self.axis, self.sign * (angle - self.closed_rad)) for p in self.profile]
+        )
+        turned += self.pivot
+        depths = (turned - self.closed_tip) @ self.depth_axis
+        offsets = (turned - self.closed_tip) @ self.open_axis
+        inside = depths <= depth
+        best = float(offsets[inside].min()) if inside.any() else math.inf
+        for k in range(len(depths) - 1):  # the silhouette edge crossing the depth limit
+            a, b = depths[k], depths[k + 1]
+            if (a - depth) * (b - depth) < 0.0:
+                best = min(best, float(offsets[k] + (depth - a) / (b - a) * (offsets[k + 1] - offsets[k])))
+        return best
+
+    def angle_for_inner_gap(self, gap: float, depth: float) -> float:
+        """Gripper angle whose narrowest opening up to depth is gap (bisection; it grows with the angle).
+
+        Args:
+            gap (float): Wanted opening (m), >= 0.
+            depth (float): Object depth into the jaws (m).
+
+        Returns:
+            float: Gripper joint position (rad); the widest-search angle when the gap is not reachable.
+        """
+        lo, hi = self.closed_rad, self.closed_rad + JAW_SEARCH_SPAN_RAD
+        for _ in range(JAW_BISECTION_STEPS):
+            mid = (lo + hi) / 2.0
+            if self.inner_gap(mid, depth) < gap:
+                lo = mid
+            else:
+                hi = mid
+        return hi
 
     def angle_for_gap(self, gap: float) -> float:
         """Gripper angle giving a jaw gap (bisection; the gap grows monotonically over the useful range).

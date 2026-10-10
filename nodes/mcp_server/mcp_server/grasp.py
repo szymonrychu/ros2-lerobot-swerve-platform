@@ -161,7 +161,7 @@ class Waypoint(BaseModel):
     tool_point: dict[str, float] | None = Field(
         default=None,
         description="Tool point (fixed jaw inner face, arm frame, m) at this waypoint. x, y, z is the jaw centre "
-        "(the object centre) when the plan centres the object between the jaws (grasp_shift), else the tool point",
+        "(the object centre) when the plan centres the jaw opening on the object (grasp_shift), else the tool point",
     )
 
 
@@ -178,12 +178,19 @@ class GraspPlan(BaseModel):
     open_gripper_rad: float | None = None
     half_open_gripper_rad: float | None = None
     center_width_m: float | None = Field(default=None, description="Object width centred between the jaws, if any")
+    center_shift_m: float | None = Field(
+        default=None,
+        description="Distance (m) from the tool point (fixed jaw inner face) to the jaw centre along the opening "
+        "direction: half the object width plus the fixed jaw clearance; None when x, y, z is the tool point",
+    )
     grasp_shift: dict[str, Any] | None = Field(
         default=None,
-        description="Centred grasp: {object_width_m, shift_m (half the width), jaw_open_axis (gripper_frame_link)}. "
-        "Waypoint x, y, z are then the jaw centre; the tool point (fixed jaw) is shift_m beside it, against the "
-        "opening direction, so the arm sits sideways of a plain move to the same x, y, z (a 6.5 cm object at 0.37 m "
-        "reach: about 0.09 rad more shoulder_pan, 3.3 cm off at the tool point). Null when x, y, z is the tool point",
+        description="Centred grasp: {object_width_m, shift_m (half the width + fixed_jaw_clearance_m), "
+        "fixed_jaw_clearance_m (fixed jaw inner face to the object side face), moving_jaw_clearance_m (open moving "
+        "jaw tip to the other side face), jaw_open_axis (gripper_frame_link)}. Waypoint x, y, z are then the jaw "
+        "centre (the object centre); the tool point (fixed jaw) is shift_m beside it, against the opening direction, "
+        "so the arm sits sideways of a plain move to the same x, y, z (a 6.5 cm object at 0.37 m reach: about 0.1 rad "
+        "more shoulder_pan, 4 cm off at the tool point). Null when x, y, z is the tool point",
     )
     skim: bool = False
     waypoints: list[Waypoint] = Field(default_factory=list)
@@ -252,6 +259,10 @@ class GraspGeometry:
         opening_m: Jaw gap needed to pass the object (m).
         gripped_m: Expected gap once closed on the object (m).
         center_width: Object width to centre between the jaws (grasp_offset), None to place the tool point itself.
+        fixed_clearance: Gap between the fixed jaw inner face and the object's side face at the grasp (m, centred
+            grasps); the tool point lies center_width / 2 + fixed_clearance from the object centre.
+        jaw_depth: How far the object reaches into the jaws from the tips (m); the open moving jaw is tilted, so
+            opening_m must hold that deep (JawModel.inner_gap), not only at the tips.
         skim: The fixed jaw skims the surface instead of going below the object bottom.
         lift_speed: Speed scale of the lift (None = slide_speed_scale); tall narrow objects lift slower.
         pre_grasp_clearance: Lift of the pre-grasp above the approach start (m); None = params.pre_grasp_clearance_m.
@@ -269,6 +280,8 @@ class GraspGeometry:
     opening_m: float
     gripped_m: float
     center_width: float | None = None
+    fixed_clearance: float = 0.0
+    jaw_depth: float = 0.0
     skim: bool = False
     lift_speed: float | None = None
     pre_grasp_clearance: float | None = None
@@ -345,6 +358,25 @@ def as_tuple(v: np.ndarray) -> tuple[float, float, float]:
     return (float(v[0]), float(v[1]), float(v[2]))
 
 
+def jaw_depth(obj: ObjectSpec, pitch: float, z: float) -> float:
+    """How far an object reaches into the jaws: its near top corner along the jaws from the grasp point.
+
+    The jaws point along the approach (radial, pitched down by pitch), so the corner nearest the arm on the object's
+    top is the deepest one: half the depth along the radial part, the height above the grasp point along the vertical
+    part.
+
+    Args:
+        obj (ObjectSpec): Object (arm frame).
+        pitch (float): Approach pitch (rad, + down).
+        z (float): Grasp point height (m).
+
+    Returns:
+        float: Depth (m), >= 0.
+    """
+    top = obj.support_z + obj.height_m
+    return max(0.0, math.cos(pitch) * obj.depth_m / 2.0 + math.sin(pitch) * (top - z))
+
+
 def scoop_strategy(req: GraspRequest) -> list[GraspGeometry]:
     """Fixed jaw underneath (wrist_roll about 0), moving jaw closes from above, horizontal radial slide.
 
@@ -378,9 +410,10 @@ def scoop_strategy(req: GraspRequest) -> list[GraspGeometry]:
     out: list[GraspGeometry] = []
     pitch_deg = p.scoop_pitch_deg
     while pitch_deg <= p.scoop_max_pitch_deg + 1e-9:
+        pitch = math.radians(pitch_deg)
         out.append(
             GraspGeometry(
-                pitch=math.radians(pitch_deg),
+                pitch=pitch,
                 grasp=(obj.x, obj.y, jaw_top),
                 approach_dir=as_tuple(radial(req.heading)),
                 approach_len=p.approach_distance_m + obj.depth_m / 2.0,
@@ -388,6 +421,7 @@ def scoop_strategy(req: GraspRequest) -> list[GraspGeometry]:
                 jaw_sign_matters=True,
                 opening_m=obj.height_m + p.jaw_open_margin_m + raised,
                 gripped_m=obj.height_m + raised,
+                jaw_depth=jaw_depth(obj, pitch, jaw_top),
                 skim=skim,
             )
         )
@@ -395,8 +429,26 @@ def scoop_strategy(req: GraspRequest) -> list[GraspGeometry]:
     return out
 
 
+def jaw_clearance(params: GraspParams) -> float:
+    """Clearance of each jaw from its side face of the object in a centred grasp.
+
+    The opening is centred on the object: half of jaw_open_margin_m on each side, at least fixed_jaw_clearance_m.
+
+    Args:
+        params (GraspParams): jaw_open_margin_m, fixed_jaw_clearance_m.
+
+    Returns:
+        float: Clearance (m).
+    """
+    return max(params.jaw_open_margin_m / 2.0, params.fixed_jaw_clearance_m)
+
+
 def centred_grasp(req: GraspRequest, pitch: float, approach: np.ndarray, extent: float) -> GraspGeometry:
-    """Grasp across the object width with the object centred between the jaws (angled and top_down).
+    """Grasp across the object width with the jaw opening centred on the object (angled and top_down).
+
+    Both jaws clear the object's side faces by jaw_clearance (the opening is the width plus twice that): the fixed
+    jaw inner face (the tool point) goes that far beside its side face, the moving jaw opens as far past the other
+    one, then closes the object against the fixed jaw.
 
     The tool point goes to mid-height of the object; a tall narrow object (height / width above tall_ratio) is
     gripped lower, at tall_grasp_height_fraction of its height, and lifted at lift_speed_scale so it does not pivot
@@ -415,6 +467,7 @@ def centred_grasp(req: GraspRequest, pitch: float, approach: np.ndarray, extent:
     tall = obj.height_m / obj.width_m > p.tall_ratio
     fraction = p.tall_grasp_height_fraction if tall else 0.5
     z = max(obj.support_z + obj.height_m * fraction, req.surface_z + p.skim_clearance_m + p.jaw_thickness_m)
+    clearance = jaw_clearance(p)
     return GraspGeometry(
         pitch=pitch,
         grasp=(obj.x, obj.y, z),
@@ -422,9 +475,11 @@ def centred_grasp(req: GraspRequest, pitch: float, approach: np.ndarray, extent:
         approach_len=p.approach_distance_m + extent,
         jaw_dir=as_tuple(width_axis(req)),
         jaw_sign_matters=False,
-        opening_m=obj.width_m + p.jaw_open_margin_m,
+        opening_m=obj.width_m + 2.0 * clearance,
         gripped_m=obj.width_m,
         center_width=obj.width_m,
+        fixed_clearance=clearance,
+        jaw_depth=jaw_depth(obj, pitch, z),
         lift_speed=p.lift_speed_scale if tall else None,
     )
 
@@ -648,9 +703,10 @@ class GraspPlanner:
         Returns:
             tuple[float, float, float] | None: Offset in gripper_frame_link (m).
         """
-        if plan.center_width_m is None:
+        if plan.center_shift_m is None:
             return None
-        return grasp_offset(plan.center_width_m, self.cfg.arm.jaw_open_axis)
+        axis = self.cfg.arm.jaw_open_axis
+        return (plan.center_shift_m * axis[0], plan.center_shift_m * axis[1], plan.center_shift_m * axis[2])
 
     def to_arm(self, obj: ObjectSpec) -> ObjectSpec:
         """Object in the arm base frame.
@@ -969,23 +1025,45 @@ class GraspPlanner:
             approach_pitch_rad=geo.pitch,
             opening_m=geo.opening_m,
             center_width_m=geo.center_width,
-            grasp_shift=None
-            if geo.center_width is None
-            else {
-                "object_width_m": round(geo.center_width, 4),
-                "shift_m": round(geo.center_width / 2.0, 4),
-                "jaw_open_axis": list(self.cfg.arm.jaw_open_axis),
-            },
             skim=geo.skim,
             surface=surface.describe(),
         )
         reasons = self.opening_reasons(geo, params)
         if reasons:
             return base.model_copy(update={"reasons": reasons})
-        open_angle = self.jaw.angle_for_gap(geo.opening_m)
+        open_angle = self.open_angle(geo)
+        if open_angle > self.cfg.arm.gripper_open_rad:
+            return base.model_copy(
+                update={
+                    "reasons": [
+                        f"the object reaches {geo.jaw_depth * 100:.1f} cm into the jaws, where the tilted moving jaw "
+                        f"needs the gripper at {open_angle:.2f} rad for a {geo.opening_m * 100:.1f} cm opening, beyond "
+                        f"gripper_open_rad {self.cfg.arm.gripper_open_rad:g}"
+                    ]
+                }
+            )
         half = min(self.cfg.limits.roll_max_gripper_open_rad, open_angle)
         hold = self.jaw.angle_for_gap(geo.gripped_m)
-        extra = None if geo.center_width is None else grasp_offset(geo.center_width, self.cfg.arm.jaw_open_axis)
+        extra = None
+        if geo.center_width is not None:
+            extra = grasp_offset(geo.center_width, self.cfg.arm.jaw_open_axis, geo.fixed_clearance)
+            shift = geo.center_width / 2.0 + geo.fixed_clearance
+            base = base.model_copy(
+                update={
+                    "center_shift_m": shift,
+                    "grasp_shift": {
+                        "object_width_m": round(geo.center_width, 4),
+                        "shift_m": round(shift, 4),
+                        "fixed_jaw_clearance_m": round(geo.fixed_clearance, 4),
+                        # the open moving jaw past the object's other side face, narrowest over the object's depth
+                        "moving_jaw_clearance_m": round(
+                            self.jaw_gap(open_angle, geo) - geo.center_width - geo.fixed_clearance, 4
+                        ),
+                        "jaw_depth_m": round(geo.jaw_depth, 4),
+                        "jaw_open_axis": list(self.cfg.arm.jaw_open_axis),
+                    },
+                }
+            )
         grasp = np.array(geo.grasp)
         direction = np.array(geo.approach_dir)
         approach = grasp - direction * geo.approach_len
@@ -1081,6 +1159,33 @@ class GraspPlanner:
                 "slow_zone": annotations,
             }
         )
+
+    def jaw_gap(self, angle: float, geo: GraspGeometry) -> float:
+        """Narrowest jaw opening beside the object at a gripper angle: at the tips, and over its depth in the jaws.
+
+        Args:
+            angle (float): Gripper joint position (rad).
+            geo (GraspGeometry): Candidate (jaw_depth).
+
+        Returns:
+            float: Opening (m).
+        """
+        tip = self.jaw.gap(angle)
+        return tip if geo.jaw_depth <= 0.0 else min(tip, self.jaw.inner_gap(angle, geo.jaw_depth))
+
+    def open_angle(self, geo: GraspGeometry) -> float:
+        """Gripper angle that opens geo.opening_m at the tips and over the object's depth in the jaws.
+
+        Args:
+            geo (GraspGeometry): Candidate (opening_m, jaw_depth).
+
+        Returns:
+            float: Gripper joint position (rad).
+        """
+        angle = self.jaw.angle_for_gap(geo.opening_m)
+        if geo.jaw_depth <= 0.0:
+            return angle
+        return max(angle, self.jaw.angle_for_inner_gap(geo.opening_m, geo.jaw_depth))
 
     def tool_point(self, joints: dict[str, float]) -> dict[str, float]:
         """Tool point (fixed jaw inner face) of a joint configuration.
