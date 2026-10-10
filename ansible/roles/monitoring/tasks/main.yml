@@ -186,7 +186,7 @@
     # Created once on the robot, never on the controller; Grafana applies it when it creates its database (first
     # start). The grafana package does not start the service on install, so the file exists before that start.
     - name: Generate the Grafana admin password on the robot (first deploy only)
-      ansible.builtin.shell: umask 077 && openssl rand -hex 24 -out {{ monitoring_grafana_admin_password_file }}
+      ansible.builtin.shell: umask 077 && openssl rand -hex -out {{ monitoring_grafana_admin_password_file }} 24
       args:
         creates: "{{ monitoring_grafana_admin_password_file }}"
 

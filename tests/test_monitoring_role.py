@@ -723,3 +723,13 @@ def test_deploy_script_rejects_monitoring_on_server(tmp_path: Path) -> None:
     """The server playbook has no monitoring role, so the name is not accepted there."""
     proc = run_deploy(tmp_path, "server", "monitoring")
     assert proc.returncode == 1
+
+
+def test_grafana_admin_password_command_runs(tmp_path: Path) -> None:
+    """The generation command really writes a 48-character hex password (openssl takes options before the count)."""
+    task = next(t for t in role_tasks() if "openssl rand" in str(t.get("ansible.builtin.shell", "")))
+    target = tmp_path / "admin-password"
+    command = jinja2.Template(task["ansible.builtin.shell"]).render(monitoring_grafana_admin_password_file=str(target))
+    subprocess.run(["bash", "-c", command], check=True, capture_output=True)
+    assert re.fullmatch(r"[0-9a-f]{48}\n?", target.read_text())
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
