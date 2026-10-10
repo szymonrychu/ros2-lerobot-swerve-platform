@@ -27,7 +27,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 
   - **`system_optimize`** — Ubuntu 24.04 debloating, performance tuning, and resilience hardening for Raspberry Pi. See [System optimization](#system-optimization) below.
   - **`docker_cleanup`** — Full Docker removal for migration to native ROS2 nodes. Stops all running containers, prunes images/volumes/networks, stops and disables Docker/containerd services, purges Docker CE packages (`docker-ce`, `docker-ce-cli`, `containerd.io`, plugins), removes data dirs (`/var/lib/docker`, `/etc/docker`, `/var/lib/containerd`), removes systemd overrides, APT repo and keyring files, removes the user from the `docker` group, reloads systemd, and autoremoving unused packages. All steps are skipped if Docker is not installed.
-  - **`monitoring`** — Empty role scaffold (directories for defaults, handlers, meta, tasks, templates exist but contain no files yet). Reserved for future host monitoring.
+  - **`monitoring`** - Grafana Alloy + Prometheus + Grafana on the client RPi5, capped in `monitoring.slice`. Included by `deploy_nodes_client.yml` with tag `monitoring` only. See [Monitoring stack (client)](#monitoring-stack-client).
   - **`steamdeck_ui`** — Provisions the SteamDeck controller (controller.ros2.lan / 192.168.1.35): installs ROS2 Jazzy base, Node.js 20, Python bridge deps (websockets, pydantic, opencv), Electron system deps, clones the repo, runs `npm ci`, deploys `/etc/steamdeck-ui/config.yaml` (rendered from Jinja2 template), and installs a `.desktop` shortcut.
 
 ## System optimization
@@ -436,6 +436,40 @@ bearer token is in the CLI child's argv, the claude_agent unit is also hardened 
 The Claude Code CLI is the native binary bundled in the pinned `claude-agent-sdk` wheel (installed by uv), so no
 npm install is needed; `DISABLE_AUTOUPDATER=1` is set in the unit environment.
 
+## Monitoring stack (client)
+
+`roles/monitoring` runs a metrics-only stack on the client RPi5 (no logs, no Loki):
+
+| Service | Package | Port (0.0.0.0, LAN) | Role |
+|---|---|---|---|
+| `alloy.service` | `alloy` (apt.grafana.com stable) | 12345 (UI, `/metrics`) | Collects everything: host (`prometheus.exporter.unix` incl. hwmon, thermal_zone and the textfile collector), per-systemd-unit cgroups (`prometheus.exporter.cadvisor`, `docker_only = false`), Alloy itself, and scrapes Prometheus and Grafana; every 15 s |
+| `prometheus.service` | Ubuntu `prometheus` (2.45) | 9090 | Storage + query only, fed by Alloy through `--web.enable-remote-write-receiver` |
+| `grafana-server.service` | `grafana` (apt.grafana.com stable) | 3000 | Dashboards; anonymous Viewer for the LAN |
+| `rpi-throttled.timer` | `libraspberrypi-bin` (`vcgencmd`) | - | Every 15 s writes `vcgencmd get_throttled` to the textfile collector |
+
+Open `http://client.ros2.lan:3000` (dashboard **Robot / Robot resources**), `http://client.ros2.lan:9090` (Prometheus) or `http://client.ros2.lan:12345` (Alloy pipeline UI).
+
+**Deploy.** `./scripts/deploy-nodes.sh client monitoring` (= `--tags monitoring`). `monitoring` is a non-node deploy target of the client (`non_node_targets` in `scripts/deploy-nodes.sh`), not a `ros2_nodes` entry. A node or phase deploy (`client web_ui`, `--all --tags config`) never runs the role; an untagged `--all` does. A monitoring-only run starts and verifies no ROS node (`select_run.yml` gives it an empty node scope); the agent idle guard still runs (`-e ros2_deploy_ignore_agent=true` skips it, the stack restarts no robot node). A second run reports no changes. Settings are in `roles/monitoring/defaults/main.yml`: `monitoring_enabled` (false stops and disables the stack, packages and data stay), ports, `monitoring_interval` (15s), retention, slice and per-unit limits.
+
+**Why Alloy pushes (remote write) instead of Prometheus scraping Alloy.** Alloy's embedded exporters are not ordinary HTTP targets (only reachable through Alloy's internal `/api/v0/component/...` paths), so remote write is the supported way to get them out; all collection, relabelling and cardinality cuts then live in one file (`/etc/alloy/config.alloy`) and Prometheus has no scrape jobs (`/etc/prometheus/prometheus.yml` is the role's own, not the package default that scrapes a node exporter we do not run). The cost is Alloy's small remote-write WAL in `/var/lib/alloy/data`.
+
+**Cardinality cuts.** cAdvisor collects only CPU, memory, block IO and OOM events (`disabled_metrics` drops network, disk, percpu, process and the rest: network stats of host-netns services repeat the host interfaces per unit). A relabel keep rule keeps cgroup `id`s `/`, `/system.slice`, `/user.slice`, `/monitoring.slice`, `/system.slice/<unit>.service`, `/monitoring.slice/<unit>.service` and `/user.slice/user-<uid>.slice`, dropping scopes and sessions; `veth*`/`docker*`/`br-*` interfaces are dropped (cAdvisor) and excluded (netdev).
+
+**Retention.** TSDB in `/var/lib/prometheus/metrics2` on the NVMe root, `--storage.tsdb.retention.time=30d` and `--storage.tsdb.retention.size=5GB` (whichever is hit first).
+
+**Admin password.** Generated on the robot on the first deploy (`openssl rand -hex 24`, never on the controller or in git) into `/etc/grafana/admin-password` (0600 root:grafana). systemd reads it as root (`LoadCredential=admin_password:/etc/grafana/admin-password`) and Grafana gets it through `GF_SECURITY_ADMIN_PASSWORD__FILE=%d/admin_password`. Read it with `sudo cat /etc/grafana/admin-password`; user `admin`. Grafana applies it when it creates its database (first start), so a later change of the file needs `grafana cli admin reset-admin-password`. Analytics, update checks, news and gravatar are off.
+
+**Resource caps.** `/etc/systemd/system/monitoring.slice`: `CPUWeight=20`, `IOWeight=20` (robot units in `system.slice` have 100, so monitoring loses every contention), `CPUQuota=40%` (of one core, for the whole stack), `MemoryHigh=800M`, `MemoryMax=900M`. Drop-ins `/etc/systemd/system/<unit>.service.d/10-monitoring-slice.conf` put `alloy`, `prometheus` and `grafana-server` into `Slice=monitoring.slice` with `Nice=10`, `OOMScoreAdjust=500` (the OOM killer takes monitoring before robot nodes), `Restart=on-failure` and `MemoryMax` alloy 250M, prometheus 450M (head block for ~5k series plus queries), grafana 250M. The sum exceeds the slice on purpose: the slice is the hard total, the per-unit caps stop one service from taking all of it. Alloy runs as root (drop-in `User=root`) so cAdvisor can read every cgroup and `/proc`. The throttling oneshot also runs in the slice.
+
+**Metric names produced** (Prometheus at `http://127.0.0.1:9090` on the robot):
+
+- Host: `node_*` from the unix exporter, e.g. `node_cpu_seconds_total`, `node_load1/5/15`, `node_memory_MemAvailable_bytes`, `node_filesystem_avail_bytes`, `node_disk_read_bytes_total`/`node_disk_written_bytes_total`, `node_network_receive_bytes_total`/`node_network_transmit_bytes_total`, `node_thermal_zone_temp`, `node_hwmon_temp_celsius`.
+- Per systemd unit (cAdvisor raw cgroup v2 handler; label `id="/system.slice/<unit>.service"`, monitoring units `id="/monitoring.slice/<unit>.service"`): `container_cpu_usage_seconds_total` (`cpu="total"`), `container_memory_working_set_bytes`, `container_memory_rss`, `container_fs_reads_bytes_total`, `container_fs_writes_bytes_total`, `container_spec_memory_limit_bytes` (0 when no MemoryMax), `container_spec_cpu_quota` / `container_spec_cpu_period` (quota only for units with a CPUQuota), `container_oom_events_total`. Verified with Alloy's cAdvisor on a cgroup v2 host: raw (non-Docker) cgroups show up with `docker_only = false`, so no fallback collector is needed.
+- Throttling (textfile `rpi_throttled.prom`): `rpi_throttled_flags` (raw `get_throttled` value) and `rpi_throttled{bit=...}` (0/1) for `under_voltage_now`, `freq_capped_now`, `throttled_now`, `soft_temp_limit_now` (bits 0-3) and `under_voltage_occurred`, `freq_capped_occurred`, `throttled_occurred`, `soft_temp_limit_occurred` (bits 16-19). When `vcgencmd` fails the file is removed (no stale value).
+- Stack: `alloy_*` (job `alloy`), `prometheus_*` (job `prometheus`), `grafana_*` (job `grafana`).
+
+**Dashboard.** `roles/monitoring/files/robot-resources.json`, provisioned read-only into folder Robot with datasource uid `prometheus-robot`: host CPU % by mode, load average, memory used/available, CPU temperature, throttling flags, root disk usage and IO, network rx/tx, per-unit CPU cores vs CPUQuota, per-unit working set vs MemoryMax, per-unit RSS and disk IO, top 10 units by CPU, and the monitoring stack's own CPU, memory and disk writes.
+
 ## Connection tuning
 
 The `ansible.cfg` `[ssh_connection]` section tunes SSH for the Raspberry Pis on flaky WiFi:
@@ -458,7 +492,7 @@ How a node's Python environment is built on the Pi (`ros2_base` and `ros2_node_d
 
 ## Deploy tags
 
-Every task of the deploy playbooks, the `ros2_node_deploy` / `ros2_node_verify` roles and `playbooks/tasks/*.yml` carries at least one of these phase tags (a root test enforces it). Each node's deploy step and node-specific setup carries the node name as well (`web_ui`, `mcp_server`, `overview_camera`, ...).
+Every task of the deploy playbooks, the `ros2_node_deploy` / `ros2_node_verify` roles and `playbooks/tasks/*.yml` carries at least one of these phase tags (a root test enforces it). Each node's deploy step and node-specific setup carries the node name as well (`web_ui`, `mcp_server`, `overview_camera`, ...). A non-node deploy target carries only its own name: the client's `monitoring` role (see [Monitoring stack (client)](#monitoring-stack-client)) runs for `--tags monitoring` or an untagged run, never for a phase tag.
 
 | Tag | What it covers |
 |-----|----------------|

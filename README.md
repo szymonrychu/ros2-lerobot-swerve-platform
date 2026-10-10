@@ -171,6 +171,8 @@ Arm sources: leader (via master2master) | web_ui (/filter/web_ui_joint_commands)
   → filter_node arbitration (autonomy > web_ui > leader), active source on /filter/active_source
 ```
 
+Robot resource monitoring (Alloy + Prometheus + Grafana on the client, deploy with `./scripts/deploy-nodes.sh client monitoring`): Grafana at `http://client.ros2.lan:3000` (anonymous read-only, dashboard Robot resources), Prometheus at `http://client.ros2.lan:9090`. See [ansible/README.md](ansible/README.md#monitoring-stack-client).
+
 ## Controlling the robot from Claude Code (MCP)
 
 The `mcp_server` node on the client RPi exposes the robot as MCP tools at `http://client.ros2.lan:18200/mcp`, protected by a bearer token that Ansible generates once on the robot (`/etc/ros2/mcp_server/token`, never in git). The repo-root `.mcp.json` registers it as server `robot` and reads the token from `ROBOT_MCP_TOKEN`:

@@ -923,7 +923,8 @@ Deploy speed work: stamps instead of always-run builds, queued restarts, batched
 | `test_ansible_cfg_gathers_minimal_facts_and_caches_them` | `gather_subset = min`, smart gathering, jsonfile fact cache (cache dir gitignored). |
 | `test_documented_tag_set_lists_every_phase_tag` | The "Deploy tags" table in `ansible/README.md` lists exactly sync, apt, python, build, config, boot, setup, restart, verify, always. |
 | `test_every_task_in_role_and_task_files_carries_a_documented_tag` | (parametrized per file) every task (block tags inherited) in the role, the verify role and `playbooks/tasks/*.yml` has a documented tag. |
-| `test_every_task_in_the_deploy_playbooks_carries_a_documented_or_node_tag` | (client, server) every pre/main/post task of the deploy playbooks has a documented or node-name tag. |
+| `test_non_node_targets_are_parsed` | `non_node_targets` reads the client's `monitoring` target (and none for the server) from `scripts/deploy-nodes.sh`. |
+| `test_every_task_in_the_deploy_playbooks_carries_a_documented_or_node_tag` | (client, server) every pre/main/post task of the deploy playbooks has a documented, node-name or non-node-target (`monitoring`) tag. |
 | `test_every_node_has_a_tagged_deploy_step` | (client, server) each `ros2_nodes` entry has exactly one deploy include tagged with its name plus apt/python/build/config, applying the node tag to the included tasks. |
 | `test_node_specific_setup_files_carry_their_node_tag` | The mcp_server token, claude_agent token, poi_store, slam maps, web_ui tile cache and overview_camera boot task files carry their node tag. |
 | `test_shared_steps_run_under_any_node_filter` | (client, server) select_run, repo sync, ROS package sync, batched apt and the gradual restart are `always`-tagged; the verify role too; the apt steps are conditioned on `ros2_run_apt`. |
@@ -983,3 +984,42 @@ The dev-only MuJoCo grasp replay harness has its own uv project and tests under 
 | `test_adapter.py` | Tolerant GraspPlan to replay conversion (aliases, units, relative times, error cases). |
 | `test_report.py` | SimReport schema and JSON round trip. |
 | `test_cli.py` | `grasp-sim example/run`, exit codes, report file, YAML scene, frames and GIF output, mjpython hint for `--render`. |
+
+### `test_monitoring_role.py`
+
+Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the client RPi5) and its deploy integration. Templates are rendered with jinja2 and the role defaults; the throttling script runs against a fake `vcgencmd` on PATH; `deploy-nodes.sh` runs against a fake `ansible-playbook`.
+
+| Test | Description |
+|------|-------------|
+| `test_role_files_exist` | tasks, defaults, handlers, meta, the Alloy and Prometheus templates, the dashboard and the throttling script exist. |
+| `test_every_template_and_file_the_tasks_name_exists` | Every `src:` of a template/copy task (loops resolved) is shipped with the role. |
+| `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9090/12345, 30d/5GB retention, 15s interval, per-unit memory caps. |
+| `test_monitoring_slice_limits` | `monitoring.slice`: CPUWeight=20, IOWeight=20, CPUQuota=40%, MemoryMax=900M, MemoryHigh=800M. |
+| `test_dropin_moves_unit_into_the_slice` | (alloy, prometheus, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, MemoryMax 250M/450M/250M, OOMScoreAdjust=500, Restart=on-failure. |
+| `test_dropins_are_installed_for_every_unit` | One template task loops `monitoring_units` into `/etc/systemd/system/<unit>.service.d/`. |
+| `test_prometheus_flags` | `/etc/default/prometheus`: retention time and size, TSDB path, `0.0.0.0:9090`, remote-write receiver, config file. |
+| `test_prometheus_config_is_the_roles_own` | `prometheus.yml`: 15s scrape/evaluation interval, no scrape jobs. |
+| `test_node_exporter_is_masked` | prometheus-node-exporter is masked and the prometheus apt install skips recommends. |
+| `test_alloy_config` | Alloy config has unix (textfile dir), cadvisor (`docker_only = false`), self exporters, scrapes of Prometheus and Grafana, remote write to local Prometheus, 15s on every scrape. |
+| `test_alloy_drops_high_cardinality_cgroups_and_veth` | The `id` keep rule keeps root, slices and services, drops scopes and sessions; veth interfaces are dropped. |
+| `test_alloy_listens_on_lan_port` | `/etc/default/alloy`: `0.0.0.0:12345`, reporting off, config path. |
+| `test_grafana_listens_on_lan_with_anonymous_viewer` | grafana.ini: `0.0.0.0:3000`, anonymous enabled with role Viewer. |
+| `test_grafana_phones_nowhere` | Reporting, update checks, plugin update checks, gravatar and news are off. |
+| `test_grafana_admin_password_from_host_file` | The drop-in loads `/etc/grafana/admin-password` via LoadCredential into `GF_SECURITY_ADMIN_PASSWORD__FILE`; grafana.ini holds no password. |
+| `test_grafana_admin_password_generated_on_the_host` | No Ansible password lookup; one `openssl rand` task with `creates:`; the file is 0600 root:grafana. |
+| `test_grafana_apt_repo_signed_by_keyring` | deb822 repo `https://apt.grafana.com stable main` signed by the key downloaded to `/etc/apt/keyrings/`. |
+| `test_grafana_datasource_provisioned` | Provisioned Prometheus datasource uid `prometheus-robot` at `http://127.0.0.1:9090`. |
+| `test_grafana_dashboard_provider` | The dashboard provider path is where the role copies `robot-resources.json`. |
+| `test_dashboard_is_valid_json_with_required_panels` | `robot-resources.json` parses, is titled "Robot resources" and has every required panel by title. |
+| `test_dashboard_queries_use_contract_metrics_only` | Every panel query uses datasource `prometheus-robot` and only contract metrics (`container_*` cgroup set, `rpi_throttled*`) or `node_*`. |
+| `test_metric_names_helper` | The PromQL metric extractor skips functions, label matchers, `by (...)` lists, ranges and Grafana variables. |
+| `test_parse_throttled` | `parse_throttled` reads `throttled=0x...` as hex and rejects other output. |
+| `test_throttled_metrics_names_every_bit` | `rpi_throttled_flags` plus `rpi_throttled{bit=...}` for bits 0-3 (`_now`) and 16-19 (`_occurred`). |
+| `test_script_writes_textfile_atomically` | With a fake `vcgencmd` the script writes the textfile and leaves no temp file. |
+| `test_script_removes_stale_textfile_on_failure` | A failing `vcgencmd` removes the old file and exits non-zero. |
+| `test_throttle_timer_runs_every_15s` | `rpi-throttled.timer` fires every 15s; the oneshot service runs in monitoring.slice with the textfile path. |
+| `test_client_playbook_includes_role_tagged_monitoring_only` | `deploy_nodes_client.yml` includes the role once, tagged (and applied) `[monitoring]` only. |
+| `test_monitoring_only_run_starts_and_verifies_no_nodes` | `select_run.yml`: `--tags monitoring` gives an empty node scope; full, phase and node runs keep theirs. |
+| `test_deploy_script_accepts_monitoring` | `deploy-nodes.sh client monitoring` (and with a node name) runs the client playbook with `--tags monitoring`. |
+| `test_deploy_script_lists_monitoring_on_unknown_name` | An unknown name fails and the error lists `monitoring` next to the nodes. |
+| `test_deploy_script_rejects_monitoring_on_server` | The server has no monitoring target. |
