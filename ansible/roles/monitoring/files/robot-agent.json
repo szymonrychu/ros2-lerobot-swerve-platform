@@ -117,7 +117,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "agent_busy",
+          "expr": "agent_busy{host=\"client\"}",
           "legendFormat": "busy"
         }
       ]
@@ -169,7 +169,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (status) (rate(agent_instructions_total[5m])) * 60",
+          "expr": "sum by (status) (rate(agent_instructions_total{host=\"client\"}[5m])) * 60",
           "legendFormat": "{{status}}"
         }
       ]
@@ -213,7 +213,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(agent_instruction_duration_seconds_bucket[30m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(agent_instruction_duration_seconds_bucket{host=\"client\"}[30m])))",
           "legendFormat": "p50"
         },
         {
@@ -222,7 +222,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(agent_instruction_duration_seconds_bucket[30m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(agent_instruction_duration_seconds_bucket{host=\"client\"}[30m])))",
           "legendFormat": "p95"
         }
       ]
@@ -266,7 +266,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum(rate(agent_turns_total[5m])) * 60",
+          "expr": "sum(rate(agent_turns_total{host=\"client\"}[5m])) * 60",
           "legendFormat": "turns"
         },
         {
@@ -275,7 +275,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "sum by (tool) (rate(agent_tool_uses_total[5m])) * 60",
+          "expr": "sum by (tool) (rate(agent_tool_uses_total{host=\"client\"}[5m])) * 60",
           "legendFormat": "{{tool}}"
         }
       ]
@@ -319,7 +319,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "agent_seconds_since_activity",
+          "expr": "agent_seconds_since_activity{host=\"client\"}",
           "legendFormat": "since activity"
         }
       ]
@@ -371,7 +371,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum(increase(agent_watchdog_fires_total[5m]))",
+          "expr": "sum(increase(agent_watchdog_fires_total{host=\"client\"}[5m]))",
           "legendFormat": "watchdog fires"
         },
         {
@@ -380,7 +380,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "sum(increase(agent_session_resets_total[5m]))",
+          "expr": "sum(increase(agent_session_resets_total{host=\"client\"}[5m]))",
           "legendFormat": "session resets"
         }
       ]
@@ -424,7 +424,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (kind) (rate(agent_tokens_total[5m])) * 60",
+          "expr": "sum by (kind) (rate(agent_tokens_total{host=\"client\"}[5m])) * 60",
           "legendFormat": "{{kind}}"
         }
       ]
@@ -481,7 +481,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (kind) (increase(agent_tokens_total[$__range]))",
+          "expr": "sum by (kind) (increase(agent_tokens_total{host=\"client\"}[$__range]))",
           "legendFormat": "{{kind}}",
           "instant": true,
           "range": false
@@ -540,7 +540,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum(increase(agent_cost_usd_total[$__range]))",
+          "expr": "sum(increase(agent_cost_usd_total{host=\"client\"}[$__range]))",
           "legendFormat": "cost",
           "instant": true,
           "range": false
@@ -599,7 +599,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (tool) (rate(mcp_tool_calls_total[5m])) * 60",
+          "expr": "sum by (tool) (rate(mcp_tool_calls_total{host=\"client\"}[5m])) * 60",
           "legendFormat": "{{tool}}"
         }
       ]
@@ -643,7 +643,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket[15m])))",
+          "expr": "histogram_quantile(0.5, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{host=\"client\"}[15m])))",
           "legendFormat": "p50 {{tool}}"
         },
         {
@@ -652,7 +652,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket[15m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{host=\"client\"}[15m])))",
           "legendFormat": "p95 {{tool}}"
         }
       ]
@@ -704,7 +704,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (tool) (increase(mcp_tool_calls_total{outcome=\"error\"}[5m]))",
+          "expr": "sum by (tool) (increase(mcp_tool_calls_total{host=\"client\", outcome=\"error\"}[5m]))",
           "legendFormat": "{{tool}}"
         }
       ]
@@ -748,7 +748,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "mcp_motion_queue_depth",
+          "expr": "mcp_motion_queue_depth{host=\"client\"}",
           "legendFormat": "queued steps"
         }
       ]
@@ -800,7 +800,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (kind, status) (increase(mcp_motion_steps_total[5m]))",
+          "expr": "sum by (kind, status) (increase(mcp_motion_steps_total{host=\"client\"}[5m]))",
           "legendFormat": "{{kind}} {{status}}"
         }
       ]
@@ -852,7 +852,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (severity) (increase(mcp_robot_events_total[5m]))",
+          "expr": "sum by (severity) (increase(mcp_robot_events_total{host=\"client\"}[5m]))",
           "legendFormat": "{{severity}}"
         }
       ]
@@ -909,7 +909,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{id=~\"/system\\\\.slice/ros2-(claude_agent|mcp_server)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
+          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{host=\"client\", id=~\"/system\\\\.slice/ros2-(claude_agent|mcp_server)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         }
       ]
@@ -953,7 +953,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(container_memory_working_set_bytes{id=~\"/system\\\\.slice/ros2-(claude_agent|mcp_server)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
+          "expr": "label_replace(container_memory_working_set_bytes{host=\"client\", id=~\"/system\\\\.slice/ros2-(claude_agent|mcp_server)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         }
       ]

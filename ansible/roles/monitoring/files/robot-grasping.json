@@ -97,7 +97,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (mode, outcome) (increase(mcp_grasp_plans_total[15m]))",
+          "expr": "sum by (mode, outcome) (increase(mcp_grasp_plans_total{host=\"client\"}[15m]))",
           "legendFormat": "{{mode}} {{outcome}}"
         }
       ]
@@ -149,7 +149,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (mode, result) (increase(mcp_grasp_attempts_total[15m]))",
+          "expr": "sum by (mode, result) (increase(mcp_grasp_attempts_total{host=\"client\"}[15m]))",
           "legendFormat": "{{mode}} {{result}}"
         }
       ]
@@ -214,7 +214,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (mode) (increase(mcp_grasp_attempts_total{result=\"lifted\"}[$__range])) / sum by (mode) (increase(mcp_grasp_attempts_total[$__range]))",
+          "expr": "sum by (mode) (increase(mcp_grasp_attempts_total{host=\"client\", result=\"lifted\"}[$__range])) / sum by (mode) (increase(mcp_grasp_attempts_total{host=\"client\"}[$__range]))",
           "legendFormat": "{{mode}}",
           "instant": true,
           "range": false
@@ -260,7 +260,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "mcp_gripper_effort",
+          "expr": "mcp_gripper_effort{host=\"client\"}",
           "legendFormat": "effort"
         }
       ]
@@ -312,7 +312,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (profile) (increase(mcp_grip_profile_uses_total[15m]))",
+          "expr": "sum by (profile) (increase(mcp_grip_profile_uses_total{host=\"client\"}[15m]))",
           "legendFormat": "{{profile}}"
         }
       ]
@@ -364,7 +364,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (reason) (increase(mcp_floor_guard_slowdowns_total[15m]))",
+          "expr": "sum by (reason) (increase(mcp_floor_guard_slowdowns_total{host=\"client\"}[15m]))",
           "legendFormat": "{{reason}}"
         }
       ]
@@ -429,7 +429,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (kind, status) (increase(mcp_motion_steps_total[15m]))",
+          "expr": "sum by (kind, status) (increase(mcp_motion_steps_total{host=\"client\"}[15m]))",
           "legendFormat": "{{kind}} {{status}}"
         }
       ]
@@ -473,7 +473,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le, kind) (rate(mcp_motion_tracking_error_rad_bucket[15m])))",
+          "expr": "histogram_quantile(0.5, sum by (le, kind) (rate(mcp_motion_tracking_error_rad_bucket{host=\"client\"}[15m])))",
           "legendFormat": "p50 {{kind}}"
         },
         {
@@ -482,7 +482,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(mcp_motion_tracking_error_rad_bucket[15m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(mcp_motion_tracking_error_rad_bucket{host=\"client\"}[15m])))",
           "legendFormat": "p95 {{kind}}"
         }
       ]
@@ -526,7 +526,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{tool=~\"plan_grasp|grasp_object|release_object|move_arm_cartesian|set_gripper\"}[15m])))",
+          "expr": "histogram_quantile(0.5, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{host=\"client\", tool=~\"plan_grasp|grasp_object|release_object|move_arm_cartesian|set_gripper\"}[15m])))",
           "legendFormat": "p50 {{tool}}"
         },
         {
@@ -535,7 +535,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{tool=~\"plan_grasp|grasp_object|release_object|move_arm_cartesian|set_gripper\"}[15m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{host=\"client\", tool=~\"plan_grasp|grasp_object|release_object|move_arm_cartesian|set_gripper\"}[15m])))",
           "legendFormat": "p95 {{tool}}"
         }
       ]
@@ -592,7 +592,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "servo_present_load{joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
+          "expr": "servo_present_load{host=\"client\", joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
           "legendFormat": "{{joint}}"
         }
       ]
@@ -636,7 +636,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "servo_temperature_celsius{joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
+          "expr": "servo_temperature_celsius{host=\"client\", joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
           "legendFormat": "{{joint}}"
         }
       ]
@@ -708,7 +708,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "servo_torque_enabled{joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
+          "expr": "servo_torque_enabled{host=\"client\", joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
           "legendFormat": "{{joint}}"
         }
       ]
@@ -760,7 +760,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (joint) (increase(servo_bus_read_failures_total[5m]))",
+          "expr": "sum by (joint) (increase(servo_bus_read_failures_total{host=\"client\"}[5m]))",
           "legendFormat": "read {{joint}}"
         },
         {
@@ -769,7 +769,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "sum by (reason) (increase(servo_set_register_failures_total[5m]))",
+          "expr": "sum by (reason) (increase(servo_set_register_failures_total{host=\"client\"}[5m]))",
           "legendFormat": "set register {{reason}}"
         },
         {
@@ -778,7 +778,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "C",
-          "expr": "1 - servo_bus_up",
+          "expr": "1 - servo_bus_up{host=\"client\"}",
           "legendFormat": "bus down"
         }
       ]
@@ -822,7 +822,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "servo_voltage_volts{joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
+          "expr": "servo_voltage_volts{host=\"client\", joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
           "legendFormat": "{{joint}}"
         }
       ]

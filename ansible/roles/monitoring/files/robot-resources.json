@@ -1,7 +1,7 @@
 {
   "title": "Robot resources",
   "uid": "robot-resources",
-  "description": "Host, per-systemd-unit and monitoring-stack resources of the client RPi5 (Alloy -> Prometheus).",
+  "description": "Host, per-systemd-unit and monitoring-stack resources of the picked host (client RPi5 or server RPi4; Alloy -> Mimir).",
   "tags": [
     "robot",
     "resources"
@@ -30,7 +30,33 @@
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "host",
+        "label": "Host",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-robot"
+        },
+        "definition": "label_values(up, host)",
+        "query": {
+          "query": "label_values(up, host)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "current": {
+          "selected": true,
+          "text": "client",
+          "value": "client"
+        },
+        "refresh": 1,
+        "includeAll": false,
+        "multi": false,
+        "sort": 1,
+        "hide": 0,
+        "options": []
+      }
+    ]
   },
   "annotations": {
     "list": []
@@ -100,7 +126,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "100 * sum by (mode) (rate(node_cpu_seconds_total{mode!=\"idle\"}[$__rate_interval])) / scalar(count(node_cpu_seconds_total{mode=\"idle\"}))",
+          "expr": "100 * sum by (mode) (rate(node_cpu_seconds_total{host=\"$host\", mode!=\"idle\"}[$__rate_interval])) / scalar(count(node_cpu_seconds_total{host=\"$host\", mode=\"idle\"}))",
           "legendFormat": "{{mode}}"
         }
       ]
@@ -170,7 +196,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "node_load1",
+          "expr": "node_load1{host=\"$host\"}",
           "legendFormat": "1m"
         },
         {
@@ -179,7 +205,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "node_load5",
+          "expr": "node_load5{host=\"$host\"}",
           "legendFormat": "5m"
         },
         {
@@ -188,7 +214,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "C",
-          "expr": "node_load15",
+          "expr": "node_load15{host=\"$host\"}",
           "legendFormat": "15m"
         },
         {
@@ -197,7 +223,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "D",
-          "expr": "count(node_cpu_seconds_total{mode=\"idle\"})",
+          "expr": "count(node_cpu_seconds_total{host=\"$host\", mode=\"idle\"})",
           "legendFormat": "cores"
         }
       ]
@@ -267,7 +293,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
+          "expr": "node_memory_MemTotal_bytes{host=\"$host\"} - node_memory_MemAvailable_bytes{host=\"$host\"}",
           "legendFormat": "used"
         },
         {
@@ -276,7 +302,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "node_memory_MemAvailable_bytes",
+          "expr": "node_memory_MemAvailable_bytes{host=\"$host\"}",
           "legendFormat": "available"
         },
         {
@@ -285,7 +311,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "C",
-          "expr": "node_memory_MemTotal_bytes",
+          "expr": "node_memory_MemTotal_bytes{host=\"$host\"}",
           "legendFormat": "total"
         }
       ]
@@ -332,7 +358,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "node_thermal_zone_temp",
+          "expr": "node_thermal_zone_temp{host=\"$host\"}",
           "legendFormat": "{{zone}} {{type}}"
         },
         {
@@ -341,7 +367,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "node_hwmon_temp_celsius",
+          "expr": "node_hwmon_temp_celsius{host=\"$host\"}",
           "legendFormat": "{{chip}} {{sensor}}"
         }
       ]
@@ -399,7 +425,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "rpi_throttled",
+          "expr": "rpi_throttled{host=\"$host\"}",
           "legendFormat": "{{bit}}"
         }
       ]
@@ -453,7 +479,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "rpi_throttled_flags",
+          "expr": "rpi_throttled_flags{host=\"$host\"}",
           "legendFormat": "flags"
         }
       ]
@@ -512,7 +538,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"}",
+          "expr": "1 - node_filesystem_avail_bytes{host=\"$host\", mountpoint=\"/\"} / node_filesystem_size_bytes{host=\"$host\", mountpoint=\"/\"}",
           "legendFormat": "used"
         }
       ]
@@ -559,7 +585,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "rate(node_disk_read_bytes_total{device=~\"nvme0n1|mmcblk0\"}[$__rate_interval])",
+          "expr": "rate(node_disk_read_bytes_total{host=\"$host\", device=~\"nvme0n1|mmcblk0\"}[$__rate_interval])",
           "legendFormat": "read {{device}}"
         },
         {
@@ -568,7 +594,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "rate(node_disk_written_bytes_total{device=~\"nvme0n1|mmcblk0\"}[$__rate_interval])",
+          "expr": "rate(node_disk_written_bytes_total{host=\"$host\", device=~\"nvme0n1|mmcblk0\"}[$__rate_interval])",
           "legendFormat": "write {{device}}"
         }
       ]
@@ -615,7 +641,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "rate(node_network_receive_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[$__rate_interval])",
+          "expr": "rate(node_network_receive_bytes_total{host=\"$host\", device!~\"lo|veth.*|docker.*|br-.*\"}[$__rate_interval])",
           "legendFormat": "rx {{device}}"
         },
         {
@@ -624,7 +650,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "rate(node_network_transmit_bytes_total{device!~\"lo|veth.*|docker.*|br-.*\"}[$__rate_interval])",
+          "expr": "rate(node_network_transmit_bytes_total{host=\"$host\", device!~\"lo|veth.*|docker.*|br-.*\"}[$__rate_interval])",
           "legendFormat": "tx {{device}}"
         }
       ]
@@ -707,7 +733,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{host=\"$host\", id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|mimir|loki|grafana-server|nginx)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         },
         {
@@ -716,7 +742,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "label_replace(container_spec_cpu_quota{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"} / container_spec_cpu_period{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(container_spec_cpu_quota{host=\"$host\", id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|mimir|loki|grafana-server|nginx)\\\\.service\"} / container_spec_cpu_period{host=\"$host\", id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|mimir|loki|grafana-server|nginx)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "quota {{unit}}"
         }
       ]
@@ -786,7 +812,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(container_memory_working_set_bytes{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(container_memory_working_set_bytes{host=\"$host\", id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|mimir|loki|grafana-server|nginx)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         },
         {
@@ -795,7 +821,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "label_replace(container_spec_memory_limit_bytes{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"} > 0, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(container_spec_memory_limit_bytes{host=\"$host\", id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|mimir|loki|grafana-server|nginx)\\\\.service\"} > 0, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "MemoryMax {{unit}}"
         }
       ]
@@ -837,7 +863,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(topk(10, sum by (id) (rate(container_cpu_usage_seconds_total{id=~\"/(system|monitoring)\\\\.slice/.+\\\\.service\"}[5m]))), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(topk(10, sum by (id) (rate(container_cpu_usage_seconds_total{host=\"$host\", id=~\"/(system|monitoring)\\\\.slice/.+\\\\.service\"}[5m]))), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "{{unit}}",
           "instant": true,
           "range": false
@@ -886,7 +912,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(container_memory_rss{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(container_memory_rss{host=\"$host\", id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|mimir|loki|grafana-server|nginx)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         }
       ]
@@ -933,7 +959,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(rate(container_fs_reads_bytes_total{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}[$__rate_interval]), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(rate(container_fs_reads_bytes_total{host=\"$host\", id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|mimir|loki|grafana-server|nginx)\\\\.service\"}[$__rate_interval]), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "read {{unit}}"
         },
         {
@@ -942,7 +968,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "label_replace(rate(container_fs_writes_bytes_total{id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|prometheus|grafana-server)\\\\.service\"}[$__rate_interval]), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(rate(container_fs_writes_bytes_total{host=\"$host\", id=~\"/(system|monitoring)\\\\.slice/(ros2-.+|alloy|mimir|loki|grafana-server|nginx)\\\\.service\"}[$__rate_interval]), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "write {{unit}}"
         }
       ]
@@ -968,7 +994,7 @@
         "type": "prometheus",
         "uid": "prometheus-robot"
       },
-      "description": "CPU cores used by Alloy, Prometheus, Grafana and the throttling timer; dashed: the slice quota.",
+      "description": "CPU cores used by the monitoring units of the picked host (Alloy and the throttling timer; on the server also Mimir, Loki and Grafana); dashed: the slice quota.",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -1025,7 +1051,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{id=~\"/monitoring\\\\.slice/.+\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{host=\"$host\", id=~\"/monitoring\\\\.slice/.+\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         },
         {
@@ -1034,7 +1060,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "sum(rate(container_cpu_usage_seconds_total{id=\"/monitoring.slice\"}[$__rate_interval]))",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{host=\"$host\", id=\"/monitoring.slice\"}[$__rate_interval]))",
           "legendFormat": "monitoring.slice total"
         },
         {
@@ -1043,7 +1069,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "C",
-          "expr": "container_spec_cpu_quota{id=\"/monitoring.slice\"} / container_spec_cpu_period{id=\"/monitoring.slice\"}",
+          "expr": "container_spec_cpu_quota{host=\"$host\", id=\"/monitoring.slice\"} / container_spec_cpu_period{host=\"$host\", id=\"/monitoring.slice\"}",
           "legendFormat": "slice CPUQuota"
         }
       ]
@@ -1113,7 +1139,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(container_memory_working_set_bytes{id=~\"/monitoring\\\\.slice/.+\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(container_memory_working_set_bytes{host=\"$host\", id=~\"/monitoring\\\\.slice/.+\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         },
         {
@@ -1122,7 +1148,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "container_memory_working_set_bytes{id=\"/monitoring.slice\"}",
+          "expr": "container_memory_working_set_bytes{host=\"$host\", id=\"/monitoring.slice\"}",
           "legendFormat": "monitoring.slice total"
         },
         {
@@ -1131,7 +1157,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "C",
-          "expr": "container_spec_memory_limit_bytes{id=\"/monitoring.slice\"} > 0",
+          "expr": "container_spec_memory_limit_bytes{host=\"$host\", id=\"/monitoring.slice\"} > 0",
           "legendFormat": "slice MemoryMax"
         }
       ]
@@ -1178,7 +1204,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(rate(container_fs_writes_bytes_total{id=~\"/monitoring\\\\.slice/.+\\\\.service\"}[$__rate_interval]), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
+          "expr": "label_replace(rate(container_fs_writes_bytes_total{host=\"$host\", id=~\"/monitoring\\\\.slice/.+\\\\.service\"}[$__rate_interval]), \"unit\", \"$1\", \"id\", \".*/(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         }
       ]

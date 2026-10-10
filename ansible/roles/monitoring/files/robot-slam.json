@@ -89,7 +89,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{id=~\"/system\\\\.slice/ros2-(slam_toolbox|nav2_bringup|robot_localization_ekf|rf2o_laser_odometry|laser_filter|rplidar_a1)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
+          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{host=\"client\", id=~\"/system\\\\.slice/ros2-(slam_toolbox|nav2_bringup|robot_localization_ekf|rf2o_laser_odometry|laser_filter|rplidar_a1)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         }
       ]
@@ -133,7 +133,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(container_memory_working_set_bytes{id=~\"/system\\\\.slice/ros2-(slam_toolbox|nav2_bringup|robot_localization_ekf|rf2o_laser_odometry|laser_filter|rplidar_a1)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
+          "expr": "label_replace(container_memory_working_set_bytes{host=\"client\", id=~\"/system\\\\.slice/ros2-(slam_toolbox|nav2_bringup|robot_localization_ekf|rf2o_laser_odometry|laser_filter|rplidar_a1)\\\\.service\"}, \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         }
       ]
@@ -190,7 +190,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "lidar_scan_rate_hz",
+          "expr": "lidar_scan_rate_hz{host=\"client\"}",
           "legendFormat": "supervisor rate"
         },
         {
@@ -199,7 +199,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "rate(lidar_scans_total[1m])",
+          "expr": "rate(lidar_scans_total{host=\"client\"}[1m])",
           "legendFormat": "scans/s (1 min)"
         }
       ]
@@ -243,7 +243,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "lidar_scan_gap_seconds_max",
+          "expr": "lidar_scan_gap_seconds_max{host=\"client\"}",
           "legendFormat": "max gap (60 s)"
         }
       ]
@@ -295,7 +295,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (reason) (increase(lidar_driver_restarts_total[15m]))",
+          "expr": "sum by (reason) (increase(lidar_driver_restarts_total{host=\"client\"}[15m]))",
           "legendFormat": "{{reason}}"
         },
         {
@@ -304,7 +304,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "changes(robot_node_start_time_seconds{node=\"rplidar_a1\"}[15m])",
+          "expr": "changes(robot_node_start_time_seconds{host=\"client\", node=\"rplidar_a1\"}[15m])",
           "legendFormat": "process restarts"
         },
         {
@@ -313,7 +313,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "C",
-          "expr": "increase(node_systemd_service_restart_total{name=\"ros2-rplidar_a1.service\"}[15m])",
+          "expr": "increase(node_systemd_service_restart_total{host=\"client\", name=\"ros2-rplidar_a1.service\"}[15m])",
           "legendFormat": "systemd restarts"
         }
       ]
@@ -357,7 +357,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "rate(relay_messages_total[$__rate_interval])",
+          "expr": "rate(relay_messages_total{host=\"client\"}[$__rate_interval])",
           "legendFormat": "relayed/s"
         }
       ]
@@ -409,7 +409,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "increase(relay_dt_rejected_total[5m])",
+          "expr": "increase(relay_dt_rejected_total{host=\"client\"}[5m])",
           "legendFormat": "dt rejected"
         }
       ]
@@ -453,7 +453,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "swerve_slip_residual",
+          "expr": "swerve_slip_residual{host=\"client\"}",
           "legendFormat": "slip residual"
         }
       ]
@@ -497,7 +497,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "rate(swerve_odom_published_total[$__rate_interval])",
+          "expr": "rate(swerve_odom_published_total{host=\"client\"}[$__rate_interval])",
           "legendFormat": "odom/s"
         }
       ]
@@ -554,7 +554,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "rate(webui_map_updates_total[5m]) * 60",
+          "expr": "rate(webui_map_updates_total{host=\"client\"}[5m]) * 60",
           "legendFormat": "updates/min"
         }
       ]
@@ -598,7 +598,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "webui_map_age_seconds",
+          "expr": "webui_map_age_seconds{host=\"client\"}",
           "legendFormat": "map age"
         }
       ]
@@ -670,7 +670,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "webui_robot_pose_ok",
+          "expr": "webui_robot_pose_ok{host=\"client\"}",
           "legendFormat": "map -> base_link"
         }
       ]
@@ -722,7 +722,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "sum by (result) (increase(mcp_nav_goals_total[15m]))",
+          "expr": "sum by (result) (increase(mcp_nav_goals_total{host=\"client\"}[15m]))",
           "legendFormat": "{{result}}"
         }
       ]
@@ -766,7 +766,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_nav_goal_duration_seconds_bucket[30m])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_nav_goal_duration_seconds_bucket{host=\"client\"}[30m])))",
           "legendFormat": "p50"
         },
         {
@@ -775,7 +775,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_nav_goal_duration_seconds_bucket[30m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_nav_goal_duration_seconds_bucket{host=\"client\"}[30m])))",
           "legendFormat": "p95"
         }
       ]
@@ -832,7 +832,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "rate(imu_published_total[$__rate_interval])",
+          "expr": "rate(imu_published_total{host=\"client\"}[$__rate_interval])",
           "legendFormat": "published/s"
         },
         {
@@ -841,7 +841,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "imu_seconds_since_publish",
+          "expr": "imu_seconds_since_publish{host=\"client\"}",
           "legendFormat": "seconds since publish"
         }
       ]
@@ -887,7 +887,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "imu_calibration_level",
+          "expr": "imu_calibration_level{host=\"client\"}",
           "legendFormat": "{{subsystem}}"
         }
       ]
@@ -931,7 +931,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "gps_fix_quality",
+          "expr": "gps_fix_quality{host=\"client\"}",
           "legendFormat": "GGA quality"
         },
         {
@@ -940,7 +940,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "gps_hdop",
+          "expr": "gps_hdop{host=\"client\"}",
           "legendFormat": "HDOP"
         }
       ]
@@ -984,7 +984,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "gps_satellites",
+          "expr": "gps_satellites{host=\"client\"}",
           "legendFormat": "satellites"
         }
       ]
@@ -1028,7 +1028,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "gps_ntrip_connected",
+          "expr": "gps_ntrip_connected{host=\"client\"}",
           "legendFormat": "NTRIP connected"
         },
         {
@@ -1037,7 +1037,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "gps_diff_age_seconds",
+          "expr": "gps_diff_age_seconds{host=\"client\"}",
           "legendFormat": "diff age (s)"
         }
       ]
@@ -1081,7 +1081,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "rate(gps_ntrip_rx_bytes_total[$__rate_interval])",
+          "expr": "rate(gps_ntrip_rx_bytes_total{host=\"client\"}[$__rate_interval])",
           "legendFormat": "rx"
         }
       ]
