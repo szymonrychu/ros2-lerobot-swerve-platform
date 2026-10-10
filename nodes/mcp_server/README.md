@@ -448,14 +448,24 @@ The arm can hit its own robot. Seen from above the robot is an H, and those are 
 
 | Obstacle | Model | Default (m) |
 |---|---|---|
-| `wheel_fl`, `wheel_fr`, `wheel_rl`, `wheel_rr` | vertical cylinder around the steer axis (the wheels steer, so the whole steering circle counts) | axes (+-0.1525, +-0.1333), radius 0.06, z 0 .. 0.12 |
-| `frame_left`, `frame_right` | box along x over both wheels of a side (the H strokes, about 5 cm of frame holding the steering servos) | x -0.2125 .. 0.2125, y centred +-0.1333, width 0.06, z 0.12 .. 0.17 |
-| `crossbar` | box between the strokes (the H bar, carries the arm base and the lidar) | x -0.15 .. 0.10, y -0.1033 .. 0.1033, z 0.06 .. 0.10 |
-| `lidar` | vertical cylinder from the crossbar top to the RPLidar A1 dome top | axis (0.158, 0.06), radius 0.045, z 0.10 .. 0.215 |
+| `wheel_fl`, `wheel_fr`, `wheel_rl`, `wheel_rr` | vertical cylinder around the steer axis (the wheels steer, so the whole steering circle counts: the half-diagonal of the 120 x 35 mm wheel) | axes (+-0.1525, +-0.1333), radius 0.0625, z 0 .. 0.12 |
+| `frame_left`, `frame_right` | box along x over both wheels of a side (the H strokes joining front and rear wheel, carrying the steering servos) | x -0.2125 .. 0.2125, y centred +-0.1333, width 0.035, z 0.12 .. 0.18 |
+| `crossbar` | box between the strokes up to their inner faces (the H bar, carries the arm base and the lidar) | x -0.15 .. 0.10, y -0.1158 .. 0.1158, z 0.06 .. 0.10 |
+| `lidar` | vertical cylinder from the crossbar top to the RPLidar A1 dome top | axis (0.158, 0.06), radius 0.074, z 0.10 .. 0.21 |
 
-The defaults are ASSUMED (2026-10-10) from the swerve geometry (`swerve_controller` half_length_m / half_width_m,
-wheel radius), the `laser_frame` TF and the arm mount. They live in `ansible/group_vars/client.yml` (`body:` in the
-mcp_server config, pydantic `BodySettings`: positive sizes, cylinder z_max above z_min, unique names).
+Measured (2026-10-10, by the user): the lidar dome radius 74 mm and its top face 210 mm above the floor; the wheels
+35 mm wide (with the 0.06 m wheel radius their steering circle is 0.0625); the side bars joining front and rear wheels
+35 mm wide, their top face about 180 mm above the floor. Still ASSUMED: the steer axes (`swerve_controller`
+half_length_m / half_width_m), the wheel radius and top (0.12), the side bar bottom (0.12) and length, the crossbar
+extent and height, the lidar position (the `laser_frame` TF) and its column bottom (0.10). The numbers live in
+`ansible/group_vars/client.yml` (`body:` in the mcp_server config, pydantic `BodySettings`: positive sizes, cylinder
+z_max above z_min, unique names); `scripts/gen_nav_footprint.py` derives the Nav2 footprint from the same block.
+
+Open question (needs a measurement): with the sim arm collision boxes, the measured dome at the assumed lidar position
+is deeper in the arm's workspace than the real robot shows. The 2026-10-10 floor touch-downs t2 and t4 (front-left),
+which the arm physically reached, come out 22 mm (t4) and a few mm (t2) inside the dome, and the folded home pose
+stands 15 mm from it (the upper arm 7 mm). The lidar x / y (or the radius at the arm's height: 74 mm may be the base
+plate, not the head) is probably off; re-measure the dome centre from base_link and correct `lidar` in client.yml.
 
 How to measure and correct each number (tape, robot on a flat floor, base_link = centre between the four steer axes on
 the floor; x forward, y left):
@@ -472,12 +482,19 @@ the floor; x forward, y left):
 
 Checked arm parts (one FK pass per joint sample, the arm mount `arm.base_in_base_link` converts to base_link): the upper
 arm (shoulder_lift axis to elbow), forearm (elbow to wrist_flex axis) and wrist link (wrist_flex axis to gripper_link)
-as capsules of radius 0.02 (half the STS3215 width, shared with the grasp planner in `arm_geometry.py`), the gripper body
-/ fixed jaw hull points and the jaw tip, tool point and moving jaw tip. The arm base and the shoulder link stand on the
-crossbar and only turn in place about the pan axis: they are not checked at all, in particular not against the
-crossbar. Distances are exact signed distances (negative = penetration): points to boxes and finite vertical cylinders
-in closed form, capsules by a golden-section minimum along the axis (the distance to a convex obstacle is convex along
-it).
+as capsules of radius 0.02 (half the STS3215 width, shared with the grasp planner in `arm_geometry.py`) and as points on
+the faces of the arm collision boxes of the grasp_sim MuJoCo model (`arm_geometry.LINK_COLLISION_BOXES`, the six boxes
+of `sim/grasp_sim/assets/so101/so101.xml` on 1 cm grids, at most 7 mm apart; the forearm box reaches 4.8 cm off the
+capsule axis, where the sim arm hit the lidar dome while the capsules alone saw 18 mm), the gripper body / fixed jaw
+hull points and the jaw tip, tool point and moving jaw tip. The two upper arm boxes are contact-only: the hard check
+counts their distance plus `hard_margin_m` (it rejects exactly their contact) and the slow band leaves them out. Held
+to the margins they would reject the folded home (7 mm from the measured dome) and slow nearly every forward motion
+(the slab passes 2 .. 7 mm over the dome top edge); in the plan matrix they touched the dome only in the low stair
+reaches, which the contact check rejects. `tests/test_arm_link_boxes.py` pins the boxes to the MJCF and bounds the
+checker's clearance by the sim boxes' over random poses. The arm base and the shoulder link stand on the crossbar and
+only turn in place about the pan axis: they are not checked at all, in particular not against the crossbar. Distances
+are exact signed distances (negative = penetration): points to boxes and finite vertical cylinders in closed form,
+capsules by a golden-section minimum along the axis (the distance to a convex obstacle is convex along it).
 
 Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_margin_m):
 
@@ -487,7 +504,8 @@ Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_
   `look_around` and the base tools do not move arm joints.
 - A sample with a clearance below `soft_margin_m` (default 0.03) runs at `slow_speed_scale` (0.3); the floor slow
   zone's scale applies too and the slower one wins per sample. The result reports `self_collision` {obstacle, link,
-  min_clearance_m, speed_scale, slowed_samples, ...} next to `slow_zone`.
+  min_clearance_m, speed_scale, slowed_samples, ...} next to `slow_zone` (slow-band clearances: without the
+  contact-only upper arm boxes).
 - A sample below `hard_margin_m` (0.01) or inside an obstacle rejects the whole motion before anything is published:
   the tool fails (`ok` false) with "refused (self-collision): the <link> would come <clearance> m from the robot body
   obstacle <obstacle> ... Hint: ...". A start that already is inside the hard margin may move out (no clearance may
@@ -503,7 +521,7 @@ Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_
   rest); the result message names it. Only when no route clears the body does it fail, naming every route tried.
 - `body_check.enabled: false` switches all of it off (no slowdown, no rejection, no planner reasons).
 - Metrics: `mcp_self_collision_rejections_total{obstacle}`, `mcp_self_collision_slowdowns_total{obstacle}`,
-  `mcp_self_collision_min_clearance_m` (last executed motion).
+  `mcp_self_collision_min_clearance_m` (last executed motion, slow-band clearance).
 
 `get_arm_reach(points?)` (in `body_tools.py`, never refused): the obstacle list with dimensions, the arm mount and pan
 axis, the margins and a collision-free reach envelope; with up to `reach_max_points` (20) base_link points
@@ -512,7 +530,8 @@ axis, the margins and a collision-free reach envelope; with up to `reach_max_poi
 a `suggestion`. The envelope (`arm_reach.py`) is computed once in a background thread (about 1.5 s on the dev Mac, about
 95 s on the busy RPi5 under the unit's CPU quota; a call waits up to `reach_wait_s` and otherwise reports `computing`).
 With `reach_cache_file` set (the robot: `/var/lib/ros2/arm/reach_envelope.json`) it starts when the server is built
-and is saved to that file under a hash of every input (body, mount, joint limits and offsets, grid, hard margin), so
+and is saved to that file under a hash of every input (body, arm link model, mount, joint limits and offsets, grid,
+hard margin), so
 a restart loads it instead of recomputing and any changed input recomputes; without it the envelope is computed on
 the first call. Per
 shoulder_pan heading every `reach_heading_step_deg` (15) across the pan limits and tool height 0 .. `reach_height_max_m`
@@ -613,12 +632,15 @@ heading has to be iterated) of them, so the planner avoids them where the result
   with an "IK budget" reason instead of searching until the caller times out. The largest feasible plan in the matrix
   (angled 45 deg, 4 cm cube on a 0 m ledge at x 0.25) uses about 2700 runs.
 
-Feasible plans keep their feasibility and strategy: `tests/test_grasp_speed.py` compares 13 of them (top_down, angled,
-scoop, auto) with golden joints within 1e-6 rad (`tests/data/grasp_golden.json`, regenerated 2026-10-10 with the grid
-calibration; the stair case moved from -0.25 to -0.204 and the baseline of that regeneration equals the current plans;
-regenerated again for the jaw clearance, which moves every centred plan by design: shoulder_pan 0.03 to 0.05 rad, the
-open angle of every case, scoop arm joints unchanged) and each case keeps its `baseline` (the plan before that change), which the current plan must match within 2e-3
-rad (0.1 deg, far below the arm's backlash). The speed tests (feasible angled and auto golden scenarios and auto on the
+Feasible plans keep their feasibility and strategy: `tests/test_grasp_speed.py` compares 6 of them (top_down, angled,
+scoop, auto) with golden joints within 1e-6 rad. The robot body check dropped the cases its plans now hit (assumed body:
+13 -> 8; measured body, 2026-10-10: the lidar dome rejects all but 4x4x4_r25_floor_auto, unchanged with its baseline),
+and five feasible cases of the current matrix were added (floor -0.10: top_down; ledge -0.03: angled 45, tall-box auto;
+ledge 0.05 with a 2 cm gap: two scoops; baseline = their plan). Before that, `tests/data/grasp_golden.json` was
+regenerated 2026-10-10 with the grid calibration (the stair case moved from -0.25 to -0.204, baseline = the current
+plans) and again for the jaw clearance, which moved every centred plan by design (shoulder_pan 0.03 to 0.05 rad, the
+open angle of every case, scoop arm joints unchanged). Each case keeps its `baseline`, which the current plan must
+match within 2e-3 rad (0.1 deg, far below the arm's backlash). The speed tests (feasible angled and auto golden scenarios and auto on the
 reference 4 cm cube under 1 s, scoop 3 s, unreachable 0.2 s) are skipped with `GRASP_SPEED_SKIP=1`.
 
 Regenerating the golden plans after a planner change that moves them by design (check the sim matrix first):
@@ -626,6 +648,7 @@ Regenerating the golden plans after a planner change that moves them by design (
 ```bash
 cd nodes/mcp_server
 uv run python -m tests.regenerate_grasp_golden   # re-plans every case, sets baseline = the new plan
+uv run python -m tests.regenerate_grasp_golden --drop-body-collisions   # also drops cases the body check rejects
 uv run pytest tests/test_grasp_speed.py -q
 ```
 

@@ -427,10 +427,46 @@ scoops and 30 cm angled plans swing the forearm low past the front-right wheel (
 and the 30 deg-left plans bring the gripper body or upper arm within 1 cm of the lidar dome (`body_collision:lidar`),
 some retreats pass the right side frame. The two plans that are feasible but not lifted are the known 6x6x3 low-ledge
 slips (angled45 and auto). In the tip-over set the angled 50 plans are now infeasible (retreat 7 mm from the lidar);
-top_down and auto still plan. The body numbers are assumptions (wheels as full steering circles): measured values in
-client.yml will change these counts; re-run the matrix after correcting them. Golden plans
-(`tests/data/grasp_golden.json`) were regenerated with `--drop-body-collisions`: the 5 golden cases that now hit the
-body are dropped, 8 remain.
+top_down and auto still plan. The body numbers were assumptions (wheels as full steering circles); the measured
+values below replace them. Golden plans (`tests/data/grasp_golden.json`) were regenerated with
+`--drop-body-collisions`: the 5 golden cases that hit the assumed body were dropped, 8 remained.
+
+#### Measured body (2026-10-10)
+
+The user measured the lidar dome (radius 74 mm, top 210 mm), the wheels and the side bars (35 mm wide, bar top about
+180 mm); client.yml carries them (the wheel steering circle 0.0625, side bars 35 mm wide z 0.12 .. 0.18, the crossbar
+up to their inner faces, lidar r 0.074 z 0.10 .. 0.21 at the assumed (0.158, 0.06)). The first replay with these
+numbers showed the planner's link model was thinner than the sim arm: 17 executed plans with arm-body contacts (the
+sim `lower_arm` and `wrist` collision boxes reach up to 4.8 cm off the 2 cm link capsules) and, after the planner
+took those boxes in, 10 stair plans whose sim `upper_arm` box touched the dome top (planner >= 12 mm). The body check
+now covers all six sim arm collision boxes as face points (`arm_geometry.LINK_COLLISION_BOXES`; the upper arm boxes
+contact-only, see `nodes/mcp_server/README.md`, "Body collision"). Re-run (`plan_matrix.py` then `grasp-sim matrix`,
+240 scenarios):
+
+| | Feasible | Lifted | Arm contacts (floor/support) | Body contacts |
+|---|---|---|---|---|
+| Assumed body (above) | 70 | 68 | 0 | 0 |
+| Measured body, forearm and wrist boxes (upper arm capsule only) | 42 | 32 | 0 | 27759 samples in 10 plans (sim upper arm on the dome) |
+| Measured body, sim link boxes (now) | 32 | 32 | 0 | 0 (every executed plan) |
+
+Per strategy now (lifted / feasible of 48): top_down 5/5, angled45 10/10, scoop_gap 3/3, auto 14/14, scoop 0/0.
+Lost against the assumed body: 38 plans, none gained, every one with a `body_collision:lidar` reason (5 also
+`wheel_fr`). By position and support: r20 floor top_down / auto (4) and r20 stair (8): the folded reach brings the
+gripper body or wrist into the dome on the retreat; r25 ledge+0.07 angled45 / auto (6); r25 stair 4x4x4 / 6x6x3 (6)
+and r30 stair 4x4x4 / 6x6x3 angled45 / auto (4): reaching 10 cm down leans the upper arm onto the dome top (the
+contacts the sim showed); r30 floor angled45 / auto (5) and r30 ledge+0.07 scoop_gap (3) and 6x6x3 angled45 / auto
+(2): retreats and approaches pass the dome with the wrist link or forearm. Per phase over the lost plans' reasons:
+retreat (wrist link 12, gripper body 10, forearm 5), grasp (upper arm 12, forearm 5 on lidar and 5 on wheel_fr, wrist
+link 4), pre_grasp (wrist link 3). r25a30 (30 deg left) stays all infeasible. What remains: r25 / r30 floor top_down
+and auto, every ledge+0.15 angled45 / auto / scoop_gap, the r30 ledge+0.07 angled45 / auto of the 4x4x4 and 3x3x6
+boxes and the 3x3x6 stair plans (r25 top_down / angled / auto, r30 angled 65 deg / auto). Every feasible plan lifts. Tip-over set (`--tipover`):
+all 6 jar plans infeasible (lidar: the top_down retreat, the angled 50 forearm already at the grasp), so nothing is
+replayed. Golden plans: 5 of the 6 remaining cases dropped (body collisions with the dome), 5 current-matrix cases
+added (`nodes/mcp_server/README.md`, "Planner").
+
+The measured dome at the assumed lidar position also lies 22 mm into touch-down t4 (and close to t2) that the arm
+reached on the robot, and 7 mm from the upper arm at home: the lidar position (or its radius at arm height) needs
+re-measuring; the matrix numbers will move with it.
 
 Tests (`tests/test_body.py`): the client.yml body and mount load, the eight `body_<name>` geoms sit at their arm-frame
 positions and sizes, a scene without a body has none, the gripper pointing into the lidar column touches `body_lidar`

@@ -523,7 +523,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - self-collision checker (`test_self_collision.py`, IK poses FK-checked): the checked parts (upper arm, forearm, wrist
   link, gripper body hull, jaw points), a clear pose, the 2026-10-10 home pose clear, the gripper pointing into the lidar
   column penetrating `lidar`, low over the front-right wheel penetrating `wheel_fr`, every measured 2026-10-10 floor
-  touch-down in front of the robot clear (deployed offsets); path checks: into the lidar rejected with obstacle, link,
+  touch-down in front of the robot clear (deployed offsets) except t2 and t4, which the measured lidar dome at the
+  assumed position rejects (forearm box, t4 at most 3 cm deep: the robot reached them, so the dome model is that much
+  conservative there); a clear pose checks its soft clearance (slow band) and its hard clearance; path checks: into the lidar rejected with obstacle, link,
   clearance, margin and hint, lowering toward the lidar slowed (scale 0.3, clearance in the slow band) not rejected, a
   clear path untouched, escaping from a colliding start allowed while going deeper is rejected, the disabled check,
   `combine_scales` (slower wins), `joint_line` sampling and the part points in base_link
@@ -538,8 +540,15 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   step of an unchecked plan; `get_arm_reach` (obstacles, mount, margins, envelope grid and cells, points: reachable and
   clear, into the lidar with the limiting obstacle, out of reach with a suggestion; more than 20 points refused) and
   the envelope computed once and cached; with a cache file it starts in the background when the server is built,
-  is written to disk and loaded by a new envelope without recomputing, and a changed hard margin or a corrupt file
-  recomputes
+  is written to disk and loaded by a new envelope without recomputing, and a changed hard margin, a changed arm link
+  model (collision boxes) or a corrupt file recomputes; the blend velocity cap and home-start grid stay clear of the
+  measured lidar dome
+- arm link boxes (`test_arm_link_boxes.py`): the body check's link boxes are the six collision boxes of the grasp_sim
+  `so101.xml` (upper arm, forearm, wrist; read from the MJCF independently), the upper arm boxes contact-only; the face
+  points cover every face within spacing / sqrt(2); over 300 random poses the checker's clearance never exceeds the
+  sim box surface clearance (plus the hard margin for contact-only boxes) by more than that bound; the 2026-10-10
+  matrix pose whose sim upper arm dipped into the lidar dome is rejected, home stays clear, and the stretched zero pose
+  is not slowed by the upper arm boxes
 - floor slow zone (`test_floor_guard.py`, a synthetic 15 cm mount with its own floor, independent of the configured
   one): arm <-> base_link conversions (with yaw), quaternion roll/pitch, effective
   surface (robot plane vs level plane, roll/pitch signs, shifted by `surface_z_m`), fresh IMU used / stale or missing
@@ -558,7 +567,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   and no face between equal heights, lift (tilt) term, capsule clearance, steps crossed along a line, vectorized
   `clearance_many` equal to the single queries, JSON description
 - grasp planner with surfaces (`test_grasp_surfaces.py`, deployed client.yml, the matrix stair 10 cm down with its
-  edge 8 cm before the box): the single-surface angled 50 deg plan runs the wrist into the step (45 deg until the jaw
+  edge 8 cm before the box, boxes 4 cm right of the arm centre line so the upper arm stays off the measured lidar
+  dome; the wrist-into-the-step case at arm x 0.32): the single-surface angled 50 deg plan runs the wrist into the step (45 deg until the jaw
   clearance put it out of reach there), with surfaces that candidate is rejected naming the step edge, a steeper candidate clearing the edge is chosen (rejected tries
   in `rejected_candidates`), the pre-grasp and the lift clear the upper surface, auto plans clear every surface, the
   gripper body keeps the jaw clearance from a diagonal step edge (r25 at 30 deg), `support_z` must match the region
@@ -640,7 +650,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   an obstacle at a heading ends the spin; an interruption never triggers a corrective rotation; the tool defaults to
   one spin without returning
 - link frames (`test_ik.py`): `link_frames` returns every chain link from one FK pass
-- grasp planner (`test_grasp.py`, real URDF): strategy registry and unknown names, scoop into a tight gap skims the
+- grasp planner (`test_grasp.py`, real URDF; floor objects clear of the measured body: top_down at arm x 0.26, angled
+  at 0.36 for 45 deg and 0.32 for 60 deg): strategy registry and unknown names, scoop into a tight gap skims the
   surface (roll about 0, moving jaw up, horizontal slide, opening), scoop with room under a ledge object goes below the
   object bottom, scoop needs `gap_below_m` >= jaw thickness + margin ("no gap under object for the fixed jaw", also in
   auto's reasons), top_down (pitch 90 deg, jaws aligned with the object width for two yaws), angled (requested pitch on
@@ -659,8 +670,11 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - IK heading convergence (`test_ik.py`): a pitched IK with the tool offset converges the arm plane heading in at most
   12 ikpy runs (secant step; the fixed-point iteration needed 16 or more) and a `heading_bias` start lands within
   2e-3 rad of the cold solution
-- grasp planner speed and stability (`test_grasp_speed.py`, deployed client.yml config, via `plan_matrix.py`): the 13
-  feasible sim-matrix scenarios in `tests/data/grasp_golden.json`, regenerated 2026-10-10 with the grid-sheet client.yml
+- grasp planner speed and stability (`test_grasp_speed.py`, deployed client.yml config, via `plan_matrix.py`): the 6
+  feasible sim-matrix scenarios in `tests/data/grasp_golden.json` (with the measured body: 4x4x4_r25_floor_auto from
+  the 2026-10-09 set, the others rejected by the lidar dome and dropped, plus top_down, angled 45, auto and two scoop
+  cases of the current matrix: floor -0.10, ledges -0.03 / 0.05; the angled reach-edge and IK budget cases at arm x
+  0.34), earlier regenerated 2026-10-10 with the grid-sheet client.yml
   calibration (joint offsets, tool point = physical fixed-jaw tip; fixed arm-frame surfaces: floor -0.15, ledges -0.08 / 0.0,
   stair -0.200 = 10 cm below the configured floor -0.100; the old -0.25 stair became unreachable; regenerated again for the
   2026-10-10 jaw clearance with `python -m tests.regenerate_grasp_golden`) (top_down, angled, scoop, auto; waypoint joints and
@@ -712,10 +726,10 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - sim scenario planning (`test_plan_matrix.py`): `sim/grasp_sim/scripts/plan_matrix.py` writes the matrix index and
   plans with the client.yml config (tool offset, `--only` filter, `--params` overrides); supports are placed relative
   to the configured floor (-0.100): ledges 7 and 15 cm above it, the stair 10 cm below; the stair is passed as a
-  step surface (half-plane at `support_edge_x` = box x - 0.08, the sim scene's edge), its angled plan is steeper than
-  45 deg, ledges keep a single surface height; the index records the shoulder pan axis (`pan_axis_xy`) the sim box
+  step surface (half-plane at `support_edge_x` = box x - 0.08, the sim scene's edge), its angled plan (3x3x6 at 30 cm:
+  the 4x4x4 one leans the upper arm onto the lidar dome) is steeper than 45 deg, ledges keep a single surface height; the index records the shoulder pan axis (`pan_axis_xy`) the sim box
   faces; `--tipover` writes the 2026-10-10 jar set (39 mm x 6 cm 30 g cylinder at base_link (0.316, 0), top_down /
-  angled 50 / auto, err0 and err3 = 3 mm toward the fixed jaw of the plan)
+  angled 50 / auto, err0 and err3 = 3 mm toward the fixed jaw of the plan; all six rejected by the measured lidar dome)
 - arm tool overrides (`test_tools.py`): `move_arm_cartesian`, `move_arm_joints`, `set_gripper` take `surface_z_m` /
   `tilt_override_deg`, report `slow_zone` and describe the slow zone; they and `arm_home` take `surfaces` (a stair
   allows normal speed below the robot floor past its edge, an invalid region is refused)
@@ -798,7 +812,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) and a `/scan` observation source. |
 | `test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan` | collision_monitor stays in the `cmd_vel_smoothed -> cmd_vel` chain with its core keys; `StopBox` (holonomic stop `velocity_polygon`, min 4 points) is enabled on the footprint-filtered scan. |
 | `test_stopbox_covers_every_velocity` | Every command (directions in 5 deg steps, speeds 0 to 0.25 m/s, yaw rates -0.5 to 0.5) selects a StopBox sub-polygon, as Nav2 keeps the previous one for an uncovered velocity. |
-| `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side (ahead of a front wheel, behind a rear wheel, beside each side frame), a return 1.5 cm outside the H footprint (just outside the self-filter polygon) stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
+| `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side (ahead of a front wheel, x 0.23; ahead of the lidar dome, the frontmost part, x 0.247; behind a rear wheel; beside each side frame, y +-0.1658 with the measured 35 mm frames), a return 1.5 cm outside the H footprint (just outside the self-filter polygon) stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
 | `test_stopbox_ignores_notch_obstacles_unless_moving_into_them` | A return deep in the front notch stops no translation (only rotation in place); a return 1.5 cm ahead of the crossbar stops only forward motion, one 1.5 cm behind it only backward motion. |
 | `test_nav2_goal_tolerance_tight_enough_for_swerve` | Goal checker tolerances 0.01 m / 0.035 rad (1 cm / 2 deg), stateful: the latch only holds because the BT no longer replans periodically. |
 | `test_nav2_replans_only_when_path_invalid` | `bt_navigator` uses the "replanning only if path becomes invalid" BT: periodic replans reset the goal checker latch and the rotation shim position check. |
