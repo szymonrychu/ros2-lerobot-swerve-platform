@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
 
@@ -43,6 +43,22 @@ ARM_BASE_HEIGHT_M = 0.100
 ARM_MOUNT_X_M = 0.0592
 ARM_MOUNT_Y_M = -0.05  # 5 cm to the right of the base_link centre line
 MOUNT_HEIGHT_TOLERANCE_M = 1e-6
+# Robot body (base_link, x forward, y left, z up from the floor; m): the H seen from above. ASSUMED 2026-10-10 from the
+# swerve geometry (swerve_controller half_length_m / half_width_m, wheel radius 0.06), the laser_frame TF and the arm
+# mount; measure and correct them in client.yml (nodes/mcp_server/README.md, "Body collision").
+WHEEL_X_M = 0.1525
+WHEEL_Y_M = 0.1333
+WHEEL_ENVELOPE_RADIUS_M = 0.06  # the wheel steers: its steering envelope is a vertical cylinder around the steer axis
+WHEEL_TOP_Z_M = 0.12
+FRAME_HALF_LENGTH_M = 0.2125
+FRAME_WIDTH_M = 0.06
+FRAME_TOP_Z_M = 0.17
+CROSSBAR_X_M = (-0.15, 0.10)
+CROSSBAR_HALF_WIDTH_M = 0.1033
+CROSSBAR_Z_M = (0.06, 0.10)
+LIDAR_XY_M = (0.158, 0.06)
+LIDAR_RADIUS_M = 0.045
+LIDAR_Z_M = (0.10, 0.215)
 # Largest configurable sag compensation per joint (rad): compensation only ever adds commanded travel up to this.
 HARD_MAX_SAG_RAD = 0.2
 # Grasp strategies the planner registers (grasp.STRATEGIES); "auto" tries grasp.auto_order.
@@ -701,6 +717,154 @@ class FloorGuardSettings(StrictModel):
     imu_max_age_s: float = Field(default=1.0, gt=0.0)
 
 
+class BodyBox(StrictModel):
+    """Axis-aligned box obstacle of the robot body in base_link.
+
+    Attributes:
+        name: Obstacle name reported in rejections, slowdowns and metrics (e.g. frame_left, crossbar).
+        center: Box centre (x, y, z) in base_link (m).
+        size: Full edge lengths along base_link x, y, z (m, > 0).
+    """
+
+    name: str = Field(min_length=1)
+    center: tuple[float, float, float]
+    size: tuple[PositiveFloat, PositiveFloat, PositiveFloat]
+
+
+class BodyCylinder(StrictModel):
+    """Vertical cylinder obstacle of the robot body in base_link (a steering wheel envelope, the lidar column).
+
+    Attributes:
+        name: Obstacle name (e.g. wheel_fl, lidar).
+        x: Axis x in base_link (m).
+        y: Axis y in base_link (m).
+        radius: Radius (m, > 0).
+        z_min: Bottom (m, base_link z).
+        z_max: Top (m), above z_min.
+    """
+
+    name: str = Field(min_length=1)
+    x: float
+    y: float
+    radius: PositiveFloat
+    z_min: float
+    z_max: float
+
+    @model_validator(mode="after")
+    def positive_height(self) -> "BodyCylinder":
+        """Require z_max above z_min.
+
+        Returns:
+            BodyCylinder: The validated obstacle.
+        """
+        if not self.z_max > self.z_min:
+            raise ValueError(f"body cylinder {self.name}: z_max ({self.z_max}) must be above z_min ({self.z_min})")
+        return self
+
+
+def default_body_boxes() -> list[BodyBox]:
+    """The H strokes (side frames above the wheels) and the H bar (crossbar carrying the arm and the lidar).
+
+    Returns:
+        list[BodyBox]: frame_left, frame_right, crossbar.
+    """
+    frame_z = (WHEEL_TOP_Z_M + FRAME_TOP_Z_M) / 2.0
+    frame_size = (2.0 * FRAME_HALF_LENGTH_M, FRAME_WIDTH_M, FRAME_TOP_Z_M - WHEEL_TOP_Z_M)
+    return [
+        BodyBox(name="frame_left", center=(0.0, WHEEL_Y_M, frame_z), size=frame_size),
+        BodyBox(name="frame_right", center=(0.0, -WHEEL_Y_M, frame_z), size=frame_size),
+        BodyBox(
+            name="crossbar",
+            center=(sum(CROSSBAR_X_M) / 2.0, 0.0, sum(CROSSBAR_Z_M) / 2.0),
+            size=(
+                CROSSBAR_X_M[1] - CROSSBAR_X_M[0],
+                2.0 * CROSSBAR_HALF_WIDTH_M,
+                CROSSBAR_Z_M[1] - CROSSBAR_Z_M[0],
+            ),
+        ),
+    ]
+
+
+def default_body_cylinders() -> list[BodyCylinder]:
+    """The four wheel steering envelopes and the lidar column (crossbar top to the dome top).
+
+    Returns:
+        list[BodyCylinder]: wheel_fl, wheel_fr, wheel_rl, wheel_rr, lidar.
+    """
+    wheels = [
+        BodyCylinder(
+            name=f"wheel_{name}",
+            x=sx * WHEEL_X_M,
+            y=sy * WHEEL_Y_M,
+            radius=WHEEL_ENVELOPE_RADIUS_M,
+            z_min=0.0,
+            z_max=WHEEL_TOP_Z_M,
+        )
+        for name, sx, sy in (("fl", 1.0, 1.0), ("fr", 1.0, -1.0), ("rl", -1.0, 1.0), ("rr", -1.0, -1.0))
+    ]
+    lidar = BodyCylinder(
+        name="lidar", x=LIDAR_XY_M[0], y=LIDAR_XY_M[1], radius=LIDAR_RADIUS_M, z_min=LIDAR_Z_M[0], z_max=LIDAR_Z_M[1]
+    )
+    return [*wheels, lidar]
+
+
+class BodySettings(StrictModel):
+    """Robot body obstacles the arm must not hit (body_model, self_collision), all in base_link.
+
+    The arm base and its shoulder link stand on the crossbar and only turn in place about the pan axis: they are not
+    modelled, so they are never checked against the crossbar (or anything else).
+    """
+
+    boxes: list[BodyBox] = Field(default_factory=default_body_boxes)
+    cylinders: list[BodyCylinder] = Field(default_factory=default_body_cylinders)
+
+    @model_validator(mode="after")
+    def unique_names(self) -> "BodySettings":
+        """Require unique obstacle names (they label rejections and metrics).
+
+        Returns:
+            BodySettings: The validated settings.
+        """
+        names = [o.name for o in [*self.boxes, *self.cylinders]]
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        if duplicates:
+            raise ValueError(f"body obstacle names must be unique, duplicated: {duplicates}")
+        return self
+
+
+class BodyCheckSettings(StrictModel):
+    """Arm self-collision soft boundary (self_collision): every executed arm trajectory sample is checked against the body.
+
+    A sample whose link clearance to an obstacle is below soft_margin_m runs at slow_speed_scale (the floor guard's
+    scale applies too; the slower wins); below hard_margin_m (or penetrating) the whole motion is rejected before it
+    starts. get_arm_reach's envelope grid: shoulder_pan headings every reach_heading_step_deg, tool heights 0 ..
+    reach_height_max_m every reach_height_step_m (base_link z).
+    """
+
+    enabled: bool = True
+    soft_margin_m: float = Field(default=0.03, gt=0.0, le=0.2)
+    hard_margin_m: float = Field(default=0.01, ge=0.0, le=0.2)
+    slow_speed_scale: float = Field(default=0.3, gt=0.0, le=1.0)
+    reach_heading_step_deg: float = Field(default=15.0, ge=5.0, le=90.0)
+    reach_height_max_m: float = Field(default=0.35, gt=0.0, le=1.0)
+    reach_height_step_m: float = Field(default=0.05, ge=0.01, le=0.5)
+    reach_wait_s: float = Field(default=10.0, gt=0.0, le=60.0)  # get_arm_reach waits this long for the envelope
+    reach_max_points: int = Field(default=20, ge=1, le=50)
+
+    @model_validator(mode="after")
+    def hard_below_soft(self) -> "BodyCheckSettings":
+        """Require hard_margin_m below soft_margin_m (the slow band lies between them).
+
+        Returns:
+            BodyCheckSettings: The validated settings.
+        """
+        if not self.hard_margin_m < self.soft_margin_m:
+            raise ValueError(
+                f"body_check.hard_margin_m ({self.hard_margin_m}) must be below soft_margin_m ({self.soft_margin_m})"
+            )
+        return self
+
+
 class GripProfile(StrictModel):
     """How the gripper closes on and holds one kind of object (values in servo units, tune on the real gripper).
 
@@ -912,6 +1076,8 @@ class McpServerConfig(StrictModel):
     motion_queue: MotionQueueSettings = MotionQueueSettings()
     poi: PoiSettings = PoiSettings()
     floor_guard: FloorGuardSettings = FloorGuardSettings()
+    body: BodySettings = BodySettings()
+    body_check: BodyCheckSettings = BodyCheckSettings()
     grasp: GraspSettings = GraspSettings()
     grip_profiles: GripProfileSettings = GripProfileSettings()
 

@@ -1367,6 +1367,35 @@ ros2_nodes:
         slow_speed_scale: 0.2
         surface_z_m: 0.0
         imu_max_age_s: 1.0
+      # Robot body the arm must not hit (nodes/mcp_server/README.md, "Body collision"), base_link metres (x forward, y left,
+      # z up from the floor). Seen from above the robot is an H: two side frames above the wheels, the crossbar between
+      # them (the arm base and the lidar stand on it; the arm base/shoulder link is not checked), the wheels as their
+      # steering envelopes (vertical cylinders around the steer axes, they steer) and the lidar column up to the dome top.
+      # ASSUMED 2026-10-10 from swerve half_length/half_width 0.1525/0.1333, wheel radius 0.06, laser_frame (0.158, 0.06):
+      # measure each one with a tape (README "How to measure") and correct the numbers here.
+      body:
+        boxes:
+          - {name: frame_left, center: [0.0, 0.1333, 0.145], size: [0.425, 0.06, 0.05]}
+          - {name: frame_right, center: [0.0, -0.1333, 0.145], size: [0.425, 0.06, 0.05]}
+          - {name: crossbar, center: [-0.025, 0.0, 0.08], size: [0.25, 0.2066, 0.04]}
+        cylinders:
+          - {name: wheel_fl, x: 0.1525, y: 0.1333, radius: 0.06, z_min: 0.0, z_max: 0.12}
+          - {name: wheel_fr, x: 0.1525, y: -0.1333, radius: 0.06, z_min: 0.0, z_max: 0.12}
+          - {name: wheel_rl, x: -0.1525, y: 0.1333, radius: 0.06, z_min: 0.0, z_max: 0.12}
+          - {name: wheel_rr, x: -0.1525, y: -0.1333, radius: 0.06, z_min: 0.0, z_max: 0.12}
+          - {name: lidar, x: 0.158, y: 0.06, radius: 0.045, z_min: 0.10, z_max: 0.215}
+      # Arm self-collision soft boundary over every executed arm trajectory sample: link clearance to a body obstacle
+      # below soft_margin_m runs at slow_speed_scale (the slower of this and the floor guard wins); below hard_margin_m
+      # (or penetrating) the motion is rejected before it starts. enabled: false switches the check off. The reach_*
+      # values set get_arm_reach's envelope grid (shoulder_pan headings x tool heights in base_link).
+      body_check:
+        enabled: true
+        soft_margin_m: 0.03
+        hard_margin_m: 0.01
+        slow_speed_scale: 0.3
+        reach_heading_step_deg: 15
+        reach_height_max_m: 0.35
+        reach_height_step_m: 0.05
       # Grasp planner defaults (plan_grasp / grasp_object / release_object and /grasp/command); every value can be
       # overridden per call through `params`. Lengths in m, the tool point is the fixed jaw's inner face (arm.tool_offset_m).
       # Validated in the MuJoCo sim with jaws calibrated to arm.tool_offset_m (sim/README.md, "Planner scenario matrix").
