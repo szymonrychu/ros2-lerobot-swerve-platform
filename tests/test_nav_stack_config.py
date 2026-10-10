@@ -671,14 +671,27 @@ def stopbox_polygon(vx: float, vy: float, wz: float) -> list[list[float]]:
 
 
 # A return 1.5 cm outside the H footprint (0.5 cm outside the laser_filter self polygon, so it survives /scan_filtered):
-# ahead of the front-right wheel, behind the rear-left wheel and beside the side frames.
-BAND_POINTS = {"front": (0.2275, -0.1333), "back": (-0.2275, 0.1333), "left": (0.0, 0.1783), "right": (0.0, -0.1783)}
+# ahead of the front-right wheel (envelope front x 0.1525 + 0.0625), behind the rear-left wheel and beside the side
+# frames (outer face y 0.1333 + 0.0175); and ahead of the lidar dome, the frontmost part (x 0.158 + 0.074).
+BAND_POINTS = {
+    "front": (0.23, -0.1333),
+    "front_lidar": (0.247, 0.06),
+    "back": (-0.23, 0.1333),
+    "left": (0.0, 0.1658),
+    "right": (0.0, -0.1658),
+}
 # Returns in the front notch (between the front wheels): deep inside, and 1.5 cm ahead of the crossbar; and 1.5 cm
 # behind the crossbar in the rear notch.
 FRONT_NOTCH_DEEP = (0.16, -0.035)
 FRONT_NOTCH_CROSSBAR = (0.115, -0.04)
 REAR_NOTCH_CROSSBAR = (-0.165, 0.0)
-FACE_NORMALS = {"front": (1.0, 0.0), "back": (-1.0, 0.0), "left": (0.0, 1.0), "right": (0.0, -1.0)}
+FACE_NORMALS = {
+    "front": (1.0, 0.0),
+    "front_lidar": (1.0, 0.0),
+    "back": (-1.0, 0.0),
+    "left": (0.0, 1.0),
+    "right": (0.0, -1.0),
+}
 
 
 def test_stopbox_covers_every_velocity() -> None:
