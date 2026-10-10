@@ -5,6 +5,9 @@ Python code shared by multiple nodes. `shared/` is one installable uv package, `
 
 See [CLAUDE.md](../CLAUDE.md): use Python 3 type hints and extend unit tests as the project grows.
 
+A second, separate package lives in [ros2_metrics/](ros2_metrics/README.md): `ros2-metrics`, the Prometheus
+exporter helper of our nodes (only `prometheus-client`).
+
 ## Using it from a node
 
 Add ros2-common as an editable path dependency, relative to the node directory:

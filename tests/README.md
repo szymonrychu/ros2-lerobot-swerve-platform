@@ -74,6 +74,10 @@ Unit tests for the shared library `shared/ros2_common/_utils.py`. Imports from r
 | `test_clamp_equal_bounds` | `clamp` with low == high returns that bound. |
 | `test_clamp_at_bounds` | `clamp` returns value when value equals low or high. |
 
+### `test_shared_metrics.py`
+
+Unit tests for the metrics helper `shared/ros2_metrics` (`ros2_metrics`): `resolve_metrics_port` (config port wins over `METRICS_PORT`, env used without config, unset or empty = disabled, non-numeric / 0 / >65535 / negative raise `ValueError`); `register_node_info` exports `robot_node_info{node} 1` and `robot_node_start_time_seconds`; `start_metrics_server` returns `False` without a port and serves `/metrics` on a free localhost port with the node info.
+
 ### `test_shared_camera_geometry.py`
 
 Tests of `shared/ros2_common/camera_geometry.py` and `scripts/solve_camera_mount.py` with synthetic cameras.
