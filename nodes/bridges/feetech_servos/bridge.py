@@ -29,7 +29,13 @@ from .command_mapping import speed_register_to_velocity, steps_to_radians
 from .config import BridgeConfig, JointGroup, load_config_from_env
 from .joint_updates import get_position_updates
 from .register_dump import RegisterDumpScheduler
-from .registers import WRITABLE_REGISTER_NAMES, get_register_entry_by_name, read_all_registers, write_register
+from .registers import (
+    WRITABLE_REGISTER_NAMES,
+    decode_present_load,
+    get_register_entry_by_name,
+    read_all_registers,
+    write_register,
+)
 from .registers import read_register as read_register_raw
 from .startup_torque import hold_current_positions, set_startup_torque_state
 from .sync_read import PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH, read_positions_and_speeds
@@ -311,7 +317,9 @@ def run_bridge(config: BridgeConfig) -> None:
                         load_val = None
                         if joint.name in effort_joint_set and load_entry:
                             load_val = read_register_raw(servo, joint.id, load_entry)
-                        efforts.append(float(load_val) if load_val is not None else 0.0)
+                        efforts.append(
+                            float(decode_present_load(load_val, joint.inverted)) if load_val is not None else 0.0
+                        )
                     msg.effort = efforts if effort_joint_set else []
                     if config.publish_only_on_change:
                         changed = get_position_updates(

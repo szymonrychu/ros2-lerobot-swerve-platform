@@ -41,6 +41,9 @@ STS_LOCK = 55
 STS_PRESENT_POSITION_L = 56
 STS_PRESENT_SPEED_L = 58
 STS_PRESENT_LOAD_L = 60
+# Present_Load is sign-magnitude: magnitude in bits 0-9, direction in bit 10 (0.1 % of max torque per unit).
+LOAD_MAGNITUDE_MASK = 0x3FF
+LOAD_DIRECTION_BIT = 0x400
 STS_PRESENT_VOLTAGE = 62
 STS_PRESENT_TEMPERATURE = 63
 STS_STATUS = 65
@@ -111,6 +114,21 @@ REGISTER_MAP: list[RegisterEntry] = [
 
 # Registers we expose for writing via ROS2 (exclude 'lock' and read-only).
 WRITABLE_REGISTER_NAMES: set[str] = {r.name for r in REGISTER_MAP if not r.read_only and r.name != "lock"}
+
+
+def decode_present_load(raw: int, inverted: bool = False) -> int:
+    """Decode a raw Present_Load register value into a signed load.
+
+    Args:
+        raw (int): Raw register value (sign-magnitude: magnitude bits 0-9, direction bit 10).
+        inverted (bool): Joint direction is inverted in the bridge (flips the sign like the position mapping).
+
+    Returns:
+        int: Signed load, -1023..1023 (0.1 % of max torque per unit).
+    """
+    magnitude = raw & LOAD_MAGNITUDE_MASK
+    signed = -magnitude if raw & LOAD_DIRECTION_BIT else magnitude
+    return -signed if inverted else signed
 
 
 def read_register(
