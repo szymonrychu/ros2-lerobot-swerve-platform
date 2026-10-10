@@ -6,6 +6,10 @@ monitoring_enabled: true
 
 # Ports (all on 0.0.0.0, LAN only: the robot has no public address).
 monitoring_grafana_port: 3000
+# nginx on port 80 fronts the robot: web UI at /, Grafana at monitoring_grafana_subpath (Grafana listens on localhost).
+monitoring_http_port: 80
+monitoring_grafana_subpath: /grafana/
+monitoring_web_ui_port: 8080
 monitoring_prometheus_port: 9090
 monitoring_alloy_port: 12345
 

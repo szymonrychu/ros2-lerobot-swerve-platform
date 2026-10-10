@@ -373,13 +373,62 @@ def grafana_ini() -> configparser.ConfigParser:
     return parser
 
 
-def test_grafana_listens_on_lan_with_anonymous_viewer() -> None:
-    """LAN listener on 0.0.0.0:3000; anonymous visitors get Viewer only."""
+def test_grafana_behind_nginx_at_subpath_without_login() -> None:
+    """Grafana listens on localhost only (nginx fronts it), serves itself from /grafana/, anonymous visitors edit."""
     ini = grafana_ini()
-    assert ini["server"]["http_addr"] == "0.0.0.0"
+    assert ini["server"]["http_addr"] == "127.0.0.1"
     assert ini["server"]["http_port"] == "3000"
+    assert ini["server"]["root_url"] == "%(protocol)s://%(domain)s/grafana/"
+    assert ini["server"]["serve_from_sub_path"] == "true"
     assert ini["auth.anonymous"]["enabled"] == "true"
-    assert ini["auth.anonymous"]["org_role"] == "Viewer"
+    assert ini["auth.anonymous"]["org_role"] == "Editor"
+
+
+# --- nginx --------------------------------------------------------------------------------------------------------
+
+
+def test_nginx_site_fronts_web_ui_and_grafana_on_port_80() -> None:
+    """Port 80: / -> web_ui (8080), /grafana/ -> Grafana (3000, sub path kept), WebSocket upgrades on both."""
+    site = render("nginx-robot.conf.j2")
+    assert re.search(r"listen 80 default_server;", site)
+    assert re.search(r"location / \{[^}]*proxy_pass http://127\.0\.0\.1:8080;", site)
+    assert re.search(r"location /grafana/ \{[^}]*proxy_pass http://127\.0\.0\.1:3000;", site)
+    assert site.count("proxy_set_header Upgrade $http_upgrade;") == 2
+    assert site.count("proxy_set_header Connection $connection_upgrade;") == 2
+    assert "map $http_upgrade $connection_upgrade" in site
+
+
+def test_nginx_installed_enabled_and_default_site_removed() -> None:
+    """The role installs nginx, enables the robot site, removes the distro default site and checks /grafana/.
+
+    Disabling the stack leaves nginx running: it also fronts the web UI.
+    """
+    tasks = role_tasks()
+    apt = [t for t in tasks if "ansible.builtin.apt" in t and "nginx" in str(t["ansible.builtin.apt"].get("name"))]
+    assert apt, "nginx is not installed"
+    sites = [t for t in tasks if (t.get("ansible.builtin.template") or {}).get("src") == "nginx-robot.conf.j2"]
+    assert sites and resolve(sites[0]["ansible.builtin.template"]["dest"]) == "/etc/nginx/conf.d/robot.conf"
+    removed = [
+        t
+        for t in tasks
+        if (t.get("ansible.builtin.file") or {}).get("path") == "/etc/nginx/sites-enabled/default"
+        and t["ansible.builtin.file"].get("state") == "absent"
+    ]
+    assert removed, "the distro default site still claims port 80"
+    started = [
+        t
+        for t in tasks
+        if "nginx" in str((t.get("ansible.builtin.systemd_service") or {}).get("name", ""))
+        or "nginx" in str(t.get("loop", ""))
+    ]
+    assert started, "nginx is not enabled and started"
+    ready = [t for t in tasks if "ansible.builtin.uri" in t]
+    urls = [resolve(u) for t in ready for u in t.get("loop", []) if isinstance(u, str)]
+    assert "http://127.0.0.1/grafana/api/health" in urls
+    stop = next(t for t in tasks if t.get("name", "").startswith("Stop and disable the monitoring stack"))
+    assert all(item["unit"] != "nginx" for item in stop["loop"])
+    checks = [t for t in tasks if "nginx -t" in str(t.get("ansible.builtin.command", ""))]
+    assert checks, "the nginx config is not checked before the reload"
 
 
 def test_grafana_phones_nowhere() -> None:

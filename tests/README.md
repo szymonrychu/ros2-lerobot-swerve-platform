@@ -1044,7 +1044,9 @@ Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the cli
 | `test_alloy_config` | Alloy config has unix (textfile dir), cadvisor (`docker_only = false`), self exporters, scrapes of Prometheus and Grafana, remote write to local Prometheus, 5s interval and 4s timeout on every scrape. |
 | `test_alloy_drops_high_cardinality_cgroups_and_veth` | The `id` keep rule keeps root, slices and services, drops scopes and sessions; veth interfaces are dropped. |
 | `test_alloy_listens_on_lan_port` | `/etc/default/alloy`: `0.0.0.0:12345`, reporting off, config path. |
-| `test_grafana_listens_on_lan_with_anonymous_viewer` | grafana.ini: `0.0.0.0:3000`, anonymous enabled with role Viewer. |
+| `test_grafana_behind_nginx_at_subpath_without_login` | grafana.ini: `127.0.0.1:3000`, `root_url` ending `/grafana/`, `serve_from_sub_path`, anonymous enabled with role Editor. |
+| `test_nginx_site_fronts_web_ui_and_grafana_on_port_80` | nginx site: `listen 80 default_server`, `/` -> 127.0.0.1:8080, `/grafana/` -> 127.0.0.1:3000, Upgrade/Connection headers on both, the `$connection_upgrade` map. |
+| `test_nginx_installed_enabled_and_default_site_removed` | the role installs nginx, writes `/etc/nginx/conf.d/robot.conf`, removes `sites-enabled/default`, runs `nginx -t`, starts nginx, checks `http://127.0.0.1/grafana/api/health`, and the disable path leaves nginx running. |
 | `test_grafana_phones_nowhere` | Reporting, update checks, plugin update checks, gravatar and news are off. |
 | `test_grafana_admin_password_from_host_file` | The drop-in loads `/etc/grafana/admin-password` via LoadCredential into `GF_SECURITY_ADMIN_PASSWORD__FILE`; grafana.ini holds no password. |
 | `test_grafana_admin_password_generated_on_the_host` | No Ansible password lookup; one `openssl rand` task with `creates:`; the file is 0600 root:grafana. |

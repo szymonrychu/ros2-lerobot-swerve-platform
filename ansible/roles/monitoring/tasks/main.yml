@@ -53,7 +53,7 @@
     # libraspberrypi-bin provides vcgencmd for the throttling flags.
     - name: Install Alloy, Grafana, Prometheus and vcgencmd
       ansible.builtin.apt:
-        name: "{{ ['alloy', 'grafana', 'prometheus'] + (['libraspberrypi-bin'] if ansible_machine == 'aarch64' else []) }}"
+        name: "{{ ['alloy', 'grafana', 'prometheus', 'nginx'] + (['libraspberrypi-bin'] if ansible_machine == 'aarch64' else []) }}"
         state: present
         install_recommends: false
         cache_valid_time: 3600
@@ -240,6 +240,26 @@
         group: grafana
         mode: "0644"
 
+    # ---- nginx on port 80 ---------------------------------------------------------------------------------------------
+    - name: Remove the distro default nginx site (it claims port 80)
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload nginx
+
+    - name: nginx site of the robot (web UI at /, Grafana at the sub path)
+      ansible.builtin.template:
+        src: nginx-robot.conf.j2
+        dest: /etc/nginx/conf.d/robot.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload nginx
+
+    - name: Check the nginx config before the reload
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
     # ---- start and check ------------------------------------------------------------------------------------------
     - name: Apply unit and config changes before starting
       ansible.builtin.meta: flush_handlers
@@ -249,7 +269,7 @@
         name: "{{ item }}"
         enabled: true
         state: started
-      loop: [prometheus, alloy, grafana-server, rpi-throttled.timer]
+      loop: [prometheus, alloy, grafana-server, nginx, rpi-throttled.timer]
 
     - name: Wait until Prometheus, Alloy and Grafana answer
       ansible.builtin.uri:
@@ -259,6 +279,7 @@
         - "http://127.0.0.1:{{ monitoring_prometheus_port }}/-/ready"
         - "http://127.0.0.1:{{ monitoring_alloy_port }}/-/ready"
         - "http://127.0.0.1:{{ monitoring_grafana_port }}/api/health"
+        - "http://127.0.0.1{{ monitoring_grafana_subpath }}api/health"
       register: monitoring_ready
       until: monitoring_ready.status == 200
       retries: 24

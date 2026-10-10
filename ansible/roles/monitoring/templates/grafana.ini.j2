@@ -3,17 +3,22 @@
 ; (GF_SECURITY_ADMIN_PASSWORD__FILE, generated on the robot), never from this file.
 
 [server]
-http_addr = 0.0.0.0
+; nginx on port 80 fronts Grafana at /grafana/; Grafana itself is reachable from the robot only.
+http_addr = 127.0.0.1
 http_port = {{ monitoring_grafana_port }}
+root_url = %(protocol)s://%(domain)s{{ monitoring_grafana_subpath }}
+serve_from_sub_path = true
 
 [security]
 admin_user = admin
 disable_gravatar = true
 
+; No login on the robot's LAN: anonymous visitors can view and edit dashboards. The admin account (password file on
+; the robot) is still there for datasources and settings at /grafana/login.
 [auth.anonymous]
 enabled = true
 org_name = Main Org.
-org_role = Viewer
+org_role = Editor
 
 [analytics]
 reporting_enabled = false

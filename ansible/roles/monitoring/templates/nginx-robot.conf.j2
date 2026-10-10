@@ -1,0 +1,38 @@
+# {{ ansible_managed | default('Managed by Ansible') }}
+# Port 80 of the robot: the web UI at /, Grafana at /grafana/ (no login). Both use WebSockets (web_ui live data and
+# agent chat, Grafana Live), so every location forwards the upgrade.
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    client_max_body_size 20m;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # Long-lived WebSockets: the browser stays connected for a whole session.
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+
+    location /grafana/ {
+        # No URI on proxy_pass: Grafana serves itself from the sub path (serve_from_sub_path), so the prefix is kept.
+        proxy_pass http://127.0.0.1:{{ monitoring_grafana_port }};
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:{{ monitoring_web_ui_port }};
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_buffering off;
+    }
+}

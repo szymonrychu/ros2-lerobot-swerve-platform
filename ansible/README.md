@@ -480,10 +480,11 @@ npm install is needed; `DISABLE_AUTOUPDATER=1` is set in the unit environment.
 |---|---|---|---|
 | `alloy.service` | `alloy` (apt.grafana.com stable) | 12345 (UI, `/metrics`) | Collects everything: host (`prometheus.exporter.unix` incl. hwmon, thermal_zone and the textfile collector), per-systemd-unit cgroups (`prometheus.exporter.cadvisor`, `docker_only = false`), Alloy itself, and scrapes Prometheus and Grafana; every 15 s |
 | `prometheus.service` | Ubuntu `prometheus` (2.45) | 9090 | Storage + query only, fed by Alloy through `--web.enable-remote-write-receiver` |
-| `grafana-server.service` | `grafana` (apt.grafana.com stable) | 3000 | Dashboards; anonymous Viewer for the LAN |
+| `grafana-server.service` | `grafana` (apt.grafana.com stable) | 3000 (localhost) | Dashboards at `/grafana/` behind nginx (`serve_from_sub_path`); no login: anonymous visitors are Editors, the admin account stays for settings |
+| `nginx.service` | `nginx` (Ubuntu) | 80 | `/` -> web UI (8080), `/grafana/` -> Grafana (3000), WebSocket upgrades on both; the distro default site is removed; `nginx -t` runs before every reload. Disabling the stack leaves nginx running (it also fronts the web UI) |
 | `rpi-throttled.timer` | `libraspberrypi-bin` (`vcgencmd`) | - | Every 5 s writes `vcgencmd get_throttled` to the textfile collector |
 
-Open `http://client.ros2.lan:3000` (dashboard **Robot / Robot resources**), `http://client.ros2.lan:9090` (Prometheus) or `http://client.ros2.lan:12345` (Alloy pipeline UI).
+Open `http://client.ros2.lan/grafana/` (dashboard **Robot / Robot resources**), the web UI at `http://client.ros2.lan/` (8080 still works), `http://client.ros2.lan:9090` (Prometheus) or `http://client.ros2.lan:12345` (Alloy pipeline UI).
 
 **Deploy.** `./scripts/deploy-nodes.sh client monitoring` (= `--tags monitoring`). `monitoring` is a non-node deploy target of the client (`non_node_targets` in `scripts/deploy-nodes.sh`), not a `ros2_nodes` entry. A node or phase deploy (`client web_ui`, `--all --tags config`) never runs the role; an untagged `--all` does. A monitoring-only run starts and verifies no ROS node (`select_run.yml` gives it an empty node scope); the agent idle guard still runs (`-e ros2_deploy_ignore_agent=true` skips it, the stack restarts no robot node). A second run reports no changes. Settings are in `roles/monitoring/defaults/main.yml`: `monitoring_enabled` (false stops and disables the stack, packages and data stay), ports, `monitoring_interval` (15s), retention, slice and per-unit limits.
 

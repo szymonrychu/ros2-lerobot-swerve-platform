@@ -21,3 +21,8 @@
     name: grafana-server
     state: restarted
   when: monitoring_enabled | bool
+
+- name: Reload nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
