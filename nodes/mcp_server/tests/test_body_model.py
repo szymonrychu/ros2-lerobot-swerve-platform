@@ -2,6 +2,7 @@
 config (mcp_server.config BodySettings / BodyCheckSettings)."""
 
 import math
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -107,14 +108,14 @@ def test_default_body_is_the_h_shape() -> None:
     ]
     lidar = body.by_name("lidar")
     assert isinstance(lidar, CylinderObstacle)
-    assert lidar.center_xy == (0.158, 0.06) and lidar.z_max == pytest.approx(0.215)
+    assert lidar.center_xy == (0.158, 0.06) and lidar.z_max == pytest.approx(0.21) and lidar.radius == 0.074
     crossbar = body.by_name("crossbar")
     assert isinstance(crossbar, BoxObstacle)
-    assert crossbar.lo == pytest.approx([-0.15, -0.1033, 0.06]) and crossbar.hi == pytest.approx([0.10, 0.1033, 0.10])
+    assert crossbar.lo == pytest.approx([-0.15, -0.1158, 0.06]) and crossbar.hi == pytest.approx([0.10, 0.1158, 0.10])
     frame = body.by_name("frame_right")
-    assert frame.lo == pytest.approx([-0.2125, -0.1633, 0.12]) and frame.hi == pytest.approx([0.2125, -0.1033, 0.17])
+    assert frame.lo == pytest.approx([-0.2125, -0.15080, 0.12]) and frame.hi == pytest.approx([0.2125, -0.11580, 0.18])
     wheel = body.by_name("wheel_fl")
-    assert wheel.center_xy == (0.1525, 0.1333) and wheel.radius == 0.06
+    assert wheel.center_xy == (0.1525, 0.1333) and wheel.radius == 0.0625  # 120 x 35 mm wheel steering: half-diagonal
 
 
 def test_describe_lists_dimensions() -> None:
@@ -124,12 +125,12 @@ def test_describe_lists_dimensions() -> None:
         "name": "lidar",
         "shape": "vertical_cylinder",
         "center_xy_m": [0.158, 0.06],
-        "radius_m": 0.045,
+        "radius_m": 0.074,
         "z_min_m": 0.1,
-        "z_max_m": 0.215,
+        "z_max_m": 0.21,
     }
     crossbar = next(o for o in out if o["name"] == "crossbar")
-    assert crossbar["shape"] == "box" and crossbar["size_m"] == pytest.approx([0.25, 0.2066, 0.04])
+    assert crossbar["shape"] == "box" and crossbar["size_m"] == pytest.approx([0.25, 0.2316, 0.04])
 
 
 @pytest.mark.parametrize("size", [(0.0, 0.1, 0.1), (0.1, -0.1, 0.1)])
@@ -170,4 +171,6 @@ def test_client_yml_body_block_validates() -> None:
     cfg = McpServerConfig.model_validate(yaml.safe_load(node["config"]))
     # same obstacles as the defaults (compared at 0.1 mm: the defaults are computed from the swerve constants)
     assert BodyModel.from_settings(cfg.body).describe() == BodyModel.from_settings(McpServerConfig().body).describe()
-    assert cfg.body_check == BodyCheckSettings()
+    # The robot keeps the reach envelope on disk; every other body_check value is the default.
+    assert cfg.body_check.reach_cache_file == Path("/var/lib/ros2/arm/reach_envelope.json")
+    assert cfg.body_check.model_copy(update={"reach_cache_file": None}) == BodyCheckSettings()

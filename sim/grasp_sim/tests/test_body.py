@@ -28,7 +28,7 @@ def test_client_yml_body_is_loaded_with_the_mount() -> None:
     assert cfg.mount_xyz_m == pytest.approx((0.0592, -0.05, 0.100))
     lidar = cfg.cylinders[-1]
     assert (lidar.x, lidar.y, lidar.radius, lidar.z_min, lidar.z_max) == pytest.approx(
-        (0.158, 0.06, 0.045, 0.10, 0.215)
+        (0.158, 0.06, 0.074, 0.10, 0.21)
     )
 
 
@@ -37,11 +37,11 @@ def test_body_geoms_are_in_the_scene_in_the_arm_frame() -> None:
     for name in NAMES:
         assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, BODY_GEOM_PREFIX + name) >= 0, name
     lidar = model.geom(BODY_GEOM_PREFIX + "lidar")
-    # base_link (0.158, 0.06, z 0.10..0.215) minus the mount (0.0592, -0.05, 0.100)
-    assert lidar.pos == pytest.approx([0.158 - 0.0592, 0.06 + 0.05, (0.10 + 0.215) / 2 - 0.100])
-    assert lidar.size[:2] == pytest.approx([0.045, (0.215 - 0.10) / 2])
+    # base_link (0.158, 0.06, z 0.10..0.21) minus the mount (0.0592, -0.05, 0.100)
+    assert lidar.pos == pytest.approx([0.158 - 0.0592, 0.06 + 0.05, (0.10 + 0.21) / 2 - 0.100])
+    assert lidar.size[:2] == pytest.approx([0.074, (0.21 - 0.10) / 2])
     crossbar = model.geom(BODY_GEOM_PREFIX + "crossbar")
-    assert crossbar.size == pytest.approx([0.125, 0.1033, 0.02])
+    assert crossbar.size == pytest.approx([0.125, 0.1158, 0.02])
 
 
 def test_scene_without_body_has_no_body_geoms() -> None:
