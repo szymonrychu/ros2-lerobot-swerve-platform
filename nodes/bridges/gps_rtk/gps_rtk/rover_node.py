@@ -6,9 +6,11 @@ from typing import Any
 
 import rclpy
 from rclpy.node import Node
+from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import NavSatFix
 from std_msgs.msg import String
 
+from . import metrics
 from .config import GpsRtkConfig
 from .nmea_parser import build_nav_sat_fix, drift_from_mean, parse_gga, quality_label
 from .ntrip_client import NtripClient
@@ -16,6 +18,8 @@ from .serial_handler import SerialHandler
 from .status import rover_status, status_json
 
 LOG = logging.getLogger(__name__)
+
+NODE_NAME = "gps_rtk_rover"
 
 POSITION_HISTORY_LEN = 10
 DIAG_INTERVAL_TICKS = 100  # at 10 Hz → every 10 s
@@ -25,7 +29,7 @@ class GpsRtkRoverNode(Node):
     """ROS2 node for GPS RTK rover: serial in/out, NavSatFix out, NTRIP v1 client."""
 
     def __init__(self, config: GpsRtkConfig) -> None:
-        super().__init__("gps_rtk_rover")
+        super().__init__(NODE_NAME)
         self.config = config
         self._latest_fix: NavSatFix | None = None
         self._latest_gga: dict[str, Any] | None = None
@@ -47,6 +51,7 @@ class GpsRtkRoverNode(Node):
         parsed = parse_gga(sentence)
         if parsed is None:
             return
+        metrics.record_gga(parsed)
         try:
             msg = build_nav_sat_fix(
                 lat=parsed["latitude"],
@@ -82,6 +87,7 @@ class GpsRtkRoverNode(Node):
 
     def run(self) -> None:
         """Open serial, start NTRIP client thread, run spin."""
+        start_metrics_server(resolve_metrics_port(self.config.metrics_port), NODE_NAME)
         self.serial = SerialHandler(
             port=self.config.serial_port,
             baud_rate=self.config.baud_rate,
@@ -132,6 +138,7 @@ class GpsRtkRoverNode(Node):
         if msg is not None:
             msg.header.stamp = self.get_clock().now().to_msg()
             self.pub.publish(msg)
+            metrics.record_fix_published()
         self._diag_counter += 1
         if self._diag_counter % DIAG_INTERVAL_TICKS == 0:
             self._log_diag(gga, history)

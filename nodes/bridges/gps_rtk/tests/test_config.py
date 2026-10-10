@@ -108,3 +108,9 @@ def test_config_status_topic_set() -> None:
 def test_config_status_hz_must_be_positive(hz: float) -> None:
     with pytest.raises(Exception):
         GpsRtkConfig.model_validate({"mode": "base", "topic": "/gps/fix", "status_hz": hz})
+
+
+def test_config_metrics_port_optional() -> None:
+    base = {"mode": "rover", "topic": "/client/gps/fix", "rtcm_server_host": "server.ros2.lan"}
+    assert GpsRtkConfig.model_validate(base).metrics_port is None
+    assert GpsRtkConfig.model_validate({**base, "metrics_port": 19104}).metrics_port == 19104

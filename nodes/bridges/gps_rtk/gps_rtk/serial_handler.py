@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 import serial
 
+from . import metrics
 from .rtcm3 import is_valid_rtcm3_frame, parse_rtcm3_length
 
 LOG = logging.getLogger(__name__)
@@ -219,6 +220,7 @@ class SerialHandler:
                 break
             except (OSError, serial.SerialException) as e:
                 last_exc = e
+                metrics.SERIAL_ERRORS.labels("open").inc()
                 LOG.warning("Serial open failed (attempt %d/%d): %s", attempt, SERIAL_OPEN_MAX_RETRIES, e)
                 if attempt < SERIAL_OPEN_MAX_RETRIES:
                     self._stop.wait(SERIAL_OPEN_RETRY_DELAY_S)
@@ -259,6 +261,7 @@ class SerialHandler:
                 else:
                     self._stop.wait(0.02)
             except (OSError, serial.SerialException) as e:
+                metrics.SERIAL_ERRORS.labels("read").inc()
                 if error_backoff < 0.5:
                     LOG.warning("Serial read error: %s", e)
                 error_backoff = min(error_backoff * 2, 2.0)

@@ -9,7 +9,12 @@ dependencies = [
     "pyserial>=3.5",
     "pydantic>=2.0",
     "pyyaml>=6.0",
+    "prometheus-client>=0.20",
+    "ros2-metrics",
 ]
+
+[tool.uv.sources]
+ros2-metrics = { path = "../../../shared/ros2_metrics", editable = true }
 
 [dependency-groups]
 dev = [

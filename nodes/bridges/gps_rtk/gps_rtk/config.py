@@ -36,6 +36,7 @@ class GpsRtkConfig(BaseModel):
         ntrip_gga_interval_s: How often (seconds) rover sends GGA position to NTRIP caster.
         status_topic: Optional std_msgs/String topic for compact JSON status (fix, sats, link). None disables.
         status_hz: Status publish rate in Hz (must be > 0).
+        metrics_port: Prometheus /metrics port on 127.0.0.1 (rover only); None falls back to env METRICS_PORT.
     """
 
     mode: Literal["base", "rover"]
@@ -56,6 +57,7 @@ class GpsRtkConfig(BaseModel):
     ntrip_gga_interval_s: float = 10.0
     status_topic: str | None = None
     status_hz: float = Field(1.0, gt=0)
+    metrics_port: int | None = None
 
 
 def load_config(path: Path | None = None) -> GpsRtkConfig | None:

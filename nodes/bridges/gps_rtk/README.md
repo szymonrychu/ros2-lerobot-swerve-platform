@@ -22,6 +22,23 @@ YAML config path: `GPS_RTK_CONFIG` or `/etc/ros2/gps_rtk/config.yaml`.
 - `rtcm_server_host`, `rtcm_server_port`, `rtcm_reconnect_interval_s`: rover RTCM client
 - `status_topic`: optional `std_msgs/String` topic for the compact JSON status below (default `null` = disabled)
 - `status_hz`: status publish rate, must be > 0 (default `1.0`)
+- `metrics_port`: rover only, Prometheus `/metrics` port on 127.0.0.1 (robot: `19104`); unset falls back to env `METRICS_PORT`, then disabled. The base never serves metrics.
+
+## Metrics
+
+Rover only, node name `gps_rtk_rover`, served via `ros2-metrics` on `127.0.0.1:<metrics_port>`.
+
+| Metric | Type | Meaning |
+|--------|------|---------|
+| `gps_fix_quality` | gauge | GGA fix quality code (4 RTK fixed, 5 RTK float) |
+| `gps_satellites` | gauge | Satellites used (NaN when not reported) |
+| `gps_hdop` | gauge | HDOP (NaN when not reported) |
+| `gps_diff_age_seconds` | gauge | Age of differential corrections (NaN when not reported) |
+| `gps_ntrip_connected` | gauge | 1 while the NTRIP client is connected |
+| `gps_ntrip_rx_bytes_total` | counter | RTCM bytes received from the caster |
+| `gps_ntrip_reconnects_total` | counter | NTRIP reconnect attempts |
+| `gps_serial_errors_total{op}` | counter | Serial errors, `op` is `open` or `read` |
+| `gps_fixes_published_total` | counter | NavSatFix messages published |
 
 ## Status topic
 

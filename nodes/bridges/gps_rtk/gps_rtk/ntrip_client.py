@@ -8,6 +8,8 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from . import metrics
+
 LOG = logging.getLogger(__name__)
 
 NTRIP_USER_AGENT = "gps_rtk/1.0"
@@ -74,6 +76,7 @@ class NtripClient:
         """Signal stop and close the socket."""
         self._stop.set()
         self._connected.clear()
+        metrics.NTRIP_CONNECTED.set(0)
         if self._sock is not None:
             try:
                 self._sock.close()
@@ -99,6 +102,7 @@ class NtripClient:
                 self._log_debug("NTRIP connection error: %s", e)
             finally:
                 self._connected.clear()
+                metrics.NTRIP_CONNECTED.set(0)
                 if self._sock is not None:
                     try:
                         self._sock.close()
@@ -106,6 +110,7 @@ class NtripClient:
                         pass
                     self._sock = None
             if not self._stop.is_set():
+                metrics.NTRIP_RECONNECTS.inc()
                 self._log_debug("NTRIP disconnected — reconnecting in %.1fs", self._reconnect_interval_s)
                 self._stop.wait(self._reconnect_interval_s)
 
@@ -152,11 +157,13 @@ class NtripClient:
 
         self._log_info("NTRIP connected to %s:%d%s", self._host, self._port, self._mountpoint)
         self._connected.set()
+        metrics.NTRIP_CONNECTED.set(1)
         sock.settimeout(None)  # switch to blocking for streaming
 
         # Feed any leftover bytes already received after headers
         if leftover:
             self._rx_bytes += len(leftover)
+            metrics.NTRIP_RX_BYTES.inc(len(leftover))
             self._on_data(leftover)
 
         # Stream RTCM data, periodically sending GGA
@@ -175,6 +182,7 @@ class NtripClient:
                 break
             if data:
                 self._rx_bytes += len(data)
+                metrics.NTRIP_RX_BYTES.inc(len(data))
                 self._on_data(data)
             # Send GGA position report periodically
             now = time.monotonic()
