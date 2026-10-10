@@ -11,12 +11,21 @@ prometheus.remote_write "local" {
 }
 
 // ---- host metrics (node_*) ----------------------------------------------------------------------------------------
-// Default collectors (cpu, loadavg, meminfo, diskstats, filesystem, netdev, hwmon, thermal_zone, ...) plus the
-// textfile collector that picks up rpi_throttled.prom from the rpi-throttled timer.
+// Default collectors (cpu, loadavg, meminfo, diskstats, filesystem, netdev, hwmon, thermal_zone, ...), the textfile
+// collector that picks up rpi_throttled.prom from the rpi-throttled timer, and the systemd collector (unit state,
+// restarts, start time) for the robot nodes and this stack only.
 
 prometheus.exporter.unix "host" {
+  enable_collectors = ["systemd"]
+
   textfile {
     directory = "{{ monitoring_textfile_dir }}"
+  }
+
+  systemd {
+    enable_restarts = true
+    start_time      = true
+    unit_include    = "{{ monitoring_systemd_unit_include | replace('\\', '\\\\') }}"
   }
 
   netdev {
@@ -71,6 +80,24 @@ prometheus.relabel "cadvisor" {
     regex         = "veth.*|docker.*|br-.*"
     action        = "drop"
   }
+}
+
+// ---- our ROS2 nodes (ros2_metrics /metrics endpoints) ---------------------------------------------------------------
+// One target per node with a `node` label. honor_labels keeps the helper's own robot_node_info{node} label instead of
+// renaming it to exported_node (both carry the same value). A stopped node is simply up == 0.
+
+prometheus.scrape "nodes" {
+  targets = [
+{% for target in monitoring_node_targets %}
+    {"__address__" = "{{ target.address }}", "node" = "{{ target.node }}"},
+{% endfor %}
+  ]
+  forward_to      = [prometheus.remote_write.local.receiver]
+  job_name        = "ros2_nodes"
+  metrics_path    = "/metrics"
+  honor_labels    = true
+  scrape_interval = "{{ monitoring_interval }}"
+  scrape_timeout  = "{{ monitoring_scrape_timeout }}"
 }
 
 // ---- the stack's own metrics --------------------------------------------------------------------------------------

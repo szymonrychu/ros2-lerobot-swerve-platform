@@ -1,0 +1,831 @@
+{
+  "title": "Robot grasping",
+  "uid": "robot-grasping",
+  "description": "Grasp planning and execution in mcp_server, arm motion tracking, and the follower arm servos.",
+  "tags": [
+    "robot",
+    "grasping"
+  ],
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Robot dashboards",
+      "tags": [
+        "robot"
+      ],
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false,
+      "icon": "external link"
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "version": 1,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Grasps",
+      "id": 1,
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Grasp plans by mode and outcome",
+      "id": 2,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "plan_grasp / grasp_object plans per 15 min by strategy mode and feasibility.",
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (mode, outcome) (increase(mcp_grasp_plans_total[15m]))",
+          "legendFormat": "{{mode}} {{outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Grasp attempts by mode and result",
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Executed grasps per 15 min by mode and result (lifted/missed/aborted).",
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 9,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (mode, result) (increase(mcp_grasp_attempts_total[15m]))",
+          "legendFormat": "{{mode}} {{result}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Grasp success ratio",
+      "id": 4,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Share of grasp attempts that lifted the object in the selected time range, by mode.",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "green",
+                "value": 0.8
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (mode) (increase(mcp_grasp_attempts_total{result=\"lifted\"}[$__range])) / sum by (mode) (increase(mcp_grasp_attempts_total[$__range]))",
+          "legendFormat": "{{mode}}",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gripper effort",
+      "id": 5,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Last gripper effort mcp_server saw.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "mcp_gripper_effort",
+          "legendFormat": "effort"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Grip profile uses",
+      "id": 6,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Grip profiles used per 15 min.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (profile) (increase(mcp_grip_profile_uses_total[15m]))",
+          "legendFormat": "{{profile}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Floor guard slowdowns",
+      "id": 7,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Arm moves slowed by the floor guard per 15 min, by reason.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (reason) (increase(mcp_floor_guard_slowdowns_total[15m]))",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Arm motion",
+      "id": 8,
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Arm motion steps by status",
+      "id": 9,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Motion steps per 15 min by kind and status.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (kind, status) (increase(mcp_motion_steps_total[15m]))",
+          "legendFormat": "{{kind}} {{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Tracking error p50/p95",
+      "id": 10,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Joint tracking error at the end of a motion step, quantiles per kind, 15 min window.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "rad"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le, kind) (rate(mcp_motion_tracking_error_rad_bucket[15m])))",
+          "legendFormat": "p50 {{kind}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(mcp_motion_tracking_error_rad_bucket[15m])))",
+          "legendFormat": "p95 {{kind}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Grasp tool latency p50/p95",
+      "id": 11,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Duration quantiles of the grasp-related MCP tools (plan_grasp, grasp_object, release_object, move_arm_cartesian, set_gripper), 15 min window.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{tool=~\"plan_grasp|grasp_object|release_object|move_arm_cartesian|set_gripper\"}[15m])))",
+          "legendFormat": "p50 {{tool}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{tool=~\"plan_grasp|grasp_object|release_object|move_arm_cartesian|set_gripper\"}[15m])))",
+          "legendFormat": "p95 {{tool}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Arm servos (lerobot_follower)",
+      "id": 12,
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Servo load per joint",
+      "id": 13,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Present load per arm joint (signed raw units as decoded by feetech_servos).",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "servo_present_load{joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
+          "legendFormat": "{{joint}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Servo temperature per joint",
+      "id": 14,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Servo temperature per arm joint.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "servo_temperature_celsius{joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
+          "legendFormat": "{{joint}}"
+        }
+      ]
+    },
+    {
+      "type": "state-timeline",
+      "title": "Servo torque enabled per joint",
+      "id": 15,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Torque enable state per arm joint.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "off",
+                  "color": "transparent"
+                },
+                "1": {
+                  "text": "on",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "servo_torque_enabled{joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
+          "legendFormat": "{{joint}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Servo bus failures",
+      "id": 16,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Servo bus read and set-register failures per 5 min; 'bus down' is 1 while the bus is unreachable.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (joint) (increase(servo_bus_read_failures_total[5m]))",
+          "legendFormat": "read {{joint}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "B",
+          "expr": "sum by (reason) (increase(servo_set_register_failures_total[5m]))",
+          "legendFormat": "set register {{reason}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "C",
+          "expr": "1 - servo_bus_up",
+          "legendFormat": "bus down"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Servo voltage per joint",
+      "id": 17,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Supply voltage seen by each arm servo.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 43
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "volt"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "servo_voltage_volts{joint=~\"shoulder_pan|shoulder_lift|elbow_flex|wrist_flex|wrist_roll|gripper\"}",
+          "legendFormat": "{{joint}}"
+        }
+      ]
+    }
+  ]
+}

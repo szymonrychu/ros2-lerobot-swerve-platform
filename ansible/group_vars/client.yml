@@ -54,6 +54,8 @@ ros2_node_type_defaults:
     node_launch_command: "python3 -m feetech_servos"
     node_src_dir: "nodes/bridges/feetech_servos"
     pythonpath_parent: true
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     cpu_quota: "50%"
     memory_max: "128M"
     cpu_weight: 400
@@ -67,6 +69,8 @@ ros2_node_type_defaults:
     node_launch_command: "python3 -m uvc_camera"
     node_src_dir: "nodes/bridges/uvc_camera"
     pythonpath_parent: true
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     cpu_quota: "30%"
     memory_max: "256M"
     cpu_weight: 100
@@ -75,6 +79,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m filter_node"
     node_src_dir: "nodes/filter_node"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     cpu_quota: "25%"
     memory_max: "128M"
     cpu_weight: 400
@@ -87,6 +93,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m test_joint_api"
     node_src_dir: "nodes/test_joint_api"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     cpu_quota: "15%"
     memory_max: "64M"
     cpu_weight: 100
@@ -98,6 +106,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m topic_scraper_api"
     node_src_dir: "nodes/topic_scraper_api"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     cpu_quota: "25%"
     memory_max: "128M"
     cpu_weight: 50
@@ -110,6 +120,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m bno055_imu"
     node_src_dir: "nodes/bridges/bno055_imu"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     cpu_quota: "15%"
     memory_max: "64M"
     cpu_weight: 400
@@ -135,6 +147,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m gps_rtk"
     node_src_dir: "nodes/bridges/gps_rtk"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     cpu_quota: "25%"
     memory_max: "64M"
     cpu_weight: 100
@@ -149,12 +163,18 @@ ros2_node_type_defaults:
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/bridges/rplidar_a1]
+    # No venv: the supervisor imports ros2_metrics from the checkout (PYTHONPATH below) and prometheus_client from apt.
+    src_extra_paths: [shared/ros2_metrics]
     cpu_quota: "30%"
     memory_max: "128M"
     cpu_weight: 100
     oom_score_adjust: 0
     apt_packages:
       - ros-jazzy-rplidar-ros
+      - python3-prometheus-client
+    # The launcher sources /opt/ros/jazzy/setup.bash, which prepends the ROS paths and keeps this entry.
+    env:
+      - "PYTHONPATH={{ ros2_repo_dest }}/shared/ros2_metrics"
   realsense_d435i:
     deploy_mode: native
     node_launch_command: >-
@@ -238,6 +258,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m swerve_drive_controller"
     node_src_dir: "nodes/swerve_drive_controller"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     cpu_quota: "30%"
     memory_max: "128M"
     cpu_weight: 400
@@ -320,6 +342,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m rf2o_odom_relay"
     node_src_dir: "nodes/rf2o_odom_relay"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     cpu_quota: "10%"
     memory_max: "64M"
     cpu_weight: 100
@@ -426,6 +450,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m poi_store"
     node_src_dir: "nodes/poi_store"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     cpu_quota: "10%"
     memory_max: "128M"
     cpu_weight: 100
@@ -439,6 +465,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m claude_agent"
     node_src_dir: "nodes/claude_agent"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
     # 150% of the four Pi 5 cores (was 50%): the CLI child needs about 1.3 s of CPU per model request, and the 50% quota
     # stretched that floor on every turn (47% of the wall time of 17 measured sessions was model-only). nice 10 stays, so
     # the control nodes (arm, base, Nav2) still win the cores under contention; the quota only bounds a runaway CLI.
@@ -541,6 +569,8 @@ ros2_nodes:
     present: true
     enabled: true
     config: |
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
+      metrics_port: 19102
       input_topic: /filter/input_joint_updates
       output_topic: /follower/joint_commands
       algorithm: kalman
@@ -619,6 +649,8 @@ ros2_nodes:
     present: true
     enabled: true
     config: |
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
+      metrics_port: 19103
       topic: /imu/data
       frame_id: imu_link
       # NDOF fuses the magnetometer: absolute yaw (magnetic north) for the web_ui GPS compass anchor. The EKF fuses only
@@ -646,6 +678,8 @@ ros2_nodes:
     env:
       - GPS_RTK_CONFIG=/etc/ros2/gps_rtk_rover/config.yaml
     config: |
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
+      metrics_port: 19104
       mode: rover
       serial_port: /dev/ttyAMA0
       baud_rate: 115200
@@ -695,10 +729,15 @@ ros2_nodes:
       - UVC_ROTATE_DEG=180
       # About 18 fps uncapped; 10 fps is enough for the agent and the web UI and saves CPU on the loaded client.
       - UVC_MAX_FPS=10
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy).
+      - METRICS_PORT=19105
   - name: rplidar_a1
     node_type: rplidar_a1
     present: true
     enabled: true
+    env:
+      # Prometheus /metrics of the scan supervisor on 127.0.0.1 (scraped by Alloy).
+      - METRICS_PORT=19106
   # Replaced by the overview_camera: present false uninstalls the unit on the next deploy.
   - name: realsense_d435i
     node_type: realsense_d435i
@@ -719,6 +758,8 @@ ros2_nodes:
     env:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/lerobot_follower/config.yaml
     config: |
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
+      metrics_port: 19101
       device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00
       namespace: follower
       log_joint_updates: true
@@ -796,6 +837,8 @@ ros2_nodes:
     env:
       - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_controller/config.yaml
     config: |
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
+      metrics_port: 19107
       # Platform dimensions.md: steering yaw axes 305 x 266.6 mm, wheel radius 60 mm, steer +-90 deg.
       half_length_m: 0.1525
       half_width_m: 0.1333
@@ -864,6 +907,8 @@ ros2_nodes:
     present: true
     enabled: true
     config: |
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
+      metrics_port: 19108
       input_topic: /odom_rf2o
       output_topic: /odom_rf2o_twist
       # No quality figure from rf2o: conservative fixed variances (wheel odometry floor is 0.002 (m/s)^2).
@@ -1316,6 +1361,8 @@ ros2_nodes:
     present: true
     enabled: true
     config: |
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
+      metrics_port: 19109
       store_path: /var/lib/ros2/poi/poi.json
       list_topic: /poi/list
       command_topic: /poi/command

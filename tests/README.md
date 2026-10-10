@@ -1045,6 +1045,20 @@ The dev-only MuJoCo grasp replay harness has its own uv project and tests under 
 | `test_report.py` | SimReport schema and JSON round trip. |
 | `test_cli.py` | `grasp-sim example/run`, exit codes, report file, YAML scene, frames and GIF output, mjpython hint for `--render`. |
 
+### `test_node_metrics_wiring.py`
+
+Node metrics wiring in `ansible/group_vars/client.yml` against the port contract, and the Alloy node targets in `roles/monitoring/defaults/main.yml`. Node `config: |` blocks are rendered with jinja2 and parsed as YAML; env lists merge type and node entries as `resolve_and_deploy.yml` does.
+
+| Test | Description |
+|------|-------------|
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store) `metrics_port` 19101-19109 at the top level of the config. |
+| `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
+| `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
+| `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
+| `test_node_types_using_ros2_metrics_declare_src_shared` | Every venv node type that imports ros2_metrics sets `src_shared: true`. |
+| `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`. |
+| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each of the 14 enabled contract nodes has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. |
+
 ### `test_monitoring_role.py`
 
 Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the client RPi5) and its deploy integration. Templates are rendered with jinja2 and the role defaults; the throttling script runs against a fake `vcgencmd` on PATH; `deploy-nodes.sh` runs against a fake `ansible-playbook`.
@@ -1052,7 +1066,7 @@ Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the cli
 | Test | Description |
 |------|-------------|
 | `test_role_files_exist` | tasks, defaults, handlers, meta, the Alloy and Prometheus templates, the dashboard and the throttling script exist. |
-| `test_every_template_and_file_the_tasks_name_exists` | Every `src:` of a template/copy task (loops resolved) is shipped with the role. |
+| `test_every_template_and_file_the_tasks_name_exists` | Every `src:` of a template/copy task (loops and `with_fileglob` resolved) is shipped with the role. |
 | `test_defaults_have_enable_flag_ports_retention_and_limits` | `monitoring_enabled: true`, ports 3000/9090/12345, 1d/2GB retention, 5s interval and 4s scrape timeout, per-unit memory caps. |
 | `test_monitoring_slice_limits` | `monitoring.slice`: CPUWeight=20, IOWeight=20, CPUQuota=40%, MemoryMax=1200M, MemoryHigh=1100M. |
 | `test_dropin_moves_unit_into_the_slice` | (alloy, prometheus, grafana-server) drop-in sets Slice=monitoring.slice, Nice=10, MemoryMax 250M/450M/450M, OOMScoreAdjust=500, Restart=on-failure. |
@@ -1065,6 +1079,8 @@ Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the cli
 | `test_alloy_config` | Alloy config has unix (textfile dir), cadvisor (`docker_only = false`), self exporters, scrapes of Prometheus and Grafana, remote write to local Prometheus, 5s interval and 4s timeout on every scrape. |
 | `test_alloy_drops_high_cardinality_cgroups_and_veth` | The `id` keep rule keeps root, slices and services, drops scopes and sessions; veth interfaces are dropped. |
 | `test_alloy_listens_on_lan_port` | `/etc/default/alloy`: `0.0.0.0:12345`, reporting off, config path. |
+| `test_alloy_scrapes_every_node_target` | One `prometheus.scrape "nodes"` renders all 14 `monitoring_node_targets` as `127.0.0.1:<port>` with a `node` label, job `ros2_nodes`, path `/metrics`, `honor_labels = true`, 5s/4s, remote write. |
+| `test_alloy_systemd_collector_limited_to_robot_and_stack_units` | The unix exporter enables the systemd collector with `enable_restarts` and `start_time`; `unit_include` matches `ros2-*.service`, alloy, prometheus, grafana-server, nginx and nothing else. |
 | `test_grafana_behind_nginx_at_subpath_without_login` | grafana.ini: `127.0.0.1:3000`, `root_url` ending `/grafana/`, `serve_from_sub_path`, anonymous enabled with role Editor. |
 | `test_nginx_site_fronts_web_ui_and_grafana_on_port_80` | nginx site: `listen 80 default_server`, `/` -> 127.0.0.1:8080, `/grafana/` -> 127.0.0.1:3000, Upgrade/Connection headers on both, the `$connection_upgrade` map. |
 | `test_nginx_installed_enabled_and_default_site_removed` | the role installs nginx, writes `/etc/nginx/conf.d/robot.conf`, removes `sites-enabled/default`, runs `nginx -t`, starts nginx, checks `http://127.0.0.1/grafana/api/health`, and the disable path leaves nginx running. |
@@ -1073,9 +1089,16 @@ Structure of `ansible/roles/monitoring` (Alloy + Prometheus + Grafana on the cli
 | `test_grafana_admin_password_generated_on_the_host` | No Ansible password lookup; one `openssl rand` task with `creates:`; the file is 0600 root:grafana. |
 | `test_grafana_apt_repo_signed_by_keyring` | deb822 repo `https://apt.grafana.com stable main` signed by the key downloaded to `/etc/apt/keyrings/`. |
 | `test_grafana_datasource_provisioned` | Provisioned Prometheus datasource uid `prometheus-robot` at `http://127.0.0.1:9090`. |
-| `test_grafana_dashboard_provider` | The dashboard provider path is where the role copies `robot-resources.json`. |
-| `test_dashboard_is_valid_json_with_required_panels` | `robot-resources.json` parses, is titled "Robot resources" and has every required panel by title. |
-| `test_dashboard_queries_use_contract_metrics_only` | Every panel query uses datasource `prometheus-robot` and only contract metrics (`container_*` cgroup set, `rpi_throttled*`) or `node_*`. |
+| `test_grafana_dashboard_provider` | Folder Robot; one copy task installs every `files/*.json` (`with_fileglob`) into the provider path under its own name. |
+| `test_dashboard_set_is_exactly_the_five_files` | `files/` holds robot-resources, robot-agent, robot-slam, robot-grasping and robot-health. |
+| `test_dashboard_is_valid_json_with_required_panels` | (each dashboard) parses, has its title and uid, every required panel by title and unique panel ids. |
+| `test_dashboard_common_settings` | (each dashboard) refresh 5s, last 1h, tag `robot`, one dashboard link by tag `robot`, datasource `prometheus-robot` on every panel and target. |
+| `test_dashboard_queries_use_contract_metrics_only` | (each dashboard) every expression names only node metric contract names (histograms with `_bucket/_sum/_count`), `node_*`, `container_*`, `rpi_throttled*`, `robot_node_*` or `up`. |
+| `test_resources_dashboard_still_covers_units_and_throttling` | Robot resources still queries unit CPU, CPUQuota and throttling. |
+| `test_agent_dashboard_queries` | Robot agent: p50/p95 from `agent_instruction_duration_seconds_bucket` and per-tool `mcp_tool_duration_seconds_bucket`, MCP errors by `outcome="error"`, tokens, cost, claude_agent/mcp_server cgroup CPU and memory. |
+| `test_slam_dashboard_queries` | Robot SLAM: cgroup CPU/memory of the six upstream SLAM units, lidar gap, relay rejections, odom rate, pose TF, nav goal duration, IMU and GPS panels. |
+| `test_grasping_dashboard_queries` | Robot grasping: servo load/temperature/torque per arm joint, success ratio, bus failures, grasp tool latencies, tracking error buckets. |
+| `test_health_dashboard_queries` | Robot health: `node_systemd_unit_state` and restarts, `up{job="ros2_nodes"}`, node start time, every per-node error counter, throttling, disk and memory pressure. |
 | `test_metric_names_helper` | The PromQL metric extractor skips functions, label matchers, `by (...)` lists, ranges and Grafana variables. |
 | `test_parse_throttled` | `parse_throttled` reads `throttled=0x...` as hex and rejects other output. |
 | `test_throttled_metrics_names_every_bit` | `rpi_throttled_flags` plus `rpi_throttled{bit=...}` for bits 0-3 (`_now`) and 16-19 (`_occurred`). |

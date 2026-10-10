@@ -232,13 +232,16 @@
         group: grafana
         mode: "0755"
 
-    - name: Install the Robot resources dashboard (Grafana re-reads it within a minute)
+    - name: Install every dashboard of files/ (Grafana re-reads them within a minute)
       ansible.builtin.copy:
-        src: robot-resources.json
-        dest: "{{ monitoring_grafana_dashboards_dir }}/robot-resources.json"
+        src: "{{ item }}"
+        dest: "{{ monitoring_grafana_dashboards_dir }}/{{ item | basename }}"
         owner: root
         group: grafana
         mode: "0644"
+      with_fileglob: ["*.json"]
+      loop_control:
+        label: "{{ item | basename }}"
 
     # ---- nginx on port 80 ---------------------------------------------------------------------------------------------
     - name: Remove the distro default nginx site (it claims port 80)

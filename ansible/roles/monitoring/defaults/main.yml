@@ -18,6 +18,29 @@ monitoring_interval: "5s"
 # Scrape timeout: below the interval (Alloy and Prometheus reject a timeout above it; their default is 10 s).
 monitoring_scrape_timeout: "4s"
 
+# Our ROS2 nodes' Prometheus endpoints (ros2_metrics helper or the node's own HTTP server), scraped by Alloy job
+# ros2_nodes with a `node` label. Ports follow ansible/group_vars/client.yml (metrics_port, METRICS_PORT or the node's
+# HTTP port); tests/test_node_metrics_wiring.py keeps both in sync.
+monitoring_node_targets:
+  - {node: lerobot_follower, address: "127.0.0.1:19101", path: /metrics}
+  - {node: filter_node, address: "127.0.0.1:19102", path: /metrics}
+  - {node: bno055_imu, address: "127.0.0.1:19103", path: /metrics}
+  - {node: gps_rtk_rover, address: "127.0.0.1:19104", path: /metrics}
+  - {node: gripper_uvc_camera, address: "127.0.0.1:19105", path: /metrics}
+  - {node: rplidar_a1, address: "127.0.0.1:19106", path: /metrics}
+  - {node: swerve_controller, address: "127.0.0.1:19107", path: /metrics}
+  - {node: rf2o_odom_relay, address: "127.0.0.1:19108", path: /metrics}
+  - {node: poi_store, address: "127.0.0.1:19109", path: /metrics}
+  - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
+  - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
+  - {node: topic_scraper_api, address: "127.0.0.1:18100", path: /metrics}
+  - {node: mcp_server, address: "127.0.0.1:18200", path: /metrics}
+  - {node: claude_agent, address: "127.0.0.1:18300", path: /metrics}
+
+# systemd units the unix exporter's systemd collector reports (node_systemd_unit_state, restarts, start time).
+# Plain regex (the template escapes it for Alloy).
+monitoring_systemd_unit_include: 'ros2-.*\.service|alloy\.service|prometheus\.service|grafana-server\.service|nginx\.service'
+
 # Prometheus TSDB on the NVMe root; whichever limit is hit first drops the oldest blocks.
 monitoring_prometheus_data_dir: /var/lib/prometheus/metrics2
 monitoring_prometheus_retention_time: "1d"

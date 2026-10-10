@@ -74,6 +74,7 @@ The playbook syncs the repo once, deploys the selected nodes, restarts what chan
 | First deploy, major refactor, or unknown scope | `deploy-nodes.sh <target> --all` |
 | After Ansible role/config structure changes | `deploy-nodes.sh <target> --all` |
 | Monitoring stack (Alloy + Prometheus + Grafana at `/grafana/`, nginx on port 80 in front of the web UI; client only; not a ROS node, never part of a node deploy) | `deploy-nodes.sh client monitoring` |
+| Changed a node's metrics port or `monitoring_node_targets` (Alloy scrapes our nodes' `/metrics`) | the node(s), then `deploy-nodes.sh client monitoring` |
 
 A node list is one tag-filtered run, so there is nothing to parallelise. Servo nodes (`lerobot_follower`,
 `lerobot_leader`) are restarted only when their files changed, together with the other changed nodes at the end.

@@ -8,19 +8,34 @@
   ],
   "editable": false,
   "graphTooltip": 1,
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "time": {
-    "from": "now-3h",
+    "from": "now-1h",
     "to": "now"
   },
   "timezone": "browser",
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Robot dashboards",
+      "tags": [
+        "robot"
+      ],
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true,
+      "targetBlank": false,
+      "icon": "external link"
+    }
+  ],
   "templating": {
     "list": []
   },
   "annotations": {
     "list": []
   },
+  "version": 1,
   "panels": [
     {
       "type": "row",
@@ -1168,6 +1183,5 @@
         }
       ]
     }
-  ],
-  "version": 1
+  ]
 }

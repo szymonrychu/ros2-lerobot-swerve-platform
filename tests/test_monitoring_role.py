@@ -48,8 +48,61 @@ PROMQL_WORDS = {
     "count_over_time", "delta", "deriv", "floor", "group_left", "group_right", "ignoring", "increase", "irate",
     "label_replace", "last_over_time", "max", "max_over_time", "min", "min_over_time", "offset", "on", "or", "rate",
     "round", "scalar", "sort", "sort_desc", "sum", "sum_over_time", "time", "topk", "bottomk", "unless", "vector",
-    "without", "e", "inf", "nan",
+    "without", "e", "inf", "nan", "histogram_quantile", "changes", "resets", "timestamp", "group", "label_join",
+    "present_over_time", "quantile_over_time", "sgn",
 }  # fmt: skip
+
+# Node metric contract (exporters brief): every name our nodes export. Histograms add _bucket/_sum/_count.
+NODE_CONTRACT_METRICS = {
+    # lerobot_follower
+    "servo_bus_read_failures_total", "servo_bus_up", "servo_present_load", "servo_temperature_celsius",
+    "servo_voltage_volts", "servo_torque_enabled", "servo_set_register_failures_total", "servo_commands_total",
+    # filter_node
+    "filter_input_age_seconds", "filter_active_source", "filter_source_switches_total", "filter_loop_overruns_total",
+    # swerve_controller
+    "swerve_cmd_vel_age_seconds", "swerve_joint_states_stale_total", "swerve_slip_residual",
+    "swerve_odom_published_total",
+    # rf2o_odom_relay
+    "relay_messages_total", "relay_dt_rejected_total",
+    # bno055_imu
+    "imu_read_errors_total", "imu_soft_restores_total", "imu_reinits_total", "imu_init_attempts_total",
+    "imu_calibration_level", "imu_published_total", "imu_mode", "imu_seconds_since_publish",
+    # gps_rtk_rover
+    "gps_fix_quality", "gps_satellites", "gps_hdop", "gps_diff_age_seconds", "gps_ntrip_connected",
+    "gps_ntrip_rx_bytes_total", "gps_ntrip_reconnects_total", "gps_serial_errors_total", "gps_fixes_published_total",
+    # gripper_uvc_camera
+    "camera_frames_published_total", "camera_frames_dropped_total", "camera_reopens_total",
+    # rplidar_a1
+    "lidar_scans_total", "lidar_scan_rate_hz", "lidar_scan_gap_seconds_max", "lidar_driver_restarts_total",
+    # mcp_server
+    "mcp_tool_calls_total", "mcp_motion_queue_depth", "mcp_motion_steps_total", "mcp_grasp_plans_total",
+    "mcp_grasp_attempts_total", "mcp_gripper_effort", "mcp_grip_profile_uses_total", "mcp_floor_guard_slowdowns_total",
+    "mcp_robot_events_total", "mcp_sample_age_seconds", "mcp_nav_goals_total",
+    # poi_store
+    "poi_commands_total", "poi_save_failures_total", "poi_count",
+    # claude_agent
+    "agent_busy", "agent_instructions_total", "agent_turns_total", "agent_tool_uses_total",
+    "agent_seconds_since_activity", "agent_watchdog_fires_total", "agent_session_resets_total", "agent_tokens_total",
+    "agent_cost_usd_total",
+    # web_ui
+    "webui_ws_clients", "webui_ws_disconnects_total", "webui_broadcaster_slow_total", "webui_topic_stale_total",
+    "webui_http_requests_total", "webui_map_updates_total", "webui_map_age_seconds", "webui_robot_pose_ok",
+    "webui_battery_cutoff_active",
+    # test_joint_api, topic_scraper_api
+    "jointapi_requests_total", "scraper_messages_total", "scraper_subscriptions",
+}  # fmt: skip
+NODE_CONTRACT_HISTOGRAMS = {
+    "servo_cycle_duration_seconds", "swerve_loop_duration_seconds", "camera_encode_seconds",
+    "mcp_tool_duration_seconds", "mcp_motion_tracking_error_rad", "mcp_nav_goal_duration_seconds",
+    "agent_instruction_duration_seconds", "webui_broadcast_duration_seconds", "scraper_callback_seconds",
+}  # fmt: skip
+ALLOWED_METRICS = (
+    CONTRACT_METRICS
+    | NODE_CONTRACT_METRICS
+    | {f"{h}_{suffix}" for h in NODE_CONTRACT_HISTOGRAMS for suffix in ("bucket", "sum", "count")}
+    | {"up"}
+)
+ALLOWED_PREFIXES = ("node_", "container_", "rpi_throttled", "robot_node_")
 
 REQUIRED_PANELS = [
     "Host CPU % by mode",
@@ -65,6 +118,106 @@ REQUIRED_PANELS = [
     "Top 10 units by CPU",
     "Monitoring stack overhead",
 ]
+
+# Dashboard file -> (title, uid, required panel titles).
+DASHBOARDS: dict[str, tuple[str, str, list[str]]] = {
+    "robot-resources.json": ("Robot resources", "robot-resources", REQUIRED_PANELS),
+    "robot-agent.json": (
+        "Robot agent",
+        "robot-agent",
+        [
+            "Agent busy",
+            "Instructions by status",
+            "Instruction duration p50/p95",
+            "Turns and tool uses by tool",
+            "MCP tool call rate",
+            "MCP tool latency p50/p95",
+            "MCP tool errors",
+            "Motion queue depth",
+            "Motion step statuses",
+            "Robot events by severity",
+            "Seconds since agent activity",
+            "Tokens",
+            "Cost",
+            "claude_agent and mcp_server CPU",
+            "claude_agent and mcp_server memory",
+        ],
+    ),
+    "robot-slam.json": (
+        "Robot SLAM",
+        "robot-slam",
+        [
+            "SLAM stack unit CPU",
+            "SLAM stack unit memory",
+            "Lidar scan rate",
+            "Lidar max scan gap",
+            "Lidar driver restarts",
+            "rf2o relay message rate",
+            "rf2o relay rejections",
+            "Swerve slip residual",
+            "Swerve odom rate",
+            "Map updates",
+            "Map age",
+            "Robot pose TF ok",
+            "Nav goals by result",
+            "Nav goal duration",
+            "IMU publish health",
+            "GPS fix quality",
+            "GPS satellites",
+        ],
+    ),
+    "robot-grasping.json": (
+        "Robot grasping",
+        "robot-grasping",
+        [
+            "Grasp plans by mode and outcome",
+            "Grasp attempts by mode and result",
+            "Grasp success ratio",
+            "Gripper effort",
+            "Grip profile uses",
+            "Floor guard slowdowns",
+            "Arm motion steps by status",
+            "Tracking error p50/p95",
+            "Servo load per joint",
+            "Servo temperature per joint",
+            "Servo torque enabled per joint",
+            "Servo bus failures",
+            "Grasp tool latency p50/p95",
+        ],
+    ),
+    "robot-health.json": (
+        "Robot health",
+        "robot-health",
+        [
+            "Unit states",
+            "Unit restarts in window",
+            "Node up/down",
+            "Time since node start",
+            "Errors per node in window",
+            "Throttling",
+            "Temperature",
+            "Disk pressure",
+            "Memory pressure",
+        ],
+    ),
+}
+ARM_JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
+SLAM_UNITS = [
+    "slam_toolbox",
+    "nav2_bringup",
+    "robot_localization_ekf",
+    "rf2o_laser_odometry",
+    "laser_filter",
+    "rplidar_a1",
+]
+GRASP_TOOLS = ["plan_grasp", "grasp_object", "release_object", "move_arm_cartesian"]
+# Error counters the health dashboard must show per node.
+HEALTH_ERROR_METRICS = {
+    "servo_bus_read_failures_total", "servo_set_register_failures_total", "imu_read_errors_total", "imu_reinits_total",
+    "gps_serial_errors_total", "gps_ntrip_reconnects_total", "camera_frames_dropped_total", "camera_reopens_total",
+    "lidar_driver_restarts_total", "webui_ws_disconnects_total", "webui_topic_stale_total",
+    "agent_watchdog_fires_total", "mcp_tool_calls_total",
+}  # fmt: skip
 
 
 def load_yaml(path: Path) -> object:
@@ -99,7 +252,10 @@ def render(template: str, **extra: object) -> str:
         str: Rendered text.
     """
     env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(TEMPLATES_DIR), undefined=jinja2.StrictUndefined, keep_trailing_newline=True
+        loader=jinja2.FileSystemLoader(TEMPLATES_DIR),
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+        trim_blocks=True,  # as ansible.builtin.template
     )
     env.globals["ansible_managed"] = "Managed by Ansible"
     return env.get_template(template).render(**role_defaults(), **extra)
@@ -115,7 +271,9 @@ def resolve(value: str, item: object = None) -> str:
     Returns:
         str: Rendered string.
     """
-    return jinja2.Environment(undefined=jinja2.StrictUndefined).from_string(value).render(**role_defaults(), item=item)
+    env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    env.filters["basename"] = os.path.basename  # Ansible filter used by the dashboard install task
+    return env.from_string(value).render(**role_defaults(), item=item)
 
 
 def role_tasks() -> list[dict]:
@@ -227,8 +385,12 @@ def test_every_template_and_file_the_tasks_name_exists() -> None:
             src = (task.get(module) or {}).get("src")
             if not src:
                 continue
-            loop = task.get("loop", [None])
-            items = yaml.safe_load(resolve(loop)) if isinstance(loop, str) else loop
+            if "with_fileglob" in task:
+                items: list = [str(p) for pattern in task["with_fileglob"] for p in sorted(folder.glob(pattern))]
+                assert items, f"{task['name']}: {task['with_fileglob']} matches nothing"
+            else:
+                loop = task.get("loop", [None])
+                items = yaml.safe_load(resolve(loop)) if isinstance(loop, str) else loop
             for item in items:
                 assert (folder / resolve(src, item)).is_file(), f"{task['name']}: {src}"
                 checked += 1
@@ -359,6 +521,55 @@ def test_alloy_listens_on_lan_port() -> None:
     assert 'CONFIG_FILE="/etc/alloy/config.alloy"' in args
 
 
+def alloy_block(config: str, header: str) -> str:
+    """Return the body of one top-level Alloy block.
+
+    Args:
+        config (str): Rendered config.alloy.
+        header (str): Block header, e.g. 'prometheus.scrape "nodes"'.
+
+    Returns:
+        str: Text between the header's opening brace and the closing brace at column 0.
+    """
+    match = re.search(re.escape(header) + r" \{\n(.*?)\n\}", config, re.S)
+    assert match, header
+    return match.group(1)
+
+
+def test_alloy_scrapes_every_node_target() -> None:
+    """One scrape 'nodes': each target is 127.0.0.1:<port> with a node label, 5 s / 4 s, path /metrics, remote write."""
+    targets = role_defaults()["monitoring_node_targets"]
+    assert len(targets) == 14
+    body = alloy_block(render("config.alloy.j2"), 'prometheus.scrape "nodes"')
+    rendered = re.findall(r'\{"__address__" = "([^"]+)", "node" = "([^"]+)"\}', body)
+    assert rendered == [(t["address"], t["node"]) for t in targets]
+    assert all(re.fullmatch(r"127\.0\.0\.1:\d+", t["address"]) and t["path"] == "/metrics" for t in targets)
+    assert re.search(r'job_name\s*=\s*"ros2_nodes"', body)
+    assert re.search(r'metrics_path\s*=\s*"/metrics"', body)
+    # The helper's robot_node_info{node} keeps its own node label instead of becoming exported_node.
+    assert re.search(r"honor_labels\s*=\s*true", body)
+    assert 'scrape_interval = "5s"' in body and 'scrape_timeout  = "4s"' in body
+    assert "forward_to      = [prometheus.remote_write.local.receiver]" in body
+
+
+def test_alloy_systemd_collector_limited_to_robot_and_stack_units() -> None:
+    """The unix exporter adds the systemd collector with restart metrics for ros2-* and the monitoring units only."""
+    body = alloy_block(render("config.alloy.j2"), 'prometheus.exporter.unix "host"')
+    assert re.search(r'enable_collectors\s*=\s*\["systemd"\]', body)
+    systemd = re.search(r"systemd \{(.*?)\}", body, re.S)
+    assert systemd
+    assert re.search(r"enable_restarts\s*=\s*true", systemd.group(1))
+    assert re.search(r"start_time\s*=\s*true", systemd.group(1))
+    include = re.search(r'unit_include\s*=\s*"([^"]+)"', systemd.group(1))
+    assert include
+    pattern = re.compile(include.group(1).replace("\\\\", "\\"))
+    kept = ["ros2-web_ui.service", "alloy.service", "prometheus.service", "grafana-server.service", "nginx.service"]
+    for unit in kept:
+        assert pattern.fullmatch(unit), unit
+    for unit in ["ssh.service", "ros2-web_ui.socket", "systemd-journald.service", "alloyXservice"]:
+        assert not pattern.fullmatch(unit), unit
+
+
 # --- grafana -----------------------------------------------------------------------------------------------------
 
 
@@ -486,46 +697,189 @@ def test_grafana_datasource_provisioned() -> None:
     assert ds[0]["type"] == "prometheus" and ds[0]["url"] == "http://127.0.0.1:9090"
 
 
+def dashboard_copy_tasks() -> list[dict]:
+    """Return the copy tasks that install dashboards (src from a *.json fileglob).
+
+    Returns:
+        list[dict]: Matching tasks.
+    """
+    return [t for t in role_tasks() if "ansible.builtin.copy" in t and "*.json" in t.get("with_fileglob", [])]
+
+
 def test_grafana_dashboard_provider() -> None:
-    """The dashboard provider reads the directory the role copies robot-resources.json into."""
+    """One task copies every files/*.json into the directory the dashboard provider reads, keeping the file name."""
     providers = yaml.safe_load(render("grafana-dashboards.yaml.j2"))["providers"]
-    copied = [
-        t["ansible.builtin.copy"]
-        for t in role_tasks()
-        if (t.get("ansible.builtin.copy") or {}).get("src") == "robot-resources.json"
-    ]
-    assert len(copied) == 1
-    assert resolve(copied[0]["dest"]).startswith(providers[0]["options"]["path"] + "/")
+    assert [p["folder"] for p in providers] == ["Robot"]
+    tasks = dashboard_copy_tasks()
+    assert len(tasks) == 1
+    copy = tasks[0]["ansible.builtin.copy"]
+    assert copy["src"] == "{{ item }}"
+    installed = {
+        resolve(copy["dest"], str(FILES_DIR / name)) for name in [p.name for p in sorted(FILES_DIR.glob("*.json"))]
+    }
+    expected = {f"{providers[0]['options']['path']}/{name}" for name in DASHBOARDS}
+    assert installed == expected
+    assert not [t for t in role_tasks() if (t.get("ansible.builtin.copy") or {}).get("src") == "robot-resources.json"]
 
 
 # --- dashboard ---------------------------------------------------------------------------------------------------
 
 
-def test_dashboard_is_valid_json_with_required_panels() -> None:
-    """robot-resources.json parses and has every required panel by title."""
-    dashboard = json.loads(DASHBOARD.read_text())
-    assert dashboard["title"] == "Robot resources"
+def load_dashboard(name: str) -> dict:
+    """Parse one dashboard JSON file of the role.
+
+    Args:
+        name (str): File name under files/.
+
+    Returns:
+        dict: Dashboard model.
+    """
+    return json.loads((FILES_DIR / name).read_text())
+
+
+def dashboard_exprs(dashboard: dict) -> list[tuple[str, str]]:
+    """Return every (panel title, PromQL expression) of a dashboard.
+
+    Args:
+        dashboard (dict): Dashboard model.
+
+    Returns:
+        list[tuple[str, str]]: Panel title and expression pairs.
+    """
+    return [(p["title"], t["expr"]) for p in panel_list(dashboard) if p.get("type") != "row" for t in p["targets"]]
+
+
+def panel_exprs(dashboard: dict, title: str) -> str:
+    """Join the expressions of one panel.
+
+    Args:
+        dashboard (dict): Dashboard model.
+        title (str): Panel title.
+
+    Returns:
+        str: All its expressions, newline separated.
+    """
+    return "\n".join(e for t, e in dashboard_exprs(dashboard) if t == title)
+
+
+def test_dashboard_set_is_exactly_the_five_files() -> None:
+    """files/ holds exactly the five provisioned dashboards."""
+    assert sorted(p.name for p in FILES_DIR.glob("*.json")) == sorted(DASHBOARDS)
+
+
+@pytest.mark.parametrize("name", sorted(DASHBOARDS))
+def test_dashboard_is_valid_json_with_required_panels(name: str) -> None:
+    """Each dashboard parses, has its title/uid and every required panel by title, with unique panel ids."""
+    title, uid, panels = DASHBOARDS[name]
+    dashboard = load_dashboard(name)
+    assert dashboard["title"] == title
+    assert dashboard["uid"] == uid
     titles = [p.get("title") for p in panel_list(dashboard)]
-    for title in REQUIRED_PANELS:
-        assert title in titles, title
+    for panel in panels:
+        assert panel in titles, panel
+    ids = [p["id"] for p in panel_list(dashboard)]
+    assert len(ids) == len(set(ids)), "duplicate panel id"
 
 
-def test_dashboard_queries_use_contract_metrics_only() -> None:
-    """Every panel query references only metrics from the contract or node_*, on the provisioned datasource."""
-    dashboard = json.loads(DASHBOARD.read_text())
-    seen: set[str] = set()
+@pytest.mark.parametrize("name", sorted(DASHBOARDS))
+def test_dashboard_common_settings(name: str) -> None:
+    """Datasource prometheus-robot, refresh 5s, last 1h, tag robot, and links to every dashboard tagged robot."""
+    dashboard = load_dashboard(name)
+    assert dashboard["refresh"] == "5s"
+    assert dashboard["time"] == {"from": "now-1h", "to": "now"}
+    assert "robot" in dashboard["tags"]
+    links = [link for link in dashboard["links"] if link["type"] == "dashboards"]
+    assert len(links) == 1 and links[0]["tags"] == ["robot"] and links[0]["keepTime"] is True
     for panel in panel_list(dashboard):
         if panel.get("type") == "row":
             continue
+        assert panel["datasource"]["uid"] == "prometheus-robot", panel["title"]
         assert panel["targets"], panel["title"]
         for target in panel["targets"]:
             assert target["datasource"]["uid"] == "prometheus-robot", panel["title"]
-            names = metric_names(target["expr"])
-            assert names, (panel["title"], target["expr"])
-            bad = {n for n in names if n not in CONTRACT_METRICS and not n.startswith("node_")}
-            assert not bad, (panel["title"], bad)
-            seen |= names
+
+
+@pytest.mark.parametrize("name", sorted(DASHBOARDS))
+def test_dashboard_queries_use_contract_metrics_only(name: str) -> None:
+    """Every expression names only contract metrics, node_*, container_*, rpi_throttled*, robot_node_* or up."""
+    for title, expr in dashboard_exprs(load_dashboard(name)):
+        names = metric_names(expr)
+        assert names, (title, expr)
+        bad = {n for n in names if n not in ALLOWED_METRICS and not n.startswith(ALLOWED_PREFIXES)}
+        assert not bad, (title, bad)
+
+
+def test_resources_dashboard_still_covers_units_and_throttling() -> None:
+    """Guard against vacuous passes on the resources dashboard."""
+    seen = {n for _, e in dashboard_exprs(load_dashboard("robot-resources.json")) for n in metric_names(e)}
     assert {"container_cpu_usage_seconds_total", "container_spec_cpu_quota", "rpi_throttled"} <= seen
+
+
+def test_agent_dashboard_queries() -> None:
+    """Agent dashboard: histograms as p50/p95 quantiles, CPU/memory of claude_agent and mcp_server from cgroups."""
+    dashboard = load_dashboard("robot-agent.json")
+    duration = panel_exprs(dashboard, "Instruction duration p50/p95")
+    assert "histogram_quantile(0.5" in duration and "histogram_quantile(0.95" in duration
+    assert "agent_instruction_duration_seconds_bucket" in duration
+    latency = panel_exprs(dashboard, "MCP tool latency p50/p95")
+    assert "mcp_tool_duration_seconds_bucket" in latency and "by (le, tool)" in latency
+    assert 'outcome="error"' in panel_exprs(dashboard, "MCP tool errors")
+    assert "agent_tool_uses_total" in panel_exprs(dashboard, "Turns and tool uses by tool")
+    assert "agent_tokens_total" in panel_exprs(dashboard, "Tokens")
+    assert "agent_cost_usd_total" in panel_exprs(dashboard, "Cost")
+    for title in ["claude_agent and mcp_server CPU", "claude_agent and mcp_server memory"]:
+        expr = panel_exprs(dashboard, title)
+        assert "container_" in expr and "ros2-" in expr and "claude_agent" in expr and "mcp_server" in expr, title
+
+
+def test_slam_dashboard_queries() -> None:
+    """SLAM dashboard: unit CPU/memory of the upstream SLAM stack from cgroups, GPS and IMU health from our nodes."""
+    dashboard = load_dashboard("robot-slam.json")
+    for title in ["SLAM stack unit CPU", "SLAM stack unit memory"]:
+        expr = panel_exprs(dashboard, title)
+        assert "container_" in expr and "ros2-" in expr, title
+        for unit in SLAM_UNITS:
+            assert unit in expr, (title, unit)
+    assert "lidar_scan_gap_seconds_max" in panel_exprs(dashboard, "Lidar max scan gap")
+    assert "relay_dt_rejected_total" in panel_exprs(dashboard, "rf2o relay rejections")
+    assert "swerve_odom_published_total" in panel_exprs(dashboard, "Swerve odom rate")
+    assert "webui_robot_pose_ok" in panel_exprs(dashboard, "Robot pose TF ok")
+    assert "mcp_nav_goal_duration_seconds_bucket" in panel_exprs(dashboard, "Nav goal duration")
+    assert "imu_published_total" in panel_exprs(dashboard, "IMU publish health")
+    assert "gps_fix_quality" in panel_exprs(dashboard, "GPS fix quality")
+
+
+def test_grasping_dashboard_queries() -> None:
+    """Grasping dashboard: servo panels per arm joint, success ratio of attempts, grasp tool latencies."""
+    dashboard = load_dashboard("robot-grasping.json")
+    for title in ["Servo load per joint", "Servo temperature per joint", "Servo torque enabled per joint"]:
+        expr = panel_exprs(dashboard, title)
+        for joint in ARM_JOINTS:
+            assert joint in expr, (title, joint)
+    ratio = panel_exprs(dashboard, "Grasp success ratio")
+    assert "mcp_grasp_attempts_total" in ratio and "/" in ratio
+    bus = panel_exprs(dashboard, "Servo bus failures")
+    assert "servo_bus_read_failures_total" in bus and "servo_set_register_failures_total" in bus
+    tools = panel_exprs(dashboard, "Grasp tool latency p50/p95")
+    for tool in GRASP_TOOLS:
+        assert tool in tools, tool
+    assert "mcp_motion_tracking_error_rad_bucket" in panel_exprs(dashboard, "Tracking error p50/p95")
+
+
+def test_health_dashboard_queries() -> None:
+    """Health dashboard: systemd unit states and restarts, node up/start time, every error counter, host pressure."""
+    dashboard = load_dashboard("robot-health.json")
+    states = panel_exprs(dashboard, "Unit states")
+    assert "node_systemd_unit_state" in states and "ros2-" in states and "alloy" in states
+    assert "node_systemd_service_restart_total" in panel_exprs(dashboard, "Unit restarts in window")
+    up = panel_exprs(dashboard, "Node up/down")
+    assert "up{" in up and 'job="ros2_nodes"' in up
+    assert "robot_node_start_time_seconds" in panel_exprs(dashboard, "Time since node start")
+    errors = metric_names(panel_exprs(dashboard, "Errors per node in window"))
+    assert HEALTH_ERROR_METRICS <= errors, HEALTH_ERROR_METRICS - errors
+    assert "rpi_throttled" in panel_exprs(dashboard, "Throttling")
+    assert "node_filesystem_avail_bytes" in panel_exprs(dashboard, "Disk pressure")
+    assert "node_memory_MemAvailable_bytes" in panel_exprs(dashboard, "Memory pressure")
 
 
 def test_metric_names_helper() -> None:
