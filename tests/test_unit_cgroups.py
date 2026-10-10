@@ -178,8 +178,8 @@ def test_limits_unchanged_versus_main() -> None:
             assert new[node_type].get(key) == entry.get(key), (node_type, key)
 
 
-def test_server_feetech_servos_is_critical() -> None:
-    """The server's lerobot_leader (feetech_servos) is critical like the follower, limits unchanged."""
-    entry = type_defaults(SERVER_VARS)["feetech_servos"]
-    assert (entry["cpu_weight"], entry["io_weight"], entry["oom_score_adjust"]) == (400, 400, -500)
-    assert (entry["cpu_quota"], entry["memory_max"]) == ("50%", "128M")
+def test_server_gets_no_tiers() -> None:
+    """Only the robot (client) is tuned: the server's node types carry no cgroup tier keys."""
+    for node_type, entry in type_defaults(SERVER_VARS).items():
+        for key in ("cpu_weight", "io_weight", "memory_high", "oom_score_adjust"):
+            assert key not in (entry or {}), (node_type, key)

@@ -144,7 +144,7 @@ Cgroup tiers and the unit template directives (`CPUWeight`, `IOWeight`, `MemoryH
 | `test_untiered_types_have_no_weights` | Types outside the tiers carry no new keys. |
 | `test_existing_limits_unchanged` | `cpu_quota` / `memory_max` match a hard-coded snapshot of main. |
 | `test_limits_unchanged_versus_main` | Same comparison against `git show main:` when the ref exists. |
-| `test_server_feetech_servos_is_critical` | The server's `feetech_servos` (lerobot_leader) is critical, limits unchanged. |
+| `test_server_gets_no_tiers` | Only the robot is tuned: no server node type carries `cpu_weight`, `io_weight`, `memory_high` or `oom_score_adjust`. |
 
 ### `test_propose_unit_limits.py`
 

@@ -382,7 +382,7 @@ Client tiers (set per node type in `group_vars/client.yml`; `cpu_quota` / `memor
 | normal | 100 | unset | 0 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `overview_camera`, `uvc_camera`, `test_joint_api` |
 | low | 50 | 50 | 300 | `web_ui`, `mcp_server`, `claude_agent`, `topic_scraper_api`, `master2master`, `haptic_controller` |
 
-`realsense_d435i` (retired) is left alone. The server shares the template; only its `feetech_servos` type (lerobot_leader) is critical.
+`realsense_d435i` (retired) is left alone. The server shares the template but gets no tiers: only the robot (client) is tuned for now.
 
 ### Proposing limits from Prometheus
 
