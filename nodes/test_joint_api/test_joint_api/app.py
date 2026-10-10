@@ -6,8 +6,10 @@ import time
 from typing import Any
 
 from aiohttp import web
+from ros2_metrics import render_latest
 
 from .config import ApiConfig
+from .metrics import REQUESTS
 
 # Set by run.py after ROS2 node and publisher are created.
 _publisher: Any = None
@@ -82,9 +84,36 @@ async def post_joint_updates(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "joints": joints})
 
 
+@web.middleware
+async def count_requests(request: web.Request, handler: Any) -> web.StreamResponse:
+    """Count every answered request by status code (aiohttp HTTP errors such as 404 included).
+
+    Args:
+        request (web.Request): Incoming request.
+        handler (Any): Next handler in the chain.
+
+    Returns:
+        web.StreamResponse: The handler's response.
+    """
+    try:
+        response = await handler(request)
+    except web.HTTPException as exc:
+        REQUESTS.labels(str(exc.status)).inc()
+        raise
+    REQUESTS.labels(str(response.status)).inc()
+    return response
+
+
+async def get_metrics(_request: web.Request) -> web.Response:
+    """GET /metrics: Prometheus text exposition of the default registry."""
+    body, content_type = render_latest()
+    return web.Response(body=body, headers={"Content-Type": content_type})
+
+
 def create_app(_config: ApiConfig) -> web.Application:
-    """Create aiohttp Application with GET/POST /joint-updates routes."""
-    app = web.Application()
+    """Create aiohttp Application with GET/POST /joint-updates and GET /metrics routes."""
+    app = web.Application(middlewares=[count_requests])
+    app.router.add_get("/metrics", get_metrics)
     app.router.add_get("/joint-updates", get_joint_updates)
     app.router.add_post("/joint-updates", post_joint_updates)
     return app

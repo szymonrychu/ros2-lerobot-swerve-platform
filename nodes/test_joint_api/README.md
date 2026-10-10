@@ -9,6 +9,17 @@
 - **GET /joint-updates** — Returns the latest posted joint map (joint name → radians) and timestamp.
 - **POST /joint-updates** — Accepts JSON object: joint name → radians (e.g. `{"joint_5": 0.1, "joint_6": -0.2}`). Publishes to filter input topic and stores for GET.
 
+- **GET /metrics** - Prometheus exposition (same port as the API, scraped by Grafana Alloy).
+
+## Metrics
+
+Served on `GET /metrics` of the API port via `ros2-metrics` (`render_latest()`), implemented in `test_joint_api/metrics.py`.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `robot_node_info`, `robot_node_start_time_seconds` | gauge | `node` | Node is running, process start time |
+| `jointapi_requests_total` | counter | `status` | Answered HTTP requests by status code (middleware, includes 400 and 404) |
+
 ## Configuration
 
 - **Config file:** YAML with `host` (default `0.0.0.0`), `port` (default `8080`), `topic` (default `/filter/input_joint_updates`).
