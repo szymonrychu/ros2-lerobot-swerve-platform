@@ -1093,7 +1093,7 @@ def test_system_optimize_mounts_use_the_posix_mount_module_with_the_same_effect(
 
 
 def test_client_deploy_waits_for_an_idle_agent_before_anything_can_stop_a_unit() -> None:
-    """The agent idle guard is the first pre_task (always tagged), ahead of the deploy lock, with overridable defaults."""
+    """The agent idle guard is the first always-tagged pre_task, ahead of the deploy lock, with overridable defaults."""
     pre = load(PLAYBOOKS_DIR / "deploy_nodes_client.yml")[0]["pre_tasks"]
     includes = [str(t.get("ansible.builtin.include_tasks", "")) for t in pre]
     guard = next(i for i, inc in enumerate(includes) if "agent_idle_guard.yml" in inc)
