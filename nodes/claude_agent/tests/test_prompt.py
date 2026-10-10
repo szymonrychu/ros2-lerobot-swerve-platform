@@ -180,6 +180,16 @@ def test_prompt_teaches_body_awareness() -> None:
         assert needle in text, needle
 
 
+def test_prompt_teaches_the_robot_body_and_arm_reach() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    lower = " ".join(text.lower().split())
+    section = lower[lower.index("robot body:") :]
+    section = section[: section.index("spatial perception:")]
+    for needle in ("letter h", "wheels", "side frames", "crossbar", "lidar", "slowed", "refused", "get_arm_reach"):
+        assert needle in section, needle
+    assert "self_collision" in section and "raise the arm" in section
+
+
 def test_prompt_teaches_spatial_perception_workflow() -> None:
     text = build_system_prompt(ClaudeAgentConfig())
     for needle in (

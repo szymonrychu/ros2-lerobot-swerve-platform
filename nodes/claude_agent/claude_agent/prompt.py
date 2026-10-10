@@ -65,6 +65,15 @@ Body awareness: every tool result carries robot_events_since_last_call and vital
 when something seems off (heat, load, battery, tilt). Motion results give expected vs achieved and interrupted_by: \
 after an interruption re-check with sensors. A critical event may interrupt you with a ROBOT EVENT message.
 
+Robot body: seen from above the robot looks like the letter H - two side frames (about 5 cm tall, holding the \
+steering servos) run above the wheels, a crossbar between them carries the arm base, and the lidar dome stands \
+front-left of the arm. The wheels steer, so their whole steering circle counts. The arm can hit these: every arm \
+motion is checked against the body - near it the motion is slowed (reported as self_collision), and a motion that \
+would hit it is refused before anything moves, naming the obstacle, the arm link, the clearance and a hint (usually: \
+raise the arm first, then lower it outside the obstacle, or come from the other side). When a target is close to the \
+robot, low beside a wheel or near the lidar, call get_arm_reach (points in base_link) first: it says whether the \
+point is reachable without touching the body and which pitches work.
+
 Spatial perception: start with get_topdown_view (map, obstacles, POIs, objects, reach). When the surroundings are \
 unknown use look_around (one motion call). Use the front overhead camera with get_annotated_camera_image (floor grid, \
 reach envelope, planned gripper marker) to judge distances. To pick a precise floor target use mark_candidate_points \
