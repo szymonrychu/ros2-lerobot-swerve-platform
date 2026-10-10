@@ -23,7 +23,7 @@ SCRIPT = Path(__file__).resolve().parents[3] / "sim" / "grasp_sim" / "scripts" /
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 STEP_M = 0.10
 EDGE_BEFORE_OBJECT_M = 0.08  # the sim scene's default support margin
-WRIST_HITS_STEP_PITCH_DEG = 50.0  # angled pitch whose wrist crosses the stair edge for the 4 cm box at x 0.30
+WRIST_HITS_STEP_PITCH_DEG = 50.0  # angled pitch whose wrist crosses the stair edge for the 4 cm stair box
 
 
 def load_script() -> ModuleType:
@@ -62,8 +62,15 @@ def stair(edge_x: float) -> SurfaceRegion:
     )
 
 
+# Stair boxes stand 4 cm right of the arm's centre line: on it, reaching 10 cm down past the edge leans the upper arm
+# onto the measured lidar dome (its sim collision box touches the dome top; the body check rejects that contact).
+STAIR_BOX_Y_M = -0.04
+
+
 def stair_box(x: float = 0.30, size: tuple[float, float, float] = (0.04, 0.04, 0.04)) -> ObjectSpec:
-    return ObjectSpec(frame="arm", x=x, y=0.0, support_z=STAIR_Z, depth_m=size[0], width_m=size[1], height_m=size[2])
+    return ObjectSpec(
+        frame="arm", x=x, y=STAIR_BOX_Y_M, support_z=STAIR_Z, depth_m=size[0], width_m=size[1], height_m=size[2]
+    )
 
 
 def surface(regions: list[SurfaceRegion] | None) -> SurfaceModel:
@@ -99,8 +106,9 @@ def link_clearance(p: GraspPlan, surf: SurfaceModel, part: str | None = None) ->
 def test_single_surface_angled_plan_runs_the_wrist_into_the_step() -> None:
     """The matrix case that hit the step in the sim (45 deg before the jaw opening was centred on the object; with the
     7.5 mm fixed-jaw clearance 45 deg is out of reach there, 50 deg is the same failure): feasible with one flat
-    surface, but its wrist crosses the edge."""
-    obj = stair_box()
+    surface, but its wrist crosses the edge. The box stands at arm x 0.32: at 0.30 the flat-surface plan's retreat
+    brings the forearm within the hard margin of the front-right wheel and the body check rejects it first."""
+    obj = stair_box(x=0.32)
     flat = plan(obj, "angled", flat_stair(), WRIST_HITS_STEP_PITCH_DEG)
     assert flat.feasible and flat.approach_pitch_rad == pytest.approx(math.radians(WRIST_HITS_STEP_PITCH_DEG))
     assert link_clearance(flat, surface([stair(obj.x - EDGE_BEFORE_OBJECT_M)])) < PARAMS.surface_link_clearance_m

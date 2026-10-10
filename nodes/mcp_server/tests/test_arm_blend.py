@@ -60,7 +60,10 @@ def test_blend_is_faster_than_separate_stop_and_go_moves(tmp_path: Path) -> None
 
 def test_blend_respects_the_velocity_cap(tmp_path: Path) -> None:
     arm, be = make(tmp_path)
-    arm.move_blend([{"elbow_flex": 0.5, "shoulder_pan": 0.2}, {"elbow_flex": 0.9, "shoulder_pan": -0.3}], 0.5)
+    # Positive pan turns right, away from the lidar dome (front-left): at elbow 0.9 and pan -0.3 the wrist link would
+    # come within the hard margin of the measured dome.
+    res = arm.move_blend([{"elbow_flex": 0.5, "shoulder_pan": 0.3}, {"elbow_flex": 0.9, "shoulder_pan": -0.1}], 0.5)
+    assert res.status == "converged", res.message
     vmax = arm.velocity_for(0.5)
     for a, b in zip(be.commands, be.commands[1:], strict=False):
         assert max(abs(b[j] - a[j]) for j in KIN.joint_names) * RATE <= vmax * 1.01

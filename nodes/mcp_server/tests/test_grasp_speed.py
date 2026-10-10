@@ -9,6 +9,9 @@ configured (-0.100; the matrix now places its supports relative to it). Each cas
 before the faster heading convergence (secant step and carried heading in ArmKinematics.inverse_flange): the current
 plans may differ from it by at most BASELINE_TOL_RAD (0.1 deg, far below the arm's backlash) and must keep feasibility
 and strategy. The 2026-10-10 regeneration set the baseline equal to the current plans (the pre-secant planner was not rerun).
+The measured robot body (2026-10-10) rejects every 2026-10-09 case but 4x4x4_r25_floor_auto (kept with its baseline);
+five cases of the current matrix (heights relative to the -0.100 floor: floor -0.10, ledges -0.03 and 0.05 with the
+scoop's 2 cm gap) replace them, baseline = their plan.
 """
 
 import importlib.util
@@ -35,7 +38,14 @@ ANGLED_BUDGET_S = 1.0
 UNREACHABLE_BUDGET_S = 0.2
 SCOOP_BUDGET_S = 3.0
 FEASIBLE_ANGLED_BUDGET_S = 1.0
-SCOOP_GAP = {"x": 0.30, "gap": 0.02, "bottom": -0.13}  # raised 2 cm: the scoop is eligible and feasible
+SCOOP_GAP = {
+    "x": 0.30,
+    "gap": 0.02,
+    "bottom": -0.13,
+}  # raised 2 cm: the scoop is eligible (straight-ahead scoops now meet the front-right wheel)
+# The same raised box 4 cm further out for the angled 45 deg reach-edge plan: at x 0.30 its retreat brings the forearm
+# within the hard margin of the measured lidar dome (radius 74 mm), at 0.32 the pre-grasp does.
+ANGLED_EDGE = SCOOP_GAP | {"x": 0.34}
 SKIP_TIMING = os.environ.get("GRASP_SPEED_SKIP") == "1"
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 timing = pytest.mark.skipif(SKIP_TIMING, reason="GRASP_SPEED_SKIP=1")
@@ -197,7 +207,7 @@ def test_scoop_with_a_gap_under_the_object_plans_under_budget() -> None:
 def test_feasible_angled_plan_at_the_reach_edge_stays_inside_the_ik_cap() -> None:
     KIN.solutions.clear()
     before = KIN.solve_count
-    elapsed, plan = timed("angled", 45.0, **SCOOP_GAP)
+    elapsed, plan = timed("angled", 45.0, **ANGLED_EDGE)
     assert plan.feasible, plan.reasons
     assert KIN.solve_count - before < grasp.MAX_IK_SOLVES_PER_CANDIDATE
     assert elapsed < FEASIBLE_ANGLED_BUDGET_S, f"angled took {elapsed:.2f} s"
@@ -205,9 +215,10 @@ def test_feasible_angled_plan_at_the_reach_edge_stays_inside_the_ik_cap() -> Non
 
 @timing
 def test_replanning_the_same_object_is_served_from_the_ik_cache() -> None:
-    _, first = timed("angled", 45.0, **SCOOP_GAP)  # cold
+    _, first = timed("angled", 45.0, **ANGLED_EDGE)  # cold
+    assert first.feasible, first.reasons
     start = time.perf_counter()
-    second = run(**(REFERENCE | SCOOP_GAP), strategy="angled", pitch=45.0)
+    second = run(**(REFERENCE | ANGLED_EDGE), strategy="angled", pitch=45.0)
     assert time.perf_counter() - start < 1.0
     assert second.waypoints == first.waypoints
 
@@ -217,7 +228,7 @@ def test_ik_budget_per_candidate_stops_the_search(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(grasp, "MAX_IK_SOLVES_PER_CANDIDATE", budget)
     KIN.solutions.clear()
     before = KIN.solve_count
-    plan = run(**(REFERENCE | SCOOP_GAP), strategy="angled", pitch=45.0)
+    plan = run(**(REFERENCE | ANGLED_EDGE), strategy="angled", pitch=45.0)
     assert not plan.feasible
     assert any("IK budget" in r for r in plan.reasons), plan.reasons
     assert KIN.solve_count - before <= budget + 20  # the solve in flight finishes

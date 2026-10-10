@@ -101,12 +101,14 @@ def test_supports_are_placed_relative_to_the_configured_floor(tmp_path: Path) ->
 
 
 def test_the_stair_is_passed_to_the_planner_as_a_step_surface_at_the_scene_edge(tmp_path: Path) -> None:
-    """The stair scenario gives the planner the step (half-plane 10 cm down) at the edge the sim scene builds."""
+    """The stair scenario gives the planner the step (half-plane 10 cm down) at the edge the sim scene builds. The
+    3x3x6 box: the 4x4x4 and 6x6x3 stair plans at 30 cm lean the upper arm onto the measured lidar dome (its sim box
+    touches the dome top) and are rejected by the body check."""
     script = load_script()
-    assert script.main(["--out", str(tmp_path), "--only", "4x4x4_r30_"]) == 0
+    assert script.main(["--out", str(tmp_path), "--only", "3x3x6_r30_"]) == 0
     index = json.loads((tmp_path / "index.json").read_text())
     entries = {e["key"]: e for e in index["entries"]}
-    stair = entries["4x4x4_r30_stair-0.10_angled45"]
+    stair = entries["3x3x6_r30_stair-0.10_angled45"]
     assert stair["support_edge_x"] == pytest.approx(0.30 - script.SUPPORT_EDGE_MARGIN_M)
     assert stair["surfaces"] == [
         {
@@ -120,9 +122,9 @@ def test_the_stair_is_passed_to_the_planner_as_a_step_surface_at_the_scene_edge(
     plan = json.loads((tmp_path / stair["plan_file"]).read_text())
     assert plan["surface"]["surfaces"][0]["name"] == "stair"
     assert stair["feasible"] and stair["approach_pitch_deg"] > 45.0  # steeper than 45: the wrist clears the edge
-    ledge = entries["4x4x4_r30_ledge+0.07_angled45"]
+    ledge = entries["3x3x6_r30_ledge+0.07_angled45"]
     assert ledge["surfaces"] is None and ledge["support_edge_x"] == pytest.approx(0.22)
-    assert entries["4x4x4_r30_floor_angled45"]["support_edge_x"] is None
+    assert entries["3x3x6_r30_floor_angled45"]["support_edge_x"] is None
 
 
 def test_tipover_writes_the_2026_10_10_jar_scenarios(tmp_path: Path) -> None:
@@ -150,8 +152,9 @@ def test_tipover_writes_the_2026_10_10_jar_scenarios(tmp_path: Path) -> None:
         grasp = next(w for w in plan["waypoints"] if w["label"] == "grasp")
         toward_fixed = (grasp["tool_point"]["x"] - grasp["x"], grasp["tool_point"]["y"] - grasp["y"])
         assert offset[0] * toward_fixed[0] + offset[1] * toward_fixed[1] > 0.0
-    # With the measured lidar dome (radius 74 mm) every retreat of the 2026-10-10 jar comes within the hard margin of
-    # the dome (robot body check): top_down 8 mm, angled 50 inside it; auto has nothing left to choose.
+    # With the measured lidar dome (radius 74 mm) every plan of the 2026-10-10 jar comes within the hard margin of the
+    # dome (robot body check): the top_down retreat 8 mm from it, the angled 50 forearm box inside it already at the
+    # grasp; auto has nothing left to choose.
     for entry in entries.values():
         assert not entry["feasible"]
-        assert any("body_collision:lidar: retreat" in r for r in entry["reasons"]), entry["reasons"]
+        assert any("body_collision:lidar:" in r for r in entry["reasons"]), entry["reasons"]

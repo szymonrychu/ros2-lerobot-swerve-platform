@@ -33,7 +33,9 @@ FLOOR = CONFIG.arm.floor_z_m
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 PARAMS = grasp_params(CONFIG.grasp, None)
 # Floor objects for top-down grasps stand 24..30 cm in front of the arm (arm frame x): closer, the 5 cm retreat brings
-# the gripper body into the measured lidar dome (radius 74 mm, base_link x up to 0.232); tests use 26 cm.
+# the gripper body into the measured lidar dome (radius 74 mm, base_link x up to 0.232); tests use 26 cm. Angled
+# grasps on the arm's centre line need more room: the retreat backs the forearm into the dome below arm x 0.34 at
+# 45 deg and below 0.30 at 60 deg, so angled tests use 36 cm (45 deg) and 32 cm (60 deg).
 
 
 def plan(obj: ObjectSpec, strategy: str, **overrides: object) -> GraspPlan:
@@ -267,7 +269,7 @@ def tall_object(x: float = 0.26, **kw: float) -> ObjectSpec:
 
 
 def test_tall_narrow_objects_are_grasped_low_and_lifted_slowly() -> None:
-    for strategy, x in (("top_down", 0.26), ("angled", 0.3)):
+    for strategy, x in (("top_down", 0.26), ("angled", 0.36)):
         p = plan(tall_object(x=x), strategy)
         assert p.feasible, p.reasons
         grasp = waypoint(p, "grasp")
@@ -331,7 +333,7 @@ def jaw_depth(obj: ObjectSpec, p: GraspPlan) -> float:
 
 
 @pytest.mark.parametrize(
-    ("strategy", "x", "pitch"), [("top_down", 0.26, None), ("angled", 0.31, 45.0), ("angled", 0.28, 60.0)]
+    ("strategy", "x", "pitch"), [("top_down", 0.26, None), ("angled", 0.36, 45.0), ("angled", 0.32, 60.0)]
 )
 def test_centred_grasp_puts_the_fixed_jaw_inner_face_7_5_mm_off_a_40_mm_object(
     strategy: str, x: float, pitch: float | None
