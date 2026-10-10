@@ -22,6 +22,7 @@ CONFIG_METRICS_PORTS = {
     "swerve_controller": 19107,
     "rf2o_odom_relay": 19108,
     "poi_store": 19109,
+    "map_guard": 19110,
 }
 ENV_METRICS_PORTS = {"gripper_uvc_camera": 19105, "rplidar_a1": 19106}
 # Nodes with an HTTP server serve /metrics on it: node -> key path of the port in its config.
@@ -204,5 +205,5 @@ def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
         assert target["address"] == f"127.0.0.1:{expected_port(entry)}", name
         assert target.get("path", "/metrics") == "/metrics", name
         checked += 1
-    assert checked == len(CONTRACT_NODES) == 14
+    assert checked == len(CONTRACT_NODES) == 15
     assert set(targets) == CONTRACT_NODES

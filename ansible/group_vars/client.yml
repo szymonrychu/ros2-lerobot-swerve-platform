@@ -1558,6 +1558,7 @@ monitoring_agent_node_targets:
   - {node: swerve_controller, address: "127.0.0.1:19107", path: /metrics}
   - {node: rf2o_odom_relay, address: "127.0.0.1:19108", path: /metrics}
   - {node: poi_store, address: "127.0.0.1:19109", path: /metrics}
+  - {node: map_guard, address: "127.0.0.1:19110", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
   - {node: topic_scraper_api, address: "127.0.0.1:18100", path: /metrics}

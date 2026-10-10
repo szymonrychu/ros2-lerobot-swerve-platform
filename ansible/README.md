@@ -550,6 +550,7 @@ The server's per-unit caps add up to 2118M, under the slice's hard total, leavin
 | `swerve_controller` | 19107 | `metrics_port` |
 | `rf2o_odom_relay` | 19108 | `metrics_port` |
 | `poi_store` | 19109 | `metrics_port` |
+| `map_guard` | 19110 | `metrics_port` |
 | `web_ui` | 8080 | `http_port` (own server) |
 | `test_joint_api` | 18080 | `port` (own server) |
 | `topic_scraper_api` | 18100 | `port` (own server) |
