@@ -30,6 +30,8 @@ ENTRY_KEYS = {
     "chosen",
     "approach_pitch_deg",
     "plan_file",
+    "support_edge_x",
+    "surfaces",
 }
 
 
@@ -82,3 +84,28 @@ def test_supports_are_placed_relative_to_the_configured_floor(tmp_path: Path) ->
     assert surfaces == pytest.approx(
         {"floor": floor, "ledge+0.07": floor + 0.07, "ledge+0.15": floor + 0.15, "stair-0.10": floor - 0.10}
     )
+
+
+def test_the_stair_is_passed_to_the_planner_as_a_step_surface_at_the_scene_edge(tmp_path: Path) -> None:
+    """The stair scenario gives the planner the step (half-plane 10 cm down) at the edge the sim scene builds."""
+    script = load_script()
+    assert script.main(["--out", str(tmp_path), "--only", "4x4x4_r30_"]) == 0
+    index = json.loads((tmp_path / "index.json").read_text())
+    entries = {e["key"]: e for e in index["entries"]}
+    stair = entries["4x4x4_r30_stair-0.10_angled45"]
+    assert stair["support_edge_x"] == pytest.approx(0.30 - script.SUPPORT_EDGE_MARGIN_M)
+    assert stair["surfaces"] == [
+        {
+            "name": "stair",
+            "frame": "arm",
+            "height_m": pytest.approx(-0.10),
+            "edge": {"point": [pytest.approx(0.22), 0.0], "direction": [0.0, -1.0], "side": "left"},
+            "polygon": None,
+        }
+    ]
+    plan = json.loads((tmp_path / stair["plan_file"]).read_text())
+    assert plan["surface"]["surfaces"][0]["name"] == "stair"
+    assert stair["feasible"] and stair["approach_pitch_deg"] > 45.0  # steeper than 45: the wrist clears the edge
+    ledge = entries["4x4x4_r30_ledge+0.07_angled45"]
+    assert ledge["surfaces"] is None and ledge["support_edge_x"] == pytest.approx(0.22)
+    assert entries["4x4x4_r30_floor_angled45"]["support_edge_x"] is None

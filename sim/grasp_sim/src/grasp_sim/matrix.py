@@ -71,6 +71,8 @@ class MatrixEntry(StrictModel):
     surface_z: float  # top of the slab under the object (arm frame, m); support_z - gap_below_m
     size_m: tuple[float, float, float]  # depth (radial), width (across the jaws), height
     gap_below_m: float = 0.0
+    support_edge_x: float | None = None  # where the ledge/stair starts (arm x, m); None = the scene default
+    surfaces: list[dict[str, Any]] | None = None  # surface regions the planner was given (the stair step)
     feasible: bool
     reasons: list[str]
     chosen: str | None = None
@@ -190,6 +192,7 @@ def scene_for(entry: MatrixEntry, index: MatrixIndex, stock_jaws: bool) -> Scene
     return SceneConfig(
         base_height_m=index.base_height_m,
         support_z_m=None if on_floor else entry.surface_z,
+        support_edge_x_m=None if on_floor else entry.support_edge_x,
         tool_offset_m=None if stock_jaws else index.tool_offset_m,
         object=BoxObjectConfig(
             size_m=entry.size_m,

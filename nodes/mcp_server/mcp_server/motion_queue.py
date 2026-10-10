@@ -27,6 +27,7 @@ from .grasp import ObjectSpec
 from .grasp_tools import floor_override
 from .ik import UnreachableError
 from .models import ArmMotionResult, BasePose, NavigationResult, RobotError, SettlePolicy
+from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import RobotApi
 
 LOGGER = logging.getLogger("mcp_server.motion_queue")
@@ -125,6 +126,7 @@ class ArmMotionFields(StepBase):
     settle: SettlePolicy | None = None
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
+    surfaces: list[SurfaceRegion] | None = Field(default=None, max_length=MAX_REGIONS)
 
 
 class ArmJointsStep(ArmMotionFields):
@@ -156,6 +158,7 @@ class GripperStep(StepBase):
     grip_profile: str | GripProfileOverride | None = None  # close_until_effort only (as set_gripper)
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
+    surfaces: list[SurfaceRegion] | None = Field(default=None, max_length=MAX_REGIONS)
 
     @model_validator(mode="after")
     def exactly_one(self) -> "GripperStep":
@@ -211,6 +214,7 @@ class GraspMotionStep(StepBase):
     approach_pitch_deg: float | None = Field(default=None, ge=0.0, le=90.0)
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
+    surfaces: list[SurfaceRegion] | None = Field(default=None, max_length=MAX_REGIONS)
 
 
 ArmStep = ArmJointsStep | ArmCartesianStep
@@ -358,12 +362,12 @@ def step_floor(step: Any) -> FloorOverride | None:
     """Slow-zone override of a step (None when it overrides nothing).
 
     Args:
-        step (Any): A step with surface_z_m / tilt_override_deg.
+        step (Any): A step with surface_z_m / tilt_override_deg / surfaces.
 
     Returns:
         FloorOverride | None: The override.
     """
-    return floor_override(step.surface_z_m, step.tilt_override_deg)
+    return floor_override(step.surface_z_m, step.tilt_override_deg, step.surfaces)
 
 
 def can_blend(prev: QueuedStep, nxt: QueuedStep, config: McpServerConfig) -> bool:

@@ -521,6 +521,26 @@ def test_arm_motion_tools_take_slow_zone_overrides(server: Any, robot: FakeRobot
         assert "slow" in docs[name], name
 
 
+STAIR_SURFACE = {"name": "stair", "height_m": -0.2, "edge": {"point": [0.1, 0.0], "direction": [0.0, -1.0]}}
+
+
+def test_arm_motion_tools_take_surfaces(server: Any, robot: FakeRobot) -> None:
+    low = {"x": 0.2, "y": 0.0, "z": McpServerConfig().arm.floor_z_m - 0.02, "pitch": 1.5708}
+    stair = call(server, "move_arm_cartesian", low | {"surfaces": [STAIR_SURFACE]}).structured_content
+    assert stair["slow_zone"] is None  # 2 cm below the robot floor is 18 cm above the stair, 10 cm past its edge
+    call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.1}, "surfaces": [STAIR_SURFACE]})
+    call(server, "set_gripper", {"open_fraction": 0.5, "surfaces": [STAIR_SURFACE]})
+    with pytest.raises(ToolError):
+        call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.1}, "surfaces": [{"height_m": 0.1}]})
+
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tools = {t.name: t for t in anyio.run(run)}
+    for name in ("move_arm_joints", "move_arm_cartesian", "set_gripper", "arm_home"):
+        assert "surfaces" in tools[name].input_schema["properties"], name
+
+
 # --- smoothness round A: image size, settle policy, precise goals, checkpoint wording, timing log ---------------
 
 

@@ -18,6 +18,7 @@ from mcp_server.motion_queue import (
     QueueError,
     blend_groups,
     evaluate_precondition,
+    step_floor,
 )
 
 from .test_tools import FakeRobot
@@ -128,6 +129,18 @@ def test_step_models_validate_kinds_and_reject_unknown_fields() -> None:
         steps({"kind": "gripper"})  # neither open_fraction nor close_until_effort
     with pytest.raises(ValueError):
         steps({"kind": "wait_s", "seconds": 0.0})
+
+
+def test_arm_gripper_and_grasp_steps_carry_surfaces_into_the_floor_override() -> None:
+    surface = {"name": "stair", "height_m": -0.1, "edge": {"point": [0.2, 0.0], "direction": [0.0, -1.0]}}
+    arm, gripper = steps(
+        {"kind": "arm_joints", "targets": {"shoulder_pan": 0.1}, "surfaces": [surface]},
+        {"kind": "gripper", "open_fraction": 0.5, "surfaces": [surface]},
+    )
+    floor = step_floor(arm)
+    assert floor is not None and floor.surfaces is not None and floor.surfaces[0].name == "stair"
+    assert step_floor(gripper) == floor
+    assert step_floor(steps({"kind": "arm_joints", "targets": {"shoulder_pan": 0.1}})[0]) is None
 
 
 def test_blend_groups_split_on_settle_final_gripper_precondition_and_speed(robot: GateRobot) -> None:

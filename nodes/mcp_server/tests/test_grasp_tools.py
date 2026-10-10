@@ -15,6 +15,7 @@ from mcp_server.floor_guard import FloorOverride
 from mcp_server.grasp import ObjectSpec, grasp_params
 from mcp_server.grasp_tools import TOOL_NAMES, GraspExecutor, GraspService, floor_override
 from mcp_server.ik import ArmKinematics, load_joint_limits
+from mcp_server.surfaces import SurfaceRegion
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, build_mcp_server
 
 from .fakes import FakeArmBackend
@@ -274,3 +275,53 @@ def test_grasp_tool_schemas_teach_the_scoop_gap_and_the_tall_object_params(serve
         assert "tries top_down, angled, scoop" in text
         for param in ("scoop_gap_margin_m", "tall_ratio", "tall_grasp_height_fraction", "lift_speed_scale"):
             assert param in text, (name, param)
+
+
+# A stair 10 cm down, edge across the arm 6 cm before OBJECT (arm frame), and the matching object on it.
+STAIR_SURFACE = {
+    "name": "stair",
+    "frame": "arm",
+    "height_m": -0.10,
+    "edge": {"point": [0.16, 0.0], "direction": [0.0, -1.0]},
+}
+STAIR_OBJECT = OBJECT | {"support_z": FLOOR - 0.10}
+
+
+def test_floor_override_carries_surfaces() -> None:
+    override = floor_override(None, None, [SurfaceRegion.model_validate(STAIR_SURFACE)])
+    assert override is not None and override.surfaces is not None and override.surfaces[0].name == "stair"
+    assert floor_override(None, None, []) is None
+
+
+def test_plan_grasp_tool_takes_surfaces_and_reports_mismatches(server: Any) -> None:
+    res = call(server, "plan_grasp", {"object": STAIR_OBJECT, "strategy": "top_down", "surfaces": [STAIR_SURFACE]})
+    data = res.structured_content
+    assert data["plan"]["surface"]["surfaces"][0]["name"] == "stair", data["reasons"]
+    wrong = call(server, "plan_grasp", {"object": OBJECT, "strategy": "top_down", "surfaces": [STAIR_SURFACE]})
+    assert wrong.structured_content["outcome"] == "infeasible"
+    assert any("does not match" in r for r in wrong.structured_content["reasons"])
+
+
+def test_grasp_service_passes_surfaces_and_object_surfaces(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path)
+    service = GraspService(arm, CONFIG)
+    req = {"action": "plan", "object": STAIR_OBJECT, "strategy": "top_down", "surfaces": [STAIR_SURFACE]}
+    planned = service.handle(req)
+    assert planned["ok"] is True and planned["result"]["plan"]["surface"]["surfaces"][0]["name"] == "stair"
+    on_object = service.handle(
+        {"action": "plan", "object": STAIR_OBJECT | {"surfaces": [STAIR_SURFACE]}, "strategy": "top_down"}
+    )
+    assert on_object["result"]["plan"]["surface"]["surfaces"][0]["name"] == "stair"
+    bad = service.handle(req | {"surfaces": [{"height_m": 0.1}]})
+    assert bad["ok"] is False and "exactly one" in bad["error"]
+
+
+def test_grasp_tool_schemas_explain_surfaces(server: Any) -> None:
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tools = {t.name: t for t in anyio.run(run)}
+    for name in ("plan_grasp", "grasp_object", "release_object"):
+        schema = json.dumps(tools[name].input_schema)
+        assert "surfaces" in tools[name].input_schema["properties"], name
+        assert "step edge" in schema and "half-plane" in schema, name

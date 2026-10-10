@@ -137,6 +137,14 @@ def test_scene_for_a_gap_entry_puts_the_rails_on_the_surface_under_the_object() 
     assert scene.object is not None and scene.object.gap_below_m == pytest.approx(0.02)
 
 
+def test_scene_for_a_stair_entry_puts_the_step_edge_where_the_planner_was_told() -> None:
+    index = MatrixIndex(base_height_m=0.1, floor_z_m=-0.1, tool_offset_m=(0.0, 0.0, 0.0), entries=[])
+    stair = entry(support="stair-0.10", support_z=-0.2, surface_z=-0.2, x=0.3, support_edge_x=0.25)
+    scene = scene_for(stair, index, stock_jaws=False)
+    assert scene.support_kind == "stair" and scene.support_start_x == pytest.approx(0.25)
+    assert scene_for(entry(x=0.3), index, stock_jaws=False).support_start_x == pytest.approx(0.22)  # default margin
+
+
 def test_summary_table_counts_lifts_per_strategy_and_box() -> None:
     results = [
         {"key": "a", "strategy": "top_down", "box": "4x4x4", "support": "floor", "feasible": True, "lifted": True},

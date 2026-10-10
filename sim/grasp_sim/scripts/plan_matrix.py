@@ -7,6 +7,11 @@ per scenario; `grasp-sim matrix <out>` (sim/grasp_sim environment) replays them:
     cd sim/grasp_sim && uv run grasp-sim matrix /tmp/matrix
 
 Optional --params <yaml/json> overrides grasp parameters on top of client.yml (for tuning runs).
+
+Ledges and the stair start SUPPORT_EDGE_MARGIN_M before the object centre (the sim scene's default support edge, recorded
+per entry as support_edge_x). The stair is passed to the planner as a surface region: the robot floor up to the edge,
+a half-plane 10 cm lower beyond it, so the planner sees the step edge. Floor and ledge scenarios keep a single surface
+height (surface_z_m), as before.
 """
 
 import argparse
@@ -18,9 +23,10 @@ from typing import Any
 
 import yaml
 from mcp_server.config import ArmBaseOffset, McpServerConfig
-from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel
+from mcp_server.floor_guard import FloorGuard, FloorOverride, JawModel, SurfaceModel
 from mcp_server.grasp import GraspPlanner, ObjectSpec, grasp_params
 from mcp_server.ik import ArmKinematics
+from mcp_server.surfaces import HalfPlaneEdge, SurfaceRegion
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLIENT_GROUP_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
@@ -39,6 +45,9 @@ POSITIONS = {
 # Supports: name -> height of the surface under the object above the floor (m; the floor is arm.floor_z_m, -0.100 in
 # the arm frame): two ledges and a lower stair.
 SUPPORTS = {"floor": 0.0, "ledge+0.07": 0.07, "ledge+0.15": 0.15, "stair-0.10": -0.10}
+# The ledge / stair edge lies this far before the object centre along arm x (grasp_sim DEFAULT_SUPPORT_MARGIN_M).
+SUPPORT_EDGE_MARGIN_M = 0.08
+STAIR_PREFIX = "stair"
 # Strategies: name -> (planner strategy, approach pitch deg for angled, gap under the object in m).
 GAP_BELOW_M = 0.02
 STRATEGIES = {
@@ -91,6 +100,21 @@ def object_spec(x: float, y: float, bottom: float, size: tuple[float, float, flo
     return ObjectSpec.model_validate(fields)
 
 
+def stair_region(edge_x: float, height: float) -> SurfaceRegion:
+    """The stair as a surface region: a half-plane beyond an edge across the arm at arm-frame x = edge_x.
+
+    Args:
+        edge_x (float): Edge position along arm x (m).
+        height (float): Stair height relative to the robot floor (m, < 0).
+
+    Returns:
+        SurfaceRegion: The region (surface on the far side of the edge).
+    """
+    return SurfaceRegion(
+        name="stair", frame="arm", height_m=height, edge=HalfPlaneEdge(point=(edge_x, 0.0), direction=(0.0, -1.0))
+    )
+
+
 def plan_all(out: Path, overrides: dict[str, Any] | None, only: str | None = None) -> list[dict[str, Any]]:
     """Plan every scenario (or those whose key contains only) and write the plans and index.json into out.
 
@@ -113,7 +137,8 @@ def plan_all(out: Path, overrides: dict[str, Any] | None, only: str | None = Non
     )
     mount = cfg.arm.base_in_base_link or ArmBaseOffset(z=cfg.arm.arm_base_height_m)
     jaw = JawModel(kin, cfg.arm.jaw_open_axis, cfg.arm.gripper_closed_rad)
-    planner = GraspPlanner(kin, cfg, FloorGuard(kin, cfg.floor_guard, mount, jaw), jaw)
+    guard = FloorGuard(kin, cfg.floor_guard, mount, jaw)
+    planner = GraspPlanner(kin, cfg, guard, jaw)
     params = grasp_params(cfg.grasp, overrides)
     floor_z = cfg.arm.floor_z_m
     out.mkdir(parents=True, exist_ok=True)
@@ -122,11 +147,20 @@ def plan_all(out: Path, overrides: dict[str, Any] | None, only: str | None = Non
         for position, (x, y) in POSITIONS.items():
             for support, height in SUPPORTS.items():
                 surface_z = floor_z + height
+                edge_x = None if support == "floor" else x - SUPPORT_EDGE_MARGIN_M
+                regions = (
+                    [stair_region(x - SUPPORT_EDGE_MARGIN_M, height)] if support.startswith(STAIR_PREFIX) else None
+                )
                 for name, (strategy, pitch, gap) in STRATEGIES.items():
                     key = f"{box}_{position}_{support}_{name}"
                     if only is not None and only not in key:
                         continue
-                    surface = SurfaceModel(surface_z_m=surface_z + mount.z, tilt=None, tilt_source="none", mount=mount)
+                    if regions is None:
+                        surface = SurfaceModel(
+                            surface_z_m=surface_z + mount.z, tilt=None, tilt_source="none", mount=mount
+                        )
+                    else:
+                        surface = guard.surface(FloorOverride(surfaces=regions), None, 0.0)
                     obj = object_spec(x, y, surface_z + gap, size, gap)
                     plan = planner.plan(obj, strategy, params, surface, dict(SEED), pitch)
                     (out / f"{key}.json").write_text(plan.model_dump_json())
@@ -143,6 +177,8 @@ def plan_all(out: Path, overrides: dict[str, Any] | None, only: str | None = Non
                             "surface_z": surface_z,
                             "size_m": list(size),
                             "gap_below_m": gap,
+                            "support_edge_x": edge_x,
+                            "surfaces": None if regions is None else [r.model_dump(mode="json") for r in regions],
                             "feasible": plan.feasible,
                             "reasons": plan.reasons,
                             "chosen": plan.strategy,

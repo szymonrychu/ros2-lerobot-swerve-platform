@@ -24,6 +24,7 @@ from mcp_server.floor_guard import (
     tilt_from_quaternion,
 )
 from mcp_server.ik import ArmKinematics
+from mcp_server.surfaces import HalfPlaneEdge, SurfaceRegion
 
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
@@ -188,3 +189,55 @@ def test_monitor_imu_record_becomes_a_tilt_sample() -> None:
     assert sample is not None and sample.stamp == 12.5
     assert sample.tilt.roll_rad == pytest.approx(math.radians(10.0))
     assert sample.tilt.pitch_rad == pytest.approx(math.radians(-5.0))
+
+
+# A stair 10 cm down whose edge runs across the arm 0.17 m in front of the arm base (arm frame, surface beyond it).
+STAIR_ARM = SurfaceRegion(
+    name="stair", frame="arm", height_m=-0.10, edge=HalfPlaneEdge(point=(0.17, 0.0), direction=(0.0, -1.0))
+)
+
+
+def test_surfaces_override_gives_the_local_height_and_keeps_the_robot_floor_elsewhere() -> None:
+    g = guard()
+    surface = g.surface(FloorOverride(surfaces=[STAIR_ARM]), None, NOW)
+    assert surface.terrain is not None
+    on_stair = pose_at(0.22, FLOOR_Z - 0.05)  # 5 cm below the robot floor, 5 cm above the stair, 5 cm past the edge
+    on_floor = pose_at(0.14, FLOOR_Z - 0.05)  # same height before the edge: below the robot floor
+    report = g.evaluate([on_stair, on_floor], surface)
+    assert report.scales == [1.0, 0.2]
+    assert report.clearances[1] < 0.0
+    flat = g.surface(None, None, NOW)
+    assert g.evaluate([on_stair], flat).scales == [0.2]  # without surfaces: today's single robot plane
+
+
+def test_step_faces_slow_motion_near_the_edge() -> None:
+    g = guard()
+    surface = g.surface(FloorOverride(surfaces=[STAIR_ARM]), None, NOW)
+    near_edge = pose_at(0.182, FLOOR_Z - 0.04)  # tool 1.2 cm past the edge, below the upper floor
+    away = pose_at(0.25, FLOOR_Z - 0.04)
+    report = g.evaluate([near_edge, away], surface)
+    assert report.scales == [0.2, 1.0]
+    assert report.clearances[0] < 0.02
+    summary = report.summary()
+    assert summary is not None and summary["lowest_feature"] == "step edge of 'stair' (0.10 m step)"
+    assert summary["surfaces"][0]["name"] == "stair"
+
+
+def test_surfaces_combine_with_the_tilt_and_the_surface_height() -> None:
+    g = guard()
+    pose = pose_at(0.22, FLOOR_Z - 0.06)  # 4 cm above the stair, 5 cm past the edge
+    plain = g.surface(FloorOverride(surfaces=[STAIR_ARM]), None, NOW)
+    assert g.evaluate([pose], plain).scales == [1.0]
+    tilted = g.surface(
+        FloorOverride(surfaces=[STAIR_ARM], tilt_override_deg=TiltOverrideDeg(roll=0.0, pitch=10.0)), None, NOW
+    )
+    assert g.evaluate([pose], tilted).scales == [0.2]  # nose down: the level plane rises in front
+    lowered = g.surface(FloorOverride(surfaces=[STAIR_ARM], surface_z_m=-0.2), None, NOW)
+    assert lowered.terrain is not None and lowered.terrain.default_height == -0.2
+
+
+def test_surface_description_lists_surfaces_only_when_given() -> None:
+    g = guard()
+    assert "surfaces" not in g.surface(None, None, NOW).describe()
+    described = g.surface(FloorOverride(surfaces=[STAIR_ARM]), None, NOW).describe()
+    assert described["surfaces"][0]["points_base_link"] == [[pytest.approx(0.32), pytest.approx(-0.04)]]

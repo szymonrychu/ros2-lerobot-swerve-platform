@@ -3,7 +3,9 @@
 'Below ground' is relative to the ROBOT: base_link z = 0 is the plane under the wheels. The effective surface at a
 point is the higher of (a) the robot plane shifted to the expected surface height (base_link z = surface_z_m) and (b)
 the gravity-level plane through base_link (0, 0, surface_z_m), derived from the robot tilt (IMU roll/pitch, or a
-per-call override). A trajectory sample whose checked FK points (fixed jaw tip, tool point, moving jaw tip, wrist and
+per-call override). With per-call surfaces (surfaces.SurfaceRegion: stairs, table tops, holes) the expected height is
+the local region height instead of one surface_z_m, raised by the same tilt term, and the vertical step faces between
+regions of different height count as surfaces too (a sample near a stair edge is slowed). A trajectory sample whose checked FK points (fixed jaw tip, tool point, moving jaw tip, wrist and
 elbow link origins) come closer than margin_m to that surface is executed at slow_speed_scale of its normal speed. The
 guard never blocks a motion: the tracking-error and effort aborts stay the contact safety net.
 
@@ -21,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import ArmBaseOffset, FloorGuardSettings
 from .ik import ArmKinematics
+from .surfaces import MAX_REGIONS, Clearance, SurfaceRegion, Terrain
 
 LOGGER = logging.getLogger("mcp_server.floor_guard")
 # Moving jaw pivot and rotation axis in gripper_link (URDF joint 'gripper': origin xyz 0.0202 0.0188 -0.0234, rpy
@@ -57,12 +60,15 @@ class FloorOverride(BaseModel):
         surface_z_m: Expected surface height relative to the robot plane (m), e.g. -0.18 for a stair or hole below:
             normal speed is allowed down to that surface and the slow zone starts below it. None = configured value.
         tilt_override_deg: Robot tilt replacing the IMU tilt; None = use the IMU.
+        surfaces: Surface regions (stair, table, hole) with heights relative to the robot floor; outside them
+            surface_z_m (default the robot floor) applies. None = one flat surface (surface_z_m).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
+    surfaces: list[SurfaceRegion] | None = Field(default=None, max_length=MAX_REGIONS)
 
 
 @dataclass(frozen=True)
@@ -186,15 +192,43 @@ def effective_surface_z(xy: Sequence[float], surface_z_m: float, tilt: Tilt | No
 
 @dataclass(frozen=True)
 class SurfaceModel:
-    """Resolved surface of one motion: expected height, tilt and where the tilt came from."""
+    """Resolved surface of one motion: expected height, tilt, where the tilt came from and the optional regions."""
 
     surface_z_m: float
     tilt: Tilt | None
     tilt_source: TiltSource
     mount: ArmBaseOffset
+    terrain: Terrain | None = None
+
+    def tilt_lift(self, x: float, y: float) -> float:
+        """Rise of the effective surface at a base_link (x, y) from the tilt (0 without one).
+
+        Args:
+            x (float): base_link x (m).
+            y (float): base_link y (m).
+
+        Returns:
+            float: Extra height (m), >= 0.
+        """
+        return 0.0 if self.tilt is None else max(0.0, level_plane_z(x, y, self.tilt))
+
+    def clearance_detail(self, point_arm: np.ndarray) -> Clearance:
+        """Clearance of an arm-frame point and the feature it is measured against.
+
+        Args:
+            point_arm (np.ndarray): (x, y, z) in the arm base frame (m).
+
+        Returns:
+            Clearance: Height above the effective surface, or the distance to a nearer step face (surfaces only).
+        """
+        p = arm_to_base_link(point_arm, self.mount)
+        if self.terrain is None:
+            return Clearance(float(p[2]) - effective_surface_z(p[:2], self.surface_z_m, self.tilt), "surface")
+        return self.terrain.clearance(p, self.tilt_lift)
 
     def clearance(self, point_arm: np.ndarray) -> float:
-        """Height of an arm-frame point above the effective surface (negative below it).
+        """Height of an arm-frame point above the effective surface (negative below it); with surfaces, the smaller of
+        that and its distance to the nearest step face.
 
         Args:
             point_arm (np.ndarray): (x, y, z) in the arm base frame (m).
@@ -202,8 +236,49 @@ class SurfaceModel:
         Returns:
             float: Clearance (m).
         """
+        return self.clearance_detail(point_arm).value
+
+    def capsule_clearance(self, a_arm: np.ndarray, b_arm: np.ndarray, radius: float) -> Clearance:
+        """Clearance of a capsule between two arm-frame points against the surfaces (or the flat surface).
+
+        Args:
+            a_arm (np.ndarray): Axis start (arm frame, m).
+            b_arm (np.ndarray): Axis end.
+            radius (float): Capsule radius (m).
+
+        Returns:
+            Clearance: Smallest clearance minus the radius.
+        """
+        terrain = self.terrain or Terrain([], self.surface_z_m, self.mount)
+        a, b = arm_to_base_link(a_arm, self.mount), arm_to_base_link(b_arm, self.mount)
+        return terrain.capsule_clearance(a, b, radius, self.tilt_lift)
+
+    def points_clearance(self, points_arm: np.ndarray) -> Clearance:
+        """Smallest clearance of several arm-frame points against the surfaces (or the flat surface).
+
+        Args:
+            points_arm (np.ndarray): Nx3 points in the arm base frame (m).
+
+        Returns:
+            Clearance: The smallest clearance and its feature.
+        """
+        terrain = self.terrain or Terrain([], self.surface_z_m, self.mount)
+        rot = yaw_matrix(self.mount.yaw)
+        points = np.asarray(points_arm, dtype=np.float64) @ rot.T + np.array([self.mount.x, self.mount.y, self.mount.z])
+        return terrain.clearance_many(points, self.tilt_lift)
+
+    def surface_z_arm(self, point_arm: np.ndarray) -> float:
+        """Effective surface height (arm frame z) under an arm-frame point: local region height plus the tilt term.
+
+        Args:
+            point_arm (np.ndarray): (x, y, z) in the arm base frame (m).
+
+        Returns:
+            float: Surface z in the arm frame (m).
+        """
         p = arm_to_base_link(point_arm, self.mount)
-        return float(p[2]) - effective_surface_z(p[:2], self.surface_z_m, self.tilt)
+        height = self.surface_z_m if self.terrain is None else self.terrain.height_at(p[:2])
+        return height + self.tilt_lift(float(p[0]), float(p[1])) - self.mount.z
 
     def describe(self) -> dict[str, object]:
         """JSON summary of the surface.
@@ -219,7 +294,10 @@ class SurfaceModel:
                 "pitch": round(math.degrees(self.tilt.pitch_rad), 2),
             }
         )
-        return {"surface_z_m": self.surface_z_m, "tilt_source": self.tilt_source, "tilt_deg": tilt}
+        out: dict[str, object] = {"surface_z_m": self.surface_z_m, "tilt_source": self.tilt_source, "tilt_deg": tilt}
+        if self.terrain is not None:
+            out["surfaces"] = self.terrain.describe()
+        return out
 
 
 def rotate(vector: np.ndarray, axis: np.ndarray, angle: float) -> np.ndarray:
@@ -326,6 +404,7 @@ class GuardReport:
     margin_m: float
     enabled: bool = True
     notes: list[str] = field(default_factory=list)
+    features: list[str] = field(default_factory=list)
 
     def summary(self) -> dict[str, object] | None:
         """JSON summary for motion results; None when no sample was slowed.
@@ -337,15 +416,17 @@ class GuardReport:
         if not slowed:
             return None
         lowest = min(range(len(self.clearances)), key=lambda i: self.clearances[i])
-        return {
+        out: dict[str, object] = {
             "slowed_samples": slowed,
             "samples": len(self.scales),
             "speed_scale": self.slow_speed_scale,
             "margin_m": self.margin_m,
             "min_clearance_m": round(self.clearances[lowest], 4),
             "lowest_point": self.lowest_points[lowest],
-            **self.surface.describe(),
         }
+        if self.surface.terrain is not None and self.features:
+            out["lowest_feature"] = self.features[lowest]
+        return out | self.surface.describe()
 
 
 class FloorGuard:
@@ -391,20 +472,23 @@ class FloorGuard:
         surface_z = self.settings.surface_z_m
         if override is not None and override.surface_z_m is not None:
             surface_z = override.surface_z_m
+        terrain = None
+        if override is not None and override.surfaces:
+            terrain = Terrain(override.surfaces, surface_z, self.mount)
         if override is not None and override.tilt_override_deg is not None:
             deg = override.tilt_override_deg
             tilt = Tilt(roll_rad=math.radians(deg.roll), pitch_rad=math.radians(deg.pitch))
-            return SurfaceModel(surface_z, tilt, "override", self.mount)
+            return SurfaceModel(surface_z, tilt, "override", self.mount, terrain)
         if imu is not None and now - imu.stamp <= self.settings.imu_max_age_s:
             self.imu_missing_logged = False
-            return SurfaceModel(surface_z, imu.tilt, "imu", self.mount)
+            return SurfaceModel(surface_z, imu.tilt, "imu", self.mount, terrain)
         if not self.imu_missing_logged:
             LOGGER.warning(
                 "no IMU tilt newer than %.1f s: the arm slow zone uses the robot plane only",
                 self.settings.imu_max_age_s,
             )
             self.imu_missing_logged = True
-        return SurfaceModel(surface_z, None, "none", self.mount)
+        return SurfaceModel(surface_z, None, "none", self.mount, terrain)
 
     def checked_points(self, joints: dict[str, float]) -> dict[str, np.ndarray]:
         """Points checked against the surface, in the arm base frame.
@@ -445,14 +529,17 @@ class FloorGuard:
         scales: list[float] = []
         clearances: list[float] = []
         lowest: list[str] = []
+        features: list[str] = []
         for joints in samples:
             name, clearance = min(
-                ((n, surface.clearance(p)) for n, p in self.checked_points(joints).items()), key=lambda item: item[1]
+                ((n, surface.clearance_detail(p)) for n, p in self.checked_points(joints).items()),
+                key=lambda item: item[1].value,
             )
-            clearances.append(clearance)
+            clearances.append(clearance.value)
             lowest.append(name)
-            scales.append(cfg.slow_speed_scale if clearance < cfg.margin_m else NORMAL_SCALE)
-        return GuardReport(scales, clearances, lowest, surface, cfg.slow_speed_scale, cfg.margin_m)
+            features.append(clearance.feature)
+            scales.append(cfg.slow_speed_scale if clearance.value < cfg.margin_m else NORMAL_SCALE)
+        return GuardReport(scales, clearances, lowest, surface, cfg.slow_speed_scale, cfg.margin_m, features=features)
 
 
 def step_scales(sample_scales: list[float]) -> list[float]:

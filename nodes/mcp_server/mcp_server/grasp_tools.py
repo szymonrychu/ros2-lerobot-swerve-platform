@@ -17,6 +17,7 @@ from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, grasp_params
 from .grip import ResolvedGrip, resolve_grip_profile
 from .models import ArmMotionResult
+from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import ToolContext
 
 TOOL_NAMES = ("plan_grasp", "grasp_object", "release_object")
@@ -25,6 +26,18 @@ DEFAULT_SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "w
 MOTION_OK = frozenset({"converged"})
 CLOSE_OK = frozenset({"grasped", "closed_no_contact", "blocked"})
 
+# How the agent describes stairs, tables and holes (shared by the grasp and arm motion tools).
+SURFACES_DESC = (
+    "Surface regions when the robot floor and the object's surface differ (stair down, table top, hole), instead of "
+    "a single surface_z_m: a list of {name, height_m (relative to the robot floor, m: -0.10 stair 10 cm down, 0.15 "
+    "table top), frame ('arm' default or 'base_link'), and EITHER edge {point [x, y], direction [dx, dy], side "
+    "'left' (default) | 'right'}: a half-plane, the surface lies on that side of the edge line looking along "
+    "direction (a stair whose step edge runs across the robot 0.28 m ahead: point [0.28, 0], direction [0, -1]) OR "
+    "polygon [[x, y], ...]: a convex polygon (table top, hole)}. Outside every region the robot floor applies (or "
+    "surface_z_m); a later region wins where regions overlap. The vertical step face between regions of different "
+    "height counts as a surface too: plans keep the jaws, wrist and forearm clear of it (infeasible reasons name the "
+    "step edge) and arm motions slow near it."
+)
 StrategyChoice = Literal["auto", "scoop", "angled", "top_down"]
 GraspOutcome = Literal["planned", "infeasible", "grasped", "missed", "aborted", "released"]
 
@@ -82,19 +95,40 @@ class GraspAbort(Exception):
     """Internal: a step failed; the run stops, holds and reports the reason."""
 
 
-def floor_override(surface_z_m: float | None, tilt_override_deg: TiltOverrideDeg | None) -> FloorOverride | None:
+def floor_override(
+    surface_z_m: float | None,
+    tilt_override_deg: TiltOverrideDeg | None,
+    surfaces: list[SurfaceRegion] | None = None,
+) -> FloorOverride | None:
     """Slow-zone override of a call, or None when the call overrides nothing.
 
     Args:
         surface_z_m (float | None): Expected surface height relative to the robot plane (m).
         tilt_override_deg (TiltOverrideDeg | None): Tilt replacing the IMU.
+        surfaces (list[SurfaceRegion] | None): Surface regions (stairs, tables, holes); empty = none.
 
     Returns:
         FloorOverride | None: The override.
     """
-    if surface_z_m is None and tilt_override_deg is None:
+    if surface_z_m is None and tilt_override_deg is None and not surfaces:
         return None
-    return FloorOverride(surface_z_m=surface_z_m, tilt_override_deg=tilt_override_deg)
+    return FloorOverride(surface_z_m=surface_z_m, tilt_override_deg=tilt_override_deg, surfaces=surfaces or None)
+
+
+def with_object_surfaces(floor: FloorOverride | None, obj: ObjectSpec) -> FloorOverride | None:
+    """The call's override with the object's own surfaces appended (they shape the plan and the whole grasp).
+
+    Args:
+        floor (FloorOverride | None): Call-level override.
+        obj (ObjectSpec): Object (its surfaces optional).
+
+    Returns:
+        FloorOverride | None: The merged override (floor unchanged when the object has no surfaces).
+    """
+    if not obj.surfaces:
+        return floor
+    base = floor or FloorOverride()
+    return base.model_copy(update={"surfaces": [*(base.surfaces or []), *obj.surfaces]})
 
 
 def plan_result(plan: GraspPlan, notes: list[str] | None = None, grip: ResolvedGrip | None = None) -> GraspResult:
@@ -189,6 +223,7 @@ class GraspExecutor:
         Returns:
             tuple[GraspPlan, list[str]]: The plan and notes about how it was planned.
         """
+        floor = with_object_surfaces(floor, obj)
         sample = self.arm.fresh_sample()
         notes: list[str] = []
         if sample is None:
@@ -222,6 +257,7 @@ class GraspExecutor:
             GraspResult: infeasible / grasped / missed / aborted.
         """
         grip = self.resolve_grip(params)  # an invalid profile refuses before anything moves
+        floor = with_object_surfaces(floor, obj)
         plan, notes = self.plan(obj, strategy, params, approach_pitch_deg, floor)
         if not plan.feasible:
             return plan_result(plan, notes, grip)
@@ -450,6 +486,7 @@ class GraspServiceRequest(BaseModel):
     surface_z_m: float | None = Field(default=None, ge=-1.0, le=1.0)
     tilt_override_deg: TiltOverrideDeg | None = None
     grip_profile: str | GripProfileOverride | None = None
+    surfaces: list[SurfaceRegion] | None = Field(default=None, max_length=MAX_REGIONS)
 
 
 class GraspService:
@@ -500,7 +537,7 @@ class GraspService:
 
         Args:
             request (dict[str, Any]): {action, request_id?, object?, strategy?, params?, approach_pitch_deg?,
-                surface_z_m?, tilt_override_deg?, grip_profile?}.
+                surface_z_m?, tilt_override_deg?, grip_profile?, surfaces?}.
 
         Returns:
             dict[str, Any]: {ok, request_id, action, result} or {ok: false, request_id, action, error}.
@@ -521,7 +558,7 @@ class GraspService:
             grip = self.executor.resolve_grip(params)
         except ValueError as exc:
             return head | {"ok": False, "error": str(exc)}
-        floor = floor_override(req.surface_z_m, req.tilt_override_deg)
+        floor = floor_override(req.surface_z_m, req.tilt_override_deg, req.surfaces)
         if req.action in ("plan", "execute") and req.object is None:
             return head | {"ok": False, "error": f"'object' is required for {req.action}"}
         if req.action == "plan":
@@ -589,7 +626,9 @@ def register(ctx: ToolContext) -> None:
         f"{config.arm.floor_z_m:.3f}) or 'base_link' (robot frame, floor z = 0), x, y (centre, m), support_z (height "
         "of the object's bottom = the surface it stands on, m), width_m (across the jaws), depth_m (along the "
         "approach), height_m, yaw (rad, direction of the width axis; omit = across the approach), gap_below_m (clear "
-        "height under the object's bottom, m: an overhang or a raised object; default 0 = resting flat)}"
+        "height under the object's bottom, m: an overhang or a raised object; default 0 = resting flat), surfaces "
+        "(optional regions around the object, as the surfaces argument). With surfaces, support_z must match the "
+        "region under the object centre (else infeasible)}"
     )
     strategy_desc = (
         "'scoop': fixed jaw slides under the object (wrist_roll about 0, moving jaw closes from above), only with a gap "
@@ -609,7 +648,9 @@ def register(ctx: ToolContext) -> None:
         "below_object_offset_m, skim_clearance_m, max_object_width_m, close_effort_threshold (default: the grip "
         "profile's contact_effort_threshold), grip_profile, interpolation_step_m, "
         "scoop_max_pitch_deg, scoop_gap_margin_m, tall_ratio, tall_grasp_height_fraction, lift_speed_scale, "
-        "min_object_width_m, angled_pitch_deg, release_open_fraction, release_lift_m, auto_order"
+        "min_object_width_m, angled_pitch_deg, release_open_fraction, release_lift_m, auto_order, "
+        "surface_jaw_clearance_m, surface_link_clearance_m, surface_mismatch_tolerance_m, step_pitches_deg, "
+        "step_pre_grasp_clearance_m"
     )
     surface_desc = (
         "Expected surface height relative to the robot plane (m, base_link z; default "
@@ -622,8 +663,10 @@ def register(ctx: ToolContext) -> None:
     grip_desc = grip_profile_description(config)
     slow_note = (
         "Every arm motion slows (never stops) where a jaw tip, the wrist or the elbow comes within "
-        f"{slow.margin_m:g} m of the effective surface: the higher of the robot plane at surface_z_m and the level "
-        "plane from the IMU tilt."
+        f"{slow.margin_m:g} m of the effective surface: the higher of the robot plane at surface_z_m (or the local "
+        "height of the surfaces regions, incl. their step faces) and the level plane from the IMU tilt. For an "
+        "object beyond a step edge the planner tries a higher pre-grasp and steeper pitches so the wrist clears the "
+        "edge."
     )
 
     def run(fn: Callable[[], GraspResult]) -> GraspResult:
@@ -650,11 +693,14 @@ def register(ctx: ToolContext) -> None:
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
         grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
+        surfaces: Annotated[
+            list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
+        ] = None,
     ) -> GraspResult:
         """Plan a grasp; the tool description is passed to the decorator so it can state the slow zone."""
 
         def body() -> GraspResult:
-            floor = floor_override(surface_z_m, tilt_override_deg)
+            floor = floor_override(surface_z_m, tilt_override_deg, surfaces)
             grasp_call = grasp_params(grasp, params, grip_profile)
             grip = executor.resolve_grip(grasp_call)
             plan, notes = executor.plan(object, strategy, grasp_call, approach_pitch_deg, floor)
@@ -682,13 +728,16 @@ def register(ctx: ToolContext) -> None:
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
         grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
+        surfaces: Annotated[
+            list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
+        ] = None,
     ) -> GraspResult:
         """Grasp an object; the tool description is passed to the decorator."""
         ctx.battery_gate("grasp_object")
         baseline = robot.stop_count()
 
         def body() -> GraspResult:
-            floor = floor_override(surface_z_m, tilt_override_deg)
+            floor = floor_override(surface_z_m, tilt_override_deg, surfaces)
             return executor.grasp(
                 object,
                 strategy,
@@ -712,13 +761,16 @@ def register(ctx: ToolContext) -> None:
         params: Annotated[dict[str, Any] | None, Field(description=params_desc)] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        surfaces: Annotated[
+            list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
+        ] = None,
     ) -> GraspResult:
         """Release an object; the tool description is passed to the decorator."""
         ctx.battery_gate("release_object")
         baseline = robot.stop_count()
 
         def body() -> GraspResult:
-            floor = floor_override(surface_z_m, tilt_override_deg)
+            floor = floor_override(surface_z_m, tilt_override_deg, surfaces)
             return executor.release(grasp_params(grasp, params), floor, lambda: robot.stop_count() != baseline)
 
         return run(body)

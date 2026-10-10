@@ -842,6 +842,20 @@ class GraspSettings(StrictModel):
     # shoulder_lift above stall_shoulder_lift_rad stalls the shoulder servo: such plans are infeasible.
     stall_shoulder_lift_rad: float = 1.85
     stretched_elbow_max_rad: float = 0.0
+    # Surface regions (per-call 'surfaces': stairs, tables, holes): every planned sample keeps the jaw points
+    # surface_jaw_clearance_m and the forearm / wrist link capsules surface_link_clearance_m clear of every surface
+    # and step face (without surfaces nothing is checked, as before). The object's support_z (minus gap_below_m) must
+    # match the region under it within surface_mismatch_tolerance_m. The link clearance comes from the sim matrix
+    # (sim/README.md): stair plans whose wrist capsule cleared the step edge by 1.1 cm still touched it with the wrist
+    # mesh, those with 1.9 cm or more did not.
+    surface_jaw_clearance_m: float = Field(default=0.003, ge=0.0, le=0.05)
+    surface_link_clearance_m: float = Field(default=0.015, ge=0.0, le=0.1)
+    surface_mismatch_tolerance_m: float = Field(default=0.01, gt=0.0, le=0.1)
+    # Object beyond a step (a higher surface between the arm and the object): after the normal candidates the planner
+    # tries the same pitch with a pre-grasp at least step_pre_grasp_clearance_m above the upper surface, then these
+    # steeper approach pitches (deg, angled only), and takes the first that clears the edge.
+    step_pitches_deg: list[float] = Field(default_factory=lambda: [55.0, 65.0, 75.0, 90.0], max_length=8)
+    step_pre_grasp_clearance_m: float = Field(default=0.05, ge=0.0, le=0.3)
     release_open_fraction: float = Field(default=0.6, gt=0.0, le=1.0)  # release_object opening
     release_lift_m: float = Field(default=0.05, ge=0.0, le=0.3)
     auto_order: list[GraspAutoEntry] = Field(

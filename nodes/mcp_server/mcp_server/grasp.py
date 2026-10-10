@@ -8,19 +8,26 @@ zone. Infeasible plans carry human-readable reasons; the planner never raises fo
 
 The SO101 is a 5-DOF arm: the approach always lies in the vertical plane of shoulder_pan, so every strategy
 approaches radially from the arm base; the base has to turn for any other approach yaw.
+
+Surface regions (SurfaceModel.terrain, from the per-call 'surfaces': stairs, table tops, holes) make every planned
+sample a hard check: the jaw points and the forearm / wrist link capsules must stay clear of every surface and of the
+vertical step faces between surfaces (reasons name the step edge). For an object beyond a step (a higher surface
+between the arm and the object) the planner adds candidates with a pre-grasp above the upper surface and steeper
+approach pitches, and the object's support_z must match the region under it. Without surfaces nothing of this runs.
 """
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .config import GraspSettings, GripProfileOverride, LimitSettings, McpServerConfig
-from .floor_guard import FloorGuard, JawModel, SurfaceModel, base_link_to_arm, rotate
+from .floor_guard import FloorGuard, JawModel, SurfaceModel, arm_to_base_link, base_link_to_arm, rotate
 from .ik import ArmKinematics, UnreachableError, grasp_offset
+from .surfaces import Clearance, SurfaceRegion
 
 GraspParams = GraspSettings  # per-call grasp parameters: the configured defaults with overrides applied
 AUTO = "auto"
@@ -45,6 +52,57 @@ KEY_LABELS = ("grasp", "retreat", "lift")
 # instead of searching until the caller times out.
 MAX_IK_SOLVES_PER_CANDIDATE = 3200
 MAX_IK_SOLVES_PER_STRATEGY = 8000
+# Extra strategy budget factor when the step candidates (object beyond a step) are tried as well.
+STEP_BUDGET_FACTOR = 3
+# Link bodies checked against surface regions as capsules between FK link origins (radius = half the STS3215 servo
+# body that each link carries, about 4 cm across).
+FOREARM_CAPSULE = ("forearm", "elbow", "wrist", 0.02)
+WRIST_CAPSULE = ("wrist link", "wrist", "gripper", 0.02)
+JAW_POINTS = ("jaw_tip", "tool_point", "moving_jaw_tip")
+GRIPPER_BODY = "gripper body"
+# Hull of the gripper body and fixed jaw in gripper_link (m): the corners of the housing collision boxes and the extreme
+# points of the fixed finger mesh per 1 cm slice, taken from the grasp_sim MuJoCo model with the jaws calibrated to
+# the 2026-10-10 tool point (its gripper body frame is gripper_link). Checked against surfaces with
+# surface_jaw_clearance_m: at a diagonal step edge the jaw body, not its tip, is what touches first.
+GRIPPER_BODY_POINTS = np.array(
+    [
+        (-0.038, -0.015, -0.038),
+        (-0.037, -0.021, -0.040),
+        (-0.037, -0.021, -0.030),
+        (-0.037, 0.009, -0.040),
+        (-0.037, 0.009, -0.030),
+        (-0.035, -0.015, -0.037),
+        (-0.035, -0.015, -0.007),
+        (-0.035, 0.015, -0.037),
+        (-0.035, 0.015, -0.007),
+        (-0.034, -0.012, -0.049),
+        (-0.034, 0.000, -0.049),
+        (-0.023, -0.002, -0.081),
+        (-0.020, -0.022, -0.033),
+        (-0.020, 0.010, -0.033),
+        (-0.019, -0.009, -0.091),
+        (-0.018, 0.005, -0.039),
+        (-0.017, -0.021, -0.040),
+        (-0.017, -0.021, -0.030),
+        (-0.017, 0.009, -0.040),
+        (-0.017, 0.009, -0.030),
+        (-0.016, -0.015, -0.056),
+        (-0.016, -0.014, -0.054),
+        (-0.016, 0.002, -0.058),
+        (-0.016, 0.002, -0.054),
+        (-0.015, -0.012, -0.091),
+        (-0.014, -0.013, -0.087),
+        (-0.014, 0.000, -0.090),
+        (-0.014, 0.001, -0.083),
+        (-0.013, -0.001, -0.090),
+        (-0.012, -0.006, -0.099),
+        (0.030, -0.015, -0.037),
+        (0.030, -0.015, -0.007),
+        (0.030, 0.015, -0.037),
+        (0.030, 0.015, -0.007),
+    ]
+)
+MIN_STEP_M = 1e-3
 
 WaypointLabel = Literal["pre_grasp", "open", "approach", "grasp", "close", "lift", "retreat"]
 GripperAction = Literal["set", "close", "keep"]
@@ -64,6 +122,8 @@ class ObjectSpec(BaseModel):
         yaw: Direction of the object's width axis in `frame` (rad); None = across the approach direction.
         gap_below_m: Clear height under the object's bottom along the approach (m): the object overhangs a ledge or
             rests on something narrower than itself. 0 = flat on its support, which rules out a scoop.
+        surfaces: Surface regions around the object (heights relative to the robot floor); the grasp tools add them
+            after the call-level surfaces, so they shape the plan and the slow zone of the whole grasp.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -77,6 +137,11 @@ class ObjectSpec(BaseModel):
     height_m: float = Field(gt=0.0, le=0.5)
     yaw: float | None = None
     gap_below_m: float = Field(default=0.0, ge=0.0, le=0.5)
+    surfaces: list[SurfaceRegion] | None = Field(
+        default=None,
+        max_length=16,
+        description="Surface regions around the object (stair, table, hole); added after the call's surfaces",
+    )
 
 
 class Waypoint(BaseModel):
@@ -114,6 +179,9 @@ class GraspPlan(BaseModel):
     slow_zone: list[dict[str, Any]] = Field(default_factory=list)
     surface: dict[str, Any] | None = None
     attempts: list[dict[str, Any]] = Field(default_factory=list)
+    rejected_candidates: list[str] = Field(
+        default_factory=list, description="Why candidates tried before the chosen one were rejected (surfaces only)"
+    )
 
     def summary(self) -> dict[str, Any]:
         """JSON-ready plan summary without the joint samples.
@@ -121,7 +189,7 @@ class GraspPlan(BaseModel):
         Returns:
             dict[str, Any]: strategy, feasibility, reasons, key values, waypoints (no joints), slow zone, attempts.
         """
-        return {
+        out: dict[str, Any] = {
             "strategy": self.strategy,
             "feasible": self.feasible,
             "reasons": self.reasons,
@@ -141,6 +209,9 @@ class GraspPlan(BaseModel):
             "surface": self.surface,
             "attempts": self.attempts,
         }
+        if self.rejected_candidates:
+            out["rejected_candidates"] = self.rejected_candidates
+        return out
 
 
 @dataclass(frozen=True)
@@ -170,6 +241,10 @@ class GraspGeometry:
         center_width: Object width to centre between the jaws (grasp_offset), None to place the tool point itself.
         skim: The fixed jaw skims the surface instead of going below the object bottom.
         lift_speed: Speed scale of the lift (None = slide_speed_scale); tall narrow objects lift slower.
+        pre_grasp_clearance: Lift of the pre-grasp above the approach start (m); None = params.pre_grasp_clearance_m.
+            Raised for an object beyond a step so the arm descends from above the upper surface.
+        lift_height: Lift of the grasped object before the retreat (m); None = params.lift_height_m. Raised for an
+            object beyond a step so the retreat does not drag the gripper over the step edge.
     """
 
     pitch: float
@@ -183,6 +258,8 @@ class GraspGeometry:
     center_width: float | None = None
     skim: bool = False
     lift_speed: float | None = None
+    pre_grasp_clearance: float | None = None
+    lift_height: float | None = None
 
 
 @dataclass
@@ -364,6 +441,92 @@ def top_down_strategy(req: GraspRequest) -> list[GraspGeometry]:
         list[GraspGeometry]: One candidate.
     """
     return [centred_grasp(req, TOP_DOWN_PITCH_RAD, DOWN, req.obj.height_m / 2.0)]
+
+
+def over_step(geo: GraspGeometry, upper_z: float, params: GraspParams) -> GraspGeometry:
+    """Candidate whose pre-grasp and lift lie at least step_pre_grasp_clearance_m above an upper surface: the arm
+    descends to the object from above the step and lifts it above the step before retreating over the edge.
+
+    Args:
+        geo (GraspGeometry): Candidate.
+        upper_z (float): Highest surface between the arm and the object (arm frame z, m).
+        params (GraspParams): pre_grasp_clearance_m, lift_height_m, step_pre_grasp_clearance_m.
+
+    Returns:
+        GraspGeometry: The candidate with pre_grasp_clearance and lift_height set (never below the configured ones).
+    """
+    above = upper_z + params.step_pre_grasp_clearance_m
+    approach_z = geo.grasp[2] - geo.approach_dir[2] * geo.approach_len
+    return replace(
+        geo,
+        pre_grasp_clearance=max(params.pre_grasp_clearance_m, above - approach_z),
+        lift_height=max(params.lift_height_m, above - geo.grasp[2]),
+    )
+
+
+def step_candidates(
+    strategy: str, fn: "StrategyFn", req: GraspRequest, base: list[GraspGeometry], upper_z: float
+) -> list[GraspGeometry]:
+    """Extra candidates for an object beyond a step: the same geometry with the pre-grasp and lift above the step,
+    then (angled) steeper approach pitches from params.step_pitches_deg, also over the step.
+
+    Args:
+        strategy (str): Strategy name.
+        fn (StrategyFn): The strategy.
+        req (GraspRequest): Request.
+        base (list[GraspGeometry]): The strategy's own candidates.
+        upper_z (float): Highest surface between the arm and the object (arm frame z, m).
+
+    Returns:
+        list[GraspGeometry]: New candidates (none repeating a base one), in the order to try.
+    """
+    p = req.params
+    out = [over_step(g, upper_z, p) for g in base]
+    if strategy == "angled":
+        current = p.angled_pitch_deg if req.approach_pitch_deg is None else req.approach_pitch_deg
+        for pitch in p.step_pitches_deg:
+            if pitch > current + 1e-9:
+                out.extend(over_step(g, upper_z, p) for g in fn(replace(req, approach_pitch_deg=pitch)))
+    unique: list[GraspGeometry] = []
+    for g in out:
+        if g not in base and g not in unique:
+            unique.append(g)
+    return unique
+
+
+def candidate_label(geo: GraspGeometry) -> str:
+    """Reason prefix of a candidate: its pitch, and the raised pre-grasp when there is one.
+
+    Args:
+        geo (GraspGeometry): Candidate.
+
+    Returns:
+        str: E.g. 'pitch 45 deg' or 'pitch 65 deg, pre-grasp 9.2 cm up'.
+    """
+    label = f"pitch {math.degrees(geo.pitch):.0f} deg"
+    if geo.pre_grasp_clearance is not None:
+        label += f", pre-grasp {geo.pre_grasp_clearance * 100:.1f} cm up"
+    if geo.lift_height is not None:
+        label += f", lift {geo.lift_height * 100:.1f} cm"
+    return label
+
+
+def clearance_reason(label: str, part: str, clearance: Clearance, need: float) -> str:
+    """Reason for a sample too close to a surface or step face.
+
+    Args:
+        label (str): Waypoint label.
+        part (str): Checked part (e.g. 'wrist link').
+        clearance (Clearance): Its clearance and feature.
+        need (float): Required clearance (m).
+
+    Returns:
+        str: The reason.
+    """
+    return (
+        f"{label}: {part} clearance {clearance.value * 100:.1f} cm to the {clearance.feature}, "
+        f"needs {need * 100:.1f} cm"
+    )
 
 
 STRATEGIES: dict[str, StrategyFn] = {
@@ -576,7 +739,15 @@ class GraspPlanner:
             )
         heading = math.atan2(obj.y - self.kin.pan_axis_xy[1], obj.x - self.kin.pan_axis_xy[0])
         centre = np.array([obj.x, obj.y, obj.support_z])
-        surface_z = obj.support_z - surface.clearance(centre)
+        if surface.terrain is None:
+            surface_z = obj.support_z - surface.clearance(centre)
+        else:
+            mismatch = self.support_mismatch(obj, surface, params)
+            if mismatch is not None:
+                return GraspPlan(
+                    strategy=strategy, feasible=False, reasons=[mismatch], object_arm=obj, surface=surface.describe()
+                )
+            surface_z = surface.surface_z_arm(centre)
         req = GraspRequest(obj, params, heading, surface_z, approach_pitch_deg)
         reasons: list[str] = []
         try:
@@ -585,19 +756,131 @@ class GraspPlanner:
             return GraspPlan(
                 strategy=strategy, feasible=False, reasons=[str(exc)], object_arm=obj, surface=surface.describe()
             )
+        upper_z = self.upper_surface_z(obj, surface)
+        extra = [] if upper_z is None else step_candidates(strategy, fn, req, candidates, upper_z)
+        budget = MAX_IK_SOLVES_PER_STRATEGY * (STEP_BUDGET_FACTOR if extra else 1)
         start = self.kin.solve_count
-        for geo in candidates:
-            if reasons and self.kin.solve_count - start >= MAX_IK_SOLVES_PER_STRATEGY:
-                reasons.append(f"IK budget of {MAX_IK_SOLVES_PER_STRATEGY} solves spent, remaining pitches not tried")
+        for geo in candidates + extra:
+            if reasons and self.kin.solve_count - start >= budget:
+                reasons.append(f"IK budget of {budget} solves spent, remaining pitches not tried")
                 break
             result = self.realize(strategy, obj, geo, params, surface, seed)
             if result.feasible:
+                if surface.terrain is not None and reasons:
+                    return result.model_copy(update={"rejected_candidates": reasons})
                 return result
+            prefix = candidate_label(geo) if surface.terrain is not None else f"pitch {math.degrees(geo.pitch):.0f} deg"
             for r in result.reasons:
-                reason = f"pitch {math.degrees(geo.pitch):.0f} deg: {r}"
+                reason = f"{prefix}: {r}"
                 if reason not in reasons:
                     reasons.append(reason)
         return GraspPlan(strategy=strategy, feasible=False, reasons=reasons, object_arm=obj, surface=surface.describe())
+
+    def support_mismatch(self, obj: ObjectSpec, surface: SurfaceModel, params: GraspParams) -> str | None:
+        """Check that the object's support_z (minus gap_below_m) is the region height under its centre.
+
+        Args:
+            obj (ObjectSpec): Object in the arm frame.
+            surface (SurfaceModel): Surface with terrain.
+            params (GraspParams): surface_mismatch_tolerance_m.
+
+        Returns:
+            str | None: The mismatch as a reason, or None when consistent (or without surfaces).
+        """
+        terrain = surface.terrain
+        if terrain is None:
+            return None
+        p = arm_to_base_link((obj.x, obj.y, obj.support_z), surface.mount)
+        height = terrain.height_at(p[:2])
+        region = terrain.region_at(p[:2])
+        local_z = height - surface.mount.z
+        bottom = obj.support_z - obj.gap_below_m
+        if abs(bottom - local_z) <= params.surface_mismatch_tolerance_m:
+            return None
+        where = "the robot floor (no region)" if region is None else f"region '{region}'"
+        gap = f" minus gap_below_m {obj.gap_below_m:g}" if obj.gap_below_m > 0.0 else ""
+        return (
+            f"object support_z {obj.support_z:.3f} m{gap} does not match the surface under the object: {where} at "
+            f"{height:+.3f} m relative to the robot floor = arm z {local_z:.3f} m (tolerance "
+            f"{params.surface_mismatch_tolerance_m:g} m); fix support_z or the surfaces"
+        )
+
+    def upper_surface_z(self, obj: ObjectSpec, surface: SurfaceModel) -> float | None:
+        """Highest surface between the shoulder pan axis and the object when it is above the object's surface.
+
+        Args:
+            obj (ObjectSpec): Object in the arm frame.
+            surface (SurfaceModel): Surface (terrain optional).
+
+        Returns:
+            float | None: That surface in arm frame z (m), None without surfaces or without a step up on the way.
+        """
+        terrain = surface.terrain
+        if terrain is None:
+            return None
+        pan = arm_to_base_link((self.kin.pan_axis_xy[0], self.kin.pan_axis_xy[1], 0.0), surface.mount)[:2]
+        target = arm_to_base_link((obj.x, obj.y, 0.0), surface.mount)[:2]
+        height = terrain.height_at(pan)
+        upper = height
+        for crossing in terrain.steps_between(pan, target):
+            height -= crossing.drop_m
+            upper = max(upper, height)
+        local = terrain.height_at(target)
+        if upper <= local + MIN_STEP_M:
+            return None
+        return upper - surface.mount.z
+
+    def link_clearances(self, joints: dict[str, float], surface: SurfaceModel) -> dict[str, Clearance]:
+        """Clearance of the forearm and wrist link capsules and of the gripper body hull against the surfaces.
+
+        Args:
+            joints (dict[str, float]): Arm joints (measured space).
+            surface (SurfaceModel): Surface.
+
+        Returns:
+            dict[str, Clearance]: 'forearm' and 'wrist link' (capsule radius subtracted) and 'gripper body'.
+        """
+        frames = self.kin.link_frames(joints)
+        gripper = frames["gripper_link"]
+        origins = {
+            "elbow": frames["lower_arm_link"][:3, 3],
+            "wrist": frames["wrist_link"][:3, 3],
+            "gripper": gripper[:3, 3],
+        }
+        out = {
+            name: surface.capsule_clearance(origins[a], origins[b], radius)
+            for name, a, b, radius in (FOREARM_CAPSULE, WRIST_CAPSULE)
+        }
+        out[GRIPPER_BODY] = surface.points_clearance(GRIPPER_BODY_POINTS @ gripper[:3, :3].T + gripper[:3, 3])
+        return out
+
+    def surface_problem(
+        self, label: str, samples: list[dict[str, float]], surface: SurfaceModel, params: GraspParams
+    ) -> str | None:
+        """Check plan samples against the surface regions: jaw points and link capsules must keep their clearance.
+
+        Args:
+            label (str): Waypoint label.
+            samples (list[dict[str, float]]): Joint samples including the gripper.
+            surface (SurfaceModel): Surface; nothing is checked without terrain.
+            params (GraspParams): surface_jaw_clearance_m, surface_link_clearance_m.
+
+        Returns:
+            str | None: The first violation as a reason, or None.
+        """
+        if surface.terrain is None:
+            return None
+        for sample in samples:
+            points = self.guard.checked_points(sample)
+            for name in JAW_POINTS:
+                clearance = surface.clearance_detail(points[name])
+                if clearance.value < params.surface_jaw_clearance_m:
+                    return clearance_reason(label, name.replace("_", " "), clearance, params.surface_jaw_clearance_m)
+            for name, clearance in self.link_clearances(sample, surface).items():
+                need = params.surface_jaw_clearance_m if name == GRIPPER_BODY else params.surface_link_clearance_m
+                if clearance.value < need:
+                    return clearance_reason(label, name, clearance, need)
+        return None
 
     def roll_for(self, joints: dict[str, float], jaw_dir: np.ndarray, sign_matters: bool) -> float | None:
         """Wrist roll that points the jaw opening along jaw_dir (projected normal to the approach axis).
@@ -686,8 +969,10 @@ class GraspPlanner:
         grasp = np.array(geo.grasp)
         direction = np.array(geo.approach_dir)
         approach = grasp - direction * geo.approach_len
-        pre = approach + UP * params.pre_grasp_clearance_m
-        lift = grasp + UP * params.lift_height_m
+        pre = approach + UP * (
+            params.pre_grasp_clearance_m if geo.pre_grasp_clearance is None else geo.pre_grasp_clearance
+        )
+        lift = grasp + UP * (params.lift_height_m if geo.lift_height is None else geo.lift_height)
         horizontal = np.array([direction[0], direction[1], 0.0])
         if np.linalg.norm(horizontal) < MIN_DIRECTION_NORM:
             horizontal = radial(math.atan2(obj.y - self.kin.pan_axis_xy[1], obj.x - self.kin.pan_axis_xy[0]))
@@ -716,8 +1001,13 @@ class GraspPlanner:
         # Key waypoints first: an unreachable one rejects the plan before any straight-line sample is interpolated.
         key_seed = first | {ROLL_JOINT: roll}
         points = {label: point for label, point, *_ in steps}
+        jaws = {label: open_angle if gripper is None else gripper for label, _, gripper, *_ in steps}
         for label in KEY_LABELS:
-            _, problem = self.solve_point(label, points[label], geo.pitch, key_seed, extra, params, budget)
+            solved, problem = self.solve_point(label, points[label], geo.pitch, key_seed, extra, params, budget)
+            if problem is None:
+                problem = self.surface_problem(
+                    label, [s | {self.guard.gripper: jaws[label]} for s in solved], surface, params
+                )
             if problem is not None:
                 return base.model_copy(update={"reasons": [problem], "wrist_roll_rad": roll})
         waypoints: list[Waypoint] = []
@@ -735,6 +1025,9 @@ class GraspPlanner:
             joints = samples[-1]
             jaw = gripper if gripper is not None else open_angle
             with_jaw = [s | {self.guard.gripper: jaw} for s in samples]
+            problem = self.surface_problem(label, with_jaw, surface, params)
+            if problem is not None:
+                return base.model_copy(update={"reasons": [problem], "wrist_roll_rad": roll})
             if linear:
                 segments[label] = with_jaw
             annotations.append(self.annotate(label, with_jaw, surface))

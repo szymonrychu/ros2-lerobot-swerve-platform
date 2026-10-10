@@ -27,7 +27,7 @@ from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
 from .floor_guard import TiltOverrideDeg
-from .grasp_tools import floor_override, grip_profile_description
+from .grasp_tools import SURFACES_DESC, floor_override, grip_profile_description
 from .models import (
     ArmMotionResult,
     ArmState,
@@ -42,6 +42,7 @@ from .models import (
 from .monitor import DIGEST_DEFAULT_SESSION, RobotMonitor
 from .motion_queue import MotionQueue
 from .poi_client import PoiStoreDown, PoiTimeout
+from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import RobotApi, ToolContext
 
 LOGGER = logging.getLogger("mcp_server.timing")
@@ -445,7 +446,9 @@ def register_core_tools(ctx: ToolContext) -> None:
         f"{slow.margin_m:g} m of the effective surface (the higher of the robot plane at surface_z_m, default "
         f"{slow.surface_z_m:g} m in base_link, and the gravity-level plane from the IMU tilt) the motion slows to "
         f"{slow.slow_speed_scale:g} of its speed (never blocked; reported as slow_zone). Pass surface_z_m (e.g. -0.18 "
-        "for a stair or hole below) to allow normal speed down to that surface, tilt_override_deg to replace the IMU."
+        "for a stair or hole below) to allow normal speed down to that surface, tilt_override_deg to replace the IMU, "
+        "or surfaces (stair / table / hole regions with their step edges) when the floor under the arm is not one "
+        "plane: the local region height is used and the arm also slows near a step edge."
     )
     settle_desc = (
         "'trajectory_end': return when the streamed trajectory finished (status 'converged', settling=true while "
@@ -657,13 +660,18 @@ def register_core_tools(ctx: ToolContext) -> None:
         ] = HARD_MAX_SPEED_SCALE,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        surfaces: Annotated[
+            list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
+        ] = None,
         settle: Annotated[SettlePolicy | None, Field(description=settle_desc)] = None,
     ) -> ArmMotionResult:
         """Move arm joints; the tool description is passed to the decorator so it can state the tolerances."""
         battery_gate("move_arm_joints")
         policy = resolve_settle(settle, config.arm.gripper_joint in targets)
         with tool_errors():
-            return robot.arm.move_joints(targets, speed_scale, floor_override(surface_z_m, tilt_override_deg), policy)
+            return robot.arm.move_joints(
+                targets, speed_scale, floor_override(surface_z_m, tilt_override_deg, surfaces), policy
+            )
 
     @tool(
         description=(
@@ -709,6 +717,9 @@ def register_core_tools(ctx: ToolContext) -> None:
         ] = None,
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        surfaces: Annotated[
+            list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
+        ] = None,
         settle: Annotated[SettlePolicy | None, Field(description=settle_desc)] = None,
     ) -> ArmMotionResult:
         """Move the tool point; the tool description is passed to the decorator so it can state the floor."""
@@ -723,7 +734,7 @@ def register_core_tools(ctx: ToolContext) -> None:
                 speed_scale,
                 wrist_roll,
                 object_width_m,
-                floor_override(surface_z_m, tilt_override_deg),
+                floor_override(surface_z_m, tilt_override_deg, surfaces),
                 resolve_settle(settle),
             )
 
@@ -739,6 +750,9 @@ def register_core_tools(ctx: ToolContext) -> None:
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
         grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
+        surfaces: Annotated[
+            list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
+        ] = None,
     ) -> ArmMotionResult:
         """Open the gripper to a fraction, or close it until it grips something (status 'grasped' and the gripper
         holds that position; 'closed_no_contact' if it closed fully without touching anything). Closing (also
@@ -751,7 +765,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         targets while the gripper moves. Give exactly one of
         open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done.
         Below-surface slow zone: near the surface (the moving jaw tip is checked too) the gripper moves slow; pass
-        surface_z_m / tilt_override_deg as for the arm motion tools. close_until_effort uses a grip profile
+        surface_z_m / tilt_override_deg / surfaces as for the arm motion tools. close_until_effort uses a grip profile
         (grip_profile: gentle / normal / firm or inline overrides): it writes the profile's gripper torque limit,
         closes at its speed, stops at its target_load and holds with its squeeze; a grasp reports grip_profile,
         holding_load, slipping and crush_risk. Any other close outcome, every open and release_control restore the
@@ -762,7 +776,7 @@ def register_core_tools(ctx: ToolContext) -> None:
                 open_fraction,
                 close_until_effort,
                 effort_threshold,
-                floor_override(surface_z_m, tilt_override_deg),
+                floor_override(surface_z_m, tilt_override_deg, surfaces),
                 grip_profile,
             )
 
@@ -779,11 +793,16 @@ def register_core_tools(ctx: ToolContext) -> None:
     def arm_home(
         surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
         tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=tilt_desc)] = None,
+        surfaces: Annotated[
+            list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
+        ] = None,
     ) -> ArmMotionResult:
         """Move home; the tool description is passed to the decorator so it can state the settle tolerance."""
         battery_gate("arm_home")
         with tool_errors():
-            return robot.arm.home(keep_prior_control=True, floor=floor_override(surface_z_m, tilt_override_deg))
+            return robot.arm.home(
+                keep_prior_control=True, floor=floor_override(surface_z_m, tilt_override_deg, surfaces)
+            )
 
     @tool()
     def arm_set_home() -> HomeSetResult:
