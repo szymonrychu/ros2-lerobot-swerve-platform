@@ -60,6 +60,7 @@ configs (largest position error here: 2 micrometres, tolerance 2 mm). Difference
 | Item | MuJoCo model | URDF / mcp_server | Handling |
 |---|---|---|---|
 | shoulder_lift range | -1.745 .. 1.745 | mcp_server widens to -1.745 .. 1.9 (`joint_limit_overrides_rad`) | `SceneConfig.limit_overrides_rad` widens joint and actuator range |
+| Moving jaw inner face | flares away from the fixed jaw toward the palm (meshes) | `mcp_server/jaw_profile.py` (this silhouette) | `grasp_sim.tcp.moving_jaw_inner_profile`; `tests/test_tcp.py` checks mcp_server's table |
 | `gripperframe` site | 2 cm off the fixed jaw inner face along the jaw axis | `gripper_frame_link` is the jaw face | the harness does not use the site; the test checks the URDF frame carried by the MuJoCo `gripper` body |
 | Jaw closing point | (-0.0015, 0.0002, 0.003) m in `gripper_frame_link` | `arm.tool_offset_m` (0.0010, -0.0056, -0.0014), the physical fixed-jaw tip fitted 2026-10-10 | `SceneConfig.tool_offset_m` shifts the jaws onto the configured point (8 mm), see TCP calibration |
 | Actuators | position servos, kp 998, force +-2.94 Nm (STS3215 estimate) | real servos | see limitations |
@@ -118,6 +119,7 @@ support_edge_x_m: null    # where the ledge/stair starts (default: object x - 0.
 support_depth_m: 0.6
 support_width_m: 0.6
 object:                   # null for no object
+  shape: box                # or cylinder (upright; diameter = size_m x = y, height = z)
   size_m: [0.03, 0.03, 0.04]   # x, y, z full edges
   mass_kg: 0.05
   friction: [1.0, 0.005, 0.0001]
@@ -237,8 +239,24 @@ it), so the planner sees the step edge; floor and ledges keep a single surface h
 per scenario. `grasp-sim matrix` replays every feasible plan the way `GraspExecutor.execute` streams it (start at the
 pre-grasp with the roll done, gripper open at `gripper_velocity_rps`, approach/grasp/lift/retreat along the planned
 joint samples with one quintic profile each at the waypoint `speed_scale`, close to `gripper_closed_rad` and hold)
-on a scene with the calibrated jaws, the box yawed to face the arm. "Lifted" = the SimReport grasp success (2 cm up and
-still between the jaws after the lift and at the end) with no arm-link contact with floor or support.
+on a scene with the calibrated jaws, the box yawed to face the shoulder pan axis (`index.json` `pan_axis_xy`, 3.9 cm ahead
+of the arm base origin: the planner puts the jaws across the heading from that axis; until 2026-10-10 the box faced the
+origin and stood 5 deg off the jaws at r25a30). "Lifted" = the SimReport grasp success (2 cm up and
+still between the jaws after the lift and at the end) with no arm-link contact with floor or support. Each result row
+also has `descent_tilt_deg` / `descent_push_m`: the worst object tilt and push in the approach and grasp segments, the
+open jaws coming down onto the object (the SimReport `approach_*` figures leave out the grasp slide, where contact is
+allowed).
+
+```bash
+cd nodes/mcp_server
+uv run python ../../sim/grasp_sim/scripts/plan_matrix.py --out /tmp/jar --tipover   # the 2026-10-10 jar tip-over set
+cd ../../sim/grasp_sim && uv run grasp-sim matrix /tmp/jar
+```
+
+`--tipover` plans, instead of the matrix, the jar that tipped on the robot: a light (30 g) upright cylinder 39 mm across
+and 6 cm tall on the floor at base_link (0.316, 0.0), top_down, angled 50 (45 cannot reach the approach start there)
+and auto, each replayed with the jar where the planner was told (`err0`) and 3 mm toward the fixed jaw (`err3`, a
+perception error of the size seen on the robot; `sim_offset_xy_m` in the entry).
 
 Results 2026-10-09 (lifted / feasible of 16 scenarios per cell):
 
@@ -329,6 +347,33 @@ clearances from this matrix: wrist capsule (radius 2 cm) clearance 1.1 cm still 
 not (`surface_link_clearance_m` 0.015); a 5 cm lift below the upper floor dragged the gripper body over the edge in
 the retreat (the lift now clears the upper surface); the jaw tip points alone missed a fixed-jaw body contact at a
 diagonal edge (the gripper body hull is checked now).
+
+Re-run 2026-10-10 with the jaw clearance (`nodes/mcp_server/README.md`, "Jaw clearance": the fixed jaw 7.5 mm off the
+object's side face instead of on it, the moving jaw 7.5 mm clear over the object's depth in the jaws, the tilted moving
+jaw modelled from these jaw meshes) and the box facing the pan axis. Planned 240, 104 feasible (same set), 100 lifted, 0
+arm contacts, 0 jaw-surface contacts, no descent tilt above 0.6 deg, exactly what the table above lifts (the same four
+6x6x3 angled45 / auto low-ledge plans at r25 and r25a30 are not lifted). Same planner as before on the corrected scene
+(box facing the pan axis): 102 lifted; the r25a30 low-ledge 6x6x3 angled45 and auto lift there, because the old fixed jaw
+sat on the box face and the moving jaw only closed it. With the clearance the moving jaw first pushes the 6 cm box 7.5 mm
+across the ledge with its face tilted 43 deg (6 cm is near the widest opening), and the grip slips in the retreat: every
+clearance from 4 to 8 mm loses these two (`--params` sweep of `fixed_jaw_clearance_m`), only the old fixed jaw on the face
+keeps them. That is the price of not landing the fixed
+jaw on the object; the floor, stair, top_down and every 3x3x6 / 4x4x4 plan lift as before. Golden plans regenerated.
+
+Tip-over set (`--tipover`), descent tilt / push of the jar while the open jaws come down (lifted in brackets):
+
+| Plan | Before err0 | Before err3 | After err0 | After err3 |
+|---|---|---|---|---|
+| top_down (and auto) | 0.4 deg / 0.2 mm (lifted) | 18.5 deg / 9.7 mm (lifted) | 0.0 / 0.0 (lifted) | 0.0 / 0.0 (lifted) |
+| angled 50 | 0.0 / 0.0 (not lifted) | 2.0 deg / 2.6 mm (not lifted) | 0.0 / 0.0 (not lifted) | 0.0 / 0.0 (not lifted) |
+
+Before = the planner of commit 96f413d (fixed jaw on the jar face, tip-only opening 0.53 rad): with the jar 3 mm toward
+the fixed jaw the fixed jaw lands on its rim and tips it 18.5 deg on the way down (the robot's tip-over); exactly
+placed, the open moving jaw grazes the jar top 2.75 cm into the jaws. After: 7.5 mm on both sides, opened to 0.97 rad for
+the 4.2 cm the jar reaches into the jaws, nothing touches the jar until the close, and it lifts in all four top_down
+runs. Angled 50 grips the jar but it pivots out of the jaws on the slow lift, before and after (the tall narrow
+object failure mode below, not a tip on approach). Clearing only the tips (7.5 mm, opened to 0.53 rad) still touched
+the jar top with the moving jaw mesh (3.4 deg, 2.3 mm): that is why the opening is now held over the object's depth.
 
 Per strategy over the whole matrix (before the step-edge model): top_down 19/19 lifted (19 of 19 feasible, 29 infeasible), angled45 19/21, scoop_gap
 10/10, auto 37/39, scoop (flat) 0 feasible. The only failures are 6x6x3 angled45 and auto on the low ledge at r25 and

@@ -447,7 +447,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   surface (robot plane vs level plane, roll/pitch signs, shifted by `surface_z_m`), fresh IMU used / stale or missing
   IMU ignored and logged once, tilt override replaces the IMU, flat robot slows only samples inside the margin, IMU
   pitch raises the zone in front, `surface_z_m` allows normal speed down to a stair, configured surface/margin/scale,
-  disabled guard, elbow and wrist checked, jaw model (gap grows with opening, inverse, closed tip at the tool point),
+  disabled guard, elbow and wrist checked, jaw model (gap grows with opening, inverse, closed tip at the tool point;
+  `inner_gap` equals the tip gap 3 mm in, narrows deeper into the jaws (sim jar contact 46.5 mm 2.75 cm in at 0.534 rad),
+  inf once the open tips retract past the depth, `angle_for_inner_gap` inverts it and opens wider than the tip model),
   monitor IMU record to tilt sample, per-step scales and constant-rate retiming of slow steps; with `surfaces`: the
   local region height (normal speed over a stair, slow below the robot floor before its edge, flat model unchanged),
   slow near a step face (`lowest_feature`, `surfaces` in the summary), surfaces combined with a tilt override and
@@ -458,8 +460,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   and no face between equal heights, lift (tilt) term, capsule clearance, steps crossed along a line, vectorized
   `clearance_many` equal to the single queries, JSON description
 - grasp planner with surfaces (`test_grasp_surfaces.py`, deployed client.yml, the matrix stair 10 cm down with its
-  edge 8 cm before the box): the single-surface angled 45 deg plan runs the wrist into the step, with surfaces the
-  45 deg candidate is rejected naming the step edge, a steeper candidate clearing the edge is chosen (rejected tries
+  edge 8 cm before the box): the single-surface angled 50 deg plan runs the wrist into the step (45 deg until the jaw
+  clearance put it out of reach there), with surfaces that candidate is rejected naming the step edge, a steeper candidate clearing the edge is chosen (rejected tries
   in `rejected_candidates`), the pre-grasp and the lift clear the upper surface, auto plans clear every surface, the
   gripper body keeps the jaw clearance from a diagonal step edge (r25 at 30 deg), `support_z` must match the region
   under the object (a gap is allowed for), object surfaces merged into the call override, forearm / wrist / gripper
@@ -548,14 +550,22 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `tall_grasp_height_fraction` and lifted at `lift_speed_scale` (and not below `tall_ratio`), objects below
   `min_object_width_m` rejected, unreachable and too-wide reasons, roll only at the lifted half-open
   pre-grasp (`roll_guard_violations`), straight-line IK samples (spacing, line, joint jumps), joint-jump and shoulder
-  stall reasons, slow-zone annotations, base_link objects and a missing mount, params overrides, JSON summary
+  stall reasons, slow-zone annotations, base_link objects and a missing mount, params overrides, JSON summary;
+  jaw clearance: a 40 mm cube top_down / angled 45 / angled 60 puts the fixed jaw inner face 7.5 mm off its side face
+  and the moving jaw 7.5 mm clear over the cube's depth in the jaws (opening 55 mm, `center_shift_m` and `grasp_shift`
+  shift 27.5 mm, the reported clearances and `jaw_depth_m`, tool_point and jaw centre consistent, tips opened wider),
+  `fixed_jaw_clearance_m` above half the margin widens both sides, a zero minimum still centres the margin, scoop has
+  no shift, the 39 mm x 6 cm jar opens far wider than the tip model so the tilted moving jaw clears its top edge, an
+  object too deep for the gripper is a reason, scoops open for the object depth too
+- grasp offset (`test_ik.py`): `grasp_offset` scales the open axis by half the width plus the fixed jaw clearance
 - IK heading convergence (`test_ik.py`): a pitched IK with the tool offset converges the arm plane heading in at most
   12 ikpy runs (secant step; the fixed-point iteration needed 16 or more) and a `heading_bias` start lands within
   2e-3 rad of the cold solution
 - grasp planner speed and stability (`test_grasp_speed.py`, deployed client.yml config, via `plan_matrix.py`): the 13
   feasible sim-matrix scenarios in `tests/data/grasp_golden.json`, regenerated 2026-10-10 with the grid-sheet client.yml
   calibration (joint offsets, tool point = physical fixed-jaw tip; fixed arm-frame surfaces: floor -0.15, ledges -0.08 / 0.0,
-  stair -0.200 = 10 cm below the configured floor -0.100; the old -0.25 stair became unreachable) (top_down, angled, scoop, auto; waypoint joints and
+  stair -0.200 = 10 cm below the configured floor -0.100; the old -0.25 stair became unreachable; regenerated again for the
+  2026-10-10 jaw clearance with `python -m tests.regenerate_grasp_golden`) (top_down, angled, scoop, auto; waypoint joints and
   straight-line samples) match the current golden plans within 1e-6 rad and the `baseline` plans (before the faster
   heading convergence) within 2e-3 rad, with the same feasibility and strategy; timing tests (skipped with
   `GRASP_SPEED_SKIP=1`): feasible angled and auto golden scenarios and auto on the reference cube under 1 s, scoop 3 s,
@@ -577,8 +587,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   grasp pose through the close and its hold check, within the planned samples through lift and retreat and at the
   retreat target after the settle hold time (every joint within its converge tolerance, no residual_error, no
   warnings); a pan pushed 0.06 rad off target while squeezing stays commanded at its intent and is reported in the
-  close step's and the result's residual_error and as close / retreat warnings; a centred grasp reports `grasp_shift`,
-  each waypoint's `tool_point` half the width beside the jaw centre, and `held_pose` (jaw centre from the measured
+  close step's and the result's residual_error and as close / retreat warnings; a centred grasp reports `grasp_shift`
+  (shift = half the width plus `fixed_jaw_clearance_m`), each waypoint's `tool_point` that far beside the jaw centre, and `held_pose` (jaw centre from the measured
   joints, expected = retreat waypoint, error under 1 cm); the empty firm close stalling 0.055 rad short of closed at
   load 148 is `closed_no_contact` and the grasp `missed`
 - grip profiles config and resolution (`test_grip.py`): gentle / normal / firm presets with the 2026-10-10 tuned values
@@ -605,7 +615,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   plans with the client.yml config (tool offset, `--only` filter, `--params` overrides); supports are placed relative
   to the configured floor (-0.100): ledges 7 and 15 cm above it, the stair 10 cm below; the stair is passed as a
   step surface (half-plane at `support_edge_x` = box x - 0.08, the sim scene's edge), its angled plan is steeper than
-  45 deg, ledges keep a single surface height
+  45 deg, ledges keep a single surface height; the index records the shoulder pan axis (`pan_axis_xy`) the sim box
+  faces; `--tipover` writes the 2026-10-10 jar set (39 mm x 6 cm 30 g cylinder at base_link (0.316, 0), top_down /
+  angled 50 / auto, err0 and err3 = 3 mm toward the fixed jaw of the plan)
 - arm tool overrides (`test_tools.py`): `move_arm_cartesian`, `move_arm_joints`, `set_gripper` take `surface_z_m` /
   `tilt_override_deg`, report `slow_zone` and describe the slow zone; they and `arm_home` take `surfaces` (a stair
   allows normal speed below the robot floor past its edge, an invalid region is refused)
@@ -750,7 +762,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
 | `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` (and the `nav_intermediate_*` pair) in client.yml equal the mcp_server `nav` values. |
 | `test_mcp_server_arm_mount_measured_and_height_agree_with_claude_agent` | mcp_server config `arm.arm_base_height_m` is 0.100 and `arm.base_in_base_link` is the mount measured 2026-10-10 `{x: 0.0592, y: -0.05, z: 0.104, yaw: 0.0}`; the claude_agent `arm_base_height_m` states the same height. |
-| `test_mcp_server_floor_guard_and_grasp_blocks_are_deployed` | mcp_server config has the `floor_guard` block (enabled, 2 cm margin, 0.2 slow speed scale, surface 0, IMU max age 1 s), the `grasp` block (5 mm interpolation, 8 cm max opening, auto order top_down, angled, scoop, scoop max pitch 40 deg and gap margin 4 mm, tall ratio 1.5 / grasp height fraction 0.3 / lift speed 0.05, min object width 1 cm) and the `/grasp/command` / `/grasp/result` topics; the claude_agent lists `grasp_object` / `release_object` as effectors and `plan_grasp` as a sensor. |
+| `test_mcp_server_floor_guard_and_grasp_blocks_are_deployed` | mcp_server config has the `floor_guard` block (enabled, 2 cm margin, 0.2 slow speed scale, surface 0, IMU max age 1 s), the `grasp` block (5 mm interpolation, 8 cm max opening, auto order top_down, angled, scoop, scoop max pitch 40 deg and gap margin 4 mm, tall ratio 1.5 / grasp height fraction 0.3 / lift speed 0.05, min object width 1 cm, fixed jaw clearance 7.5 mm with the 15 mm opening margin) and the `/grasp/command` / `/grasp/result` topics; the claude_agent lists `grasp_object` / `release_object` as effectors and `plan_grasp` as a sensor. |
 | `test_mcp_server_grip_profiles_block_is_deployed` | mcp_server config has the `grip_profiles` block: presets gentle / normal / firm with increasing torque_limit and squeeze, all within the hard caps (torque_limit_max 800, squeeze_max_rad 0.08), default `normal`, gentle closing slower with a target_load below its contact threshold, close speeds within the 0.5 rad/s gripper cap and crush loads above the target loads; the presets equal the 2026-10-10 tuned values (gentle 0.01 / 250 / 0.2 / 80 / 120 / 200, normal 0.03 / 500 / 0.5 / 200 / 300 / 450, firm 0.05 / 650 / 0.4 / 300 / 350 / 600); `grasp.approach_speed_scale` is 0.3, within `arm_max_speed_scale`; the grasp block sets no fixed `close_effort_threshold`; `topics.follower_set_register` is the follower bridge's `set_register` topic and the follower publishes the gripper effort. |
 | `test_mcp_server_monitor_block_has_ordered_thresholds` | mcp_server `monitor` block: servo 60/70 C, CPU 75/82 C, bump warning below critical, stall 1.0 s, tilt 10 deg, battery warning margin 0.2 V/cell. |
 | `test_mcp_server_monitor_topics_match_their_producers` | mcp_server monitor topics: `/follower/servo_registers`, `/imu/data`, `/robot_events`, `swerve_odom` equals the swerve controller `odom_topic`, `rf2o_twist` equals the rf2o relay `output_topic`. |
@@ -957,9 +969,9 @@ The dev-only MuJoCo grasp replay harness has its own uv project and tests under 
 | File | Covers |
 |------|--------|
 | `test_model.py` | Vendored SO-101 model loads with six position actuators; every body frame and the URDF gripper frame match a numpy URDF FK chain (`so101_arm.urdf`) within 2 mm at six joint configs; shoulder_lift range override. |
-| `test_scene.py` | Scene generation: floor at `-base_height` (default 0.100, the measured mount), box on floor / ledge / lower stair settles on its support with the configured size, mass and friction; support kind inference; validation; `gap_below_m` rests the box on two rails (support geoms) with a clear slot. |
-| `test_tcp.py` | Jaw calibration: gripper_frame_link transform, the stock Menagerie closing point, `tool_offset_m` read from client.yml, calibrated jaws close within 2 mm of it, only the fingers and the moving jaw move, the vendored XML stays unmodified, the replay grip point follows. |
-| `test_matrix.py` | Scenario matrix: executor-like quintic path timing, phase order and closed gripper from the close, slower lift for a lower `speed_scale`, scene per entry (calibrated or stock jaws, rails for a gap, the stair edge at the entry's `support_edge_x`), summary table, `grasp-sim matrix` end to end. |
+| `test_scene.py` | Scene generation: floor at `-base_height` (default 0.100, the measured mount), box on floor / ledge / lower stair settles on its support with the configured size, mass and friction; support kind inference; validation; `gap_below_m` rests the box on two rails (support geoms) with a clear slot; an upright cylinder object (the 39 mm x 6 cm jar) stands on the floor with its diameter, height and mass, and needs equal x / y sizes. |
+| `test_tcp.py` | Jaw calibration: gripper_frame_link transform, the stock Menagerie closing point, `tool_offset_m` read from client.yml, calibrated jaws close within 2 mm of it, only the fingers and the moving jaw move, the vendored XML stays unmodified, the replay grip point follows; the moving jaw inner silhouette (`moving_jaw_inner_profile`) meets the fixed jaw at the tips and flares more than 1 cm away 4 cm in, and mcp_server's `jaw_profile.MOVING_JAW_INNER_PROFILE` equals it (0.2 mm). |
+| `test_matrix.py` | Scenario matrix: executor-like quintic path timing, phase order and closed gripper from the close, slower lift for a lower `speed_scale`, scene per entry (calibrated or stock jaws, rails for a gap, the stair edge at the entry's `support_edge_x`), summary table, `grasp-sim matrix` end to end (with the descent tilt / push fields); the box faces the index's shoulder pan axis; an entry's shape, mass and `sim_offset_xy_m` reach the scene; `descent_motion` is the worst tilt / push of the approach and grasp segments. |
 | `test_plan.py` | Replay plan parsing, label timeline and linear interpolation. |
 | `test_ik.py` | Harness IK reaches position and approach pitch, raises when unreachable, respects limits and seeds. |
 | `test_replay.py` | `simulate`: trivial hold, clearance, forces, arm/jaw floor contacts, joint clipping warning, determinism, contact classification, tilt metric. |

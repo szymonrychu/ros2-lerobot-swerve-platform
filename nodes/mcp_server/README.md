@@ -451,9 +451,9 @@ can only approach in the vertical plane of `shoulder_pan`, so every strategy app
 
 | Strategy | Geometry |
 |---|---|
-| `scoop` | Only for an object with room under it: `gap_below_m` must be at least `jaw_thickness_m` + `scoop_gap_margin_m` (0.008 + 0.004 m), otherwise the plan is infeasible with "no gap under object for the fixed jaw" (in the sim a scoop against a box resting flat pushes or tips it instead of getting under it). Wrist roll about 0 (fixed jaw underneath, moving jaw closes from above), horizontal radial slide at the object's bottom height until the fixed jaw tip is under the object centre. The fixed jaw top goes `below_object_offset_m` under the object bottom, clamped so the jaw (`jaw_thickness_m`) stays `skim_clearance_m` above the effective surface when the object rests on it (`skim`). Opening = height + `jaw_open_margin_m` (+ how far a skimming jaw sits above the object bottom). Approach pitch starts at `scoop_pitch_deg` (0, horizontal) and steepens in `scoop_pitch_step_deg` up to `scoop_max_pitch_deg` (40; sim: every gap scoop up to 40 deg lifted, steeper ones swing the moving jaw into the object top and slip): a near-horizontal gripper cannot reach low near the base. |
-| `angled` | radial approach pitched down by `approach_pitch_deg` (default `angled_pitch_deg` 45), jaws across the object width (roll from the object yaw relative to the pan direction), object centred between the jaws (grasp shift), tool point at mid-height (tall narrow objects: see below). |
-| `top_down` | pitch 90 deg (straight down), jaws across the width, opening = width + margin, vertical approach. |
+| `scoop` | Only for an object with room under it: `gap_below_m` must be at least `jaw_thickness_m` + `scoop_gap_margin_m` (0.008 + 0.004 m), otherwise the plan is infeasible with "no gap under object for the fixed jaw" (in the sim a scoop against a box resting flat pushes or tips it instead of getting under it). Wrist roll about 0 (fixed jaw underneath, moving jaw closes from above), horizontal radial slide at the object's bottom height until the fixed jaw tip is under the object centre. The fixed jaw top goes `below_object_offset_m` under the object bottom, clamped so the jaw (`jaw_thickness_m`) stays `skim_clearance_m` above the effective surface when the object rests on it (`skim`). Opening = height + `jaw_open_margin_m` (+ how far a skimming jaw sits above the object bottom), held over the object's depth in the jaws (see Jaw clearance). Approach pitch starts at `scoop_pitch_deg` (0, horizontal) and steepens in `scoop_pitch_step_deg` up to `scoop_max_pitch_deg` (40; sim: every gap scoop up to 40 deg lifted, steeper ones swing the moving jaw into the object top and slip): a near-horizontal gripper cannot reach low near the base. |
+| `angled` | radial approach pitched down by `approach_pitch_deg` (default `angled_pitch_deg` 45), jaws across the object width (roll from the object yaw relative to the pan direction), jaw opening centred on the object (grasp shift, see Jaw clearance), tool point at mid-height (tall narrow objects: see below). |
+| `top_down` | pitch 90 deg (straight down), jaws across the width, opening centred on the object (see Jaw clearance), vertical approach. |
 | `auto` | `auto_order` (default top_down, angled 45, scoop): the first feasible plan wins; `attempts` lists each try (a flat object's scoop attempt carries the no-gap reason). |
 
 Tall narrow objects (`height_m / width_m` above `tall_ratio`, 1.5) pivot out of the jaws when gripped at mid-height:
@@ -473,11 +473,13 @@ wrist roll changes here, gripper at most `limits.roll_max_gripper_open_rad`), `o
 (`lift_height_m` up), `retreat` (`retreat_distance_m` radially back), each with the target x, y, z, pitch, roll,
 gripper command, speed scale (`pre_grasp` / `open`: `approach_speed_scale`, default 0.3, capped to
 `limits.arm_max_speed_scale`; the straight lines `slide_speed_scale` or `lift_speed_scale`), IK joints and
-`tool_point` (FK of the fixed jaw inner face at those joints). `angled` and `top_down` centre the object between the
-jaws: the plan's `grasp_shift` `{object_width_m, shift_m (half the width), jaw_open_axis}` says so, the waypoint x, y, z
-is then the **jaw centre** (the object centre) and `tool_point` lies `shift_m` beside it against the opening direction.
-The arm therefore stands sideways of a plain `move_arm_cartesian` to the same x, y, z (6.5 cm cube at 0.37 m reach:
-shoulder_pan -0.732 centred vs -0.636 plain, the tool point 3.3 cm off the object centre). `scoop` has no shift
+`tool_point` (FK of the fixed jaw inner face at those joints). `angled` and `top_down` centre the jaw opening on the
+object: the plan's `grasp_shift` `{object_width_m, shift_m, fixed_jaw_clearance_m, moving_jaw_clearance_m, jaw_depth_m,
+jaw_open_axis}` says so (`center_shift_m` = `shift_m` unrounded), the waypoint x, y, z is then the **jaw centre** (the
+object centre) and `tool_point` lies `shift_m` (half the width plus the fixed jaw clearance) beside it against the
+opening direction. The arm therefore stands sideways of a plain `move_arm_cartesian` to the same x, y, z (6.5 cm cube
+at 0.37 m reach: the tool point 4.0 cm off the object centre; before the jaw clearance 3.3 cm, shoulder_pan -0.732
+centred vs -0.636 plain). `scoop` has no shift
 (x, y, z is the tool point); the straight segments carry joint samples every `interpolation_step_m`
 (IK seeded from the previous sample). Feasibility: reachable (IK verified by FK), joints within limits minus margin,
 no joint jump above `max_joint_jump_rad` between samples, no stretched-arm stall pose (shoulder_lift above
@@ -485,6 +487,36 @@ no joint jump above `max_joint_jump_rad` between samples, no stretched-arm stall
 opening within `max_object_width_m` and the gripper's reach, roll guard ordering, with surfaces the surface and step
 edge clearance (see Surface regions), plus slow-zone annotations per step.
 Infeasible plans return human-readable `reasons`; the planner never raises for an infeasible object.
+
+#### Jaw clearance (2026-10-10)
+
+Until 2026-10-10 a centred grasp put the tool point (the fixed jaw inner face, `arm.tool_offset_m`) half the object
+width from its centre (`ik.grasp_offset`): the fixed jaw came down exactly on the object's side face (0 mm) and the
+moving jaw got the whole `jaw_open_margin_m` (15 mm). On the robot this tipped a 39 mm wooden jar over on the approach
+and made firm grasps miss. Now the opening is centred on the object:
+
+- Each jaw clears its side face by `max(jaw_open_margin_m / 2, fixed_jaw_clearance_m)` (default 7.5 mm both): the tool
+  point goes `width / 2 + clearance` from the object centre (`ik.grasp_offset(width, axis, clearance)`), the opening
+  `opening_m` is `width + 2 * clearance`, then the moving jaw closes the object against the fixed jaw. A
+  `fixed_jaw_clearance_m` above half the margin widens the opening on both sides.
+- The moving jaw is not a straight parallel jaw: it swings about the gripper pivot and its inner face flares away
+  from the fixed jaw toward the palm, so once open the opening narrows into the jaws (`JawModel.inner_gap`, from the
+  jaw silhouette `mcp_server/jaw_profile.py` taken from the vendored MuJoCo jaw meshes and checked against them by
+  `sim/grasp_sim/tests/test_tcp.py`; at 0.534 rad 54 mm at the tips, 42 mm 2.75 cm in, 35 mm 4 cm in). The tip
+  opening alone (`JawModel.gap`, which matched the 39 mm jar contact at 0.336 rad on the robot) left a tall object
+  touching the moving jaw: in the sim its mesh hit the jar's top edge 2.75 cm into the jaws. Every strategy now opens
+  until `opening_m` holds over the object's depth in the jaws (`jaw_depth_m`: the near top corner along the jaws,
+  `cos(pitch) * depth / 2 + sin(pitch) * (top - grasp z)`): the 39 mm x 6 cm jar top_down opens to 0.97 rad instead
+  of 0.53, a 4 cm cube top_down 0.68 instead of 0.55, angled 45 0.75; scoops keep their geometry and open wider too.
+  An object too deep for the gripper's `arm.gripper_open_rad` is infeasible ("the object reaches ... cm into the
+  jaws, where the tilted moving jaw needs ...").
+- `moving_jaw_clearance_m` in `grasp_shift` is the narrowest moving jaw clearance over that depth.
+- Scoop keeps its semantics: the fixed jaw already goes `below_object_offset_m` under the object, so it had no
+  zero-clearance fixed jaw; only its opening now accounts for the depth.
+
+Validated in the sim (`sim/README.md`, "Jaw clearance re-run"): the matrix lifts what it lifted before (104 feasible,
+100 lifted, 0 contacts) and the tip-over jar scenario lifts without tipping (descent tilt 18.5 deg before with the jar
+3 mm toward the fixed jaw, 0 now).
 
 Planner speed (the RPi 5 is several times slower than a Mac; the web UI `/api/grasp` plan times out at 30 s). Every
 ikpy solve costs about 3 ms and a feasible straight-line sample needs 3 (top_down) to 30 (angled, where the arm plane
@@ -502,9 +534,22 @@ heading has to be iterated) of them, so the planner avoids them where the result
 
 Feasible plans keep their feasibility and strategy: `tests/test_grasp_speed.py` compares 13 of them (top_down, angled,
 scoop, auto) with golden joints within 1e-6 rad (`tests/data/grasp_golden.json`, regenerated 2026-10-10 with the grid
-calibration; the stair case moved from -0.25 to -0.204 and the baseline of that regeneration equals the current plans) and each case keeps its `baseline` (the plan before that change), which the current plan must match within 2e-3
+calibration; the stair case moved from -0.25 to -0.204 and the baseline of that regeneration equals the current plans;
+regenerated again for the jaw clearance, which moves every centred plan by design: shoulder_pan 0.03 to 0.05 rad, the
+open angle of every case, scoop arm joints unchanged) and each case keeps its `baseline` (the plan before that change), which the current plan must match within 2e-3
 rad (0.1 deg, far below the arm's backlash). The speed tests (feasible angled and auto golden scenarios and auto on the
 reference 4 cm cube under 1 s, scoop 3 s, unreachable 0.2 s) are skipped with `GRASP_SPEED_SKIP=1`.
+
+Regenerating the golden plans after a planner change that moves them by design (check the sim matrix first):
+
+```bash
+cd nodes/mcp_server
+uv run python -m tests.regenerate_grasp_golden   # re-plans every case, sets baseline = the new plan
+uv run pytest tests/test_grasp_speed.py -q
+```
+
+It keeps each case's scenario, refuses to write anything when a case became infeasible, and leaves unchanged plans
+(the scoop arm joints of the jaw clearance change) byte for byte.
 
 The angled cost was the arm plane heading: the approach vector needs the heading the solution ends up with (link
 offsets, wrist_roll), and the fixed-point iteration converged at about 0.9 per step, so each sample needed 10 to 16
@@ -978,6 +1023,7 @@ grasp:                    # grasp planner defaults, overridable per call via par
   retreat_distance_m: 0.05
   jaw_thickness_m: 0.008
   jaw_open_margin_m: 0.015
+  fixed_jaw_clearance_m: 0.0075  # centred grasps: each jaw at least this far off the object's side face
   below_object_offset_m: 0.005
   skim_clearance_m: 0.003
   max_object_width_m: 0.08
