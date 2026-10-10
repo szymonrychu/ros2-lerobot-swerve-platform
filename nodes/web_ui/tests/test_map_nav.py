@@ -380,7 +380,7 @@ def test_subscription_spec_unknown_topic_without_role_is_none() -> None:
 
 
 def test_bridge_init_subscribes_map_nav_topics_by_role() -> None:
-    from web_ui.bridge import BridgeNode, OccupancyGrid
+    from web_ui.bridge import MAP_GUARD_RESET_TOPIC, BridgeNode, OccupancyGrid
 
     created: list[tuple[Any, str]] = []
     with (
@@ -401,7 +401,7 @@ def test_bridge_init_subscribes_map_nav_topics_by_role() -> None:
             robot_pose_frames=("map", "base_link"),
         )
     topics = {t for _, t in created}
-    assert topics == {"/map", "/plan", "/goal_pose"}
+    assert topics == {"/map", "/plan", "/goal_pose", MAP_GUARD_RESET_TOPIC}
     assert (OccupancyGrid, "/map") in created
 
 

@@ -2,7 +2,8 @@
 
 Also tracks the robot pose in the map frame via TF and, for the map_nav tab, calls slam_toolbox's
 serialize_map and reset services, cancels Nav2 NavigateToPose goals, calls the arm home Trigger services and
-fits the GPS anchor of the map frame from GPS fixes paired with TF robot positions.
+fits the GPS anchor of the map frame from GPS fixes paired with TF robot positions. A map reset done by the
+map_guard node (std_msgs/Empty on /map_guard/map_reset) drops the GPS anchor and the cached map like Reset map.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
 from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, NavSatFix
 from slam_toolbox.srv import Reset, SerializePoseGraph
-from std_msgs.msg import String
+from std_msgs.msg import Empty, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
@@ -132,6 +133,8 @@ GRASP_MOTION_ACTIONS = frozenset({"execute", "release"})
 # A GPS fix is paired with the latest map -> base TF only if their stamps differ by at most this (seconds).
 GPS_TF_MAX_SKEW_S = 0.25
 SERIALIZE_MAP_SERVICE = "/slam_toolbox/serialize_map"
+# std_msgs/Empty published by map_guard after it backed up and reset the SLAM map.
+MAP_GUARD_RESET_TOPIC = "/map_guard/map_reset"
 # Appended to an action name to get its cancel service (action_msgs/srv/CancelGoal).
 CANCEL_GOAL_SERVICE_SUFFIX = "/_action/cancel_goal"
 # A zero goal id with a zero stamp asks the action server to cancel all of its goals.
@@ -277,6 +280,8 @@ class BridgeNode(Node):
             self.create_publisher(String, grasp_command_topic, DEFAULT_SUB_QOS_DEPTH) if grasp_command_topic else None
         )
         roles = topic_roles or {}
+        self._map_topics = [topic for topic in topics if roles.get(topic) == "map"]
+        self.create_subscription(Empty, MAP_GUARD_RESET_TOPIC, self.on_map_guard_reset, DEFAULT_SUB_QOS_DEPTH)
         if gps_compass is not None:
             # Dedicated subscriptions: the same topics may also feed UI tabs through the generic loop below.
             self.create_subscription(Imu, gps_compass.imu_topic, self.on_anchor_imu, SENSOR_SUB_QOS)
@@ -681,6 +686,17 @@ class BridgeNode(Node):
         if self._gps_anchor is not None:
             self._gps_anchor.reset()
         self.clear_and_notify(GPS_ANCHOR_TOPIC)
+
+    def on_map_guard_reset(self, _msg: Any) -> None:
+        """map_guard reset the SLAM map: drop the GPS anchor and the cached map, as the Reset map action does.
+
+        Args:
+            _msg (Any): std_msgs/Empty.
+        """
+        log.warning("map_guard_map_reset", map_topics=self._map_topics)
+        for topic in self._map_topics:
+            self.clear_and_notify(topic)
+        self.reset_gps_anchor()
 
     def trigger_async(self, service: str) -> Any:
         """Call a std_srvs/Trigger service (arm home / set home).

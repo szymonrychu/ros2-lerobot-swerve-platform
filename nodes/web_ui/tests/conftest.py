@@ -113,6 +113,8 @@ def _install_ros2_stubs() -> None:
                 self.data = data
 
         std_msgs_mod.String = _StubString  # type: ignore[attr-defined]
+    if not hasattr(std_msgs_mod, "Empty"):
+        std_msgs_mod.Empty = type("Empty", (), {})  # type: ignore[attr-defined]
 
     node_mod = sys.modules["rclpy.node"]
     if not hasattr(node_mod, "Node"):
