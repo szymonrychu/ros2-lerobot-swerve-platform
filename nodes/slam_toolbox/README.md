@@ -87,6 +87,11 @@ ros2 service call /slam_toolbox/serialize_map slam_toolbox/srv/SerializePoseGrap
 
 Delete `<map base>.*` (default `/var/lib/ros2/maps/slam_map.*`) and restart the service to start over.
 
+**Map protection:** the `map_guard` node (`nodes/map_guard/README.md`) pauses new measurements
+(`/slam_toolbox/pause_new_measurements`) while the robot is lifted, carried or rotated by hand, and when the scan
+no longer agrees with the map it serializes a backup to `/var/lib/ros2/maps/map_guard_backup_<UTC timestamp>`
+(newest 5 kept) and calls `/slam_toolbox/reset`. It runs in dry run (no service calls) until enabled.
+
 Env overrides (unit `env`): `SLAM_TOOLBOX_PARAMS` (defaults file path), `SLAM_TOOLBOX_CONFIG` (overrides file path,
 set by Ansible to `/etc/ros2/slam_toolbox/config.yaml`), `SLAM_TOOLBOX_MAP_BASE` (posegraph base path; beats
 `map_file_name` from the params files).

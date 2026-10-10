@@ -32,6 +32,7 @@ LIMITS_SNAPSHOT = {
     "static_tf_publisher": ["10%", "64M"],
     "rf2o_laser_odometry": ["25%", "128M"],
     "rf2o_odom_relay": ["10%", "64M"],
+    "map_guard": ["20%", "128M"],
     "robot_localization_ekf": ["25%", "128M"],
     "nav2_bringup": ["75%", "512M"],
     "slam_toolbox": ["75%", "512M"],
@@ -50,6 +51,7 @@ NORMAL = {
     "types": [
         "rplidar_a1", "rf2o_laser_odometry", "rf2o_odom_relay", "robot_localization_ekf", "nav2_bringup",
         "slam_toolbox", "laser_filter", "gps_rtk", "poi_store", "overview_camera", "uvc_camera", "test_joint_api",
+        "map_guard",
     ],
 }  # fmt: skip
 LOW = {

@@ -58,6 +58,7 @@ jobs:
           - haptic_controller
           - lerobot_teleop
           - master2master
+          - map_guard
           - mcp_server
           - poi_store
           - rf2o_odom_relay

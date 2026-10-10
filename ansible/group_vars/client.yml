@@ -351,6 +351,22 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/rf2o_odom_relay
     env:
       - RF2O_ODOM_RELAY_CONFIG=/etc/ros2/rf2o_odom_relay/config.yaml
+  map_guard:
+    deploy_mode: native
+    node_launch_command: "python3 -m map_guard"
+    node_src_dir: "nodes/map_guard"
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
+    cpu_quota: "20%"
+    memory_max: "128M"
+    cpu_weight: 100
+    oom_score_adjust: 0
+    config_path: /etc/ros2/map_guard
+    # Imports slam_toolbox.srv (Pause, Reset, SerializePoseGraph) for its service clients.
+    apt_packages:
+      - ros-jazzy-slam-toolbox
+    env:
+      - MAP_GUARD_CONFIG=/etc/ros2/map_guard/config.yaml
   robot_localization_ekf:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/robot_localization_ekf/launch/ekf.launch.py"
@@ -967,6 +983,76 @@ ros2_nodes:
           map_file_name: /var/lib/ros2/maps/slam_map
           min_laser_range: 0.15
           max_laser_range: 12.0
+  # SLAM map protection (nodes/map_guard/README.md): pauses slam_toolbox while the robot is lifted, carried or
+  # rotated by hand, then resumes or backs up + resets the map. Starts in dry run (logs + metrics only).
+  - name: map_guard
+    node_type: map_guard
+    present: true
+    enabled: true
+    config: |
+      # Prometheus /metrics on 127.0.0.1.
+      metrics_port: 19110
+      # true: never call slam_toolbox services or publish /map_guard/map_reset; set false once tuned in Grafana.
+      dry_run: true
+      reasons: [mismatch, lifted, carried, rotated]
+      scan_topic: /scan_filtered
+      map_topic: /map
+      imu_topic: /imu/data
+      wheel_odom_topic: /odom
+      lidar_odom_topic: /odom_rf2o
+      cmd_vel_topic: /cmd_vel
+      map_frame: map
+      reset_topic: /map_guard/map_reset
+      events_topic: /robot_events
+      pause_service: /slam_toolbox/pause_new_measurements
+      reset_service: /slam_toolbox/reset
+      serialize_service: /slam_toolbox/serialize_map
+      parameters_service: /slam_toolbox/get_parameters
+      service_timeout_s: 5.0
+      agent_state_url: http://127.0.0.1:18300/api/state
+      agent_poll_s: 2.0
+      agent_timeout_s: 0.5
+      tick_hz: 10.0
+      # Scan-to-map agreement.
+      max_range_m: 8.0
+      hit_radius_cells: 1
+      occupied_threshold: 65
+      min_points: 40
+      agreement_hz: 2.0
+      median_window: 5
+      mismatch_ratio: 0.3
+      mismatch_s: 5.0
+      healthy_ratio: 0.6
+      min_map_cells_known: 2000
+      # LIFTED: tilt from the level baseline, or vertical acceleration confirmed by tilt / lidar motion.
+      lift_tilt_deg: 12.0
+      lift_s: 1.0
+      level_window_s: 3.0
+      level_tolerance_deg: 2.0
+      level_rebaseline_s: 30.0
+      lift_accel_z: 1.5
+      lift_accel_s: 0.4
+      lift_confirm_s: 2.0
+      lift_confirm_tilt_deg: 4.0
+      gravity_band: 2.0
+      # CARRIED: lidar odometry moves, wheels do not, nothing commanded.
+      carried_speed_mps: 0.08
+      wheel_still_mps: 0.02
+      cmd_timeout_s: 0.5
+      cmd_eps: 0.01
+      carried_s: 1.0
+      input_timeout_s: 0.5
+      # ROTATED: IMU yaw rate without wheel yaw rate or angular command.
+      rotate_rate_rad_s: 0.3
+      wheel_still_rad_s: 0.05
+      rotate_s: 0.8
+      # Response.
+      settle_s: 3.0
+      evaluate_s: 4.0
+      cooldown_s: 30.0
+      backup_dir: /var/lib/ros2/maps
+      backup_prefix: map_guard_backup
+      keep_backups: 5
   - name: nav2_bringup
     node_type: nav2_bringup
     present: true

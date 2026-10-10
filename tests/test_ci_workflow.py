@@ -53,7 +53,7 @@ def test_node_matrix_equals_filesystem() -> None:
     job = load_workflow()["jobs"]["nodes"]
     matrix = set(job["strategy"]["matrix"]["node"])
     assert matrix == discover_node_dirs()
-    assert len(matrix) == 18
+    assert len(matrix) == 19
     run = "\n".join(s.get("run", "") for s in job["steps"])
     for cmd in ("uv lock --check", "uv run --frozen poe lint", "uv run --frozen pytest -q"):
         assert cmd in run

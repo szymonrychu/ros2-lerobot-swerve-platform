@@ -1,0 +1,58 @@
+[project]
+name = "map_guard"
+version = "0.1.0"
+description = "SLAM map protection: pause slam_toolbox while the robot is lifted/carried/rotated, resume or back up and reset"
+readme = "README.md"
+requires-python = ">=3.12,<4"
+dependencies = [
+    "pyyaml>=6.0",
+    "numpy>=1.26.0",
+    "pydantic>=2.5",
+    "ros2-metrics",
+]
+
+[dependency-groups]
+dev = [
+    "ruff==0.15.20",
+    "vulture>=2.11,<3",
+    "poethepoet>=0.42.0,<0.43",
+    "pytest>=8.0.0,<9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["map_guard"]
+
+[tool.uv.sources]
+ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+ignore = ["E501"]
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  ruff check map_guard tests
+  ruff format --check map_guard tests
+  vulture map_guard tests --min-confidence 80
+""" }
+lint-fix = { shell = """
+  ruff check --fix map_guard tests
+  ruff format map_guard tests
+""" }
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

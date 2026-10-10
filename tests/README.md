@@ -48,7 +48,7 @@ Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every node pro
 | `test_workflow_has_no_poetry` | The workflow never mentions Poetry. |
 | `test_uv_pinned_in_every_job` | Every job installs uv through `astral-sh/setup-uv` pinned to version 0.11.29. |
 | `test_root_tests_job_present` | A job runs the root test suite (`uv run --frozen pytest tests`). |
-| `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q`. |
+| `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q` (19 node projects, `map_guard` included). |
 | `test_ansible_job_installs_collections_before_syntax_check` | The `lint-ansible` job installs `ansible/requirements.yml` collections (`ansible.posix`, used by the mount tasks) before `poe test-ansible`. |
 
 ### `test_precommit_config.py`
@@ -143,7 +143,7 @@ Cgroup tiers and the unit template directives (`CPUWeight`, `IOWeight`, `MemoryH
 | `test_template_renders_directives_when_set` | Each directive renders with its value, `OOMScoreAdjust=0` included. |
 | `test_directives_sit_in_the_service_section` | Directives land between `[Service]` and `[Install]`. |
 | `test_resolve_maps_new_keys` | `resolve_and_deploy.yml` maps the four type default keys. |
-| `test_tiers_have_expected_weights` | Every client node type of the critical / normal / low tiers has its weights. |
+| `test_tiers_have_expected_weights` | Every client node type of the critical / normal / low tiers has its weights (`map_guard` is in the normal tier, 20% / 128M). |
 | `test_tiers_do_not_overlap` | A node type is in one tier only. |
 | `test_untiered_types_have_no_weights` | Types outside the tiers carry no new keys. |
 | `test_existing_limits_unchanged` | `cpu_quota` / `memory_max` match a hard-coded snapshot of main. |
@@ -205,6 +205,21 @@ Control step (`test_control_step.py`, rclpy-free `control.py`): combined command
 ### Per-node tests (rf2o_odom_relay)
 
 The **rf2o_odom_relay** node has tests under `nodes/rf2o_odom_relay/tests/`. Run from `nodes/rf2o_odom_relay`: `uv run pytest tests/ -v`. Covers: pose-difference twist (`test_twist.py`: straight ahead, world motion rotated into the body frame, sideways motion reported as `vy`, yaw-rate wrap across pi, mid-heading rotation during a turn, no twist for zero/negative/too large time steps, diagonal-only covariance); config loading (`test_config.py`: missing file, defaults, overrides). Metrics (`test_metrics.py`): `metrics_port` config field, `relay_messages_total` per published twist and `relay_dt_rejected_total` per rejected time step (`relay_twist`).
+
+### Per-node tests (map_guard)
+
+The **map_guard** node has tests under `nodes/map_guard/tests/`. Run from `nodes/map_guard`: `uv run pytest tests/ -v`.
+
+| File | Covers |
+|---|---|
+| `test_agreement.py` | Scan endpoint filtering (inf/nan, range_min, min(range_max, max_range_m)); TF projection (yaw, upside-down mount); square dilation; agreement on a synthetic square room ray-cast from a known pose: perfect transform (> 0.95), shifted 0.4 m and rotated 0.35 rad (< 0.3), one cell off accepted / three cells off rejected, empty map, missing map, fewer than min_points, points outside the map or in unknown space not evaluated, rotated map origin, known cell count. MismatchMonitor: fresh map never triggers, small map never triggers, mismatch after a healthy period fires only after mismatch_s, isolated low samples never fire, reset disarms, rolling median. |
+| `test_detectors.py` | roll/pitch, wrapped angle difference, world-frame rotation, odometry speed (larger of twist and pose difference). LIFTED: sustained 20 deg tilt fires after lift_s, a 0.2 s spike never fires, no baseline no trigger, tilt below threshold, baseline follows an inclined floor; vertical acceleration then tilt or lidar motion fires, acceleration alone, a 0.2 s acceleration spike, gravity-included fallback samples ignored. CARRIED: sustained fires after carried_s (unexplained speed reported), 0.2 s spike never, commanded motion suppresses, command older than cmd_timeout_s does not, zero command does not, moving wheels suppress, stale lidar odometry never fires. ROTATED: sustained fires after rotate_s, 0.2 s spike never, commanded rotation and wheel yaw rate suppress. Quiet robot reports nothing. |
+| `test_guard.py` | State machine with a fake slam_toolbox (toggle + parameter): lifted -> disturbed (pause, trigger counter, event) -> settling -> evaluating -> resumed -> ok; a new trigger while settling or evaluating returns to disturbed without a second toggle; low agreement backs up (timestamped name in backup_dir) then resets, unpauses, publishes the reset topic, counts `resets_total{dry_run="false"}`, event with the backup path; pruning keeps the newest keep_backups; failed backup skips the reset; failed reset publishes nothing; no samples resumes; mismatch alone pauses and evaluates without settling; cooldown blocks a mismatch retrigger until it ends but not physical triggers; disabled reasons ignored. Toggle tracking: already paused not toggled, failed toggle keeps the state, a toggle that did not take effect is detected, unreadable parameter falls back to tracking. Dry run never calls a service, never publishes or writes a backup, still counts and logs; dry_run, tilt and unexplained speed gauges. |
+| `test_agent.py` | Busy fetch (true/false, malformed, unreachable, timeout = not busy), poll at most every agent_poll_s; events published only when busy (idle and unreachable get none); severity per type and reason (critical for reset and lifted/carried); dry run: `[dry run] ` prefix, always warning; event fields match the `/robot_events` contract of claude_agent's `parse_robot_event` (keys, types, source, message length, data size); increasing seq. |
+| `test_backup.py` | Backup stem `map_guard_backup_<YYYYMMDDTHHMMSSZ>` in UTC; pruning keeps the newest N stems (both files), never touches `slam_map.*` or non-timestamped files, missing directory. |
+| `test_config.py` | Defaults; rejected values (non-positive durations and rates, ratios outside 0..1, healthy_ratio <= mismatch_ratio, unknown reason, keep_backups 0, negative radius, threshold > 100, unknown key); YAML loading, missing/non-mapping file, env path. |
+| `test_timing.py` | HoldTimer (full duration, reset on a false sample, short spike, reset) and RateLimiter. |
+| `test_node.py` | ROS wiring with stubbed ROS packages: OccupancyGrid conversion, slam_toolbox clients (parameter read, unknown parameter type, unavailable service, timeout, Pause status, SerializePoseGraph / Reset result codes and request fields). |
 
 ### Per-node tests (static_tf_publisher)
 
@@ -300,6 +315,8 @@ The **web_ui** node has tests under `nodes/web_ui/tests/`. Run from `nodes/web_u
 - POI frontend (`frontend/src/poi/*.test.ts`, vitest): geometry and hit testing (`geometry.test.ts`: area, centroid, point-in-polygon, hit priority, objects hit only within the pointer tolerance), editor state (`editor.test.ts`: click detection, area drafting, new-POI fields, drag previews and update commands incl. objects moving like points, optimistic override), styling and list helpers (`style.test.ts`: colour by status, creator marker, `/poi/list` validation, sort, relative time, object POIs: own colour, parsing with defaulted sighting fields, tooltip details), and the `POST /api/poi` client (`api.test.ts`). `map3d/layers.test.ts` covers the `pois` layer toggle.
 
 - Metrics (`nodes/web_ui/tests/test_metrics.py`): `GET /metrics` is not shadowed by the SPA static catch-all; `webui_http_requests_total` uses the matched route template (`/api/urdf/{path:path}`, `/api/tiles/{z}/{x}/{y}.png`, `static`) and status; `webui_ws_clients` / `webui_ws_disconnects_total` around a `/ws` session; `webui_broadcast_duration_seconds` and `webui_broadcaster_slow_total` with a slow bridge flush; `webui_topic_stale_total{topic}` once per outage; `webui_map_updates_total` (map role only) and `webui_map_age_seconds`; `webui_robot_pose_ok` for fresh and missing TF; `webui_battery_cutoff_active` for low and recovered voltage.
+
+Also `test_map_guard_reset.py`: the bridge subscribes to `/map_guard/map_reset` (`std_msgs/Empty`) and each message drops the GPS anchor (estimator reset, `data: null`) and the cached map topics, with or without an anchor.
 
 ### Per-node tests (claude_agent)
 
