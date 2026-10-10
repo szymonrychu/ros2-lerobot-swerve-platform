@@ -31,6 +31,7 @@ from .test_self_collision import (
     JAW,
     KIN,
     LIDAR,
+    beside_lidar,
     clear_pose,
     hover_over_lidar,
     lidar_pose,
@@ -56,7 +57,8 @@ def make(tmp_path: Path, start: dict[str, float], enabled: bool = True) -> tuple
 
 
 def above_lidar() -> dict[str, float]:
-    return solve_base_link(LIDAR.center_xy[0], LIDAR.center_xy[1], LIDAR.z_max + 0.06, 0.7)
+    """Start of the lowering beside the dome edge (test_self_collision.hover_over_lidar): clear of the soft margin."""
+    return beside_lidar(LIDAR.z_max + 0.008)
 
 
 # --- ArmController -------------------------------------------------------------------------------------------------
@@ -253,7 +255,7 @@ def test_planner_without_the_body_check_has_no_body_reasons() -> None:
 def floor_object_left_front() -> ObjectSpec:
     """A 3 cm cube on the floor front-left of the arm: a top_down retreat swings the gripper back into the lidar."""
     return ObjectSpec(
-        frame="arm", x=0.20, y=0.10, support_z=CONFIG.arm.floor_z_m, width_m=0.03, depth_m=0.03, height_m=0.04
+        frame="arm", x=0.24, y=0.06, support_z=CONFIG.arm.floor_z_m, width_m=0.03, depth_m=0.03, height_m=0.04
     )
 
 

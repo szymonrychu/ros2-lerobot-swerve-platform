@@ -54,22 +54,23 @@ def load_script() -> ModuleType:
 
 def test_plan_matrix_writes_the_index_and_plans_with_the_deployed_config(tmp_path: Path) -> None:
     script = load_script()
-    assert script.main(["--out", str(tmp_path), "--only", "4x4x4_r20_floor_"]) == 0
+    assert script.main(["--out", str(tmp_path), "--only", "4x4x4_r25_floor_"]) == 0
     index = json.loads((tmp_path / "index.json").read_text())
     assert set(index) == INDEX_KEYS
     assert index["tool_offset_m"] == pytest.approx([0.0010, -0.0056, -0.0014])  # client.yml arm.tool_offset_m
     assert index["pan_axis_xy"] == pytest.approx([0.0388, 0.0], abs=1e-4)  # the sim turns the box to face it
     entries = {e["key"]: e for e in index["entries"]}
-    assert set(entries) == {f"4x4x4_r20_floor_{s}" for s in ("top_down", "angled45", "scoop", "scoop_gap", "auto")}
+    assert set(entries) == {f"4x4x4_r25_floor_{s}" for s in ("top_down", "angled45", "scoop", "scoop_gap", "auto")}
     for entry in entries.values():
         assert set(entry) == ENTRY_KEYS
         plan = json.loads((tmp_path / entry["plan_file"]).read_text())
         assert plan["feasible"] == entry["feasible"]
-    assert entries["4x4x4_r20_floor_top_down"]["feasible"]
-    assert entries["4x4x4_r20_floor_auto"]["chosen"] == "top_down"
-    scoop = entries["4x4x4_r20_floor_scoop"]
+    # r25, not r20: at 20 cm the top_down retreat brings the gripper body into the measured lidar dome
+    assert entries["4x4x4_r25_floor_top_down"]["feasible"]
+    assert entries["4x4x4_r25_floor_auto"]["chosen"] == "top_down"
+    scoop = entries["4x4x4_r25_floor_scoop"]
     assert not scoop["feasible"] and "no gap under object" in scoop["reasons"][0]
-    gap = entries["4x4x4_r20_floor_scoop_gap"]
+    gap = entries["4x4x4_r25_floor_scoop_gap"]
     assert gap["gap_below_m"] > 0 and gap["support_z"] == pytest.approx(gap["surface_z"] + gap["gap_below_m"])
 
 
@@ -149,7 +150,8 @@ def test_tipover_writes_the_2026_10_10_jar_scenarios(tmp_path: Path) -> None:
         grasp = next(w for w in plan["waypoints"] if w["label"] == "grasp")
         toward_fixed = (grasp["tool_point"]["x"] - grasp["x"], grasp["tool_point"]["y"] - grasp["y"])
         assert offset[0] * toward_fixed[0] + offset[1] * toward_fixed[1] > 0.0
-    assert entries["jar39x60_base0.316_floor_top_down_err0"]["feasible"]
-    # angled 50: the retreat brings the gripper body within the hard margin of the lidar dome (robot body check)
-    angled = entries["jar39x60_base0.316_floor_angled50_err0"]
-    assert not angled["feasible"] and any("body_collision:lidar" in r for r in angled["reasons"])
+    # With the measured lidar dome (radius 74 mm) every retreat of the 2026-10-10 jar comes within the hard margin of
+    # the dome (robot body check): top_down 8 mm, angled 50 inside it; auto has nothing left to choose.
+    for entry in entries.values():
+        assert not entry["feasible"]
+        assert any("body_collision:lidar: retreat" in r for r in entry["reasons"]), entry["reasons"]

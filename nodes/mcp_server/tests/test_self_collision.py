@@ -32,6 +32,8 @@ HOME = {
 TOUCHES = json.loads((REPO_ROOT / "docs/calibration/2026-10-10/session/touches.json").read_text())["touches"]
 LIDAR = CHECKER.body.by_name("lidar")
 WHEEL_FR = CHECKER.body.by_name("wheel_fr")
+# Touch-downs the measured lidar dome rejects (test_measured_ground_touches_in_front_are_clear).
+LIDAR_REJECTED_TOUCHES = {"t4"}
 
 
 def deployed_config() -> McpServerConfig:
@@ -80,10 +82,14 @@ def test_clear_pose_has_full_clearance() -> None:
     assert set(check.per_obstacle) == {o.name for o in CHECKER.body.obstacles}
 
 
-def test_home_pose_is_clear() -> None:
+def test_home_pose_is_clear_of_the_hard_margin_and_in_the_lidar_slow_band() -> None:
+    """The folded home is never rejected, but the gripper body stands 2.6 cm from the measured lidar dome (radius
+    74 mm, top 210 mm): inside the soft margin, so moves near home run slowed."""
     tip = tool_base_link(KIN, HOME)
     assert tip[2] > 0.15  # FK check: the folded home keeps the tool well above the body
-    assert CHECKER.pose(HOME).min_clearance > CONFIG.body_check.soft_margin_m
+    check = CHECKER.pose(HOME)
+    assert CONFIG.body_check.hard_margin_m < check.min_clearance < CONFIG.body_check.soft_margin_m
+    assert (check.obstacle, check.part) == ("lidar", "gripper body")
 
 
 def test_lidar_pose_penetrates_the_lidar() -> None:
@@ -103,7 +109,10 @@ def test_low_over_front_wheel_hits_the_wheel() -> None:
 
 @pytest.mark.parametrize("touch", [t["name"] for t in TOUCHES])
 def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
-    """The 2026-10-10 tip touch-downs (deployed offsets) are in front of the robot on the floor: never rejected."""
+    """The 2026-10-10 tip touch-downs (deployed offsets) are in front of the robot on the floor: never rejected, except
+    t4 (front-left, tip at base_link (0.30, 0.10)): with the measured lidar dome its elbow end of the upper arm dips
+    3.5 mm into the dome (FK z 0.194 beside it). The arm reached t4 on the robot, so the dome model (a full-radius
+    cylinder up to the top face) or the FK is that much conservative there; the check rejects it."""
     cfg = deployed_config()
     kin = ArmKinematics(
         cfg.arm.urdf_path,
@@ -119,7 +128,12 @@ def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
     joints = entry["last_free"]["joints"] if "last_free" in entry else entry["hover"]["joints"]
     tip = tool_base_link(kin, joints)
     assert tip[0] > 0.2 and abs(tip[2]) < 0.03  # FK check: in front of the robot, at the floor
-    assert checker.pose(joints).min_clearance > cfg.body_check.hard_margin_m
+    check = checker.pose(joints)
+    if touch in LIDAR_REJECTED_TOUCHES:
+        assert (check.obstacle, check.part) == ("lidar", "upper arm")
+        assert -0.01 < check.min_clearance < cfg.body_check.hard_margin_m
+    else:
+        assert check.min_clearance > cfg.body_check.hard_margin_m
 
 
 def test_path_into_the_lidar_is_rejected() -> None:
@@ -135,12 +149,22 @@ def test_path_into_the_lidar_is_rejected() -> None:
     assert "hint" in reason and reason["hint"]
 
 
+# Tool beside the dome's front-right edge (base_link (0.258, -0.02), pitch 1.3 rad). Straight over the dome the arm
+# cannot reach down far enough, and toward the dome's centre heading the gripper body is already inside its margin.
+HOVER_XY = (LIDAR.center_xy[0] + 0.10, LIDAR.center_xy[1] - 0.08)
+HOVER_PITCH = 1.3
+
+
+def beside_lidar(z: float) -> dict[str, float]:
+    return solve_base_link(HOVER_XY[0], HOVER_XY[1], z, HOVER_PITCH)
+
+
 def hover_over_lidar() -> dict[str, float]:
-    """Tool over the lidar (pitch 0.7 rad: it stands too close to the pan axis for a steeper reach), lowered in 2 mm
-    steps until the closest link is inside the slow band."""
-    z = LIDAR.z_max + 0.06
-    while z > LIDAR.z_max:
-        joints = solve_base_link(LIDAR.center_xy[0], LIDAR.center_xy[1], z, 0.7)
+    """Tool beside the dome edge, lowered in 2 mm steps from just above the dome top until the closest link is
+    inside the slow band."""
+    z = LIDAR.z_max + 0.008
+    while z > LIDAR.z_max - 0.06:
+        joints = beside_lidar(z)
         clearance = CHECKER.pose(joints).per_obstacle["lidar"][0]
         if clearance < (CONFIG.body_check.soft_margin_m + CONFIG.body_check.hard_margin_m) / 2.0:
             assert clearance > CONFIG.body_check.hard_margin_m
@@ -149,9 +173,22 @@ def hover_over_lidar() -> dict[str, float]:
     raise AssertionError("no hover pose in the slow band")
 
 
+def inside_lidar_margin() -> dict[str, float]:
+    """Tool pointing down beside the dome's front-right edge (base_link (0.238, 0.0)), lowered in 2 mm steps from 3 cm
+    under the dome top until the gripper body is inside the hard margin of the lidar."""
+    z = LIDAR.z_max - 0.03
+    while z > LIDAR.z_max - 0.08:
+        joints = solve_base_link(LIDAR.center_xy[0] + 0.08, LIDAR.center_xy[1] - 0.06, z, math.pi / 2)
+        if CHECKER.pose(joints).per_obstacle["lidar"][0] < CONFIG.body_check.hard_margin_m:
+            return joints
+        z -= 0.002
+    raise AssertionError("no pose inside the lidar hard margin")
+
+
 def test_path_near_the_lidar_is_slowed_not_rejected() -> None:
-    """Lowering the tool from 6 cm above the dome top toward it: the end runs slow, nothing is rejected."""
-    above = solve_base_link(LIDAR.center_xy[0], LIDAR.center_xy[1], LIDAR.z_max + 0.06, 0.7)
+    """Lowering the tool beside the dome from above its top: the end runs slow, nothing is rejected."""
+    above = beside_lidar(LIDAR.z_max + 0.008)
+    assert CHECKER.pose(above).min_clearance > CONFIG.body_check.soft_margin_m
     samples = joint_line(above, hover_over_lidar(), 0.01)
     report = CHECKER.path(samples)
     assert not report.rejected
@@ -166,17 +203,39 @@ def test_path_near_the_lidar_is_slowed_not_rejected() -> None:
 
 
 def test_clear_path_is_neither_slowed_nor_rejected() -> None:
-    report = CHECKER.path(joint_line(clear_pose(), HOME, 0.02))
+    goal = solve_base_link(0.30, -0.05, 0.25, 0.6)  # 10 cm above the clear pose
+    assert CHECKER.pose(goal).min_clearance > CONFIG.body_check.soft_margin_m
+    report = CHECKER.path(joint_line(clear_pose(), goal, 0.02))
     assert not report.rejected
     assert report.summary() is None
     assert set(report.scales) == {1.0}
 
 
+def test_path_home_is_slowed_only_near_the_lidar() -> None:
+    report = CHECKER.path(joint_line(clear_pose(), HOME, 0.02))
+    assert not report.rejected
+    assert report.scales[0] == 1.0
+    assert report.scales[-1] == CONFIG.body_check.slow_speed_scale
+    summary = report.summary()
+    assert summary is not None and summary["obstacle"] == "lidar"
+
+
 def test_escaping_from_a_colliding_start_is_allowed() -> None:
     """A start already inside the hard margin may move out (clearance never gets worse), slowed."""
-    report = CHECKER.path(joint_line(lidar_pose(), clear_pose(), 0.02))
+    start = inside_lidar_margin()
+    goal = beside_lidar(LIDAR.z_max + 0.008)
+    report = CHECKER.path(joint_line(start, goal, 0.02))
     assert not report.rejected
     assert report.scales[0] == CONFIG.body_check.slow_speed_scale
+    assert report.scales[-1] == 1.0
+
+
+def test_escaping_the_way_it_came_in_from_deep_inside_is_rejected() -> None:
+    """Deep in the dome the straight joint line to the clear pose first drives the gripper body deeper (more than the
+    escape tolerance): rejected; the hint says to raise the arm first."""
+    report = CHECKER.path(joint_line(lidar_pose(), clear_pose(), 0.02))
+    assert report.rejected
+    assert report.rejection()["obstacle"] == "lidar"
 
 
 def test_going_deeper_from_a_colliding_start_is_rejected() -> None:

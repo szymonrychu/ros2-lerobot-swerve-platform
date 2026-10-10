@@ -24,7 +24,7 @@ from .test_tools import TOKEN, FakeRobot, call
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
 FLOOR = CONFIG.arm.floor_z_m
-OBJECT = {"frame": "arm", "x": 0.22, "y": 0.03, "support_z": FLOOR, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.04}
+OBJECT = {"frame": "arm", "x": 0.26, "y": 0.03, "support_z": FLOOR, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.04}
 START = {
     "shoulder_pan": 0.0,
     "shoulder_lift": 0.0,

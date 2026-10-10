@@ -32,10 +32,13 @@ def pan_speeds(commands: list[dict[str, float]]) -> list[float]:
 def test_blend_moves_through_every_target_without_stopping(tmp_path: Path) -> None:
     arm, be = make(tmp_path)
     vias: list[int] = []
-    targets = [{"shoulder_pan": 0.3}, {"shoulder_pan": 0.6}, {"shoulder_pan": 0.9}]
+    # Pan up to 0.45 rad from the stretched zero pose: further, the upper arm's shoulder end comes within the body soft
+    # margin of the right side frame (top 180 mm) and the slow band would stretch the deceleration.
+    targets = [{"shoulder_pan": 0.15}, {"shoulder_pan": 0.3}, {"shoulder_pan": 0.45}]
     res = arm.move_blend(targets, on_via=vias.append, settle="final")
     assert res.status == "converged", res.message
-    assert be.commands[-1]["shoulder_pan"] == pytest.approx(0.9)
+    assert res.self_collision is None
+    assert be.commands[-1]["shoulder_pan"] == pytest.approx(0.45)
     assert vias == [0, 1, 2]
     speeds = pan_speeds(be.commands[1:])
     moving = [s for s in speeds if s > 1e-6]

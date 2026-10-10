@@ -32,6 +32,8 @@ FLAT = SurfaceModel(surface_z_m=0.0, tilt=None, tilt_source="none", mount=MOUNT)
 FLOOR = CONFIG.arm.floor_z_m
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 PARAMS = grasp_params(CONFIG.grasp, None)
+# Floor objects for top-down grasps stand 24..30 cm in front of the arm (arm frame x): closer, the 5 cm retreat brings
+# the gripper body into the measured lidar dome (radius 74 mm, base_link x up to 0.232); tests use 26 cm.
 
 
 def plan(obj: ObjectSpec, strategy: str, **overrides: object) -> GraspPlan:
@@ -88,7 +90,7 @@ def test_scoop_into_a_tight_gap_skims_the_surface() -> None:
 
 def test_scoop_on_a_ledge_puts_the_fixed_jaw_below_the_object_bottom() -> None:
     ledge = ObjectSpec(
-        frame="arm", x=0.33, y=0.0, support_z=-0.08, width_m=0.03, depth_m=0.03, height_m=0.03, gap_below_m=0.03
+        frame="arm", x=0.34, y=0.0, support_z=-0.08, width_m=0.03, depth_m=0.03, height_m=0.03, gap_below_m=0.03
     )
     surface = SurfaceModel(surface_z_m=-0.11 + MOUNT.z, tilt=None, tilt_source="none", mount=MOUNT)
     p = PLANNER.plan(ledge, "scoop", PARAMS, surface, SEED)
@@ -101,7 +103,7 @@ def test_scoop_on_a_ledge_puts_the_fixed_jaw_below_the_object_bottom() -> None:
 def test_top_down_points_down_and_aligns_the_jaws_with_the_object_width() -> None:
     for yaw in (0.0, math.pi / 2):
         obj = ObjectSpec(
-            frame="arm", x=0.22, y=0.03, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.04, yaw=yaw
+            frame="arm", x=0.26, y=0.03, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.04, yaw=yaw
         )
         p = plan(obj, "top_down")
         assert p.feasible, p.reasons
@@ -130,7 +132,7 @@ def test_angled_uses_the_requested_pitch() -> None:
 
 
 def test_auto_tries_the_configured_order_and_takes_the_first_feasible() -> None:
-    near = ObjectSpec(frame="arm", x=0.2, y=0.0, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.03)
+    near = ObjectSpec(frame="arm", x=0.26, y=0.0, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.03)
     p = plan(near, "auto")
     assert p.feasible, p.reasons
     tried = [a["strategy"] for a in p.attempts]
@@ -155,7 +157,7 @@ def test_too_wide_object_is_a_reason() -> None:
 
 
 def test_roll_changes_only_at_the_lifted_pre_grasp_half_open() -> None:
-    obj = ObjectSpec(frame="arm", x=0.22, y=0.0, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.04, yaw=0.0)
+    obj = ObjectSpec(frame="arm", x=0.26, y=0.0, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.04, yaw=0.0)
     p = plan(obj, "top_down")
     assert p.feasible, p.reasons
     first = p.waypoints[0]
@@ -259,13 +261,13 @@ def test_auto_skips_the_scoop_of_a_flat_object_with_its_reason() -> None:
     assert any(r.startswith("scoop: ") and "no gap under object" in r for r in p.reasons)
 
 
-def tall_object(x: float = 0.22, **kw: float) -> ObjectSpec:
+def tall_object(x: float = 0.26, **kw: float) -> ObjectSpec:
     """3 x 3 x 6 cm: height / width 2.0."""
     return ObjectSpec(frame="arm", x=x, y=0.0, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=0.06, **kw)
 
 
 def test_tall_narrow_objects_are_grasped_low_and_lifted_slowly() -> None:
-    for strategy, x in (("top_down", 0.22), ("angled", 0.3)):
+    for strategy, x in (("top_down", 0.26), ("angled", 0.3)):
         p = plan(tall_object(x=x), strategy)
         assert p.feasible, p.reasons
         grasp = waypoint(p, "grasp")
@@ -276,7 +278,7 @@ def test_tall_narrow_objects_are_grasped_low_and_lifted_slowly() -> None:
 
 
 def test_objects_below_the_tall_ratio_keep_the_mid_height_grasp_and_normal_lift() -> None:
-    cube = ObjectSpec(frame="arm", x=0.22, y=0.0, support_z=FLOOR, width_m=0.04, depth_m=0.04, height_m=0.04)
+    cube = ObjectSpec(frame="arm", x=0.26, y=0.0, support_z=FLOOR, width_m=0.04, depth_m=0.04, height_m=0.04)
     p = plan(cube, "top_down")
     assert p.feasible, p.reasons
     assert waypoint(p, "grasp").z == pytest.approx(FLOOR + 0.02, abs=1e-6)
@@ -329,7 +331,7 @@ def jaw_depth(obj: ObjectSpec, p: GraspPlan) -> float:
 
 
 @pytest.mark.parametrize(
-    ("strategy", "x", "pitch"), [("top_down", 0.22, None), ("angled", 0.31, 45.0), ("angled", 0.26, 60.0)]
+    ("strategy", "x", "pitch"), [("top_down", 0.26, None), ("angled", 0.31, 45.0), ("angled", 0.28, 60.0)]
 )
 def test_centred_grasp_puts_the_fixed_jaw_inner_face_7_5_mm_off_a_40_mm_object(
     strategy: str, x: float, pitch: float | None
@@ -364,7 +366,7 @@ def test_centred_grasp_puts_the_fixed_jaw_inner_face_7_5_mm_off_a_40_mm_object(
 
 
 def test_fixed_jaw_clearance_above_half_the_margin_widens_the_opening_on_both_sides() -> None:
-    obj = ObjectSpec(frame="arm", x=0.22, y=0.0, support_z=FLOOR, **CUBE_40)
+    obj = ObjectSpec(frame="arm", x=0.26, y=0.0, support_z=FLOOR, **CUBE_40)
     p = plan(obj, "top_down", fixed_jaw_clearance_m=0.01)
     assert p.feasible, p.reasons
     fixed, moving, _ = jaw_clearances(p, obj)
@@ -375,7 +377,7 @@ def test_fixed_jaw_clearance_above_half_the_margin_widens_the_opening_on_both_si
 
 
 def test_a_zero_minimum_still_centres_the_margin_on_the_object() -> None:
-    obj = ObjectSpec(frame="arm", x=0.22, y=0.0, support_z=FLOOR, **CUBE_40)
+    obj = ObjectSpec(frame="arm", x=0.26, y=0.0, support_z=FLOOR, **CUBE_40)
     p = plan(obj, "top_down", fixed_jaw_clearance_m=0.0, jaw_open_margin_m=0.02)
     assert p.feasible, p.reasons
     fixed, moving, _ = jaw_clearances(p, obj)
@@ -393,7 +395,8 @@ def test_scoop_keeps_the_tool_point_target_without_a_shift() -> None:
 def test_tall_jar_opens_wide_enough_for_the_tilted_moving_jaw_to_clear_its_top_edge() -> None:
     """2026-10-10 jar (39 mm, 6 cm tall) gripped low: it reaches 4.2 cm into the jaws, where the open moving jaw stands
     1.6 cm closer than at its tip. Opening for the tips alone, the moving jaw mesh touched the jar top in the sim."""
-    jar = ObjectSpec(frame="arm", x=0.2568, y=0.05, support_z=FLOOR, width_m=0.039, depth_m=0.039, height_m=0.06)
+    # The 2026-10-10 position (0.2568, 0.05) is rejected by the measured lidar dome (see the next test): 2.3 cm further.
+    jar = ObjectSpec(frame="arm", x=0.28, y=0.05, support_z=FLOOR, width_m=0.039, depth_m=0.039, height_m=0.06)
     p = plan(jar, "top_down")
     assert p.feasible, p.reasons
     shift = p.grasp_shift
@@ -406,6 +409,15 @@ def test_tall_jar_opens_wide_enough_for_the_tilted_moving_jaw_to_clear_its_top_e
     assert p.open_gripper_rad is not None
     assert p.open_gripper_rad > JAW.angle_for_gap(p.opening_m) + 0.2  # far wider than the tip-only opening
     assert JAW.inner_gap(p.open_gripper_rad, depth) == pytest.approx(p.opening_m, abs=2e-4)
+
+
+def test_the_2026_10_10_jar_position_retreats_into_the_measured_lidar_dome() -> None:
+    """At (0.2568, 0.05) the top-down retreat (5 cm back toward the pan axis) brings the gripper body inside the body
+    hard margin of the lidar: rejected with the obstacle and the waypoint named."""
+    jar = ObjectSpec(frame="arm", x=0.2568, y=0.05, support_z=FLOOR, width_m=0.039, depth_m=0.039, height_m=0.06)
+    p = plan(jar, "top_down")
+    assert not p.feasible
+    assert any("body_collision:lidar: retreat" in r for r in p.reasons), p.reasons
 
 
 def test_an_object_too_deep_for_the_moving_jaw_to_clear_is_a_reason() -> None:
