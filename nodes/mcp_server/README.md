@@ -32,9 +32,9 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
 | `move_arm_joints(targets, speed_scale<=0.5, settle=None)` | `settle`: `trajectory_end` (default; `final` when the call moves the gripper joint, `limits.arm_default_settle`) or `final`, see the safety model.  Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `speed_scale` 0.5 is the maximum, `limits.arm_max_joint_velocity_rps` (default 1.0 rad/s); the description states the configured value. A `wrist_roll` change above `limits.roll_guard_min_change_rad` is refused while the gripper is open wider than `limits.roll_max_gripper_open_rad` (see Wrist roll guard). `converged` results may carry `residual_error` (see Safety model). |
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None, settle=None)` | `settle` as for `move_arm_joints`.  ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.104, measured 2026-10-10; see Arm mount); the tool descriptions and `get_arm_state.floor_z_m` state it. Motions near or below the effective surface are slowed (never blocked) by the floor slow zone; `surface_z_m` and `tilt_override_deg` (also on `move_arm_joints`, `set_gripper` and `arm_home`) shift it per call and results report `slow_zone`. |
-| `set_gripper(open_fraction | close_until_effort, effort_threshold)` | Open to a fraction (0 closed, 1 open) or close slowly until `abs(effort) >= threshold` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.15 rad) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled with the command at least `gripper_stall_lead_rad` (0.15) ahead of it. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
-| `plan_grasp(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg)` | Dry-run grasp plan (sensor, no motion): outcome `planned` / `infeasible` with reasons, chosen strategy, pitch, wrist roll, jaw opening, waypoints and slow-zone annotations. See Grasp macros. |
-| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg)` | Plan and execute (motion): outcome `grasped` / `missed` / `aborted` / `infeasible`, with the executed steps and the final gripper position/load. See Grasp macros. |
+| `set_gripper(open_fraction | close_until_effort, effort_threshold, grip_profile)` | Open to a fraction (0 closed, 1 open) or close with a grip profile (see Grip profiles) until `abs(effort) >= threshold` (default: the profile's `contact_effort_threshold`) or the closing load reaches the profile's `target_load` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.15 rad) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled with the command at least `gripper_stall_lead_rad` (0.15) ahead of it. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
+| `plan_grasp(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile)` | Dry-run grasp plan (sensor, no motion): outcome `planned` / `infeasible` with reasons, the resolved `grip_profile` (an unknown profile is refused), chosen strategy, pitch, wrist roll, jaw opening, waypoints and slow-zone annotations. See Grasp macros. |
+| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile)` | Plan and execute (motion): outcome `grasped` / `missed` / `aborted` / `infeasible`, with the executed steps, the final gripper position/load and the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`; see Grip profiles). See Grasp macros. |
 | `release_object(params, surface_z_m, tilt_override_deg)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
 | `pixel_to_ground(camera, u, v, surface_height_m=0.0)` | Point seen at a pixel (sensor): `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
@@ -467,12 +467,15 @@ Runs a plan through `ArmController` (lease, stop, roll guard, limit clamping, tr
 roll changes and the gripper is open wider than half, it first half-opens; moves to the lifted pre-grasp keeping the
 current roll, rolls there, opens to the planned opening, approaches and slides (`move_path` at the waypoint speed,
 `slide_speed_scale`),
-closes with `close_until_effort` (`close_effort_threshold`; never a full squeeze: the effort/stall detection and the
+closes with `close_until_effort` using `params.grip_profile` (see Grip profiles; `close_effort_threshold` overrides the
+profile's contact threshold when set; never a full squeeze: the effort/stall detection and the
 gripper limits apply), verifies the grasp (jaw stopped at least `min_hold_gap_rad` short of closed and a load of at
 least `hold_effort_min` at the contact or after it), then lifts (`lift_speed_scale` for tall narrow objects) and
 retreats: `grasped`. A close on nothing
 (`closed_no_contact`, `blocked` or no load) opens again, lifts and retreats: `missed`. Any other motion status, a
-refusal or a stop (stop tool, or the service `stop`) stops and holds: `aborted` with the reason.
+refusal or a stop (stop tool, or the service `stop`) stops and holds: `aborted` with the reason, and the default
+gripper torque limit is restored. Results carry the close's `grip_profile`, `holding_load`, `slipping` and
+`crush_risk`.
 
 ### Web-UI contract (`/grasp/command` -> `/grasp/result`)
 
@@ -492,18 +495,24 @@ Request:
  "params": {"lift_height_m": 0.04},
  "approach_pitch_deg": null,
  "surface_z_m": null,
- "tilt_override_deg": {"roll": 0.0, "pitch": 0.0}}
+ "tilt_override_deg": {"roll": 0.0, "pitch": 0.0},
+ "grip_profile": "gentle" | "normal" | "firm" | {"base": "gentle", "squeeze_rad": 0.01}}
 ```
 
 `object` is required for `plan` and `execute`; everything else is optional (`strategy` defaults to `auto`, `params`
-keys are `grasp` config fields). Response:
+keys are `grasp` config fields; `grip_profile` defaults to `grip_profiles.default_grip_profile` and may also be given as
+`params.grip_profile`, an unknown profile is an error). Response:
 
 ```json
 {"ok": true, "request_id": "...", "action": "execute",
  "result": {"outcome": "planned" | "infeasible" | "grasped" | "missed" | "aborted" | "released",
             "reasons": ["..."], "plan": {"strategy": "top_down", "feasible": true, "waypoints": [...], ...},
             "steps": [{"label": "pre_grasp", "status": "converged", "message": "...", "slow_zone": null}],
-            "gripper_position_rad": 0.21, "gripper_effort": 350.0}}
+            "gripper_position_rad": 0.21, "gripper_effort": 350.0,
+            "grip_profile": {"name": "gentle", "squeeze_rad": 0.02, "torque_limit": 250, "close_speed_rps": 0.25,
+                             "target_load": 120.0, "contact_effort_threshold": 150.0, "crush_load": 220.0,
+                             "capped": []},
+            "holding_load": 130.0, "slipping": false, "crush_risk": false}}
 ```
 
 `stop` answers `{"ok": true, ..., "result": {"arm_held": bool, "message": str}}` and aborts a running execute/release.
@@ -512,6 +521,62 @@ object, unknown params, another action running, battery cut-off for execute/rele
 
 The camera overlay `planned_gripper` of `get_annotated_camera_image` takes one point: pass a plan waypoint (x, y, z)
 to draw it.
+
+## Grip profiles
+
+How hard the gripper grips is set per object (`grip.py`, config section `grip_profiles`). A profile is
+`{squeeze_rad, torque_limit, close_speed_rps, target_load, contact_effort_threshold, crush_load}` in servo units
+(loads and torque limit in 0.1 % of max torque; tune on the real gripper). Presets:
+
+| Preset | torque_limit | squeeze_rad | close_speed_rps | target_load | contact threshold | crush_load | For |
+|---|---|---|---|---|---|---|---|
+| `gentle` | 250 | 0.02 | 0.25 | 120 | 150 | 220 | fragile, soft or light objects |
+| `normal` (default) | 500 | 0.03 | 0.5 | - | 300 | 450 | ordinary objects (the squeeze, speed and threshold used before profiles) |
+| `firm` | 700 | 0.06 | 0.5 | - | 400 | 650 | heavy or slippery objects, tools |
+
+`grip_profile` is a preset name or inline overrides `{base?, <field>?...}` (base defaults to `default_grip_profile`;
+the result names it `<base>+custom`). It is accepted by `set_gripper` (close_until_effort only), `plan_grasp` /
+`grasp_object` (argument or `params.grip_profile`), the motion queue `gripper` step (and `grasp` steps via
+`params.grip_profile`) and the `/grasp/command` contract.
+
+A close with a profile:
+
+1. writes the profile's `torque_limit` to the gripper servo's `torque_limit` RAM register (feetech bridge, JSON on
+   `topics.follower_set_register`, `/follower/set_register`) before the jaw moves;
+2. closes at `close_speed_rps` (capped to `limits.gripper_velocity_rps`);
+3. stops on contact: the unchanged stall logic, `|load| >= contact_effort_threshold`, or (when `target_load` is set)
+   once the load in the closing direction (`closing_load_sign` times the decoded effort) reaches `target_load`;
+4. holds the stall position plus `squeeze_rad` toward closed (effort contacts hold the measured position);
+5. measures the hold: two samples `hold_check_delay_s` apart; `holding_load` is the second sample's effort, `slipping`
+   when the jaw closed more than `slip_threshold_rad` between them, `crush_risk` when `|holding_load| > crush_load`;
+6. reports `grip_profile` (name, applied values, `capped` fields) and `torque_limit_readback`: `verified` /
+   `mismatch ...` when the bridge's `/follower/servo_registers` dump (about every 10 s) arrived after the write,
+   else `unverified ...` (logged).
+
+**Hard caps**, enforced server-side whatever the profile says: `torque_limit <= torque_limit_max` (default 800 of 1000;
+the register range is checked too), `squeeze_rad <= squeeze_max_rad` (default 0.08), `close_speed_rps <=
+limits.gripper_velocity_rps`. Presets above a cap fail config validation; inline overrides are clamped and listed in
+`capped`.
+
+**Torque restore**: a grasp keeps its profile's torque limit while holding. The default preset's `torque_limit` is
+written back after every open (after the jaw moved, so the jaw never squeezes harder before it opens), after a close
+that did not grasp (`closed_no_contact`, `blocked`, any abort, an exception), when a grasp run aborts, on
+`release_control`, when the lease is lost to another source, and on mcp_server startup (as soon as the bridge
+subscribes `/follower/set_register`), so a crash or an unexpected end never leaves the gripper weakened or strong.
+
+```yaml
+grip_profiles:
+  default_grip_profile: normal
+  torque_limit_max: 800       # hard cap of every profile (0..1000)
+  squeeze_max_rad: 0.08       # hard cap of every profile
+  closing_load_sign: 1        # sign of the decoded gripper effort while closing on an object
+  hold_check_delay_s: 0.25
+  slip_threshold_rad: 0.01
+  presets:
+    gentle: {squeeze_rad: 0.02, torque_limit: 250, close_speed_rps: 0.25, target_load: 120, contact_effort_threshold: 150, crush_load: 220}
+    normal: {squeeze_rad: 0.03, torque_limit: 500, close_speed_rps: 0.5, contact_effort_threshold: 300, crush_load: 450}
+    firm: {squeeze_rad: 0.06, torque_limit: 700, close_speed_rps: 0.5, contact_effort_threshold: 400, crush_load: 650}
+```
 
 ## Motion queue
 
@@ -666,7 +731,7 @@ robot stopped first, so no queued Nav2 goal outlives the server.
   that range (the measured stop -0.172 rad is 1936 steps). The servo EEPROM angle limits are not changed by this node.
 - **Grasp from stall**: when closing (`close_until_effort` or `open_fraction=0`) the jaw settles before the closed
   position (residual outside the converge tolerance), the result is `grasped` with "contact inferred: jaw stalled
-  ..." and the gripper holds the stall position plus `gripper_grasp_squeeze_rad` (0.03) toward closed (never past
+  ..." and the gripper holds the stall position plus the grip profile's `squeeze_rad` (normal 0.03) toward closed (never past
   closed) instead of squeezing to the full closed target. Both this and an effort contact must pass the closure check
   (`gripper_grasp_min_travel_rad` from the start, at most `gripper_grasp_max_open_rad` open), else `blocked`.
 - **No gravity lead**: a feed-forward offset (target + k in the lift direction) is not applied: whether a joint
@@ -688,6 +753,7 @@ robot stopped first, so no queued Nav2 goal outlives the server.
 | `floor_guard.py` | no | arm mount conversions, effective surface (robot plane, IMU level plane, overrides), jaw model, per-sample slow zone, `retime` |
 | `grasp.py` | no | grasp planner: strategies registry, waypoints, straight-line IK samples, feasibility reasons |
 | `grasp_tools.py` | no | `GraspExecutor`, the grasp MCP tools, `GraspService` (web-UI JSON) |
+| `grip.py` | no | grip profiles: resolve a preset name / inline overrides to a capped `GripProfile` |
 | `base_motion.py` | no | timed clamped drive loop, continuous spin with marks (`run_spin`), stop sequence (`run_stop`) |
 | `motion_queue.py` | no | motion queue: step models, blend groups, preconditions, worker thread, events, waits |
 | `motion_tools.py` | no | `enqueue_motions`, `get_motion_status`, `cancel_motions`, `wait_for_event` (one `TOOL_MODULES` entry) |
@@ -746,7 +812,8 @@ grasp:                    # grasp planner defaults, overridable per call via par
   skim_clearance_m: 0.003
   max_object_width_m: 0.08
   min_object_width_m: 0.01      # narrower objects are rejected (the jaws cannot hold them)
-  close_effort_threshold: 300
+  close_effort_threshold: null  # null = the grip profile's contact_effort_threshold
+  grip_profile: null            # null = grip_profiles.default_grip_profile
   hold_effort_min: 100
   min_hold_gap_rad: 0.08
   interpolation_step_m: 0.005
@@ -774,7 +841,7 @@ limits:
   roll_guard_min_change_rad: 0.1     # wrist_roll changes above this are refused ...
   roll_max_gripper_open_rad: 0.8     # ... while the gripper is open wider than this (about half open)
   arm_settle_tolerance_rad: 0.08   # steady-state error reported as residual_error instead of a timeout
-  gripper_effort_threshold: 300.0
+  gripper_velocity_rps: 0.5         # fastest gripper close (caps grip profile close_speed_rps)
   gripper_effort_ignore_s: 0.3      # ignore the load spike when the motor starts
   gripper_contact_travel_rad: 0.03  # jaw travel (or a stall) required before effort counts as contact
   gripper_stall_lead_rad: 0.15      # a stall only counts while the command leads the jaw by this much
