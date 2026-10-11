@@ -212,6 +212,41 @@ Prometheus JSON (no network).
 | `test_memory_low_sum_counts_rows_with_a_proposal` | The MemoryLow sum skips rows without data. |
 | `test_render_table_shows_columns_and_the_memory_low_sum`, `test_render_yaml_roundtrips` | Table columns (no CPUQuota / MemoryHigh) with the closing sum line, and YAML output (`memory_low`, `memory_max`, `cpu_weight`, `io_weight`). |
 
+### `test_calibrate_retry_threshold.py`
+
+Unit tests for `scripts/calibrate_retry_threshold.py` (Brier score, reliability bins, Wilson-bound threshold proposal) with fixture retry records (no network).
+
+| Test | Description |
+|------|-------------|
+| `test_settings_defaults_and_shipped_yaml` | Shipped `scripts/calibrate_retry_threshold.yaml` loads: 10 bins, target 0.5, confidence 0.95, min_samples 30, min_bin_samples 5, the web_ui proxy URL and no file source. |
+| `test_settings_validation_errors` | Config rejected: neither or both of `source_url` / `source_file`, `bins` < 2, target or confidence outside (0, 1), non-positive sample minimums, unknown keys. |
+| `test_load_settings_from_file` | YAML file loading into `Settings`. |
+| `test_parse_records_skips_unknown_versions_and_invalid` | `schema_version` != 1 and invalid records are skipped and counted separately. |
+| `test_fetch_records_from_file_skips_blank_and_corrupt_lines` | JSONL source: blank and corrupt lines ignored. |
+| `test_fetch_records_from_url_uses_timeout` | HTTP source (httpx MockTransport): reads `records` from the URL with a 10 s timeout. |
+| `test_filter_by_model_and_since_ts` | `since_ts` and `model` filters, alone and combined. |
+| `test_bin_index_puts_one_in_last_bin` | Bin edges; p = 1.0 falls into the last bin. |
+| `test_count_bins_total_observed_unobserved` | Per-bin total / observed / unobserved counts. |
+| `test_brier_matches_hand_computed_and_excludes_unobserved` | Brier against a hand-computed value (skipped counts as failure), base-rate reference Brier, unobserved excluded. |
+| `test_brier_empty_is_none` | No observed records gives no score. |
+| `test_wilson_interval_matches_scipy` | `wilson_interval` equals scipy's Wilson `proportion_ci`. |
+| `test_reliability_bins_and_ece` | Reliability bins (n, mean p, success rate, Wilson bounds against scipy, empty bins) and ECE on a calibrated fixture. |
+| `test_reliability_bin_flags_low_n` | Bins below `min_bin_samples` are flagged. |
+| `test_ece_nonzero_for_miscalibration` | ECE equals the gap for an over-confident fixture. |
+| `test_eai_breakdown_success_rates` | Per-`eai_error_type` n and success rate, unobserved excluded. |
+| `test_proposal_on_calibrated_set` | Smallest grid threshold on a synthetic well-calibrated set; a higher target moves the proposal up. |
+| `test_proposal_never_below_min_observed_p` | A proposal is never below the minimum observed p. |
+| `test_proposal_insufficient_data` | Below `min_samples`, an all-failure set and an empty set give no proposal. |
+| `test_proposal_requires_min_samples_in_subset` | A subset smaller than `min_samples` never qualifies. |
+| `test_analyze_result_shape_and_current_threshold` | Result counts, skip counts, Brier, bins, JSON-serializable; current threshold = most recent record's. |
+| `test_analyze_insufficient_keeps_current` | No proposal keeps the current threshold. |
+| `test_build_snippet_format` | Paste-ready `retry_success_threshold: <t>  # calibrate_retry_threshold.py <date> n=<n> Brier <b>` line. |
+| `test_build_snippet_insufficient` | `insufficient data, keep <current>` message. |
+| `test_render_report_mentions_sections_and_censoring` | Report shows Brier, ECE, error types, skip count, snippet and the censoring note. |
+| `test_main_prints_and_writes_only_json` | `main` prints the snippet and writes only the `--json` file. |
+| `test_main_insufficient_data_message` | `main` prints `insufficient data, keep 0.5` for a thin source. |
+| `test_main_empty_source` | An empty source reports `keep unknown` instead of crashing. |
+
 ### `test_topic_scraper_config.py`
 
 Client topic_scraper_api config (`ansible/group_vars/client.yml`).

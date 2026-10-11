@@ -1,0 +1,20 @@
+# Config for scripts/calibrate_retry_threshold.py (validated by its pydantic Settings model).
+# The script only prints a report and a paste-ready retry_success_threshold line; applying it to
+# ansible/group_vars/client.yml (claude_agent config) is a manual, reviewed edit.
+# Exactly one of source_url (the web_ui proxy of GET /api/retry_outcomes) and source_file (the ledger JSONL).
+source_url: http://client.ros2.lan/api/agent/retry_outcomes
+source_file: null
+# Ignore records older than this unix timestamp (e.g. after a model or prompt change).
+since_ts: null
+# Only records of this model (null = all).
+model: null
+# Equal-width reliability bins over p_retry_success.
+bins: 10
+# A retry is worth it when it more likely succeeds than not.
+target_success_rate: 0.5
+# Confidence level of the Wilson intervals; the proposal needs the lower bound >= target_success_rate.
+confidence: 0.95
+# Observed records needed overall (and in the p >= threshold subset) before any proposal.
+min_samples: 30
+# Bins with fewer observed records are flagged "low n".
+min_bin_samples: 5

@@ -157,6 +157,19 @@ Prints proposed `MemoryLow`, `MemoryMax`, `CPUWeight` and `IOWeight` for the `ro
 uv run python scripts/propose_unit_limits.py
 ```
 
+## calibrate_retry_threshold.py
+
+Calibrates `retry_success_threshold` (the cut-off the claude_agent runner compares the model's `p_retry_success` with) from the retry ledger. It reads the records from `GET /api/retry_outcomes` (through the web_ui proxy, `source_url`, 10 s timeout) or from the ledger JSONL (`source_file`, exactly one of the two), skips records with an unknown `schema_version` (counted), and optionally filters by `since_ts` and `model`. It prints record counts (total / observed / unobserved, overall and per bin), the Brier score of the observed records next to the base-rate reference Brier, a reliability table (n, mean p, success rate, Wilson CI via `scipy.stats.binomtest(...).proportion_ci(method='wilson')`, low-n flag), ECE and the success rate per `eai_error_type`. A record counts as a success when its next outcome is `done`; `unobserved` records are excluded from every score.
+
+The proposal is the smallest threshold on a 0.05 grid whose observed `p >= t` subset has at least `min_samples` records and a Wilson lower bound (at `confidence`) of at least `target_success_rate`, never below the minimum observed p. Otherwise it prints `insufficient data, keep <current>` (current = the most recent record's threshold). A proposal is printed as a paste-ready line, for example `retry_success_threshold: 0.62  # calibrate_retry_threshold.py 2026-10-20 n=84 Brier 0.18`; applying it to `ansible/group_vars/client.yml` is a manual edit and a deploy. Censoring: at threshold 0.5 low-p predictions are only observed through loop re-entries, so the calibration covers about p >= 0.5; to explore lower p set `retry_success_threshold: 0.0` in group_vars for an evaluation session and restore it afterwards. Calibration trusts the model's self-reported outcomes; if the evaluation harness shows low agreement with human labels, do not trust the proposal.
+
+Configured by `scripts/calibrate_retry_threshold.yaml` (pydantic `Settings`: `source_url` / `source_file`, `since_ts`, `model`, `bins`, `target_success_rate`, `confidence`, `min_samples`, `min_bin_samples`). The config path is the positional argument; the only flag is `--json <path>`, which writes the machine-readable result. It never writes any other file.
+
+```bash
+uv run python scripts/calibrate_retry_threshold.py scripts/calibrate_retry_threshold.yaml
+uv run python scripts/calibrate_retry_threshold.py scripts/calibrate_retry_threshold.yaml --json .logs/calibration.json
+```
+
 ## gen_nav_footprint.py
 
 Single source of the navigation footprint geometry. Builds the robot's top-view H outline (side frames, crossbar,
