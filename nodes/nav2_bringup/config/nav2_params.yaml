@@ -45,6 +45,8 @@ controller_server:
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["general_goal_checker"]
     controller_plugins: ["FollowPath"]
+    # Absolute topic published by the local costmap SpeedFilter (percent limit from the speed zones).
+    speed_limit_topic: /speed_limit
     use_realtime_priority: false
     progress_checker:
       # PoseProgressChecker also counts rotation, so an in-place turn is progress; small radius for cm-scale goals.
@@ -178,7 +180,29 @@ local_costmap:
       footprint: "[[0.3225, -0.0674], [0.322, -0.0391], [0.2585, -0.0074], [0.1, -0.0116], [0.1, 0.0974], [0.1171, 0.0803], [0.1319, 0.0742], [0.1186, 0.061], [0.11, 0.04], [0.1186, 0.019], [0.129, 0.0086], [0.1426, 0.003], [0.1574, 0.003], [0.171, 0.0086], [0.1814, 0.019], [0.187, 0.0326], [0.187, 0.0474], [0.1814, 0.061], [0.1696, 0.0727], [0.1879, 0.0803], [0.2055, 0.0979], [0.215, 0.1209], [0.215, 0.1457], [0.2055, 0.1687], [0.1879, 0.1863], [0.1649, 0.1958], [0.1401, 0.1958], [0.1171, 0.1863], [0.0995, 0.1687], [0.0921, 0.1508], [-0.0921, 0.1508], [-0.0995, 0.1687], [-0.1171, 0.1863], [-0.1401, 0.1958], [-0.1649, 0.1958], [-0.1879, 0.1863], [-0.2055, 0.1687], [-0.215, 0.1457], [-0.215, 0.1209], [-0.2055, 0.0979], [-0.1879, 0.0803], [-0.1649, 0.0708], [-0.15, 0.0708], [-0.15, -0.0708], [-0.1649, -0.0708], [-0.1879, -0.0803], [-0.2055, -0.0979], [-0.215, -0.1209], [-0.215, -0.1457], [-0.2055, -0.1687], [-0.1879, -0.1863], [-0.1649, -0.1958], [-0.1401, -0.1958], [-0.1171, -0.1863], [-0.0995, -0.1687], [-0.0921, -0.1508], [0.0921, -0.1508], [0.0995, -0.1687], [0.1171, -0.1863], [0.1401, -0.1958], [0.1649, -0.1958], [0.1879, -0.1863], [0.2055, -0.1687], [0.215, -0.1457], [0.215, -0.1209], [0.2055, -0.0979], [0.1997, -0.0922], [0.2574, -0.0896]]"
       footprint_padding: 0.0
       # <<< gen_nav_footprint: footprint
-      plugins: ["obstacle_layer", "inflation_layer"]
+      plugins: ["obstacle_layer", "keepout_filter", "inflation_layer"]
+      # Keepout zones (nodes/costmap_zones) are a plugin, not a `filters` entry: filters run after every layer
+      # including inflation, so a filter would not be inflated. As a layer right below inflation the lethal zone cost
+      # spreads like a real obstacle, which Smac's centre-cost shortcut relies on. The info topic is absolute
+      # (costmap_zones publishes it latched); a relative name would resolve under the costmap node namespace.
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"
+        enabled: true
+        filter_info_topic: /costmap_filter_info/keepout
+        transform_tolerance: 0.2
+        # Mask cells are written as 252 (lethal-but-not-254): the planner treats them as blocked while the
+        # inscribed/unknown values keep their meaning.
+        override_lethal_cost: true
+        lethal_override_cost: 252.0
+      # Speed zones: a real costmap filter (applied after all layers, publishes /speed_limit, absolute topic shared
+      # with controller_server.speed_limit_topic). Local costmap only; the global planner has no speed notion.
+      filters: ["speed_filter"]
+      speed_filter:
+        plugin: "nav2_costmap_2d::SpeedFilter"
+        enabled: true
+        filter_info_topic: /costmap_filter_info/speed
+        speed_limit_topic: /speed_limit
+        transform_tolerance: 0.2
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -233,7 +257,20 @@ global_costmap:
       footprint: "[[0.3225, -0.0674], [0.322, -0.0391], [0.2585, -0.0074], [0.1, -0.0116], [0.1, 0.0974], [0.1171, 0.0803], [0.1319, 0.0742], [0.1186, 0.061], [0.11, 0.04], [0.1186, 0.019], [0.129, 0.0086], [0.1426, 0.003], [0.1574, 0.003], [0.171, 0.0086], [0.1814, 0.019], [0.187, 0.0326], [0.187, 0.0474], [0.1814, 0.061], [0.1696, 0.0727], [0.1879, 0.0803], [0.2055, 0.0979], [0.215, 0.1209], [0.215, 0.1457], [0.2055, 0.1687], [0.1879, 0.1863], [0.1649, 0.1958], [0.1401, 0.1958], [0.1171, 0.1863], [0.0995, 0.1687], [0.0921, 0.1508], [-0.0921, 0.1508], [-0.0995, 0.1687], [-0.1171, 0.1863], [-0.1401, 0.1958], [-0.1649, 0.1958], [-0.1879, 0.1863], [-0.2055, 0.1687], [-0.215, 0.1457], [-0.215, 0.1209], [-0.2055, 0.0979], [-0.1879, 0.0803], [-0.1649, 0.0708], [-0.15, 0.0708], [-0.15, -0.0708], [-0.1649, -0.0708], [-0.1879, -0.0803], [-0.2055, -0.0979], [-0.215, -0.1209], [-0.215, -0.1457], [-0.2055, -0.1687], [-0.1879, -0.1863], [-0.1649, -0.1958], [-0.1401, -0.1958], [-0.1171, -0.1863], [-0.0995, -0.1687], [-0.0921, -0.1508], [0.0921, -0.1508], [0.0995, -0.1687], [0.1171, -0.1863], [0.1401, -0.1958], [0.1649, -0.1958], [0.1879, -0.1863], [0.2055, -0.1687], [0.215, -0.1457], [0.215, -0.1209], [0.2055, -0.0979], [0.1997, -0.0922], [0.2574, -0.0896]]"
       footprint_padding: 0.0
       # <<< gen_nav_footprint: footprint
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      plugins: ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
+      # Keepout zones (nodes/costmap_zones) are a plugin, not a `filters` entry: filters run after every layer
+      # including inflation, so a filter would not be inflated. As a layer right below inflation the lethal zone cost
+      # spreads like a real obstacle, which Smac's centre-cost shortcut relies on. The info topic is absolute
+      # (costmap_zones publishes it latched); a relative name would resolve under the costmap node namespace.
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"
+        enabled: true
+        filter_info_topic: /costmap_filter_info/keepout
+        transform_tolerance: 0.2
+        # Mask cells are written as 252 (lethal-but-not-254): the planner treats them as blocked while the
+        # inscribed/unknown values keep their meaning.
+        override_lethal_cost: true
+        lethal_override_cost: 252.0
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         # slam_toolbox publishes /map reliable + transient_local and keeps updating it while mapping.

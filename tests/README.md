@@ -1308,6 +1308,10 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_rf2o_retry_laser_tf_patch_exists_and_is_wired` | `patches/0001-retry-laser-tf.patch` exists, skips scans until the laser TF lookup succeeds, and is listed in the rf2o node type's `colcon_source.patches`. |
 | `test_rf2o_odom_relay_declares_numpy` | `rf2o_odom_relay/pyproject.toml` lists `numpy` in `[project].dependencies` (numpy guard, parsed with `tomllib`). |
 | `test_launcher_sources_the_colcon_workspace_after_ros` | The launcher template sources the colcon `install/setup.bash` after `/opt/ros/jazzy/setup.bash`, and `resolve_and_deploy.yml` passes `colcon_source`. |
+| `test_nav2_keepout_filter_sits_right_before_inflation` | Global plugins are `static_layer, obstacle_layer, keepout_filter, inflation_layer`, local `obstacle_layer, keepout_filter, inflation_layer`; the keepout filter index is the inflation index minus 1 and it is not in `filters`. |
+| `test_nav2_keepout_filter_settings` | `keepout_filter` in both costmaps: `KeepoutFilter` plugin, enabled, info topic equal to the `costmap_zones` default, `transform_tolerance` 0.2, `override_lethal_cost` true, `lethal_override_cost` 252. |
+| `test_nav2_speed_filter_only_in_local_costmap` | Local `filters` is `[speed_filter]` (`SpeedFilter`, info topic equal to the `costmap_zones` default, `/speed_limit`, tolerance 0.2); global costmap has no speed filter. |
+| `test_nav2_controller_listens_on_the_speed_limit_topic` | `controller_server.speed_limit_topic` equals the SpeedFilter topic `/speed_limit`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_nav_stack_config.py` is listed in this section. |
 
 ### test_nav_footprint.py

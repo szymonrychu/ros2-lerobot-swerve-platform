@@ -202,6 +202,16 @@ in the front and rear notch.
 
 Goals finish within 1 cm and 2 deg (`xy_goal_tolerance` 0.01, `yaw_goal_tolerance` 0.035, stateful). This needs three things together: the BT `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml` (mid-route replanning only on an invalid path, so the latch holds), `PoseProgressChecker` (rotation counts as progress; radius 0.05 m, angle 0.3 rad, 20 s allowance), and the shim settings above. Short sideways goals (a few cm) rotate 90 deg toward the path first (front leading) and then turn back to the goal heading.
 
+## Keepout and speed zones
+
+Zones drawn as POIs become two costmap filters, fed by `nodes/costmap_zones` (keepout and speed masks plus latched `CostmapFilterInfo` on `/costmap_filter_info/keepout` and `/costmap_filter_info/speed`).
+
+- **KeepoutFilter** (`keepout_filter`) is in `plugins` of both costmaps, directly before `inflation_layer`, so the zone is inflated like an obstacle (Smac's centre-cost shortcut needs that). Cells become cost 252 (`override_lethal_cost`).
+- **SpeedFilter** (`speed_filter`) is in `filters` of the local costmap only and publishes `/speed_limit` (absolute topic); `controller_server.speed_limit_topic` is the same topic.
+- Requirements: Nav2 1.3.8 for the KeepoutFilter lethal override and 1.3.10 for the filter fixes used here; older builds ignore `override_lethal_cost` or drop the info topic.
+- Kill switch: each filter layer serves a `toggle_filter` (`std_srvs/SetBool`) service in its costmap node's namespace; calling it with `data: false` disables that filter at runtime without a redeploy.
+- Limits: the `RotationShimController` in-place rotation is not limited by `/speed_limit` (only MPPI translation and rotation while following the path are). `route_server` `AdjustSpeedLimit` stays idle because no route graph is loaded.
+
 ## Collision monitor
 
 collision_monitor always runs and sits in the velocity chain (`cmd_vel_smoothed -> cmd_vel`). Its body polygon,

@@ -32,6 +32,7 @@ SLAM_DIR = REPO_ROOT / "nodes" / "slam_toolbox"
 SLAM_PARAMS = SLAM_DIR / "config" / "slam_params.yaml"
 SLAM_LAUNCH = SLAM_DIR / "launch" / "slam.launch.py"
 NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yaml"
+COSTMAP_ZONES_CONFIG = REPO_ROOT / "nodes" / "costmap_zones" / "costmap_zones" / "config.py"
 LASER_FILTER_PARAMS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
 # The lidar sees the robot body (returns 0.22-0.24 m from the sensor, inside the footprint); laser_filter removes the
 # footprint box from /scan and every consumer (SLAM, costmaps, collision monitor) reads the filtered topic.
@@ -560,6 +561,72 @@ def test_nav2_obstacle_layer_keeps_obstacles_in_the_notches(costmap: str) -> Non
     """ObstacleLayer footprint clearing fills the footprint column by column (treats the H as convex) and would erase
     obstacles in the notches; the laser_filter self polygon already removes the robot's own returns."""
     assert ros_params(nav2(), costmap)["obstacle_layer"]["footprint_clearing_enabled"] is False
+
+
+def costmap_zones_defaults() -> dict[str, str]:
+    """Read the string field defaults of the costmap_zones settings model without importing it (needs pydantic).
+
+    Returns:
+        dict[str, str]: Field name -> default value for every `name: str = Field(default="...")` field.
+    """
+    tree = ast.parse(COSTMAP_ZONES_CONFIG.read_text())
+    defaults: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and isinstance(node.value, ast.Call):
+            for kw in node.value.keywords:
+                if kw.arg == "default" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                    defaults[node.target.id] = kw.value.value
+    return defaults
+
+
+@pytest.mark.parametrize(
+    ("costmap", "plugins"),
+    [
+        ("global_costmap", ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]),
+        ("local_costmap", ["obstacle_layer", "keepout_filter", "inflation_layer"]),
+    ],
+)
+def test_nav2_keepout_filter_sits_right_before_inflation(costmap: str, plugins: list[str]) -> None:
+    """The KeepoutFilter is a layer (plugins, not filters) directly below inflation: inflation then spreads the
+    lethal zone cost like a real obstacle, which Smac's centre-cost shortcut needs."""
+    p = ros_params(nav2(), costmap)
+    assert p["plugins"] == plugins
+    assert p["plugins"].index("keepout_filter") == p["plugins"].index("inflation_layer") - 1
+    assert "keepout_filter" not in p.get("filters", [])
+
+
+@pytest.mark.parametrize("costmap", ["global_costmap", "local_costmap"])
+def test_nav2_keepout_filter_settings(costmap: str) -> None:
+    keepout = ros_params(nav2(), costmap)["keepout_filter"]
+    assert keepout["plugin"] == "nav2_costmap_2d::KeepoutFilter"
+    assert keepout["enabled"] is True
+    expected = costmap_zones_defaults()["keepout_info_topic"]
+    assert keepout["filter_info_topic"] == expected == "/costmap_filter_info/keepout"
+    assert keepout["transform_tolerance"] == 0.2
+    assert keepout["override_lethal_cost"] is True
+    assert keepout["lethal_override_cost"] == 252.0
+
+
+def test_nav2_speed_filter_only_in_local_costmap() -> None:
+    doc = nav2()
+    local = ros_params(doc, "local_costmap")
+    assert local["filters"] == ["speed_filter"]
+    speed = local["speed_filter"]
+    assert speed["plugin"] == "nav2_costmap_2d::SpeedFilter"
+    assert speed["filter_info_topic"] == costmap_zones_defaults()["speed_info_topic"] == "/costmap_filter_info/speed"
+    assert speed["speed_limit_topic"] == "/speed_limit"
+    assert speed["transform_tolerance"] == 0.2
+    assert "speed_filter" not in local["plugins"]
+    glob = ros_params(doc, "global_costmap")
+    assert "speed_filter" not in glob
+    assert "speed_filter" not in glob["plugins"] + glob.get("filters", [])
+
+
+def test_nav2_controller_listens_on_the_speed_limit_topic() -> None:
+    """The SpeedFilter publishes the absolute /speed_limit; the controller must subscribe to the same topic."""
+    controller = ros_params(nav2(), "controller_server")
+    local = ros_params(nav2(), "local_costmap")
+    assert controller["speed_limit_topic"] == local["speed_filter"]["speed_limit_topic"] == "/speed_limit"
 
 
 def test_slam_map_resolution_cost_is_bounded() -> None:
