@@ -1116,6 +1116,26 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `planning` with `planning_s` until the first setpoint, then `executing`; `planned` event with `planning_s` between
   `step_started` and `step_done`, never waking a wait) and blended-group progress that follows published trajectory
   time, not only vias passed
+- motion queue watch constraints (`test_motion_watch.py`, real worker on `GateRobot`, fake sampler, injected clock;
+  the watcher thread parked by an injected sleep so the tests drive `watch_tick()`): `WatchConstraint` defaults and the
+  validation matrix (joint required / arm joint only / not on joint-less metrics, finite value, ops, for_s 0..5, name
+  length, unknown keys), `watch_triggered` / `paused` in `FAILURE_EVENTS` and every wait condition, more than
+  `watch_max_per_call` refused; `test_trip_only_after_for_s` (debounce restarts when the value recovers),
+  `test_abort_drops_pending_and_stops_once` (event data, `cancelled` drops the rest, `step_aborted`, one `robot.stop`,
+  counter, monitor report), `test_pause_keeps_pending_and_resume_continues` (no dispatch while paused, `resumed`, the
+  pending step runs), `test_resume_refused_while_a_watch_of_the_pending_steps_violates` (and in battery cut-off),
+  `test_resume_when_not_paused_is_a_no_op`, `test_stop_and_cancel_clear_the_pause`,
+  `test_pause_then_enqueue_appends_and_waits_for_resume` (replace keeps the pause),
+  `test_distance_travelled_integrates_fresh_base_speed_since_activation` (stale gap not integrated),
+  `test_unknown_value_handling` (ignore vs trigger), `test_unknown_ignore_keeps_the_debounce_running`,
+  `test_trip_racing_the_step_end_is_dropped` (the step ends between sample and trip: no event, no stop),
+  `test_watch_is_bound_to_the_job_ids_of_its_call` (status view fields, no cache read while inactive),
+  `test_replace_drops_orphaned_watch_sets`, `test_finished_sets_are_dropped_and_status_reports_the_active_one`;
+  thread: `test_watcher_thread_wakes_wait_for_event` (reason `watch_triggered`),
+  `test_watcher_thread_sleeps_while_no_set_is_active`, `test_watcher_at_20hz_keeps_the_25hz_arm_stream_period`
+  (deadline-scheduled 25 Hz loop, best-of-2 p95 tick period at most 1 ms above the watcher-off run). Also
+  `test_monitor.py::test_report_watch_trigger_emits_a_warning_event` (warning, not debounced, not an interrupt) and
+  `test_config.py::test_motion_queue_watch_settings_defaults_and_bounds`
 - motion queue tools (`test_motion_tools.py`): registration and classification (`enqueue_motions` motion,
   status/cancel/wait always allowed, `QUEUE_EXCLUSIVE_TOOLS`); `enqueue_motions` returns job ids and blend groups and
   `wait_for_event` returns events, status and the state digest (plus the robot event digest); blocking motion tools are

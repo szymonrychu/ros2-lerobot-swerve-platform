@@ -576,3 +576,14 @@ def test_odom_speed_is_planar_speed_fresh_within_odom_fresh_s() -> None:
     assert mon.odom_speed() == pytest.approx(0.5)
     clock.t += 0.02
     assert mon.odom_speed() is None
+
+
+def test_report_watch_trigger_emits_a_warning_event() -> None:
+    mon, _, seen = make()
+    data = {"watch": "tilt", "metric": "tilt_deg", "value": 12.0, "op": "gt", "threshold": 10.0, "action": "abort"}
+    mon.report_watch_trigger(data)
+    mon.report_watch_trigger(data | {"value": 13.0})  # every trip is reported (no debounce)
+    assert types(seen) == [("watch_triggered", "warning"), ("watch_triggered", "warning")]
+    assert seen[0].source == "motion_queue" and seen[0].data == data
+    assert "tilt" in seen[0].message and "abort" in seen[0].message
+    assert "watch_triggered" not in BASE_INTERRUPTS | ARM_INTERRUPTS

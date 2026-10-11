@@ -1230,12 +1230,13 @@ step. A failed precondition affects only its own step; steps blended behind it g
 slow zone), `step_failed` (guard aborts such as `aborted_tracking`, `aborted_stale`, `interrupted`, `timeout`,
 `unreachable`, `blocked`, a refused call, `battery_cutoff`), `precondition_failed`, `step_skipped`, `contact` (gripper
 `grasped` / `blocked`, a `grasped` grasp step), `queue_stopped`, `cancelled`, `replaced`, `stopped`, `step_aborted` (the
-running step ended by cancel/stop) and `queue_empty`. The slow zone is not a failure (reported in the data). Events
+running step ended by cancel/stop or a watch), `watch_triggered`, `paused`, `resumed` (see Watch constraints) and
+`queue_empty`. The slow zone is not a failure (reported in the data). Events
 carry `seq`, wall time, job id, kind and label, are logged on `mcp_server.motion_queue`, and the last
 `motion_queue.event_history` (200) are kept.
 
 **Waiting.** `wait_for_event(timeout_s, until, since_seq)` blocks only until something relevant happens: `queue_empty`
-(default: drained, or a failure / precondition failure / contact / aborted step; a failure the queue skips past with
+(default: drained, or a failure / precondition failure / contact / aborted step / watch trip; a failure the queue skips past with
 `on_fail: skip` does not end it), `step_done` (also any finished or
 skipped step), `failure` (failures only) or `any`. It returns at once with reason `idle` when nothing is queued,
 returns the events not returned before (`since_seq` overrides the cursor) plus the queue status and a state digest
@@ -1243,7 +1244,8 @@ returns the events not returned before (`since_seq` overrides the cursor) plus t
 `get_robot_state` is rarely needed. Timeout default `wait_default_s` (30 s), capped at `wait_max_s` (120 s).
 `get_motion_status` gives the same status without waiting.
 
-**Single motion owner.** While the queue is busy (a step runs or steps are pending) the worker owns the robot's motion:
+**Single motion owner.** While the queue is busy (a step runs, steps are pending or a watch paused it) the worker owns
+the robot's motion:
 `RobotMCPServer.call_tool` refuses every tool in `QUEUE_EXCLUSIVE_TOOLS` (`MOTION_TOOLS` except `enqueue_motions` and
 `arm_set_home`) with "the motion queue is running". Conversely `enqueue_motions` is refused while one of those blocking
 tools runs, or while another arm motion holds the arm (a web-UI grasp or `/arm/home`). Should a blocking motion still
@@ -1253,6 +1255,47 @@ start in between, the arm motion lock and the base motion lock make the later on
 robot when a motion step runs. The blocking tools stay available for simple single moves when nothing is queued.
 When the process shuts down with a busy queue (`__main__` calls `tools.stop_queued_motion`), the queue is cleared and the
 robot stopped first, so no queued Nav2 goal outlives the server.
+
+**Watch constraints.** `MotionQueue.enqueue(steps, replace, watch_constraints)` takes up to
+`motion_queue.watch_max_per_call` (8) `WatchConstraint`s that are watched *while the steps of that call run*:
+
+| field | meaning |
+|---|---|
+| `name` | optional label (<= 40 chars); default `<metric>[<joint>] <op> <value>` |
+| `metric` | `gripper_effort`, `gripper_position`, `joint_position`, `joint_effort`, `tilt_deg`, `roll_deg`, `pitch_deg`, `base_speed_mps`, `distance_travelled_m`, `battery_v`, `tool_height_m` |
+| `joint` | arm joint, required for (and only allowed with) `joint_position` / `joint_effort` |
+| `op`, `value` | `lt` / `le` / `gt` / `ge` against a finite threshold |
+| `for_s` | 0..5 s (default 0): the violation must hold continuously this long (debounce) |
+| `action` | `abort` (default) or `pause` |
+| `on_unknown` | `ignore` (default: an unknown value neither trips nor resets the debounce; NaN efforts are routine) or `trigger` (unknown counts as a violation) |
+
+Values come from `guard_state.WatchSampler` over the caches mcp_server already keeps (no new subscription): efforts
+are absolute values, `tool_height_m` is FK of the measured pose, and `distance_travelled_m` is integrated by the watcher
+from fresh `base_speed_mps` since the watch became active (a stale-odometry gap is not integrated and reads unknown).
+A watch set binds to the job ids of its enqueue call and is active while the running group contains one of them (from
+dispatch through the step end); appended calls have their own sets, and sets none of whose steps is pending or running
+any more are dropped (e.g. by `replace=true`). The `motion-watch` daemon thread (started with the worker) sleeps on the
+queue condition while no set is active and otherwise ticks at `motion_queue.watch_rate_hz` (10 Hz, at most 20). It
+never runs inside the 25 Hz arm setpoint stream (`on_tick`); the overhead test keeps a fake stream's tick-period p95
+at most 1 ms above the watcher-off run with the watcher at 20 Hz.
+
+A trip is decided under the queue lock and generation-checked: when the step ended (or was cancelled) while the caches
+were sampled, the late trip is dropped. It emits `watch_triggered` {watch, metric, value, op, threshold, action}, counts
+`mcp_motion_watch_triggers_total{metric,action}` and reports a warning RobotEvent `watch_triggered` (digest,
+`/robot_events`; a warning, so it interrupts neither motions nor claude_agent). Then:
+
+- `abort`: the cancel path - pending steps dropped (`cancelled`), the running step ends as `step_aborted`, `robot.stop`
+  outside the lock (once) and the stop baseline reset.
+- `pause`: the running group is stopped (`step_aborted`, not re-run), the pending steps are kept, `paused` is emitted
+  and the worker does not dispatch. `get_motion_status` shows `paused: {by, at}`; steps enqueued while paused are
+  appended and wait (`replace=true` drops pending steps, the pause stays). `MotionQueue.resume()` emits `resumed` and
+  re-arms the watches of the pending steps; it is refused (`QueueError`, the queue stays paused) in battery cut-off or
+  while a watch of the pending steps still violates, and is a no-op message when not paused. `stop` and
+  `cancel_motions` clear the pause together with the queue.
+
+`watch_triggered` and `paused` are failure events, so `wait_for_event` (`queue_empty`, `step_done`, `failure`) wakes
+with reason `watch_triggered`. `get_motion_status` lists `watches: [{name, metric, joint, op, value, last_value,
+job_ids, active, triggered}]`. Without a sampler (`MotionQueue(sampler=None)`) watch constraints are refused.
 
 ## Gravity sag compensation
 
@@ -1600,7 +1643,7 @@ an unruled tool and < 500 us with five rules over fake providers.
 | `base_motion.py` | no | timed clamped drive loop, continuous spin with marks (`run_spin`), stop sequence (`run_stop`) and its base half (`run_base_stop`) |
 | `control.py` | no | control leases: `ControlManager` (take / release with the arm home and base steering resets / carried-object park refusal / footprint triggers / state / lease refusals / vitals digest), `wait_steering_neutral` |
 | `footprint.py`, `footprint_geometry.py` | no | navigation footprint: `NavFootprint` (static / dynamic / conservative, arm shadow, carried circle, republish tick following the released arm, consumers and their outcomes via `FootprintSink`), `python -m mcp_server.footprint` (parked-arm shadow for the generator); shared outline / parked-arm union / circle / offset / inflation geometry (also imported by `scripts/gen_nav_footprint.py`) |
-| `motion_queue.py` | no | motion queue: step models, blend groups, preconditions, worker thread, events, waits |
+| `motion_queue.py` | no | motion queue: step models, blend groups, preconditions, worker thread, watch constraints (watcher thread, abort / pause / resume), events, waits |
 | `motion_tools.py` | no | `enqueue_motions`, `get_motion_status`, `cancel_motions`, `wait_for_event` (one `TOOL_MODULES` entry) |
 | `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
 | `topdown.py`, `perception_models.py` | no | robot-up top-down renderer (layers, transforms); perception result models |
@@ -1785,7 +1828,8 @@ look_around: {default_captures: 4, clearance_margin_m: 0.10, step_timeout_s: 30,
               spin_rate_hz: 20, spin_timeout_margin_s: 10, return_to_start: false}
 motion_queue: {max_steps: 32, event_history: 200, status_events: 10, wait_events: 40, wait_default_s: 30,
                wait_max_s: 120, poll_s: 0.05, base_still_linear_mps: 0.02, base_still_angular_rps: 0.05,
-               holding_min_effort: 100.0, holding_min_gap_rad: 0.05}
+               holding_min_effort: 100.0, holding_min_gap_rad: 0.05,
+               watch_rate_hz: 10.0, watch_max_per_call: 8}  # watcher rate (gt 0, le 20) and watches per call (1..16)
 poi: {request_timeout_s: 3.0, near_radius_m: 5.0}
 lookups:                  # camera lookup store (see Camera lookups); pruned oldest first on every write
   store_dir: /var/lib/ros2/poi/lookups

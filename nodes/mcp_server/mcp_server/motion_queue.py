@@ -7,10 +7,16 @@ Consecutive arm steps form a blend group and run as ONE continuous trajectory th
 settle 'final', a gripper/base/wait/grasp step, a precondition, a different speed scale or slow-zone override ends a
 group. Preconditions are evaluated at dispatch time against live state. Outcomes are published as events that
 wait_for_event blocks on.
+
+Watch constraints (enqueue(..., watch_constraints)) bind to the job ids of their enqueue call and are evaluated by a
+separate 'motion-watch' thread while one of those steps runs (never inside the arm setpoint stream), from the cached
+robot state only (guard_state.WatchSampler). A trip aborts the queue (the cancel path) or pauses it (the running group
+is stopped, the pending steps wait for resume()).
 """
 
 import logging
 import math
+import operator
 import threading
 import time
 from collections import deque
@@ -22,13 +28,13 @@ from typing import Annotated, Any, Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .arm import ArmError, SelfCollisionError, finite_effort
-from .config import HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
+from .config import ARM_JOINTS, HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig, StrictModel
 from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import ObjectSpec
 from .grasp_tools import floor_override
 from .guard_rules import GUARD_ORIGIN, GuardRejection
 from .ik import UnreachableError
-from .metrics import MOTION_QUEUE_DEPTH, MOTION_STEPS, MOTION_TRACKING_ERROR
+from .metrics import MOTION_QUEUE_DEPTH, MOTION_STEPS, MOTION_TRACKING_ERROR, MOTION_WATCH_TRIGGERS
 from .models import ArmMotionResult, BasePose, NavigationResult, RobotError, SettlePolicy
 from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import RobotApi
@@ -44,8 +50,11 @@ NAV_OK = frozenset({"succeeded"})
 NAV_STOPPED = frozenset({"canceled"})
 GRASP_OK = frozenset({"grasped", "released"})
 # Wake-up events of a failure. 'stopped' / 'cancelled' themselves do not wake a wait while the aborted step is still
-# winding down: its 'step_aborted' (or the queue going idle) does, so the state digest shows the robot at rest.
-FAILURE_EVENTS = frozenset({"step_failed", "precondition_failed", "queue_stopped", "step_aborted"})
+# winding down: its 'step_aborted' (or the queue going idle) does, so the state digest shows the robot at rest. A watch
+# trip ('watch_triggered', and 'paused' for action pause) wakes at once: the agent must learn why the queue ended.
+FAILURE_EVENTS = frozenset(
+    {"step_failed", "precondition_failed", "queue_stopped", "step_aborted", "watch_triggered", "paused"}
+)
 WAKE_EVENTS: dict[str, frozenset[str]] = {
     "queue_empty": FAILURE_EVENTS | {"contact", "queue_empty"},
     "step_done": FAILURE_EVENTS | {"contact", "queue_empty", "step_done", "step_skipped"},
@@ -54,10 +63,37 @@ WAKE_EVENTS: dict[str, frozenset[str]] = {
 # Data key marking a failure the queue continued past (on_fail='skip'): it does not end a 'queue_empty' wait.
 SKIPPED_KEY = "on_fail"
 DIGEST_DECIMALS = 3
+# Watch constraints.
+DISTANCE_METRIC = "distance_travelled_m"  # integrated by the watcher from fresh base_speed_mps
+SPEED_METRIC = "base_speed_mps"
+JOINT_METRICS = frozenset({"joint_position", "joint_effort"})
+WATCH_NAME_MAX = 40
+WATCH_MAX_FOR_S = 5.0
+WATCH_TIME_EPS = 1e-9  # for_s comparison slack (float sums of clock steps)
+WATCH_OPS: dict[str, Callable[[float, float], bool]] = {
+    "lt": operator.lt,
+    "le": operator.le,
+    "gt": operator.gt,
+    "ge": operator.ge,
+}
 
 PreconditionType = Literal["none", "gripper_holding", "gripper_open", "arm_near", "base_still", "battery_ok"]
 OnFail = Literal["stop_queue", "skip"]
 WaitUntil = Literal["any", "queue_empty", "step_done", "failure"]
+WatchMetric = Literal[
+    "gripper_effort",
+    "gripper_position",
+    "joint_position",
+    "joint_effort",
+    "tilt_deg",
+    "roll_deg",
+    "pitch_deg",
+    "base_speed_mps",
+    "distance_travelled_m",
+    "battery_v",
+    "tool_height_m",
+]
+WatchSample = Callable[[str, str | None], float | None]
 EventType = Literal[
     "step_started",
     "planned",
@@ -72,6 +108,9 @@ EventType = Literal[
     "cancelled",
     "replaced",
     "stopped",
+    "watch_triggered",
+    "paused",
+    "resumed",
 ]
 
 
@@ -230,6 +269,72 @@ MotionStep = Annotated[
 GraspRunner = Callable[[GraspMotionStep, Callable[[], bool]], tuple[str, list[str]]]
 
 
+class WatchConstraint(StrictModel):
+    """A condition watched while the steps of its enqueue call run; a trip aborts or pauses the queue."""
+
+    name: str | None = Field(default=None, max_length=WATCH_NAME_MAX, description="Label in events and status")
+    metric: WatchMetric = Field(
+        description="Cached robot value: efforts as absolute values, distance_travelled_m integrated from fresh "
+        "odometry speed since the watch became active, tool_height_m from the measured pose"
+    )
+    joint: str | None = Field(default=None, description="Arm joint, required for joint_position / joint_effort only")
+    op: Literal["lt", "le", "gt", "ge"]
+    value: float = Field(allow_inf_nan=False, description="Threshold the metric is compared against")
+    for_s: float = Field(
+        default=0.0, ge=0.0, le=WATCH_MAX_FOR_S, description="The condition must hold continuously this long (s)"
+    )
+    action: Literal["abort", "pause"] = "abort"
+    on_unknown: Literal["ignore", "trigger"] = Field(
+        default="ignore",
+        description="Unknown value (stale cache, NaN effort): 'ignore' neither trips nor resets the debounce, "
+        "'trigger' counts it as a violation",
+    )
+
+    @model_validator(mode="after")
+    def joint_matches_metric(self) -> "WatchConstraint":
+        """Require an arm joint for the joint metrics and none for the others.
+
+        Returns:
+            WatchConstraint: The validated constraint.
+
+        Raises:
+            ValueError: Missing, unknown or superfluous joint.
+        """
+        if self.metric in JOINT_METRICS:
+            if self.joint not in ARM_JOINTS:
+                raise ValueError(f"{self.metric} needs joint, one of {list(ARM_JOINTS)} (got {self.joint!r})")
+        elif self.joint is not None:
+            raise ValueError(f"joint is only allowed with {sorted(JOINT_METRICS)}, not with {self.metric}")
+        return self
+
+    @property
+    def label(self) -> str:
+        """Name in events and status: the given name, else '<metric>[<joint>] <op> <value>'.
+
+        Returns:
+            str: The label.
+        """
+        if self.name:
+            return self.name
+        joint = f"[{self.joint}]" if self.joint else ""
+        return f"{self.metric}{joint} {self.op} {self.value:g}"
+
+
+def watch_violated(constraint: WatchConstraint, value: float | None) -> bool | None:
+    """Compare a sampled value with a watch threshold.
+
+    Args:
+        constraint (WatchConstraint): The watch.
+        value (float | None): Sampled value; None = unknown.
+
+    Returns:
+        bool | None: True when violated, False when not, None when unknown and on_unknown='ignore'.
+    """
+    if value is None:
+        return True if constraint.on_unknown == "trigger" else None
+    return WATCH_OPS[constraint.op](value, constraint.value)
+
+
 class CutoffGuard(Protocol):
     """The BatteryGuard calls the queue needs."""
 
@@ -298,6 +403,35 @@ class CurrentStepView(QueuedStepView):
     blend_group: list[str] = Field(default_factory=list, description="Job ids blended into this one motion")
 
 
+class WatchView(BaseModel):
+    """A watch constraint as reported by get_motion_status."""
+
+    name: str
+    metric: str
+    joint: str | None = None
+    op: str
+    value: float
+    last_value: float | None = Field(default=None, description="Last sampled value (None = unknown / not sampled)")
+    job_ids: list[str]
+    active: bool = Field(description="One of its steps runs now (the watcher evaluates it)")
+    triggered: bool
+
+
+class PauseView(BaseModel):
+    """Why and since when the queue is paused."""
+
+    by: str = Field(description="Label of the watch that paused the queue")
+    at: float = Field(description="Wall-clock time (s)")
+
+
+class ResumeResult(BaseModel):
+    """resume() result."""
+
+    resumed: bool
+    message: str
+    queue_length: int = Field(description="Pending steps that now run (or still wait)")
+
+
 class MotionStatus(BaseModel):
     """get_motion_status result."""
 
@@ -306,6 +440,10 @@ class MotionStatus(BaseModel):
     queue: list[QueuedStepView] = Field(default_factory=list)
     last_events: list[MotionEvent] = Field(default_factory=list)
     event_seq: int = 0
+    paused: PauseView | None = Field(
+        default=None, description="Set while a watch paused the queue: resume_motions continues, cancel_motions ends"
+    )
+    watches: list[WatchView] = Field(default_factory=list, description="Watch constraints of the queued steps")
 
 
 class EnqueueResult(BaseModel):
@@ -344,6 +482,48 @@ class QueuedStep:
     job_id: str
     step: Any
     targets: dict[str, float] | None = None
+
+
+@dataclass
+class WatchState:
+    """A watch constraint bound to the job ids of its enqueue call, with the watcher's per-watch state."""
+
+    constraint: WatchConstraint
+    job_ids: list[str]
+    active: bool = False
+    triggered: bool = False
+    last_value: float | None = None
+    since: float | None = None  # start of the current continuous violation (for_s)
+    distance: float = 0.0  # distance_travelled_m integral while active
+    speed_at: float | None = None  # time of the last fresh speed sample integrated
+
+    @property
+    def ids(self) -> frozenset[str]:
+        """The bound job ids as a set.
+
+        Returns:
+            frozenset[str]: Job ids.
+        """
+        return frozenset(self.job_ids)
+
+    def view(self) -> WatchView:
+        """Status view.
+
+        Returns:
+            WatchView: The view.
+        """
+        c = self.constraint
+        return WatchView(
+            name=c.label,
+            metric=c.metric,
+            joint=c.joint,
+            op=c.op,
+            value=c.value,
+            last_value=None if self.last_value is None else round(self.last_value, DIGEST_DECIMALS),
+            job_ids=list(self.job_ids),
+            active=self.active,
+            triggered=self.triggered,
+        )
 
 
 @dataclass
@@ -658,6 +838,9 @@ class MotionQueue:
         lease_gate: Callable[[str], str | None] | None = None,
         lease_scope: Callable[[str], AbstractContextManager[None]] | None = None,
         guard_gate: Callable[[str, dict[str, Any]], None] | None = None,
+        sampler: WatchSample | None = None,
+        on_watch_trigger: Callable[[dict[str, Any]], None] | None = None,
+        watch_sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         """Create the queue (the worker starts on the first enqueue).
 
@@ -681,6 +864,11 @@ class MotionQueue:
             guard_gate (Callable[[str, dict[str, Any]], None] | None): Guard rule step phase (GuardEngine.check_step:
                 step kind, step fields), run for every step of a group after the tilt gate and before the
                 precondition; raises guard_rules.GuardRejection to refuse. None = no rule engine.
+            sampler (WatchSample | None): Cached value of a watch metric (guard_state.WatchSampler.sample: metric,
+                joint -> value or None when unknown); None refuses watch_constraints.
+            on_watch_trigger (Callable[[dict[str, Any]], None] | None): Called (outside the queue lock) with the
+                watch_triggered data of every trip (RobotMonitor.report_watch_trigger).
+            watch_sleep (Callable[[float], None]): Sleep of the watcher thread between ticks.
         """
         self.robot = robot
         self.cfg = config
@@ -695,6 +883,9 @@ class MotionQueue:
         self.lease_gate = lease_gate or (lambda kind: None)
         self.lease_scope = lease_scope or (lambda kind: nullcontext())
         self.guard_gate = guard_gate or (lambda kind, fields: None)
+        self.sampler = sampler
+        self.on_watch_trigger = on_watch_trigger or (lambda data: None)
+        self.watch_sleep = watch_sleep
         self._cond = threading.Condition()
         self._pending: deque[QueuedStep] = deque()
         self._events: deque[MotionEvent] = deque(maxlen=self.settings.event_history)
@@ -705,11 +896,14 @@ class MotionQueue:
         self._running: Running | None = None
         self._stop_baseline: int | None = None
         self._thread: threading.Thread | None = None
+        self._watcher: threading.Thread | None = None
+        self._watches: list[WatchState] = []
+        self._paused: PauseView | None = None
 
     # --- public API -----------------------------------------------------------------------------------------------
 
     def busy(self) -> bool:
-        """Whether a step runs or steps are pending.
+        """Whether a step runs, steps are pending or a watch paused the queue.
 
         Returns:
             bool: True while busy.
@@ -717,12 +911,16 @@ class MotionQueue:
         with self._cond:
             return self.busy_locked()
 
-    def enqueue(self, steps: list[Any], replace: bool = False) -> EnqueueResult:
+    def enqueue(
+        self, steps: list[Any], replace: bool = False, watch_constraints: list[WatchConstraint] | None = None
+    ) -> EnqueueResult:
         """Validate and append steps (all or nothing); returns at once.
 
         Args:
             steps (list[Any]): Validated MotionStep models.
-            replace (bool): Drop the pending steps first (a running step finishes).
+            replace (bool): Drop the pending steps first (a running step finishes; a pause is kept).
+            watch_constraints (list[WatchConstraint] | None): Watched while these steps run (at most
+                motion_queue.watch_max_per_call).
 
         Returns:
             EnqueueResult: New job ids, the pending length, replaced ids and the blend grouping.
@@ -732,6 +930,13 @@ class MotionQueue:
         """
         if not steps:
             raise QueueError("steps must hold at least one step")
+        watches = list(watch_constraints or [])
+        if len(watches) > self.settings.watch_max_per_call:
+            raise QueueError(
+                f"at most {self.settings.watch_max_per_call} watch_constraints per call ({len(watches)} given)"
+            )
+        if watches and self.sampler is None:
+            raise QueueError("watch_constraints are not available on this server")
         with self._cond:
             if not self.busy_locked():
                 other = self.external_busy()
@@ -762,6 +967,10 @@ class MotionQueue:
                 self._next_job += 1
                 item.job_id = f"m{self._next_job}"
                 self._pending.append(item)
+            if watches:
+                job_ids = [q.job_id for q in items]
+                self._watches.extend(WatchState(constraint=w, job_ids=job_ids) for w in watches)
+            self.prune_watches_locked()
             MOTION_QUEUE_DEPTH.set(len(self._pending))
             self.ensure_worker_locked()
             self._cond.notify_all()
@@ -782,17 +991,18 @@ class MotionQueue:
             CancelResult: Dropped ids and the aborted step's ids.
         """
         with self._cond:
+            was_paused = self._paused is not None
             dropped, running = self.halt_locked("cancelled", reason)
-            moving = self._running is not None and any(q.step.kind != "wait_s" for q in self._running.group)
+            moving = self.moving_locked()
         if moving:
-            self.robot.stop()
-            with self._cond:
-                self._stop_baseline = None
-        message = "nothing to cancel" if not dropped and running is None else f"cancelled ({reason})"
+            self.stop_robot()
+        idle = not dropped and running is None and not was_paused
+        message = "nothing to cancel" if idle else f"cancelled ({reason})"
         return CancelResult(dropped=dropped, running=running, message=message)
 
     def halt_for_stop(self) -> list[str]:
-        """Stop tool hook (call before RobotApi.stop): drop every pending step at once and end the running group.
+        """Stop tool hook (call before RobotApi.stop): drop every pending step at once, end the running group and
+        clear a pause.
 
         Returns:
             list[str]: Dropped job ids (pending ones; the running step ends through the stop itself).
@@ -801,6 +1011,58 @@ class MotionQueue:
             dropped, _running = self.halt_locked("stopped", "stop was called")
             self._stop_baseline = None
             return dropped
+
+    def resume(self) -> ResumeResult:
+        """Clear a watch pause: the pending steps run again (their watches re-armed).
+
+        Returns:
+            ResumeResult: resumed=False with a message when the queue is not paused.
+
+        Raises:
+            QueueError: Refused in battery cut-off, or while a watch of the pending steps still violates.
+        """
+        with self._cond:
+            if self._paused is None:
+                return ResumeResult(
+                    resumed=False, message="not paused: nothing to resume", queue_length=len(self._pending)
+                )
+            pending = {q.job_id for q in self._pending}
+            watches = [w for w in self._watches if w.ids & pending]
+        if self.guard is not None and self.guard.is_cutoff():
+            raise QueueError(f"refused: {self.guard.rejection_message()}; the queue stays paused")
+        violations: list[str] = []
+        for w in watches:
+            c = w.constraint
+            value = w.distance if c.metric == DISTANCE_METRIC else self.sample(c.metric, c.joint)
+            if watch_violated(c, value):
+                shown = "unknown" if value is None else f"{value:.{DIGEST_DECIMALS}f}"
+                violations.append(f"watch '{c.label}' still violated ({c.metric}={shown} {c.op} {c.value:g})")
+        if violations:
+            raise QueueError(
+                "refused: " + "; ".join(violations) + "; the queue stays paused (fix the cause or cancel_motions)"
+            )
+        with self._cond:
+            if self._paused is None:  # a stop / cancel came first
+                return ResumeResult(
+                    resumed=False, message="not paused: nothing to resume", queue_length=len(self._pending)
+                )
+            by = self._paused.by
+            self._paused = None
+            pending = {q.job_id for q in self._pending}
+            for w in self._watches:
+                if w.ids & pending:
+                    w.triggered, w.since = False, None
+            self.emit_locked(
+                "resumed",
+                message=f"resumed after the pause by watch '{by}'",
+                data={"pending": [q.job_id for q in self._pending]},
+            )
+            if not self._pending:
+                self.emit_locked("queue_empty", message="queue drained")
+            self._cond.notify_all()
+            return ResumeResult(
+                resumed=True, message=f"resumed ({len(self._pending)} pending steps)", queue_length=len(self._pending)
+            )
 
     def status(self) -> MotionStatus:
         """Current step, pending steps and the last events.
@@ -961,20 +1223,24 @@ class MotionQueue:
     # --- worker ---------------------------------------------------------------------------------------------------
 
     def ensure_worker_locked(self) -> None:
-        """Start the worker thread once (caller holds the lock)."""
+        """Start the worker and the watcher thread once (caller holds the lock)."""
         if self._thread is None or not self._thread.is_alive():
             self._thread = threading.Thread(target=self.run_worker, name="motion-queue", daemon=True)
             self._thread.start()
+        if self.sampler is not None and (self._watcher is None or not self._watcher.is_alive()):
+            self._watcher = threading.Thread(target=self.run_watcher, name="motion-watch", daemon=True)
+            self._watcher.start()
 
     def run_worker(self) -> None:
         """Worker loop: take the next blend group, dispatch it, publish its outcome."""
         while True:
             with self._cond:
-                while not self._pending:
+                while not self._pending or self._paused is not None:
                     self._cond.wait()
                 group = self.take_group_locked()
                 generation = self._generation
                 self._running = Running(group=group, started=self.clock())
+                self._cond.notify_all()  # wakes the watcher when this group has watches
             try:
                 outcome = self.dispatch(group, generation)
             except Exception as exc:  # noqa: BLE001 - a worker crash must never wedge the queue silently
@@ -1307,9 +1573,209 @@ class MotionQueue:
                     {"dropped": [q.job_id for q in rest[1:]] + dropped},
                 )
         MOTION_QUEUE_DEPTH.set(len(self._pending))
-        if not self._pending:
+        self.prune_watches_locked()
+        if not self._pending and self._paused is None:
             self.emit_locked("queue_empty", message="queue drained")
         self._cond.notify_all()
+
+    # --- watch constraints ----------------------------------------------------------------------------------------
+
+    def run_watcher(self) -> None:
+        """Watcher loop ('motion-watch' thread): sleep on the queue condition while no watch set is active, else
+        tick at motion_queue.watch_rate_hz. Never runs inside the arm setpoint stream."""
+        period = 1.0 / self.settings.watch_rate_hz
+        while True:
+            with self._cond:
+                while not self.watch_due_locked():
+                    self._cond.wait()
+            self.watch_sleep(period)
+            try:
+                self.watch_tick()
+            except Exception:  # noqa: BLE001 - a broken sampler must not end the watcher silently
+                LOGGER.exception("motion watch tick failed")
+
+    def watch_due_locked(self) -> bool:
+        """Whether a watch that has not triggered is bound to the running group (caller holds the lock).
+
+        Returns:
+            bool: True when the watcher should tick.
+        """
+        if self._running is None:
+            return False
+        ids = {q.job_id for q in self._running.group}
+        return any(not w.triggered and w.ids & ids for w in self._watches)
+
+    def activate_watches_locked(self, running: Running | None) -> list[WatchState]:
+        """Update the active flags from the running group (caller holds the lock).
+
+        A watch leaving the active state stops integrating distance (no speed gap is integrated across it).
+
+        Args:
+            running (Running | None): The running group.
+
+        Returns:
+            list[WatchState]: The active watches that have not triggered.
+        """
+        ids = set() if running is None else {q.job_id for q in running.group}
+        active: list[WatchState] = []
+        for w in self._watches:
+            w.active = bool(w.ids & ids)
+            if not w.active:
+                w.speed_at = None
+            elif not w.triggered:
+                active.append(w)
+        return active
+
+    def sample(self, metric: str, joint: str | None) -> float | None:
+        """One cached metric value (the sampler reads caches only; called outside the queue lock).
+
+        Args:
+            metric (str): Watch metric (distance_travelled_m is not sampled, see watch_value).
+            joint (str | None): Joint of the joint metrics.
+
+        Returns:
+            float | None: The value, None when unknown.
+        """
+        assert self.sampler is not None  # enqueue refuses watches without a sampler
+        return self.sampler(metric, joint)
+
+    @staticmethod
+    def watch_value(w: WatchState, samples: dict[tuple[str, str | None], float | None], now: float) -> float | None:
+        """A watch's value this tick; integrates distance_travelled_m from the fresh speed (watcher only).
+
+        Args:
+            w (WatchState): The watch.
+            samples (dict[tuple[str, str | None], float | None]): This tick's samples by (metric, joint).
+            now (float): Tick time (s).
+
+        Returns:
+            float | None: The value; None when unknown (distance: while the speed is unknown, the gap is not
+                integrated).
+        """
+        c = w.constraint
+        if c.metric != DISTANCE_METRIC:
+            return samples[(c.metric, c.joint)]
+        speed = samples[(SPEED_METRIC, None)]
+        if speed is None:
+            w.speed_at = None
+            return None
+        if w.speed_at is not None:
+            w.distance += abs(speed) * max(0.0, now - w.speed_at)
+        w.speed_at = now
+        return w.distance
+
+    @staticmethod
+    def watch_held(w: WatchState, value: float | None, now: float) -> bool:
+        """Advance the for_s debounce with this tick's value.
+
+        Args:
+            w (WatchState): The watch.
+            value (float | None): Its value (None = unknown).
+            now (float): Tick time (s).
+
+        Returns:
+            bool: True when the violation held for for_s (trip).
+        """
+        violated = watch_violated(w.constraint, value)
+        if violated is None:  # unknown, ignored: neither a violation nor the end of one
+            return False
+        if not violated:
+            w.since = None
+            return False
+        if w.since is None:
+            w.since = now
+        return now - w.since >= w.constraint.for_s - WATCH_TIME_EPS
+
+    def watch_tick(self) -> None:
+        """One watcher evaluation: sample the caches outside the lock, then compare and trip under it.
+
+        The trip is generation-checked: when the running group ended (or was cancelled) while sampling, the late
+        trip is dropped, so a step that just finished is never aborted.
+        """
+        with self._cond:
+            running = self._running
+            generation = self._generation
+            active = self.activate_watches_locked(running)
+        if not active:
+            return
+        keys = {
+            (SPEED_METRIC, None)
+            if w.constraint.metric == DISTANCE_METRIC
+            else (w.constraint.metric, w.constraint.joint)
+            for w in active
+        }
+        samples = {key: self.sample(*key) for key in keys}
+        now = self.clock()
+        with self._cond:
+            if running is None or self._running is not running or generation != self._generation:
+                return
+            trip: tuple[WatchState, float | None] | None = None
+            for w in active:
+                if w.triggered:
+                    continue
+                value = self.watch_value(w, samples, now)
+                w.last_value = value
+                if not self.watch_held(w, value, now):
+                    continue
+                if trip is None or (trip[0].constraint.action == "pause" and w.constraint.action == "abort"):
+                    trip = (w, value)  # abort wins over pause in the same tick
+            if trip is None:
+                return
+            data, moving = self.trip_locked(trip[0], trip[1], running)
+        MOTION_WATCH_TRIGGERS.labels(data["metric"], data["action"]).inc()
+        if moving:
+            self.stop_robot()
+        try:
+            self.on_watch_trigger(data)
+        except Exception:  # noqa: BLE001 - the report must not break the watcher; the queue already acted
+            LOGGER.exception("watch trigger report failed")
+
+    def trip_locked(self, w: WatchState, value: float | None, running: Running) -> tuple[dict[str, Any], bool]:
+        """Act on a tripped watch (caller holds the lock): emit watch_triggered, then abort (the cancel path) or
+        pause (end the running group without re-running it, keep the pending steps, block dispatch).
+
+        Args:
+            w (WatchState): The watch.
+            value (float | None): Its value (None = unknown).
+            running (Running): The running group.
+
+        Returns:
+            tuple[dict[str, Any], bool]: watch_triggered data, and whether the robot must be stopped (outside the
+                lock).
+        """
+        c = w.constraint
+        w.triggered = True
+        shown = None if value is None else round(value, DIGEST_DECIMALS)
+        data = {
+            "watch": c.label,
+            "metric": c.metric,
+            "value": shown,
+            "op": c.op,
+            "threshold": c.value,
+            "action": c.action,
+        }
+        item = running.group[min(running.passed, len(running.group) - 1)]
+        moving = self.moving_locked()
+        self.emit_locked(
+            "watch_triggered",
+            item,
+            f"watch '{c.label}' triggered: {c.metric}={'unknown' if shown is None else shown} {c.op} {c.value:g} "
+            f"-> {c.action}",
+            data,
+        )
+        if c.action == "abort":
+            self.halt_locked("cancelled", f"watch '{c.label}' triggered")
+        else:
+            self._generation += 1  # the running group ends as step_aborted and is not re-run
+            self._paused = PauseView(by=c.label, at=round(time.time(), 3))
+            self.emit_locked(
+                "paused",
+                item,
+                f"paused by watch '{c.label}': resume_motions continues the pending steps, cancel_motions drops them",
+                {"watch": c.label, "pending": [q.job_id for q in self._pending]},
+            )
+            self._cond.notify_all()
+        return data, moving
 
     # --- helpers --------------------------------------------------------------------------------------------------
 
@@ -1337,10 +1803,31 @@ class MotionQueue:
         Returns:
             bool: True while busy.
         """
-        return self._running is not None or bool(self._pending)
+        return self._running is not None or bool(self._pending) or self._paused is not None
+
+    def moving_locked(self) -> bool:
+        """Whether the running group moves the robot (a wait step does not).
+
+        Returns:
+            bool: True when a robot.stop is needed to end it.
+        """
+        return self._running is not None and any(q.step.kind != "wait_s" for q in self._running.group)
+
+    def stop_robot(self) -> None:
+        """Stop the robot for a queue-initiated abort (caller does NOT hold the lock) and reset the stop baseline."""
+        self.robot.stop()
+        with self._cond:
+            self._stop_baseline = None
+
+    def prune_watches_locked(self) -> None:
+        """Drop the watch sets none of whose steps is pending or running any more (caller holds the lock)."""
+        live = {q.job_id for q in self._pending}
+        if self._running is not None:
+            live |= {q.job_id for q in self._running.group}
+        self._watches = [w for w in self._watches if w.ids & live]
 
     def halt_locked(self, event: EventType | None, message: str) -> tuple[list[str], list[str] | None]:
-        """Drop the pending steps and bump the generation (the running group's outcome is then ignored).
+        """Drop the pending steps, clear a pause and bump the generation (the running group's outcome is then ignored).
 
         Args:
             event (EventType | None): Event to emit ('cancelled' / 'stopped'), None for none.
@@ -1351,6 +1838,8 @@ class MotionQueue:
         """
         dropped = [q.job_id for q in self._pending]
         self._pending.clear()
+        self._paused = None
+        self.prune_watches_locked()
         running = None if self._running is None else [q.job_id for q in self._running.group]
         MOTION_QUEUE_DEPTH.set(0)
         if running is not None or dropped:
@@ -1424,6 +1913,8 @@ class MotionQueue:
             ],
             last_events=list(self._events)[-self.settings.status_events :],
             event_seq=self._seq,
+            paused=self._paused,
+            watches=[w.view() for w in self._watches],
         )
 
 

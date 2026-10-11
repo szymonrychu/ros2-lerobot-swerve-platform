@@ -772,6 +772,8 @@ class MotionQueueSettings(StrictModel):
     base_still_angular_rps: float = Field(default=0.05, gt=0.0)  # base_still: |wz| below this
     holding_min_effort: float = Field(default=100.0, gt=0.0)  # gripper_holding: |gripper load| at least this
     holding_min_gap_rad: float = Field(default=0.05, ge=0.0)  # gripper_holding: jaw at least this short of closed
+    watch_rate_hz: float = Field(default=10.0, gt=0.0, le=20.0)  # watch_constraints evaluation rate while active
+    watch_max_per_call: int = Field(default=8, ge=1, le=16)  # watch_constraints of one enqueue_motions call at most
 
 
 class LookAroundSettings(StrictModel):

@@ -489,7 +489,8 @@ def register_tools(
 
     One GuardEngine (config.guard_rules over GuardState) serves the three guard rule hooks: tool entry
     (RobotMCPServer.call_tool_with_digest), queue dispatch (MotionQueue guard_gate) and arm motion start
-    (ArmController.motion_guard).
+    (ArmController.motion_guard). The queue's watch constraints read the same cached state (GuardState.sampler) and
+    report trips to the monitor.
 
     Args:
         server (MCPServer): Target server.
@@ -504,10 +505,8 @@ def register_tools(
     if footprint is not None:
         footprint.start()  # mcp_server start: the measured arm pose's footprint, then the republish tick
     control = ControlManager(robot.arm, robot, config, guard, footprint=footprint)
-    engine = GuardEngine(
-        config.guard_rules,
-        GuardState(robot, control, monitor, config, footprint, guard, queue_busy=lambda: queue.busy()),
-    )
+    state = GuardState(robot, control, monitor, config, footprint, guard, queue_busy=lambda: queue.busy())
+    engine = GuardEngine(config.guard_rules, state)
     queue = MotionQueue(
         robot,
         config,
@@ -518,6 +517,8 @@ def register_tools(
         lease_gate=control.step_refusal,
         lease_scope=control.step_scope,
         guard_gate=engine.check_step,
+        sampler=state.sampler.sample,
+        on_watch_trigger=monitor.report_watch_trigger,
     )
     robot.arm.motion_guard = lambda start, target: arm_motion_guard(engine, start, target)
     control.queue_busy = queue.busy

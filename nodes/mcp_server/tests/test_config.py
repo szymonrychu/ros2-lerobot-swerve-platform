@@ -12,6 +12,7 @@ from mcp_server.config import (
     REPO_ROOT,
     McpServerConfig,
     MissingTokenError,
+    MotionQueueSettings,
     config_path_from_env,
     load_config,
     token_from_env,
@@ -410,3 +411,13 @@ def test_invalid_guard_rule_fails_config_load(tmp_path: Path, bad: dict) -> None
     path.write_text(yaml.safe_dump({"guard_rules": {"rules": [rule]}}))
     with pytest.raises(ValueError, match="guard_rules"):
         load_config(path)
+
+
+def test_motion_queue_watch_settings_defaults_and_bounds() -> None:
+    settings = MotionQueueSettings()
+    assert settings.watch_rate_hz == 10.0 and settings.watch_max_per_call == 8
+    MotionQueueSettings(watch_rate_hz=20.0, watch_max_per_call=16)
+    MotionQueueSettings(watch_max_per_call=1)
+    for bad in ({"watch_rate_hz": 0.0}, {"watch_rate_hz": 20.5}, {"watch_max_per_call": 0}, {"watch_max_per_call": 17}):
+        with pytest.raises(ValidationError):
+            MotionQueueSettings(**bad)

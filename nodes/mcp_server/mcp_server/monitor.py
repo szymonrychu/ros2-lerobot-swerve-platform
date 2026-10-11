@@ -888,6 +888,26 @@ class RobotMonitor:
         )
 
     @delivers
+    def report_watch_trigger(self, data: dict[str, Any]) -> None:
+        """A motion queue watch constraint triggered (abort or pause of the queued motions).
+
+        A warning (never debounced: every trip is reported): it shows in the digest and on /robot_events but does not
+        interrupt a base / arm motion or the model's turn; the queue already acted on it.
+
+        Args:
+            data (dict[str, Any]): The queue's watch_triggered data (watch, metric, value, op, threshold, action).
+        """
+        self.emit(
+            "watch_triggered",
+            "warning",
+            "motion_queue",
+            f"motion watch '{data.get('watch')}' triggered: {data.get('metric')}={data.get('value')} "
+            f"{data.get('op')} {data.get('threshold')} -> {data.get('action')}",
+            dict(data),
+            debounce=False,
+        )
+
+    @delivers
     def report_arm_tracking_abort(self, message: str, data: dict[str, Any] | None = None) -> None:
         """The arm tracking error exceeded its limit (setpoint vs measured): the arm is stalled or blocked.
 
