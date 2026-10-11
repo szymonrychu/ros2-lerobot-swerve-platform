@@ -14,6 +14,7 @@ RESOLVE_TASKS = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "resolve_and_dep
 
 # node_type -> [cpu_quota, memory_max] of the client. Raised 2026-10-11 after 24 h peaks hit the cap: topic_scraper_api
 # 128/128 (OOM), test_joint_api 58.2/64, bno055_imu 57.6/64, gps_rtk (rover) 55.8/64.
+# mcp_server 25% -> 100% on 2026-10-11 (normal tier): plan_grasp took 52.6 s at 81-91% robot CPU.
 LIMITS_SNAPSHOT = {
     "ros2_master": ["20%", "128M"],
     "master2master": ["25%", "128M"],
@@ -38,7 +39,7 @@ LIMITS_SNAPSHOT = {
     "nav2_bringup": ["75%", "512M"],
     "slam_toolbox": ["75%", "512M"],
     "web_ui": ["30%", "256M"],
-    "mcp_server": ["25%", "384M"],
+    "mcp_server": ["100%", "384M"],
     "poi_store": ["10%", "128M"],
     "claude_agent": ["150%", "1G"],
 }
@@ -52,12 +53,12 @@ NORMAL = {
     "types": [
         "rplidar_a1", "rf2o_laser_odometry", "rf2o_odom_relay", "robot_localization_ekf", "nav2_bringup",
         "slam_toolbox", "laser_filter", "gps_rtk", "poi_store", "overview_camera", "uvc_camera", "test_joint_api",
-        "map_guard",
+        "map_guard", "mcp_server",
     ],
 }  # fmt: skip
 LOW = {
     "weights": (50, 50, 300),
-    "types": ["web_ui", "mcp_server", "claude_agent", "topic_scraper_api", "master2master", "haptic_controller"],
+    "types": ["web_ui", "claude_agent", "topic_scraper_api", "master2master", "haptic_controller"],
 }
 TIERS = [CRITICAL, NORMAL, LOW]
 
@@ -188,7 +189,9 @@ def test_limits_unchanged_versus_main() -> None:
     old = yaml.safe_load(proc.stdout)["ros2_node_type_defaults"]
     new = type_defaults(CLIENT_VARS)
     for node_type, entry in old.items():
-        assert new[node_type].get("cpu_quota") == entry.get("cpu_quota"), node_type
+        # A deliberate raise is recorded in LIMITS_SNAPSHOT (checked above), so it may differ from main.
+        allowed = (entry.get("cpu_quota"), LIMITS_SNAPSHOT.get(node_type, [None])[0])
+        assert new[node_type].get("cpu_quota") in allowed, node_type
         if entry.get("memory_max") is not None:
             assert to_mib(new[node_type]["memory_max"]) >= to_mib(entry["memory_max"]), node_type
 

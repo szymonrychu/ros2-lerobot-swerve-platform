@@ -453,13 +453,15 @@ ros2_node_type_defaults:
     src_shared: true
     # mcp_server loads the arm URDF from the web_ui package directory.
     src_extra_paths: [nodes/web_ui/urdf]
-    cpu_quota: "25%"
+    # One full core, normal tier (cpu_weight 100, oom_score_adjust 0; was 25% in the low tier): mcp_server serves the
+    # agent's interactive tool calls (single-threaded numpy bursts for motion and grasp planning). Measured 2026-10-11
+    # at 81-91% robot CPU: plan_grasp took 52.6 s, grasp_object 205-259 s, and the agent instruction timed out.
+    cpu_quota: "100%"
     # 384M: about 125 MB idle plus about 70 MB while the reach envelope computes in 32-pose batches (256M OOM-looped
     # 2026-10-10 when the unbatched envelope peaked at about 2.4 GB).
     memory_max: "384M"
-    cpu_weight: 50
-    io_weight: 50
-    oom_score_adjust: 300
+    cpu_weight: 100
+    oom_score_adjust: 0
     config_path: /etc/ros2/mcp_server
     env:
       - MCP_SERVER_CONFIG=/etc/ros2/mcp_server/config.yaml

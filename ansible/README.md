@@ -359,7 +359,7 @@ Raised after the 2026-10-11 24 h peaks hit the cap (peak/cap): topic_scraper_api
 | slam_toolbox | 75% | 512M |
 | nav2_bringup | 75% | 512M |
 | web_ui | 30% | 256M |
-| mcp_server | 25% | 384M |
+| mcp_server | 100% (normal tier; was 25%: plan_grasp took 52.6 s, grasp_object 205-259 s on 2026-10-11) | 384M |
 | poi_store | 10% | 128M |
 | claude_agent | 150% (Nice=10) | 1G |
 
@@ -382,8 +382,8 @@ Client tiers (set per node type in `group_vars/client.yml`; `cpu_quota` / `memor
 | Tier | cpu_weight | io_weight | oom_score_adjust | Node types |
 |---|---|---|---|---|
 | critical | 400 | 400 | -500 | `feetech_servos` (lerobot_follower, swerve_drive_servos), `swerve_controller`, `ros2_master`, `filter_node`, `static_tf_publisher`, `bno055_imu` |
-| normal | 100 | unset | 0 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `overview_camera`, `uvc_camera`, `test_joint_api` |
-| low | 50 | 50 | 300 | `web_ui`, `mcp_server`, `claude_agent`, `topic_scraper_api`, `master2master`, `haptic_controller` |
+| normal | 100 | unset | 0 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `overview_camera`, `uvc_camera`, `test_joint_api`, `map_guard`, `mcp_server` |
+| low | 50 | 50 | 300 | `web_ui`, `claude_agent`, `topic_scraper_api`, `master2master`, `haptic_controller` |
 
 `realsense_d435i` (retired) is left alone. The server shares the template but gets no tiers: only the robot (client) is tuned for now.
 

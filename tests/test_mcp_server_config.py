@@ -156,7 +156,7 @@ def test_mcp_server_node_type_defaults() -> None:
     assert d["deploy_mode"] == "native"
     assert d["node_src_dir"] == "nodes/mcp_server"
     assert d["node_launch_command"] == "python3 -m mcp_server"
-    assert (d["cpu_quota"], d["memory_max"]) == ("25%", "384M")
+    assert (d["cpu_quota"], d["memory_max"]) == ("100%", "384M")
     assert d["config_path"] == CONFIG_DIR
     assert f"MCP_SERVER_CONFIG={CONFIG_DIR}/config.yaml" in d["env"]
     assert d["environment_file"] == TOKEN_FILE

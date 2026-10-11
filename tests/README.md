@@ -143,11 +143,11 @@ Cgroup tiers and the unit template directives (`CPUWeight`, `IOWeight`, `MemoryH
 | `test_template_renders_directives_when_set` | Each directive renders with its value, `OOMScoreAdjust=0` included. |
 | `test_directives_sit_in_the_service_section` | Directives land between `[Service]` and `[Install]`. |
 | `test_resolve_maps_new_keys` | `resolve_and_deploy.yml` maps the four type default keys. |
-| `test_tiers_have_expected_weights` | Every client node type of the critical / normal / low tiers has its weights (`map_guard` is in the normal tier, 20% / 128M). |
+| `test_tiers_have_expected_weights` | Every client node type of the critical / normal / low tiers has its weights (`map_guard` is in the normal tier, 20% / 128M; `mcp_server` is in the normal tier with a 100% quota since 2026-10-11). |
 | `test_tiers_do_not_overlap` | A node type is in one tier only. |
 | `test_untiered_types_have_no_weights` | Types outside the tiers carry no new keys. |
 | `test_existing_limits_unchanged` | `cpu_quota` / `memory_max` match a hard-coded snapshot of main. |
-| `test_limits_unchanged_versus_main` | Against `git show main:` when the ref exists: `cpu_quota` equal, `memory_max` never lower. |
+| `test_limits_unchanged_versus_main` | Against `git show main:` when the ref exists: `cpu_quota` equal (or the deliberate value recorded in the snapshot), `memory_max` never lower. |
 | `test_memory_high_is_seven_eighths_of_memory_max`, `test_explicit_memory_high_wins` | The `node_memory_high` expression of `resolve_and_deploy.yml`: 7/8 of `memory_max` for M and G values, 224M without `memory_max`, empty for other suffixes; a type's `memory_high` wins. |
 | `test_every_node_type_gets_memory_high_below_memory_max` | Every node type on both hosts resolves a `MemoryHigh` below its `MemoryMax` and the unit renders both. |
 | `test_scraper_and_sensor_caps_raised_on_both_hosts` | topic_scraper_api 192M (both hosts); test_joint_api, bno055_imu, gps_rtk 96M (client). |
@@ -928,7 +928,7 @@ fake `ssh`; no ROS needed).
 
 | Test (group) | Description |
 |------|-------------|
-| `test_mcp_server_node_type_defaults` | `mcp_server` node type: native, `nodes/mcp_server`, `python3 -m mcp_server`, 25% / 256M, `config_path` `/etc/ros2/mcp_server`, env `MCP_SERVER_CONFIG`, token only via `environment_file: /etc/ros2/mcp_server/token`. |
+| `test_mcp_server_node_type_defaults` | `mcp_server` node type: native, `nodes/mcp_server`, `python3 -m mcp_server`, 100% / 384M, `config_path` `/etc/ros2/mcp_server`, env `MCP_SERVER_CONFIG`, token only via `environment_file: /etc/ros2/mcp_server/token`. |
 | `test_mcp_server_node_entry_and_config` | Present + enabled `ros2_nodes` entry; config block keys, server 0.0.0.0:18200 `/mcp`, repo-relative arm URDF that exists, home file `/var/lib/ros2/arm/home.yaml`. |
 | `test_mcp_server_topics_match_filter_node_lease` | mcp_server autonomy command/release/active source and follower feedback topics equal filter_node's. |
 | `test_filter_node_autonomy_params` | filter_node config sets `autonomy_input_topic`, `autonomy_release_topic`, `active_source_topic`. |
