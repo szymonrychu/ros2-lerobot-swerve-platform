@@ -812,6 +812,8 @@ def test_claude_agent_confirm_grasp_is_a_sensor_tool() -> None:
     cfg = node_config("claude_agent")
     assert "confirm_grasp" in cfg["sensor_tools"]
     assert "confirm_grasp" not in cfg["effector_tools"]
+
+
 REACH_MAP_FILE = NODE_DIR / "mcp_server" / "data" / "reach_map.npz"
 REACH_MAP_SCRIPT = REPO_ROOT / "scripts" / "gen_reach_map.py"
 REACH_MAP_KEY_PROGRAM = (
