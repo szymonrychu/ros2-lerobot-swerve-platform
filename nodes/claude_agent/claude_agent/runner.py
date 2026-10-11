@@ -250,6 +250,8 @@ class AgentRunner:
             on_phase_started=self.emit_phase_started,
             on_phase_completed=self.emit_phase_completed,
             on_plan_revised=self.emit_plan_revised,
+            on_condition_pending=self.emit_condition_pending,
+            on_condition_answered=self.emit_condition_answered,
             logger=self.logger,
             time_left=self.instruction_time_left,
         )
@@ -526,7 +528,32 @@ class AgentRunner:
             summary=phase["summary"],
             usage={"ro_used": phase["ro_used"], "rw_used": phase["rw_used"], "turns_used": phase["turns_used"]},
             caps={"rw_cap": phase["rw_cap"], "turn_cap": phase["turn_cap"]},
+            id=phase["id"],
+            attempt=phase["attempt"],
+            max_attempts=phase["max_attempts"],
+            iteration=phase["iteration"],
+            depth=phase["depth"],
+            p_retry_success=phase["p_retry_success"],
+            retry_change=phase["retry_change"],
         )
+        self.emit_state()
+
+    def emit_condition_pending(self, condition: dict[str, Any]) -> None:
+        """Gate callback: an ask condition of the plan tree waits for agent.answer_condition.
+
+        Args:
+            condition (dict[str, Any]): node_id, node_type, question and iteration.
+        """
+        self.events.append("condition_pending", **condition)
+        self.emit_state()
+
+    def emit_condition_answered(self, condition: dict[str, Any]) -> None:
+        """Gate callback: the agent answered the pending condition.
+
+        Args:
+            condition (dict[str, Any]): node_id, node_type, question, iteration, value and evidence.
+        """
+        self.events.append("condition_answered", **condition)
         self.emit_state()
 
     def emit_plan_revised(self, plan: dict[str, Any]) -> None:

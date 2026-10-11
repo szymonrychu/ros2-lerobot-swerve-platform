@@ -203,3 +203,25 @@ def test_min_effector_time_left_defaults_to_60_and_must_not_be_negative() -> Non
     assert ClaudeAgentConfig(min_effector_time_left_s=0).min_effector_time_left_s == 0
     with pytest.raises(ValidationError):
         ClaudeAgentConfig(min_effector_time_left_s=-1)
+
+
+def test_plan_tree_and_retry_defaults() -> None:
+    cfg = ClaudeAgentConfig()
+    assert cfg.max_loop_iterations == 5
+    assert cfg.retry_success_threshold == 0.5
+    assert cfg.max_auto_retries == 6
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"max_loop_iterations": 0},
+        {"max_loop_iterations": 6},
+        {"retry_success_threshold": -0.1},
+        {"retry_success_threshold": 1.1},
+        {"max_auto_retries": -1},
+    ],
+)
+def test_plan_tree_and_retry_bounds(bad: dict) -> None:
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig(**bad)

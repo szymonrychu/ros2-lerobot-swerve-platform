@@ -18,7 +18,7 @@ web_ui (later: proxy)  --HTTP/WS-->  claude_agent (127.0.0.1:18300)
   unauthenticated by design; the web UI is the only client.
 - `runner.py`: one `ClaudeSDKClient` session (fresh on service start, created at the first instruction; `POST /api/reset`
   starts a new one), one instruction at a time. The MCP token file is read when a session is created and never logged.
-- `budget.py`: the agent-chosen task plan (`PlanTracker`: phases with their own caps, maxima, completion, one revision, one raise per phase) and the in-process SDK MCP server `agent` with the tools `set_task_plan`, `complete_phase`, `revise_plan` and `raise_phase_budget` (see "Task plan").
+- `budget.py`: the agent-chosen task plan (`PlanTracker`: a plan tree of seq / if / while / phase nodes walked by a cursor stack and the pure `advance()`, phases with their own caps, maxima, completion with the retry policy, one revision, one raise per phase entry) and the in-process SDK MCP server `agent` with the tools `set_task_plan`, `complete_phase`, `revise_plan`, `raise_phase_budget` and `answer_condition` (see "Task plan").
 - `robot_events.py`: parsing of the `/robot_events` JSON and the follow-up text (see "Robot events and interrupts").
 - `tools.py`: `EffectorGate`, the `can_use_tool` callback. The only built-in tools are the five notes file tools
   (`tools=[Read, Write, Edit, Glob, Grep]`, see "Workdir and notes"); everything else is disabled (a deny list for Bash,
@@ -115,21 +115,68 @@ Not counted: the notes file tools, the planning tools, and the control tools `st
 `cancel_motions` (`stop` and `cancel_motions` must always work). Keep `effector_tools` equal to the motion classification of `nodes/mcp_server` (`MOTION_TOOLS`;
 `tests/test_claude_agent_config.py` checks it).
 
-The in-process SDK MCP server `agent` (`claude_agent_sdk.create_sdk_mcp_server`) offers four tools:
+The in-process SDK MCP server `agent` (`claude_agent_sdk.create_sdk_mcp_server`) offers five tools:
 
-- `mcp__agent__set_task_plan(complexity, rationale, phases)`: `complexity` is `trivial`, `simple`, `moderate`, `complex` or
-  `very_complex`; `phases` is 1 to 12 objects `{name, goal, rw_cap, turn_cap}`. `goal` is a measurable success criterion
+- `mcp__agent__set_task_plan(complexity, rationale, phases | plan)`: `complexity` is `trivial`, `simple`, `moderate`, `complex` or
+  `very_complex`. Give exactly one of `phases` (the flat form, kept for compatibility: 1 to 12 objects `{name, goal, rw_cap,
+  turn_cap}`, converted to a `seq` of phase nodes with generated ids `p1`, `p2`, ...) or `plan` (a plan tree, see "Plan tree" below). `goal` is a measurable success criterion
   (for example "within 10 cm of the tomato"). `turn_cap` is an integer >= 1, `rw_cap` an integer >= 0 (0 for a sensing-only
   phase). A stray `ro_cap` from the model is ignored silently. A cap above its per-phase maximum is clamped and the result says which; if the caps of all phases summed exceed an
   instruction maximum the plan is rejected with the sum and the room left. The first phase becomes active. A second call is refused
   (use `revise_plan`).
-- `mcp__agent__complete_phase(outcome, summary)`: closes the active phase with `done`, `failed` or `skipped` and a summary, records
-  its usage against its caps and activates the next phase. Completing the last phase ends the plan.
-- `mcp__agent__revise_plan(rationale, phases)`: once per instruction, replaces the remaining phases (an unfinished active phase is
-  closed as `failed`, completed phases are immutable). The new caps must fit into the instruction maxima minus what started phases
-  already used.
-- `mcp__agent__raise_phase_budget(rw_cap?, turn_cap?, rationale)`: once per phase, new total caps for the active phase (not
-  lower than now), limited to what is left of the instruction maxima.
+- `mcp__agent__complete_phase(outcome, summary, p_retry_success?, retry_change?)`: closes the active phase with `done`, `failed`
+  or `skipped` and a summary and records its usage against its caps. A `failed` outcome must carry `p_retry_success` (0..1, the
+  model's estimate that one more attempt succeeds) and `retry_change` (what that attempt does differently); without them the call
+  is rejected. Then either the phase is re-entered automatically (see "Retry policy") or the cursor walks on to the next phase, a
+  pending condition, or the end of the plan.
+- `mcp__agent__revise_plan(rationale, phases | plan)`: once per instruction, replaces the remainder of the plan with a flat list or
+  a new tree (an unfinished active phase is closed as `failed`; every phase that already ran stays in `phases` as history, its id
+  cannot be reused and `outcome_of` may name it; a pending condition is dropped). The new caps must fit into the instruction maxima
+  minus what phases already used.
+- `mcp__agent__raise_phase_budget(rw_cap?, turn_cap?, rationale)`: once per phase entry (a loop iteration or an automatic retry is a
+  new entry), new total caps for the active phase (not lower than now), limited to what is left of the instruction maxima.
+- `mcp__agent__answer_condition(node_id, value, evidence)`: answers the pending `ask` condition of an `if` / `while` node with
+  `true` / `false` and the evidence (what a camera image or sensor showed). Evidence is required; a wrong `node_id` or a
+  non-boolean value is rejected.
+
+### Plan tree
+
+```
+Node = {type:"phase", id, name, goal, rw_cap, turn_cap, max_attempts?: 1..5 = 2}
+     | {type:"seq",   id?, children: [Node, 1..12]}
+     | {type:"if",    id, condition: Cond, then: Node, else?: Node}
+     | {type:"while", id, condition: Cond, max_iterations: 1..max_loop_iterations, body: Node}
+Cond = {ask: "<yes/no question>"}
+     | {outcome_of: "<phase id>", in: ["not_run" | "done" | "failed" | "skipped", ...]}
+```
+
+- Limits: at most 24 nodes, 4 levels deep (the root is level 1), 12 phase nodes, unique ids (phase, if and while need one),
+  `max_iterations` at most `max_loop_iterations` (5), `max_attempts` 1 to 5. A violation rejects the plan with a message naming
+  the node. The plan-time sum check counts every phase once, both `if` branches included.
+- `PlanTracker` keeps the tree, the flat phase records, the latest outcome per phase id and a cursor stack of frames
+  `(node, child_index, iteration)`. The pure function `advance()` walks from the cursor until it reaches a phase (activated,
+  `phase_started`), a pending `ask` (`condition_pending`) or the end (plan finished). `complete_phase` and `answer_condition`
+  call it; their tool result names the next phase or the pending question.
+- `while` is tested before each iteration: max_iterations first, then the budget, then the condition. `if` is tested on entry.
+  `outcome_of` reads the latest outcome of that phase (`not_run` before it ever closed); it is decided by the runner, so retry
+  loops need no model answer. `ask` is answered by the model with `answer_condition`.
+- While an `ask` is pending there is no active phase: effector calls are denied with `answer condition '<id>' first ...`;
+  sensor calls stay allowed, so the model can look before it answers. `complete_phase` and `raise_phase_budget` are refused too.
+- Budgets sit on phase nodes only. Every entry of a phase (loop iteration or retry) starts with fresh counters and the planned
+  caps; on a re-entry the caps are clamped to the room left of the instruction maxima. A loop exits with reason `budget` when
+  no turn is left or, if its body has a phase with `rw_cap >= 1`, no rw call is left. The exit reason (`condition`,
+  `max_iterations`, `budget`) is stated in the tool result and in the tree payload.
+- Example: "pick until it worked, at most 3 tries" is `{type:"while", id:"pickloop", condition:{outcome_of:"pick",
+  in:["not_run","failed"]}, max_iterations:3, body:{type:"seq", children:[{type:"phase", id:"approach", ...}, {type:"phase",
+  id:"pick", ...}]}}`.
+
+### Retry policy
+
+A phase closed as `failed` is re-entered at once (attempt + 1, fresh caps, `phase_started` with the new `attempt`) only when all
+of these hold: `p_retry_success >= retry_success_threshold` (0.5), `attempt < max_attempts` (per phase, default 2), automatic
+retries used `< max_auto_retries` (6 per instruction, across all phases) and the instruction budget has room (a turn, and an rw
+call when the phase plans effector calls). The tool result then says `Automatic retry n/m - apply: <retry_change>`. Otherwise
+the result says why not and the failure flows on: the next sibling runs, or an enclosing `while` re-tests its `outcome_of`.
 
 Gate (`tools.py`, `can_use_tool`):
 
@@ -289,6 +336,9 @@ unknown keys are rejected.
 | `model` | `opus` | Model alias or id |
 | `max_rw_cap` / `max_turn_cap` | `150` / `200` | Hard maxima of the caps of all phases together per instruction (SDK `max_turns` = `max_turn_cap` + 10) |
 | `max_phase_rw_cap` / `max_phase_turn_cap` | `40` / `40` | Maxima of the caps of one phase (larger values are clamped) |
+| `max_loop_iterations` | `5` | Largest `max_iterations` of a `while` node (1 to 5) |
+| `retry_success_threshold` | `0.5` | A failed phase is re-entered automatically from this `p_retry_success` on (0 to 1) |
+| `max_auto_retries` | `6` | Most automatic phase re-entries per instruction, across all phases |
 | `effector_tools` / `uncapped_tools` / `sensor_tools` | see above | Short tool names (no `mcp__robot__`) |
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |
 | `mcp_token_file` | `/etc/ros2/mcp_server/token` | `MCP_SERVER_TOKEN=<token>` (or the bare token), read per session |
@@ -366,9 +416,11 @@ Every event is `{seq: int, ts: float, type, ...}`:
 | `tool_cancelled` | `id`, `name` (short); a tool result came back with Claude Code's generic "user doesn't want to proceed" text without a user stop (the follow-up corrects it for the model) |
 | `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls) |
 | `error` | `message` (authentication failures, missing token file, session failures) |
-| `plan` | the plan payload (`complexity`, `rationale`, `revised`, `revision_rationale`, `active_phase`, `phases` with caps and usage); emitted when the agent sets its plan |
-| `phase_started` | the phase payload (`index`, `name`, `goal`, `status`, caps, usage, `raised`, `summary`); emitted when a phase becomes active |
-| `phase_completed` | `index`, `name`, `goal`, `outcome` (`done` / `failed` / `skipped`), `summary`, `usage` `{ro_used, rw_used, turns_used}`, `caps` `{rw_cap, turn_cap}` |
+| `plan` | the plan payload (`complexity`, `rationale`, `revised`, `revision_rationale`, `active_phase`, `phases` as a flat preorder list with `index`, caps and usage, `tree` (the plan tree: phase nodes as `{type, id, index}`, `if` with `branch`, `while` with `iteration` and `exit_reason`), `pending_condition` (`null` or `{node_id, node_type, question, iteration}`)); emitted when the agent sets its plan |
+| `phase_started` | the phase payload (`index`, `name`, `goal`, `status`, caps, usage, `raised`, `summary`, `id`, `depth` (root level 1), `attempt`, `max_attempts`, `iteration` (of the innermost `while`, 0 outside loops), `p_retry_success`, `retry_change`); emitted when a phase becomes active, again on each loop iteration and automatic retry |
+| `phase_completed` | `index`, `name`, `goal`, `outcome` (`done` / `failed` / `skipped`), `summary`, `usage` `{ro_used, rw_used, turns_used}`, `caps` `{rw_cap, turn_cap}`, `id`, `attempt`, `max_attempts`, `iteration`, `depth`, `p_retry_success`, `retry_change` (usage and caps of that entry) |
+| `condition_pending` | `node_id`, `node_type` (`if` / `while`), `question`, `iteration` (while: the iteration the answer would start; if: of the enclosing loop); effector calls are denied until it is answered |
+| `condition_answered` | the `condition_pending` fields plus `value` and `evidence` |
 | `plan_revised` | the revised plan payload plus `revision_rationale`; emitted after `revise_plan` (the replaced active phase gets a `phase_completed` with outcome `failed` first) |
 | `robot_event` | `event_seq`, `event_ts`, `event_type`, `severity` (`info` / `warning` / `critical`), `source`, `message`, `data` (the `/robot_events` fields, renamed so they do not clash with the event's own `seq` / `ts` / `type`) |
 | `state` | `busy`, `ro_used`, `rw_used`, `turns_used`, `effector_calls_used` (= `rw_used`), `plan` (object or `null`), `active_phase`; emitted at each instruction start (counters 0, plan `null`), after each counted call and each model turn |

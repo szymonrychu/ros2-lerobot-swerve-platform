@@ -41,6 +41,7 @@ def test_constants() -> None:
         "mcp__agent__complete_phase",
         "mcp__agent__revise_plan",
         "mcp__agent__raise_phase_budget",
+        "mcp__agent__answer_condition",
     )
 
 
@@ -89,6 +90,13 @@ def test_set_plan_accepts_and_activates_the_first_phase() -> None:
         "turns_used": 0,
         "raised": False,
         "summary": "",
+        "id": "p1",
+        "depth": 2,
+        "attempt": 1,
+        "max_attempts": 2,
+        "iteration": 0,
+        "p_retry_success": None,
+        "retry_change": "",
     }
     assert second["status"] == "pending" and second["index"] == 1
     assert t.active == 0
@@ -223,7 +231,7 @@ def test_complete_phase_records_outcome_and_activates_the_next() -> None:
     t.set_plan("moderate", "r", two_phases())
     events.clear()
     t.charge("sensor")
-    closed, nxt = t.complete_phase("failed", "tomato not found")
+    closed, nxt = t.complete_phase("failed", "tomato not found", 0.0, "none")
     assert closed["status"] == "failed" and closed["summary"] == "tomato not found" and closed["ro_used"] == 1
     assert nxt is not None and nxt["index"] == 1 and nxt["status"] == "active"
     assert t.active == 1
@@ -268,7 +276,7 @@ def test_phase_turn_counting_note_once_and_denial() -> None:
     assert t.charge("effector").startswith("phase 1 'Locate' turn budget exhausted (2/2)")
     assert t.charge("sensor") is None, "sensors stay allowed when the phase turns are used up"
     assert t.phase_dicts()[0]["turns_used"] == 2 and t.turns_used == 2
-    t.complete_phase("failed", "ran out of turns")
+    t.complete_phase("failed", "ran out of turns", 0.0, "none")
     t.count_turn()
     assert t.charge("effector") is None, "the next phase has its own turns"
     assert t.phase_dicts()[1]["turns_used"] == 1
@@ -338,7 +346,7 @@ def test_revise_plan_replaces_remaining_phases_once() -> None:
     t = PlanTracker(ClaudeAgentConfig(), on_plan_revised=seen.append)
     t.set_plan("moderate", "r", [phase("A"), phase("B"), phase("C")])
     t.charge("sensor")
-    t.complete_phase("failed", "A failed")
+    t.complete_phase("failed", "A failed", 0.0, "none")
     plan, notes = t.revise_plan("A failed, try another way", [phase("B2", "other"), phase("C2", "done")])
     assert notes == []
     assert plan["revised"] is True
@@ -366,7 +374,7 @@ def test_revising_closes_the_active_phase_as_failed_and_keeps_its_usage() -> Non
 def test_revise_after_the_plan_ended_starts_new_phases() -> None:
     t = planned()
     t.complete_phase("done", "a")
-    t.complete_phase("failed", "b failed")
+    t.complete_phase("failed", "b failed", 0.0, "none")
     plan, _ = t.revise_plan("recover", [phase("Recover")])
     assert [p["status"] for p in plan["phases"]] == ["done", "failed", "active"]
     assert t.active == 2
@@ -377,7 +385,7 @@ def test_revise_budget_counts_what_closed_phases_used() -> None:
     t.set_plan("simple", "r", [phase(rw=20), phase("B", rw=10)])
     for _ in range(12):
         t.charge("effector")
-    t.complete_phase("failed", "x")
+    t.complete_phase("failed", "x", 0.0, "none")
     with pytest.raises(PlanError, match=r"rw_cap.*20.*18"):
         t.revise_plan("again", [phase("N", rw=20)])
     plan, _ = t.revise_plan("again", [phase("N", rw=18)])
@@ -425,9 +433,9 @@ def test_server_is_an_in_process_sdk_server_named_agent() -> None:
     server = build_plan_server(tracker())
     assert server["type"] == "sdk" and server["name"] == "agent"
     tools = {t.name: t for t in build_plan_tools(tracker())}
-    assert set(tools) == {"set_task_plan", "complete_phase", "revise_plan", "raise_phase_budget"}
+    assert set(tools) == {"set_task_plan", "complete_phase", "revise_plan", "raise_phase_budget", "answer_condition"}
     schema = tools["set_task_plan"].input_schema
-    assert schema["required"] == ["complexity", "rationale", "phases"]
+    assert schema["required"] == ["complexity", "rationale"]
     assert schema["properties"]["complexity"]["enum"] == list(COMPLEXITIES)
     phases = schema["properties"]["phases"]
     assert phases["minItems"] == 1 and phases["maxItems"] == 12
@@ -438,7 +446,7 @@ def test_server_is_an_in_process_sdk_server_named_agent() -> None:
     assert "ro_cap" not in phases["items"]["properties"]
     for name in ("set_task_plan", "revise_plan", "raise_phase_budget"):
         assert "ro_cap" not in tools[name].description
-    assert tools["revise_plan"].input_schema["required"] == ["rationale", "phases"]
+    assert tools["revise_plan"].input_schema["required"] == ["rationale"]
 
 
 def by_name(t: PlanTracker) -> dict:
@@ -475,7 +483,9 @@ async def test_complete_phase_handler_announces_the_next_phase_and_the_end() -> 
     res = await handlers["complete_phase"]({"outcome": "done", "summary": "tomato seen"})
     text = res["content"][0]["text"]
     assert "Phase 1" in text and "done" in text and "Phase 2" in text and "within 10 cm of the tomato" in text
-    res = await handlers["complete_phase"]({"outcome": "failed", "summary": "could not reach"})
+    res = await handlers["complete_phase"](
+        {"outcome": "failed", "summary": "could not reach", "p_retry_success": 0.1, "retry_change": "none"}
+    )
     text = res["content"][0]["text"]
     assert "plan is finished" in text.lower() and "report" in text.lower()
 

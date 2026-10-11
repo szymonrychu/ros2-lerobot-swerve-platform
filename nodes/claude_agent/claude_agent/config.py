@@ -79,6 +79,10 @@ DEFAULT_PROMPT_CACHE_TTL = "1h"
 # Percent of the context window at which Claude Code auto-compacts (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE); measured sessions grew to 183k tokens.
 DEFAULT_AUTOCOMPACT_PCT = 60
 DEFAULT_DIGEST_MAX_CHARS = 1500
+DEFAULT_MAX_LOOP_ITERATIONS = 5
+MAX_LOOP_ITERATIONS_LIMIT = 5
+DEFAULT_RETRY_SUCCESS_THRESHOLD = 0.5
+DEFAULT_MAX_AUTO_RETRIES = 6
 
 
 class MissingTokenError(RuntimeError):
@@ -96,6 +100,10 @@ class ClaudeAgentConfig(BaseModel):
         max_phase_rw_cap: Largest read-write (effector) call cap the agent may give ONE phase of its plan.
         max_phase_turn_cap: Largest model-turn cap of one phase. The caps of all phases together must also stay within
             the two instruction maxima above. Sensor calls have no budget at all.
+        max_loop_iterations: Largest max_iterations the agent may give a while node of its plan tree (1 to 5).
+        retry_success_threshold: A phase closed as failed is re-entered automatically when the agent's p_retry_success
+            is at least this (and attempts, max_auto_retries and the instruction budget allow it).
+        max_auto_retries: Most automatic phase re-entries per instruction, across all phases.
         effector_tools: Short names (no mcp__robot__ prefix) of the motion tools; keep in sync with mcp_server MOTION_TOOLS.
         uncapped_tools: Short names of safety/control tools that are never capped (stop never counts).
         sensor_tools: Short names of read-only tools (counted for telemetry, never capped or refused).
@@ -148,6 +156,9 @@ class ClaudeAgentConfig(BaseModel):
     max_turn_cap: int = Field(default=200, ge=1)
     max_phase_rw_cap: int = Field(default=40, ge=1)
     max_phase_turn_cap: int = Field(default=40, ge=1)
+    max_loop_iterations: int = Field(default=DEFAULT_MAX_LOOP_ITERATIONS, ge=1, le=MAX_LOOP_ITERATIONS_LIMIT)
+    retry_success_threshold: float = Field(default=DEFAULT_RETRY_SUCCESS_THRESHOLD, ge=0, le=1)
+    max_auto_retries: int = Field(default=DEFAULT_MAX_AUTO_RETRIES, ge=0)
     effector_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_EFFECTOR_TOOLS))
     uncapped_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_UNCAPPED_TOOLS))
     sensor_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_SENSOR_TOOLS))

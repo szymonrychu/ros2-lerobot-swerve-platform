@@ -362,7 +362,8 @@ Covers:
 
 - config (`test_config.py`): defaults (opus, hard maxima rw 150 / turns 200, no `max_ro_cap` / `max_phase_ro_cap`, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
   tool lists disjoint (stop can never be an effector), `get_arm_reach` a sensor tool (free, not effector-capped) in both the code
-  defaults and the client.yml config, invalid numbers and unknown keys rejected, YAML loading,
+  defaults and the client.yml config, invalid numbers and unknown keys rejected, YAML loading, the plan tree and retry defaults
+  (`max_loop_iterations` 5, `retry_success_threshold` 0.5, `max_auto_retries` 6) and their bounds,
   `CLAUDE_AGENT_CONFIG` lookup, `mcp_check_timeout_s` default 30 and > 0, MCP token read (env-file line or bare token, missing/empty refused, token never in the error)
 - system prompt (`test_prompt.py`): the "Tilt guard" section (tilt_warning / tilt_error / tilt_clear, no Nav2 goals, manual short base moves, arm still and compact, never work around the guard); tool refusals come from the budget gate or errors, never from the person, and the generic "user doesn't want to proceed" text means re-run, not stop;
   grip profiles (`grip_profile` on set_gripper / grasp_object, gentle for fragile or light objects, soft for plush / soft toys, foam and fabric, normal for ordinary ones, firm for heavy, slippery objects and tools, check `holding_load` / `slipping` / `crush_risk` and retry firmer or gentler, soft plush gets squashed whatever the load; plush and soft toys go to `grip_profile soft` (not gentle or normal) and a relaxed hold reports `retightened`; the `unverified` grasp outcome: look at the attached gripper camera image, treat the object as held when it is in the jaws, else `release_object` and retry), pixel sizes (always pass `image_width` / `image_height` with pixels from a 384x288 `get_camera_image` picture, or use `get_annotated_camera_image`), the centred grasp (`grasp_shift`, `tool_point` beside the jaw centre by `shift_m` = half the object width plus the fixed jaw clearance is not a drift, `residual_error` / `warnings` / `held_pose`, `approach_speed_scale`), the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase rw/turn guidance ranges, no ro budget and unlimited sensor calls, generous rw/turn caps (double the estimate, raise early), the grasping guidance (several viewpoints by changing the roll incl. directly above, `pixel_to_ground`, average within 1 cm, centre not edge, correct by the observed offset, NOTES.md), retry budgeting (room for retries, raise the budget before it runs out or add a retry phase), fixed vs moving jaw and `object_width_m`, the agent chooses the grasp `wrist_roll`, camera views by roll, the rolling protocol (half open, arm lifted), `surface_height_m` and below-floor reach, stairs / tables / holes described as `surfaces` (step edge point and direction or polygon, height relative to the robot floor) instead of a single `surface_z_m` with `support_z` that must match, fast arm by default, phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections (objects are POIs on the person's map, own POIs and objects removed on a new session, the person's POIs stay), safety rules, persona,
@@ -384,7 +385,25 @@ Covers:
   per-phase maxima with notes, rejection when the phase caps summed exceed an instruction maximum, the phase lifecycle (first phase active,
   `complete_phase` outcomes and next activation, plan end), sensor calls never refused (no plan, plan finished, turn cap used up) but counted, rw/turn counting and exact exhausted reasons, the once-per-phase raise
   (rationale, no lowering, limited to the remaining instruction room), the single `revise_plan` (closed phases kept, active one closed as failed,
-  budget counts what closed phases used), the phase turn note, reset, callbacks, and the four SDK tools (schemas, texts, errors as error results)
+  budget counts what closed phases used), the phase turn note, reset, callbacks, and the five SDK tools (schemas, texts, errors as error results);
+  a failed close carries `p_retry_success` and `retry_change`, and the payload gains the tree fields (`id`, `depth`, `attempt`, ...)
+- plan tree and retry policy (`test_plan_tree.py`): table-driven activation traces (plan, sequence of complete / answer calls,
+  expected phase and pending-condition order) for seq, `while` with `outcome_of` (repeat until done, exit on `max_iterations`),
+  `if` with `ask` (then, else, no else) and `outcome_of` (taken, not taken, `not_run`), nested `while` + `if`, an ask loop ending at
+  `max_iterations` without asking again, and retries; nested loops and the innermost-loop `iteration`; a pending ask blocking
+  effectors (and `complete_phase` / `raise_phase_budget`) but not sensors; `answer_condition` validation and the
+  `condition_pending` / `condition_answered` callbacks; a plan starting with an ask; loop exit with reason `budget` (no rw room),
+  `max_iterations` and `condition`; fresh, room-clamped caps and a new raise per re-entry; a sensing-only loop running without rw
+  room; the flat preorder payload with `id` / `depth` / `attempt` / `iteration` / `p_retry_success` and the `tree` field; flat
+  phases converted to a seq with generated ids; exactly one of `phases` / `plan`; validation errors (depth, duplicate ids, 24
+  nodes, 12 phases, `max_iterations` and `max_attempts` bounds and the config limit, unknown type, missing id / then / body,
+  `outcome_of` naming an unknown or non-phase node or bad values, bad conditions, seq child count, caps); the plan-time sum
+  counting each phase once with both if branches; `revise_plan` replacing a tree mid-loop (kept history, `outcome_of` naming an
+  old phase, ids of kept phases rejected, a pending ask cleared); the retry policy: a failed close without `p_retry_success` /
+  `retry_change` rejected, p 0.49 vs 0.5 at the threshold, re-entry with attempt n/m, fresh caps and the `Automatic retry n/m -
+  apply: ...` text, attempts exhausted, the cap of 6 automatic retries across two phases, the configured threshold and cap, no
+  retry with rw room 0 or turn room 0, a retry inside a `while` before the loop re-tests, a revision close needing no retry fields;
+  and the SDK tool schemas and handler texts (tree accepted, automatic retry, pending question, `answer_condition`, tree revise)
 - robot events (`test_robot_events.py`): `/robot_events` JSON parsing and normalization, idle events emitted but never interrupting, bounded
   history, non-critical events not interrupting, a critical event interrupting the running step and continuing the same instruction
   with the follow-up message (no robot stop, plan and turns carried over), the 2 s debounce, thread-safe hand-over from the rclpy thread,
@@ -395,7 +414,9 @@ Covers:
   control tools too), sensors counted but never denied and effectors denied at the rw cap with the exact messages, the phase turn cap, denial after the last phase, reset,
   everything outside `mcp__robot__*` denied, count and denial callbacks, concurrent permission requests (a parallel effector +
   sensor call both allowed; past the rw cap the extra effectors denied with the budget reason, the sensor allowed), an exception
-  inside the gate or its denial callback turned into an explicit, logged `internal error in the permission gate` denial
+  inside the gate or its denial callback turned into an explicit, logged `internal error in the permission gate` denial;
+  `answer_condition` allowed as a planning tool, a pending ask denying effectors (sensors allowed) until answered, the condition
+  callbacks forwarded to the tracker
 - events (`test_events.py`): ring buffer and sequence numbers, subscribers, normalization of assistant text / tool calls /
   tool results from SDK objects, image thumbnails (size, no upscaling, RGBA, undecodable), 4000-char truncation flag,
   turn_end statuses (done, interrupted, max_turns, error) and auth-error detection
@@ -408,7 +429,9 @@ Covers:
 - env (`test_env.py`): `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` removed from the child env, `DISABLE_AUTOUPDATER=1`, input untouched
 - runner (`test_runner.py`): SDK options (robot HTTP MCP server with bearer header, `tools=[]`, no allow rules, `can_use_tool`), event
   flow with a fake client, token never in events, busy refusal, interrupt, plan and counters reset per instruction, `plan` / `phase_started` /
-  `phase_completed` / `plan_revised` and `state` events (ro/rw/turns/plan), the instruction turn maximum (interrupt, robot stop, `turn_cap` status), the phase turn cap note (follow-up, no stop), the phase note interrupt deferred until a parallel tool call in flight finished (the 2026-10-11 cancelled-camera-call sequence), Claude Code's generic "user doesn't want to proceed" result corrected in a follow-up with a `tool_cancelled` event (not after a user stop), denial events,
+  `phase_completed` / `plan_revised` and `state` events (ro/rw/turns/plan), `condition_pending` / `condition_answered` events of a plan
+  tree and the tree fields of `phase_started` / `phase_completed` (`id`, `attempt`, `iteration`, `depth`, `p_retry_success`,
+  `retry_change`, an automatic retry emitting a second `phase_started`) and the plan's `tree`, the instruction turn maximum (interrupt, robot stop, `turn_cap` status), the phase turn cap note (follow-up, no stop), the phase note interrupt deferred until a parallel tool call in flight finished (the 2026-10-11 cancelled-camera-call sequence), Claude Code's generic "user doesn't want to proceed" result corrected in a follow-up with a `tool_cancelled` event (not after a user stop), denial events,
   auth error, session failure and missing token become error events, reset starts a new session and clears the agent POIs through the injected clearer (fake; not on start, not on a refused reset, an error result or a raising clearer is logged and does not break the reset)
 - robot tools check (`test_runner.py`): a connected robot MCP server runs the instruction with no probe or reconnect; a failed
   server that answers is reconnected in place (`robot_tools_reconnected` event, session kept); a failed reconnect restarts the

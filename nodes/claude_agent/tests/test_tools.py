@@ -63,6 +63,7 @@ PLAN_TOOLS = [
     "mcp__agent__complete_phase",
     "mcp__agent__revise_plan",
     "mcp__agent__raise_phase_budget",
+    "mcp__agent__answer_condition",
 ]
 
 
@@ -451,3 +452,40 @@ async def test_sensors_and_planning_tools_ignore_the_time_left() -> None:
 async def test_gate_without_a_time_source_never_denies_on_time() -> None:
     gate = gate_with_plan()
     assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
+
+
+async def test_answer_condition_is_a_planning_tool_and_a_pending_ask_blocks_effectors() -> None:
+    denied: list[dict] = []
+    gate = EffectorGate(ClaudeAgentConfig(), on_denied=denied.append)
+    assert isinstance(await gate.can_use_tool("mcp__agent__answer_condition", {}, ctx()), PermissionResultAllow)
+    tree = {
+        "type": "if",
+        "id": "check",
+        "condition": {"ask": "is the gripper empty?"},
+        "then": {"type": "phase", "id": "a", "name": "A", "goal": "g", "rw_cap": 2, "turn_cap": 5},
+    }
+    gate.plan.set_plan("simple", "x", plan=tree)
+    result = await gate.can_use_tool("mcp__robot__drive", {}, ctx("d"))
+    assert isinstance(result, PermissionResultDeny) and "answer condition 'check' first" in result.message
+    assert isinstance(await gate.can_use_tool("mcp__robot__get_camera_image", {}, ctx()), PermissionResultAllow)
+    gate.plan.answer_condition("check", True, "empty jaws in the gripper camera")
+    assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
+    assert denied[0]["name"] == "drive"
+
+
+async def test_gate_forwards_the_condition_callbacks() -> None:
+    seen: list[tuple[str, str]] = []
+    gate = EffectorGate(
+        ClaudeAgentConfig(),
+        on_condition_pending=lambda c: seen.append(("pending", c["node_id"])),
+        on_condition_answered=lambda c: seen.append(("answered", c["node_id"])),
+    )
+    tree = {
+        "type": "if",
+        "id": "check",
+        "condition": {"ask": "q?"},
+        "then": {"type": "phase", "id": "a", "name": "A", "goal": "g", "rw_cap": 2, "turn_cap": 5},
+    }
+    gate.plan.set_plan("simple", "x", plan=tree)
+    gate.plan.answer_condition("check", False, "no")
+    assert seen == [("pending", "check"), ("answered", "check")]

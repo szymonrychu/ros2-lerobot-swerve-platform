@@ -173,6 +173,8 @@ class EffectorGate:
         on_phase_started: Callable[[dict[str, Any]], None] | None = None,
         on_phase_completed: Callable[[dict[str, Any]], None] | None = None,
         on_plan_revised: Callable[[dict[str, Any]], None] | None = None,
+        on_condition_pending: Callable[[dict[str, Any]], None] | None = None,
+        on_condition_answered: Callable[[dict[str, Any]], None] | None = None,
         logger: logging.Logger | Any = None,
         time_left: Callable[[], float] | None = None,
     ) -> None:
@@ -186,6 +188,9 @@ class EffectorGate:
             on_phase_started (Callable[[dict], None] | None): Called with the phase payload when a phase becomes active.
             on_phase_completed (Callable[[dict], None] | None): Called with the phase payload when a phase is closed.
             on_plan_revised (Callable[[dict], None] | None): Called with the plan payload after a revision.
+            on_condition_pending (Callable[[dict], None] | None): Called when an ask condition of the plan tree
+                starts waiting for agent.answer_condition.
+            on_condition_answered (Callable[[dict], None] | None): Called when the agent answered it.
             logger (logging.Logger | Any): Object with error(str) for internal gate errors; defaults to the stdlib
                 ``claude_agent`` logger.
             time_left (Callable[[], float] | None): Seconds of instruction time left; effector calls are denied below
@@ -199,6 +204,8 @@ class EffectorGate:
             on_phase_completed=on_phase_completed,
             on_plan_revised=on_plan_revised,
             on_change=on_count,
+            on_condition_pending=on_condition_pending,
+            on_condition_answered=on_condition_answered,
         )
         self.on_denied = on_denied
         self.time_left = time_left

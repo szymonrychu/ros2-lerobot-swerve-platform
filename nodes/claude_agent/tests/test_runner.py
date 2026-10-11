@@ -722,9 +722,9 @@ def planner(*phases: dict, complexity: str = "simple", rationale: str = "why"):
     return run
 
 
-def completer(outcome: str = "done", summary: str = "ok"):
+def completer(outcome: str = "done", summary: str = "ok", p_retry_success: float = 0.0, retry_change: str = "none"):
     async def run(client: FakeClient) -> None:
-        gate_of(client).plan.complete_phase(outcome, summary)
+        gate_of(client).plan.complete_phase(outcome, summary, p_retry_success, retry_change)
 
     return run
 
@@ -792,6 +792,56 @@ async def test_plan_revised_event(tmp_path: Path) -> None:
     assert [p["name"] for p in revised["phases"]] == ["A", "Plan B"]
     assert [p["status"] for p in revised["phases"]] == ["failed", "active"]
     assert [e["name"] for e in events.history() if e["type"] == "phase_completed"] == ["A"]
+
+
+async def test_condition_events_and_tree_phase_fields(tmp_path: Path) -> None:
+    tree = {
+        "type": "seq",
+        "children": [
+            {"type": "phase", "id": "look", "name": "Look", "goal": "seen", "rw_cap": 0, "turn_cap": 5},
+            {
+                "type": "if",
+                "id": "check",
+                "condition": {"ask": "is the cup upright?"},
+                "then": {"type": "phase", "id": "grab", "name": "Grab", "goal": "held", "rw_cap": 3, "turn_cap": 9},
+            },
+        ],
+    }
+
+    async def plan_tree(client: FakeClient) -> None:
+        gate_of(client).plan.set_plan("moderate", "branch", plan=tree)
+
+    async def answer(client: FakeClient) -> None:
+        gate_of(client).plan.answer_condition("check", True, "upright in the front camera")
+
+    script = [
+        plan_tree,
+        completer("done", "looked"),
+        answer,
+        completer("failed", "slipped", 0.8, "grip lower"),
+        make_result(),
+    ]
+    runner, events, _ = make_runner(tmp_path, script=script)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    [pending] = [e for e in events.history() if e["type"] == "condition_pending"]
+    assert (pending["node_id"], pending["node_type"], pending["question"]) == ("check", "if", "is the cup upright?")
+    [answered] = [e for e in events.history() if e["type"] == "condition_answered"]
+    assert (answered["node_id"], answered["value"], answered["evidence"]) == (
+        "check",
+        True,
+        "upright in the front camera",
+    )
+    types = types_of(events)
+    assert types.index("condition_pending") < types.index("condition_answered")
+    started = [e for e in events.history() if e["type"] == "phase_started"]
+    assert [(e["id"], e["attempt"], e["depth"]) for e in started] == [("look", 1, 2), ("grab", 1, 3), ("grab", 2, 3)]
+    completed = [e for e in events.history() if e["type"] == "phase_completed"]
+    grab = completed[-1]
+    assert (grab["id"], grab["attempt"], grab["iteration"], grab["depth"]) == ("grab", 1, 0, 3)
+    assert (grab["p_retry_success"], grab["retry_change"]) == (0.8, "grip lower")
+    [plan] = [e for e in events.history() if e["type"] == "plan"]
+    assert plan["tree"]["children"][1]["id"] == "check"
 
 
 async def test_usage_fields_and_new_instruction_clears_the_plan(tmp_path: Path) -> None:
