@@ -1,4 +1,4 @@
-"""Config/token errors in the mcp_server and claude_agent mains exit os.EX_CONFIG (78), which the unit does not restart."""
+"""Config/token errors in the mcp_server and claude_agent mains exit os.EX_CONFIG (78), not restarted."""
 
 import ast
 import os

@@ -231,7 +231,7 @@ def test_unit_restarts_after_any_exit() -> None:
 
 
 def test_config_error_exit_is_not_restarted() -> None:
-    """A config/token error exits 78 (os.EX_CONFIG); relaunching it every 15 s cannot fix it and costs an rclpy import."""
+    """A config/token error exits 78 (os.EX_CONFIG); relaunching every 15 s cannot fix it and costs an rclpy import."""
     assert "RestartPreventExitStatus=78\n" in render()
 
 
