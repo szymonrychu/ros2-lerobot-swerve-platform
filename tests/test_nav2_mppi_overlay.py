@@ -62,6 +62,7 @@ def test_overlay_source_is_pinned_to_the_apt_tag_with_the_patch() -> None:
         "commit": PIN,
         "package": "nav2_mppi_controller",
         "workspace": "/opt/ros2-ws",
+        "base_paths": ["nav2_mppi_controller"],
         "patches": [
             "{{ ros2_repo_dest }}/nodes/nav2_bringup/patches/nav2_mppi_controller-0001-model-delay-pr6154.patch"
         ],
@@ -114,6 +115,18 @@ def test_apt_version_feeds_the_stamp_key_only_for_a_non_empty_list() -> None:
 def test_build_jobs_default_to_ros2_build_jobs() -> None:
     build = next(t for t in package_tasks() if "colcon build" in str(t.get("ansible.builtin.command", "")))
     assert build["environment"]["MAKEFLAGS"] == "-j{{ colcon_src.jobs | default(ros2_build_jobs) }}"
+
+
+def test_overlay_build_is_limited_to_the_mppi_subdirectory() -> None:
+    source = client_vars()["nav2_mppi_overlay_source"]
+    assert source["base_paths"] == ["nav2_mppi_controller"]
+    build = next(t for t in package_tasks() if "colcon build" in str(t.get("ansible.builtin.command", "")))
+    cmd = build["ansible.builtin.command"]["cmd"]
+    # Without --base-paths colcon discovers the unbuilt nav2_* siblings of the navigation2 checkout and they shadow apt.
+    assert "--base-paths" in cmd and "colcon_src.base_paths | default([])" in cmd
+    assert cmd.index("--base-paths") < cmd.index("--packages-select")
+    # Only sources that set base_paths get the flag; rf2o/libcamera/camera_ros build command is unchanged.
+    assert "if colcon_src.base_paths is defined" in cmd
 
 
 def test_launcher_still_sources_the_first_source_workspace() -> None:

@@ -1919,6 +1919,7 @@ Static checks of the Nav2 MPPI overlay (patched `nav2_mppi_controller` built int
 | `test_nav2_apt_packages_carry_the_overlay_build_dependencies` | nav2_bringup `apt_packages` include the toolchain, colcon, xtensor/xsimd/benchmark/openmp dev packages, the ament/nav2 deps and the apt MPPI. |
 | `test_apt_version_feeds_the_stamp_key_only_for_a_non_empty_list` | `dpkg-query -W -f='${Version}'` (never changed, runs in check mode) loops over `stamp_apt_packages`; its output joins the stamp key only under a `length > 0` condition and the original key formula is intact (rf2o/libcamera/camera_ros keys unchanged). |
 | `test_build_jobs_default_to_ros2_build_jobs` | The build `MAKEFLAGS` is `-j{{ colcon_src.jobs \| default(ros2_build_jobs) }}`. |
+| `test_overlay_build_is_limited_to_the_mppi_subdirectory` | The overlay source sets `base_paths: [nav2_mppi_controller]` and the build passes `--base-paths` before `--packages-select` only when `base_paths` is set (sibling navigation2 packages must not shadow apt). |
 | `test_launcher_still_sources_the_first_source_workspace` | The launcher sources the first source's workspace `install/setup.bash` after `/opt/ros/jazzy`, so the overlay wins on `AMENT_PREFIX_PATH`. |
 
 `test_nav_stack_config.py::test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` and `test_overview_camera_config.py::test_colcon_package_build_keeps_the_limits_and_stamp_logic` now expect the `MAKEFLAGS` expression above.

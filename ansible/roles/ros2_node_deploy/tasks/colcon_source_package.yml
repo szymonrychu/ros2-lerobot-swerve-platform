@@ -2,8 +2,9 @@
 # Build ONE pinned source package into a colcon workspace (included once per source by colcon_source_build.yml).
 # Expects colcon_src: {repo, commit (SHA, tag or branch), package, workspace, patches (optional list of unified diffs,
 # strip 1), cmake_args (optional, default -DCMAKE_BUILD_TYPE=Release), meson_args (optional: build with colcon-meson),
-# stamp_apt_packages (optional list of apt packages whose installed version is part of the stamp key, for a source that
-# is built against apt headers: a ros-jazzy sync then rebuilds it), jobs (optional make -j, default ros2_build_jobs)}.
+# base_paths (optional directories inside the checkout, colcon --base-paths: for a multi-package repo, so its unbuilt
+# siblings do not shadow the apt ones), stamp_apt_packages (optional list of apt packages whose installed version is
+# part of the stamp key, for a source that is built against apt headers: a ros-jazzy sync then rebuilds it), jobs (optional make -j, default ros2_build_jobs)}.
 # Build dependencies come from the node type's apt_packages.
 # Idempotent and cheap on a no-change deploy: the stamp key is derived first (it needs no checkout) and when the stamp
 # exists and install/setup.bash is there, the clone, patch and build are all skipped (no git network access either).
@@ -110,7 +111,11 @@
       systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p CPUWeight={{ ros2_build_cpu_weight }} -p IOWeight=10 nice -n 19 ionice -c 3
       bash -c 'source /opt/ros/jazzy/setup.bash &&
       {{ ('source ' ~ colcon_src.workspace ~ '/install/setup.bash &&') if _colcon_chain_key | default('') | length > 0 else '' }}
-      colcon build --merge-install --parallel-workers 1 --packages-select {{ colcon_src.package }}
+      colcon build --merge-install --parallel-workers 1
+      {{ ('--base-paths ' ~ (colcon_src.base_paths | default([])
+      | map('regex_replace', '^', colcon_src.workspace ~ '/src/' ~ colcon_src.package ~ '/') | join(' ')))
+      if colcon_src.base_paths is defined else '' }}
+      --packages-select {{ colcon_src.package }}
       {{ ('--meson-args ' ~ (colcon_src.meson_args | join(' '))) if colcon_src.meson_args is defined
       else ('--cmake-args ' ~ (colcon_src.cmake_args | default(['-DCMAKE_BUILD_TYPE=Release']) | join(' '))) }} &&
       touch {{ colcon_src.workspace }}/.built-{{ colcon_src.package }}-{{ _colcon_patch_key }}'
