@@ -4,6 +4,8 @@ import math
 
 import rclpy
 from geometry_msgs.msg import TransformStamped
+from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from tf2_ros import StaticTransformBroadcaster
 
@@ -40,6 +42,13 @@ def run_static_tf_publisher(transforms: list[FrameTransform]) -> None:
 
     broadcaster.sendTransform(msgs)
     node.get_logger().info(f"Published {len(msgs)} static transform(s)")
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    except RCLError:
+        if rclpy.ok():  # a publish racing the SIGTERM handler is shutdown noise; anything else is a bug
+            raise
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()

@@ -6,6 +6,8 @@ import time
 import rclpy
 from geometry_msgs.msg import TransformStamped, Twist
 from nav_msgs.msg import Odometry
+from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from ros2_metrics import resolve_metrics_port, start_metrics_server
@@ -184,12 +186,14 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
 
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RCLError:
+        if rclpy.ok():  # a publish racing the SIGTERM handler is shutdown noise; anything else is a bug
+            raise
     finally:
         node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 def _yaw_to_quaternion(yaw: float) -> tuple[float, float, float, float]:
