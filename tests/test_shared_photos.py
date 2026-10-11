@@ -66,7 +66,9 @@ def test_camera_view_forward_mount_composes_position_and_yaw() -> None:
     ("base_yaw", "expected_x", "expected_y"),
     [(math.pi / 2, 0.8, 2.3), (math.pi, 0.7, 1.8)],
 )
-def test_camera_view_lateral_mount_offset_rotates_with_base(base_yaw: float, expected_x: float, expected_y: float) -> None:
+def test_camera_view_lateral_mount_offset_rotates_with_base(
+    base_yaw: float, expected_x: float, expected_y: float
+) -> None:
     mount = CameraPose(xyz=[0.3, 0.2, 0.5], rpy=[0.0, 0.0, 0.0])
     view = camera_view(PlanarPose(x=1.0, y=2.0, yaw=base_yaw), mount, None)
     assert view is not None

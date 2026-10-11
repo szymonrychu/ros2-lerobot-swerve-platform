@@ -1963,6 +1963,7 @@ Static derivation of MPPI `model_delay_*` from the swerve steering kinematics (`
 |---|---|
 | `test_camera_view_without_base_pose_is_none` / `test_camera_view_without_mount_uses_base_heading` | No base pose gives None; no mount gives a `base_heading` view with z, pitch, hfov None. |
 | `test_camera_view_forward_mount_composes_position_and_yaw` / `test_camera_view_pitch_down_is_positive` / `test_camera_view_mount_yaw_adds_to_base_yaw` / `test_camera_view_rolled_mount_keeps_heading` | Position composition, yaw and pitch sign from the mount rpy. |
+| `test_camera_view_lateral_mount_offset_rotates_with_base` | Nonzero mount y offset on a rotated base (yaw pi/2 and pi) gives literal map x/y, pinning the lateral sign. |
 | `test_photo_view_rejects_non_finite` | NaN / inf rejected. |
 | `test_effective_view_prefers_stored_view` / `test_effective_view_derives_for_legacy_record` / `test_effective_view_none_without_pose` | Stored view wins; legacy lines derive one; no pose gives None. |
 | `test_photo_as_poi_located` / `test_photo_as_poi_unlocated_has_null_xy_never_zero` | POI form fields; x/y None without a pose. |
