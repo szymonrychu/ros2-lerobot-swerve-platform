@@ -2080,9 +2080,6 @@ motion_queue: {max_steps: 32, event_history: 200, status_events: 10, wait_events
 poi: {request_timeout_s: 3.0, near_radius_m: 5.0}
 lookups:                  # photo JPEG directory (see Photos (photo POIs)); poi_store owns the index and retention
   store_dir: /var/lib/ros2/poi/lookups
-  max_records: 3000       # unused since photos are POIs (poi_store photos: holds the limits)
-  max_bytes: 300000000    # unused (see above)
-  max_age_days: 14        # unused (see above)
 control:                  # control leases: release_control base reset (see Control leases)
   steer_joint_names: [fl_steer, fr_steer, rl_steer, rr_steer]
   steer_neutral_tolerance_rad: 0.05

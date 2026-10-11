@@ -813,3 +813,12 @@ def test_claude_agent_confirm_grasp_is_a_sensor_tool() -> None:
     cfg = node_config("claude_agent")
     assert "confirm_grasp" in cfg["sensor_tools"]
     assert "confirm_grasp" not in cfg["effector_tools"]
+
+
+def test_mcp_server_readme_lookups_example_has_only_store_dir() -> None:
+    """The README config reference must not list the removed lookups retention keys."""
+    text = (NODE_DIR / "README.md").read_text()
+    block = text.split("\nlookups:", 1)[1].split("\ncontrol:", 1)[0]
+    assert "store_dir" in block
+    for key in ("max_records", "max_bytes", "max_age_days"):
+        assert key not in block, key
