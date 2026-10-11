@@ -10,6 +10,7 @@ from claude_agent_sdk import PermissionResult, PermissionResultAllow, Permission
 
 from .budget import KIND_EFFECTOR, KIND_SENSOR, PlanTracker
 from .config import ClaudeAgentConfig
+from .failure import PhaseEvidence
 from .plan_tools import FULL_TOOL_NAMES as PLAN_TOOL_FULL_NAMES
 
 MCP_SERVER_NAME = "robot"
@@ -197,6 +198,8 @@ class EffectorGate:
         on_condition_answered: Callable[[dict[str, Any]], None] | None = None,
         logger: logging.Logger | Any = None,
         time_left: Callable[[], float] | None = None,
+        evidence_provider: Callable[[], PhaseEvidence] | None = None,
+        lookup_ids_seen: Callable[[], set[str]] | None = None,
     ) -> None:
         """Create the gate.
 
@@ -215,6 +218,10 @@ class EffectorGate:
                 ``claude_agent`` logger.
             time_left (Callable[[], float] | None): Seconds of instruction time left; effector calls are denied below
                 ``config.min_effector_time_left_s`` (None disables the check).
+            evidence_provider (Callable[[], PhaseEvidence] | None): Forwarded to PlanTracker: the evidence of the
+                active phase entry for a failed close's FailureRecord.
+            lookup_ids_seen (Callable[[], set[str]] | None): Forwarded to PlanTracker: the lookup ids seen in the
+                instruction (validates the ids the model cites).
         """
         self.config = config
         self.plan = PlanTracker(
@@ -226,6 +233,8 @@ class EffectorGate:
             on_change=on_count,
             on_condition_pending=on_condition_pending,
             on_condition_answered=on_condition_answered,
+            evidence_provider=evidence_provider,
+            lookup_ids_seen=lookup_ids_seen,
         )
         self.on_denied = on_denied
         self.time_left = time_left

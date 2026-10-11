@@ -2,13 +2,25 @@
 usage counters the permission gate charges. Sensor calls are never capped, only counted for telemetry.
 
 A failed phase is re-entered automatically when the model rates another attempt likely to succeed (p_retry_success >=
-retry_success_threshold) and attempts, the per-instruction retry cap and the instruction budget allow it. The tree
-grammar and cursor walk live in ``plan_tree``, the SDK planning tools in ``plan_tools``."""
+retry_success_threshold) and attempts, the per-instruction retry cap and the instruction budget allow it, unless the
+model typed the failure as a plan_failure (repeating the phase cannot fix a wrong plan). Every failed close carries a
+typed ``FailureRecord`` (``failure``) with runner-side evidence. The tree grammar and cursor walk live in
+``plan_tree``, the SDK planning tools in ``plan_tools``."""
 
 from collections.abc import Callable
 from typing import Any
 
 from .config import ClaudeAgentConfig
+from .failure import (
+    EAI_ERROR_TYPES,
+    FAILURE_PLAN,
+    FAILURE_TYPE_MEANINGS,
+    FAILURE_TYPES,
+    FailureRecord,
+    PhaseEvidence,
+    filter_lookup_ids,
+    summarize_evidence,
+)
 from .plan_tree import (
     CAP_FIELDS,
     CAP_MINIMA,
@@ -61,6 +73,13 @@ P_REQUIRED_MESSAGE = (
     "a failed outcome needs p_retry_success (0..1): your honest estimate that one more attempt of this phase succeeds"
 )
 CHANGE_REQUIRED_MESSAGE = "a failed outcome needs retry_change: what another attempt would do differently"
+FAILURE_TYPE_REQUIRED_MESSAGE = "a failed outcome needs failure_type, one of: " + "; ".join(
+    f"{name}: {meaning}" for name, meaning in FAILURE_TYPE_MEANINGS.items()
+)
+EAI_ERROR_TYPE_REQUIRED_MESSAGE = "a failed outcome needs eai_error_type, one of: " + ", ".join(EAI_ERROR_TYPES)
+EXPLANATION_REQUIRED_MESSAGE = "a failed outcome needs explanation: why it failed, citing what you observed"
+INVALID_ENUM_MESSAGE = "{field} must be one of {values}"
+LOOKUP_IDS_MESSAGE = "evidence_lookup_ids must be a list of lookup id strings"
 EXHAUSTED_MESSAGE = (
     "phase {number} '{name}' {label} budget exhausted ({used}/{cap}); call agent.complete_phase (outcome 'failed' if "
     "the goal is not met) to move on, agent.revise_plan to adapt the remaining phases, or raise this phase once with "
@@ -79,7 +98,13 @@ TURN_NOTE = (
     "agent.complete_phase now (outcome 'failed' if the goal '{goal}' is not met), or agent.revise_plan, or raise the "
     "phase once with agent.raise_phase_budget giving a reason."
 )
-RETRY_NOTE = "Automatic retry {attempt}/{max_attempts} - apply: {change}"
+RETRY_NOTE = (
+    "Automatic retry {attempt}/{max_attempts} - apply: {change}. Last attempt failed ({failure_type}/{eai_error_type}): "
+    "{explanation} Evidence: {evidence_summary}"
+)
+NO_RETRY_PLAN_FAILURE_NOTE = (
+    "No automatic retry: a plan_failure is not fixed by repeating the phase; call agent.revise_plan or move on"
+)
 NO_RETRY_LOW_P_NOTE = "No automatic retry: p_retry_success {p:g} is below the threshold {threshold:g}"
 NO_RETRY_ATTEMPTS_NOTE = "No automatic retry: attempt {attempt}/{max_attempts} was the last"
 NO_RETRY_CAP_NOTE = "No automatic retry: the {cap} automatic retries of this instruction are used up"
@@ -102,6 +127,11 @@ LOOP_EXIT_NOTES = {
     ),
 }
 REVISED_SUMMARY = "replaced by plan revision"
+REFUSAL_LOW_P = "low_p"
+REFUSAL_ATTEMPTS = "attempts"
+REFUSAL_CAP = "cap"
+REFUSAL_BUDGET = "budget"
+REFUSAL_PLAN_FAILURE = "plan_failure"
 
 
 class PlanTracker:
@@ -119,6 +149,8 @@ class PlanTracker:
         finished (bool): Whether the cursor reached the end of the tree.
         auto_retries (int): Automatic re-entries used in the instruction.
         retried (bool): Whether the last complete_phase re-entered the closed phase automatically.
+        last_refusal_code (str | None): Why the last complete_phase did not retry a failed phase (low_p, attempts,
+            cap, budget or plan_failure); None when it retried or the outcome was not failed.
         transition_notes (list[str]): Notes of the last transition (retries, loop iterations and exits, rw room) for
             the tool result.
         spent (dict[str, int]): Per cap field, the usage of every closed phase entry.
@@ -141,6 +173,8 @@ class PlanTracker:
         on_change: Callable[[], None] | None = None,
         on_condition_pending: Callable[[dict[str, Any]], None] | None = None,
         on_condition_answered: Callable[[dict[str, Any]], None] | None = None,
+        evidence_provider: Callable[[], PhaseEvidence] | None = None,
+        lookup_ids_seen: Callable[[], set[str]] | None = None,
     ) -> None:
         """Create the tracker.
 
@@ -154,6 +188,10 @@ class PlanTracker:
             on_condition_pending (Callable[[dict], None] | None): Called with {node_id, node_type, question,
                 iteration} when an ask condition starts waiting for an answer.
             on_condition_answered (Callable[[dict], None] | None): Called with the same plus value and evidence.
+            evidence_provider (Callable[[], PhaseEvidence] | None): Returns the runner-side evidence of the active
+                entry for a failed close's FailureRecord (None: empty evidence).
+            lookup_ids_seen (Callable[[], set[str]] | None): Returns the lookup ids seen in the instruction; the ids
+                the model cites are kept only when seen (None: the evidence's own lookup_ids).
         """
         self.config = config
         self.on_plan = on_plan
@@ -163,6 +201,8 @@ class PlanTracker:
         self.on_change = on_change
         self.on_condition_pending = on_condition_pending
         self.on_condition_answered = on_condition_answered
+        self.evidence_provider = evidence_provider
+        self.lookup_ids_seen = lookup_ids_seen
         self.reset()
 
     def reset(self) -> None:
@@ -177,6 +217,7 @@ class PlanTracker:
         self.finished = False
         self.auto_retries = 0
         self.retried = False
+        self.last_refusal_code: str | None = None
         self.transition_notes: list[str] = []
         self.spent = {field_name: 0 for field_name in CAP_FIELDS}
         self.complexity = ""
@@ -353,6 +394,7 @@ class PlanTracker:
         phase.raised = phase.turn_noted = False
         phase.summary = phase.retry_change = ""
         phase.p_retry_success = None
+        phase.failure = None
         phase.attempt = attempt
         phase.iteration = iteration
         self.active = phase.index
@@ -496,7 +538,12 @@ class PlanTracker:
         return payload, parser.notes
 
     def close_active(
-        self, status: str, summary: str, p_retry_success: float | None = None, retry_change: str = ""
+        self,
+        status: str,
+        summary: str,
+        p_retry_success: float | None = None,
+        retry_change: str = "",
+        failure: dict[str, Any] | None = None,
     ) -> Phase:
         """Close the active phase entry, record its outcome and announce it.
 
@@ -505,6 +552,7 @@ class PlanTracker:
             summary (str): The summary to record.
             p_retry_success (float | None): The model's retry estimate, if given.
             retry_change (str): What another attempt would change.
+            failure (dict[str, Any] | None): The FailureRecord payload of a failed close by the model, else None.
 
         Returns:
             Phase: The closed phase.
@@ -515,6 +563,7 @@ class PlanTracker:
         phase.summary = summary
         phase.p_retry_success = p_retry_success
         phase.retry_change = retry_change
+        phase.failure = failure
         self.outcomes[phase.id] = status
         for cap in CAP_FIELDS:
             self.spent[cap] += self.phase_usage(phase, cap)
@@ -524,29 +573,96 @@ class PlanTracker:
         return phase
 
     def retry_decision(self, phase: Phase) -> str | None:
-        """Decide whether a failed phase is re-entered automatically.
+        """Decide whether a failed phase is re-entered automatically and set last_refusal_code.
+
+        A plan_failure is refused first; then low p, the attempts of the phase, the instruction retry cap and the
+        budget room, in that order.
 
         Args:
-            phase (Phase): The phase just closed as failed (with p_retry_success).
+            phase (Phase): The phase just closed as failed (with p_retry_success and failure).
 
         Returns:
             str | None: None to retry, else the note saying why not.
         """
+        code, note = self.refusal(phase)
+        self.last_refusal_code = code
+        return note
+
+    def refusal(self, phase: Phase) -> tuple[str | None, str | None]:
+        """Find the first reason not to retry a failed phase.
+
+        Args:
+            phase (Phase): The phase just closed as failed.
+
+        Returns:
+            tuple[str | None, str | None]: (refusal code, note), or (None, None) to retry.
+        """
+        if phase.failure is not None and phase.failure["type"] == FAILURE_PLAN:
+            return REFUSAL_PLAN_FAILURE, NO_RETRY_PLAN_FAILURE_NOTE
         threshold = self.config.retry_success_threshold
         p = phase.p_retry_success if phase.p_retry_success is not None else 0.0
         if p < threshold:
-            return NO_RETRY_LOW_P_NOTE.format(p=p, threshold=threshold)
+            return REFUSAL_LOW_P, NO_RETRY_LOW_P_NOTE.format(p=p, threshold=threshold)
         if phase.attempt >= phase.max_attempts:
-            return NO_RETRY_ATTEMPTS_NOTE.format(attempt=phase.attempt, max_attempts=phase.max_attempts)
+            return REFUSAL_ATTEMPTS, NO_RETRY_ATTEMPTS_NOTE.format(
+                attempt=phase.attempt, max_attempts=phase.max_attempts
+            )
         if self.auto_retries >= self.config.max_auto_retries:
-            return NO_RETRY_CAP_NOTE.format(cap=self.config.max_auto_retries)
+            return REFUSAL_CAP, NO_RETRY_CAP_NOTE.format(cap=self.config.max_auto_retries)
         room = self.room()
         if room["turn_cap"] < 1 or (phase.planned_rw_cap >= 1 and room["rw_cap"] < 1):
-            return NO_RETRY_BUDGET_NOTE.format(rw_room=room["rw_cap"], turn_room=room["turn_cap"])
-        return None
+            return REFUSAL_BUDGET, NO_RETRY_BUDGET_NOTE.format(rw_room=room["rw_cap"], turn_room=room["turn_cap"])
+        return None, None
+
+    def failure_record(
+        self, failure_type: Any, eai_error_type: Any, explanation: Any, evidence_lookup_ids: Any
+    ) -> dict[str, Any]:
+        """Validate the model's failure fields and build the FailureRecord with the runner-side evidence.
+
+        Args:
+            failure_type (Any): One of FAILURE_TYPES.
+            eai_error_type (Any): One of EAI_ERROR_TYPES.
+            explanation (Any): Non-empty text.
+            evidence_lookup_ids (Any): A list of lookup id strings the model relied on, or None.
+
+        Returns:
+            dict[str, Any]: The FailureRecord payload (cited ids filtered to the ids seen in the instruction).
+
+        Raises:
+            PlanError: A missing or invalid field (the message names it).
+        """
+        if failure_type is None:
+            raise PlanError(FAILURE_TYPE_REQUIRED_MESSAGE)
+        if failure_type not in FAILURE_TYPES:
+            raise PlanError(INVALID_ENUM_MESSAGE.format(field="failure_type", values=", ".join(FAILURE_TYPES)))
+        if eai_error_type is None:
+            raise PlanError(EAI_ERROR_TYPE_REQUIRED_MESSAGE)
+        if eai_error_type not in EAI_ERROR_TYPES:
+            raise PlanError(INVALID_ENUM_MESSAGE.format(field="eai_error_type", values=", ".join(EAI_ERROR_TYPES)))
+        if not isinstance(explanation, str) or not explanation.strip():
+            raise PlanError(EXPLANATION_REQUIRED_MESSAGE)
+        cited = [] if evidence_lookup_ids is None else evidence_lookup_ids
+        if not isinstance(cited, list) or not all(isinstance(item, str) for item in cited):
+            raise PlanError(LOOKUP_IDS_MESSAGE)
+        evidence = self.evidence_provider() if self.evidence_provider else PhaseEvidence()
+        seen = self.lookup_ids_seen() if self.lookup_ids_seen else set(evidence.lookup_ids)
+        kept, dropped = filter_lookup_ids(cited, seen)
+        evidence = evidence.model_copy(update={"model_lookup_ids": kept, "dropped_lookup_ids": dropped})
+        record = FailureRecord(
+            type=failure_type, eai_error_type=eai_error_type, explanation=explanation, evidence=evidence
+        )
+        return record.model_dump()
 
     def complete_phase(
-        self, outcome: Any, summary: Any, p_retry_success: Any = None, retry_change: Any = None
+        self,
+        outcome: Any,
+        summary: Any,
+        p_retry_success: Any = None,
+        retry_change: Any = None,
+        failure_type: Any = None,
+        eai_error_type: Any = None,
+        explanation: Any = None,
+        evidence_lookup_ids: Any = None,
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """Close the active phase, then re-enter it (automatic retry) or walk on to the next step.
 
@@ -555,13 +671,19 @@ class PlanTracker:
             summary (Any): Non-empty text.
             p_retry_success (Any): 0..1, required when the outcome is failed (recorded when given otherwise).
             retry_change (Any): Non-empty text, required when the outcome is failed.
+            failure_type (Any): One of FAILURE_TYPES, required when the outcome is failed (ignored otherwise).
+            eai_error_type (Any): One of EAI_ERROR_TYPES, required when the outcome is failed (ignored otherwise).
+            explanation (Any): Why it failed, citing what was observed; required when failed (ignored otherwise).
+            evidence_lookup_ids (Any): Optional list of lookup ids the model relied on (failed only; ids not seen in
+                the instruction are dropped and noted).
 
         Returns:
             tuple[dict[str, Any], dict[str, Any] | None]: The closed phase and the newly active phase (the same phase
             on an automatic retry; None when a condition is pending or the plan ended).
 
         Raises:
-            PlanError: No plan, an invalid outcome, summary or retry field, a pending condition, or no active phase.
+            PlanError: No plan, an invalid outcome, summary, retry or failure field, a pending condition, or no active
+            phase.
         """
         self.require_plan()
         if outcome not in OUTCOMES:
@@ -570,23 +692,34 @@ class PlanTracker:
         phase = self.require_active()
         p = None if p_retry_success is None else as_probability(p_retry_success)
         change = retry_change.strip() if isinstance(retry_change, str) else ""
+        failure = None
         if outcome == OUTCOME_FAILED:
             if p is None:
                 raise PlanError(P_REQUIRED_MESSAGE)
             if not change:
                 raise PlanError(CHANGE_REQUIRED_MESSAGE)
+            failure = self.failure_record(failure_type, eai_error_type, explanation, evidence_lookup_ids)
         self.transition_notes = []
         self.retried = False
-        self.close_active(outcome, text, p, change)
+        self.last_refusal_code = None
+        self.close_active(outcome, text, p, change, failure)
         closed = phase.as_dict()
-        if outcome == OUTCOME_FAILED:
+        if failure is not None:
             refusal = self.retry_decision(phase)
             if refusal is None:
                 self.auto_retries += 1
                 self.retried = True
                 self.enter(phase, phase.attempt + 1, phase.iteration)
                 self.transition_notes.append(
-                    RETRY_NOTE.format(attempt=phase.attempt, max_attempts=phase.max_attempts, change=change)
+                    RETRY_NOTE.format(
+                        attempt=phase.attempt,
+                        max_attempts=phase.max_attempts,
+                        change=change,
+                        failure_type=failure["type"],
+                        eai_error_type=failure["eai_error_type"],
+                        explanation=failure["explanation"],
+                        evidence_summary=summarize_evidence(PhaseEvidence.model_validate(failure["evidence"])),
+                    )
                 )
                 self.announce(STEP_PHASE)
                 return closed, phase.as_dict()

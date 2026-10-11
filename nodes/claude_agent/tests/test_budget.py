@@ -3,10 +3,25 @@ usage counters and the agent SDK tools."""
 
 import pytest
 
-from claude_agent.budget import COMPLEXITIES, PlanTracker
+from claude_agent.budget import COMPLEXITIES, NO_RETRY_PLAN_FAILURE_NOTE, PlanTracker
 from claude_agent.config import ClaudeAgentConfig
+from claude_agent.failure import (
+    EAI_ERROR_TYPES,
+    FAILURE_TYPES,
+    FailureRecord,
+    PhaseEvidence,
+    ToolCallEvidence,
+    summarize_evidence,
+)
 from claude_agent.plan_tools import FULL_TOOL_NAMES, build_plan_server, build_plan_tools
 from claude_agent.plan_tree import OUTCOMES, PlanError
+from claude_agent.tools import EffectorGate
+
+FAILURE = {
+    "failure_type": "execution_failure",
+    "eai_error_type": "goal_unsatisfied",
+    "explanation": "the jaws closed on nothing",
+}
 
 
 def tracker(**kwargs) -> PlanTracker:
@@ -91,6 +106,7 @@ def test_set_plan_accepts_and_activates_the_first_phase() -> None:
         "iteration": 0,
         "p_retry_success": None,
         "retry_change": "",
+        "failure": None,
     }
     assert second["status"] == "pending" and second["index"] == 1
     assert t.active == 0
@@ -225,7 +241,7 @@ def test_complete_phase_records_outcome_and_activates_the_next() -> None:
     t.set_plan("moderate", "r", two_phases())
     events.clear()
     t.charge("sensor")
-    closed, nxt = t.complete_phase("failed", "tomato not found", 0.0, "none")
+    closed, nxt = t.complete_phase("failed", "tomato not found", 0.0, "none", **FAILURE)
     assert closed["status"] == "failed" and closed["summary"] == "tomato not found" and closed["ro_used"] == 1
     assert nxt is not None and nxt["index"] == 1 and nxt["status"] == "active"
     assert t.active == 1
@@ -270,7 +286,7 @@ def test_phase_turn_counting_note_once_and_denial() -> None:
     assert t.charge("effector").startswith("phase 1 'Locate' turn budget exhausted (2/2)")
     assert t.charge("sensor") is None, "sensors stay allowed when the phase turns are used up"
     assert t.phase_dicts()[0]["turns_used"] == 2 and t.turns_used == 2
-    t.complete_phase("failed", "ran out of turns", 0.0, "none")
+    t.complete_phase("failed", "ran out of turns", 0.0, "none", **FAILURE)
     t.count_turn()
     assert t.charge("effector") is None, "the next phase has its own turns"
     assert t.phase_dicts()[1]["turns_used"] == 1
@@ -340,7 +356,7 @@ def test_revise_plan_replaces_remaining_phases_once() -> None:
     t = PlanTracker(ClaudeAgentConfig(), on_plan_revised=seen.append)
     t.set_plan("moderate", "r", [phase("A"), phase("B"), phase("C")])
     t.charge("sensor")
-    t.complete_phase("failed", "A failed", 0.0, "none")
+    t.complete_phase("failed", "A failed", 0.0, "none", **FAILURE)
     plan, notes = t.revise_plan("A failed, try another way", [phase("B2", "other"), phase("C2", "done")])
     assert notes == []
     assert plan["revised"] is True
@@ -368,7 +384,7 @@ def test_revising_closes_the_active_phase_as_failed_and_keeps_its_usage() -> Non
 def test_revise_after_the_plan_ended_starts_new_phases() -> None:
     t = planned()
     t.complete_phase("done", "a")
-    t.complete_phase("failed", "b failed", 0.0, "none")
+    t.complete_phase("failed", "b failed", 0.0, "none", **FAILURE)
     plan, _ = t.revise_plan("recover", [phase("Recover")])
     assert [p["status"] for p in plan["phases"]] == ["done", "failed", "active"]
     assert t.active == 2
@@ -379,7 +395,7 @@ def test_revise_budget_counts_what_closed_phases_used() -> None:
     t.set_plan("simple", "r", [phase(rw=20), phase("B", rw=10)])
     for _ in range(12):
         t.charge("effector")
-    t.complete_phase("failed", "x", 0.0, "none")
+    t.complete_phase("failed", "x", 0.0, "none", **FAILURE)
     with pytest.raises(PlanError, match=r"rw_cap.*20.*18"):
         t.revise_plan("again", [phase("N", rw=20)])
     plan, _ = t.revise_plan("again", [phase("N", rw=18)])
@@ -478,7 +494,7 @@ async def test_complete_phase_handler_announces_the_next_phase_and_the_end() -> 
     text = res["content"][0]["text"]
     assert "Phase 1" in text and "done" in text and "Phase 2" in text and "within 10 cm of the tomato" in text
     res = await handlers["complete_phase"](
-        {"outcome": "failed", "summary": "could not reach", "p_retry_success": 0.1, "retry_change": "none"}
+        {"outcome": "failed", "summary": "could not reach", "p_retry_success": 0.1, "retry_change": "none", **FAILURE}
     )
     text = res["content"][0]["text"]
     assert "plan is finished" in text.lower() and "report" in text.lower()
@@ -496,3 +512,207 @@ async def test_revise_and_raise_handlers() -> None:
     assert not revised.get("is_error") and "Other" in revised["content"][0]["text"]
     again = await handlers["revise_plan"]({"rationale": "x", "phases": [phase("Other")]})
     assert again["is_error"] is True
+
+
+# ---- typed failure record (E8) ----
+
+LOOKUP_SEEN = "a" * 32
+LOOKUP_OTHER = "b" * 32
+
+
+def sample_evidence() -> PhaseEvidence:
+    return PhaseEvidence(
+        tool_calls=[ToolCallEvidence(id="g1", name="grasp_object", kind="effector", is_error=False, outcome="missed")],
+        tool_calls_total=3,
+        lookup_before=LOOKUP_SEEN,
+        lookup_after=LOOKUP_SEEN,
+        lookup_ids=[LOOKUP_SEEN],
+    )
+
+
+def evidenced(**kwargs) -> PlanTracker:
+    t = PlanTracker(
+        ClaudeAgentConfig(**kwargs), evidence_provider=sample_evidence, lookup_ids_seen=lambda: {LOOKUP_SEEN}
+    )
+    t.set_plan("moderate", "two steps", two_phases())
+    return t
+
+
+@pytest.mark.parametrize("missing", ["failure_type", "eai_error_type", "explanation"])
+def test_failed_without_a_failure_field_names_it(missing: str) -> None:
+    t = planned()
+    fields = {key: value for key, value in FAILURE.items() if key != missing}
+    with pytest.raises(PlanError, match=missing):
+        t.complete_phase("failed", "missed", 0.9, "closer", **fields)
+    assert t.active == 0, "the phase stays open"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("failure_type", "oops"), ("eai_error_type", "oops"), ("explanation", "  "), ("explanation", 3)],
+)
+def test_failed_with_an_invalid_failure_field_names_it(field: str, value: object) -> None:
+    t = planned()
+    with pytest.raises(PlanError, match=field):
+        t.complete_phase("failed", "missed", 0.9, "closer", **{**FAILURE, field: value})
+
+
+def test_failed_with_invalid_evidence_lookup_ids_is_rejected() -> None:
+    t = planned()
+    with pytest.raises(PlanError, match="evidence_lookup_ids"):
+        t.complete_phase("failed", "missed", 0.9, "closer", **FAILURE, evidence_lookup_ids="abc")
+    with pytest.raises(PlanError, match="evidence_lookup_ids"):
+        t.complete_phase("failed", "missed", 0.9, "closer", **FAILURE, evidence_lookup_ids=[1])
+
+
+def test_failed_close_builds_the_failure_record_with_evidence_and_filtered_ids() -> None:
+    completed: list = []
+    t = PlanTracker(
+        ClaudeAgentConfig(),
+        evidence_provider=sample_evidence,
+        lookup_ids_seen=lambda: {LOOKUP_SEEN},
+        on_phase_completed=completed.append,
+    )
+    t.set_plan("moderate", "two steps", two_phases())
+    closed, _ = t.complete_phase(
+        "failed", "missed", 0.1, "closer", **FAILURE, evidence_lookup_ids=[LOOKUP_SEEN, LOOKUP_OTHER]
+    )
+    failure = closed["failure"]
+    assert failure["type"] == "execution_failure" and failure["eai_error_type"] == "goal_unsatisfied"
+    assert failure["explanation"] == "the jaws closed on nothing"
+    assert failure["evidence"]["tool_calls_total"] == 3
+    assert failure["evidence"]["tool_calls"][0]["outcome"] == "missed"
+    assert failure["evidence"]["model_lookup_ids"] == [LOOKUP_SEEN]
+    assert failure["evidence"]["dropped_lookup_ids"] == [LOOKUP_OTHER]
+    assert completed[-1]["failure"] == failure, "the completed payload carries the record"
+    FailureRecord.model_validate(failure)
+
+
+def test_failed_close_without_provider_has_empty_evidence() -> None:
+    t = planned()
+    closed, _ = t.complete_phase("failed", "missed", 0.1, "closer", **FAILURE, evidence_lookup_ids=[LOOKUP_SEEN])
+    evidence = closed["failure"]["evidence"]
+    assert {**evidence, "dropped_lookup_ids": []} == PhaseEvidence().model_dump()
+    assert evidence["dropped_lookup_ids"] == [LOOKUP_SEEN], "nothing was seen, so no cited id is kept"
+
+
+def test_done_and_skipped_ignore_failure_fields() -> None:
+    t = planned()
+    closed, nxt = t.complete_phase("done", "ok", **FAILURE, evidence_lookup_ids=["x"])
+    assert closed["failure"] is None and closed["status"] == "done"
+    assert nxt is not None and nxt["failure"] is None
+    closed, _ = t.complete_phase("skipped", "no need", failure_type="bogus")
+    assert closed["failure"] is None
+    assert t.last_refusal_code is None
+
+
+def test_plan_failure_blocks_the_automatic_retry_even_with_high_p() -> None:
+    t = evidenced()
+    closed, nxt = t.complete_phase(
+        "failed", "wrong bin", 0.9, "pick the other bin", **{**FAILURE, "failure_type": "plan_failure"}
+    )
+    assert closed["failure"]["type"] == "plan_failure"
+    assert t.retried is False and t.auto_retries == 0
+    assert nxt is not None and nxt["index"] == 1
+    assert NO_RETRY_PLAN_FAILURE_NOTE in t.transition_notes
+    assert "revise_plan" in NO_RETRY_PLAN_FAILURE_NOTE
+    assert t.last_refusal_code == "plan_failure"
+
+
+def test_execution_failure_retry_note_carries_explanation_and_evidence() -> None:
+    t = evidenced()
+    closed, nxt = t.complete_phase("failed", "missed", 0.9, "grip lower", **FAILURE)
+    assert t.retried is True and t.last_refusal_code is None
+    assert nxt is not None and nxt["index"] == 0 and nxt["attempt"] == 2
+    assert nxt["failure"] is None, "a fresh entry has no failure record"
+    assert t.phase_dicts()[0]["failure"] is None
+    [note] = [n for n in t.transition_notes if n.startswith("Automatic retry")]
+    assert "apply: grip lower" in note
+    assert "execution_failure/goal_unsatisfied" in note and "the jaws closed on nothing" in note
+    assert summarize_evidence(sample_evidence()) in note
+
+
+@pytest.mark.parametrize(
+    ("config", "p", "spend", "code"),
+    [
+        ({}, 0.1, 0, "low_p"),
+        ({"max_auto_retries": 0}, 0.9, 0, "cap"),
+        ({"max_rw_cap": 2}, 0.9, 2, "budget"),
+    ],
+)
+def test_refusal_codes(config: dict, p: float, spend: int, code: str) -> None:
+    t = PlanTracker(ClaudeAgentConfig(**config))
+    t.set_plan("simple", "r", [phase(rw=2)])
+    for _ in range(spend):
+        t.charge("effector")
+    t.complete_phase("failed", "missed", p, "x", **FAILURE)
+    assert t.last_refusal_code == code
+
+
+def test_refusal_code_attempts_and_reset() -> None:
+    t = PlanTracker(ClaudeAgentConfig())
+    t.set_plan("simple", "r", [phase()])
+    t.complete_phase("failed", "missed", 0.9, "x", **FAILURE)
+    assert t.last_refusal_code is None and t.retried
+    t.complete_phase("failed", "missed", 0.9, "x", **FAILURE)
+    assert t.last_refusal_code == "attempts"
+    t.reset()
+    assert t.last_refusal_code is None
+
+
+def test_revise_plan_implicit_close_has_no_failure_record() -> None:
+    completed: list = []
+    t = PlanTracker(ClaudeAgentConfig(), evidence_provider=sample_evidence, on_phase_completed=completed.append)
+    t.set_plan("moderate", "r", two_phases())
+    plan, _ = t.revise_plan("other way", [phase("B2")])
+    assert plan["phases"][0]["status"] == "failed" and plan["phases"][0]["failure"] is None
+    assert completed[-1]["failure"] is None
+
+
+def test_complete_phase_schema_and_description_name_the_failure_fields() -> None:
+    tools = {tool.name: tool for tool in build_plan_tools(tracker())}
+    complete = tools["complete_phase"]
+    props = complete.input_schema["properties"]
+    assert props["failure_type"]["enum"] == list(FAILURE_TYPES)
+    assert props["eai_error_type"]["enum"] == list(EAI_ERROR_TYPES)
+    for value in EAI_ERROR_TYPES:
+        assert value in props["eai_error_type"]["description"]
+    assert props["explanation"]["type"] == "string"
+    assert props["evidence_lookup_ids"] == {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": props["evidence_lookup_ids"]["description"],
+    }
+    assert complete.input_schema["required"] == ["outcome", "summary"]
+    for word in ("failure_type", "eai_error_type", "explanation", "evidence_lookup_ids", "plan_failure"):
+        assert word in complete.description
+    assert "not retried automatically" in complete.description
+
+
+async def test_complete_phase_handler_passes_the_failure_fields() -> None:
+    t = evidenced()
+    handlers = by_name(t)
+    missing = await handlers["complete_phase"](
+        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.9, "retry_change": "x"}
+    )
+    assert missing["is_error"] is True and "failure_type" in missing["content"][0]["text"]
+    res = await handlers["complete_phase"](
+        {
+            "outcome": "failed",
+            "summary": "missed",
+            "p_retry_success": 0.9,
+            "retry_change": "x",
+            **FAILURE,
+            "failure_type": "plan_failure",
+            "evidence_lookup_ids": [LOOKUP_SEEN],
+        }
+    )
+    assert not res.get("is_error") and "plan_failure" in res["content"][0]["text"]
+    assert t.phase_dicts()[0]["failure"]["evidence"]["model_lookup_ids"] == [LOOKUP_SEEN]
+
+
+def test_effector_gate_forwards_evidence_callables() -> None:
+    gate = EffectorGate(ClaudeAgentConfig(), evidence_provider=sample_evidence, lookup_ids_seen=lambda: {LOOKUP_SEEN})
+    assert gate.plan.evidence_provider is sample_evidence
+    assert gate.plan.lookup_ids_seen() == {LOOKUP_SEEN}
+    assert EffectorGate(ClaudeAgentConfig()).plan.evidence_provider is None

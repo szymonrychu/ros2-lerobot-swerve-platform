@@ -7,6 +7,7 @@ from typing import Any
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 
 from .budget import COMPLEXITIES, PlanTracker
+from .failure import EAI_ERROR_MEANINGS, EAI_ERROR_TYPES, FAILURE_TYPE_MEANINGS, FAILURE_TYPES
 from .plan_tree import (
     CAP_FIELDS,
     MAX_PHASES,
@@ -75,10 +76,13 @@ COMPLETE_PHASE_DESCRIPTION = (
     "Close the active phase with an honest outcome ('done' when its goal is met, 'failed' when it is not, 'skipped' "
     "when it turned out unnecessary) and a short summary of what you found or did. A 'failed' outcome also needs "
     "p_retry_success (0..1, your honest estimate that one more attempt succeeds) and retry_change (what that attempt "
-    "would do differently): when p_retry_success reaches the retry threshold ({threshold:g}) and attempts and budget "
-    "remain, the "
-    "phase is re-entered automatically with fresh caps and you must apply retry_change. Otherwise the plan moves on "
-    "(the next phase, a pending condition, or the end of the plan)."
+    "would do differently), plus failure_type (execution_failure: the step did not achieve its effect; plan_failure: "
+    "the steps worked but the plan was wrong), eai_error_type (which kind of error), explanation (why it failed, "
+    "citing what you observed) and optionally evidence_lookup_ids (camera lookup ids you relied on). When "
+    "p_retry_success reaches the retry threshold ({threshold:g}) and attempts and budget remain, the phase is "
+    "re-entered automatically with fresh caps and you must apply retry_change; a plan_failure is not retried "
+    "automatically (call agent.revise_plan instead). Otherwise the plan moves on (the next phase, a pending "
+    "condition, or the end of the plan)."
 )
 REVISE_PLAN_DESCRIPTION = (
     "Replace the REMAINING plan (once per instruction) when a phase failed or the situation changed, with a flat "
@@ -110,6 +114,30 @@ COMPLETE_PHASE_SCHEMA: dict[str, Any] = {
         "retry_change": {
             "type": "string",
             "description": "Required when outcome is 'failed': what another attempt would change.",
+        },
+        "failure_type": {
+            "type": "string",
+            "enum": list(FAILURE_TYPES),
+            "description": "Required when outcome is 'failed': "
+            + "; ".join(f"{name}: {meaning}" for name, meaning in FAILURE_TYPE_MEANINGS.items())
+            + ".",
+        },
+        "eai_error_type": {
+            "type": "string",
+            "enum": list(EAI_ERROR_TYPES),
+            "description": "Required when outcome is 'failed': the kind of error. "
+            + "; ".join(f"{name}: {meaning}" for name, meaning in EAI_ERROR_MEANINGS.items())
+            + ".",
+        },
+        "explanation": {
+            "type": "string",
+            "description": "Required when outcome is 'failed': why it failed, citing what you observed.",
+        },
+        "evidence_lookup_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Optional with outcome 'failed': camera lookup ids (lookup_id of an image result) you "
+            "relied on; ids not seen in this instruction are dropped.",
         },
     },
     "required": ["outcome", "summary"],
@@ -406,7 +434,14 @@ def build_plan_tools(tracker: PlanTracker) -> list[SdkMcpTool[Any]]:
     async def complete_phase(args: dict[str, Any]) -> dict[str, Any]:
         try:
             closed, following = tracker.complete_phase(
-                args.get("outcome"), args.get("summary"), args.get("p_retry_success"), args.get("retry_change")
+                args.get("outcome"),
+                args.get("summary"),
+                args.get("p_retry_success"),
+                args.get("retry_change"),
+                args.get("failure_type"),
+                args.get("eai_error_type"),
+                args.get("explanation"),
+                args.get("evidence_lookup_ids"),
             )
         except PlanError as exc:
             return text_result(f"Phase not completed: {exc}", True)

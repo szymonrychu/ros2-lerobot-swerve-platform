@@ -131,10 +131,12 @@ The in-process SDK MCP server `agent` (`claude_agent_sdk.create_sdk_mcp_server`)
   phase). A stray `ro_cap` from the model is ignored silently. A cap above its per-phase maximum is clamped and the result says which; if the caps of all phases summed exceed an
   instruction maximum the plan is rejected with the sum and the room left. The first phase becomes active. A second call is refused
   (use `revise_plan`).
-- `mcp__agent__complete_phase(outcome, summary, p_retry_success?, retry_change?)`: closes the active phase with `done`, `failed`
-  or `skipped` and a summary and records its usage against its caps. A `failed` outcome must carry `p_retry_success` (0..1, the
-  model's estimate that one more attempt succeeds) and `retry_change` (what that attempt does differently); without them the call
-  is rejected. Then either the phase is re-entered automatically (see "Retry policy") or the cursor walks on to the next phase, a
+- `mcp__agent__complete_phase(outcome, summary, p_retry_success?, retry_change?, failure_type?, eai_error_type?, explanation?,
+  evidence_lookup_ids?)`: closes the active phase with `done`, `failed` or `skipped` and a summary and records its usage against
+  its caps. A `failed` outcome must carry `p_retry_success` (0..1, the model's estimate that one more attempt succeeds),
+  `retry_change` (what that attempt does differently), `failure_type`, `eai_error_type` and `explanation` (see "Failure record");
+  without one of them the call is rejected with a message naming the missing field. `evidence_lookup_ids` is optional. The
+  failure fields are ignored for `done` / `skipped`. Then either the phase is re-entered automatically (see "Retry policy") or the cursor walks on to the next phase, a
   pending condition, or the end of the plan.
 - `mcp__agent__revise_plan(rationale, phases | plan)`: once per instruction, replaces the remainder of the plan with a flat list or
   a new tree (an unfinished active phase is closed as `failed`; every phase that already ran stays in `phases` as history, its id
@@ -178,13 +180,44 @@ Cond = {ask: "<yes/no question>"}
   in:["not_run","failed"]}, max_iterations:3, body:{type:"seq", children:[{type:"phase", id:"approach", ...}, {type:"phase",
   id:"pick", ...}]}}`.
 
+### Failure record
+
+Every `failed` close by the model builds a typed `FailureRecord` (`claude_agent/failure.py`, pydantic) stored on the phase as
+`failure` (null for `done` / `skipped`, for the implicit close of `revise_plan` and on every fresh entry):
+
+- `type`: the model's `failure_type`. `execution_failure` means the step did not achieve its effect (a retry with a change may
+  work). `plan_failure` means the steps worked but the plan was wrong (revise the plan instead of retrying).
+- `eai_error_type`: the Embodied Agent Interface trajectory errors (NeurIPS 2024, arXiv 2410.07166, Table 6) plus two more:
+  `hallucination` (object/target/pose that does not exist), `parsing` (malformed tool arguments), `predicate_arg_num` (wrong
+  argument count or shape), `wrong_order`, `missing_step` (e.g. no `take_control`, no look before a grasp), `affordance` (too
+  big or heavy, out of reach), `additional_step` (an unnecessary step broke the state), `goal_unsatisfied` (the actions ran but
+  the measurable goal is not met) and `robot_fault` (a robot event, servo fault or estop interrupted the phase).
+- `explanation`: the model's text, stripped and cut at 1000 characters.
+- `evidence` (`PhaseEvidence`), collected by the runner, not by the model: the last 12 tool calls of the entry (`id`, `name`,
+  `kind`, `is_error`, `outcome` of `grasp_object` / `release_object`), `tool_calls_total`, `denied`, up to 8 warning/critical
+  `robot_events` (`event_type`, `severity`, `message`, `ts`; a critical one is never pushed out by warnings),
+  `lookup_before` / `lookup_after` (first and last camera `lookup_id` of the entry), `lookup_ids` (de-duplicated, last 10),
+  `model_lookup_ids` (the ids the model cited in `evidence_lookup_ids` that were seen in this instruction) and
+  `dropped_lookup_ids` (cited ids that were never seen, kept as a note).
+
+`EvidenceCollector` (`start_entry`, `end_entry`, `add_event`, `snapshot`, `seen_lookup_ids`, `reset`) is fed the runner's
+`tool_call`, `tool_result`, `tool_denied` and `robot_event` events. `PlanTracker` and `EffectorGate` take it as two optional
+callables, `evidence_provider` (returns the `PhaseEvidence` snapshot; without one the evidence is empty) and
+`lookup_ids_seen` (returns the instruction's lookup ids).
+
 ### Retry policy
 
 A phase closed as `failed` is re-entered at once (attempt + 1, fresh caps, `phase_started` with the new `attempt`) only when all
-of these hold: `p_retry_success >= retry_success_threshold` (0.5), `attempt < max_attempts` (per phase, default 2), automatic
-retries used `< max_auto_retries` (6 per instruction, across all phases) and the instruction budget has room (a turn, and an rw
-call when the phase plans effector calls). The tool result then says `Automatic retry n/m - apply: <retry_change>` and
-`... is active again` (`PlanTracker.retried` is the explicit flag). Otherwise the result says why not and the failure flows
+of these hold, checked in this order: the `failure_type` is not `plan_failure` (repeating the phase cannot fix a wrong plan: the
+result says `No automatic retry: a plan_failure is not fixed by repeating the phase; call agent.revise_plan or move on`, even
+with a high `p_retry_success`), `p_retry_success >= retry_success_threshold` (0.5), `attempt < max_attempts` (per phase,
+default 2), automatic retries used `< max_auto_retries` (6 per instruction, across all phases) and the instruction budget has
+room (a turn, and an rw call when the phase plans effector calls). The tool result then says `Automatic retry n/m - apply:
+<retry_change>. Last attempt failed (<failure_type>/<eai_error_type>): <explanation> Evidence: <summary>` (the evidence summary
+is at most 400 characters: call counts, grasp outcomes, robot events, before/after lookup ids) and `... is active again`
+(`PlanTracker.retried` is the explicit flag). `PlanTracker.last_refusal_code` says why a failed phase was not retried
+(`plan_failure`, `low_p`, `attempts`, `cap` or `budget`; None when it was retried or the outcome was not failed), so callers
+need not parse the note. Otherwise the result says why not and the failure flows
 on: the next sibling runs, or an enclosing `while` re-tests its `outcome_of`; a new loop iteration is stated as `Loop '<id>'
 iteration k/max` and the phase line shows `loop iteration k`. A phase entered with `rw_cap` 0 although it planned effector
 calls (the instruction maximum is used up) gets a note saying it can only sense. The retry threshold is stated in the
@@ -501,8 +534,8 @@ Every event is `{seq: int, ts: float, type, ...}`:
 | `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls); `job_end` (`{forced_park: true, result, keep_position_release?}` or `{check_error}`) only when the job-end check forced a park or failed |
 | `error` | `message` (authentication failures, missing token file, session failures) |
 | `plan` | the plan payload (`complexity`, `rationale`, `revised`, `revision_rationale`, `active_phase`, `phases` as a flat preorder list with `index`, caps and usage, `tree` (the plan tree: phase nodes as `{type, id, index}`, `if` with `branch`, `while` with `iteration` and `exit_reason`), `pending_condition` (`null` or `{node_id, node_type, question, iteration}`)); emitted when the agent sets its plan |
-| `phase_started` | the phase payload (`index`, `name`, `goal`, `status`, caps, usage, `raised`, `summary`, `id`, `depth` (root level 1), `attempt`, `max_attempts`, `iteration` (of the innermost `while`, 0 outside loops), `p_retry_success`, `retry_change`); emitted when a phase becomes active, again on each loop iteration and automatic retry |
-| `phase_completed` | `index`, `name`, `goal`, `outcome` (`done` / `failed` / `skipped`), `summary`, `usage` `{ro_used, rw_used, turns_used}`, `caps` `{rw_cap, turn_cap}`, `id`, `attempt`, `max_attempts`, `iteration`, `depth`, `p_retry_success`, `retry_change` (usage and caps of that entry) |
+| `phase_started` | the phase payload (`index`, `name`, `goal`, `status`, caps, usage, `raised`, `summary`, `id`, `depth` (root level 1), `attempt`, `max_attempts`, `iteration` (of the innermost `while`, 0 outside loops), `p_retry_success`, `retry_change`, `failure` (always null on a fresh entry)); emitted when a phase becomes active, again on each loop iteration and automatic retry |
+| `phase_completed` | `index`, `name`, `goal`, `outcome` (`done` / `failed` / `skipped`), `summary`, `usage` `{ro_used, rw_used, turns_used}`, `caps` `{rw_cap, turn_cap}`, `id`, `attempt`, `max_attempts`, `iteration`, `depth`, `p_retry_success`, `retry_change`, `failure` (the `FailureRecord` `{type, eai_error_type, explanation, evidence}` of a failed close by the model, see "Failure record"; null for `done` / `skipped` and the implicit close of `revise_plan`) (usage and caps of that entry) |
 | `condition_pending` | `node_id`, `node_type` (`if` / `while`), `question`, `iteration` (while: the iteration the answer would start; if: of the enclosing loop); effector calls are denied until it is answered |
 | `condition_answered` | the `condition_pending` fields plus `value` and `evidence` |
 | `plan_revised` | the revised plan payload plus `revision_rationale`; emitted after `revise_plan` (the replaced active phase gets a `phase_completed` with outcome `failed` first) |

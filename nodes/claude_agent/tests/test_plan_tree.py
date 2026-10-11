@@ -11,6 +11,11 @@ from claude_agent.plan_tools import ANSWER_CONDITION_TOOL, FULL_TOOL_NAMES, buil
 from claude_agent.plan_tree import PlanError
 
 END = "END"
+FAILURE = {
+    "failure_type": "execution_failure",
+    "eai_error_type": "goal_unsatisfied",
+    "explanation": "the jaws closed on nothing",
+}
 
 
 def ph(node_id: str, rw: int = 2, turns: int = 8, **extra: Any) -> dict:
@@ -71,9 +76,9 @@ def apply(t: PlanTracker, action: Any) -> None:
     if action == "done":
         t.complete_phase("done", "ok")
     elif action == "fail":
-        t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="nothing")
+        t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="nothing", **FAILURE)
     elif action == "retry":
-        t.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="move closer")
+        t.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="move closer", **FAILURE)
     elif action == "skip":
         t.complete_phase("skipped", "not needed")
     else:
@@ -280,10 +285,10 @@ def test_loop_exits_with_reason_budget_when_no_rw_room_is_left() -> None:
     rec = Recorder(max_rw_cap=6).plan(loop_tree(rw=3))
     t = rec.tracker
     spend(t, 3)
-    t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="x")
+    t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="x", **FAILURE)
     assert rec.trace == ["work", "work"]
     spend(t, 3)
-    t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="x")
+    t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="x", **FAILURE)
     assert t.plan_finished and rec.trace == ["work", "work"]
     assert any("budget" in note for note in t.transition_notes)
     assert t.tree_payload()["exit_reason"] == "budget"
@@ -291,8 +296,8 @@ def test_loop_exits_with_reason_budget_when_no_rw_room_is_left() -> None:
 
 def test_loop_exit_reason_max_iterations_and_condition() -> None:
     rec = Recorder().plan(loop_tree(rw=1, max_iterations=2))
-    rec.tracker.complete_phase("failed", "m", p_retry_success=0.0, retry_change="x")
-    rec.tracker.complete_phase("failed", "m", p_retry_success=0.0, retry_change="x")
+    rec.tracker.complete_phase("failed", "m", p_retry_success=0.0, retry_change="x", **FAILURE)
+    rec.tracker.complete_phase("failed", "m", p_retry_success=0.0, retry_change="x", **FAILURE)
     assert rec.tracker.tree_payload()["exit_reason"] == "max_iterations"
     assert any("max_iterations" in note for note in rec.tracker.transition_notes)
     rec = Recorder().plan(loop_tree(rw=1))
@@ -305,7 +310,7 @@ def test_reentry_caps_are_fresh_and_clamped_to_the_room_left() -> None:
     t = rec.tracker
     t.raise_phase_budget(4, None, "need one more")
     spend(t, 3)
-    t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="x")
+    t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="x", **FAILURE)
     work = t.phase_dicts()[0]
     assert (work["rw_cap"], work["rw_used"], work["raised"], work["iteration"]) == (2, 0, False, 2)
     phase, _ = t.raise_phase_budget(3, None, "the raise is per entry")
@@ -322,7 +327,7 @@ def test_first_entry_after_a_loop_is_clamped_to_the_room_left() -> None:
     while t.phases[t.active].id == "a":
         while t.charge("effector") is None:
             pass
-        t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="x")
+        t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="x", **FAILURE)
     assert rec.trace[-1] == "b"
     b = t.phase_dicts()[-1]
     assert b["rw_cap"] == 150 - t.rw_used, "a first entry gets at most the room left, not its planned cap"
@@ -347,7 +352,7 @@ def test_sensing_only_phase_loops_without_rw_room() -> None:
     rec = Recorder(max_rw_cap=1).plan(seq(ph("act", rw=1), tree))
     spend(rec.tracker, 1)
     rec.tracker.complete_phase("done", "ok")
-    rec.tracker.complete_phase("failed", "m", p_retry_success=0.0, retry_change="x")
+    rec.tracker.complete_phase("failed", "m", p_retry_success=0.0, retry_change="x", **FAILURE)
     assert rec.trace == ["act", "look", "look"], "rw room 0 does not stop a phase with rw_cap 0"
 
 
@@ -509,16 +514,16 @@ def test_failed_needs_p_retry_success_and_retry_change() -> None:
     t = PlanTracker(ClaudeAgentConfig())
     t.set_plan("simple", "r", plan=seq(ph("a"), ph("b")))
     with pytest.raises(PlanError, match="p_retry_success"):
-        t.complete_phase("failed", "missed")
+        t.complete_phase("failed", "missed", **FAILURE)
     with pytest.raises(PlanError, match="retry_change"):
-        t.complete_phase("failed", "missed", p_retry_success=0.2)
+        t.complete_phase("failed", "missed", p_retry_success=0.2, **FAILURE)
     with pytest.raises(PlanError, match="retry_change"):
-        t.complete_phase("failed", "missed", p_retry_success=0.2, retry_change=" ")
+        t.complete_phase("failed", "missed", p_retry_success=0.2, retry_change=" ", **FAILURE)
     for bad in (-0.1, 1.5, "0.5", True):
         with pytest.raises(PlanError, match="p_retry_success"):
-            t.complete_phase("failed", "missed", p_retry_success=bad, retry_change="x")
+            t.complete_phase("failed", "missed", p_retry_success=bad, retry_change="x", **FAILURE)
     assert t.active == 0
-    closed, _ = t.complete_phase("failed", "missed", p_retry_success=0, retry_change="nothing would help")
+    closed, _ = t.complete_phase("failed", "missed", p_retry_success=0, retry_change="nothing would help", **FAILURE)
     assert closed["p_retry_success"] == 0.0 and closed["retry_change"] == "nothing would help"
 
 
@@ -532,7 +537,7 @@ def test_done_ignores_retry_fields_but_records_them() -> None:
 @pytest.mark.parametrize(("p", "retried"), [(0.49, False), (0.5, True)])
 def test_threshold_boundary(p: float, retried: bool) -> None:
     rec = Recorder().plan(seq(ph("a"), ph("b")))
-    rec.tracker.complete_phase("failed", "missed", p_retry_success=p, retry_change="move closer")
+    rec.tracker.complete_phase("failed", "missed", p_retry_success=p, retry_change="move closer", **FAILURE)
     assert rec.trace == (["a", "a"] if retried else ["a", "b"])
     assert rec.tracker.auto_retries == (1 if retried else 0)
 
@@ -542,7 +547,7 @@ def test_retry_entry_is_announced_with_attempt_and_fresh_caps() -> None:
     t = rec.tracker
     t.raise_phase_budget(4, None, "more")
     spend(t, 2)
-    closed, following = t.complete_phase("failed", "slipped", p_retry_success=0.7, retry_change="grip lower")
+    closed, following = t.complete_phase("failed", "slipped", p_retry_success=0.7, retry_change="grip lower", **FAILURE)
     assert closed["attempt"] == 1 and closed["status"] == "failed"
     assert following is not None and following["id"] == "a" and following["attempt"] == 2
     assert (following["rw_cap"], following["rw_used"], following["raised"], following["status"]) == (
@@ -560,7 +565,7 @@ def test_retry_entry_is_announced_with_attempt_and_fresh_caps() -> None:
 def test_attempts_exhausted_flows_on() -> None:
     rec = Recorder().plan(seq(ph("a"), ph("b")))
     for _ in range(2):
-        rec.tracker.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="x")
+        rec.tracker.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="x", **FAILURE)
     assert rec.trace == ["a", "a", "b"]
     assert rec.tracker.auto_retries == 1
 
@@ -569,10 +574,10 @@ def test_retry_cap_of_6_across_two_phases() -> None:
     rec = Recorder().plan(seq(ph("a", rw=1, turns=1, max_attempts=5), ph("b", rw=1, turns=1, max_attempts=5)))
     t = rec.tracker
     for _ in range(5):
-        t.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="x")
+        t.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="x", **FAILURE)
     assert rec.trace == ["a"] * 5 + ["b"] and t.auto_retries == 4
     for _ in range(3):
-        t.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="x")
+        t.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="x", **FAILURE)
     assert rec.trace == ["a"] * 5 + ["b"] * 3 and t.auto_retries == 6
     assert t.plan_finished
     assert any("6" in note and "retr" in note for note in t.transition_notes)
@@ -580,13 +585,13 @@ def test_retry_cap_of_6_across_two_phases() -> None:
 
 def test_retry_cap_follows_config() -> None:
     rec = Recorder(max_auto_retries=0).plan(seq(ph("a")))
-    rec.tracker.complete_phase("failed", "missed", p_retry_success=1.0, retry_change="x")
+    rec.tracker.complete_phase("failed", "missed", p_retry_success=1.0, retry_change="x", **FAILURE)
     assert rec.trace == ["a"] and rec.tracker.plan_finished
 
 
 def test_threshold_follows_config() -> None:
     rec = Recorder(retry_success_threshold=0.8).plan(seq(ph("a")))
-    rec.tracker.complete_phase("failed", "missed", p_retry_success=0.7, retry_change="x")
+    rec.tracker.complete_phase("failed", "missed", p_retry_success=0.7, retry_change="x", **FAILURE)
     assert rec.trace == ["a"]
 
 
@@ -594,7 +599,7 @@ def test_no_retry_when_budget_room_is_0() -> None:
     rec = Recorder(max_rw_cap=3).plan(seq(ph("a", rw=3)))
     t = rec.tracker
     spend(t, 3)
-    t.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="x")
+    t.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="x", **FAILURE)
     assert rec.trace == ["a"] and t.plan_finished and t.auto_retries == 0
     assert any("budget" in note for note in t.transition_notes)
 
@@ -604,7 +609,7 @@ def test_no_retry_when_turn_room_is_0() -> None:
     t = rec.tracker
     t.count_turn()
     t.count_turn()
-    t.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="x")
+    t.complete_phase("failed", "missed", p_retry_success=0.9, retry_change="x", **FAILURE)
     assert rec.trace == ["a"] and t.plan_finished
 
 
@@ -663,10 +668,16 @@ async def test_complete_phase_handler_reports_automatic_retry() -> None:
     t = PlanTracker(ClaudeAgentConfig())
     t.set_plan("simple", "r", plan=seq(ph("a")))
     h = handlers(t)
-    bad = await h["complete_phase"]({"outcome": "failed", "summary": "missed"})
+    bad = await h["complete_phase"]({"outcome": "failed", "summary": "missed", **FAILURE})
     assert bad["is_error"] is True and "p_retry_success" in bad["content"][0]["text"]
     res = await h["complete_phase"](
-        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.6, "retry_change": "approach from the left"}
+        {
+            "outcome": "failed",
+            "summary": "missed",
+            "p_retry_success": 0.6,
+            "retry_change": "approach from the left",
+            **FAILURE,
+        }
     )
     assert "Automatic retry 2/2 - apply: approach from the left" in res["content"][0]["text"]
 
@@ -731,7 +742,7 @@ async def test_loop_reentry_text_names_the_iteration_not_a_retry() -> None:
         "simple", "r", plan=while_("pickloop", outcome_of("pick", "not_run", "failed"), ph("pick", max_attempts=1))
     )
     res = await handlers(t)["complete_phase"](
-        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.2, "retry_change": "closer"}
+        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.2, "retry_change": "closer", **FAILURE}
     )
     text = res["content"][0]["text"]
     assert "No automatic retry: p_retry_success 0.2 is below the threshold 0.5" in text
@@ -745,7 +756,7 @@ async def test_automatic_retry_text_says_active_again() -> None:
     t = PlanTracker(ClaudeAgentConfig())
     t.set_plan("simple", "r", plan=seq(ph("a")))
     res = await handlers(t)["complete_phase"](
-        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.9, "retry_change": "closer"}
+        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.9, "retry_change": "closer", **FAILURE}
     )
     text = res["content"][0]["text"]
     assert "Automatic retry 2/2" in text and "is active again" in text and "Loop" not in text
@@ -776,7 +787,7 @@ async def test_no_retry_for_budget_does_not_say_report_and_continue() -> None:
     t.set_plan("simple", "r", plan=seq(ph("a", rw=4), ph("b", rw=0)))
     spend(t, 4)
     res = await handlers(t)["complete_phase"](
-        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.9, "retry_change": "closer"}
+        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.9, "retry_change": "closer", **FAILURE}
     )
     text = res["content"][0]["text"]
     assert "No automatic retry: the instruction budget has no room left (rw 0" in text
@@ -790,9 +801,13 @@ async def test_a_phase_entered_without_effector_room_says_so() -> None:
     t.set_plan("simple", "r", plan=tree)
     h = handlers(t)
     spend(t, 3)
-    await h["complete_phase"]({"outcome": "failed", "summary": "m", "p_retry_success": 0.0, "retry_change": "x"})
+    await h["complete_phase"](
+        {"outcome": "failed", "summary": "m", "p_retry_success": 0.0, "retry_change": "x", **FAILURE}
+    )
     spend(t, 3)
-    res = await h["complete_phase"]({"outcome": "failed", "summary": "m", "p_retry_success": 0.0, "retry_change": "x"})
+    res = await h["complete_phase"](
+        {"outcome": "failed", "summary": "m", "p_retry_success": 0.0, "retry_change": "x", **FAILURE}
+    )
     text = res["content"][0]["text"]
     assert "Phase 2 'B' gets rw_cap 0" in text and "no effector calls are left" in text
 

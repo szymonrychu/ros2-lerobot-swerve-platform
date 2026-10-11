@@ -76,6 +76,8 @@ class Phase:
         iteration (int): Iteration of the innermost enclosing while loop at entry (0 outside loops).
         p_retry_success (float | None): The model's retry estimate given at a close (None when not given).
         retry_change (str): What another attempt would change (given with a failed close).
+        failure (dict[str, Any] | None): The FailureRecord (type, eai_error_type, explanation, evidence) of a failed
+            close by the model; None for done/skipped, a revision close and an open entry.
         planned_rw_cap (int): rw_cap as planned (each entry starts from it; not part of the payload).
         planned_turn_cap (int): turn_cap as planned (not part of the payload).
         turn_noted (bool): Whether the turn-cap note was already injected (not part of the payload).
@@ -99,6 +101,7 @@ class Phase:
     iteration: int = 0
     p_retry_success: float | None = None
     retry_change: str = ""
+    failure: dict[str, Any] | None = None
     planned_rw_cap: int = 0
     planned_turn_cap: int = 0
     turn_noted: bool = False
@@ -108,7 +111,7 @@ class Phase:
 
         Returns:
             dict[str, Any]: index, name, goal, status, the caps and used counters, raised, summary, id, depth,
-            attempt, max_attempts, iteration, p_retry_success and retry_change.
+            attempt, max_attempts, iteration, p_retry_success, retry_change and failure.
         """
         data = asdict(self)
         for private in ("turn_noted", "planned_rw_cap", "planned_turn_cap"):
