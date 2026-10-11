@@ -1,7 +1,10 @@
 /** POI contract (poi_store, map frame) as seen by the UI; see nodes/poi_store/README.md. */
 
-/** 'object' is a remembered object: point-like (position only), name = label, with sighting fields. */
-export type PoiKind = 'point' | 'area' | 'object'
+/**
+ * 'object' is a remembered object: point-like (position only), name = label, with sighting fields.
+ * 'photo' is a camera photo (never on /poi/list; served by /api/photos), linked to other POIs through poi_ids.
+ */
+export type PoiKind = 'point' | 'area' | 'object' | 'photo'
 export type PoiStatus = 'open' | 'done' | 'cancelled'
 export type PoiCreator = 'agent' | 'user'
 /** Nav2 zone of an area: keepout (no entry) or slow (speed cap); active only while the POI is open. */
@@ -36,6 +39,7 @@ export interface Poi {
   confidence?: number // objects: 0..1
   zone?: PoiZone // areas only; absent means 'none'
   speed_limit_pct?: number | null // slow zones: ZONE_PCT_MIN..ZONE_PCT_MAX, else null
+  poi_ids?: string[] // photos: ids of the linked non-photo POIs
 }
 
 /**

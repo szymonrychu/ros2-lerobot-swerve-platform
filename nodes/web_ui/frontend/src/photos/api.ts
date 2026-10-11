@@ -64,18 +64,33 @@ export interface DeleteOutcome {
   bytes: number
 }
 
+/** Most photos one request may ask for (backend limit). */
+export const PHOTO_LAYER_LIMIT = 1000
+
+/**
+ * Capture time as shown in the UI.
+ *
+ * @param ts - unix seconds
+ * @returns ISO 8601 UTC without fractional seconds
+ */
+export function capturedAt(ts: number): string {
+  return new Date(ts * 1000).toISOString().replace('.000Z', 'Z')
+}
+
 /**
  * URL of the photos page.
  *
  * @param poiId - only photos linked to this POI; null for all
  * @param limit - most photos to return
  * @param before - cursor from the previous page, null for the first page
+ * @param since - only photos captured at or after this unix time; null for all
  * @returns the request URL
  */
-export function photosUrl(poiId: string | null, limit: number, before: string | null): string {
+export function photosUrl(poiId: string | null, limit: number, before: string | null, since: number | null = null): string {
   const poi = poiId === null ? '' : `&poi_id=${encodeURIComponent(poiId)}`
   const cursor = before === null ? '' : `&before=${encodeURIComponent(before)}`
-  return `/api/photos?limit=${limit}${poi}${cursor}`
+  const from = since === null ? '' : `&since=${since}`
+  return `/api/photos?limit=${limit}${poi}${cursor}${from}`
 }
 
 /**
@@ -152,11 +167,18 @@ export function parsePhoto(raw: unknown): Photo | null {
  * @param limit - most photos to return
  * @param before - cursor of the previous page, null for the first page
  * @param fetchImpl - fetch implementation (tests)
+ * @param since - only photos captured at or after this unix time; null for all
  * @returns the page (no photos means there are none)
  * @throws Error with a readable reason on a network failure, an HTTP error or an unexpected body
  */
-export async function fetchPhotos(poiId: string | null, limit: number, before: string | null, fetchImpl: typeof fetch = fetch): Promise<PhotoPage> {
-  const resp = await fetchImpl(photosUrl(poiId, limit, before))
+export async function fetchPhotos(
+  poiId: string | null,
+  limit: number,
+  before: string | null,
+  fetchImpl: typeof fetch = fetch,
+  since: number | null = null,
+): Promise<PhotoPage> {
+  const resp = await fetchImpl(photosUrl(poiId, limit, before, since))
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
   const body = (await resp.json()) as { photos?: unknown; next_before?: unknown; total_matching?: unknown }
   if (!Array.isArray(body.photos)) throw new Error('unexpected response')

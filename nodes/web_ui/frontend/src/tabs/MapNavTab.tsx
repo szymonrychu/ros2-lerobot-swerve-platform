@@ -66,6 +66,10 @@ import { browserStorage } from '../tabSelection'
 import { CANVAS_BG, MONO_FONT } from '../theme'
 import { TabConfig } from '../types'
 import { PhotoList } from '../photos/PhotoList'
+import { PhotoPanel } from '../photos/PhotoPanel'
+import type { Photo } from '../photos/api'
+import { LAYER_MAX_PHOTOS, PHOTO_AGE_LABELS, PHOTO_AGES, type PhotoAge } from '../photos/geometry'
+import { usePhotoLayer } from '../photos/usePhotoLayer'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
 import { canFinishArea, isClick } from '../poi/editor'
 import { DEFAULT_ARM_OFFSET, GraspStrategy } from '../grasp/grasp'
@@ -91,6 +95,7 @@ const LAYER_SWATCH: Partial<Record<LayerKey, string>> = {
   rtkBase: '#00e5ff',
   footprint: '#2f9bff',
   pois: '#ffb000',
+  photos: '#4cc9f0',
 }
 
 const MAP_LEGEND: [string, string][] = [
@@ -105,7 +110,7 @@ const LAYER_GROUPS: { title: string; keys: LayerKey[] }[] = [
   { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap', 'rtkBase'] },
   { title: 'Navigation', keys: ['globalPlan', 'localPlan', 'goal', 'footprint'] },
   { title: 'Robot model', keys: ['robotBase', 'robotWheels', 'robotArm'] },
-  { title: 'Points of interest', keys: ['pois'] },
+  { title: 'Points of interest', keys: ['pois', 'photos'] },
 ]
 
 interface Props {
@@ -259,6 +264,15 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
   const poiAdding = poi.mode !== 'none'
   const photoSummary = topicData[tab.poi_photos_topic ?? '/poi/photos'] as { revision?: unknown } | null | undefined
   const photoRevision = typeof photoSummary?.revision === 'number' ? photoSummary.revision : null
+  const [photoAge, setPhotoAge] = useState<PhotoAge>('7d')
+  const layerPhotos = usePhotoLayer(layers.photos, photoAge, photoRevision)
+  const [pickedPhoto, setPickedPhoto] = useState<Photo | null>(null)
+  // The open photo follows the refetched layer data (name, note and links change after a save).
+  const openPhoto = pickedPhoto && (layerPhotos.photos.find((p) => p.id === pickedPhoto.id) ?? pickedPhoto)
+  const selectPhotoOnMap = useCallback(
+    (id: string) => setPickedPhoto(layerPhotos.photos.find((p) => p.id === id) ?? null),
+    [layerPhotos.photos],
+  )
 
   const armMount = useMemo(() => tab.arm_offset ?? DEFAULT_ARM_OFFSET, [tab.arm_offset])
   const grasp = useGrasp({ tabId: tab.id, topicData, mount: armMount, notify: setAction })
@@ -713,6 +727,9 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
             pois={poi.pois}
             selectedPoiId={poi.selectedId}
             poiDraft={poi.draft}
+            photos={layerPhotos.photos}
+            selectedPhotoId={openPhoto?.id ?? null}
+            onSelectPhoto={goalMode || poiAdding || graspPicking ? null : selectPhotoOnMap}
             graspPreview={graspOpen ? grasp.preview : null}
             controllerRef={controllerRef}
             mapFrame={mapFrame}
@@ -778,7 +795,18 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
                 onSend={poi.send}
               />
             )}
+            {openPhoto && (
+              <PhotoPanel
+                key={openPhoto.id}
+                tabId={tab.id}
+                photo={openPhoto}
+                pois={poi.pois}
+                onClose={() => setPickedPhoto(null)}
+                onDeleted={() => setPickedPhoto(null)}
+              />
+            )}
             <PhotoList
+              onSelect={setPickedPhoto}
               tabId={tab.id}
               revision={photoRevision}
               selectedPoiId={poi.selectedId}
@@ -884,6 +912,28 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
                             Anchor: {anchorSummary(anchor)}
                           </Typography>
+                        )}
+                        {k === 'photos' && layers.photos && (
+                          <Box sx={{ ml: 4, mb: 0.5 }}>
+                            <ToggleButtonGroup
+                              exclusive
+                              size="small"
+                              value={photoAge}
+                              onChange={(_, v: PhotoAge | null) => v !== null && setPhotoAge(v)}
+                              aria-label="Photo age filter"
+                            >
+                              {PHOTO_AGES.map((a) => (
+                                <ToggleButton key={a} value={a} sx={{ py: 0, px: 1, textTransform: 'none' }}>
+                                  {PHOTO_AGE_LABELS[a]}
+                                </ToggleButton>
+                              ))}
+                            </ToggleButtonGroup>
+                            <Typography variant="caption" color={layerPhotos.error ? 'error' : 'text.secondary'} sx={{ display: 'block' }}>
+                              {layerPhotos.error
+                                ? `Could not load photos: ${layerPhotos.error}`
+                                : `showing ${layerPhotos.photos.length} of ${layerPhotos.total}${layerPhotos.total > LAYER_MAX_PHOTOS ? ` (newest ${LAYER_MAX_PHOTOS} max)` : ''}`}
+                            </Typography>
+                          </Box>
                         )}
                         {k === 'localCostmap' && !tab.local_costmap_topic && (
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>

@@ -27,7 +27,7 @@ import { formatUpdated, objectDetails, OBJECT_COLOR, sortPois, STATUS_COLORS } f
 import { Poi, POI_NAME_MAX, POI_NOTE_MAX, POI_STATUSES, POI_ZONES, PoiCommand, PoiResult, PoiStatus, PoiZone, ZONE_PCT_MAX, ZONE_PCT_MIN } from './types'
 
 const PANEL_BG = 'rgba(22, 27, 34, 0.92)'
-const KIND_TITLES = { point: 'Point', area: 'Area', object: 'Object' } as const
+const KIND_TITLES = { point: 'Point', area: 'Area', object: 'Object', photo: 'Photo' } as const
 
 /** Collapsible list of all POIs; a row click selects the POI and centres the view on it. */
 export function PoiListPanel({

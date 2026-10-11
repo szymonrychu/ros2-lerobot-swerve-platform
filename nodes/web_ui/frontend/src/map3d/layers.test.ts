@@ -44,6 +44,7 @@ describe('layer defaults', () => {
         'robotWheels',
         'robotArm',
         'pois',
+        'photos',
       ].sort(),
     )
   })

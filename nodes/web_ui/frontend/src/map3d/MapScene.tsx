@@ -21,6 +21,8 @@ import { LayerState } from './layers'
 import { GraspPreview } from '../grasp/GraspPreview'
 import { DEFAULT_ARM_OFFSET } from '../grasp/grasp'
 import type { GraspPreviewData } from '../grasp/useGrasp'
+import { PhotoLayer } from '../photos/PhotoLayer'
+import type { Photo } from '../photos/api'
 import { PoiLayer } from '../poi/PoiLayer'
 import type { Poi } from '../poi/types'
 import { pickGround } from './picking'
@@ -86,6 +88,10 @@ export interface MapSceneProps {
   pois: Poi[]
   selectedPoiId: string | null
   poiDraft: Vec2[]
+  photos: Photo[]
+  selectedPhotoId: string | null
+  /** Click handler of a photo wedge; null while another tool owns the pointer. */
+  onSelectPhoto: ((id: string) => void) | null
   /** Grasp panel preview (object box, planned tool path) in base_link, or null. */
   graspPreview: GraspPreviewData | null
   controllerRef: MutableRefObject<SceneController | null>
@@ -342,6 +348,7 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
         <FootprintLayer footprint={props.footprint} pose={props.robotPose} />
       )}
       <PoiLayer pois={props.pois} selectedId={props.selectedPoiId} draft={props.poiDraft} visible={layers.pois} />
+      <PhotoLayer photos={props.photos} selectedId={props.selectedPhotoId} visible={layers.photos} onSelect={props.onSelectPhoto} />
       <Suspense fallback={null}>
         <RobotLayer
           pose={props.robotPose}

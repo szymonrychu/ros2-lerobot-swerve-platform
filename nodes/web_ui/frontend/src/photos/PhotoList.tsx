@@ -10,7 +10,7 @@ import ListItemText from '@mui/material/ListItemText'
 import Paper from '@mui/material/Paper'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import { deletePhotos, fetchPhotos, Photo, PHOTO_LIMIT, PhotoDeleteSelector, photoImageUrl, photoThumbUrl } from './api'
+import { capturedAt, deletePhotos, fetchPhotos, Photo, PHOTO_LIMIT, PhotoDeleteSelector, photoImageUrl, photoThumbUrl } from './api'
 
 const PANEL_BG = 'rgba(22, 27, 34, 0.92)'
 const THUMB_WIDTH_PX = 72
@@ -35,10 +35,6 @@ export function previewText(count: number, bytes: number): string {
   return `deletes ${count} ${count === 1 ? 'photo' : 'photos'} (${(bytes / BYTES_PER_MB).toFixed(1)} MB)`
 }
 
-function capturedAt(ts: number): string {
-  return new Date(ts * 1000).toISOString().replace('.000Z', 'Z')
-}
-
 export interface PhotoListProps {
   /** map_nav tab id (selects the poi_store topics on the backend). */
   tabId: string
@@ -47,6 +43,8 @@ export interface PhotoListProps {
   /** Show only photos linked to this POI; null for all. */
   selectedPoiId: string | null
   selectedPoiName: string | null
+  /** Open a photo in the detail panel; the row shows a Details button when given. */
+  onSelect?: (photo: Photo) => void
   /** fetch implementation (tests). */
   fetchImpl?: typeof fetch
 }
@@ -55,7 +53,7 @@ export interface PhotoListProps {
  * Photo list wired to the backend: first page on mount, on POI filter change and on /poi/photos revision change,
  * further pages with "more". A failed fetch keeps the last photos and shows the error.
  */
-export function PhotoList({ tabId, revision, selectedPoiId, selectedPoiName, fetchImpl = fetch }: PhotoListProps) {
+export function PhotoList({ tabId, revision, selectedPoiId, selectedPoiName, onSelect, fetchImpl = fetch }: PhotoListProps) {
   const [photos, setPhotos] = useState<Photo[]>([])
   const [nextBefore, setNextBefore] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
@@ -188,6 +186,11 @@ export function PhotoList({ tabId, revision, selectedPoiId, selectedPoiName, fet
               secondary={p.name || p.note || p.tool}
               secondaryTypographyProps={{ sx: { overflowWrap: 'anywhere' } }}
             />
+            {onSelect && (
+              <Button size="small" onClick={() => onSelect(p)} aria-label={`details of photo ${p.id}`}>
+                Details
+              </Button>
+            )}
           </ListItem>
         ))}
       </List>

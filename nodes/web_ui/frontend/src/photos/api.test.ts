@@ -90,3 +90,10 @@ describe('deletePhotos', () => {
     expect(out).toMatchObject({ ok: false, message: 'bad selector', count: 0, bytes: 0 })
   })
 })
+
+describe('since filter', () => {
+  it('adds since to the photos URL only when given', () => {
+    expect(photosUrl(null, 1000, null, 1234)).toBe('/api/photos?limit=1000&since=1234')
+    expect(photosUrl(null, 1000, null)).toBe('/api/photos?limit=1000')
+  })
+})
