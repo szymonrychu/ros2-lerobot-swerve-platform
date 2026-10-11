@@ -60,6 +60,7 @@ export type PoiCommand =
   | { op: 'add'; poi: Partial<Poi> }
   | { op: 'update'; poi: Partial<Poi> & { id: string } }
   | { op: 'delete'; poi: { id: string } }
+  | { op: 'delete_photos'; selector: Record<string, unknown> }
 
 export interface PoiResult {
   ok: boolean

@@ -876,6 +876,7 @@ def test_web_ui_has_map_nav_tab() -> None:
         "poi_list_topic": "/poi/list",
         "poi_command_topic": "/poi/command",
         "poi_result_topic": "/poi/result",
+        "poi_photos_topic": "/poi/photos",
         # Grasp panel: JSON requests/answers of the mcp_server GraspService (POST /api/grasp).
         "grasp_command_topic": "/grasp/command",
         "grasp_result_topic": "/grasp/result",

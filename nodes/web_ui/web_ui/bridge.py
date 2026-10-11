@@ -61,6 +61,7 @@ from .msg_serializer import (
     serialize_occupancy_grid,
     serialize_path,
     serialize_poi_list,
+    serialize_poi_photos,
     serialize_polygon,
     stamp_to_seconds,
     transform_points_2d,
@@ -160,6 +161,8 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     "gps": (NavSatFix, SENSOR_SUB_QOS, serialize_navsatfix),
     # poi_store publishes the list reliable + transient_local (latched): match it so a (re)connecting UI gets it.
     "poi_list": (String, MAP_SUB_QOS, serialize_poi_list),
+    # poi_store latches the photo store summary like the list: a (re)connecting UI gets the current revision.
+    "poi_photos": (String, MAP_SUB_QOS, serialize_poi_photos),
 }
 
 

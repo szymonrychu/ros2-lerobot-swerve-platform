@@ -1287,10 +1287,12 @@ ros2_nodes:
           poi_list_topic: /poi/list
           poi_command_topic: /poi/command
           poi_result_topic: /poi/result
+          # Photo store summary from poi_store (latched; the UI refetches /api/photos when its revision changes).
+          poi_photos_topic: /poi/photos
           # Grasp panel: JSON requests/answers of the mcp_server GraspService (POST /api/grasp, progress on /ws).
           grasp_command_topic: /grasp/command
           grasp_result_topic: /grasp/result
-          # Camera lookups recorded by mcp_server (lookups.store_dir), served read-only: GET /api/lookups, /api/lookups/{id}.jpg.
+          # Photo store (index.jsonl + JPEGs; same path as mcp_server lookups.store_dir), read-only: GET /api/photos, /api/photos/{id}.jpg.
           lookups_dir: /var/lib/ros2/poi/lookups
           # GPS anchor while parked: one fix + the BNO055 NDOF compass heading (bno055_imu operation_mode: NDOF), trusted
           # only once /imu/calibration reports mag >= 2; the drive fit replaces it when it passes.

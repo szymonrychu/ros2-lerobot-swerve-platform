@@ -17,7 +17,9 @@ import structlog
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 from ros2_common.battery import BatteryGuard
+from ros2_common.photos import PhotoSelector
 from ros2_metrics import render_latest
 from starlette.exceptions import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -27,7 +29,6 @@ from starlette.responses import Response
 from .agent_proxy import register_agent_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
 from .config import AppConfig, TabConfig, TileSourceConfig
-from .lookups import register_lookup_routes
 from .metrics import (
     BROADCAST_SECONDS,
     BROADCASTER_SLOW,
@@ -37,6 +38,7 @@ from .metrics import (
     WS_PENDING_BYTES_MAX,
     WS_PENDING_FRAMES_MAX,
 )
+from .photos import register_photo_routes
 from .throttle import SlowCycleTracker
 from .tiles import (
     API_KEY_PLACEHOLDER,
@@ -85,7 +87,7 @@ CANCEL_GOAL_RETURN_CODES: dict[int, str] = {
 CANCEL_GOAL_ERROR_NONE = 0
 # Seconds to wait for poi_store's /poi/result after a POI command.
 POI_TIMEOUT_S = 3.0
-POI_OPS = frozenset({"add", "update", "delete"})
+POI_OPS = frozenset({"add", "update", "delete", "delete_photos"})
 # Seconds to wait for mcp_server's answer to a grasp stop (it answers at once).
 GRASP_STOP_TIMEOUT_S = 3.0
 # Grasp actions POST /api/grasp accepts ("stop" has its own endpoint) and those that need an "object".
@@ -592,7 +594,7 @@ def build_app(
         return nav_rejection_message(state) if isinstance(state, dict) else None
 
     register_agent_routes(app, config, battery_block, agent_transport)
-    register_lookup_routes(app, config)
+    register_photo_routes(app, config)
 
     tile_tab = find_tile_tab(config)
     tile_sources = {src.id: src for src in tile_tab.resolved_tile_sources()} if tile_tab is not None else {}
@@ -795,18 +797,32 @@ def build_app(
             body = await request.json()
         except ValueError:
             body = None
-        if not isinstance(body, dict) or body.get("op") not in POI_OPS or not isinstance(body.get("poi"), dict):
-            return action_response("poi", False, 'body must be {"op": "add"|"update"|"delete", "poi": {...}}', 422)
+        op = body.get("op") if isinstance(body, dict) else None
+        if op == "delete_photos":
+            try:
+                selector = PhotoSelector.model_validate(body.get("selector"))
+            except ValidationError as exc:
+                return action_response("poi", False, f"invalid selector: {exc.errors()[0]['msg']}", 422)
+            command: dict[str, Any] = {"op": op, "selector": selector.model_dump(exclude_none=True)}
+        elif op in POI_OPS and isinstance(body.get("poi"), dict):
+            command = {"op": op, "poi": body["poi"]}
+        else:
+            return action_response(
+                "poi",
+                False,
+                'body must be {"op": "add"|"update"|"delete", "poi": {...}} or {"op": "delete_photos", "selector": {...}}',
+                422,
+            )
         if bridge_node is None:
             return action_response("poi", False, "ROS bridge unavailable", 503)
-        future = bridge_node.poi_request_async({"op": body["op"], "poi": body["poi"]})
+        future = bridge_node.poi_request_async(command)
         if future is None:
             return action_response("poi", False, "poi_store is not running", 503)
         try:
             result = await await_ros_future(future, POI_TIMEOUT_S)
         except TimeoutError:
             return action_response("poi", False, f"poi_store did not answer within {POI_TIMEOUT_S:g} s", 504)
-        log.info("poi_result", op=body["op"], ok=result.get("ok"), message=result.get("message"))
+        log.info("poi_result", op=op, ok=result.get("ok"), message=result.get("message"))
         return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
     @app.post("/api/grasp")
