@@ -8,8 +8,9 @@ When device is not set or cannot be opened: nothing is published (no placeholder
 Multiple namespaces (extra_groups) can share one bus; velocity-mode joints run in wheel mode.
 Filtering/smoothing of joint_commands is handled by a separate filter node; this bridge applies commands directly.
 Every loop iteration drains all pending ROS callbacks (bounded; command callbacks only record the latest target per
-joint), writes each changed target once, then runs the watchdog and state reads, then sleeps the remainder of the
-control period. Per-cycle logic lives in bridge_cycle.BridgeCycle (no rclpy).
+joint), writes the changed goal positions in one sync write (wheel speeds one acknowledged write each), then runs
+the watchdog and one state sync read (position, speed and, for publish_effort_joints, present load), then sleeps the
+remainder of the control period. Per-cycle logic lives in bridge_cycle.BridgeCycle (no rclpy).
 """
 
 import json
@@ -23,6 +24,7 @@ from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import BatteryState, JointState
+from st3215.group_sync_read import GroupSyncRead
 from std_msgs.msg import String
 
 from .battery import BatteryMonitor, battery_fields
@@ -33,7 +35,6 @@ from .joint_updates import get_position_updates
 from .metrics import BUS_UP, init_joints, record_read_cycle, record_register_dump
 from .register_dump import RegisterDumpScheduler
 from .registers import (
-    decode_present_load,
     get_register_entry_by_name,
     read_all_registers,
     write_register,
@@ -42,7 +43,14 @@ from .registers import read_register as read_register_raw
 from .serial_wait import use_blocking_reads
 from .set_register import apply_set_register
 from .startup_torque import hold_current_positions, set_startup_torque_state
-from .sync_read import PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH, read_positions_and_speeds
+from .sync_read import (
+    PRESENT_POSITION_ADDRESS,
+    ServoState,
+    joint_efforts,
+    read_servo_state,
+    read_servo_states,
+    sync_read_length,
+)
 
 DEFAULT_QOS_DEPTH = 10
 SERVO_WAIT_INTERVAL_S = 1.0
@@ -146,10 +154,10 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
     speed_goal_entry = get_register_entry_by_name("goal_speed")
     mode_entry = get_register_entry_by_name("mode")
     pos_entry = get_register_entry_by_name("present_position")
-    speed_entry = get_register_entry_by_name("present_speed")
-    load_entry = get_register_entry_by_name("present_load")
     voltage_entry = get_register_entry_by_name("present_voltage")
     effort_joint_set = set(config.publish_effort_joints) if config.publish_effort_joints else set()
+    # present_load follows present_position/present_speed, so effort joints only lengthen the one state sync read.
+    state_read_length = sync_read_length(with_load=bool(effort_joint_set))
 
     if servo is not None:
         expected_ids = [j.id for j in all_joints]
@@ -255,17 +263,11 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
         )
     node.create_subscription(String, f"/{config.namespace}/set_register", on_set_register, DEFAULT_QOS_DEPTH)
 
-    def fallback_read(sid: int) -> tuple[int, int] | None:
-        pos = read_register_raw(servo, sid, pos_entry) if pos_entry else None
-        speed = read_register_raw(servo, sid, speed_entry) if speed_entry else None
-        if pos is None or speed is None:
-            return None
-        return (pos, speed)
+    def fallback_read(sid: int) -> ServoState | None:
+        return read_servo_state(servo, sid, state_read_length)
 
-    def make_sync_group() -> Any:
-        from st3215.group_sync_read import GroupSyncRead
-
-        return GroupSyncRead(servo, PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH)
+    def make_sync_group() -> GroupSyncRead:
+        return GroupSyncRead(servo, PRESENT_POSITION_ADDRESS, state_read_length)
 
     register_dump = RegisterDumpScheduler([(j.name, j.id) for j in all_joints], config.register_publish_interval_s)
     battery = BatteryMonitor([j.id for j in all_joints], config.battery_interval_s, config.battery_stale_s)
@@ -288,11 +290,11 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
             # Drain every pending callback so no command is starved behind another (see bridge_cycle).
             drain_callbacks(spin_ready)
             if servo is not None:
-                # One write per joint per cycle with its newest target; superseded targets never reach the bus.
+                # Newest target per joint: changed goal positions in one sync write; superseded targets never sent.
                 cycle.write_pending_commands()
                 # Velocity watchdog: stop wheels with no drive command within velocity_command_timeout_s.
                 cycle.stop_expired()
-                readings = read_positions_and_speeds(expected_ids, make_sync_group, fallback_read)
+                readings = read_servo_states(expected_ids, make_sync_group, fallback_read, state_read_length)
                 record_read_cycle(metric_joints, readings)
                 stamp = node.get_clock().now().to_msg()
                 for group in groups:
@@ -308,17 +310,9 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
                     msg.header.stamp = stamp
                     msg.header.frame_id = ""
                     msg.name = list(group.joint_names)
-                    msg.position = [steps_to_radians(readings[j.id][0], j.inverted) for j in group.joints]
-                    msg.velocity = [speed_register_to_velocity(readings[j.id][1], j.inverted) for j in group.joints]
-                    efforts: list[float] = []
-                    for joint in group.joints:
-                        load_val = None
-                        if joint.name in effort_joint_set and load_entry:
-                            load_val = read_register_raw(servo, joint.id, load_entry)
-                        efforts.append(
-                            float(decode_present_load(load_val, joint.inverted)) if load_val is not None else 0.0
-                        )
-                    msg.effort = efforts if effort_joint_set else []
+                    msg.position = [steps_to_radians(readings[j.id].position, j.inverted) for j in group.joints]
+                    msg.velocity = [speed_register_to_velocity(readings[j.id].speed, j.inverted) for j in group.joints]
+                    msg.effort = joint_efforts(group.joints, readings, effort_joint_set)
                     if config.publish_only_on_change:
                         changed = get_position_updates(
                             msg.name, msg.position, last_published_positions, config.publish_change_epsilon

@@ -45,7 +45,7 @@ class FakeClock:
 
 @dataclass
 class FakeServo:
-    """Records register writes like the ST3215 API; writes fail while fail_writes is True."""
+    """Records register writes (single and sync) like the ST3215 API; writes fail while fail_writes is True."""
 
     clock: FakeClock
     writes: list[tuple[float, int, int, int]] = field(default_factory=list)  # (time, servo_id, address, value)
@@ -61,6 +61,19 @@ class FakeServo:
             return (-1001, 0)
         self.writes.append((self.clock.now, sts_id, address, value))
         return (0, 0)
+
+    def syncWriteTxOnly(  # noqa: N802 - st3215 API (called by the real GroupSyncWrite)
+        self, start_address: int, data_length: int, param: list[int], param_length: int
+    ) -> int:
+        """Decode a sync write's [id, data...] params into one recorded write per servo; return comm_result."""
+        if self.fail_writes:
+            return -2  # COMM_TX_FAIL
+        assert param_length == len(param)
+        for offset in range(0, param_length, data_length + 1):
+            data = param[offset + 1 : offset + 1 + data_length]
+            value = sum(byte << (8 * i) for i, byte in enumerate(data))
+            self.writes.append((self.clock.now, param[offset], start_address, value))
+        return 0
 
     def speed_writes(self, servo_id: int) -> list[tuple[float, int]]:
         """Return (time, raw goal_speed) writes for one servo."""

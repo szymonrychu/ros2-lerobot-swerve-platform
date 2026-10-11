@@ -1,5 +1,6 @@
-"""Feetech STS3215 register map: read all / write with EPROM safety (unlock, write, lock)."""
+"""Feetech STS3215 register map: read all (contiguous block reads) / write with EPROM safety (unlock, write, lock)."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -51,6 +52,10 @@ STS_PRESENT_TEMPERATURE = 63
 STS_STATUS = 65
 STS_MOVING = 66
 STS_PRESENT_CURRENT_L = 69
+# Register dump block reads: map entries closer than this many unused bytes share one INST_READ. Keeps the
+# undocumented 50-54 gap out of the reads while the EPROM area (gaps of 1-2 bytes) is one block.
+REGISTER_BLOCK_MAX_GAP = 4
+COMM_SUCCESS = 0
 
 
 @dataclass
@@ -115,6 +120,30 @@ REGISTER_MAP: list[RegisterEntry] = [
     RegisterEntry(STS_PRESENT_CURRENT_L, 2, "present_current", True, False),
 ]
 
+
+def register_blocks(entries: Sequence[RegisterEntry], max_gap: int = REGISTER_BLOCK_MAX_GAP) -> list[tuple[int, int]]:
+    """Group register entries into contiguous address ranges, one block read each.
+
+    Args:
+        entries (Sequence[RegisterEntry]): Registers to cover (any order; overlapping entries allowed).
+        max_gap (int): Largest run of unused bytes still read inside one block.
+
+    Returns:
+        list[tuple[int, int]]: (start address, length in bytes) per block, in address order.
+    """
+    blocks: list[tuple[int, int]] = []
+    for entry in sorted(entries, key=lambda e: e.address):
+        end = entry.address + entry.size
+        if blocks and entry.address - (blocks[-1][0] + blocks[-1][1]) <= max_gap:
+            start, length = blocks[-1]
+            blocks[-1] = (start, max(start + length, end) - start)
+        else:
+            blocks.append((entry.address, entry.size))
+    return blocks
+
+
+REGISTER_BLOCKS: list[tuple[int, int]] = register_blocks(REGISTER_MAP)
+
 # Registers we expose for writing via ROS2 (exclude 'lock' and read-only).
 WRITABLE_REGISTER_NAMES: set[str] = {r.name for r in REGISTER_MAP if not r.read_only and r.name != "lock"}
 
@@ -149,14 +178,45 @@ def read_register(
     return val
 
 
+def decode_register(entry: RegisterEntry, start: int, data: Sequence[int]) -> int:
+    """Decode one register from the bytes of a block read (little-endian, like read2ByteTxRx).
+
+    Args:
+        entry (RegisterEntry): Register inside the block.
+        start (int): Address of data[0].
+        data (Sequence[int]): Block bytes.
+
+    Returns:
+        int: Raw register value.
+    """
+    offset = entry.address - start
+    if entry.size == 1:
+        return data[offset]
+    return data[offset] | (data[offset + 1] << 8)
+
+
 def read_all_registers(servo: Any, sts_id: int) -> dict[str, int]:
-    """Read all registers for one servo. Returns dict name -> raw value; missing/error as None (omitted)."""
-    out: dict[str, int] = {}
-    for entry in REGISTER_MAP:
-        val = read_register(servo, sts_id, entry)
-        if val is not None:
-            out[entry.name] = val
-    return out
+    """Read all registers of one servo with one INST_READ per contiguous block (REGISTER_BLOCKS).
+
+    Decodes the same values a single read per register returns. A block that fails (no reply, short reply or a
+    servo error byte, which made every single read fail too) leaves its registers out.
+
+    Args:
+        servo (Any): ST3215-compatible bus (readTxRx).
+        sts_id (int): Servo ID.
+
+    Returns:
+        dict[str, int]: register name -> raw value, in REGISTER_MAP order; unread registers omitted.
+    """
+    decoded: dict[str, int] = {}
+    for start, length in REGISTER_BLOCKS:
+        data, comm, err = servo.readTxRx(sts_id, start, length)
+        if comm != COMM_SUCCESS or err != 0 or len(data) < length:
+            continue
+        for entry in REGISTER_MAP:
+            if start <= entry.address and entry.address + entry.size <= start + length:
+                decoded[entry.name] = decode_register(entry, start, data)
+    return {entry.name: decoded[entry.name] for entry in REGISTER_MAP if entry.name in decoded}
 
 
 def write_register(

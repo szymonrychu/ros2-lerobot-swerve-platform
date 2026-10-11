@@ -39,6 +39,16 @@ class RecordingServo:
 
     write2ByteTxRx = write1ByteTxRx  # noqa: N815 - st3215 API
 
+    def syncWriteTxOnly(  # noqa: N802 - st3215 API (called by the real GroupSyncWrite)
+        self, start_address: int, data_length: int, param: list[int], param_length: int
+    ) -> int:
+        if self.fail:
+            return -2  # COMM_TX_FAIL
+        for offset in range(0, param_length, data_length + 1):
+            data = param[offset + 1 : offset + 1 + data_length]
+            self.writes.append((param[offset], start_address, sum(b << (8 * i) for i, b in enumerate(data))))
+        return 0
+
 
 def test_metrics_port_default_and_parsed(tmp_path: Path) -> None:
     p = tmp_path / "c.yaml"

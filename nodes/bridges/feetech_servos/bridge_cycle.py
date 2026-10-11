@@ -8,7 +8,7 @@ simulated message queue.
 """
 
 import time
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,6 +16,7 @@ from .command_mapping import is_finite_command, map_position_to_steps, position_
 from .config import JointEntry, JointGroup
 from .metrics import COMMANDS, CYCLE_DURATION
 from .registers import RegisterEntry, write_register
+from .sync_write import sync_write_register
 from .velocity_watchdog import apply_velocity_command, expired_velocity_joints
 
 MIN_STEPS = 0
@@ -227,7 +228,9 @@ class BridgeCycle:
     def write_pending_commands(self) -> int:
         """Write every pending target once (call once per loop iteration, after draining callbacks).
 
-        write_register skips a value equal to the last written one, so only changed targets reach the bus. Pending
+        Position targets of every group go out in one goal_position sync write (write_goal_positions); velocity
+        targets keep one acknowledged goal_speed write each. A value equal to the last written one is skipped, so
+        only changed targets reach the bus. Pending
         targets are consumed whether or not the write succeeds (a failed write is not retried with a stale value;
         the next message brings a fresh one). Drive targets feed the watchdog with their receive time.
 
@@ -238,19 +241,36 @@ class BridgeCycle:
         velocities, self.pending_velocities = self.pending_velocities, {}
         if self.servo is None or self.goal_entry is None:
             return 0
-        for target in positions.values():
-            write_register(
-                self.servo,
-                target.joint.id,
-                self.goal_entry,
-                int(target.value),
-                self.last_written.setdefault(target.joint.id, {}),
-            )
+        self.write_goal_positions(positions.values())
         for target in velocities.values():
             self.write_velocity(target.joint, target.value, received_at=target.received_at)
         processed = len(positions) + len(velocities)
         COMMANDS.inc(processed)
         return processed
+
+    def write_goal_positions(self, targets: Iterable[PendingTarget]) -> bool:
+        """Write the changed goal_position targets of all position joints in one sync write (no status replies).
+
+        Targets equal to the last written value are left out (as write_register skips them). The register cache
+        is updated when the packet was sent: a broadcast has no reply to confirm each servo.
+
+        Args:
+            targets (Iterable[PendingTarget]): Position targets (value in goal_position steps).
+
+        Returns:
+            bool: True if the packet was sent or nothing had changed.
+        """
+        name = self.goal_entry.name
+        changed: dict[int, int] = {}
+        for target in targets:
+            steps = int(target.value)
+            if self.last_written.setdefault(target.joint.id, {}).get(name) != steps:
+                changed[target.joint.id] = steps
+        if not sync_write_register(self.servo, self.goal_entry, changed):
+            return False
+        for sid, steps in changed.items():
+            self.last_written[sid][name] = steps
+        return True
 
     def stop_expired(self) -> list[int]:
         """Velocity watchdog: stop wheels whose drive commands went stale.

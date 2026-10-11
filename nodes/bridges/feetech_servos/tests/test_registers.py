@@ -1,11 +1,16 @@
 """Unit tests for feetech_servos register map and read/write helpers."""
 
 from feetech_servos.registers import (
+    REGISTER_BLOCKS,
     REGISTER_MAP,
+    STS_LOCK,
+    STS_MODEL_L,
     WRITABLE_REGISTER_NAMES,
+    RegisterEntry,
     get_register_entry_by_name,
     read_all_registers,
     read_register,
+    register_blocks,
     runtime_writable_entry,
     write_register,
 )
@@ -59,20 +64,41 @@ def test_ram_registers_accepted_at_runtime() -> None:
 
 
 def test_read_all_registers_mock_servo() -> None:
-    """read_all_registers returns dict; mock returns empty on read error."""
+    """read_all_registers returns every register from block reads; a failed block leaves its registers out."""
 
     class MockServo:
-        def read1ByteTxRx(self, sts_id: int, address: int):  # noqa: A002
-            return 0, 0, 0  # value, comm, err
+        def __init__(self, fail_from: int | None = None) -> None:
+            self.fail_from = fail_from
+            self.reads: list[tuple[int, int]] = []
 
-        def read2ByteTxRx(self, sts_id: int, address: int):
-            return 0, 0, 0
+        def readTxRx(self, sts_id: int, address: int, length: int):  # noqa: N802 - st3215 API
+            self.reads.append((address, length))
+            if self.fail_from is not None and address >= self.fail_from:
+                return [], -6, 0  # data, comm (COMM_RX_TIMEOUT), err
+            return [0] * length, 0, 0
 
     servo = MockServo()
     out = read_all_registers(servo, 1)
-    assert isinstance(out, dict)
-    # All registers should be read (mock returns 0, success)
-    assert len(out) == len(REGISTER_MAP)
+    assert len(out) == len(REGISTER_MAP)  # mock returns 0, success
+    assert servo.reads == REGISTER_BLOCKS
+    partial = read_all_registers(MockServo(fail_from=STS_LOCK), 1)
+    assert "present_position" not in partial and "lock" not in partial
+    assert partial["goal_position"] == 0
+
+
+def test_register_blocks_cover_every_entry_in_two_reads() -> None:
+    """Every map entry lies inside one block; the 50-54 gap is not read; the reply fits one status packet."""
+    assert REGISTER_BLOCKS == [(STS_MODEL_L, 47), (STS_LOCK, 16)]
+    for entry in REGISTER_MAP:
+        assert any(start <= entry.address and entry.address + entry.size <= start + n for start, n in REGISTER_BLOCKS)
+
+
+def test_register_blocks_split_at_gaps_wider_than_max_gap() -> None:
+    entries = [RegisterEntry(10, 2, "a", True, False), RegisterEntry(14, 1, "b", True, False)]
+    assert register_blocks(entries, max_gap=2) == [(10, 5)]
+    assert register_blocks(entries, max_gap=1) == [(10, 2), (14, 1)]
+    overlapping = [RegisterEntry(35, 2, "c", True, False), RegisterEntry(36, 1, "d", True, False)]
+    assert register_blocks(overlapping) == [(35, 2)]
 
 
 def test_read_register_one_byte() -> None:

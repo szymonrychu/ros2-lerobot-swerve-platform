@@ -59,7 +59,7 @@ def record_read_cycle(joints: Sequence[tuple[str, int]], readings: Mapping[int, 
 
     Args:
         joints (Sequence[tuple[str, int]]): (joint name, servo id) of every joint expected to answer.
-        readings (Mapping[int, object]): Servo ids that answered (read_positions_and_speeds result).
+        readings (Mapping[int, object]): Servo ids that answered (read_servo_states result).
     """
     answered = 0
     for name, servo_id in joints:

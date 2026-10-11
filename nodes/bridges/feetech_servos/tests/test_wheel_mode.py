@@ -15,7 +15,7 @@ from feetech_servos.command_mapping import (
     steps_to_radians,
     velocity_to_speed_register,
 )
-from feetech_servos.sync_read import PRESENT_POSITION_ADDRESS, read_positions_and_speeds
+from feetech_servos.sync_read import PRESENT_POSITION_ADDRESS, ServoState, read_servo_states
 from feetech_servos.velocity_watchdog import expired_velocity_joints
 
 # --- velocity_to_speed_register ---
@@ -118,7 +118,7 @@ def test_position_roundtrip_inverted() -> None:
     assert steps_to_radians(steps, inverted=True) == pytest.approx(0.3, abs=2e-3)
 
 
-# --- read_positions_and_speeds ---
+# --- read_servo_states ---
 
 
 class FakeGroupSyncRead:
@@ -153,21 +153,23 @@ class FakeGroupSyncRead:
 
 def test_sync_read_returns_all_servos() -> None:
     fake = FakeGroupSyncRead({1: (2048, 0), 32: (100, 0x8010)})
-    result = read_positions_and_speeds([1, 32], lambda: fake, fallback_read=lambda _sid: None)
+    result = read_servo_states([1, 32], lambda: fake, fallback_read=lambda _sid: None)
     assert fake.params == [1, 32]
-    assert result == {1: (2048, 0), 32: (100, 0x8010)}
+    assert result == {1: ServoState(2048, 0), 32: ServoState(100, 0x8010)}
 
 
 def test_sync_read_falls_back_per_servo_for_missing_reply() -> None:
     fake = FakeGroupSyncRead({1: (2048, 0)})
-    result = read_positions_and_speeds([1, 32], lambda: fake, fallback_read=lambda sid: (55, 7) if sid == 32 else None)
-    assert result == {1: (2048, 0), 32: (55, 7)}
+    result = read_servo_states(
+        [1, 32], lambda: fake, fallback_read=lambda sid: ServoState(55, 7) if sid == 32 else None
+    )
+    assert result == {1: ServoState(2048, 0), 32: ServoState(55, 7)}
 
 
 def test_sync_read_comm_failure_uses_fallback_and_omits_unreadable() -> None:
     fake = FakeGroupSyncRead({1: (2048, 0)}, comm_result=-1001)
-    result = read_positions_and_speeds([1, 32], lambda: fake, fallback_read=lambda sid: (10, 0) if sid == 1 else None)
-    assert result == {1: (10, 0)}
+    result = read_servo_states([1, 32], lambda: fake, fallback_read=lambda sid: ServoState(10, 0) if sid == 1 else None)
+    assert result == {1: ServoState(10, 0)}
 
 
 # --- expired_velocity_joints ---
