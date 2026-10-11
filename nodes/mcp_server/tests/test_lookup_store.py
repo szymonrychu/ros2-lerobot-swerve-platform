@@ -20,6 +20,7 @@ from mcp_server.lookup_store import (
     LookupRecord,
     LookupStore,
     NearFilter,
+    photo_summary,
 )
 
 JPEG = b"\xff\xd8\xff\xe0" + b"x" * 96  # 100 bytes
@@ -125,6 +126,31 @@ def test_legacy_line_reads_as_a_photo(writer: IndexWriter, store: LookupStore) -
     [rec] = store.records()
     assert (rec.kind, rec.name, rec.status, rec.created_by, rec.view) == ("photo", "", "open", "agent", None)
     assert rec.base_pose_map is not None and rec.base_pose_map.x == 1.0
+
+
+def test_photo_summary_derives_the_view_of_a_legacy_line(writer: IndexWriter, store: LookupStore) -> None:
+    """Legacy lines have no stored view: the summary carries the view derived on read (base pose and heading)."""
+    writer.line(LEGACY_LINE)
+    [rec] = store.records()
+    data = photo_summary(rec)
+    assert data["view"] == {
+        "x": 1.0,
+        "y": 2.0,
+        "z": None,
+        "yaw": 0.5,
+        "pitch": None,
+        "hfov": None,
+        "source": "base_heading",
+    }
+    assert data["kind"] == "photo" and data["time"].startswith("2025-")
+
+
+def test_photo_summary_keeps_a_stored_view_and_none_without_pose(writer: IndexWriter, store: LookupStore) -> None:
+    view = {"x": 3.0, "y": 4.0, "z": 0.5, "yaw": 0.1, "pitch": 0.2, "hfov": 1.0, "source": "camera_mount"}
+    stored = writer.add(base_pose_map={"x": 1.0, "y": 2.0, "yaw": 0.5}, view=view)
+    blind = writer.add()
+    assert photo_summary(store.get(stored.id))["view"] == view  # type: ignore[arg-type]
+    assert photo_summary(store.get(blind.id))["view"] is None  # type: ignore[arg-type]
 
 
 def test_reads_follow_poi_store_rewrites(writer: IndexWriter, store: LookupStore) -> None:

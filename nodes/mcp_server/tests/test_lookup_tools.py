@@ -446,6 +446,36 @@ def test_list_lookups_returns_photo_poi_fields(server: Any) -> None:
     assert row["kind"] == "photo" and row["view"]["source"] == "base_heading"
 
 
+def test_list_and_get_lookup_image_derive_the_view_of_legacy_lines(server: Any, store_dir: Path) -> None:
+    """A pre-E11 index line has no stored view; both read tools return the view derived on read."""
+    lid = "0123456789abcdef0123456789abcdef"
+    store_dir.mkdir(parents=True, exist_ok=True)
+    (store_dir / f"{lid}.jpg").write_bytes(JPEG)
+    legacy = {
+        "id": lid,
+        "ts": 1760000000.5,
+        "tool": "get_camera_image",
+        "camera": "front",
+        "width": 640,
+        "height": 480,
+        "file": f"{lid}.jpg",
+        "bytes": len(JPEG),
+        "base_pose_map": {"x": 1.0, "y": 2.0, "yaw": 0.5},
+        "arm_joints": None,
+        "camera_pose_base": None,
+        "mcp_session": "sess-1",
+        "note": "",
+        "poi_ids": [],
+    }
+    with (store_dir / INDEX_FILE).open("a") as fh:
+        fh.write(json.dumps(legacy) + "\n")
+    [row] = [r for r in call(server, "list_lookups", {}).structured_content["lookups"] if r["id"] == lid]
+    assert row["view"] is not None and row["view"]["source"] == "base_heading"
+    assert (row["view"]["x"], row["view"]["y"], row["view"]["yaw"]) == (1.0, 2.0, 0.5)
+    meta = payload(call(server, "get_lookup_image", {"lookup_id": lid}))
+    assert meta["view"] == row["view"]
+
+
 def test_annotate_lookup_refuses_a_non_photo_id(server: Any, robot: FakeRobot) -> None:
     robot.pois = [{"id": "dock", "kind": "point"}]
     with pytest.raises(ToolError, match="unknown lookup"):

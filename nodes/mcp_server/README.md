@@ -395,7 +395,9 @@ grasp jaw crop passes `full_frame=False` (a crop's field of view is not the came
 intrinsics hfov is null too; nothing is invented.
 
 Photos survive the agent session reset (poi_store's `clear` never touches them). Legacy index lines (written before
-photos were POIs) read as photos with the defaults above and a view derived from their stored pose.
+photos were POIs) read as photos with the defaults above; `list_lookups`, `get_lookup_image` and `annotate_lookup`
+return their `view` derived on read from the stored pose (`photo_summary` in `lookup_store.py`, via
+`ros2_common.photos.effective_view`), the same view poi_store lists for them.
 
 `list_lookups` filters combine with AND: `since` / `until` (inclusive; unix seconds or an ISO-8601 time like
 `2025-10-09T08:53:20Z`, naive means UTC), `near` (map distance of
@@ -1871,7 +1873,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
 | `tool_context.py`, `body_tools.py` | no | `ToolContext` / `RobotApi`; the `get_body_state` module |
 | `camera_tools.py` | no | the camera tool module (registered in `tools.TOOL_MODULES`) |
-| `lookup_store.py`, `lookup_tools.py` | no | camera lookup store (JPEG + `index.jsonl`, slack-based retention, orphan sweep; models shared via `ros2_common.lookups`); the recorder hook of the camera tools and the `list_lookups` / `get_lookup_image` / `annotate_lookup` module |
+| `lookup_store.py`, `lookup_tools.py` | no | photo store facade: read-only `LookupStore` over poi_store's `index.jsonl` (`records`, `get`, `query`, `image`) plus `write_image` / `remove_image` of the JPEG, and `photo_summary` (record metadata with the view derived on read for legacy lines); models shared via `ros2_common.lookups` / `ros2_common.photos`. The recorder hook of the camera tools (JPEG write, then a poi_store photo `add`) and the `list_lookups` / `get_lookup_image` / `annotate_lookup` / `delete_photos` module (see [Photos (photo POIs)](#photos-photo-pois)) |
 | `camera_scene.py`, `camera_overlay.py`, `camera_candidates.py`, `camera_calib.py` | no | calibrated scene and frames, overlay drawing and candidate grids, candidate sets, sample store and solver wiring |
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |
 | `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services; the footprint sink (costmap / ArmStop polygon publishers, `published_footprint` subscriptions, `set_parameters` clients with outcome reports and timeouts, the republish timer, the consumer readiness poll, the arm pose) |
@@ -1906,7 +1908,7 @@ expose it on the LAN. The MCP path and the admin route stay behind the token. `r
 | `mcp_self_collision_min_clearance_m` | smallest arm-to-body clearance of the last executed arm motion (m) |
 | `mcp_robot_events_total{severity}` | `RobotMonitor.emit` (debounced repeats are not counted) |
 | `mcp_sample_age_seconds{feed}` | age of the latest cached sample per ROS feed (`RosRobot.latest` keys, via `staleness.sample_ages`), read at scrape time; a feed without a sample has no series |
-| `mcp_lookup_writes_total{tool}`, `mcp_lookup_write_failures_total` | `LookupRecorder.record` (`lookup_tools.py`): camera images recorded in the lookup store, and the ones it failed to record (the camera tool still answered) |
+| `mcp_lookup_writes_total{tool}`, `mcp_lookup_write_failures_total` | `LookupRecorder.record` (`lookup_tools.py`): camera images recorded as photo POIs, and the ones it failed to record (JPEG write failed, poi_store down, refused or timed out) (the camera tool still answered) |
 | `mcp_guard_rule_hits_total{rule,mode,phase,basis}` | `GuardEngine.run` (`guard_rules.py`): a rule hit at a tool / step / arm check; mode `enforce` (refused) or `dry_run` (would-be refusal), basis `match` or `unknown` (resolved to reject by `when_unknown`) |
 | `mcp_guard_eval_seconds{phase}` | `GuardEngine.run`: evaluation time of a check that had applicable rules (buckets 10 us .. 50 ms); unruled tools are not observed |
 | `mcp_motion_watch_triggers_total{metric,action}` | motion queue watch constraints that triggered, by metric and action (`abort`/`pause`) |
