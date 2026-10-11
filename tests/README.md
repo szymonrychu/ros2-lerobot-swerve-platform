@@ -1311,6 +1311,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_keepout_filter_sits_right_before_inflation` | Global plugins are `static_layer, obstacle_layer, keepout_filter, inflation_layer`, local `obstacle_layer, keepout_filter, inflation_layer`; the keepout filter index is the inflation index minus 1 and it is not in `filters`. |
 | `test_nav2_keepout_filter_settings` | `keepout_filter` in both costmaps: `KeepoutFilter` plugin, enabled, info topic equal to the `costmap_zones` default, `transform_tolerance` 0.2, `override_lethal_cost` true, `lethal_override_cost` 252. |
 | `test_nav2_speed_filter_only_in_local_costmap` | Local `filters` is `[speed_filter]` (`SpeedFilter`, info topic equal to the `costmap_zones` default, `/speed_limit`, tolerance 0.2); global costmap has no speed filter. |
+| `test_nav2_keepout_docs_describe_lethal_override_correctly` | The nav2_params comments and the README zones section say 252 is written only while the robot is inside a zone (not that zone cells are blocked at 252) and that 1.3.10 gives live mask updates. |
 | `test_nav2_controller_listens_on_the_speed_limit_topic` | `controller_server.speed_limit_topic` equals the SpeedFilter topic `/speed_limit`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_nav_stack_config.py` is listed in this section. |
 

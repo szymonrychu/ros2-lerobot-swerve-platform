@@ -622,6 +622,19 @@ def test_nav2_speed_filter_only_in_local_costmap() -> None:
     assert "speed_filter" not in glob["plugins"] + glob.get("filters", [])
 
 
+def test_nav2_keepout_docs_describe_lethal_override_correctly() -> None:
+    """252 is written only while the robot is inside a zone (so it can plan out); 1.3.10 gives live mask updates."""
+    params_text = re.sub(r"\s*\n\s*#\s*", " ", NAV2_PARAMS.read_text())
+    assert "the planner treats them as blocked" not in params_text
+    assert params_text.count("only while the robot is inside") == 2
+    readme = NAV2_README.read_text()
+    section = readme.split("## Keepout and speed zones", 1)[1].split("\n## ", 1)[0]
+    assert "Cells become cost 252" not in section
+    assert "only while the robot is inside" in section
+    assert "drop the info topic" not in section
+    assert "live mask updates" in section
+
+
 def test_nav2_controller_listens_on_the_speed_limit_topic() -> None:
     """The SpeedFilter publishes the absolute /speed_limit; the controller must subscribe to the same topic."""
     controller = ros_params(nav2(), "controller_server")

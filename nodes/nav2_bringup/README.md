@@ -206,9 +206,9 @@ Goals finish within 1 cm and 2 deg (`xy_goal_tolerance` 0.01, `yaw_goal_toleranc
 
 Zones drawn as POIs become two costmap filters, fed by `nodes/costmap_zones` (keepout and speed masks plus latched `CostmapFilterInfo` on `/costmap_filter_info/keepout` and `/costmap_filter_info/speed`).
 
-- **KeepoutFilter** (`keepout_filter`) is in `plugins` of both costmaps, directly before `inflation_layer`, so the zone is inflated like an obstacle (Smac's centre-cost shortcut needs that). Cells become cost 252 (`override_lethal_cost`).
+- **KeepoutFilter** (`keepout_filter`) is in `plugins` of both costmaps, directly before `inflation_layer`, so the zone is inflated like an obstacle (Smac's centre-cost shortcut needs that). Mask cells are lethal; cost 252 (`override_lethal_cost`, below lethal so inflation does not grow it) is written only while the robot is inside a zone, so it can plan a way out.
 - **SpeedFilter** (`speed_filter`) is in `filters` of the local costmap only and publishes `/speed_limit` (absolute topic); `controller_server.speed_limit_topic` is the same topic.
-- Requirements: Nav2 1.3.8 for the KeepoutFilter lethal override and 1.3.10 for the filter fixes used here; older builds ignore `override_lethal_cost` or drop the info topic.
+- Requirements: Nav2 1.3.8 for the KeepoutFilter lethal override and 1.3.10 for live mask updates (a changed or cleared mask repaints the costmap without a restart); older builds ignore `override_lethal_cost` or keep stale zones.
 - Kill switch: each filter layer serves a `toggle_filter` (`std_srvs/SetBool`) service in its costmap node's namespace; calling it with `data: false` disables that filter at runtime without a redeploy.
 - Limits: the `RotationShimController` in-place rotation is not limited by `/speed_limit` (only MPPI translation and rotation while following the path are). `route_server` `AdjustSpeedLimit` stays idle because no route graph is loaded.
 
