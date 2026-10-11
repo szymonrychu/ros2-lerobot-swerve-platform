@@ -11,6 +11,10 @@ MAX_NOTE_LEN = 2000
 MIN_POLYGON_VERTICES = 3
 DEFAULT_RADIUS_M = 0.2
 AREA_EPSILON = 1e-12
+ZONE_NONE = "none"
+ZONE_SLOW = "slow"
+MIN_SPEED_LIMIT_PCT = 10
+MAX_SPEED_LIMIT_PCT = 100
 
 Coordinate = Annotated[float, Field(allow_inf_nan=False)]
 Timestamp = Annotated[float, Field(allow_inf_nan=False, ge=0)]
@@ -61,6 +65,8 @@ class Poi(BaseModel):
         first_seen: Objects: unix seconds of the first sighting (0 for other kinds).
         last_seen: Objects: unix seconds of the latest sighting (0 for other kinds).
         confidence: Objects: how sure the sighting was, 0..1 (1 for other kinds).
+        zone: Areas only: "none", "keepout" (no entry) or "slow" (speed cap). Active only while status is "open".
+        speed_limit_pct: Zone "slow": speed cap in percent (10..100, required); None for every other zone.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -82,6 +88,8 @@ class Poi(BaseModel):
     first_seen: Timestamp = 0.0
     last_seen: Timestamp = 0.0
     confidence: Annotated[float, Field(allow_inf_nan=False, ge=0, le=1)] = 1.0
+    zone: Literal["none", "keepout", "slow"] = ZONE_NONE
+    speed_limit_pct: Annotated[int, Field(ge=MIN_SPEED_LIMIT_PCT, le=MAX_SPEED_LIMIT_PCT)] | None = None
 
     @field_validator("id")
     @classmethod
@@ -112,6 +120,23 @@ class Poi(BaseModel):
             if len(self.polygon) < MIN_POLYGON_VERTICES:
                 raise ValueError(f"area needs at least {MIN_POLYGON_VERTICES} polygon vertices")
             self.x, self.y = polygon_centroid(self.polygon)
+        return self
+
+    @model_validator(mode="after")
+    def check_zone(self) -> "Poi":
+        """Enforce the zone rules: only an area has a zone, "slow" needs speed_limit_pct, any other
+        zone drops it.
+
+        Returns:
+            Poi: Self.
+        """
+        if self.zone != ZONE_NONE and self.kind != "area":
+            raise ValueError("zone is only allowed for kind 'area'")
+        if self.zone == ZONE_SLOW:
+            if self.speed_limit_pct is None:
+                raise ValueError("zone 'slow' needs speed_limit_pct")
+        else:
+            self.speed_limit_pct = None
         return self
 
     def to_json_dict(self) -> dict[str, Any]:

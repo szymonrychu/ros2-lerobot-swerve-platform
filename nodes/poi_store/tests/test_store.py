@@ -287,3 +287,20 @@ def test_clear_via_handle_message(store):
     assert out["ok"] and out["request_id"] == "q" and out["poi"] == {"removed": 1}
     bad = json.loads(store.handle_message(json.dumps({"op": "clear", "request_id": "q2"})))
     assert not bad["ok"]
+
+
+def test_update_keepout_to_slow_needs_pct(store):
+    _, _, poi = store.apply(Command(op="add", poi=area(zone="keepout")))
+    ok, msg, _ = store.apply(Command(op="update", poi={"id": poi["id"], "zone": "slow"}))
+    assert not ok
+    assert store.pois[poi["id"]].zone == "keepout"
+    ok, msg, updated = store.apply(Command(op="update", poi={"id": poi["id"], "zone": "slow", "speed_limit_pct": 40}))
+    assert ok, msg
+    assert updated["zone"] == "slow" and updated["speed_limit_pct"] == 40
+
+
+def test_update_slow_to_none_drops_pct(store):
+    _, _, poi = store.apply(Command(op="add", poi=area(zone="slow", speed_limit_pct=40)))
+    ok, msg, updated = store.apply(Command(op="update", poi={"id": poi["id"], "zone": "none"}))
+    assert ok, msg
+    assert updated["zone"] == "none" and updated["speed_limit_pct"] is None

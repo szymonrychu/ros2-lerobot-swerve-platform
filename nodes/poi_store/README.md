@@ -22,8 +22,14 @@ three std_msgs/String topics carrying JSON. Client only.
 | `times_seen` | int >= 0 | objects: sighting count (0 for other kinds) |
 | `first_seen`, `last_seen` | float | objects: unix seconds of the first / latest sighting (0 for other kinds) |
 | `confidence` | float 0..1 | objects: how sure the sighting was (default 1) |
+| `zone` | `"none"`, `"keepout"` or `"slow"` | default `none`; non-`none` only for `kind` `area` (otherwise rejected) |
+| `speed_limit_pct` | int 10..100 or `null` | required when `zone` is `slow`; any other zone normalises it to `null` |
 
-All numbers must be finite. Files written before `object` existed load unchanged (the new fields take their defaults).
+An update that sets `zone` to `slow` without a `speed_limit_pct` (neither sent nor already stored) is rejected; setting `zone` to `none` or `keepout` drops the percentage.
+
+A zone is active when `kind` is `area`, `zone` is not `none` and `status` is `open`; `done` or `cancelled` disables it but keeps the record. The `costmap_zones` node consumes the active zones from `/poi/list` and turns them into Nav2 keepout and speed masks.
+
+All numbers must be finite. Files written before `object` existed load unchanged (the new fields take their defaults); the same holds for files written before `zone` existed.
 
 ## Topics
 
