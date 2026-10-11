@@ -4,7 +4,8 @@ the timer, parameter-service, published_footprint and readiness bookkeeping can 
 Covers: the re-send timer runs at the period NavFootprint asks for; parameter sets report ok / unavailable / refused /
 no response and a request still unanswered at the next tick is cancelled and reported as a timeout; double values
 for the costmap inflation; `<costmap>/published_footprint` polygons are kept per topic; a parameter service coming
-up (unavailable -> ready edge) calls the consumer-ready callback once; the arm pose accessors.
+up (unavailable -> ready edge) calls the consumer-ready callback once; the arm pose accessors; a successful
+/arm/home runs the footprint tick at once (back to static) and a failed one does not.
 """
 
 import importlib
@@ -221,3 +222,27 @@ def test_arm_pose_accessors(ros_iface: ModuleType, tmp_path: Path) -> None:
     robot.arm_backend.stale_after = robot.arm_backend.t
     robot.arm_backend.t += 100.0
     assert robot.arm_parts() is None
+
+
+@pytest.mark.parametrize(("home_ok", "ticks_expected"), [(True, 1), (False, 0)])
+def test_home_service_runs_the_footprint_tick_only_after_success(
+    ros_iface: ModuleType, tmp_path: Path, home_ok: bool, ticks_expected: int
+) -> None:
+    """/arm/home success re-evaluates the footprint at once (back to static); a failed home leaves it alone."""
+    robot = make_robot(ros_iface, tmp_path, [0.0])
+    ticks: list[int] = []
+    robot.every(5.0, lambda: ticks.append(1))
+    robot.arm = MagicMock()
+    robot.arm.home_service_call.return_value = (home_ok, "done" if home_ok else "aborted_stale")
+    response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))
+    assert (response.success, response.message) == robot.arm.home_service_call.return_value
+    assert len(ticks) == ticks_expected
+
+
+def test_home_service_without_a_footprint_tick_still_answers(ros_iface: ModuleType, tmp_path: Path) -> None:
+    robot = make_robot(ros_iface, tmp_path, [0.0])
+    robot.footprint_tick = None
+    robot.arm = MagicMock()
+    robot.arm.home_service_call.return_value = (True, "done")
+    response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))
+    assert response.success is True
