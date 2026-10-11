@@ -13,9 +13,12 @@ from ros2_metrics import render_latest
 from . import metrics as metrics  # noqa: PLC0414  (registers the node info and the agent metrics)
 from .config import ClaudeAgentConfig
 from .events import RESET_MARKER, EventLog
+from .retry_ledger import RetryLedger
 
 HISTORY_DEFAULT_LIMIT = 100
 HISTORY_MAX_LIMIT = 500
+RETRY_OUTCOMES_DEFAULT_LIMIT = 1000
+RETRY_OUTCOMES_MAX_LIMIT = 5000
 
 
 class RunnerLike(Protocol):
@@ -24,12 +27,33 @@ class RunnerLike(Protocol):
     busy: bool
     session_started_at: float
     last_activity_at: float | None
+    ledger: RetryLedger
 
     def usage_fields(self) -> dict[str, Any]: ...
 
-    async def start_instruction(self, text: str) -> bool: ...
+    async def start_instruction(self, text: str, deny_tools: list[str] | None = None) -> bool: ...
     async def interrupt(self) -> bool: ...
     async def reset(self) -> bool: ...
+
+
+def deny_tools_problem(deny_tools: Any, effector_tools: list[str]) -> str | None:
+    """Validate the optional ``deny_tools`` of POST /api/message.
+
+    Args:
+        deny_tools (Any): The request value (None when absent).
+        effector_tools (list[str]): Tool names that may be listed (config.effector_tools).
+
+    Returns:
+        str | None: A message naming the problem or the bad entry, or None when valid.
+    """
+    if deny_tools is None:
+        return None
+    if not isinstance(deny_tools, list):
+        return "deny_tools must be a list of tool names"
+    for entry in deny_tools:
+        if not isinstance(entry, str) or entry not in effector_tools:
+            return f"deny_tools entry {entry!r} is not an effector tool"
+    return None
 
 
 def create_app(
@@ -91,6 +115,13 @@ def create_app(
         page, has_more = await asyncio.to_thread(events.page, before_seq, min(limit, HISTORY_MAX_LIMIT))
         return {"events": page, "has_more": has_more}
 
+    @app.get("/api/retry_outcomes")
+    async def get_retry_outcomes(
+        limit: int = Query(default=RETRY_OUTCOMES_DEFAULT_LIMIT, ge=1, le=RETRY_OUTCOMES_MAX_LIMIT),
+    ) -> dict[str, Any]:
+        records = await asyncio.to_thread(runner.ledger.read, limit)
+        return {"records": records, "path_ok": runner.ledger.path_ok}
+
     @app.post("/api/message")
     async def post_message(request: Request) -> JSONResponse:
         try:
@@ -100,7 +131,11 @@ def create_app(
         text = body.get("text") if isinstance(body, dict) else None
         if not isinstance(text, str) or not text.strip():
             return JSONResponse({"ok": False, "message": "text must be a non-empty string"}, status_code=400)
-        if not await runner.start_instruction(text.strip()):
+        deny_tools = body.get("deny_tools")
+        problem = deny_tools_problem(deny_tools, config.effector_tools)
+        if problem:
+            return JSONResponse({"ok": False, "message": problem}, status_code=400)
+        if not await runner.start_instruction(text.strip(), deny_tools or None):
             return JSONResponse({"ok": False, "message": "busy"}, status_code=409)
         return JSONResponse({"ok": True}, status_code=202)
 

@@ -546,16 +546,27 @@ The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this
 |---|---|
 | `GET /api/state` | `{busy, model, max_turns, hard_max: {rw_cap, turn_cap}, phase_max: {rw_cap, turn_cap}, ro_used (sensor calls, uncapped), rw_used, turns_used, effector_calls_used (= rw_used), plan, active_phase, session_started_at, last_activity_at, now}`; `plan` is `{complexity, rationale, revised, revision_rationale, active_phase, phases: [{index, name, goal, status (pending/active/done/failed/skipped), rw_cap, turn_cap, ro_used, rw_used, turns_used, raised, summary}]}` or `null` until the agent set one; `active_phase` is the index of the active phase or `null`; `last_activity_at` is the Unix time (float) of the latest instruction start or end (any status), stop or reset, `null` before any, and `now` is the robot clock: the Ansible deploy guard (`ansible/playbooks/tasks/agent_idle_guard.yml`) waits for `now - last_activity_at` to exceed `ros2_agent_quiet_min` before a client deploy |
 | `GET /api/history?before_seq=<int>&limit=<int>` | `{events: [...], has_more}`: the newest `limit` events (default 100, max 500) with `seq < before_seq` (the newest overall without it), ascending `seq`; `has_more` is true when older events exist |
-| `POST /api/message` `{text}` | `202 {ok: true}`; `409 {ok: false, message: "busy"}`; `400` on empty or invalid text |
+| `GET /api/retry_outcomes?limit=<int>` | `{records: [...], path_ok}`: the newest `limit` (1..5000, default 1000) records of the retry calibration ledger, newest last (read in a thread); `path_ok` is false once a ledger write failed; `422` for a limit outside 1..5000 |
+| `POST /api/message` `{text, deny_tools?}` | `202 {ok: true}`; `409 {ok: false, message: "busy"}`; `400` on empty or invalid text, or when `deny_tools` is not a list of strings that are all in `effector_tools` (the message names the bad entry); an empty `deny_tools` is the same as absent. See "Arm-only evaluation mode" |
 | `POST /api/stop` | `{ok, message}`; stops the robot (MCP `stop`) and interrupts the current instruction (`client.interrupt()`) |
 | `POST /api/reset` | `{ok: true}` new session; `409` while busy or resetting; stops the robot, asks mcp_server (HTTP) to have poi_store delete everything the agent made (`clear` for `created_by: agent`: its POIs and remembered objects; the person's POIs stay) and deletes the session log (seq restarts at 0); notes in the workdir are kept |
 | `WS /ws/events` | on connect `{type: "history", events: [last 100], has_more}`, then each event as it happens |
+
+### Arm-only evaluation mode
+
+`POST /api/message` accepts an optional `deny_tools` list (for example `["navigate_to_pose", "move_relative", "drive"]`)
+that the permission gate refuses for that one instruction: the call is denied through the normal `tool_denied` path with
+the reason `<tool> is disabled for this instruction (evaluation arm-only mode)` and is not counted against the phase
+budget. The list is cleared at every instruction start, so it never carries over, and the `user_message` event records
+`deny_tools` when it was given. Releases are never denied by it: `release_object` and an opening `set_gripper` stay
+allowed so the model can always put an object down. `deny_tools` can only add refusals; it cannot unlock
+`config.denied_tools` (`arm_set_home`), which stay refused always.
 
 Every event is `{seq: int, ts: float, type, ...}`:
 
 | type | fields |
 |---|---|
-| `user_message` | `text`, `instruction_id` (uuid4 hex generated at instruction start; every `turn_end` of the instruction repeats it) |
+| `user_message` | `text`, `deny_tools` (only when the message had a non-empty list), `instruction_id` (uuid4 hex generated at instruction start; every `turn_end` of the instruction repeats it) |
 | `assistant_text` | `text` |
 | `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped` / `notes` / `plan`), `input`; `source` only on the node's own calls (`stop`, see above, and the job-end `cancel_motions` / `release_control`, source `job_end`) |
 | `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated`; `source` only on the node's own calls (`stop`, job-end `cancel_motions` / `release_control`) |

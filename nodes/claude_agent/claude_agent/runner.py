@@ -688,11 +688,12 @@ class AgentRunner:
         """
         self.publish("tool_denied", **info)
 
-    async def start_instruction(self, text: str) -> bool:
+    async def start_instruction(self, text: str, deny_tools: list[str] | None = None) -> bool:
         """Start an instruction in the background.
 
         Args:
             text (str): The user's instruction.
+            deny_tools (list[str] | None): Effector tools refused for this instruction only (arm-only evaluation).
 
         Returns:
             bool: False when an instruction is already running or the session is being reset.
@@ -713,9 +714,11 @@ class AgentRunner:
         self.digest = self.take_digest()
         self.last_instruction, self.last_status, self.last_text = text, "", ""
         self.gate.reset()
+        self.gate.set_instruction_denied(deny_tools)
         self.instruction_id = uuid.uuid4().hex
         self.evidence.reset()
-        self.events.append("user_message", text=text, instruction_id=self.instruction_id)
+        extra = {"deny_tools": list(deny_tools)} if deny_tools else {}
+        self.events.append("user_message", text=text, instruction_id=self.instruction_id, **extra)
         self.emit_state()
         self.task = asyncio.create_task(self.run_instruction(text))
         return True

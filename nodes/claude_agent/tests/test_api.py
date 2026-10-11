@@ -33,6 +33,19 @@ PLAN = {
 }
 
 
+class FakeLedger:
+    """Stands in for RetryLedger: records the read limits."""
+
+    def __init__(self) -> None:
+        self.records: list[dict] = []
+        self.path_ok = True
+        self.limits: list[int] = []
+
+    def read(self, limit: int | None = None) -> list[dict]:
+        self.limits.append(limit)
+        return self.records[-limit:]
+
+
 class FakeRunner:
     """Records calls; behaviour switchable per test."""
 
@@ -50,16 +63,19 @@ class FakeRunner:
         self.session_started_at = 1234.5
         self.last_activity_at: float | None = None
         self.started: list[str] = []
+        self.deny_tools: list[list[str] | None] = []
+        self.ledger = FakeLedger()
         self.interrupt_result = True
         self.resets = 0
 
     def usage_fields(self) -> dict:
         return dict(self.usage)
 
-    async def start_instruction(self, text: str) -> bool:
+    async def start_instruction(self, text: str, deny_tools: list[str] | None = None) -> bool:
         if self.busy:
             return False
         self.started.append(text)
+        self.deny_tools.append(deny_tools)
         return True
 
     async def interrupt(self) -> bool:
@@ -262,3 +278,59 @@ def test_ws_keeps_streaming_after_reset(setup) -> None:
         assert live["type"] == "state" and live["seq"] == 1
         events.append("assistant_text", text="new")
         assert ws.receive_json()["seq"] == 2
+
+
+def test_message_deny_tools_passed_to_the_runner(setup) -> None:
+    client, runner, _ = setup
+    resp = client.post("/api/message", json={"text": "go", "deny_tools": ["drive", "navigate_to_pose"]})
+    assert resp.status_code == 202
+    assert runner.deny_tools == [["drive", "navigate_to_pose"]]
+
+
+@pytest.mark.parametrize("deny", [None, []])
+def test_message_absent_or_empty_deny_tools_is_none(setup, deny) -> None:
+    client, runner, _ = setup
+    payload = {"text": "go"} if deny is None else {"text": "go", "deny_tools": deny}
+    assert client.post("/api/message", json=payload).status_code == 202
+    assert runner.deny_tools == [None]
+
+
+@pytest.mark.parametrize(
+    ("deny", "named"),
+    [
+        (["nope"], "nope"),
+        (["drive", "get_robot_state"], "get_robot_state"),
+        (["arm_set_home"], "arm_set_home"),
+        ("drive", "deny_tools"),
+        ({"a": 1}, "deny_tools"),
+        ([5], "5"),
+        (["drive", None], "None"),
+    ],
+)
+def test_message_invalid_deny_tools_400(setup, deny, named) -> None:
+    client, runner, _ = setup
+    resp = client.post("/api/message", json={"text": "go", "deny_tools": deny})
+    assert resp.status_code == 400
+    assert named in resp.json()["message"]
+    assert runner.started == []
+
+
+def test_retry_outcomes_default_limit_and_payload(setup) -> None:
+    client, runner, _ = setup
+    runner.ledger.records = [{"n": i} for i in range(3)]
+    assert client.get("/api/retry_outcomes").json() == {"records": [{"n": 0}, {"n": 1}, {"n": 2}], "path_ok": True}
+    assert runner.ledger.limits == [1000]
+
+
+def test_retry_outcomes_limit_passed_and_path_ok_reported(setup) -> None:
+    client, runner, _ = setup
+    runner.ledger.path_ok = False
+    assert client.get("/api/retry_outcomes?limit=5000").json()["path_ok"] is False
+    assert runner.ledger.limits == [5000]
+
+
+@pytest.mark.parametrize("limit", ["0", "5001", "-1", "abc"])
+def test_retry_outcomes_limit_bounds_422(setup, limit) -> None:
+    client, runner, _ = setup
+    assert client.get(f"/api/retry_outcomes?limit={limit}").status_code == 422
+    assert runner.ledger.limits == []

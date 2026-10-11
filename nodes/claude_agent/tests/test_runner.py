@@ -1715,3 +1715,22 @@ async def test_new_instruction_resets_seen_lookup_ids(tmp_path: Path) -> None:
     await runner.start_instruction("two")
     assert runner.evidence.seen_lookup_ids() == set()
     await runner.wait_idle()
+
+
+async def test_start_instruction_deny_tools_reach_the_gate_and_the_user_message(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[make_result()])
+    assert await runner.start_instruction("go", deny_tools=["drive", "navigate_to_pose"]) is True
+    assert runner.gate.instruction_denied == {"drive", "navigate_to_pose"}
+    assert events.history()[0]["deny_tools"] == ["drive", "navigate_to_pose"]
+    await runner.wait_idle()
+
+
+async def test_deny_tools_are_reset_at_the_next_instruction_and_absent_from_its_event(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[make_result()])
+    await runner.start_instruction("one", deny_tools=["drive"])
+    await runner.wait_idle()
+    await runner.start_instruction("two")
+    assert runner.gate.instruction_denied == set()
+    user_messages = [e for e in events.history() if e["type"] == "user_message"]
+    assert "deny_tools" in user_messages[0] and "deny_tools" not in user_messages[1]
+    await runner.wait_idle()

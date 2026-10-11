@@ -574,3 +574,41 @@ async def test_closing_the_gripper_is_still_refused_by_the_plan(make_gate) -> No
     gate = make_gate()
     result = await gate.can_use_tool("mcp__robot__set_gripper", {"open_fraction": 0.1}, ctx())
     assert isinstance(result, PermissionResultDeny)
+
+
+async def test_instruction_denied_tools_are_refused_with_the_arm_only_reason_and_not_counted() -> None:
+    denied: list[dict] = []
+    gate = gate_with_plan(rw=5, on_denied=denied.append)
+    gate.set_instruction_denied(["drive", "navigate_to_pose"])
+    result = await gate.can_use_tool("mcp__robot__drive", {}, ctx("t1"))
+    assert isinstance(result, PermissionResultDeny)
+    assert result.message == "drive is disabled for this instruction (evaluation arm-only mode)"
+    assert denied == [{"id": "t1", "name": "drive", "reason": result.message}]
+    assert gate.plan.rw_used == 0
+    assert isinstance(await gate.can_use_tool("mcp__robot__move_arm_joints", {}, ctx()), PermissionResultAllow)
+
+
+async def test_instruction_denied_tools_never_deny_releases() -> None:
+    gate = gate_with_plan(rw=5)
+    gate.set_instruction_denied(["release_object", "set_gripper", "drive"])
+    assert isinstance(await gate.can_use_tool("mcp__robot__release_object", {}, ctx()), PermissionResultAllow)
+    opening = {"open_fraction": 1.0, "close_until_effort": False}
+    assert isinstance(await gate.can_use_tool("mcp__robot__set_gripper", opening, ctx()), PermissionResultAllow)
+    closing = {"open_fraction": 0.0, "close_until_effort": True}
+    assert isinstance(await gate.can_use_tool("mcp__robot__set_gripper", closing, ctx()), PermissionResultDeny)
+
+
+async def test_instruction_denied_tools_are_cleared_by_reset() -> None:
+    gate = gate_with_plan(rw=5)
+    gate.set_instruction_denied(["drive"])
+    gate.reset()
+    gate.plan.set_plan("simple", "test", [one_phase(5)])
+    assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
+
+
+async def test_instruction_denied_tools_cannot_unlock_config_denied_tools() -> None:
+    gate = gate_with_plan()
+    gate.set_instruction_denied(["drive"])
+    result = await gate.can_use_tool("mcp__robot__arm_set_home", {}, ctx())
+    assert isinstance(result, PermissionResultDeny)
+    assert "evaluation arm-only mode" not in result.message

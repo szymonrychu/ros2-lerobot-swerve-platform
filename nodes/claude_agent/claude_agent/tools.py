@@ -32,6 +32,7 @@ TIME_BUDGET_MESSAGE = (
     "instruction (stop, cancel_motions, release_object and opening the gripper are still allowed)"
 )
 # Effector tools that only let go of an object: never refused by the time left, the plan or the caps (still counted).
+INSTRUCTION_DENIED_MESSAGE = "{name} is disabled for this instruction (evaluation arm-only mode)"
 TIME_EXEMPT_EFFECTORS = ("release_object",)
 # set_gripper counts as opening (allowed) from this open_fraction up, unless close_until_effort is set.
 SAFE_OPEN_FRACTION = 0.5
@@ -239,10 +240,23 @@ class EffectorGate:
         self.on_denied = on_denied
         self.time_left = time_left
         self.logger = logger or logging.getLogger("claude_agent")
+        self.instruction_denied: set[str] = set()
 
     def reset(self) -> None:
-        """Start a new instruction: forget the plan and zero the counters."""
+        """Start a new instruction: forget the plan, the per-instruction deny list and zero the counters."""
         self.plan.reset()
+        self.instruction_denied = set()
+
+    def set_instruction_denied(self, names: list[str] | None) -> None:
+        """Deny extra effector tools for the current instruction only (evaluation arm-only mode).
+
+        Releases (release_object, an opening set_gripper) are never refused by this list, and it cannot unlock
+        ``config.denied_tools``. Cleared by reset().
+
+        Args:
+            names (list[str] | None): Short tool names to refuse; None or empty clears the list.
+        """
+        self.instruction_denied = set(names or [])
 
     def deny(self, tool_use_id: str | None, name: str, reason: str) -> PermissionResultDeny:
         """Record and build a denial.
@@ -335,6 +349,8 @@ class EffectorGate:
         if kind == KIND_EFFECTOR and is_release(name, tool_input):
             self.plan.charge_release()
             return PermissionResultAllow()
+        if kind == KIND_EFFECTOR and name in self.instruction_denied:
+            return self.deny(context.tool_use_id, name, INSTRUCTION_DENIED_MESSAGE.format(name=name))
         denial = self.time_budget_denial(name, tool_input) if kind == KIND_EFFECTOR else None
         if denial is None and kind in (KIND_SENSOR, KIND_EFFECTOR):
             denial = self.plan.charge(kind)
