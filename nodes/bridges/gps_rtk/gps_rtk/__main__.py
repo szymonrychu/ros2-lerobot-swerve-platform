@@ -1,15 +1,14 @@
 """Entry point for GPS RTK node: load config, run base or rover."""
 
-import logging
 import sys
 
 import rclpy
+from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException
 
 from .base_node import GpsRtkBaseNode
 from .config import load_config_from_env
 from .rover_node import GpsRtkRoverNode
-
-_log = logging.getLogger(__name__)
 
 
 def main() -> int:
@@ -36,15 +35,15 @@ def main() -> int:
         node = GpsRtkRoverNode(config)
     try:
         node.run()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RCLError:
+        if rclpy.ok():  # a publish or wait set racing the SIGTERM handler is shutdown noise; anything else is a bug
+            raise
     finally:
         node.shutdown()
         node.destroy_node()
-        try:
-            rclpy.shutdown()
-        except Exception as e:  # noqa: BLE001
-            _log.debug("rclpy.shutdown() raised during cleanup: %s", e)
+        rclpy.try_shutdown()
     return 0
 
 
