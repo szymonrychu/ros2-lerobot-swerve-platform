@@ -115,8 +115,8 @@ LINK_COLLISION_BOXES = (
     LinkBox("wrist link", "wrist_link", (0.0, -0.02, 0.0191), (1.0, -1.0, -1.0, -1.0), (0.027, 0.01, 0.03)),
 )
 # Spacing of the sample points on the box faces (m). Between the points a sharp obstacle edge can come up to
-# spacing / sqrt(2) = 7 mm closer than the points say, inside the 1 cm body hard margin.
-BOX_POINT_SPACING_M = 0.01
+# spacing / sqrt(2) = 1.8 mm closer than the points say, within the 2 mm body hard margin (a test pins this invariant).
+BOX_POINT_SPACING_M = 0.0025
 
 
 def quat_matrix(quat: tuple[float, float, float, float]) -> np.ndarray:

@@ -527,7 +527,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   link, gripper body hull, jaw points), a clear pose, the 2026-10-10 home pose clear, the gripper pointing into the lidar
   column penetrating `lidar`, low over the front-right wheel penetrating `wheel_fr`, every measured 2026-10-10 floor
   touch-down in front of the robot clear of the hard margin (deployed offsets; the robot reached them without touching
-  the lidar; with the measured dome, radius 37 mm at (0.150, 0.040), t4 stands 8.3 mm away and still fails by 1.7 mm); a clear pose checks its soft clearance (slow band) and its hard clearance; path checks: into the lidar rejected with obstacle, link,
+  the lidar; with the measured dome, radius 37 mm at (0.150, 0.040), t4 stands 0.3 mm away, under the 2 mm hard margin, and still fails); a clear pose checks its soft clearance (slow band) and its hard clearance; path checks: into the lidar rejected with obstacle, link,
   clearance, margin and hint, lowering toward the lidar slowed (scale 0.3, clearance in the slow band) not rejected, a
   clear path untouched, escaping from a colliding start allowed while going deeper is rejected, the disabled check,
   `combine_scales` (slower wins), `joint_line` sampling and the part points in base_link
@@ -547,7 +547,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   measured lidar dome
 - arm link boxes (`test_arm_link_boxes.py`): the body check's link boxes are the six collision boxes of the grasp_sim
   `so101.xml` (upper arm, forearm, wrist; read from the MJCF independently), the upper arm boxes contact-only; the face
-  points cover every face within spacing / sqrt(2); over 300 random poses the checker's clearance never exceeds the
+  points cover every face within spacing / sqrt(2) and that bound stays within the default hard margin (2 mm, `BOX_POINT_SPACING_M` 2.5 mm); `clear_of` (envelope's pruned check) equals the hard verdict of the full clearances over random poses; over 300 random poses the checker's clearance never exceeds the
   sim box surface clearance (plus the hard margin for contact-only boxes) by more than that bound; the 2026-10-10
   pose whose sim upper arm box edge comes within the hard margin of the lidar dome is rejected, home stays clear, and a
   pose with the upper arm box 23 mm from the dome edge is not slowed by the upper arm boxes

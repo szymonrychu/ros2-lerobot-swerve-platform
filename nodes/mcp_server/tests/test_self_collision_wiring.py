@@ -130,7 +130,7 @@ def stored_home(arm: ArmController) -> None:
 
 
 def test_home_goes_via_a_safe_intermediate_when_the_direct_path_hits_the_frame(tmp_path: Path) -> None:
-    start = solve_base_link(0.1, -0.3, 0.05, 0.8)  # reaching down beside the right side frame
+    start = solve_base_link(0.1, -0.25, 0.1, 0.8)  # reaching down beside the right side frame
     arm, be = make(tmp_path, start)
     stored_home(arm)
     with pytest.raises(SelfCollisionError):
@@ -256,7 +256,7 @@ def test_planner_without_the_body_check_has_no_body_reasons() -> None:
 def floor_object_left_front() -> ObjectSpec:
     """A 3 cm cube on the floor front-left of the arm: a top_down retreat swings the gripper back into the lidar."""
     return ObjectSpec(
-        frame="arm", x=0.22, y=0.06, support_z=CONFIG.arm.floor_z_m, width_m=0.03, depth_m=0.03, height_m=0.04
+        frame="arm", x=0.20, y=0.06, support_z=CONFIG.arm.floor_z_m, width_m=0.03, depth_m=0.03, height_m=0.04
     )
 
 
@@ -289,7 +289,9 @@ def test_executor_refuses_a_step_that_would_hit_the_body(tmp_path: Path) -> None
 
 @pytest.fixture
 def server(tmp_path: Path) -> Any:
-    return build_mcp_server(robot_at(tmp_path, clear_pose()), McpServerConfig(), TOKEN)
+    # The envelope takes ~10 s on a dev machine with the 2.5 mm box points: wait longer than the 10 s default.
+    cfg = McpServerConfig(body_check=BodyCheckSettings(reach_wait_s=60.0))
+    return build_mcp_server(robot_at(tmp_path, clear_pose()), cfg, TOKEN)
 
 
 def test_get_arm_reach_describes_body_mount_margins_and_envelope(server: Any) -> None:
@@ -297,7 +299,7 @@ def test_get_arm_reach_describes_body_mount_margins_and_envelope(server: Any) ->
     assert [o["name"] for o in data["obstacles"]][-1] == "lidar" and len(data["obstacles"]) == 8
     assert data["arm_mount"]["base_in_base_link"] == {"x": 0.0592, "y": -0.05, "z": 0.1, "yaw": 0.0}
     assert len(data["arm_mount"]["pan_axis_base_link"]) == 3
-    assert data["margins"] == {"enabled": True, "soft_margin_m": 0.03, "hard_margin_m": 0.01, "slow_speed_scale": 0.3}
+    assert data["margins"] == {"enabled": True, "soft_margin_m": 0.03, "hard_margin_m": 0.002, "slow_speed_scale": 0.3}
     env = data["envelope"]
     assert env["status"] == "ready"
     assert env["grid"]["heading_step_deg"] == 15.0
@@ -319,7 +321,7 @@ def test_get_arm_reach_points(server: Any) -> None:
     assert front["reachable"] and front["collision_free"]
     assert front["pitch_range_deg"][0] <= front["pitch_range_deg"][1]
     assert lidar["reachable"] and not lidar["collision_free"]
-    assert lidar["limiting"]["obstacle"] == "lidar" and lidar["limiting"]["clearance_m"] < 0.01
+    assert lidar["limiting"]["obstacle"] == "lidar" and lidar["limiting"]["clearance_m"] < 0.002
     assert lidar["suggestion"]
     assert not far["reachable"] and "reach" in far["suggestion"]
 

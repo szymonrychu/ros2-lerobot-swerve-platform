@@ -463,8 +463,9 @@ z_max above z_min, unique names); `scripts/gen_nav_footprint.py` derives the Nav
 
 The dome first entered the model with radius 74 mm (that was its diameter) at the `laser_frame` position, which put it
 22 mm into touch-down t4 that the arm reached on the robot. With the measured centre and radius 37 mm t2 is clear and
-t4 stands 8.3 mm from the dome (hard margin 10 mm, `test_measured_ground_touches_in_front_are_clear[t4]` still fails
-by 1.7 mm); the folded home is clear of the hard margin.
+t4 stands 0.3 mm from the dome with the 2.5 mm box points (the 1 cm points had shown 8.3 mm: their spacing hid 8 mm),
+under the 2 mm hard margin, so `test_measured_ground_touches_in_front_are_clear[t4]` still fails; the folded home is
+clear of the hard margin (24 mm).
 
 How to measure and correct each number (tape, robot on a flat floor, base_link = centre between the four steer axes on
 the floor; x forward, y left):
@@ -483,12 +484,12 @@ Checked arm parts (one FK pass per joint sample, the arm mount `arm.base_in_base
 arm (shoulder_lift axis to elbow), forearm (elbow to wrist_flex axis) and wrist link (wrist_flex axis to gripper_link)
 as capsules of radius 0.02 (half the STS3215 width, shared with the grasp planner in `arm_geometry.py`) and as points on
 the faces of the arm collision boxes of the grasp_sim MuJoCo model (`arm_geometry.LINK_COLLISION_BOXES`, the six boxes
-of `sim/grasp_sim/assets/so101/so101.xml` on 1 cm grids, at most 7 mm apart; the forearm box reaches 4.8 cm off the
+of `sim/grasp_sim/assets/so101/so101.xml` on 2.5 mm grids (`BOX_POINT_SPACING_M`, spacing / sqrt(2) = 1.8 mm stays within the 2 mm hard margin; a test pins that); the forearm box reaches 4.8 cm off the
 capsule axis, where the sim arm hit the lidar dome while the capsules alone saw 18 mm), the gripper body / fixed jaw
 hull points and the jaw tip, tool point and moving jaw tip. The two upper arm boxes are contact-only: the hard check
 counts their distance plus `hard_margin_m` (it rejects exactly their contact) and the slow band leaves them out. Held
-to the margins they would reject the folded home (measured dome r 37 mm) and slow nearly every forward motion
-(the slab passes 2 .. 7 mm over the dome top edge); in the plan matrix they touched the dome only in the low stair
+to the margins they would reject the folded home or slow nearly every forward motion
+(the slab passes close over the dome top edge); in the plan matrix they touched the dome only in the low stair
 reaches, which the contact check rejects. `tests/test_arm_link_boxes.py` pins the boxes to the MJCF and bounds the
 checker's clearance by the sim boxes' over random poses. The arm base and the shoulder link stand on the crossbar and
 only turn in place about the pan axis: they are not checked at all, in particular not against the crossbar. Distances
@@ -505,7 +506,7 @@ Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_
   zone's scale applies too and the slower one wins per sample. The result reports `self_collision` {obstacle, link,
   min_clearance_m, speed_scale, slowed_samples, ...} next to `slow_zone` (slow-band clearances: without the
   contact-only upper arm boxes).
-- A sample below `hard_margin_m` (0.01) or inside an obstacle rejects the whole motion before anything is published:
+- A sample below `hard_margin_m` (0.002) or inside an obstacle rejects the whole motion before anything is published:
   the tool fails (`ok` false) with "refused (self-collision): the <link> would come <clearance> m from the robot body
   obstacle <obstacle> ... Hint: ...". A start that already is inside the hard margin may move out (no clearance may
   drop more than 2 mm below its start value).
@@ -526,8 +527,9 @@ Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_
 axis, the margins and a collision-free reach envelope; with up to `reach_max_points` (20) base_link points
 {x, y, z, pitch?} each point reports `reachable` (IK within the joint limits), `collision_free`, the working
 `pitch_range_deg` (pitches -30 .. 90 deg every 15 deg, or the given one), the `limiting` obstacle / link / clearance and
-a `suggestion`. The envelope (`arm_reach.py`) is computed once in a background thread (about 1.5 s on the dev Mac, about
-95 s on the busy RPi5 under the unit's CPU quota; a call waits up to `reach_wait_s` and otherwise reports `computing`).
+a `suggestion`. The envelope (`arm_reach.py`) is computed once in a background thread (about 11 s on the dev Mac with the 2.5 mm box points, 3.6 s with the 1 cm points; on the busy RPi5 under the unit's CPU
+quota it took about 95 s with the 1 cm points and is expected to take a few minutes now, measure it after deploying;
+`SelfCollisionChecker.clear_of` skips blocks of 32 box points whose bounding sphere is clear, which is what keeps it at 3x; a call waits up to `reach_wait_s` and otherwise reports `computing`).
 With `reach_cache_file` set (the robot: `/var/lib/ros2/arm/reach_envelope.json`) it starts when the server is built
 and is saved to that file under a hash of every input (body, arm link model, mount, joint limits and offsets, grid,
 hard margin), so
@@ -536,7 +538,13 @@ the first call. Per
 shoulder_pan heading every `reach_heading_step_deg` (15) across the pan limits and tool height 0 .. `reach_height_max_m`
 (0.35) every `reach_height_step_m` (0.05) in base_link, the min / max horizontal tool distance from the pan axis over a
 13 x 13 x 7 grid of shoulder_lift x elbow_flex x wrist_flex (wrist_roll 0, gripper closed) whose body clearance is at
-least the hard margin. It is a sampled approximation (about 1 cm at full reach).
+least the hard margin (2 mm). It is a sampled approximation (about 1 cm at full reach).
+
+Sample spacing and the margin: the margin is exact between box points (spacing / sqrt(2) <= 2 mm). Along a motion the
+checked samples are further apart: a trajectory sample (25 Hz, 1 rad/s cap) moves a link point up to 17 mm, a
+`joint_line` sample (0.02 rad, planner free moves, home routes) up to 8.7 mm. A thick obstacle cannot be crossed between
+two samples (the thinnest is 35 mm) and a dip along a straight chord past a round surface is below 1 mm, but a path
+skimming a sharp obstacle edge between two samples can come closer than the margin undetected.
 
 ## Grasp macros
 

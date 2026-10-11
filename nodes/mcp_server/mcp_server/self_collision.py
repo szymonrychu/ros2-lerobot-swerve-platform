@@ -68,6 +68,8 @@ NORMAL_SCALE = 1.0
 ESCAPE_TOLERANCE_M = 0.002
 # Joint-space step (rad) of a straight joint line sampled for a check (planner free moves, home routes).
 JOINT_LINE_STEP_RAD = 0.02
+# Neighbouring box face points grouped under one bounding sphere by SelfCollisionChecker.clear_of.
+CLEAR_OF_BLOCK = 32
 ROUND_M = 4
 
 
@@ -432,6 +434,57 @@ class SelfCollisionChecker:
                 )
                 out[:, :, p] = np.minimum(out[:, :, p], contact + self.settings.hard_margin_m)
         return out.min(axis=2), out.argmin(axis=2), soft, soft_parts
+
+    def clear_of(self, stacked: dict[str, np.ndarray], margin: float) -> np.ndarray:
+        """Whether every checked part of each sample keeps at least margin from every obstacle (the hard verdict).
+
+        Same verdict as clearances_of(stacked)[0].min(axis=1) >= margin, but blocks of CLEAR_OF_BLOCK neighbouring box
+        points are only evaluated point by point when their bounding sphere comes within margin of the obstacle.
+
+        Args:
+            stacked (dict[str, np.ndarray]): stacked_points output.
+            margin (float): Required clearance (m).
+
+        Returns:
+            np.ndarray: (N,) bool, True where the sample is clear.
+        """
+        n = stacked[CHECKED_PARTS[0]].shape[0]
+        ok = np.ones(n, dtype=bool)
+        contact_margin = margin - self.settings.hard_margin_m
+
+        def blocks_of(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+            pad = -points.shape[1] % CLEAR_OF_BLOCK
+            if pad:
+                points = np.concatenate([points, np.repeat(points[:, -1:], pad, axis=1)], axis=1)
+            blocks = points.reshape(len(points), -1, CLEAR_OF_BLOCK, 3)
+            centre = blocks.mean(axis=2)
+            return blocks, centre, np.linalg.norm(blocks - centre[:, :, None, :], axis=-1).max(axis=2)
+
+        def points_clear(obstacle: Obstacle, grouped: tuple[np.ndarray, np.ndarray, np.ndarray], required: float):
+            blocks, centre, radius = grouped
+            clear = np.ones(len(blocks), dtype=bool)
+            near = obstacle.signed_distance(centre) - radius < required
+            if near.any():
+                blocked = obstacle.signed_distance(blocks[near]).min(axis=1) < required
+                clear[np.nonzero(near)[0][blocked]] = False
+            return clear
+
+        held = [(name, blocks_of(stacked[name][:, 2:])) for name, *_rest in CAPSULES if stacked[name].shape[1] > 2]
+        contact = [
+            (name, blocks_of(stacked[contact_key(name)])) for name, *_rest in CAPSULES if contact_key(name) in stacked
+        ]
+        others = [blocks_of(stacked[part]) for part in CHECKED_PARTS[len(CAPSULES) :]]
+        for obstacle in self.body.obstacles:
+            for name, *_rest, radius in CAPSULES:
+                ends = stacked[name]
+                ok &= capsule_signed_distance(obstacle, ends[:, 0], ends[:, 1], radius) >= margin
+            for _name, grouped in held:
+                ok &= points_clear(obstacle, grouped, margin)
+            for _name, grouped in contact:
+                ok &= points_clear(obstacle, grouped, contact_margin)
+            for grouped in others:
+                ok &= points_clear(obstacle, grouped, margin)
+        return ok
 
     def pose(self, joints: dict[str, float]) -> PoseClearance:
         """Clearance of one configuration to every obstacle (computed even when the check is disabled).

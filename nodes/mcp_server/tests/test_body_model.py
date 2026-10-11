@@ -160,7 +160,7 @@ def test_hard_margin_below_soft_margin() -> None:
     assert (settings.enabled, settings.soft_margin_m, settings.hard_margin_m, settings.slow_speed_scale) == (
         True,
         0.03,
-        0.01,
+        0.002,
         0.3,
     )
 

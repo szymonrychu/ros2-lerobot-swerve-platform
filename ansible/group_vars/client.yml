@@ -1394,7 +1394,7 @@ ros2_nodes:
       body_check:
         enabled: true
         soft_margin_m: 0.03
-        hard_margin_m: 0.01
+        hard_margin_m: 0.002
         slow_speed_scale: 0.3
         reach_heading_step_deg: 15
         reach_height_max_m: 0.35

@@ -472,14 +472,16 @@ The 74 mm was the dome's diameter, and the centre (0.150 forward, 0.040 left of 
 | | Feasible | Lifted | Arm contacts (floor/support) | Body contacts |
 |---|---|---|---|---|
 | Measured body, dome r 74 mm at (0.158, 0.06) (above) | 32 | 32 | 0 | 0 (every executed plan) |
-| Measured body, dome r 37 mm at (0.150, 0.040) (now) | 70 | 70 | 0 | 0 in 0 plans |
+| Measured body, dome r 37 mm at (0.150, 0.040), hard margin 10 mm | 70 | 70 | 0 | 0 in 0 plans |
+| Same, hard margin 2 mm and 2.5 mm box points (now) | 83 | 81 | 0 | 0 in 0 plans |
 
-Per strategy now (lifted / feasible of 48): top_down 11/11, angled45 24/24, scoop_gap 6/6, auto 29/29, scoop 0/0.
-Tip-over set (`--tipover`): top_down and auto of the 2026-10-10 jar plan and lift (err0 and err3: 4 of 6 plans, 0 body
+Per strategy now (lifted / feasible of 48): top_down 15/15, angled45 26/27, scoop_gap 6/6, auto 34/35, scoop 0/0; the two
+not lifted are the known 6x6x3 low-ledge slips. 13 more plans are feasible than at the 10 mm margin.
+Tip-over set (`--tipover`, unchanged by the 2 mm margin): top_down and auto of the 2026-10-10 jar plan and lift (err0 and err3: 4 of 6 plans, 0 body
 contacts); angled 50 is infeasible (lidar). Golden plans (`tests/data/grasp_golden.json`): the same 6 cases, the two r30
 ledge 0.07 scoop_gap baselines moved (`regenerate_grasp_golden`), see `nodes/mcp_server/README.md`, "Planner". With the
-smaller dome the old arm contact (t4 22 mm inside) is down to 8.3 mm clearance (hard margin 10 mm) and the folded home
-stays clear of the hard margin.
+smaller dome and the 2.5 mm box points, t4 stands 0.3 mm from the dome (hard margin 2 mm), and the folded home stays
+clear of the hard margin.
 
 Tests (`tests/test_body.py`): the client.yml body and mount load, the eight `body_<name>` geoms sit at their arm-frame
 positions and sizes, a scene without a body has none, the gripper pointing into the lidar column touches `body_lidar`

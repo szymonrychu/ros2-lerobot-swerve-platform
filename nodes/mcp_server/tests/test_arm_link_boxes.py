@@ -13,12 +13,12 @@ import numpy as np
 import pytest
 
 from mcp_server.arm_geometry import BOX_POINT_SPACING_M, LINK_COLLISION_BOXES, box_surface_points
-from mcp_server.config import REPO_ROOT, McpServerConfig
+from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
 from mcp_server.floor_guard import JawModel
 from mcp_server.ik import ArmKinematics
 from mcp_server.self_collision import SelfCollisionChecker, joint_line
 
-CONFIG_HARD_MARGIN_M = 0.01
+CONFIG_HARD_MARGIN_M = 0.002
 MJCF = REPO_ROOT / "sim/grasp_sim/assets/so101/so101.xml"
 # MJCF body -> URDF link (the frames coincide: same origins and axes for the same raw joint angles).
 BODY_LINKS = {"upper_arm": "upper_arm_link", "lower_arm": "lower_arm_link", "wrist": "wrist_link"}
@@ -174,3 +174,23 @@ def test_the_upper_arm_boxes_never_slow_a_motion() -> None:
     assert report.scales == [1.0] * len(report.scales)
     assert CHECKER.pose(near).part == "upper arm"
     assert CONFIG.body_check.hard_margin_m < CHECKER.pose(near).min_clearance < CONFIG.body_check.soft_margin_m
+
+
+def test_box_point_spacing_cannot_hide_a_hard_margin_violation() -> None:
+    """Between face points a sharp obstacle edge can come up to spacing / sqrt(2) closer than the points say: that must
+    stay within the default hard margin, or the margin is not a guarantee."""
+    assert BOX_POINT_SPACING_M / math.sqrt(2) <= BodyCheckSettings().hard_margin_m
+
+
+def test_clear_of_equals_the_hard_check_of_the_full_clearances() -> None:
+    """The envelope's pruned check (far part points skipped by a bounding sphere) gives exactly the hard check's
+    verdict (every clearance at least the margin) over random poses, at the default and at a wider margin."""
+    rng = np.random.default_rng(SEED)
+    limits = KIN.limits
+    base = [{j: float(rng.uniform(*limits[j])) for j in KIN.joint_names} for _ in range(100)]
+    near_zero = [{j: float(rng.uniform(-0.5, 0.5)) for j in KIN.joint_names} for _ in range(100)]
+    stacked = CHECKER.stacked_points(base + near_zero)
+    for margin in (CONFIG.body_check.hard_margin_m, 0.02):
+        full = CHECKER.clearances_of(stacked)[0].min(axis=1) >= margin
+        assert np.array_equal(CHECKER.clear_of(stacked, margin), full)
+        assert full.any() and not full.all()

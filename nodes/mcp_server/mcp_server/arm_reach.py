@@ -209,7 +209,7 @@ class ReachEnvelope:
             stacked = checker.stacked_points(samples)
             tips = stacked["tool_point"][:, 0]
             if checker.body.obstacles:
-                clear = checker.clearances_of(stacked)[0].min(axis=1) >= cfg.hard_margin_m
+                clear = checker.clear_of(stacked, cfg.hard_margin_m)
             else:
                 clear = np.ones(len(samples), dtype=bool)
             radius = np.hypot(tips[:, 0] - pan_axis[0], tips[:, 1] - pan_axis[1])

@@ -849,7 +849,7 @@ class BodyCheckSettings(StrictModel):
 
     enabled: bool = True
     soft_margin_m: float = Field(default=0.03, gt=0.0, le=0.2)
-    hard_margin_m: float = Field(default=0.01, ge=0.0, le=0.2)
+    hard_margin_m: float = Field(default=0.002, ge=0.0, le=0.2)
     slow_speed_scale: float = Field(default=0.3, gt=0.0, le=1.0)
     reach_heading_step_deg: float = Field(default=15.0, ge=5.0, le=90.0)
     reach_height_max_m: float = Field(default=0.35, gt=0.0, le=1.0)

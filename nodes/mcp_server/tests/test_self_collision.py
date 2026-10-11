@@ -86,13 +86,13 @@ def test_clear_pose_has_full_clearance() -> None:
 
 
 def test_home_pose_is_clear_of_the_hard_margin_and_in_the_lidar_slow_band() -> None:
-    """The folded home is never rejected, but the wrist link (its sim collision box) stands 1.5 cm from the measured
-    lidar dome (diameter 74 mm, top 210 mm): inside the soft margin, so moves near home run slowed."""
+    """The folded home is never rejected, but its upper arm box (contact-only) and wrist link stand about 2.5 cm from
+    the measured lidar dome (diameter 74 mm, top 210 mm): inside the soft margin, so moves near home run slowed."""
     tip = tool_base_link(KIN, HOME)
     assert tip[2] > 0.15  # FK check: the folded home keeps the tool well above the body
     check = CHECKER.pose(HOME)
     assert CONFIG.body_check.hard_margin_m < check.min_clearance < CONFIG.body_check.soft_margin_m
-    assert (check.obstacle, check.part) == ("lidar", "wrist link")
+    assert (check.obstacle, check.part) == ("lidar", "upper arm")
 
 
 def test_lidar_pose_penetrates_the_lidar() -> None:
@@ -146,10 +146,10 @@ def test_path_into_the_lidar_is_rejected() -> None:
     assert "hint" in reason and reason["hint"]
 
 
-# Tool 12 cm ahead of the dome centre (base_link (0.27, 0.04), pitch 1.0 rad). The dome (radius 37 mm) stands close to
+# Tool 12 cm ahead of the dome centre (base_link (0.27, 0.04), pitch 0.8 rad). The dome (radius 37 mm) stands close to
 # the arm base: straight over it or right beside it the tool is out of reach, so the lowered tool stands ahead of it.
 HOVER_XY = (LIDAR.center_xy[0] + 0.12, LIDAR.center_xy[1])
-HOVER_PITCH = 1.0
+HOVER_PITCH = 0.8
 
 
 def beside_lidar(z: float) -> dict[str, float]:
