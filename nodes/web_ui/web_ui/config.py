@@ -22,6 +22,7 @@ from .gps_anchor import (
     CompassSettings,
     GpsAnchorEstimator,
 )
+from .tilt_guard import TILT_STALE_S_DEFAULT
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/web_ui/config.yaml")
 ENV_CONFIG_PATH_KEY = "WEB_UI_CONFIG"
@@ -342,6 +343,8 @@ class AppConfig(BaseModel):
     overlays: list[OverlayItem] = []
     battery: BatteryConfig | None = None  # absent: battery features off, nothing blocked
     gps_status: GpsStatusConfig | None = None  # absent: no GPS status chips
+    # Nav goals are refused when the cached tilt guard state is older than this many seconds (the guard sends 1 Hz).
+    tilt_guard_stale_s: float = Field(TILT_STALE_S_DEFAULT, gt=0)
 
     def all_subscribed_topics(self) -> list[str]:
         """Return unique ROS2 topics the bridge must subscribe to.

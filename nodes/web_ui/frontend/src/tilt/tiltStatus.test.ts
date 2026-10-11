@@ -31,6 +31,38 @@ describe('tiltStatus', () => {
     expect(s.driveBlocked).toBe(true)
   })
 
+  it('warning + base_drive_inhibited -> driveBlocked with the still-inhibited text', () => {
+    const s = tiltStatus({ ...WARNING, base_drive_inhibited: true })
+    expect(s.level).toBe('warning')
+    expect(s.driveBlocked).toBe(true)
+    expect(s.navBlocked).toBe(true)
+    expect(s.banner?.severity).toBe('warning')
+    expect(s.banner?.text).toBe(
+      'Tilt warning: roll 12.5 / pitch -3.0 deg - base drive still inhibited after the error, wait until the robot is level',
+    )
+    expect(s.navBlockedReason).toBe(s.banner?.text)
+    expect(tiltStatus({ ...WARNING, base_drive_inhibited: false }).driveBlocked).toBe(false)
+  })
+
+  it('error stays driveBlocked whatever base_drive_inhibited says', () => {
+    expect(tiltStatus({ ...ERROR, base_drive_inhibited: false }).driveBlocked).toBe(true)
+  })
+
+  it('stale state: goals blocked with a stale banner, even at ok', () => {
+    const s = tiltStatus({ ...OK, stale: true })
+    expect(s.navBlocked).toBe(true)
+    expect(s.driveBlocked).toBe(false)
+    expect(s.banner).toEqual({ severity: 'warning', text: 'Tilt guard state is stale (no recent update) - navigation disabled until it reports again' })
+    expect(s.navBlockedReason).toBe(s.banner?.text)
+  })
+
+  it('imu_ok false at ok: goals blocked with an IMU banner', () => {
+    const s = tiltStatus({ ...OK, imu_ok: false })
+    expect(s.navBlocked).toBe(true)
+    expect(s.banner?.text).toBe('Tilt guard IMU not OK - navigation disabled until the IMU reports again')
+    expect(tiltStatus({ ...OK, imu_ok: true }).navBlocked).toBe(false)
+  })
+
   it('shows ? for missing angles and ignores unknown levels', () => {
     expect(tiltStatus({ level: 'warning' }).banner?.text).toContain('roll ? / pitch ? deg')
     expect(tiltStatus({ level: 'bogus' } as unknown as TiltPayload).level).toBe('ok')

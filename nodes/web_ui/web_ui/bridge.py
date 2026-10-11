@@ -67,7 +67,7 @@ from .msg_serializer import (
     transform_to_pose_dict,
 )
 from .throttle import WarnThrottle
-from .tilt_guard import TILT_GUARD_STATE_TOPIC, parse_tilt_state
+from .tilt_guard import TILT_GUARD_STATE_TOPIC, TILT_STALE_S_DEFAULT, parse_tilt_state
 
 log = structlog.get_logger(__name__)
 
@@ -212,6 +212,9 @@ def compass_changed(cached: dict[str, Any] | None, new: dict[str, Any]) -> bool:
 class BridgeNode(Node):
     """rclpy node: subscribes to configured topics, stores latest value per topic."""
 
+    # Seconds after which the cached tilt guard state is marked stale (set from the config in __init__).
+    _tilt_stale_s: float = TILT_STALE_S_DEFAULT
+
     def __init__(
         self,
         topics: list[str],
@@ -228,6 +231,7 @@ class BridgeNode(Node):
         poi_command_topic: str | None = None,
         grasp_command_topic: str | None = None,
         gps_compass: CompassSettings | None = None,
+        tilt_stale_s: float = TILT_STALE_S_DEFAULT,
     ) -> None:
         """Initialise BridgeNode.
 
@@ -249,8 +253,10 @@ class BridgeNode(Node):
             poi_command_topic (str | None): std_msgs/String topic POI commands are published on, or None to disable.
             grasp_command_topic (str | None): std_msgs/String topic grasp requests are published on, or None to disable.
             gps_compass (CompassSettings | None): Compass (IMU heading) anchor settings, or None to disable it.
+            tilt_stale_s (float): Age in seconds after which the cached tilt guard state is marked stale.
         """
         super().__init__("web_ui_bridge")
+        self._tilt_stale_s = tilt_stale_s
         self._latest: dict[str, dict[str, Any]] = {}
         self._dirty: set[str] = set()
         self._cleared: set[str] = set()
@@ -424,12 +430,30 @@ class BridgeNode(Node):
             return
         self.store(TILT_GUARD_STATE_TOPIC, data)
 
+    def mark_tilt_stale(self) -> None:
+        """Replace the cached tilt state by a copy with "stale": true once it is older than tilt_stale_s.
+
+        The copy is broadcast like any update; the next real message replaces it (and clears the flag).
+        """
+        with self._lock:
+            envelope = self._latest.get(TILT_GUARD_STATE_TOPIC)
+            if envelope is None or envelope["data"].get("stale"):
+                return
+            if time.monotonic() - self._topic_last_rx[TILT_GUARD_STATE_TOPIC] <= self._tilt_stale_s:
+                return
+            self._latest[TILT_GUARD_STATE_TOPIC] = {
+                "topic": TILT_GUARD_STATE_TOPIC,
+                "data": {**envelope["data"], "stale": True},
+            }
+            self._dirty.add(TILT_GUARD_STATE_TOPIC)
+
     def tilt_state(self) -> dict[str, Any] | None:
-        """Return the latest tilt guard state.
+        """Return the latest tilt guard state, flagged stale when no message arrived for tilt_stale_s.
 
         Returns:
-            dict[str, Any] | None: Parsed state, or None before the first valid message.
+            dict[str, Any] | None: Parsed state (with "stale": true when old), or None before the first valid message.
         """
+        self.mark_tilt_stale()
         with self._lock:
             envelope = self._latest.get(TILT_GUARD_STATE_TOPIC)
         return envelope["data"] if envelope else None
@@ -727,6 +751,21 @@ class BridgeNode(Node):
             self.clear_and_notify(topic)
         self.reset_gps_anchor()
 
+    @staticmethod
+    def call_service(client: Any, request: Any) -> Any:
+        """Send a service request; a cancelled future (caller timed out) is removed from the client's pending table.
+
+        Args:
+            client (Any): rclpy client.
+            request (Any): Request message.
+
+        Returns:
+            Any: rclpy Future of the response.
+        """
+        future = client.call_async(request)
+        future.add_done_callback(lambda fut: client.remove_pending_request(fut) if fut.cancelled() else None)
+        return future
+
     def trigger_async(self, service: str) -> Any:
         """Call a std_srvs/Trigger service (arm home / set home).
 
@@ -740,7 +779,7 @@ class BridgeNode(Node):
         if client is None or not client.service_is_ready():
             return None
         log.info("trigger_requested", service=service)
-        return client.call_async(Trigger.Request())
+        return self.call_service(client, Trigger.Request())
 
     def clear(self, topic: str) -> None:
         """Drop the cached envelope of topic and any pending broadcast of it.
@@ -793,7 +832,7 @@ class BridgeNode(Node):
         request = Reset.Request()
         request.pause_new_measurements = False
         log.info("reset_map_requested", service=service)
-        return client.call_async(request)
+        return self.call_service(client, request)
 
     def cancel_all_goals_async(self, action: str) -> Any:
         """Cancel every goal of a NavigateToPose action server (zero goal id and zero stamp = all goals).
@@ -812,7 +851,7 @@ class BridgeNode(Node):
         request.goal_info.stamp.sec = 0
         request.goal_info.stamp.nanosec = 0
         log.info("cancel_all_goals_requested", action=action)
-        return client.call_async(request)
+        return self.call_service(client, request)
 
     def serialize_map_async(self, filename: str) -> Any:
         """Request slam_toolbox to serialize its pose graph and map to filename.
@@ -829,7 +868,7 @@ class BridgeNode(Node):
         request = SerializePoseGraph.Request()
         request.filename = filename
         log.info("serialize_map_requested", filename=filename)
-        return client.call_async(request)
+        return self.call_service(client, request)
 
     def _check_topic_health(self) -> None:
         now = time.monotonic()
@@ -856,6 +895,7 @@ class BridgeNode(Node):
         Returns:
             list[dict[str, Any]]: Envelopes ready to broadcast.
         """
+        self.mark_tilt_stale()
         with self._lock:
             envelopes = [self._latest[t] for t in self._dirty if t in self._latest]
             envelopes.extend({"topic": t, "data": None} for t in self._cleared)

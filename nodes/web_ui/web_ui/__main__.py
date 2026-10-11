@@ -58,6 +58,7 @@ def main() -> None:
         poi_command_topic=config.poi_command_topic(),
         grasp_command_topic=config.grasp_command_topic(),
         gps_compass=config.gps_compass_settings(),
+        tilt_stale_s=config.tilt_guard_stale_s,
     )
     executor = create_bridge_executor(node)
 

@@ -57,6 +57,29 @@ def test_nav_rejection_message_by_level() -> None:
     assert "base drive disabled until the robot is level" in error
 
 
+def test_nav_rejection_warning_with_base_drive_inhibited() -> None:
+    state = {**WARNING, "base_drive_inhibited": True}
+    message = nav_rejection_message(state)
+    assert message is not None
+    assert "base drive still inhibited" in message
+    assert "wait until the robot is level" in message
+    assert "drive back manually" not in message
+
+
+def test_nav_rejection_when_imu_not_ok_at_ok_level() -> None:
+    message = nav_rejection_message({**OK, "imu_ok": False})
+    assert message is not None
+    assert "IMU" in message
+    assert nav_rejection_message({**OK, "imu_ok": True}) is None
+
+
+def test_nav_rejection_when_state_is_stale() -> None:
+    message = nav_rejection_message({**OK, "stale": True})
+    assert message is not None
+    assert "stale" in message
+    assert nav_rejection_message({**OK, "stale": False}) is None
+
+
 # ----------------------------------------------------------------- bridge
 
 
@@ -101,6 +124,41 @@ def test_bridge_subscribes_reliable_transient_local_and_tracks_staleness() -> No
     assert args[3].reliability is ReliabilityPolicy.RELIABLE
     assert args[3].durability is DurabilityPolicy.TRANSIENT_LOCAL
     assert TILT_GUARD_STATE_TOPIC in node._topic_last_rx
+
+
+def test_bridge_marks_state_stale_after_the_limit_and_broadcasts_it() -> None:
+    node = make_bridge()
+    node._tilt_stale_s = 5.0
+    with patch("web_ui.bridge.time.monotonic", return_value=100.0):
+        node.on_tilt_guard_state(SimpleNamespace(data=json.dumps(OK)))
+        node.flush_dirty()
+        assert "stale" not in node.tilt_state()
+    with patch("web_ui.bridge.time.monotonic", return_value=104.0):
+        assert node.flush_dirty() == []
+    with patch("web_ui.bridge.time.monotonic", return_value=106.0):
+        assert node.tilt_state() == {**OK, "stale": True}
+        assert node.flush_dirty() == [{"topic": TILT_GUARD_STATE_TOPIC, "data": {**OK, "stale": True}}]
+        assert node.flush_dirty() == []
+
+
+def test_bridge_fresh_message_clears_stale() -> None:
+    node = make_bridge()
+    node._tilt_stale_s = 5.0
+    with patch("web_ui.bridge.time.monotonic", return_value=100.0):
+        node.on_tilt_guard_state(SimpleNamespace(data=json.dumps(OK)))
+    with patch("web_ui.bridge.time.monotonic", return_value=110.0):
+        assert node.tilt_state()["stale"] is True
+        node.on_tilt_guard_state(SimpleNamespace(data=json.dumps(OK)))
+        assert node.tilt_state() == OK
+
+
+def test_config_tilt_guard_stale_s_default_and_validation() -> None:
+    from pydantic import ValidationError
+
+    assert AppConfig().tilt_guard_stale_s == 5.0
+    assert AppConfig(tilt_guard_stale_s=3).tilt_guard_stale_s == 3
+    with pytest.raises(ValidationError):
+        AppConfig(tilt_guard_stale_s=0)
 
 
 # ----------------------------------------------------------------- server
@@ -153,3 +211,18 @@ def test_ws_non_goal_publish_allowed_during_error(make_client: Any) -> None:
         ws.send_text(json.dumps(ARM))
         ws.send_text("{}")
     bridge.publish_dict.assert_called_once_with("/arm", {})
+
+
+@pytest.mark.parametrize(
+    "state",
+    [{**OK, "stale": True}, {**OK, "imu_ok": False}],
+    ids=["state older than the limit", "imu_ok false at ok"],
+)
+def test_ws_goal_publish_refused_when_state_stale_or_imu_dead(make_client: Any, state: dict[str, Any]) -> None:
+    client, bridge = make_client(state)
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(json.dumps(GOAL))
+        frame = ws.receive_json()
+    assert frame["source"] == "tilt_guard"
+    assert frame["message"] == nav_rejection_message(state)
+    bridge.publish_dict.assert_not_called()

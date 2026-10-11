@@ -87,6 +87,28 @@ async def test_concurrent_stops_share_one_cancel_call(client_factory: Any) -> No
     bridge.clear_and_notify.assert_called_once_with("/goal")
 
 
+async def test_stop_after_new_goal_issues_new_cancel(client_factory: Any) -> None:
+    """A Stop pressed after the in-flight cancel is older than the coalesce window gets its own cancel_all."""
+    bridge = MagicMock()
+    old = ManualFuture()
+    new = ManualFuture()
+    bridge.cancel_all_goals_async.side_effect = [old, new]
+    with patch("web_ui.server.NAV_STOP_COALESCE_S", 0.1):
+        async with client_factory(bridge) as client:
+            first = asyncio.create_task(client.post("/api/nav/stop?tab=map"))
+            await asyncio.sleep(0.3)
+            second = asyncio.create_task(client.post("/api/nav/stop?tab=map"))
+            await asyncio.sleep(SETTLE_S)
+            assert bridge.cancel_all_goals_async.call_count == 1
+            old.complete(SimpleNamespace(return_code=0, goals_canceling=[]))
+            await asyncio.sleep(SETTLE_S)
+            assert bridge.cancel_all_goals_async.call_count == 2
+            new.complete(SimpleNamespace(return_code=0, goals_canceling=[1]))
+            r1, r2 = await asyncio.gather(first, second)
+    assert "no active goal" in r1.json()["message"]
+    assert "1 goal" in r2.json()["message"]
+
+
 async def test_stop_after_completion_issues_a_new_call(client_factory: Any) -> None:
     bridge = MagicMock()
     bridge.cancel_all_goals_async.side_effect = lambda action: _done(SimpleNamespace(return_code=0, goals_canceling=[]))

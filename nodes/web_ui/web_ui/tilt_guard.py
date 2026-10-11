@@ -5,14 +5,18 @@ from __future__ import annotations
 import json
 from typing import Any
 
-# std_msgs/String JSON {"level": "ok" | "warning" | "error", "roll_deg": float, "pitch_deg": float},
-# published reliable + transient_local at 1 Hz by the tilt guard.
+# std_msgs/String JSON {"level": "ok" | "warning" | "error", "roll_deg": float, "pitch_deg": float,
+# "base_drive_inhibited": bool, "imu_ok": bool}, published reliable + transient_local at 1 Hz by the tilt guard.
+# The bridge adds "stale": true when no state arrived for tilt_guard_stale_s (absent while fresh).
+# The base stays inhibited after an error until the level is back at ok, also while the level reads warning.
 TILT_GUARD_STATE_TOPIC = "/tilt_guard/state"
 LEVEL_OK = "ok"
 LEVEL_WARNING = "warning"
 LEVEL_ERROR = "error"
 LEVELS = frozenset({LEVEL_OK, LEVEL_WARNING, LEVEL_ERROR})
 ANGLE_KEYS = ("roll_deg", "pitch_deg")
+# Default age in seconds after which the cached state is stale (the guard publishes at 1 Hz).
+TILT_STALE_S_DEFAULT = 5.0
 # Source tag of the WebSocket error frame sent when a goal is refused.
 TILT_GUARD_ERROR_SOURCE = "tilt_guard"
 
@@ -44,22 +48,32 @@ def nav_rejection_message(state: dict[str, Any] | None) -> str | None:
     """Return why navigation goals are refused for a tilt state.
 
     Args:
-        state (dict[str, Any] | None): Parsed tilt state, or None when none was received.
+        state (dict[str, Any] | None): Parsed tilt state (with the bridge's "stale" flag), or None when none was
+            received.
 
     Returns:
-        str | None: Refusal text at warning/error level, None when goals are allowed.
+        str | None: Refusal text at warning/error level, with a stale state or a dead IMU, None when goals are allowed.
     """
     if state is None:
         return None
     level = state.get("level")
+    if level == LEVEL_ERROR:
+        return "Tilt error: base drive disabled until the robot is level"
     if level == LEVEL_WARNING:
         roll, pitch = (state.get(key) for key in ANGLE_KEYS)
+        if state.get("base_drive_inhibited") is True:
+            return (
+                f"Tilt warning: roll {_fmt(roll)} / pitch {_fmt(pitch)} deg - "
+                "base drive still inhibited after the error, wait until the robot is level"
+            )
         return (
             f"Tilt warning: roll {_fmt(roll)} / pitch {_fmt(pitch)} deg - "
             "automatic navigation disabled, drive back manually"
         )
-    if level == LEVEL_ERROR:
-        return "Tilt error: base drive disabled until the robot is level"
+    if state.get("stale") is True:
+        return "Tilt guard state is stale (no recent update) - navigation disabled until it reports again"
+    if state.get("imu_ok") is False:
+        return "Tilt guard IMU not OK - navigation disabled until the IMU reports again"
     return None
 
 

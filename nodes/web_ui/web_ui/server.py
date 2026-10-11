@@ -7,6 +7,7 @@ import json
 import os
 import time
 import uuid
+import weakref
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,14 @@ RESET_MAP_TIMEOUT_S = 10.0
 RESET_MAP_RESULT_SUCCESS = 0
 # Seconds to wait for the NavigateToPose cancel_goal response before reporting a timeout (nav2 can be slow under load).
 NAV_STOP_TIMEOUT_S = 10.0
+# A Stop shares an in-flight cancel only when that cancel started at most this many seconds ago; an older one may
+# predate a newly accepted goal, so the Stop waits for it and then sends its own cancel_all.
+NAV_STOP_COALESCE_S = 0.5
+# Minimum seconds between WebSocket accepts from one remote host: each connect replays the whole snapshot, and a
+# client dropped for slowness auto-reconnects at once.
+WS_RECONNECT_MIN_INTERVAL_S = 0.5
+# Remotes remembered by the reconnect limiter before expired entries are pruned.
+WS_RECONNECT_REMOTES_MAX = 256
 # Appended to a nav stop timeout message: the request was sent, so nav2 may still cancel. web_ui itself commands nothing else.
 NAV_STOP_TIMEOUT_NOTE = "the cancel request was sent and may still complete; web_ui did not command the base to zero"
 # action_msgs/srv/CancelGoal.Response return codes.
@@ -158,27 +167,113 @@ def action_response(action: str, ok: bool, message: str, status_code: int) -> JS
     return JSONResponse({"ok": ok, "message": message}, status_code=status_code)
 
 
-async def coalesce(inflight: dict[str, asyncio.Task[Any]], key: str, factory: Callable[[], Awaitable[Any]]) -> Any:
+# Start time (loop clock) of each coalesced task, for the max_age_s check.
+COALESCE_STARTED: weakref.WeakKeyDictionary[asyncio.Task[Any], float] = weakref.WeakKeyDictionary()
+
+
+async def coalesce(
+    inflight: dict[str, asyncio.Task[Any]],
+    key: str,
+    factory: Callable[[], Awaitable[Any]],
+    max_age_s: float | None = None,
+) -> Any:
     """Share one in-flight call between concurrent requests with the same key.
 
     The first caller starts factory() as a task; callers arriving while it is pending await that same task and get
     the same result instead of issuing a new call. A caller that is cancelled (client disconnect) does not cancel
-    the shared task. Once the task is done the key is free again.
+    the shared task. Once the task is done the key is free again. With max_age_s, a pending task started longer ago
+    is not shared: the caller waits for it to finish and then starts (or joins) a fresh call.
 
     Args:
         inflight (dict[str, asyncio.Task[Any]]): Pending tasks by key (one dict per app).
         key (str): What is being called (e.g. "nav_stop:/navigate_to_pose").
-        factory (Callable[[], Awaitable[Any]]): Builds the coroutine that does the call; only used by the first caller.
+        factory (Callable[[], Awaitable[Any]]): Builds the coroutine that does the call; only used when no task is shared.
+        max_age_s (float | None): Oldest in-flight task (seconds since it started) a caller may join, None for any age.
 
     Returns:
         Any: Whatever factory's coroutine returned (or raised).
     """
-    task = inflight.get(key)
-    if task is None:
-        task = asyncio.ensure_future(factory())
-        inflight[key] = task
-        task.add_done_callback(lambda done: inflight.pop(key, None) if inflight.get(key) is done else None)
+    loop = asyncio.get_running_loop()
+    while (task := inflight.get(key)) is not None:
+        if max_age_s is None or loop.time() - COALESCE_STARTED[task] <= max_age_s:
+            return await asyncio.shield(task)
+        try:
+            await asyncio.shield(task)
+        except Exception:  # noqa: BLE001 - the stale call's outcome is not ours; we issue our own
+            pass
+    task = asyncio.ensure_future(factory())
+    COALESCE_STARTED[task] = loop.time()
+    inflight[key] = task
+    task.add_done_callback(lambda done: inflight.pop(key, None) if inflight.get(key) is done else None)
     return await asyncio.shield(task)
+
+
+async def space_reconnects(slots: dict[str, float], remote: str) -> None:
+    """Delay a WebSocket accept so one remote host is accepted at most every WS_RECONNECT_MIN_INTERVAL_S.
+
+    The first connect from a remote (or one after a quiet period) is not delayed.
+
+    Args:
+        slots (dict[str, float]): Remote host -> loop time of its last granted slot (one dict per app).
+        remote (str): Remote host of the connecting client.
+    """
+    now = asyncio.get_running_loop().time()
+    if len(slots) > WS_RECONNECT_REMOTES_MAX:
+        for host in [host for host, slot in slots.items() if slot <= now]:
+            del slots[host]
+    slot = max(now, slots.get(remote, now) + WS_RECONNECT_MIN_INTERVAL_S) if remote in slots else now
+    slots[remote] = slot
+    if slot > now:
+        await asyncio.sleep(slot - now)
+
+
+def serialize_envelope(cache: dict[str, tuple[dict[str, Any], str]], envelope: dict[str, Any]) -> str:
+    """Serialize a bridge envelope once per envelope object (the bridge replaces it on every update).
+
+    Args:
+        cache (dict[str, tuple[dict[str, Any], str]]): Topic -> (envelope it was built from, JSON frame).
+        envelope (dict[str, Any]): {"topic": str, "data": ...}.
+
+    Returns:
+        str: The JSON frame, reused while the same envelope object is still the cached one.
+    """
+    topic = str(envelope["topic"])
+    cached = cache.get(topic)
+    if cached is not None and cached[0] is envelope:
+        return cached[1]
+    frame = json.dumps(envelope)
+    cache[topic] = (envelope, frame)
+    return frame
+
+
+async def broadcast_envelopes(
+    envelopes: list[dict[str, Any]],
+    clients: dict[str, ClientConnection],
+    frame_cache: dict[str, tuple[dict[str, Any], str]],
+    logger: Any,
+) -> None:
+    """Offer each envelope's frame to every client, yielding to the loop between envelopes.
+
+    Serializing a large envelope (the SLAM map) blocks the loop; yielding after each one lets nav stop and /metrics
+    requests run during a burst instead of waiting for the whole cycle.
+
+    Args:
+        envelopes (list[dict[str, Any]]): Updated or cleared envelopes ("data": None means cleared).
+        clients (dict[str, ClientConnection]): Connected clients.
+        frame_cache (dict[str, tuple[dict[str, Any], str]]): Serialized frames shared with the connect snapshot.
+        logger (Any): structlog logger.
+    """
+    for envelope in envelopes:
+        key = str(envelope["topic"])
+        if envelope["data"] is None:
+            frame_cache.pop(key, None)
+            frame = json.dumps(envelope)
+        else:
+            frame = serialize_envelope(frame_cache, envelope)
+        for cid, conn in list(clients.items()):
+            conn.offer(key, frame)
+            logger.debug("ws_msg_offered", client_id=cid, payload_bytes=len(frame))
+        await asyncio.sleep(0)
 
 
 async def call_ros_service(
@@ -263,6 +358,7 @@ def _make_start_broadcaster(
     bridge_node: Any,
     broadcast_interval: float,
     logger: Any,
+    frame_cache: dict[str, tuple[dict[str, Any], str]],
 ) -> Any:
     """Return an async startup handler that spawns a single shared broadcast task.
 
@@ -272,6 +368,7 @@ def _make_start_broadcaster(
         bridge_node: BridgeNode instance (may be None).
         broadcast_interval: Seconds between broadcast ticks.
         logger: structlog logger.
+        frame_cache: Serialized frames by topic, shared with the connect snapshot (see serialize_envelope).
 
     Returns:
         Async callable suitable for use as a startup event handler.
@@ -291,12 +388,7 @@ def _make_start_broadcaster(
                 if not envelopes:
                     continue
                 logger.debug("broadcaster_cycle", dirty_topics=len(envelopes), client_count=len(clients))
-                for envelope in envelopes:
-                    key = str(envelope["topic"])
-                    frame = json.dumps(envelope)
-                    for cid, conn in list(clients.items()):
-                        conn.offer(key, frame)
-                        logger.debug("ws_msg_offered", client_id=cid, payload_bytes=len(frame))
+                await broadcast_envelopes(envelopes, clients, frame_cache, logger)
                 WS_CLIENTS.set(len(clients))
                 now = time.monotonic()
                 work_ms = (now - t0) * 1000
@@ -454,6 +546,10 @@ def build_app(
     app = FastAPI(title="web_ui", docs_url=None, redoc_url=None)
     # Pending coalesced service calls (nav stop, map reset) by key; see coalesce().
     inflight_calls: dict[str, asyncio.Task[Any]] = {}
+    # Serialized WS frame per topic, shared by the broadcaster and the connect snapshot.
+    frame_cache: dict[str, tuple[dict[str, Any], str]] = {}
+    # Reconnect limiter: remote host -> loop time of its last granted accept slot.
+    reconnect_slots: dict[str, float] = {}
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(MetricsMiddleware)
     tile_proxies = make_tile_proxies(config, tile_transport)
@@ -662,7 +758,7 @@ def build_app(
             message = f"stopped: canceling {count} goal(s)" if count else "stopped: no active goal to cancel"
             return action_response("nav_stop", True, message, 200)
 
-        return await coalesce(inflight_calls, f"nav_stop:{action}", run_stop)
+        return await coalesce(inflight_calls, f"nav_stop:{action}", run_stop, max_age_s=NAV_STOP_COALESCE_S)
 
     async def call_arm_trigger(action: str, tab: str, service_attr: str) -> JSONResponse:
         if (blocked := battery_block(action)) is not None:
@@ -779,13 +875,16 @@ def build_app(
         log.info("grasp_stop_result", ok=result.get("ok"))
         return JSONResponse(result, status_code=200 if result.get("ok") else 400)
 
-    app.router.add_event_handler("startup", _make_start_broadcaster(app, clients, bridge_node, broadcast_interval, log))
+    app.router.add_event_handler(
+        "startup", _make_start_broadcaster(app, clients, bridge_node, broadcast_interval, log, frame_cache)
+    )
 
     @app.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket) -> None:
+        remote = ws.client.host if ws.client else "unknown"
+        await space_reconnects(reconnect_slots, remote)
         await ws.accept()
         client_id = str(uuid.uuid4())[:8]
-        remote = ws.client.host if ws.client else "unknown"
 
         def drop_client(_: ClientConnection) -> None:
             clients.pop(client_id, None)
@@ -799,7 +898,7 @@ def build_app(
             # Offering and registering happen without an await, so no broadcast frame is missed and a newer
             # broadcast frame of the same topic replaces its snapshot entry.
             for envelope in bridge_node.latest_envelopes() if bridge_node is not None else []:
-                conn.offer(str(envelope["topic"]), json.dumps(envelope))
+                conn.offer(str(envelope["topic"]), serialize_envelope(frame_cache, envelope))
             clients[client_id] = conn
             WS_CLIENTS.set(len(clients))
             log.info("ws_client_connected", client_id=client_id, remote_addr=remote, total_clients=len(clients))

@@ -1176,6 +1176,8 @@ ros2_nodes:
     config: |
       http_port: 8080
       ws_broadcast_hz: 20
+      # Nav goals are refused when the tilt guard state (1 Hz) is older than this many seconds.
+      tilt_guard_stale_s: 5
       bridge:
         host: localhost
         port: 9090
