@@ -155,6 +155,21 @@ def test_ordered_queue_overflow_drops_the_client() -> None:
     asyncio.run(scenario())
 
 
+def test_ordered_queue_overflow_ends_the_sender_task() -> None:
+    async def scenario() -> None:
+        dead: list[ClientConnection] = []
+        conn = make_conn(FakeWebSocket(stalled=True), dead, max_queued=3, send_timeout_s=30.0)
+        conn.start()
+        conn.enqueue("m0")
+        await asyncio.sleep(0)  # the sender takes m0 in flight and stalls on it
+        for i in range(1, 5):
+            conn.enqueue(f"m{i}")
+        assert dead == [conn]
+        await settle(lambda: conn.sender_task is not None and conn.sender_task.done())
+
+    asyncio.run(scenario())
+
+
 def test_fast_client_keeps_receiving_while_other_is_stalled() -> None:
     async def scenario() -> None:
         fast, slow = FakeWebSocket(), FakeWebSocket(stalled=True)

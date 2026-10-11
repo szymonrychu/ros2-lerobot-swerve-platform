@@ -158,6 +158,9 @@ class ClientConnection:
         self.closed = True
         self.mailbox.clear()
         self.ordered.clear()
+        task = self.sender_task
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()  # ends the session: websocket_endpoint waits on the sender task
         if slow:
             WS_CLIENTS_DROPPED_SLOW.inc()
             log.warning("ws_client_dropped_slow", reason=reason)
