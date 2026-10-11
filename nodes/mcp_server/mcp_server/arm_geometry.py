@@ -88,7 +88,7 @@ class LinkBox:
 # lower_arm and wrist bodies are the URDF links' frames), in MJCF order. The body check covers them in addition to the
 # link capsules: the boxes sit off the line between the link origins (the forearm box reaches 4.8 cm from it), where
 # the 2 cm capsules alone let plans through that the sim arm ran into the lidar dome. The upper arm boxes are
-# contact-only: with the measured lidar dome at the assumed laser_frame position their shoulder end stands 7 mm from
+# contact-only: with the first dome model (radius 74 mm at the laser_frame position) their shoulder end stood 7 mm from
 # the dome at the folded home pose and the slab passes 2..7 mm over the dome top edge at most forward reaches, so held
 # to the margins they would reject home and slow nearly every motion; the sim upper arm touched the dome only in the
 # low stair reaches, which the contact check rejects.

@@ -33,7 +33,7 @@ FLOOR = CONFIG.arm.floor_z_m
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 PARAMS = grasp_params(CONFIG.grasp, None)
 # Floor objects for top-down grasps stand 24..30 cm in front of the arm (arm frame x): closer, the 5 cm retreat brings
-# the gripper body into the measured lidar dome (radius 74 mm, base_link x up to 0.232); tests use 26 cm. Angled
+# the gripper body into the measured lidar dome (diameter 74 mm, base_link x up to 0.232); tests use 26 cm. Angled
 # grasps on the arm's centre line need more room: the retreat backs the forearm into the dome below arm x 0.34 at
 # 45 deg and below 0.30 at 60 deg, so angled tests use 36 cm (45 deg) and 32 cm (60 deg).
 
@@ -397,8 +397,7 @@ def test_scoop_keeps_the_tool_point_target_without_a_shift() -> None:
 def test_tall_jar_opens_wide_enough_for_the_tilted_moving_jaw_to_clear_its_top_edge() -> None:
     """2026-10-10 jar (39 mm, 6 cm tall) gripped low: it reaches 4.2 cm into the jaws, where the open moving jaw stands
     1.6 cm closer than at its tip. Opening for the tips alone, the moving jaw mesh touched the jar top in the sim."""
-    # The 2026-10-10 position (0.2568, 0.05) is rejected by the measured lidar dome (see the next test): 2.3 cm further.
-    jar = ObjectSpec(frame="arm", x=0.28, y=0.05, support_z=FLOOR, width_m=0.039, depth_m=0.039, height_m=0.06)
+    jar = ObjectSpec(frame="arm", x=0.2568, y=0.05, support_z=FLOOR, width_m=0.039, depth_m=0.039, height_m=0.06)
     p = plan(jar, "top_down")
     assert p.feasible, p.reasons
     shift = p.grasp_shift
@@ -413,13 +412,11 @@ def test_tall_jar_opens_wide_enough_for_the_tilted_moving_jaw_to_clear_its_top_e
     assert JAW.inner_gap(p.open_gripper_rad, depth) == pytest.approx(p.opening_m, abs=2e-4)
 
 
-def test_the_2026_10_10_jar_position_retreats_into_the_measured_lidar_dome() -> None:
-    """At (0.2568, 0.05) the top-down retreat (5 cm back toward the pan axis) brings the gripper body inside the body
-    hard margin of the lidar: rejected with the obstacle and the waypoint named."""
+def test_the_2026_10_10_jar_position_clears_the_measured_lidar_dome() -> None:
+    """At (0.2568, 0.05) the top-down plan (retreat 5 cm back toward the pan axis) stays clear of the lidar dome."""
     jar = ObjectSpec(frame="arm", x=0.2568, y=0.05, support_z=FLOOR, width_m=0.039, depth_m=0.039, height_m=0.06)
     p = plan(jar, "top_down")
-    assert not p.feasible
-    assert any("body_collision:lidar: retreat" in r for r in p.reasons), p.reasons
+    assert p.feasible, p.reasons
 
 
 def test_an_object_too_deep_for_the_moving_jaw_to_clear_is_a_reason() -> None:

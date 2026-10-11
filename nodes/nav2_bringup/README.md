@@ -47,15 +47,14 @@ collision_monitor -> `/cmd_vel` (unstamped Twist) -> swerve_drive_controller.
 The costmaps use the robot's real outline from above, an H: the two side frames (x +-0.2125, y +-0.1158..0.1508,
 35 mm wide, measured 2026-10-10), the crossbar (x -0.15..0.10, y +-0.1158, up to the frames' inner faces), the four
 steering wheel envelopes (circles r 0.0625 m around the steer axes at (+-0.1525, +-0.1333): the 120 x 35 mm wheel turns
-so it can point anywhere and sweeps the circle of its half-diagonal) and the lidar dome (measured r 0.074 m, at the
-assumed `laser_frame` position (0.158, 0.06); it overlaps the crossbar and sticks out 2 cm ahead of the frames, to
-x 0.232). Their union is one counter-clockwise, simple (no self-intersection), non-convex polygon of 60 vertices,
-447 x 392 mm overall, with a front notch (between the front wheels, ahead of the crossbar, right of the lidar) and a
+so it can point anywhere and sweeps the circle of its half-diagonal) and the lidar dome (measured diameter 74 mm, r 0.037 m, centred at (0.150, 0.040); it stands in front of the crossbar, 13 mm
+clear of it, and its front x 0.187 is behind the frames' front x 0.2125; the `laser_frame` TF at (0.158, 0.06) is the
+calibrated scan origin and is not the dome position). Their union is one counter-clockwise, simple (no self-intersection), non-convex polygon of 67 vertices,
+430 x 392 mm overall, with a front notch (between the front wheels, ahead of the crossbar; the lidar dome stands in it) and a
 rear notch (between the rear wheels, behind the crossbar). `footprint_padding` is 0: every wheel and lidar circle is
 approximated by a 16-gon that circumscribes it (1.2 mm overshoot for 6 cm), so the outline never cuts into the real
 envelope. Gaps narrower than 2 x `close_gap_m` (2 cm) between parts are filled: no obstacle fits there and they would
-only add vertices (with the assumed body this closed a 13 mm slit between the lidar and the crossbar; the measured dome
-overlaps the crossbar). The old footprint was a 370 x 286 mm rectangle, smaller than the wheel envelope.
+only add vertices (this closes the 13 mm slit between the lidar dome and the crossbar). The old footprint was a 370 x 286 mm rectangle, smaller than the wheel envelope.
 
 Non-convex footprints in Nav2 Jazzy (checked in the navigation2 1.3.13 sources and a Docker run, see
 [Validation](#validation-in-docker)):
@@ -89,7 +88,7 @@ markers; `tests/test_nav_footprint.py` fails while the committed files differ fr
 ## Penalty zone (inflation)
 
 The penalty zone around obstacles is as small as the footprint-aware checks allow. `inflation_radius` is the
-circumscribed radius rounded up to a cell (0.266 -> 0.275 m, the lidar dome's front edge): MPPI and Smac only check the full footprint where the
+circumscribed radius rounded up to a cell (0.266 -> 0.275 m, the far edge of the front wheel envelope): MPPI and Smac only check the full footprint where the
 centre cost reaches the cost at the circumscribed radius, so inflation must reach it (they log an error otherwise).
 `cost_scaling_factor` 25 (was 10) makes the cost fall from 252 at the 0.10 m inscribed radius to 1/4 of it 6 cm out and
 to 4 at the circumscribed radius. It must stay >= 1 there, which caps the factor at ln(252) / (0.266 - 0.100) = 33 for

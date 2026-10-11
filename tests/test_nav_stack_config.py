@@ -672,10 +672,11 @@ def stopbox_polygon(vx: float, vy: float, wz: float) -> list[list[float]]:
 
 # A return 1.5 cm outside the H footprint (0.5 cm outside the laser_filter self polygon, so it survives /scan_filtered):
 # ahead of the front-right wheel (envelope front x 0.1525 + 0.0625), behind the rear-left wheel and beside the side
-# frames (outer face y 0.1333 + 0.0175); and ahead of the lidar dome, the frontmost part (x 0.158 + 0.074).
+# frames (outer face y 0.1333 + 0.0175); and ahead of the lidar dome in the front notch
+# (dome front x 0.150 + 0.037, behind the frames).
 BAND_POINTS = {
     "front": (0.23, -0.1333),
-    "front_lidar": (0.247, 0.06),
+    "front_lidar": (0.202, 0.04),
     "back": (-0.23, 0.1333),
     "left": (0.0, 0.1658),
     "right": (0.0, -0.1658),

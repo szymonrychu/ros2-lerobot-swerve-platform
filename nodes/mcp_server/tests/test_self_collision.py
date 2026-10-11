@@ -32,8 +32,6 @@ HOME = {
 TOUCHES = json.loads((REPO_ROOT / "docs/calibration/2026-10-10/session/touches.json").read_text())["touches"]
 LIDAR = CHECKER.body.by_name("lidar")
 WHEEL_FR = CHECKER.body.by_name("wheel_fr")
-# Touch-downs the measured lidar dome rejects (test_measured_ground_touches_in_front_are_clear).
-LIDAR_REJECTED_TOUCHES = {"t2", "t4"}
 
 
 def deployed_config() -> McpServerConfig:
@@ -89,7 +87,7 @@ def test_clear_pose_has_full_clearance() -> None:
 
 def test_home_pose_is_clear_of_the_hard_margin_and_in_the_lidar_slow_band() -> None:
     """The folded home is never rejected, but the wrist link (its sim collision box) stands 1.5 cm from the measured
-    lidar dome (radius 74 mm, top 210 mm): inside the soft margin, so moves near home run slowed."""
+    lidar dome (diameter 74 mm, top 210 mm): inside the soft margin, so moves near home run slowed."""
     tip = tool_base_link(KIN, HOME)
     assert tip[2] > 0.15  # FK check: the folded home keeps the tool well above the body
     check = CHECKER.pose(HOME)
@@ -114,12 +112,8 @@ def test_low_over_front_wheel_hits_the_wheel() -> None:
 
 @pytest.mark.parametrize("touch", [t["name"] for t in TOUCHES])
 def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
-    """The 2026-10-10 tip touch-downs (deployed offsets) are in front of the robot on the floor: never rejected, except
-    t2 and t4 (front-left): with the measured lidar dome the forearm (its sim collision box face points) comes within
-    a few mm of the dome at t2 and dips 22 mm into it at t4. The arm reached both on the robot without touching the
-    lidar, so the dome model (a full-radius cylinder up to the top face, at the assumed laser_frame position
-    (0.158, 0.06)) is that much conservative there: the lidar position or radius needs re-measuring. The bound pins
-    the penetration below 3 cm so a regression that grows it further still fails."""
+    """The 2026-10-10 tip touch-downs (deployed offsets) are in front of the robot on the floor and the arm reached
+    them on the robot without touching the lidar: never rejected (clear of the body hard margin)."""
     cfg = deployed_config()
     kin = ArmKinematics(
         cfg.arm.urdf_path,
@@ -136,11 +130,7 @@ def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
     tip = tool_base_link(kin, joints)
     assert tip[0] > 0.2 and abs(tip[2]) < 0.03  # FK check: in front of the robot, at the floor
     check = checker.pose(joints)
-    if touch in LIDAR_REJECTED_TOUCHES:
-        assert check.obstacle == "lidar" and check.part in ("upper arm", "forearm")
-        assert -0.03 < check.min_clearance < cfg.body_check.hard_margin_m
-    else:
-        assert check.min_clearance > cfg.body_check.hard_margin_m
+    assert check.min_clearance > cfg.body_check.hard_margin_m
 
 
 def test_path_into_the_lidar_is_rejected() -> None:
@@ -156,10 +146,10 @@ def test_path_into_the_lidar_is_rejected() -> None:
     assert "hint" in reason and reason["hint"]
 
 
-# Tool beside the dome's front-right edge (base_link (0.258, -0.02), pitch 1.3 rad). Straight over the dome the arm
-# cannot reach down far enough, and toward the dome's centre heading the gripper body is already inside its margin.
-HOVER_XY = (LIDAR.center_xy[0] + 0.10, LIDAR.center_xy[1] - 0.08)
-HOVER_PITCH = 1.3
+# Tool 12 cm ahead of the dome centre (base_link (0.27, 0.04), pitch 1.0 rad). The dome (radius 37 mm) stands close to
+# the arm base: straight over it or right beside it the tool is out of reach, so the lowered tool stands ahead of it.
+HOVER_XY = (LIDAR.center_xy[0] + 0.12, LIDAR.center_xy[1])
+HOVER_PITCH = 1.0
 
 
 def beside_lidar(z: float) -> dict[str, float]:
@@ -185,7 +175,7 @@ def inside_lidar_margin() -> dict[str, float]:
     under the dome top until the gripper body is inside the hard margin of the lidar."""
     z = LIDAR.z_max - 0.03
     while z > LIDAR.z_max - 0.08:
-        joints = solve_base_link(LIDAR.center_xy[0] + 0.08, LIDAR.center_xy[1] - 0.06, z, math.pi / 2)
+        joints = solve_base_link(LIDAR.center_xy[0] + 0.06, LIDAR.center_xy[1] - 0.02, z, math.pi / 2)
         if CHECKER.pose(joints).per_obstacle["lidar"][0] < CONFIG.body_check.hard_margin_m:
             return joints
         z -= 0.002
@@ -237,17 +227,21 @@ def test_escaping_from_a_colliding_start_is_allowed() -> None:
     assert report.scales[-1] == 1.0
 
 
+def deep_lidar_pose() -> dict[str, float]:
+    """Gripper pointing down at the dome centre, tool point 8 cm under the dome top: the closest link is 32 mm inside."""
+    return solve_base_link(LIDAR.center_xy[0], LIDAR.center_xy[1], LIDAR.z_max - 0.08, math.pi / 2)
+
+
 def test_escaping_the_way_it_came_in_from_deep_inside_is_rejected() -> None:
     """Deep in the dome the straight joint line to the clear pose first drives the gripper body deeper (more than the
     escape tolerance): rejected; the hint says to raise the arm first."""
-    report = CHECKER.path(joint_line(lidar_pose(), clear_pose(), 0.02))
+    report = CHECKER.path(joint_line(deep_lidar_pose(), clear_pose(), 0.02))
     assert report.rejected
     assert report.rejection()["obstacle"] == "lidar"
 
 
 def test_going_deeper_from_a_colliding_start_is_rejected() -> None:
-    deeper = solve_base_link(LIDAR.center_xy[0], LIDAR.center_xy[1], LIDAR.z_max - 0.07, math.pi / 2)
-    report = CHECKER.path(joint_line(lidar_pose(), deeper, 0.02))
+    report = CHECKER.path(joint_line(deep_lidar_pose(), lidar_pose(), 0.02))
     assert report.rejected
 
 

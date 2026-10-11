@@ -33,14 +33,22 @@ CHECKER = SelfCollisionChecker.from_config(
 )
 SURFACE_STEPS = 6  # samples per box edge (corners included)
 POSES = 300
-# Raw joints of the 6x6x3 stair (25 cm, top_down) plan of the 2026-10-10 matrix whose sim upper arm box dipped 4.7 mm
-# into the measured lidar dome (body_lidar vs upper_arm in grasp_sim) while the planner saw 12 mm.
+# Raw joints with the shoulder panned 0.5 rad toward the dome and the upper arm raised and tipped back (shoulder_lift
+# 1.5): its sim upper arm box edge comes 9 mm from the measured dome (radius 37 mm), inside the hard margin.
 UPPER_ARM_IN_DOME = {
-    "shoulder_pan": -0.1351,
-    "shoulder_lift": 1.5986,
-    "elbow_flex": -0.573,
-    "wrist_flex": 0.5451,
-    "wrist_roll": -1.5646,
+    "shoulder_pan": -0.5,
+    "shoulder_lift": 1.5,
+    "elbow_flex": 0.0,
+    "wrist_flex": 0.0,
+    "wrist_roll": 0.0,
+}
+# The upper arm box 23 mm from the dome edge (inside the soft margin by its distance, but contact-only): no slowdown.
+UPPER_ARM_NEAR_DOME = {
+    "shoulder_pan": -0.4,
+    "shoulder_lift": -0.6,
+    "elbow_flex": 0.0,
+    "wrist_flex": 0.0,
+    "wrist_roll": 0.0,
 }
 # Home pose of the 2026-10-10 calibration (raw joints here: tests/test_self_collision.py HOME).
 HOME = {
@@ -145,9 +153,7 @@ def test_body_clearance_never_exceeds_the_clearance_of_the_sim_link_boxes() -> N
 
 
 def test_an_upper_arm_box_in_the_lidar_dome_is_rejected() -> None:
-    """The matrix pose whose sim upper arm box dipped into the dome is below the hard margin (rejected)."""
-    tool = KIN.forward(UPPER_ARM_IN_DOME)
-    assert tool.x > 0.2 and tool.z < -0.1  # FK check: reaching forward and down past the stair edge (arm frame)
+    """A pose whose sim upper arm box edge comes within the hard margin of the dome is rejected."""
     check = CHECKER.pose(UPPER_ARM_IN_DOME)
     assert check.obstacle == "lidar" and check.part == "upper arm"
     assert check.min_clearance < CONFIG.body_check.hard_margin_m
@@ -160,11 +166,11 @@ def test_home_stays_clear_of_the_hard_margin_with_the_upper_arm_boxes() -> None:
 
 
 def test_the_upper_arm_boxes_never_slow_a_motion() -> None:
-    """The stretched zero pose holds its upper arm box 7 mm over the dome top edge: no slowdown from it (contact
-    only); the hard check still sees it (the effective clearance is the box distance plus the hard margin)."""
-    zero = dict.fromkeys(KIN.joint_names, 0.0)
-    report = CHECKER.path(joint_line(zero, zero | {"elbow_flex": 0.3}, 0.05))
+    """With the upper arm box 23 mm from the dome edge there is no slowdown from it (contact only); the hard check
+    still sees it (the effective clearance is the box distance plus the hard margin)."""
+    near = UPPER_ARM_NEAR_DOME
+    report = CHECKER.path(joint_line(near, near | {"elbow_flex": 0.3}, 0.05))
     assert not report.rejected
     assert report.scales == [1.0] * len(report.scales)
-    assert CHECKER.pose(zero).part == "upper arm"
-    assert CHECKER.pose(zero).min_clearance < CONFIG.body_check.soft_margin_m
+    assert CHECKER.pose(near).part == "upper arm"
+    assert CONFIG.body_check.hard_margin_m < CHECKER.pose(near).min_clearance < CONFIG.body_check.soft_margin_m

@@ -108,7 +108,7 @@ def test_default_body_is_the_h_shape() -> None:
     ]
     lidar = body.by_name("lidar")
     assert isinstance(lidar, CylinderObstacle)
-    assert lidar.center_xy == (0.158, 0.06) and lidar.z_max == pytest.approx(0.21) and lidar.radius == 0.074
+    assert lidar.center_xy == (0.150, 0.040) and lidar.z_max == pytest.approx(0.21) and lidar.radius == 0.037
     crossbar = body.by_name("crossbar")
     assert isinstance(crossbar, BoxObstacle)
     assert crossbar.lo == pytest.approx([-0.15, -0.1158, 0.06]) and crossbar.hi == pytest.approx([0.10, 0.1158, 0.10])
@@ -124,8 +124,8 @@ def test_describe_lists_dimensions() -> None:
     assert lidar == {
         "name": "lidar",
         "shape": "vertical_cylinder",
-        "center_xy_m": [0.158, 0.06],
-        "radius_m": 0.074,
+        "center_xy_m": [0.150, 0.040],
+        "radius_m": 0.037,
         "z_min_m": 0.1,
         "z_max_m": 0.21,
     }

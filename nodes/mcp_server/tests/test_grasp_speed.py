@@ -44,7 +44,7 @@ SCOOP_GAP = {
     "bottom": -0.13,
 }  # raised 2 cm: the scoop is eligible (straight-ahead scoops now meet the front-right wheel)
 # The same raised box 4 cm further out for the angled 45 deg reach-edge plan: at x 0.30 its retreat brings the forearm
-# within the hard margin of the measured lidar dome (radius 74 mm), at 0.32 the pre-grasp does.
+# within the hard margin of the measured lidar dome (diameter 74 mm), at 0.32 the pre-grasp does.
 ANGLED_EDGE = SCOOP_GAP | {"x": 0.34}
 SKIP_TIMING = os.environ.get("GRASP_SPEED_SKIP") == "1"
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}

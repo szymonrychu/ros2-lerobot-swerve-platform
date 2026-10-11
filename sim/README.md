@@ -433,9 +433,9 @@ values below replace them. Golden plans (`tests/data/grasp_golden.json`) were re
 
 #### Measured body (2026-10-10)
 
-The user measured the lidar dome (radius 74 mm, top 210 mm), the wheels and the side bars (35 mm wide, bar top about
+The user measured the lidar dome (diameter 74 mm, top 210 mm, centre (0.150, 0.040)), the wheels and the side bars (35 mm wide, bar top about
 180 mm); client.yml carries them (the wheel steering circle 0.0625, side bars 35 mm wide z 0.12 .. 0.18, the crossbar
-up to their inner faces, lidar r 0.074 z 0.10 .. 0.21 at the assumed (0.158, 0.06)). The first replay with these
+up to their inner faces, lidar r 0.074 z 0.10 .. 0.21 at the assumed (0.158, 0.06); the 74 mm was the diameter, see "Measured dome" below). The first replay with these
 numbers showed the planner's link model was thinner than the sim arm: 17 executed plans with arm-body contacts (the
 sim `lower_arm` and `wrist` collision boxes reach up to 4.8 cm off the 2 cm link capsules) and, after the planner
 took those boxes in, 10 stair plans whose sim `upper_arm` box touched the dome top (planner >= 12 mm). The body check
@@ -464,9 +464,22 @@ all 6 jar plans infeasible (lidar: the top_down retreat, the angled 50 forearm a
 replayed. Golden plans: 5 of the 6 remaining cases dropped (body collisions with the dome), 5 current-matrix cases
 added (`nodes/mcp_server/README.md`, "Planner").
 
-The measured dome at the assumed lidar position also lies 22 mm into touch-down t4 (and close to t2) that the arm
-reached on the robot, and 7 mm from the upper arm at home: the lidar position (or its radius at arm height) needs
-re-measuring; the matrix numbers will move with it.
+#### Measured dome (diameter 74 mm, radius 37 mm, centre (0.150, 0.040))
+
+The 74 mm was the dome's diameter, and the centre (0.150 forward, 0.040 left of base_link) differs from the
+`laser_frame` TF the assumed body used. Re-run with `plan_matrix.py` then `grasp-sim matrix` (240 scenarios):
+
+| | Feasible | Lifted | Arm contacts (floor/support) | Body contacts |
+|---|---|---|---|---|
+| Measured body, dome r 74 mm at (0.158, 0.06) (above) | 32 | 32 | 0 | 0 (every executed plan) |
+| Measured body, dome r 37 mm at (0.150, 0.040) (now) | 70 | 70 | 0 | 0 in 0 plans |
+
+Per strategy now (lifted / feasible of 48): top_down 11/11, angled45 24/24, scoop_gap 6/6, auto 29/29, scoop 0/0.
+Tip-over set (`--tipover`): top_down and auto of the 2026-10-10 jar plan and lift (err0 and err3: 4 of 6 plans, 0 body
+contacts); angled 50 is infeasible (lidar). Golden plans (`tests/data/grasp_golden.json`): the same 6 cases, the two r30
+ledge 0.07 scoop_gap baselines moved (`regenerate_grasp_golden`), see `nodes/mcp_server/README.md`, "Planner". With the
+smaller dome the old arm contact (t4 22 mm inside) is down to 8.3 mm clearance (hard margin 10 mm) and the folded home
+stays clear of the hard margin.
 
 Tests (`tests/test_body.py`): the client.yml body and mount load, the eight `body_<name>` geoms sit at their arm-frame
 positions and sizes, a scene without a body has none, the gripper pointing into the lidar column touches `body_lidar`

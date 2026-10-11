@@ -451,21 +451,20 @@ The arm can hit its own robot. Seen from above the robot is an H, and those are 
 | `wheel_fl`, `wheel_fr`, `wheel_rl`, `wheel_rr` | vertical cylinder around the steer axis (the wheels steer, so the whole steering circle counts: the half-diagonal of the 120 x 35 mm wheel) | axes (+-0.1525, +-0.1333), radius 0.0625, z 0 .. 0.12 |
 | `frame_left`, `frame_right` | box along x over both wheels of a side (the H strokes joining front and rear wheel, carrying the steering servos) | x -0.2125 .. 0.2125, y centred +-0.1333, width 0.035, z 0.12 .. 0.18 |
 | `crossbar` | box between the strokes up to their inner faces (the H bar, carries the arm base and the lidar) | x -0.15 .. 0.10, y -0.1158 .. 0.1158, z 0.06 .. 0.10 |
-| `lidar` | vertical cylinder from the crossbar top to the RPLidar A1 dome top | axis (0.158, 0.06), radius 0.074, z 0.10 .. 0.21 |
+| `lidar` | vertical cylinder from the crossbar top to the RPLidar A1 dome top | axis (0.150, 0.040), radius 0.037, z 0.10 .. 0.21 |
 
-Measured (2026-10-10, by the user): the lidar dome radius 74 mm and its top face 210 mm above the floor; the wheels
+Measured (2026-10-10, by the user): the lidar dome diameter 74 mm (radius 37 mm), centred 0.150 m ahead of and 0.040 m left of base_link, and its top face 210 mm above the floor; the wheels
 35 mm wide (with the 0.06 m wheel radius their steering circle is 0.0625); the side bars joining front and rear wheels
 35 mm wide, their top face about 180 mm above the floor. Still ASSUMED: the steer axes (`swerve_controller`
 half_length_m / half_width_m), the wheel radius and top (0.12), the side bar bottom (0.12) and length, the crossbar
-extent and height, the lidar position (the `laser_frame` TF) and its column bottom (0.10). The numbers live in
+extent and height, the lidar column bottom (0.10); the dome centre is measured and is independent of the `laser_frame` TF (0.158, 0.06), which is the calibrated scan origin. The numbers live in
 `ansible/group_vars/client.yml` (`body:` in the mcp_server config, pydantic `BodySettings`: positive sizes, cylinder
 z_max above z_min, unique names); `scripts/gen_nav_footprint.py` derives the Nav2 footprint from the same block.
 
-Open question (needs a measurement): with the sim arm collision boxes, the measured dome at the assumed lidar position
-is deeper in the arm's workspace than the real robot shows. The 2026-10-10 floor touch-downs t2 and t4 (front-left),
-which the arm physically reached, come out 22 mm (t4) and a few mm (t2) inside the dome, and the folded home pose
-stands 15 mm from it (the upper arm 7 mm). The lidar x / y (or the radius at the arm's height: 74 mm may be the base
-plate, not the head) is probably off; re-measure the dome centre from base_link and correct `lidar` in client.yml.
+The dome first entered the model with radius 74 mm (that was its diameter) at the `laser_frame` position, which put it
+22 mm into touch-down t4 that the arm reached on the robot. With the measured centre and radius 37 mm t2 is clear and
+t4 stands 8.3 mm from the dome (hard margin 10 mm, `test_measured_ground_touches_in_front_are_clear[t4]` still fails
+by 1.7 mm); the folded home is clear of the hard margin.
 
 How to measure and correct each number (tape, robot on a flat floor, base_link = centre between the four steer axes on
 the floor; x forward, y left):
@@ -477,7 +476,7 @@ the floor; x forward, y left):
   y and height (bottom of the frame to the top of the servo housings); `center` z = (bottom + top) / 2.
 - Crossbar: the deck between the side frames: front and back edge, its width (inner edge to inner edge of the side
   frames), its bottom and top heights.
-- Lidar: `x`, `y` = the centre of the dome; `radius` = half the widest diameter (dome or base, whichever is wider);
+- Lidar: `x`, `y` = the centre of the dome; `radius` = half the widest diameter (dome or base, whichever is wider; the measured 74 mm is the diameter);
   `z_min` = where it stands (crossbar top), `z_max` = the top of the dome.
 
 Checked arm parts (one FK pass per joint sample, the arm mount `arm.base_in_base_link` converts to base_link): the upper
@@ -488,7 +487,7 @@ of `sim/grasp_sim/assets/so101/so101.xml` on 1 cm grids, at most 7 mm apart; the
 capsule axis, where the sim arm hit the lidar dome while the capsules alone saw 18 mm), the gripper body / fixed jaw
 hull points and the jaw tip, tool point and moving jaw tip. The two upper arm boxes are contact-only: the hard check
 counts their distance plus `hard_margin_m` (it rejects exactly their contact) and the slow band leaves them out. Held
-to the margins they would reject the folded home (7 mm from the measured dome) and slow nearly every forward motion
+to the margins they would reject the folded home (measured dome r 37 mm) and slow nearly every forward motion
 (the slab passes 2 .. 7 mm over the dome top edge); in the plan matrix they touched the dome only in the low stair
 reaches, which the contact check rejects. `tests/test_arm_link_boxes.py` pins the boxes to the MJCF and bounds the
 checker's clearance by the sim boxes' over random poses. The arm base and the shoulder link stand on the crossbar and
@@ -634,7 +633,7 @@ heading has to be iterated) of them, so the planner avoids them where the result
 
 Feasible plans keep their feasibility and strategy: `tests/test_grasp_speed.py` compares 6 of them (top_down, angled,
 scoop, auto) with golden joints within 1e-6 rad. The robot body check dropped the cases its plans now hit (assumed body:
-13 -> 8; measured body, 2026-10-10: the lidar dome rejects all but 4x4x4_r25_floor_auto, unchanged with its baseline),
+13 -> 8; first measured body, 2026-10-10: the lidar dome (then radius 74 mm, really its diameter) rejects all but 4x4x4_r25_floor_auto; with the measured dome (radius 37 mm at (0.150, 0.040)) all 6 cases plan again and the two r30 ledge 0.07 scoop_gap plans moved, regenerated),
 and five feasible cases of the current matrix were added (floor -0.10: top_down; ledge -0.03: angled 45, tall-box auto;
 ledge 0.05 with a 2 cm gap: two scoops; baseline = their plan). Before that, `tests/data/grasp_golden.json` was
 regenerated 2026-10-10 with the grid calibration (the stair case moved from -0.25 to -0.204, baseline = the current

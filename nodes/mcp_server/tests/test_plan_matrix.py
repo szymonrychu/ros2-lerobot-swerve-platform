@@ -152,9 +152,7 @@ def test_tipover_writes_the_2026_10_10_jar_scenarios(tmp_path: Path) -> None:
         grasp = next(w for w in plan["waypoints"] if w["label"] == "grasp")
         toward_fixed = (grasp["tool_point"]["x"] - grasp["x"], grasp["tool_point"]["y"] - grasp["y"])
         assert offset[0] * toward_fixed[0] + offset[1] * toward_fixed[1] > 0.0
-    # With the measured lidar dome (radius 74 mm) every plan of the 2026-10-10 jar comes within the hard margin of the
-    # dome (robot body check): the top_down retreat 8 mm from it, the angled 50 forearm box inside it already at the
-    # grasp; auto has nothing left to choose.
-    for entry in entries.values():
-        assert not entry["feasible"]
-        assert any("body_collision:lidar:" in r for r in entry["reasons"]), entry["reasons"]
+    assert entries["jar39x60_base0.316_floor_top_down_err0"]["feasible"]
+    # angled 50: the retreat brings the gripper body within the hard margin of the lidar dome (robot body check)
+    angled = entries["jar39x60_base0.316_floor_angled50_err0"]
+    assert not angled["feasible"] and any("body_collision:lidar" in r for r in angled["reasons"])

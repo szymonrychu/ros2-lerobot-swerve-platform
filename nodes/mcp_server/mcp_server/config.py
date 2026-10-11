@@ -44,10 +44,10 @@ ARM_MOUNT_X_M = 0.0592
 ARM_MOUNT_Y_M = -0.05  # 5 cm to the right of the base_link centre line
 MOUNT_HEIGHT_TOLERANCE_M = 1e-6
 # Robot body (base_link, x forward, y left, z up from the floor; m): the H seen from above. Measured 2026-10-10: lidar
-# dome radius 74 mm with its top face 210 mm above the floor, wheels and the side bars joining front and rear wheels
-# 35 mm wide, side bar top face ~180 mm. Still assumed: wheel line from the swerve geometry (half_length_m /
-# half_width_m, wheel radius 0.06), side bar bottom 120 mm, crossbar extent and height, lidar column bottom 100 mm.
-# Correct them in client.yml (nodes/mcp_server/README.md, "Body collision").
+# dome diameter 74 mm (radius 37 mm) centred at (0.150, 0.040) with its top face 210 mm above the floor, wheels and the
+# side bars joining front and rear wheels 35 mm wide, side bar top face ~180 mm. Still assumed: wheel line from the
+# swerve geometry (half_length_m / half_width_m, wheel radius 0.06), side bar bottom 120 mm, crossbar extent and height,
+# lidar column bottom 100 mm. Correct them in client.yml (nodes/mcp_server/README.md, "Body collision").
 WHEEL_X_M = 0.1525
 WHEEL_Y_M = 0.1333
 WHEEL_RADIUS_M = 0.06
@@ -62,8 +62,8 @@ CROSSBAR_X_M = (-0.15, 0.10)
 # The crossbar joins the side bars: it spans to their inner faces.
 CROSSBAR_HALF_WIDTH_M = round(WHEEL_Y_M - FRAME_WIDTH_M / 2, 4)  # 0.1158
 CROSSBAR_Z_M = (0.06, 0.10)
-LIDAR_XY_M = (0.158, 0.06)
-LIDAR_RADIUS_M = 0.074
+LIDAR_XY_M = (0.150, 0.040)
+LIDAR_RADIUS_M = 0.037
 LIDAR_Z_M = (0.10, 0.21)
 # Largest configurable sag compensation per joint (rad): compensation only ever adds commanded travel up to this.
 HARD_MAX_SAG_RAD = 0.2

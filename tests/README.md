@@ -526,9 +526,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - self-collision checker (`test_self_collision.py`, IK poses FK-checked): the checked parts (upper arm, forearm, wrist
   link, gripper body hull, jaw points), a clear pose, the 2026-10-10 home pose clear, the gripper pointing into the lidar
   column penetrating `lidar`, low over the front-right wheel penetrating `wheel_fr`, every measured 2026-10-10 floor
-  touch-down in front of the robot clear (deployed offsets) except t2 and t4, which the measured lidar dome at the
-  assumed position rejects (forearm box, t4 at most 3 cm deep: the robot reached them, so the dome model is that much
-  conservative there); a clear pose checks its soft clearance (slow band) and its hard clearance; path checks: into the lidar rejected with obstacle, link,
+  touch-down in front of the robot clear of the hard margin (deployed offsets; the robot reached them without touching
+  the lidar; with the measured dome, radius 37 mm at (0.150, 0.040), t4 stands 8.3 mm away and still fails by 1.7 mm); a clear pose checks its soft clearance (slow band) and its hard clearance; path checks: into the lidar rejected with obstacle, link,
   clearance, margin and hint, lowering toward the lidar slowed (scale 0.3, clearance in the slow band) not rejected, a
   clear path untouched, escaping from a colliding start allowed while going deeper is rejected, the disabled check,
   `combine_scales` (slower wins), `joint_line` sampling and the part points in base_link
@@ -550,8 +549,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `so101.xml` (upper arm, forearm, wrist; read from the MJCF independently), the upper arm boxes contact-only; the face
   points cover every face within spacing / sqrt(2); over 300 random poses the checker's clearance never exceeds the
   sim box surface clearance (plus the hard margin for contact-only boxes) by more than that bound; the 2026-10-10
-  matrix pose whose sim upper arm dipped into the lidar dome is rejected, home stays clear, and the stretched zero pose
-  is not slowed by the upper arm boxes
+  pose whose sim upper arm box edge comes within the hard margin of the lidar dome is rejected, home stays clear, and a
+  pose with the upper arm box 23 mm from the dome edge is not slowed by the upper arm boxes
 - floor slow zone (`test_floor_guard.py`, a synthetic 15 cm mount with its own floor, independent of the configured
   one): arm <-> base_link conversions (with yaw), quaternion roll/pitch, effective
   surface (robot plane vs level plane, roll/pitch signs, shifted by `surface_z_m`), fresh IMU used / stale or missing
@@ -675,7 +674,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   2e-3 rad of the cold solution
 - grasp planner speed and stability (`test_grasp_speed.py`, deployed client.yml config, via `plan_matrix.py`): the 6
   feasible sim-matrix scenarios in `tests/data/grasp_golden.json` (with the measured body: 4x4x4_r25_floor_auto from
-  the 2026-10-09 set, the others rejected by the lidar dome and dropped, plus top_down, angled 45, auto and two scoop
+  the 2026-10-09 set, the others plan again with the measured dome (r 37 mm), plus top_down, angled 45, auto and two scoop
   cases of the current matrix: floor -0.10, ledges -0.03 / 0.05; the angled reach-edge and IK budget cases at arm x
   0.34), earlier regenerated 2026-10-10 with the grid-sheet client.yml
   calibration (joint offsets, tool point = physical fixed-jaw tip; fixed arm-frame surfaces: floor -0.15, ledges -0.08 / 0.0,
@@ -732,7 +731,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   step surface (half-plane at `support_edge_x` = box x - 0.08, the sim scene's edge), its angled plan (3x3x6 at 30 cm:
   the 4x4x4 one leans the upper arm onto the lidar dome) is steeper than 45 deg, ledges keep a single surface height; the index records the shoulder pan axis (`pan_axis_xy`) the sim box
   faces; `--tipover` writes the 2026-10-10 jar set (39 mm x 6 cm 30 g cylinder at base_link (0.316, 0), top_down /
-  angled 50 / auto, err0 and err3 = 3 mm toward the fixed jaw of the plan; all six rejected by the measured lidar dome)
+  angled 50 / auto, err0 and err3 = 3 mm toward the fixed jaw of the plan; top_down and auto feasible, angled 50 rejected by the measured lidar dome)
 - arm tool overrides (`test_tools.py`): `move_arm_cartesian`, `move_arm_joints`, `set_gripper` take `surface_z_m` /
   `tilt_override_deg`, report `slow_zone` and describe the slow zone; they and `arm_home` take `surfaces` (a stair
   allows normal speed below the robot floor past its edge, an invalid region is refused)
@@ -815,7 +814,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) and a `/scan` observation source. |
 | `test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan` | collision_monitor stays in the `cmd_vel_smoothed -> cmd_vel` chain with its core keys; `StopBox` (holonomic stop `velocity_polygon`, min 4 points) is enabled on the footprint-filtered scan. |
 | `test_stopbox_covers_every_velocity` | Every command (directions in 5 deg steps, speeds 0 to 0.25 m/s, yaw rates -0.5 to 0.5) selects a StopBox sub-polygon, as Nav2 keeps the previous one for an uncovered velocity. |
-| `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side (ahead of a front wheel, x 0.23; ahead of the lidar dome, the frontmost part, x 0.247; behind a rear wheel; beside each side frame, y +-0.1658 with the measured 35 mm frames), a return 1.5 cm outside the H footprint (just outside the self-filter polygon) stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
+| `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side (ahead of a front wheel, x 0.23; ahead of the lidar dome in the front notch, x 0.202 (dome front 0.187); behind a rear wheel; beside each side frame, y +-0.1658 with the measured 35 mm frames), a return 1.5 cm outside the H footprint (just outside the self-filter polygon) stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
 | `test_stopbox_ignores_notch_obstacles_unless_moving_into_them` | A return deep in the front notch stops no translation (only rotation in place); a return 1.5 cm ahead of the crossbar stops only forward motion, one 1.5 cm behind it only backward motion. |
 | `test_nav2_goal_tolerance_tight_enough_for_swerve` | Goal checker tolerances 0.01 m / 0.035 rad (1 cm / 2 deg), stateful: the latch only holds because the BT no longer replans periodically. |
 | `test_nav2_replans_only_when_path_invalid` | `bt_navigator` uses the "replanning only if path becomes invalid" BT: periodic replans reset the goal checker latch and the rotation shim position check. |

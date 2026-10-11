@@ -256,7 +256,7 @@ def test_planner_without_the_body_check_has_no_body_reasons() -> None:
 def floor_object_left_front() -> ObjectSpec:
     """A 3 cm cube on the floor front-left of the arm: a top_down retreat swings the gripper back into the lidar."""
     return ObjectSpec(
-        frame="arm", x=0.24, y=0.06, support_z=CONFIG.arm.floor_z_m, width_m=0.03, depth_m=0.03, height_m=0.04
+        frame="arm", x=0.22, y=0.06, support_z=CONFIG.arm.floor_z_m, width_m=0.03, depth_m=0.03, height_m=0.04
     )
 
 
