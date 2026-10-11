@@ -1028,6 +1028,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   the ring beyond `r_max_m`, the heading rows beyond the pan range), pitch filter (nearest bin within 7.5 deg, others
   refused), heights outside the grid give nothing; `describe`; the CLI builds and checks (exit 0), and exits 1 for a
   stale or missing file; `config_from_client_yml` reads the mcp_server node
+  Key stability: `test_reach_map_key_ignores_cross_platform_float_noise` - floats in the key are rounded (`canonical_floats`, 9 decimals), so last-digit differences between the Mac (map build) and the Pi (map load) do not make the committed map stale.
 - approach planner (`test_approach.py`, synthetic reach cells and 2.5 cm grids, no ROS): `ApproachSettings` defaults
   (10 deg, 30 cells, margins and pose error, weights 1.0 / 0.5 / 0.2 / 0.1, 0.30 m staging, 0.03 m threshold, 5
   corridor samples, top 5 / 3, topics and actions, tracker 5 Hz / 0.6 / 48 / 96 px / 0.10 m / 20 px) and validation

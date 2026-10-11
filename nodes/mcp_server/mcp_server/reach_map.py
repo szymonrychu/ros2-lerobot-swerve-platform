@@ -125,6 +125,11 @@ class CellSet:
     margin_m: np.ndarray
 
 
+# Floats in the key are rounded to this many decimals: the map is built on the Mac and checked on the Pi, and the
+# two platforms differ in the last digits of derived values (e.g. the jaw open axis), which must not make it stale.
+KEY_FLOAT_DECIMALS = 9
+
+
 def checker_from_config(config: McpServerConfig) -> SelfCollisionChecker:
     """Kinematics, jaw and body checker exactly as the node builds them (URDF, margin, offsets, tool point, limits).
 
@@ -166,6 +171,24 @@ def config_from_client_yml(path: Path) -> McpServerConfig:
     return McpServerConfig.model_validate(data or {})
 
 
+def canonical_floats(value: Any) -> Any:
+    """Round every float in a JSON-like structure to KEY_FLOAT_DECIMALS (negative zero becomes 0.0).
+
+    Args:
+        value (Any): Nested dicts, lists, tuples, floats and other JSON values.
+
+    Returns:
+        Any: The same structure with rounded floats (tuples become lists).
+    """
+    if isinstance(value, float):
+        return round(value, KEY_FLOAT_DECIMALS) + 0.0
+    if isinstance(value, dict):
+        return {k: canonical_floats(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [canonical_floats(v) for v in value]
+    return value
+
+
 def reach_map_key(checker: SelfCollisionChecker, settings: ReachMapSettings) -> str:
     """Hash of every input of the map: a change of any of them makes a stored map stale.
 
@@ -185,7 +208,7 @@ def reach_map_key(checker: SelfCollisionChecker, settings: ReachMapSettings) -> 
         "grid": settings.model_dump(exclude={"file"}),
         "pitches_deg": list(POINT_PITCHES_DEG),
     }
-    return hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
+    return hashlib.sha256(json.dumps(canonical_floats(inputs), sort_keys=True, default=str).encode()).hexdigest()
 
 
 def tool_points(checker: SelfCollisionChecker, samples: list[dict[str, float]]) -> tuple[np.ndarray, np.ndarray]:

@@ -515,3 +515,12 @@ def test_config_from_client_yml_reads_the_mcp_server_node(tmp_path: Path) -> Non
     config = reach_map.config_from_client_yml(client)
     assert config.reach_map.heading_step_deg == 90.0
     assert tuple(config.reach_map.planar_samples) == (8, 8, 5)
+
+
+def test_reach_map_key_ignores_cross_platform_float_noise() -> None:
+    """The map is built on the Mac and loaded on the Pi: last-digit float differences (aarch64 vs Mac numpy, seen on
+    the jaw open axis: 2.653589793352642e-06 vs 2.653589793344948e-06) must not make the key differ."""
+    assert reach_map.canonical_floats(
+        {"a": [2.653589793352642e-06, 1.3877787807814457e-17]}
+    ) == reach_map.canonical_floats({"a": [2.653589793344948e-06, 1.7509807773125925e-17]})
+    assert reach_map.canonical_floats({"a": 0.1234}) != reach_map.canonical_floats({"a": 0.1235})
