@@ -50,7 +50,7 @@ from .gps_anchor import (
     valid_imu_orientation,
 )
 from .gps_status import parse_status_json
-from .metrics import BATTERY_CUTOFF_ACTIVE, MAP_UPDATES, ROBOT_POSE_OK, TOPIC_STALE, touch_map
+from .metrics import BATTERY_CUTOFF_ACTIVE, MAP_UPDATES, ROBOT_POSE_OK, TOPIC_STALE, TOPICS_STALE, touch_map
 from .msg_serializer import (
     msg_to_dict,
     quaternion_to_yaw,
@@ -813,6 +813,7 @@ class BridgeNode(Node):
                 TOPIC_STALE.labels(topic).inc()
             if self._stale_warn.allow(topic, now):
                 log.warning("topic_stale", topic=topic, seconds_since_rx=round(now - last_rx))
+        TOPICS_STALE.set(len(self._stale_topics))
 
     def _log_warning(self, msg: str) -> None:
         """Indirection used in tests to verify warning logging."""

@@ -4,22 +4,23 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import uvicorn.config
+from uvicorn.protocols.websockets.websockets_sansio_impl import WebSocketsSansIOProtocol
 
 from web_ui.bridge import TOPIC_STALE_S, BridgeNode
-from web_ui.server import UVICORN_WS_IMPL, build_uvicorn_kwargs
+from web_ui.server import build_uvicorn_kwargs
 from web_ui.throttle import (
     SLOW_CYCLE_THRESHOLD_MS,
     WARN_INTERVAL_S,
     SlowCycleTracker,
     WarnThrottle,
 )
+from web_ui.ws_clients import BackpressureWebSocketsProtocol
 
 
-def test_ws_impl_is_not_legacy_and_exists() -> None:
-    assert UVICORN_WS_IMPL != "websockets"
-    assert UVICORN_WS_IMPL in uvicorn.config.WS_PROTOCOLS
-    assert build_uvicorn_kwargs(8080)["ws"] == UVICORN_WS_IMPL
+def test_ws_impl_is_the_backpressure_sansio_subclass() -> None:
+    ws = build_uvicorn_kwargs(8080)["ws"]
+    assert ws is BackpressureWebSocketsProtocol
+    assert issubclass(ws, WebSocketsSansIOProtocol)
 
 
 def test_fast_work_with_long_sleep_is_not_slow() -> None:

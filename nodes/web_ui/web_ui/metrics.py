@@ -63,6 +63,15 @@ BROADCAST_SECONDS = Histogram(
     buckets=BROADCAST_BUCKETS,
 )
 BROADCASTER_SLOW = Counter("webui_broadcaster_slow_total", "Broadcaster cycles over the slow threshold")
+WS_CLIENTS_DROPPED_SLOW = Counter(
+    "webui_ws_clients_dropped_slow_total",
+    "WebSocket clients dropped because a send timed out or their queue overflowed",
+)
+WS_PENDING_FRAMES_MAX = Gauge("webui_ws_pending_frames_max", "Pending frames of the most backed-up WebSocket client")
+WS_PENDING_BYTES_MAX = Gauge("webui_ws_pending_bytes_max", "Pending bytes of the most backed-up WebSocket client")
+WS_PENDING_FRAMES_MAX.set(0)
+WS_PENDING_BYTES_MAX.set(0)
+TOPICS_STALE = Gauge("webui_topics_stale", "Subscribed topics that are currently stale (no message for too long)")
 TOPIC_STALE = Counter("webui_topic_stale_total", "Times a subscribed topic went stale (no message)", ["topic"])
 HTTP_REQUESTS = Counter(
     "webui_http_requests_total", "HTTP requests by matched route template and status", ["route", "status"]

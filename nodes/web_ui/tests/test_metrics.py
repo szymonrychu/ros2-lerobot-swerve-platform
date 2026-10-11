@@ -167,3 +167,19 @@ def test_battery_cutoff_active_follows_the_guard() -> None:
     assert val("webui_battery_cutoff_active") == 1
     node.on_battery("/battery_state", battery_msg(12.5))
     assert val("webui_battery_cutoff_active") == 0
+
+
+def test_topics_stale_gauge_counts_currently_stale_topics() -> None:
+    """webui_topics_stale is the number of stale topics now (falls back to 0 when they recover)."""
+    from web_ui.bridge import TOPIC_STALE_S
+
+    node = make_bridge()
+    now = time.monotonic()
+    node._topic_last_rx = {"/a": now - TOPIC_STALE_S - 5, "/b": now - TOPIC_STALE_S - 5, "/c": now}
+    node._stale_topics = set()
+    node._stale_warn = WarnThrottle(60.0)
+    node._check_topic_health()
+    assert num("webui_topics_stale") == 2
+    node._topic_last_rx["/a"] = time.monotonic()
+    node._check_topic_health()
+    assert num("webui_topics_stale") == 1

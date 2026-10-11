@@ -31,6 +31,8 @@ from .metrics import (
     HTTP_REQUESTS,
     WS_CLIENTS,
     WS_DISCONNECTS,
+    WS_PENDING_BYTES_MAX,
+    WS_PENDING_FRAMES_MAX,
 )
 from .throttle import SlowCycleTracker
 from .tiles import (
@@ -45,6 +47,7 @@ from .tiles import (
     validate_tile,
 )
 from .urdf_scanner import scan_urdf_directory
+from .ws_clients import SEND_TIMEOUT_S, BackpressureWebSocketsProtocol, ClientConnection
 
 log = structlog.get_logger(__name__)
 
@@ -81,8 +84,6 @@ HTTP_NOT_FOUND = 404
 # after a reload without re-downloading unchanged meshes.
 URDF_CACHE_CONTROL = "no-cache"
 # index.html must be revalidated so a deploy is picked up; hashed /assets/* files keep Starlette's default caching.
-# uvicorn websocket implementation: the legacy "websockets" one drops browser sockets on keepalive ping failures.
-UVICORN_WS_IMPL = "websockets-sansio"
 INDEX_CACHE_CONTROL = "no-cache"
 NON_SPA_PREFIXES = ("api/", "ws")
 INDEX_PATHS = ("", ".", "index.html")
@@ -173,32 +174,6 @@ async def call_ros_service(action: str, future: Any, service: str, timeout_s: fl
         return None, action_response(action, False, f"{service} failed: {exc}", 500)
 
 
-class ClientConnection:
-    """A connected WebSocket client whose sends are serialized by a per-client lock.
-
-    Both the connect snapshot and the broadcaster send through send_text, so a WebSocket never has
-    two concurrent writers.
-    """
-
-    def __init__(self, ws: WebSocket) -> None:
-        """Initialise the connection.
-
-        Args:
-            ws (WebSocket): Accepted WebSocket.
-        """
-        self.ws = ws
-        self.send_lock = asyncio.Lock()
-
-    async def send_text(self, text: str) -> None:
-        """Send one text frame, waiting for any in-flight send on this WebSocket to finish.
-
-        Args:
-            text (str): Frame payload.
-        """
-        async with self.send_lock:
-            await self.ws.send_text(text)
-
-
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to every response."""
 
@@ -243,9 +218,10 @@ def build_uvicorn_kwargs(port: int) -> dict[str, Any]:
         port (int): HTTP port to listen on.
 
     Returns:
-        dict[str, Any]: host, port, log_level and the websocket implementation.
+        dict[str, Any]: host, port, log_level and the websocket protocol class. The legacy "websockets" one drops
+            browser sockets on keepalive ping failures; websockets-sansio is kept, with write backpressure added.
     """
-    return {"host": "0.0.0.0", "port": port, "log_level": "warning", "ws": UVICORN_WS_IMPL}
+    return {"host": "0.0.0.0", "port": port, "log_level": "warning", "ws": BackpressureWebSocketsProtocol}
 
 
 def _make_start_broadcaster(
@@ -273,6 +249,8 @@ def _make_start_broadcaster(
             slow_cycles = SlowCycleTracker()
             while True:
                 await asyncio.sleep(broadcast_interval)
+                WS_PENDING_FRAMES_MAX.set(max((c.pending_frames for c in clients.values()), default=0))
+                WS_PENDING_BYTES_MAX.set(max((c.pending_bytes for c in clients.values()), default=0))
                 if bridge_node is None or not clients:
                     continue
                 t0 = time.monotonic()
@@ -280,18 +258,12 @@ def _make_start_broadcaster(
                 if not envelopes:
                     continue
                 logger.debug("broadcaster_cycle", dirty_topics=len(envelopes), client_count=len(clients))
-                frames = [json.dumps(e) for e in envelopes]
-                dead = []
-                for cid, conn in list(clients.items()):
-                    for frame in frames:
-                        try:
-                            await conn.send_text(frame)
-                            logger.debug("ws_msg_sent", client_id=cid, payload_bytes=len(frame))
-                        except Exception:
-                            dead.append(cid)
-                            break
-                for cid in dead:
-                    clients.pop(cid, None)
+                for envelope in envelopes:
+                    key = str(envelope["topic"])
+                    frame = json.dumps(envelope)
+                    for cid, conn in list(clients.items()):
+                        conn.offer(key, frame)
+                        logger.debug("ws_msg_offered", client_id=cid, payload_bytes=len(frame))
                 WS_CLIENTS.set(len(clients))
                 now = time.monotonic()
                 work_ms = (now - t0) * 1000
@@ -750,39 +722,56 @@ def build_app(
     async def websocket_endpoint(ws: WebSocket) -> None:
         await ws.accept()
         client_id = str(uuid.uuid4())[:8]
-        conn = ClientConnection(ws)
         remote = ws.client.host if ws.client else "unknown"
+
+        def drop_client(_: ClientConnection) -> None:
+            clients.pop(client_id, None)
+            WS_CLIENTS.set(len(clients))
+
+        conn = ClientConnection(ws, on_dead=drop_client, send_timeout_s=SEND_TIMEOUT_S)
+        conn.start()
+        receiver: asyncio.Task[None] | None = None
         try:
-            # Latched data (e.g. the SLAM map) is only re-broadcast on change: send the cache to late joiners.
-            # Hold the send lock from registration until the snapshot is out, so broadcast frames queue
-            # behind it instead of writing to the WebSocket concurrently, and none are missed.
-            async with conn.send_lock:
-                clients[client_id] = conn
-                WS_CLIENTS.set(len(clients))
-                log.info("ws_client_connected", client_id=client_id, remote_addr=remote, total_clients=len(clients))
-                for envelope in bridge_node.latest_envelopes() if bridge_node is not None else []:
-                    await ws.send_text(json.dumps(envelope))
-            async for raw in ws.iter_text():
-                log.debug("ws_msg_recv", client_id=client_id, raw=raw[:200])
-                try:
-                    msg = json.loads(raw)
-                    if msg.get("type") == "publish" and battery_guard is not None and battery_guard.is_cutoff():
-                        error = battery_guard.rejection_message()
-                        log.warning(
-                            "ws_publish_rejected_battery_cutoff", client_id=client_id, topic=msg.get("topic", "")
-                        )
-                        await conn.send_text(json.dumps({"type": "error", "source": "battery", "message": error}))
-                    elif msg.get("type") == "publish" and bridge_node is not None:
-                        topic = msg.get("topic", "")
-                        msg_type = msg.get("msg_type", "")
-                        bridge_node.create_publisher_for(topic, msg_type)
-                        bridge_node.publish_dict(topic, msg.get("data", {}))
-                        log.info("publish_command_received", topic=topic, msg_type=msg_type)
-                except (json.JSONDecodeError, KeyError):
-                    log.warning("ws_invalid_message", client_id=client_id)
-        except WebSocketDisconnect:
-            pass
+            # Latched data (e.g. the SLAM map) is only re-broadcast on change: offer the cache to late joiners.
+            # Offering and registering happen without an await, so no broadcast frame is missed and a newer
+            # broadcast frame of the same topic replaces its snapshot entry.
+            for envelope in bridge_node.latest_envelopes() if bridge_node is not None else []:
+                conn.offer(str(envelope["topic"]), json.dumps(envelope))
+            clients[client_id] = conn
+            WS_CLIENTS.set(len(clients))
+            log.info("ws_client_connected", client_id=client_id, remote_addr=remote, total_clients=len(clients))
+
+            async def receive_loop() -> None:
+                async for raw in ws.iter_text():
+                    log.debug("ws_msg_recv", client_id=client_id, raw=raw[:200])
+                    try:
+                        msg = json.loads(raw)
+                        if msg.get("type") == "publish" and battery_guard is not None and battery_guard.is_cutoff():
+                            error = battery_guard.rejection_message()
+                            log.warning(
+                                "ws_publish_rejected_battery_cutoff", client_id=client_id, topic=msg.get("topic", "")
+                            )
+                            conn.enqueue(json.dumps({"type": "error", "source": "battery", "message": error}))
+                        elif msg.get("type") == "publish" and bridge_node is not None:
+                            topic = msg.get("topic", "")
+                            msg_type = msg.get("msg_type", "")
+                            bridge_node.create_publisher_for(topic, msg_type)
+                            bridge_node.publish_dict(topic, msg.get("data", {}))
+                            log.info("publish_command_received", topic=topic, msg_type=msg_type)
+                    except (json.JSONDecodeError, KeyError):
+                        log.warning("ws_invalid_message", client_id=client_id)
+
+            receiver = asyncio.create_task(receive_loop())
+            # The sender task ends when the client is dropped (slow or broken socket): end the session with it.
+            await asyncio.wait({receiver, conn.sender_task}, return_when=asyncio.FIRST_COMPLETED)
+            if receiver.done() and not receiver.cancelled() and receiver.exception() is not None:
+                exc = receiver.exception()
+                if not isinstance(exc, WebSocketDisconnect):
+                    raise exc
         finally:
+            if receiver is not None:
+                receiver.cancel()
+            conn.close()
             clients.pop(client_id, None)
             WS_CLIENTS.set(len(clients))
             WS_DISCONNECTS.inc()
