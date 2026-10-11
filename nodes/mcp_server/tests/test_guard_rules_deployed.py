@@ -7,6 +7,7 @@ import yaml
 
 from mcp_server.config import MotionQueueSettings
 from mcp_server.guard_rules import GuardRule, GuardRuleSettings
+from mcp_server.tools import TOOL_SUBSYSTEM
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
@@ -74,10 +75,10 @@ def test_r1_names_both_exits() -> None:
 
 def test_scopes_match_the_design() -> None:
     by_name = {r.name: r for r in deployed_rules()}
-    base_tools = ["navigate_to_pose", "move_relative", "drive", "look_around"]
+    base_tools = {name for name, need in TOOL_SUBSYSTEM.items() if need == "base"}
     base_steps = ["base_relative", "navigate_to_pose"]
     for name in EXPECTED_RULES[:2]:
-        assert by_name[name].applies_to.tools == base_tools
+        assert set(by_name[name].applies_to.tools) == base_tools
         assert by_name[name].applies_to.steps == base_steps
     assert by_name["no_arm_retake_from_human"].applies_to.tools == ["take_control"]
     assert "grasp_object" not in by_name["wrist_roll_needs_lifted_arm"].applies_to.arm_motion_from
