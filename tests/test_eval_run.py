@@ -281,6 +281,7 @@ def test_successful_trial_is_recorded_with_events_report_and_deny_tools(tmp_path
     assert record.labels["navigate"] == STATUS_NA
     assert record.instruction_id == f"{1:032x}"
     assert record.status == "success"
+    assert record.timed_out is False
     assert record.lookup_ids
     message = agent.posted("/message")[0]
     assert message["deny_tools"] == ["navigate_to_pose", "move_relative", "drive"]
@@ -413,6 +414,7 @@ def test_trial_timeout_posts_stop_and_waits_60s_more(tmp_path: Path) -> None:
     assert len(agent.posted("/stop")) == 1
     record = trials_of(tmp_path)[0]
     assert record.status == "interrupted"
+    assert record.timed_out is True
     assert record.instruction_id == "f" * 32
 
 
@@ -425,6 +427,7 @@ def test_trial_without_turn_end_after_stop_is_still_recorded(tmp_path: Path) -> 
     go(tmp_path, agent, answers, k=1, trial_timeout_s=30)
     assert agent.clock.now - start >= 90
     assert trials_of(tmp_path)[0].status is None
+    assert trials_of(tmp_path)[0].timed_out is True
 
 
 def test_resume_continues_with_remaining_trials(tmp_path: Path) -> None:

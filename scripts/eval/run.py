@@ -156,7 +156,7 @@ def poll_trial(
     clock: Callable[[], float],
     sleep: Callable[[float], None],
     print_fn: Callable[..., None],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], bool]:
     """Poll the history until the trial's turn_end; stop the instruction on timeout and wait 60 s more.
 
     Args:
@@ -168,8 +168,8 @@ def poll_trial(
         print_fn (Callable[..., None]): Output.
 
     Returns:
-        list[dict[str, Any]]: The trial's events, from its user_message through its turn_end (through the newest event
-        when no turn_end arrived).
+        tuple[list[dict[str, Any]], bool]: The trial's events, from its user_message through its turn_end (through the
+        newest event when no turn_end arrived), and whether the harness hit trial_timeout_s.
     """
     deadline = clock() + config.trial_timeout_s
     stopped = False
@@ -186,11 +186,11 @@ def poll_trial(
                 None,
             )
             if end is not None:
-                return [e for e in events if user["seq"] <= e["seq"] <= end["seq"]]
+                return [e for e in events if user["seq"] <= e["seq"] <= end["seq"]], stopped
         if clock() >= deadline:
             if stopped:
                 print_fn("no turn_end 60 s after stop; recording the trial without one")
-                return [e for e in events if user is not None and e["seq"] >= user["seq"]]
+                return [e for e in events if user is not None and e["seq"] >= user["seq"]], True
             print_fn(f"trial timeout after {config.trial_timeout_s:.0f} s: stopping the instruction")
             client.stop()
             stopped = True
@@ -336,9 +336,11 @@ def run_trial(
     deny = config.arm_only_deny_tools if config.mode == MODE_ARM_ONLY else None
     client.message(testset.render_prompt(case, config.mode), deny_tools=deny)
     print_fn("instruction sent, waiting for the agent ...")
-    events = poll_trial(client, config, baseline, clock, sleep, print_fn)
+    events, timed_out = poll_trial(client, config, baseline, clock, sleep, print_fn)
     ended = clock()
     (run_dir / EVENTS_DIR / f"{case.key.replace('/', '_')}_{trial}.json").write_text(json.dumps(events, indent=2))
+    if timed_out:
+        print_fn("TIMEOUT: the harness stopped this trial; it is recorded as timed_out")
     derivation = derive(events)
     print_fn("agent-claimed stages: " + ", ".join(f"{s}={v}" for s, v in derivation.claimed.items()))
     print_fn("lookup ids: " + (", ".join(derivation.lookup_ids) or "none"))
@@ -356,6 +358,7 @@ def run_trial(
         success=labelled.success,
         first_failed_stage=labelled.first_failed_stage,
         note=labelled.note,
+        timed_out=timed_out,
     )
 
 

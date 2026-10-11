@@ -309,6 +309,7 @@ Unit tests for `scripts/eval/report.py` (TrialRecord and the evaluation report).
 | `test_empty_report_and_json` | An empty run gives None rates and is JSON-serializable. |
 | `test_build_rejects_bad_k` | k < 1 raises. |
 | `test_render_text_sections` | The text report has every section. |
+| `test_report_counts_harness_timeouts_apart_from_interrupts` | `timed_out` trials are counted in `timeouts` (and the text report) separately from operator or agent interrupts. |
 | `test_trial_record_from_derivation` | A TrialRecord built from `stages.derive` carries instruction id, turn_end fields, claims, phases and lookup ids. |
 
 ### `test_eval_run.py`
@@ -336,8 +337,8 @@ Unit tests for the evaluation driver (`scripts/eval/client.py`, `labels.py`, `ru
 | `test_battery_block_aborts_with_message_and_keeps_recorded_trials` | A 503 aborts with the message and exit code 1; recorded trials stay. |
 | `test_reset_busy_twice_aborts` | A reset still busy after the retry aborts. |
 | `test_no_reset_when_disabled` | reset_between_trials false never resets. |
-| `test_trial_timeout_posts_stop_and_waits_60s_more` | On timeout POST stop; the interrupted turn_end is recorded. |
-| `test_trial_without_turn_end_after_stop_is_still_recorded` | No turn_end 60 s after stop: the trial is recorded with status None. |
+| `test_trial_timeout_posts_stop_and_waits_60s_more` | On timeout POST stop; the interrupted turn_end is recorded and the trial has `timed_out` true (a normal trial has false). |
+| `test_trial_without_turn_end_after_stop_is_still_recorded` | No turn_end 60 s after stop: the trial is recorded with status None and `timed_out` true. |
 | `test_resume_continues_with_remaining_trials` | `--resume` skips recorded trials and continues with the rest. |
 | `test_resume_unknown_run_id_fails` | Resuming a missing run raises. |
 | `test_run_config_defaults_and_validation` | RunConfig defaults (arm_only, `.logs/eval`, deny tools, k, timeout) and validation. |

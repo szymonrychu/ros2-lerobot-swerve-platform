@@ -311,3 +311,13 @@ def test_trial_record_from_derivation() -> None:
     report = build([record], k=1)
     assert report["mean_auto_retries_per_trial"] == pytest.approx(1.0)
     assert report["eai_error_types"] == {"goal_unsatisfied": 1}
+
+
+def test_report_counts_harness_timeouts_apart_from_interrupts() -> None:
+    timed_out = trial("a", 1, False).model_copy(update={"status": "interrupted", "timed_out": True})
+    interrupted = trial("b", 1, False).model_copy(update={"status": "interrupted"})
+    result = build([timed_out, interrupted, trial("c", 1, True)], k=1)
+    assert result["timeouts"] == 1
+    assert result["statuses"]["interrupted"] == 2
+    assert "harness timeouts: 1" in render_text(result)
+    assert trial("a", 1, True).timed_out is False

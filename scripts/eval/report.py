@@ -39,6 +39,7 @@ class TrialRecord(BaseModel):
     started_ts: float
     ended_ts: float
     status: str | None = Field(description="turn_end status; None when no turn_end arrived")
+    timed_out: bool = Field(default=False, description="The harness hit trial_timeout_s and POSTed /api/stop")
     cost_usd: float = 0.0
     num_turns: int = 0
     effector_calls: int = 0
@@ -96,6 +97,7 @@ def trial_record_from_derivation(
     success: bool,
     first_failed_stage: str | None,
     note: str = "",
+    timed_out: bool = False,
 ) -> TrialRecord:
     """Build a TrialRecord from a stage derivation plus the run context and the human labels.
 
@@ -112,6 +114,7 @@ def trial_record_from_derivation(
         success (bool): Human trial success.
         first_failed_stage (str | None): Human first failed stage.
         note (str): Operator note.
+        timed_out (bool): The harness stopped the instruction on trial_timeout_s.
 
     Returns:
         TrialRecord: The record.
@@ -127,6 +130,7 @@ def trial_record_from_derivation(
         started_ts=started_ts,
         ended_ts=ended_ts,
         status=turn_end.get("status"),
+        timed_out=timed_out,
         cost_usd=float(turn_end.get("cost_usd") or 0.0),
         num_turns=int(turn_end.get("num_turns") or 0),
         effector_calls=int(turn_end.get("effector_calls") or 0),
@@ -347,7 +351,7 @@ def build(trials: list[TrialRecord], k: int, cases_planned: int | None = None) -
     Returns:
         dict[str, Any]: JSON-ready report: coverage, success_at_1, success_at_k, stages, attempts,
         mean_auto_retries_per_trial, agreement, failure_types, eai_error_types, untyped_failures, cost_time,
-        statuses.
+        statuses, timeouts.
 
     Raises:
         ValueError: When k < 1.
@@ -377,6 +381,7 @@ def build(trials: list[TrialRecord], k: int, cases_planned: int | None = None) -
         "untyped_failures": untyped,
         "cost_time": cost_time(trials),
         "statuses": dict(sorted(Counter(str(r.status) for r in trials).items())),
+        "timeouts": sum(r.timed_out for r in trials),
     }
 
 
@@ -496,6 +501,7 @@ def render_text(report: dict[str, Any]) -> str:
         histogram_line("eai_error_type", report["eai_error_types"]),
         f"untyped failed closes: {report['untyped_failures']}",
         histogram_line("turn_end status", report["statuses"]),
+        f"harness timeouts: {report['timeouts']}",
     ]
     ct = report["cost_time"]
     lines += [
