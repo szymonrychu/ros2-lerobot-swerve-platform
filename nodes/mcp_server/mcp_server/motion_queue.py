@@ -353,12 +353,16 @@ class CutoffGuard(Protocol):
 
 @dataclass(frozen=True)
 class LiveState:
-    """Live robot state a precondition is evaluated against (None = unknown)."""
+    """Live robot state a precondition is evaluated against (None = unknown).
+
+    currents holds the fresh JointSample.currents (A, /follower/joint_currents); empty when none arrived in time.
+    """
 
     joints: dict[str, float] | None = None
     gripper_effort: float | None = None
     base_twist: tuple[float, float, float] | None = None
     battery_ok: bool | None = None
+    currents: dict[str, float] = field(default_factory=dict)
 
 
 class MotionEvent(BaseModel):
@@ -699,7 +703,7 @@ def read_live_state(robot: RobotApi, guard: CutoffGuard | None, need_twist: bool
         need_twist (bool): Read the odometry twist (robot_state) too.
 
     Returns:
-        LiveState: Joints (fresh only), gripper load, base twist and battery verdict.
+        LiveState: Joints (fresh only), gripper load, gripper currents (fresh only), base twist and battery verdict.
     """
     sample = robot.arm.fresh_sample()
     twist = None
@@ -715,6 +719,7 @@ def read_live_state(robot: RobotApi, guard: CutoffGuard | None, need_twist: bool
         gripper_effort=None if sample is None else finite_effort(sample.efforts, robot.arm.gripper),
         base_twist=twist,
         battery_ok=battery_ok,
+        currents={} if sample is None else dict(sample.currents),
     )
 
 

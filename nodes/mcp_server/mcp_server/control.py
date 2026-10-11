@@ -450,7 +450,9 @@ class ControlManager:
             reasons.append(grasp_reason(record))
         if sample is not None:
             live = LiveState(
-                joints=self.arm.measured(sample), gripper_effort=finite_effort(sample.efforts, self.arm.gripper)
+                joints=self.arm.measured(sample),
+                gripper_effort=finite_effort(sample.efforts, self.arm.gripper),
+                currents=dict(sample.currents),
             )
             holding, why = evaluate_precondition(Precondition(type="gripper_holding"), live, self.config)
             if holding:

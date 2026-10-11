@@ -10,12 +10,14 @@ FakeArmBackend supplies currents.
 """
 
 import math
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any, get_args
 from unittest.mock import MagicMock
 
 import pytest
 
+from mcp_server import control
 from mcp_server.arm import JointSample
 from mcp_server.config import McpServerConfig
 from mcp_server.grasp_check import (
@@ -31,8 +33,11 @@ from mcp_server.grasp_check import (
     fuse,
     grip_evidence,
 )
+from mcp_server.motion_queue import LiveState, read_live_state
 
 from .fakes import FakeArmBackend
+from .test_control import manager
+from .test_tools import FakeRobot
 
 NAN = math.nan
 DELTA = 20.0  # contact_load_delta of the profile
@@ -352,3 +357,39 @@ def test_ros_currents_topic_follows_the_config(ros_iface: ModuleType) -> None:
     topics = [c.args[1] for c in robot.node.create_subscription.call_args_list]
     assert "/arm/joint_currents" in topics
     assert isinstance(robot.node, MagicMock)
+
+
+# --- LiveState.currents -----------------------------------------------------------------------------------------
+
+
+def test_live_state_currents_default_empty() -> None:
+    assert LiveState().currents == {}
+
+
+def test_read_live_state_carries_fresh_currents(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    assert read_live_state(robot, None, need_twist=False).currents == {}
+    robot.arm_backend.currents["gripper"] = 0.12
+    assert read_live_state(robot, None, need_twist=False).currents == {"gripper": 0.12}
+
+
+def test_read_live_state_without_a_fresh_sample_has_no_currents(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    robot.arm_backend.currents["gripper"] = 0.12
+    robot.arm_backend.no_samples = True
+    state = read_live_state(robot, None, need_twist=False)
+    assert state.joints is None and state.currents == {}
+
+
+def test_carrying_state_live_state_carries_currents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    robot = FakeRobot(tmp_path)
+    robot.arm_backend.currents["gripper"] = 0.2
+    seen: list[LiveState] = []
+
+    def spy(precondition: Any, state: LiveState, config: McpServerConfig) -> tuple[bool, str]:
+        seen.append(state)
+        return False, "spy"
+
+    monkeypatch.setattr(control, "evaluate_precondition", spy)
+    manager(robot).carrying_state()
+    assert seen and seen[0].currents == {"gripper": 0.2}
