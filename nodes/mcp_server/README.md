@@ -976,6 +976,65 @@ matches client.yml's mcp_server config or its grid differs from the `reach_map:`
 includes `mcp_server/data/` (package files), and the robot runs from the git checkout, which carries the committed file. Doubling the planar density on the default r / z cells (30 deg headings)
 adds 1.9 % reachable cell-pitches.
 
+## Approach planner
+
+`mcp_server/approach.py` (pure, no ROS) ranks base poses from which the arm reaches a target, by inverting the reach
+map against the global costmap. Settings: `approach:` (`ApproachSettings`, defaults in parentheses).
+
+Target (`ApproachTarget`): exactly one of `xyz` (map frame, z = height above the floor), `object_id` (ObjectMemory),
+`poi_id` (point POI or area centroid) or `pixel` `{camera, u, v, surface_height_m}` (ground point at that height,
+z = the surface height). Objects and POIs store no height, so `z_m` is required for them and refused for the other
+forms. `resolve_target` resolves it with injected lookups; an unknown object, POI or a pixel that misses the surface
+raises `ApproachUnavailable`.
+
+Candidates (`generate_seeds`, `invert`): for every base yaw 0..360 deg every `yaw_step_deg` (10; yaws wrapped to
+[-180, 180)) and every reachable cell of `ReachMap.cells(z, pitch)` (heading h from the pan axis in base_link, r):
+
+- pan axis P = T - r (cos(yaw + h), sin(yaw + h)); base B = P - R(yaw) a, a = the pan axis in base_link (from the arm
+  mount config);
+- `expected_margin_m` = `margin_m` - (`pose_error_xy_m` (0.03) + rad(`pose_error_yaw_deg` (3)) * |T - B|): the cell
+  margin left when the base stops off by the pose error (the yaw error swings the target by its lever arm);
+- cells below `min_expected_margin_m` (0.0) are dropped (`below_margin`), the best `cells_per_yaw` (30) per yaw kept.
+  No cell at the height (or pitch) gives no candidate and an `out_of_reach` note: no fallback pose is invented.
+
+Costmap check (`score_candidates`) on `global_costmap_topic` (`/global_costmap/costmap`, OccupancyGrid translation:
+100 lethal, 99 inscribed, -1 unknown). The grid must be fresh: none received or older than `costmap_stale_s` (5)
+raises `ApproachUnavailable` with the reason. The current footprint polygon (`NavFootprint.current.points`, passed in)
+is rasterised once per yaw with `cv2.fillPoly` (`footprint_mask`) on a 16x finer grid; a costmap cell belongs to the
+footprint when more than half of it is covered, which keeps the raster area within 5 % of the polygon at the 2.5 cm
+costmap resolution (the base origin is taken at its cell centre, up to half a cell off). A pose is blocked when a
+footprint cell is lethal, unknown or outside the grid, or the centre cell is at least inscribed. Each candidate is
+checked at the dock pose, the staging pose (`staging_offset_m` (0.30) back along the yaw, where the docking server
+starts) and `corridor_samples` (5) poses evenly between them, and counted once, in this order: `collision` (dock
+lethal or inscribed centre), `unknown_space`, `staging_blocked`, `corridor_blocked`. The result reports the dock
+`max_cost` / `mean_cost` and the staging and corridor maxima.
+
+Score (`score_value`, higher is better; `weights`):
+
+```text
+score = margin (1.0) * min(expected_margin_m, margin_cap_m) / margin_cap_m     # margin_cap_m 0.08
+      - cost (0.5) * mean_cost / 100
+      - travel (0.2) * travel_m          # path length + staging leg when planned, else straight line from the robot
+      - heading (0.1) * |h| / 180        # prefer the arm straight ahead
+```
+
+`rank` sorts best first. Hooks (injected callables, so the module stays ROS-free):
+
+- `verify_top_k`: the best `verify_top_k` (5) are re-checked with `point_reach` (the grasp planner's IK and body
+  check) on the target in the candidate's base_link; failures are dropped (`not_verified`), the rest of the list
+  stays unverified (`verified: null`).
+- `path_check`: the best `path_check_k` (3) are planned to their staging pose (ComputePathToPose, planning only);
+  `no_path` drops the candidate (`no_path`), `ok` replaces travel by the path length plus `staging_offset_m` and
+  re-ranks, `unavailable` is kept and reported. Without a robot pose travel is not scored and paths are
+  `unavailable: no robot pose`.
+
+`suggest` runs the whole pipeline and returns `ApproachSuggestion` (target, ranked candidates with pose, staging_pose,
+reach {heading_deg, r_m, z_m, pitches_deg, clearance_m, margin_m, expected_margin_m}, costmap, verified, path,
+travel_m, score; `rejected` counters; `costmap_age_s`; notes). The rest of `approach:` (`docking_threshold_m`,
+`planner_action`, `dock_action`, `detection_topic`, `dock_timeout_s`, `tracker`) configures the grasp docking server
+interfaces and the camera target tracker; `staging_offset_m` and `docking_threshold_m` must match the grasp docking
+server params.
+
 ## Unmeasured efforts
 
 feetech_servos publishes a NaN effort for a joint without an effort reading (a non-effort joint, a missing load).
@@ -2011,6 +2070,26 @@ floor_guard:              # below-surface slow zone (see Arm mount and floor slo
   imu_level_reference:    # IMU roll/pitch (deg) on the calibration floor, subtracted from the IMU tilt
     roll_deg: 0.7         # BNO055 mounting bias (= swerve tilt guard default); re-capture after a floor height recalibration
     pitch_deg: 1.3
+approach:                 # approach pose planner and grasp docking interfaces (see "Approach planner")
+  yaw_step_deg: 10
+  cells_per_yaw: 30
+  min_expected_margin_m: 0.0
+  pose_error_xy_m: 0.03
+  pose_error_yaw_deg: 3
+  margin_cap_m: 0.08
+  weights: {margin: 1.0, cost: 0.5, travel: 0.2, heading: 0.1}
+  staging_offset_m: 0.30          # = -staging_x_offset of the grasp docking server
+  docking_threshold_m: 0.03       # = its docking_threshold
+  corridor_samples: 5
+  verify_top_k: 5
+  path_check_k: 3
+  global_costmap_topic: /global_costmap/costmap
+  costmap_stale_s: 5
+  planner_action: /compute_path_to_pose
+  dock_action: /grasp/dock_robot
+  detection_topic: /grasp/detected_dock_pose
+  dock_timeout_s: 120
+  tracker: {rate_hz: 5, min_score: 0.6, template_px: 48, search_px: 96, max_correction_m: 0.10, edge_margin_px: 20}
 grasp:                    # grasp planner defaults, overridable per call via params (see Grasp macros)
   approach_distance_m: 0.04
   pre_grasp_clearance_m: 0.05

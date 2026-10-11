@@ -1025,6 +1025,25 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   the ring beyond `r_max_m`, the heading rows beyond the pan range), pitch filter (nearest bin within 7.5 deg, others
   refused), heights outside the grid give nothing; `describe`; the CLI builds and checks (exit 0), and exits 1 for a
   stale or missing file; `config_from_client_yml` reads the mcp_server node
+- approach planner (`test_approach.py`, synthetic reach cells and 2.5 cm grids, no ROS): `ApproachSettings` defaults
+  (10 deg, 30 cells, margins and pose error, weights 1.0 / 0.5 / 0.2 / 0.1, 0.30 m staging, 0.03 m threshold, 5
+  corridor samples, top 5 / 3, topics and actions, tracker 5 Hz / 0.6 / 48 / 96 px / 0.10 m / 20 px) and validation
+  (zero steps, negative weights, a search window not larger than the template, relative topics, unknown keys); target
+  forms (exactly one of xyz / object_id / poi_id / pixel, `z_m` required for objects and POIs and refused for the
+  others) and `resolve_target` for each form, unknown objects / POIs / missed pixels refused; candidate yaws cover the
+  circle once in [-pi, pi), a 350 deg yaw is the -10 deg pose; inversion round trip (the target in each base pose's
+  base_link is the cell's heading and r from the pan axis, and B + R(yaw) a + r(cos, sin) is T); the expected margin
+  formula, below-margin cells dropped and `cells_per_yaw` kept, no cell counts `out_of_reach`; the footprint raster
+  area within 5 % of the polygon (robot-like concave outline and a rectangle, every 10 deg, 1 and 2.5 cm) and it turns
+  with the yaw; a missing or stale grid raises `ApproachUnavailable` (also through `suggest`); a free grid accepts;
+  lethal and unknown footprint cells, an inscribed centre (an inscribed edge cell is fine) and footprints off the grid
+  are rejected with their counters; staging (0.30 m back along the yaw) and corridor obstacles reject, corridor
+  samples 0 skips the corridor; mean / staging / corridor costs reported; the score terms (margin cap, no travel
+  without a robot pose); ranking follows the margin, heading, travel and cost weights; `verify_top_k` checks only k
+  with the target in base_link (pitch in rad or None), drops failures and keeps the rest unverified; `path_check`
+  plans the top k staging poses, drops `no_path`, re-scores `ok` with the path length plus the staging leg, keeps
+  `unavailable`, leaves the rest `skipped`; `suggest` end to end, a target inside an obstacle (all rejected as
+  collision), out of reach (note, no pose) and without hooks or robot pose (notes, unavailable paths)
 - arm link boxes (`test_arm_link_boxes.py`): the body check's link boxes are the six collision boxes of the grasp_sim
   `so101.xml` (upper arm, forearm, wrist; read from the MJCF independently), the upper arm boxes contact-only; the face
   points cover every face within spacing / sqrt(2) and that bound stays within the default hard margin (2 mm, `BOX_POINT_SPACING_M` 2.5 mm); `clear_of` (envelope's pruned check on `SelfCollisionChecker.geometry`) equals the hard verdict of the full clearances over random poses; over 300 random poses the checker's clearance never exceeds the

@@ -1045,6 +1045,74 @@ class ReachMapSettings(StrictModel):
         return self
 
 
+class ApproachWeights(StrictModel):
+    """Weights of the approach candidate score (approach.score_value); all terms are dimensionless except travel (1/m)."""
+
+    margin: float = Field(default=1.0, ge=0.0)
+    cost: float = Field(default=0.5, ge=0.0)
+    travel: float = Field(default=0.2, ge=0.0)
+    heading: float = Field(default=0.1, ge=0.0)
+
+
+class TrackerSettings(StrictModel):
+    """Camera target tracker of the servoed grasp approach (template matching on frames, target_tracker.py).
+
+    A match is published only with a score of at least min_score and within max_correction_m of the planned target;
+    rate_hz must stay above twice the docking plugin's external_detection_timeout rate.
+    """
+
+    rate_hz: float = Field(default=5.0, gt=0.0)
+    min_score: float = Field(default=0.6, gt=0.0, le=1.0)
+    template_px: int = Field(default=48, ge=8)
+    search_px: int = Field(default=96, ge=8)
+    max_correction_m: float = Field(default=0.10, gt=0.0)
+    edge_margin_px: int = Field(default=20, ge=0)
+
+    @model_validator(mode="after")
+    def search_larger_than_template(self) -> "TrackerSettings":
+        """Require a search window larger than the template (else matchTemplate has nowhere to look).
+
+        Returns:
+            TrackerSettings: The validated settings.
+        """
+        if self.search_px <= self.template_px:
+            raise ValueError(f"tracker.search_px ({self.search_px}) must exceed template_px ({self.template_px})")
+        return self
+
+
+class ApproachSettings(StrictModel):
+    """Approach pose planner (approach.py) and the grasp docking interfaces.
+
+    Candidates: base yaws every yaw_step_deg, the best cells_per_yaw reach map cells per yaw whose expected margin
+    (margin - (pose_error_xy_m + rad(pose_error_yaw_deg) * |target - base|)) is at least min_expected_margin_m. The
+    footprint is checked on global_costmap_topic at the dock pose, the staging pose (staging_offset_m back along the
+    yaw) and corridor_samples poses between them; a costmap older than costmap_stale_s is refused. The best
+    verify_top_k are re-checked with point_reach and the best path_check_k planned on planner_action.
+    staging_offset_m, docking_threshold_m, dock_action and detection_topic must match the grasp docking server params.
+    """
+
+    yaw_step_deg: float = Field(default=10.0, gt=0.0, le=90.0)
+    cells_per_yaw: int = Field(default=30, ge=1)
+    min_expected_margin_m: float = 0.0
+    pose_error_xy_m: float = Field(default=0.03, ge=0.0)
+    pose_error_yaw_deg: float = Field(default=3.0, ge=0.0)
+    margin_cap_m: float = Field(default=0.08, gt=0.0)
+    weights: ApproachWeights = ApproachWeights()
+    staging_offset_m: float = Field(default=0.30, ge=0.0)
+    docking_threshold_m: float = Field(default=0.03, gt=0.0)
+    corridor_samples: int = Field(default=5, ge=0)
+    verify_top_k: int = Field(default=5, ge=0)
+    path_check_k: int = Field(default=3, ge=0)
+    global_costmap_topic: str = Field(default="/global_costmap/costmap", pattern=r"^/")
+    costmap_stale_s: float = Field(default=5.0, gt=0.0)
+    planner_action: str = Field(default="/compute_path_to_pose", pattern=r"^/")
+    dock_action: str = Field(default="/grasp/dock_robot", pattern=r"^/")
+    detection_topic: str = Field(default="/grasp/detected_dock_pose", pattern=r"^/")
+    # Whole DockRobot goal, staging navigation included (s).
+    dock_timeout_s: float = Field(default=120.0, gt=0.0)
+    tracker: TrackerSettings = TrackerSettings()
+
+
 class GripProfile(StrictModel):
     """How the gripper closes on and holds one kind of object (values in servo units, tune on the real gripper).
 
@@ -1366,6 +1434,7 @@ class McpServerConfig(StrictModel):
     body: BodySettings = BodySettings()
     body_check: BodyCheckSettings = BodyCheckSettings()
     reach_map: ReachMapSettings = ReachMapSettings()
+    approach: ApproachSettings = ApproachSettings()
     grasp: GraspSettings = GraspSettings()
     grip_profiles: GripProfileSettings = GripProfileSettings()
     # Declarative guard rules (guard_rules.py); code default: enabled, no rules (the deployed set lives in client.yml).
