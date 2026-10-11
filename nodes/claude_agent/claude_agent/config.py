@@ -85,6 +85,7 @@ DEFAULT_MAX_LOOP_ITERATIONS = 5
 MAX_LOOP_ITERATIONS_LIMIT = 5
 DEFAULT_RETRY_SUCCESS_THRESHOLD = 0.5
 DEFAULT_MAX_AUTO_RETRIES = 6
+DEFAULT_JOB_END_MAX_FOLLOWUPS = 2
 
 
 class MissingTokenError(RuntimeError):
@@ -106,6 +107,8 @@ class ClaudeAgentConfig(BaseModel):
         retry_success_threshold: A phase closed as failed is re-entered automatically when the agent's p_retry_success
             is at least this (and attempts, max_auto_retries and the instruction budget allow it).
         max_auto_retries: Most automatic phase re-entries per instruction, across all phases.
+        job_end_max_followups: "JOB END REFUSED" follow-ups the runner sends when an instruction would end with the arm
+            out of home, a lease held or the plan unfinished; after that many the runner parks the arm itself.
         effector_tools: Short names (no mcp__robot__ prefix) of the motion tools; keep in sync with mcp_server MOTION_TOOLS.
         uncapped_tools: Short names of safety/control tools that are never capped (stop never counts).
         denied_tools: Short names of motion tools the gate always refuses (humans only); effector_tools plus denied_tools
@@ -163,6 +166,7 @@ class ClaudeAgentConfig(BaseModel):
     max_loop_iterations: int = Field(default=DEFAULT_MAX_LOOP_ITERATIONS, ge=1, le=MAX_LOOP_ITERATIONS_LIMIT)
     retry_success_threshold: float = Field(default=DEFAULT_RETRY_SUCCESS_THRESHOLD, ge=0, le=1)
     max_auto_retries: int = Field(default=DEFAULT_MAX_AUTO_RETRIES, ge=0)
+    job_end_max_followups: int = Field(default=DEFAULT_JOB_END_MAX_FOLLOWUPS, ge=0)
     effector_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_EFFECTOR_TOOLS))
     uncapped_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_UNCAPPED_TOOLS))
     denied_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_DENIED_TOOLS))

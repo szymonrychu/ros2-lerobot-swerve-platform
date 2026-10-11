@@ -216,6 +216,13 @@ def test_plan_tree_and_retry_defaults() -> None:
     assert cfg.max_auto_retries == 6
 
 
+def test_job_end_max_followups_defaults_to_2_and_must_not_be_negative() -> None:
+    assert ClaudeAgentConfig().job_end_max_followups == 2
+    assert ClaudeAgentConfig(job_end_max_followups=0).job_end_max_followups == 0
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig(job_end_max_followups=-1)
+
+
 @pytest.mark.parametrize(
     "bad",
     [

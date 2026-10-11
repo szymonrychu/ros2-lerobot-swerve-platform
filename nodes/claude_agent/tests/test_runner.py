@@ -22,7 +22,7 @@ from claude_agent_sdk import (
 from claude_agent.config import TURN_MARGIN, ClaudeAgentConfig, MissingTokenError
 from claude_agent.events import EventLog
 from claude_agent.poi_clear import PoiClearResult
-from claude_agent.robot_stop import RobotStopResult
+from claude_agent.robot_stop import RobotToolResult
 from claude_agent.runner import AgentRunner, build_child_env, build_options
 from claude_agent.tools import BUILTIN_TOOLS, EffectorGate
 
@@ -120,11 +120,44 @@ class FakeStopper:
 
     def __init__(self) -> None:
         self.calls = 0
-        self.result = RobotStopResult(False, "stopped")
+        self.result = RobotToolResult(False, "stopped")
 
-    async def __call__(self) -> RobotStopResult:
+    async def __call__(self) -> RobotToolResult:
         self.calls += 1
         return self.result
+
+
+CLEAN_CONTROL_STATE = {
+    "arm": {"held": False, "at_home": True, "home_stored": True},
+    "base": {"held": False, "steering_neutral": True},
+}
+PARKED_RELEASE = {
+    "released": ["arm", "base"],
+    "reset": {"arm": "homed", "base": "neutral"},
+    "state": CLEAN_CONTROL_STATE,
+}
+
+
+class FakeToolCaller:
+    """Stands in for call_robot_tool: records (name, args, timeout_s); scripted results per tool (the last repeats)."""
+
+    def __init__(self, results: dict[str, list[RobotToolResult]] | None = None) -> None:
+        self.calls: list[tuple[str, dict, float]] = []
+        self.results = {name: list(queue) for name, queue in (results or {}).items()}
+
+    async def __call__(self, name: str, args: dict, timeout_s: float) -> RobotToolResult:
+        self.calls.append((name, args, timeout_s))
+        queue = self.results.get(name)
+        if queue:
+            return queue.pop(0) if len(queue) > 1 else queue[0]
+        if name == "get_control_state":
+            return RobotToolResult(False, "state", data=CLEAN_CONTROL_STATE)
+        if name == "release_control":
+            return RobotToolResult(False, "released", data=PARKED_RELEASE)
+        return RobotToolResult(True, f"unexpected tool {name}")
+
+    def names(self) -> list[str]:
+        return [call[0] for call in self.calls]
 
 
 class FakeProber:
@@ -160,6 +193,7 @@ def make_runner(
     clearer=None,
     statuses: list[list[str]] | None = None,
     probe_result: str | None = None,
+    tool_caller: FakeToolCaller | None = None,
 ):
     FakeClient.instances.clear()
     FakeClient.status_scripts = statuses or []
@@ -182,6 +216,7 @@ def make_runner(
         robot_stopper=stopper or FakeStopper(),
         poi_clearer=clearer or FakeClearer(),
         mcp_prober=FakeProber(probe_result),
+        robot_tool_caller=tool_caller or FakeToolCaller(),
     )
     return runner, events, cfg
 
@@ -292,7 +327,7 @@ async def test_interrupt_when_idle(tmp_path: Path) -> None:
 
 
 async def test_effector_counter_resets_each_instruction(tmp_path: Path) -> None:
-    runner, events, _ = make_runner(tmp_path, script=[use_effector, make_result()])
+    runner, events, _ = make_runner(tmp_path, script=[use_effector, completer(), make_result()])
     await runner.start_instruction("a")
     await runner.wait_idle()
     assert events.history()[-2]["effector_calls"] == 1
@@ -426,7 +461,7 @@ async def test_interrupt_stops_robot_even_if_model_interrupt_hangs(tmp_path: Pat
 
 async def test_failed_robot_stop_is_reported_as_error_result(tmp_path: Path) -> None:
     stopper = FakeStopper()
-    stopper.result = RobotStopResult(True, "mcp down")
+    stopper.result = RobotToolResult(True, "mcp down")
     runner, events, _ = make_runner(tmp_path, block=True, stopper=stopper)
     await runner.start_instruction("go")
     await asyncio.sleep(0)
@@ -528,7 +563,7 @@ async def test_close_logs_info_when_mcp_server_is_already_gone(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     stopper = FakeStopper()
-    stopper.result = RobotStopResult(True, "mcp_server unreachable: connection refused", unreachable=True)
+    stopper.result = RobotToolResult(True, "mcp_server unreachable: connection refused", unreachable=True)
     runner, _, _ = make_runner(tmp_path, stopper=stopper)
     with caplog.at_level("INFO", logger="claude_agent"):
         await runner.close()
@@ -539,7 +574,7 @@ async def test_close_logs_info_when_mcp_server_is_already_gone(
 
 async def test_unreachable_outside_shutdown_is_still_an_error(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     stopper = FakeStopper()
-    stopper.result = RobotStopResult(True, "mcp_server unreachable: connection refused", unreachable=True)
+    stopper.result = RobotToolResult(True, "mcp_server unreachable: connection refused", unreachable=True)
     runner, _, _ = make_runner(tmp_path, stopper=stopper)
     with caplog.at_level("INFO", logger="claude_agent"):
         await runner.stop_robot("user_stop")
@@ -548,7 +583,7 @@ async def test_unreachable_outside_shutdown_is_still_an_error(tmp_path: Path, ca
 
 async def test_close_bounds_a_hanging_stop_with_the_short_shutdown_timeout(tmp_path: Path) -> None:
     class Hanging(FakeStopper):
-        async def __call__(self) -> RobotStopResult:
+        async def __call__(self) -> RobotToolResult:
             self.calls += 1
             await asyncio.sleep(30)
             return self.result
@@ -613,7 +648,7 @@ async def test_max_turns_or_error_without_effector_calls_does_not_stop(tmp_path:
 
 async def test_done_after_effector_calls_does_not_stop(tmp_path: Path) -> None:
     stopper = FakeStopper()
-    runner, _, _ = make_runner(tmp_path, script=[use_effector, make_result()], stopper=stopper)
+    runner, _, _ = make_runner(tmp_path, script=[use_effector, completer(), make_result()], stopper=stopper)
     await runner.start_instruction("go")
     await runner.wait_idle()
     assert stopper.calls == 0
@@ -915,6 +950,7 @@ class PhaseNoteClient(FakeClient):
             yield make_result(terminal_reason="aborted_streaming")
         else:
             yield assistant(TextBlock(text="completing"))
+            await completer()(self)
             yield make_result()
 
 
@@ -939,6 +975,7 @@ async def test_turn_cap_not_hit_when_the_instruction_finishes_within_it(tmp_path
         planner(phase_spec(turns=3)),
         assistant(TextBlock(text="a")),
         assistant(TextBlock(text="b")),
+        completer(),
         make_result(),
     ]
     runner, events, _ = make_runner(tmp_path, script=script, stopper=stopper)
@@ -1155,6 +1192,7 @@ class ParallelToolsPhaseNoteClient(FakeClient):
             yield make_result(terminal_reason="aborted_streaming")
         else:
             yield assistant(TextBlock(text="completing"))
+            await completer()(self)
             yield make_result()
 
 

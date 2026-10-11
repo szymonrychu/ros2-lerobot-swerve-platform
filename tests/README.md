@@ -382,6 +382,21 @@ Covers:
 - shutdown stop (`test_robot_stop.py`, `test_runner.py`): a refused connection is reported as `unreachable` with a plain
   reason (no raw `ExceptionGroup`), tool errors of a reachable server are not; at shutdown an unreachable mcp_server is
   logged at INFO (an ERROR outside shutdown) and a hanging stop is bounded by `shutdown_stop_timeout_s`
+- direct tool calls (`test_robot_stop.py`): `call_robot_tool` against a real Streamable HTTP MCP server passes the arguments
+  and returns the structured result as `data`; a missing token file is an error with no data; a hanging server is bounded
+  and the timeout text names the tool
+- job end (`test_job_end.py`, fake client plus fake tool caller `FakeToolCaller` in `test_runner.py`): the arm not at home and
+  the arm lease held refused with a `JOB END REFUSED` follow-up naming both and `release_control(subsystem="all")` /
+  `complete_phase`, and the model fixing it (instruction ends `done`, no `job_end` field, no extra events); never fixed: 2
+  follow-ups (`job_end_max_followups` default), then the runner's own `release_control(subsystem="all")` shown as
+  `tool_call` / `tool_result` with `source: "job_end"` and `turn_end.job_end = {forced_park: true, result}`; a park leaving the arm
+  out and a park refused while carrying emit "arm not parked" before `turn_end`; `job_end_max_followups: 0` parks at once; a
+  failing check (mcp_server unreachable, unreadable state) emits "job-end check failed" and ends `done` with
+  `job_end.check_error`, without follow-ups; user stop, timeout, turn cap, `error` and `max_turns` skip the check; carrying an
+  object (in the state, or a `release_control` of the model refused with "put the object down first") puts "put the object
+  down first (release_object)" before the park text, and a later successful `release_object` / `release_control` clears it; an unfinished plan names its active phase and ends with a forced park, a
+  finished one passes; the follow-up count resets per instruction. `test_config.py`: `job_end_max_followups` default 2, 0
+  allowed, negative rejected. Existing runner tests close their plan (`completer()`) so the check passes
 - plan (`test_budget.py`): `PlanTracker` validation (complexity enum, 1 to 12 phases, integer caps, rw 0 allowed, names and goals, a stray `ro_cap` ignored), clamping to the
   per-phase maxima with notes, rejection when the phase caps summed exceed an instruction maximum, the phase lifecycle (first phase active,
   `complete_phase` outcomes and next activation, plan end), sensor calls never refused (no plan, plan finished, turn cap used up) but counted, rw/turn counting and exact exhausted reasons, the once-per-phase raise

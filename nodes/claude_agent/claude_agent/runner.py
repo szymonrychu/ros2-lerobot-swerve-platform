@@ -27,6 +27,7 @@ from .budget import PLAN_SERVER_NAME, build_plan_server
 from .config import ClaudeAgentConfig, MissingTokenError, read_mcp_token
 from .digest import build_digest
 from .events import (
+    STATUS_DONE,
     STATUS_ERROR,
     STATUS_INTERRUPTED,
     STATUS_MAX_TURNS,
@@ -54,7 +55,7 @@ from .metrics import (
 from .poi_clear import PoiClearResult, call_clear_agent_pois
 from .prompt import build_system_prompt
 from .robot_events import FOLLOWUP_TEMPLATE, SEVERITY_CRITICAL, parse_robot_event
-from .robot_stop import STOP_TOOL_NAME, RobotStopResult, call_robot_stop
+from .robot_stop import STOP_TOOL_NAME, RobotToolResult, call_robot_stop, call_robot_tool
 from .tools import (
     BUILTIN_TOOLS,
     KIND_EFFECTOR,
@@ -78,6 +79,25 @@ STOP_SOURCE_MAX_TURNS = "max_turns"
 STOP_SOURCE_ERROR = "error"
 STOP_SOURCE_TURN_CAP = "turn_cap"
 STOP_SENT_TEXT = "stop sent"
+# Job-end enforcement: an instruction ends with the arm parked at home, no lease held and the plan finished.
+JOB_END_SOURCE = "job_end"
+CONTROL_STATE_TOOL = "get_control_state"
+RELEASE_CONTROL_TOOL = "release_control"
+JOB_END_PARK_ARGS: dict[str, Any] = {"subsystem": "all"}
+JOB_END_PARK_TIMEOUT_S = 60.0
+JOB_END_FOLLOWUP_MARKER = "JOB END REFUSED:"
+JOB_END_FOLLOWUP = (
+    JOB_END_FOLLOWUP_MARKER + ' {problems}. {carry}Park: release_control(subsystem="all"); close the active phase with '
+    "complete_phase."
+)
+JOB_END_CARRY_TEXT = "You are carrying an object: put the object down first (release_object), then park. "
+# mcp_server refuses a parking release_control while the gripper carries an object with this text (design F).
+CARRY_REFUSAL_MARKER = "put the object down first"
+# A successful one of these after such a refusal means the object was put down (or the park went through).
+CARRY_CLEARING_TOOLS = (RELEASE_CONTROL_TOOL, "release_object")
+JOB_END_CHECK_ERROR = "job-end check failed: {reason}; the instruction ends without the arm, lease and plan check"
+ARM_NOT_PARKED_MESSAGE = "arm not parked after the forced job-end release_control: {detail}"
+RELEASED_TEXT = "released"
 SHUTDOWN_INTERRUPTED_MESSAGE = "instruction interrupted by service shutdown"
 # Claude Code's tool result for a call cancelled by an interrupt (also its text for a user rejection at a prompt).
 GENERIC_REJECTION_MARKER = "The user doesn't want to proceed with this tool use"
@@ -217,9 +237,10 @@ class AgentRunner:
         client_factory: Callable[[ClaudeAgentOptions], ClientLike] = ClaudeSDKClient,
         base_env: Mapping[str, str] | None = None,
         logger: Any = None,
-        robot_stopper: Callable[[], Awaitable[RobotStopResult]] | None = None,
+        robot_stopper: Callable[[], Awaitable[RobotToolResult]] | None = None,
         poi_clearer: Callable[[], Awaitable[PoiClearResult]] | None = None,
         mcp_prober: Callable[[], Awaitable[str | None]] | None = None,
+        robot_tool_caller: Callable[[str, dict[str, Any], float], Awaitable[RobotToolResult]] | None = None,
     ) -> None:
         """Create the runner (the Claude session starts lazily at the first instruction).
 
@@ -229,13 +250,16 @@ class AgentRunner:
             client_factory (Callable): Builds a client from options (ClaudeSDKClient; a fake in tests).
             base_env (Mapping[str, str] | None): Environment for the child; defaults to os.environ.
             logger (Any): Object with info/warning/error(str); defaults to the stdlib logger (the node passes the ROS2 logger).
-            robot_stopper (Callable[[], Awaitable[RobotStopResult]] | None): Calls the robot MCP stop tool directly;
+            robot_stopper (Callable[[], Awaitable[RobotToolResult]] | None): Calls the robot MCP stop tool directly;
                 defaults to call_robot_stop with the configured URL, token file and stop_timeout_s.
             poi_clearer (Callable[[], Awaitable[PoiClearResult]] | None): Clears the agent-made POIs through the
                 mcp_server admin route (used by reset()); defaults to call_clear_agent_pois with the configured URL,
                 token file and stop_timeout_s.
             mcp_prober (Callable[[], Awaitable[str | None]] | None): Tells whether mcp_server answers (None) or why not;
                 defaults to probe_mcp_server with the configured URL and mcp_check_timeout_s.
+            robot_tool_caller (Callable[[str, dict[str, Any], float], Awaitable[RobotToolResult]] | None): Calls one
+                robot MCP tool directly (name, arguments, timeout in s) for the job-end check and park; defaults to
+                call_robot_tool with the configured URL and token file.
         """
         self.config = config
         self.events = events
@@ -285,6 +309,9 @@ class AgentRunner:
         self.robot_stopper = robot_stopper or self.default_robot_stopper
         self.poi_clearer = poi_clearer or self.default_poi_clearer
         self.mcp_prober = mcp_prober or self.default_mcp_prober
+        self.robot_tool_caller = robot_tool_caller or self.default_robot_tool_caller
+        self.job_end_followups = 0
+        self.carry_refused = False
         self.mcp_poll_interval_s = MCP_POLL_INTERVAL_S
         self.instruction_started_at = time.monotonic()
         self.session_totals: dict[str, float] = {}
@@ -366,13 +393,26 @@ class AgentRunner:
             else:
                 TOKENS.labels(USAGE_TOKEN_KINDS[key]).inc(delta)
 
-    async def default_robot_stopper(self) -> RobotStopResult:
+    async def default_robot_stopper(self) -> RobotToolResult:
         """Call the robot MCP stop tool with the configured endpoint.
 
         Returns:
-            RobotStopResult: Outcome (never raises).
+            RobotToolResult: Outcome (never raises).
         """
         return await call_robot_stop(self.config.mcp_url, self.config.mcp_token_file, self.config.stop_timeout_s)
+
+    async def default_robot_tool_caller(self, name: str, args: dict[str, Any], timeout_s: float) -> RobotToolResult:
+        """Call one robot MCP tool with the configured endpoint.
+
+        Args:
+            name (str): Tool name (no prefix).
+            args (dict[str, Any]): Tool arguments.
+            timeout_s (float): Bound for connect plus call.
+
+        Returns:
+            RobotToolResult: Outcome (never raises).
+        """
+        return await call_robot_tool(self.config.mcp_url, self.config.mcp_token_file, timeout_s, name, args)
 
     async def default_poi_clearer(self) -> PoiClearResult:
         """Call the mcp_server admin route that clears the agent-made POIs.
@@ -592,6 +632,8 @@ class AgentRunner:
         self.turn_capped = False
         self.pending_followup = None
         self.interrupt_pending = False
+        self.job_end_followups = 0
+        self.carry_refused = False
         self.digest = self.take_digest()
         self.last_instruction, self.last_status, self.last_text = text, "", ""
         self.gate.reset()
@@ -673,33 +715,59 @@ class AgentRunner:
         Args:
             source (str): Why (user_stop, reset, shutdown, timeout, max_turns, error); the `source` field of the events.
         """
-        call_id = f"stop-{uuid.uuid4().hex[:12]}"
-        self.events.append(
-            "tool_call",
-            id=call_id,
-            name=STOP_TOOL_NAME,
-            full_name=f"{ROBOT_PREFIX}{STOP_TOOL_NAME}",
-            kind=KIND_UNCAPPED,
-            input={},
-            source=source,
-        )
+        call_id = self.emit_direct_call(STOP_TOOL_NAME, {}, source, KIND_UNCAPPED)
         if source == STOP_SOURCE_SHUTDOWN:
             limit = self.config.shutdown_stop_timeout_s
             try:
                 result = await asyncio.wait_for(self.robot_stopper(), limit)
             except TimeoutError:
-                result = RobotStopResult(True, f"stop call timed out after {limit:g} s at shutdown")
+                result = RobotToolResult(True, f"stop call timed out after {limit:g} s at shutdown")
         else:
             result = await self.robot_stopper()
         if result.is_error and result.unreachable and source == STOP_SOURCE_SHUTDOWN:
             self.logger.info(f"robot stop at shutdown skipped: mcp_server already gone ({result.text})")
         elif result.is_error:
             self.logger.error(f"robot stop ({source}) failed: {result.text}")
+        self.emit_direct_result(call_id, result, source, STOP_SENT_TEXT)
+
+    def emit_direct_call(self, name: str, args: dict[str, Any], source: str, kind: str | None) -> str:
+        """Show a robot tool call the runner makes itself (not the model) in the chat.
+
+        Args:
+            name (str): Tool name (no prefix).
+            args (dict[str, Any]): Tool arguments.
+            source (str): Why the runner calls it (the `source` field of the events).
+            kind (str | None): Tool kind for the chat.
+
+        Returns:
+            str: The call id the result event refers to.
+        """
+        call_id = f"{source}-{uuid.uuid4().hex[:12]}"
+        self.events.append(
+            "tool_call",
+            id=call_id,
+            name=name,
+            full_name=f"{ROBOT_PREFIX}{name}",
+            kind=kind,
+            input=dict(args),
+            source=source,
+        )
+        return call_id
+
+    def emit_direct_result(self, call_id: str, result: RobotToolResult, source: str, default_text: str) -> None:
+        """Show the result of a call shown by emit_direct_call.
+
+        Args:
+            call_id (str): Id from emit_direct_call.
+            result (RobotToolResult): The outcome.
+            source (str): Same source as the call.
+            default_text (str): Text shown when the result has none.
+        """
         self.events.append(
             "tool_result",
             id=call_id,
             is_error=result.is_error,
-            content=[{"type": "text", "text": result.text or STOP_SENT_TEXT}],
+            content=[{"type": "text", "text": result.text or default_text}],
             truncated=False,
             source=source,
         )
@@ -731,11 +799,12 @@ class AgentRunner:
         if self.plan.rw_used > 0 and not self.interrupted:
             await self.stop_robot(source)
 
-    def finish_turn(self, result: ResultMessage) -> str:
+    def finish_turn(self, result: ResultMessage, job_end: dict[str, Any] | None = None) -> str:
         """Emit the error (if any) and turn_end events for a result.
 
         Args:
             result (ResultMessage): Final message of the instruction.
+            job_end (dict[str, Any] | None): The job-end report added to turn_end (forced park or failed check).
 
         Returns:
             str: The turn_end status.
@@ -751,6 +820,8 @@ class AgentRunner:
                 else (result.result or "; ".join(result.errors or []) or "agent error")
             )
             self.events.append("error", message=message)
+        if job_end is not None:
+            turn_end["job_end"] = job_end
         self.end_turn(**turn_end)
         return turn_end["status"]
 
@@ -875,7 +946,12 @@ class AgentRunner:
                     followup = self.take_followup(message)
                     if followup is not None:
                         continue
-                    status = self.finish_turn(message)
+                    job_end: dict[str, Any] | None = None
+                    if self.job_end_applies(message):
+                        followup, job_end = await self.check_job_end()
+                        if followup is not None:
+                            continue
+                    status = self.finish_turn(message, job_end)
                     if status == STATUS_MAX_TURNS:
                         await self.stop_if_moved(STOP_SOURCE_MAX_TURNS)
                     elif status == STATUS_ERROR:
@@ -883,6 +959,104 @@ class AgentRunner:
         finally:
             self.streaming = False
         return finished, followup
+
+    def job_end_applies(self, result: ResultMessage) -> bool:
+        """Whether the job-end check runs for a result (user stop, timeout, turn cap, errors and max_turns skip it).
+
+        Args:
+            result (ResultMessage): Final message of the stream, with no follow-up pending.
+
+        Returns:
+            bool: True for a normal end the model chose (status done) that the user did not stop.
+        """
+        if self.interrupted or self.turn_capped:
+            return False
+        return result_to_turn_end(result, False, 0)["status"] == STATUS_DONE
+
+    async def call_robot_tool_safely(self, name: str, args: dict[str, Any], timeout_s: float) -> RobotToolResult:
+        """Call a robot tool through robot_tool_caller, turning a raised exception into an error result.
+
+        Args:
+            name (str): Tool name (no prefix).
+            args (dict[str, Any]): Tool arguments.
+            timeout_s (float): Bound for the call.
+
+        Returns:
+            RobotToolResult: Outcome (never raises).
+        """
+        try:
+            return await self.robot_tool_caller(name, dict(args), timeout_s)
+        except Exception as exc:  # noqa: BLE001 - the job end must never break on a failing caller
+            return RobotToolResult(True, f"{name} call failed: {type(exc).__name__}: {exc}")
+
+    async def check_job_end(self) -> tuple[str | None, dict[str, Any] | None]:
+        """Refuse an instruction end with the arm out of home, a lease held or the plan unfinished.
+
+        The first job_end_max_followups refusals return a "JOB END REFUSED" follow-up prompt (the model parks the
+        arm itself: it knows what it holds and what is around); after that the runner parks the arm itself
+        (force_park). A failing check (mcp_server unreachable, unreadable state) is reported and the instruction ends.
+
+        Returns:
+            tuple[str | None, dict[str, Any] | None]: (the follow-up prompt to send next, or None to end the turn;
+            the job_end report for turn_end, or None when there is nothing to report).
+        """
+        result = await self.call_robot_tool_safely(CONTROL_STATE_TOOL, {}, self.config.stop_timeout_s)
+        state = result.data
+        if result.is_error or state is None or not isinstance(state.get("arm"), dict):
+            reason = result.text if result.is_error else f"unreadable {CONTROL_STATE_TOOL} result: {result.text[:200]}"
+            message = JOB_END_CHECK_ERROR.format(reason=reason)
+            self.logger.error(message)
+            self.events.append("error", message=message)
+            return None, {"check_error": reason}
+        carrying = self.carry_refused or is_carrying(state)
+        problems = job_end_problems(state, carrying) + self.plan_problems()
+        if not problems:
+            return None, None
+        if self.job_end_followups < self.config.job_end_max_followups:
+            self.job_end_followups += 1
+            self.logger.warning(f"job end refused ({self.job_end_followups}): {'; '.join(problems)}")
+            carry = JOB_END_CARRY_TEXT if carrying else ""
+            return JOB_END_FOLLOWUP.format(problems="; ".join(problems), carry=carry), None
+        self.logger.warning(f"job end still refused after {self.job_end_followups} follow-ups; parking the arm")
+        return None, await self.force_park()
+
+    def plan_problems(self) -> list[str]:
+        """The plan part of the job-end check.
+
+        Returns:
+            list[str]: ["plan unfinished (...)"] when a plan exists and its cursor has not reached the end, else [].
+        """
+        plan = self.plan
+        if plan.root is None or plan.plan_finished:
+            return []
+        pending = plan.pending_condition
+        if pending is not None:
+            return [f"plan unfinished (condition pending: {pending['question']})"]
+        if plan.active is not None:
+            return [f"plan unfinished (active phase {plan.active} '{plan.phases[plan.active].name}')"]
+        return ["plan unfinished"]
+
+    async def force_park(self) -> dict[str, Any]:
+        """Release every lease with the default reset (the arm drives home), shown in the chat as a job_end call.
+
+        Emits an "arm not parked" error when the arm is still not at home afterwards (failed park, refused while
+        carrying an object, mcp_server unreachable).
+
+        Returns:
+            dict[str, Any]: {forced_park: True, result: the release_control result (structured, else its text)}.
+        """
+        full_name = f"{ROBOT_PREFIX}{RELEASE_CONTROL_TOOL}"
+        kind = classify_tool(self.config, full_name)
+        call_id = self.emit_direct_call(RELEASE_CONTROL_TOOL, JOB_END_PARK_ARGS, JOB_END_SOURCE, kind)
+        result = await self.call_robot_tool_safely(RELEASE_CONTROL_TOOL, JOB_END_PARK_ARGS, JOB_END_PARK_TIMEOUT_S)
+        self.emit_direct_result(call_id, result, JOB_END_SOURCE, RELEASED_TEXT)
+        at_home = None if result.is_error else nested(result.data, "state", "arm", "at_home")
+        if at_home is not True:
+            detail = result.text if result.is_error else f"arm reset {nested(result.data, 'reset', 'arm')}"
+            message = ARM_NOT_PARKED_MESSAGE.format(detail=detail)
+            self.logger.error(message)
+            self.events.append("error", message=message)
+        return {"forced_park": True, "result": result.data if result.data is not None else result.text}
 
     def note_stream_event(self, message: StreamEvent) -> None:
         """Time one API call from the partial stream and log it as an ``api_timing`` event at its end.
@@ -960,6 +1134,10 @@ class AgentRunner:
                 continue
             name = short_name(self.tools_in_flight.pop(block.tool_use_id, block.tool_use_id))
             self.tool_started_at.pop(block.tool_use_id, None)
+            if name == RELEASE_CONTROL_TOOL and block.is_error and CARRY_REFUSAL_MARKER in str(block.content):
+                self.carry_refused = True
+            elif name in CARRY_CLEARING_TOOLS and not block.is_error:
+                self.carry_refused = False
             if not block.is_error or self.interrupted or GENERIC_REJECTION_MARKER not in str(block.content):
                 continue
             self.logger.warning(f"tool call {name} ({block.tool_use_id}) was cancelled by Claude Code")
@@ -1192,6 +1370,57 @@ class AgentRunner:
             await asyncio.wait_for(client.interrupt(), limit)
         except Exception as exc:  # noqa: BLE001 - a hung or dead CLI must not delay the shutdown
             self.logger.warning(f"model interrupt at shutdown failed: {exc!r}")
+
+
+def nested(data: Any, *keys: str) -> Any:
+    """Read a value from nested dicts.
+
+    Args:
+        data (Any): Outer value (normally a dict).
+        *keys (str): Path of keys.
+
+    Returns:
+        Any: The value, or None when a level is missing or not a dict.
+    """
+    for key in keys:
+        if not isinstance(data, dict):
+            return None
+        data = data.get(key)
+    return data
+
+
+def is_carrying(state: dict[str, Any]) -> bool:
+    """Whether get_control_state says the gripper carries an object (arm ``carrying`` or a carried object radius).
+
+    Args:
+        state (dict[str, Any]): get_control_state result.
+
+    Returns:
+        bool: True when it does.
+    """
+    return bool(nested(state, "arm", "carrying")) or nested(state, "arm", "carried_object_radius_m") is not None
+
+
+def job_end_problems(state: dict[str, Any], carrying: bool) -> list[str]:
+    """The robot part of the job-end check.
+
+    Args:
+        state (dict[str, Any]): get_control_state result ({arm: {held, at_home, ...}, base: {held, ...}}).
+        carrying (bool): Whether the gripper carries an object.
+
+    Returns:
+        list[str]: Problems in chat wording (empty when the arm is home and no lease is held). An unknown at_home
+        (null: no home stored or no fresh joint states) is not refused: the model could not fix it.
+    """
+    problems = []
+    if carrying:
+        problems.append("carrying an object")
+    if nested(state, "arm", "at_home") is False:
+        problems.append("arm not at home")
+    for subsystem in ("arm", "base"):
+        if nested(state, subsystem, "held"):
+            problems.append(f"{subsystem} lease held")
+    return problems
 
 
 def cli_process(client: ClientLike | None) -> Any:

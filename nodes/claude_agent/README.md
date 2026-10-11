@@ -25,8 +25,10 @@ web_ui (later: proxy)  --HTTP/WS-->  claude_agent (127.0.0.1:18300)
   WebFetch, WebSearch, Task/Agent, TodoWrite, NotebookEdit, AskUserQuestion, plan mode, ...) and no allow rules exist, so
   calls reach the gate: `mcp__robot__*` (within the budget), the four `mcp__agent__*` planning tools and the sandboxed file tools are allowed, everything else denied.
 - `poi_clear.py`: calls the mcp_server admin route `POST /admin/clear_agent_pois` (HTTP, bearer token) on reset; never raises.
-- `robot_stop.py`: calls the robot MCP `stop` tool directly with the official `mcp` client (Streamable HTTP, bearer token
-  from the token file; `mcp` is pinned in `pyproject.toml`). It never raises: failures come back as an error result.
+- `robot_stop.py`: `call_robot_tool(url, token_file, timeout_s, name, args)` calls one robot MCP tool directly with the
+  official `mcp` client (Streamable HTTP, bearer token from the token file; `mcp` is pinned in `pyproject.toml`) and
+  returns its text plus its structured result (`data`); `call_robot_stop` is the `stop` call. They never raise: failures
+  come back as an error result (`unreachable` when nothing listens at the URL).
 - `events.py`: persisted event log (see "Session log and paged history") plus normalization of SDK messages (thumbnails
   with Pillow, text truncation).
 - `prompt.py`: robot persona, working method, notes instructions, hardware facts and safety rules, built from the config values.
@@ -280,9 +282,39 @@ Each stop appears in the chat as a `tool_call` (`name: "stop"`, `kind: "uncapped
 
 At service shutdown the stop call is bounded by `shutdown_stop_timeout_s` (2 s). When deploys restart mcp_server first,
 nothing listens any more: the refused connection (wrapped by the MCP transport in an `ExceptionGroup`, read through its
-cause chain in `robot_stop.call_robot_stop`) is reported as `unreachable` and logged at INFO ("robot stop at shutdown
+cause chain in `robot_stop.call_robot_tool`) is reported as `unreachable` and logged at INFO ("robot stop at shutdown
 skipped: mcp_server already gone"); other failures, and an unreachable server outside shutdown, stay errors. mcp_server
 itself releases the arm lease when it shuts down.
+
+## Job end: arm parked, leases released, plan finished
+
+An instruction may not end with the arm out, a lease held or its plan unfinished. When a response stream ends with a
+`ResultMessage` whose status would be `done`, no follow-up is pending, and the user did not stop it (user stop, watchdog
+timeout, turn cap, `error` and `max_turns` skip the check: the robot was halted there and `stop` holds the arm), the
+runner calls mcp_server's `get_control_state` itself (`call_robot_tool`, bounded by `stop_timeout_s`) and checks the plan.
+Problems:
+
+- the arm is not at home (`arm.at_home` is `false`; `null`, no home stored or no fresh joint states, is not refused);
+- any lease is held (`arm.held`, `base.held`);
+- the plan exists and is not finished (an active phase or a pending condition);
+- the gripper carries an object (`arm.carrying` or `arm.carried_object_radius_m` in the state, or a `release_control`
+  call of the model refused with "put the object down first" in this instruction).
+
+With problems and fewer than `job_end_max_followups` (2) job-end follow-ups used in the instruction, the runner sends
+`JOB END REFUSED: <problems>. Park: release_control(subsystem="all"); close the active phase with complete_phase.` as
+the next prompt (the same path as the robot-event follow-ups). While carrying an object the text also says `You are
+carrying an object: put the object down first (release_object), then park.`: mcp_server refuses a parking
+`release_control` while the gripper carries something (design F). The model parks first because it knows what it holds
+and what is around; the home routes only avoid the robot's own body.
+
+After the last follow-up the runner parks itself: `release_control(subsystem="all")` with the default reset (the arm
+drives home), bounded by 60 s, shown in the chat as a `tool_call` / `tool_result` pair with `source: "job_end"`, and
+`turn_end` gains `job_end: {forced_park: true, result}` (the structured release result, else its text). When the arm is
+still not home afterwards (failed park, refused while carrying, mcp_server gone) an `error` event "arm not parked after
+the forced job-end release_control: ..." precedes `turn_end`; the status stays as it was.
+
+When the check itself fails (mcp_server unreachable, unreadable state) the runner emits an `error` "job-end check
+failed: ..." and ends the instruction normally with `job_end: {check_error: <reason>}`; it never loops.
 
 ## Clean stop on SIGTERM
 
@@ -343,6 +375,7 @@ unknown keys are rejected.
 | `max_loop_iterations` | `5` | Largest `max_iterations` of a `while` node (1 to 5) |
 | `retry_success_threshold` | `0.5` | A failed phase is re-entered automatically from this `p_retry_success` on (0 to 1) |
 | `max_auto_retries` | `6` | Most automatic phase re-entries per instruction, across all phases |
+| `job_end_max_followups` | `2` | "JOB END REFUSED" follow-ups before the runner parks the arm itself (see "Job end") |
 | `effector_tools` / `uncapped_tools` / `sensor_tools` / `denied_tools` | see above | Short tool names (no `mcp__robot__`) |
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |
 | `mcp_token_file` | `/etc/ros2/mcp_server/token` | `MCP_SERVER_TOKEN=<token>` (or the bare token), read per session |
@@ -414,11 +447,11 @@ Every event is `{seq: int, ts: float, type, ...}`:
 |---|---|
 | `user_message` | `text` |
 | `assistant_text` | `text` |
-| `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped` / `notes` / `plan`), `input`; `source` only on the node's own `stop` call (see above) |
-| `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated`; `source` only on the node's own `stop` call |
+| `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped` / `notes` / `plan`), `input`; `source` only on the node's own calls (`stop`, see above, and the job-end `release_control`, source `job_end`) |
+| `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated`; `source` only on the node's own calls (`stop`, job-end `release_control`) |
 | `tool_denied` | `id` (may be null), `name`, `reason` |
 | `tool_cancelled` | `id`, `name` (short); a tool result came back with Claude Code's generic "user doesn't want to proceed" text without a user stop (the follow-up corrects it for the model) |
-| `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls) |
+| `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls); `job_end` (`{forced_park: true, result}` or `{check_error}`) only when the job-end check forced a park or failed |
 | `error` | `message` (authentication failures, missing token file, session failures) |
 | `plan` | the plan payload (`complexity`, `rationale`, `revised`, `revision_rationale`, `active_phase`, `phases` as a flat preorder list with `index`, caps and usage, `tree` (the plan tree: phase nodes as `{type, id, index}`, `if` with `branch`, `while` with `iteration` and `exit_reason`), `pending_condition` (`null` or `{node_id, node_type, question, iteration}`)); emitted when the agent sets its plan |
 | `phase_started` | the phase payload (`index`, `name`, `goal`, `status`, caps, usage, `raised`, `summary`, `id`, `depth` (root level 1), `attempt`, `max_attempts`, `iteration` (of the innermost `while`, 0 outside loops), `p_retry_success`, `retry_change`); emitted when a phase becomes active, again on each loop iteration and automatic retry |

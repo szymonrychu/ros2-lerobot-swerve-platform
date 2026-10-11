@@ -179,6 +179,8 @@ async def test_tilt_clear_info_event_does_not_interrupt(tmp_path: Path) -> None:
 
 async def test_plan_and_turns_carry_over_the_follow_up(tmp_path: Path) -> None:
     runner, events = event_runner(tmp_path)
+    # The plan stays unfinished: no job-end follow-ups, so the turns are only the instruction's and the event's.
+    runner.config = runner.config.model_copy(update={"job_end_max_followups": 0})
     runner.bind_loop()
     await runner.start_instruction("go")
     await asyncio.sleep(0.1)
