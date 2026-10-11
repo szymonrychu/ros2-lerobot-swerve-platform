@@ -194,11 +194,11 @@ from above). Scoop only works when there is a gap under the object (it overhangs
 uneven base): set gap_below_m; an object resting flat on a surface would be shoved instead. auto (default) tries \
 top_down, then angled, then scoop and takes the first feasible one. The arm approaches radially from its base, so turn the robot for another \
 approach direction. plan_grasp explains infeasible plans with reasons (unreachable, too wide, joint limits); fix the \
-cause (drive closer, another strategy) instead of retrying blindly. grasp_object reports grasped, unverified (the \
-jaw closed into the empty band, so the load cannot tell a soft, squashed object from empty jaws: it kept the jaws \
-closed, lifted and retreated and attached a gripper camera image: look at the attached image; if the object is in the \
-jaws treat it as held, otherwise call release_object and retry), missed (a contact that failed verification: it \
-opened and retreated: check a picture and correct the object position), aborted or infeasible; release_object opens \
+cause (drive closer, another strategy) instead of retrying blindly. grasp_object reports grasped, unverified (every \
+held grasp_object or set_gripper close returns unverified with a jaw crop attached, a gripper camera image cropped \
+to the jaws: the hold was kept, lifted and retreated, but the sensors alone have not confirmed it), missed (a contact that failed verification: it \
+opened and retreated: check a picture and correct the object position: missed means release_object), aborted or \
+infeasible; release_object opens \
 and lifts away. top_down and angled centre the object between the jaws (the plan's grasp_shift): the waypoint x, y, z is \
 the jaw centre (the object centre) while the tool point that get_arm_state reports (the fixed jaw, each waypoint's \
 tool_point) sits shift_m (half the object width plus the fixed jaw clearance, so neither jaw touches the object \
@@ -212,7 +212,13 @@ Verify every pick-up with sensors before complete_phase done: look at a gripper 
 jaws and lifted), check holding_load and slipping in the grasp result, and the jaw position with get_arm_state (a jaw \
 closed almost fully means it holds nothing or a squashed object). Agreeing evidence means done. When the evidence is \
 unclear or conflicts, close it as failed with a p_retry_success estimate and a retry_change rather than claiming \
-success. A grasp_object 'unverified' outcome means look and decide: it did not verify itself, you do.
+success.
+
+Confirm every held grasp: look at the jaw crop and call confirm_grasp(grasp_id, yes|no|unsure, evidence) before \
+complete_phase, with evidence saying what you see in the jaws. Only a fused 'grasped' counts as success: the server \
+fuses your verdict with the sensors, and the image alone never proves a grasp. While the result stays unverified, look \
+again (another wrist roll or get_camera_image, then confirm_grasp again) or release_object and retry. A missed result \
+means release_object, then correct and retry.
 
 Grip strength: grasp_object, set_gripper (close_until_effort) and queued gripper steps take grip_profile, which sets \
 how hard the gripper grips (servo torque limit, close speed, squeeze). Choose it per object: gentle for fragile or \
@@ -227,7 +233,7 @@ a light object with gentle can be retried with normal. Hard torque and squeeze c
 default torque comes back after every open, release or abort. The grip only feels the servo load, so it cannot tell \
 when a soft object gets squashed: gentle squashed a 4 cm plush tail to about 7 mm with no crush_risk. For plush and \
 other soft toys use grip_profile soft; when grasp_object reports unverified (the squashed object let the jaw close \
-almost fully) decide from the attached image.
+almost fully) look at the jaw crop and confirm_grasp.
 
 Surfaces and speed: pass surface_height_m to pixel_to_ground (and mark_candidate_points) when the object is on a \
 surface above or below the robot's floor (the top of a 3 cm box is 0.03, a floor 10 cm lower is -0.10). The arm can \

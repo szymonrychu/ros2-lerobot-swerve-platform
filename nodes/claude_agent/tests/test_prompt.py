@@ -435,14 +435,19 @@ def test_prompt_states_soft_objects_get_squashed_whatever_the_load() -> None:
 
 
 def test_prompt_explains_the_unverified_grasp_outcome() -> None:
-    """2026-10-11 plush croc: a squashed soft object closes the jaw into the empty band; grasp_object keeps the hold,
-    returns 'unverified' with a gripper camera image and the agent decides from the picture."""
+    """E1: every held close returns 'unverified' with a jaw crop; the agent confirms it with confirm_grasp."""
     lower = prompt_lower()
     macros = lower[lower.index("grasp_object reports") :]
     macros = macros[: macros.index("grip strength:")]
-    assert "unverified" in macros
-    assert "attached" in macros and "image" in macros
-    assert "treat it as held" in macros and "release_object" in macros and "retry" in macros
+    assert "unverified" in macros and "jaw crop" in macros
+    assert "confirm_grasp(grasp_id, yes|no|unsure, evidence)" in macros
+    assert "before complete_phase" in macros
+    assert "only a fused 'grasped'" in macros
+    assert "another wrist roll or get_camera_image" in macros
+    assert "missed means release_object" in macros
+    assert "image alone never proves" in macros
+    assert "means look and decide" not in lower
+    assert "treat it as held" not in lower
     para = lower[lower.index("grip strength:") :]
     para = para[: para.index("surfaces and speed:")]
     assert "unverified" in para and "plush" in para
@@ -611,7 +616,6 @@ def test_prompt_verifies_every_pick_up_with_sensors() -> None:
             "get_arm_state",
             "before complete_phase done",
             "close it as failed with a p_retry_success estimate",
-            "'unverified' outcome means look and decide",
         ),
     )
 

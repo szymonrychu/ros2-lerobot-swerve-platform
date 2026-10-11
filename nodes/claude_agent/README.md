@@ -80,9 +80,11 @@ default, so pixels from it always go with `image_width` / `image_height`, or are
 added after the 2026-10-10 grip session placed objects from unscaled small-image pixels), memory
 (`remember_object`/`list_objects`, POIs via `list_pois`/`add_poi`/`update_poi`, `NOTES.md`; positions are refined when a better location estimate exists: `remember_object` averages comparable sightings, `update_poi` x/y replaces the position for a clearly better estimate or a moved object, noting "position refined from"; on the person's POIs only the position; drops, stair edges, cables, fragile items, stuck spots and places the person says not to go are zone `keepout` area POIs, tight places zone `slow` with `speed_limit_pct`; never a nav goal inside a keepout, cancel a zone only with the person's consent, agent zones vanish at a new session, re-check zones after a map reset), the calibration tools
 (only when the person asks), the grasp macros (`plan_grasp` first, then `grasp_object`; strategies scoop / angled /
-top_down / auto, radial approach only, `release_object`, outcomes grasped / unverified / missed / aborted / infeasible, where unverified (jaw closed into the
-empty band, kept closed and lifted, gripper camera image attached) means look at the image: object in the jaws, treat
-it as held, else `release_object` and retry; top_down and
+top_down / auto, radial approach only, `release_object`, outcomes grasped / unverified / missed / aborted / infeasible, where every held `grasp_object` / `set_gripper` close returns
+unverified with a jaw crop: the agent looks at the crop and calls the `confirm_grasp(grasp_id, yes|no|unsure, evidence)`
+sensor tool before `complete_phase`; only the fused `grasped` counts as success, the image alone never proves a grasp;
+unverified means look again (another wrist roll or `get_camera_image`) or `release_object` and retry, missed means
+`release_object`; top_down and
 angled centre the object between the jaws, so the waypoints are the jaw centre and the reported tool point (fixed jaw,
 `tool_point`, `grasp_shift`) sits `shift_m` (half the width plus the fixed jaw clearance, both jaws clear of the object
 before closing) beside it: that is the centring, not a drift, compare `held_pose`
@@ -92,7 +94,7 @@ strength (`grip_profile` on `grasp_object`, `set_gripper` and queued gripper ste
 objects, normal by default, firm for heavy or slippery objects and tools; after a grasp the agent checks
 `holding_load`, `slipping` and `crush_risk` and retries with a firmer or gentler profile; the load cannot see a soft
 object being squashed (gentle flattened a 4 cm plush tail to about 7 mm), so for plush it prefers gentle or normal,
-expects `unverified` and decides from the attached image) and the
+expects `unverified` and confirms from the jaw crop with `confirm_grasp`) and the
 below-surface slow zone of the arm (never blocks; `surface_z_m` for a stair or hole below, `tilt_override_deg`
 replacing the IMU tilt). When the robot floor and the object's surface differ (stair, table top, ledge, hole) it tells
 the agent to pass `surfaces` instead of a single `surface_z_m`: regions with `height_m` relative to the robot floor and
@@ -266,7 +268,7 @@ Gate (`tools.py`, `can_use_tool`):
 - The SDK `max_turns` is not a config key: it is `max_turn_cap + 10` (`TURN_MARGIN`), a backstop above the hard maximum. The old keys
   `max_turns` and `effector_call_cap` are rejected as unknown.
 
-The system prompt also covers (each asserted in `tests/test_prompt.py`): control leases (`take_control` arm or base before any motion, `release_control(subsystem, keep_position=false)` resets by default, `get_control_state`, `arm_set_home` denied); the end-of-job rule (arm parked, leases released, plan finished; `JOB END REFUSED` follow-ups, forced park after `job_end_max_followups`); the dynamic footprint (`release_control(subsystem='arm', keep_position=true, carried_object_radius_m=0..0.3)` before driving with the arm out, parking refused while carrying: `release_object` first); the plan tree (`seq` / `if` / `while` / `phase`, the `pickloop` retry example, `ask` vs `outcome_of` conditions, `answer_condition` before effectors); retry fields (`p_retry_success`, `retry_change`, `Automatic retry n/m - apply: ...`); more POIs (objects, areas, critical obstacles as area POIs); pick verification (gripper camera, `holding_load` / `slipping`, jaw position via `get_arm_state`, `unverified` means look and decide); lookups (`list_lookups`, `get_lookup_image`, `annotate_lookup`, `lookup_id`); and the bump / lift interrupts (warning bump after in-flight tools, lifted / carried are critical: stop and report).
+The system prompt also covers (each asserted in `tests/test_prompt.py`): control leases (`take_control` arm or base before any motion, `release_control(subsystem, keep_position=false)` resets by default, `get_control_state`, `arm_set_home` denied); the end-of-job rule (arm parked, leases released, plan finished; `JOB END REFUSED` follow-ups, forced park after `job_end_max_followups`); the dynamic footprint (`release_control(subsystem='arm', keep_position=true, carried_object_radius_m=0..0.3)` before driving with the arm out, parking refused while carrying: `release_object` first); the plan tree (`seq` / `if` / `while` / `phase`, the `pickloop` retry example, `ask` vs `outcome_of` conditions, `answer_condition` before effectors); retry fields (`p_retry_success`, `retry_change`, `Automatic retry n/m - apply: ...`); more POIs (objects, areas, critical obstacles as area POIs); pick verification (gripper camera, `holding_load` / `slipping`, jaw position via `get_arm_state`, `unverified` means look again and `confirm_grasp`); lookups (`list_lookups`, `get_lookup_image`, `annotate_lookup`, `lookup_id`); and the bump / lift interrupts (warning bump after in-flight tools, lifted / carried are critical: stop and report).
 
 The system prompt explains the planning with the example "put plushie tomato into toy car" (1 Locate mentioned objects, 2 Drive
 towards tomato within 10 cm, 3 Pick up tomato, 4 Drive towards toy car within 10 cm, 5 Drop tomato into the toy car, 6 Get back to
