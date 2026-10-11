@@ -389,3 +389,84 @@ def test_digest_is_attached_to_the_new_tools(server: Any) -> None:
     res = call(server, "list_objects", {})
     assert "robot_events_since_last_call" in res.structured_content
     assert json.dumps(res.structured_content)
+
+
+# --- POI zones ---------------------------------------------------------------------------------------------------
+
+SQUARE = [[0, 0], [1, 0], [1, 1]]
+
+
+def test_add_poi_area_zone_payload(server: Any, robot: FakeRobot) -> None:
+    call(server, "add_poi", {"kind": "area", "name": "rug", "polygon": SQUARE, "zone": "keepout"})
+    poi = robot.poi_commands[-1][1]
+    assert poi["zone"] == "keepout" and "speed_limit_pct" not in poi
+    call(server, "add_poi", {"kind": "area", "name": "wet", "polygon": SQUARE, "zone": "slow", "speed_limit_pct": 40})
+    poi = robot.poi_commands[-1][1]
+    assert poi["zone"] == "slow" and poi["speed_limit_pct"] == 40
+    call(server, "add_poi", {"kind": "area", "name": "plain", "polygon": SQUARE})
+    assert robot.poi_commands[-1][1]["zone"] == "none"
+
+
+def test_add_poi_zone_errors_raise_before_the_request(server: Any, robot: FakeRobot) -> None:
+    before = len(robot.poi_commands)
+    with pytest.raises(ToolError, match="zone"):
+        call(server, "add_poi", {"kind": "point", "name": "x", "x": 1.0, "y": 1.0, "zone": "keepout"})
+    with pytest.raises(ToolError, match="speed_limit_pct"):
+        call(server, "add_poi", {"kind": "area", "name": "x", "polygon": SQUARE, "zone": "slow"})
+    with pytest.raises(ToolError, match="speed_limit_pct"):
+        call(
+            server,
+            "add_poi",
+            {"kind": "area", "name": "x", "polygon": SQUARE, "zone": "keepout", "speed_limit_pct": 50},
+        )
+    with pytest.raises(ToolError, match="speed_limit_pct"):
+        call(server, "add_poi", {"kind": "area", "name": "x", "polygon": SQUARE, "speed_limit_pct": 50})
+    with pytest.raises(ToolError):
+        call(server, "add_poi", {"kind": "area", "name": "x", "polygon": SQUARE, "zone": "slow", "speed_limit_pct": 5})
+    assert len(robot.poi_commands) == before
+
+
+def test_update_poi_zone_changes(server: Any, robot: FakeRobot) -> None:
+    area = call(server, "add_poi", {"kind": "area", "name": "rug", "polygon": SQUARE}).structured_content["poi"]["id"]
+    call(server, "update_poi", {"id": area, "zone": "slow", "speed_limit_pct": 30})
+    assert robot.poi_commands[-1] == ("update", {"id": area, "zone": "slow", "speed_limit_pct": 30})
+    call(server, "update_poi", {"id": area, "zone": "none"})
+    assert robot.poi_commands[-1] == ("update", {"id": area, "zone": "none"})
+    call(server, "update_poi", {"id": area, "zone": "keepout"})
+    assert robot.poi_commands[-1] == ("update", {"id": area, "zone": "keepout"})
+    before = len(robot.poi_commands)
+    with pytest.raises(ToolError, match="speed_limit_pct"):
+        call(server, "update_poi", {"id": area, "zone": "slow"})
+    with pytest.raises(ToolError, match="speed_limit_pct"):
+        call(server, "update_poi", {"id": area, "zone": "none", "speed_limit_pct": 50})
+    assert len(robot.poi_commands) == before
+    with pytest.raises(ToolError, match="zone, speed_limit_pct"):
+        call(server, "update_poi", {"id": area})
+
+
+def test_list_pois_shows_zone_fields(server: Any, robot: FakeRobot) -> None:
+    robot.pois.append(
+        {
+            "id": "z",
+            "kind": "area",
+            "name": "wet",
+            "x": 0.5,
+            "y": 0.5,
+            "polygon": SQUARE,
+            "status": "open",
+            "zone": "slow",
+            "speed_limit_pct": 40,
+        }
+    )
+    robot.pois.append({"id": "p", "kind": "point", "name": "dock", "x": 0.0, "y": 0.0, "status": "open"})
+    views = {v["name"]: v for v in call(server, "list_pois", {}).structured_content["pois"]}
+    assert views["wet"]["zone"] == "slow" and views["wet"]["speed_limit_pct"] == 40
+    assert views["dock"]["zone"] == "none" and views["dock"]["speed_limit_pct"] is None
+
+
+def test_poi_tool_descriptions_explain_zones(server: Any) -> None:
+    docs = tool_descriptions(server)
+    for name in ("add_poi", "update_poi"):
+        text = docs[name]
+        assert "keepout" in text and "slow" in text and "session" in text and "open" in text and "goal" in text
+    assert "zone" in docs["list_pois"]

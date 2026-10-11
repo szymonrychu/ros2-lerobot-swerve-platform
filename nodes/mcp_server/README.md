@@ -56,7 +56,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `get_motion_status` | Queue snapshot (sensor): running, current step (elapsed, phase, planning_s, progress, blend group), pending steps, last events. |
 | `cancel_motions` | Uncapped control: drop the pending steps and abort the running one (base zeroed, arm held when a motion step runs). |
 | `wait_for_event(timeout_s, until='queue_empty', since_seq)` | Sensor: block until the queue drains or something relevant happens; returns the new events, the queue status and a compact state digest. |
-| `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. |
+| `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. Areas can carry a Nav2 zone: `add_poi` / `update_poi` take `zone` (`none` / `keepout` / `slow`, `none` removes it) and `speed_limit_pct` (int 10..100, required for `slow`, refused for any other zone); `list_pois` returns both on every view. `keepout`: Nav2 will not plan or drive into the area (the robot can leave if it is inside; never set a goal inside). `slow`: MPPI speed cap while the robot centre is inside. A zone is active only while the POI status is `open`. A zone on a point, `slow` without a percentage, or a percentage with another zone is refused before the request. Agent zones are session-scoped (agent POIs are cleared at each new session). See [POI zones](#poi-zones). |
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
 after a failed motion; used by the web UI "Arm home" button) and `/arm/set_home` (store the measured pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
@@ -1720,3 +1720,14 @@ uv run poe lint          # ruff check, ruff format --check, vulture
 ```
 
 Deploy: `./scripts/deploy-nodes.sh client mcp_server` (a `--tags mcp_server` run of `ansible/playbooks/deploy_nodes_client.yml`).
+
+## POI zones
+
+`add_poi(kind='area', zone=..., speed_limit_pct=...)` and `update_poi(id, zone=..., speed_limit_pct=...)` write the zone fields of the area POI in `poi_store`; the `costmap_zones` node turns active zones into Nav2 keepout and speed masks.
+
+- `zone='keepout'`: Nav2 does not plan or drive into the area. A robot already inside can leave. Never send a navigation goal inside one.
+- `zone='slow'` with `speed_limit_pct` (10..100): MPPI is capped to that percentage while the robot centre is inside.
+- `zone='none'` (default) removes a zone. Switching to `slow` needs `speed_limit_pct` in the same `update_poi` call.
+- Active only while `status` is `open`; `done` / `cancelled` switch the zone off and keep the record.
+- Zones created by the agent are session-scoped: agent POIs are removed at the next session start.
+- Client-side checks mirror `poi_store` and raise `ValueError` before any request: zone on a point, `slow` without a percentage, percentage with a zone other than `slow`.

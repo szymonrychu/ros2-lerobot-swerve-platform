@@ -187,6 +187,8 @@ def describe_pois(
             name=str(poi.get("name", "")),
             kind=str(poi.get("kind", "")),
             status=str(poi.get("status", "")),
+            zone=str(poi.get("zone", "none")),
+            speed_limit_pct=poi.get("speed_limit_pct"),
         )
         if pose is not None:
             view.distance_m = round(math.hypot(poi["x"] - pose[0], poi["y"] - pose[1]), 3)

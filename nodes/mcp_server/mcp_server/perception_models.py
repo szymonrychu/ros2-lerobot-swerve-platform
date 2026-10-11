@@ -42,6 +42,10 @@ class PoiView(BaseModel):
     name: str
     kind: str
     status: str
+    zone: str = Field(
+        default="none", description="Areas: 'none', 'keepout' or 'slow' (active only while status is open)"
+    )
+    speed_limit_pct: int | None = Field(default=None, description="Zone 'slow': speed cap in percent")
     distance_m: float | None = Field(default=None, description="From the robot to the POI position (area: centroid)")
     bearing_deg: float | None = Field(default=None, description="Relative to the robot heading: 0 ahead, + left")
     inside: bool | None = Field(default=None, description="Areas only: whether the robot stands inside the polygon")

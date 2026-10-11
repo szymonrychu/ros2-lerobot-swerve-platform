@@ -44,6 +44,37 @@ TOOL_NAMES = (*SENSOR_TOOL_NAMES, "look_around")
 Layer = Literal["map", "costmap", "lidar", "footprint", "reach", "path", "pois", "objects"]
 Camera = Literal["front", "gripper"]
 PoiKind = Literal["point", "area"]
+PoiZone = Literal["none", "keepout", "slow"]
+MIN_SPEED_LIMIT_PCT = 10
+MAX_SPEED_LIMIT_PCT = 100
+ZONE_HELP = (
+    "Zones (areas only): zone 'keepout' = Nav2 will not plan or drive into the area (the robot can still leave if it "
+    "is already inside; never set a navigation goal inside a keepout). zone 'slow' = the MPPI controller speed is "
+    "capped to speed_limit_pct (10..100, required for slow) while the robot centre is inside. A zone is active only "
+    "while status is 'open' (done/cancelled switch it off). Zones you create are session-scoped: your POIs are "
+    "removed at the next agent session, so ask the person to create permanent ones in the web UI."
+)
+
+
+def check_zone(zone: str | None, speed_limit_pct: int | None, area: bool = True) -> None:
+    """Mirror the poi_store zone rules before the request is sent.
+
+    Args:
+        zone (str | None): Requested zone, None when not given (update_poi).
+        speed_limit_pct (int | None): Requested speed cap in percent, None when not given.
+        area (bool): Whether the POI is an area (False for a point).
+
+    Raises:
+        ValueError: A zone on a point, slow without a percentage, or a percentage with another zone.
+    """
+    if zone not in (None, "none") and not area:
+        raise ValueError("zone is only for kind='area'")
+    if zone == "slow" and speed_limit_pct is None:
+        raise ValueError("zone 'slow' needs speed_limit_pct (10..100)")
+    if speed_limit_pct is not None and zone is not None and zone != "slow":
+        raise ValueError("speed_limit_pct is only for zone='slow'")
+
+
 PoiStatus = Literal["open", "done", "cancelled"]
 MIN_POLYGON_VERTICES = 3
 POI_CREATED_BY = "agent"
@@ -352,7 +383,8 @@ def register(ctx: ToolContext) -> None:
             "List all points, areas and remembered objects (kind 'point', 'area' or 'object') from poi_store, each with "
             "distance_m and bearing_deg from the robot (0 = ahead, positive = left; areas use the centroid and report "
             "`inside`). Filter by status ('open', 'done', 'cancelled'). near=true keeps only POIs within {poi_cfg.near_radius_m:g} m, nearest "
-            "first. Errors if poi_store is not running. No motion."
+            "first. Areas show their `zone` ('none', 'keepout', 'slow') and `speed_limit_pct`; a zone is active only "
+            "while status is 'open'. Errors if poi_store is not running. No motion."
         )
     )
     def list_pois(
@@ -372,8 +404,8 @@ def register(ctx: ToolContext) -> None:
             "Add a point or area of interest on the map through poi_store (created_by 'agent'); it also shows in the "
             "web UI map tab. kind 'point': x and y (map, m) default to the robot's current position, optional "
             "radius_m. kind 'area': a polygon [[x, y], ...] of at least 3 map vertices (the store computes the "
-            "centroid). Errors if poi_store is not running or does not answer within "
-            f"{poi_cfg.request_timeout_s:g} s. No motion."
+            "centroid), optionally with a zone and speed_limit_pct. " + ZONE_HELP + " Errors if poi_store is not "
+            f"running or does not answer within {poi_cfg.request_timeout_s:g} s. No motion."
         )
     )
     def add_poi(
@@ -384,16 +416,27 @@ def register(ctx: ToolContext) -> None:
         y: Annotated[float | None, Field(description="Point y (map, m); default: robot position")] = None,
         polygon: Annotated[list[list[float]] | None, Field(description="Area vertices [[x, y], ...]")] = None,
         radius_m: Annotated[float | None, Field(gt=0.0, description="Point radius (m), default 0.2")] = None,
+        zone: Annotated[
+            PoiZone, Field(description="Area only: 'none', 'keepout' (no entry) or 'slow' (speed cap)")
+        ] = "none",
+        speed_limit_pct: Annotated[
+            int | None,
+            Field(ge=MIN_SPEED_LIMIT_PCT, le=MAX_SPEED_LIMIT_PCT, description="Zone 'slow' only: speed cap in percent"),
+        ] = None,
     ) -> PoiResult:
         """Add a POI."""
         with tool_errors():
+            check_zone(zone, speed_limit_pct, area=kind == "area")
             poi: dict[str, Any] = {
                 "kind": kind,
                 "name": name,
                 "note": note,
                 "frame": POI_FRAME,
                 "created_by": POI_CREATED_BY,
+                "zone": zone,
             }
+            if speed_limit_pct is not None:
+                poi["speed_limit_pct"] = speed_limit_pct
             position = xy_pair(x, y, "x and y")
             if kind == "area":
                 if polygon is None:
@@ -418,8 +461,10 @@ def register(ctx: ToolContext) -> None:
     @server.tool(
         description=(
             "Change a POI through poi_store: give its id and only the fields to change (name, note, status "
-            "'open'/'done'/'cancelled', x and y together, polygon for areas). Mark a POI 'done' when the work there is "
-            "finished. Errors if poi_store is not running or the id is unknown. No motion."
+            "'open'/'done'/'cancelled', x and y together, polygon for areas, zone 'none'/'keepout'/'slow' with speed_limit_pct; zone 'none' removes a zone, "
+            "slow needs speed_limit_pct in the same call). Mark a POI 'done' when the work there is finished. "
+            + ZONE_HELP
+            + " Errors if poi_store is not running or the id is unknown. No motion."
         )
     )
     def update_poi(
@@ -430,18 +475,32 @@ def register(ctx: ToolContext) -> None:
         x: Annotated[float | None, Field(description="New x (map, m); give with y")] = None,
         y: Annotated[float | None, Field(description="New y (map, m); give with x")] = None,
         polygon: Annotated[list[list[float]] | None, Field(description="New area vertices")] = None,
+        zone: Annotated[PoiZone | None, Field(description="New zone; 'none' removes the zone")] = None,
+        speed_limit_pct: Annotated[
+            int | None,
+            Field(ge=MIN_SPEED_LIMIT_PCT, le=MAX_SPEED_LIMIT_PCT, description="Zone 'slow': speed cap in percent"),
+        ] = None,
     ) -> PoiResult:
         """Update a POI."""
         with tool_errors():
+            check_zone(zone, speed_limit_pct)
             position = xy_pair(x, y, "x and y")
-            changes: dict[str, Any] = {"name": name, "note": note, "status": status}
+            changes: dict[str, Any] = {
+                "name": name,
+                "note": note,
+                "status": status,
+                "zone": zone,
+                "speed_limit_pct": speed_limit_pct,
+            }
             changes = {k: v for k, v in changes.items() if v is not None}
             if position is not None:
                 changes["x"], changes["y"] = position
             if polygon is not None:
                 changes["polygon"] = validate_polygon(polygon)
             if not changes:
-                raise ValueError("nothing to update: give at least one of name, note, status, x/y, polygon")
+                raise ValueError(
+                    "nothing to update: give at least one of name, note, status, x/y, polygon, zone, speed_limit_pct"
+                )
             result = robot.poi_request("update", {"id": id, **changes})
         return PoiResult(ok=True, message=str(result.get("message", "")), poi=result.get("poi"))
 
