@@ -4,6 +4,7 @@ import re
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from ros2_common.photos import PhotoSelector
 
 ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 MAX_NAME_LEN = 60
@@ -152,26 +153,31 @@ class Command(BaseModel):
     """A /poi/command message.
 
     Attributes:
-        op: "add", "update", "delete" or "clear".
+        op: "add", "update", "delete", "clear" or "delete_photos".
         request_id: Echoed in /poi/result.
-        poi: add: the POI; update: id plus changed fields; delete: id; clear: unused.
-        created_by: clear: delete every POI created by this creator ("agent" or "user").
+        poi: add: the POI (kind "photo": a PhotoAdd payload plus kind); update: id plus changed fields; delete: id;
+            clear and delete_photos: unused.
+        created_by: clear: delete every POI created by this creator ("agent" or "user"); photos are never cleared.
+        selector: delete_photos: which photos (exactly one of ids, older_than_s, keep_newest; optional dry_run).
     """
 
     model_config = ConfigDict(extra="ignore")
 
-    op: Literal["add", "update", "delete", "clear"]
+    op: Literal["add", "update", "delete", "clear", "delete_photos"]
     request_id: str = ""
     poi: dict[str, Any] = Field(default_factory=dict)
     created_by: Literal["agent", "user"] | None = None
+    selector: PhotoSelector | None = None
 
     @model_validator(mode="after")
-    def check_clear_creator(self) -> "Command":
-        """Require created_by for the clear op.
+    def check_op_arguments(self) -> "Command":
+        """Require created_by for the clear op and selector for the delete_photos op.
 
         Returns:
             Command: Self.
         """
         if self.op == "clear" and self.created_by is None:
             raise ValueError("clear needs created_by ('agent' or 'user')")
+        if self.op == "delete_photos" and self.selector is None:
+            raise ValueError("delete_photos needs selector (one of ids, older_than_s, keep_newest)")
         return self

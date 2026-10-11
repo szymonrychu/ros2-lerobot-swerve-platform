@@ -10,6 +10,7 @@ STUBBED_MODULES = (
     "rclpy.executors",
     "rclpy.qos",
     "rclpy.callback_groups",
+    "rclpy.clock",
     "rclpy._rclpy_pybind11",
 )
 EXCEPTIONS = (
