@@ -3,6 +3,14 @@
 from array import array
 from typing import Any
 
+BINARY_DATA_TYPES = (
+    "sensor_msgs/msg/Image",
+    "sensor_msgs/msg/CompressedImage",
+    "sensor_msgs/msg/PointCloud2",
+)
+SENSOR_QOS_TYPES = BINARY_DATA_TYPES
+BINARY_FIELD = "data"
+
 
 def ros_time_to_ns(stamp: Any) -> int | None:
     """Convert ROS time-like object to nanoseconds.
@@ -51,3 +59,30 @@ def ros_message_to_builtin(value: Any) -> Any:
             output[field_name] = ros_message_to_builtin(getattr(value, field_name))
         return output
     return str(value)
+
+
+def message_to_payload(msg: Any, type_name: str) -> Any:
+    """Convert a ROS message to JSON-safe builtins without expanding binary sensor data.
+
+    For Image, CompressedImage and PointCloud2 the `data` field is never converted (a list of
+    ints costs ~8 bytes per byte). It is replaced by `{"omitted": true, "byte_length": N}`;
+    every other field is kept.
+
+    Args:
+        msg: ROS message-like object.
+        type_name: ROS type name string (e.g. sensor_msgs/msg/Image).
+
+    Returns:
+        Any: JSON-safe object.
+    """
+
+    if type_name.strip() not in BINARY_DATA_TYPES or not hasattr(msg, "get_fields_and_field_types"):
+        return ros_message_to_builtin(msg)
+    output: dict[str, Any] = {}
+    for field_name in msg.get_fields_and_field_types():
+        value = getattr(msg, field_name)
+        if field_name == BINARY_FIELD:
+            output[field_name] = {"omitted": True, "byte_length": len(value)}
+        else:
+            output[field_name] = ros_message_to_builtin(value)
+    return output

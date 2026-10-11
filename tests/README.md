@@ -244,9 +244,9 @@ The **topic_scraper_api** node has tests under `nodes/topic_scraper_api/tests/`.
 
 - config parsing (`test_config.py`: defaults, overrides, type allow-list, observation_rules parsing)
 - endpoint mapping (`test_paths.py`: normalize topic, topic->endpoint, endpoint->topic; stream/preview path helpers)
-- message serialization (`test_serializer.py`: recursive conversion for ROS-like message objects, time conversion)
+- message serialization (`test_serializer.py`: recursive conversion for ROS-like message objects, time conversion; `message_to_payload` omits `data` for Image/CompressedImage/PointCloud2 with a byte length and keeps other fields, 640x480 bgr8 yields no list, tracemalloc peak stays below a quarter frame)
 - image encoding (`test_image_encoding.py`: is_image_type, CompressedImage jpeg passthrough, raw Image bgr8/mono8 to JPEG, unsupported encoding returns None)
-- dynamic subscription bookkeeping (`test_scraper.py`: allow-list handling, add/remove topic subscriptions; image topic metadata and JPEG cache)
+- dynamic subscription bookkeeping (`test_scraper.py`: allow-list handling, add/remove topic subscriptions; image topic metadata and JPEG cache; sensor QoS selection by type; image callback payload has no data list and keeps the JPEG)
 - HTTP API behavior (`test_app.py`: `/topics`, `/topics/<topic-path>`, `/rules`, `/rules/<name>`; `/streams`, `/previews` lists; stream/preview HTML pages; `/previews/<topic>/image.jpg` JPEG snapshot; 404 when no image sample for stream/preview image)
 - observation rules (`test_observer.py`: RulesObserver empty rules, compare rule produces position delta, missing payload yields None comparison, rules summary)
 

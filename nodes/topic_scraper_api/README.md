@@ -92,6 +92,8 @@ observation_rules:
 
 - Refreshes topic graph periodically.
 - Adds/removes subscriptions as topics appear/disappear.
+- Image, CompressedImage and PointCloud2 payloads never carry their binary `data`: in `GET /topics/<topic-path>` the `data` field is `{"omitted": true, "byte_length": N}` and every other field (header, height, width, encoding, step, fields, ...) is kept. Field names are unchanged; only the type of `data` changed from a list of ints to that object. The scraper never converts binary data to Python lists (a 640x480 bgr8 frame as ints cost ~7 MB). JPEG for `/streams` and `/previews` is encoded straight from the message and is unaffected.
+- Image, CompressedImage and PointCloud2 topics subscribe with sensor QoS (best effort, depth 1, `SENSOR_SUB_QOS` in `run.py`); all other topics use the default reliable QoS with depth 10.
 - Stores only the last sample per topic (plus timing metadata and sequence).
 - For image topics, also keeps the latest frame as JPEG for streaming and preview; raw Image (bgr8, rgb8, mono8) and CompressedImage (jpeg) are supported.
 

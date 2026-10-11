@@ -15,13 +15,15 @@ class FakeNode:
         self._topics: list[tuple[str, list[str]]] = []
         self.created: dict[str, Any] = {}
         self.destroyed: list[Any] = []
+        self.qos: dict[str, Any] = {}
 
     def get_topic_names_and_types(self) -> list[tuple[str, list[str]]]:
         return self._topics
 
-    def create_subscription(self, _msg_cls: type, topic: str, _callback: Any, _qos: int) -> str:
+    def create_subscription(self, _msg_cls: type, topic: str, _callback: Any, qos: Any) -> str:
         token = f"sub:{topic}"
         self.created[topic] = token
+        self.qos[topic] = qos
         return token
 
     def destroy_subscription(self, token: Any) -> None:
@@ -145,3 +147,48 @@ def test_get_latest_jpeg_updated_by_callback(monkeypatch: Any) -> None:
     jpeg = scraper.get_latest_jpeg("/camera_0/image_raw")
     assert jpeg is not None
     assert jpeg[:2] == b"\xff\xd8"
+
+
+def test_qos_by_type(monkeypatch: Any) -> None:
+    """Image, CompressedImage and PointCloud2 use the sensor QoS; others keep depth 10."""
+    node = FakeNode()
+    sensor_qos = object()
+    scraper = TopicScraper(node=node, sensor_qos=sensor_qos)
+
+    class DummyMsg:
+        pass
+
+    monkeypatch.setattr("topic_scraper_api.scraper.resolve_message_class", lambda _t: DummyMsg)
+    node._topics = [
+        ("/cam/image_raw", ["sensor_msgs/msg/Image"]),
+        ("/cam/compressed", ["sensor_msgs/msg/CompressedImage"]),
+        ("/lidar/points", ["sensor_msgs/msg/PointCloud2"]),
+        ("/leader/joint_states", ["sensor_msgs/msg/JointState"]),
+    ]
+    scraper.sync_topics()
+    assert node.qos["/cam/image_raw"] is sensor_qos
+    assert node.qos["/cam/compressed"] is sensor_qos
+    assert node.qos["/lidar/points"] is sensor_qos
+    assert node.qos["/leader/joint_states"] == 10
+
+
+def test_image_callback_payload_has_no_data_list_and_keeps_jpeg() -> None:
+    node = FakeNode()
+    scraper = TopicScraper(node=node, allowed_types=[IMAGE_TYPE_RAW])
+
+    class Msg:
+        height = 2
+        width = 2
+        encoding = "bgr8"
+        step = 6
+        data = array("B", [255, 0, 0, 0, 255, 0, 0, 0, 255, 128, 128, 128])
+
+        def get_fields_and_field_types(self) -> dict[str, str]:
+            return {"height": "uint32", "width": "uint32", "encoding": "string", "step": "uint32", "data": "uint8[]"}
+
+    scraper._callback_for_topic("/cam", IMAGE_TYPE_RAW)(Msg())
+    payload = scraper.get_topic_payload("/cam")
+    assert payload is not None
+    assert payload["message"]["data"] == {"omitted": True, "byte_length": 12}
+    assert payload["message"]["encoding"] == "bgr8"
+    assert scraper.get_latest_jpeg("/cam")[:2] == b"\xff\xd8"

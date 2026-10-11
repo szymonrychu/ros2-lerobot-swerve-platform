@@ -7,7 +7,9 @@ from typing import Any
 from .image_encoding import image_message_to_jpeg_bytes, is_image_type
 from .metrics import CALLBACK_SECONDS, MESSAGES, SUBSCRIPTIONS
 from .paths import normalize_topic, topic_to_endpoint, topic_to_preview_endpoint, topic_to_stream_endpoint
-from .serializer import ros_message_to_builtin, ros_time_to_ns
+from .serializer import SENSOR_QOS_TYPES, message_to_payload, ros_time_to_ns
+
+DEFAULT_QOS_DEPTH = 10
 
 
 @dataclass(frozen=True)
@@ -64,16 +66,19 @@ def should_track_type(type_name: str, allowed_types: list[str]) -> bool:
 class TopicScraper:
     """Maintain subscriptions and last-sample cache for discovered topics."""
 
-    def __init__(self, node: Any, allowed_types: list[str] | None = None) -> None:
+    def __init__(self, node: Any, allowed_types: list[str] | None = None, sensor_qos: Any = DEFAULT_QOS_DEPTH) -> None:
         """Initialize scraper.
 
         Args:
             node: ROS2 node-like object.
             allowed_types: Optional allow-list of type names.
+            sensor_qos: QoS (best effort, depth 1 in production) for Image, CompressedImage and
+                PointCloud2 topics; other topics always use depth 10.
         """
 
         self.node = node
         self.allowed_types = allowed_types or []
+        self.sensor_qos = sensor_qos
         self._subscriptions: dict[str, Any] = {}
         self._topic_meta: dict[str, TopicMeta] = {}
         self._latest_payload: dict[str, dict[str, Any]] = {}
@@ -96,7 +101,7 @@ class TopicScraper:
                 "received_at_ns": time.time_ns(),
                 "header_stamp_ns": header_stamp_ns,
                 "sample_seq": self._sample_seq,
-                "message": ros_message_to_builtin(msg),
+                "message": message_to_payload(msg, type_name),
             }
             if is_image_type(type_name):
                 jpeg = image_message_to_jpeg_bytes(msg, type_name)
@@ -130,7 +135,7 @@ class TopicScraper:
                     msg_cls,
                     topic,
                     self._callback_for_topic(topic, type_name),
-                    10,
+                    self.sensor_qos if type_name in SENSOR_QOS_TYPES else DEFAULT_QOS_DEPTH,
                 )
                 self._subscriptions[topic] = sub
                 self.node.get_logger().info(f"Subscribed to {topic} [{type_name}]")

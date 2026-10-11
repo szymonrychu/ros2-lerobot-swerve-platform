@@ -52,7 +52,7 @@ def sample(name: str, labels: dict[str, str] | None = None) -> float:
 def make_scraper(monkeypatch: Any) -> tuple[TopicScraper, FakeNode]:
     """Scraper over a fake node whose message class always resolves."""
     monkeypatch.setattr("topic_scraper_api.scraper.resolve_message_class", lambda _t: Msg)
-    monkeypatch.setattr("topic_scraper_api.scraper.ros_message_to_builtin", lambda _m: {})
+    monkeypatch.setattr("topic_scraper_api.scraper.message_to_payload", lambda _m, _t: {})
     node = FakeNode()
     return TopicScraper(node=node), node
 

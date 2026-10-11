@@ -7,11 +7,14 @@ import time
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 
 from .app import create_app
 from .config import load_config_from_env
 from .observer import RulesObserver
 from .scraper import TopicScraper
+
+SENSOR_SUB_QOS = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, depth=1)
 
 
 def observer_loop(
@@ -72,7 +75,7 @@ def main() -> int:
 
     rclpy.init()
     node = Node("topic_scraper_api")
-    scraper = TopicScraper(node=node, allowed_types=config.allowed_types)
+    scraper = TopicScraper(node=node, allowed_types=config.allowed_types, sensor_qos=SENSOR_SUB_QOS)
     observer = RulesObserver(config.observation_rules) if config.observation_rules else None
     stop_event = threading.Event()
 

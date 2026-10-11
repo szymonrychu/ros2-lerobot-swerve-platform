@@ -1,7 +1,9 @@
+import json
+import tracemalloc
 from array import array
 from dataclasses import dataclass
 
-from topic_scraper_api.serializer import ros_message_to_builtin, ros_time_to_ns
+from topic_scraper_api.serializer import message_to_payload, ros_message_to_builtin, ros_time_to_ns
 
 
 @dataclass
@@ -44,3 +46,61 @@ def test_ros_message_to_builtin_nested() -> None:
 def test_ros_message_to_builtin_array_values() -> None:
     data = ros_message_to_builtin(array("d", [0.1, 0.2, 0.3]))
     assert data == [0.1, 0.2, 0.3]
+
+
+class FakeRawImage:
+    def __init__(self, height: int = 480, width: int = 640) -> None:
+        self.header = FakeHeader(Stamp(sec=1, nanosec=2))
+        self.height = height
+        self.width = width
+        self.encoding = "bgr8"
+        self.is_bigendian = 0
+        self.step = width * 3
+        self.data = array("B", bytes(height * width * 3))
+
+    def get_fields_and_field_types(self) -> dict[str, str]:
+        return {
+            "header": "std_msgs/Header",
+            "height": "uint32",
+            "width": "uint32",
+            "encoding": "string",
+            "is_bigendian": "uint8",
+            "step": "uint32",
+            "data": "uint8[]",
+        }
+
+
+def test_image_payload_omits_data_but_keeps_other_fields() -> None:
+    out = message_to_payload(FakeRawImage(), "sensor_msgs/msg/Image")
+    assert not isinstance(out["data"], list)
+    assert out["data"] == {"omitted": True, "byte_length": 640 * 480 * 3}
+    assert out["encoding"] == "bgr8"
+    assert out["width"] == 640
+    assert out["height"] == 480
+    assert out["header"]["frame_id"] == "x"
+    assert json.dumps(out)
+
+
+def test_compressed_and_pointcloud_payload_omit_data() -> None:
+    for type_name in ("sensor_msgs/msg/CompressedImage", "sensor_msgs/msg/PointCloud2"):
+        msg = FakeRawImage(2, 2)
+        out = message_to_payload(msg, type_name)
+        assert out["data"] == {"omitted": True, "byte_length": 12}
+
+
+def test_other_types_unchanged_by_message_to_payload() -> None:
+    out = message_to_payload(FakeJointState(), "sensor_msgs/msg/JointState")
+    assert out == ros_message_to_builtin(FakeJointState())
+
+
+def test_image_payload_peak_memory_is_bounded() -> None:
+    frame_bytes = 640 * 480 * 3
+    msgs = [FakeRawImage() for _ in range(4)]
+    tracemalloc.start()
+    base = tracemalloc.get_traced_memory()[0]
+    tracemalloc.reset_peak()
+    for msg in msgs:
+        message_to_payload(msg, "sensor_msgs/msg/Image")
+    peak = tracemalloc.get_traced_memory()[1] - base
+    tracemalloc.stop()
+    assert peak < frame_bytes // 4
