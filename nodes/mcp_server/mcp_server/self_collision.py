@@ -72,6 +72,8 @@ def contact_key(part: str) -> str:
 
 
 NORMAL_SCALE = 1.0
+# Parts that move when only the gripper joint moves: everything else is fixed to gripper_link or an upstream link.
+GRIPPER_MOVING_PARTS = ("moving_jaw_tip",)
 # A start inside the hard margin may move out as long as no clearance drops more than this below its start value (m).
 ESCAPE_TOLERANCE_M = 0.002
 # Joint-space step (rad) of a straight joint line sampled for a check (planner free moves, home routes).
@@ -785,7 +787,7 @@ class SelfCollisionChecker:
         )
 
     def pruned_path_clearances(
-        self, samples: list[dict[str, float]], allow_escape: bool
+        self, samples: list[dict[str, float]], allow_escape: bool, geometry: SampleGeometry | None = None
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """clearance_matrix of a path through bounded_clearances: first the start (exact below the hard margin, which
         is all its escape limits need), then the rest to those limits.
@@ -793,12 +795,13 @@ class SelfCollisionChecker:
         Args:
             samples (list[dict[str, float]]): Joint samples, start first (at least one; the body has obstacles).
             allow_escape (bool): Whether a start inside the hard margin may move out (sets the limits).
+            geometry (SampleGeometry | None): geometry(samples) when the caller has it already.
 
         Returns:
             tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: clearances_of output, exact where path() reads it.
         """
         m = len(self.body.obstacles)
-        geometry = self.geometry(samples)
+        geometry = geometry or self.geometry(samples)
         start = self.bounded_clearances(geometry.rows(slice(0, 1)), np.full((1, m), self.settings.hard_margin_m))
         if len(samples) == 1:
             return start
@@ -807,28 +810,67 @@ class SelfCollisionChecker:
         values, parts, soft, soft_parts = (np.concatenate([a, b]) for a, b in zip(start, rest, strict=True))
         return values, parts, soft, soft_parts
 
-    def path(self, samples: list[dict[str, float]], allow_escape: bool = True, prune: bool = True) -> BodyReport:
+    def moving_soft_clearances(
+        self, geometry: SampleGeometry, moving_parts: tuple[str, ...]
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Soft clearances of the given single-point parts only (the parts a gripper-only motion moves).
+
+        Args:
+            geometry (SampleGeometry): geometry(samples).
+            moving_parts (tuple[str, ...]): Jaw point parts (JAW_POINTS).
+
+        Returns:
+            tuple[np.ndarray, np.ndarray]: (N, M) clearances (m) and (N, M) indices into CHECKED_PARTS of the closest
+                moving part.
+        """
+        n, m = geometry.n, len(self.body.obstacles)
+        out = np.empty((n, m, len(moving_parts)))
+        for k, obstacle in enumerate(self.body.obstacles):
+            for p, part in enumerate(moving_parts):
+                out[:, k, p] = obstacle.signed_distance(geometry.fixed[part]).min(axis=1)
+        index = np.array([CHECKED_PARTS.index(part) for part in moving_parts])
+        return out.min(axis=2), index[out.argmin(axis=2)]
+
+    def path(
+        self,
+        samples: list[dict[str, float]],
+        allow_escape: bool = True,
+        prune: bool = True,
+        moving_parts: tuple[str, ...] | None = None,
+    ) -> BodyReport:
         """Speed scale of every sample and the hard verdict of a trajectory (samples[0] = the start pose).
 
         With prune (pruned_path_clearances) the report is the same as with the full clearances, field for field.
+        With moving_parts (a gripper-only motion: GRIPPER_MOVING_PARTS) the soft band (scales, clearances, obstacles,
+        parts) covers only those parts: the clearance of a link that does not move cannot change during the motion, so
+        it never slows it. The hard verdict still covers every part.
 
         Args:
             samples (list[dict[str, float]]): Joint samples the arm will follow, start first.
             allow_escape (bool): A start inside the hard margin may move out (the clearance must not get worse);
                 False holds every sample to the hard margin (the planner's own waypoints).
             prune (bool): Bounding-sphere pruning (False: every distance in full, the reference the tests compare).
+            moving_parts (tuple[str, ...] | None): Single-point parts (JAW_POINTS) that move; None = every part moves.
 
         Returns:
             BodyReport: Scales, clearances, limiting obstacle/part per sample and the verdict.
+
+        Raises:
+            ValueError: When moving_parts names a part that is not a single jaw point.
         """
+        if moving_parts is not None and not set(moving_parts) <= set(JAW_POINTS):
+            raise ValueError(f"moving_parts must be jaw points {JAW_POINTS}, got {moving_parts}")
         cfg = self.settings
         n = len(samples)
         if not cfg.enabled or n == 0:
             return BodyReport([NORMAL_SCALE] * n, [math.inf] * n, [""] * n, [""] * n, cfg, enabled=False)
-        if prune and self.body.obstacles:
-            values, parts, soft, soft_parts = self.pruned_path_clearances(samples, allow_escape)
+        geometry = self.geometry(samples) if self.body.obstacles and (prune or moving_parts) else None
+        if prune and geometry is not None:
+            values, parts, soft, soft_parts = self.pruned_path_clearances(samples, allow_escape, geometry)
         else:
             values, parts, soft, soft_parts = self.clearance_matrix(samples)
+        if moving_parts and geometry is not None:
+            soft, soft_parts = self.moving_soft_clearances(geometry, moving_parts)
         names = [o.name for o in self.body.obstacles]
         worst = soft.argmin(axis=1)
         clearances = [float(soft[i, worst[i]]) for i in range(n)]

@@ -146,6 +146,17 @@ class ArmMotionResult(BaseModel):
     settle_s: float | None = Field(
         default=None, description="Seconds spent after the trajectory waiting for convergence (0 for trajectory_end)"
     )
+    time_to_first_setpoint_s: float | None = Field(
+        default=None,
+        description="Seconds from the motion start to its first published trajectory setpoint (planning: trajectory, "
+        "slow zone and body check); null when no setpoint was published",
+    )
+    ticks: int | None = Field(default=None, description="Trajectory setpoints published")
+    tick_rate_hz: float | None = Field(
+        default=None,
+        description="Achieved setpoint rate: ticks / trajectory_s (Hz; the plan streams at limits.arm_rate_hz, a lower "
+        "value means the host could not keep up); null without ticks or trajectory time",
+    )
     settle: SettlePolicy | None = Field(
         default=None,
         description="Settle policy of the call: 'final' waited for convergence, 'trajectory_end' returned when the "

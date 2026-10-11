@@ -618,6 +618,8 @@ def test_arm_moves_log_trajectory_and_settle_seconds_separately(server: Any, cap
     assert rec["tool"] == "move_arm_joints" and rec["status"] == "converged"
     assert rec["settle"] == "trajectory_end" and rec["settling"] is False
     assert rec["trajectory_s"] > 0.0 and rec["settle_s"] == 0.0
+    assert rec["time_to_first_setpoint_s"] >= 0.0
+    assert rec["tick_rate_hz"] == pytest.approx(25.0, rel=0.1)  # fake clock: one tick per 0.04 s sleep
 
 
 def test_failing_call_is_logged_with_ok_false(server: Any, robot: FakeRobot, caplog: pytest.LogCaptureFixture) -> None:

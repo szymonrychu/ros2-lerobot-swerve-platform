@@ -22,6 +22,8 @@ from .metrics import (
     FLOOR_GUARD_SLOWDOWNS,
     GRIP_PROFILE_USES,
     GRIPPER_EFFORT,
+    MOTION_FIRST_SETPOINT,
+    MOTION_TICK_PERIOD,
     SELF_COLLISION_MIN_CLEARANCE,
     SELF_COLLISION_REJECTIONS,
     SELF_COLLISION_SLOWDOWNS,
@@ -29,7 +31,7 @@ from .metrics import (
 from .models import ArmMotionResult, ArmMotionStatus, ArmState, ControlResult, SettlePolicy
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .sag import SETTLE_LOG_MARKER, GravityModel, SagCompensator, compensate
-from .self_collision import BodyReport, SelfCollisionChecker, combine_scales, joint_line
+from .self_collision import GRIPPER_MOVING_PARTS, BodyReport, SelfCollisionChecker, combine_scales, joint_line
 from .staleness import Stamped, is_fresh
 from .trajectory import (
     JointLimits,
@@ -121,6 +123,25 @@ def beyond_converge(
         list[str]: The joints still off target (empty = converged).
     """
     return [j for j in joints if abs(goal[j] - measured[j]) > limits.converge_tolerance_for(j)]
+
+
+def only_joint_moves(samples: list[dict[str, float]], joint: str) -> bool:
+    """Whether `joint` is the only joint that changes over the samples (a gripper-only motion).
+
+    Args:
+        samples (list[dict[str, float]]): Joint samples, the start first.
+        joint (str): The joint.
+
+    Returns:
+        bool: True when every other joint keeps its first-sample value and `joint` changes.
+    """
+    if not samples or joint not in samples[0]:
+        return False
+    first = samples[0]
+    others = [j for j in first if j != joint]
+    if any(s[j] != first[j] for s in samples[1:] for j in others):
+        return False
+    return any(s[joint] != first[joint] for s in samples[1:])
 
 
 def lower_clearance(target: GuardReport, commanded: GuardReport) -> GuardReport:
@@ -288,6 +309,9 @@ class ArmController:
         self._tracking_limit = config.limits.arm_tracking_error_rad  # abort threshold of the running motion (rad)
         self._slow_zone: dict[str, object] | None = None  # slow-zone summary of the running motion
         self._self_collision: dict[str, object] | None = None  # body soft-boundary summary of the running motion
+        self._first_setpoint_at: float | None = None  # when the running motion published its first trajectory setpoint
+        self._ticks = 0  # trajectory setpoints the running motion published
+        self._last_tick_at = 0.0  # when the running motion published its latest trajectory setpoint
         self._judged: list[str] = []  # joints the running motion is judged on (convergence, tracking_error_rad)
         self._settle_policy: SettlePolicy = "final"
         self._trajectory_end: float | None = None  # backend time the running motion finished streaming
@@ -1228,7 +1252,9 @@ class ArmController:
             if pending:
                 self.schedule_relax(pending)
 
-    def contact_allowed(self, history: list[tuple[float, float, float]], started: float) -> bool:
+    def contact_allowed(
+        self, history: list[tuple[float, float, float]], started: float, target: float | None = None
+    ) -> bool:
         """Whether a gripper load counts as contact yet (close_until_effort).
 
         The load spikes when the motor starts, so it is ignored for gripper_effort_ignore_s after the close started
@@ -1242,6 +1268,7 @@ class ArmController:
             history (list[tuple[float, float, float]]): (sample stamp s, gripper position rad, commanded gripper rad)
                 since the close started, oldest first.
             started (float): Close start (monotonic s).
+            target (float | None): Close target (rad), see jaw_stalled.
 
         Returns:
             bool: True when effort may be taken as contact.
@@ -1249,16 +1276,56 @@ class ArmController:
         limits = self.cfg.limits
         if not history or history[-1][0] - started < limits.gripper_effort_ignore_s:
             return False
-        latest_t, latest, _ = history[-1]
-        if abs(latest - history[0][1]) >= limits.gripper_contact_travel_rad:
+        if abs(history[-1][1] - history[0][1]) >= limits.gripper_contact_travel_rad:
             return True
-        if latest_t - history[0][0] < limits.arm_settle_window_s:
+        return self.jaw_stalled(history, target)
+
+    def jaw_stalled(self, history: list[tuple[float, float, float]], target: float | None = None) -> bool:
+        """The contact_allowed stall criterion: over the last arm_settle_window_s the jaw moved less than
+        arm_settle_motion_rad while the commanded jaw stayed at least gripper_stall_lead_rad ahead of it, or was
+        already at the close target (a jaw stopped less than gripper_stall_lead_rad before closed can never see a
+        larger lead; the trajectory is over, so the jaw is not still breaking away from rest).
+
+        Args:
+            history (list[tuple[float, float, float]]): (sample stamp s, gripper position rad, commanded gripper rad)
+                since the close started, oldest first.
+            target (float | None): Close target (rad); None = only the lead counts.
+
+        Returns:
+            bool: True when the jaw is stalled.
+        """
+        limits = self.cfg.limits
+        if not history or history[-1][0] - history[0][0] < limits.arm_settle_window_s:
             return False
+        latest_t = history[-1][0]
         window = [(p, c) for t, p, c in history if t >= latest_t - limits.arm_settle_window_s]
-        if any(abs(c - p) < limits.gripper_stall_lead_rad for p, c in window):
+        if any(abs(c - p) < limits.gripper_stall_lead_rad and c != target for p, c in window):
             return False
         positions = [p for p, _ in window]
         return max(positions) - min(positions) <= limits.arm_settle_motion_rad
+
+    def stall_contact_message(
+        self, history: list[tuple[float, float, float]], started: float, target: float | None = None
+    ) -> str | None:
+        """close_until_effort: a jaw stalled (jaw_stalled, after gripper_effort_ignore_s) at least
+        gripper_empty_stall_rad from closed is a contact even below the profile's target_load and outside the settle
+        tolerance (an object loading the jaw lightly never settles within it); inside the empty-jaw band it is not.
+
+        Args:
+            history (list[tuple[float, float, float]]): Jaw history as for contact_allowed.
+            started (float): Close start (monotonic s).
+            target (float | None): Close target (rad), see jaw_stalled.
+
+        Returns:
+            str | None: Message of the stall contact, or None when the jaw is not stalled outside the empty band.
+        """
+        if not history or history[-1][0] - started < self.cfg.limits.gripper_effort_ignore_s:
+            return None
+        stopped = history[-1][1]
+        if self.empty_jaw_message(stopped) is not None or not self.jaw_stalled(history, target):
+            return None
+        short = abs(stopped - self.cfg.arm.gripper_closed_rad)
+        return f"jaw stalled at {stopped:.3f} rad, {short:.3f} rad before closed (>= gripper_empty_stall_rad)"
 
     def loose_grasp_message(self, start_jaw: float, stopped: float) -> str | None:
         """Why a contact at `stopped` is not a hold of an object (None when the jaw really closed onto something).
@@ -1542,6 +1609,8 @@ class ArmController:
         trajectory_end = finished_at if self._trajectory_end is None else self._trajectory_end
         judged = [j for j in self._judged if positions is not None and j in positions]
         effort = None if sample is None else sample.efforts.get(self.gripper)
+        trajectory_s = round(trajectory_end - started, 3)
+        first = self._first_setpoint_at
         if effort is not None:
             GRIPPER_EFFORT.set(effort)
         return ArmMotionResult(
@@ -1552,8 +1621,11 @@ class ArmController:
             clamped=clamped,
             residual_error=residual or {},
             duration_s=round(finished_at - started, 3),
-            trajectory_s=round(trajectory_end - started, 3),
+            trajectory_s=trajectory_s,
             settle_s=round(finished_at - trajectory_end, 3),
+            time_to_first_setpoint_s=None if first is None else round(first - started, 3),
+            ticks=self._ticks,
+            tick_rate_hz=round(self._ticks / trajectory_s, 2) if self._ticks and trajectory_s > 0.0 else None,
             settle=self._settle_policy,
             settling=settling,
             tracking_error_rad=None if positions is None else round(max_abs_error(goal, positions, judged), 4),
@@ -1639,6 +1711,10 @@ class ArmController:
         SelfCollisionError before anything is published; samples inside the body soft margin are slowed like the floor
         slow zone (per sample the slower scale wins) and reported as self_collision.
 
+        A gripper-only motion (only the gripper joint changes over the samples) is slowed only by what moves: the body
+        soft margin of the moving jaw (GRIPPER_MOVING_PARTS; the hard reject still covers every part) and the floor slow
+        zone where the moving jaw tip descends below GRIPPER_ONLY_SLOW_MARGIN_M (FloorGuard.evaluate gripper_only).
+
         With sag compensation the approach mode of every loaded joint is taken from the planned final approach, the
         compensation gains ramp from their current values to the goal's over the motion (_sag_plan), and the slow zone
         is evaluated on the target samples AND on their over-commanded versions (lower clearance wins).
@@ -1661,9 +1737,12 @@ class ArmController:
             SelfCollisionError: When a sample would hit the robot body (nothing was published).
         """
         points, marks = self.plan_points(start, goal, vmax, path, blend)
-        body = self.check_body([start, *points], execute=True)
+        gripper_only = only_joint_moves([start, *points], self.gripper)
+        body = self.check_body(
+            [start, *points], execute=True, moving_parts=GRIPPER_MOVING_PARTS if gripper_only else None
+        )
         surface = self.floor_guard.surface(floor, self.tilt_source(), self.backend.now())
-        report = self.floor_guard.evaluate([start, *points], surface)
+        report = self.floor_guard.evaluate([start, *points], surface, gripper_only)
         self._sag_plan = None
         if self.sag is not None:
             with self._lock:
@@ -1676,7 +1755,9 @@ class ArmController:
                 self.commanded(p, SagCompensator.blend_gains(prior_gains, final, (i + 1) / n))
                 for i, p in enumerate(points)
             ]
-            report = lower_clearance(report, self.floor_guard.evaluate(over, surface))
+            report = lower_clearance(
+                report, self.floor_guard.evaluate(over, surface, only_joint_moves(over, self.gripper))
+            )
         self._slow_zone = report.summary()
         if self._slow_zone is not None:
             FLOOR_GUARD_SLOWDOWNS.labels(str(self._slow_zone["lowest_point"])).inc()
@@ -1720,12 +1801,15 @@ class ArmController:
             return plan_trajectory(start, goal, vmax, rate), []
         return path_trajectory(start, path, vmax, rate), []
 
-    def check_body(self, samples: list[dict[str, float]], execute: bool = False) -> BodyReport:
+    def check_body(
+        self, samples: list[dict[str, float]], execute: bool = False, moving_parts: tuple[str, ...] | None = None
+    ) -> BodyReport:
         """Body check of trajectory samples (start first); raises when the motion would hit the robot body.
 
         Args:
             samples (list[dict[str, float]]): Joint samples the arm will follow.
             execute (bool): The motion is about to run: count a slowdown later and set the min-clearance gauge.
+            moving_parts (tuple[str, ...] | None): Only these parts can slow the motion (a gripper-only motion).
 
         Returns:
             BodyReport: The report (not rejected).
@@ -1733,7 +1817,7 @@ class ArmController:
         Raises:
             SelfCollisionError: When a sample breaks the hard margin (counted in mcp_self_collision_rejections_total).
         """
-        report = self.body_check.path(samples)
+        report = self.body_check.path(samples, moving_parts=moving_parts)
         if report.enabled and math.isfinite(report.min_clearance) and execute:
             SELF_COLLISION_MIN_CLEARANCE.set(report.min_clearance)
         if report.rejected:
@@ -1906,6 +1990,9 @@ class ArmController:
         started = self.backend.now()
         self._moving = list(moving)
         self._settle_probe = None
+        self._first_setpoint_at = None
+        self._ticks = 0
+        kind = "gripper" if moving == [self.gripper] else "arm"
         jaw_history: list[tuple[float, float, float]] = []
 
         def contact_gate(latest: JointSample | None) -> tuple[float | None, float | None]:
@@ -1916,9 +2003,22 @@ class ArmController:
                 commanded = (self._last_setpoint or start).get(self.gripper, start[self.gripper])
             if not jaw_history or jaw_history[-1][0] != latest.stamp:
                 jaw_history.append((latest.stamp, latest.positions[self.gripper], commanded))
-            if not self.contact_allowed(jaw_history, started):
+            if not self.contact_allowed(jaw_history, started, goal[self.gripper]):
                 return None, None
             return effort_threshold, target_load
+
+        def stall_contact() -> ArmMotionResult | None:
+            """Close-until-effort stall outside the empty-jaw band: 'converged' with the jaw residual, which
+            grasp_from_stall turns into a grasp (or 'blocked') with the profile squeeze."""
+            message = (
+                None
+                if effort_threshold is None
+                else self.stall_contact_message(jaw_history, started, goal[self.gripper])
+            )
+            if message is None or sample is None:
+                return None
+            residual = {self.gripper: round(goal[self.gripper] - sample.positions[self.gripper], 4)}
+            return self.finish("converged", message, goal, sample, clamped, started, hold=False, residual=residual)
 
         with self._lock:
             self._streaming = True
@@ -1932,9 +2032,13 @@ class ArmController:
                 verdict = self.check(latest, tracked, *contact_gate(latest))
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
+                stall = stall_contact()
+                if stall is not None:
+                    return stall
                 self.ramp_sag(tick + 1, len(points))
                 if not self.command(point):
                     return self.finish("stopped", "control released", goal, sample, clamped, started, hold=False)
+                self.note_tick(kind, started)
                 if on_tick is not None:
                     on_tick(tick + 1, len(points))
                 if on_via is not None and tick in via_at:
@@ -1951,6 +2055,9 @@ class ArmController:
                 verdict = self.check(sample, tracked, *contact_gate(sample))
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
+                stall = stall_contact()
+                if stall is not None:
+                    return stall
                 assert sample is not None
                 if not beyond_converge(goal, sample.positions, judged, limits):
                     return self.finish(
@@ -1996,6 +2103,23 @@ class ArmController:
         finally:
             with self._lock:
                 self._streaming = False
+
+    def note_tick(self, kind: str, started: float) -> None:
+        """Count a published trajectory setpoint and observe the motion timing histograms (first setpoint after the
+        motion start, then the period since the previous setpoint).
+
+        Args:
+            kind (str): 'arm' or 'gripper' (a gripper-only motion).
+            started (float): Motion start (backend clock, s).
+        """
+        now = self.backend.now()
+        if self._first_setpoint_at is None:
+            self._first_setpoint_at = now
+            MOTION_FIRST_SETPOINT.labels(kind).observe(now - started)
+        else:
+            MOTION_TICK_PERIOD.labels(kind).observe(now - self._last_tick_at)
+        self._last_tick_at = now
+        self._ticks += 1
 
     def settle_record(
         self,

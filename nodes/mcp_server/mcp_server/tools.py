@@ -50,7 +50,16 @@ from .tool_context import RobotApi, ToolContext
 
 LOGGER = logging.getLogger("mcp_server.timing")
 # Keys of an arm motion result copied into the per-call timing line (trajectory seconds vs settle seconds apart).
-TIMING_RESULT_KEYS = ("status", "trajectory_s", "settle_s", "settle", "settling", "tracking_error_rad")
+TIMING_RESULT_KEYS = (
+    "status",
+    "trajectory_s",
+    "settle_s",
+    "settle",
+    "settling",
+    "tracking_error_rad",
+    "time_to_first_setpoint_s",
+    "tick_rate_hz",
+)
 SERVER_NAME = "robot"
 TOKEN_CLIENT_ID = "robot-mcp-client"
 ADMIN_CLEAR_AGENT_POIS_PATH = "/admin/clear_agent_pois"

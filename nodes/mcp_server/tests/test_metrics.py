@@ -210,6 +210,40 @@ def test_floor_guard_slowdowns_are_counted_by_the_closest_point(tmp_path: Path) 
     assert sample("mcp_floor_guard_slowdowns_total", reason=reason) == before.get(reason, 0.0) + 1
 
 
+# --- motion timing -----------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", ["arm", "gripper"])
+def test_motion_timing_histograms_observe_first_setpoint_and_tick_periods(
+    tmp_path: Path, kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    arm, be = make_guarded(tmp_path)
+    planning_s = 0.3
+    plan = arm.guarded_trajectory
+
+    def slow_plan(*args: Any, **kwargs: Any) -> list[dict[str, float]]:
+        be.t += planning_s  # planning takes wall time on the robot
+        return plan(*args, **kwargs)
+
+    monkeypatch.setattr(arm, "guarded_trajectory", slow_plan)
+    first_count = Delta("mcp_motion_first_setpoint_seconds_count", kind=kind)
+    first_sum = Delta("mcp_motion_first_setpoint_seconds_sum", kind=kind)
+    tick_count = Delta("mcp_motion_tick_period_seconds_count", kind=kind)
+    tick_sum = Delta("mcp_motion_tick_period_seconds_sum", kind=kind)
+    arm.acquire()
+    n0 = len(be.commands)
+    if kind == "arm":
+        result = arm.move_joints({"elbow_flex": 0.3}, 0.5)
+    else:
+        result = arm.set_gripper(open_fraction=0.5)
+    ticks = len(be.commands) - n0
+    assert first_count() == 1
+    assert first_sum() == pytest.approx(planning_s)
+    assert tick_count() >= ticks - 2  # one period per consecutive trajectory setpoint pair
+    assert tick_sum() == pytest.approx(tick_count() / arm.cfg.limits.arm_rate_hz)
+    assert result.time_to_first_setpoint_s == pytest.approx(planning_s)
+
+
 # --- robot events ------------------------------------------------------------------------------------------------
 
 

@@ -40,6 +40,10 @@ WRIST_LINK = "wrist_link"  # child of wrist_flex: its origin is the wrist_flex a
 GRIPPER_LINK = "gripper_link"
 TOOL_FRAME_LINK = "gripper_frame_link"
 NORMAL_SCALE = 1.0
+# Gripper-only motions (only the gripper joint moves): the slow zone applies only to steps where the moving jaw tip's
+# clearance DEcreases below this (m). Every other checked point is stationary, so its clearance cannot change, and a
+# jaw swinging closed above it (or not descending) runs at full speed. The arm-motion margin_m does not apply.
+GRIPPER_ONLY_SLOW_MARGIN_M = 0.005
 MAX_TILT_OVERRIDE_DEG = 45.0
 
 TiltSource = Literal["imu", "override", "none"]
@@ -565,12 +569,20 @@ class FloorGuard:
             "moving_jaw_tip": self.jaw.moving_tip(frames[GRIPPER_LINK], joints.get(self.gripper, self.jaw.closed_rad)),
         }
 
-    def evaluate(self, samples: list[dict[str, float]], surface: SurfaceModel) -> GuardReport:
+    def evaluate(
+        self, samples: list[dict[str, float]], surface: SurfaceModel, gripper_only: bool = False
+    ) -> GuardReport:
         """Speed scale of every sample: slow_speed_scale when a checked point is closer than margin_m to the surface.
 
+        A gripper-only motion (gripper_only) leaves every checked point but the moving jaw tip where it is, so only the
+        moving jaw counts there: a sample is slowed when its moving jaw tip clearance is below
+        GRIPPER_ONLY_SLOW_MARGIN_M AND lower than at the previous sample (the jaw descends toward the surface). The
+        reported clearances and lowest points stay those of every checked point.
+
         Args:
-            samples (list[dict[str, float]]): Joint configurations (measured space).
+            samples (list[dict[str, float]]): Joint configurations (measured space), the start first.
             surface (SurfaceModel): Resolved surface.
+            gripper_only (bool): Only the gripper joint changes between the samples.
 
         Returns:
             GuardReport: Per-sample scales, clearances and lowest points.
@@ -585,15 +597,21 @@ class FloorGuard:
         clearances: list[float] = []
         lowest: list[str] = []
         features: list[str] = []
+        previous_jaw = math.inf
         for joints in samples:
-            name, clearance = min(
-                ((n, surface.clearance_detail(p)) for n, p in self.checked_points(joints).items()),
-                key=lambda item: item[1].value,
-            )
+            detail = {n: surface.clearance_detail(p) for n, p in self.checked_points(joints).items()}
+            name = min(detail, key=lambda n: detail[n].value)
+            clearance = detail[name]
             clearances.append(clearance.value)
             lowest.append(name)
             features.append(clearance.feature)
-            scales.append(cfg.slow_speed_scale if clearance.value < cfg.margin_m else NORMAL_SCALE)
+            if gripper_only:
+                jaw = detail["moving_jaw_tip"].value
+                slow = jaw < GRIPPER_ONLY_SLOW_MARGIN_M and jaw < previous_jaw
+                previous_jaw = jaw
+            else:
+                slow = clearance.value < cfg.margin_m
+            scales.append(cfg.slow_speed_scale if slow else NORMAL_SCALE)
         return GuardReport(scales, clearances, lowest, surface, cfg.slow_speed_scale, cfg.margin_m, features=features)
 
 

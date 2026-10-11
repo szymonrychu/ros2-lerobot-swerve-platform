@@ -14,6 +14,9 @@ from prometheus_client.registry import Collector
 TOOL_BUCKETS = (0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0)
 TRACKING_ERROR_BUCKETS = (0.001, 0.003, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0)
 NAV_BUCKETS = (1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0)
+FIRST_SETPOINT_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
+# Around the 0.04 s period of the 25 Hz arm rate: anything above it is a tick the host could not keep up with.
+TICK_PERIOD_BUCKETS = (0.02, 0.035, 0.04, 0.045, 0.05, 0.06, 0.08, 0.1, 0.15, 0.25, 0.5)
 # GraspResult.outcome of an executed grasp -> the mcp_grasp_attempts_total result label (documented in the README).
 GRASP_RESULT_BY_OUTCOME = {"grasped": "lifted", "missed": "missed", "aborted": "aborted", "infeasible": "infeasible"}
 
@@ -28,6 +31,18 @@ MOTION_TRACKING_ERROR = Histogram(
     "Worst joint tracking error at the end of a queued motion step",
     ["kind"],
     buckets=TRACKING_ERROR_BUCKETS,
+)
+MOTION_FIRST_SETPOINT = Histogram(
+    "mcp_motion_first_setpoint_seconds",
+    "Arm/gripper motion start to its first published trajectory setpoint (planning time), by kind (arm, gripper)",
+    ["kind"],
+    buckets=FIRST_SETPOINT_BUCKETS,
+)
+MOTION_TICK_PERIOD = Histogram(
+    "mcp_motion_tick_period_seconds",
+    "Interval between consecutive trajectory setpoints of an arm/gripper motion, by kind (arm, gripper)",
+    ["kind"],
+    buckets=TICK_PERIOD_BUCKETS,
 )
 GRASP_PLANS = Counter("mcp_grasp_plans_total", "plan_grasp dry runs by strategy and outcome", ["mode", "outcome"])
 GRASP_ATTEMPTS = Counter(

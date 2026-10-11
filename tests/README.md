@@ -658,7 +658,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   (larger `max_px` still honoured); `settle` on the arm tools (default `trajectory_end`, `final` when the gripper joint
   moves, configurable); `precise` forwarded by `navigate_to_pose` / `move_relative`; descriptions ask for checkpoints
   instead of a check after every motion; one `mcp_server.timing` log line per call (tool, start, end, duration, ok,
-  and trajectory/settle seconds for arm moves, also for failing calls); `run_nav` ends the goal early within the
+  and trajectory/settle seconds, time to the first setpoint and the achieved tick rate for arm moves, also for
+  failing calls); `run_nav` ends the goal early within the
   intermediate tolerance (xy and wrapped yaw, same frame only), precise goals run to the Nav2 result; nav
   intermediate tolerance defaults and validation
 - path trajectory (`test_trajectory.py`): `path_trajectory` stays on the joint-space polyline, ends at its last point
@@ -771,7 +772,22 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   inline profiles capped before the write, unknown profiles and grip_profile without close_until_effort refused before
   anything moves, holding_load / slipping / crush_risk reporting and the torque_limit read-back (verified, unverified,
   mismatch); stall-path tests lower `gripper_empty_stall_rad` so their thin-object stall (0.075 rad before closed)
-  counts as an object
+  counts as an object. Stall classification by position (default config): an object stalling the jaw at 0.29 rad with
+  load 150 (below the normal target_load) is `grasped` with the hold at 0.29 minus the normal squeeze and the profile
+  torque kept, a stall at -0.04 rad (beyond the settle tolerance) is `grasped`, a stall at -0.115 rad with load 140
+  (inside the empty-jaw band) stays `closed_no_contact`, a stall after too little travel is `blocked` holding the
+  measured jaw; `jaw_stalled` accepts a command already at the close target as the lead (a jaw short of closed by less
+  than `gripper_stall_lead_rad`) but not one still ramping, and `stall_contact_message` is None inside the empty band
+- gripper-only motions near the floor and the body (`test_gripper_close_speed.py`, deployed client.yml config): the
+  2026-10-11 10:27 close (jaw tip 12.5 mm above the floor, the stationary upper arm 14.9 mm from the lidar) plans at
+  most 1.2x the unscaled `plan_trajectory` ticks (64) and commands >= 0.05 rad of closing within 25 ticks, with no
+  `slow_zone` / `self_collision`; an arm motion from the same pose is still slowed. Floor guard `gripper_only`: a jaw
+  swing above `GRIPPER_ONLY_SLOW_MARGIN_M` is not slowed (the arm-motion margin would slow it), with the floor raised
+  to 2 mm under the lowest jaw sample exactly the samples where the jaw descends below the margin are slowed, and
+  stationary points below the surface never slow it. Body check `moving_parts`: stationary links in the soft band do
+  not slow a jaw swing, the moving jaw in the soft band does (reported as the part), the hard reject still applies,
+  non-point parts are refused. Timing: a result reports `time_to_first_setpoint_s` (planning time), `ticks` and
+  `tick_rate_hz` = ticks / trajectory_s; queued motion events carry both timing fields
 - grip profiles through the interfaces (`test_grip_tools.py`): `grasp_params` takes grip_profile, a grasp applies and
   reports the profile (default normal), a grasp aborted after the close, a miss and a release restore the default
   torque, the `set_gripper` / `plan_grasp` / `grasp_object` tools take grip_profile (capped, unknown refused, a dry
@@ -793,7 +809,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   kind and status (converged, aborted_tracking, blended), tracking error samples and queue depth (waiting steps, zero
   after cancel and after draining); `plan_grasp` plans by mode and outcome; the grasp result mapping and
   `mcp_grasp_attempts_total` for lifted / missed / aborted / infeasible; grip profile uses and the gripper effort gauge
-  (motion result and arm state); floor guard slowdowns by closest point (nothing counted with the guard off); robot
+  (motion result and arm state); floor guard slowdowns by closest point (nothing counted with the guard off);
+  `mcp_motion_first_setpoint_seconds` and `mcp_motion_tick_period_seconds` per kind (arm, gripper) with a planning
+  delay: one first-setpoint observation of the planning time and one 0.04 s period per consecutive setpoint; robot
   events by severity (debounced repeats not counted); `staleness.sample_ages` and the sample age collector (no series
   without a source); navigation goals by result with their duration (errors without a goal not counted); `GET /metrics`
   (200 Prometheus text without a token for 127.0.0.1 and ::1, 403 for other clients, the MCP path stays 401)

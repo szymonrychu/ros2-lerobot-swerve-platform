@@ -17,8 +17,9 @@ HOLD_DELAY = 0.37  # distinct hold_check_delay_s so the fake can tell the post-g
 STALL = -0.09  # jaw stops on a thin object 0.075 rad before closed, within the settle tolerance (0.59 rad travel)
 DEFAULT_TORQUE = CONFIG.grip_profiles.presets["normal"].torque_limit
 GENTLE = CONFIG.grip_profiles.presets["gentle"]
-# Stall-path grasps only exist between the converge and settle tolerances of closed, where the default
-# gripper_empty_stall_rad (0.08) calls them empty jaws: these tests lower it to exercise the stall-path hold.
+# STALL settles within the settle tolerance of closed, where the default gripper_empty_stall_rad (0.08) calls it an
+# empty jaw: these tests lower it to exercise the settled stall-path hold. Stalls farther from closed (an object
+# loading the jaw below target_load) are classified by position: test_*_stall_* below with the default config.
 EMPTY_STALL = 0.05
 
 
@@ -281,3 +282,75 @@ def test_torque_limit_read_back(tmp_path: Path) -> None:
     assert arm.torque_limit_readback().startswith("unverified")
     be.registers[("gripper", "torque_limit")] = Stamped(value=999, stamp=be.t + 1.0)
     assert arm.torque_limit_readback().startswith("mismatch")
+
+
+# --- stall classification by position (default gripper_empty_stall_rad 0.08) -----------------------------------
+
+
+def make_default(tmp_path: Path, be: FakeArmBackend) -> ArmController:
+    cfg = CONFIG.model_copy(deep=True)
+    cfg.arm.home_file = tmp_path / "home.yaml"
+    cfg.grip_profiles.hold_check_delay_s = HOLD_DELAY
+    return ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg)
+
+
+def loaded_stall(stop: float, load: float, start: float = 0.531) -> FakeArmBackend:
+    """Follower whose jaw cannot close beyond `stop` and then reports `load` (below the normal target_load)."""
+    be = FakeArmBackend()
+    be.positions["gripper"] = start
+
+    def blocked(b: FakeArmBackend) -> None:
+        if b.positions["gripper"] <= stop + 1e-9:
+            b.positions["gripper"] = stop
+            b.efforts["gripper"] = load
+
+    be.on_sleep = blocked
+    return be
+
+
+def test_object_stall_far_from_closed_below_target_load_is_grasped(tmp_path: Path) -> None:
+    normal = CONFIG.grip_profiles.presets["normal"]
+    assert normal.target_load is not None and 150.0 < normal.target_load < normal.contact_effort_threshold
+    be = loaded_stall(0.29, 150.0)
+    arm = make_default(tmp_path, be)
+    res = arm.set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.status == "grasped", res.message
+    assert "stalled" in res.message
+    assert be.commands[-1]["gripper"] == pytest.approx(0.29 - normal.squeeze_rad)
+    assert torque_writes(be) == [normal.torque_limit]  # kept while holding
+    assert res.holding_load == 150.0
+
+
+def test_object_stall_just_outside_the_empty_band_is_grasped(tmp_path: Path) -> None:
+    be = loaded_stall(-0.04, 150.0)  # 0.125 rad before closed: beyond the 0.08 settle tolerance
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.status == "grasped", res.message
+    assert be.commands[-1]["gripper"] == pytest.approx(-0.04 - CONFIG.grip_profiles.presets["normal"].squeeze_rad)
+
+
+def test_stall_inside_the_empty_band_stays_closed_no_contact(tmp_path: Path) -> None:
+    be = loaded_stall(-0.115, 140.0)  # 0.05 rad before closed
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.status == "closed_no_contact", res.message
+    assert "gripper_empty_stall_rad" in res.message
+
+
+def test_stall_after_too_little_travel_is_blocked(tmp_path: Path) -> None:
+    be = loaded_stall(0.47, 150.0)  # 0.06 rad travel < gripper_grasp_min_travel_rad: pressing, not holding
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.status == "blocked", res.message
+    assert be.commands[-1]["gripper"] == pytest.approx(0.47)
+
+
+def test_still_jaw_with_the_command_at_the_close_target_is_stalled(tmp_path: Path) -> None:
+    """Less than gripper_stall_lead_rad before closed the lead can never grow: a command at the target counts."""
+    arm = make_default(tmp_path, FakeArmBackend())
+    closed = CONFIG.arm.gripper_closed_rad
+    at_target = [(100.0 + 0.1 * i, -0.04, closed) for i in range(8)]  # lead 0.125 < 0.15
+    assert arm.jaw_stalled(at_target) is False
+    assert arm.jaw_stalled(at_target, target=closed) is True
+    ramping = [(100.0 + 0.1 * i, -0.04, -0.1 - 0.01 * i) for i in range(8)]  # command still on its way
+    assert arm.jaw_stalled(ramping, target=closed) is False
+    assert arm.stall_contact_message(at_target, started=99.0, target=closed) is not None
+    in_band = [(100.0 + 0.1 * i, -0.115, closed) for i in range(8)]
+    assert arm.stall_contact_message(in_band, started=99.0, target=closed) is None

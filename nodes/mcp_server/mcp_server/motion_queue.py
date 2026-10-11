@@ -612,6 +612,8 @@ def arm_result_data(result: ArmMotionResult) -> dict[str, Any]:
         "trajectory_s": result.trajectory_s,
         "settle_s": result.settle_s,
         "tracking_error_rad": result.tracking_error_rad,
+        "time_to_first_setpoint_s": result.time_to_first_setpoint_s,
+        "tick_rate_hz": result.tick_rate_hz,
     }
     for key in (
         "settling",
