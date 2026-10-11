@@ -27,6 +27,7 @@ from scripts.gen_nav_footprint import (
     load_settings,
     main,
     offset_polygon,
+    region_lines,
     render_client_vars,
     render_laser_filter,
     render_nav2,
@@ -489,3 +490,11 @@ def test_main_writes_the_files_and_is_idempotent(tmp_path: Path) -> None:
     assert footprint.buffer(TOL).contains(Point(0.1525, 0.1333).buffer(0.07, quad_segs=64))
     # Outside the generated regions the file is unchanged.
     assert doc["controller_server"] == yaml.safe_load(NAV2_PARAMS.read_text())["controller_server"]
+
+
+def test_mcp_nav_footprint_lines_fit_the_yaml_lint_limit() -> None:
+    """The generated parked arm shadow is a block list, so no generated client.yml line exceeds the 160 char limit."""
+    gen = generated()
+    lines = region_lines("mcp_nav_footprint", gen)
+    assert max(len(line) for line in lines) <= 100
+    assert yaml.safe_load("\n".join(lines))["parked_arm_shadow"] == gen.mcp_nav_footprint["parked_arm_shadow"]

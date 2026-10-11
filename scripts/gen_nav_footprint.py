@@ -417,10 +417,14 @@ def region_lines(name: str, gen: Generated) -> list[str]:
     if name == "laser_polygon":
         return [f"polygon: {polygon_string(gen.laser_polygon)}"]
     if name == "mcp_nav_footprint":
-        return [
-            f"{key}: {polygon_text(value) if isinstance(value, list) else value}"
-            for key, value in gen.mcp_nav_footprint.items()
-        ]
+        lines = []
+        for key, value in gen.mcp_nav_footprint.items():
+            if isinstance(value, list):
+                lines.append(f"{key}:")
+                lines.extend(f"  - {polygon_text([point])[1:-1]}" for point in value)
+            else:
+                lines.append(f"{key}: {value}")
+        return lines
     if name == "stopbox":
         lines = ["velocity_polygons: [" + ", ".join(f'"{n}"' for n in gen.stopbox) + "]"]
         for sub_name, sub in gen.stopbox.items():
