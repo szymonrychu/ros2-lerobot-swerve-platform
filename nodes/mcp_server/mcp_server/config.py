@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, field_validato
 from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
 
+from .guard_rules import GuardRuleSettings
 from .models import SettlePolicy
 from .sag import SAG_JOINTS
 
@@ -1260,6 +1261,8 @@ class McpServerConfig(StrictModel):
     body_check: BodyCheckSettings = BodyCheckSettings()
     grasp: GraspSettings = GraspSettings()
     grip_profiles: GripProfileSettings = GripProfileSettings()
+    # Declarative guard rules (guard_rules.py); code default: enabled, no rules (the deployed set lives in client.yml).
+    guard_rules: GuardRuleSettings = GuardRuleSettings()
 
 
 def load_config(path: Path) -> McpServerConfig:

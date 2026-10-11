@@ -1316,6 +1316,104 @@ shoulder_lift 0.004 rad per N m; held-out residual shoulder_lift 0.067 -> 0.005 
 tool point 12.8 -> 3.4 mm RMS. wrist_flex is not compensated (data only at 0.009-0.012 N m of a range up to 0.117 N m).
 Not modelled: a payload in the gripper (adds torque the model does not know), a tilted base, temperature.
 
+## Guard rules
+
+Declarative safety rules checked outside the model (`guard_rules.py`, pure Python, no ROS). They live in the
+`guard_rules:` section of `config.yaml` and are validated by pydantic in `load_config`, so a bad rule stops the node
+with `EX_CONFIG` (78) instead of starting half-configured. The code default is enabled with no rules.
+
+### Schema
+
+```yaml
+guard_rules:
+  enabled: true                       # master switch; false = the engine is a no-op (counters untouched)
+  rules:
+    - name: base_motion_arm_outside_footprint   # ^[a-z][a-z0-9_]{2,63}$, unique
+      mode: dry_run                   # enforce | dry_run (default) | off
+      message: "..."                  # 1..300 chars, shown to the model verbatim
+      applies_to:
+        tools: [navigate_to_pose, move_relative, drive, look_around]   # subset of GUARDABLE_TOOLS
+        steps: [base_relative, navigate_to_pose]                       # subset of STEP_KINDS
+        arm_motion_from: []           # tool names / step kinds whose arm motions are target-checked (ARM_ORIGINS)
+      all:                            # every condition must hold (optional)
+        - {field: footprint.kind, op: eq, value: static}
+        - {field: arm.outside_footprint_m, op: gt, value: 0.03}
+      any: []                         # at least one must hold (optional); a rule needs all or any
+      when_unknown: reject            # reject (default) | allow: verdict when the result is unknown
+```
+
+Load-time checks (each a `ValueError`): the field must be in the registry below; the op must fit the field type
+(`lt`/`le`/`gt`/`ge` with a finite number on float fields; `eq`/`ne`/`in`/`not_in` with a matching value on str and bool
+fields, enum values checked; a non-empty list for `in`/`not_in`, a single value otherwise; `args.*` takes any op);
+every field must be readable in every phase the rule runs in (`args.*` only with `tools`/`steps`; `target.*`,
+`start.*`, `motion.*` only with `arm_motion_from`); `tools` only from `GUARDABLE_TOOLS` (the motion tools without
+`arm_set_home`, plus `take_control`, minus `NEVER_GATED`); `NEVER_GATED` (`stop`, `cancel_motions`, `release_control`,
+`arm_home`, `resume_motions`) and every read-only tool can never be named, so recovery and inspection stay open;
+`steps` only from `STEP_KINDS` (the motion queue step kinds); `arm_motion_from` only from `ARM_ORIGINS`
+(`move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `grasp_object`, `release_object`, `arm_joints`,
+`arm_cartesian`, `gripper`, `grasp`); a rule must apply to something and have `all` or `any`; names are unique.
+
+### Fields
+
+Closed registry (`guard_rules.FIELDS`, plus the patterns `arm.joint.<j>`, `target.joint.<j>`, `motion.abs_delta.<j>`
+with `<j>` in `ARM_JOINTS`, and `args.<name>`). Unknown is `None`, never a substitute value.
+
+| Field | Type | Phases |
+|---|---|---|
+| `tool.name` / `step.kind` | str | tool / step |
+| `args.<name>` | any (raw tool arguments / step fields) | tool, step |
+| `arm.lease_held`, `arm.carrying`, `arm.at_home` | bool | all |
+| `arm.active_source` | str (`leader`, `web_ui`, `autonomy`, `none`) | all |
+| `arm.joint.<j>`, `arm.tool_height_m`, `arm.outside_footprint_m` | float | all |
+| `footprint.kind` | str (`static`, `dynamic`, `conservative`) | all |
+| `footprint.carried_radius_m` | float | all |
+| `base.lease_held` | bool | all |
+| `base.speed_mps` | float | all |
+| `tilt.level` | str (`ok`, `warning`, `error`) | all |
+| `tilt.deg`, `battery.voltage_v`, `events.human_takeover_age_s` | float | all |
+| `battery.cutoff`, `queue.busy` | bool | all |
+| `start.tool_height_m`, `target.tool_height_m`, `target.joint.<j>`, `motion.abs_delta.<j>` | float | arm |
+
+The engine resolves `tool.name`, `step.kind`, `args.*`, `target.joint.*` and `motion.abs_delta.*` (abs(target - start))
+itself; every other field comes from a `FieldSource` (`get(field, ctx)`, ctx = phase, key, args, start, target).
+
+### Semantics
+
+- Kleene three-valued logic: a condition is True, False or Unknown (field None or NaN, or a value of a type the op
+  cannot compare). `all`: False if any False, else Unknown if any Unknown, else True. `any`: True if any True, else
+  Unknown if any Unknown, else False. Both present blocks are combined with AND. True = hit (basis `match`), False =
+  pass, Unknown = `when_unknown` (basis `unknown`). A known False passes even when other fields are unknown.
+- Lazy and memoized: only rules applicable to (phase, tool / step kind / arm origin) are evaluated, each field is read
+  at most once per check, and a rule stops reading at its deciding condition (the first False in `all`, the first True
+  in `any`). A tool without an applicable rule costs one dict lookup (`has_rules`).
+- Every applicable rule is evaluated. Enforce hits raise one `GuardRejection` naming all of them; dry_run hits log
+  `guard_rule_would_refuse {json}` at WARNING (rule, phase, target, action, basis, message, values) and are counted,
+  never raised; `off` rules are skipped (`explain_tool` lists them as `skip`); `enabled: false` disables everything.
+- Phases: `check_tool(tool, args)` at tool entry, `check_step(kind, step_fields)` at queue dispatch,
+  `check_arm(start, target)` at arm motion start for the origin in the `GUARD_ORIGIN` context variable (None = not an
+  agent motion: web UI, park, stop hold, `arm_home` are never checked). `explain_tool(tool, args)` returns the
+  hypothetical tool-phase verdicts (`Verdict`: rule, mode, outcome pass/reject/skip, basis, message, values) without
+  counters or logs.
+
+### Rejection text
+
+Stable, parsed by claude_agent (`guard_rules.GUARD_REFUSAL_PATTERN`, one match per refused rule):
+
+```
+guard rule '<name>' refused <tool | queued <kind> step | arm motion of <origin>>: <message> (<field>=<value>, ...)
+```
+
+The values are the conditions' observed values (floats rounded to 3 decimals, `true`/`false`, `inf`, `unknown` for
+None); several enforce hits are joined by `; `.
+
+### Metrics
+
+`mcp_guard_rule_hits_total{rule,mode,phase,basis}` (mode `enforce` = refused, `dry_run` = would-be refusal; phase
+`tool`/`step`/`arm`; basis `match`/`unknown`), `mcp_guard_eval_seconds{phase}` (buckets 10 us .. 50 ms, observed for
+checks that had applicable rules) and `mcp_motion_watch_triggers_total{metric,action}` (motion queue watches). Label
+cardinality is bounded by the configured rule names. Latency in the unit tests (dev Mac): `check_tool` p99 < 20 us on
+an unruled tool and < 500 us with five rules over fake providers.
+
 ## Safety model
 
 - **Base**: navigation goes through Nav2 (planner, controller, velocity smoother, collision monitor). `drive` publishes
@@ -1447,6 +1545,7 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
 | Module | ROS? | Purpose |
 |---|---|---|
 | `config.py` | no | pydantic config, `MCP_SERVER_CONFIG`, `MCP_SERVER_TOKEN` |
+| `guard_rules.py` | no | guard rules: schema (`GuardRuleSettings`), field registry, Kleene evaluation (`GuardEngine`), rejection text and `GUARD_REFUSAL_PATTERN` |
 | `trajectory.py` | no | quintic interpolation, limit clamping, tracking error, `blend_trajectory` (velocity-continuous spline through via points) |
 | `ik.py` | no | URDF limits, ikpy FK/IK with verification |
 | `arm.py` | no | `ArmController`: lease, streaming, aborts, gripper, home, `move_path`, `move_blend`, `solve_cartesian`, slow-zone time scaling |
@@ -1504,6 +1603,9 @@ expose it on the LAN. The MCP path and the admin route stay behind the token. `r
 | `mcp_robot_events_total{severity}` | `RobotMonitor.emit` (debounced repeats are not counted) |
 | `mcp_sample_age_seconds{feed}` | age of the latest cached sample per ROS feed (`RosRobot.latest` keys, via `staleness.sample_ages`), read at scrape time; a feed without a sample has no series |
 | `mcp_lookup_writes_total{tool}`, `mcp_lookup_write_failures_total` | `LookupRecorder.record` (`lookup_tools.py`): camera images recorded in the lookup store, and the ones it failed to record (the camera tool still answered) |
+| `mcp_guard_rule_hits_total{rule,mode,phase,basis}` | `GuardEngine.run` (`guard_rules.py`): a rule hit at a tool / step / arm check; mode `enforce` (refused) or `dry_run` (would-be refusal), basis `match` or `unknown` (resolved to reject by `when_unknown`) |
+| `mcp_guard_eval_seconds{phase}` | `GuardEngine.run`: evaluation time of a check that had applicable rules (buckets 10 us .. 50 ms); unruled tools are not observed |
+| `mcp_motion_watch_triggers_total{metric,action}` | motion queue watch constraints that triggered, by metric and action (`abort`/`pause`) |
 | `mcp_nav_goals_total{result}`, `mcp_nav_goal_duration_seconds` | `nav_result` in `base_motion.py`, so every Nav2 goal that was sent (`succeeded`, `canceled`, `timeout`, `interrupted`, `rejected`, ...); errors before a goal exists (Nav2 not available) raise and are not counted |
 
 ### Grasp result mapping
@@ -1691,6 +1793,9 @@ monitor:                  # all optional; thresholds of the body monitor (see Bo
   tilt_guard_stale_s: 3.0    # /tilt_guard/state older than this is stale (last level still enforced; nav refused at ok)
   tilt_cancel_attempts: 3    # Nav2 cancel tries at a tilt warning/error entry, then tilt_nav_cancel_failed
   tilt_cancel_retry_s: 1.0
+guard_rules:              # optional; default enabled with no rules (schema in Guard rules)
+  enabled: true
+  rules: []
 ```
 
 ## Claude Code setup

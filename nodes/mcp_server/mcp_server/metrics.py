@@ -17,6 +17,8 @@ NAV_BUCKETS = (1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0)
 FIRST_SETPOINT_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
 # Around the 0.04 s period of the 25 Hz arm rate: anything above it is a tick the host could not keep up with.
 TICK_PERIOD_BUCKETS = (0.02, 0.035, 0.04, 0.045, 0.05, 0.06, 0.08, 0.1, 0.15, 0.25, 0.5)
+# Guard rule evaluation: a ruled tool check is ~10-100 us on the dev Mac, a base rule with FK + footprint ~ms on the Pi.
+GUARD_EVAL_BUCKETS = (1e-5, 2.5e-5, 5e-5, 1e-4, 2.5e-4, 5e-4, 1e-3, 2.5e-3, 5e-3, 1e-2, 2.5e-2, 5e-2)
 # GraspResult.outcome of an executed grasp -> the mcp_grasp_attempts_total result label (documented in the README).
 GRASP_RESULT_BY_OUTCOME = {
     "grasped": "lifted",
@@ -83,6 +85,23 @@ LOOKUP_WRITES = Counter("mcp_lookup_writes_total", "Camera images recorded in th
 LOOKUP_WRITE_FAILURES = Counter(
     "mcp_lookup_write_failures_total",
     "Camera images the lookup store failed to record (the camera tool still answered)",
+)
+GUARD_RULE_HITS = Counter(
+    "mcp_guard_rule_hits_total",
+    "Guard rule hits: enforce = refused, dry_run = would-be refusal; phase tool/step/arm; basis match/unknown "
+    "(an unknown resolved to reject by when_unknown)",
+    ["rule", "mode", "phase", "basis"],
+)
+GUARD_EVAL_SECONDS = Histogram(
+    "mcp_guard_eval_seconds",
+    "Guard rule evaluation time of a check with applicable rules, by phase (tool/step/arm)",
+    ["phase"],
+    buckets=GUARD_EVAL_BUCKETS,
+)
+MOTION_WATCH_TRIGGERS = Counter(
+    "mcp_motion_watch_triggers_total",
+    "Motion queue watch constraints that triggered, by metric and action (abort/pause)",
+    ["metric", "action"],
 )
 
 SampleAges = Callable[[], Mapping[str, float]]

@@ -881,6 +881,50 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   data does not wait again; the reaper destroys the subscription (and drops its sample) only once it is unread for
   `control.steer_states_idle_s`, a read resets the idle time, and the next read subscribes again; the reaper timer
   runs at most every half idle period; `test_config.py` covers the 0.5 s / 30 s defaults and rejects 0
+- guard rules engine (`test_guard_rules.py`, pure `guard_rules.py`): constants against the node -
+  `test_guardable_tools_are_motion_tools_without_arm_set_home_plus_take_control_minus_recovery` (`GUARDABLE_TOOLS` ==
+  `tools.MOTION_TOOLS - {arm_set_home} | {take_control}` minus `NEVER_GATED`, so `arm_home` stays recovery),
+  `test_never_gated_is_disjoint_from_guardable_and_holds_the_recovery_tools`,
+  `test_every_tool_outside_guardable_tools_is_rejected_by_validation` (every read-only / recovery tool in
+  `tools.TOOL_NAMES`), `test_step_kinds_equal_the_motion_queue_discriminator_kinds`,
+  `test_arm_origins_are_the_arm_tools_and_arm_step_kinds`, `test_arm_joints_copy_equals_config`,
+  `test_guard_rules_does_not_import_tools_or_motion_queue_or_ros`; field registry - `test_field_registry_exact_names`,
+  `test_field_registry_joint_patterns` (`arm.joint.` / `target.joint.` / `motion.abs_delta.` + every ARM_JOINTS name,
+  unknown joint rejected), `test_field_registry_args_pattern`, `test_field_registry_types_and_phases` (enum choices,
+  phases); load-time validation matrix - `test_minimal_rule_validates_with_defaults`, `test_condition_validation_matrix`
+  (unknown field, op/type mismatch, non-number / bool / infinite threshold, unknown enum value, list vs single value,
+  unknown op, extra key), `test_phase_mismatch_is_rejected` / `test_phase_fit_is_accepted` (`args.*` only with
+  tools/steps, `target.`/`start.`/`motion.*` only with arm_motion_from, `tool.name` / `step.kind` in their phase),
+  `test_applies_to_validation` (never-gated, non-guardable, unknown step kind or arm origin, empty scope, extra key),
+  `test_rule_validation` (neither all nor any, name pattern, message length, mode, when_unknown, extra key),
+  `test_rule_without_all_but_with_any_is_valid`, `test_duplicate_rule_names_are_rejected`,
+  `test_settings_default_is_enabled_without_rules_and_rejects_unknown_keys`, `test_validation_errors_are_value_errors`
+  (EX_CONFIG path); Kleene evaluation - `test_kleene_all` / `test_kleene_any` (full 3x3 truth tables with
+  when_unknown reject and allow), `test_kleene_all_and_any_blocks_combine_with_and`,
+  `test_known_false_passes_even_with_unknown_fields`, `test_condition_truth_values_on_args` (NaN / None / wrong type =
+  unknown, numeric bounds, inf, eq/ne/in/not_in, bool vs number never equal),
+  `test_engine_reads_tool_name_step_kind_and_arm_targets_itself`, `test_arm_joint_missing_from_target_is_unknown`,
+  `test_provider_receives_phase_key_args_and_poses`; laziness - `test_only_fields_of_applicable_rules_are_read` (a
+  provider for an unreferenced field fails the test), `test_unruled_tool_reads_no_field`,
+  `test_a_field_shared_by_rules_is_read_once_per_evaluation`, `test_a_deciding_condition_stops_reading_the_rest_of_the_rule`,
+  `test_any_block_stops_at_the_first_true`, `test_nan_from_a_provider_is_unknown`; modes, text and metrics -
+  `test_enforce_hit_raises_one_rejection_with_the_documented_text` (exact text and the full-text regex built from
+  `GUARD_REFUSAL_PATTERN`), `test_several_enforce_hits_are_joined_and_every_name_is_parsed_by_the_pattern`,
+  `test_values_are_rendered` (unknown, true/false, text, rounded numbers), `test_infinite_value_is_rendered_inf`,
+  `test_step_and_arm_texts_name_what_was_refused`, `test_check_arm_without_an_agent_origin_is_never_checked`,
+  `test_dry_run_hit_logs_and_counts_but_never_raises` (WARNING `guard_rule_would_refuse <json>`, not matched by the
+  refusal pattern), `test_dry_run_log_is_valid_json_with_infinite_and_unknown_values`,
+  `test_all_applicable_rules_are_evaluated_dry_run_counted_alongside_an_enforce_refusal`,
+  `test_unknown_resolved_to_reject_is_counted_with_basis_unknown`,
+  `test_pass_counts_no_hit_and_step_and_arm_phases_are_labelled`, `test_eval_seconds_is_observed_per_ruled_check_only`,
+  `test_off_rules_are_skipped_and_never_read`, `test_disabled_engine_is_a_no_op`,
+  `test_explain_tool_returns_verdicts_without_counters_logs_or_raising`, `test_has_rules_per_phase_and_key`,
+  `test_values_in_verdicts_are_rounded_to_three_decimals`, `test_metrics_are_registered_with_their_labels_and_buckets`
+  (`mcp_guard_rule_hits_total`, `mcp_guard_eval_seconds` 1e-5..5e-2, `mcp_motion_watch_triggers_total`; counters read
+  through `REGISTRY.get_sample_value` throughout); latency - `test_latency_unruled_tool_p99_under_20_us` and
+  `test_latency_five_rules_over_fake_providers_p99_under_500_us` (2000 `check_tool` calls each, best p99 of 3 runs against OS preemption). Config
+  (`test_config.py`): `test_guard_rules_default_is_enabled_without_rules`, `test_guard_rules_load_from_yaml`,
+  `test_invalid_guard_rule_fails_config_load` (never-gated tool, unknown field)
 - unmeasured efforts (`test_effort_nan.py`, review L25: feetech_servos publishes NaN effort for joints without a
   reading): `arm.finite_effort` (finite value, None for NaN / inf / missing); a NaN effort of a non-effort joint is
   absent from `ArmState.efforts` and a NaN gripper effort gives `gripper_effort` None in the arm state, motion results

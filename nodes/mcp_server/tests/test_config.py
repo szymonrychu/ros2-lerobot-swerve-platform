@@ -367,3 +367,46 @@ def test_steer_states_lazy_subscription_defaults_and_bounds() -> None:
     for bad in ({"steer_states_wait_s": 0.0}, {"steer_states_idle_s": 0.0}):
         with pytest.raises(ValidationError):
             McpServerConfig.model_validate({"control": bad})
+
+
+def test_guard_rules_default_is_enabled_without_rules() -> None:
+    guard = McpServerConfig().guard_rules
+    assert guard.enabled is True
+    assert guard.rules == []
+
+
+def test_guard_rules_load_from_yaml(tmp_path: Path) -> None:
+    path = tmp_path / "config.yaml"
+    rule = {
+        "name": "base_motion_carrying_without_object_footprint",
+        "mode": "dry_run",
+        "message": "release_control keep_position=true carried_object_radius_m=... first",
+        "applies_to": {"tools": ["navigate_to_pose"], "steps": ["base_relative"]},
+        "all": [
+            {"field": "arm.carrying", "op": "eq", "value": True},
+            {"field": "footprint.carried_radius_m", "op": "le", "value": 0.0},
+        ],
+    }
+    path.write_text(yaml.safe_dump({"guard_rules": {"rules": [rule]}}))
+    loaded = load_config(path).guard_rules.rules[0]
+    assert (loaded.name, loaded.mode, loaded.when_unknown) == (rule["name"], "dry_run", "reject")
+    assert [c.field for c in loaded.all_of] == ["arm.carrying", "footprint.carried_radius_m"]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"name": "never_gated_rule", "applies_to": {"tools": ["stop"]}},
+        {"name": "unknown_field_rule", "all": [{"field": "arm.speed", "op": "gt", "value": 1.0}]},
+    ],
+)
+def test_invalid_guard_rule_fails_config_load(tmp_path: Path, bad: dict) -> None:
+    rule = {
+        "message": "m",
+        "applies_to": {"tools": ["drive"]},
+        "all": [{"field": "battery.cutoff", "op": "eq", "value": True}],
+    } | bad
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump({"guard_rules": {"rules": [rule]}}))
+    with pytest.raises(ValueError, match="guard_rules"):
+        load_config(path)
