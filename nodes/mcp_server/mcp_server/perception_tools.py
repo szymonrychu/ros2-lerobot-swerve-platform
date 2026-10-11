@@ -322,6 +322,7 @@ def register(ctx: ToolContext) -> None:
     ) -> CallToolResult:
         """Rotate through captures stops; the tool description is passed to the decorator."""
         ctx.battery_gate("look_around")
+        ctx.tilt_gate("look_around")
         with tool_errors():
             run = run_look_around(
                 robot,

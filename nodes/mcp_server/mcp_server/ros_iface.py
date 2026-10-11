@@ -80,6 +80,14 @@ MAP_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
 )
+# swerve_drive_controller latches /tilt_guard/state (reliable + transient_local, depth 1): the current level arrives
+# at subscription time.
+TILT_GUARD_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
 # filter_node subscribes reliable, depth 10.
 COMMAND_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=10)
 # /robot_events: reliable so a consumer never misses an event.
@@ -299,6 +307,7 @@ class RosRobot:
 
         self.events_pub = self.node.create_publisher(String, t.robot_events, EVENT_QOS)
         self.monitor.set_sink(self.publish_event)
+        self.monitor.set_nav_canceller(self.cancel_goals_async)
 
         self.cmd_pub = self.node.create_publisher(JointState, t.autonomy_command, COMMAND_QOS)
         self.release_pub = self.node.create_publisher(Bool, t.autonomy_release, COMMAND_QOS)
@@ -314,6 +323,8 @@ class RosRobot:
         self.cancel_client = self.node.create_client(
             CancelGoal, t.navigate_action + CANCEL_SUFFIX, callback_group=self.group
         )
+        # After the cancel client: a latched warning/error cancels Nav2 goals as soon as it arrives.
+        self.subscribe(String, t.tilt_guard_state, lambda msg: self.monitor.on_tilt_guard(msg.data), TILT_GUARD_QOS)
 
         self.set_register_pub = self.node.create_publisher(String, t.follower_set_register, COMMAND_QOS)
         urdf = config.arm.urdf_path
@@ -1188,6 +1199,22 @@ class RosRobot:
         request = CancelGoal.Request()
         request.goal_info = GoalInfo()
         return wait_future(self.cancel_client.call_async(request), CANCEL_WAIT_S)
+
+    def cancel_goals_async(self) -> bool:
+        """Cancel every NavigateToPose goal from a worker thread (the tilt guard callback must not block the executor).
+
+        Returns:
+            bool: True (the cancel was started; its outcome is logged).
+        """
+
+        def run() -> None:
+            if self.cancel_all_goals():
+                self.log.warning("tilt guard: every Nav2 goal cancelled")
+            else:
+                self.log.error("tilt guard: Nav2 cancel service did not answer; goals may still be active")
+
+        threading.Thread(target=run, name="tilt-guard-nav-cancel", daemon=True).start()
+        return True
 
     def stop(self) -> StopResult:
         """Cancel navigation and zero the base always; hold the arm only if this server controls it.

@@ -1,5 +1,5 @@
 """RobotMonitor: body vitals and event detection (overheat, servo error, battery, collision stop, stall, wheel slip,
-IMU bump/tilt, human takeover, CPU temperature). Pure logic, fed by thin ROS callbacks in ros_iface.
+IMU bump/tilt, tilt guard, human takeover, CPU temperature). Pure logic, fed by thin ROS callbacks in ros_iface.
 
 Events are debounced per (type, source), published through a sink (the /robot_events publisher), kept in a ring buffer
 for the per-call digest and the get_body_state tool, and consulted by running motions through MotionWatch.
@@ -14,8 +14,9 @@ from collections import OrderedDict, deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+from pydantic import ValidationError
 from ros2_common.battery import BatteryGuard
 
 from .config import MonitorSettings
@@ -34,6 +35,8 @@ from .models import (
     MeasuredSpeed,
     RobotEvent,
     ServoVitals,
+    TiltGuardState,
+    TiltGuardVitals,
     WheelSlipVitals,
 )
 
@@ -41,7 +44,18 @@ LOGGER = logging.getLogger("mcp_server.monitor")
 
 # Event types that end a running base / arm motion early when they fire at critical severity.
 BASE_INTERRUPTS = frozenset(
-    {"collision_stop", "stall", "battery_cutoff", "overheat", "cpu_overheat", "servo_error", "human_takeover", "bump"}
+    {
+        "collision_stop",
+        "stall",
+        "battery_cutoff",
+        "overheat",
+        "cpu_overheat",
+        "servo_error",
+        "human_takeover",
+        "bump",
+        "tilt_warning",
+        "tilt_error",
+    }
 )
 ARM_INTERRUPTS = frozenset({"overheat", "cpu_overheat", "servo_error", "battery_cutoff", "human_takeover", "stall"})
 SEVERITY_RANK = {"info": 0, "warning": 1, "critical": 2}
@@ -58,6 +72,21 @@ STALL_SOURCE = "base"
 DIGEST_DEFAULT_SESSION = ""  # digest key of callers without an MCP session id
 MAX_DIGEST_SESSIONS = 16
 MIN_QUATERNION_NORM = 0.5
+# Tilt guard (/tilt_guard/state from swerve_drive_controller): event names consumed by claude_agent and web_ui.
+TILT_SOURCE = "tilt_guard"
+TILT_EVENT_TYPES = {"warning": "tilt_warning", "error": "tilt_error"}
+TILT_CLEAR_EVENT = "tilt_clear"
+TILT_MANUAL_HINT = (
+    "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool; "
+    "navigate_to_pose, move_relative, look_around and queued base steps are refused), then wait for the guard to clear"
+)
+TILT_INHIBITED = "base inhibited by the tilt guard"
+TILT_ERROR_NOTE = (
+    "base drive is inhibited until the IMU is back within limits; no base motion tools work (drive, move_relative, "
+    "navigate_to_pose, look_around and queued base steps are refused). Keep the arm still and compact"
+)
+
+BaseUse = Literal["nav", "manual"]  # nav: Nav2 goals / autonomous turns; manual: the drive tool
 
 
 def read_cpu_temp_c(path: Path) -> float | None:
@@ -131,6 +160,22 @@ def grade(
     if value >= warn_at:
         return "warning"
     return None
+
+
+def describe_tilt(state: TiltGuardState) -> str:
+    """Roll and pitch against the guard limits, e.g. "roll 9.0 deg (limits 8/15), pitch 2.5 deg (limits 12/20)".
+
+    Args:
+        state (TiltGuardState): Guard state.
+
+    Returns:
+        str: One-line description (limits are warning/error).
+    """
+    lim = state.limits
+    return (
+        f"roll {state.roll_deg:.1f} deg (limits {lim.roll_warn_deg:g}/{lim.roll_error_deg:g}), "
+        f"pitch {state.pitch_deg:.1f} deg (limits {lim.pitch_warn_deg:g}/{lim.pitch_error_deg:g})"
+    )
 
 
 def delivers(method: Callable[..., Any]) -> Callable[..., Any]:
@@ -230,6 +275,8 @@ class RobotMonitor:
         self.motion_started = 0.0
         self.stall_since: float | None = None
         self.cpu: tuple[float, float | None] | None = None
+        self.tilt_guard: tuple[float, TiltGuardState] | None = None  # (receive time, last /tilt_guard/state)
+        self.nav_canceller: Callable[[], bool] | None = None
 
     # --- plumbing ---------------------------------------------------------------------------------------------------
 
@@ -240,6 +287,14 @@ class RobotMonitor:
             sink (Callable[[RobotEvent], None] | None): Callback; its failures are logged, never raised.
         """
         self.sink = sink
+
+    def set_nav_canceller(self, canceller: Callable[[], bool] | None) -> None:
+        """Set the callback that cancels every Nav2 goal (called when the tilt guard enters warning or error).
+
+        Args:
+            canceller (Callable[[], bool] | None): Returns True when the cancel was sent; failures are logged.
+        """
+        self.nav_canceller = canceller
 
     def deliver(self, event: RobotEvent) -> None:
         """Hand one event to the sink.
@@ -481,6 +536,10 @@ class RobotMonitor:
         pitch = math.degrees(math.asin(max(-1.0, min(1.0, 2.0 * (qw * qy - qz * qx)))))
         tilt = math.degrees(math.acos(max(-1.0, min(1.0, 1.0 - 2.0 * (qx * qx + qy * qy)))))
         self.imu = (now, roll, pitch, tilt)
+        if self.tilt_guard_fresh(now):  # the guard is authoritative: the IMU fallback warning stays silent
+            self.levels.pop(("tilt", "imu"), None)
+            self.last_emit.pop(("tilt", "imu"), None)
+            return
         active = self.level("tilt", "imu") is not None
         limit = cfg.tilt_warn_deg - (cfg.tilt_hysteresis_deg if active else 0.0)
         self.set_level(
@@ -492,6 +551,119 @@ class RobotMonitor:
             else f"tilt back to {tilt:.1f} deg",
             {"roll_deg": round(roll, 2), "pitch_deg": round(pitch, 2), "tilt_deg": round(tilt, 2)},
         )
+
+    def on_tilt_guard(self, payload: str) -> None:
+        """Process one /tilt_guard/state JSON message; entering warning or error cancels every Nav2 goal.
+
+        Args:
+            payload (str): JSON per the shared contract (TiltGuardState); anything else is logged and dropped.
+        """
+        try:
+            state = TiltGuardState.model_validate_json(payload)
+        except ValidationError as exc:
+            LOGGER.warning("tilt guard state dropped (not the /tilt_guard/state contract): %s", exc.errors()[:1])
+            return
+        if self.apply_tilt_guard(state):
+            self.cancel_nav()
+
+    @delivers
+    def apply_tilt_guard(self, state: TiltGuardState) -> bool:
+        """Store the guard state and emit an event when its level changes. Lock held (via delivers).
+
+        warning and error entries are critical (claude_agent interrupts the running instruction at once), the return
+        to ok is an info tilt_clear event.
+
+        Args:
+            state (TiltGuardState): Parsed guard state.
+
+        Returns:
+            bool: True when the level entered warning or error (Nav2 goals must be cancelled).
+        """
+        previous = "ok" if self.tilt_guard is None else self.tilt_guard[1].level
+        self.tilt_guard = (self.clock(), state)
+        if state.level == previous:
+            return False
+        tilt = describe_tilt(state)
+        data = {
+            "level": state.level,
+            "previous": previous,
+            "roll_deg": state.roll_deg,
+            "pitch_deg": state.pitch_deg,
+            "limits": state.limits.model_dump(),
+            "base_drive_inhibited": state.base_drive_inhibited,
+            "imu_ok": state.imu_ok,
+        }
+        if state.level == "ok":
+            self.emit(
+                TILT_CLEAR_EVENT,
+                "info",
+                TILT_SOURCE,
+                f"tilt guard clear: {tilt}, back within limits; navigation and base motion are allowed again",
+                data,
+                debounce=False,
+            )
+            return False
+        if state.level == "warning":
+            lead = (
+                "tilt guard back to warning, base drive enabled again" if previous == "error" else "tilt guard warning"
+            )
+            message = f"{lead}: {tilt}. Active Nav2 goals are cancelled; {TILT_MANUAL_HINT}"
+        else:
+            message = f"tilt guard error: {tilt}. Active Nav2 goals are cancelled; {TILT_ERROR_NOTE}"
+        self.emit(TILT_EVENT_TYPES[state.level], "critical", TILT_SOURCE, message, data, debounce=False)
+        return True
+
+    def cancel_nav(self) -> None:
+        """Cancel every Nav2 goal through the canceller (outside the lock); failures are logged, never raised."""
+        canceller = self.nav_canceller
+        if canceller is None:
+            return
+        try:
+            if not canceller():
+                LOGGER.warning("tilt guard: Nav2 goal cancel was not sent")
+        except Exception:  # a broken canceller must not stop detection
+            LOGGER.exception("tilt guard: Nav2 goal cancel failed")
+
+    def tilt_guard_fresh(self, now: float) -> bool:
+        """Whether a guard state arrived within tilt_guard_stale_s. Lock held or not.
+
+        Args:
+            now (float): Monotonic time.
+
+        Returns:
+            bool: True while the guard reports.
+        """
+        guard = self.tilt_guard
+        return guard is not None and now - guard[0] <= self.cfg.tilt_guard_stale_s
+
+    def tilt_refusal(self, kind: BaseUse) -> str | None:
+        """Why the tilt guard refuses a base motion now (warning: automatic navigation; error: every base motion).
+
+        A stale state keeps its level enforced (fail-safe: the guard may have died while the robot was tilted).
+
+        Args:
+            kind (BaseUse): 'nav' (Nav2 goals, look_around, queued base steps) or 'manual' (the drive tool).
+
+        Returns:
+            str | None: The refusal reason, or None when allowed.
+        """
+        with self.lock:
+            guard = self.tilt_guard
+        if guard is None:
+            return None
+        at, state = guard
+        if state.level == "ok" or (state.level == "warning" and kind == "manual"):
+            return None
+        age = self.clock() - at
+        stale = (
+            f" (last state {age:.0f} s old, stale: the last level stays enforced)"
+            if age > self.cfg.tilt_guard_stale_s
+            else ""
+        )
+        tilt = describe_tilt(state)
+        if state.level == "error":
+            return f"{TILT_INHIBITED} (level error, {tilt}){stale}: no base motion until the IMU is back within limits"
+        return f"tilt guard warning ({tilt}){stale}: {TILT_MANUAL_HINT}"
 
     @delivers
     def on_swerve_odom(self, var_xy: float) -> None:
@@ -801,7 +973,12 @@ class RobotMonitor:
         hottest = self.hottest()
         servo = f"{hottest.temperature_c} C ({hottest.joint})" if hottest is not None else "n/a"
         cpu = self.cpu_temp()
-        return f"battery {battery}, hottest servo {servo}, CPU {'n/a' if cpu is None else f'{cpu:.0f} C'}"
+        line = f"battery {battery}, hottest servo {servo}, CPU {'n/a' if cpu is None else f'{cpu:.0f} C'}"
+        guard = self.tilt_guard
+        if guard is not None:
+            stale = "" if self.tilt_guard_fresh(self.clock()) else " (stale)"
+            line += f", tilt guard {guard[1].level}{stale}: {describe_tilt(guard[1])}"
+        return line
 
     def hottest(self) -> HottestServo | None:
         """Servo with the highest last known temperature.
@@ -844,6 +1021,7 @@ class RobotMonitor:
             slip = self.slip
             cmd, odom, rf2o = self.cmd, self.odom, self.rf2o
             source = self.source
+            guard = self.tilt_guard
             events = list(self.events)[-RECENT_EVENTS:]
             running = self.motion_depth > 0
         if not servos:
@@ -864,6 +1042,7 @@ class RobotMonitor:
                     ts=bump[1], magnitude_mps2=round(bump[2], 2), severity=bump[3], age_s=round(now - bump[0], 2)
                 ),
             )
+        tilt_vitals = self.tilt_vitals(now, guard, notes)
         slip_vitals = None
         if slip is None:
             notes.append("no swerve odometry covariance received (wheel slip unknown)")
@@ -907,6 +1086,7 @@ class RobotMonitor:
             battery=battery,
             imu=imu_vitals,
             wheel_slip=slip_vitals,
+            tilt_guard=tilt_vitals,
             base_speed=BaseSpeed(commanded=commanded, measured=measured, base_motion_running=running),
             cpu=CpuVitals(
                 temp_c=None if temp is None else round(temp, 1),
@@ -920,6 +1100,39 @@ class RobotMonitor:
             ),
             recent_events=events,
             notes=notes,
+        )
+
+    def tilt_vitals(
+        self, now: float, guard: tuple[float, TiltGuardState] | None, notes: list[str]
+    ) -> TiltGuardVitals | None:
+        """Tilt guard section of the body state.
+
+        Args:
+            now (float): Monotonic time.
+            guard (tuple[float, TiltGuardState] | None): Receive time and last guard state.
+            notes (list[str]): Notes list to extend.
+
+        Returns:
+            TiltGuardVitals | None: None before the first /tilt_guard/state.
+        """
+        if guard is None:
+            notes.append(
+                "no /tilt_guard/state received (tilt guard level unknown; swerve_drive_controller publishes it)"
+            )
+            return None
+        at, state = guard
+        age = now - at
+        stale = age > self.cfg.tilt_guard_stale_s
+        if stale:
+            notes.append(f"tilt guard state stale ({age:.0f} s old); its last level stays enforced")
+        if not state.imu_ok:
+            notes.append("tilt guard reports its IMU missing or stale")
+        return TiltGuardVitals(
+            **state.model_dump(),
+            age_s=round(age, 2),
+            stale=stale,
+            navigation_allowed=state.level == "ok",
+            manual_drive_allowed=state.level != "error",
         )
 
     def battery_vitals(self, now: float, notes: list[str]) -> BatteryVitals | None:

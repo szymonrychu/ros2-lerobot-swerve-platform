@@ -205,7 +205,7 @@ centre pushes the fixed jaw into the object.
 `RobotMonitor` (`monitor.py`, pure logic, unit tested) is fed by thin ROS callbacks in `ros_iface.py`: `/follower/servo_registers`
 (JSON dump of every servo incl. swerve, about every 10 s: `present_temperature` C, `present_load`, `present_current` raw,
 `present_voltage` x 0.1 V, `status` bits), `/imu/data`, the swerve `/odom` twist covariance, `/odometry/filtered`,
-`/odom_rf2o_twist`, `/cmd_vel_nav`, `/collision_monitor_state`, `/filter/active_source`, the battery guard and the CPU
+`/odom_rf2o_twist`, `/cmd_vel_nav`, `/collision_monitor_state`, `/filter/active_source`, `/tilt_guard/state`, the battery guard and the CPU
 temperature (`/sys/class/thermal/thermal_zone0/temp`, throttling from the firmware sysfs `get_throttled`, null if
 missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresholds are the `monitor` config section
 (`MonitorSettings`, also in `ansible/group_vars/client.yml`).
@@ -221,7 +221,10 @@ missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresho
 | `arm_tracking_abort` | warning | arm: setpoint vs measured tracking error of a joint (named in the event) above `limits.arm_tracking_error_rad` + `limits.arm_tracking_lag_s` x the motion's velocity, measured against the setpoint commanded `limits.arm_tracking_delay_s` earlier; never interrupts the model's turn or a base motion (not in `BASE_INTERRUPTS`) |
 | `wheel_slip` | warning | swerve residual (decoded from the twist covariance `var_xy = 0.002 + r^2`; parked fixed value = none) > `slip_residual_warn_mps` 0.1 |
 | `bump` | warning / critical | horizontal acceleration spike after baseline removal >= `bump_warn_mps2` 4 / `bump_critical_mps2` 9 m/s^2 for `bump_min_samples` (2) consecutive IMU samples; one glitchy sample is ignored and the severity follows the weakest sample of the run |
-| `tilt` | warning | tilt from the IMU orientation > `tilt_warn_deg` 10 deg |
+| `tilt_warning` (source `tilt_guard`) | critical | `/tilt_guard/state` level entered `warning` (also on the way back down from `error`); see [Tilt guard](#tilt-guard) |
+| `tilt_error` (source `tilt_guard`) | critical | `/tilt_guard/state` level entered `error` (base drive inhibited by swerve_drive_controller) |
+| `tilt_clear` (source `tilt_guard`) | info | `/tilt_guard/state` level back to `ok` |
+| `tilt` | warning | IMU fallback only while the tilt guard is silent (no `/tilt_guard/state` for `tilt_guard_stale_s` 3 s): tilt from the IMU orientation > `tilt_warn_deg` 10 deg |
 | `human_takeover` | critical | active source leaves `autonomy` while this server holds the lease |
 | `cpu_overheat` | warning / critical | CPU >= 75 / 82 C |
 | `<type>_cleared` | info | a level condition (overheat, servo_error, battery_*, tilt, wheel_slip, stall, cpu_overheat) ended |
@@ -242,7 +245,7 @@ not list these two keys.
 **Early return.** `navigate_to_pose`, `move_relative`, `drive` and the arm tools (`move_arm_joints`, `move_arm_cartesian`,
 `set_gripper`, `arm_home`) end early with status `interrupted` and `interrupted_by` = the critical event type fired during
 the call: base `collision_stop`, `stall`, `battery_cutoff`, `overheat`, `cpu_overheat`, `servo_error`, `human_takeover`,
-`bump`; arm `overheat`, `cpu_overheat`, `servo_error`, `battery_cutoff`, `human_takeover` (the lease is dropped, nothing is
+`bump`, `tilt_warning`, `tilt_error`; arm `overheat`, `cpu_overheat`, `servo_error`, `battery_cutoff`, `human_takeover` (the lease is dropped, nothing is
 published against the human) and `arm_tracking_abort` (a warning event, not a critical one: the arm result keeps status `aborted_tracking` and carries
 `interrupted_by: arm_tracking_abort`). The base cancels the Nav2 goal and publishes a zero twist; the arm holds its measured pose.
 The battery cut-off is also re-read live from the guard during every motion. Warnings never interrupt, and only events
@@ -335,6 +338,33 @@ current position, an area needs `polygon` (>= 3 vertices). `update_poi(id, name,
 the given fields; `delete_poi(id)`. Each call waits up to `poi.request_timeout_s` (3 s) for the `/poi/result` with the
 same `request_id`; the tool errors when poi_store is not running (no subscriber on `/poi/command`), does not answer
 or rejects the change.
+
+## Tilt guard
+
+swerve_drive_controller owns the tilt guard (roll/pitch from the IMU relative to the level reference, persistence and
+hysteresis, the base drive inhibit at error) and latches its state on **`/tilt_guard/state`** (`std_msgs/String` JSON,
+reliable + transient_local depth 1, on every level change and at 1 Hz):
+`{"level": "ok"|"warning"|"error", "roll_deg", "pitch_deg", "limits": {"roll_warn_deg", "roll_error_deg",
+"pitch_warn_deg", "pitch_error_deg"}, "since", "base_drive_inhibited", "imu_ok"}`. Roll (tipping sideways, short lever)
+has the smaller limits (default 8 / 15 deg), pitch (tipping forward/back along the 430 mm axis) the bigger ones
+(12 / 20 deg). mcp_server consumes it (`RobotMonitor.on_tilt_guard`, the topic is `topics.tilt_guard_state`); a message
+that does not match the contract is logged and dropped.
+
+| Level change | Robot event | Nav2 goals | Tools |
+|---|---|---|---|
+| -> `warning` | `tilt_warning`, critical (claude_agent interrupts the running instruction at once): roll/pitch vs limits and "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool ...), then wait for the guard to clear". From `error` the message says the base drive is enabled again | every goal cancelled (`cancel_all_goals` from a worker thread), a running `navigate_to_pose` / `move_relative` / `drive` / `look_around` ends `interrupted` (`BASE_INTERRUPTS`) | `navigate_to_pose`, `move_relative`, `look_around` and `enqueue_motions` with a base step refused; queued base steps fail at dispatch (status `tilt_guard`); `drive` allowed |
+| -> `error` | `tilt_error`, critical: "base drive is inhibited until the IMU is back within limits; no base motion tools work" | every goal cancelled | every base motion tool refused (`base inhibited by the tilt guard`) |
+| -> `ok` | `tilt_clear`, info | - | everything allowed again |
+
+The classification lives in `mcp_server/tool_context.py` (`TILT_NAV_TOOLS`, `TILT_MANUAL_BASE_TOOLS`,
+`ToolContext.tilt_gate`); the queue re-checks before every base step (`MotionQueue(tilt_gate=...)`). Arm tools are never
+affected. Refusals are MCP tool errors, e.g. `drive refused: base inhibited by the tilt guard (level error, roll 16.0 deg
+(limits 8/15), pitch 1.0 deg (limits 12/20)): no base motion until the IMU is back within limits`. A state older than
+`monitor.tilt_guard_stale_s` (3 s) is stale: its last level stays enforced (the refusal and `get_body_state` say so) and
+the IMU fallback `tilt` warning runs again. `get_body_state` reports `tilt_guard` (`level`, `roll_deg`, `pitch_deg`,
+`limits`, `since`, `base_drive_inhibited`, `imu_ok`, `age_s`, `stale`, `navigation_allowed`, `manual_drive_allowed`;
+null with a note before the first message) and the vitals line ends with e.g. `tilt guard warning: roll 9.0 deg
+(limits 8/15), pitch 2.5 deg (limits 12/20)` once a state has arrived.
 
 ## Battery cut-off gate
 
@@ -1401,7 +1431,8 @@ monitor:                  # all optional; thresholds of the body monitor (see Bo
   bump_warn_mps2: 4.0
   bump_critical_mps2: 9.0
   bump_min_samples: 2
-  tilt_warn_deg: 10
+  tilt_warn_deg: 10          # IMU fallback warning, only while /tilt_guard/state is silent
+  tilt_guard_stale_s: 3.0    # /tilt_guard/state older than this is stale (last level still enforced)
 ```
 
 ## Claude Code setup

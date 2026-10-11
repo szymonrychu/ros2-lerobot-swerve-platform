@@ -10,6 +10,7 @@ from .config import McpServerConfig
 from .grasp import grasp_params
 from .grasp_tools import GraspExecutor
 from .motion_queue import (
+    BASE_KINDS,
     CancelResult,
     EnqueueResult,
     GraspMotionStep,
@@ -100,6 +101,8 @@ def register(ctx: ToolContext) -> None:
     ) -> EnqueueResult:
         """Queue motions; the tool description is passed to the decorator."""
         ctx.battery_gate("enqueue_motions")
+        if any(step.kind in BASE_KINDS for step in steps):
+            ctx.tilt_gate("enqueue_motions", "nav")
         try:
             return queue.enqueue(list(steps), replace)
         except QueueError as exc:

@@ -429,6 +429,39 @@ class ControlVitals(BaseModel):
     control_held: bool = Field(description="Whether this server holds the autonomy lease")
 
 
+TiltGuardLevel = Literal["ok", "warning", "error"]
+
+
+class TiltLimits(BaseModel):
+    """Tilt guard limits (deg): roll (tipping sideways, short lever) gets the smaller limits, pitch the bigger ones."""
+
+    roll_warn_deg: float
+    roll_error_deg: float
+    pitch_warn_deg: float
+    pitch_error_deg: float
+
+
+class TiltGuardState(BaseModel):
+    """One /tilt_guard/state message (std_msgs/String JSON published by swerve_drive_controller)."""
+
+    level: TiltGuardLevel
+    roll_deg: float = Field(description="Roll relative to the level reference (deg)")
+    pitch_deg: float = Field(description="Pitch relative to the level reference (deg)")
+    limits: TiltLimits
+    since: float = Field(description="Epoch s at which the current level started")
+    base_drive_inhibited: bool
+    imu_ok: bool
+
+
+class TiltGuardVitals(TiltGuardState):
+    """Tilt guard section of the body state: the last guard state plus what it allows right now."""
+
+    age_s: float = Field(description="Seconds since the last /tilt_guard/state message")
+    stale: bool = Field(description="No state within monitor.tilt_guard_stale_s (the last level is still enforced)")
+    navigation_allowed: bool = Field(description="Nav2 goal tools and look_around allowed (level ok)")
+    manual_drive_allowed: bool = Field(description="The drive tool allowed (level ok or warning)")
+
+
 class BodyState(BaseModel):
     """Body vitals; missing data is null (never fabricated), with notes."""
 
@@ -437,6 +470,9 @@ class BodyState(BaseModel):
     battery: BatteryVitals | None = None
     imu: ImuVitals | None = None
     wheel_slip: WheelSlipVitals | None = None
+    tilt_guard: TiltGuardVitals | None = Field(
+        default=None, description="Tilt guard level, roll/pitch and limits (null before the first /tilt_guard/state)"
+    )
     base_speed: BaseSpeed
     cpu: CpuVitals
     control: ControlVitals

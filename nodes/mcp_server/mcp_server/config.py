@@ -118,6 +118,7 @@ class TopicSettings(StrictModel):
     imu: str = "/imu/data"
     servo_registers: str = "/follower/servo_registers"  # JSON dump, all servos incl. the swerve ones
     robot_events: str = "/robot_events"
+    tilt_guard_state: str = "/tilt_guard/state"
     scan: str = "/scan_filtered"
     map: str = "/map"
     collision_monitor_state: str = "/collision_monitor_state"
@@ -547,6 +548,9 @@ class MonitorSettings(StrictModel):
     imu_baseline_alpha: float = Field(default=0.02, gt=0.0, lt=1.0)  # EMA weight of the acceleration baseline
     tilt_warn_deg: float = Field(default=10.0, gt=0.0)
     tilt_hysteresis_deg: float = Field(default=2.0, ge=0.0)
+    # /tilt_guard/state arrives at 1 Hz; older than this it is stale (the last level stays enforced, and the IMU
+    # fallback tilt warning above runs again).
+    tilt_guard_stale_s: float = Field(default=3.0, gt=0.0)
     debounce_default_s: float = Field(default=30.0, ge=0.0)  # min time between repeats of one (type, source) event
     debounce_s: dict[str, float] = Field(
         default_factory=lambda: {"bump": 2.0, "collision_stop": 1.5, "stall": 1.5, "human_takeover": 5.0}

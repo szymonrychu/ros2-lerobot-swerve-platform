@@ -34,6 +34,7 @@ from .tool_context import RobotApi
 LOGGER = logging.getLogger("mcp_server.motion_queue")
 
 ARM_KINDS = frozenset({"arm_joints", "arm_cartesian"})
+BASE_KINDS = frozenset({"base_relative", "navigate_to_pose"})  # Nav2 goals (refused by the tilt guard at warning)
 # Arm statuses that complete a step; every other status fails it ('stopped' ends the queue as a stop).
 ARM_OK = frozenset({"converged", "grasped", "closed_no_contact"})
 CONTACT_STATUSES = frozenset({"grasped", "blocked"})
@@ -648,6 +649,7 @@ class MotionQueue:
         live_state: Callable[[bool], LiveState] | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        tilt_gate: Callable[[], str | None] | None = None,
     ) -> None:
         """Create the queue (the worker starts on the first enqueue).
 
@@ -660,6 +662,8 @@ class MotionQueue:
             live_state (Callable[[bool], LiveState] | None): Live state for preconditions (arg: odometry needed).
             clock (Callable[[], float]): Monotonic clock (s).
             sleep (Callable[[float], None]): Sleep (wait steps).
+            tilt_gate (Callable[[], str | None] | None): Tilt guard refusal reason for a Nav2 base step (None when
+                allowed), re-checked before every base step.
         """
         self.robot = robot
         self.cfg = config
@@ -670,6 +674,7 @@ class MotionQueue:
         self.live_state = live_state or (lambda need_twist: read_live_state(robot, guard, need_twist))
         self.clock = clock
         self.sleep = sleep
+        self.tilt_gate = tilt_gate or (lambda: None)
         self._cond = threading.Condition()
         self._pending: deque[QueuedStep] = deque()
         self._events: deque[MotionEvent] = deque(maxlen=self.settings.event_history)
@@ -857,7 +862,7 @@ class MotionQueue:
                     targets = dict(step.targets)
                 elif step.kind == "arm_cartesian":
                     targets = self.solve(step, chain)
-                elif step.kind in ("base_relative", "navigate_to_pose"):
+                elif step.kind in BASE_KINDS:
                     if step.timeout_s is not None and step.timeout_s > nav_max:
                         raise QueueError(f"timeout_s must be <= {nav_max} s")
                 elif step.kind == "grasp" and self.grasp_runner is None:
@@ -998,6 +1003,10 @@ class MotionQueue:
         if self.guard is not None and self.guard.is_cutoff():
             return Outcome(ok=False, status="battery_cutoff", message=self.guard.rejection_message())
         head = group[0].step
+        if head.kind in BASE_KINDS:
+            refusal = self.tilt_gate()
+            if refusal is not None:
+                return Outcome(ok=False, status="tilt_guard", message=refusal)
         if head.precondition.type != "none":
             state = self.live_state(head.precondition.type == "base_still")
             ok, why = evaluate_precondition(head.precondition, state, self.cfg)
@@ -1015,7 +1024,7 @@ class MotionQueue:
             return self.run_arm(group, generation)
         if kind == "gripper":
             return self.run_gripper(head)
-        if kind in ("base_relative", "navigate_to_pose"):
+        if kind in BASE_KINDS:
             return self.run_base(head)
         if kind == "wait_s":
             return self.run_wait(head, generation)

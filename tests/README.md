@@ -527,6 +527,19 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   latched before the motion fires after the 0.5 s grace, a fresh state clears it), human takeover only while the lease is held, CPU temperature, digest cursor/cap/vitals line, `MotionWatch`
   (only relevant critical events after creation, live battery cut-off), body state nulls and notes, last 10 events,
   failing sink tolerated, threshold validation
+- tilt guard (`test_tilt_guard.py`, consumer of `/tilt_guard/state`): entering warning emits a critical `tilt_warning`
+  (roll/pitch vs limits, "automatic navigation is disabled", manual drive-back instruction) and cancels every Nav2 goal
+  once (repeated 1 Hz states at the same level emit nothing); error entry (from warning or ok) emits a critical
+  `tilt_error` saying the base drive is inhibited and cancels; error back to warning re-emits `tilt_warning` (base drive
+  enabled again); clear is an info `tilt_clear` without cancel; malformed states dropped; `tilt_warning` / `tilt_error`
+  interrupt running base motions (`BASE_INTERRUPTS`); a failing canceller is tolerated; refusal reasons by level (warning:
+  nav only, error: nav and manual, "base inhibited by the tilt guard"); a stale state keeps its level enforced and is
+  flagged; the IMU fallback `tilt` warning is silent while the guard reports and returns when it goes stale; body state
+  `tilt_guard` fields (level, roll/pitch, limits, allowed flags, age) and the vitals line; tools: classification
+  (`TILT_NAV_TOOLS`, `TILT_MANUAL_BASE_TOOLS`), `navigate_to_pose` / `move_relative` / `look_around` refused with the
+  reason in warning and error without touching the robot, `drive` allowed in warning and refused in error, arm tools
+  unaffected in error, `enqueue_motions` with a base step refused (arm/wait-only steps allowed), digest vitals carry the
+  guard, a queued base step fails at dispatch (status `tilt_guard`)
 - camera config (`test_camera_config.py`): cameras default to not calibrated with parent frames `gripper_link` / `base_link`,
   intrinsics source rules (calibration file XOR hfov with width and height), mount parent frame adopted and checked, front
   camera restricted to `base_link`, unknown camera keys rejected, `arm.base_in_base_link` and reach ordering

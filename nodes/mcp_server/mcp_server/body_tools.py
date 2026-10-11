@@ -56,12 +56,15 @@ def register(ctx: ToolContext) -> None:
             "Body vitals of the robot, always available (no motion): per-servo latest temperature (C), load/current "
             "(raw register values), voltage (V), status error flags and data age (servo registers are dumped about "
             "every 10 s), the hottest servo, battery voltage, per-cell voltage and margin to the cut-off, IMU tilt "
-            "(roll/pitch deg) and the last bump, wheel slip residual (m/s, null while parked), commanded versus "
+            "(roll/pitch deg) and the last bump, the tilt guard (level ok|warning|error, roll/pitch relative to the "
+            "level reference, warning/error limits per axis, whether navigation and manual drive are allowed), wheel "
+            "slip residual (m/s, null while parked), commanded versus "
             "measured base speed, CPU temperature and firmware throttling flag, the active arm source and whether "
             "this server holds the arm lease, and the last 10 robot events. Missing data is null with a reason in "
             f"`notes` (nothing is invented). Warnings: servo >= {cfg.servo_temp_warn_c:g} C (critical >= "
             f"{cfg.servo_temp_critical_c:g} C), CPU >= {cfg.cpu_temp_warn_c:g} C (critical >= "
-            f"{cfg.cpu_temp_critical_c:g} C), tilt > {cfg.tilt_warn_deg:g} deg.{battery_note}"
+            f"{cfg.cpu_temp_critical_c:g} C), IMU tilt > {cfg.tilt_warn_deg:g} deg only while the tilt guard is "
+            f"silent (no /tilt_guard/state for {cfg.tilt_guard_stale_s:g} s).{battery_note}"
         )
     )
     def get_body_state() -> BodyState:

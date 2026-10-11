@@ -141,7 +141,11 @@ stale feedback or tracking error. Arm control (the autonomy lease) is sticky: on
 motion) the leader arm and web UI are ignored until you call release_control, so release it as soon as you are done
 with the arm. Call stop at once if anything looks wrong; it is always available. Every tool result ends with
 robot_events_since_last_call (body events such as overheat, collision_stop, stall, bump, battery_low raised since the
-previous tool call) and a vitals one-liner (battery V, hottest servo C, CPU C); get_body_state gives the full picture.
+previous tool call) and a vitals one-liner (battery V, hottest servo C, CPU C, tilt guard level with roll/pitch vs
+limits); get_body_state gives the full picture.
+Tilt guard: at tilt_warning (critical event) Nav2 goals are cancelled and navigate_to_pose, move_relative, look_around
+and queued base steps are refused; drive back to level ground manually with short drive moves, then wait for
+tilt_clear. At tilt_error the base drive is inhibited and every base motion tool is refused (arm tools still work).
 A motion that ends with status 'interrupted' was stopped safely because of a critical event (interrupted_by): read
 the event, check get_body_state and decide before moving again. Motion results compare expected with achieved.
 Non-blocking motion: enqueue_motions queues several steps and returns at once (consecutive arm steps blend into one
@@ -430,6 +434,7 @@ def register_tools(
         guard,
         grasp_runner=motion_tools.make_grasp_runner(robot, config),
         external_busy=server.blocking_tool if isinstance(server, RobotMCPServer) else None,
+        tilt_gate=lambda: monitor.tilt_refusal("nav"),
     )
     if isinstance(server, RobotMCPServer):
         server.motion_queue = queue
@@ -618,6 +623,7 @@ def register_core_tools(ctx: ToolContext) -> None:
     ) -> NavigationResult:
         """Nav2 NavigateToPose; the tool description is passed to the decorator (it states the goal precision)."""
         battery_gate("navigate_to_pose")
+        ctx.tilt_gate("navigate_to_pose")
         with tool_errors():
             return robot.navigate(x, y, yaw, frame, nav_timeout(timeout_s), precise)
 
@@ -638,6 +644,7 @@ def register_core_tools(ctx: ToolContext) -> None:
     ) -> NavigationResult:
         """Nav2 NavigateToPose relative to base_link; the tool description is passed to the decorator."""
         battery_gate("move_relative")
+        ctx.tilt_gate("move_relative")
         with tool_errors():
             return robot.move_relative(dx, dy, dyaw, nav_timeout(timeout_s), precise)
 
@@ -652,6 +659,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         pass the velocity smoother and the collision monitor, but there is no path planning: prefer move_relative
         for anything beyond small adjustments."""
         battery_gate("drive")
+        ctx.tilt_gate("drive")
         with tool_errors():
             return robot.drive(vx, vy, wz, duration_s)
 

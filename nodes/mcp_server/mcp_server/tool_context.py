@@ -13,10 +13,15 @@ from .arm import ArmController
 from .base_motion import DriveOutcome, SpinOutcome
 from .config import McpServerConfig
 from .models import BasePose, CameraFrame, MapSummary, NavigationResult, RobotState, ScanPoints, StopResult
-from .monitor import RobotMonitor
+from .monitor import BaseUse, RobotMonitor
 from .topdown import TopdownInputs
 
 LOGGER = logging.getLogger("mcp_server.tools")
+# Tilt guard classification of the base motion tools: automatic navigation (Nav2 goals, autonomous turns) is refused
+# while the guard is at warning or error; manual base moves only at error (base drive inhibited). enqueue_motions is
+# refused when it carries a base step (base_relative / navigate_to_pose are Nav2 goals). Arm tools are unaffected.
+TILT_NAV_TOOLS = frozenset({"navigate_to_pose", "move_relative", "look_around"})
+TILT_MANUAL_BASE_TOOLS = frozenset({"drive"})
 
 
 class MotionOwner(Protocol):
@@ -132,3 +137,16 @@ class ToolContext:
             message = self.guard.rejection_message()
             LOGGER.warning("%s refused: %s", tool_name, message)
             raise ToolError(message)
+
+    def tilt_gate(self, tool_name: str, kind: BaseUse | None = None) -> None:
+        """Refuse a base motion tool the tilt guard does not allow now, before the robot is touched.
+
+        Args:
+            tool_name (str): Tool being called (named in the refusal).
+            kind (BaseUse | None): 'nav' or 'manual'; None derives it from TILT_NAV_TOOLS / TILT_MANUAL_BASE_TOOLS.
+        """
+        use: BaseUse = kind or ("manual" if tool_name in TILT_MANUAL_BASE_TOOLS else "nav")
+        reason = self.monitor.tilt_refusal(use)
+        if reason is not None:
+            LOGGER.warning("%s refused: %s", tool_name, reason)
+            raise ToolError(f"{tool_name} refused: {reason}")
