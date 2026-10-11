@@ -32,7 +32,7 @@ from typing import Literal, Protocol
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryGuard
 
-from .arm import EXPECTED_LEASE, SOURCE_NONE, ArmController, ArmError
+from .arm import EXPECTED_LEASE, SOURCE_NONE, ArmController, ArmError, finite_effort
 from .config import McpServerConfig
 from .footprint import NavFootprint
 from .models import ArmControlState, BaseControlState, CarryingState, ControlState, ReleaseResult
@@ -428,7 +428,9 @@ class ControlManager:
             else:
                 reasons.append("the last grasp is held (the gripper was not opened since)")
         if sample is not None:
-            live = LiveState(joints=self.arm.measured(sample), gripper_effort=sample.efforts.get(self.arm.gripper))
+            live = LiveState(
+                joints=self.arm.measured(sample), gripper_effort=finite_effort(sample.efforts, self.arm.gripper)
+            )
             holding, why = evaluate_precondition(Precondition(type="gripper_holding"), live, self.config)
             if holding:
                 reasons.append(f"holding load: {why}")

@@ -508,7 +508,11 @@ is refused without `keep_position=true`, with `subsystem='base'`, outside 0..0.3
 **get_control_state** (sensor): `arm.at_home` is true when the five non-gripper joints are within
 `limits.settle_tolerance_for(joint)` (0.08 rad default) of the stored home pose; the gripper is excluded so a job may
 end at home holding an object; `null` without a stored home or fresh joint states. `base.steering_neutral` is `null`
-without fresh swerve joint states. `held_since` is wall-clock epoch seconds (the agent's lease). `arm.held_by` and
+without fresh swerve joint states. `/swerve_drive/joint_states` (50 Hz) is subscribed lazily, not for the process
+lifetime: the first steer read (`get_control_state`, the `release_control` base reset) subscribes it and waits up to
+`control.steer_states_wait_s` (0.5 s) for a first message (none: `steering_neutral` is `null`, the base reset keeps
+polling until `failed: no fresh steer joint states ...`); the subscription is destroyed (and its sample dropped) once
+unread for `control.steer_states_idle_s` (30 s; checked every quarter of it). `held_since` is wall-clock epoch seconds (the agent's lease). `arm.held_by` and
 `arm.carrying` are described above. A converged `/arm/home` service call (web UI Home) runs the footprint tick, which
 publishes the static footprint again. The stored home pose is cached by file stat (mtime, size, inode) and re-read
 only after it changed. `footprint` reports the published
@@ -525,7 +529,7 @@ the robot; `ros_iface.RosRobot` is its `FootprintSink` (publishers, parameter cl
 
 | Kind | When | Footprint |
 |---|---|---|
-| static | autonomy holds the arm (`take_control(subsystem='arm')`: the arm may move from then on), a parked release, a converged `/arm/home` (`NavFootprint.arm_homed`), or the measured released arm lies inside the static outline | the H body outline (`footprint_geometry.body_outline` over `body:`) united with the ground shadow of the arm parked at its stored home (`nav_footprint.parked_arm_shadow`), identical to the generated `nav2_params.yaml` footprint |
+| static | autonomy holds the arm (`take_control(subsystem='arm')`: the arm may move from then on), a parked release, a converged `/arm/home` (its success runs the footprint tick at once, which sees the parked arm), or the measured released arm lies inside the static outline | the H body outline (`footprint_geometry.body_outline` over `body:`) united with the ground shadow of the arm parked at its stored home (`nav_footprint.parked_arm_shadow`), identical to the generated `nav2_params.yaml` footprint |
 | dynamic | the arm is released out of the static outline (`release_control(subsystem='arm', keep_position=true)`, a failed park, a human moving the released arm, an mcp_server start with the arm out) | union of the static outline, the ground shadow of the measured arm pose and, with `carried_object_radius_m`, a circle of that radius around the tool point |
 | conservative | the arm is released but its pose is unknown: mcp_server start without fresh joint states, or no fresh joint states since an unverified static footprint (a non-homed release, e.g. `keep_position`, without them publishes it at once with the carried circle) | the static outline united with a disc of `conservative_reach_m` (0.5 m; the farthest arm part is ~0.445 m from the mount) plus the carried radius around the arm mount |
 
@@ -813,6 +817,17 @@ cap) and up to 8.7 mm between two `joint_line` samples (0.02 rad: planner free m
 cross any obstacle (the thinnest, a side frame, is 35 mm) and a dip along a straight chord past a round surface is below
 1 mm, but a path skimming a sharp obstacle edge between two samples can come closer than 2 mm undetected.
 
+## Unmeasured efforts
+
+feetech_servos publishes a NaN effort for a joint without an effort reading (a non-effort joint, a missing load).
+mcp_server treats a non-finite or missing effort as unmeasured, never as a load of 0 and never as a number in a
+comparison (`arm.finite_effort` is the one reader): the ROS joint sample (`RosRobot.joint_sample`) drops non-finite
+efforts, `ArmState.efforts` omits them and `gripper_effort` is `null` in the arm state, motion results, grasp results
+and the `wait_for_event` digest. Every gripper load check says so instead of guessing: grasp verification reports
+`gripper load unmeasured` (not grasped), the hold report gives `holding_load` / `crush_risk` `null` and never
+re-tightens, the `gripper_holding` precondition and the live holding-load reason of the carrying signal are not holding,
+and a close-until-effort cycle without a load takes no effort contact (the stall check still ends it).
+
 ## Grasp macros
 
 ### Planner (`grasp.py`, pure)
@@ -963,7 +978,8 @@ the same speed, opens to the planned opening, approaches and slides (`move_path`
 closes with `close_until_effort` using `params.grip_profile` (see Grip profiles; `close_effort_threshold` overrides the
 profile's contact threshold when set; never a full squeeze: the effort/stall detection and the
 gripper limits apply), verifies the grasp (jaw stopped at least `min_hold_gap_rad` short of closed and a load of at
-least `hold_effort_min` at the contact or after it), then lifts (`lift_speed_scale` for tall narrow objects) and
+least `hold_effort_min` at the contact or after it; an unmeasured load, see Unmeasured efforts, never verifies a
+grasp: `gripper load unmeasured ...`), then lifts (`lift_speed_scale` for tall narrow objects) and
 retreats: `grasped`. A close that ends `closed_no_contact` (the jaw reached the empty band, within
 `limits.gripper_empty_stall_rad` of closed) is `unverified`, not a miss: a soft object (2026-10-11: the plush croc's
 legs squashed until the jaw stopped 0.05 rad short of closed at load 140, or closed fully at low load) cannot be told
@@ -1109,7 +1125,8 @@ A close with a profile:
    once the load in the closing direction (`closing_load_sign` times the decoded effort) reaches `target_load`;
 4. holds the stall position plus `squeeze_rad` toward closed (effort contacts hold the measured position);
 5. measures the hold: two samples `hold_check_delay_s` apart; `holding_load` is the second sample's effort, `slipping`
-   when the jaw closed more than `slip_threshold_rad` between them, `crush_risk` when `|holding_load| > crush_load`;
+   when the jaw closed more than `slip_threshold_rad` between them, `crush_risk` when `|holding_load| > crush_load`
+   (`holding_load` and `crush_risk` are `null` when the load is unmeasured, and an unmeasured load never re-tightens);
    **re-tighten** (`ArmController.retighten_hold`, profiles with `retighten: true`: normal, firm, soft; not gentle,
    whose 0.01 rad squeeze would grow 8x on a light rigid object that reads about 0 load): when the closing-direction
    holding load is below
@@ -1202,7 +1219,8 @@ is normal work, not a stall.
 
 **Preconditions and failure policy.** `precondition {type, joints, tol, min_fraction}` is evaluated on live state when
 its step is dispatched: `none`, `gripper_holding` (jaw at least `motion_queue.holding_min_gap_rad` short of closed, no
-more open than `limits.gripper_grasp_max_open_rad`, gripper load at least `holding_min_effort`), `gripper_open` (open
+more open than `limits.gripper_grasp_max_open_rad`, gripper load at least `holding_min_effort`; an unmeasured load is
+not holding: `gripper load unmeasured`), `gripper_open` (open
 fraction >= `min_fraction`), `arm_near` (every named joint within `tol`), `base_still` (odometry below
 `base_still_linear_mps` / `base_still_angular_rps`) and `battery_ok` (fresh reading, not in cut-off). Unknown state never
 passes. `on_fail`: `stop_queue` (default) drops the rest of the queue (`queue_stopped`), `skip` continues with the next
@@ -1635,6 +1653,8 @@ control:                  # control leases: release_control base reset (see Cont
   steer_neutral_tolerance_rad: 0.05
   base_reset_timeout_s: 6.0   # swerve idle_recenter_s (3.0) + 3 s
   steer_poll_s: 0.1
+  steer_states_wait_s: 0.5    # lazy /swerve_drive/joint_states: first-message wait after subscribing
+  steer_states_idle_s: 30.0   # ... destroyed once unread this long
 nav_footprint:            # optional; published navigation footprint (see Navigation footprint)
   circle_segments: 16       # generated by scripts/gen_nav_footprint.py (do not edit by hand) ...
   close_gap_m: 0.01

@@ -358,3 +358,12 @@ def test_imu_level_reference_is_validated_and_the_deployed_config_carries_the_mo
     entry = next(n for n in nodes if n["name"] == "mcp_server")
     reference = McpServerConfig.model_validate(yaml.safe_load(entry["config"])).floor_guard.imu_level_reference
     assert (reference.roll_deg, reference.pitch_deg) == (0.7, 1.3)  # 2026-10-11 investigation (BNO055 bias)
+
+
+def test_steer_states_lazy_subscription_defaults_and_bounds() -> None:
+    """control.steer_states_wait_s (first-message wait) and steer_states_idle_s (destroy after idle), review M5."""
+    control = McpServerConfig().control
+    assert (control.steer_states_wait_s, control.steer_states_idle_s) == (0.5, 30.0)
+    for bad in ({"steer_states_wait_s": 0.0}, {"steer_states_idle_s": 0.0}):
+        with pytest.raises(ValidationError):
+            McpServerConfig.model_validate({"control": bad})

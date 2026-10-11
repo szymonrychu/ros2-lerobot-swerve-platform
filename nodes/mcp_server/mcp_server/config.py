@@ -685,6 +685,10 @@ class ControlSettings(StrictModel):
     # Longest wait for neutral steering after the zero twist (swerve idle_recenter_s 3.0 + 3 s margin).
     base_reset_timeout_s: float = Field(default=6.0, gt=0.0, le=30.0)
     steer_poll_s: float = Field(default=0.1, gt=0.0, le=1.0)  # steering check period while waiting
+    # topics.swerve_joint_states is subscribed only while steer positions are read (release_control, get_control_state):
+    # the first read waits this long for a first message, the subscription is destroyed after steer_states_idle_s unread.
+    steer_states_wait_s: float = Field(default=0.5, gt=0.0, le=5.0)
+    steer_states_idle_s: float = Field(default=30.0, gt=0.0)
 
 
 class NavFootprintSettings(StrictModel):

@@ -21,7 +21,7 @@ from typing import Annotated, Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .arm import ArmError, SelfCollisionError
+from .arm import ArmError, SelfCollisionError, finite_effort
 from .config import HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
 from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import ObjectSpec
@@ -473,14 +473,17 @@ def evaluate_precondition(pre: Precondition, state: LiveState, config: McpServer
         fraction = (jaw - closed) / (opened - closed)
         return fraction >= pre.min_fraction, f"gripper open fraction {fraction:.2f} (need >= {pre.min_fraction:g})"
     if pre.type == "gripper_holding":
-        effort = abs(state.gripper_effort or 0.0)
         gap = (jaw - closed) * (1.0 if opened > closed else -1.0)
+        jaw_text = f"jaw {jaw:.3f} rad ({gap:.3f} rad short of closed)"
+        if state.gripper_effort is None or not math.isfinite(state.gripper_effort):
+            return False, f"{jaw_text}, gripper load unmeasured"
+        effort = abs(state.gripper_effort)
         holding = (
             gap >= q.holding_min_gap_rad
             and jaw <= config.limits.gripper_grasp_max_open_rad
             and effort >= q.holding_min_effort
         )
-        return holding, f"jaw {jaw:.3f} rad ({gap:.3f} rad short of closed), gripper load {effort:.0f}"
+        return holding, f"{jaw_text}, gripper load {effort:.0f}"
     joints = pre.joints or {}
     off = {j: round(state.joints.get(j, math.inf) - v, 3) for j, v in joints.items()}
     far = {j: e for j, e in off.items() if not abs(e) <= pre.tol}
@@ -528,7 +531,7 @@ def read_live_state(robot: RobotApi, guard: CutoffGuard | None, need_twist: bool
         battery_ok = not state.get("stale", True) and not state.get("cutoff", False)
     return LiveState(
         joints=None if sample is None else robot.arm.measured(sample),
-        gripper_effort=None if sample is None else sample.efforts.get(robot.arm.gripper),
+        gripper_effort=None if sample is None else finite_effort(sample.efforts, robot.arm.gripper),
         base_twist=twist,
         battery_ok=battery_ok,
     )
@@ -555,7 +558,7 @@ def state_digest(robot: RobotApi, guard: CutoffGuard | None) -> dict[str, Any]:
         gripper = {
             "position": round(jaw, DIGEST_DECIMALS),
             "open_fraction": round((jaw - closed) / (opened - closed), 2),
-            "effort": sample.efforts.get(arm.gripper),
+            "effort": finite_effort(sample.efforts, arm.gripper),
         }
     pose: BasePose | None = robot.robot_pose()
     battery = None

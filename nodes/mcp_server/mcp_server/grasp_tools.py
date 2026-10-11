@@ -13,7 +13,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .arm import ROLL_JOINT, ArmController, ArmError
+from .arm import ROLL_JOINT, ArmController, ArmError, finite_effort
 from .config import GripProfileOverride, McpServerConfig
 from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, grasp_params
@@ -459,7 +459,7 @@ class GraspExecutor:
             plan=None if plan is None else plan.summary(),
             steps=steps,
             gripper_position_rad=None if sample is None else sample.positions.get(gripper),
-            gripper_effort=None if sample is None else sample.efforts.get(gripper),
+            gripper_effort=None if sample is None else finite_effort(sample.efforts, gripper),
             grip_profile=None if close is None else close.grip_profile,
             holding_load=None if close is None else close.holding_load,
             slipping=None if close is None else close.slipping,
@@ -507,11 +507,18 @@ class GraspExecutor:
             return "no fresh joint states to verify the grasp"
         jaw = sample.positions[self.arm.gripper]
         gap = jaw - self.cfg.arm.gripper_closed_rad
-        load = max(abs(close.gripper_effort or 0.0), abs(sample.efforts.get(self.arm.gripper, 0.0)))
+        measured = [
+            abs(e)
+            for e in (close.gripper_effort, finite_effort(sample.efforts, self.arm.gripper))
+            if e is not None and math.isfinite(e)
+        ]
         if gap < params.min_hold_gap_rad:
             return (
                 f"jaw reached {jaw:.3f} rad, within {params.min_hold_gap_rad} rad of closed: nothing between the jaws"
             )
+        if not measured:
+            return "gripper load unmeasured (no finite effort on the close or now): the hold cannot be verified"
+        load = max(measured)
         if load < params.hold_effort_min:
             return f"gripper load {load:.0f} below hold_effort_min {params.hold_effort_min:.0f}: nothing held"
         return None

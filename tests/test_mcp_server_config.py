@@ -196,6 +196,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "body_check",
         "grasp",
         "grip_profiles",
+        "control",
     }
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
@@ -366,6 +367,13 @@ def test_mcp_server_perception_config_sections() -> None:
     assert cfg["look_around"]["clearance_margin_m"] > 0
     assert cfg["topdown"]["default_radius_m"] == 2.5 and cfg["topdown"]["default_px"] == 480
     assert cfg["poi"]["request_timeout_s"] == 3.0
+
+
+def test_mcp_server_config_lazy_steer_states() -> None:
+    """The swerve joint states are subscribed only while read (review M5): first-message wait and idle destroy."""
+    control = node_config("mcp_server")["control"]
+    assert control["steer_states_wait_s"] == 0.5
+    assert control["steer_states_idle_s"] == 30.0
 
 
 def test_mcp_server_readme_documents_perception_tools() -> None:

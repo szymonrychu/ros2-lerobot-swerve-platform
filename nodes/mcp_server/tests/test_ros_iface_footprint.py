@@ -9,9 +9,7 @@ up (unavailable -> ready edge) calls the consumer-ready callback once; the arm p
 NavFootprint a converged home goes from the dynamic to the static footprint (the single home footprint hook).
 """
 
-import importlib
-import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -24,49 +22,8 @@ from mcp_server.footprint import NavFootprint
 
 from .test_footprint import HOME, SIDEWAYS, deployed_config, footprint_robot, move_arm, settings
 
-ROS_MODULES = (
-    "rclpy",
-    "rclpy.action",
-    "rclpy.callback_groups",
-    "rclpy.duration",
-    "rclpy.node",
-    "rclpy.qos",
-    "rclpy.signals",
-    "rclpy.time",
-    "action_msgs",
-    "action_msgs.msg",
-    "action_msgs.srv",
-    "geometry_msgs",
-    "geometry_msgs.msg",
-    "nav2_msgs",
-    "nav2_msgs.action",
-    "nav2_msgs.msg",
-    "nav_msgs",
-    "nav_msgs.msg",
-    "rcl_interfaces",
-    "rcl_interfaces.msg",
-    "rcl_interfaces.srv",
-    "sensor_msgs",
-    "sensor_msgs.msg",
-    "std_msgs",
-    "std_msgs.msg",
-    "std_srvs",
-    "std_srvs.srv",
-    "tf2_ros",
-)
 LASER = "/laser_filter"
 LOCAL_COSTMAP = "/local_costmap/local_costmap"
-
-
-@pytest.fixture
-def ros_iface(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
-    """mcp_server.ros_iface imported against mocked ROS packages (removed again afterwards)."""
-    for name in ROS_MODULES:
-        monkeypatch.setitem(sys.modules, name, MagicMock())
-    monkeypatch.delitem(sys.modules, "mcp_server.ros_iface", raising=False)
-    module = importlib.import_module("mcp_server.ros_iface")
-    yield module
-    sys.modules.pop("mcp_server.ros_iface", None)
 
 
 class FakeFuture:

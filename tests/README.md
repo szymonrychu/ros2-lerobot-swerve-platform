@@ -739,6 +739,22 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   integration and relative pose; navigation via a fake Nav port (success, interrupt cancels goal and zeroes the base,
   stop, timeout, rejected, unavailable, real monitor collision stop)
 - rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
+- lazy swerve joint states (`test_ros_iface_steer.py`, the `conftest.py` `ros_iface` fixture imports `ros_iface` against
+  mocked ROS packages): `RosRobot` does not subscribe `/swerve_drive/joint_states` at startup; the first
+  `steer_positions` subscribes, waits `control.steer_states_wait_s` for a first message and returns None without one,
+  then the steer joint positions of a fresh message (drive joints left out, subscribed once); a second call without
+  data does not wait again; the reaper destroys the subscription (and drops its sample) only once it is unread for
+  `control.steer_states_idle_s`, a read resets the idle time, and the next read subscribes again; the reaper timer
+  runs at most every half idle period; `test_config.py` covers the 0.5 s / 30 s defaults and rejects 0
+- unmeasured efforts (`test_effort_nan.py`, review L25: feetech_servos publishes NaN effort for joints without a
+  reading): `arm.finite_effort` (finite value, None for NaN / inf / missing); a NaN effort of a non-effort joint is
+  absent from `ArmState.efforts` and a NaN gripper effort gives `gripper_effort` None in the arm state, motion results
+  and grasp results; grasp verification with a NaN or missing load on the close and now reports `gripper load
+  unmeasured` instead of claiming a hold, and a finite load on either still verifies; the hold report gives
+  `holding_load` / `crush_risk` None and a NaN holding load never re-tightens; the `gripper_holding` precondition is
+  not holding with a NaN or missing load (`gripper load unmeasured`); the live precondition state and the
+  `wait_for_event` digest carry None; the carrying signal is not a holding load; `RosRobot.joint_sample` drops
+  non-finite efforts
 - config additions (`test_config.py`): arm base height 0.100 (floor_z -0.100) and the mount measured 2026-10-10
   `{x 0.0592, y -0.05, z 0.100, yaw 0}` enabled by default, mount z must equal `arm_base_height_m` (null allowed), `floor_guard` and `grasp` defaults and
   validation, `floor_guard.imu_level_reference` defaults to roll/pitch 0 and rejects unknown keys while the deployed
@@ -1229,7 +1245,7 @@ fake `ssh`; no ROS needed).
 | Test (group) | Description |
 |------|-------------|
 | `test_mcp_server_node_type_defaults` | `mcp_server` node type: native, `nodes/mcp_server`, `python3 -m mcp_server`, no CPU quota, MemoryMax 1G, MemoryLow 184M, agent-facing tier, `config_path` `/etc/ros2/mcp_server`, env `MCP_SERVER_CONFIG`, token only via `environment_file: /etc/ros2/mcp_server/token`. |
-| `test_mcp_server_node_entry_and_config` | Present + enabled `ros2_nodes` entry; config block keys, server 0.0.0.0:18200 `/mcp`, repo-relative arm URDF that exists, home file `/var/lib/ros2/arm/home.yaml`. |
+| `test_mcp_server_node_entry_and_config` | Present + enabled `ros2_nodes` entry; config block keys (incl. `control`), server 0.0.0.0:18200 `/mcp`, repo-relative arm URDF that exists, home file `/var/lib/ros2/arm/home.yaml`. |
 | `test_mcp_server_topics_match_filter_node_lease` | mcp_server autonomy command/release/active source and follower feedback topics equal filter_node's. |
 | `test_filter_node_autonomy_params` | filter_node config sets `autonomy_input_topic`, `autonomy_release_topic`, `active_source_topic`. |
 | `test_gripper_camera_enabled` | `gripper_uvc_camera` is present and enabled again. |
@@ -1253,6 +1269,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_readme_documents_perception_tools` | `nodes/mcp_server/README.md` documents get_topdown_view, the object memory tools, look_around, the POI tools, the objects file, the robot-up convention, `layers_missing` and the `MOTION_TOOLS` classification. |
 | `test_mcp_server_setup_tasks_create_objects_dir_owned_by_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/objects` owned by `ansible_user`. |
 | `test_mcp_server_setup_tasks_create_lookups_dir_owned_by_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/poi` and then `/var/lib/ros2/poi/lookups` (camera lookup store), both directories owned by `ansible_user`, mode `0755`. |
+| `test_mcp_server_config_lazy_steer_states` | The client.yml mcp_server `control:` block sets the lazy `/swerve_drive/joint_states` subscription: `steer_states_wait_s` 0.5 (first-message wait) and `steer_states_idle_s` 30.0 (destroyed once unread that long). |
 | `test_mcp_server_config_renders_lookup_retention` | The client.yml mcp_server config renders `lookups:` with `store_dir: /var/lib/ros2/poi/lookups` and the retention limits (3000 records, 300 MB, 14 days). |
 | `test_mcp_server_setup_tasks_create_token_and_arm_dir` | `tasks/mcp_server_setup.yml` creates `/etc/ros2/mcp_server`, the token (`MCP_SERVER_TOKEN=` + 48-char password lookup, `force: false`, 0640, owner `ansible_user`, group `mcp-token`, `no_log`) and `/var/lib/ros2/arm` owned by the node user. |
 | `test_playbooks_run_setup_before_deploying_mcp_server` | `deploy_nodes_client.yml` deploys mcp_server and includes the setup tasks before it. |

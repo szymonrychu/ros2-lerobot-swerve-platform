@@ -114,6 +114,8 @@ CANCEL_SUFFIX = "/_action/cancel_goal"
 STATUS_SUFFIX = "/_action/status"
 CANCEL_WAIT_S = 1.0
 NAV_POLL_S = 0.05
+STEER_REAP_CHECKS = 4  # idle checks of the lazy swerve joint states subscription per control.steer_states_idle_s
+SWERVE_STATES_KEY = "swerve_joint_states"
 # Startup orphan-lease check cadence (the window itself is arm.ORPHAN_LEASE_WINDOW_S).
 ORPHAN_CHECK_PERIOD_S = 0.2
 # Startup gripper torque_limit write: retried at this period until the follower bridge subscribes set_register.
@@ -321,7 +323,6 @@ class RosRobot:
             config.monitor, battery_guard, autonomy_source=config.arm.autonomy_source_name
         )
         self.cache(JointState, t.follower_joint_states, "joint_states", SENSOR_QOS)
-        self.cache(JointState, t.swerve_joint_states, "swerve_joint_states", SENSOR_QOS)  # release_control base reset
         self.cache(
             String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
         )
@@ -339,6 +340,7 @@ class RosRobot:
         self.cache(Path, t.plan, "plan", SENSOR_QOS)
         self.cache(String, t.poi_list, "poi_list", MAP_QOS)  # poi_store latches it (reliable + transient_local)
         self.costmap_subscribed = False  # /local_costmap/costmap is subscribed on the first get_topdown_view
+        self.init_steer_states()  # /swerve_drive/joint_states is subscribed on the first steer_positions
         self.stops = 0
         self.subscribe(Odometry, t.swerve_odom, lambda msg: self.monitor.on_swerve_odom(msg.twist.covariance[0]))
         self.subscribe(Odometry, t.rf2o_twist, lambda msg: self.monitor.on_rf2o(*twist_xyw(msg)))
@@ -663,7 +665,7 @@ class RosRobot:
 
     def cache(
         self, msg_type: type, topic: str, key: str, qos: QoSProfile, hook: Callable[[Any], None] | None = None
-    ) -> None:
+    ) -> Any:
         """Subscribe and keep the latest message with its monotonic receive time.
 
         Args:
@@ -672,6 +674,9 @@ class RosRobot:
             key (str): Cache key.
             qos (QoSProfile): Subscription QoS.
             hook (Callable[[Any], None] | None): Called with every message after it is cached (monitor feed).
+
+        Returns:
+            Any: The rclpy subscription.
         """
 
         def store(msg: Any) -> None:
@@ -680,7 +685,7 @@ class RosRobot:
             if hook is not None:
                 hook(msg)
 
-        self.node.create_subscription(msg_type, topic, store, qos, callback_group=self.group)
+        return self.node.create_subscription(msg_type, topic, store, qos, callback_group=self.group)
 
     def subscribe(
         self, msg_type: type, topic: str, callback: Callable[[Any], None], qos: QoSProfile = SENSOR_QOS
@@ -805,7 +810,8 @@ class RosRobot:
             return None
         msg = item.value
         positions = dict(zip(msg.name, (float(p) for p in msg.position), strict=False))
-        efforts = dict(zip(msg.name, (float(e) for e in msg.effort), strict=False))
+        # feetech_servos publishes NaN effort for a joint without an effort reading: unmeasured, omitted
+        efforts = {n: e for n, e in zip(msg.name, (float(v) for v in msg.effort), strict=False) if math.isfinite(e)}
         return JointSample(positions=positions, efforts=efforts, stamp=item.stamp)
 
     def publish_command(self, positions: dict[str, float]) -> None:
@@ -1516,13 +1522,53 @@ class RosRobot:
         """
         return run_base_stop(self.base_stop.set, self.publish_twist, lambda: self.own_goals.cancel(cancel_goal_handle))
 
+    def init_steer_states(self) -> None:
+        """State of the lazy topics.swerve_joint_states subscription (swerve publishes it at 50 Hz, only release_control
+        and get_control_state read it) and the timer that destroys it after control.steer_states_idle_s unread."""
+        self.steer_lock = threading.Lock()
+        self.steer_sub: Any = None
+        self.steer_subscribed_at = 0.0
+        self.steer_last_use = 0.0
+        self.steer_clock: Callable[[], float] = time.monotonic
+        self.steer_sleep: Callable[[float], None] = time.sleep
+        period = self.cfg.control.steer_states_idle_s / STEER_REAP_CHECKS
+        self.node.create_timer(period, self.reap_steer_states, callback_group=self.group)
+
+    def reap_steer_states(self) -> None:
+        """Destroy the swerve joint states subscription (and drop its sample) once unread for steer_states_idle_s."""
+        with self.steer_lock:
+            if self.steer_sub is None:
+                return
+            if self.steer_clock() - self.steer_last_use < self.cfg.control.steer_states_idle_s:
+                return
+            sub, self.steer_sub = self.steer_sub, None
+            self.node.destroy_subscription(sub)
+        with self.lock:
+            self.latest.pop(SWERVE_STATES_KEY, None)
+
     def steer_positions(self) -> dict[str, float] | None:
         """Fresh steer joint positions from the swerve joint states (control.steer_joint_names present ones).
+
+        The first call subscribes topics.swerve_joint_states; until control.steer_states_wait_s after that subscription
+        a call waits for the first message (callers treat None as unknown steering).
 
         Returns:
             dict[str, float] | None: Joint -> rad, None when no message is fresher than timeouts.state_stale_s.
         """
-        item = self.get("swerve_joint_states", self.cfg.timeouts.state_stale_s)
+        c = self.cfg.control
+        with self.steer_lock:
+            now = self.steer_clock()
+            self.steer_last_use = now
+            if self.steer_sub is None:
+                self.steer_sub = self.cache(
+                    JointState, self.cfg.topics.swerve_joint_states, SWERVE_STATES_KEY, SENSOR_QOS
+                )
+                self.steer_subscribed_at = now
+            deadline = self.steer_subscribed_at + c.steer_states_wait_s
+        stale = self.cfg.timeouts.state_stale_s
+        while self.get(SWERVE_STATES_KEY, stale) is None and self.steer_clock() < deadline:
+            self.steer_sleep(NAV_POLL_S)
+        item = self.get(SWERVE_STATES_KEY, stale)
         if item is None:
             return None
         msg = item.value

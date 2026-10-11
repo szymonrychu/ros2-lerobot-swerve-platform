@@ -213,6 +213,21 @@ class ArmBusyError(ArmError):
     """Raised when another arm motion is already running."""
 
 
+def finite_effort(efforts: dict[str, float], joint: str) -> float | None:
+    """A joint's measured effort, or None when it is unmeasured (missing, or NaN/inf: feetech_servos publishes NaN
+    for a joint without an effort reading).
+
+    Args:
+        efforts (dict[str, float]): Efforts keyed by joint name.
+        joint (str): Joint name.
+
+    Returns:
+        float | None: The finite effort, or None when unmeasured.
+    """
+    value = efforts.get(joint)
+    return value if value is not None and math.isfinite(value) else None
+
+
 @dataclass(frozen=True)
 class JointSample:
     """One /follower/joint_states sample keyed by joint name, with its receive time (monotonic s)."""
@@ -1376,12 +1391,12 @@ class ArmController:
             return {"holding_load": None, "slipping": None, "crush_risk": None}
         toward_closed = math.copysign(1.0, self.cfg.arm.gripper_closed_rad - self.cfg.arm.gripper_open_rad)
         closed_more = (second.positions[self.gripper] - first.positions[self.gripper]) * toward_closed
-        load = second.efforts.get(self.gripper, 0.0)
+        load = finite_effort(second.efforts, self.gripper)
         crush = grip.profile.crush_load
         return {
-            "holding_load": load,
+            "holding_load": load,  # None: the load is unmeasured, never taken as 0
             "slipping": closed_more > cfg.slip_threshold_rad,
-            "crush_risk": crush is not None and abs(load) > crush,
+            "crush_risk": None if load is None else crush is not None and abs(load) > crush,
         }
 
     def revert_retighten(self, previous: float) -> None:
@@ -1417,7 +1432,12 @@ class ArmController:
         """
         cfg = self.cfg.grip_profiles
         load = report.get("holding_load")
-        if not grip.profile.retighten or cfg.retighten_load_below is None or not isinstance(load, float | int):
+        if (
+            not grip.profile.retighten
+            or cfg.retighten_load_below is None
+            or not isinstance(load, float | int)
+            or not math.isfinite(load)
+        ):
             return None
         if cfg.closing_load_sign * load >= cfg.retighten_load_below:
             return None
@@ -1868,8 +1888,9 @@ class ArmController:
         if sample is not None:
             pose = self.kin.forward(sample.positions)
             state.positions = self.measured(sample)
-            state.efforts = {j: sample.efforts[j] for j in self.joint_names if j in sample.efforts}
-            state.gripper_effort = sample.efforts.get(self.gripper)
+            efforts = {j: finite_effort(sample.efforts, j) for j in self.joint_names}
+            state.efforts = {j: e for j, e in efforts.items() if e is not None}  # unmeasured (NaN) efforts omitted
+            state.gripper_effort = efforts.get(self.gripper)
             if state.gripper_effort is not None:
                 GRIPPER_EFFORT.set(state.gripper_effort)
             state.tool_pose = {"x": pose.x, "y": pose.y, "z": pose.z, "pitch": pose.pitch}
@@ -1926,7 +1947,7 @@ class ArmController:
         finished_at = self.backend.now()
         trajectory_end = finished_at if self._trajectory_end is None else self._trajectory_end
         judged = [j for j in self._judged if positions is not None and j in positions]
-        effort = None if sample is None else sample.efforts.get(self.gripper)
+        effort = None if sample is None else finite_effort(sample.efforts, self.gripper)
         trajectory_s = round(trajectory_end - started, 3)
         first = self._first_setpoint_at
         if effort is not None:
@@ -2008,7 +2029,9 @@ class ArmController:
                         {"tracking_error_rad": round(error, 4), "joint": joint},
                     )
                 return "aborted_tracking", f"tracking error {error:.3f} rad exceeds {limit:.3f} ({joint})"
-        load = sample.efforts.get(self.gripper, 0.0)
+        load = finite_effort(sample.efforts, self.gripper)
+        if load is None:  # unmeasured load: no effort contact (the stall check still ends a close)
+            return None
         if target_load is not None and self.cfg.grip_profiles.closing_load_sign * load >= target_load:
             return "grasped", f"closing load {load:g} reached the grip profile target_load {target_load:g}"
         if effort_threshold is not None and abs(load) >= effort_threshold:

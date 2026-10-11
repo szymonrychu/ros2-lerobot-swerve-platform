@@ -543,24 +543,6 @@ def test_start_without_joint_states_publishes_conservative(tmp_path: Path) -> No
     )
 
 
-def test_home_service_restores_static_footprint(tmp_path: Path) -> None:
-    """A converged /arm/home (arm code calls NavFootprint.arm_homed) goes back to the static footprint, which then
-    survives stale joint states (the pose is known: parked)."""
-    robot = footprint_robot(tmp_path)
-    nav = nav_for(robot)
-    nav.publish_dynamic(parts_at(robot, SIDEWAYS), None)
-    assert nav.state().kind == "dynamic"
-    move_arm(robot, HOME)
-    state = nav.arm_homed()
-    assert state.kind == "static"
-    assert last_polygon(robot, COSTMAP_TOPICS[0]) == static_points()
-    assert last_param(robot, "/collision_monitor", "ArmStop.enabled") is False
-    assert last_param(robot, COSTMAP_NODES[0], INFLATION_RADIUS) == static_inflation()[0]
-    make_stale(robot)
-    nav.tick()
-    assert nav.state().kind == "static"
-
-
 def test_keep_release_without_fresh_joints_publishes_conservative_footprint(tmp_path: Path) -> None:
     """No fresh joint states at a keep release: the arm pose is unknown, so the footprint becomes a max-reach disc
     around the arm mount (plus the carried object), not the bare body."""

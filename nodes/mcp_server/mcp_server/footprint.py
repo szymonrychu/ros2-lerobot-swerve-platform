@@ -3,7 +3,8 @@
 static: the H body outline (footprint_geometry.body_outline over config.body) united with the ground shadow of the arm
 parked at its stored home (nav_footprint.parked_arm_shadow), the outline scripts/gen_nav_footprint.py writes into
 nav2_params.yaml. Published while autonomy holds the arm (take_control('arm'): the arm may move from then on), after a
-parked release, after a converged /arm/home (arm_homed) and whenever the measured arm shadow lies inside it.
+parked release, after a converged /arm/home (its tick sees the parked arm) and whenever the measured arm shadow lies
+inside it.
 
 dynamic: the arm is released out of the static outline. The footprint is the union of the static outline, the ground
 shadow of the measured arm pose (convex hull of every arm part point of self_collision.part_points projected to the
@@ -14,10 +15,10 @@ conservative: the arm is released but its pose is unknown (no fresh joint states
 unverified static footprint): a disc of conservative_reach_m (+ the carried radius) around the arm mount.
 
 Triggers: release_control publishes the released pose (publish_dynamic; publish_conservative without joint states),
-take_control and a parked release publish static (publish_static), a converged home calls arm_homed. Every republish_s
-the tick follows the arm while autonomy does not hold it (the leader arm or web UI may move it, mcp_server may have
-restarted): it recomputes from the fresh measured pose (replacing the footprint only when it moved by more than
-refresh_threshold_m), keeps the last footprint when the sample is stale, and falls back to conservative when the last
+take_control and a parked release publish static (publish_static), a converged /arm/home runs the tick at once. Every
+republish_s the tick follows the arm while autonomy does not hold it (the leader arm or web UI may move it,
+mcp_server may have restarted): it recomputes from the fresh measured pose (replacing the footprint only when it moved
+by more than refresh_threshold_m), keeps the last footprint when the sample is stale, and falls back to conservative when the last
 footprint never saw the released pose.
 
 Consumers (through a FootprintSink, implemented by ros_iface.RosRobot):
@@ -476,16 +477,6 @@ class NavFootprint:
         """
         with self.lock:
             self.set(self.static_footprint(None, pose_known=False))
-            return self.state()
-
-    def arm_homed(self) -> FootprintState:
-        """A home motion converged (/arm/home, a parked release): the arm is parked inside the static outline.
-
-        Returns:
-            FootprintState: The published state.
-        """
-        with self.lock:
-            self.set(self.static_footprint(None, pose_known=True))
             return self.state()
 
     def publish_dynamic(self, parts: dict[str, np.ndarray], carried_radius_m: float | None) -> FootprintState:
