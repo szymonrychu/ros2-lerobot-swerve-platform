@@ -1091,7 +1091,7 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
 | `camera_scene.py`, `camera_overlay.py`, `camera_candidates.py`, `camera_calib.py` | no | calibrated scene and frames, overlay drawing and candidate grids, candidate sets, sample store and solver wiring |
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |
 | `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services |
-| `spin.py` | no | `spin_forever` (executor loop that survives rclpy stale-handle errors), `run_or_exit` (exits the process when the executor thread dies, so systemd restarts the node instead of serving stale data), `FrameCache` (latest camera frame) |
+| `spin.py` | no | `spin_forever` (executor loop that survives rclpy stale-handle errors), `run_or_exit` (exits the process when the executor thread dies while ROS is up, so systemd restarts the node instead of serving stale data; an error after ROS was shut down is the normal end), `FrameCache` (latest camera frame) |
 | `metrics.py` | no | Prometheus `mcp_*` metric objects, the per-feed sample age collector |
 | `__main__.py` | yes | entry point: executor thread + uvicorn |
 

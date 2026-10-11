@@ -1297,3 +1297,11 @@ The rendered configs and every dashboard query checked by the real binaries in D
 | `test_alloy_config_runs` | (client, server) `alloy run` on the rendered config logs "now listening" with no "failed to evaluate". |
 | `test_nginx_site_passes_nginx_t` | (robot, server) `nginx -t` accepts the rendered site. |
 | `test_robot_nginx_redirects_grafana_keeping_path_and_query` | The running robot site answers `/grafana/d/robot-health?orgId=1&var-host=server` with 302 to `http://server.ros2.lan/grafana/d/robot-health?orgId=1&var-host=server`. |
+
+### test_rplidar_scan_supervisor_shutdown.py
+
+Clean shutdown of `nodes/bridges/rplidar_a1/scan_supervisor.py` with rclpy stubbed (`tests/ros_stubs.py`: `install_ros_stubs`, and `FakeRclpy`, an rclpy double whose `shutdown()` raises the "already called" RCLError like a context the SIGTERM handler already shut down). `main()` returns 0, stops the launch child with SIGINT, destroys the node and calls `rclpy.try_shutdown()` (never `shutdown()`) when `spin_once` raises `ExternalShutdownException`, `KeyboardInterrupt` or the context-invalid `RCLError`.
+
+### Per-node shutdown tests
+
+Every Python ROS2 node with an rclpy main loop has a `tests/test_shutdown.py` (poi_store, rf2o_odom_relay, swerve_drive_controller, static_tf_publisher, filter_node, haptic_controller, map_guard, claude_agent, test_joint_api, gps_rtk, uvc_camera, bno055_imu, feetech_servos) using a copy of the same `ros_stubs.py` helper. They simulate systemd stopping the unit: the loop raises `ExternalShutdownException` / `KeyboardInterrupt` / the context-invalid `RCLError` with the context already shut down, and assert the entry function returns normally, the existing cleanup ran (node destroyed, wheels stopped, serial closed, camera released), `rclpy.shutdown()` was not called and `rclpy.try_shutdown()` was. A context-invalid `RCLError` while `rclpy.ok()` is still true must propagate. mcp_server: `test_spin.py::test_run_or_exit_ignores_an_error_raised_by_the_shutdown_itself`.

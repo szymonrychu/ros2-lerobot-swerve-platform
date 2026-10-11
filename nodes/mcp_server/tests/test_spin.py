@@ -43,6 +43,17 @@ def test_run_or_exit_exits_when_the_spinner_dies() -> None:
     assert exits == [1]
 
 
+def test_run_or_exit_ignores_an_error_raised_by_the_shutdown_itself() -> None:
+    """rclpy shut down (SIGTERM, uvicorn finished) while the executor built its wait set: not a crash, exit 0."""
+    exits: list[int] = []
+
+    def target() -> None:
+        raise RuntimeError("failed to initialize wait set: the given context is not valid")
+
+    run_or_exit(target, ok=lambda: False, exit_fn=exits.append)
+    assert exits == []
+
+
 def test_run_or_exit_returns_quietly_on_shutdown() -> None:
     exits: list[int] = []
     run_or_exit(lambda: None, ok=lambda: False, exit_fn=exits.append)

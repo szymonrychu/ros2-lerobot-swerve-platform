@@ -36,7 +36,7 @@ def spin_forever(
 
 
 def run_or_exit(target: Callable[[], None], ok: Callable[[], bool], exit_fn: Callable[[int], Any]) -> None:
-    """Run the executor loop; if it dies (raises, or returns while ROS is still up) exit the process with 1.
+    """Run the executor loop; if it dies (raises, or returns while ROS is still up) exit the process with 1 (an error after ROS was shut down is the normal end).
 
     Args:
         target (Callable[[], None]): The spin loop.
@@ -46,6 +46,8 @@ def run_or_exit(target: Callable[[], None], ok: Callable[[], bool], exit_fn: Cal
     try:
         target()
     except BaseException:  # noqa: BLE001 - any death of the executor thread is fatal for the node
+        if not ok():  # the context was shut down under the loop (SIGTERM): that is the normal end, not a crash
+            return
         LOGGER.exception("ROS executor thread died; exiting so the service restarts")
         exit_fn(1)
         return
