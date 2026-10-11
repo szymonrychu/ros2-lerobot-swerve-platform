@@ -33,6 +33,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryGuard
 
 from .arm import EXPECTED_LEASE, SOURCE_NONE, ArmController, ArmError, finite_effort
+from .carry import CarryRecord
 from .config import McpServerConfig
 from .footprint import NavFootprint
 from .models import ArmControlState, BaseControlState, CarryingState, ControlState, ReleaseResult
@@ -69,6 +70,29 @@ CARRYING_REFUSAL = (
     "release_control refused: the arm cannot park while the gripper carries an object ({reasons}) - put the object "
     "down first (release_object), or release with keep_position=true"
 )
+
+
+def grasp_reason(record: CarryRecord) -> str:
+    """Carrying reason of a held grasp: its verification state (pending confirm_grasp, the fused outcome) or kind.
+
+    Args:
+        record (CarryRecord): Carry record with grasp_held set.
+
+    Returns:
+        str: The reason.
+    """
+    if record.image == "pending":
+        return (
+            f"the last grasp is an unverified hold awaiting confirm_grasp (grasp_id {record.grasp_id}, band "
+            f"{record.band})"
+        )
+    if record.fused == "grasped":
+        return f"the last grasp is held (fused grasped: band {record.band}, image {record.image})"
+    if record.fused is not None:
+        return f"the last grasp is an unverified hold (fused {record.fused}: band {record.band}, image {record.image})"
+    if record.grasp_kind == "unverified":
+        return "the last grasp is an unverified hold (closed into the empty band, kept gripping)"
+    return "the last grasp is held (the gripper was not opened since)"
 
 
 class BaseOps(Protocol):
@@ -423,10 +447,7 @@ class ControlManager:
         if record.radius_m is not None:
             reasons.append(f"carried_object_radius_m {record.radius_m:g} m set at the last arm release")
         if record.grasp_held:
-            if record.grasp_kind == "unverified":
-                reasons.append("the last grasp is an unverified hold (closed into the empty band, kept gripping)")
-            else:
-                reasons.append("the last grasp is held (the gripper was not opened since)")
+            reasons.append(grasp_reason(record))
         if sample is not None:
             live = LiveState(
                 joints=self.arm.measured(sample), gripper_effort=finite_effort(sample.efforts, self.arm.gripper)

@@ -6,8 +6,10 @@ All commands go to filter_node's autonomy input; filter_node arbitrates against 
 import json
 import logging
 import math
+import statistics
 import threading
 import time
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -15,10 +17,19 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
-from .carry import CarryStore, GraspKind, carry_path
+from .carry import CarryRecord, CarryStore, GraspKind, carry_path
 from .config import ArmBaseOffset, LimitSettings, McpServerConfig
 from .floor_guard import FloorGuard, FloorOverride, GuardReport, JawModel, TiltSample, retime, step_scales
 from .grasp import jaw_clearance
+from .grasp_check import (
+    BaselineSource,
+    ContactKind,
+    GraspCheck,
+    GripMeasurements,
+    ImageVerdict,
+    fuse,
+    grip_evidence,
+)
 from .grip import GripChoice, ResolvedGrip, resolve_grip_profile
 from .home_store import HomeStoreError, load_home, save_home
 from .ik import ArmKinematics, UnreachableError, grasp_offset
@@ -82,6 +93,14 @@ HOME_LIFTS_M = (0.05, 0.10, 0.15)
 SHOULDER_LIFT = "shoulder_lift"
 ELBOW_FLEX = "elbow_flex"
 WRIST_FLEX = "wrist_flex"
+
+# Rest baseline of a close_until_effort: the joint states are polled this often (s; the bridge publishes at about
+# 100 Hz) for at most twice grip_profiles.contact_baseline_samples polls before the stream starts.
+REST_SAMPLE_PERIOD_S = 0.01
+GRASP_ID_HEX = 12  # grasp_id: the first 12 hex digits of a uuid4
+# hold_report keys that feed the grasp evidence only (not ArmMotionResult fields).
+HOLD_EVIDENCE_KEYS = ("hold_current_a", "hold_jaw_rad")
+UNKNOWN_GRASP_ID = "unknown or superseded grasp_id {grasp_id!r} (a later close or an open)"
 
 OrphanCheck = Literal["pending", "released", "clear"]
 
@@ -242,6 +261,125 @@ class JointSample:
     currents: dict[str, float] = field(default_factory=dict)
 
 
+def number_or_none(value: object) -> float | None:
+    """A finite number from a report value.
+
+    Args:
+        value (object): Report value (float, int, None, ...).
+
+    Returns:
+        float | None: The value as float when it is a finite number (not a bool), else None.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def rounded(value: float | None, digits: int) -> float | None:
+    """Round a measured value for reporting.
+
+    Args:
+        value (float | None): Value or None (unmeasured).
+        digits (int): Decimal digits.
+
+    Returns:
+        float | None: The rounded value, None stays None.
+    """
+    return None if value is None else round(value, digits)
+
+
+def mean_or_none(values: list[float]) -> float | None:
+    """Mean of the values.
+
+    Args:
+        values (list[float]): Finite values.
+
+    Returns:
+        float | None: Their mean, or None without any.
+    """
+    return statistics.fmean(values) if values else None
+
+
+@dataclass
+class DeltaContact:
+    """Load-delta contact of one close_until_effort (arXiv 2608.23983) and the load evidence it collects.
+
+    The free-closing baseline is the mean of the first `samples` finite closing loads (closing_load_sign * load) seen
+    after contact_allowed first opened; the rest baseline (measured before the stream) only stands in for it in the
+    evidence. Delta contact stays disarmed until the free-closing baseline is collected and fires once `persist`
+    consecutive samples have closing load - baseline >= delta; an unmeasured load breaks the run. With delta None the
+    baseline and peak are still collected (evidence), but it never fires.
+    """
+
+    delta: float | None
+    samples: int
+    persist: int
+    sign: float
+    rest_baseline: float | None = None
+    opened: bool = False  # contact_allowed opened at least once
+    free_loads: list[float] = field(default_factory=list)
+    free_baseline: float | None = None
+    streak: int = 0
+    peak_load: float | None = None  # highest closing load since contact_allowed opened
+    last_load: float | None = None  # closing load of the sample that fired
+    kind: ContactKind | None = None  # which contact signal ended the close
+
+    def observe(self, load: float | None, allowed: bool) -> bool:
+        """Feed the gripper load of one new joint sample.
+
+        Args:
+            load (float | None): Decoded gripper load; None = unmeasured.
+            allowed (bool): contact_allowed for this sample.
+
+        Returns:
+            bool: True when the delta contact fires on this sample.
+        """
+        self.opened = self.opened or allowed
+        if not self.opened:
+            return False
+        if load is None:
+            self.streak = 0
+            return False
+        closing = self.sign * load
+        self.peak_load = closing if self.peak_load is None else max(self.peak_load, closing)
+        if self.free_baseline is None:
+            self.free_loads.append(closing)
+            if len(self.free_loads) >= self.samples:
+                self.free_baseline = statistics.fmean(self.free_loads)
+            return False
+        if self.delta is None:
+            return False
+        self.streak = self.streak + 1 if closing - self.free_baseline >= self.delta else 0
+        self.last_load = closing
+        return self.streak >= self.persist
+
+    def baseline(self) -> tuple[float | None, BaselineSource | None]:
+        """Baseline of the evidence: the free-closing one, else the rest one.
+
+        Returns:
+            tuple[float | None, BaselineSource | None]: Baseline closing load and its source; (None, None) when
+                neither was measured.
+        """
+        if self.free_baseline is not None:
+            return self.free_baseline, "free_closing"
+        if self.rest_baseline is not None:
+            return self.rest_baseline, "rest"
+        return None, None
+
+    def message(self) -> str:
+        """Result message of a fired delta contact.
+
+        Returns:
+            str: What fired.
+        """
+        assert self.last_load is not None and self.free_baseline is not None and self.delta is not None
+        rise = self.last_load - self.free_baseline
+        return (
+            f"closing load {self.last_load:g} rose {rise:g} above the free-closing baseline {self.free_baseline:g} "
+            f"(>= contact_load_delta {self.delta:g}) for {self.persist} consecutive samples"
+        )
+
+
 class ArmBackend(Protocol):
     """ROS side of the arm controller (implemented in ros_iface, faked in tests)."""
 
@@ -370,6 +508,9 @@ class ArmController:
         # Backend time an 'unverified' empty-band hold started at its profile torque (relaxed after
         # grip_profiles.unverified_hold_relax_s); None without one.
         self._unverified_since: float | None = None
+        # Grasp verification of the last close_until_effort with its evidence (in memory; the carry record keeps its
+        # grasp_id, band, image and fused across a restart).
+        self.last_grasp_check: GraspCheck | None = None
         self.stop_requests = 0  # request_stop calls (a stop during release_control's park keeps the lease)
         # Home pose cache: ((mtime_ns, size, inode) of the file or None when missing, pose or the load error).
         self._home_cache: tuple[tuple[int, int, int] | None, dict[str, float] | None | HomeStoreError] | None = None
@@ -533,9 +674,120 @@ class ArmController:
         if kind != "unverified":
             self._unverified_since = None
 
+    def note_close(self, kind: GraspKind | None, check: GraspCheck | None) -> None:
+        """Record a gripper close in the carry record: its outcome and its grasp verification.
+
+        Args:
+            kind (GraspKind | None): grasped / unverified (an object is held), None (nothing held).
+            check (GraspCheck | None): Grasp check of a close_until_effort; None for a plain close (forgets the last
+                grasp_id, so a confirm_grasp for it is refused).
+        """
+        self.last_grasp_check = check
+        self.carry.update(
+            grasp_held=kind is not None,
+            grasp_kind=kind,
+            grasp_id=None if check is None else check.grasp_id,
+            band=None if check is None else check.band,
+            image=None if check is None else check.image,
+            fused=None if check is None else check.fused,
+        )
+        if kind != "unverified":
+            self._unverified_since = None
+
+    def current_grasp(self, grasp_id: str) -> CarryRecord:
+        """The carry record when grasp_id is the last close's (not superseded by a later close or an open).
+
+        Args:
+            grasp_id (str): grasp_id of a close_until_effort.
+
+        Returns:
+            CarryRecord: The carry record of that close.
+
+        Raises:
+            ArmError: For an unknown or superseded grasp_id.
+        """
+        record = self.carry.get()
+        if record.grasp_id is None or record.grasp_id != grasp_id or record.band is None:
+            raise ArmError(UNKNOWN_GRASP_ID.format(grasp_id=grasp_id))
+        return record
+
+    def note_check(self, grasp_id: str, **changes: object) -> None:
+        """Apply image / fused changes to the in-memory grasp check of grasp_id (when it is the last one).
+
+        Args:
+            grasp_id (str): grasp_id of the changed close.
+            **changes (object): GraspCheck fields.
+        """
+        check = self.last_grasp_check
+        if check is not None and check.grasp_id == grasp_id:
+            self.last_grasp_check = check.model_copy(update=changes)
+
+    def mark_visual_pending(self, grasp_id: str) -> CarryRecord:
+        """A jaw crop of the close went to the agent: the hold is unverified until confirm_grasp records a verdict.
+
+        Starts the unverified-hold relax timer (grip_profiles.unverified_hold_relax_s) unless it already runs.
+
+        Args:
+            grasp_id (str): grasp_id of the last close_until_effort.
+
+        Returns:
+            CarryRecord: The carry record afterwards (grasp_kind unverified, image pending).
+
+        Raises:
+            ArmError: For an unknown or superseded grasp_id.
+        """
+        self.current_grasp(grasp_id)
+        record = self.carry.update(grasp_held=True, grasp_kind="unverified", image="pending", fused=None)
+        if self._unverified_since is None:
+            self._unverified_since = self.backend.now()
+        self.note_check(grasp_id, image="pending", fused=None)
+        return record
+
+    def record_visual_verdict(self, grasp_id: str, verdict: ImageVerdict) -> CarryRecord:
+        """Fuse the agent's visual verdict with the close's sensor band and update the carry record.
+
+        grasped: grasp_kind grasped and the unverified-hold relax timer stops; unverified: grasp_kind unverified;
+        missed: nothing carried any more (the jaws stay closed: release_object opens them). A repeated verdict
+        overwrites the earlier one (both are logged).
+
+        Args:
+            grasp_id (str): grasp_id of the last close_until_effort.
+            verdict (ImageVerdict): Whether the object is between the fingers in the jaw crop: yes / no / unsure.
+
+        Returns:
+            CarryRecord: The carry record afterwards (image = verdict, fused = fuse(band, verdict)).
+
+        Raises:
+            ArmError: For an unknown or superseded grasp_id.
+        """
+        previous = self.current_grasp(grasp_id)
+        assert previous.band is not None  # current_grasp checked it
+        fused = fuse(previous.band, verdict)
+        LOGGER.info(
+            "grasp %s: band %s + image %s -> fused %s (before: image %s, fused %s)",
+            grasp_id,
+            previous.band,
+            verdict,
+            fused,
+            previous.image,
+            previous.fused,
+        )
+        changes: dict[str, object]
+        if fused == "grasped":
+            changes = {"grasp_held": True, "grasp_kind": "grasped"}
+            self._unverified_since = None
+        elif fused == "unverified":
+            changes = {"grasp_held": True, "grasp_kind": "unverified"}
+        else:
+            changes = {"grasp_held": False, "grasp_kind": None, "radius_m": None}
+        record = self.carry.update(image=verdict, fused=fused, **changes)
+        self.note_check(grasp_id, image=verdict, fused=fused)
+        return record
+
     def note_open(self) -> None:
         """A converged open dropped whatever the gripper carried: clear the carry record (also the radius)."""
         self.carry.clear()
+        self.last_grasp_check = None
         self._unverified_since = None
 
     def jaw_wide_open(self, sample: JointSample) -> bool:
@@ -1266,9 +1518,15 @@ class ArmController:
         """Open the gripper to a fraction, or close it with a grip profile until it holds an object.
 
         close_until_effort resolves the grip profile (preset name or inline overrides, capped server-side), writes its
-        torque_limit to the gripper servo, closes at its close_speed_rps, stops on contact (stall, |load| >=
-        contact_effort_threshold, or closing-direction load >= target_load) and holds with its squeeze_rad. A hold
-        whose load relaxed to about 0 (a soft object) is re-tightened once (retighten_hold). A grasp
+        torque_limit to the gripper servo, closes at its close_speed_rps, stops on contact and holds with its
+        squeeze_rad. The primary contact is a load rise (DeltaContact, arXiv 2608.23983): closing load - baseline >=
+        contact_load_delta for grip_profiles.contact_persist_samples consecutive samples, the baseline being the
+        free-closing mean collected after contact_allowed opened. The stall, |load| >= contact_effort_threshold and
+        closing-direction load >= target_load stay as backstops (and are the only contact for a profile without
+        contact_load_delta). A hold whose load relaxed to about 0 (a soft object) is re-tightened once
+        (retighten_hold). Every close mints a grasp_id and reports a grasp_check (GripEvidence with the rest baseline
+        measured before the stream, the hold's load and current, band_verdict; image not_requested), recorded in the
+        carry record. A grasp
         keeps the profile's torque limit while holding; any other outcome (and an exception) restores the default
         preset's torque_limit, as does every open, release and lost lease.
 
@@ -1281,7 +1539,8 @@ class ArmController:
 
         Returns:
             ArmMotionResult: Outcome ("grasped" / "closed_no_contact" for close_until_effort, with grip_profile,
-                torque_limit_readback and, for a grasp, holding_load / slipping / crush_risk / retightened).
+                torque_limit_readback, grasp_check and, for a grasp, holding_load / slipping / crush_risk /
+                retightened).
 
         Raises:
             ArmError: For invalid arguments (also an unknown or invalid grip profile).
@@ -1304,7 +1563,7 @@ class ArmController:
                     result = self.stream_to(targets, vmax, floor)
                     if open_fraction == 0.0:
                         result = self.grasp_from_stall(result, start_jaw, self.cfg.grip_profiles.default.squeeze_rad)
-                        self.note_grasp("grasped" if result.status == "grasped" else None)
+                        self.note_close("grasped" if result.status == "grasped" else None, None)
                     elif result.status == "converged":
                         self.note_open()
                     return result
@@ -1319,6 +1578,8 @@ class ArmController:
         threshold = profile.contact_effort_threshold if effort_threshold is None else effort_threshold
         if not math.isfinite(threshold) or threshold <= 0.0:
             raise ArmError("effort_threshold must be positive")
+        settings = self.cfg.grip_profiles
+        grasp_id = uuid.uuid4().hex[:GRASP_ID_HEX]
         with self.exclusive_motion(), self.holding_arm_for_gripper([self.gripper]):
             result: ArmMotionResult | None = None
             try:
@@ -1326,6 +1587,14 @@ class ArmController:
                 self.write_torque_limit(profile.torque_limit)
                 start = self.command_base(self.require_sample())
                 start_jaw = self.require_sample().positions[self.gripper]
+                rest_load, rest_current = self.rest_baseline()
+                contact = DeltaContact(
+                    delta=profile.contact_load_delta,
+                    samples=settings.contact_baseline_samples,
+                    persist=settings.contact_persist_samples,
+                    sign=settings.closing_load_sign,
+                    rest_baseline=rest_load,
+                )
                 goal = start | clamp_to_limits(
                     {self.gripper: closed},
                     self.limits,
@@ -1341,26 +1610,30 @@ class ArmController:
                     threshold,
                     floor=floor,
                     target_load=profile.target_load,
+                    contact=contact,
                 )
                 result = self.grasp_from_stall(closing, start_jaw, profile.squeeze_rad)
+                if result.status in ("grasped", "blocked") and contact.kind is None:
+                    contact.kind = "stall"  # a settled stall short of closed (grasp_from_stall)
                 update: dict[str, object] = {"grip_profile": grip.report()}
+                hold: dict[str, object] = {}
                 if result.status == "grasped" and closing.positions is not None:
-                    report = self.hold_report(grip)
-                    previous = self.retighten_hold(closing.positions[self.gripper], report, grip)
+                    hold = self.hold_report(grip)
+                    previous = self.retighten_hold(closing.positions[self.gripper], hold, grip)
                     update |= {"retightened": previous is not None}
-                    if previous is None:
-                        update |= report
-                    else:
-                        after = self.hold_report(grip)
-                        update |= after | {"retighten_reverted": bool(after.get("crush_risk"))}
-                        if after.get("crush_risk"):
+                    if previous is not None:
+                        hold = self.hold_report(grip)
+                        update |= {"retighten_reverted": bool(hold.get("crush_risk"))}
+                        if hold.get("crush_risk"):
                             self.revert_retighten(previous)
+                    update |= {k: v for k, v in hold.items() if k not in HOLD_EVIDENCE_KEYS}
                 update["torque_limit_readback"] = self.torque_limit_readback()
+                update["grasp_check"] = self.grasp_check(grasp_id, grip, contact, rest_current, result, hold)
                 result = result.model_copy(update=update)
             finally:
                 if result is None or result.status != "grasped":
                     self.restore_default_torque_limit()
-        self.note_grasp("grasped" if result.status == "grasped" else None)
+        self.note_close("grasped" if result.status == "grasped" else None, result.grasp_check)
         if result.status == "converged":
             message = (
                 result.message if result.message.startswith("closed without contact") else "closed without contact"
@@ -1414,8 +1687,10 @@ class ArmController:
 
         Returns:
             dict[str, object]: holding_load (decoded effort of the second sample), slipping (the jaw closed more than
-                slip_threshold_rad between the samples), crush_risk (|holding_load| above crush_load); None values
-                without fresh joint states.
+                slip_threshold_rad between the samples), crush_risk (|holding_load| above crush_load), and for the
+                grasp evidence (HOLD_EVIDENCE_KEYS) hold_current_a (mean finite gripper current of the two samples,
+                A) and hold_jaw_rad (jaw of the second sample); None values without fresh joint states (current: also
+                without a finite current).
         """
         cfg = self.cfg.grip_profiles
         self.backend.sleep(cfg.hold_check_delay_s)
@@ -1423,16 +1698,123 @@ class ArmController:
         self.backend.sleep(cfg.hold_check_delay_s)
         second = self.fresh_sample()
         if first is None or second is None:
-            return {"holding_load": None, "slipping": None, "crush_risk": None}
+            return {
+                "holding_load": None,
+                "slipping": None,
+                "crush_risk": None,
+                "hold_current_a": None,
+                "hold_jaw_rad": None,
+            }
         toward_closed = math.copysign(1.0, self.cfg.arm.gripper_closed_rad - self.cfg.arm.gripper_open_rad)
         closed_more = (second.positions[self.gripper] - first.positions[self.gripper]) * toward_closed
         load = finite_effort(second.efforts, self.gripper)
         crush = grip.profile.crush_load
+        currents = [c for c in (finite_effort(x.currents, self.gripper) for x in (first, second)) if c is not None]
         return {
             "holding_load": load,  # None: the load is unmeasured, never taken as 0
             "slipping": closed_more > cfg.slip_threshold_rad,
             "crush_risk": None if load is None else crush is not None and abs(load) > crush,
+            "hold_current_a": mean_or_none(currents),
+            "hold_jaw_rad": second.positions[self.gripper],
         }
+
+    def rest_baseline(self) -> tuple[float | None, float | None]:
+        """Gripper closing load and current at rest, before a close_until_effort streams (caller holds the guard).
+
+        Polls the joint states every REST_SAMPLE_PERIOD_S until grip_profiles.contact_baseline_samples samples with a
+        finite load were seen, at most twice that many polls; unmeasured (NaN) values are skipped, never taken as 0.
+
+        Returns:
+            tuple[float | None, float | None]: Mean closing load (closing_load_sign * load) and mean gripper current
+                (A) of those samples; None when none was finite.
+        """
+        cfg = self.cfg.grip_profiles
+        wanted = cfg.contact_baseline_samples
+        loads: list[float] = []
+        currents: list[float] = []
+        last_stamp: float | None = None
+        for _ in range(2 * wanted):
+            sample = self.fresh_sample()
+            if sample is not None and sample.stamp != last_stamp:
+                last_stamp = sample.stamp
+                load = finite_effort(sample.efforts, self.gripper)
+                if load is not None:
+                    loads.append(cfg.closing_load_sign * load)
+                current = finite_effort(sample.currents, self.gripper)
+                if current is not None:
+                    currents.append(current)
+            if len(loads) >= wanted:
+                break
+            self.backend.sleep(REST_SAMPLE_PERIOD_S)
+        return mean_or_none(loads[-wanted:]), mean_or_none(currents[-wanted:])
+
+    def grasp_check(
+        self,
+        grasp_id: str,
+        grip: ResolvedGrip,
+        contact: DeltaContact,
+        rest_current: float | None,
+        result: ArmMotionResult,
+        hold: dict[str, object],
+    ) -> GraspCheck:
+        """Grasp verification of a finished close_until_effort: GripEvidence, band_verdict, image not_requested.
+
+        A held close takes its load, current and jaw from the hold report; any other close from its last motion
+        sample (load, jaw) and a fresh sample (current).
+
+        Args:
+            grasp_id (str): grasp_id minted for the close.
+            grip (ResolvedGrip): Profile of the close (contact_load_delta).
+            contact (DeltaContact): Contact tracking of the close (baselines, peak, which contact fired).
+            rest_current (float | None): Mean gripper current before the close (A).
+            result (ArmMotionResult): Outcome of the close (after grasp_from_stall).
+            hold (dict[str, object]): hold_report of the hold; empty without one.
+
+        Returns:
+            GraspCheck: The check with fused None.
+        """
+        cfg = self.cfg
+        sign = cfg.grip_profiles.closing_load_sign
+        if hold:
+            holding_load = number_or_none(hold.get("holding_load"))
+            hold_current = number_or_none(hold.get("hold_current_a"))
+            jaw = number_or_none(hold.get("hold_jaw_rad"))
+        else:
+            holding_load = result.gripper_effort
+            sample = self.fresh_sample()
+            hold_current = None if sample is None else finite_effort(sample.currents, self.gripper)
+            jaw = None if result.positions is None else result.positions.get(self.gripper)
+        baseline, source = contact.baseline()
+        gap = None if jaw is None else abs(jaw - cfg.arm.gripper_closed_rad)
+        measurements = GripMeasurements(
+            grasp_id=grasp_id,
+            baseline_load=rounded(baseline, 2),
+            baseline_source=source,
+            contact=contact.kind,
+            peak_load_delta=None
+            if baseline is None or contact.peak_load is None
+            else round(contact.peak_load - baseline, 2),
+            hold_load_delta=None
+            if baseline is None or holding_load is None
+            else round(sign * holding_load - baseline, 2),
+            rest_current_a=rounded(rest_current, 4),
+            hold_current_a=rounded(hold_current, 4),
+            current_delta_a=None
+            if rest_current is None or hold_current is None
+            else round(hold_current - rest_current, 4),
+            jaw_gap_rad=rounded(gap, 4),
+            in_empty_band=None if gap is None else gap < cfg.limits.gripper_empty_stall_rad,
+        )
+        evidence = grip_evidence(
+            measurements,
+            grip.profile.contact_load_delta,
+            cfg.grip_profiles.current_contact_delta_a,
+            holding_load,
+            cfg.grasp.hold_effort_min,
+        )
+        return GraspCheck(
+            grasp_id=grasp_id, band=evidence.band, evidence=evidence, image="not_requested", crop=None, fused=None
+        )
 
     def revert_retighten(self, previous: float) -> None:
         """Put the gripper hold back where it was before a re-tighten that showed crush_risk (caller holds the guard).
@@ -2011,24 +2393,16 @@ class ArmController:
             gripper_effort=effort,
         )
 
-    def check(
-        self,
-        sample: JointSample | None,
-        tracked: list[str],
-        effort_threshold: float | None,
-        target_load: float | None = None,
-    ) -> tuple[ArmMotionStatus, str] | None:
-        """Safety checks run every cycle.
+    def check(self, sample: JointSample | None, tracked: list[str]) -> tuple[ArmMotionStatus, str] | None:
+        """Safety checks run every cycle (stop, critical events, lease, stale samples, tracking).
 
         Args:
             sample (JointSample | None): Latest sample.
             tracked (list[str]): Joints whose tracking error is checked.
-            effort_threshold (float | None): Gripper contact threshold (|load|), or None.
-            target_load (float | None): Gripper load in the closing direction (grip_profiles.closing_load_sign) that
-                ends a close, or None.
 
         Returns:
-            tuple[ArmMotionStatus, str] | None: Abort status and message, or None to continue.
+            tuple[ArmMotionStatus, str] | None: Abort status and message, or None to continue (the sample is then
+                fresh).
         """
         if self._stop.is_set():
             return "stopped", "stop requested"
@@ -2064,13 +2438,29 @@ class ArmController:
                         {"tracking_error_rad": round(error, 4), "joint": joint},
                     )
                 return "aborted_tracking", f"tracking error {error:.3f} rad exceeds {limit:.3f} ({joint})"
+        return None
+
+    def effort_contact(
+        self, sample: JointSample, effort_threshold: float | None, target_load: float | None
+    ) -> tuple[ContactKind, str] | None:
+        """The close_until_effort load backstops on one sample: target_load, then the absolute threshold.
+
+        Args:
+            sample (JointSample): Fresh sample.
+            effort_threshold (float | None): Gripper contact threshold (|load|), or None.
+            target_load (float | None): Gripper load in the closing direction (grip_profiles.closing_load_sign) that
+                ends a close, or None.
+
+        Returns:
+            tuple[ContactKind, str] | None: Which contact fired and its message, or None.
+        """
         load = finite_effort(sample.efforts, self.gripper)
         if load is None:  # unmeasured load: no effort contact (the stall check still ends a close)
             return None
         if target_load is not None and self.cfg.grip_profiles.closing_load_sign * load >= target_load:
-            return "grasped", f"closing load {load:g} reached the grip profile target_load {target_load:g}"
+            return "target_load", f"closing load {load:g} reached the grip profile target_load {target_load:g}"
         if effort_threshold is not None and abs(load) >= effort_threshold:
-            return "grasped", f"gripper effort reached {effort_threshold}"
+            return "absolute", f"gripper effort reached {effort_threshold}"
         return None
 
     def tracking_violation(
@@ -2359,6 +2749,7 @@ class ArmController:
         on_via: Callable[[int], None] | None = None,
         target_load: float | None = None,
         on_tick: Callable[[int, int], None] | None = None,
+        contact: DeltaContact | None = None,
     ) -> ArmMotionResult:
         """Stream setpoints at arm_rate_hz, then wait for convergence; abort and hold on any safety check.
 
@@ -2397,6 +2788,8 @@ class ArmController:
             target_load (float | None): Close-until-effort: stop once the closing-direction load reaches this.
             on_tick (Callable[[int, int], None] | None): Called with (planned setpoints reached, total) after each
                 published setpoint (before on_via); the planning above runs before the first call.
+            contact (DeltaContact | None): Close-until-effort load-delta contact, fed every new sample; it also
+                records which contact ended the close.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -2419,17 +2812,29 @@ class ArmController:
         kind = "gripper" if moving == [self.gripper] else "arm"
         jaw_history: list[tuple[float, float, float]] = []
 
-        def contact_gate(latest: JointSample | None) -> tuple[float | None, float | None]:
-            """(effort threshold, target load) to apply this cycle: both None while the load cannot be contact yet."""
+        def contact_verdict(latest: JointSample | None) -> tuple[ArmMotionStatus, str] | None:
+            """Close-until-effort contact on this cycle's (fresh) sample: the target_load and absolute backstops once
+            contact_allowed, else the load-delta contact (fed once per new sample)."""
             if effort_threshold is None or latest is None or self.gripper not in latest.positions:
-                return None, None
+                return None
             with self._lock:
                 commanded = (self._last_setpoint or start).get(self.gripper, start[self.gripper])
-            if not jaw_history or jaw_history[-1][0] != latest.stamp:
+            new = not jaw_history or jaw_history[-1][0] != latest.stamp
+            if new:
                 jaw_history.append((latest.stamp, latest.positions[self.gripper], commanded))
-            if not self.contact_allowed(jaw_history, started, goal[self.gripper]):
-                return None, None
-            return effort_threshold, target_load
+            allowed = self.contact_allowed(jaw_history, started, goal[self.gripper])
+            delta = (
+                new and contact is not None and contact.observe(finite_effort(latest.efforts, self.gripper), allowed)
+            )
+            hit = self.effort_contact(latest, effort_threshold, target_load) if allowed else None
+            if hit is None and delta:
+                assert contact is not None
+                hit = "load_delta", contact.message()
+            if hit is None:
+                return None
+            if contact is not None:
+                contact.kind = hit[0]
+            return "grasped", hit[1]
 
         def stall_contact() -> ArmMotionResult | None:
             """Close-until-effort stall outside the empty-jaw band: 'converged' with the jaw residual, which
@@ -2441,6 +2846,8 @@ class ArmController:
             )
             if message is None or sample is None:
                 return None
+            if contact is not None:
+                contact.kind = "stall"
             residual = {self.gripper: round(goal[self.gripper] - sample.positions[self.gripper], 4)}
             return self.finish("converged", message, goal, sample, clamped, started, hold=False, residual=residual)
 
@@ -2462,7 +2869,7 @@ class ArmController:
             while reached < total:
                 latest = self.backend.joint_sample()
                 sample = latest or sample
-                verdict = self.check(latest, tracked, *contact_gate(latest))
+                verdict = self.check(latest, tracked) or contact_verdict(latest)
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
                 stall = stall_contact()
@@ -2491,7 +2898,7 @@ class ArmController:
             history: list[tuple[float, dict[str, float]]] = []
             while True:
                 sample = self.backend.joint_sample() or sample
-                verdict = self.check(sample, tracked, *contact_gate(sample))
+                verdict = self.check(sample, tracked) or contact_verdict(sample)
                 if verdict is not None:
                     return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
                 stall = stall_contact()
@@ -2696,7 +3103,7 @@ class ArmController:
             ArmMotionResult: Abort result, or status 'converged' with settling True when joints are still closing in.
         """
         sample = self.backend.joint_sample() or sample
-        verdict = self.check(sample, tracked, None)
+        verdict = self.check(sample, tracked)
         if verdict is not None:
             return self.finish(*verdict, goal, sample, clamped, started, hold=self._held)
         assert sample is not None

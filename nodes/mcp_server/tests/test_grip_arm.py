@@ -10,6 +10,8 @@ from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.staleness import Stamped
 
 from .fakes import FakeArmBackend
+from .test_contact_delta import Gripper
+from .test_contact_delta import make as make_delta
 
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
@@ -513,3 +515,109 @@ def test_a_retighten_that_crushes_is_reverted_to_the_previous_hold(tmp_path: Pat
     assert res.retightened is True and res.retighten_reverted is True
     assert res.crush_risk is True  # reported: the hold measured after the re-tighten
     assert be.commands[-1]["gripper"] == pytest.approx(0.29 - normal.squeeze_rad)  # back to the previous hold
+
+
+# --- grasp_id, carry record fields, visual verdict (E1 grasp verification) -------------------------------------------
+
+
+def delta_close(tmp_path: Path, wall_load: float | None = 70.0) -> tuple[ArmController, FakeArmBackend, str]:
+    """A gentle close with contact_load_delta 20: onto an object at 0.4 rad (wall_load) or empty (None)."""
+    be = FakeArmBackend()
+    if wall_load is None:
+        Gripper(be)
+    else:
+        Gripper(be, wall=0.4, wall_load=wall_load)
+    arm = make_delta(tmp_path, be)
+    res = arm.set_gripper(close_until_effort=True, grip_profile="gentle")
+    assert res.grasp_check is not None
+    return arm, be, res.grasp_check.grasp_id
+
+
+def test_a_close_records_its_grasp_check_in_the_carry_record(tmp_path: Path) -> None:
+    arm, _, grasp_id = delta_close(tmp_path)
+    record = arm.carry.get()
+    assert record.grasp_held is True and record.grasp_kind == "grasped"
+    assert record.grasp_id == grasp_id and record.band == "object"
+    assert record.image == "not_requested" and record.fused is None
+
+
+def test_an_empty_close_still_records_its_grasp_id(tmp_path: Path) -> None:
+    arm, _, grasp_id = delta_close(tmp_path, wall_load=None)
+    record = arm.carry.get()
+    assert record.grasp_held is False and record.grasp_id == grasp_id and record.band == "empty"
+
+
+def test_an_open_clears_the_grasp_id(tmp_path: Path) -> None:
+    arm, be, grasp_id = delta_close(tmp_path)
+    be.on_sleep = None
+    assert arm.set_gripper(open_fraction=0.8).status == "converged"
+    assert arm.carry.get().grasp_id is None
+    with pytest.raises(ArmError, match="unknown or superseded grasp_id"):
+        arm.record_visual_verdict(grasp_id, "yes")
+
+
+def test_mark_visual_pending_makes_the_hold_unverified(tmp_path: Path) -> None:
+    arm, _, grasp_id = delta_close(tmp_path)
+    record = arm.mark_visual_pending(grasp_id)
+    assert record.grasp_held is True and record.grasp_kind == "unverified" and record.image == "pending"
+    assert arm.carry.get() == record
+    with pytest.raises(ArmError, match="unknown or superseded grasp_id"):
+        arm.mark_visual_pending("000000000000")
+
+
+def relax_writes_after(arm: ArmController, be: FakeArmBackend) -> list[int]:
+    """Torque writes the keepalive makes once the unverified relax time has passed."""
+    sent = len(torque_writes(be))
+    be.t += arm.cfg.grip_profiles.unverified_hold_relax_s + 1.0
+    arm.keepalive_tick()
+    return torque_writes(be)[sent:]
+
+
+def test_a_grasped_verdict_stops_the_unverified_relax_timer(tmp_path: Path) -> None:
+    arm, be, grasp_id = delta_close(tmp_path)
+    arm.mark_visual_pending(grasp_id)
+    record = arm.record_visual_verdict(grasp_id, "yes")
+    assert record.fused == "grasped" and record.image == "yes"
+    assert record.grasp_held is True and record.grasp_kind == "grasped"
+    assert relax_writes_after(arm, be) == []  # the gentle torque limit stays while the verified grasp holds
+
+
+def test_a_pending_hold_relaxes_its_torque_without_a_verdict(tmp_path: Path) -> None:
+    arm, be, grasp_id = delta_close(tmp_path)
+    arm.mark_visual_pending(grasp_id)
+    assert relax_writes_after(arm, be) == [DEFAULT_TORQUE]
+
+
+def test_an_unverified_verdict_keeps_the_hold_unverified(tmp_path: Path) -> None:
+    arm, _, grasp_id = delta_close(tmp_path)
+    arm.mark_visual_pending(grasp_id)
+    record = arm.record_visual_verdict(grasp_id, "no")
+    assert record.fused == "unverified" and record.image == "no"
+    assert record.grasp_held is True and record.grasp_kind == "unverified"
+
+
+def test_a_missed_verdict_clears_the_carry_record(tmp_path: Path) -> None:
+    arm, _, grasp_id = delta_close(tmp_path, wall_load=None)
+    record = arm.record_visual_verdict(grasp_id, "no")
+    assert record.fused == "missed"
+    assert record.grasp_held is False and record.grasp_kind is None and record.radius_m is None
+
+
+def test_a_verdict_for_a_superseded_grasp_id_is_refused(tmp_path: Path) -> None:
+    arm, be, first = delta_close(tmp_path)
+    second = arm.set_gripper(close_until_effort=True, grip_profile="gentle").grasp_check
+    assert second is not None and second.grasp_id != first
+    before = arm.carry.get()
+    with pytest.raises(ArmError, match="unknown or superseded grasp_id"):
+        arm.record_visual_verdict(first, "yes")
+    with pytest.raises(ArmError, match="unknown or superseded grasp_id"):
+        arm.record_visual_verdict("ffffffffffff", "yes")
+    assert arm.carry.get() == before
+
+
+def test_a_reconfirm_overwrites_the_verdict(tmp_path: Path) -> None:
+    arm, _, grasp_id = delta_close(tmp_path)
+    assert arm.record_visual_verdict(grasp_id, "unsure").fused == "unverified"
+    record = arm.record_visual_verdict(grasp_id, "yes")
+    assert record.fused == "grasped" and record.image == "yes" and record.grasp_kind == "grasped"
+    assert arm.last_grasp_check is not None and arm.last_grasp_check.fused == "grasped"

@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from .grasp_check import GraspCheck
+
 ArmMotionStatus = Literal[
     "converged",
     "timeout",
@@ -246,6 +248,13 @@ class ArmMotionResult(BaseModel):
         default=None,
         description="Gripper Torque_Limit write check from the bridge's register dump: 'verified', 'mismatch ...' or "
         "'unverified ...' (no dump since the write, about every 10 s); null when no torque limit was written",
+    )
+    grasp_check: GraspCheck | None = Field(
+        default=None,
+        description="Grasp verification of a close_until_effort: {grasp_id (minted per close), band (sensor verdict: "
+        "object / empty / ambiguous), evidence (baseline load and its source, which contact ended the close, load and "
+        "current deltas, jaw gap, empty band), image (visual check: not_requested here, pending once a jaw crop was "
+        "attached, then the confirm_grasp verdict), crop, fused (null until confirm_grasp)}; null for other motions",
     )
     self_collision: dict[str, Any] | None = Field(
         default=None,

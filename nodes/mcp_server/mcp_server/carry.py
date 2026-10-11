@@ -5,6 +5,10 @@ The record keeps what mcp_server knows about an object in the gripper: the last 
 the last keep_position arm release. It is written atomically to <home_file dir>/carry.yaml on every change, so a
 restarted mcp_server still refuses to park the arm with the object in the jaws. A missing or unreadable file reads as
 nothing carried (logged); a failed write keeps the in-memory record (logged).
+
+The record also keeps the grasp verification of the last close_until_effort (grasp_id, sensor band, image state and
+fused outcome, grasp_check.py), so a confirm_grasp pending before a restart still works afterwards. A file written
+before these fields existed loads with them unset.
 """
 
 import logging
@@ -18,6 +22,8 @@ from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ValidationError
+
+from .grasp_check import Band, FusedOutcome, ImageState
 
 CARRY_FILE_NAME = "carry.yaml"
 
@@ -33,6 +39,10 @@ class CarryRecord(BaseModel):
     grasp_kind: GraspKind | None = None  # grasped (verified contact) or unverified (empty-band hold)
     radius_m: float | None = None  # carried_object_radius_m of the last keep_position arm release (> 0)
     since: float | None = None  # wall clock (s since the epoch) of the last change
+    grasp_id: str | None = None  # grasp_id of the last close_until_effort; None after an open or a plain close
+    band: Band | None = None  # sensor band of that close
+    image: ImageState | None = None  # visual check state (pending until confirm_grasp, not_requested without one)
+    fused: FusedOutcome | None = None  # fuse(band, image verdict); None until confirm_grasp
 
 
 def carry_path(home_file: Path) -> Path:
@@ -105,12 +115,14 @@ class CarryStore:
             return self.record.model_copy()
 
     def clear(self) -> CarryRecord:
-        """Nothing carried any more (an open, an empty jaw).
+        """Nothing carried any more (an open, an empty jaw): also forgets the grasp verification of the last close.
 
         Returns:
             CarryRecord: The empty record.
         """
-        return self.update(grasp_held=False, grasp_kind=None, radius_m=None)
+        return self.update(
+            grasp_held=False, grasp_kind=None, radius_m=None, grasp_id=None, band=None, image=None, fused=None
+        )
 
     def save_locked(self) -> None:
         """Write the record atomically (temp file + rename); failures are logged (lock held)."""

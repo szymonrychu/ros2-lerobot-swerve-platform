@@ -470,3 +470,75 @@ def test_registry_is_thread_safe() -> None:
     count: list[int] = []
     registry.cancel(lambda h: count.append(1) or True)
     assert len(count) == 800
+
+
+# --- E1 grasp verification: pending and fused carry reasons, old carry.yaml ---------------------------------------
+
+
+def delta_grasp(robot: FakeRobot) -> str:
+    """A soft close onto an object with contact_load_delta set; returns its grasp_id."""
+    soft = robot.arm.cfg.grip_profiles.presets["soft"]
+    robot.arm.cfg.grip_profiles.presets["soft"] = soft.model_copy(update={"contact_load_delta": 20.0})
+    object_between_jaws(robot)
+    res = robot.arm.set_gripper(close_until_effort=True, grip_profile="soft")
+    assert res.status == "grasped" and res.grasp_check is not None, res.message
+    return res.grasp_check.grasp_id
+
+
+def test_carrying_reasons_say_awaiting_confirm_grasp_while_pending(robot: FakeRobot) -> None:
+    ctl = manager(robot)
+    ctl.take("arm")
+    grasp_id = delta_grasp(robot)
+    robot.arm.mark_visual_pending(grasp_id)
+    carrying = ctl.state().arm.carrying
+    assert carrying.carrying is True
+    assert any("awaiting confirm_grasp" in r and grasp_id in r for r in carrying.reasons), carrying.reasons
+
+
+@pytest.mark.parametrize(("verdict", "fused"), [("yes", "grasped"), ("no", "unverified")])
+def test_carrying_reasons_name_the_fused_state(robot: FakeRobot, verdict: str, fused: str) -> None:
+    ctl = manager(robot)
+    ctl.take("arm")
+    grasp_id = delta_grasp(robot)
+    robot.arm.mark_visual_pending(grasp_id)
+    robot.arm.record_visual_verdict(grasp_id, verdict)
+    reasons = ctl.state().arm.carrying.reasons
+    assert any(f"fused {fused}" in r for r in reasons), reasons
+    assert not any("awaiting confirm_grasp" in r for r in reasons)
+
+
+def test_a_missed_verdict_ends_carrying(robot: FakeRobot) -> None:
+    ctl = manager(robot)
+    ctl.take("arm")
+    object_between_jaws(robot)
+    robot.arm.set_gripper(close_until_effort=True, grip_profile="soft")
+    record = robot.arm.carry.get()
+    assert record.grasp_id is not None
+    robot.arm.carry.update(band="empty")  # both signals say empty
+    robot.arm.record_visual_verdict(record.grasp_id, "no")
+    empty_jaws(robot)
+    carrying = ctl.state().arm.carrying
+    assert not any("last grasp" in r for r in carrying.reasons), carrying.reasons
+
+
+def test_a_pending_verdict_survives_restart(robot: FakeRobot) -> None:
+    ctl = manager(robot)
+    ctl.take("arm")
+    grasp_id = delta_grasp(robot)
+    robot.arm.mark_visual_pending(grasp_id)
+    robot.arm = restarted(robot)
+    record = robot.arm.carry.get()
+    assert record.grasp_id == grasp_id and record.image == "pending" and record.band == "object"
+    assert robot.arm.record_visual_verdict(grasp_id, "yes").fused == "grasped"
+
+
+def test_an_old_carry_file_without_the_grasp_check_fields_still_loads(robot: FakeRobot) -> None:
+    path = robot.arm.cfg.arm.home_file.parent / CARRY_FILE_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("grasp_held: true\ngrasp_kind: grasped\nradius_m: 0.05\nsince: 1700000000.0\n")
+    robot.arm = restarted(robot)
+    record = robot.arm.carry.get()
+    assert record.grasp_held is True and record.grasp_kind == "grasped" and record.radius_m == 0.05
+    assert record.grasp_id is None and record.band is None and record.image is None and record.fused is None
+    carrying = manager(robot).state().arm.carrying
+    assert carrying.carrying is True and any("last grasp is held" in r for r in carrying.reasons)
