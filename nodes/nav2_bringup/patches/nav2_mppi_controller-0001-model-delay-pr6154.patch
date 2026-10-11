@@ -1,0 +1,167 @@
+nav2_mppi_controller: input-delay compensation (model_delay_vx / model_delay_vy / model_delay_wz)
+
+Backport of upstream Nav2 PR #6154 (https://github.com/ros-navigation/navigation2/pull/6154),
+merged to main as commit 374cd2556640586251b1e49a346f6c8d0cb76224, ported to xtensor for
+Jazzy 1.3.13 (navigation2 f4108e5b1c2bce804a1aa0c7be6673a8eb4a1501). Upstream will not backport
+it to Jazzy (ABI); it ships in Lyrical, where this overlay is deleted.
+
+Differences from upstream: the Jazzy method name MotionModel::initialize() is kept (upstream:
+setConstraints()) and the delays are trailing default arguments, so every existing Jazzy call
+site and test compiles unchanged; the delay shift runs per batch row inside predict() over
+xt::xtensor<float, 2> instead of a separate Eigen pass. Semantics are identical: a delay is the
+total actuation latency, offset = floor(delay / model_dt + 0.5), and offset 0 or 1 is a no-op.
+
+Apply with: git apply -p1 <this file>   (from the navigation2 checkout root)
+
+diff --git a/nav2_mppi_controller/test/motion_model_tests.cpp b/nav2_mppi_controller/test/motion_model_tests.cpp
+index f22424d2..1f7bb325 100644
+--- a/nav2_mppi_controller/test/motion_model_tests.cpp
++++ b/nav2_mppi_controller/test/motion_model_tests.cpp
+@@ -13,6 +13,7 @@
+ // limitations under the License.
+ 
+ #include <chrono>
++#include <cmath>
+ #include <thread>
+ 
+ #include "gtest/gtest.h"
+@@ -255,3 +256,139 @@ TEST(MotionModelTests, AckermannReversingTest)
+   // Check it cleanly destructs
+   model.reset();
+ }
++
++// Input-delay compensation (model_delay_vx/vy/wz), ported from upstream PR #6154
++// (ros-navigation/navigation2 374cd2556640586251b1e49a346f6c8d0cb76224) to xtensor.
++
++static models::ControlConstraints unboundedConstraints()
++{
++  // vx_max, vx_min, vy, wz, ax_max, ax_min, ay_max, ay_min, az_max
++  return {100.0f, -100.0f, 100.0f, 100.0f, 1000.0f, -1000.0f, 1000.0f, -1000.0f, 1000.0f};
++}
++
++static bool colIsConstant(const xt::xtensor<float, 2> & velocities, size_t col, float value)
++{
++  for (size_t i = 0; i != velocities.shape(0); i++) {
++    if (std::fabs(velocities(i, col) - value) > 1e-6f) {
++      return false;
++    }
++  }
++  return true;
++}
++
++TEST(MotionModelTests, DelayReplayAllAxes)
++{
++  // Omni model exercises all three axes (vx, vy, wz) in a single test.
++  // delay_vx = 0.10s -> offset 2; delay_wz = 0.15s -> offset 3.
++  models::State state;
++  state.reset(8, 20);
++
++  OmniMotionModel model;
++  model.initialize(unboundedConstraints(), 0.05f, 0.10f, 0.10f, 0.15f);
++
++  // Ring-buffer size of vx/vy/wz = 2/2/3 steps.
++  // After 3 pushes per axis the rings hold the most-recent 2/2/3 values.
++  model.pushCommandHistory(1.0f, 2.0f, 3.0f);
++  model.pushCommandHistory(5.0f, 6.0f, 7.0f);
++  model.pushCommandHistory(9.0f, 8.0f, 4.0f);
++
++  model.predict(state);
++
++  // predict() populates starting at column 1; column 0 holds the current
++  // measurement / last command set by the optimizer before predict() runs.
++  EXPECT_TRUE(colIsConstant(state.vx, 0, 0.0f));
++  EXPECT_TRUE(colIsConstant(state.vy, 0, 0.0f));
++  EXPECT_TRUE(colIsConstant(state.wz, 0, 0.0f));
++
++  EXPECT_TRUE(colIsConstant(state.vx, 1, 9.0f));
++  EXPECT_TRUE(colIsConstant(state.vy, 1, 8.0f));
++  EXPECT_TRUE(colIsConstant(state.wz, 1, 7.0f));
++
++  // The wz buffer has a size of 3, so check the last value as well
++  EXPECT_TRUE(colIsConstant(state.wz, 2, 4.0f));
++
++  // Outside of the delay window are still zero
++  EXPECT_TRUE(colIsConstant(state.vx, 2, 0.0f));
++  EXPECT_TRUE(colIsConstant(state.vy, 2, 0.0f));
++  EXPECT_TRUE(colIsConstant(state.vx, 3, 0.0f));
++  EXPECT_TRUE(colIsConstant(state.vy, 3, 0.0f));
++  EXPECT_TRUE(colIsConstant(state.wz, 3, 0.0f));
++}
++
++TEST(MotionModelTests, DelayVyIgnoredOnDiffDrive)
++{
++  models::State state;
++  state.reset(8, 20);
++
++  DiffDriveMotionModel model;
++  model.initialize(unboundedConstraints(), 0.05f, 0.0f, 0.10f, 0.0f);
++  model.pushCommandHistory(0.0f, 99.0f, 0.0f);
++  model.pushCommandHistory(0.0f, 99.0f, 0.0f);
++
++  EXPECT_NO_THROW(model.predict(state));
++  EXPECT_EQ(state.vy, xt::zeros<float>({8, 20}));
++}
++
++TEST(MotionModelTests, DelayClearCommandHistory)
++{
++  models::State state;
++  state.reset(8, 20);
++
++  DiffDriveMotionModel model;
++  model.initialize(unboundedConstraints(), 0.05f, 0.10f, 0.0f, 0.15f);
++  model.pushCommandHistory(7.0f, 0.0f, 7.0f);
++  model.clearCommandHistory();
++  model.predict(state);
++
++  EXPECT_TRUE(colIsConstant(state.vx, 1, 0.0f));
++  EXPECT_TRUE(colIsConstant(state.wz, 1, 0.0f));
++  EXPECT_TRUE(colIsConstant(state.wz, 2, 0.0f));
++}
++
++TEST(MotionModelTests, DelayZeroSkipsShift)
++{
++  models::State state;
++  state.reset(8, 20);
++
++  // Set non-zero velocity and check that it remains unchanged after predict()
++  xt::view(state.vx, xt::all(), 0) = 2.0f;
++  state.cvx.fill(2.0f);
++
++  DiffDriveMotionModel model;
++  model.initialize(unboundedConstraints(), 0.05f, 0.0f, 0.0f, 0.0f);
++  EXPECT_NO_THROW(model.pushCommandHistory(123.0f, 0.0f, 0.0f));
++  model.predict(state);
++
++  EXPECT_EQ(state.vx, 2.0f * xt::ones<float>({8, 20}));
++}
++
++TEST(MotionModelTests, DelayOfOneStepIsNoOp)
++{
++  // delay == model_dt -> offset 1: column 1 already carries one period of latency,
++  // so predict() must match a model without any delay configured.
++  const unsigned int batches = 8;
++  const unsigned int timesteps = 20;
++  models::State delayed;
++  delayed.reset(batches, timesteps);
++  for (unsigned int i = 0; i != batches; i++) {
++    for (unsigned int j = 0; j != timesteps; j++) {
++      delayed.cvx(i, j) = 0.01f * static_cast<float>(i + j);
++      delayed.cvy(i, j) = -0.02f * static_cast<float>(j);
++      delayed.cwz(i, j) = 0.03f * static_cast<float>(i) - 0.01f * static_cast<float>(j);
++    }
++  }
++  models::State reference = delayed;
++
++  OmniMotionModel delayed_model;
++  delayed_model.initialize(unboundedConstraints(), 0.05f, 0.05f, 0.05f, 0.05f);
++  delayed_model.pushCommandHistory(123.0f, 456.0f, 789.0f);
++  delayed_model.predict(delayed);
++
++  OmniMotionModel reference_model;
++  reference_model.initialize(unboundedConstraints(), 0.05f);
++  reference_model.predict(reference);
++
++  EXPECT_EQ(delayed.vx, reference.vx);
++  EXPECT_EQ(delayed.vy, reference.vy);
++  EXPECT_EQ(delayed.wz, reference.wz);
++}
