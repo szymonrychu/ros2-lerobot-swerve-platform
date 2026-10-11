@@ -190,3 +190,9 @@ def test_client_group_vars_lists_get_arm_reach_as_sensor_tool() -> None:
     cfg = ClaudeAgentConfig(**yaml.safe_load(agent["config"]))
     assert "get_arm_reach" in cfg.sensor_tools
     assert "get_arm_reach" not in cfg.effector_tools
+
+
+def test_mcp_check_timeout_default_and_validation() -> None:
+    assert ClaudeAgentConfig().mcp_check_timeout_s == 30.0
+    with pytest.raises(ValueError):
+        ClaudeAgentConfig(mcp_check_timeout_s=0)

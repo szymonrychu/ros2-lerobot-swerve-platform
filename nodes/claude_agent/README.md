@@ -238,6 +238,21 @@ SDK's own initialize timeout is 60 s unless `CLAUDE_CODE_STREAM_CLOSE_TIMEOUT` (
 Ansible sets 180000 because the CLI starts slowly on the Pi under `CPUQuota=50%`. A reset is refused with 409 while it is
 in progress, as is a message.
 
+Robot tools check (`AgentRunner.ensure_robot_tools`, before every instruction): the Claude CLI connects the robot MCP
+server once, at session start, and never retries, so a session started while mcp_server was down (for example its OOM
+restart) would run without any `mcp__robot__*` tool until a reset. The runner asks the CLI for the server status
+(`get_mcp_status`, waiting out `pending`; each step bounded by `mcp_check_timeout_s`, 30 s). When it is not `connected`:
+
+- mcp_server is probed with `GET /metrics` on the MCP host and port (`mcp_health.py`; a whole HTTP request must complete,
+  since a hung mcp_server still accepts TCP connections). No answer: the instruction fails at once with `robot server
+  unreachable: <reason>. The instruction was not started ...` (`error` + `turn_end` `error`) instead of letting the model
+  improvise without robot tools.
+- It answers: `reconnect_mcp_server("robot")` reconnects in place (conversation kept) and the chat gets an info
+  `robot_event` from `claude_agent` (`event_type` `robot_tools_reconnected`, `data.session_restarted` false). When the
+  reconnect fails, the session is restarted and the event says `robot tools reconnected, session restarted ...` (history of
+  the old session gone, notes kept; `session_restarted` true). Still not connected after that: `robot tools unavailable: ...`.
+- A failing status query is logged and the instruction runs as before.
+
 Only the robot MCP server loads: `strict_mcp_config=True` (`--strict-mcp-config`) and `ENABLE_CLAUDEAI_MCP_SERVERS=false`
 in the child environment keep the subscription account's claude.ai connectors out.
 
@@ -269,6 +284,7 @@ unknown keys are rejected.
 | `instruction_timeout_s` | `900` | Watchdog per instruction |
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |
 | `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |
+| `mcp_check_timeout_s` | `30` | Bound for each step of the robot MCP server check before an instruction (status query, pending wait, reconnect) and for the `/metrics` reachability probe |
 | `shutdown_stop_timeout_s` | `2` | Shorter bound for the robot stop call at service shutdown (mcp_server may already be gone) |
 | `robot_events_topic` | `/robot_events` | std_msgs/String JSON events of the mcp_server monitor |
 | `robot_events_history` | `50` | Robot events kept in memory |

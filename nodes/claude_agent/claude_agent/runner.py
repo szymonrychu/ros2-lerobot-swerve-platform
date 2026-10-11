@@ -35,6 +35,7 @@ from .events import (
     normalize_message,
     result_to_turn_end,
 )
+from .mcp_health import probe_mcp_server
 from .metrics import (
     BUSY,
     COST_USD,
@@ -72,6 +73,26 @@ REJECTION_CORRECTION = (
     "rejected the call and the user is not waiting for you. Re-run the call if you still need it and continue the "
     "instruction."
 )
+# Robot MCP server check before each instruction (status values of the SDK's get_mcp_status).
+MCP_STATUS_CONNECTED = "connected"
+MCP_STATUS_PENDING = "pending"
+MCP_STATUS_MISSING = "missing"
+MCP_POLL_INTERVAL_S = 0.5
+NOTICE_SOURCE = "claude_agent"
+NOTICE_RECONNECTED = "robot_tools_reconnected"
+RECONNECTED_MESSAGE = "robot tools reconnected (the robot MCP server was {status}; session kept)"
+RESTARTED_MESSAGE = (
+    "robot tools reconnected, session restarted (the robot MCP server was {status} and the in-place reconnect failed; "
+    "the conversation history of the old session is gone, the notes stay)"
+)
+UNREACHABLE_MESSAGE = (
+    "robot server unreachable: {reason}. The instruction was not started: without mcp_server the agent has no robot "
+    "tools. Retry when mcp_server is back."
+)
+UNAVAILABLE_MESSAGE = (
+    "robot tools unavailable: the robot MCP server is {status}{error} although mcp_server answers; reconnect and a new "
+    "session did not help. The instruction was not started."
+)
 AUTH_ERROR_MESSAGE = (
     "Claude authentication failed (HTTP 401): CLAUDE_CODE_OAUTH_TOKEN is missing, invalid or expired. "
     "Run `claude setup-token`, then `export CLAUDE_CODE_OAUTH_TOKEN=...; ./scripts/deploy-nodes.sh client claude_agent`."
@@ -86,6 +107,8 @@ class ClientLike(Protocol):
     async def query(self, prompt: str) -> None: ...
     async def interrupt(self) -> None: ...
     def receive_response(self) -> Any: ...
+    async def get_mcp_status(self) -> Any: ...
+    async def reconnect_mcp_server(self, server_name: str) -> None: ...
 
 
 def build_child_env(base_env: Mapping[str, str], config: ClaudeAgentConfig | None = None) -> dict[str, str]:
@@ -175,6 +198,7 @@ class AgentRunner:
         logger: Any = None,
         robot_stopper: Callable[[], Awaitable[RobotStopResult]] | None = None,
         poi_clearer: Callable[[], Awaitable[PoiClearResult]] | None = None,
+        mcp_prober: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         """Create the runner (the Claude session starts lazily at the first instruction).
 
@@ -189,6 +213,8 @@ class AgentRunner:
             poi_clearer (Callable[[], Awaitable[PoiClearResult]] | None): Clears the agent-made POIs through the
                 mcp_server admin route (used by reset()); defaults to call_clear_agent_pois with the configured URL,
                 token file and stop_timeout_s.
+            mcp_prober (Callable[[], Awaitable[str | None]] | None): Tells whether mcp_server answers (None) or why not;
+                defaults to probe_mcp_server with the configured URL and mcp_check_timeout_s.
         """
         self.config = config
         self.events = events
@@ -233,6 +259,8 @@ class AgentRunner:
         self.event_tasks: set[asyncio.Task[None]] = set()
         self.robot_stopper = robot_stopper or self.default_robot_stopper
         self.poi_clearer = poi_clearer or self.default_poi_clearer
+        self.mcp_prober = mcp_prober or self.default_mcp_prober
+        self.mcp_poll_interval_s = MCP_POLL_INTERVAL_S
         self.instruction_started_at = time.monotonic()
         self.session_totals: dict[str, float] = {}
         SECONDS_SINCE_ACTIVITY.set_function(self.seconds_since_activity)
@@ -292,6 +320,105 @@ class AgentRunner:
             PoiClearResult: Outcome (never raises).
         """
         return await call_clear_agent_pois(self.config.mcp_url, self.config.mcp_token_file, self.config.stop_timeout_s)
+
+    async def default_mcp_prober(self) -> str | None:
+        """Probe mcp_server's /metrics route with the configured endpoint.
+
+        Returns:
+            str | None: None when it answers, else the reason (never raises).
+        """
+        return await probe_mcp_server(self.config.mcp_url, self.config.mcp_check_timeout_s)
+
+    async def robot_server_status(self, client: ClientLike) -> tuple[str, str]:
+        """Ask the CLI for the robot MCP server's connection status, waiting out ``pending`` within mcp_check_timeout_s.
+
+        Args:
+            client (ClientLike): The connected session client.
+
+        Returns:
+            tuple[str, str]: (status, error): ``connected``, ``failed``, ``needs-auth``, ``disabled``, ``pending`` (still
+            after the wait) or ``missing`` (not listed), and the CLI's error text ("" when none).
+
+        Raises:
+            Exception: Whatever the status control request raised (TimeoutError past mcp_check_timeout_s).
+        """
+        deadline = self.clock() + self.config.mcp_check_timeout_s
+        while True:
+            reply = await asyncio.wait_for(client.get_mcp_status(), self.config.mcp_check_timeout_s)
+            servers = [entry for entry in reply.get("mcpServers", []) if entry.get("name") == MCP_SERVER_NAME]
+            status = servers[0].get("status", MCP_STATUS_MISSING) if servers else MCP_STATUS_MISSING
+            error = servers[0].get("error", "") if servers else ""
+            if status != MCP_STATUS_PENDING or self.clock() >= deadline:
+                return status, error
+            await asyncio.sleep(self.mcp_poll_interval_s)
+
+    def emit_reconnected(self, message: str, session_restarted: bool) -> None:
+        """Show a robot-tools reconnect in the chat (as an info ``robot_event`` from this node) and the log.
+
+        Args:
+            message (str): What happened.
+            session_restarted (bool): True when a new session replaced the old one (history lost).
+        """
+        self.logger.warning(message)
+        self.events.append(
+            "robot_event",
+            event_seq=0,
+            event_ts=time.time(),
+            event_type=NOTICE_RECONNECTED,
+            severity="info",
+            source=NOTICE_SOURCE,
+            message=message,
+            data={"session_restarted": session_restarted},
+        )
+
+    async def ensure_robot_tools(self, client: ClientLike) -> ClientLike | None:
+        """Make sure the session has the robot tools before an instruction runs.
+
+        The CLI connects the robot MCP server once, at session start, and never retries: a session started while
+        mcp_server was down keeps running without robot tools. When the server is not connected: an unreachable
+        mcp_server fails the instruction at once; a reachable one is reconnected in place (history kept) and, when
+        that fails, the session is restarted (history lost, said in the chat). A failing status query is logged and
+        the instruction runs (the check must not block the agent).
+
+        Args:
+            client (ClientLike): The connected session client.
+
+        Returns:
+            ClientLike | None: The client to use (the new one after a restart), or None when the instruction was
+            failed (error and turn_end emitted).
+        """
+        try:
+            status, error = await self.robot_server_status(client)
+        except Exception as exc:  # noqa: BLE001 - an unknown status must not block instructions
+            self.logger.warning(f"robot MCP server status unknown ({type(exc).__name__}: {exc}); running anyway")
+            return client
+        if status == MCP_STATUS_CONNECTED:
+            return client
+        self.logger.warning(f"robot MCP server is {status} in the Claude session ({error or 'no error text'})")
+        problem = await self.mcp_prober()
+        if problem is not None:
+            self.fail_turn(UNREACHABLE_MESSAGE.format(reason=problem))
+            return None
+        try:
+            await asyncio.wait_for(client.reconnect_mcp_server(MCP_SERVER_NAME), self.config.mcp_check_timeout_s)
+            new_status, error = await self.robot_server_status(client)
+        except Exception as exc:  # noqa: BLE001 - fall back to a new session
+            self.logger.warning(f"robot MCP server reconnect failed: {type(exc).__name__}: {exc}")
+            new_status = ""
+        if new_status == MCP_STATUS_CONNECTED:
+            self.emit_reconnected(RECONNECTED_MESSAGE.format(status=status), session_restarted=False)
+            return client
+        await self.drop_client()
+        client = await self.start_session()
+        try:
+            new_status, error = await self.robot_server_status(client)
+        except Exception as exc:  # noqa: BLE001 - reported below
+            new_status, error = MCP_STATUS_MISSING, f"{type(exc).__name__}: {exc}"
+        if new_status == MCP_STATUS_CONNECTED:
+            self.emit_reconnected(RESTARTED_MESSAGE.format(status=status), session_restarted=True)
+            return client
+        self.fail_turn(UNAVAILABLE_MESSAGE.format(status=new_status, error=f" ({error})" if error else ""))
+        return None
 
     def usage_fields(self) -> dict[str, Any]:
         """Return the usage counters and the plan of the current (or last) instruction.
@@ -833,7 +960,9 @@ class AgentRunner:
         try:
             if self.digest is not None:
                 await self.drop_client()
-            client = await self.start_session()
+            client = await self.ensure_robot_tools(await self.start_session())
+            if client is None:
+                return
             if self.interrupted:
                 self.end_turn(status=STATUS_INTERRUPTED, cost_usd=0.0, num_turns=0, effector_calls=0)
                 return

@@ -41,6 +41,8 @@ class FakeClient:
     """Scripted stand-in for ClaudeSDKClient."""
 
     instances: list["FakeClient"] = []
+    # Robot MCP server statuses reported by get_mcp_status, one list per client instance (the last value repeats).
+    status_scripts: list[list[str]] = []
 
     def __init__(self, options: ClaudeAgentOptions) -> None:
         self.options = options
@@ -55,7 +57,27 @@ class FakeClient:
         self.hang_interrupt = False
         self.hang_connect = False
         self.raise_on_connect: Exception | None = None
+        index = len(FakeClient.instances)
+        self.statuses = list(FakeClient.status_scripts[index]) if index < len(FakeClient.status_scripts) else []
+        self.reconnect_calls: list[str] = []
+        self.raise_on_reconnect: Exception | None = None
+        self.raise_on_status: Exception | None = None
         FakeClient.instances.append(self)
+
+    async def get_mcp_status(self) -> dict:
+        if self.raise_on_status:
+            raise self.raise_on_status
+        status = self.statuses.pop(0) if len(self.statuses) > 1 else (self.statuses or ["connected"])[0]
+        entry = {"name": "robot", "status": status}
+        if status == "failed":
+            entry["error"] = "connection timed out"
+        return {"mcpServers": [{"name": "agent", "status": "connected"}, entry]}
+
+    async def reconnect_mcp_server(self, server_name: str) -> None:
+        self.reconnect_calls.append(server_name)
+        if self.raise_on_reconnect:
+            raise self.raise_on_reconnect
+        self.statuses = ["connected"]
 
     async def connect(self) -> None:
         if self.hang_connect:
@@ -101,6 +123,18 @@ class FakeStopper:
         return self.result
 
 
+class FakeProber:
+    """Stands in for the mcp_server reachability probe: None = reachable, else the reason."""
+
+    def __init__(self, result: str | None = None) -> None:
+        self.calls = 0
+        self.result = result
+
+    async def __call__(self) -> str | None:
+        self.calls += 1
+        return self.result
+
+
 class FakeClearer:
     """Records POI clear calls."""
 
@@ -114,9 +148,17 @@ class FakeClearer:
 
 
 def make_runner(
-    tmp_path: Path, config: ClaudeAgentConfig | None = None, script=None, block=False, stopper=None, clearer=None
+    tmp_path: Path,
+    config: ClaudeAgentConfig | None = None,
+    script=None,
+    block=False,
+    stopper=None,
+    clearer=None,
+    statuses: list[list[str]] | None = None,
+    probe_result: str | None = None,
 ):
     FakeClient.instances.clear()
+    FakeClient.status_scripts = statuses or []
     token = tmp_path / "token"
     token.write_text("MCP_SERVER_TOKEN=secret-mcp\n")
     cfg = config or ClaudeAgentConfig(mcp_token_file=str(token))
@@ -135,6 +177,7 @@ def make_runner(
         base_env={"ANTHROPIC_API_KEY": "sk", "CLAUDE_CODE_OAUTH_TOKEN": "oa"},
         robot_stopper=stopper or FakeStopper(),
         poi_clearer=clearer or FakeClearer(),
+        mcp_prober=FakeProber(probe_result),
     )
     return runner, events, cfg
 
@@ -1122,3 +1165,113 @@ async def test_generic_rejection_after_a_user_stop_is_not_corrected(tmp_path: Pa
     await asyncio.wait_for(runner.wait_idle(), timeout=3)
     assert len(FakeClient.instances[-1].queries) == 1
     assert not [e for e in events.history() if e["type"] == "tool_cancelled"]
+
+
+# --- robot MCP server connection: status check, reconnect, unreachable -------------------------------------------
+
+
+def notices(events: EventLog) -> list[dict]:
+    return [e for e in events.history() if e["type"] == "robot_event" and e["source"] == "claude_agent"]
+
+
+async def run_one(runner: AgentRunner) -> None:
+    await runner.start_instruction("pick up the croc")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+
+
+async def test_connected_robot_server_runs_the_instruction_without_probe_or_reconnect(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[make_result()], statuses=[["connected"]])
+    await run_one(runner)
+    client = FakeClient.instances[0]
+    assert client.queries == ["pick up the croc"] and client.reconnect_calls == []
+    assert runner.mcp_prober.calls == 0 and notices(events) == []
+
+
+async def test_failed_robot_server_that_answers_is_reconnected_in_the_same_session(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[make_result()], statuses=[["failed"]])
+    await run_one(runner)
+    assert len(FakeClient.instances) == 1
+    client = FakeClient.instances[0]
+    assert client.reconnect_calls == ["robot"] and client.queries == ["pick up the croc"]
+    [notice] = notices(events)
+    assert notice["event_type"] == "robot_tools_reconnected" and notice["data"] == {"session_restarted": False}
+    assert "robot tools reconnected" in notice["message"] and "session kept" in notice["message"]
+    assert [e["status"] for e in events.history() if e["type"] == "turn_end"] == ["done"]
+
+
+async def test_failed_reconnect_restarts_the_session_and_says_so(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[make_result()], statuses=[["failed"], ["connected"]])
+    original_factory = runner.client_factory
+
+    def factory(options: ClaudeAgentOptions) -> FakeClient:
+        client = original_factory(options)
+        if len(FakeClient.instances) == 1:
+            client.raise_on_reconnect = RuntimeError("mcp_reconnect failed")
+        return client
+
+    runner.client_factory = factory
+    await run_one(runner)
+    first, second = FakeClient.instances
+    assert first.disconnected and first.queries == []
+    assert second.queries == ["pick up the croc"]
+    [notice] = notices(events)
+    assert notice["message"].startswith("robot tools reconnected, session restarted")
+    assert notice["data"] == {"session_restarted": True}
+    assert [e["status"] for e in events.history() if e["type"] == "turn_end"] == ["done"]
+
+
+async def test_unreachable_robot_server_fails_the_instruction_at_once(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(
+        tmp_path, script=[make_result()], statuses=[["failed"]], probe_result="timed out after 5 s"
+    )
+    await run_one(runner)
+    client = FakeClient.instances[0]
+    assert client.queries == [] and client.reconnect_calls == []
+    [error] = [e for e in events.history() if e["type"] == "error"]
+    assert error["message"].startswith("robot server unreachable: timed out after 5 s")
+    assert [e["status"] for e in events.history() if e["type"] == "turn_end"] == ["error"]
+    assert runner.busy is False
+
+
+async def test_pending_robot_server_is_waited_for(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[make_result()], statuses=[["pending", "pending", "connected"]])
+    runner.mcp_poll_interval_s = 0.01
+    await run_one(runner)
+    client = FakeClient.instances[0]
+    assert client.queries == ["pick up the croc"] and client.reconnect_calls == []
+
+
+async def test_robot_server_still_failing_after_a_restart_fails_the_instruction(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[make_result()], statuses=[["failed"], ["failed"]])
+
+    original_factory = runner.client_factory
+
+    def factory(options: ClaudeAgentOptions) -> FakeClient:
+        client = original_factory(options)
+        client.raise_on_reconnect = RuntimeError("nope")
+        return client
+
+    runner.client_factory = factory
+    await run_one(runner)
+    assert all(c.queries == [] for c in FakeClient.instances)
+    [error] = [e for e in events.history() if e["type"] == "error"]
+    assert error["message"].startswith("robot tools unavailable")
+    assert "connection timed out" in error["message"]
+
+
+async def test_mcp_status_failure_is_logged_and_the_instruction_runs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[make_result()])
+    original_factory = runner.client_factory
+
+    def factory(options: ClaudeAgentOptions) -> FakeClient:
+        client = original_factory(options)
+        client.raise_on_status = RuntimeError("control request unsupported")
+        return client
+
+    runner.client_factory = factory
+    with caplog.at_level("WARNING", logger="claude_agent"):
+        await run_one(runner)
+    assert FakeClient.instances[0].queries == ["pick up the croc"]
+    assert "control request unsupported" in caplog.text
