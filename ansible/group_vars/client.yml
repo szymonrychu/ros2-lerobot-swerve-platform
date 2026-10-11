@@ -96,7 +96,7 @@ ros2_node_type_defaults:
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
     cpu_quota: "15%"
-    memory_max: "64M"
+    memory_max: "96M"
     cpu_weight: 100
     oom_score_adjust: 0
     config_path: /etc/ros2/test_joint_api
@@ -109,7 +109,8 @@ ros2_node_type_defaults:
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
     cpu_quota: "25%"
-    memory_max: "128M"
+    # 128M -> 192M: peak 128/128 (OOM-killed) on 2026-10-11.
+    memory_max: "192M"
     cpu_weight: 50
     io_weight: 50
     oom_score_adjust: 300
@@ -124,7 +125,7 @@ ros2_node_type_defaults:
     src_shared: true
     # Measured 2026-10-10: ~6.8 ms CPU per sample (i2c-gpio bit-bang in kernel time counts here); 50 Hz needs ~34%.
     cpu_quota: "45%"
-    memory_max: "64M"
+    memory_max: "96M"
     cpu_weight: 400
     io_weight: 400
     oom_score_adjust: -500
@@ -151,7 +152,7 @@ ros2_node_type_defaults:
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
     cpu_quota: "25%"
-    memory_max: "64M"
+    memory_max: "96M"
     cpu_weight: 100
     oom_score_adjust: 0
     config_path: /etc/ros2/gps_rtk
@@ -512,8 +513,6 @@ ros2_node_type_defaults:
       - HOME=/var/lib/claude_agent
       # SDK initialize timeout in ms (default 60 s): the CLI starts slowly on the Pi.
       - CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=180000
-      # The agent needs no DDS data; UDP only avoids FastDDS shared-memory permission clashes between users.
-      - FASTDDS_BUILTIN_TRANSPORTS=UDPv4
     # CLAUDE_CODE_OAUTH_TOKEN=<token>, written by playbooks/tasks/claude_agent_setup.yml from the deployer's env (never in git).
     environment_file: /etc/ros2/claude_agent/env
 

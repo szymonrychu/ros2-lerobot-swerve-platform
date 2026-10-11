@@ -21,8 +21,14 @@ ros2_hosts_entries:
 # bridges the hosts. The former FastDDS discovery server is uninstalled: launch_ros' one-shot lifecycle and component
 # service calls (slam_toolbox configure, Nav2 composable loading) hung intermittently through it. The original
 # "restarted nodes get no data" problem was logind RemoveIPC deleting FastDDS shared memory (see dds_host_setup.yml).
+# UDPv4 only: the shared-memory transport is off. A SIGKILLed (OOM) participant leaves its SHM port segment behind; the
+# restarted participant reuses the port, FastDDS unlinks the zombie segment and creates a new one, while long-lived peers
+# keep mapping the deleted inode and write into it (observed 2026-10-11: web_ui deaf after an OOM restart, discovery
+# fine, data and service replies never arrived). Trade-off: same-host image topics are copied through loopback UDP,
+# which costs CPU.
 ros2_dds_env:
   - "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"
+  - "FASTDDS_BUILTIN_TRANSPORTS=UDPv4"
 
 # Seconds between node starts when a deploy brings the stack back up (playbooks/tasks/start_ros_nodes.yml).
 ros2_node_start_interval_s: 2

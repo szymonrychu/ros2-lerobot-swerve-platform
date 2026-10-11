@@ -55,6 +55,18 @@ def test_robot_site_proxies_web_ui_with_websockets() -> None:
     assert "map $http_upgrade $connection_upgrade" in text
 
 
+def test_robot_ws_location_drops_stalled_clients() -> None:
+    """/ws and /ws/agent: a browser that stops reading is cut after 30 s of blocked writes, with the upgrade headers."""
+    ws = location(site("client"), "/ws")
+    assert "proxy_pass http://127.0.0.1:8080;" in ws
+    assert "proxy_send_timeout 30s;" in ws
+    assert "send_timeout 30s;" in ws
+    assert "proxy_read_timeout 1h;" in ws
+    assert "proxy_set_header Upgrade $http_upgrade;" in ws
+    assert "proxy_set_header Connection $connection_upgrade;" in ws
+    assert "proxy_buffering off;" in ws
+
+
 def test_robot_site_redirects_grafana_to_the_server() -> None:
     """Robot /grafana/... answers 302 to http://server.ros2.lan/grafana/... with the path and query kept."""
     body = location(site("client"), "/grafana/")

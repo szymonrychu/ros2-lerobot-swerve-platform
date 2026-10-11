@@ -9,6 +9,7 @@ lifecycle/component service calls hung intermittently through it. logind must ke
 
 from pathlib import Path
 
+import jinja2
 import pytest
 import yaml
 
@@ -68,7 +69,7 @@ def test_nodes_do_not_override_discovery_except_master2master_peer(host: str) ->
 
 def test_shared_env_is_localhost_simple_discovery() -> None:
     common = load_vars("all")
-    assert common["ros2_dds_env"] == ["ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST"]
+    assert common["ros2_dds_env"] == ["ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST", "FASTDDS_BUILTIN_TRANSPORTS=UDPv4"]
     for removed in ("ros2_dds_discovery_port", "ros2_dds_local_discovery"):
         assert removed not in common
 
@@ -196,3 +197,26 @@ def test_boot_does_not_wait_for_every_interface(host: str) -> None:
     text = (ANSIBLE_DIR / "playbooks" / "tasks" / "network_wait_online.yml").read_text()
     assert "systemd-networkd-wait-online.service.d" in text
     assert "--any" in text and "--timeout=30" in text
+
+
+@pytest.mark.parametrize("host", ["client", "server"])
+def test_every_native_unit_renders_udpv4_only_transport(host: str) -> None:
+    """Every ROS2 node type of both hosts renders FASTDDS_BUILTIN_TRANSPORTS=UDPv4 (no SHM)."""
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(SERVICE_TEMPLATE.parent), keep_trailing_newline=True)
+    shared = load_vars("all")["ros2_dds_env"]
+    for node_type, entry in load_vars(host)["ros2_node_type_defaults"].items():
+        text = env.get_template(SERVICE_TEMPLATE.name).render(
+            node_name=node_type, ansible_user="u", ros2_dds_env=shared, node_env=(entry or {}).get("env", [])
+        )
+        lines = text.splitlines()
+        assert "Environment=FASTDDS_BUILTIN_TRANSPORTS=UDPv4" in lines, node_type
+
+
+def test_only_the_native_template_renders_dds_env() -> None:
+    """No other unit template of the node role needs the transport setting (the launcher is a bash wrapper)."""
+    others = [
+        p.name
+        for p in SERVICE_TEMPLATE.parent.iterdir()
+        if "ros2_dds_env" in p.read_text() and p.name != SERVICE_TEMPLATE.name
+    ]
+    assert others == []

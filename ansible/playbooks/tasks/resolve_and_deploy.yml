@@ -36,7 +36,14 @@
     node_memory_max: "{{ ros2_node_type_defaults[_node.node_type].memory_max | default('256M') }}"
     node_cpu_weight: "{{ ros2_node_type_defaults[_node.node_type].cpu_weight | default('') }}"
     node_io_weight: "{{ ros2_node_type_defaults[_node.node_type].io_weight | default('') }}"
-    node_memory_high: "{{ ros2_node_type_defaults[_node.node_type].memory_high | default('') }}"
+    # The type's memory_high wins; otherwise 7/8 of node_memory_max (M or G suffix, floored to whole MiB), so every unit
+    # throttles before the hard MemoryMax kill. Any other suffix derives nothing.
+    node_memory_high: >-
+      {%- set cfg = ros2_node_type_defaults[_node.node_type] -%}
+      {%- set top = node_memory_max | string -%}
+      {%- if cfg.memory_high | default('') | string | length > 0 -%}
+      {{ cfg.memory_high }}{%- elif top[-1:] in ['M', 'G'] and top[:-1].isdigit() -%}
+      {{ (top[:-1] | int) * (1024 if top[-1:] == 'G' else 1) * 7 // 8 }}M{%- endif -%}
     node_oom_score_adjust: "{{ ros2_node_type_defaults[_node.node_type].oom_score_adjust | default('') }}"
     node_image: "{{ ros2_node_type_defaults[_node.node_type].image | default('') }}"
     node_build_context: "{{ ros2_node_type_defaults[_node.node_type].build_context | default('') }}"

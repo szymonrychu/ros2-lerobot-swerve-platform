@@ -286,7 +286,7 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 
 ## ROS2 network setup (DDS discovery)
 
-- **All ROS2 nodes:** the unit template emits `ros2_dds_env` (`group_vars/all.yml`) first: `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (simple discovery restricted to the host; FastDDS uses shared memory for same-host data). Node `env` entries come after it and override.
+- **All ROS2 nodes:** the unit template emits `ros2_dds_env` (`group_vars/all.yml`) first: `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (simple discovery restricted to the host) and `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` (the shared-memory transport is off: a SIGKILLed participant's SHM port is reused by its restart while peers keep writing into the deleted segment, which left web_ui deaf after an OOM restart on 2026-10-11; trade-off: same-host image topics are copied through loopback UDP, costing CPU). Node `env` entries come after it and override.
 - **Cross-host:** only the client `master2master` adds `ROS_STATIC_PEERS={{ ros2_server_hostname }}`, so it is the single process exchanging DDS traffic with the server. Server nodes list no static peers: when they listed the client, every client node meshed with the server over Wi-Fi.
 - **Steam Deck UI:** SUBNET discovery with the client as static peer (`steamdeck_ros2_static_peers`).
 - **Shells:** `/etc/profile.d/ros2_dds.sh` (from `playbooks/tasks/dds_host_setup.yml`) sets the same localhost discovery for SSH sessions, so the `ros2` CLI and `scripts/*_diag.sh` see the graph. Non-login SSH commands should `source /etc/profile.d/ros2_dds.sh`.
@@ -329,20 +329,22 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 |---|---|---|
 | ros2-master | 20% | 128M |
 | lerobot_leader | 50% | 128M |
-| topic_scraper_api | 25% | 128M |
+| topic_scraper_api | 25% | 192M |
 | gps_rtk_base | 25% | 64M |
 
 ### Client
+
+Raised after the 2026-10-11 24 h peaks hit the cap (peak/cap): topic_scraper_api 128/128 (OOM-killed, 192M on both hosts), test_joint_api 58.2/64, bno055_imu 57.6/64, gps_rtk_rover 55.8/64 (96M each).
 
 | Node | CPUQuota | MemoryMax |
 |---|---|---|
 | ros2-master | 20% | 128M |
 | master2master | 25% | 128M |
 | filter_node | 25% | 128M |
-| test_joint_api | 15% | 64M |
-| topic_scraper_api | 25% | 128M |
-| bno055_imu | 15% | 64M |
-| gps_rtk_rover | 25% | 64M |
+| test_joint_api | 15% | 96M |
+| topic_scraper_api | 25% | 192M |
+| bno055_imu | 15% | 96M |
+| gps_rtk_rover | 25% | 96M |
 | haptic_controller | 25% | 64M |
 | gripper_uvc_camera | 30% | 256M |
 | rplidar_a1 | 30% | 128M |
@@ -366,6 +368,7 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 Besides `CPUQuota` / `MemoryMax`, the native unit template (`ros2-node-native.service.j2`) renders four optional directives,
 only when the value is set. They come from the `ros2_node_type_defaults` keys below via `playbooks/tasks/resolve_and_deploy.yml`.
 Weights are priorities under contention, not limits; a unit change queues the usual daemon-reload + restart handlers.
+`MemoryHigh` is rendered for every unit: a type's `memory_high` wins, otherwise `resolve_and_deploy.yml` derives 7/8 of `memory_max` (M or G suffix, whole MiB; 64M -> 56M, 1G -> 896M; no `memory_max` means the 256M default, so 224M), so a unit is throttled before the hard `MemoryMax` kill.
 
 | `ros2_node_type_defaults` key | Template variable | Unit directive |
 |---|---|---|
