@@ -679,7 +679,7 @@ def test_prompt_explains_failure_typing() -> None:
 
 
 def test_prompt_teaches_keepout_and_slow_zones() -> None:
-    text = " ".join(build_system_prompt(ClaudeAgentConfig()).split())
+    text = " ".join(build_system_prompt(ClaudeAgentConfig()).split()).lower()
     assert "zone 'keepout'" in text and "zone 'slow'" in text and "speed_limit_pct" in text
     assert "never send a navigation goal inside a keepout" in text
     assert "ask the person before setting the zone status to cancelled" in text
