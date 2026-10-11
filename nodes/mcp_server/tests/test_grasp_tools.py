@@ -11,6 +11,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent
 
+from mcp_server import grasp_tools
 from mcp_server.arm import ArmController, ArmError
 from mcp_server.config import McpServerConfig
 from mcp_server.floor_guard import FloorOverride
@@ -371,8 +372,8 @@ def test_the_crop_box_is_cropped_recorded_and_reported(
     monkeypatch.setattr("mcp_server.grasp_tools.jaw_crop", lambda *a, **k: boxes[0])
     recorded: list[tuple[Any, ...]] = []
 
-    def spy(ctx: Any, tool: str, camera: str, jpeg: bytes, width: int, height: int) -> str:
-        recorded.append((tool, camera, jpeg, width, height))
+    def spy(ctx: Any, tool: str, camera: str, jpeg: bytes, width: int, height: int, full_frame: bool = True) -> str:
+        recorded.append((tool, camera, jpeg, width, height, full_frame))
         return "lk-1"
 
     monkeypatch.setattr("mcp_server.grasp_tools.record_lookup", spy)
@@ -380,16 +381,28 @@ def test_the_crop_box_is_cropped_recorded_and_reported(
     crop = res.structured_content["grasp_check"]["crop"]
     assert crop == {"lookup_id": "lk-1", "box_px": [2, 1, 12, 9], "full_frame_reason": None}
     assert len(recorded) == 1
-    tool, camera, jpeg, width, height = recorded[0]
+    tool, camera, jpeg, width, height, full_frame = recorded[0]
     assert (tool, camera, (width, height)) == ("grasp_object", "gripper", (10, 8))
+    assert full_frame is False  # a crop: its field of view is not the camera's
     assert base64.b64decode(only_image(res).data) == jpeg
 
 
-def test_without_a_crop_box_the_full_frame_is_used_with_a_reason(server: Any, robot: FakeRobot) -> None:
+def test_without_a_crop_box_the_full_frame_is_used_with_a_reason(
+    server: Any, robot: FakeRobot, monkeypatch: pytest.MonkeyPatch
+) -> None:
     object_in_jaws(robot.arm_backend)
+    full_frames: list[bool] = []
+    real = grasp_tools.record_lookup
+
+    def spy(*args: Any, full_frame: bool = True) -> str | None:
+        full_frames.append(full_frame)
+        return real(*args, full_frame=full_frame)
+
+    monkeypatch.setattr("mcp_server.grasp_tools.record_lookup", spy)
     res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
     crop = res.structured_content["grasp_check"]["crop"]
     assert crop["box_px"] is None and crop["full_frame_reason"]
+    assert full_frames == [True]  # the uncropped frame keeps the camera's field of view
     only_image(res)
 
 
