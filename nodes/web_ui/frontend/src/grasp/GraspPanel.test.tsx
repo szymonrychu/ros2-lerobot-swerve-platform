@@ -113,7 +113,7 @@ describe('GraspPanel', () => {
   it('has a grip strength selector showing the current profile', () => {
     const html = render(state({ form: { ...DEFAULT_FORM, gripProfile: 'firm' } }))
     expect(html).toContain('Grip strength')
-    for (const label of ['Gentle', 'Normal', 'Firm']) expect(html).toContain(label)
+    for (const label of ['Gentle', 'Soft', 'Normal', 'Firm']) expect(html).toContain(label)
     const pressed = [...html.matchAll(/<button[^>]*aria-pressed="true"[^>]*>([A-Za-z]+)/g)].map((m) => m[1])
     expect(pressed).toEqual(['Firm'])
   })

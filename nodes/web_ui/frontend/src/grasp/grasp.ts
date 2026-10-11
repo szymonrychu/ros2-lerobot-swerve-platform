@@ -25,13 +25,14 @@ export type GraspAction = 'plan' | 'execute' | 'release'
 export type GraspOutcomeName = 'planned' | 'infeasible' | 'grasped' | 'unverified' | 'missed' | 'aborted' | 'released'
 
 /** mcp_server grip_profiles preset: how hard the gripper grips (torque limit, close speed, squeeze). */
-export type GripProfileName = 'gentle' | 'normal' | 'firm'
-
-export const GRIP_PROFILES: { value: GripProfileName; label: string; hint: string }[] = [
-  { value: 'gentle', label: 'Gentle', hint: 'fragile, soft or light objects' },
+export const GRIP_PROFILES = [
+  { value: 'gentle', label: 'Gentle', hint: 'fragile or light objects' },
+  { value: 'soft', label: 'Soft', hint: 'plush, soft toys' },
   { value: 'normal', label: 'Normal', hint: 'ordinary objects' },
   { value: 'firm', label: 'Firm', hint: 'heavy or slippery objects, tools' },
-]
+] as const
+
+export type GripProfileName = (typeof GRIP_PROFILES)[number]['value']
 
 export const DEFAULT_GRIP_PROFILE: GripProfileName = 'normal'
 

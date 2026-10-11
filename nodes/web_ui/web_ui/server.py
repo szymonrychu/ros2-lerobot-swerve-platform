@@ -78,6 +78,7 @@ POI_OPS = frozenset({"add", "update", "delete"})
 # Seconds to wait for mcp_server's answer to a grasp stop (it answers at once).
 GRASP_STOP_TIMEOUT_S = 3.0
 # Grasp actions POST /api/grasp accepts ("stop" has its own endpoint) and those that need an "object".
+GRIP_PRESETS = ("gentle", "soft", "normal", "firm")
 GRASP_ACTIONS = frozenset({"plan", "execute", "release"})
 GRASP_OBJECT_ACTIONS = frozenset({"plan", "execute"})
 GRASP_MOTION_ACTIONS = frozenset({"execute", "release"})
@@ -709,7 +710,7 @@ def build_app(
             )
         if not valid_grip_profile(body.get("grip_profile")):
             return action_response(
-                "grasp", False, "grip_profile must be a preset name (gentle, normal, firm) or an object", 422
+                "grasp", False, f"grip_profile must be a preset name ({', '.join(GRIP_PRESETS)}) or an object", 422
             )
         if action in GRASP_MOTION_ACTIONS and (blocked := battery_block(f"grasp_{action}")) is not None:
             return blocked

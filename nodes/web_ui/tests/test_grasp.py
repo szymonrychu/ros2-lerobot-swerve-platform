@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from web_ui.config import AppConfig, TabConfig
+from web_ui.server import GRIP_PRESETS
 
 OBJECT = {"frame": "arm", "x": 0.22, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.04}
 PLAN_BODY = {"action": "plan", "object": OBJECT, "strategy": "auto"}
@@ -257,7 +258,7 @@ def test_api_grasp_release_forwarded(tmp_path: Path) -> None:
     assert resp.status_code == 202 and bridge.payloads == [{"action": "release"}]
 
 
-@pytest.mark.parametrize("grip", ["gentle", "firm", {"base": "gentle", "squeeze_rad": 0.01}])
+@pytest.mark.parametrize("grip", ["gentle", "firm", "soft", {"base": "gentle", "squeeze_rad": 0.01}])
 def test_api_grasp_execute_passes_the_grip_profile_through(tmp_path: Path, grip: Any) -> None:
     bridge = FakeBridge(never=True)
     body = EXEC_BODY | {"grip_profile": grip}
@@ -272,6 +273,13 @@ def test_api_grasp_bad_grip_profile_is_422(tmp_path: Path, grip: Any) -> None:
     resp = make_client(tmp_path, bridge).post("/api/grasp?tab=map", json=EXEC_BODY | {"grip_profile": grip})
     assert resp.status_code == 422
     assert bridge.payloads == []
+
+
+def test_api_grasp_bad_grip_profile_error_lists_every_preset(tmp_path: Path) -> None:
+    resp = make_client(tmp_path, FakeBridge(PLANNED)).post("/api/grasp?tab=map", json=EXEC_BODY | {"grip_profile": 3})
+    assert resp.status_code == 422
+    assert f"({', '.join(GRIP_PRESETS)})" in resp.json()["message"]
+    assert GRIP_PRESETS == ("gentle", "soft", "normal", "firm")
 
 
 def test_api_grasp_503_when_mcp_server_not_running(tmp_path: Path) -> None:

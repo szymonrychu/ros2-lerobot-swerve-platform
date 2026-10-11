@@ -13,6 +13,7 @@ import {
   formFromClick,
   GraspForm,
   GRIP_PROFILES,
+  isGripProfile,
   mapToBaseLink,
   objectBox,
   parseGraspResponse,
@@ -366,9 +367,11 @@ describe('text', () => {
 })
 
 describe('grip strength', () => {
-  it('offers Gentle / Normal / Firm with Normal as the default', () => {
-    expect(GRIP_PROFILES.map((g) => g.label)).toEqual(['Gentle', 'Normal', 'Firm'])
-    expect(GRIP_PROFILES.map((g) => g.value)).toEqual(['gentle', 'normal', 'firm'])
+  it('offers Gentle / Soft / Normal / Firm with Normal as the default', () => {
+    expect(GRIP_PROFILES.map((g) => g.label)).toEqual(['Gentle', 'Soft', 'Normal', 'Firm'])
+    expect(GRIP_PROFILES.map((g) => g.value)).toEqual(['gentle', 'soft', 'normal', 'firm'])
+    expect(GRIP_PROFILES.find((g) => g.value === 'soft')?.hint).toBe('plush, soft toys')
+    expect(isGripProfile('soft')).toBe(true)
     expect(DEFAULT_GRIP_PROFILE).toBe('normal')
     expect(DEFAULT_FORM.gripProfile).toBe('normal')
   })
@@ -376,6 +379,7 @@ describe('grip strength', () => {
   it('sends the grip profile with execute only', () => {
     const form = { ...FORM, gripProfile: 'gentle' as const }
     expect(ok(form, 'execute').grip_profile).toBe('gentle')
+    expect(ok({ ...FORM, gripProfile: 'soft' as const }, 'execute').grip_profile).toBe('soft')
     expect(ok(form, 'plan').grip_profile).toBeUndefined()
     expect(ok(form, 'release').grip_profile).toBeUndefined()
   })
