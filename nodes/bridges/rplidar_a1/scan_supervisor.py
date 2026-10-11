@@ -13,6 +13,8 @@ import time
 from pathlib import Path
 
 import rclpy
+from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from ros2_metrics import resolve_metrics_port, start_metrics_server
@@ -79,6 +81,11 @@ def main() -> int:
                 )
                 status = EXIT_RESTART
                 break
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass  # SIGINT: rclpy's handler shut the context down (SIGTERM only sets the flag above)
+    except RCLError:
+        if rclpy.ok():  # a spin racing the SIGINT handler is shutdown noise; anything else is a bug
+            raise
     finally:
         stop_child(child)
         node.destroy_node()
