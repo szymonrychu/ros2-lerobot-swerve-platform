@@ -189,6 +189,14 @@ Prometheus JSON (no network).
 | `test_memory_low_sum_counts_rows_with_a_proposal` | The MemoryLow sum skips rows without data. |
 | `test_render_table_shows_columns_and_the_memory_low_sum`, `test_render_yaml_roundtrips` | Table columns (no CPUQuota / MemoryHigh) with the closing sum line, and YAML output (`memory_low`, `memory_max`, `cpu_weight`, `io_weight`). |
 
+### `test_topic_scraper_config.py`
+
+Client topic_scraper_api config (`ansible/group_vars/client.yml`).
+
+| Test | Covers |
+|---|---|
+| `test_scraper_does_not_subscribe_raw_images` | Raw `sensor_msgs/msg/Image` is not in `allowed_types` (about 20 MB/s of raw frames cost about 0.4 cores to deserialize); `CompressedImage` stays. |
+
 ### `test_topic_scraper_collect.py`
 
 Unit tests for `scripts/topic_scraper_collect.py` parser/format helpers.

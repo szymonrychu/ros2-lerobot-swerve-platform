@@ -17,7 +17,7 @@ This node replaces infrastructure monitoring as the default runtime debug path f
 
 ### Image topics (streams and previews)
 
-ROS image topics (`sensor_msgs/msg/Image`, `sensor_msgs/msg/CompressedImage`) are autodiscovered like other types. For image topics only, the following endpoints are available (list is dynamic and follows topic discovery):
+ROS image topics (`sensor_msgs/msg/Image`, `sensor_msgs/msg/CompressedImage`) are autodiscovered like other types. On the robot (client) only `CompressedImage` is allowed: deserializing the raw 640x480 frames cost about 0.4 cores (2026-10-11). For image topics only, the following endpoints are available (list is dynamic and follows topic discovery):
 
 - `GET /streams` — list of image topics with `topic`, `stream_endpoint`, `preview_endpoint`, `has_sample`.
 - `GET /streams/<topic-path>` — HTML page that auto-starts the MJPG stream in an `<img>` (e.g. open in browser for live view).

@@ -13,7 +13,8 @@
       allowed_types:
         - sensor_msgs/msg/JointState
         - sensor_msgs/msg/NavSatFix
-        - sensor_msgs/msg/Image
+        # No raw sensor_msgs/msg/Image: deserializing the 640x480 raw frames (~20 MB/s) cost ~0.4 cores (2026-10-11);
+        # previews come from the compressed topics.
         - sensor_msgs/msg/CompressedImage
         - sensor_msgs/msg/LaserScan
         - sensor_msgs/msg/PointCloud2
