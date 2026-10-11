@@ -19,6 +19,7 @@ from scripts.gen_nav_footprint import (
     Body,
     Generated,
     circumscribed_radius,
+    cost_scaling_factor,
     footprint_polygon,
     generate,
     inflation_radius,
@@ -45,6 +46,8 @@ FRONT_NOTCH = (0.16, -0.035)
 REAR_NOTCH = (-0.19, 0.0)
 # Inflation cost at distance d beyond the inscribed radius (nav2_costmap_2d InflationLayer::computeCost).
 INSCRIBED_COST = 253
+# The parked gripper reaches this far ahead of the body (the folded arm's jaws overhang the crossbar front).
+PARKED_OVERHANG_M = 0.08
 
 
 def mcp_nav_footprint() -> dict:
@@ -179,17 +182,55 @@ def test_footprint_contains_every_body_part() -> None:
 
 
 def test_footprint_keeps_the_front_and_rear_notches() -> None:
-    footprint = Polygon(generated().footprint)
-    hull = footprint.convex_hull
+    """The body outline keeps both notches; the static footprint keeps the rear one, the front one lies under the
+    parked gripper."""
+    settings, body = settings_and_body()
+    outline = Polygon(footprint_polygon(body, settings.circle_segments, settings.close_gap_m, settings.decimals))
     for x, y in (FRONT_NOTCH, REAR_NOTCH):
-        assert hull.contains(Point(x, y)) and not footprint.contains(Point(x, y)), (x, y)
+        assert outline.convex_hull.contains(Point(x, y)) and not outline.contains(Point(x, y)), (x, y)
+    footprint = Polygon(generated().footprint)
+    assert footprint.convex_hull.contains(Point(REAR_NOTCH)) and not footprint.contains(Point(REAR_NOTCH))
+    assert footprint.contains(Point(FRONT_NOTCH)), "the parked gripper overhangs the front notch"
+
+
+def parked_shadow() -> Polygon:
+    """Ground shadow of the parked arm the generator unions into the static footprint."""
+    return Polygon(generated().mcp_nav_footprint["parked_arm_shadow"])
+
+
+def test_static_footprint_covers_the_parked_arm() -> None:
+    """The arm parked at its stored home overhangs the crossbar front with the gripper: the static footprint (what
+    Nav2 loads and mcp_server publishes after a park) contains its ground shadow, not only the body."""
+    settings, body = settings_and_body()
+    shadow = parked_shadow()
+    outline = Polygon(footprint_polygon(body, settings.circle_segments, settings.close_gap_m, settings.decimals))
+    footprint = Polygon(generated().footprint)
+    assert shadow.is_valid and shadow.area > 0.0
+    assert shadow.bounds[2] > outline.bounds[2] + PARKED_OVERHANG_M
+    assert footprint.buffer(TOL).contains(shadow)
+    assert footprint.buffer(TOL).contains(outline)
+
+
+def test_parked_arm_shadow_needs_the_mcp_server_arm_config(tmp_path: Path) -> None:
+    """Without client.yml (no mcp_server arm mount / URDF config) the static footprint is the body outline alone."""
+    config = yaml.safe_load(DEFAULT_CONFIG.read_text())
+    config["client_vars_path"] = str(tmp_path / "no_client.yml")
+    cfg = tmp_path / "gen.yaml"
+    cfg.write_text(yaml.safe_dump(config))
+    settings = load_settings(cfg)
+    gen = generate(settings, REPO_ROOT)
+    assert gen.mcp_nav_footprint["parked_arm_shadow"] == []
+    assert gen.footprint == footprint_polygon(
+        settings.body, settings.circle_segments, settings.close_gap_m, settings.decimals
+    )
 
 
 def test_footprint_hugs_the_body_parts() -> None:
     """Minimal: the outline adds only the closed sub-cell gaps (the 13 mm slit between the lidar and the crossbar and
-    the pocket behind it) to the union of the parts: under 1 % more area, nowhere more than one costmap cell out."""
+    the pocket behind it) to the union of the parts and the parked arm: under 1 % more area, nowhere more than one
+    costmap cell out."""
     settings, body = settings_and_body()
-    union = unary_union(list(part_shapes(body).values()))
+    union = unary_union([*part_shapes(body).values(), parked_shadow()])
     footprint = Polygon(generated().footprint)
     assert max_outside(footprint, union) <= settings.costmap_resolution
     assert footprint.area <= union.area * 1.01
@@ -233,6 +274,10 @@ def test_cost_scaling_is_steep_but_keeps_the_circumscribed_cost_positive() -> No
     inscribed = inscribed_radius(gen.footprint)
     circumscribed = circumscribed_radius(gen.footprint)
     factor = gen.cost_scaling_factor
+    settings = load_settings(DEFAULT_CONFIG)
+    assert factor == cost_scaling_factor(gen.footprint, settings.max_cost_scaling_factor)
+    assert factor <= settings.max_cost_scaling_factor
+    assert factor <= math.log(INSCRIBED_COST - 1) / (circumscribed - inscribed)
     assert 20.0 <= factor <= 30.0
     cost = int((INSCRIBED_COST - 1) * math.exp(-factor * (circumscribed - inscribed)))
     assert cost >= 1
@@ -252,8 +297,7 @@ def test_laser_polygon_is_the_footprint_plus_margin_and_keeps_the_notches() -> N
     assert laser.buffer(TOL).contains(footprint.buffer(settings.laser_filter_margin_m))
     # Mitred corners reach at most 1.5 x the margin (then bevelled), so the polygon never removes far returns.
     assert max_outside(laser, footprint) <= 1.5 * settings.laser_filter_margin_m + TOL
-    for x, y in (FRONT_NOTCH, REAR_NOTCH):
-        assert not laser.contains(Point(x, y)), "returns in the notches are kept"
+    assert not laser.contains(Point(REAR_NOTCH)), "returns in the rear notch are kept"
 
 
 def test_offset_polygon_grows_by_the_margin() -> None:
@@ -374,6 +418,9 @@ def test_mcp_nav_footprint_numbers_come_from_the_generator_config() -> None:
         "stopbox_margin_m": settings.stopbox_margin_m,
         "simplify_m": settings.dynamic_simplify_m,
         "decimals": settings.decimals,
+        "costmap_resolution": settings.costmap_resolution,
+        "max_cost_scaling_factor": settings.max_cost_scaling_factor,
+        "parked_arm_shadow": generated().mcp_nav_footprint["parked_arm_shadow"],
     }
 
 
@@ -384,6 +431,16 @@ def test_footprint_geometry_is_shared_with_mcp_server() -> None:
     assert gen_module.to_points.__module__ == "mcp_server.footprint_geometry"
     assert gen_module.offset_polygon.__module__ == "mcp_server.footprint_geometry"
     assert gen_module.body_outline.__module__ == "mcp_server.footprint_geometry"
+    assert gen_module.static_outline.__module__ == "mcp_server.footprint_geometry"
+
+
+def test_inflation_formula_lives_in_footprint_geometry() -> None:
+    """mcp_server sets the inflation of its dynamic footprint with the same formula the static one is generated with."""
+    import scripts.gen_nav_footprint as gen_module
+
+    for func in (circumscribed_radius, inscribed_radius, inflation_radius, cost_scaling_factor):
+        assert func.__module__ == "mcp_server.footprint_geometry", func.__name__
+    assert gen_module.inflation_radius is inflation_radius
 
 
 def test_generated_values_land_in_the_parsed_yaml() -> None:

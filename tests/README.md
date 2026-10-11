@@ -1053,7 +1053,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_lidar_static_tf_mounted_backwards` | Static TF base_link -> laser_frame is at (0.158, 0.06, 0.20) with yaw = pi (Platform dimensions.md gave (0.15, 0.04); corrected by the 2026-10-05 in-place turn test): the RPLidar is mounted rotated 180 deg (verified on the robot by driving forward). |
 | `test_tests_readme_lidar_tf_matches_client_yml` | The lidar TF row in tests/README.md quotes the same base_link -> laser_frame position as client.yml (stale doc guard). |
 | `test_nodes_readme_names_the_smac_lattice_planner` | nodes/README.md describes nav2_bringup with the Smac lattice planner, not the replaced NavFn. |
-| `test_laser_filter_polygon_matches_the_h_outline` | The laser_filter node config (`/scan` -> `/scan_filtered`, `base_link`, only the known keys) has a startup polygon equal to the generated H footprint + 1 cm: it contains the footprint and keeps returns in the front/rear notches and in the band just outside the body. |
+| `test_laser_filter_polygon_matches_the_h_outline` | The laser_filter node config (`/scan` -> `/scan_filtered`, `base_link`, only the known keys) has a startup polygon equal to the generated static footprint (H body + parked arm) + 1 cm: it contains the footprint and keeps returns in the rear notch and in the band just outside the body; the front notch points (under the parked gripper) are inside. |
 | `test_laser_filter_ansible_wiring` | laser_filter node type is the repo Python node (`python3 -m laser_filter`, `node_src_dir nodes/laser_filter`, no laser_filters apt package, `LASER_FILTER_CONFIG` pointing at the repo config), enabled node entry, per-node playbook and inclusion in `deploy_nodes_client.yml`. |
 | `test_node_apt_install_refreshes_stale_cache` | The ros2_node_deploy apt install refreshes the package index (`update_cache: true`, `cache_valid_time: 3600`) so new packages do not 404 on a stale cache. |
 | `test_rplidar_runs_under_scan_supervisor` | rplidar_a1 is launched through `scan_supervisor.py` (runs the launch file, exits 1 for a systemd restart when `/scan` never starts or goes silent). |
@@ -1088,7 +1088,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan` | collision_monitor stays in the `cmd_vel_smoothed -> cmd_vel` chain with its core keys; `StopBox` (holonomic stop `velocity_polygon`, min 4 points) is enabled on the footprint-filtered scan. |
 | `test_stopbox_covers_every_velocity` | Every command (directions in 5 deg steps, speeds 0 to 0.25 m/s, yaw rates -0.5 to 0.5) selects a StopBox sub-polygon, as Nav2 keeps the previous one for an uncovered velocity. |
 | `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side (ahead of a front wheel, x 0.23; ahead of the lidar dome in the front notch, x 0.202 (dome front 0.187); behind a rear wheel; beside each side frame, y +-0.1658 with the measured 35 mm frames), a return 1.5 cm outside the H footprint (just outside the self-filter polygon) stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
-| `test_stopbox_ignores_notch_obstacles_unless_moving_into_them` | A return deep in the front notch stops no translation (only rotation in place); a return 1.5 cm ahead of the crossbar stops only forward motion, one 1.5 cm behind it only backward motion. |
+| `test_stopbox_ignores_notch_obstacles_unless_moving_into_them` | A return deep in the rear notch stops no translation (only rotation in place); one 1.5 cm behind the crossbar stops only backward motion; front notch returns (under the parked gripper, inside the footprint) stop every motion. |
 | `test_nav2_goal_tolerance_tight_enough_for_swerve` | Goal checker tolerances 0.01 m / 0.035 rad (1 cm / 2 deg), stateful: the latch only holds because the BT no longer replans periodically. |
 | `test_nav2_replans_only_when_path_invalid` | `bt_navigator` uses the "replanning only if path becomes invalid" BT: periodic replans reset the goal checker latch and the rotation shim position check. |
 | `test_nav2_progress_checker_counts_rotation` | `progress_checker` is `PoseProgressChecker` (counts rotation), movement radius <= 0.05 m and a required angle set. |
@@ -1125,8 +1125,9 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 
 ### test_nav_footprint.py
 
-Unit tests for `scripts/gen_nav_footprint.py` (shapely geometry, no ROS) and the check that the committed
-`nav2_params.yaml` and `footprint_filter.yaml` equal its output.
+Unit tests for `scripts/gen_nav_footprint.py` (shapely geometry, no ROS; the parked-arm shadow runs `python -m mcp_server.footprint`
+in the mcp_server uv environment, cached per client.yml content) and the check that the committed `nav2_params.yaml`,
+`footprint_filter.yaml` and client.yml `nav_footprint` region equal its output.
 
 | Test (group) | Description |
 |------|-------------|
@@ -1135,13 +1136,15 @@ Unit tests for `scripts/gen_nav_footprint.py` (shapely geometry, no ROS) and the
 | `test_body_falls_back_to_generator_yaml_without_client_body` | Without a client.yml `body:` (or without client.yml) the yaml defaults are used. |
 | `test_footprint_is_one_simple_polygon` | The footprint is one valid, simple (no self-intersection), counter-clockwise polygon without a repeated closing point. |
 | `test_footprint_contains_every_body_part` | Every frame, the crossbar, every wheel envelope circle and the lidar circle lie inside the footprint (0.15 mm rounding tolerance). |
-| `test_footprint_keeps_the_front_and_rear_notches` | Points in the front and rear notch are inside the convex hull but outside the footprint. |
-| `test_footprint_hugs_the_body_parts` | The footprint adds under 1 % area to the union of the parts and reaches nowhere more than one costmap cell beyond it. |
+| `test_footprint_keeps_the_front_and_rear_notches` | The body outline keeps both notches (inside its convex hull, outside it); the static footprint keeps the rear notch and covers the front one (under the parked gripper). |
+| `test_static_footprint_covers_the_parked_arm` | The parked-arm shadow is a valid polygon reaching over 8 cm beyond the body front, and the static footprint contains it and the body outline. |
+| `test_parked_arm_shadow_needs_the_mcp_server_arm_config` | Without client.yml the shadow is empty and the footprint is the body outline. |
+| `test_footprint_hugs_the_body_parts` | The footprint adds under 1 % area to the union of the parts and the parked-arm shadow and reaches nowhere more than one costmap cell beyond it. |
 | `test_footprint_changes_with_a_body_number` | Larger wheel radii give a larger footprint. |
 | `test_radii_follow_nav2_definitions` | Circumscribed radius = farthest vertex, inscribed = nearest edge (Nav2 `calculateMinAndMaxDistances`). |
 | `test_inflation_radius_is_the_circumscribed_radius_rounded_up_to_a_cell` | Inflation radius = circumscribed radius rounded up to the 2.5 cm cell. |
-| `test_cost_scaling_is_steep_but_keeps_the_circumscribed_cost_positive` | `cost_scaling_factor` 20-30, the inflation cost at the circumscribed radius stays >= 1 (MPPI / Smac footprint-check speed-up) and is under 1/4 of the inscribed cost 6 cm out. |
-| `test_laser_polygon_is_the_footprint_plus_margin_and_keeps_the_notches` | The laser polygon is simple, contains the footprint + 1 cm, reaches at most 1.5 cm beyond it and leaves the notch points outside. |
+| `test_cost_scaling_is_steep_but_keeps_the_circumscribed_cost_positive` | `cost_scaling_factor` is `footprint_geometry.cost_scaling_factor` (at most `max_cost_scaling_factor`, at most ln(252) / (circumscribed - inscribed)), 20-30, the inflation cost at the circumscribed radius stays >= 1 (MPPI / Smac footprint-check speed-up) and is under 1/4 of the inscribed cost 6 cm out. |
+| `test_laser_polygon_is_the_footprint_plus_margin_and_keeps_the_notches` | The laser polygon is simple, contains the footprint + 1 cm, reaches at most 1.5 cm beyond it and leaves the rear notch point outside. |
 | `test_offset_polygon_grows_by_the_margin` | A square grows by exactly the margin (mitred corners). |
 | `test_stopbox_sub_polygons_sweep_the_footprint_toward_their_motion` | Nine sub-polygons (rotate + 8 sectors), each simple with 4+ points, containing the footprint and reaching beyond the self-filter polygon; each directional one contains the footprint moved 2 cm along every direction of its sector but not the footprint moved 1.5 cm away. |
 | `test_stopbox_rotate_is_the_bounding_box_plus_margin` | `rotate` is the 4-point footprint bounding box + 2 cm. |
@@ -1149,8 +1152,9 @@ Unit tests for `scripts/gen_nav_footprint.py` (shapely geometry, no ROS) and the
 | `test_nav2_params_equal_the_generator_output` | Re-rendering `nav2_params.yaml` changes nothing. |
 | `test_laser_filter_equals_the_generator_output` | Re-rendering `footprint_filter.yaml` changes nothing. |
 | `test_client_vars_equal_the_generator_output` | Re-rendering `client.yml` (the mcp_server `nav_footprint` region) changes nothing. |
-| `test_mcp_nav_footprint_numbers_come_from_the_generator_config` | The mcp_server `nav_footprint` numbers (circle segments, gap closing, laser and stopbox margins, dynamic simplification, decimals) equal `gen_nav_footprint.yaml`. |
-| `test_footprint_geometry_is_shared_with_mcp_server` | The generator's outline, offset and vertex-order functions are imported from `mcp_server.footprint_geometry` (one implementation for the static and the dynamic footprint). |
+| `test_mcp_nav_footprint_numbers_come_from_the_generator_config` | The mcp_server `nav_footprint` numbers (circle segments, gap closing, laser and stopbox margins, dynamic simplification, decimals, costmap resolution, maximum cost scaling) equal `gen_nav_footprint.yaml`, plus the generated parked-arm shadow. |
+| `test_footprint_geometry_is_shared_with_mcp_server` | The generator's outline, parked-arm union, offset and vertex-order functions are imported from `mcp_server.footprint_geometry` (one implementation for the static and the dynamic footprint). |
+| `test_inflation_formula_lives_in_footprint_geometry` | Circumscribed / inscribed radius, inflation radius and cost scaling factor come from `mcp_server.footprint_geometry` (mcp_server sets the dynamic footprint's inflation with the same formula). |
 | `test_generated_values_land_in_the_parsed_yaml` | Parsed footprints, padding, inflation, StopBox order/points/ranges, the laser polygon and the mcp_server `nav_footprint` numbers equal the generator output. |
 | `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config (and no client.yml, whose region is then skipped), `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
 

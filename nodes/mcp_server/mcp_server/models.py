@@ -275,9 +275,14 @@ class BaseControlState(BaseModel):
 class FootprintState(BaseModel):
     """Navigation footprint mcp_server publishes to Nav2 and the laser_filter (get_control_state)."""
 
-    kind: Literal["static", "dynamic"]  # static H body, or grown by the released arm (and carried object)
+    # static: H body + parked arm; dynamic: grown by the released arm (and carried object); conservative: arm pose
+    # unknown, grown by a max-reach disc around the arm mount
+    kind: Literal["static", "dynamic", "conservative"]
     vertices: int  # vertex count of the published costmap footprint
     carried_object_radius_m: float | None = None  # carried-object circle at the tool point, None without one
+    # Last outcome per consumer (local_costmap, global_costmap, laser_filter, collision_monitor): ok | pending |
+    # unavailable: <why> | refused: <why> | timeout: <why> | republished: <why>
+    consumers: dict[str, str] = Field(default_factory=dict)
 
 
 class ControlState(BaseModel):

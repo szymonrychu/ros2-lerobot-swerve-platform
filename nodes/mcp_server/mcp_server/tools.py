@@ -474,7 +474,7 @@ def register_tools(
     monitor = monitor or RobotMonitor(config.monitor, guard, autonomy_source=config.arm.autonomy_source_name)
     footprint = None if config.nav_footprint is None else NavFootprint(config.nav_footprint, config.body, robot)
     if footprint is not None:
-        footprint.start()  # mcp_server start: the static footprint, re-sent every republish_s
+        footprint.start()  # mcp_server start: the measured arm pose's footprint, then the republish tick
     control = ControlManager(robot.arm, robot, config, guard, footprint=footprint)
     queue = MotionQueue(
         robot,
@@ -813,8 +813,10 @@ def register_core_tools(ctx: ToolContext) -> None:
         null when unknown or no home is stored), home_stored, active_source (filter_node: leader, web_ui, autonomy),
         lost (how the lease ended if this server did not release it, e.g. taken over by web_ui)}, base {held,
         held_since, steering_neutral (every steer joint near straight; null without fresh swerve joint states)} and
-        footprint {kind (static: the body; dynamic: body + released arm shadow + carried object), vertices,
-        carried_object_radius_m} (null when the server publishes no footprint)."""
+        footprint {kind (static: the body + parked arm; dynamic: + released arm shadow + carried object;
+        conservative: arm pose unknown, + max-reach disc around the arm mount), vertices, carried_object_radius_m,
+        consumers (per Nav2 costmap / laser_filter / collision_monitor: ok, pending, or why it is not ok)} (null when
+        the server publishes no footprint)."""
         with tool_errors():
             return control.state()
 

@@ -684,10 +684,12 @@ BAND_POINTS = {
     "left": (0.0, 0.1658),
     "right": (0.0, -0.1658),
 }
-# Returns in the front notch (between the front wheels): deep inside, and 1.5 cm ahead of the crossbar; and 1.5 cm
-# behind the crossbar in the rear notch.
+# Returns in the front notch (between the front wheels): deep inside, and 1.5 cm ahead of the crossbar; both lie under
+# the parked gripper, which is part of the static footprint. In the rear notch: deep inside, and 1.5 cm behind the
+# crossbar.
 FRONT_NOTCH_DEEP = (0.16, -0.035)
 FRONT_NOTCH_CROSSBAR = (0.115, -0.04)
+REAR_NOTCH_DEEP = (-0.2, 0.0)
 REAR_NOTCH_CROSSBAR = (-0.165, 0.0)
 FACE_NORMALS = {
     "front": (1.0, 0.0),
@@ -722,16 +724,21 @@ def test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape(face: str) -
 
 
 def test_stopbox_ignores_notch_obstacles_unless_moving_into_them() -> None:
-    """An obstacle deep in a notch does not stop any translation (only rotation in place, which sweeps the notch);
-    one just ahead of / behind the crossbar stops only the motion that drives the crossbar into it."""
+    """An obstacle deep in the rear notch does not stop any translation (only rotation in place, which sweeps the
+    notch); one just behind the crossbar stops only the motion that drives the crossbar into it. The front notch lies
+    under the parked gripper: an obstacle there is inside the footprint and stops every motion."""
     speed = 0.1
     moves = {"forward": (speed, 0.0), "back": (-speed, 0.0), "left": (0.0, speed), "right": (0.0, -speed)}
     for name, (vx, vy) in moves.items():
-        assert not point_in_polygon(*FRONT_NOTCH_DEEP, stopbox_polygon(vx, vy, 0.0)), name
-    assert point_in_polygon(*FRONT_NOTCH_DEEP, stopbox_polygon(0.0, 0.0, 0.5))
-    for point, toward in ((FRONT_NOTCH_CROSSBAR, "forward"), (REAR_NOTCH_CROSSBAR, "back")):
+        assert not point_in_polygon(*REAR_NOTCH_DEEP, stopbox_polygon(vx, vy, 0.0)), name
+    assert point_in_polygon(*REAR_NOTCH_DEEP, stopbox_polygon(0.0, 0.0, 0.5))
+    for name, (vx, vy) in moves.items():
+        assert point_in_polygon(*REAR_NOTCH_CROSSBAR, stopbox_polygon(vx, vy, 0.0)) is (name == "back"), name
+    footprint = Polygon(footprint_geometry().footprint)
+    for point in (FRONT_NOTCH_DEEP, FRONT_NOTCH_CROSSBAR):
+        assert footprint.contains(Point(point)), point
         for name, (vx, vy) in moves.items():
-            assert point_in_polygon(*point, stopbox_polygon(vx, vy, 0.0)) is (name == toward), (point, name)
+            assert point_in_polygon(*point, stopbox_polygon(vx, vy, 0.0)), (point, name)
 
 
 def test_nav2_readme_documents_collision_monitor_validation() -> None:
@@ -881,8 +888,9 @@ def test_nodes_readme_names_the_smac_lattice_planner() -> None:
 
 
 def test_laser_filter_polygon_matches_the_h_outline() -> None:
-    """Startup self polygon of the laser_filter node in base_link: the generated H footprint + 1 cm (no padding
-    parameter: the margin is generated into the polygon); returns in the notches are kept."""
+    """Startup self polygon of the laser_filter node in base_link: the generated static footprint (H body + parked
+    arm) + 1 cm (no padding parameter: the margin is generated into the polygon); returns in the rear notch are kept,
+    the front notch lies under the parked gripper."""
     params = yaml.safe_load(LASER_FILTER_PARAMS.read_text())
     assert set(params) == {"scan_topic", "scan_filtered_topic", "polygon_frame", "transform_timeout_s", "polygon"}
     assert params["polygon_frame"] == "base_link"
@@ -892,8 +900,10 @@ def test_laser_filter_polygon_matches_the_h_outline() -> None:
     assert polygon == gen.laser_polygon
     shape = Polygon(polygon)
     assert shape.contains(Polygon(gen.footprint))
-    for point in (FRONT_NOTCH_DEEP, FRONT_NOTCH_CROSSBAR, REAR_NOTCH_CROSSBAR, *BAND_POINTS.values()):
+    for point in (REAR_NOTCH_DEEP, REAR_NOTCH_CROSSBAR, *BAND_POINTS.values()):
         assert not shape.contains(Point(point)), point
+    for point in (FRONT_NOTCH_DEEP, FRONT_NOTCH_CROSSBAR):
+        assert shape.contains(Point(point)), point
 
 
 def test_laser_filter_ansible_wiring() -> None:

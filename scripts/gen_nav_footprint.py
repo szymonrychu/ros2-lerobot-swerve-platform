@@ -2,44 +2,61 @@
 
 Reads scripts/gen_nav_footprint.yaml (pydantic-validated). The body (side frames, crossbar, swerve wheel envelopes,
 lidar column) comes from the mcp_server `body:` block in ansible/group_vars/client.yml when it exists, else from the
-yaml's own `body:`. From its top-view union (an H with a front and a rear notch) the script derives:
+yaml's own `body:`. From its top-view union (an H with a front and a rear notch) and the ground shadow of the arm
+parked at its stored home (parked_arm_joints, computed with mcp_server's arm model, see parked_shadow) the script
+derives:
 
-- the costmap footprint (one simple, counter-clockwise, non-convex polygon; footprint_padding 0),
-- the inflation radius (Nav2 circumscribed radius rounded up to a costmap cell) and cost_scaling_factor,
+- the costmap footprint: body outline + parked-arm shadow (one simple, counter-clockwise, non-convex polygon;
+  footprint_padding 0); without client.yml (no mcp_server arm config) the body outline alone,
+- the inflation radius (Nav2 circumscribed radius rounded up to a costmap cell) and cost_scaling_factor (the steepest
+  up to max_cost_scaling_factor that keeps the cost >= 1 at the circumscribed radius; the formula lives in
+  footprint_geometry, mcp_server applies it to the dynamic footprint),
 - the collision_monitor StopBox: per direction sector, the footprint swept stopbox_margin_m toward the motion, plus
   the bounding box + margin for rotation in place,
 - the laser_filter self polygon (footprint + laser_filter_margin_m),
-- the mcp_server nav_footprint numbers (circle segments, gap closing, margins, simplification, decimals), so the
-  dynamic footprint mcp_server publishes at an arm release uses the same geometry (mcp_server/footprint.py),
+- the mcp_server nav_footprint numbers (circle segments, gap closing, margins, simplification, decimals, costmap
+  resolution, maximum cost scaling, parked-arm shadow), so the footprint mcp_server publishes uses the same geometry
+  (mcp_server/footprint.py),
 
 and rewrites the regions between `# >>> gen_nav_footprint: <name>` and `# <<< gen_nav_footprint: <name>` markers in
 nodes/nav2_bringup/config/nav2_params.yaml, nodes/laser_filter/config/footprint_filter.yaml and the mcp_server config
-in ansible/group_vars/client.yml. The outline, circle and offset geometry is shared with mcp_server
-(nodes/mcp_server/mcp_server/footprint_geometry.py).
+in ansible/group_vars/client.yml. The outline, circle, offset and inflation geometry is shared with mcp_server
+(nodes/mcp_server/mcp_server/footprint_geometry.py). The parked-arm shadow needs the arm FK (ikpy, only in the
+mcp_server uv environment): it runs `python -m mcp_server.footprint` there through `uv run --project`.
 
 Usage: uv run python scripts/gen_nav_footprint.py [config.yaml]
 """
 
+import functools
+import json
 import math
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
-from shapely.geometry import LinearRing, MultiPoint, Point, Polygon, box
+from shapely.geometry import MultiPoint, Polygon, box
 from shapely.ops import unary_union
 
 DEFAULT_CONFIG = Path(__file__).resolve().with_suffix(".yaml")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # The outline, circle, offset and vertex-order geometry lives in mcp_server (its dynamic footprint at arm release uses
 # the same code): imported by path, the script runs in the root uv environment.
-sys.path.insert(0, str(REPO_ROOT / "nodes" / "mcp_server"))
+MCP_SERVER_DIR = REPO_ROOT / "nodes" / "mcp_server"
+sys.path.insert(0, str(MCP_SERVER_DIR))
 from mcp_server.footprint_geometry import (  # noqa: E402
     Point2,
     body_outline,
+    circumscribed_radius,
+    cost_scaling_factor,
+    inflation_radius,
+    inscribed_radius,
     offset_polygon,
     polygon_text,
+    static_outline,
     to_points,
 )
 
@@ -106,8 +123,10 @@ class Settings(BaseModel):
     laser_filter_margin_m: float = Field(ge=0.0)
     stopbox_margin_m: float = Field(gt=0.0)
     dynamic_simplify_m: float = Field(ge=0.0)
-    cost_scaling_factor: float = Field(gt=0.0)
+    max_cost_scaling_factor: float = Field(gt=0.0)
     decimals: int = Field(ge=3, le=6)
+    # Stored home pose of the arm (joint name -> rad, measured space): its shadow is part of the static footprint.
+    parked_arm_joints: dict[str, float] = Field(default_factory=dict)
 
     @field_validator("circle_segments")
     @classmethod
@@ -134,7 +153,7 @@ class Generated(BaseModel):
     cost_scaling_factor: float
     stopbox: dict[str, dict]
     laser_polygon: list[Point2]
-    mcp_nav_footprint: dict[str, float | int]
+    mcp_nav_footprint: dict[str, float | int | list[list[float]]]
 
 
 def load_settings(path: Path) -> Settings:
@@ -149,6 +168,83 @@ def load_settings(path: Path) -> Settings:
     return Settings(**(yaml.safe_load(path.read_text()) or {}))
 
 
+def mcp_server_config(settings: Settings, repo_root: Path) -> dict | None:
+    """The mcp_server config block of client.yml (parsed), None without client.yml or an mcp_server entry.
+
+    Args:
+        settings (Settings): Generator settings.
+        repo_root (Path): Base of relative paths.
+
+    Returns:
+        dict | None: The config.
+    """
+    path = repo_root / settings.client_vars_path
+    if not path.is_file():
+        return None
+    doc = yaml.safe_load(path.read_text()) or {}
+    for node in doc.get("ros2_nodes") or []:
+        if node.get("name") != "mcp_server":
+            continue
+        config = node.get("config") or {}
+        if isinstance(config, str):
+            config = yaml.safe_load(config) or {}
+        return config if isinstance(config, dict) else None
+    return None
+
+
+@functools.lru_cache(maxsize=8)
+def run_parked_shadow(
+    client_vars: str, content: str, joints: str, segments: int, simplify_m: float, decimals: int
+) -> str:
+    """Run `python -m mcp_server.footprint` in the mcp_server uv environment (cached per client.yml content).
+
+    Args:
+        client_vars (str): client.yml path.
+        content (str): Its content (cache key only).
+        joints (str): Parked pose as JSON.
+        segments (int): Vertices per circle.
+        simplify_m (float): Grow / simplify tolerance (m).
+        decimals (int): Decimal places.
+
+    Returns:
+        str: The module's JSON output.
+    """
+    del content
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    cmd = ["uv", "run", "--quiet", "--frozen", "--project", str(MCP_SERVER_DIR), "python", "-m", "mcp_server.footprint"]
+    args = [client_vars, joints, str(segments), str(simplify_m), str(decimals)]
+    result = subprocess.run(cmd + args, cwd=MCP_SERVER_DIR, env=env, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(f"parked arm shadow failed: {result.stderr.strip()[-2000:]}")
+    return result.stdout
+
+
+def parked_shadow(settings: Settings, repo_root: Path) -> list[list[float]]:
+    """Ground shadow of the parked arm (grown and simplified by dynamic_simplify_m, as mcp_server does), from the
+    mcp_server arm model (mount, joint offsets, tool offset, URDF) in client.yml; empty without client.yml, an
+    mcp_server entry or parked_arm_joints.
+
+    Args:
+        settings (Settings): Generator settings.
+        repo_root (Path): Base of relative paths.
+
+    Returns:
+        list[list[float]]: Vertices [[x, y], ...] (base_link, m).
+    """
+    if not settings.parked_arm_joints or mcp_server_config(settings, repo_root) is None:
+        return []
+    path = (repo_root / settings.client_vars_path).resolve()
+    out = run_parked_shadow(
+        str(path),
+        path.read_text(),
+        json.dumps(settings.parked_arm_joints, sort_keys=True),
+        settings.circle_segments,
+        settings.dynamic_simplify_m,
+        settings.decimals,
+    )
+    return [[float(x), float(y)] for x, y in json.loads(out)]
+
+
 def resolve_body(settings: Settings, repo_root: Path) -> tuple[Body, str]:
     """Pick the body: client.yml mcp_server `body:` when present, else the generator yaml's.
 
@@ -159,17 +255,9 @@ def resolve_body(settings: Settings, repo_root: Path) -> tuple[Body, str]:
     Returns:
         tuple[Body, str]: The body and a label of where it came from.
     """
-    path = repo_root / settings.client_vars_path
-    if path.is_file():
-        doc = yaml.safe_load(path.read_text()) or {}
-        for node in doc.get("ros2_nodes") or []:
-            if node.get("name") != "mcp_server":
-                continue
-            config = node.get("config") or {}
-            if isinstance(config, str):
-                config = yaml.safe_load(config) or {}
-            if isinstance(config, dict) and config.get("body"):
-                return Body.model_validate(config["body"]), "client.yml mcp_server body"
+    config = mcp_server_config(settings, repo_root)
+    if config and config.get("body"):
+        return Body.model_validate(config["body"]), "client.yml mcp_server body"
     return settings.body, "gen_nav_footprint.yaml body"
 
 
@@ -189,43 +277,6 @@ def footprint_polygon(body: Body, circle_segments: int, close_gap_m: float, deci
         ValueError: The parts do not form one connected outline.
     """
     return to_points(body_outline(body.boxes, body.cylinders, circle_segments, close_gap_m), decimals)
-
-
-def circumscribed_radius(points: list[Point2]) -> float:
-    """Nav2 circumscribed radius: distance from base_link to the farthest footprint vertex.
-
-    Args:
-        points (list[Point2]): Footprint.
-
-    Returns:
-        float: Radius (m).
-    """
-    return max(math.hypot(x, y) for x, y in points)
-
-
-def inscribed_radius(points: list[Point2]) -> float:
-    """Nav2 inscribed radius: distance from base_link to the nearest footprint edge.
-
-    Args:
-        points (list[Point2]): Footprint.
-
-    Returns:
-        float: Radius (m).
-    """
-    return LinearRing(points).distance(Point(0.0, 0.0))
-
-
-def inflation_radius(points: list[Point2], resolution: float) -> float:
-    """Inflation radius: the circumscribed radius rounded up to a whole costmap cell.
-
-    Args:
-        points (list[Point2]): Footprint.
-        resolution (float): Costmap cell size (m).
-
-    Returns:
-        float: Radius (m).
-    """
-    return round(math.ceil(circumscribed_radius(points) / resolution - 1e-9) * resolution, 6)
 
 
 def sweep_polygon(points: list[Point2], start: float, end: float, margin: float) -> Polygon:
@@ -310,12 +361,14 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
         Generated: Footprint, inflation, StopBox and laser polygon.
     """
     body, source = resolve_body(settings, repo_root)
-    footprint = footprint_polygon(body, settings.circle_segments, settings.close_gap_m, settings.decimals)
+    shadow = parked_shadow(settings, repo_root)
+    outline = body_outline(body.boxes, body.cylinders, settings.circle_segments, settings.close_gap_m)
+    footprint = to_points(static_outline(outline, shadow), settings.decimals)
     return Generated(
-        body_source=source,
+        body_source=source + (" + parked arm" if shadow else ""),
         footprint=footprint,
         inflation_radius=inflation_radius(footprint, settings.costmap_resolution),
-        cost_scaling_factor=settings.cost_scaling_factor,
+        cost_scaling_factor=cost_scaling_factor(footprint, settings.max_cost_scaling_factor),
         stopbox=stopbox_polygons(footprint, settings.stopbox_margin_m, settings.decimals),
         laser_polygon=offset_polygon(footprint, settings.laser_filter_margin_m, settings.decimals),
         mcp_nav_footprint={
@@ -325,6 +378,9 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
             "stopbox_margin_m": settings.stopbox_margin_m,
             "simplify_m": settings.dynamic_simplify_m,
             "decimals": settings.decimals,
+            "costmap_resolution": settings.costmap_resolution,
+            "max_cost_scaling_factor": settings.max_cost_scaling_factor,
+            "parked_arm_shadow": shadow,
         },
     )
 
@@ -361,7 +417,10 @@ def region_lines(name: str, gen: Generated) -> list[str]:
     if name == "laser_polygon":
         return [f"polygon: {polygon_string(gen.laser_polygon)}"]
     if name == "mcp_nav_footprint":
-        return [f"{key}: {value}" for key, value in gen.mcp_nav_footprint.items()]
+        return [
+            f"{key}: {polygon_text(value) if isinstance(value, list) else value}"
+            for key, value in gen.mcp_nav_footprint.items()
+        ]
     if name == "stopbox":
         lines = ["velocity_polygons: [" + ", ".join(f'"{n}"' for n in gen.stopbox) + "]"]
         for sub_name, sub in gen.stopbox.items():

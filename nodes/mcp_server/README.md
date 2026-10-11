@@ -33,7 +33,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `stop` | Always available: clears the motion queue first (dropped job ids in `motion_queue_dropped`), cancels all NavigateToPose goals and publishes a zero twist. Aborts any arm motion and holds the arm at its measured pose only if this server holds arm control (or a motion is running); otherwise the arm is not touched (`arm_held: false`). |
 | `get_arm_state` | Joint positions (measured follower values)/efforts, gripper effort, tool point pose (x, y, z, pitch; forward kinematics with `arm.joint_offsets_rad` applied), `floor_z_m` (floor height in the base_link frame), active source, lease, home stored. |
 | `take_control(subsystem: arm\|base)` | Take a control lease (see Control leases); moves nothing, a no-op when already held. `arm` starts the autonomy lease (publishes the measured pose on `/filter/autonomy_joint_commands`; needs fresh joint states); `base` sets the mcp_server-internal base lease. Returns `ControlState`. Allowed under battery cut-off and at any tilt level. Replaces `acquire_control`. |
-| `release_control(subsystem: arm\|base\|all = all, keep_position=false, carried_object_radius_m: float\|None = None)` | Release leases, parking first by default: arm drives home (the `arm_home` routes) then publishes the release (`std_msgs/Bool` true on `/filter/autonomy_release`); base cancels Nav2, zeroes the twist and waits for neutral steering. Always releases; returns `ReleaseResult {released, reset, state}`. Refused while the motion queue runs, and parking the arm is refused while the gripper carries an object. An arm release with `keep_position=true` publishes the dynamic navigation footprint (body + arm shadow + optional carried circle of `carried_object_radius_m`, 0..0.3 m, keep_position only), see [Navigation footprint](#navigation-footprint). |
+| `release_control(subsystem: arm\|base\|all = all, keep_position=false, carried_object_radius_m: float\|None = None)` | Release leases, parking first by default: arm drives home (the `arm_home` routes) then publishes the release (`std_msgs/Bool` true on `/filter/autonomy_release`); base cancels Nav2, zeroes the twist and waits for neutral steering. Always releases; returns `ReleaseResult {released, reset, state}`. Refused while the motion queue runs, and parking the arm is refused while the gripper carries an object. An arm release with `keep_position=true` publishes the dynamic navigation footprint (static outline + arm shadow + optional carried circle of `carried_object_radius_m`, 0..0.3 m, keep_position only; it then follows the released arm), see [Navigation footprint](#navigation-footprint). |
 | `get_control_state` | Both leases (sensor): `arm {held, held_since, at_home, home_stored, active_source, lost}`, `base {held, held_since, steering_neutral}`. |
 | `move_arm_joints(targets, speed_scale<=0.5, settle=None)` | `settle`: `trajectory_end` (default; `final` when the call moves the gripper joint, `limits.arm_default_settle`) or `final`, see the safety model.  Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `speed_scale` 0.5 is the maximum, `limits.arm_max_joint_velocity_rps` (default 1.0 rad/s); the description states the configured value. A `wrist_roll` change above `limits.roll_guard_min_change_rad` is refused while the gripper is open wider than `limits.roll_max_gripper_open_rad` (see Wrist roll guard). `converged` results may carry `residual_error` (see Safety model). |
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None, settle=None)` | `settle` as for `move_arm_joints`.  ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.104, measured 2026-10-10; see Arm mount); the tool descriptions and `get_arm_state.floor_z_m` state it. Motions near or below the effective surface are slowed (never blocked) by the floor slow zone; `surface_z_m`, `tilt_override_deg` and `surfaces` (also on `move_arm_joints`, `set_gripper` and `arm_home`; see Surface regions) shift it per call and results report `slow_zone`. |
@@ -484,44 +484,63 @@ with `subsystem='base'`, outside 0..0.3 m, or without the arm lease held.
 `limits.settle_tolerance_for(joint)` (0.08 rad default) of the stored home pose; the gripper is excluded so a job may
 end at home holding an object; `null` without a stored home or fresh joint states. `base.steering_neutral` is `null`
 without fresh swerve joint states. `held_since` is wall-clock epoch seconds. `footprint` reports the published
-navigation footprint: `kind` (`static` / `dynamic`), `vertices` (costmap footprint vertex count) and
-`carried_object_radius_m` (`null` without one); `footprint` is `null` without a `nav_footprint` config block.
+navigation footprint: `kind` (`static` / `dynamic` / `conservative`), `vertices` (costmap footprint vertex count),
+`carried_object_radius_m` (`null` without one) and `consumers` (`local_costmap`, `global_costmap`, `laser_filter`,
+`collision_monitor`: `ok`, `pending`, or `unavailable: ...` / `refused: ...` / `timeout: ...` / `republished: ...`);
+`footprint` is `null` without a `nav_footprint` config block.
 
 ## Navigation footprint
 
 `footprint.py` (`NavFootprint`, no ROS) decides what Nav2, the collision monitor and the lidar self filter treat as
-the robot; `ros_iface.RosRobot` is its `FootprintSink` (publishers, parameter clients, re-send timer).
+the robot; `ros_iface.RosRobot` is its `FootprintSink` (publishers, parameter clients, the republish timer, the
+`published_footprint` subscriptions, the consumer readiness poll and the measured arm pose).
 
 | Kind | When | Footprint |
 |---|---|---|
-| static | mcp_server start, `take_control(subsystem='arm')` (the arm may move from then on), an arm release that parked the arm (`homed`) | the H body outline: `footprint_geometry.body_outline` over `body:`, identical to the generated `nav2_params.yaml` footprint |
-| dynamic | an arm release with `keep_position=true` (and a release whose park failed or was skipped: the arm stays where it is) | union of the static outline, the ground shadow of the measured (frozen) arm pose and, with `carried_object_radius_m`, a circle of that radius around the tool point |
+| static | autonomy holds the arm (`take_control(subsystem='arm')`: the arm may move from then on), a parked release, a converged `/arm/home` (`NavFootprint.arm_homed`), or the measured released arm lies inside the static outline | the H body outline (`footprint_geometry.body_outline` over `body:`) united with the ground shadow of the arm parked at its stored home (`nav_footprint.parked_arm_shadow`), identical to the generated `nav2_params.yaml` footprint |
+| dynamic | the arm is released out of the static outline (`release_control(subsystem='arm', keep_position=true)`, a failed park, a human moving the released arm, an mcp_server start with the arm out) | union of the static outline, the ground shadow of the measured arm pose and, with `carried_object_radius_m`, a circle of that radius around the tool point |
+| conservative | the arm is released but its pose is unknown: mcp_server start without fresh joint states, or no fresh joint states since an unverified static footprint (`publish_conservative` for a keep release without them) | the static outline united with a disc of `conservative_reach_m` (0.5 m; the farthest arm part is ~0.445 m from the mount) plus the carried radius around the arm mount |
 
 The arm shadow is the convex hull of every arm part point of `SelfCollisionChecker.part_points` (link capsule ends
 widened by the 2 cm capsule radius, the grasp_sim collision box faces, the gripper hull, the jaw points) projected to
-the floor in `base_link`. Shadow and carried circle are simplified by `nav_footprint.simplify_m` (5 mm) and unioned
-with the exact static outline (holes filled, one polygon). The arm does not move while released, so the footprint
-stays fixed until the next `take_control('arm')`.
+the floor in `base_link`. Shadow and carried circle are grown by `nav_footprint.simplify_m` (5 mm) and then simplified
+by it (so the simplification never trims the shadow), and unioned with the exact static outline (holes filled, one
+polygon). An arm shadow within `simplify_m` of the static outline publishes the static footprint (ArmStop off).
 
-Consumers (each publish sends all of them; the current state is re-sent every `republish_s`, 5 s, so a restarted
-consumer picks it up):
+**Republish tick** (every `republish_s`, 5 s; the timer runs at the period `NavFootprint` asks for). While autonomy
+does not hold the arm it recomputes the footprint from the fresh measured pose (2.6-2.8 ms) and publishes it when it
+moved by more than `refresh_threshold_m` (1 cm, so joint noise does not make the costmaps re-inflate); with stale
+joint states it keeps the last footprint, unless that one never saw the released pose (static from `take_control`):
+then it goes conservative. It also republishes the footprint to a costmap whose `<ns>/published_footprint` (what the
+costmap uses, in its global frame; compared up to a rigid motion) differs, e.g. after a Nav2 restart, or never
+arrived; an unchanged footprint is not re-sent (each footprint change re-inflates the whole costmap). The laser_filter
+`polygon` and `ArmStop.enabled` are re-sent every tick. Parameter sets still unanswered after `param_timeout_s` (2 s)
+are cancelled and reported as `timeout`. A consumer whose `set_parameters` service comes up (polled every
+`consumer_poll_s`, 0.5 s; a restarted node starts from its yaml values) gets the current values at once. `/arm/home`
+runs the tick right after a converged home. One re-entrant lock covers a state change and its sends, so a tick never
+finishes sending a footprint a tool call has already replaced.
+
+Consumers:
 
 | Consumer | Input | Value |
 |---|---|---|
 | Nav2 local / global costmap | `geometry_msgs/Polygon` on `/local_costmap/footprint`, `/global_costmap/footprint` (`Costmap2DROS` subscribes its relative `footprint` topic) | the footprint (`footprint_padding` is 0) |
+| Nav2 local / global costmap inflation | parameters `inflation_layer.inflation_radius` and `inflation_layer.cost_scaling_factor` of `/local_costmap/local_costmap`, `/global_costmap/global_costmap` (dynamic InflationLayer parameters) | the footprint's circumscribed radius rounded up to a cell, and the steepest factor up to `max_cost_scaling_factor` (25) with cost >= 1 there (`k <= ln(252) / (circumscribed - inscribed)`), so MPPI / Smac keep their circumscribed-radius shortcut; sent only when changed (or the costmap restarted) |
 | laser_filter (`nodes/laser_filter`) | parameter `polygon` of `/laser_filter` through its `set_parameters` service | footprint + `laser_filter_margin_m` (1 cm), so the lidar does not see the robot's own arm or carried object |
-| collision_monitor | `PolygonStamped` (transient local) on `/collision_monitor/arm_stop_polygon` + parameter `ArmStop.enabled` | dynamic only: arm shadow + carried circle grown by `stopbox_margin_m` (2 cm), enabled; static: `ArmStop.enabled` false |
+| collision_monitor | `PolygonStamped` (transient local) on `/collision_monitor/arm_stop_polygon` + parameter `ArmStop.enabled` | dynamic / conservative: the part of the arm extension outside the static outline (the whole extension when that part falls apart, e.g. the arm also spans a notch) grown by `stopbox_margin_m` (2 cm), enabled; static: `ArmStop.enabled` false |
 
 The StopBox velocity sub-polygons are static parameters (Jazzy collision_monitor reads them once at configure, and
-`velocity_polygon` has no footprint topic), so they keep covering the body and the separate `ArmStop` polygon covers
-the released arm. ArmStop is a plain stop polygon: an obstacle within 2 cm of the released arm stops every motion
-(take arm control and move the arm, which drops back to the static footprint).
+`velocity_polygon` has no footprint topic), so they keep covering the static footprint and the separate `ArmStop`
+polygon covers the released arm. ArmStop uses `action_type: approach` (simulates the commanded motion for
+`time_before_collision`, 1 s): it slows down toward an obstacle next to the arm but lets the robot back away from it.
 
 The geometry numbers (`circle_segments`, `close_gap_m`, `laser_filter_margin_m`, `stopbox_margin_m`, `simplify_m`,
-`decimals`) are generated into the `nav_footprint:` block of `client.yml` by `scripts/gen_nav_footprint.py` from
-`scripts/gen_nav_footprint.yaml`, and the outline / circle / offset code (`footprint_geometry.py`) is the one the
-generator imports: the static footprint mcp_server publishes equals the static Nav2 / laser_filter configs (a test
-checks it). Without the block nothing is published.
+`decimals`, `costmap_resolution`, `max_cost_scaling_factor`, `parked_arm_shadow`) are generated into the
+`nav_footprint:` block of `client.yml` by `scripts/gen_nav_footprint.py` from `scripts/gen_nav_footprint.yaml`
+(`parked_arm_joints` is the stored home pose; the script computes its shadow with `python -m mcp_server.footprint` in
+this uv environment). The outline / circle / offset / inflation code (`footprint_geometry.py`) is the one the
+generator imports: the static footprint and inflation mcp_server publishes equal the static Nav2 / laser_filter
+configs (a test checks it). Without the block nothing is published.
 
 ## Arm mount and floor slow zone
 
@@ -1382,7 +1401,7 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
 | `grip.py` | no | grip profiles: resolve a preset name / inline overrides to a capped `GripProfile` |
 | `base_motion.py` | no | timed clamped drive loop, continuous spin with marks (`run_spin`), stop sequence (`run_stop`) and its base half (`run_base_stop`) |
 | `control.py` | no | control leases: `ControlManager` (take / release with the arm home and base steering resets / carried-object park refusal / footprint triggers / state / lease refusals / vitals digest), `wait_steering_neutral` |
-| `footprint.py`, `footprint_geometry.py` | no | navigation footprint: `NavFootprint` (static / dynamic, arm shadow, carried circle, consumers via `FootprintSink`); shared outline / circle / offset geometry (also imported by `scripts/gen_nav_footprint.py`) |
+| `footprint.py`, `footprint_geometry.py` | no | navigation footprint: `NavFootprint` (static / dynamic / conservative, arm shadow, carried circle, republish tick following the released arm, consumers and their outcomes via `FootprintSink`), `python -m mcp_server.footprint` (parked-arm shadow for the generator); shared outline / parked-arm union / circle / offset / inflation geometry (also imported by `scripts/gen_nav_footprint.py`) |
 | `motion_queue.py` | no | motion queue: step models, blend groups, preconditions, worker thread, events, waits |
 | `motion_tools.py` | no | `enqueue_motions`, `get_motion_status`, `cancel_motions`, `wait_for_event` (one `TOOL_MODULES` entry) |
 | `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
@@ -1396,7 +1415,7 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
 | `lookup_store.py`, `lookup_tools.py` | no | camera lookup store (JPEG + `index.jsonl`, slack-based retention, orphan sweep; models shared via `ros2_common.lookups`); the recorder hook of the camera tools and the `list_lookups` / `get_lookup_image` / `annotate_lookup` module |
 | `camera_scene.py`, `camera_overlay.py`, `camera_candidates.py`, `camera_calib.py` | no | calibrated scene and frames, overlay drawing and candidate grids, candidate sets, sample store and solver wiring |
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |
-| `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services; the footprint sink (costmap / ArmStop polygon publishers, `set_parameters` clients, re-send timer) |
+| `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services; the footprint sink (costmap / ArmStop polygon publishers, `published_footprint` subscriptions, `set_parameters` clients with outcome reports and timeouts, the republish timer, the consumer readiness poll, the arm pose) |
 | `spin.py` | no | `spin_forever` (executor loop that survives rclpy stale-handle errors), `run_or_exit` (exits the process when the executor thread dies while ROS is up, so systemd restarts the node instead of serving stale data; an error after ROS was shut down is the normal end), `FrameCache` (latest camera frame) |
 | `metrics.py` | no | Prometheus `mcp_*` metric objects, the per-feed sample age collector |
 | `serve.py` | no | uvicorn config; `timeout_graceful_shutdown` 3 s so the claude_agent's open MCP stream cannot stall `systemctl stop` until the 30 s SIGKILL |
@@ -1583,8 +1602,12 @@ nav_footprint:            # optional; published navigation footprint (see Naviga
   laser_filter_margin_m: 0.01
   stopbox_margin_m: 0.02
   simplify_m: 0.005
-  decimals: 4               # ... down to here
+  decimals: 4
+  costmap_resolution: 0.025
+  max_cost_scaling_factor: 25.0
+  parked_arm_shadow: [[0.3225, -0.0674], ...]   # ... down to here
   costmap_footprint_topics: [/local_costmap/footprint, /global_costmap/footprint]
+  inflation_layer: inflation_layer
   arm_stop_topic: /collision_monitor/arm_stop_polygon
   collision_monitor_node: /collision_monitor
   arm_stop_polygon: ArmStop
@@ -1592,6 +1615,10 @@ nav_footprint:            # optional; published navigation footprint (see Naviga
   laser_polygon_param: polygon
   frame_id: base_link
   republish_s: 5.0
+  refresh_threshold_m: 0.01
+  conservative_reach_m: 0.5
+  param_timeout_s: 2.0
+  consumer_poll_s: 0.5
 monitor:                  # all optional; thresholds of the body monitor (see Body awareness)
   servo_temp_warn_c: 60
   servo_temp_critical_c: 70

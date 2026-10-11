@@ -682,25 +682,34 @@ class ControlSettings(StrictModel):
 
 
 class NavFootprintSettings(StrictModel):
-    """Navigation footprint published by mcp_server (footprint.py): the static H body outline, or at an arm release
-    with keep_position=true the outline grown by the frozen arm's ground shadow and an optional carried object.
+    """Navigation footprint published by mcp_server (footprint.py): the static outline (H body + the parked arm), or,
+    while the arm is released out of it, the outline grown by the measured arm's ground shadow and an optional carried
+    object (a max-reach disc around the arm mount while the arm pose is unknown).
 
-    The geometry numbers (circle_segments .. decimals) are generated into client.yml by scripts/gen_nav_footprint.py
-    from scripts/gen_nav_footprint.yaml, the same values the static Nav2 / laser_filter polygons were built with.
+    The geometry numbers (circle_segments .. parked_arm_shadow) are generated into client.yml by
+    scripts/gen_nav_footprint.py from scripts/gen_nav_footprint.yaml, the same values the static Nav2 / laser_filter
+    polygons were built with.
     """
 
     circle_segments: int = Field(ge=8)  # vertices per wheel / lidar / carried-object circle (multiple of 4)
     close_gap_m: float = Field(ge=0.0)  # body outline: gaps narrower than 2 x this are closed
     laser_filter_margin_m: float = Field(ge=0.0)  # laser_filter self polygon = footprint + this
-    stopbox_margin_m: float = Field(gt=0.0)  # collision_monitor ArmStop = arm shadow (+ carried object) + this
-    simplify_m: float = Field(ge=0.0)  # arm shadow + carried circle simplification tolerance (m)
+    stopbox_margin_m: float = Field(gt=0.0)  # collision_monitor ArmStop = arm outside the body (+ object) + this
+    simplify_m: float = Field(ge=0.0)  # arm shadow + carried circle: grown by this, then simplified by this (m)
     decimals: int = Field(ge=3, le=6)  # decimal places of the published coordinates
+    costmap_resolution: float = Field(gt=0.0)  # costmap cell (m): the inflation radius is rounded up to a cell
+    max_cost_scaling_factor: float = Field(gt=0.0)  # steepest inflation falloff (1/m), lowered to keep cost >= 1
+    # Ground shadow of the arm parked at its stored home ([x, y] vertices, base_link): part of the static footprint.
+    parked_arm_shadow: list[tuple[float, float]]
     # geometry_msgs/Polygon footprint inputs of the Nav2 costmaps (Costmap2DROS subscribes `<costmap>/footprint`).
+    # The costmap node is `<ns>/<last ns segment>` (/local_costmap/local_costmap) and what it uses comes back on
+    # `<ns>/published_footprint`.
     costmap_footprint_topics: list[str] = Field(
         default_factory=lambda: ["/local_costmap/footprint", "/global_costmap/footprint"], min_length=1
     )
-    # collision_monitor stop polygon fed with the arm shadow (PolygonStamped, transient local) and toggled through its
-    # `<arm_stop_polygon>.enabled` parameter (the StopBox velocity polygons are static).
+    inflation_layer: str = "inflation_layer"  # costmap plugin whose inflation_radius / cost_scaling_factor are set
+    # collision_monitor polygon fed with the part of the arm outside the body (PolygonStamped, transient local) and
+    # toggled through its `<arm_stop_polygon>.enabled` parameter (the StopBox velocity polygons are static).
     arm_stop_topic: str = "/collision_monitor/arm_stop_polygon"
     collision_monitor_node: str = "/collision_monitor"
     arm_stop_polygon: str = "ArmStop"
@@ -708,8 +717,19 @@ class NavFootprintSettings(StrictModel):
     laser_filter_node: str = "/laser_filter"
     laser_polygon_param: str = "polygon"
     frame_id: str = "base_link"
-    # The current footprint is re-sent this often, so a restarted Nav2 / laser_filter picks it up (s).
+    # Republish tick (s): follows the released arm's measured pose, republishes to a costmap whose published_footprint
+    # differs (restarted Nav2), re-sends the laser_filter / ArmStop parameters.
     republish_s: float = Field(default=5.0, gt=0.0, le=60.0)
+    # A released arm footprint is replaced only when the measured pose moved it by more than this (m): joint noise
+    # must not make the costmaps re-inflate.
+    refresh_threshold_m: float = Field(default=0.01, ge=0.0, le=0.2)
+    # Arm pose unknown (no fresh joint states) while released: a disc of this radius around the arm mount (m). The
+    # farthest arm part point is ~0.445 m from the mount (+ the link capsule radius), so 0.5 covers every pose.
+    conservative_reach_m: float = Field(default=0.5, gt=0.0, le=1.0)
+    # A parameter set still unanswered after this is cancelled and reported as a timeout (s).
+    param_timeout_s: float = Field(default=2.0, gt=0.0, le=30.0)
+    # Consumer parameter services are checked this often; one that comes up gets the current footprint at once (s).
+    consumer_poll_s: float = Field(default=0.5, gt=0.0, le=10.0)
 
     @field_validator("circle_segments")
     @classmethod

@@ -141,8 +141,13 @@ class PerceptionFakeMixin:
         # Footprint sink (footprint.FootprintSink): published polygons, parameter sets and periodic callbacks.
         self.footprint_polygons: list[tuple[str, list[tuple[float, float]]]] = []
         self.stamped_polygons: list[tuple[str, str, list[tuple[float, float]]]] = []
-        self.node_params: list[tuple[str, str, str | bool]] = []
+        self.node_params: list[tuple[str, str, str | bool | float]] = []
         self.footprint_timers: list[tuple[float, Callable[[], None]]] = []
+        # Outcome each consumer node reports for a parameter set ("ok" when absent).
+        self.param_outcomes: dict[str, str] = {}
+        # Last polygon seen on each costmap `published_footprint` topic (what the costmap uses).
+        self.observed_footprints: dict[str, list[tuple[float, float]]] = {}
+        self.consumer_ready_callbacks: list[Callable[[str], None]] = []
         self.steer: dict[str, float] | None = {j: 0.0 for j in STEER_JOINTS}  # None = no fresh swerve joint states
         self.topdown = TopdownInputs(
             pose=(1.0, 2.0, 0.5),
@@ -168,11 +173,32 @@ class PerceptionFakeMixin:
     def publish_stamped_polygon(self, topic: str, frame: str, points: list[tuple[float, float]]) -> None:
         self.stamped_polygons.append((topic, frame, list(points)))
 
-    def set_node_parameter(self, node: str, name: str, value: str | bool) -> None:
+    def set_node_parameter(
+        self, node: str, name: str, value: str | bool | float, report: Callable[[str], None] | None = None
+    ) -> None:
         self.node_params.append((node, name, value))
+        if report is not None:
+            report(self.param_outcomes.get(node, "ok"))
+
+    def observed_polygon(self, topic: str) -> list[tuple[float, float]] | None:
+        return self.observed_footprints.get(topic)
 
     def every(self, period_s: float, callback: Callable[[], None]) -> None:
         self.footprint_timers.append((period_s, callback))
+
+    def on_consumer_ready(self, callback: Callable[[str], None]) -> None:
+        self.consumer_ready_callbacks.append(callback)
+
+    def arm_lease_held(self) -> bool:
+        return self.arm.control_held
+
+    def arm_parts(self) -> dict[str, np.ndarray] | None:
+        sample = self.arm.fresh_sample()
+        return None if sample is None else self.arm.body_check.part_points(self.arm.measured(sample))
+
+    def arm_mount_xy(self) -> tuple[float, float]:
+        mount = self.arm.cfg.arm.base_in_base_link
+        return (0.0, 0.0) if mount is None else (mount.x, mount.y)
 
     def stop_count(self) -> int:
         return self.stops

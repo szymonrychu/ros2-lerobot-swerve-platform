@@ -1,5 +1,5 @@
 # Config for scripts/gen_nav_footprint.py (validated by its pydantic Settings model).
-# The script derives the Nav2 costmap footprint (top-view H outline of the body), the inflation radius, the
+# The script derives the Nav2 costmap footprint (top-view H outline of the body + the parked arm), the inflation radius, the
 # collision_monitor StopBox sub-polygons and the laser_filter self polygon, and writes them into the marked regions of
 # nav2_params.yaml and footprint_filter.yaml. tests/test_nav_footprint.py fails when the files and the output differ.
 #
@@ -43,10 +43,21 @@ stopbox_margin_m: 0.02
 # simplified by this (m) before the union with the exact body outline (removes hull vertices, keeps the costmap
 # footprint check cheap; well inside the laser_filter and stopbox margins).
 dynamic_simplify_m: 0.005
-# Inflation falloff (1/m), the same on both costmaps. Steep so the penalty zone hugs the footprint: cost drops to 1/4 of
-# the inscribed cost within 6 cm. Upper bound: the cost at the circumscribed radius must stay >= 1, otherwise MPPI's
-# CostCritic and the Smac collision checker log "inflation is not set sufficiently" and check the full footprint
-# everywhere; 25 leaves it at 3 (bound ~33 for this footprint).
-cost_scaling_factor: 25.0
+# Steepest inflation falloff (1/m), the same on both costmaps. Steep so the penalty zone hugs the footprint: cost drops
+# to 1/4 of the inscribed cost within 6 cm. The generated cost_scaling_factor is this, lowered to the bound that keeps
+# the cost at the circumscribed radius >= 1 (k <= ln(252) / (circumscribed - inscribed), footprint_geometry), otherwise
+# MPPI's CostCritic and the Smac collision checker log "inflation is not set sufficiently" and check the full footprint
+# everywhere. mcp_server applies the same formula to the dynamic footprint (arm released out).
+max_cost_scaling_factor: 25.0
+# Arm parked at its stored home (/var/lib/ros2/arm/home.yaml on the client, measured space, rad): the folded arm's
+# gripper overhangs the crossbar front by ~10 cm, so its ground shadow (mcp_server arm model, grown and simplified by
+# dynamic_simplify_m) is part of the static footprint. Update after /arm/set_home stores a different home.
+parked_arm_joints:
+  shoulder_pan: -0.003
+  shoulder_lift: -1.35
+  elbow_flex: 1.578
+  wrist_flex: -0.1
+  wrist_roll: -1.637
+  gripper: 0.1
 # Decimal places of the written coordinates (4 = 0.1 mm).
 decimals: 4
