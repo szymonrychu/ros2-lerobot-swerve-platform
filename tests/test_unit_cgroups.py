@@ -39,7 +39,7 @@ NORMAL = {
     "types": [
         "rplidar_a1", "rf2o_laser_odometry", "rf2o_odom_relay", "robot_localization_ekf", "nav2_bringup",
         "slam_toolbox", "laser_filter", "gps_rtk", "poi_store", "overview_camera", "uvc_camera", "realsense_d435i",
-        "test_joint_api", "map_guard",
+        "test_joint_api", "map_guard", "costmap_zones",
     ],
 }  # fmt: skip
 AGENT = {

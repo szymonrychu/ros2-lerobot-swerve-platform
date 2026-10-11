@@ -111,6 +111,7 @@ A node list is one tag-filtered run, so there is nothing to parallelise. Servo n
 | `nav2_bringup` | Nav2 navigation stack |
 | `web_ui` | Browser dashboard (FastAPI + React) |
 | `poi_store` | Points/areas of interest store on the map (`/var/lib/ros2/poi/poi.json`, `/poi/*` topics) |
+| `costmap_zones` | Keepout/speed zone masks from area POIs for the Nav2 costmap filters (`/costmap_zones/*` masks, `/costmap_filter_info/*`) |
 | `claude_agent` | Claude (Agent SDK, Opus) chat agent driving the robot via mcp_server; needs `export CLAUDE_CODE_OAUTH_TOKEN=...` on first deploy (the deploy fails without it unless the robot already has the token) |
 
 ### Server nodes (RPi4b)

@@ -394,6 +394,14 @@
           vars:
             _deploy_node_name: poi_store
           tags: [poi_store, apt, python, build, config]
+        - name: Deploy costmap_zones
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [costmap_zones]
+          vars:
+            _deploy_node_name: costmap_zones
+          tags: [costmap_zones, apt, python, build, config]
 
         - name: Claude agent user, directories and OAuth token
           ansible.builtin.include_tasks:

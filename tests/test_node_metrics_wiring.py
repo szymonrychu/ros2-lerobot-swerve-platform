@@ -23,6 +23,7 @@ CONFIG_METRICS_PORTS = {
     "rf2o_odom_relay": 19108,
     "poi_store": 19109,
     "map_guard": 19110,
+    "costmap_zones": 19111,
 }
 ENV_METRICS_PORTS = {"gripper_uvc_camera": 19105, "rplidar_a1": 19106}
 # Nodes with an HTTP server serve /metrics on it: node -> key path of the port in its config.
@@ -207,5 +208,5 @@ def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
         checked += 1
     disabled = {n for n in CONTRACT_NODES if not nodes[n].get("enabled", True)}
     assert disabled == {"topic_scraper_api"}  # disabled 2026-10-11, not scraped
-    assert checked == len(CONTRACT_NODES) - len(disabled) == 14
+    assert checked == len(CONTRACT_NODES) - len(disabled) == 15
     assert set(targets) == CONTRACT_NODES - disabled

@@ -1365,6 +1365,21 @@ Static wiring invariants of the poi_store node (Ansible, playbooks, lint script,
 
 The node's own tests (store, models, config and `test_metrics.py`: `poi_commands_total{op,ok}` for ok, failed and unparseable (`invalid`) commands, `poi_count` after adds, clear and load, `poi_save_failures_total` with the rollback, the `metrics_port` config field; including `kind: object` POIs with their sighting fields and defaults for old files, and the `clear` op that deletes every POI of one `created_by`, persists and keeps the revision when nothing was removed) live in `nodes/poi_store/tests/` and need no ROS: `cd nodes/poi_store && uv run pytest tests -q`.
 
+### test_costmap_zones_config.py
+
+Static wiring invariants of the costmap_zones node (Ansible node type, entry, playbook, metrics target, docs).
+
+| Test | What it covers |
+|---|---|
+| `test_costmap_zones_node_type_defaults` | Native `python3 -m costmap_zones`, `nodes/costmap_zones`, `src_shared`, memory 96M/256M, normal weights 500/500/-500, `config_path`, `ros-jazzy-nav2-msgs`, env `COSTMAP_ZONES_CONFIG`. |
+| `test_costmap_zones_entry_after_poi_store_with_config` | Present + enabled entry directly after `poi_store`; config keys are exactly the `CostmapZonesConfig` fields and validate against it. |
+| `test_metrics_target_for_costmap_zones` | `monitoring_agent_node_targets` scrapes `127.0.0.1:19111/metrics`. |
+| `test_playbook_deploys_costmap_zones_after_poi_store` | `deploy_nodes_client.yml` deploys it after `poi_store` with tags `costmap_zones, apt, python, build, config`. |
+| `test_node_files_exist` | pyproject, uv.lock and README of the node exist. |
+| `test_docs_mention_costmap_zones_and_port` | ansible/README.md (incl. port 19111 table) and the ansible-deploy skill mention it. |
+
+`test_unit_cgroups.py` lists `costmap_zones` in the normal tier.
+
 ### test_mcp_camera_config.py
 
 Static checks of the mcp_server camera tools wiring (YAML and README only; no ROS needed).
