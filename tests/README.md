@@ -48,7 +48,7 @@ Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every node pro
 | `test_workflow_has_no_poetry` | The workflow never mentions Poetry. |
 | `test_uv_pinned_in_every_job` | Every job installs uv through `astral-sh/setup-uv` pinned to version 0.11.29. |
 | `test_root_tests_job_present` | A job runs the root test suite (`uv run --frozen pytest tests`). |
-| `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q` (20 node projects, `map_guard` and `laser_filter` included). |
+| `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q`, with no duplicate entries. The count is derived from the filesystem, not hardcoded, so adding a node only touches the matrix. |
 | `test_ansible_job_installs_collections_before_syntax_check` | The `lint-ansible` job installs `ansible/requirements.yml` collections (`ansible.posix`, used by the mount tasks) before `poe test-ansible`. |
 
 ### `test_precommit_config.py`
@@ -1652,7 +1652,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
 | `test_node_types_using_ros2_metrics_declare_src_shared` | Every venv node type that imports ros2_metrics sets `src_shared: true`. |
 | `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`; the server's and the agent defaults' node target lists are empty. |
-| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each of the 14 enabled contract nodes has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. |
+| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. |
 
 ### `monitoring_helpers.py`
 
@@ -1722,7 +1722,7 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_alloy_collects_host_cgroup_and_self_metrics` | (client, server) unix (textfile dir), cadvisor (`docker_only = false`) and self exporters. |
 | `test_alloy_drops_high_cardinality_cgroups_and_veth` | (client, server) the `id` keep rule keeps root, slices and services, drops scopes and sessions; veth interfaces are dropped. |
 | `test_alloy_listens_on_lan_port` | `/etc/default/alloy`: `0.0.0.0:12345`, reporting off, config path. |
-| `test_robot_alloy_scrapes_every_node_target` | The robot's `prometheus.scrape "nodes"` renders all 14 `monitoring_agent_node_targets` as `127.0.0.1:<port>` with a `node` label, job `ros2_nodes`, `honor_labels`, 5s/4s. |
+| `test_robot_alloy_scrapes_every_node_target` | The robot's `prometheus.scrape "nodes"` renders every `monitoring_agent_node_targets` entry as `127.0.0.1:<port>` with a `node` label, job `ros2_nodes`, `honor_labels`, 5s/4s; target nodes are unique and each is a present, enabled client `ros2_nodes` entry (no hardcoded count). |
 | `test_robot_alloy_scrapes_no_stack` | The robot scrapes no Prometheus or Grafana any more. |
 | `test_server_alloy_scrapes_the_stack_and_no_nodes` | The server's `prometheus.scrape "stack"` targets mimir 9009, loki 3100, grafana 3000; no node scrape. |
 | `test_alloy_systemd_collector_limited_to_ros_and_stack_units` | (client, server) systemd collector with restarts and start time; `unit_include` matches ros2-*, alloy, mimir, loki, grafana-server, nginx and not prometheus, ssh, sockets. |

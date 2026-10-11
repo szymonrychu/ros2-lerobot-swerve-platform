@@ -14,9 +14,11 @@ import yaml
 
 from tests.monitoring_helpers import (
     AGENT_DIR,
+    GROUP_VARS_DIR,
     HOSTS,
     group_monitoring_vars,
     host_vars,
+    load_yaml,
     render,
     resolve,
     role_defaults,
@@ -300,7 +302,11 @@ def test_alloy_listens_on_lan_port() -> None:
 def test_robot_alloy_scrapes_every_node_target() -> None:
     """The robot's scrape 'nodes': each target is 127.0.0.1:<port> with a node label, 5 s / 4 s, path /metrics."""
     targets = host_vars("client")["monitoring_agent_node_targets"]
-    assert len(targets) == 15  # topic_scraper_api disabled 2026-10-11, costmap_zones added
+    nodes = load_yaml(GROUP_VARS_DIR / "client.yml")["ros2_nodes"]
+    enabled = {n["name"] for n in nodes if n.get("present", True) and n.get("enabled", True)}
+    target_nodes = [t["node"] for t in targets]
+    assert target_nodes and len(set(target_nodes)) == len(target_nodes)
+    assert set(target_nodes) <= enabled, "scrape target for a node that is not deployed and enabled"
     body = alloy_block(agent("config.alloy.j2", "client"), 'prometheus.scrape "nodes"')
     rendered = re.findall(r'\{"__address__" = "([^"]+)", "node" = "([^"]+)"\}', body)
     assert rendered == [(t["address"], t["node"]) for t in targets]
