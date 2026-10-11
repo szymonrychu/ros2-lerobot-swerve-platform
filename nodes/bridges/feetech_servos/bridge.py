@@ -18,7 +18,8 @@ import time
 from typing import Any
 
 import rclpy
-from rclpy.executors import SingleThreadedExecutor
+from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import BatteryState, JointState
@@ -54,7 +55,8 @@ NODE_NAME = "lerobot_follower"  # ros2_nodes name on the robot; the server runs 
 def _wait_for_servos(servo: Any, expected_ids: list[int], node: Node) -> None:
     """Block until all expected servo IDs are present on the bus. Log and print missing IDs every 1s.
 
-    Raises RuntimeError if rclpy is shut down before all servos appear (so we never run with missing servos).
+    Raises ExternalShutdownException if rclpy is shut down before all servos appear (so we never run with missing
+    servos; run_bridge treats it as a normal stop).
     """
     expected_set = set(expected_ids)
     while rclpy.ok():
@@ -72,7 +74,7 @@ def _wait_for_servos(servo: Any, expected_ids: list[int], node: Node) -> None:
         )
         print(f"Waiting for servos: {missing}", flush=True)
         time.sleep(SERVO_WAIT_INTERVAL_S)
-    raise RuntimeError("Shutdown during servo wait")
+    raise ExternalShutdownException()
 
 
 def run_bridge(config: BridgeConfig) -> None:
@@ -86,6 +88,27 @@ def run_bridge(config: BridgeConfig) -> None:
     start_metrics_server(resolve_metrics_port(config.metrics_port), NODE_NAME)
     rclpy.init()
     node = Node("feetech_servos_bridge")
+    try:
+        serve_bridge(config, node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    except RCLError:
+        if rclpy.ok():  # a publish or wait set racing the SIGTERM handler is shutdown noise; anything else is a bug
+            raise
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+def serve_bridge(config: BridgeConfig, node: Node) -> None:
+    """Set the servos up, then run the bridge loop until the rclpy context is shut down.
+
+    Velocity joints are stopped on every way out of the loop (the finally block below), before the node is destroyed.
+
+    Args:
+        config (BridgeConfig): Bridge configuration.
+        node (Node): The rclpy node to attach publishers and subscriptions to.
+    """
     control_loop_period_s = 1.0 / max(1.0, config.control_loop_hz)
     groups = config.groups
     all_joints = config.all_joints
@@ -334,9 +357,6 @@ def run_bridge(config: BridgeConfig) -> None:
     finally:
         if servo is not None:
             cycle.stop(velocity_joints)
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
 
 
 def main() -> None:
