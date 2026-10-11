@@ -194,6 +194,55 @@ activated without errors (MPPI: "Critic will collision check based on footprint 
 than the robot) fails with "no valid path found"; the laser_filter removed a return on the side frame and kept returns
 in the front and rear notch.
 
+## MPPI overlay (model_delay)
+
+**Why it exists.** MPPI's Omni model assumes the robot follows a commanded `vy` at once. The swerve wheels first have
+to re-steer (up to 0.33 s for 90 deg at the ST3215's 4.71 rad/s) before lateral motion starts, so MPPI sees a lateral
+tracking error it caused itself and over-corrects. Nav2 fixed this upstream with per-axis input-delay compensation
+(`model_delay_vx`, `model_delay_vy`, `model_delay_wz`, in seconds): MPPI keeps a ring buffer of the commands it
+already published and replays them over the first rollout steps, so its predictions start from what the wheels are
+actually still executing.
+
+**Upstream.** [ros-navigation/navigation2 PR #6154](https://github.com/ros-navigation/navigation2/pull/6154), merged to
+`main` as commit `374cd2556640586251b1e49a346f6c8d0cb76224`. It is not backported to Jazzy (ABI) and ships with Lyrical.
+
+**The patch.** `patches/nav2_mppi_controller-0001-model-delay-pr6154.patch` is the PR ported by hand to Jazzy's xtensor
+MPPI, applied (strip 1) to navigation2 `f4108e5b1c2bce804a1aa0c7be6673a8eb4a1501` = tag 1.3.13, the version of the apt
+package `ros-jazzy-nav2-mppi-controller`. It touches only `nav2_mppi_controller/`:
+
+- `OptimizerSettings` gains `model_delay_vx/vy/wz` (parameters of the controller plugin, default 0.0 = off).
+- `MotionModel::initialize(constraints, model_dt, model_delay_vx = 0, model_delay_vy = 0, model_delay_wz = 0)` keeps the
+  Jazzy name (upstream renamed it `setConstraints`); the default arguments keep every Jazzy call site and test unchanged.
+- `predict()` shifts each batch row right by `offset = floor(delay / model_dt + 0.5)` steps and fills columns
+  `[1, offset)` from the command history: `vx` and `wz` always, `vy` only for holonomic models. The delay is the total
+  latency including the inherent one controller period, so an offset of 0 or 1 is a no-op.
+- The optimizer reads the parameters, passes the delays on every `initialize()` (reset, motion model change, speed
+  limit), clears the history on reset and pushes each published command (`vy` = 0 when not holonomic).
+- `test/motion_model_tests.cpp` gets the 4 upstream delay gtests ported to xtensor plus an offset-1-is-a-no-op test.
+
+The patched package is built from source into the `/opt/ros2-ws` overlay by the `colcon_source` machinery of the
+`ros2_node_deploy` role; the nav2 launcher sources that workspace after `/opt/ros/jazzy`, so pluginlib loads the
+overlay's `nav2_mppi_controller` instead of the apt one.
+
+**Probe.** `./scripts/probe-mppi-overlay-docker.sh` clones the pin in an arm64 `ros:jazzy-ros-base` container, checks
+and applies the patch, builds the package with tests and runs `motion_model_tests`, `optimizer_unit_tests` and
+`optimizer_smoke_test` (the unchanged Jazzy tests plus the 5 delay tests). It prints `PASS`/`FAIL` per step and exits
+non-zero on failure. See [scripts/README.md](../../scripts/README.md#probe-mppi-overlay-dockersh).
+
+**Pin-bump procedure** (after a Jazzy sync moves `ros-jazzy-nav2-mppi-controller` to a newer 1.3.x, so the overlay
+does not hide its MPPI fixes):
+
+1. Bump the SHA: set `PIN` in `scripts/probe-mppi-overlay-docker.sh` and the overlay source `commit` in
+   `ansible/group_vars/client.yml` to the navigation2 commit of the new release tag (they must stay equal).
+2. Run the probe. If the patch no longer applies, regenerate it against the new tag (the hunks are small) and rerun
+   until it prints `ALL CHECKS PASSED`.
+3. Deploy nav2_bringup (`./scripts/deploy-nodes.sh client nav2_bringup`); the new pin changes the build stamp, so the
+   overlay rebuilds.
+
+**Lyrical removal plan.** The parameter names are upstream's, so migrating to Lyrical means deleting the overlay: drop
+the patch, the probe and the overlay source from `client.yml`, keep the `model_delay_*` values in
+`config/nav2_params.yaml`, and the apt `nav2_mppi_controller` reads them natively.
+
 ## Rotate first, drive front-first
 
 `FollowPath` is the `RotationShimController` wrapping MPPI. When a new path points more than 45 deg away from the robot heading, it first rotates in place (0.5 rad/s) until within about 17 deg, then MPPI follows the path. At the end, once inside the goal tolerance, the shim alone turns to the goal heading (`rotate_to_heading_once`, `max_angular_accel` 0.5). MPPI's `GoalAngleCritic` is off because the two fought. The measured 58 deg overshoot had one cause: the default BT replans at 1 Hz and every replan resets the goal checker latch and the shim's position check, so the shim lost the in-tolerance state mid-turn and MPPI took over. `GoalCritic` (weight 8) brings the robot close before the turn. MPPI's `PathAngleCritic` runs in mode 0 (forward preference, weight 4.0), so the robot keeps its front toward the direction of travel instead of strafing. Why: the lidar is partly covered at the back and on the right, so it sees best ahead.

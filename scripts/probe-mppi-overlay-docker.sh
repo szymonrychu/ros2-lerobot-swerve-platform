@@ -61,20 +61,22 @@ rosdep install -y -q --from-paths "$SRC/nav2_mppi_controller" --ignore-src --ros
 pass "rosdep installed the nav2_mppi_controller deps"
 
 # --- 4. build ----------------------------------------------------------------------------------------------------
+# --base-paths limits discovery to the patched package, so its nav2_* deps resolve to /opt/ros/jazzy (apt) and not to
+# the unbuilt siblings in the navigation2 checkout - the same overlay-on-apt shape as /opt/ros2-ws on the robot.
 cd /ws
 echo "== colcon build (MAKEFLAGS=-j$JOBS)"
-if MAKEFLAGS="-j$JOBS" colcon build --packages-select nav2_mppi_controller --event-handlers console_cohesion+ \
+if MAKEFLAGS="-j$JOBS" colcon build --base-paths "$SRC/nav2_mppi_controller" --packages-select nav2_mppi_controller --event-handlers console_cohesion+ \
      --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON > /tmp/build.log 2>&1; then
   pass "colcon build nav2_mppi_controller (BUILD_TESTING=ON)"
 else
-  grep -E "error|Error" /tmp/build.log | head -40
-  tail -20 /tmp/build.log
+  { grep -E "error:|Error " /tmp/build.log || true; } | head -40
+  tail -20 /tmp/build.log || true
   fail "colcon build nav2_mppi_controller"
 fi
 
 # --- 5. tests ----------------------------------------------------------------------------------------------------
 echo "== colcon test (ctest -R '$TESTS')"
-colcon test --packages-select nav2_mppi_controller --event-handlers console_direct+ \
+colcon test --base-paths "$SRC/nav2_mppi_controller" --packages-select nav2_mppi_controller --event-handlers console_direct+ \
   --ctest-args -R "$TESTS" > /tmp/test.log 2>&1 || true
 grep -E "^ *[0-9]+/[0-9]+ Test|tests passed|\[  (PASSED|FAILED) |\[       OK \] MotionModelTests\.Delay|\[  FAILED  \]" /tmp/test.log || true
 ran=$(grep -cE "^ *[0-9]+/[0-9]+ Test" /tmp/test.log || true)

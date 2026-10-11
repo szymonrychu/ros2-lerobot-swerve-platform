@@ -165,6 +165,24 @@ mkdir -p .logs
 
 Env: `COSTMAP_ZONES_CLIENT_HOST` (default `client.ros2.lan`), `COSTMAP_ZONES_SSH_USER` (default from `ansible/inventory` or `$USER`), `COSTMAP_ZONES_REMOTE_REPO` (default `/opt/ros2-lerobot-swerve-platform`), `COSTMAP_ZONES_REMOTE_VENV` (default `/opt/ros2-nodes/costmap_zones/venv`).
 
+## probe-mppi-overlay-docker.sh
+
+Docker probe (arm64 `ros:jazzy-ros-base`, runs natively on an Apple Silicon Mac) for the nav2 MPPI overlay patch
+`nodes/nav2_bringup/patches/nav2_mppi_controller-0001-model-delay-pr6154.patch` (Nav2 PR #6154, `model_delay_vx/vy/wz`,
+ported to xtensor for Jazzy 1.3.13). It clones navigation2 at the constant `PIN`
+(`f4108e5b1c2bce804a1aa0c7be6673a8eb4a1501`, tag 1.3.13 = the apt version), runs `git apply --check` and applies the
+patch, checks it touches only `nav2_mppi_controller/`, `rosdep install`s the package deps, `colcon build`s
+`nav2_mppi_controller` with `-DBUILD_TESTING=ON`, runs `colcon test` with
+`ctest -R 'motion_model_tests|optimizer_unit_tests|optimizer_smoke_test'` and `colcon test-result --verbose`. Prints
+`PASS`/`FAIL` per step and `ALL CHECKS PASSED` at the end; exits non-zero on any failure. The first run downloads the
+image and the build deps (several minutes). `PROBE_JOBS` (default 4) sets the make parallelism. `PIN` must equal the
+overlay source commit in `ansible/group_vars/client.yml`; run the probe after every pin bump, before deploying (see
+`nodes/nav2_bringup/README.md`, MPPI overlay (model_delay)).
+
+```bash
+mkdir -p .logs && ./scripts/probe-mppi-overlay-docker.sh 2>&1 | tee .logs/probe-mppi-overlay.log | tail -40
+```
+
 ## propose_unit_limits.py
 
 Prints proposed `MemoryLow`, `MemoryMax`, `CPUWeight` and `IOWeight` for the `ros2-*` systemd units in the robot-headroom model (no `CPUQuota`, no `MemoryHigh`) from metrics history (p99 CPU, typical (p50) and peak memory working set) next to the values configured in `ansible/group_vars/client.yml`: `MemoryLow` = typical working set rounded up to 8 MiB, `MemoryMax` = 2x the peak (a larger current cap kept), weights = the configured tier (else 500), plus the sum of the proposed `MemoryLow`. Flags: `oom risk`, `tight max`, `unprotected`, `throttle risk` (only where a `CPUQuota` is still set). It queries the Prometheus API of the server's Mimir (`prometheus_url: http://server.ros2.lan:9009/prometheus`, 1 d retention), which stores both hosts' series, and selects one host with `host: client` (the `host` label set by Alloy; use `server` together with `group_vars_path: ansible/group_vars/server.yml` for the server's units). Configured by `scripts/propose_unit_limits.yaml` (URL, host, window, percentiles, `memory_max_factor`, minimums, default weights, `format: table|yaml`); read-only, it never edits `client.yml`. See `ansible/README.md` (Node resource model).
