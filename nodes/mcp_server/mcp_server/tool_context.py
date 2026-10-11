@@ -12,7 +12,8 @@ from ros2_common.battery import BatteryGuard
 from .arm import ArmController
 from .base_motion import DriveOutcome, SpinOutcome
 from .config import McpServerConfig
-from .models import BasePose, CameraFrame, MapSummary, NavigationResult, RobotState, ScanPoints, StopResult
+from .frontiers import FrontierTracker, MapGrid
+from .models import BasePose, CameraFrame, MapSummary, NavigationResult, PathPlan, RobotState, ScanPoints, StopResult
 from .monitor import BaseUse, RobotMonitor
 from .topdown import TopdownInputs
 
@@ -25,7 +26,9 @@ LOGGER = logging.getLogger("mcp_server.tools")
 # Tilt guard classification of the base motion tools: automatic navigation (Nav2 goals, autonomous turns) is refused
 # while the guard is at warning or error; manual base moves only at error (base drive inhibited). enqueue_motions is
 # refused when it carries a base step (base_relative / navigate_to_pose are Nav2 goals). Arm tools are unaffected.
-TILT_NAV_TOOLS = frozenset({"navigate_to_pose", "move_relative", "look_around"})
+TILT_NAV_TOOLS = frozenset(
+    {"navigate_to_pose", "move_relative", "look_around", "go_to_frontier", "look_toward_frontier"}
+)
 TILT_MANUAL_BASE_TOOLS = frozenset({"drive"})
 
 
@@ -118,6 +121,18 @@ class RobotApi(Protocol):
         """Snapshot of the map, local costmap, lidar points, plan and pose for the top-down view."""
         ...
 
+    def map_grid(self) -> MapGrid | None:
+        """Latest /map within frontiers.map_max_age_s in the map frame (version = stamp, size, origin); None otherwise."""
+        ...
+
+    def compute_path(self, x: float, y: float, yaw: float, timeout_s: float) -> PathPlan:
+        """Ask Nav2 for a path from the current pose to a map goal (no motion); RobotError when the planner is down."""
+        ...
+
+    def nav_active(self) -> bool:
+        """Whether a base motion runs or Nav2 has an accepted / executing goal."""
+        ...
+
     def poi_list(self) -> tuple[list[dict[str, Any]], int]:
         """Latest /poi/list (POIs, revision); RobotError when poi_store never published."""
         ...
@@ -144,6 +159,7 @@ class ToolContext:
     control: "ControlManager | None" = None
     lookups: "LookupRecorder | None" = None  # camera lookup recorder (lookup_tools.record_lookup)
     engine: "GuardEngine | None" = None  # guard rule engine (guard_tools.check_guard_rules)
+    frontiers: FrontierTracker | None = None  # frontier tracker (frontier_tools); None without frontier tools
 
     def lease_gate(self, tool_name: str, kinds: list[str]) -> None:
         """Refuse an enqueue whose steps need a control lease that is not held, before the robot is touched.

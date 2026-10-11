@@ -761,3 +761,28 @@ def test_arm_outside_static_m_five_cm_protrusion_within_5_mm(tmp_path: Path) -> 
     assert nav.arm_outside_static_m(parts) == pytest.approx(0.05, abs=0.005)
     inside = nav.static.representative_point()
     assert nav.arm_outside_static_m({"tool_point": np.array([[inside.x, inside.y, 0.1]])}) == 0.0
+
+
+# --- circumscribed radius -----------------------------------------------------------------------------------------------
+
+
+def test_circumscribed_radius_is_the_static_inflation_radius_and_covers_every_vertex(tmp_path: Path) -> None:
+    robot = footprint_robot(tmp_path)
+    nav = nav_for(robot)
+    radius = nav.circumscribed_radius()
+    assert radius == nav.current.inflation_radius
+    assert radius >= max(math.hypot(x, y) for x, y in static_points())
+
+
+def test_circumscribed_radius_follows_the_published_footprint(tmp_path: Path) -> None:
+    robot = footprint_robot(tmp_path)
+    nav = nav_for(robot)
+    static_radius = nav.circumscribed_radius()
+    move_arm(robot, SIDEWAYS)
+    nav.publish_dynamic(parts_at(robot, SIDEWAYS), None)
+    assert nav.current.kind == "dynamic"
+    assert nav.circumscribed_radius() == nav.current.inflation_radius >= static_radius
+    nav.publish_conservative(None)
+    assert nav.current.kind == "conservative"
+    assert nav.circumscribed_radius() == nav.current.inflation_radius
+    assert nav.circumscribed_radius() > static_radius

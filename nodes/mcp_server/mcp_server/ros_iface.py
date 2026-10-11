@@ -18,7 +18,7 @@ from action_msgs.msg import GoalInfo, GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import Point32, PolygonStamped, PoseStamped, Twist
 from geometry_msgs.msg import Polygon as PolygonMsg
-from nav2_msgs.action import NavigateToPose
+from nav2_msgs.action import ComputePathToPose, NavigateToPose
 from nav2_msgs.msg import CollisionMonitorState
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
@@ -54,6 +54,7 @@ from .control import NavGoalRegistry
 from .floor_guard import monitor_tilt_sample
 from .footprint import costmap_node, published_footprint_topic
 from .footprint_geometry import Point2
+from .frontiers import MapGrid
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
 from .grasp_tools import GraspService
 from .ik import ArmKinematics, load_joint_limits
@@ -66,6 +67,7 @@ from .models import (
     MapSummary,
     NavGoalStatus,
     NavigationResult,
+    PathPlan,
     RobotError,
     RobotEvent,
     RobotState,
@@ -389,6 +391,9 @@ class RosRobot:
         )
         self.subscribe(String, t.poi_result, lambda msg: self.poi.on_result(msg.data), COMMAND_QOS)
         self.nav_client = ActionClient(self.node, NavigateToPose, t.navigate_action, callback_group=self.group)
+        self.compute_client = ActionClient(
+            self.node, ComputePathToPose, t.compute_path_action, callback_group=self.group
+        )
         self.own_goals = NavGoalRegistry()  # NavigateToPose goals this server sent (release_control base reset)
         self.cancel_client = self.node.create_client(
             CancelGoal, t.navigate_action + CANCEL_SUFFIX, callback_group=self.group
@@ -1218,6 +1223,115 @@ class RosRobot:
         else:
             inputs.costmap = layer
         inputs.ages[key] = round(age, 3)
+
+    def map_grid(self) -> MapGrid | None:
+        """Latest /map within frontiers.map_max_age_s as a grid in the map frame.
+
+        Returns:
+            MapGrid | None: Grid whose version is (stamp sec, stamp nanosec, width, height, origin x, origin y) of the
+                message; None when no fresh map arrived or the TF from the map's frame to the map frame is missing.
+        """
+        item = self.get("map", self.cfg.frontiers.map_max_age_s)
+        if item is None:
+            return None
+        msg = item.value
+        frame = msg.header.frame_id or self.cfg.topics.map_frame
+        fx = fy = fyaw = 0.0
+        if frame != self.cfg.topics.map_frame:
+            tf = self.lookup_pose(self.cfg.topics.map_frame, frame)
+            if tf is None:
+                return None
+            fx, fy, fyaw = tf.x, tf.y, tf.yaw
+        info, o = msg.info, msg.info.origin
+        c, s = math.cos(fyaw), math.sin(fyaw)
+        yaw = yaw_from_quaternion(o.orientation.x, o.orientation.y, o.orientation.z, o.orientation.w)
+        stamp = msg.header.stamp
+        version = (stamp.sec, stamp.nanosec, info.width, info.height, o.position.x, o.position.y)
+        return MapGrid.from_array(
+            np.asarray(msg.data, dtype=np.int16).reshape(info.height, info.width),
+            info.resolution,
+            fx + c * o.position.x - s * o.position.y,
+            fy + s * o.position.x + c * o.position.y,
+            fyaw + yaw,
+            version,
+        )
+
+    def compute_path(self, x: float, y: float, yaw: float, timeout_s: float) -> PathPlan:
+        """Ask Nav2's planner for a path from the current pose to a map goal (ComputePathToPose, use_start false).
+
+        Args:
+            x (float): Goal x in the map frame (m).
+            y (float): Goal y in the map frame (m).
+            yaw (float): Goal yaw (rad).
+            timeout_s (float): Maximum wait for the goal answer and the result (s); the goal is cancelled on expiry.
+
+        Returns:
+            PathPlan: succeeded with the path length (sum of segment lengths), failed (planner error, empty path or
+                rejected goal), timeout (no result in time) or unavailable (the server did not answer the goal).
+
+        Raises:
+            RobotError: The goal is not finite or the planner action server is not ready.
+        """
+        if not all(math.isfinite(v) for v in (x, y, yaw)):
+            raise RobotError("goal must be finite")
+        t = self.cfg.topics
+        if not self.compute_client.wait_for_server(timeout_sec=self.cfg.timeouts.action_server_wait_s):
+            raise RobotError(f"Nav2 planner action server {t.compute_path_action} is not ready")
+        goal_pose = BasePose(frame=t.map_frame, x=x, y=y, yaw=yaw)
+        goal = ComputePathToPose.Goal()
+        goal.goal = PoseStamped()
+        goal.goal.header.frame_id = t.map_frame
+        goal.goal.pose.position.x, goal.goal.pose.position.y = x, y
+        o = goal.goal.pose.orientation
+        o.x, o.y, o.z, o.w = quaternion_from_yaw(yaw)
+        goal.use_start = False
+        goal.planner_id = t.planner_id
+        started = time.monotonic()
+
+        def plan(status: str, **fields: Any) -> PathPlan:
+            fields.setdefault("planning_time_s", round(time.monotonic() - started, 3))
+            return PathPlan(status=status, goal=goal_pose, **fields)
+
+        send = self.compute_client.send_goal_async(goal)
+        if not wait_future(send, timeout_s):
+            return plan("unavailable", error_msg=f"{t.compute_path_action} did not answer the goal in {timeout_s:g} s")
+        handle = send.result()
+        if handle is None or not handle.accepted:
+            return plan("failed", error_msg="goal rejected")
+        result_future = handle.get_result_async()
+        if not wait_future(result_future, max(0.0, timeout_s - (time.monotonic() - started))):
+            wait_future(handle.cancel_goal_async(), CANCEL_WAIT_S)
+            return plan("timeout", error_msg=f"no path within {timeout_s:g} s")
+        res = result_future.result()
+        if res is None:
+            return plan("failed", error_msg="no result")
+        out = res.result
+        error_code = int(out.error_code)
+        planning_s = out.planning_time.sec + out.planning_time.nanosec * 1e-9
+        if res.status != GoalStatus.STATUS_SUCCEEDED or error_code != 0:
+            return plan(
+                "failed", error_code=error_code, error_msg=out.error_msg or f"planner status {res.status}",
+                planning_time_s=round(planning_s, 3),
+            )  # fmt: skip
+        points = np.array([[p.pose.position.x, p.pose.position.y] for p in out.path.poses], dtype=float)
+        if len(points) == 0:
+            return plan("failed", error_code=error_code, error_msg="empty path", planning_time_s=round(planning_s, 3))
+        length = float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
+        return plan("succeeded", length_m=round(length, 3), error_code=error_code, planning_time_s=round(planning_s, 3))
+
+    def nav_active(self) -> bool:
+        """Whether a base motion runs or Nav2 reports an accepted / executing NavigateToPose goal.
+
+        Returns:
+            bool: True while the base_motion lock is held or nav_status lists an accepted or executing goal.
+        """
+        if self.base_motion.locked():
+            return True
+        nav = self.get("nav_status")
+        if nav is None:
+            return False
+        active = (GoalStatus.STATUS_ACCEPTED, GoalStatus.STATUS_EXECUTING)
+        return any(goal.status in active for goal in nav.value.status_list)
 
     def topdown_inputs(self) -> TopdownInputs:
         """Snapshot for get_topdown_view: pose, SLAM map, local costmap (lazy subscription), lidar points and plan.

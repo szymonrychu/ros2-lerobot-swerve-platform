@@ -5,7 +5,8 @@ from collections.abc import Callable
 import numpy as np
 
 from mcp_server.arm import JointSample
-from mcp_server.models import BasePose, RobotError
+from mcp_server.frontiers import MapGrid
+from mcp_server.models import BasePose, PathPlan, RobotError
 from mcp_server.poi_client import PoiStoreDown
 from mcp_server.staleness import Stamped
 from mcp_server.topdown import TopdownInputs
@@ -149,6 +150,12 @@ class PerceptionFakeMixin:
         self.observed_footprints: dict[str, list[tuple[float, float]]] = {}
         self.consumer_ready_callbacks: list[Callable[[str], None]] = []
         self.steer: dict[str, float] | None = {j: 0.0 for j in STEER_JOINTS}  # None = no fresh swerve joint states
+        # Frontier support: settable map (None = no fresh /map), compute_path script (a PathPlan, an exception to raise
+        # or a callable (x, y, yaw, timeout_s) -> PathPlan), the calls made and the nav_active flag.
+        self.map: MapGrid | None = None
+        self.path_plan: PathPlan | Exception | Callable[[float, float, float, float], PathPlan] | None = None
+        self.path_requests: list[tuple[float, float, float, float]] = []
+        self.nav_busy = False
         self.topdown = TopdownInputs(
             pose=(1.0, 2.0, 0.5),
             scan_points=np.array([[1.0, 0.0], [0.0, 1.0]]),
@@ -159,6 +166,23 @@ class PerceptionFakeMixin:
 
     def robot_pose(self) -> BasePose | None:
         return self.pose
+
+    def map_grid(self) -> MapGrid | None:
+        return self.map
+
+    def compute_path(self, x: float, y: float, yaw: float, timeout_s: float) -> PathPlan:
+        self.path_requests.append((x, y, yaw, timeout_s))
+        plan = self.path_plan
+        if isinstance(plan, Exception):
+            raise plan
+        if callable(plan):
+            return plan(x, y, yaw, timeout_s)
+        if plan is None:
+            raise RobotError("Nav2 planner action server /compute_path_to_pose is not ready")
+        return plan.model_copy(update={"goal": BasePose(frame="map", x=x, y=y, yaw=yaw)})
+
+    def nav_active(self) -> bool:
+        return self.nav_busy
 
     def reset_base(self) -> bool:
         self.base_resets += 1

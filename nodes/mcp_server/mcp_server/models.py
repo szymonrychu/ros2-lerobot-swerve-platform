@@ -60,6 +60,20 @@ class BasePose(BaseModel):
     age_s: float | None = Field(default=None, description="Age of the transform/sample this pose comes from")
 
 
+class PathPlan(BaseModel):
+    """Outcome of one Nav2 ComputePathToPose request (RobotApi.compute_path); no motion happens."""
+
+    status: Literal["succeeded", "failed", "timeout", "unavailable"] = Field(
+        description="succeeded: a path; failed: planner error or rejected goal; timeout: no result in time (goal "
+        "cancelled); unavailable: the planner server did not answer the goal"
+    )
+    length_m: float | None = Field(default=None, description="Sum of the path segment lengths (m); null without a path")
+    planning_time_s: float | None = Field(default=None, description="Planner time (s), measured when it reports none")
+    error_code: int | None = Field(default=None, description="nav2_msgs ComputePathToPose error code (0 = none)")
+    error_msg: str = Field(default="", description="Planner or request error text")
+    goal: BasePose = Field(description="The requested goal pose")
+
+
 class Twist2D(BaseModel):
     """Planar velocity of base_link from /odometry/filtered."""
 

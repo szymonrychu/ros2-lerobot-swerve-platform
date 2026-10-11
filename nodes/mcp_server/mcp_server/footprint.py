@@ -682,6 +682,15 @@ class NavFootprint:
         shadow = arm_shadow(parts, self.cfg.circle_segments)
         return max(Point(x, y).distance(self.static) for x, y in get_coordinates(shadow))
 
+    def circumscribed_radius(self) -> float:
+        """Radius the Nav2 costmaps inflate by for the footprint published now.
+
+        Returns:
+            float: The circumscribed radius rounded up to a costmap cell (m).
+        """
+        with self.lock:
+            return self.current.inflation_radius
+
     def state(self) -> FootprintState:
         """What is published now.
 
