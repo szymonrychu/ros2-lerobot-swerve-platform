@@ -232,6 +232,16 @@ cause chain in `robot_stop.call_robot_stop`) is reported as `unreachable` and lo
 skipped: mcp_server already gone"); other failures, and an unreachable server outside shutdown, stay errors. mcp_server
 itself releases the arm lease when it shuts down.
 
+## Clean stop on SIGTERM
+
+`systemctl stop` finishes within a few seconds and exits 0. uvicorn runs with `timeout_graceful_shutdown`
+(`GRACEFUL_SHUTDOWN_TIMEOUT_S` = 3 s in `__main__.py`), so open `/ws/events` sockets cannot hold it until systemd's 30 s
+SIGKILL. The app lifespan then calls `AgentRunner.close()`: the robot stop (source `shutdown`, kept) runs concurrently
+with the session shutdown, which cancels the background interrupt tasks, interrupts the model, cancels the running
+instruction (recorded as an `error` event "instruction interrupted by service shutdown" plus a `turn_end` with status
+`interrupted`), disconnects the SDK client, and terminates the Claude CLI subprocess if it is still alive (SIGTERM, then
+SIGKILL). Each of those waits is bounded by `shutdown_client_timeout_s`.
+
 ## Watchdog and session start
 
 Time budget: a PostToolUse hook appends `instruction time left: N s` to every tool result, and the permission gate
@@ -299,6 +309,7 @@ unknown keys are rejected.
 | `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |
 | `mcp_check_timeout_s` | `30` | Bound for each step of the robot MCP server check before an instruction (status query, pending wait, reconnect) and for the `/metrics` reachability probe |
 | `shutdown_stop_timeout_s` | `2` | Shorter bound for the robot stop call at service shutdown (mcp_server may already be gone) |
+| `shutdown_client_timeout_s` | `1` | Bound at service shutdown for each of the model interrupt, the session disconnect and the CLI wait after SIGTERM (then SIGKILL) |
 | `robot_events_topic` | `/robot_events` | std_msgs/String JSON events of the mcp_server monitor |
 | `robot_events_history` | `50` | Robot events kept in memory |
 | `robot_event_debounce_s` | `2` | A critical event does not interrupt again within this window |

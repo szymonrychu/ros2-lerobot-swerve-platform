@@ -22,6 +22,7 @@ from .runner import REMOVED_ENV_KEYS, AgentRunner
 NODE_NAME = "claude_agent"
 SESSION_LOG_RELPATH = Path("session") / "events.jsonl"
 ROBOT_EVENTS_QOS_DEPTH = 50
+GRACEFUL_SHUTDOWN_TIMEOUT_S = 3  # open WebSockets are cancelled after this; systemd stops at 30 s
 
 
 def make_robot_event_callback(runner: AgentRunner) -> Callable[[String], None]:
@@ -88,7 +89,13 @@ def main() -> int:
         threading.Thread(target=spin_executor, args=(executor,), name="rclpy-executor", daemon=True).start()
         app = create_app(runner, events, config, on_shutdown=runner.close, on_startup=runner.bind_loop)
         logger.info(f"serving the agent API on http://{config.http_host}:{config.http_port} (model {config.model})")
-        uvicorn.run(app, host=config.http_host, port=config.http_port, log_level="info")
+        uvicorn.run(
+            app,
+            host=config.http_host,
+            port=config.http_port,
+            log_level="info",
+            timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_TIMEOUT_S,
+        )
     finally:
         executor.shutdown()
         node.destroy_node()

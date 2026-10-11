@@ -124,6 +124,8 @@ class ClaudeAgentConfig(BaseModel):
         connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
         stop_timeout_s: Bound for the robot ``stop`` call and for the model interrupt, each.
         shutdown_stop_timeout_s: Shorter bound for the robot ``stop`` call at service shutdown (mcp_server may be gone).
+        shutdown_client_timeout_s: Bound at service shutdown for each of: the model interrupt, the session disconnect,
+            the wait for the Claude CLI subprocess after SIGTERM (then it is killed).
         mcp_check_timeout_s: Bound for each step of the robot MCP server check before an instruction (status query, waiting
             out a ``pending`` connection, the in-place reconnect) and for the mcp_server reachability probe.
         robot_events_topic: ROS2 topic (std_msgs/String JSON) of the mcp_server event monitor.
@@ -171,6 +173,7 @@ class ClaudeAgentConfig(BaseModel):
     connect_timeout_s: float = Field(default=240.0, gt=0)
     stop_timeout_s: float = Field(default=5.0, gt=0)
     shutdown_stop_timeout_s: float = Field(default=2.0, gt=0)
+    shutdown_client_timeout_s: float = Field(default=1.0, gt=0)
     mcp_check_timeout_s: float = Field(default=30.0, gt=0)
     robot_events_topic: str = DEFAULT_ROBOT_EVENTS_TOPIC
     robot_events_history: int = Field(default=50, ge=1)

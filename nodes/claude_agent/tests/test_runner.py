@@ -1363,3 +1363,99 @@ async def test_timeout_without_a_call_in_flight_keeps_the_plain_message(tmp_path
     errors = [e for e in events.history() if e["type"] == "error"]
     assert errors[0]["message"] == "instruction timed out after 0.2 s"
     assert "cut_off_call" not in errors[0]
+
+
+class FakeProcess:
+    """Stand-in for the CLI subprocess (anyio Process) behind a client's transport."""
+
+    def __init__(self, exits_on_terminate: bool = True) -> None:
+        self.returncode: int | None = None
+        self.exits_on_terminate = exits_on_terminate
+        self.terminated = False
+        self.killed = False
+        self.exited = asyncio.Event()
+
+    def terminate(self) -> None:
+        self.terminated = True
+        if self.exits_on_terminate:
+            self.returncode = -15
+            self.exited.set()
+
+    def kill(self) -> None:
+        self.killed = True
+        self.returncode = -9
+        self.exited.set()
+
+    async def wait(self) -> int:
+        await self.exited.wait()
+        return self.returncode or 0
+
+
+def attach_process(client: FakeClient, process: FakeProcess) -> None:
+    client._transport = type("T", (), {"_process": process})()
+
+
+async def test_close_finishes_within_a_bound_with_a_hung_cli_and_a_never_ending_task(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path, block=True)
+    runner.config.shutdown_client_timeout_s = 0.2
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.05)
+    client = FakeClient.instances[0]
+    client.hang_interrupt = True
+
+    async def hang() -> None:
+        await asyncio.sleep(3600)
+
+    async def hang_disconnect() -> None:
+        await asyncio.sleep(3600)
+
+    client.disconnect = hang_disconnect  # type: ignore[method-assign]
+    background = asyncio.create_task(hang())
+    runner.event_tasks.add(background)
+    process = FakeProcess()
+    attach_process(client, process)
+    await asyncio.wait_for(runner.close(), 3)
+    assert background.cancelled()
+    assert process.terminated
+    assert runner.client is None
+    assert runner.task is not None and runner.task.done()
+
+
+async def test_close_kills_a_cli_that_ignores_terminate(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path, block=True)
+    runner.config.shutdown_client_timeout_s = 0.2
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.05)
+    process = FakeProcess(exits_on_terminate=False)
+    attach_process(FakeClient.instances[0], process)
+    await asyncio.wait_for(runner.close(), 3)
+    assert process.terminated and process.killed
+
+
+async def test_close_does_not_touch_a_cli_that_already_exited(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path, block=True)
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.05)
+    process = FakeProcess()
+    process.returncode = 0
+    attach_process(FakeClient.instances[0], process)
+    await runner.close()
+    assert not process.terminated and not process.killed
+
+
+async def test_close_records_the_instruction_in_progress_as_interrupted_by_shutdown(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, block=True)
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.05)
+    await runner.close()
+    history = events.history()
+    ends = [e for e in history if e["type"] == "turn_end"]
+    assert len(ends) == 1 and ends[0]["status"] == "interrupted"
+    assert any(e["type"] == "error" and "shutdown" in e["message"] for e in history)
+    assert not runner.busy
+
+
+async def test_close_when_idle_records_no_turn_end(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path)
+    await runner.close()
+    assert [e for e in events.history() if e["type"] == "turn_end"] == []

@@ -78,6 +78,7 @@ STOP_SOURCE_MAX_TURNS = "max_turns"
 STOP_SOURCE_ERROR = "error"
 STOP_SOURCE_TURN_CAP = "turn_cap"
 STOP_SENT_TEXT = "stop sent"
+SHUTDOWN_INTERRUPTED_MESSAGE = "instruction interrupted by service shutdown"
 # Claude Code's tool result for a call cancelled by an interrupt (also its text for a user rejection at a prompt).
 GENERIC_REJECTION_MARKER = "The user doesn't want to proceed with this tool use"
 REJECTION_CORRECTION = (
@@ -1113,6 +1114,83 @@ class AgentRunner:
             await asyncio.gather(self.task, return_exceptions=True)
 
     async def close(self) -> None:
-        """Service shutdown: stop the robot (without waiting for the model), cancel the instruction, disconnect."""
-        await asyncio.gather(self.stop_robot(STOP_SOURCE_SHUTDOWN), self.cancel_instruction())
-        await self.drop_client()
+        """Service shutdown, bounded: stop the robot, end the running instruction, close the session and the CLI.
+
+        The robot stop never waits for the model. An instruction in progress is recorded as interrupted by shutdown;
+        the long-lived background tasks are cancelled; the model is interrupted and the client disconnected, each
+        within ``shutdown_client_timeout_s``, and the Claude CLI subprocess is terminated (then killed) if still alive.
+        """
+        running = self.task is not None and not self.task.done()
+        await asyncio.gather(self.stop_robot(STOP_SOURCE_SHUTDOWN), self.shutdown_session(running))
+
+    async def shutdown_session(self, instruction_running: bool) -> None:
+        """Close the model session within bounded time (see close).
+
+        Args:
+            instruction_running (bool): True when an instruction was in progress at shutdown.
+        """
+        limit = self.config.shutdown_client_timeout_s
+        client = self.client
+        process = cli_process(client)
+        self.interrupted = True
+        for task in list(self.event_tasks):
+            task.cancel()
+        await self.interrupt_client_bounded(client, limit)
+        if self.task and not self.task.done():
+            self.task.cancel()
+            await asyncio.wait({self.task}, timeout=limit)
+        if instruction_running:
+            self.logger.warning(SHUTDOWN_INTERRUPTED_MESSAGE)
+            self.events.append("error", message=SHUTDOWN_INTERRUPTED_MESSAGE)
+            self.end_turn(status=STATUS_INTERRUPTED, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
+        self.client = None
+        self.session_totals = {}
+        if client is not None:
+            try:
+                await asyncio.wait_for(self.disconnect_quietly(client), limit)
+            except TimeoutError:
+                self.logger.warning(f"disconnect did not finish within {limit:g} s at shutdown")
+        await terminate_process(process, limit)
+
+    async def interrupt_client_bounded(self, client: ClientLike | None, limit: float) -> None:
+        """Interrupt the model within a bound; failures are logged.
+
+        Args:
+            client (ClientLike | None): Session client, if any.
+            limit (float): Bound in seconds.
+        """
+        if client is None:
+            return
+        try:
+            await asyncio.wait_for(client.interrupt(), limit)
+        except Exception as exc:  # noqa: BLE001 - a hung or dead CLI must not delay the shutdown
+            self.logger.warning(f"model interrupt at shutdown failed: {exc!r}")
+
+
+def cli_process(client: ClientLike | None) -> Any:
+    """Find the Claude CLI subprocess behind an SDK client (the SDK exposes no public handle).
+
+    Args:
+        client (ClientLike | None): Session client.
+
+    Returns:
+        Any: The transport's process object (terminate/kill/wait/returncode), or None when there is none.
+    """
+    return getattr(getattr(client, "_transport", None), "_process", None)
+
+
+async def terminate_process(process: Any, timeout_s: float) -> None:
+    """Terminate a subprocess still running, escalating to kill after timeout_s.
+
+    Args:
+        process (Any): Object with returncode, terminate, kill and an async wait (None or exited: nothing to do).
+        timeout_s (float): How long to wait after terminate before killing.
+    """
+    if process is None or process.returncode is not None:
+        return
+    process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout_s)
+    except TimeoutError:
+        process.kill()
+        await asyncio.wait_for(process.wait(), timeout_s)

@@ -84,6 +84,13 @@ def test_main_binds_loopback_and_uses_ros_logger(stubs) -> None:
     assert not any("sk-secret" in line for line in StubNode.logger.lines)
 
 
+def test_main_bounds_the_graceful_shutdown(stubs) -> None:
+    """Open WebSockets and the CLI session must not hold uvicorn until systemd's SIGKILL (30 s)."""
+    assert entry.main() == 0
+    assert entry.GRACEFUL_SHUTDOWN_TIMEOUT_S == 3
+    assert stubs["run"]["timeout_graceful_shutdown"] == entry.GRACEFUL_SHUTDOWN_TIMEOUT_S
+
+
 def test_main_creates_no_poi_publisher(stubs) -> None:
     """The POI clear goes over HTTP to mcp_server (cross-user DDS does not reach poi_store)."""
     assert entry.main() == 0
