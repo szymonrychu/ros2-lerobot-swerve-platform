@@ -342,3 +342,19 @@ async def test_a_missed_grasp_or_a_released_object_is_not_carrying(tmp_path: Pat
     followup = FakeClient.instances[0].queries[1]
     assert "arm not at home" in followup
     assert CARRY_TEXT not in followup and "carrying an object" not in followup
+
+
+async def test_an_aborted_release_keeps_the_carrying_note(tmp_path: Path) -> None:
+    """release_object that ended aborted (stopped before the open step) still holds the object."""
+    script = [
+        tool_call("g1", "grasp_object"),
+        tool_result("g1", '{"outcome": "grasped", "reasons": []}'),
+        tool_call("o1", "release_object"),
+        tool_result("o1", '{"outcome": "aborted", "reasons": ["stopped"]}'),
+        *reply_script(),
+    ]
+    caller = FakeToolCaller({"get_control_state": [state(ARM_OUT), state(CLEAN)]})
+    runner, _, _ = make_runner(tmp_path, script=script, tool_caller=caller)
+    await run(runner)
+    followup = FakeClient.instances[0].queries[1]
+    assert "carrying an object" in followup and CARRY_TEXT in followup

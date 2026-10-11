@@ -395,8 +395,8 @@ Covers:
   `job_end.check_error`, without follow-ups; user stop, timeout, turn cap, `error` and `max_turns` skip the check; carrying an
   object (`footprint.carried_object_radius_m` in the real `ControlState` shape, a `grasp_object` that ended `grasped`, or a
   `release_control` of the model refused with "put the object down first") puts "put the object
-  down first (release_object)" before the park text, and a later successful `release_object` / `release_control` clears it;
-  a static footprint without a radius and a missed grasp are not carrying; an unfinished plan names its active phase and ends with a forced park, a
+  down first (release_object)" before the park text, and a later `release_object` with outcome `released` or a successful
+  `release_control` clears it while an `aborted` release_object keeps it; a static footprint without a radius and a missed grasp are not carrying; an unfinished plan names its active phase and ends with a forced park, a
   finished one passes; the follow-up count resets per instruction. `test_config.py`: `job_end_max_followups` default 2, 0
   allowed, negative rejected. Existing runner tests close their plan (`completer()`) so the check passes
 - plan (`test_budget.py`): `PlanTracker` validation (complexity enum, 1 to 12 phases, integer caps, rw 0 allowed, names and goals, a stray `ro_cap` ignored), clamping to the

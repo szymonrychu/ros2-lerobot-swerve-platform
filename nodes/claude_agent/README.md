@@ -300,7 +300,8 @@ Problems:
 - the gripper carries an object: `footprint.carried_object_radius_m` set in the state (the only carrying signal
   `ControlState` has; set by a `keep_position` arm release), or, in this instruction, a `grasp_object` of the model that
   ended `grasped` / `unverified` or a `release_control` of the model refused with "put the object down first" (a later
-  successful `release_object` / `release_control` clears the tool-result signals).
+  `release_object` with outcome `released` or a successful `release_control` clears the tool-result signals; an
+  `aborted` release, e.g. stopped before the gripper opened, still counts as carrying).
 
 With problems and fewer than `job_end_max_followups` (2) job-end follow-ups used in the instruction, the runner sends
 `JOB END REFUSED: <problems>. Park: release_control(subsystem="all"); close the active phase with complete_phase.` as

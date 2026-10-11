@@ -95,10 +95,13 @@ JOB_END_CARRY_TEXT = "You are carrying an object: put the object down first (rel
 # mcp_server refuses a parking release_control while the gripper carries an object with this text (design F).
 CARRY_REFUSAL_MARKER = "put the object down first"
 # A successful one of these after such a refusal means the object was put down (or the park went through).
-CARRY_CLEARING_TOOLS = (RELEASE_CONTROL_TOOL, "release_object")
+RELEASE_OBJECT_TOOL = "release_object"
 GRASP_TOOL = "grasp_object"
 # grasp_object outcomes after which the jaws are closed on (maybe) an object; get_control_state does not say so.
 CARRY_GRASP_OUTCOME = re.compile(r'"outcome"\s*:\s*"(grasped|unverified)"')
+# Only a release_object that ended "released" put the object down; "aborted" (e.g. stopped before the open step)
+# still holds it.
+RELEASED_OUTCOME = re.compile(r'"outcome"\s*:\s*"released"')
 JOB_END_CHECK_ERROR = "job-end check failed: {reason}; the instruction ends without the arm, lease and plan check"
 ARM_NOT_PARKED_MESSAGE = "arm not parked after the forced job-end release_control: {detail}"
 RELEASED_TEXT = "released"
@@ -1150,7 +1153,7 @@ class AgentRunner:
 
         get_control_state only shows a carried object through the footprint radius, so the runner also tracks the
         tool results: a grasp_object that ended grasped/unverified or a parking release_control refused for carrying
-        sets it; a successful release_object or release_control clears it.
+        sets it; a release_object whose outcome is "released" or a successful release_control clears it.
 
         Args:
             name (str): Short tool name.
@@ -1160,7 +1163,9 @@ class AgentRunner:
             self.carrying_seen = True
         elif name == RELEASE_CONTROL_TOOL and block.is_error and CARRY_REFUSAL_MARKER in tool_result_text(block):
             self.carrying_seen = True
-        elif name in CARRY_CLEARING_TOOLS and not block.is_error:
+        elif name == RELEASE_CONTROL_TOOL and not block.is_error:
+            self.carrying_seen = False
+        elif name == RELEASE_OBJECT_TOOL and not block.is_error and RELEASED_OUTCOME.search(tool_result_text(block)):
             self.carrying_seen = False
 
     def schedule_interrupt(self) -> None:
