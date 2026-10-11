@@ -105,6 +105,11 @@ class GraspResult(BaseModel):
     crush_risk: bool | None = Field(
         default=None, description="Holding load above the profile's crush_load: squeezed too hard (try gentler)"
     )
+    retightened: bool | None = Field(
+        default=None,
+        description="The hold relaxed to about 0 load with the jaw short of closed (a soft object) and was stepped "
+        "once further toward closed within the squeeze cap; holding_load is measured after it",
+    )
     residual_error: dict[str, float] = Field(
         default_factory=dict,
         description="Arm joints off their intended target (the last executed waypoint) by more than their converge "
@@ -426,7 +431,8 @@ class GraspExecutor:
             reasons (list[str]): Reasons.
             plan (GraspPlan | None): Executed plan.
             steps (list[GraspStep]): Step log.
-            close (ArmMotionResult | None): Close result (grip_profile, holding_load, slipping, crush_risk).
+            close (ArmMotionResult | None): Close result (grip_profile, holding_load, slipping, crush_risk,
+                retightened).
             reached (Waypoint | None): Last waypoint the run commanded (the intended hold); None for a release.
 
         Returns:
@@ -449,6 +455,7 @@ class GraspExecutor:
             holding_load=None if close is None else close.holding_load,
             slipping=None if close is None else close.slipping,
             crush_risk=None if close is None else close.crush_risk,
+            retightened=None if close is None else close.retightened,
             residual_error=residual,
             warnings=warnings,
             held_pose=None if plan is None or reached is None else self.held_pose(plan, reached),
@@ -819,8 +826,10 @@ def grip_profile_description(config: McpServerConfig) -> str:
     return (
         f"Grip strength: a preset name ({presets}) or inline overrides {{base?, squeeze_rad?, torque_limit?, "
         "close_speed_rps?, target_load?, contact_effort_threshold?, crush_load?}. Default "
-        f"{grip.default_grip_profile!r}. gentle for fragile, soft or light objects; normal for ordinary ones; firm "
-        "for heavy, slippery objects and tools. Hard caps (enforced whatever you pass): torque_limit <= "
+        f"{grip.default_grip_profile!r}. gentle for fragile or light objects; normal for ordinary ones; firm "
+        "for heavy, slippery objects and tools; soft for plush, foam or fabric (plush / soft toys: they compress "
+        "under the hold, soft squeezes the full cap past the contact). A hold that relaxes to about 0 load with the "
+        "jaw short of closed is re-tightened once within the caps (retightened: true). Hard caps (enforced whatever you pass): torque_limit <= "
         f"{grip.torque_limit_max}, squeeze_rad <= {grip.squeeze_max_rad:g}. The default torque limit is restored "
         "after an open, release or abort."
     )
@@ -938,7 +947,8 @@ def register(ctx: ToolContext) -> None:
             "gripper half open, opens to the object size plus a margin, approaches and slides in slowly, closes until "
             "the gripper feels the object (never a full squeeze), verifies the grasp (jaw stopped short of closed and "
             "load above threshold), then lifts and retreats. The grip_profile sets how hard it grips (torque limit, close "
-            "speed, squeeze); the result reports grip_profile, holding_load, slipping and crush_risk. Every arm joint "
+            "speed, squeeze); the result reports grip_profile, holding_load, slipping, crush_risk and retightened (a "
+            "relaxed hold stepped once further toward closed). Every arm joint "
             "stays commanded at its planned target; residual_error and warnings list joints that ended a step (or the "
             "hold) off it by more than their tolerance, held_pose where the jaw centre and the tool point ended. "
             "Outcome: grasped; unverified (the jaw closed into the empty band, within gripper_empty_stall_rad of "
@@ -947,8 +957,9 @@ def register(ctx: ToolContext) -> None:
             f"{UNVERIFIED_IMAGE_PX} px) - look at the attached image: if the object is in the jaws treat it as held, "
             "otherwise call release_object (opens and lifts) and retry); missed (a contact that failed "
             "verification: opened and retreated - check a picture and correct the object position); aborted "
-            "(stopped and held; reasons say why) or infeasible (nothing moved). Soft objects (plush toys, foam) "
-            "squash flat under the jaws: prefer grip_profile gentle or normal and expect 'unverified'. A stop call "
+            "(stopped and held; reasons say why) or infeasible (nothing moved). Soft objects (plush toys, foam, "
+            "fabric) compress under the jaws: use grip_profile soft and expect 'unverified' when they squash into "
+            "the empty band. A stop call "
             f"aborts it. Keeps arm control: call release_control when done. {slow_note}"
         )
     )

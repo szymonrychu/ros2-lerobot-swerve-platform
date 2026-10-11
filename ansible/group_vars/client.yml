@@ -1541,8 +1541,10 @@ ros2_nodes:
         closing_load_sign: 1          # decoded effort sign while closing on an object (gripper not inverted)
         hold_check_delay_s: 0.25      # holding_load / slipping sampled this long after the hold (twice)
         slip_threshold_rad: 0.01      # jaw closing more than this between the samples = slipping
+        retighten_load_below: 30      # any profile: a hold relaxed below this (jaw not in the empty band) steps once
+                                      # to squeeze_max_rad past the contact, never past closed (null = never)
         presets:                      # tuned on the real gripper 2026-10-10 (grip tuning session, mcp_server README)
-          gentle:                     # fragile, soft or light objects (a plush still gets squashed: load cannot see it)
+          gentle:                     # fragile or light objects (a plush still gets squashed: load cannot see it)
             squeeze_rad: 0.01
             torque_limit: 250
             close_speed_rps: 0.2
@@ -1563,6 +1565,16 @@ ros2_nodes:
             target_load: 300
             contact_effort_threshold: 350
             crush_load: 600
+          soft:                       # plush, foam, fabric: compresses under the hold (2026-10-11 croc head slipped
+                                      # out of a normal hold that relaxed to load 0). Full squeeze cap past the contact;
+                                      # torque 600 < cap 800: the hold target is inside the object, so the servo stalls
+                                      # on it at this torque limit, never at closed and never above it
+            squeeze_rad: 0.08
+            torque_limit: 600
+            close_speed_rps: 0.3
+            target_load: 150
+            contact_effort_threshold: 250
+            crush_load: 550           # a hold near the torque limit flags crush_risk
   - name: poi_store
     node_type: poi_store
     present: true

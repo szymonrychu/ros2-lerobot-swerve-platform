@@ -598,6 +598,7 @@ def stall_jaw_at(stop: float) -> FakeArmBackend:
 def test_gripper_stall_before_closed_is_reported_as_grasp(tmp_path: Path, close_until_effort: bool) -> None:
     arm, be = make(tmp_path, stall_jaw_at(JAW_STALL))
     arm.cfg.limits.gripper_empty_stall_rad = 0.0  # a thin object here; empty-jaw stalls: test_empty_* below
+    arm.cfg.grip_profiles.retighten_load_below = None  # no load reported: the re-tighten is test_grip_arm's
     if close_until_effort:
         res = arm.set_gripper(close_until_effort=True, effort_threshold=300.0)
     else:

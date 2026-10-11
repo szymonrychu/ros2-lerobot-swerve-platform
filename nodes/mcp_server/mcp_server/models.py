@@ -197,7 +197,8 @@ class ArmMotionResult(BaseModel):
     )
     grip_profile: dict[str, Any] | None = Field(
         default=None,
-        description="Grip profile a close_until_effort used: {name ('gentle' / 'normal' / 'firm' or '<base>+custom'), "
+        description="Grip profile a close_until_effort used: {name ('gentle' / 'normal' / 'firm' / 'soft' or "
+        "'<base>+custom'), "
         "squeeze_rad, torque_limit, close_speed_rps, target_load, contact_effort_threshold, crush_load, capped (values "
         "clamped to the hard caps)}; null for other motions",
     )
@@ -215,6 +216,12 @@ class ArmMotionResult(BaseModel):
         default=None,
         description="True when the holding load exceeds the profile's crush_load: retry with a gentler profile; null "
         "when nothing was grasped",
+    )
+    retightened: bool | None = Field(
+        default=None,
+        description="True when the hold check found the holding load near 0 with the jaw still short of closed (a "
+        "soft object relaxed under the hold) and the hold was stepped once further toward closed, within the "
+        "squeeze cap; holding_load / slipping are then measured after it; null when nothing was grasped",
     )
     torque_limit_readback: str | None = Field(
         default=None,

@@ -53,6 +53,8 @@ MAX_OBJECT_WIDTH_M = 0.08
 ROLL_JOINT = "wrist_roll"
 # Gripper servo RAM register a grip profile writes (feetech bridge set_register; 0.1 % of max torque).
 TORQUE_LIMIT_REGISTER = "torque_limit"
+# A re-tighten smaller than this (rad) is not worth a command: the hold is already at the squeeze allowance.
+RETIGHTEN_MIN_STEP_RAD = 1e-4
 LOGGER = logging.getLogger("mcp_server.arm")
 # A trajectory_end motion's settle record (commanded vs settled pose, for the sag fit) is logged by the keepalive this
 # long after the motion returned, unless another motion started meanwhile.
@@ -1068,7 +1070,8 @@ class ArmController:
 
         close_until_effort resolves the grip profile (preset name or inline overrides, capped server-side), writes its
         torque_limit to the gripper servo, closes at its close_speed_rps, stops on contact (stall, |load| >=
-        contact_effort_threshold, or closing-direction load >= target_load) and holds with its squeeze_rad. A grasp
+        contact_effort_threshold, or closing-direction load >= target_load) and holds with its squeeze_rad. A hold
+        whose load relaxed to about 0 (a soft object) is re-tightened once (retighten_hold). A grasp
         keeps the profile's torque limit while holding; any other outcome (and an exception) restores the default
         preset's torque_limit, as does every open, release and lost lease.
 
@@ -1081,7 +1084,7 @@ class ArmController:
 
         Returns:
             ArmMotionResult: Outcome ("grasped" / "closed_no_contact" for close_until_effort, with grip_profile,
-                torque_limit_readback and, for a grasp, holding_load / slipping / crush_risk).
+                torque_limit_readback and, for a grasp, holding_load / slipping / crush_risk / retightened).
 
         Raises:
             ArmError: For invalid arguments (also an unknown or invalid grip profile).
@@ -1141,8 +1144,10 @@ class ArmController:
                 )
                 result = self.grasp_from_stall(closing, start_jaw, profile.squeeze_rad)
                 update: dict[str, object] = {"grip_profile": grip.report()}
-                if result.status == "grasped":
-                    update |= self.hold_report(grip)
+                if result.status == "grasped" and closing.positions is not None:
+                    report = self.hold_report(grip)
+                    retightened = self.retighten_hold(closing.positions[self.gripper], report)
+                    update |= (self.hold_report(grip) if retightened else report) | {"retightened": retightened}
                 update["torque_limit_readback"] = self.torque_limit_readback()
                 result = result.model_copy(update=update)
             finally:
@@ -1220,6 +1225,52 @@ class ArmController:
             "slipping": closed_more > cfg.slip_threshold_rad,
             "crush_risk": crush is not None and abs(load) > crush,
         }
+
+    def retighten_hold(self, contact_jaw: float, report: dict[str, object]) -> bool:
+        """Step a relaxed grasp hold once further toward closed (caller holds the motion guard).
+
+        A soft object (plush, foam) compresses under the hold and the jaw loses its force: the hold check reads a
+        holding load near 0 while the jaw is still short of closed. When the closing-direction holding load is below
+        grip_profiles.retighten_load_below and the measured jaw is outside the empty band (gripper_empty_stall_rad),
+        the gripper hold moves to squeeze_max_rad past the contact position toward closed (never past closed), the
+        arm joints staying at their intended targets. Bounded by the caps: the total squeeze from the contact never
+        exceeds squeeze_max_rad and the torque limit is not changed, so the servo stalls on the compressed object at
+        the profile's torque limit. Nothing happens when the hold is already at that allowance.
+
+        Args:
+            contact_jaw (float): Measured jaw position where the close stopped on the object (rad).
+            report (dict[str, object]): hold_report of the hold (holding_load, None without fresh joint states).
+
+        Returns:
+            bool: True when the hold was re-tightened.
+        """
+        cfg = self.cfg.grip_profiles
+        load = report.get("holding_load")
+        if cfg.retighten_load_below is None or not isinstance(load, float | int):
+            return False
+        if cfg.closing_load_sign * load >= cfg.retighten_load_below:
+            return False
+        sample = self.fresh_sample()
+        if sample is None or self.empty_jaw_message(sample.positions[self.gripper]) is not None:
+            return False
+        with self._lock:
+            intent = dict(self._last_target) if self._last_target is not None else None
+        if intent is None or self.gripper not in intent:
+            return False
+        toward_closed = self.cfg.arm.gripper_closed_rad - contact_jaw
+        target = contact_jaw + math.copysign(min(cfg.squeeze_max_rad, abs(toward_closed)), toward_closed)
+        if (target - intent[self.gripper]) * math.copysign(1.0, toward_closed) <= RETIGHTEN_MIN_STEP_RAD:
+            return False
+        if not self.command(intent | {self.gripper: target}):
+            return False
+        LOGGER.info(
+            "gripper hold relaxed (holding load %g): re-tightened from %.3f to %.3f rad (contact %.3f rad)",
+            load,
+            intent[self.gripper],
+            target,
+            contact_jaw,
+        )
+        return True
 
     @contextmanager
     def holding_arm_for_gripper(self, moving: list[str]) -> Iterator[None]:

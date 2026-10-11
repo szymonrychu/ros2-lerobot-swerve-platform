@@ -148,16 +148,19 @@ before trusting the grasp. The free moves to the lifted pre-grasp run at approac
 and the slide, lift and retreat at slide_speed_scale.
 
 Grip strength: grasp_object, set_gripper (close_until_effort) and queued gripper steps take grip_profile, which sets \
-how hard the gripper grips (servo torque limit, close speed, squeeze). Choose it per object: gentle for fragile, soft \
-or light objects (fruit, paper cups, foam, a tomato), normal (the default) for ordinary objects, firm for heavy or \
-slippery objects and tools. After a grasp check the reported holding_load and the slipping and crush_risk flags \
+how hard the gripper grips (servo torque limit, close speed, squeeze). Choose it per object: gentle for fragile or \
+light objects (fruit, paper cups, a tomato), normal (the default) for ordinary objects, firm for heavy or slippery \
+objects and tools, soft for plush and soft toys, foam and fabric (they compress under the hold and slip out of a \
+normal grip: soft squeezes the full squeeze cap past the contact). A hold that relaxes to about 0 load with the jaw \
+short of closed is re-tightened once within the caps and the result says retightened. After a grasp check the \
+reported holding_load and the slipping and crush_risk flags \
 (also look at a picture): slipping means the object slides or gives way, so release it and retry with a firmer \
 profile; crush_risk means it is squeezed too hard, so release it and retry with a gentler profile; a missed grasp of \
 a light object with gentle can be retried with normal. Hard torque and squeeze caps apply whatever you pass, and the \
 default torque comes back after every open, release or abort. The grip only feels the servo load, so it cannot tell \
 when a soft object gets squashed: gentle squashed a 4 cm plush tail to about 7 mm with no crush_risk. For plush and \
-other soft objects prefer gentle or normal, expect grasp_object to report unverified (the squashed object lets the \
-jaw close almost fully) and decide from the attached image.
+other soft toys use grip_profile soft; when grasp_object reports unverified (the squashed object let the jaw close \
+almost fully) decide from the attached image.
 
 Surfaces and speed: pass surface_height_m to pixel_to_ground (and mark_candidate_points) when the object is on a \
 surface above or below the robot's floor (the top of a 3 cm box is 0.03, a floor 10 cm lower is -0.10). The arm can \

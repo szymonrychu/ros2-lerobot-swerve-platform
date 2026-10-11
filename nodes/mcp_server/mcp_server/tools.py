@@ -829,10 +829,12 @@ def register_core_tools(ctx: ToolContext) -> None:
         open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done.
         Below-surface slow zone: near the surface (the moving jaw tip is checked too) the gripper moves slow; pass
         surface_z_m / tilt_override_deg / surfaces as for the arm motion tools. close_until_effort uses a grip profile
-        (grip_profile: gentle / normal / firm or inline overrides): it writes the profile's gripper torque limit,
-        closes at its speed, stops at its target_load and holds with its squeeze; a grasp reports grip_profile,
-        holding_load, slipping and crush_risk. Any other close outcome, every open and release_control restore the
-        default torque limit."""
+        (grip_profile: gentle / normal / firm / soft or inline overrides; plush / soft toys, foam and fabric: soft):
+        it writes the profile's gripper torque limit, closes at its speed, stops at its target_load and holds with
+        its squeeze; a grasp reports grip_profile, holding_load, slipping, crush_risk and retightened (a hold that
+        relaxed to about 0 load with the jaw short of closed is stepped once further toward closed, never beyond
+        the squeeze cap from the contact or past closed). Any other close outcome, every open and release_control
+        restore the default torque limit."""
         battery_gate("set_gripper")
         with tool_errors():
             return robot.arm.set_gripper(

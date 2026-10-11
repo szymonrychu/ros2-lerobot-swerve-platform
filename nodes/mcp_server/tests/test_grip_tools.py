@@ -1,9 +1,11 @@
 """Grip profiles through the interfaces: set_gripper tool, motion queue gripper step, grasp executor / tools and the
 web-UI GraspService JSON contract (profile applied, reported, torque restored on abort / miss / release)."""
 
+import json
 from pathlib import Path
 from typing import Any
 
+import anyio
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import TypeAdapter
@@ -193,3 +195,18 @@ def test_queue_gripper_step_takes_a_grip_profile(robot: FakeRobot) -> None:
     assert GENTLE_TORQUE in torque_writes(be)
     with pytest.raises(ValueError):
         STEPS.validate_python([{"kind": "gripper", "open_fraction": 0.5, "grip_profile": "gentle"}])
+
+
+def test_tool_descriptions_point_plush_toys_at_the_soft_profile(server: Any) -> None:
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tools = {t.name: json.dumps(t.input_schema) + (t.description or "") for t in anyio.run(run)}
+    for name in ("set_gripper", "grasp_object", "plan_grasp", "enqueue_motions"):
+        text = tools[name]
+        assert "soft" in text, name
+    for name in ("set_gripper", "grasp_object"):
+        assert "plush" in tools[name] and "retightened" in tools[name], name
+    # The grip profile listing (params / grip_profile description) names soft with its values and use.
+    assert "soft: torque_limit 600, squeeze 0.08 rad" in tools["grasp_object"]
+    assert "soft for plush, foam or fabric" in tools["grasp_object"]

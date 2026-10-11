@@ -605,7 +605,8 @@ def arm_result_data(result: ArmMotionResult) -> dict[str, Any]:
 
     Returns:
         dict[str, Any]: status, durations, tracking error and (when set) settling, residual, slow zone, interrupt,
-            gripper effort and the grip report of a close (grip_profile, holding_load, slipping, crush_risk).
+            gripper effort and the grip report of a close (grip_profile, holding_load, slipping, crush_risk,
+            retightened).
     """
     data: dict[str, Any] = {
         "status": result.status,
@@ -627,7 +628,7 @@ def arm_result_data(result: ArmMotionResult) -> dict[str, Any]:
         value = getattr(result, key)
         if value:
             data[key] = value
-    for key in ("grip_profile", "holding_load", "slipping", "crush_risk"):
+    for key in ("grip_profile", "holding_load", "slipping", "crush_risk", "retightened"):
         value = getattr(result, key)
         if value is not None:
             data[key] = value

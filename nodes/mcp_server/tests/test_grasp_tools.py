@@ -352,7 +352,8 @@ def test_grasp_tool_descriptions_explain_unverified(server: Any) -> None:
         text = tools[name].description or ""
         assert "unverified" in text and "image" in text, name
     grasp_text = tools["grasp_object"].description or ""
-    assert "release_object" in grasp_text and "plush" in grasp_text and "gentle" in grasp_text
+    assert "release_object" in grasp_text and "plush" in grasp_text
+    assert "grip_profile soft" in grasp_text and "retightened" in grasp_text
     assert '"unverified"' in json.dumps(tools["grasp_object"].output_schema)
 
 

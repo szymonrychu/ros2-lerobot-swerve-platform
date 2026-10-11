@@ -8,11 +8,11 @@ from mcp_server.config import REPO_ROOT, GripProfile, McpServerConfig
 from mcp_server.grip import GripProfileOverride, resolve_grip_profile
 
 
-def test_default_presets_gentle_normal_firm() -> None:
-    """Presets tuned on the real gripper 2026-10-10 (grip tuning session: jar, plush croc, cube)."""
+def test_default_presets_gentle_normal_firm_soft() -> None:
+    """Presets tuned on the real gripper 2026-10-10 (grip tuning session: jar, plush croc, cube), plus soft."""
     grip = McpServerConfig().grip_profiles
     assert grip.default_grip_profile == "normal"
-    assert set(grip.presets) == {"gentle", "normal", "firm"}
+    assert set(grip.presets) == {"gentle", "normal", "firm", "soft"}
     gentle, normal, firm = grip.presets["gentle"], grip.presets["normal"], grip.presets["firm"]
     assert gentle.model_dump() == {
         "squeeze_rad": 0.01,
@@ -47,6 +47,30 @@ def test_default_presets_gentle_normal_firm() -> None:
     assert grip.torque_limit_max == 800
     assert all(p.torque_limit <= grip.torque_limit_max for p in grip.presets.values())
     assert all(p.squeeze_rad <= grip.squeeze_max_rad for p in grip.presets.values())
+
+
+def test_soft_preset_squeezes_at_the_cap_within_the_torque_cap() -> None:
+    """soft (plush, foam, fabric): the full squeeze allowance, a torque limit below the burn-out cap."""
+    grip = McpServerConfig().grip_profiles
+    soft = grip.presets["soft"]
+    assert soft.squeeze_rad == grip.squeeze_max_rad == 0.08
+    assert grip.presets["normal"].torque_limit < soft.torque_limit == 600 <= grip.torque_limit_max
+    assert soft.target_load is not None and soft.target_load < soft.contact_effort_threshold
+    assert soft.crush_load is not None and soft.contact_effort_threshold < soft.crush_load < soft.torque_limit
+    # Validates against the caps as a preset (and is rejected when a deployment lowers the squeeze cap below it).
+    presets = grip.model_dump()["presets"]
+    McpServerConfig.model_validate({"grip_profiles": {"presets": presets}})
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"grip_profiles": {"presets": presets, "squeeze_max_rad": 0.05}})
+
+
+def test_retighten_threshold_defaults_and_validation() -> None:
+    grip = McpServerConfig().grip_profiles
+    assert grip.retighten_load_below == 30.0
+    disabled = McpServerConfig.model_validate({"grip_profiles": {"retighten_load_below": None}}).grip_profiles
+    assert disabled.retighten_load_below is None
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"grip_profiles": {"retighten_load_below": 0}})
 
 
 def test_default_profile_must_be_a_preset() -> None:

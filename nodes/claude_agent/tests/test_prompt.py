@@ -311,7 +311,7 @@ def test_prompt_states_grasp_auto_order_and_scoop_gap_rule() -> None:
 def test_prompt_explains_grip_profiles_and_when_to_choose_them() -> None:
     lower = prompt_lower()
     assert "grip_profile" in lower
-    for profile in ("gentle", "normal", "firm"):
+    for profile in ("gentle", "normal", "firm", "soft"):
         assert profile in lower
     para = lower[lower.index("grip strength") :]
     para = para[: para.index("surfaces and speed:")]
@@ -321,6 +321,15 @@ def test_prompt_explains_grip_profiles_and_when_to_choose_them() -> None:
     assert "holding_load" in para and "slipping" in para and "crush_risk" in para
     assert "firmer" in para and "gentler" in para and "retry" in para
     assert "set_gripper" in para and "grasp_object" in para
+
+
+def test_prompt_sends_plush_and_soft_toys_to_the_soft_profile() -> None:
+    lower = prompt_lower()
+    para = lower[lower.index("grip strength") :]
+    para = para[: para.index("surfaces and speed:")]
+    assert "plush" in para and "soft toys" in para and "grip_profile soft" in para
+    assert "prefer gentle or normal" not in para
+    assert "retightened" in para
 
 
 def test_default_tool_lists_include_the_grasp_tools() -> None:
@@ -437,7 +446,7 @@ def test_prompt_explains_the_unverified_grasp_outcome() -> None:
     para = lower[lower.index("grip strength:") :]
     para = para[: para.index("surfaces and speed:")]
     assert "unverified" in para and "plush" in para
-    assert "gentle or normal" in para
+    assert "grip_profile soft" in para  # 2026-10-11 12:18: plush slipped out of a normal hold
     assert "an empty close (nothing between the jaws) is reported as missed" not in para
 
 

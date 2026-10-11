@@ -254,11 +254,12 @@ def test_mcp_server_floor_guard_and_grasp_blocks_are_deployed() -> None:
 
 
 def test_mcp_server_grip_profiles_block_is_deployed() -> None:
-    """grip_profiles: gentle < normal < firm presets within the hard caps, default normal, follower register topic."""
+    """grip_profiles: gentle < normal < firm presets plus soft (plush) within the hard caps, default normal, the hold
+    re-tighten threshold, follower register topic."""
     cfg = node_config("mcp_server")
     grip = cfg["grip_profiles"]
     presets = grip["presets"]
-    assert set(presets) == {"gentle", "normal", "firm"}
+    assert set(presets) == {"gentle", "normal", "firm", "soft"}
     assert grip["default_grip_profile"] == "normal"
     assert grip["torque_limit_max"] == 800 and grip["squeeze_max_rad"] == 0.08
     torque = [presets[n]["torque_limit"] for n in ("gentle", "normal", "firm")]
@@ -268,6 +269,11 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
     assert all(q <= grip["squeeze_max_rad"] for q in squeeze)
     assert presets["gentle"]["close_speed_rps"] < presets["normal"]["close_speed_rps"]
     assert presets["gentle"]["target_load"] < presets["gentle"]["contact_effort_threshold"]
+    # soft (2026-10-11 plush croc head slipped out of a relaxed normal hold): full squeeze cap, torque within the cap
+    assert presets["soft"]["squeeze_rad"] == grip["squeeze_max_rad"]
+    assert presets["normal"]["torque_limit"] < presets["soft"]["torque_limit"] <= grip["torque_limit_max"]
+    assert presets["soft"]["crush_load"] < presets["soft"]["torque_limit"]
+    assert grip["retighten_load_below"] == 30
     # tuned on the real gripper 2026-10-10 (grip tuning session); the deployed presets equal the config defaults
     assert presets == {
         "gentle": {
@@ -293,6 +299,14 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "target_load": 300,
             "contact_effort_threshold": 350,
             "crush_load": 600,
+        },
+        "soft": {
+            "squeeze_rad": 0.08,
+            "torque_limit": 600,
+            "close_speed_rps": 0.3,
+            "target_load": 150,
+            "contact_effort_threshold": 250,
+            "crush_load": 550,
         },
     }
     for preset in presets.values():

@@ -906,14 +906,20 @@ class GripProfile(StrictModel):
 
 
 def default_grip_presets() -> dict[str, GripProfile]:
-    """Built-in grip presets gentle / normal / firm.
+    """Built-in grip presets gentle / normal / firm / soft.
 
     Returns:
         dict[str, GripProfile]: Preset name -> profile, tuned on the real gripper 2026-10-10. normal is the
             behaviour before grip profiles (0.03 rad squeeze, 0.5 rad/s close, contact at 300, torque at 50 %:
-            LeRobot's burn-out guard) plus a closing-load stop at 200. gentle stops earlier on soft objects (it still
-            squashed a 4 cm plush tail to about 7 mm: a load-based crush_load cannot detect squashing a soft object).
-            firm is unvalidated on a held object (its 2026-10-10 attempts missed).
+            LeRobot's burn-out guard) plus a closing-load stop at 200. gentle stops earlier on fragile objects (it
+            still squashed a 4 cm plush tail to about 7 mm: a load-based crush_load cannot detect squashing a soft
+            object). firm is unvalidated on a held object (its 2026-10-10 attempts missed). soft (plush, foam,
+            fabric; 2026-10-11: normal held a plush croc head at load 204, the hold relaxed to 0 and it slipped out
+            during the lift) squeezes the full squeeze_max_rad (0.08) past the contact so the compressed object keeps
+            pushing back, at torque_limit 600: above normal so the jaw still presses a compressed plush, well below
+            the 800 burn-out cap. The hold target sits inside the object, so the servo stalls on the compressed
+            object at that torque limit (never closed and never above it); crush_load 550 flags a hold near the
+            limit.
     """
     return {
         "gentle": GripProfile(
@@ -940,6 +946,14 @@ def default_grip_presets() -> dict[str, GripProfile]:
             contact_effort_threshold=350.0,
             crush_load=600.0,
         ),
+        "soft": GripProfile(
+            squeeze_rad=0.08,
+            torque_limit=600,
+            close_speed_rps=0.3,
+            target_load=150.0,
+            contact_effort_threshold=250.0,
+            crush_load=550.0,
+        ),
     }
 
 
@@ -961,6 +975,10 @@ class GripProfileSettings(StrictModel):
     # when the jaw closed more than slip_threshold_rad between the two samples.
     hold_check_delay_s: float = Field(default=0.25, ge=0.0, le=2.0)
     slip_threshold_rad: float = Field(default=0.01, gt=0.0, le=0.2)
+    # Hold re-tighten (any profile): when the hold check's closing-direction holding load is below this and the jaw is
+    # still outside the empty band, the hold steps once toward closed to squeeze_max_rad past the contact (never past
+    # closed, torque limit unchanged) and the hold is measured again; None = never re-tighten.
+    retighten_load_below: float | None = Field(default=30.0, gt=0.0)
 
     @model_validator(mode="after")
     def presets_within_caps(self) -> "GripProfileSettings":

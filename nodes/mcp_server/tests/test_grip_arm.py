@@ -32,13 +32,15 @@ def make(tmp_path: Path, be: FakeArmBackend | None = None) -> tuple[ArmControlle
     return ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg), be
 
 
-def stalling(stop: float = STALL, start: float = 0.5) -> FakeArmBackend:
-    """Follower whose jaw cannot close beyond `stop` (an object between the fingers, no load reported)."""
+def stalling(stop: float = STALL, start: float = 0.5, hold_load: float = 100.0) -> FakeArmBackend:
+    """Follower whose jaw cannot close beyond `stop` (an object between the fingers, no load reported while
+    closing) and that reports a healthy `hold_load` during the post-grasp hold check (no re-tighten)."""
     be = FakeArmBackend()
     be.positions["gripper"] = start
 
     def blocked(b: FakeArmBackend) -> None:
         b.positions["gripper"] = max(b.positions["gripper"], stop)
+        b.efforts["gripper"] = hold_load if b.last_sleep == HOLD_DELAY else 0.0
 
     be.on_sleep = blocked
     return be
@@ -354,3 +356,118 @@ def test_still_jaw_with_the_command_at_the_close_target_is_stalled(tmp_path: Pat
     assert arm.stall_contact_message(at_target, started=99.0, target=closed) is not None
     in_band = [(100.0 + 0.1 * i, -0.115, closed) for i in range(8)]
     assert arm.stall_contact_message(in_band, started=99.0, target=closed) is None
+
+
+# --- hold re-tighten: a soft object relaxes under the hold (2026-10-11 12:18 plush croc head) -------------------
+
+
+def relaxing(stop: float, close_load: float, hold_load: float, hold_jaw: float | None = None) -> FakeArmBackend:
+    """Jaw blocked at `stop` (load `close_load`) whose hold check reads `hold_load`; hold_jaw moves the jaw there."""
+    be = FakeArmBackend()
+    be.positions["gripper"] = 0.531
+
+    def step(b: FakeArmBackend) -> None:
+        if b.last_sleep == HOLD_DELAY:
+            b.efforts["gripper"] = hold_load
+            b.positions["gripper"] = max(b.positions["gripper"], stop) if hold_jaw is None else hold_jaw
+        elif b.positions["gripper"] <= stop + 1e-9:
+            b.positions["gripper"] = stop
+            b.efforts["gripper"] = close_load
+
+    be.on_sleep = step
+    return be
+
+
+def gripper_holds_after(be: FakeArmBackend, jaw: float) -> list[float]:
+    """Gripper targets commanded after the first command that holds the jaw at `jaw` (the grasp hold)."""
+    targets = [c["gripper"] for c in be.commands]
+    first = next(i for i, t in enumerate(targets) if t == pytest.approx(jaw))
+    return [t for t in targets[first + 1 :] if t != pytest.approx(jaw)]
+
+
+def test_a_relaxed_stall_hold_is_retightened_once_up_to_the_squeeze_cap(tmp_path: Path) -> None:
+    normal = CONFIG.grip_profiles.presets["normal"]
+    cap = CONFIG.grip_profiles.squeeze_max_rad
+    be = relaxing(0.29, 150.0, 0.0)
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.status == "grasped", res.message
+    assert res.retightened is True
+    # One step from the profile squeeze to the cap: 0.08 rad from the stall in total, never more.
+    assert gripper_holds_after(be, 0.29 - normal.squeeze_rad) == [pytest.approx(0.29 - cap)]
+    assert be.commands[-1]["gripper"] == pytest.approx(0.29 - cap)
+    assert torque_writes(be) == [normal.torque_limit]  # the torque limit is never raised by the re-tighten
+    assert res.holding_load == 0.0  # measured again after the re-tighten
+
+
+def test_a_relaxed_target_load_hold_is_retightened_like_the_plush_croc(tmp_path: Path) -> None:
+    """normal reached target_load (204 at 0.35 rad on the croc head) and held the measured jaw; the hold read 0."""
+    be = FakeArmBackend()
+    be.positions["gripper"] = 1.0
+    contact: list[float] = []
+
+    def step(b: FakeArmBackend) -> None:
+        if b.last_sleep == HOLD_DELAY:
+            if not contact:
+                contact.append(b.positions["gripper"])
+            b.efforts["gripper"] = 0.0
+            b.positions["gripper"] = max(b.positions["gripper"], contact[0] - 0.005)  # plush gives a little
+        else:
+            b.efforts["gripper"] = max(0.0, (0.6 - b.positions["gripper"]) * 1000.0)
+
+    be.on_sleep = step
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.status == "grasped" and "target_load" in res.message, res.message
+    jaw = res.positions["gripper"]
+    assert res.retightened is True
+    assert gripper_holds_after(be, jaw) == [pytest.approx(jaw - CONFIG.grip_profiles.squeeze_max_rad)]
+
+
+def test_the_retighten_never_goes_past_closed(tmp_path: Path) -> None:
+    arm, be = make(tmp_path, relaxing(STALL, 0.0, 0.0))  # STALL 0.075 rad before closed (empty band lowered)
+    res = arm.set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.status == "grasped" and res.retightened is True
+    assert be.commands[-1]["gripper"] == pytest.approx(CONFIG.arm.gripper_closed_rad)
+
+
+def test_soft_profile_squeezes_at_the_cap_so_nothing_is_left_to_retighten(tmp_path: Path) -> None:
+    soft = CONFIG.grip_profiles.presets["soft"]
+    be = relaxing(0.29, 100.0, 0.0)
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="soft")
+    assert res.status == "grasped", res.message
+    assert be.commands[-1]["gripper"] == pytest.approx(0.29 - soft.squeeze_rad)
+    assert res.retightened is False
+    assert torque_writes(be) == [soft.torque_limit]
+
+
+def test_a_healthy_holding_load_is_not_retightened(tmp_path: Path) -> None:
+    normal = CONFIG.grip_profiles.presets["normal"]
+    be = relaxing(0.29, 150.0, 150.0)
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.retightened is False
+    assert be.commands[-1]["gripper"] == pytest.approx(0.29 - normal.squeeze_rad)
+    assert gripper_holds_after(be, 0.29 - normal.squeeze_rad) == []
+
+
+def test_a_jaw_that_sank_into_the_empty_band_is_not_retightened(tmp_path: Path) -> None:
+    normal = CONFIG.grip_profiles.presets["normal"]
+    be = relaxing(-0.04, 150.0, 0.0, hold_jaw=-0.12)  # squashed to 0.045 rad before closed during the hold
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.status == "grasped", res.message
+    assert res.retightened is False
+    assert be.commands[-1]["gripper"] == pytest.approx(-0.04 - normal.squeeze_rad)
+
+
+def test_retighten_can_be_disabled(tmp_path: Path) -> None:
+    be = relaxing(0.29, 150.0, 0.0)
+    arm = make_default(tmp_path, be)
+    arm.cfg.grip_profiles.retighten_load_below = None
+    res = arm.set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.retightened is False
+    assert be.commands[-1]["gripper"] == pytest.approx(0.29 - CONFIG.grip_profiles.presets["normal"].squeeze_rad)
+
+
+def test_empty_band_close_reports_no_retighten(tmp_path: Path) -> None:
+    be = loaded_stall(-0.115, 140.0)
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.status == "closed_no_contact", res.message
+    assert res.retightened is None and res.holding_load is None

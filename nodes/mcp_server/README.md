@@ -34,7 +34,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None, settle=None)` | `settle` as for `move_arm_joints`.  ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.104, measured 2026-10-10; see Arm mount); the tool descriptions and `get_arm_state.floor_z_m` state it. Motions near or below the effective surface are slowed (never blocked) by the floor slow zone; `surface_z_m`, `tilt_override_deg` and `surfaces` (also on `move_arm_joints`, `set_gripper` and `arm_home`; see Surface regions) shift it per call and results report `slow_zone`. |
 | `set_gripper(open_fraction | close_until_effort, effort_threshold, grip_profile, surfaces)` | Open to a fraction (0 closed, 1 open) or close with a grip profile (see Grip profiles) until `abs(effort) >= threshold` (default: the profile's `contact_effort_threshold`) or the closing load reaches the profile's `target_load` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.10 rad; was 0.15 until a 39 mm jar was refused at 0.147 rad on 2026-10-10) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). A stall or contact within `limits.gripper_empty_stall_rad` (0.08 rad, about 6 mm) of closed is an empty jaw: `closed_no_contact` with "closed without contact: the jaw stopped X rad before closed ...", never `grasped` (2026-10-10: the empty firm close stalled 0.055 rad before closed at load 148). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled with the command at least `gripper_stall_lead_rad` (0.15) ahead of it (or already at the close target: a jaw stopped less than 0.15 rad before closed can never see a larger lead). Stalls are classified by position: a jaw that stalls (that stall criterion: it moved less than `arm_settle_motion_rad` over `arm_settle_window_s`) at least `gripper_empty_stall_rad` from closed is a contact even when its load stays below `target_load` and its error exceeds the settle tolerance (an object loading the jaw lightly never settles within it): the close ends at once and the stall becomes `grasped` (hold = the stalled position plus the profile's `squeeze_rad` toward closed) or `blocked` by the travel/open rules above; a stall inside the empty-jaw band stays `closed_no_contact`. Until 2026-10-11 such a stall ended `timeout` and `grasp_object` aborted. A gripper-only motion near the floor or the robot body is slowed only by what moves (see Floor slow zone and Body collision): the 2026-10-11 10:27 close (jaw tip 12.5 mm above the floor, the stationary upper arm 14.9 mm from the lidar) ran 325 ticks instead of 64. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
 | `plan_grasp(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Dry-run grasp plan (sensor, no motion): outcome `planned` / `infeasible` with reasons, the resolved `grip_profile` (an unknown profile is refused), chosen strategy, pitch, wrist roll, jaw opening, waypoints and slow-zone annotations. See Grasp macros. |
-| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Plan and execute (motion): outcome `grasped` / `unverified` / `missed` / `aborted` / `infeasible` (`unverified` also attaches a fresh gripper camera image, max 640 px, as an image content item), with the executed steps (each with the `residual_error` of arm joints off their intended target), the final gripper position/load, the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`; see Grip profiles), `residual_error` and `warnings` (joints off their target beyond their converge tolerance) and `held_pose` (measured jaw centre and tool point against the last waypoint). See Grasp macros. |
+| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Plan and execute (motion): outcome `grasped` / `unverified` / `missed` / `aborted` / `infeasible` (`unverified` also attaches a fresh gripper camera image, max 640 px, as an image content item), with the executed steps (each with the `residual_error` of arm joints off their intended target), the final gripper position/load, the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`, `retightened`; see Grip profiles), `residual_error` and `warnings` (joints off their target beyond their converge tolerance) and `held_pose` (measured jaw centre and tool point against the last waypoint). See Grasp macros. |
 | `release_object(params, surface_z_m, tilt_override_deg, surfaces)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. The way out of an `unverified` grasp whose image shows empty jaws (then retry). |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
 | `pixel_to_ground(camera, u, v, surface_height_m=0.0, image_width, image_height)` | Point seen at a pixel (sensor). **u, v are pixels of the calibrated image size** (640x480; `get_annotated_camera_image` and `mark_candidate_points` images) unless `image_width` / `image_height` give the size of the image the pixel came from: `get_camera_image` returns 384x288 by default, and an unscaled small-image pixel lands at the wrong place (2026-10-10). Both sizes are needed and must keep the calibrated aspect (a crop is refused); the result then also reports `pixel_input` (what was passed and the scale). Returns `pixel` (calibrated size), `image` (calibrated size), `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
@@ -804,7 +804,7 @@ Request:
  "approach_pitch_deg": null,
  "surface_z_m": null,
  "tilt_override_deg": {"roll": 0.0, "pitch": 0.0},
- "grip_profile": "gentle" | "normal" | "firm" | {"base": "gentle", "squeeze_rad": 0.01},
+ "grip_profile": "gentle" | "normal" | "firm" | "soft" | {"base": "gentle", "squeeze_rad": 0.01},
  "surfaces": [{"name": "stair", "height_m": -0.10, "frame": "arm",
                "edge": {"point": [0.16, 0.0], "direction": [0.0, -1.0]}}]}
 ```
@@ -823,7 +823,7 @@ keys are `grasp` config fields; `grip_profile` defaults to `grip_profiles.defaul
             "grip_profile": {"name": "gentle", "squeeze_rad": 0.01, "torque_limit": 250, "close_speed_rps": 0.2,
                              "target_load": 80.0, "contact_effort_threshold": 120.0, "crush_load": 200.0,
                              "capped": []},
-            "holding_load": 130.0, "slipping": false, "crush_risk": false,
+            "holding_load": 130.0, "slipping": false, "crush_risk": false, "retightened": false,
             "residual_error": {}, "warnings": [],
             "held_pose": {"waypoint": "retreat", "expected_jaw_centre": {"x": 0.17, "y": 0.0, "z": -0.03},
                           "jaw_centre": {"x": 0.1702, "y": 0.0001, "z": -0.0303},
@@ -846,10 +846,24 @@ session (config defaults and `client.yml`):
 
 | Preset | torque_limit | squeeze_rad | close_speed_rps | target_load | contact threshold | crush_load | For |
 |---|---|---|---|---|---|---|---|
-| `gentle` | 250 | 0.01 | 0.2 | 80 | 120 | 200 | fragile, soft or light objects |
+| `gentle` | 250 | 0.01 | 0.2 | 80 | 120 | 200 | fragile or light objects |
 | `normal` (default) | 500 | 0.03 | 0.5 | 200 | 300 | 450 | ordinary objects (the squeeze, speed and threshold used before profiles, plus a closing-load stop) |
 | `firm` | 650 | 0.05 | 0.4 | 300 | 350 | 600 | heavy or slippery objects, tools |
+| `soft` | 600 | 0.08 | 0.3 | 150 | 250 | 550 | plush / soft toys, foam, fabric |
 
+**soft** (added 2026-10-11, values chosen within the caps, not yet validated on a held object): at 12:18 `grasp_object` angled on a plush croc head (5.5 cm) with `normal` reported
+`grasped` (jaw stalled at 0.35 rad, load 204 at the close, the head visibly in the jaws), but `holding_load` right after
+read 0 and the croc slipped out during the lift: a plush compresses under the hold and the jaw loses its force. soft
+therefore squeezes the full `squeeze_max_rad` (0.08) past the contact, so the compressed object keeps pushing back,
+and closes a little slower (0.3 rad/s) with a lower stop load (150) so it meets the plush before squashing it.
+`torque_limit` 600 is above normal (the jaw must still press a compressed plush) and well below the 800 cap.
+Burn-out risk and its mitigation: the SO-101 gripper servo overheats when it squeezes a blocked object at high torque
+for long. The soft hold target lies inside the object, so the servo stalls on the compressed object rather than at
+closed, pushing with at most the 600 torque limit (never more: the hold uses the profile's torque limit, which stays
+below the 800 cap); the squeeze, and with it the position error the servo works against, is capped at 0.08 rad from
+the contact and never past closed; `crush_load` 550 flags a hold close to the limit (`crush_risk`), and every open,
+release, abort and lost lease restores the default torque limit (500), so the soft limit only lasts while an object
+is held. Release soft objects as soon as the task allows.
 Session findings behind them: the closing load is positive (+36 holding a plush, +148 on an empty firm jaw; opening
 -24 to -36), so `closing_load_sign` 1 is right. Only gentle has a successful hold behind it (plush croc tail); the
 earlier gentle (target_load 120) compressed the 4 cm tail to about 7 mm before the load reached the target and the hold
@@ -859,7 +873,8 @@ rising, so `crush_risk` stays false while the object is flattened; look at a pic
 missed). The empty firm close stalled 0.055 rad before closed at load 148, above `hold_effort_min` 100: the
 `gripper_empty_stall_rad` check (0.08) in the arm controller reports it as `closed_no_contact`. Since 2026-10-11 (plush
 croc squashed into that same band) `grasp_object` reports such a close as `unverified`: it keeps holding, lifts and
-attaches a gripper camera image, so for plush and other soft objects use gentle or normal and expect `unverified`.
+attaches a gripper camera image. For plush and other soft objects use `soft` (see above); a plush squashed into the
+empty band still reports `unverified`.
 
 `grip_profile` is a preset name or inline overrides `{base?, <field>?...}` (base defaults to `default_grip_profile`;
 the result names it `<base>+custom`). It is accepted by `set_gripper` (close_until_effort only), `plan_grasp` /
@@ -876,6 +891,15 @@ A close with a profile:
 4. holds the stall position plus `squeeze_rad` toward closed (effort contacts hold the measured position);
 5. measures the hold: two samples `hold_check_delay_s` apart; `holding_load` is the second sample's effort, `slipping`
    when the jaw closed more than `slip_threshold_rad` between them, `crush_risk` when `|holding_load| > crush_load`;
+   **re-tighten** (`ArmController.retighten_hold`, any profile): when the closing-direction holding load is below
+   `retighten_load_below` (30) and the measured jaw is still outside the empty band (not within
+   `gripper_empty_stall_rad` of closed), the hold steps once further toward closed, to `squeeze_max_rad` past the
+   contact position in total (normal: 0.03 + 0.05; an effort contact, which holds the measured position: + 0.08;
+   soft already squeezes the cap, so nothing is left), never past closed and with the torque limit unchanged; the
+   hold is then measured again and the result reports `retightened: true` (`false` when the check found nothing to
+   do, null without a grasp). It applies to every profile because the check is cheap and the step is bounded by the
+   same caps a preset may use; it fires only when the servo is not pushing at all, so it never adds squeeze to a
+   loaded hold. `retighten_load_below: null` disables it;
 6. reports `grip_profile` (name, applied values, `capped` fields) and `torque_limit_readback`: `verified` /
    `mismatch ...` when the bridge's `/follower/servo_registers` dump (about every 10 s) arrived after the write,
    else `unverified ...` (logged).
@@ -900,10 +924,12 @@ grip_profiles:
   closing_load_sign: 1        # sign of the decoded gripper effort while closing on an object
   hold_check_delay_s: 0.25
   slip_threshold_rad: 0.01
+  retighten_load_below: 30    # re-tighten a hold that relaxed below this load (null = never)
   presets:
     gentle: {squeeze_rad: 0.01, torque_limit: 250, close_speed_rps: 0.2, target_load: 80, contact_effort_threshold: 120, crush_load: 200}
     normal: {squeeze_rad: 0.03, torque_limit: 500, close_speed_rps: 0.5, target_load: 200, contact_effort_threshold: 300, crush_load: 450}
     firm: {squeeze_rad: 0.05, torque_limit: 650, close_speed_rps: 0.4, target_load: 300, contact_effort_threshold: 350, crush_load: 600}
+    soft: {squeeze_rad: 0.08, torque_limit: 600, close_speed_rps: 0.3, target_load: 150, contact_effort_threshold: 250, crush_load: 550}
 ```
 
 ## Motion queue
