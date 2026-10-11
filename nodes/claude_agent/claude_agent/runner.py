@@ -38,6 +38,7 @@ from .events import (
     normalize_message,
     result_to_turn_end,
 )
+from .failure import EvidenceCollector
 from .mcp_health import probe_mcp_server
 from .metrics import (
     BUSY,
@@ -280,6 +281,8 @@ class AgentRunner:
         self.client_factory = client_factory
         self.base_env = base_env if base_env is not None else os.environ
         self.logger = logger or logging.getLogger("claude_agent")
+        self.evidence = EvidenceCollector()
+        self.instruction_id = ""
         self.gate = EffectorGate(
             config,
             on_denied=self.emit_denied,
@@ -292,6 +295,8 @@ class AgentRunner:
             on_condition_answered=self.emit_condition_answered,
             logger=self.logger,
             time_left=self.instruction_time_left,
+            evidence_provider=self.evidence.snapshot,
+            lookup_ids_seen=self.evidence.seen_lookup_ids,
         )
         self.plan = self.gate.plan
         self.busy = False
@@ -377,13 +382,22 @@ class AgentRunner:
         """
         return time.time() - (self.last_activity_at or self.session_started_at)
 
+    def publish(self, event_type: str, /, **fields: Any) -> None:
+        """Append an event to the log and feed it to the evidence collector (which keeps only its own event kinds).
+
+        Args:
+            event_type (str): Event type.
+            **fields (Any): Event payload.
+        """
+        self.evidence.add_event(self.events.append(event_type, **fields))
+
     def end_turn(self, **fields: Any) -> None:
         """Emit the turn_end event of the instruction and count its status and duration.
 
         Args:
             **fields: Payload of the turn_end event (must contain ``status``).
         """
-        self.events.append("turn_end", **fields)
+        self.events.append("turn_end", instruction_id=self.instruction_id, **fields)
         INSTRUCTIONS.labels(fields["status"]).inc()
         INSTRUCTION_SECONDS.observe(time.monotonic() - self.instruction_started_at)
 
@@ -477,7 +491,7 @@ class AgentRunner:
             session_restarted (bool): True when a new session replaced the old one (history lost).
         """
         self.logger.warning(message)
-        self.events.append(
+        self.publish(
             "robot_event",
             event_seq=0,
             event_ts=time.time(),
@@ -566,6 +580,7 @@ class AgentRunner:
         Args:
             phase (dict[str, Any]): The phase payload.
         """
+        self.evidence.start_entry(phase["id"], phase["attempt"], time.time())
         self.events.append("phase_started", **phase)
         self.emit_state()
 
@@ -591,7 +606,9 @@ class AgentRunner:
             depth=phase["depth"],
             p_retry_success=phase["p_retry_success"],
             retry_change=phase["retry_change"],
+            failure=phase["failure"],
         )
+        self.evidence.end_entry()
         self.emit_state()
 
     def emit_condition_pending(self, condition: dict[str, Any]) -> None:
@@ -627,7 +644,7 @@ class AgentRunner:
         Args:
             info (dict[str, Any]): {id, name, reason}.
         """
-        self.events.append("tool_denied", **info)
+        self.publish("tool_denied", **info)
 
     async def start_instruction(self, text: str) -> bool:
         """Start an instruction in the background.
@@ -654,7 +671,9 @@ class AgentRunner:
         self.digest = self.take_digest()
         self.last_instruction, self.last_status, self.last_text = text, "", ""
         self.gate.reset()
-        self.events.append("user_message", text=text)
+        self.instruction_id = uuid.uuid4().hex
+        self.evidence.reset()
+        self.events.append("user_message", text=text, instruction_id=self.instruction_id)
         self.emit_state()
         self.task = asyncio.create_task(self.run_instruction(text))
         return True
@@ -941,7 +960,7 @@ class AgentRunner:
                 if isinstance(message, UserMessage):
                     self.note_tool_results(message)
                 for event_type, fields in normalize_message(message, self.config):
-                    self.events.append(event_type, **fields)
+                    self.publish(event_type, **fields)
                     if event_type == "assistant_text":
                         self.last_text = fields["text"]
                 if isinstance(message, UserMessage):
@@ -1273,7 +1292,7 @@ class AgentRunner:
             event (dict[str, Any]): Normalized event from parse_robot_event.
         """
         self.robot_events.append(event)
-        self.events.append(
+        self.publish(
             "robot_event",
             event_seq=event["seq"],
             event_ts=event["ts"],

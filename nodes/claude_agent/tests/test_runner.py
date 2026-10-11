@@ -1562,3 +1562,149 @@ async def test_close_when_idle_records_no_turn_end(tmp_path: Path) -> None:
     runner, events, _ = make_runner(tmp_path)
     await runner.close()
     assert [e for e in events.history() if e["type"] == "turn_end"] == []
+
+
+# --- failure evidence and instruction ids ----------------------------------------------------------------------------
+
+HEX32 = re.compile(r"[0-9a-f]{32}")
+LOOKUP = "ab" * 16
+
+
+def call_and_result(call_id: str, name: str = "mcp__robot__get_robot_state", text: str = "ok") -> list:
+    return [
+        assistant(ToolUseBlock(id=call_id, name=name, input={})),
+        UserMessage(content=[ToolResultBlock(tool_use_id=call_id, content=[{"type": "text", "text": text}])]),
+    ]
+
+
+def critical_robot_event(seq: int = 1) -> dict:
+    return {
+        "seq": seq,
+        "ts": 5.0,
+        "type": "collision_stop",
+        "severity": "critical",
+        "source": "mcp_server",
+        "message": "bumper hit",
+        "data": {},
+    }
+
+
+async def test_instruction_id_on_user_message_and_every_turn_end(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[make_result()])
+    await runner.start_instruction("one")
+    await runner.wait_idle()
+    await runner.start_instruction("two")
+    await runner.wait_idle()
+    users = [e for e in events.history() if e["type"] == "user_message"]
+    ends = [e for e in events.history() if e["type"] == "turn_end"]
+    assert len(users) == len(ends) == 2
+    assert all(HEX32.fullmatch(e["instruction_id"]) for e in users)
+    assert [e["instruction_id"] for e in ends] == [e["instruction_id"] for e in users]
+    assert users[0]["instruction_id"] != users[1]["instruction_id"]
+
+
+async def test_instruction_id_on_error_turn_end(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, config=ClaudeAgentConfig(mcp_token_file=str(tmp_path / "nope")))
+    await runner.start_instruction("hi")
+    await runner.wait_idle()
+    [user] = [e for e in events.history() if e["type"] == "user_message"]
+    [end] = [e for e in events.history() if e["type"] == "turn_end"]
+    assert end["status"] == "error" and end["instruction_id"] == user["instruction_id"]
+
+
+async def test_instruction_id_on_interrupted_turn_end(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, block=True)
+    await runner.start_instruction("one")
+    await asyncio.sleep(0)
+    await runner.interrupt()
+    await runner.wait_idle()
+    [user] = [e for e in events.history() if e["type"] == "user_message"]
+    ends = [e for e in events.history() if e["type"] == "turn_end"]
+    assert ends and all(e["instruction_id"] == user["instruction_id"] for e in ends)
+
+
+async def test_gate_is_wired_to_the_evidence_collector(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path)
+    assert runner.gate.plan.evidence_provider == runner.evidence.snapshot
+    assert runner.gate.plan.lookup_ids_seen == runner.evidence.seen_lookup_ids
+
+
+async def test_failed_phase_completed_carries_failure_with_evidence(tmp_path: Path) -> None:
+    script = [
+        planner(phase_spec(5, 20, "A")),
+        *call_and_result("u1", text=f'{{"lookup_id": "{LOOKUP}"}}'),
+        completer("failed", "no tomato", explanation="saw nothing", failure_type="plan_failure"),
+        make_result(),
+    ]
+    runner, events, _ = make_runner(tmp_path, script=script)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    [done] = [e for e in events.history() if e["type"] == "phase_completed"]
+    failure = done["failure"]
+    assert failure["type"] == "plan_failure" and failure["eai_error_type"] == "affordance"
+    assert failure["explanation"] == "saw nothing"
+    assert failure["evidence"]["tool_calls_total"] == 1
+    assert failure["evidence"]["tool_calls"][0]["name"] == "get_robot_state"
+    assert failure["evidence"]["lookup_ids"] == [LOOKUP]
+
+
+async def test_done_phase_completed_has_null_failure(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[planner(phase_spec()), completer("done"), make_result()])
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    [done] = [e for e in events.history() if e["type"] == "phase_completed"]
+    assert "failure" in done and done["failure"] is None
+
+
+async def test_events_outside_a_phase_are_not_attributed(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, script=[planner(phase_spec()), completer("done"), make_result()])
+    runner.handle_robot_event(critical_robot_event(1))
+    assert runner.evidence.snapshot().robot_events == []
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    runner.handle_robot_event(critical_robot_event(2))
+    assert runner.evidence.snapshot().robot_events == []
+    assert runner.evidence.phase_id is None
+
+
+async def test_robot_event_inside_a_phase_is_collected(tmp_path: Path) -> None:
+    async def event_in_phase(client: FakeClient) -> None:
+        runner.handle_robot_event(critical_robot_event(3))
+
+    script = [planner(phase_spec()), event_in_phase, completer("failed", "bump"), make_result()]
+    runner, events, _ = make_runner(tmp_path, script=script)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    [done] = [e for e in events.history() if e["type"] == "phase_completed"]
+    [robot] = done["failure"]["evidence"]["robot_events"]
+    assert (robot["event_type"], robot["severity"]) == ("collision_stop", "critical")
+
+
+async def test_reconnect_notice_is_fed_to_the_collector_but_info_is_not_evidence(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path)
+    runner.evidence.start_entry("p1", 1, 0.0)
+    runner.emit_reconnected("reconnected", False)
+    assert runner.evidence.snapshot().robot_events == []
+
+
+async def test_denied_call_counts_in_evidence(tmp_path: Path) -> None:
+    async def denied(client: FakeClient) -> None:
+        await client.options.can_use_tool("Bash", {}, ToolPermissionContext(tool_use_id="d"))
+
+    script = [planner(phase_spec()), denied, completer("failed", "x"), make_result()]
+    runner, events, _ = make_runner(tmp_path, script=script)
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    [done] = [e for e in events.history() if e["type"] == "phase_completed"]
+    assert done["failure"]["evidence"]["denied"] == 1
+
+
+async def test_new_instruction_resets_seen_lookup_ids(tmp_path: Path) -> None:
+    script = [planner(phase_spec()), *call_and_result("u1", text=f'{{"lookup_id": "{LOOKUP}"}}'), make_result()]
+    runner, _, _ = make_runner(tmp_path, script=script)
+    await runner.start_instruction("one")
+    await runner.wait_idle()
+    assert LOOKUP in runner.evidence.seen_lookup_ids()
+    await runner.start_instruction("two")
+    assert runner.evidence.seen_lookup_ids() == set()
+    await runner.wait_idle()

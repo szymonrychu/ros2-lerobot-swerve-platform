@@ -658,3 +658,21 @@ def test_prompt_states_the_job_end_followups_and_retry_threshold_from_config() -
     assert "after 1 refusal," in once
     at_once = " ".join(build_system_prompt(ClaudeAgentConfig(job_end_max_followups=0)).split())
     assert "force-parks the arm at once" in at_once
+
+
+def test_prompt_explains_failure_typing() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    for phrase in (
+        "failure_type",
+        "execution_failure",
+        "the step did not achieve its effect",
+        "plan_failure",
+        "the steps worked but the plan was wrong",
+        "revise the plan instead of retrying",
+        "eai_error_type",
+        "explanation",
+        "what you observed",
+        "evidence_lookup_ids",
+        "lookup_id",
+    ):
+        assert phrase in lower

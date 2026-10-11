@@ -525,13 +525,13 @@ Every event is `{seq: int, ts: float, type, ...}`:
 
 | type | fields |
 |---|---|
-| `user_message` | `text` |
+| `user_message` | `text`, `instruction_id` (uuid4 hex generated at instruction start; every `turn_end` of the instruction repeats it) |
 | `assistant_text` | `text` |
 | `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped` / `notes` / `plan`), `input`; `source` only on the node's own calls (`stop`, see above, and the job-end `cancel_motions` / `release_control`, source `job_end`) |
 | `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated`; `source` only on the node's own calls (`stop`, job-end `cancel_motions` / `release_control`) |
 | `tool_denied` | `id` (may be null), `name`, `reason` |
 | `tool_cancelled` | `id`, `name` (short); a tool result came back with Claude Code's generic "user doesn't want to proceed" text without a user stop (the follow-up corrects it for the model) |
-| `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls); `job_end` (`{forced_park: true, result, keep_position_release?}` or `{check_error}`) only when the job-end check forced a park or failed |
+| `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls), `instruction_id` (the id of the `user_message` it ends, also on error, timeout and early-interrupt ends); `job_end` (`{forced_park: true, result, keep_position_release?}` or `{check_error}`) only when the job-end check forced a park or failed |
 | `error` | `message` (authentication failures, missing token file, session failures) |
 | `plan` | the plan payload (`complexity`, `rationale`, `revised`, `revision_rationale`, `active_phase`, `phases` as a flat preorder list with `index`, caps and usage, `tree` (the plan tree: phase nodes as `{type, id, index}`, `if` with `branch`, `while` with `iteration` and `exit_reason`), `pending_condition` (`null` or `{node_id, node_type, question, iteration}`)); emitted when the agent sets its plan |
 | `phase_started` | the phase payload (`index`, `name`, `goal`, `status`, caps, usage, `raised`, `summary`, `id`, `depth` (root level 1), `attempt`, `max_attempts`, `iteration` (of the innermost `while`, 0 outside loops), `p_retry_success`, `retry_change`, `failure` (always null on a fresh entry)); emitted when a phase becomes active, again on each loop iteration and automatic retry |
@@ -565,7 +565,7 @@ and re-encoded as JPEG.
 
 ## Authentication and deployment
 
-System prompt summary: persona and tone; the tool lists; the task plan workflow (phases with goals and caps, `set_task_plan`, `complete_phase`, `revise_plan`, `raise_phase_budget`, guidance, maxima); the working method (top-level view first, then gentle exploration with small moves, then the task); notes in `NOTES.md`; hardware facts (SO-101, small reach from `arm_reach_cm`, base `arm_base_height_m` above the floor, angled gripper camera, upright images, base goals finishing within the nav tolerances and sideways goals rotating first); the safety rules.
+System prompt summary: persona and tone; the tool lists; the task plan workflow (phases with goals and caps, `set_task_plan`, `complete_phase` with its typed failure fields: `failure_type` (`execution_failure` vs `plan_failure`, which is revised, not retried), `eai_error_type`, an `explanation` citing what was observed and `evidence_lookup_ids`, `revise_plan`, `raise_phase_budget`, guidance, maxima); the working method (top-level view first, then gentle exploration with small moves, then the task); notes in `NOTES.md`; hardware facts (SO-101, small reach from `arm_reach_cm`, base `arm_base_height_m` above the floor, angled gripper camera, upright images, base goals finishing within the nav tolerances and sideways goals rotating first); the safety rules.
 
 The agent authenticates with a Claude subscription OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`),
 read by the service from the systemd `EnvironmentFile=/etc/ros2/claude_agent/env`. `ANTHROPIC_API_KEY` and

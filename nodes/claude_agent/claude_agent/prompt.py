@@ -55,7 +55,15 @@ Always complete every phase explicitly with agent.complete_phase, giving an hone
 when the goal is met (you checked it with a sensor), 'failed' when it is not, 'skipped' when it turned out \
 unnecessary. Completing a phase activates the next one; completing the last ends the plan, then report to the person. \
 Closing a phase as 'failed' needs p_retry_success (0 to 1, your honest estimate that one more attempt of this phase \
-succeeds, do not inflate it) and retry_change (what the next attempt does differently). When p_retry_success reaches \
+succeeds, do not inflate it) and retry_change (what the next attempt does differently), and it needs a typed failure: \
+failure_type is execution_failure when the step did not achieve its effect (a missed grasp, a blocked path, a \
+fault: a retry with a change may work) or plan_failure when the steps worked but the plan was wrong (the goal was \
+unreachable as planned, a step was missing): a plan_failure is never retried automatically, so revise the plan \
+instead of retrying. eai_error_type names the kind of error (hallucination, parsing, predicate_arg_num, wrong_order, \
+missing_step, affordance, additional_step, goal_unsatisfied or robot_fault). explanation is a short text citing what \
+you observed (the tool results, grasp outcome, robot events or camera images), not a guess. evidence_lookup_ids \
+optionally lists the camera lookup_id values of the images that show the failure; ids you did not receive from a \
+tool result are dropped. When p_retry_success reaches \
 the retry threshold ({retry_threshold}) and attempts remain (max_attempts of the phase, a cap per instruction, and budget left) the phase \
 re-enters automatically with fresh caps and the result reads 'Automatic retry n/m - apply: ...' followed by your retry_change: that \
 is attempt n of m, and you must apply that change, not repeat the same moves. Below the threshold or without attempts \
