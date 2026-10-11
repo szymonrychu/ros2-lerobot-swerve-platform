@@ -13,30 +13,17 @@ import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
+
+from .photos import MAX_NAME_LEN, CameraPose, PhotoCreator, PhotoStatus, PhotoView, PlanarPose
 
 LOGGER = logging.getLogger("ros2_common.lookups")
 INDEX_FILE = "index.jsonl"
 MAX_QUERY_LIMIT = 20
 DEFAULT_QUERY_LIMIT = 10
 ISO_TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
-
-
-class PlanarPose(BaseModel):
-    """Robot pose in the map frame when the image was taken."""
-
-    x: float
-    y: float
-    yaw: float
-
-
-class CameraPose(BaseModel):
-    """Camera body pose in base_link (fixed-axis roll/pitch/yaw, rad)."""
-
-    xyz: list[float] = Field(min_length=3, max_length=3)
-    rpy: list[float] = Field(min_length=3, max_length=3)
 
 
 class LookupRecord(BaseModel):
@@ -56,6 +43,12 @@ class LookupRecord(BaseModel):
     mcp_session: str | None = None
     note: str = ""
     poi_ids: list[str] = Field(default_factory=list)
+    kind: Literal["photo"] = "photo"
+    name: str = Field(default="", max_length=MAX_NAME_LEN)
+    status: PhotoStatus = "open"
+    created_by: PhotoCreator = "agent"
+    updated_at: float = Field(default=0.0, ge=0.0, description="Unix time of the last edit (s); 0 means never edited")
+    view: PhotoView | None = None
 
 
 class NearFilter(BaseModel):

@@ -33,8 +33,21 @@ same `../../shared` path resolves there; nothing extra is needed in Ansible. A n
 | `ros2_common.battery` | `BatteryConfig` (pydantic: `topic` `/battery_state`, `cells` 3, `cutoff_cell_v` 2.8, `resume_cell_v` 2.9, `stale_s` 5.0; `resume_cell_v >= cutoff_cell_v`, `cells >= 1`) and `BatteryGuard` (thread-safe cut-off hysteresis: enter below `cells * cutoff_cell_v`, leave only above `cells * resume_cell_v`; no reading or older than `stale_s` = unknown = not blocked) |
 | `ros2_common.camera_geometry` | Pixel <-> ground-plane maths and mount calibration (see below) |
 | `ros2_common.lookups` | Camera lookup contract of mcp_server (writer) and web_ui (reader): `LookupRecord` (one `index.jsonl` line), `LookupQuery` + `NearFilter` (filters ANDed; `since` / `until` take unix seconds or ISO-8601, naive = UTC, via `parse_time`), `parse_line`, `record_summary` (record + ISO `time`) and `IndexCache` (parses the index only when its inode / mtime / size changed; corrupt lines warn once per distinct line; `appended()` lets the writer skip a re-parse) |
+| `ros2_common.photos` | Photo POI contract (see below): `PhotoView`, `camera_view`, `effective_view`, `photo_as_poi`, `PhotoAdd`, `PhotoSelector`, `write_atomic`; also owns `PlanarPose` / `CameraPose` (re-exported by `lookups`) |
 
 Used by: `nodes/mcp_server` (motion tools refused in cut-off; lookup store) and `nodes/web_ui` (lookup routes; commands rejected in cut-off; uv path source `ros2-common = { path = "../../shared", editable = true }`).
+
+## Photo contract (`ros2_common.photos`)
+
+A photo is a POI: one `LookupRecord` (an `index.jsonl` line) plus `<id>.jpg`. `LookupRecord` gained defaulted fields `kind` (`"photo"`), `name` (<=60), `status` (`open`/`done`/`cancelled`), `created_by` (`agent`/`user`), `updated_at` (0 = never edited) and `view`, so legacy lines parse unchanged.
+
+- `PhotoView`: camera pose in the map (`x`, `y`, `z`, `yaw`, `pitch` positive = looking down, `hfov`, `source` `camera_mount` or `base_heading`), all finite.
+- `camera_view(base_pose_map, camera_pose_base, hfov)`: base pose composed with the mount; yaw = base yaw + heading of the mount body x axis (fixed-axis xyz rpy). Without a mount: `base_heading` (z, pitch, hfov None). Without a base pose: None.
+- `effective_view(rec)`: stored view, else derived from the stored base pose and mount.
+- `photo_as_poi(rec)`: POI dict; `x` / `y` are None (never 0) when there is no pose.
+- `PhotoAdd`: add payload (32-hex `id` required, `file == "<id>.jpg"`, no `bytes`, unknown keys rejected).
+- `PhotoSelector`: exactly one of `ids` (1..500), `older_than_s` (>0), `keep_newest` (>=0); optional `created_by`, `camera`, `dry_run`.
+- `write_atomic(path, data)`: fsynced temp file (0644) then rename; `mcp_server.lookup_store` re-exports it.
 
 ## Camera geometry (`ros2_common.camera_geometry`)
 

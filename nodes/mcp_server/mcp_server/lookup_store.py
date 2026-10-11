@@ -9,7 +9,6 @@ once) when reading and kept untouched when annotate rewrites another line; a pru
 
 import logging
 import os
-import tempfile
 import threading
 import time
 import uuid
@@ -28,6 +27,7 @@ from ros2_common.lookups import (
     PlanarPose,
     record_summary,
 )
+from ros2_common.photos import FILE_MODE, write_atomic
 
 __all__ = [
     "DEFAULT_QUERY_LIMIT",
@@ -49,31 +49,10 @@ DAY_S = 86400.0
 PRUNE_SLACK = 0.05
 # A JPEG without an index line younger than this may still be between its write and its index append.
 ORPHAN_MIN_AGE_S = 60.0
-FILE_MODE = 0o644
 
 
 class LookupNotFoundError(KeyError):
     """No lookup with the given id."""
-
-
-def write_atomic(path: Path, data: bytes) -> None:
-    """Write a file atomically: fsynced temp file in the same directory (mode 0644), then rename.
-
-    Args:
-        path (Path): Target file.
-        data (bytes): Content.
-    """
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}-")
-    try:
-        with os.fdopen(fd, "wb") as fh:
-            os.fchmod(fh.fileno(), FILE_MODE)
-            fh.write(data)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
 
 
 class LookupStore:

@@ -48,6 +48,12 @@ def test_record_contract_round_trips_every_field() -> None:
         mcp_session="s",
         note="mug",
         poi_ids=["p"],
+        kind="photo",
+        name="mug shelf",
+        status="done",
+        created_by="user",
+        updated_at=TS + 1,
+        view={"x": 1.0, "y": 2.0, "z": 0.2, "yaw": 0.5, "pitch": 0.1, "hfov": 1.0, "source": "camera_mount"},
     )
     parsed = LookupRecord.model_validate_json(json.dumps(full))
     assert json.loads(parsed.model_dump_json()) == full
@@ -150,3 +156,41 @@ def test_index_cache_entries_keep_corrupt_lines(tmp_path: Path) -> None:
     write_index(tmp_path, ["{bad", json.dumps(rec_dict("a"))])
     entries = IndexCache(tmp_path / INDEX_FILE).entries()
     assert entries[0] == ("{bad", None) and entries[1][1] is not None
+
+
+LEGACY_LINE = (
+    '{"id":"a","ts":1760000000.0,"tool":"get_camera_image","camera":"front","width":20,"height":10,'
+    '"file":"a.jpg","bytes":100,"base_pose_map":{"x":1.0,"y":2.0,"yaw":0.1},"arm_joints":null,'
+    '"camera_pose_base":null,"mcp_session":null,"note":"","poi_ids":[]}'
+)
+
+
+def test_legacy_index_line_parses_with_photo_defaults() -> None:
+    record = LookupRecord.model_validate_json(LEGACY_LINE)
+    assert record.kind == "photo"
+    assert record.name == ""
+    assert record.status == "open"
+    assert record.created_by == "agent"
+    assert record.updated_at == 0.0
+    assert record.view is None
+    assert record.base_pose_map is not None
+    assert record.base_pose_map.x == 1.0
+    assert parse_line(LEGACY_LINE) == record
+
+
+def test_photo_fields_round_trip() -> None:
+    view = {"x": 1.0, "y": 2.0, "z": 0.4, "yaw": 0.1, "pitch": 0.2, "hfov": 1.0, "source": "camera_mount"}
+    record = rec(name="shelf", status="done", created_by="user", updated_at=TS + 1, view=view)
+    again = LookupRecord.model_validate_json(record.model_dump_json())
+    assert again == record
+    assert again.view is not None
+    assert again.view.source == "camera_mount"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [{"kind": "point"}, {"name": "x" * 61}, {"status": "weird"}, {"created_by": "robot"}, {"updated_at": -1.0}],
+)
+def test_photo_fields_reject_bad_values(bad: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        rec(**bad)

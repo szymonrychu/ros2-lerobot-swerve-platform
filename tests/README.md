@@ -1956,3 +1956,17 @@ Static derivation of MPPI `model_delay_*` from the swerve steering kinematics (`
 | `test_window_bounds_exclude_the_settle_period` / `test_settle_period_samples_are_never_requested` | The after window starts `settle_min` after the switch and no query touches the settle period. |
 | `test_empty_series_is_an_error_not_a_pass` | An empty before or after series raises `NoDataError`. |
 | `test_default_config_loads_with_the_documented_values` / `test_config_validation_rejects_bad_values` | The YAML defaults, and negative limits, zero window, bad switch_time are rejected. |
+
+### test_shared_photos.py / test_shared_lookups.py (photo contract)
+
+| Test | Covers |
+|---|---|
+| `test_camera_view_without_base_pose_is_none` / `test_camera_view_without_mount_uses_base_heading` | No base pose gives None; no mount gives a `base_heading` view with z, pitch, hfov None. |
+| `test_camera_view_forward_mount_composes_position_and_yaw` / `test_camera_view_pitch_down_is_positive` / `test_camera_view_mount_yaw_adds_to_base_yaw` / `test_camera_view_rolled_mount_keeps_heading` | Position composition, yaw and pitch sign from the mount rpy. |
+| `test_photo_view_rejects_non_finite` | NaN / inf rejected. |
+| `test_effective_view_prefers_stored_view` / `test_effective_view_derives_for_legacy_record` / `test_effective_view_none_without_pose` | Stored view wins; legacy lines derive one; no pose gives None. |
+| `test_photo_as_poi_located` / `test_photo_as_poi_unlocated_has_null_xy_never_zero` | POI form fields; x/y None without a pose. |
+| `test_photo_add_valid` / `test_photo_add_rejects_bad_payload` / `test_photo_add_requires_id` | Id format, `file == <id>.jpg`, client `bytes` refused. |
+| `test_selector_accepts_exactly_one_criterion` / `test_selector_rejects_other_shapes` / `test_selector_accepts_500_ids_and_defaults_dry_run_false` | Exactly-one rule and bounds. |
+| `test_write_atomic_writes_world_readable_file` / `test_write_atomic_fsyncs_before_replace` / `test_write_atomic_cleans_temp_on_failure` / `test_module_exposes_write_atomic` | Atomic write, mode 0644, fsync order, temp cleanup. |
+| `test_legacy_index_line_parses_with_photo_defaults` / `test_photo_fields_round_trip` / `test_photo_fields_reject_bad_values` | `LookupRecord` photo fields: legacy line parses, round trip, bad values rejected. |
