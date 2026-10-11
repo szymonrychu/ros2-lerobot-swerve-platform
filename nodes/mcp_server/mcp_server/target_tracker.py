@@ -28,6 +28,7 @@ import numpy as np
 from .camera_scene import Scene, base_to_map
 from .config import TrackerSettings
 from .models import BasePose
+from .topdown import map_to_base
 
 LOGGER = logging.getLogger(__name__)
 FRAME_MAP = "map"
@@ -72,22 +73,6 @@ class TrackerInput:
     scene: Scene
     base_pose: BasePose
     surface_z: float
-
-
-def map_to_base(pose: BasePose, x: float, y: float) -> tuple[float, float]:
-    """base_link coordinates of a map point for the robot's map pose (inverse of camera_scene.base_to_map).
-
-    Args:
-        pose (BasePose): map -> base_link pose.
-        x (float): Point x in the map.
-        y (float): Point y in the map.
-
-    Returns:
-        tuple[float, float]: (x, y) in base_link.
-    """
-    c, s = math.cos(pose.yaw), math.sin(pose.yaw)
-    dx, dy = x - pose.x, y - pose.y
-    return c * dx + s * dy, -s * dx + c * dy
 
 
 def visible(scene: Scene, point_base_link: np.ndarray, edge_margin_px: float) -> bool:
@@ -250,7 +235,7 @@ class TargetTracker:
         Returns:
             np.ndarray | None: Point in the reference frame, None when the scene cannot express base_link points.
         """
-        bx, by = map_to_base(base_pose, *self.estimate)
+        bx, by = map_to_base(*self.estimate, (base_pose.x, base_pose.y, base_pose.yaw))
         return scene.base_to_ref(np.array([bx, by, surface_z]))
 
     def pixel_to_map(
@@ -322,7 +307,7 @@ class TargetTracker:
         Returns:
             bool: True when seeded.
         """
-        bx, by = map_to_base(base_pose, *self.planned_target)
+        bx, by = map_to_base(*self.planned_target, (base_pose.x, base_pose.y, base_pose.yaw))
         point = np.array([bx, by, surface_z])
         margin = max(self.settings.edge_margin_px, self.settings.template_px / 2)
         if not visible(scene, point, margin):

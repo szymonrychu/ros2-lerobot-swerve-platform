@@ -52,7 +52,7 @@ from .models import BasePose, NavigationResult, RobotError
 from .object_memory import OBJECT_KIND
 from .reach_map import ReachMap, ReachMapMissing, ReachMapStale, pan_geometry
 from .self_collision import SelfCollisionChecker
-from .target_tracker import Detection, DetectionLoop, TargetTracker, TrackerInput, map_to_base, visible
+from .target_tracker import Detection, DetectionLoop, TargetTracker, TrackerInput, visible
 from .tool_context import RobotApi, ToolContext
 
 LOGGER = logging.getLogger(__name__)
@@ -452,8 +452,7 @@ def register(ctx: ToolContext) -> None:
             return str(exc)
         margin = max(settings.tracker.edge_margin_px, settings.tracker.template_px / 2)
         for label, pose in (("staging", cand.staging_pose), ("dock", cand.pose)):
-            bx, by = map_to_base(pose, target.x, target.y)
-            if not visible(scene, np.array([bx, by, target.z]), margin):
+            if not visible(scene, np.array(target_in_base(target, (pose.x, pose.y, pose.yaw))), margin):
                 return f"target not in view from the {label} pose"
         return None
 

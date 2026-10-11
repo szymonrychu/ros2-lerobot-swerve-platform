@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .config import ApproachSettings
 from .models import BasePose
 from .reach_map import CellSet
+from .topdown import map_to_base
 
 MAP_FRAME = "map"
 FULL_TURN_DEG = 360.0
@@ -413,9 +414,8 @@ def target_in_base(target: TargetPoint, pose: tuple[float, float, float]) -> tup
     Returns:
         tuple[float, float, float]: base_link x, y, z (m).
     """
-    dx, dy = target.x - pose[0], target.y - pose[1]
-    c, s = math.cos(pose[2]), math.sin(pose[2])
-    return dx * c + dy * s, -dx * s + dy * c, target.z
+    x, y = map_to_base(target.x, target.y, pose)
+    return x, y, target.z
 
 
 def staging_pose_of(x: float, y: float, yaw: float, offset_m: float) -> tuple[float, float, float]:

@@ -23,9 +23,9 @@ from mcp_server.target_tracker import (
     TrackerInput,
     camera_distance,
     dock_pose_from_target,
-    map_to_base,
     visible,
 )
+from mcp_server.topdown import map_to_base
 
 from .camera_helpers import HEIGHT, WIDTH, camera_config, front_ground_of_center
 
@@ -79,7 +79,7 @@ def render(scene: Scene, pose: BasePose, texture: np.ndarray, surface_z: float =
 
 
 def pixel_of_map_point(scene: Scene, pose: BasePose, x: float, y: float, z: float = 0.0) -> tuple[float, float]:
-    bx, by = map_to_base(pose, x, y)
+    bx, by = map_to_base(x, y, (pose.x, pose.y, pose.yaw))
     ref = scene.base_to_ref(np.array([bx, by, z]))
     assert ref is not None
     pixel = scene.project(ref)
@@ -134,7 +134,7 @@ def test_dock_pose_puts_the_target_at_t_rel_in_the_dock_frame() -> None:
     # Rotated by +90 deg: (0.5, 0.1) in the dock frame is (-0.1, 0.5) in the map.
     assert pose.x == pytest.approx(2.0 + 0.1)
     assert pose.y == pytest.approx(1.0 - 0.5)
-    tx, ty = map_to_base(pose, 2.0, 1.0)
+    tx, ty = map_to_base(2.0, 1.0, (pose.x, pose.y, pose.yaw))
     assert (tx, ty) == pytest.approx((0.5, 0.1))
 
 
@@ -203,7 +203,7 @@ def test_template_scale_follows_the_predicted_distance_ratio(scene: Scene) -> No
     trk.step(render(scene, NEAR_POSE, texture), STAMP_NS + 1, scene, NEAR_POSE, 0.0)
 
     def dist_at(pose: BasePose) -> float:
-        bx, by = map_to_base(pose, *TARGET)
+        bx, by = map_to_base(*TARGET, (pose.x, pose.y, pose.yaw))
         ref = scene.base_to_ref(np.array([bx, by, 0.0]))
         assert ref is not None
         return camera_distance(scene, ref)
