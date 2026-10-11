@@ -527,7 +527,10 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   link, gripper body hull, jaw points), a clear pose, the 2026-10-10 home pose clear, the gripper pointing into the lidar
   column penetrating `lidar`, low over the front-right wheel penetrating `wheel_fr`, every measured 2026-10-10 floor
   touch-down in front of the robot clear of the hard margin (deployed offsets; the robot reached them without touching
-  the lidar; with the measured dome, radius 37 mm at (0.150, 0.040), t4 stands 0.3 mm away, under the 2 mm hard margin, and still fails); a clear pose checks its soft clearance (slow band) and its hard clearance; path checks: into the lidar rejected with obstacle, link,
+  the lidar) except t4, which the check refuses against the lidar (`test_touch_t4_is_refused_by_the_lidar`: 0.3 mm from the
+  dome with the measured dome r 37 mm at (0.150, 0.040), under the 2 mm margin; the model is a few mm conservative there,
+  accepted); a trajectory sample moves a link point up to 17.4 mm (8.7 mm per `joint_line` sample) so a path skimming a
+  sharp edge between samples can come closer than the margin undetected (accepted, documented in the mcp_server README); a clear pose checks its soft clearance (slow band) and its hard clearance; path checks: into the lidar rejected with obstacle, link,
   clearance, margin and hint, lowering toward the lidar slowed (scale 0.3, clearance in the slow band) not rejected, a
   clear path untouched, escaping from a colliding start allowed while going deeper is rejected, the disabled check,
   `combine_scales` (slower wins), `joint_line` sampling and the part points in base_link

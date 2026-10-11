@@ -462,10 +462,13 @@ extent and height, the lidar column bottom (0.10); the dome centre is measured a
 z_max above z_min, unique names); `scripts/gen_nav_footprint.py` derives the Nav2 footprint from the same block.
 
 The dome first entered the model with radius 74 mm (that was its diameter) at the `laser_frame` position, which put it
-22 mm into touch-down t4 that the arm reached on the robot. With the measured centre and radius 37 mm t2 is clear and
-t4 stands 0.3 mm from the dome with the 2.5 mm box points (the 1 cm points had shown 8.3 mm: their spacing hid 8 mm),
-under the 2 mm hard margin, so `test_measured_ground_touches_in_front_are_clear[t4]` still fails; the folded home is
-clear of the hard margin (24 mm).
+22 mm into touch-down t4 that the arm reached on the robot. With the measured centre and radius 37 mm t2 and the other
+touch-downs are clear; t4 stands 0.3 mm from the dome with the 2.5 mm box points (the 1 cm points had shown 8.3 mm: their
+spacing hid 8 mm), under the 2 mm hard margin, so the check refuses it. This is accepted: the real robot reached t4
+without contact, so the model (dome position measured to about a millimetre, the simplified sim upper arm box, about
+6 mm FK tip error) is a few mm conservative there, and refusing is the safe side.
+`test_touch_t4_is_refused_by_the_lidar` pins the refusal; every other touch keeps the strict clearance check. The
+folded home is clear of the hard margin (24 mm).
 
 How to measure and correct each number (tape, robot on a flat floor, base_link = centre between the four steer axes on
 the floor; x forward, y left):
@@ -540,11 +543,11 @@ shoulder_pan heading every `reach_heading_step_deg` (15) across the pan limits a
 13 x 13 x 7 grid of shoulder_lift x elbow_flex x wrist_flex (wrist_roll 0, gripper closed) whose body clearance is at
 least the hard margin (2 mm). It is a sampled approximation (about 1 cm at full reach).
 
-Sample spacing and the margin: the margin is exact between box points (spacing / sqrt(2) <= 2 mm). Along a motion the
-checked samples are further apart: a trajectory sample (25 Hz, 1 rad/s cap) moves a link point up to 17 mm, a
-`joint_line` sample (0.02 rad, planner free moves, home routes) up to 8.7 mm. A thick obstacle cannot be crossed between
-two samples (the thinnest is 35 mm) and a dip along a straight chord past a round surface is below 1 mm, but a path
-skimming a sharp obstacle edge between two samples can come closer than the margin undetected.
+Sample spacing and the margin (accepted limitation): the 2 mm margin is exact between box points (spacing / sqrt(2) <=
+2 mm) but not between trajectory samples. A link point moves up to 17.4 mm between two trajectory samples (25 Hz, 1 rad/s
+cap) and up to 8.7 mm between two `joint_line` samples (0.02 rad: planner free moves, home routes). That cannot
+cross any obstacle (the thinnest, a side frame, is 35 mm) and a dip along a straight chord past a round surface is below
+1 mm, but a path skimming a sharp obstacle edge between two samples can come closer than 2 mm undetected.
 
 ## Grasp macros
 

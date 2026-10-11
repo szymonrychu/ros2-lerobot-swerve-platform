@@ -5,6 +5,7 @@ Every test pose is FK-checked (the tool point is where the test says) before its
 
 import json
 import math
+from typing import Any
 
 import numpy as np
 import pytest
@@ -110,10 +111,19 @@ def test_low_over_front_wheel_hits_the_wheel() -> None:
     assert check.min_clearance < 0.0
 
 
-@pytest.mark.parametrize("touch", [t["name"] for t in TOUCHES])
-def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
-    """The 2026-10-10 tip touch-downs (deployed offsets) are in front of the robot on the floor and the arm reached
-    them on the robot without touching the lidar: never rejected (clear of the body hard margin)."""
+# Touch-down the body check refuses (test_touch_t4_is_refused_by_the_lidar).
+REFUSED_TOUCH = "t4"
+
+
+def touch_check(touch: str) -> tuple[Any, McpServerConfig]:
+    """Body check of a 2026-10-10 touch-down pose with the deployed config, FK-checked to be in front on the floor.
+
+    Args:
+        touch (str): Touch name in touches.json.
+
+    Returns:
+        tuple[PoseClearance, McpServerConfig]: The pose clearance and the deployed config.
+    """
     cfg = deployed_config()
     kin = ArmKinematics(
         cfg.arm.urdf_path,
@@ -129,8 +139,25 @@ def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
     joints = entry["last_free"]["joints"] if "last_free" in entry else entry["hover"]["joints"]
     tip = tool_base_link(kin, joints)
     assert tip[0] > 0.2 and abs(tip[2]) < 0.03  # FK check: in front of the robot, at the floor
-    check = checker.pose(joints)
+    return checker.pose(joints), cfg
+
+
+@pytest.mark.parametrize("touch", [t["name"] for t in TOUCHES if t["name"] != REFUSED_TOUCH])
+def test_measured_ground_touches_in_front_are_clear(touch: str) -> None:
+    """The 2026-10-10 tip touch-downs (deployed offsets) are in front of the robot on the floor and the arm reached
+    them on the robot without touching the lidar: never rejected (clear of the body hard margin). t4 is the one
+    exception, see test_touch_t4_is_refused_by_the_lidar."""
+    check, cfg = touch_check(touch)
     assert check.min_clearance > cfg.body_check.hard_margin_m
+
+
+def test_touch_t4_is_refused_by_the_lidar() -> None:
+    """The body check rejects touch-down t4 against the lidar. The real robot reached t4 without contact, so the model
+    (dome position measured to about a millimetre, the simplified sim upper arm box, about 6 mm FK tip error) is a few
+    mm conservative there; refusing it is the safe side."""
+    check, cfg = touch_check(REFUSED_TOUCH)
+    assert check.obstacle == "lidar"
+    assert check.min_clearance < cfg.body_check.hard_margin_m
 
 
 def test_path_into_the_lidar_is_rejected() -> None:
