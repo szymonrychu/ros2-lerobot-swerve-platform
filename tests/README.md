@@ -164,6 +164,7 @@ of 2026-10-11 (Mimir) are pinned in `MEASURED_MIB`.
 | `test_headroom_tasks_are_reversible_and_wired_into_the_client_deploy` | `cgroup_headroom.yml` installs both drop-ins, removes them when `ros2_cgroup_headroom_enabled` is false, reloads systemd; the client deploy includes it with tags `config`, `always`. |
 | `test_monitoring_slice_stays_low_priority` | `monitoring.slice` keeps CPU/IO weight 20, its memory caps and a positive `OOMScoreAdjust`. |
 | `test_builds_run_at_background_cpu_weight` | All three build `systemd-run` scopes pass `-p CPUWeight={{ ros2_build_cpu_weight }}` (20). |
+| `test_node_readmes_state_no_cpu_quota` | No node README states a unit CPU quota (`CPUQuota=<n>`, `cpu_quota`, "CPU quota"); build scopes are described through `ros2_build_cpu_quota` / `ros2_build_cpu_weight`. |
 
 ### `test_propose_unit_limits.py`
 

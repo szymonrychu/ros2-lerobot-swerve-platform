@@ -235,8 +235,9 @@ Each instruction runs under `instruction_timeout_s` (900): on expiry the model i
 session discarded, an `error` event and `turn_end` status `timeout` are emitted and `busy` is cleared. Starting the
 Claude session is bounded by `connect_timeout_s` (240); a failure or timeout is an `error` event and clears `busy`. The
 SDK's own initialize timeout is 60 s unless `CLAUDE_CODE_STREAM_CLOSE_TIMEOUT` (ms) is set in the service environment;
-Ansible sets 180000 because the CLI starts slowly on the Pi under `CPUQuota=50%`. A reset is refused with 409 while it is
-in progress, as is a message.
+Ansible sets 180000 because the CLI starts slowly on the busy Pi (the unit has no CPU cap; it runs in the agent-facing
+`CPUWeight=300` tier and yields CPU to the robot nodes). A reset is refused with 409 while it is in progress, as is a
+message.
 
 Robot tools check (`AgentRunner.ensure_robot_tools`, before every instruction): the Claude CLI connects the robot MCP
 server once, at session start, and never retries, so a session started while mcp_server was down (for example its OOM

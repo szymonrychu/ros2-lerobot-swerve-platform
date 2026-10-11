@@ -15,8 +15,10 @@ Client only. Not in the Jazzy apt distribution, so Ansible builds it from source
   deploy rebuilds.
 - Build: `ansible/roles/ros2_node_deploy/tasks/colcon_source_build.yml` clones into `/opt/ros2-ws/src/rf2o_laser_odometry`
   and runs `colcon build --merge-install --parallel-workers 1 --cmake-args -DCMAKE_BUILD_TYPE=Release` with
-  `MAKEFLAGS=-j2` under `systemd-run --scope -p CPUQuota=100% -p IOWeight=10 nice -n 19 ionice -c 3` (the Pi overheats
-  otherwise). Only rebuilt when the pinned commit or a patch changes, or when `install/setup.bash` is missing (stamp file). See
+  `MAKEFLAGS=-j{{ ros2_build_jobs }}` under `systemd-run --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p
+  CPUWeight={{ ros2_build_cpu_weight }} -p IOWeight=10 nice -n 19 ionice -c 3` (values in `ansible/group_vars/all.yml`:
+  the build runs at background weight 20 so it cannot starve the robot nodes, and its scope ceiling is lowered again if
+  the Pi overheats). Only rebuilt when the pinned commit or a patch changes, or when `install/setup.bash` is missing (stamp file). See
   `ansible/README.md`.
 - Patch: `patches/0001-retry-laser-tf.patch` is applied after the checkout (`colcon_source.patches`). Upstream calls
   `setLaserPoseFromTf()` once on the first scan and ignores a failed lookup, keeping an identity laser pose for the

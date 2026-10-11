@@ -258,7 +258,7 @@ New tool modules (e.g. perception) are registered in one place: a function takin
 
 Module `perception_tools.py` (one entry in `tools.TOOL_MODULES`); the logic is in rclpy-free modules (`topdown.py`,
 `object_memory.py`, `look_around.py`, `poi_client.py`) that only use OpenCV/numpy and render on demand (the service has
-a 25 % CPU quota).
+no CPU cap but runs in the agent-facing `CPUWeight=300` tier, so it yields CPU to the robot nodes).
 
 **`get_topdown_view`.** PNG, `px` x `px` (default 480), centred on the robot and **robot-up**: base_link +x (the
 heading) is the top of the image, +y (left) is the left; one pixel is `2 * radius_m / px` metres (`scale_m_per_px` in
@@ -551,7 +551,7 @@ golden-section search. Dev Mac (MacBook M4), deployed default config, before -> 
 
 The rest of a cold plan is ikpy (cached per instance, see Planner speed). `JawModel.inner_gap` now turns the whole jaw
 silhouette in one vectorised Rodrigues rotation (it ran one rotation per profile point, about 15% of a plan). On the
-robot (busy RPi5, 25% CPU quota) plan_grasp took 52.6 s and grasp_object 205-259 s before this; expect the body check
+robot (busy RPi5, then capped at a quarter of one core; the unit has no CPU cap now) plan_grasp took 52.6 s and grasp_object 205-259 s before this; expect the body check
 share to drop by the same factor.
 
 `get_arm_reach(points?)` (in `body_tools.py`, never refused): the obstacle list with dimensions, the arm mount and pan

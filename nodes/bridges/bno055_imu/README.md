@@ -86,8 +86,9 @@ Served on `127.0.0.1:<metrics_port>` (`19103` on the robot) via `ros2-metrics`, 
   overruns its slot skips the missed slots without bursting to catch up and increments `imu_cycle_overruns_total`.
 - **Calibration status** is read every 1 s inside the same cycle as a publish, it never costs an extra cycle.
 - **CPU note**: the BNO055 sits on the kernel bit-banged `i2c-gpio` bus, so the time an I2C transaction takes is system
-  CPU of this process and counts against the unit's `cpu_quota`. Fewer transactions per cycle is what lets the node reach
-  `publish_hz`; watch `imu_cycle_seconds` and `imu_cycle_overruns_total` when tuning `publish_hz` or the quota.
+  CPU of this process. The unit has no CPU cap and runs in the critical `CPUWeight=1000` tier, so under contention
+  other work yields first; fewer transactions per cycle is still what lets the node reach `publish_hz`. Watch
+  `imu_cycle_seconds` and `imu_cycle_overruns_total` when tuning `publish_hz`.
 
 ## Recovery
 

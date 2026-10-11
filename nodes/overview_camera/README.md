@@ -75,7 +75,9 @@ warning (fine with a single camera).
   `v0.7.2+rpt20260817` (colcon-meson, pisp pipeline only, libpisp from its meson wrap so the build needs network) and
   camera_ros at commit `8f792e27a6dbc81e4943a75765fc1b7b7d37b301`. Still required for CSI cameras on Ubuntu / Pi 5. Do
   not install `ros-jazzy-camera-ros` or `ros-jazzy-libcamera` from apt: they would shadow the fork.
-- Service limits: `CPUQuota=100%`, `Nice=5`, `MemoryMax=256M` (one 640x480 stream at 15 fps with JPEG compression).
+- Service limits: no CPU cap; normal robot tier `CPUWeight=500` / `IOWeight=500`, `OOMScoreAdjust=-500`, `Nice=5`,
+  `MemoryLow=96M` (about its working set), `MemoryMax=256M` safety net (one 640x480 stream at 15 fps with JPEG
+  compression).
 - Deploy: `./scripts/deploy-nodes.sh client overview_camera 2>&1 | tee .logs/deploy-client-overview.log`.
 
 ## Adding a TF once the mount is measured
