@@ -14,6 +14,7 @@ DOCS = [
     REPO_ROOT / "ansible" / "README.md",
     REPO_ROOT / ".claude" / "skills" / "ansible-deploy" / "SKILL.md",
 ]
+NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yaml"
 METRICS_TARGET = {"node": "costmap_zones", "address": "127.0.0.1:19111", "path": "/metrics"}
 
 sys.path.insert(0, str(NODE_DIR))
@@ -52,6 +53,17 @@ def test_costmap_zones_entry_after_poi_store_with_config() -> None:
     assert set(config) == set(CostmapZonesConfig.model_fields)
     assert config["metrics_port"] == 19111
     assert CostmapZonesConfig(**config).model_dump() == config
+
+
+def test_info_topics_match_nav2_params() -> None:
+    """The entry's filter info topics equal filter_info_topic of the keepout and speed filters in nav2_params."""
+    config = yaml.safe_load(next(n for n in client_vars()["ros2_nodes"] if n["name"] == "costmap_zones")["config"])
+    nav2 = yaml.safe_load(NAV2_PARAMS.read_text())
+    glob = nav2["global_costmap"]["global_costmap"]["ros__parameters"]
+    local = nav2["local_costmap"]["local_costmap"]["ros__parameters"]
+    assert glob["keepout_filter"]["filter_info_topic"] == config["keepout_info_topic"]
+    assert local["keepout_filter"]["filter_info_topic"] == config["keepout_info_topic"]
+    assert local["speed_filter"]["filter_info_topic"] == config["speed_info_topic"]
 
 
 def test_metrics_target_for_costmap_zones() -> None:

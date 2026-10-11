@@ -1373,6 +1373,7 @@ Static wiring invariants of the costmap_zones node (Ansible node type, entry, pl
 |---|---|
 | `test_costmap_zones_node_type_defaults` | Native `python3 -m costmap_zones`, `nodes/costmap_zones`, `src_shared`, memory 96M/256M, normal weights 500/500/-500, `config_path`, `ros-jazzy-nav2-msgs`, env `COSTMAP_ZONES_CONFIG`. |
 | `test_costmap_zones_entry_after_poi_store_with_config` | Present + enabled entry directly after `poi_store`; config keys are exactly the `CostmapZonesConfig` fields and validate against it. |
+| `test_info_topics_match_nav2_params` | The entry's `keepout_info_topic` / `speed_info_topic` equal `filter_info_topic` of the keepout filters (both costmaps) and the speed filter in `nav2_params.yaml`. |
 | `test_metrics_target_for_costmap_zones` | `monitoring_agent_node_targets` scrapes `127.0.0.1:19111/metrics`. |
 | `test_playbook_deploys_costmap_zones_after_poi_store` | `deploy_nodes_client.yml` deploys it after `poi_store` with tags `costmap_zones, apt, python, build, config`. |
 | `test_node_files_exist` | pyproject, uv.lock and README of the node exist. |
