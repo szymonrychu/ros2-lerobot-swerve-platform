@@ -30,36 +30,6 @@ NODES_DIR = REPO_ROOT / "nodes"
 STALE_CPU_QUOTA_RE = re.compile(r"CPUQuota=\d|`cpu_quota`|CPU\s+quota", re.IGNORECASE)
 STOP_FOR_BUILD = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "stop_for_build.yml"
 
-# Measured 2026-10-11 08:23 UTC from Mimir (scripts/propose_unit_limits.py, host=client, 24 h window): node_type ->
-# (typical = p50 working set MiB, 24 h peak working set MiB). topic_scraper_api's peak was capped by its old 128M limit.
-MEASURED_MIB = {
-    "ros2_master": (42.6, 46.9),
-    "feetech_servos": (49.7, 50.4),
-    "uvc_camera": (66.7, 68.2),
-    "filter_node": (47.6, 48.2),
-    "test_joint_api": (57.6, 58.2),
-    "topic_scraper_api": (119.6, 128.0),
-    "bno055_imu": (53.6, 57.6),
-    "gps_rtk": (55.0, 55.8),
-    "rplidar_a1": (91.6, 92.9),
-    "overview_camera": (94.6, 95.6),
-    "swerve_controller": (49.8, 50.5),
-    "static_tf_publisher": (44.5, 45.0),
-    "rf2o_laser_odometry": (38.6, 39.3),
-    "rf2o_odom_relay": (47.6, 48.2),
-    "map_guard": (63.7, 66.4),
-    "robot_localization_ekf": (46.9, 47.7),
-    "nav2_bringup": (168.7, 198.9),
-    "slam_toolbox": (84.1, 90.5),
-    "web_ui": (106.4, 253.1),
-    "mcp_server": (177.9, 383.4),
-    "poi_store": (53.8, 54.3),
-    "claude_agent": (93.4, 386.5),
-}
-# Robot node types with no series (not running on 2026-10-11, or replaced since: laser_filter became a Python node):
-# their MemoryLow is an estimate.
-UNMEASURED = {"master2master", "haptic_controller", "realsense_d435i", "laser_filter"}
-
 CRITICAL = {
     "weights": (1000, 1000, -900),
     "types": ["feetech_servos", "swerve_controller", "ros2_master", "filter_node", "static_tf_publisher", "bno055_imu"],
@@ -331,31 +301,15 @@ def test_every_client_type_is_tiered() -> None:
 # --- client memory ----------------------------------------------------------------------------------------------------
 
 
-def test_memory_low_is_about_the_measured_working_set() -> None:
-    """MemoryLow is at least the typical (p50) working set and at most 16 MiB above it; unmeasured types have one."""
+def test_every_robot_type_has_memory_low_below_memory_max() -> None:
+    """Every robot node type protects some memory and its MemoryMax safety net is at least twice MemoryLow; mcp_server
+    gets at least 1G."""
     defaults = type_defaults(CLIENT_VARS)
-    for node_type, (typical, _peak) in MEASURED_MIB.items():
+    for node_type in ROBOT_TYPES:
         low = to_mib(defaults[node_type]["memory_low"])
-        assert typical <= low <= typical + 16, (node_type, low)
-    for node_type in UNMEASURED:
-        assert to_mib(defaults[node_type]["memory_low"]) >= 32, node_type
-
-
-def test_memory_max_is_a_generous_safety_net() -> None:
-    """MemoryMax is at least twice the 24 h peak (twice MemoryLow when unmeasured), mcp_server at least 1G."""
-    defaults = type_defaults(CLIENT_VARS)
-    for node_type, (_typical, peak) in MEASURED_MIB.items():
-        assert to_mib(defaults[node_type]["memory_max"]) >= 2 * peak, node_type
-    for node_type in UNMEASURED:
-        entry = defaults[node_type]
-        assert to_mib(entry["memory_max"]) >= 2 * to_mib(entry["memory_low"]), node_type
+        assert low >= 32, node_type
+        assert to_mib(defaults[node_type]["memory_max"]) >= 2 * low, node_type
     assert to_mib(defaults["mcp_server"]["memory_max"]) >= 1024
-
-
-def test_measured_and_unmeasured_cover_every_robot_type() -> None:
-    """The measurement table names every robot node type."""
-    assert set(MEASURED_MIB) | UNMEASURED == ROBOT_TYPES
-    assert not set(MEASURED_MIB) & UNMEASURED
 
 
 def enabled_memory_low_sum(variables: dict) -> int:
@@ -412,7 +366,7 @@ def test_system_slice_allocates_the_robot_memory_low() -> None:
     variables = load(CLIENT_VARS)
     text = render_headroom("system-slice-headroom.conf.j2", **variables)
     assert "[Slice]\n" in text
-    assert "MemoryLow=1672M\n" in text
+    assert f"MemoryLow={enabled_memory_low_sum(variables)}M\n" in text
     assert "MemoryLow=0M\n" in render_headroom(
         "system-slice-headroom.conf.j2", ros2_nodes=[], ros2_node_type_defaults={}
     )

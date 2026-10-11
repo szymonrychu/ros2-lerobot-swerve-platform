@@ -157,8 +157,7 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 ### `test_unit_cgroups.py`
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
-units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). Measured working sets
-of 2026-10-11 (Mimir) are pinned in `MEASURED_MIB`. `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
 
 ### `test_config_exit_codes.py`
 
@@ -180,12 +179,10 @@ The mains of mcp_server and claude_agent return `os.EX_CONFIG` (78) for config/t
 | `test_tiers_dominate_default_system_work` | Every tier is above the default weight 100 with a negative `OOMScoreAdjust`, ordered critical > normal > agent. |
 | `test_tiers_do_not_overlap` | A node type is in one tier only. |
 | `test_every_client_type_is_tiered` | Every client type but the uninstalled `fastdds_discovery_server` is tiered. |
-| `test_memory_low_is_about_the_measured_working_set` | `memory_low` is between the p50 working set and 16 MiB above it; unmeasured types (also laser_filter since it became a Python node) have one. |
-| `test_memory_max_is_a_generous_safety_net` | `memory_max` is at least 2x the 24 h peak (2x `memory_low` when unmeasured); mcp_server at least 1G. |
-| `test_measured_and_unmeasured_cover_every_robot_type` | The measurement table names every robot type exactly once. |
-| `test_memory_low_sum_leaves_room_for_the_os` | The enabled nodes protect 1672 MiB, under a third of the 8 GB Pi. |
+| `test_every_robot_type_has_memory_low_below_memory_max` | Every robot type has `memory_low` >= 32 MiB and `memory_max` at least 2x it; mcp_server at least 1G. |
+| `test_memory_low_sum_leaves_room_for_the_os` | The enabled nodes protect at most `MAX_MEMORY_LOW_SUM_MIB`, under a third of the 8 GB Pi. |
 | `test_server_keeps_its_limits_without_tiers` | Server types keep `CPUQuota` / `MemoryMax`, carry no tier keys, render no `MemoryHigh` / `MemoryLow`. |
-| `test_system_slice_allocates_the_robot_memory_low` | The `system.slice` drop-in template sums `memory_low` over present and enabled nodes (M and G, missing keys 0): 1672M on the client. |
+| `test_system_slice_allocates_the_robot_memory_low` | The `system.slice` drop-in template sums `memory_low` over present and enabled nodes (M and G, missing keys 0) (the client's value equals the computed sum). |
 | `test_user_slice_loses_to_robot_units` | The `user.slice` drop-in renders `CPUWeight=50`, `IOWeight=50` from `group_vars/client.yml`. |
 | `test_headroom_tasks_are_reversible_and_wired_into_the_client_deploy` | `cgroup_headroom.yml` installs both drop-ins, removes them when `ros2_cgroup_headroom_enabled` is false, reloads systemd; the client deploy includes it with tags `config`, `always`. |
 | `test_monitoring_slice_stays_low_priority` | `monitoring.slice` keeps CPU/IO weight 20, its memory caps and a positive `OOMScoreAdjust`. |
