@@ -187,6 +187,7 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "plan_grasp",
         "grasp_object",
         "release_object",
+        "confirm_grasp",
         "enqueue_motions",
         "resume_motions",
         "check_guard_rules",
@@ -706,3 +707,70 @@ def test_frontier_motion_tools_refused_while_the_queue_runs(server: Any, robot: 
 
 def test_instructions_point_to_the_frontier_tools() -> None:
     assert "list_frontiers" in INSTRUCTIONS and "look_toward_frontier" in INSTRUCTIONS
+
+
+# --- set_gripper close_until_effort: jaw crop and pending verdict -----------------------------------------------
+
+
+def close_on_object(server: Any, robot: FakeRobot, **args: Any) -> Any:
+    """set_gripper(close_until_effort) on an object in the jaws (the gripper starts wide open)."""
+    from .test_grasp_tools import object_in_jaws
+
+    take(server, "arm")
+    robot.arm_backend.positions["gripper"] = 1.0
+    object_in_jaws(robot.arm_backend)
+    return call(server, "set_gripper", {"close_until_effort": True, **args})
+
+
+def test_set_gripper_close_attaches_the_jaw_crop_and_awaits_confirm_grasp(server: Any, robot: FakeRobot) -> None:
+    res = close_on_object(server, robot)
+    data = res.structured_content
+    assert data["status"] == "grasped", data["message"]
+    images = [c for c in res.content if c.type == "image"]
+    assert len(images) == 1 and images[0].mime_type == "image/jpeg"
+    check = data["grasp_check"]
+    assert check["image"] == "pending" and check["fused"] is None
+    assert check["crop"]["box_px"] is None and check["crop"]["full_frame_reason"]
+    assert "confirm_grasp" in data["message"] and check["grasp_id"] in data["message"]
+    record = robot.arm.carry.get()
+    assert record.grasp_kind == "unverified" and record.image == "pending" and record.grasp_id == check["grasp_id"]
+    assert ("camera_image", ("gripper", McpServerConfig().grasp_check.image_px)) in robot.calls
+    confirmed = call(
+        server,
+        "confirm_grasp",
+        {"grasp_id": check["grasp_id"], "object_between_fingers": "yes", "evidence": "block between the pads"},
+    ).structured_content
+    assert confirmed["image"] == "yes" and confirmed["fused"] in {"grasped", "unverified"}
+
+
+def test_set_gripper_close_without_a_camera_frame_is_not_attached_but_still_pending(
+    server: Any, robot: FakeRobot
+) -> None:
+    robot.camera_error = "no frame"
+    res = close_on_object(server, robot)
+    data = res.structured_content
+    assert data["grasp_check"]["image"] == "not_attached" and data["grasp_check"]["crop"] is None
+    assert "no frame" in data["message"] and "confirm_grasp" in data["message"]
+    assert not [c for c in res.content if c.type == "image"]
+    assert robot.arm.carry.get().grasp_kind == "unverified"
+
+
+def test_set_gripper_open_and_a_missed_close_attach_nothing(server: Any, robot: FakeRobot) -> None:
+    take(server, "arm")
+    res = call(server, "set_gripper", {"open_fraction": 0.5})
+    assert res.structured_content["status"] == "converged"
+    assert not [c for c in res.content if c.type == "image"]
+    robot.arm_backend.positions["gripper"] = 1.0
+    res = call(server, "set_gripper", {"close_until_effort": True})  # nothing in the jaws: closes empty
+    assert res.structured_content["status"] == "closed_no_contact"
+    assert not [c for c in res.content if c.type == "image"]
+    assert not [c for c in robot.calls if c[0] == "camera_image"]
+
+
+def test_set_gripper_description_explains_the_confirm_flow(server: Any) -> None:
+    async def run() -> Any:
+        return await server.list_tools()
+
+    text = next(t for t in anyio.run(run) if t.name == "set_gripper").description or ""
+    for needle in ("confirm_grasp", "grasped", "unverified", "missed"):
+        assert needle in text, needle

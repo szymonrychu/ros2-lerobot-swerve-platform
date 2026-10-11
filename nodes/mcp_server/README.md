@@ -37,10 +37,11 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `get_control_state` | Both leases (sensor): `arm {held, held_since, at_home, home_stored, active_source, lost}`, `base {held, held_since, steering_neutral}`. |
 | `move_arm_joints(targets, speed_scale<=0.5, settle=None)` | `settle`: `trajectory_end` (default; `final` when the call moves the gripper joint, `limits.arm_default_settle`) or `final`, see the safety model.  Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `speed_scale` 0.5 is the maximum, `limits.arm_max_joint_velocity_rps` (default 1.0 rad/s); the description states the configured value. A `wrist_roll` change above `limits.roll_guard_min_change_rad` is refused while the gripper is open wider than `limits.roll_max_gripper_open_rad` (see Wrist roll guard). `converged` results may carry `residual_error` (see Safety model). |
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None, settle=None)` | `settle` as for `move_arm_joints`.  ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.104, measured 2026-10-10; see Arm mount); the tool descriptions and `get_arm_state.floor_z_m` state it. Motions near or below the effective surface are slowed (never blocked) by the floor slow zone; `surface_z_m`, `tilt_override_deg` and `surfaces` (also on `move_arm_joints`, `set_gripper` and `arm_home`; see Surface regions) shift it per call and results report `slow_zone`. |
-| `set_gripper(open_fraction | close_until_effort, effort_threshold, grip_profile, surfaces)` | Open to a fraction (0 closed, 1 open) or close with a grip profile (see Grip profiles) until `abs(effort) >= threshold` (default: the profile's `contact_effort_threshold`) or the closing load reaches the profile's `target_load` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.10 rad; was 0.15 until a 39 mm jar was refused at 0.147 rad on 2026-10-10) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). A stall or contact within `limits.gripper_empty_stall_rad` (0.08 rad, about 6 mm) of closed is an empty jaw: `closed_no_contact` with "closed without contact: the jaw stopped X rad before closed ...", never `grasped` (2026-10-10: the empty firm close stalled 0.055 rad before closed at load 148). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled with the command at least `gripper_stall_lead_rad` (0.15) ahead of it (or already at the close target: a jaw stopped less than 0.15 rad before closed can never see a larger lead). Stalls are classified by position: a jaw that stalls (that stall criterion: it moved less than `arm_settle_motion_rad` over `arm_settle_window_s`) at least `gripper_empty_stall_rad` from closed is a contact even when its load stays below `target_load` and its error exceeds the settle tolerance (an object loading the jaw lightly never settles within it): the close ends at once and the stall becomes `grasped` (hold = the stalled position plus the profile's `squeeze_rad` toward closed) or `blocked` by the travel/open rules above; a stall inside the empty-jaw band stays `closed_no_contact`. Until 2026-10-11 such a stall ended `timeout` and `grasp_object` aborted. A gripper-only motion near the floor or the robot body is slowed only by what moves (see Floor slow zone and Body collision): the 2026-10-11 10:27 close (jaw tip 12.5 mm above the floor, the stationary upper arm 14.9 mm from the lidar) ran 325 ticks instead of 64. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
+| `set_gripper(open_fraction | close_until_effort, effort_threshold, grip_profile, surfaces)` | Open to a fraction (0 closed, 1 open) or close with a grip profile (see Grip profiles) until `abs(effort) >= threshold` (default: the profile's `contact_effort_threshold`) or the closing load reaches the profile's `target_load` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.10 rad; was 0.15 until a 39 mm jar was refused at 0.147 rad on 2026-10-10) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). A stall or contact within `limits.gripper_empty_stall_rad` (0.08 rad, about 6 mm) of closed is an empty jaw: `closed_no_contact` with "closed without contact: the jaw stopped X rad before closed ...", never `grasped` (2026-10-10: the empty firm close stalled 0.055 rad before closed at load 148). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled with the command at least `gripper_stall_lead_rad` (0.15) ahead of it (or already at the close target: a jaw stopped less than 0.15 rad before closed can never see a larger lead). Stalls are classified by position: a jaw that stalls (that stall criterion: it moved less than `arm_settle_motion_rad` over `arm_settle_window_s`) at least `gripper_empty_stall_rad` from closed is a contact even when its load stays below `target_load` and its error exceeds the settle tolerance (an object loading the jaw lightly never settles within it): the close ends at once and the stall becomes `grasped` (hold = the stalled position plus the profile's `squeeze_rad` toward closed) or `blocked` by the travel/open rules above; a stall inside the empty-jaw band stays `closed_no_contact`. Until 2026-10-11 such a stall ended `timeout` and `grasp_object` aborted. A gripper-only motion near the floor or the robot body is slowed only by what moves (see Floor slow zone and Body collision): the 2026-10-11 10:27 close (jaw tip 12.5 mm above the floor, the stationary upper arm 14.9 mm from the lidar) ran 325 ticks instead of 64. The arm joints keep being held at their intended targets while the gripper moves (see Safety). A `close_until_effort` that ends `grasped` is not trusted on the sensors alone (see Grasp verification): the result carries `grasp_check` (`grasp_id`, sensor `band`, `evidence`, `image`, `crop`, `fused`) and a fresh gripper camera image cropped to the jaws (the `status` stays the sensor's `grasped`, the message says `awaiting confirm_grasp(grasp_id=...)`); the hold counts as `unverified` until `confirm_grasp` fuses your look with the band. |
 | `plan_grasp(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Dry-run grasp plan (sensor, no motion): outcome `planned` / `infeasible` with reasons, the resolved `grip_profile` (an unknown profile is refused), chosen strategy, pitch, wrist roll, jaw opening, waypoints and slow-zone annotations. See Grasp macros. |
-| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Plan and execute (motion): outcome `grasped` / `unverified` / `missed` / `aborted` / `infeasible` (`unverified` also attaches a fresh gripper camera image, max 640 px, as an image content item), with the executed steps (each with the `residual_error` of arm joints off their intended target), the final gripper position/load, the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`, `retightened`; see Grip profiles), `residual_error` and `warnings` (joints off their target beyond their converge tolerance) and `held_pose` (measured jaw centre and tool point against the last waypoint). See Grasp macros. |
-| `release_object(params, surface_z_m, tilt_override_deg, surfaces)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. The way out of an `unverified` grasp whose image shows empty jaws (then retry). |
+| `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Plan and execute (motion): outcome `unverified` for every close that holds something (verified contact or empty-band hold; it attaches a fresh gripper camera frame cropped to the jaws, at most `grasp_check.image_px` (640) px, as an image content item, and `grasp_check.grasp_id` for `confirm_grasp`) / `missed` / `aborted` / `infeasible` (these attach no image; `grasped` is only the band-only outcome of the web UI and the motion queue, which attach no image either), with the executed steps (each with the `residual_error` of arm joints off their intended target), the final gripper position/load, the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`, `retightened`; see Grip profiles), `residual_error` and `warnings` (joints off their target beyond their converge tolerance) and `held_pose` (measured jaw centre and tool point against the last waypoint). See Grasp macros. |
+| `release_object(params, surface_z_m, tilt_override_deg, surfaces)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. The way out of an `unverified` grasp whose image shows empty jaws, or of a `confirm_grasp` that came back `missed` (then retry). |
+| `confirm_grasp(grasp_id, object_between_fingers: yes\|no\|unsure, evidence: 1..500 chars)` | Record your look at the jaw crop of the last held close (sensor class: moves nothing, needs no lease, not a motion tool) and get `{grasp_id, band, image, fused, evidence, carrying, next}`. Fuse table in Grasp verification. An unknown or superseded `grasp_id` (a later close or an open) is a tool error and changes nothing; calling again overwrites the earlier verdict. |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` needs the arm lease and keeps it afterwards (also after a failed motion); the `/arm/home` service (web UI Home button) still always releases. |
 | `pixel_to_ground(camera, u, v, surface_height_m=0.0, image_width, image_height)` | Point seen at a pixel (sensor). **u, v are pixels of the calibrated image size** (640x480; `get_annotated_camera_image` and `mark_candidate_points` images) unless `image_width` / `image_height` give the size of the image the pixel came from: `get_camera_image` returns 384x288 by default, and an unscaled small-image pixel lands at the wrong place (2026-10-10). Both sizes are needed and must keep the calibrated aspect (a crop is refused); the result then also reports `pixel_input` (what was passed and the scale). Returns `pixel` (calibrated size), `image` (calibrated size), `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
 | `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
@@ -1076,12 +1077,12 @@ from empty jaws by the load, and opening dropped an object the jaws actually hel
 (step `hold`, `ArmController.hold_empty_close`: the grip profile's capped `torque_limit` is written again and the jaw
 holds the measured position plus the profile's `squeeze_rad` toward closed, never past it), lifts and retreats as for a
 grasp, and the reasons say the jaw reached the empty band and the object may be soft/squashed or absent. The
-`grasp_object` tool then attaches a fresh gripper camera image (`robot.camera_image("gripper", 640)`, capped by
-`limits.max_image_px`; a camera failure adds a warning instead) so the agent can look: object in the jaws, treat it as
-held; otherwise `release_object` (opens and lifts) and retry. Only the `grasp_object` tool attaches the image, so the
-reason text there says "look at the attached gripper camera image"; everywhere else (queued grasp steps, the web UI's
-GraspService, which returns the same outcome without an image) it says "call get_camera_image 'gripper' and look at
-it". An unverified hold counts as carrying (`get_control_state` `arm.carrying`), and its profile torque limit is
+`grasp_object` tool then takes a fresh gripper frame after the lift and retreat, crops it to the jaws and attaches it
+(see Grasp verification): every held close, a verified contact as well as an empty-band hold, is reported `unverified`
+until the agent calls `confirm_grasp`; a camera failure adds a warning and `grasp_check.image` `not_attached` instead.
+The executor itself (queued grasp steps, the web UI's GraspService) keeps the band-only outcome (`grasped` for a verified
+contact, `unverified` for the empty-band hold) with `grasp_check.image` `not_requested` and no image, and the reason
+text of its `unverified` says "call get_camera_image 'gripper' and look at it". An unverified hold counts as carrying (`get_control_state` `arm.carrying`), and its profile torque limit is
 relaxed to the default after `grip_profiles.unverified_hold_relax_s` (60 s; the servo heats while the agent looks). A contact that fails verification (`blocked`, jaw within `min_hold_gap_rad` of closed or load below
 `hold_effort_min`) opens again, lifts and retreats: `missed`. Any other motion status, a
 refusal or a stop (stop tool, or the service `stop`) stops and holds: `aborted` with the reason, and the default
@@ -1255,12 +1256,100 @@ grip_profiles:
   slip_threshold_rad: 0.01
   retighten_load_below: 30    # re-tighten a retighten profile's hold that relaxed below this load (null = never)
   unverified_hold_relax_s: 60 # unverified hold: profile torque this long, then the default (null = never)
+  contact_baseline_samples: 10   # load/current baseline = mean of this many samples (>= 3), arXiv 2608.23983 N_warm
+  contact_persist_samples: 3     # consecutive samples at or above contact_load_delta (arXiv 2608.23983 N_persist)
+  current_contact_delta_a: null  # gripper current rise (A) voting 'object' in the band; null = recorded, no vote
   presets:
-    gentle: {squeeze_rad: 0.01, torque_limit: 250, close_speed_rps: 0.2, target_load: 80, contact_effort_threshold: 120, crush_load: 200, retighten: false}
+    gentle: {squeeze_rad: 0.01, torque_limit: 250, close_speed_rps: 0.2, target_load: 80, contact_effort_threshold: 120, crush_load: 200, retighten: false}   # optional per profile: contact_load_delta (load units above the baseline, null = delta contact off)
     normal: {squeeze_rad: 0.03, torque_limit: 500, close_speed_rps: 0.5, target_load: 200, contact_effort_threshold: 300, crush_load: 450, retighten: true}
     firm: {squeeze_rad: 0.05, torque_limit: 650, close_speed_rps: 0.4, target_load: 300, contact_effort_threshold: 350, crush_load: 600, retighten: true}
     soft: {squeeze_rad: 0.08, torque_limit: 600, close_speed_rps: 0.3, target_load: 150, contact_effort_threshold: 250, crush_load: 550, retighten: true}
 ```
+
+## Grasp verification (load-delta contact, current, jaw crop, confirm_grasp)
+
+A close is judged by two independent witnesses: the sensors (load rise above a measured baseline, gripper current, jaw
+gap) give a **band**, the agent looks at a jaw crop and gives a **verdict**, and `fuse` combines them. mcp_server has no
+LLM access, so the agent is the judge; the image never decides alone (visual judges are weakest on contact-only
+outcomes, FailBench arXiv 2609.03611).
+
+**Contact model (`ArmController.set_gripper`, `DeltaContact`).** The main contact signal is a load rise above a baseline,
+not a fixed load, after arXiv 2608.23983 (SO-ARM101 / STS3215 gripper at 50 Hz: baseline = mean of 10 samples, contact =
+load minus baseline >= 20 load units for 3 samples in a row, detection off during warm-up, free-closing noise +-3-5
+units). A delta survives pads or TPU tips shifting the absolute load. Our closes run at 0.2-0.5 rad/s, far faster than
+the paper's 5 mm/s, and the jaw needs up to 0.9 s to break away from rest, so:
+
+1. every `close_until_effort` mints a `grasp_id` (uuid4 hex, 12 digits);
+2. rest baseline: the mean of the last `grip_profiles.contact_baseline_samples` (10) finite closing-direction gripper loads
+   (and currents) before the stream starts (`baseline_source: rest`, the fallback);
+3. free-closing baseline: the same number of samples collected after `contact_allowed` first opens (the load ignore
+   window, travel or stall), `baseline_source: free_closing`; delta contact is off until it is collected;
+4. contact fires when `closing_load_sign * load - baseline >= contact_load_delta` (profile field) for
+   `grip_profiles.contact_persist_samples` (3) consecutive samples (`evidence.contact: load_delta`);
+5. the absolute `contact_effort_threshold`, `target_load` and the stall check stay as backstops (`contact: absolute /
+   target_load / stall`); a profile without `contact_load_delta` behaves exactly as before. A close that starts already
+   touching the object has a high baseline, so the delta never fires and a backstop ends it (band `ambiguous`);
+6. the paper's bounded extra closure is the existing `squeeze_rad` hold (contact jaw plus `squeeze_rad`, capped by
+   `squeeze_max_rad` and the torque limit); `hold_report` also samples the gripper current.
+
+An unmeasured (NaN) load gives no baseline, no delta contact and a band that can never be `object`.
+
+**Current ingestion.** The feetech bridge reads Present_Current in the state sync read and publishes
+`/follower/joint_currents` (`sensor_msgs/JointState`, effort = A, same stamp as `joint_states`, only when every listed
+joint was read). `topics.follower_joint_currents` names it; `RosRobot.joint_sample` fills `JointSample.currents` from the
+latest message received within `timeouts.follower_stale_s` of the joint states, else `{}` (a stale or missing current
+never votes; disabling `publish_current_joints` in the bridge is the rollback). `grip_profiles.current_contact_delta_a`
+(null by default: the current is recorded but does not vote) is the current rise that counts as an object.
+
+**Evidence and band (`grasp_check.py`).** `ArmMotionResult.grasp_check` and `GraspResult.grasp_check` carry
+`{grasp_id, band, evidence, image, crop, fused}`. `evidence` (`GripEvidence`): `baseline_load`, `baseline_source`,
+`contact`, `peak_load_delta`, `hold_load_delta`, `rest_current_a`, `hold_current_a`, `current_delta_a`, `jaw_gap_rad`
+(measured jaw minus `gripper_closed_rad`), `in_empty_band` (`jaw_gap_rad < limits.gripper_empty_stall_rad`), `band`.
+`band_verdict`: `object` = not in the empty band, a contact was detected, the hold load delta reaches
+`contact_load_delta` (`hold_effort_min` on the load for a profile without it) and the current does not vote against;
+`empty` = in the empty band, the load does not say object and the current does not vote for it; anything else
+(including an unmeasured load) is `ambiguous`.
+
+**Fuse table (`fuse`, `confirm_grasp`).**
+
+| band | image yes | image no | image unsure |
+|---|---|---|---|
+| object | grasped | unverified | unverified |
+| ambiguous | unverified | unverified | unverified |
+| empty | unverified | missed | unverified |
+
+**Jaw crop (`jaw_crop.py`, `grasp_tools.attach_jaw_crop`).** After the lift and retreat of a held `grasp_object` close
+(or right after a `set_gripper` close that grasped) the tool takes a fresh gripper frame (`camera_image` waits for a
+frame newer than the end of the motion), projects the jaw points (`jaw_tip`, `tool_point`, `moving_jaw_tip`, with the
+measured gripper angle) plus the same points moved `grasp_check.crop_depth_m` (0.045) toward `gripper_link` into the
+camera, takes their bounding box plus `crop_margin_px` (24), clamps it to the frame and crops the JPEG
+(`crop_jpeg`, longest side `grasp_check.image_px` 640, capped by `limits.max_image_px`). `crop_min_px` (64): a smaller
+box, an uncalibrated camera, a jaw region behind the camera or no fresh joint states give the full frame with
+`grasp_check.crop.full_frame_reason` (a real image, never a placeholder). The image is stored as a camera lookup
+(`record_lookup`, tool `grasp_object` / `set_gripper`, id in `crop.lookup_id`) and `crop.box_px` is the box in the frame.
+`grasp_check.image` is then `pending`; with no frame (camera failure) it is `not_attached`, the result has a warning and
+the outcome is still `unverified` (use `get_camera_image` and then `confirm_grasp`). `mark_visual_pending` sets the carry
+record to an unverified hold awaiting `confirm_grasp` (and starts the `unverified_hold_relax_s` timer).
+
+**confirm_grasp.** `ArmController.record_visual_verdict` applies `fuse` to the stored band and the verdict: `grasped` sets
+`grasp_kind: grasped` and stops the relax timer (when it already fired the reply says the default torque was restored and
+suggests re-gripping), `unverified` keeps `grasp_kind: unverified`, `missed` clears the carry record (the jaws stay
+closed: the reply says to call `release_object`). The reply is `{grasp_id, band, image, fused, evidence (null after an
+mcp_server restart: the carry file keeps only the band), carrying, next}`; `mcp_grasp_verdicts_total{band,image,fused}`
+counts it and the evidence text is logged. `control.carrying_state` reasons say "awaiting confirm_grasp" while pending
+and name the fused state afterwards.
+
+**Carry record (`carry.yaml`)** gains optional `grasp_id`, `band`, `image` and `fused` (None defaults: an old file
+without them still loads), so a pending confirm still works after an mcp_server restart.
+
+**Tuning notes.** `contact_load_delta` (20 from the paper, per preset in `client.yml`) is retuned on the robot: take the
+free-closing noise sigma of the empty close (5 closes per profile) and set it to about 3-4 sigma; set
+`current_contact_delta_a` from the same runs. **Pads or TPU tips** change the contact geometry, not the delta, but the
+position test `limits.gripper_empty_stall_rad` (0.08 rad, about 6 mm of jaw gap) decides `in_empty_band`: thicker pads
+stop the empty jaw earlier, so retune it (measure the empty close's jaw gap at the hold: `evidence.jaw_gap_rad`) or every
+empty close reads as `ambiguous` and every object as in the empty band. Rollout order on the robot: bridge current read
+(95 Hz gate), then gripper-only closes (empty, rigid block, plush) checking `band` and the crop, then a full
+`grasp_object`.
 
 ## Motion queue
 
@@ -1741,6 +1830,8 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `grasp.py` | no | grasp planner: strategies registry, waypoints, straight-line IK samples, feasibility reasons, surface / step-edge checks |
 | `grasp_tools.py` | no | `GraspExecutor`, the grasp MCP tools, `GraspService` (web-UI JSON) |
 | `grip.py` | no | grip profiles: resolve a preset name / inline overrides to a capped `GripProfile` |
+| `grasp_check.py` | no | grasp verification models (`GripEvidence`, `CropInfo`, `GraspCheck`), `band_verdict`, `fuse` |
+| `jaw_crop.py` | no | jaw crop: project the jaw region into the gripper camera, `crop_jpeg` |
 | `base_motion.py` | no | timed clamped drive loop, continuous spin with marks (`run_spin`), stop sequence (`run_stop`) and its base half (`run_base_stop`) |
 | `control.py` | no | control leases: `ControlManager` (take / release with the arm home and base steering resets / carried-object park refusal / footprint triggers / state / lease refusals / vitals digest), `wait_steering_neutral` |
 | `footprint.py`, `footprint_geometry.py` | no | navigation footprint: `NavFootprint` (static / dynamic / conservative, arm shadow, carried circle, republish tick following the released arm, consumers and their outcomes via `FootprintSink`), `python -m mcp_server.footprint` (parked-arm shadow for the generator); shared outline / parked-arm union / circle / offset / inflation geometry (also imported by `scripts/gen_nav_footprint.py`) |
@@ -1781,6 +1872,7 @@ expose it on the LAN. The MCP path and the admin route stay behind the token. `r
 | `mcp_motion_tracking_error_rad{kind}` | worst joint tracking error of a finished queued motion (the group's last step kind) |
 | `mcp_grasp_plans_total{mode,outcome}` | `plan_grasp`; mode is the requested strategy (auto/scoop/angled/top_down), outcome feasible/infeasible |
 | `mcp_grasp_attempts_total{mode,result}` | `GraspExecutor.grasp`, which `grasp_object`, the queue's `grasp` step and the web UI `execute` all use; see the mapping below |
+| `mcp_grasp_verdicts_total{band,image,fused}` | `confirm_grasp`: the sensor band, the agent's image verdict and the fused outcome (`grasped`, `unverified`, `missed`) |
 | `mcp_gripper_effort` | last gripper effort seen in an arm state or an arm motion result |
 | `mcp_grip_profile_uses_total{profile}` | every `close_until_effort` close, by resolved profile name |
 | `mcp_floor_guard_slowdowns_total{reason}` | arm motions the slow zone slowed; reason is the checked point that came closest to the surface (`elbow`, `wrist`, `jaw_tip`, `tool_point`, `moving_jaw_tip`) |
@@ -1806,7 +1898,7 @@ The `result` label is derived from `GraspResult.outcome` (`metrics.GRASP_RESULT_
 | `GraspResult.outcome` | `result` | Meaning |
 |---|---|---|
 | `grasped` | `lifted` | closed on the object, verified, lifted and retreated while holding it |
-| `unverified` | `unverified` | jaw closed into the empty band (`closed_no_contact`): kept closed with the profile squeeze, lifted and retreated; soft/squashed object or nothing, the agent looks at the attached image |
+| `unverified` | `unverified` | a held close the sensors could not settle (jaw closed into the empty band: kept closed with the profile squeeze, lifted and retreated; soft/squashed object or nothing). The `grasp_object` tool turns every held close, `grasped` included, into `unverified` until `confirm_grasp`, but the attempt is counted at the executor, so it stays `lifted` here; the fused result is `mcp_grasp_verdicts_total` |
 | `missed` | `missed` | contact that failed verification (or a blocked close): opened again, lifted and retreated |
 | `aborted` | `aborted` | stop, refusal or unexpected motion status: stopped and held |
 | `infeasible` | `infeasible` | no feasible plan, nothing moved |
@@ -1895,6 +1987,11 @@ cameras:                  # default: not calibrated (see Camera tools and calibr
   calibration_dir: /var/lib/ros2/camera_calibration
   gripper: {parent_frame: gripper_link, intrinsics: null, mount: null}
   front: {parent_frame: base_link, intrinsics: {hfov_deg: 66.0, width: 640, height: 480}, mount: null}
+grasp_check:               # jaw crop of a held close (see Grasp verification)
+  crop_depth_m: 0.045      # how far into the jaws the crop reaches
+  crop_margin_px: 24
+  crop_min_px: 64          # a smaller crop falls back to the full frame
+  image_px: 640            # longest side of the attached image (capped by limits.max_image_px)
 limits:
   arm_max_joint_velocity_rps: 1.0
   arm_max_joint_accel_rps2: 8.0      # acceleration cap of blended (queued) arm trajectories
@@ -1928,6 +2025,7 @@ topics:                   # perception additions (defaults shown)
   swerve_joint_states: /swerve_drive/joint_states   # steer joints for the release_control base reset
   compute_path_action: /compute_path_to_pose        # Nav2 ComputePathToPose, the plan_frontier_visit check
   planner_id: GridBased                             # planner_server plugin id used by compute_path_action
+  follower_joint_currents: /follower/joint_currents # gripper Present_Current (A) for the grasp band; stale or absent = no vote
 footprint: {length_m: 0.47, width_m: 0.386}
 topdown: {default_radius_m: 2.5, default_px: 480, arm_reach_m: 0.41, plan_max_age_s: 30}
 objects: {store_path: /var/lib/ros2/objects/objects.json, merge_radius_m: 0.25}  # store_path: legacy file, imported once into poi_store

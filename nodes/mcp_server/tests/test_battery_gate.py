@@ -66,6 +66,7 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "plan_grasp": {
         "object": {"x": 0.22, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.03}
     },
+    "confirm_grasp": {"grasp_id": "0" * 12, "object_between_fingers": "yes", "evidence": "e"},
     "get_motion_status": {},
     "cancel_motions": {},
     "wait_for_event": {"timeout_s": 0.1},
@@ -135,9 +136,11 @@ def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> N
         args["lookup_id"] = json.loads(next(c.text for c in taken.content if c.type == "text"))["lookup_id"]
     try:
         call(server, name, args)
-    except ToolError as exc:  # uncalibrated cameras fail on their own terms, never on the battery
+    except (
+        ToolError
+    ) as exc:  # uncalibrated cameras and an unknown grasp_id fail on their own terms, never on the battery
         assert "battery below cut-off" not in str(exc)
-        assert name in CAMERA_TOOL_NAMES
+        assert name in CAMERA_TOOL_NAMES or name == "confirm_grasp"
 
 
 @pytest.mark.parametrize("voltage", [OK_V, None])

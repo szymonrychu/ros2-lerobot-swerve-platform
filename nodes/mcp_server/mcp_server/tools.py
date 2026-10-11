@@ -147,6 +147,7 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         *camera_tools.TOOL_NAMES,
         *perception_tools.SENSOR_TOOL_NAMES,
         "plan_grasp",
+        "confirm_grasp",
         "get_motion_status",
         "cancel_motions",
         "wait_for_event",
@@ -1031,7 +1032,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
         ] = None,
-    ) -> ArmMotionResult:
+    ) -> Annotated[CallToolResult, ArmMotionResult]:
         """Open the gripper to a fraction, or close it until it grips something (status 'grasped' and the gripper
         holds that position; 'closed_no_contact' if it closed fully without touching anything). Closing (also
         open_fraction=0) reports 'grasped' too when the jaw stalls before the closed position: contact is inferred
@@ -1051,16 +1052,31 @@ def register_core_tools(ctx: ToolContext) -> None:
         its squeeze; a grasp reports grip_profile, holding_load, slipping, crush_risk and retightened (a hold that
         relaxed to about 0 load with the jaw short of closed is stepped once further toward closed, never beyond
         the squeeze cap from the contact or past closed). Any other close outcome, every open and release_control
-        restore the default torque limit."""
+        restore the default torque limit. A close that grasps (status 'grasped') is not trusted on the sensors alone:
+        the result carries a fresh gripper camera image cropped to the jaws (grasp_check.crop) and the hold stays
+        unverified until confirm_grasp(grasp_check.grasp_id, yes|no|unsure, evidence) fuses your look with the sensor
+        band (grasp_check.band): band object + yes = grasped; band empty + no = missed (call release_object); anything
+        else, also unsure and every ambiguous band, stays unverified (look again or release_object and retry)."""
         battery_gate("set_gripper")
         with tool_errors():
-            return robot.arm.set_gripper(
+            result = robot.arm.set_gripper(
                 open_fraction,
                 close_until_effort,
                 effort_threshold,
                 floor_override(surface_z_m, tilt_override_deg, surfaces),
                 grip_profile,
             )
+        image: ImageContent | None = None
+        if close_until_effort and result.status == "grasped" and result.grasp_check is not None:
+            image, check, warning = grasp_tools.attach_jaw_crop(ctx, "set_gripper", result.grasp_check)
+            notes = [warning] if warning else []
+            result = result.model_copy(
+                update={
+                    "grasp_check": check,
+                    "message": "; ".join([result.message, grasp_tools.awaiting_confirm(check), *notes]),
+                }
+            )
+        return grasp_tools.grasp_tool_result(result, image)
 
     @tool(
         description=(

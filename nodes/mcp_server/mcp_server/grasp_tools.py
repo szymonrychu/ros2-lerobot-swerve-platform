@@ -1,35 +1,56 @@
 """Grasp execution and its interfaces: GraspExecutor (runs a GraspPlan through ArmController), the MCP tools
 plan_grasp / grasp_object / release_object, and GraspService, the JSON request handler behind the /grasp/command and
-/grasp/result topics the web UI uses (contract in the README, "Grasp macros")."""
+/grasp/result topics the web UI uses (contract in the README, "Grasp macros").
+
+Held closes of the agent tools (grasp_object, set_gripper) are not trusted on the sensors alone: attach_jaw_crop takes a
+fresh gripper frame after the motion, crops it to the jaws and leaves the hold 'unverified' until the agent looks at it
+and calls confirm_grasp, which fuses its verdict with the sensor band (grasp_check.fuse)."""
 
 import base64
 import json
+import logging
 import math
 import threading
 from collections.abc import Callable
 from typing import Annotated, Any, Literal, Protocol
 
+import cv2
+import numpy as np
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .arm import ROLL_JOINT, ArmController, ArmError, finite_effort
-from .config import GripProfileOverride, McpServerConfig
+from .camera_scene import camera_setup
+from .config import HARD_MAX_IMAGE_PX, GripProfileOverride, McpServerConfig
 from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, grasp_params
+from .grasp_check import Band, CropInfo, FusedOutcome, GraspCheck, GripEvidence, ImageState, ImageVerdict
 from .grip import ResolvedGrip, resolve_grip_profile
-from .metrics import GRASP_ATTEMPTS, GRASP_PLANS, GRASP_RESULT_BY_OUTCOME
-from .models import ArmMotionResult, RobotError
+from .jaw_crop import crop_jpeg, jaw_crop
+from .lookup_tools import record_lookup
+from .metrics import GRASP_ATTEMPTS, GRASP_PLANS, GRASP_RESULT_BY_OUTCOME, GRASP_VERDICTS
+from .models import ArmMotionResult, CarryingState, RobotError
 from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import ToolContext
 
-TOOL_NAMES = ("plan_grasp", "grasp_object", "release_object")
+TOOL_NAMES = ("plan_grasp", "grasp_object", "release_object", "confirm_grasp")
 # IK seed when no fresh joint states are available for a dry-run plan (folded arm, gripper camera looking forward).
 DEFAULT_SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 MOTION_OK = frozenset({"converged"})
 CLOSE_OK = frozenset({"grasped", "closed_no_contact", "blocked"})
-# Longest side of the gripper camera image attached to an 'unverified' grasp_object result.
-UNVERIFIED_IMAGE_PX = 640
+# Executor outcomes of a close that holds something: the agent tools turn them into 'unverified' until confirm_grasp.
+HELD_OUTCOMES = frozenset({"grasped", "unverified"})
+LOGGER = logging.getLogger("mcp_server.grasp")
+# How the fuse of the sensor band and the agent's image verdict reads (shared by the tool descriptions).
+FUSE_NOTE = (
+    "The result's grasp_check.band is the sensors' verdict (object: contact, load and jaw gap say an object is held; "
+    "empty: jaw in the empty band without load; ambiguous: anything else) and confirm_grasp fuses your answer with "
+    "it: band object + yes = grasped; band empty + no = missed (nothing held: call release_object); every other "
+    "combination, also unsure and every ambiguous band, stays unverified (look again from another wrist roll or "
+    "get_camera_image 'gripper', or release_object and retry). The image alone never proves a grasp, and only fused "
+    "'grasped' counts as success."
+)
 
 # How the agent describes stairs, tables and holes (shared by the grasp and arm motion tools).
 SURFACES_DESC = (
@@ -44,10 +65,8 @@ SURFACES_DESC = (
     "step edge) and arm motions slow near it."
 )
 StrategyChoice = Literal["auto", "scoop", "angled", "top_down"]
-# What an 'unverified' reason tells the agent to do: the grasp_object tool attaches the image (LOOK_ATTACHED); every
-# other path (queued grasp, web UI) carries no image (LOOK_CALL).
+# What an 'unverified' reason tells the agent to do on the paths that attach no image (queued grasp, web UI).
 LOOK_CALL = "call get_camera_image 'gripper' and look at it"
-LOOK_ATTACHED = "look at the attached gripper camera image"
 GraspOutcome = Literal["planned", "infeasible", "grasped", "unverified", "missed", "aborted", "released"]
 
 
@@ -85,10 +104,11 @@ class GraspResult(BaseModel):
 
     outcome: GraspOutcome = Field(
         description="planned (dry run, feasible), infeasible (nothing moved), grasped (holding, lifted and retreated), "
-        "unverified (the jaw closed into the empty band: kept closed with the profile squeeze, lifted and retreated; "
-        "the object may be soft and squashed or absent: look at the gripper camera image (attached to a grasp_object "
-        "result; otherwise call get_camera_image 'gripper'), treat it as held if it is in the jaws, else "
-        "release_object and retry), missed (a contact that failed verification or a "
+        "unverified (holding but not confirmed: the jaw closed into the empty band, kept closed with the profile "
+        "squeeze, lifted and retreated, and the object may be soft and squashed or absent; a grasp_object result also "
+        "stays unverified after a verified contact until confirm_grasp: look at the attached jaw crop (otherwise "
+        "call get_camera_image 'gripper') and call confirm_grasp(grasp_id, ...), release_object and retry when "
+        "nothing is held), missed (a contact that failed verification or a "
         "blocked close: opened and retreated), aborted (stopped and held; see reasons), released"
     )
     reasons: list[str] = Field(default_factory=list, description="Why a plan is infeasible or a run ended early")
@@ -127,6 +147,15 @@ class GraspResult(BaseModel):
     warnings: list[str] = Field(
         default_factory=list,
         description="One line per step and joint that ended off its intended target by more than its tolerance",
+    )
+    grasp_check: GraspCheck | None = Field(
+        default=None,
+        description="Grasp verification of the close: {grasp_id (confirm_grasp takes it), band (sensor verdict: "
+        "object / empty / ambiguous), evidence (baseline load, which contact ended the close, load and current "
+        "deltas, jaw gap), image (pending: a jaw crop is attached and confirm_grasp is awaited; not_attached: the "
+        "camera failed, call get_camera_image 'gripper'; not_requested: web UI / queue grasps, band-only; then the "
+        "confirm_grasp verdict), crop {lookup_id, box_px, full_frame_reason}, fused (null until confirm_grasp)}; "
+        "null when no close ran",
     )
     held_pose: dict[str, Any] | None = Field(
         default=None,
@@ -469,6 +498,7 @@ class GraspExecutor:
             residual_error=residual,
             warnings=warnings,
             held_pose=None if plan is None or reached is None else self.held_pose(plan, reached),
+            grasp_check=None if close is None else close.grasp_check,
         )
 
     def unverified_reason(self, close: ArmMotionResult) -> str:
@@ -808,12 +838,12 @@ class GraspService:
         return head | {"ok": True, "result": result.model_dump(mode="json")}
 
 
-def grasp_tool_result(result: GraspResult, image: ImageContent | None) -> CallToolResult:
-    """grasp_object's MCP result: the GraspResult as structured content and JSON text, plus an optional image.
+def grasp_tool_result(result: BaseModel, image: ImageContent | None) -> CallToolResult:
+    """MCP result of grasp_object / set_gripper: the result model as structured content and JSON text, plus an image.
 
     Args:
-        result (GraspResult): The grasp outcome.
-        image (ImageContent | None): Gripper camera image (attached to an 'unverified' grasp), or None.
+        result (BaseModel): The GraspResult (grasp_object) or ArmMotionResult (set_gripper).
+        image (ImageContent | None): Jaw crop of a held close awaiting confirm_grasp, or None.
 
     Returns:
         CallToolResult: The tool result.
@@ -823,6 +853,185 @@ def grasp_tool_result(result: GraspResult, image: ImageContent | None) -> CallTo
     if image is not None:
         content.append(image)
     return CallToolResult(content=content, structured_content=data)
+
+
+def awaiting_confirm(check: GraspCheck) -> str:
+    """What the agent must do with a held close whose verdict is still open.
+
+    Args:
+        check (GraspCheck): Grasp check of the close (grasp_id, band, image).
+
+    Returns:
+        str: The instruction, naming confirm_grasp and the grasp_id.
+    """
+    where = (
+        "look at the attached jaw crop"
+        if check.image == "pending"
+        else "no image could be attached: call get_camera_image 'gripper' and look at it"
+    )
+    return (
+        f"awaiting confirm_grasp(grasp_id={check.grasp_id!r}): is the object between the fingers? {where}, then "
+        f"call confirm_grasp (sensor band {check.band}; only fused 'grasped' counts as held)"
+    )
+
+
+def jpeg_size(jpeg: bytes) -> tuple[int, int]:
+    """Pixel size of a JPEG.
+
+    Args:
+        jpeg (bytes): Encoded image.
+
+    Returns:
+        tuple[int, int]: (width, height).
+
+    Raises:
+        ValueError: When the bytes are not a decodable image.
+    """
+    img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("the gripper camera frame is not a decodable image")
+    return img.shape[1], img.shape[0]
+
+
+def jaw_crop_jpeg(ctx: ToolContext) -> tuple[bytes, int, int, CropInfo]:
+    """A fresh gripper camera frame cropped to the region between the jaws (the full frame when it cannot be cropped).
+
+    The frame is newer than the motion that just ended (camera_image waits for the next frame). The box is projected
+    in the calibrated image size and scaled to the frame's size.
+
+    Args:
+        ctx (ToolContext): Shared registration context (robot, config).
+
+    Returns:
+        tuple[bytes, int, int, CropInfo]: (JPEG, width, height, crop info without the lookup id).
+
+    Raises:
+        RobotError: When the camera gives no frame.
+        ValueError: When the frame cannot be decoded.
+    """
+    robot, config = ctx.robot, ctx.config
+    settings = config.grasp_check
+    max_px = min(settings.image_px, config.limits.max_image_px)
+    try:
+        setup = camera_setup(config, "gripper")
+        calibrated: tuple[int, int] | None = (setup.intrinsics.width, setup.intrinsics.height)
+        reason = ""
+    except ValueError as exc:  # not calibrated: no projection, the full frame is the image
+        setup, calibrated, reason = None, None, str(exc)
+    request_px = max_px if calibrated is None else min(HARD_MAX_IMAGE_PX, max(calibrated))
+    frame = robot.camera_image("gripper", request_px)
+    sample = robot.arm.fresh_sample()
+    box: tuple[int, int, int, int] | None = None
+    if sample is None:
+        reason = reason or "no fresh arm joint states to project the jaws"
+    else:
+        size = calibrated or (frame.width, frame.height)
+        box = jaw_crop(setup, robot.arm.kin, robot.arm.jaw, robot.arm.measured(sample), *size, settings)
+        if box is None:
+            reason = reason or (
+                "the jaw region is not in front of the camera or smaller than "
+                f"grasp_check.crop_min_px {settings.crop_min_px}"
+            )
+    if box is not None and calibrated is not None:
+        sx, sy = frame.width / calibrated[0], frame.height / calibrated[1]
+        box = (round(box[0] * sx), round(box[1] * sy), round(box[2] * sx), round(box[3] * sy))
+    if box is not None:
+        try:
+            jpeg = crop_jpeg(frame.jpeg, box, max_px)
+            width, height = jpeg_size(jpeg)
+            return jpeg, width, height, CropInfo(lookup_id=None, box_px=box, full_frame_reason=None)
+        except ValueError as exc:
+            reason = f"the jaw crop failed: {exc}"
+    jpeg = frame.jpeg
+    if max(frame.width, frame.height) > max_px:
+        jpeg = crop_jpeg(jpeg, (0, 0, frame.width, frame.height), max_px)
+        return jpeg, *jpeg_size(jpeg), CropInfo(lookup_id=None, box_px=None, full_frame_reason=reason)
+    return jpeg, frame.width, frame.height, CropInfo(lookup_id=None, box_px=None, full_frame_reason=reason)
+
+
+def attach_jaw_crop(
+    ctx: ToolContext, tool: str, check: GraspCheck
+) -> tuple[ImageContent | None, GraspCheck, str | None]:
+    """Attach the jaw crop to a held close and leave its hold unverified until confirm_grasp.
+
+    Takes the frame (jaw_crop_jpeg), records it as a lookup, and marks the close's carry record unverified with a
+    pending verdict (ArmController.mark_visual_pending). A camera failure attaches nothing: image 'not_attached' and a
+    warning, the hold is still unverified.
+
+    Args:
+        ctx (ToolContext): Shared registration context.
+        tool (str): Calling tool (the lookup's tool name).
+        check (GraspCheck): Grasp check of the held close.
+
+    Returns:
+        tuple[ImageContent | None, GraspCheck, str | None]: (image, check with image pending / not_attached and the
+            crop info, warning for the result or None).
+    """
+    image: ImageContent | None = None
+    warning: str | None = None
+    updates: dict[str, Any]
+    try:
+        jpeg, width, height, crop = jaw_crop_jpeg(ctx)
+        lookup_id = record_lookup(ctx, tool, "gripper", jpeg, width, height)
+        image = ImageContent(type="image", data=base64.b64encode(jpeg).decode(), mime_type="image/jpeg")
+        updates = {"image": "pending", "crop": crop.model_copy(update={"lookup_id": lookup_id})}
+    except (RobotError, ValueError) as exc:
+        warning = (
+            f"no gripper camera image attached: {exc}; call get_camera_image 'gripper', look at it and call "
+            "confirm_grasp"
+        )
+        updates = {"image": "not_attached", "crop": None}
+    try:
+        ctx.robot.arm.mark_visual_pending(check.grasp_id)
+    except ArmError as exc:  # superseded meanwhile (e.g. a stop opened the gripper): nothing is pending any more
+        warning = f"{warning + '; ' if warning else ''}{exc}"
+    return image, check.model_copy(update=updates), warning
+
+
+class ConfirmGraspResult(BaseModel):
+    """Reply of confirm_grasp."""
+
+    grasp_id: str
+    band: Band = Field(description="Sensor verdict of the close: object / empty / ambiguous")
+    image: ImageState = Field(description="Your verdict, as recorded: yes / no / unsure")
+    fused: FusedOutcome = Field(description="grasped (held), unverified (look again or release) or missed (empty)")
+    evidence: GripEvidence | None = Field(
+        description="Sensor evidence of the close; null after an mcp_server restart (only the band is kept)"
+    )
+    carrying: CarryingState = Field(description="get_control_state arm.carrying after the verdict")
+    next: str = Field(description="What to do now")
+
+
+def verdict_next(fused: FusedOutcome, band: Band, image: ImageVerdict, relaxed: bool) -> str:
+    """What the agent does after a verdict.
+
+    Args:
+        fused (FusedOutcome): Fused outcome.
+        band (Band): Sensor band.
+        image (ImageVerdict): The agent's verdict.
+        relaxed (bool): The unverified-hold torque relax already restored the default torque limit.
+
+    Returns:
+        str: The advice.
+    """
+    if fused == "grasped":
+        note = (
+            " The unverified hold waited longer than grip_profiles.unverified_hold_relax_s, so the default torque "
+            "limit was restored and the hold is weaker than the profile's: re-grip (release_object and grasp again) "
+            "if the object slips."
+            if relaxed
+            else ""
+        )
+        return f"grasped: the object is held (band {band}, image {image}); continue, complete_phase may follow.{note}"
+    if fused == "missed":
+        return (
+            f"missed: sensors (band {band}) and image ({image}) agree the jaws are empty and nothing is carried "
+            "any more, but the jaws are still closed: call release_object (opens and lifts), then retry the grasp"
+        )
+    return (
+        f"unverified: band {band} with image {image} does not confirm a grasp: look again (another wrist roll, "
+        "get_camera_image 'gripper') and call confirm_grasp again, or release_object and retry"
+    )
 
 
 def grip_profile_description(config: McpServerConfig) -> str:
@@ -863,6 +1072,7 @@ def register(ctx: ToolContext) -> None:
     robot, config = ctx.robot, ctx.config
     executor = GraspExecutor(robot.arm, config)
     grasp = config.grasp
+    grasp_check = config.grasp_check
     slow = config.floor_guard
     object_desc = (
         "Object as a box: {frame: 'arm' (arm base frame, z up, floor at z = "
@@ -970,15 +1180,16 @@ def register(ctx: ToolContext) -> None:
             "relaxed hold stepped once further toward closed). Every arm joint "
             "stays commanded at its planned target; residual_error and warnings list joints that ended a step (or the "
             "hold) off it by more than their tolerance, held_pose where the jaw centre and the tool point ended. "
-            "Outcome: grasped; unverified (the jaw closed into the empty band, within gripper_empty_stall_rad of "
-            "closed, so the load cannot tell a soft, squashed object from empty jaws: it stays closed with the "
-            f"profile squeeze, lifts and retreats, and the result carries a fresh gripper camera image (max "
-            f"{UNVERIFIED_IMAGE_PX} px) - look at the attached image: if the object is in the jaws treat it as held, "
-            "otherwise call release_object (opens and lifts) and retry); missed (a contact that failed "
-            "verification: opened and retreated - check a picture and correct the object position); aborted "
-            "(stopped and held; reasons say why) or infeasible (nothing moved). Soft objects (plush toys, foam, "
-            "fabric) compress under the jaws: use grip_profile soft and expect 'unverified' when they squash into "
-            "the empty band. A stop call "
+            "Outcome: every close that holds something (a verified contact, or a jaw that closed into the empty band, "
+            "within gripper_empty_stall_rad of closed, where the load cannot tell a soft, squashed object from empty "
+            "jaws) stays closed with the profile squeeze, lifts and retreats and comes back 'unverified': the result "
+            f"carries a fresh gripper camera image cropped to the jaws (max {grasp_check.image_px} px; the full frame "
+            "when the camera is uncalibrated, with grasp_check.crop.full_frame_reason) and grasp_check.grasp_id. Look "
+            "at the attached crop and call confirm_grasp(grasp_id, yes|no|unsure, evidence) before anything else. "
+            f"{FUSE_NOTE} missed (a contact that failed verification: opened and retreated - check a picture and "
+            "correct the object position), aborted (stopped and held; reasons say why) and infeasible (nothing "
+            "moved) attach no image. Soft objects (plush toys, foam, fabric) compress under the jaws: use grip_profile "
+            "soft and expect the band to be ambiguous or empty. A stop call "
             f"aborts it. Keeps the arm lease: call release_control when done. {slow_note}"
         )
     )
@@ -994,8 +1205,8 @@ def register(ctx: ToolContext) -> None:
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
         ] = None,
     ) -> Annotated[CallToolResult, GraspResult]:
-        """Grasp an object; the tool description is passed to the decorator. An 'unverified' result also carries
-        a fresh gripper camera image so the agent can look."""
+        """Grasp an object; the tool description is passed to the decorator. A held close is 'unverified' and carries
+        a jaw crop of a fresh gripper camera frame until the agent calls confirm_grasp."""
         ctx.battery_gate("grasp_object")
         baseline = robot.stop_count()
 
@@ -1012,13 +1223,12 @@ def register(ctx: ToolContext) -> None:
 
         result = run(body)
         image: ImageContent | None = None
-        if result.outcome == "unverified":
-            try:
-                frame = robot.camera_image("gripper", min(UNVERIFIED_IMAGE_PX, config.limits.max_image_px))
-                image = ImageContent(type="image", data=base64.b64encode(frame.jpeg).decode(), mime_type="image/jpeg")
-                result.reasons = [r.replace(LOOK_CALL, LOOK_ATTACHED) for r in result.reasons]
-            except (RobotError, ValueError) as exc:
-                result.warnings.append(f"no gripper camera image attached: {exc}; call get_camera_image 'gripper'")
+        if result.outcome in HELD_OUTCOMES and result.grasp_check is not None:
+            image, result.grasp_check, warning = attach_jaw_crop(ctx, "grasp_object", result.grasp_check)
+            result.outcome = "unverified"
+            result.reasons = [awaiting_confirm(result.grasp_check)]
+            if warning is not None:
+                result.warnings.append(warning)
         return grasp_tool_result(result, image)
 
     @ctx.server.tool(
@@ -1026,8 +1236,9 @@ def register(ctx: ToolContext) -> None:
             f"Release a held object: open the gripper to params.release_open_fraction (default "
             f"{grasp.release_open_fraction:g}) and lift the tool point params.release_lift_m (default "
             f"{grasp.release_lift_m:g} m) straight up. Outcome released (reasons note a skipped, unreachable lift) or "
-            "aborted. After an 'unverified' grasp_object whose attached image shows empty jaws (or not the object), "
-            f"call this to open and lift away, then retry the grasp. Needs the arm lease. {slow_note}"
+            "aborted. After an 'unverified' grasp_object whose attached image (jaw crop) shows empty jaws (or not "
+            "the object), or a confirm_grasp that came back 'missed', call this to open and lift away, then retry the grasp. Needs the arm lease. "
+            f"{slow_note}"
         )
     )
     def release_object(
@@ -1047,3 +1258,49 @@ def register(ctx: ToolContext) -> None:
             return executor.release(grasp_params(grasp, params), floor, lambda: robot.stop_count() != baseline)
 
         return run(body)
+
+    @ctx.server.tool(
+        description=(
+            "Record your visual verdict on the last held close (grasp_object or set_gripper close_until_effort) and "
+            "get the fused outcome (never moves anything, needs no lease). Look at the jaw crop that came with the "
+            "result, then answer object_between_fingers: yes (the object is clearly between the fingers), no (the "
+            f"jaws are empty or hold something else), unsure; evidence is one sentence on what you saw. {FUSE_NOTE} "
+            "Fused grasped sets the carry record to a confirmed grasp; unverified keeps it unverified; missed clears "
+            "it (the jaws stay closed: call release_object). grasp_id must be the one of the last close: a later "
+            "close or an open supersedes it (error, nothing changes). Calling again overwrites the earlier verdict. "
+            "Returns {grasp_id, band, image, fused, evidence (the sensor evidence), carrying, next}."
+        )
+    )
+    def confirm_grasp(
+        grasp_id: Annotated[str, Field(description="grasp_check.grasp_id of the grasp_object / set_gripper result")],
+        object_between_fingers: Annotated[
+            ImageVerdict, Field(description="Is the object between the fingers in the jaw crop: yes, no or unsure")
+        ],
+        evidence: Annotated[
+            str, Field(min_length=1, max_length=500, description="What you saw in the crop that supports the answer")
+        ],
+    ) -> ConfirmGraspResult:
+        """Fuse the agent's verdict with the sensor band; the tool description is passed to the decorator."""
+        arm = robot.arm
+        control = ctx.control
+        if control is None:
+            raise ToolError("the control manager is not available")
+        try:
+            previous = arm.current_grasp(grasp_id)
+            relaxed = previous.grasp_kind == "unverified" and arm._unverified_since is None
+            record = arm.record_visual_verdict(grasp_id, object_between_fingers)
+        except ArmError as exc:
+            raise ToolError(str(exc)) from exc
+        assert record.band is not None and record.fused is not None  # a recorded verdict sets both
+        LOGGER.info("confirm_grasp %s: %s (%s)", grasp_id, object_between_fingers, evidence)
+        GRASP_VERDICTS.labels(record.band, object_between_fingers, record.fused).inc()
+        check = arm.last_grasp_check
+        return ConfirmGraspResult(
+            grasp_id=grasp_id,
+            band=record.band,
+            image=object_between_fingers,
+            fused=record.fused,
+            evidence=None if check is None or check.grasp_id != grasp_id else check.evidence,
+            carrying=control.carrying_state(),
+            next=verdict_next(record.fused, record.band, object_between_fingers, relaxed),
+        )

@@ -157,7 +157,8 @@ def test_grasp_object_tool_takes_a_grip_profile(server: Any, robot: FakeRobot) -
     data = call(
         server, "grasp_object", {"object": OBJECT, "strategy": "top_down", "grip_profile": "firm"}
     ).structured_content
-    assert data["outcome"] == "grasped", data["reasons"]
+    assert data["outcome"] == "unverified", data["reasons"]  # a held close awaits confirm_grasp
+    assert data["grasp_check"]["image"] == "pending"
     assert data["grip_profile"]["name"] == "firm"
     assert "holding_load" in data and "slipping" in data and "crush_risk" in data
     assert torque_writes(robot.arm_backend)[-1] == FIRM_TORQUE  # the open restored the default first

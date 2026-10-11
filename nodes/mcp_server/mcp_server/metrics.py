@@ -58,6 +58,11 @@ GRASP_PLANS = Counter("mcp_grasp_plans_total", "plan_grasp dry runs by strategy 
 GRASP_ATTEMPTS = Counter(
     "mcp_grasp_attempts_total", "Grasp executions (planned and run) by strategy and result", ["mode", "result"]
 )
+GRASP_VERDICTS = Counter(
+    "mcp_grasp_verdicts_total",
+    "confirm_grasp verdicts by sensor band, the agent's image verdict and the fused outcome",
+    ["band", "image", "fused"],
+)
 GRIPPER_EFFORT = Gauge("mcp_gripper_effort", "Last gripper effort (decoded load) seen in a state or motion result")
 GRIP_PROFILE_USES = Counter("mcp_grip_profile_uses_total", "Closes by grip profile name", ["profile"])
 FLOOR_GUARD_SLOWDOWNS = Counter(

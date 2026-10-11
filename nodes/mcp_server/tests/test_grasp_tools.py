@@ -1,6 +1,7 @@
 """Tests for mcp_server.grasp_tools: GraspExecutor on the simulated follower (grasp, miss, abort, roll ordering,
 release), the MCP tools plan_grasp / grasp_object / release_object and the web-UI JSON GraspService."""
 
+import base64
 import json
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,6 @@ from mcp_server.floor_guard import FloorOverride
 from mcp_server.grasp import ObjectSpec, grasp_params
 from mcp_server.grasp_tools import (
     TOOL_NAMES,
-    UNVERIFIED_IMAGE_PX,
     GraspExecutor,
     GraspResult,
     GraspService,
@@ -74,8 +74,9 @@ def run_grasp(arm: ArmController, strategy: str = "top_down", stop: Any = None) 
 
 
 def test_tool_names_and_battery_classification() -> None:
-    assert TOOL_NAMES == ("plan_grasp", "grasp_object", "release_object")
+    assert TOOL_NAMES == ("plan_grasp", "grasp_object", "release_object", "confirm_grasp")
     assert {"grasp_object", "release_object"} <= MOTION_TOOLS
+    assert "confirm_grasp" in ALWAYS_ALLOWED_TOOLS and "confirm_grasp" not in MOTION_TOOLS
     assert "plan_grasp" in ALWAYS_ALLOWED_TOOLS and "plan_grasp" not in MOTION_TOOLS
 
 
@@ -302,7 +303,9 @@ def test_grasp_object_tool_runs_the_plan(server: Any, robot: FakeRobot) -> None:
             "tilt_override_deg": {"roll": 0, "pitch": 0},
         },
     )
-    assert res.structured_content["outcome"] == "grasped", res.structured_content["reasons"]
+    data = res.structured_content
+    assert data["outcome"] == "unverified", data["reasons"]  # a held close awaits confirm_grasp
+    assert data["grasp_check"]["image"] == "pending"
 
 
 def test_grasp_tools_reject_bad_params(server: Any) -> None:
@@ -315,35 +318,123 @@ def test_release_object_tool(server: Any, robot: FakeRobot) -> None:
     assert res.structured_content["outcome"] == "released"
 
 
-def test_an_unverified_grasp_object_attaches_a_gripper_camera_image(server: Any, robot: FakeRobot) -> None:
+def only_image(res: Any) -> ImageContent:
+    images = [c for c in res.content if isinstance(c, ImageContent)]
+    assert len(images) == 1 and images[0].mime_type == "image/jpeg" and images[0].data
+    return images[0]
+
+
+def test_an_empty_band_hold_attaches_the_jaw_crop_and_awaits_confirm_grasp(server: Any, robot: FakeRobot) -> None:
     plush_in_jaws(robot.arm_backend)
     res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down", "grip_profile": "gentle"})
     data = res.structured_content
     assert data["outcome"] == "unverified", data["reasons"]
-    images = [c for c in res.content if isinstance(c, ImageContent)]
-    assert len(images) == 1 and images[0].mime_type == "image/jpeg" and images[0].data
-    assert ("camera_image", ("gripper", UNVERIFIED_IMAGE_PX)) in robot.calls
-    assert UNVERIFIED_IMAGE_PX == 640
+    only_image(res)
+    assert ("camera_image", ("gripper", CONFIG.grasp_check.image_px)) in robot.calls
+    check = data["grasp_check"]
+    text = " ".join(data["reasons"])
+    assert "confirm_grasp" in text and check["grasp_id"] in text and "get_camera_image" not in text
+    assert check["image"] == "pending" and check["fused"] is None and check["band"] in {"object", "empty", "ambiguous"}
     texts = [json.loads(c.text) for c in res.content if isinstance(c, TextContent)]
     assert any(t.get("outcome") == "unverified" for t in texts)
+    record = robot.arm.carry.get()
+    assert record.grasp_kind == "unverified" and record.image == "pending" and record.grasp_id == check["grasp_id"]
 
 
-def test_an_unverified_grasp_object_without_a_camera_frame_still_reports(server: Any, robot: FakeRobot) -> None:
+def test_a_verified_contact_hold_also_attaches_the_crop_after_lift_and_retreat(
+    server: Any, robot: FakeRobot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    object_in_jaws(robot.arm_backend)
+    commands_before_frame: list[int] = []
+    camera = robot.camera_image
+
+    def spy(name: str, max_px: int) -> Any:
+        commands_before_frame.append(len(robot.arm_backend.commands))
+        return camera(name, max_px)
+
+    monkeypatch.setattr(robot, "camera_image", spy)
+    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
+    data = res.structured_content
+    assert data["outcome"] == "unverified", data["reasons"]
+    only_image(res)
+    assert [s["label"] for s in data["steps"]][-2:] == ["lift", "retreat"]
+    assert commands_before_frame == [len(robot.arm_backend.commands)]  # the frame came after the last motion
+    assert data["grasp_check"]["image"] == "pending"
+    assert robot.arm.carry.get().grasp_held is True
+
+
+def test_the_crop_box_is_cropped_recorded_and_reported(
+    server: Any, robot: FakeRobot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    object_in_jaws(robot.arm_backend)
+    boxes: list[tuple[int, int, int, int]] = [(2, 1, 12, 9)]
+    monkeypatch.setattr("mcp_server.grasp_tools.jaw_crop", lambda *a, **k: boxes[0])
+    recorded: list[tuple[Any, ...]] = []
+
+    def spy(ctx: Any, tool: str, camera: str, jpeg: bytes, width: int, height: int) -> str:
+        recorded.append((tool, camera, jpeg, width, height))
+        return "lk-1"
+
+    monkeypatch.setattr("mcp_server.grasp_tools.record_lookup", spy)
+    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
+    crop = res.structured_content["grasp_check"]["crop"]
+    assert crop == {"lookup_id": "lk-1", "box_px": [2, 1, 12, 9], "full_frame_reason": None}
+    assert len(recorded) == 1
+    tool, camera, jpeg, width, height = recorded[0]
+    assert (tool, camera, (width, height)) == ("grasp_object", "gripper", (10, 8))
+    assert base64.b64decode(only_image(res).data) == jpeg
+
+
+def test_without_a_crop_box_the_full_frame_is_used_with_a_reason(server: Any, robot: FakeRobot) -> None:
+    object_in_jaws(robot.arm_backend)
+    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
+    crop = res.structured_content["grasp_check"]["crop"]
+    assert crop["box_px"] is None and crop["full_frame_reason"]
+    only_image(res)
+
+
+def test_a_camera_failure_gives_not_attached_and_a_warning_but_stays_unverified(server: Any, robot: FakeRobot) -> None:
     plush_in_jaws(robot.arm_backend)
     robot.camera_error = "no frame from /camera_0/image_raw within 2 s"
     res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
     data = res.structured_content
     assert data["outcome"] == "unverified"
+    assert data["grasp_check"]["image"] == "not_attached" and data["grasp_check"]["crop"] is None
     assert any("gripper camera image" in w and "no frame" in w for w in data["warnings"])
+    text = " ".join(data["reasons"])
+    assert "confirm_grasp" in text and data["grasp_check"]["grasp_id"] in text
     assert not [c for c in res.content if isinstance(c, ImageContent)]
+    assert robot.arm.carry.get().grasp_kind == "unverified"  # still awaiting a verdict
 
 
-def test_a_grasped_grasp_object_attaches_no_image(server: Any, robot: FakeRobot) -> None:
+def test_a_missed_grasp_object_attaches_nothing(server: Any, robot: FakeRobot) -> None:
     object_in_jaws(robot.arm_backend)
-    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
-    assert res.structured_content["outcome"] == "grasped"
+    params = {"min_hold_gap_rad": 1.0}  # the stop counts as too close to closed: a miss
+    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down", "params": params})
+    assert res.structured_content["outcome"] == "missed"
     assert not [c for c in res.content if isinstance(c, ImageContent)]
     assert not [c for c in robot.calls if c[0] == "camera_image"]
+    assert robot.arm.carry.get().image is None
+
+
+def test_an_infeasible_grasp_object_attaches_nothing(server: Any, robot: FakeRobot) -> None:
+    res = call(server, "grasp_object", {"object": OBJECT | {"x": 1.0}, "strategy": "auto"})
+    assert res.structured_content["outcome"] == "infeasible"
+    assert not [c for c in res.content if isinstance(c, ImageContent)]
+    assert not [c for c in robot.calls if c[0] == "camera_image"]
+
+
+def test_an_aborted_grasp_attaches_nothing(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path)
+    calls = {"n": 0}
+
+    def stop_after_two() -> bool:
+        calls["n"] += 1
+        return calls["n"] > 2
+
+    result = run_grasp(arm, stop=stop_after_two)
+    assert result.outcome == "aborted"
+    assert result.grasp_check is None or result.grasp_check.image == "not_requested"
 
 
 def test_grasp_tool_descriptions_explain_unverified(server: Any) -> None:
@@ -355,6 +446,8 @@ def test_grasp_tool_descriptions_explain_unverified(server: Any) -> None:
         text = tools[name].description or ""
         assert "unverified" in text and "image" in text, name
     grasp_text = tools["grasp_object"].description or ""
+    for needle in ("confirm_grasp", "grasped", "missed", "ambiguous"):
+        assert needle in grasp_text, needle
     assert "release_object" in grasp_text and "plush" in grasp_text
     assert "grip_profile soft" in grasp_text and "retightened" in grasp_text
     assert '"unverified"' in json.dumps(tools["grasp_object"].output_schema)
@@ -365,7 +458,25 @@ def test_grasp_service_reports_an_unverified_grasp(tmp_path: Path) -> None:
     plush_in_jaws(be)
     done = GraspService(arm, CONFIG).handle({"action": "execute", "object": OBJECT, "strategy": "top_down"})
     assert done["ok"] is True and done["result"]["outcome"] == "unverified"
+    assert done["result"]["grasp_check"]["image"] == "not_requested"
     assert [s["label"] for s in done["result"]["steps"]][-4:] == ["close", "hold", "lift", "retreat"]
+
+
+def test_grasp_service_keeps_the_band_only_outcome_for_a_verified_contact(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    object_in_jaws(be)
+    done = GraspService(arm, CONFIG).handle({"action": "execute", "object": OBJECT, "strategy": "top_down"})
+    result = done["result"]
+    assert result["outcome"] == "grasped" and result["grasp_check"]["image"] == "not_requested"
+    assert arm.carry.get().image == "not_requested"
+
+
+def test_the_executor_path_keeps_band_only_outcomes(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    object_in_jaws(be)
+    result = run_grasp(arm)
+    assert result.outcome == "grasped" and result.grasp_check is not None
+    assert result.grasp_check.image == "not_requested" and result.grasp_check.crop is None
 
 
 def test_grasp_service_contract(tmp_path: Path) -> None:
@@ -562,14 +673,6 @@ def test_queue_path_reason_claims_no_image(tmp_path: Path) -> None:
     text = " ".join(result.reasons)
     assert "get_camera_image" in text and "'gripper'" in text
     assert "attached" not in text
-
-
-def test_grasp_object_reason_points_at_the_attached_image(server: Any, robot: FakeRobot) -> None:
-    plush_in_jaws(robot.arm_backend)
-    data = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"}).structured_content
-    assert data["outcome"] == "unverified"
-    text = " ".join(data["reasons"])
-    assert "attached gripper camera image" in text and "get_camera_image" not in text
 
 
 def test_outcome_description_does_not_promise_an_image_everywhere() -> None:
