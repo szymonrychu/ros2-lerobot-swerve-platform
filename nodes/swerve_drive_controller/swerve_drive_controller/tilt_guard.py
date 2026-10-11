@@ -207,6 +207,9 @@ class TiltGuard:
         last_sample_s: Monotonic time of the last valid sample, s.
         level_since_s: Monotonic time the current level was entered (the first sample until the level changes), s.
         inhibited: Base drive inhibition latch: set on entering ERROR, cleared only on returning to OK.
+        rise_since: Per higher level, monotonic time the tilt started continuously exceeding its limit, s.
+        clear_since: Per lower level, monotonic time the tilt started continuously staying below its recovery
+            threshold (limit - hysteresis_deg), s.
     """
 
     def __init__(self, config: TiltGuardConfig) -> None:
@@ -223,7 +226,7 @@ class TiltGuard:
         self.last_sample_s: float | None = None
         self.level_since_s: float | None = None
         self.rise_since: dict[TiltLevel, float] = {}
-        self.clear_since: float | None = None
+        self.clear_since: dict[TiltLevel, float] = {}
         self.inhibited = False
         TILT_GUARD_LEVEL.set(int(self.level))
 
@@ -322,7 +325,7 @@ class TiltGuard:
         if self.imu_stale(now):
             # A gap in the data: time before it must not count towards persistence or the recovery hold.
             self.rise_since.clear()
-            self.clear_since = None
+            self.clear_since.clear()
         self.roll_deg, self.pitch_deg, self.last_sample_s = roll, pitch, now
         if self.level_since_s is None:
             self.level_since_s = now
@@ -342,14 +345,24 @@ class TiltGuard:
             if level > self.level and since is not None and now - since >= self.config.persistence_s:
                 return self.enter(level, self.worst_axis(level, roll, pitch, 0.0)[1], now)
 
-        cleared, cleared_axis = self.classify(roll, pitch, self.config.hysteresis_deg)
-        if cleared >= self.level:
-            self.clear_since = None
-            return None
-        if self.clear_since is None:
-            self.clear_since = now
-        if now - self.clear_since >= self.config.recovery_hold_s:
-            return self.enter(cleared, cleared_axis, now)
+        # One recovery timer per lower level: each level is entered only after the tilt stayed below *its own*
+        # recovery threshold for recovery_hold_s, so time spent below error - hysteresis never counts as the hold
+        # below warning - hysteresis.
+        cleared, _ = self.classify(roll, pitch, self.config.hysteresis_deg)
+        for level in (TiltLevel.OK, TiltLevel.WARNING):
+            if level < self.level and cleared <= level:
+                self.clear_since.setdefault(level, now)
+            else:
+                self.clear_since.pop(level, None)
+        for level in (TiltLevel.OK, TiltLevel.WARNING):
+            since = self.clear_since.get(level)
+            if since is not None and now - since >= self.config.recovery_hold_s:
+                axis = (
+                    None
+                    if level is TiltLevel.OK
+                    else self.worst_axis(level, roll, pitch, self.config.hysteresis_deg)[1]
+                )
+                return self.enter(level, axis, now)
         return None
 
     def enter(self, level: TiltLevel, axis: Axis | None, now: float) -> TiltTransition:
@@ -364,7 +377,9 @@ class TiltGuard:
             TiltTransition: The change.
         """
         previous = self.level
-        self.level, self.level_since_s, self.clear_since = level, now, None
+        self.level, self.level_since_s = level, now
+        # Recovery timers towards levels still below the new one keep running; the rest no longer apply.
+        self.clear_since = {lvl: since for lvl, since in self.clear_since.items() if lvl < level}
         self.axis = axis
         if level is TiltLevel.ERROR:
             self.inhibited = True

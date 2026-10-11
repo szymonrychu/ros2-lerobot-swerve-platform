@@ -195,6 +195,23 @@ def test_base_drive_stays_inhibited_after_error_until_below_warning_recovery() -
     assert guard.level is TiltLevel.OK and not guard.base_drive_inhibited
 
 
+def test_error_does_not_skip_to_ok_on_hold_spent_above_warning_recovery() -> None:
+    """Time held below 13 deg (error recovery) must not count as the hold below 6 deg (warning recovery)."""
+    guard = TiltGuard(TiltGuardConfig())
+    t = feed(guard, 18.0, 0.0, 0.0, 2.0)
+    assert guard.level is TiltLevel.ERROR
+    t = feed(guard, 12.0, 0.0, t, 1.9)
+    assert guard.level is TiltLevel.ERROR
+    t = feed(guard, 5.0, 0.0, t, 0.1)
+    # The 2 s hold below 13 deg is complete: warning, still inhibited (5 deg held only ~0.1 s).
+    assert guard.level is TiltLevel.WARNING
+    assert guard.base_drive_inhibited
+    t = feed(guard, 5.0, 0.0, t, 1.7)
+    assert guard.level is TiltLevel.WARNING and guard.base_drive_inhibited
+    feed(guard, 5.0, 0.0, t, 0.3)
+    assert guard.level is TiltLevel.OK and not guard.base_drive_inhibited
+
+
 def test_warning_without_prior_error_does_not_inhibit() -> None:
     guard = TiltGuard(TiltGuardConfig())
     feed(guard, 12.0, 0.0, 0.0, 1.0)
