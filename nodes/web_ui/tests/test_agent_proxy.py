@@ -73,6 +73,8 @@ class Recorder:
             if self.reply_status == 409:
                 return httpx.Response(409, json={"ok": False, "message": "busy"})
             return httpx.Response(202, json={"ok": True})
+        if path == "/api/retry_outcomes":
+            return httpx.Response(200, json={"records": [], "path_ok": True})
         if path in ("/api/stop", "/api/reset"):
             return httpx.Response(200, json={"ok": True, "message": "done"})
         return httpx.Response(404)
@@ -168,6 +170,49 @@ def test_post_message_forwards_body_and_status(make_client: Callable[..., TestCl
     assert json.loads(recorder.requests[0].content) == {"text": "go"}
 
 
+def test_post_message_forwards_deny_tools_unchanged(make_client: Callable[..., TestClient], recorder: Recorder) -> None:
+    body = {"text": "go", "deny_tools": ["drive", "set_gripper"]}
+    resp = make_client().post("/api/agent/message", json=body)
+    assert resp.status_code == 202
+    assert json.loads(recorder.requests[0].content) == body
+
+
+def test_retry_outcomes_proxied_with_limit(make_client: Callable[..., TestClient], recorder: Recorder) -> None:
+    resp = make_client().get("/api/agent/retry_outcomes", params={"limit": 250})
+    assert resp.status_code == 200
+    assert resp.json() == {"records": [], "path_ok": True}
+    assert recorder.requests[0].method == "GET"
+    assert recorder.requests[0].url.path == "/api/retry_outcomes"
+    assert dict(recorder.requests[0].url.params) == {"limit": "250"}
+
+
+def test_retry_outcomes_without_limit_sends_no_params(
+    make_client: Callable[..., TestClient], recorder: Recorder
+) -> None:
+    make_client().get("/api/agent/retry_outcomes")
+    assert dict(recorder.requests[0].url.params) == {}
+
+
+@pytest.mark.parametrize(
+    ("sent", "expected"), [("0", "1"), ("-5", "1"), ("99999", "5000"), ("5000", "5000"), ("7", "7")]
+)
+def test_retry_outcomes_limit_clamped(
+    make_client: Callable[..., TestClient], recorder: Recorder, sent: str, expected: str
+) -> None:
+    make_client().get("/api/agent/retry_outcomes", params={"limit": sent})
+    assert recorder.requests[0].url.params["limit"] == expected
+
+
+@pytest.mark.parametrize("query", ["limit=abc", "limit=1.5", "limit="])
+def test_retry_outcomes_rejects_non_integer_limit(
+    make_client: Callable[..., TestClient], recorder: Recorder, query: str
+) -> None:
+    resp = make_client().get(f"/api/agent/retry_outcomes?{query}")
+    assert resp.status_code == 400
+    assert resp.json()["ok"] is False
+    assert recorder.requests == []
+
+
 def test_upstream_conflict_status_is_passed_through(make_client: Callable[..., TestClient], recorder: Recorder) -> None:
     recorder.reply_status = 409
     resp = make_client().post("/api/agent/message", json={"text": "go"})
@@ -188,6 +233,7 @@ def test_post_stop_and_reset_proxied(make_client: Callable[..., TestClient], rec
     [
         ("get", "/api/agent/state"),
         ("get", "/api/agent/history"),
+        ("get", "/api/agent/retry_outcomes"),
         ("post", "/api/agent/message"),
         ("post", "/api/agent/stop"),
         ("post", "/api/agent/reset"),
@@ -242,7 +288,8 @@ def test_stop_state_history_allowed_in_cutoff(make_client: Callable[..., TestCli
     assert client.post("/api/agent/stop").status_code == 200
     assert client.get("/api/agent/state").status_code == 200
     assert client.get("/api/agent/history").status_code == 200
-    assert len(recorder.requests) == 3
+    assert client.get("/api/agent/retry_outcomes").status_code == 200
+    assert len(recorder.requests) == 4
 
 
 def test_message_allowed_with_battery_ok(make_client: Callable[..., TestClient]) -> None:

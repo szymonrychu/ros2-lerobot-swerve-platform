@@ -30,6 +30,10 @@ AGENT_WS_MAX_FRAME_BYTES = 32 * 1024 * 1024
 HISTORY_LIMIT_MIN = 1
 HISTORY_LIMIT_MAX = 500
 HISTORY_INT_PARAMS = ("before_seq", "limit")
+# Bounds of the retry ledger page size (claude_agent GET /api/retry_outcomes accepts 1..5000).
+RETRY_OUTCOMES_LIMIT_MIN = 1
+RETRY_OUTCOMES_LIMIT_MAX = 5000
+RETRY_OUTCOMES_INT_PARAMS = ("limit",)
 AGENT_WS_PATH = "/ws/events"
 AGENT_DISCONNECTED_MESSAGE = "agent disconnected"
 NO_AGENT_TAB_MESSAGE = "no agent_chat tab configured"
@@ -38,6 +42,7 @@ AGENT_ROUTES: tuple[tuple[str, str, str, bool], ...] = (
     ("state", "/api/state", "GET", False),
     ("history", "/api/history", "GET", False),
     ("message", "/api/message", "POST", True),
+    ("retry_outcomes", "/api/retry_outcomes", "GET", False),
     ("stop", "/api/stop", "POST", False),
     ("reset", "/api/reset", "POST", True),
 )
@@ -56,22 +61,54 @@ def agent_error(message: str, status_code: int) -> JSONResponse:
     return JSONResponse({"ok": False, "message": message}, status_code=status_code)
 
 
+def paging_params(query: Mapping[str, str], int_params: tuple[str, ...], limit_max: int) -> dict[str, int]:
+    """Validate a paging query: integers only, limit clamped to 1..limit_max.
+
+    Args:
+        query (Mapping[str, str]): Browser query parameters.
+        int_params (tuple[str, ...]): Names forwarded upstream, all integers.
+        limit_max (int): Upper clamp of the "limit" param (the lower clamp is 1).
+
+    Returns:
+        dict[str, int]: Only the params that were sent, as ints.
+
+    Raises:
+        ValueError: A sent param is not an integer.
+    """
+    params = {name: int(query[name]) for name in int_params if name in query}
+    if "limit" in params:
+        params["limit"] = max(HISTORY_LIMIT_MIN, min(limit_max, params["limit"]))
+    return params
+
+
 def history_params(query: Mapping[str, str]) -> dict[str, int]:
-    """Validate the history paging query: integers only, limit clamped to 1..500.
+    """Validate the history paging query (before_seq, limit clamped to 1..500).
 
     Args:
         query (Mapping[str, str]): Browser query parameters.
 
     Returns:
-        dict[str, int]: Only the params that were sent (before_seq, limit), as ints.
+        dict[str, int]: Only the params that were sent, as ints.
 
     Raises:
         ValueError: A sent param is not an integer.
     """
-    params = {name: int(query[name]) for name in HISTORY_INT_PARAMS if name in query}
-    if "limit" in params:
-        params["limit"] = max(HISTORY_LIMIT_MIN, min(HISTORY_LIMIT_MAX, params["limit"]))
-    return params
+    return paging_params(query, HISTORY_INT_PARAMS, HISTORY_LIMIT_MAX)
+
+
+def retry_outcomes_params(query: Mapping[str, str]) -> dict[str, int]:
+    """Validate the retry ledger query (limit clamped to 1..5000).
+
+    Args:
+        query (Mapping[str, str]): Browser query parameters.
+
+    Returns:
+        dict[str, int]: {"limit": n} when sent, else empty.
+
+    Raises:
+        ValueError: limit is not an integer.
+    """
+    return paging_params(query, RETRY_OUTCOMES_INT_PARAMS, RETRY_OUTCOMES_LIMIT_MAX)
 
 
 def agent_ws_url(agent_url: str) -> str:
@@ -154,6 +191,17 @@ async def close_quietly(ws: WebSocket) -> None:
         await ws.close()
 
 
+# Routes whose query string is validated and forwarded (all others forward none), and their 400 messages.
+QUERY_VALIDATORS: dict[str, Callable[[Mapping[str, str]], dict[str, int]]] = {
+    "history": history_params,
+    "retry_outcomes": retry_outcomes_params,
+}
+QUERY_ERRORS: dict[str, str] = {
+    "history": "before_seq and limit must be integers",
+    "retry_outcomes": "limit must be an integer",
+}
+
+
 def register_agent_routes(
     app: FastAPI,
     config: AppConfig,
@@ -181,9 +229,9 @@ def register_agent_routes(
             if tab is None:
                 return agent_error(NO_AGENT_TAB_MESSAGE, 404)
             try:
-                params = history_params(request.query_params) if suffix == "history" else None
+                params = QUERY_VALIDATORS[suffix](request.query_params) if suffix in QUERY_VALIDATORS else None
             except ValueError:
-                return agent_error("before_seq and limit must be integers", 400)
+                return agent_error(QUERY_ERRORS[suffix], 400)
             body = await request.body() if method == "POST" else None
             headers = (
                 {"content-type": request.headers["content-type"]} if body and "content-type" in request.headers else {}
