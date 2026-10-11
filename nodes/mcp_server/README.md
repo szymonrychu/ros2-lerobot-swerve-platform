@@ -1035,6 +1035,25 @@ travel_m, score; `rejected` counters; `costmap_age_s`; notes). The rest of `appr
 interfaces and the camera target tracker; `staging_offset_m` and `docking_threshold_m` must match the grasp docking
 server params.
 
+### ROS adapters of the approach tools
+
+`mcp_server/ros_dock.py` (imports rclpy, like `ros_iface.py`) holds the ROS side; `RosRobot` creates the clients at
+startup and exposes `dock()`, `plan_path()`, `global_costmap()` and `publish_detection()` on `RobotApi`.
+
+| Interface | Name (`approach:` setting) | Use |
+|---|---|---|
+| action `nav2_msgs/action/DockRobot` (client) | `/grasp/dock_robot` (`dock_action`) | `RosDockPort`: goal by pose (`use_dock_id` false, `dock_pose` PoseStamped in `map`, `dock_type`, `navigate_to_staging_pose`, `max_staging_time`); feedback state tracked by name (`NAV_TO_STAGING_POSE` .. `RETRY`); result = status, `error_code`, `num_retries`. Own goals are registered like the NavigateToPose goals. |
+| action `nav2_msgs/action/ComputePathToPose` (client) | `/compute_path_to_pose` (`planner_action`) | `RosPlannerPort`: plans from the robot's current pose (`use_start` false), planning only. `ok` with the path length, `no_path` (aborted or empty path, with the error code), `unavailable` (server down, no answer, rejected, no result within 5 s). |
+| topic `nav_msgs/OccupancyGrid` (subscriber, reliable transient local) | `/global_costmap/costmap` (`global_costmap_topic`) | `GlobalCostmapCache`: subscribed on the first `global_costmap()` call (waits `topdown.costmap_wait_s` for the first message), then the newest grid as a `CostGrid` with `age_s` since it was received. A stale grid is returned with its age; `approach.check_grid` refuses it against `costmap_stale_s`. |
+| topic `geometry_msgs/PoseStamped` (publisher) | `/grasp/detected_dock_pose` (`detection_topic`) | `DetectionPublisher`: frame `map` (another frame is refused), header stamp = the image capture stamp passed in. It publishes only when `publish_detection()` is called, never on its own. |
+
+`cancel_all_goals` (the `stop` tool, the monitor's tilt-warning canceller) cancels every NavigateToPose goal and then
+every `/grasp/dock_robot` goal with the zero goal id; the docking server's internal staging goal is a NavigateToPose
+goal and is covered by the first cancel. A docking server that is not running is not waited for (its cancel service is
+only asked when it is up), so a stop is never delayed by it. `reset_base` (the `release_control` base reset) cancels
+the NavigateToPose and the docking goals this server sent. `dock()` takes the same base motion lock and stop flag as
+`navigate_to_pose` and ends on critical events (`run_dock`).
+
 ## Unmeasured efforts
 
 feetech_servos publishes a NaN effort for a joint without an effort reading (a non-effort joint, a missing load).

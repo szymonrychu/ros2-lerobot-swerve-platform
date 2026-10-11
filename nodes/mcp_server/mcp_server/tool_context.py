@@ -9,7 +9,9 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryGuard
 
+from .approach import CostGrid, PathInfo
 from .arm import ArmController
+from .base_dock import DockGoal, DockResult
 from .base_motion import DriveOutcome, SpinOutcome
 from .config import McpServerConfig
 from .frontiers import FrontierTracker, MapGrid
@@ -77,6 +79,22 @@ class RobotApi(Protocol):
         """Blocking NavigateToPose relative to base_link."""
         ...
 
+    def dock(self, goal: DockGoal, timeout_s: float) -> DockResult:
+        """Blocking DockRobot goal on the grasp docking server (same lock, stop and interrupts as navigate)."""
+        ...
+
+    def plan_path(self, goal: BasePose) -> PathInfo:
+        """ComputePathToPose from the robot's pose (planning only): ok with the length, no_path or unavailable."""
+        ...
+
+    def global_costmap(self) -> CostGrid | None:
+        """Latest global costmap with its age (subscribes lazily), None when none was received."""
+        ...
+
+    def publish_detection(self, pose: BasePose, stamp_ns: int) -> None:
+        """Publish a dock detection pose (map frame) stamped with the image capture time (ns)."""
+        ...
+
     def drive(self, vx: float, vy: float, wz: float, duration_s: float) -> DriveOutcome:
         """Timed velocity command."""
         ...
@@ -92,9 +110,10 @@ class RobotApi(Protocol):
         ...
 
     def reset_base(self) -> bool:
-        """Base half of stop (release_control base reset): cancel every Nav2 goal and publish zero twist.
+        """Base half of stop (release_control base reset): cancel the Nav2 and docking goals this server sent and publish
+        zero twist.
 
-        Returns True when the Nav2 cancel service answered."""
+        Returns True when every cancel was answered."""
         ...
 
     def steer_positions(self) -> dict[str, float] | None:
