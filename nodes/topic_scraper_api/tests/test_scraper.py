@@ -2,7 +2,7 @@ from array import array
 from typing import Any
 
 from topic_scraper_api.image_encoding import IMAGE_TYPE_RAW
-from topic_scraper_api.scraper import TopicScraper, should_track_type
+from topic_scraper_api.scraper import TopicMeta, TopicScraper, should_track_type
 
 
 class FakeLogger:
@@ -192,3 +192,70 @@ def test_image_callback_payload_has_no_data_list_and_keeps_jpeg() -> None:
     assert payload["message"]["data"] == {"omitted": True, "byte_length": 12}
     assert payload["message"]["encoding"] == "bgr8"
     assert scraper.get_latest_jpeg("/cam")[:2] == b"\xff\xd8"
+
+
+class LazyMsg:
+    height = 2
+    width = 2
+    encoding = "bgr8"
+    step = 6
+    data = array("B", [255, 0, 0, 0, 255, 0, 0, 0, 255, 128, 128, 128])
+
+    def get_fields_and_field_types(self) -> dict[str, str]:
+        return {"height": "uint32", "width": "uint32", "encoding": "string", "step": "uint32", "data": "uint8[]"}
+
+
+def make_counting_scraper(monkeypatch: Any) -> tuple[TopicScraper, list[Any]]:
+    """Scraper whose JPEG encoder records every call."""
+    calls: list[Any] = []
+
+    def fake_encode(msg: Any, _type_name: str) -> bytes:
+        calls.append(msg)
+        return b"\xff\xd8fake" + bytes([len(calls)])
+
+    monkeypatch.setattr("topic_scraper_api.scraper.image_message_to_jpeg_bytes", fake_encode)
+    return TopicScraper(node=FakeNode(), allowed_types=[IMAGE_TYPE_RAW]), calls
+
+
+def test_frames_without_request_trigger_no_encode(monkeypatch: Any) -> None:
+    scraper, calls = make_counting_scraper(monkeypatch)
+    cb = scraper._callback_for_topic("/cam", IMAGE_TYPE_RAW)
+    for _ in range(5):
+        cb(LazyMsg())
+    assert calls == []
+    assert scraper.get_topic_payload("/cam") is not None
+
+
+def test_request_encodes_once_and_caches_per_frame(monkeypatch: Any) -> None:
+    scraper, calls = make_counting_scraper(monkeypatch)
+    cb = scraper._callback_for_topic("/cam", IMAGE_TYPE_RAW)
+    cb(LazyMsg())
+    first = scraper.get_latest_jpeg("/cam")
+    second = scraper.get_latest_jpeg("/cam")
+    assert first is not None
+    assert second is first
+    assert len(calls) == 1
+
+
+def test_new_frame_after_request_encoded_on_next_request(monkeypatch: Any) -> None:
+    scraper, calls = make_counting_scraper(monkeypatch)
+    cb = scraper._callback_for_topic("/cam", IMAGE_TYPE_RAW)
+    cb(LazyMsg())
+    first = scraper.get_latest_jpeg("/cam")
+    cb(LazyMsg())
+    cb(LazyMsg())
+    assert len(calls) == 1
+    second = scraper.get_latest_jpeg("/cam")
+    assert len(calls) == 2
+    assert second != first
+    assert scraper.get_latest_jpeg("/cam") is second
+    assert len(calls) == 2
+
+
+def test_has_sample_true_without_encoding(monkeypatch: Any) -> None:
+    scraper, calls = make_counting_scraper(monkeypatch)
+    scraper._topic_meta["/cam"] = TopicMeta(topic="/cam", endpoint="/topics/cam", type_name=IMAGE_TYPE_RAW)
+    assert scraper.get_image_topics_summary()[0]["has_sample"] is False
+    scraper._callback_for_topic("/cam", IMAGE_TYPE_RAW)(LazyMsg())
+    assert scraper.get_image_topics_summary()[0]["has_sample"] is True
+    assert calls == []

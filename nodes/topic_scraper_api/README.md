@@ -52,7 +52,7 @@ Sample response shape:
 | `robot_node_info{node}`, `robot_node_start_time_seconds{node}` | gauge | Node is running, process start time |
 | `scraper_messages_total` | counter | Messages received by all subscriptions |
 | `scraper_subscriptions` | gauge | Live topic subscriptions (set after each topic sync) |
-| `scraper_callback_seconds` | histogram | Time in one subscription callback (serialize and JPEG encode) |
+| `scraper_callback_seconds` | histogram | Time in one subscription callback (serialization only; JPEG encoding is lazy) |
 
 ## Configuration
 
@@ -61,7 +61,7 @@ Path: `TOPIC_SCRAPER_API_CONFIG` env var or `/etc/ros2/topic_scraper_api/config.
 ```yaml
 host: "0.0.0.0"
 port: 18100
-topic_refresh_interval_s: 0.25
+topic_refresh_interval_s: 2.0
 allowed_types:
   - sensor_msgs/msg/JointState
   - sensor_msgs/msg/Image
@@ -84,7 +84,7 @@ observation_rules:
     sign_change_min_hz: 2.0
 ```
 
-- `topic_refresh_interval_s` should remain below 1s for responsive topic graph updates and to avoid aliasing around 1s cadence artifacts.
+- `topic_refresh_interval_s` is 2.0 in the shipped configs: topic discovery (`get_topic_names_and_types`) is relatively expensive and a new topic appearing within 2 s is fine for a debug tool. The code default stays 0.25.
 - Empty `allowed_types` means all resolvable ROS message types are eligible.
 - **observation_rules** (optional): list of rules to compare message values and observe oscillations. Each rule has `name`, `topics` (list of topic paths), `type` (`compare` or `oscillation`), optional `joint_names` (for JointState; empty = all). For `oscillation`: `window_s`, `variance_threshold`, `sign_change_min_hz`. Compare uses first two topics; position delta is (topic0 − topic1) per joint. Oscillation uses variance of delta over the window and sign-change rate.
 
@@ -95,7 +95,7 @@ observation_rules:
 - Image, CompressedImage and PointCloud2 payloads never carry their binary `data`: in `GET /topics/<topic-path>` the `data` field is `{"omitted": true, "byte_length": N}` and every other field (header, height, width, encoding, step, fields, ...) is kept. Field names are unchanged; only the type of `data` changed from a list of ints to that object. The scraper never converts binary data to Python lists (a 640x480 bgr8 frame as ints cost ~7 MB). JPEG for `/streams` and `/previews` is encoded straight from the message and is unaffected.
 - Image, CompressedImage and PointCloud2 topics subscribe with sensor QoS (best effort, depth 1, `SENSOR_SUB_QOS` in `run.py`); all other topics use the default reliable QoS with depth 10.
 - Stores only the last sample per topic (plus timing metadata and sequence).
-- For image topics, also keeps the latest frame as JPEG for streaming and preview; raw Image (bgr8, rgb8, mono8) and CompressedImage (jpeg) are supported.
+- For image topics, the callback only keeps a reference to the latest raw message. JPEG is encoded lazily when `/streams` or `/previews` asks for it, at most once per received frame (cached by frame sequence), and never while nobody requests it; raw Image (bgr8, rgb8, mono8) and CompressedImage (jpeg) are supported.
 
 ## Collector usage examples (`scripts/topic_scraper_collect.py`)
 

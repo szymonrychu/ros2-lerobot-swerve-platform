@@ -82,7 +82,10 @@ class TopicScraper:
         self._subscriptions: dict[str, Any] = {}
         self._topic_meta: dict[str, TopicMeta] = {}
         self._latest_payload: dict[str, dict[str, Any]] = {}
-        self._latest_jpeg: dict[str, bytes] = {}
+        # Latest raw image message per topic (reference only) and its sample_seq; JPEG is encoded
+        # lazily on request and cached for that sequence number.
+        self._latest_frame: dict[str, tuple[int, Any, str]] = {}
+        self._jpeg_cache: dict[str, tuple[int, bytes | None]] = {}
         self._sample_seq: int = 0
 
     def _callback_for_topic(self, topic: str, type_name: str) -> Any:
@@ -104,9 +107,7 @@ class TopicScraper:
                 "message": message_to_payload(msg, type_name),
             }
             if is_image_type(type_name):
-                jpeg = image_message_to_jpeg_bytes(msg, type_name)
-                if jpeg is not None:
-                    self._latest_jpeg[topic] = jpeg
+                self._latest_frame[topic] = (self._sample_seq, msg, type_name)
 
         return callback
 
@@ -146,7 +147,8 @@ class TopicScraper:
             del self._subscriptions[topic]
             self._topic_meta.pop(topic, None)
             self._latest_payload.pop(topic, None)
-            self._latest_jpeg.pop(topic, None)
+            self._latest_frame.pop(topic, None)
+            self._jpeg_cache.pop(topic, None)
             self.node.get_logger().info(f"Unsubscribed from {topic}")
 
         self._topic_meta = next_topics
@@ -194,7 +196,7 @@ class TopicScraper:
 
         Returns:
             list[dict[str, Any]]: One entry per tracked image topic: topic, stream_endpoint,
-                preview_endpoint, has_sample (True when latest JPEG is available).
+                preview_endpoint, has_sample (True when a frame was received).
         """
         out: list[dict[str, Any]] = []
         for topic in sorted(self._topic_meta.keys()):
@@ -206,18 +208,32 @@ class TopicScraper:
                     "topic": meta.topic,
                     "stream_endpoint": topic_to_stream_endpoint(topic),
                     "preview_endpoint": topic_to_preview_endpoint(topic),
-                    "has_sample": topic in self._latest_jpeg,
+                    "has_sample": topic in self._latest_frame,
                 }
             )
         return out
 
     def get_latest_jpeg(self, topic: str) -> bytes | None:
-        """Return latest JPEG bytes for an image topic.
+        """Return JPEG bytes of the latest frame of an image topic, encoding on first request.
+
+        The encode runs at most once per received frame; later calls for the same frame reuse
+        the cached bytes.
 
         Args:
             topic: ROS topic path.
 
         Returns:
-            bytes | None: JPEG bytes or None when topic is not an image or no frame yet.
+            bytes | None: JPEG bytes or None when topic is not an image, no frame yet, or the
+                frame cannot be encoded.
         """
-        return self._latest_jpeg.get(normalize_topic(topic))
+        topic = normalize_topic(topic)
+        frame = self._latest_frame.get(topic)
+        if frame is None:
+            return None
+        seq, msg, type_name = frame
+        cached = self._jpeg_cache.get(topic)
+        if cached is not None and cached[0] == seq:
+            return cached[1]
+        jpeg = image_message_to_jpeg_bytes(msg, type_name)
+        self._jpeg_cache[topic] = (seq, jpeg)
+        return jpeg

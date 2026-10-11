@@ -105,7 +105,8 @@ ros2_nodes:
     config: |
       host: "0.0.0.0"
       port: 18100
-      topic_refresh_interval_s: 0.25
+      # Discovery of new topics within 2 s is fine for a debug tool (graph query is costly)
+      topic_refresh_interval_s: 2.0
       allowed_types:
         - sensor_msgs/msg/JointState
         - sensor_msgs/msg/NavSatFix

@@ -12,6 +12,6 @@ MESSAGES = Counter("scraper_messages_total", "Messages received by all scraper s
 SUBSCRIPTIONS = Gauge("scraper_subscriptions", "Live topic subscriptions")
 CALLBACK_SECONDS = Histogram(
     "scraper_callback_seconds",
-    "Time spent in a subscription callback (serialization and JPEG encoding)",
+    "Time spent in a subscription callback (serialization)",
     buckets=CALLBACK_BUCKETS,
 )
