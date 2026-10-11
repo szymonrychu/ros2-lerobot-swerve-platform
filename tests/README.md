@@ -311,6 +311,40 @@ Unit tests for `scripts/eval/report.py` (TrialRecord and the evaluation report).
 | `test_render_text_sections` | The text report has every section. |
 | `test_trial_record_from_derivation` | A TrialRecord built from `stages.derive` carries instruction id, turn_end fields, claims, phases and lookup ids. |
 
+### `test_eval_run.py`
+
+Unit tests for the evaluation driver (`scripts/eval/client.py`, `labels.py`, `run.py`). A fake claude_agent (state, reset, message, history, stop) runs behind `httpx.MockTransport`, the operator is an injected input function and time is a fake clock advanced by sleep, so no network, robot or terminal is involved. Agent events reuse the `test_eval_stages.py` trace.
+
+| Test | Description |
+|------|-------------|
+| `test_ask_collects_success_stage_labels_and_note` | Labelling: object in target first, one key per stage, note; first failed stage is the first `n`. |
+| `test_ask_reasks_on_invalid_key` | Invalid keys (and an empty answer in full mode) are asked again. |
+| `test_ask_navigate_defaults_to_na_only_in_arm_only` | Enter accepts `x` for navigate in arm-only mode only. |
+| `test_client_reset_retries_once_after_delay_on_409` | A 409 reset is retried once after the 5 s delay. |
+| `test_client_reset_gives_up_after_second_409` | A second 409 raises AgentBusyError. |
+| `test_client_message_deny_tools_and_errors` | `deny_tools` sent only when given; 503 raises BatteryBlockError with the agent message, 409 AgentBusyError, other statuses AgentError. |
+| `test_client_history_since_pages_back_to_the_seq` | History polling pages backwards to the seq (1200 events) and returns nothing when up to date. |
+| `test_client_state_stop_and_bounded_timeouts` | State and stop calls; connect and read timeouts are set. |
+| `test_successful_trial_is_recorded_with_events_report_and_deny_tools` | A full trial: deny_tools in arm-only, reset, raw events file, TrialRecord line, claimed stages and lookup ids printed, report.json, stop_on_success. |
+| `test_full_mode_sends_no_deny_tools` | Full mode sends no `deny_tools`. |
+| `test_failed_trials_run_k_times_without_stop` | Failed trials run all k times with first failed stage and note recorded. |
+| `test_stop_on_success_false_keeps_running` | Without stop_on_success every trial runs. |
+| `test_skip_and_quit_at_setup` | `s` skips a trial, `q` quits; the report is still written and nothing was sent. |
+| `test_quit_after_a_trial_writes_report_with_it` | The report on `q` includes recorded trials and planned cases. |
+| `test_busy_agent_waits_then_runs` | A busy agent is waited for, then the trial runs. |
+| `test_busy_agent_past_trial_timeout_aborts_without_reset` | Busy past trial_timeout_s aborts without reset or message. |
+| `test_battery_block_aborts_with_message_and_keeps_recorded_trials` | A 503 aborts with the message and exit code 1; recorded trials stay. |
+| `test_reset_busy_twice_aborts` | A reset still busy after the retry aborts. |
+| `test_no_reset_when_disabled` | reset_between_trials false never resets. |
+| `test_trial_timeout_posts_stop_and_waits_60s_more` | On timeout POST stop; the interrupted turn_end is recorded. |
+| `test_trial_without_turn_end_after_stop_is_still_recorded` | No turn_end 60 s after stop: the trial is recorded with status None. |
+| `test_resume_continues_with_remaining_trials` | `--resume` skips recorded trials and continues with the rest. |
+| `test_resume_unknown_run_id_fails` | Resuming a missing run raises. |
+| `test_run_config_defaults_and_validation` | RunConfig defaults (arm_only, `.logs/eval`, deny tools, k, timeout) and validation. |
+| `test_shipped_run_yaml_loads` | `scripts/eval/run.yaml` loads. |
+| `test_unknown_case_in_subset_is_rejected` | A subset case the mode does not run is rejected. |
+| `test_main_rejects_missing_config` | `main` rejects an invalid config file. |
+
 ### `test_topic_scraper_config.py`
 
 Client topic_scraper_api config (`ansible/group_vars/client.yml`).

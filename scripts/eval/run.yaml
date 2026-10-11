@@ -1,0 +1,13 @@
+# Run config for scripts/eval/run.py (validated by its pydantic RunConfig).
+# Usage: uv run python -m scripts.eval.run scripts/eval/run.yaml [--resume <run_id>]
+base_url: http://client.ros2.lan/api/agent
+testset: scripts/eval/testset_v1.yaml
+mode: arm_only            # arm_only | full
+arm_only_deny_tools: [navigate_to_pose, move_relative, drive]
+k: 3                      # trials per case for success@k
+stop_on_success: true     # skip remaining trials of a case after a human-labelled success
+reset_between_trials: true
+poll_interval_s: 2.0
+trial_timeout_s: 1020     # instruction_timeout_s 900 + 120; then POST /stop and wait 60 s more
+output_dir: .logs/eval
+cases: null               # optional subset, e.g. [tomato_plush/front_center]
