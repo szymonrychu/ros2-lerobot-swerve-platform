@@ -1,8 +1,11 @@
-"""Camera lookup store: JPEG + index.jsonl writes, retention pruning, corrupt lines, the query filter matrix."""
+"""Read-only photo store facade: JPEG write/remove, index reads (records, get, query, image), corrupt lines, filters.
 
+poi_store owns index.jsonl (E11): these tests write the index lines themselves, the way poi_store does.
+"""
+
+import inspect
 import json
 import logging
-import os
 import stat
 import time
 from pathlib import Path
@@ -13,184 +16,220 @@ import ros2_common.lookups as lookups_mod
 
 from mcp_server.lookup_store import (
     INDEX_FILE,
-    LookupNotFoundError,
     LookupQuery,
+    LookupRecord,
     LookupStore,
     NearFilter,
-    write_atomic,
+    photo_summary,
 )
 
-DAY_S = 86400.0
 JPEG = b"\xff\xd8\xff\xe0" + b"x" * 96  # 100 bytes
+# A line in the exact pre-E11 index format (no photo keys).
+LEGACY_LINE = (
+    '{"id": "0123456789abcdef0123456789abcdef", "ts": 1760000000.5, "tool": "get_camera_image", "camera": "front", '
+    '"width": 640, "height": 480, "file": "0123456789abcdef0123456789abcdef.jpg", "bytes": 100, '
+    '"base_pose_map": {"x": 1.0, "y": 2.0, "yaw": 0.5}, "arm_joints": null, "camera_pose_base": null, '
+    '"mcp_session": "sess-1", "note": "", "poi_ids": []}'
+)
 
 
-class FakeClock:
-    """Settable clock (unix seconds)."""
+class IndexWriter:
+    """Writes index lines and JPEGs the way poi_store does (the store under test only reads them)."""
 
-    def __init__(self, now: float = 1_000_000.0) -> None:
-        self.now = now
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.ts = 1_000_000.0
+        self.count = 0
 
-    def __call__(self) -> float:
-        return self.now
+    def add(self, step_s: float = 1.0, **fields: Any) -> LookupRecord:
+        self.ts += step_s
+        self.count += 1
+        rec_id = f"{self.count:032x}"
+        data: dict[str, Any] = {
+            "id": rec_id,
+            "ts": self.ts,
+            "tool": "get_camera_image",
+            "camera": "front",
+            "width": 20,
+            "height": 10,
+            "file": f"{rec_id}.jpg",
+            "bytes": len(JPEG),
+            **fields,
+        }
+        rec = LookupRecord.model_validate(data)
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / rec.file).write_bytes(JPEG)
+        self.line(rec.model_dump_json())
+        return rec
+
+    def line(self, text: str) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        with (self.root / INDEX_FILE).open("a") as fh:
+            fh.write(text + "\n")
+
+    def rewrite(self, recs: list[LookupRecord]) -> None:
+        (self.root / INDEX_FILE).write_text("".join(r.model_dump_json() + "\n" for r in recs))
 
 
 @pytest.fixture
-def clock() -> FakeClock:
-    return FakeClock()
+def writer(tmp_path: Path) -> IndexWriter:
+    return IndexWriter(tmp_path / "lookups")
 
 
-def make_store(root: Path, clock: FakeClock, **limits: Any) -> LookupStore:
-    return LookupStore(
-        root,
-        max_records=limits.get("max_records", 3000),
-        max_bytes=limits.get("max_bytes", 300_000_000),
-        max_age_days=limits.get("max_age_days", 14.0),
-        clock=clock,
-    )
+@pytest.fixture
+def store(writer: IndexWriter) -> LookupStore:
+    return LookupStore(writer.root)
 
 
-def add(store: LookupStore, clock: FakeClock, step_s: float = 1.0, **fields: Any) -> Any:
-    clock.now += step_s
-    jpeg = fields.pop("jpeg", JPEG)
-    args: dict[str, Any] = {"tool": "get_camera_image", "camera": "front", "width": 20, "height": 10, **fields}
-    return store.add(jpeg, **args)
+def test_store_is_read_only_no_retention_or_index_writes() -> None:
+    for name in ("add", "annotate", "prune", "drop_over_limit", "remove_orphans", "append_line"):
+        assert not hasattr(LookupStore, name), name
+    assert list(inspect.signature(LookupStore).parameters) == ["root"]  # no retention limits any more
 
 
-def index_lines(root: Path) -> list[str]:
-    return (root / INDEX_FILE).read_text().splitlines()
+def test_write_image_creates_the_directory_and_a_world_readable_jpeg(tmp_path: Path) -> None:
+    store = LookupStore(tmp_path / "new" / "lookups")
+    path = store.write_image("a" * 32, JPEG)
+    assert path == tmp_path / "new" / "lookups" / f"{'a' * 32}.jpg"
+    assert path.read_bytes() == JPEG
+    assert stat.S_IMODE(path.stat().st_mode) == 0o644
+    assert not (store.root / INDEX_FILE).exists()  # the index belongs to poi_store
 
 
-def test_add_writes_the_jpeg_and_one_index_line(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path / "lookups", clock)
-    rec = add(
-        store,
-        clock,
-        base_pose_map={"x": 1.0, "y": 2.0, "yaw": 0.5},
-        arm_joints={"elbow_flex": 0.2},
-        camera_pose_base={"xyz": [0.1, 0.0, 0.3], "rpy": [0.0, 0.5, 0.0]},
-        mcp_session="sess-1",
-    )
-    assert len(rec.id) == 32 and rec.ts == clock.now
-    assert rec.file == f"{rec.id}.jpg" and rec.bytes == len(JPEG)
-    assert (tmp_path / "lookups" / rec.file).read_bytes() == JPEG
-    lines = index_lines(tmp_path / "lookups")
-    assert len(lines) == 1
-    row = json.loads(lines[0])
-    assert row["id"] == rec.id and row["tool"] == "get_camera_image" and row["camera"] == "front"
-    assert row["base_pose_map"] == {"x": 1.0, "y": 2.0, "yaw": 0.5}
-    assert row["arm_joints"] == {"elbow_flex": 0.2}
-    assert row["camera_pose_base"] == {"xyz": [0.1, 0.0, 0.3], "rpy": [0.0, 0.5, 0.0]}
-    assert row["mcp_session"] == "sess-1" and row["note"] == "" and row["poi_ids"] == []
+def test_remove_image_unlinks_and_tolerates_a_missing_file(tmp_path: Path) -> None:
+    store = LookupStore(tmp_path)
+    path = store.write_image("b" * 32, JPEG)
+    store.remove_image("b" * 32)
+    assert not path.exists()
+    store.remove_image("b" * 32)  # already gone: no error
+
+
+def test_image_ids_must_be_32_hex(tmp_path: Path) -> None:
+    store = LookupStore(tmp_path)
+    for bad in ("../escape", "ABCDEF" * 6, "a" * 31):
+        with pytest.raises(ValueError):
+            store.write_image(bad, JPEG)
+        with pytest.raises(ValueError):
+            store.remove_image(bad)
+
+
+def test_records_get_and_image_read_poi_stores_index(writer: IndexWriter, store: LookupStore) -> None:
+    rec = writer.add(base_pose_map={"x": 1.0, "y": 2.0, "yaw": 0.5}, mcp_session="sess-1")
+    [got] = store.records()
+    assert isinstance(got, LookupRecord) and got == rec  # the E5 contract: records() yields LookupRecord
+    assert store.get(rec.id) == rec and store.get("f" * 32) is None
     assert store.image(rec) == JPEG
-    assert store.get(rec.id) == rec
 
 
-def test_optional_fields_default_to_null(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock)
-    rec = add(store, clock)
-    assert rec.base_pose_map is None and rec.arm_joints is None and rec.camera_pose_base is None
-    assert rec.mcp_session is None
+def test_legacy_line_reads_as_a_photo(writer: IndexWriter, store: LookupStore) -> None:
+    writer.line(LEGACY_LINE)
+    [rec] = store.records()
+    assert (rec.kind, rec.name, rec.status, rec.created_by, rec.view) == ("photo", "", "open", "agent", None)
+    assert rec.base_pose_map is not None and rec.base_pose_map.x == 1.0
 
 
-def test_prune_by_count_drops_the_oldest(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock, max_records=3)
-    recs = [add(store, clock) for _ in range(5)]
-    kept = [r.id for r in store.records()]
-    assert kept == [r.id for r in recs[2:]]
-    assert not (tmp_path / recs[0].file).exists() and not (tmp_path / recs[1].file).exists()
-    assert (tmp_path / recs[2].file).exists()
-    assert len(index_lines(tmp_path)) == 3
+def test_photo_summary_derives_the_view_of_a_legacy_line(writer: IndexWriter, store: LookupStore) -> None:
+    """Legacy lines have no stored view: the summary carries the view derived on read (base pose and heading)."""
+    writer.line(LEGACY_LINE)
+    [rec] = store.records()
+    data = photo_summary(rec)
+    assert data["view"] == {
+        "x": 1.0,
+        "y": 2.0,
+        "z": None,
+        "yaw": 0.5,
+        "pitch": None,
+        "hfov": None,
+        "source": "base_heading",
+    }
+    assert data["kind"] == "photo" and data["time"].startswith("2025-")
 
 
-def test_prune_by_bytes_drops_the_oldest_until_under_the_limit(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock, max_bytes=250)  # two 100-byte images fit, three do not
-    recs = [add(store, clock) for _ in range(4)]
-    assert [r.id for r in store.records()] == [r.id for r in recs[2:]]
-    assert sum(r.bytes for r in store.records()) <= 250
-    assert not (tmp_path / recs[1].file).exists()
+def test_photo_summary_keeps_a_stored_view_and_none_without_pose(writer: IndexWriter, store: LookupStore) -> None:
+    view = {"x": 3.0, "y": 4.0, "z": 0.5, "yaw": 0.1, "pitch": 0.2, "hfov": 1.0, "source": "camera_mount"}
+    stored = writer.add(base_pose_map={"x": 1.0, "y": 2.0, "yaw": 0.5}, view=view)
+    blind = writer.add()
+    assert photo_summary(store.get(stored.id))["view"] == view  # type: ignore[arg-type]
+    assert photo_summary(store.get(blind.id))["view"] is None  # type: ignore[arg-type]
 
 
-def test_prune_never_drops_the_record_just_written(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock, max_bytes=50)  # one image alone is over the limit
-    add(store, clock)
-    newest = add(store, clock)
-    assert [r.id for r in store.records()] == [newest.id]
+def test_reads_follow_poi_store_rewrites(writer: IndexWriter, store: LookupStore) -> None:
+    a = writer.add()
+    b = writer.add()
+    assert [r.id for r in store.records()] == [a.id, b.id]
+    writer.rewrite([a.model_copy(update={"note": "mug"})])  # poi_store deleted b and annotated a
+    assert [(r.id, r.note) for r in store.records()] == [(a.id, "mug")]
 
 
-def test_prune_by_age(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock, max_age_days=14.0)
-    old = add(store, clock)
-    mid = add(store, clock, step_s=10 * DAY_S)
-    new = add(store, clock, step_s=5 * DAY_S)  # old is now 15 days old, mid 5
-    ids = [r.id for r in store.records()]
-    assert ids == [mid.id, new.id]
-    assert not (tmp_path / old.file).exists()
-
-
-def test_corrupt_index_lines_are_skipped(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock)
-    first = add(store, clock)
-    with (tmp_path / INDEX_FILE).open("a") as fh:
-        fh.write("{not json\n")
-        fh.write(json.dumps({"id": "missing-fields"}) + "\n")
-        fh.write("\n")
-    second = add(store, clock)
+def test_corrupt_index_lines_are_skipped(writer: IndexWriter, store: LookupStore) -> None:
+    first = writer.add()
+    writer.line("{not json")
+    writer.line(json.dumps({"id": "missing-fields"}))
+    writer.line("")
+    second = writer.add()
     assert [r.id for r in store.records()] == [first.id, second.id]
     assert [r.id for r in store.query(LookupQuery())] == [second.id, first.id]
 
 
-def test_missing_store_reads_as_empty(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path / "nothing", clock)
+def test_missing_store_reads_as_empty(tmp_path: Path) -> None:
+    store = LookupStore(tmp_path / "nothing")
     assert store.records() == [] and store.query(LookupQuery()) == []
     assert store.get("0" * 32) is None
 
 
-def test_annotate_rewrites_only_that_line(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock)
-    a = add(store, clock)
-    with (tmp_path / INDEX_FILE).open("a") as fh:
-        fh.write("garbage line\n")
-    b = add(store, clock)
-    updated = store.annotate(a.id, note="red cup on the shelf", poi_ids=["p1", "p2"])
-    assert updated.note == "red cup on the shelf" and updated.poi_ids == ["p1", "p2"]
-    lines = index_lines(tmp_path)
-    assert len(lines) == 3 and lines[1] == "garbage line"
-    assert json.loads(lines[0])["note"] == "red cup on the shelf"
-    assert json.loads(lines[2])["id"] == b.id and json.loads(lines[2])["note"] == ""
-    only_note = store.annotate(a.id, note="moved")
-    assert only_note.note == "moved" and only_note.poi_ids == ["p1", "p2"]  # omitted poi_ids stay
-    assert store.annotate(a.id, poi_ids=[]).poi_ids == []
+def test_records_cached_until_index_changes(
+    writer: IndexWriter, store: LookupStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writer.add()
+    parsed: list[str] = []
+    real_parse = lookups_mod.parse_line
+    monkeypatch.setattr(lookups_mod, "parse_line", lambda line: parsed.append(line) or real_parse(line))
+    store.records()
+    store.records()
+    store.get("nope")
+    assert len(parsed) == 1
 
 
-def test_annotate_unknown_id_raises(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock)
-    add(store, clock)
-    with pytest.raises(LookupNotFoundError):
-        store.annotate("f" * 32, note="x")
+def test_corrupt_line_warns_once_across_reads(
+    writer: IndexWriter, store: LookupStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    writer.add()
+    writer.line("{not json")
+    with caplog.at_level(logging.WARNING, logger="ros2_common.lookups"):
+        for _ in range(3):
+            store.records()
+    assert len([m for m in caplog.messages if "corrupt" in m]) == 1
 
 
 # --- query filter matrix ------------------------------------------------------------------------------------------
 
 
 @pytest.fixture
-def populated(tmp_path: Path, clock: FakeClock) -> tuple[LookupStore, dict[str, Any]]:
-    store = make_store(tmp_path, clock)
+def populated(writer: IndexWriter, store: LookupStore) -> tuple[LookupStore, dict[str, LookupRecord]]:
     recs = {
-        "kitchen": add(store, clock, camera="front", base_pose_map={"x": 0.0, "y": 0.0, "yaw": 0.0}, mcp_session="s1"),
-        "hall": add(
-            store,
-            clock,
+        "kitchen": writer.add(
+            camera="front",
+            base_pose_map={"x": 0.0, "y": 0.0, "yaw": 0.0},
+            mcp_session="s1",
+            note="Red CUP near the sink",
+            poi_ids=["poi-sink"],
+        ),
+        "hall": writer.add(
             step_s=100.0,
             camera="gripper",
             tool="get_annotated_camera_image",
             base_pose_map={"x": 5.0, "y": 0.0, "yaw": 0.0},
             mcp_session="s1",
         ),
-        "nopose": add(store, clock, step_s=100.0, camera="front", mcp_session="s2"),
-        "shelf": add(store, clock, step_s=100.0, camera="front", base_pose_map={"x": 0.5, "y": 0.5, "yaw": 1.0}),
+        "nopose": writer.add(step_s=100.0, camera="front", mcp_session="s2"),
+        "shelf": writer.add(
+            step_s=100.0,
+            camera="front",
+            base_pose_map={"x": 0.5, "y": 0.5, "yaw": 1.0},
+            note="books",
+            poi_ids=["poi-shelf", "poi-sink"],
+        ),
     }
-    store.annotate(recs["kitchen"].id, note="Red CUP near the sink", poi_ids=["poi-sink"])
-    store.annotate(recs["shelf"].id, note="books", poi_ids=["poi-shelf", "poi-sink"])
     return store, recs
 
 
@@ -198,9 +237,8 @@ def ids(store: LookupStore, **kw: Any) -> list[str]:
     return [r.id for r in store.query(LookupQuery(**kw))]
 
 
-def test_query_returns_newest_first_with_default_limit_10(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock)
-    recs = [add(store, clock) for _ in range(15)]
+def test_query_returns_newest_first_with_default_limit_10(writer: IndexWriter, store: LookupStore) -> None:
+    recs = [writer.add() for _ in range(15)]
     got = store.query(LookupQuery())
     assert [r.id for r in got] == [r.id for r in reversed(recs)][:10]
     assert len(store.query(LookupQuery(limit=20))) == 15
@@ -231,7 +269,7 @@ def test_query_limit_is_capped_at_20() -> None:
     ],
 )
 def test_query_filter_matrix(
-    populated: tuple[LookupStore, dict[str, Any]], kw: dict[str, Any], expected: list[str]
+    populated: tuple[LookupStore, dict[str, LookupRecord]], kw: dict[str, Any], expected: list[str]
 ) -> None:
     store, recs = populated
     if "near" in kw:
@@ -239,7 +277,7 @@ def test_query_filter_matrix(
     assert ids(store, **kw) == [recs[name].id for name in expected]
 
 
-def test_query_time_window_is_inclusive(populated: tuple[LookupStore, dict[str, Any]]) -> None:
+def test_query_time_window_is_inclusive(populated: tuple[LookupStore, dict[str, LookupRecord]]) -> None:
     store, recs = populated
     hall_ts, nopose_ts = recs["hall"].ts, recs["nopose"].ts
     assert ids(store, since=hall_ts) == [recs["shelf"].id, recs["nopose"].id, recs["hall"].id]
@@ -248,106 +286,7 @@ def test_query_time_window_is_inclusive(populated: tuple[LookupStore, dict[str, 
     assert ids(store, since=nopose_ts + 1000.0) == []
 
 
-# --- robustness and write amplification ---------------------------------------------------------------------------
-
-
-def test_add_after_partial_trailing_line_keeps_new_record(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock)
-    first = add(store, clock)
-    with (tmp_path / INDEX_FILE).open("a") as fh:
-        fh.write('{"id": "half-written')  # crash mid-append: no newline
-    fresh = make_store(tmp_path, clock)
-    new = add(fresh, clock)
-    assert fresh.get(new.id) is not None
-    assert [r.id for r in fresh.records()] == [first.id, new.id]
-    assert fresh.annotate(new.id, note="x").note == "x"
-
-
-def test_prune_rewrites_only_when_over_limit_by_slack(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock, max_records=100)
-    for _ in range(100):
-        add(store, clock)
-    before = (tmp_path / INDEX_FILE).stat().st_ino
-    add(store, clock)  # 101 records: over the limit, inside the slack
-    assert (tmp_path / INDEX_FILE).stat().st_ino == before
-    assert len(store.records()) == 101
-    for _ in range(5):
-        add(store, clock)  # 106 > 105: prunes back to the limit
-    assert len(store.records()) == 100
-    assert (tmp_path / INDEX_FILE).stat().st_ino != before
-
-
-def test_prune_removes_jpegs_without_index_line(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock)
-    add(store, clock)
-    old_orphan = tmp_path / "orphan-old.jpg"
-    young_orphan = tmp_path / "orphan-young.jpg"
-    old_orphan.write_bytes(JPEG)
-    young_orphan.write_bytes(JPEG)
-    os.utime(old_orphan, (time.time() - 3600, time.time() - 3600))
-    fresh = make_store(tmp_path, clock)  # a restarted store sweeps orphans on its first add
-    kept = add(fresh, clock)
-    assert not old_orphan.exists()
-    assert young_orphan.exists()  # a JPEG being written right now is not an orphan
-    assert (tmp_path / kept.file).exists()
-
-
-def test_write_atomic_fsyncs_before_replace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
-    real_fsync, real_replace = os.fsync, os.replace
-    monkeypatch.setattr(os, "fsync", lambda fd: (calls.append("fsync"), real_fsync(fd))[1])
-    monkeypatch.setattr(os, "replace", lambda a, b: (calls.append("replace"), real_replace(a, b))[1])
-    write_atomic(tmp_path / "f", b"data")
-    assert calls == ["fsync", "replace"]
-
-
-def test_write_atomic_and_appended_index_are_both_world_readable(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock)
-    rec = add(store, clock)
-    assert stat.S_IMODE((tmp_path / rec.file).stat().st_mode) == 0o644
-    add(store, clock)
-    store.annotate(rec.id, note="x")  # index rewritten through write_atomic
-    assert stat.S_IMODE((tmp_path / INDEX_FILE).stat().st_mode) == 0o644
-
-
-def test_records_cached_until_index_changes(tmp_path: Path, clock: FakeClock, monkeypatch: pytest.MonkeyPatch) -> None:
-    store = make_store(tmp_path, clock)
-    add(store, clock)
-    parsed: list[str] = []
-    real_parse = lookups_mod.parse_line
-    monkeypatch.setattr(lookups_mod, "parse_line", lambda line: parsed.append(line) or real_parse(line))
-    fresh = make_store(tmp_path, clock)
-    fresh.records()
-    fresh.records()
-    fresh.get("nope")
-    assert len(parsed) == 1
-
-
-def test_corrupt_line_warns_once_across_reads(
-    tmp_path: Path, clock: FakeClock, caplog: pytest.LogCaptureFixture
-) -> None:
-    store = make_store(tmp_path, clock)
-    add(store, clock)
-    with (tmp_path / INDEX_FILE).open("a") as fh:
-        fh.write("{not json\n")
-    fresh = make_store(tmp_path, clock)
-    with caplog.at_level(logging.WARNING, logger="ros2_common.lookups"):
-        for _ in range(3):
-            fresh.records()
-    assert len([m for m in caplog.messages if "corrupt" in m]) == 1
-
-
-def test_annotate_without_change_does_not_rewrite(tmp_path: Path, clock: FakeClock) -> None:
-    store = make_store(tmp_path, clock)
-    rec = add(store, clock)
-    store.annotate(rec.id, note="mug", poi_ids=["p"])
-    before = (tmp_path / INDEX_FILE).stat().st_ino
-    again = store.annotate(rec.id, note="mug", poi_ids=["p"])
-    assert again.note == "mug" and (tmp_path / INDEX_FILE).stat().st_ino == before
-    assert store.annotate(rec.id).poi_ids == ["p"] and (tmp_path / INDEX_FILE).stat().st_ino == before
-
-
-def test_since_accepts_iso_string(populated: tuple[LookupStore, dict[str, Any]]) -> None:
+def test_since_accepts_iso_string(populated: tuple[LookupStore, dict[str, LookupRecord]]) -> None:
     store, recs = populated
     hall_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(recs["hall"].ts))
     assert ids(store, since=hall_iso) == [recs[k].id for k in ("shelf", "nopose", "hall")]

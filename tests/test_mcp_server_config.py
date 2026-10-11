@@ -526,15 +526,19 @@ def test_mcp_server_setup_tasks_create_lookups_dir_owned_by_node_user() -> None:
     assert list(dirs).index(POI_DIR) < list(dirs).index(LOOKUPS_DIR)
 
 
-def test_mcp_server_config_renders_lookup_retention() -> None:
-    """client.yml renders the lookup store directory and the three retention limits."""
+def test_mcp_server_config_lookups_block_is_only_the_store_dir() -> None:
+    """client.yml renders only the JPEG directory; poi_store owns the index and retention; it validates."""
+    pytest.importorskip("pydantic")
     lookups = node_config("mcp_server")["lookups"]
-    assert lookups == {
-        "store_dir": LOOKUPS_DIR,
-        "max_records": 3000,
-        "max_bytes": 300_000_000,
-        "max_age_days": 14,
-    }
+    assert lookups == {"store_dir": LOOKUPS_DIR}
+    sys.path[:0] = [str(REPO_ROOT / "nodes" / "mcp_server"), str(REPO_ROOT / "shared")]
+    try:
+        from mcp_server.config import McpServerConfig
+
+        cfg = McpServerConfig.model_validate(node_config("mcp_server"))
+    finally:
+        del sys.path[:2]
+    assert str(cfg.lookups.store_dir) == LOOKUPS_DIR
 
 
 def test_mcp_server_config_validates_with_frontiers_block_at_defaults() -> None:
@@ -809,3 +813,24 @@ def test_claude_agent_confirm_grasp_is_a_sensor_tool() -> None:
     cfg = node_config("claude_agent")
     assert "confirm_grasp" in cfg["sensor_tools"]
     assert "confirm_grasp" not in cfg["effector_tools"]
+
+
+def test_mcp_server_readme_lookups_example_has_only_store_dir() -> None:
+    """The README config reference must not list the removed lookups retention keys."""
+    text = (NODE_DIR / "README.md").read_text()
+    block = text.split("\nlookups:", 1)[1].split("\ncontrol:", 1)[0]
+    assert "store_dir" in block
+    for key in ("max_records", "max_bytes", "max_age_days"):
+        assert key not in block, key
+
+
+def test_client_yml_lookups_comment_points_to_an_existing_readme_section() -> None:
+    """Every quoted README section named in the client.yml lookups comment exists as a heading."""
+    lines = CLIENT_VARS.read_text().splitlines()
+    idx = next(i for i, line in enumerate(lines) if line.strip() == "lookups:" and "store_dir" in lines[i + 1])
+    comment = "\n".join(line for line in lines[idx - 4 : idx] if line.strip().startswith("#"))
+    sections = re.findall(r'README\.md, "([^"]+)"', comment)
+    assert sections
+    readme = (NODE_DIR / "README.md").read_text()
+    for section in sections:
+        assert f"\n## {section}\n" in readme, section

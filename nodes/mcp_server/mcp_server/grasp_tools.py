@@ -972,7 +972,8 @@ def attach_jaw_crop(
     updates: dict[str, Any]
     try:
         jpeg, width, height, crop = jaw_crop_jpeg(ctx)
-        lookup_id = record_lookup(ctx, tool, "gripper", jpeg, width, height)
+        # a crop's field of view is not the camera's: only the uncropped fallback frame records one
+        lookup_id = record_lookup(ctx, tool, "gripper", jpeg, width, height, full_frame=crop.box_px is None)
         image = ImageContent(type="image", data=base64.b64encode(jpeg).decode(), mime_type="image/jpeg")
         updates = {"image": "pending", "crop": crop.model_copy(update={"lookup_id": lookup_id})}
     except (RobotError, ValueError) as exc:

@@ -18,6 +18,16 @@ DOCS = [
 ]
 STORE_DIR = "/var/lib/ros2/poi"
 STORE_PATH = "/var/lib/ros2/poi/poi.json"
+PHOTO_DIR = "/var/lib/ros2/poi/lookups"
+PHOTOS = {
+    "store_dir": PHOTO_DIR,
+    "max_records": 3000,
+    "max_bytes": 300000000,
+    "max_age_days": 14,
+    "max_image_bytes": 5000000,
+    "prune_interval_s": 3600,
+    "summary_topic": "/poi/photos",
+}
 TOPICS = {"list_topic": "/poi/list", "command_topic": "/poi/command", "result_topic": "/poi/result"}
 
 
@@ -74,3 +84,33 @@ def test_lint_script_and_node_files() -> None:
 def test_docs_mention_poi_store() -> None:
     for doc in DOCS:
         assert re.search(r"poi_store", doc.read_text()), doc
+
+
+def poi_store_entry_config_text() -> str:
+    """Return the raw poi_store config text of the client.yml ros2_nodes entry.
+
+    Returns:
+        str: The YAML config block as written (with comments).
+    """
+    return next(n for n in client_vars()["ros2_nodes"] if n["name"] == "poi_store")["config"]
+
+
+def test_poi_store_config_photos_block() -> None:
+    config = yaml.safe_load(poi_store_entry_config_text())
+    assert config["photos"] == PHOTOS
+
+
+def test_poi_store_config_photos_block_has_a_comment_per_key() -> None:
+    lines = poi_store_entry_config_text().splitlines()
+    start = lines.index("photos:")
+    for index, line in enumerate(lines[start + 1 :], start + 1):
+        if line.startswith("  ") and not line.lstrip().startswith("#"):
+            assert lines[index - 1].lstrip().startswith("#"), line
+
+
+def test_poi_directory_task_ensures_photo_directory_after_parent() -> None:
+    tasks = yaml.safe_load(DIR_TASKS.read_text())
+    paths = [t["ansible.builtin.file"]["path"] for t in tasks]
+    assert paths.index(PHOTO_DIR) > paths.index(STORE_DIR)
+    photo = tasks[paths.index(PHOTO_DIR)]["ansible.builtin.file"]
+    assert photo["state"] == "directory" and photo["owner"] == "{{ ansible_user }}" and photo["mode"] == "0755"

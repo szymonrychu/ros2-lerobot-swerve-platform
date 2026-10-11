@@ -1650,14 +1650,11 @@ ros2_nodes:
       poi:
         request_timeout_s: 3.0
         near_radius_m: 5.0
-      # Camera lookups (nodes/mcp_server/README.md, "Camera lookups"): every get_camera_image /
-      # get_annotated_camera_image JPEG the agent received, as <id>.jpg + index.jsonl next to poi_store's poi.json
-      # (directory made by mcp_server_setup.yml). Pruned oldest first on every write to all three limits.
+      # Camera photos (nodes/mcp_server/README.md, "Photos (photo POIs)"): the JPEG target directory only; every camera
+      # image is a photo POI whose index and retention (max_records / max_bytes / max_age_days) poi_store owns
+      # (poi_store photos: block below).
       lookups:
         store_dir: /var/lib/ros2/poi/lookups
-        max_records: 3000
-        max_bytes: 300000000
-        max_age_days: 14
       # Frontier exploration (list_frontiers, plan_frontier_visit, go_to_frontier, look_toward_frontier), computed per /map
       # version; every key at its FrontierSettings default (nodes/mcp_server/README.md).
       frontiers:
@@ -1857,6 +1854,22 @@ ros2_nodes:
       list_topic: /poi/list
       command_topic: /poi/command
       result_topic: /poi/result
+      # Photo store: the camera photos mcp_server writes as JPEGs, indexed and pruned by poi_store.
+      photos:
+        # Directory of the <id>.jpg files and index.jsonl (created by playbooks/tasks/poi_store_dir.yml).
+        store_dir: /var/lib/ros2/poi/lookups
+        # Most photos kept; the oldest go first.
+        max_records: 3000
+        # Most total JPEG bytes kept (300 MB).
+        max_bytes: 300000000
+        # Oldest photo age kept (days).
+        max_age_days: 14
+        # Largest single JPEG an add accepts (5 MB).
+        max_image_bytes: 5000000
+        # Period of the retention timer (s), so the age limit holds without camera activity.
+        prune_interval_s: 3600
+        # Latched std_msgs/String photo summary topic.
+        summary_topic: /poi/photos
   - name: costmap_zones
     node_type: costmap_zones
     present: true
@@ -1989,6 +2002,7 @@ ros2_nodes:
         - list_lookups
         - get_lookup_image
         - annotate_lookup
+        - delete_photos
         - list_frontiers
         - plan_frontier_visit
         - confirm_grasp
