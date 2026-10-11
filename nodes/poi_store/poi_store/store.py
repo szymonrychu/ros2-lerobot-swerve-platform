@@ -220,6 +220,8 @@ class PoiStore:
         if not isinstance(poi_ids, list):
             return None
         for poi_id in poi_ids:
+            if not isinstance(poi_id, str):
+                return f"poi_ids: entries must be POI id strings, got {poi_id!r}"
             if self.is_photo(poi_id):
                 return f"poi_ids: {poi_id} is a photo; photos link only to non-photo POIs"
             if poi_id not in self.pois:

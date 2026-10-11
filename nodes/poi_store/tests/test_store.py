@@ -451,6 +451,15 @@ def test_update_photo_rejects_unknown_or_photo_poi_ids(pstore, photos):
     assert photos.get(photo_id(1)).poi_ids == []
 
 
+@pytest.mark.parametrize("bad", [[{}], [["x"]], [3]])
+def test_update_photo_non_string_poi_ids_is_ok_false(pstore, photos, bad):
+    add_photo(pstore, photos, 1)
+    raw = json.dumps({"op": "update", "request_id": "r", "poi": {"id": photo_id(1), "poi_ids": bad}})
+    out = json.loads(pstore.handle_message(raw))
+    assert out["ok"] is False and "poi_ids" in out["message"]
+    assert photos.get(photo_id(1)).poi_ids == []
+
+
 def test_add_photo_rejects_unknown_poi_ids(pstore, photos):
     ok, msg, _ = pstore.apply(Command(op="add", poi=photo_fields(1, photos, poi_ids=["e" * 32])))
     assert not ok and "unknown poi id" in msg
