@@ -316,6 +316,36 @@ def test_reentry_caps_are_fresh_and_clamped_to_the_room_left() -> None:
     assert phase["raised"] is True
 
 
+def test_first_entry_after_a_loop_is_clamped_to_the_room_left() -> None:
+    tree = seq(
+        while_("loop", outcome_of("a", "not_run", "failed"), ph("a", rw=40, max_attempts=1), max_iterations=5),
+        ph("b", rw=40),
+    )
+    rec = Recorder(max_rw_cap=150).plan(tree)
+    t = rec.tracker
+    while t.phases[t.active].id == "a":
+        while t.charge("effector") is None:
+            pass
+        t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="x")
+    assert rec.trace[-1] == "b"
+    b = t.phase_dicts()[-1]
+    assert b["rw_cap"] == 150 - t.rw_used, "a first entry gets at most the room left, not its planned cap"
+    while t.charge("effector") is None:
+        pass
+    assert t.rw_used <= 150, "the instruction maximum stays the hard backstop"
+
+
+def test_effector_refused_once_the_instruction_rw_maximum_is_used() -> None:
+    rec = Recorder(max_rw_cap=3).plan(seq(ph("a", rw=3)))
+    t = rec.tracker
+    spend(t, 2)
+    t.phases[t.active].rw_cap = 10
+    assert t.charge("effector") is None
+    reason = t.charge("effector")
+    assert reason is not None and "instruction" in reason and "3/3" in reason
+    assert t.rw_used == 3
+
+
 def test_sensing_only_phase_loops_without_rw_room() -> None:
     tree = while_("loop", outcome_of("look", "not_run", "failed"), ph("look", rw=0, max_attempts=1), 3)
     rec = Recorder(max_rw_cap=1).plan(seq(ph("act", rw=1), tree))

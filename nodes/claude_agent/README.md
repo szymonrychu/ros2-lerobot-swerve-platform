@@ -163,7 +163,8 @@ Cond = {ask: "<yes/no question>"}
 - While an `ask` is pending there is no active phase: effector calls are denied with `answer condition '<id>' first ...`;
   sensor calls stay allowed, so the model can look before it answers. `complete_phase` and `raise_phase_budget` are refused too.
 - Budgets sit on phase nodes only. Every entry of a phase (loop iteration or retry) starts with fresh counters and the planned
-  caps; on a re-entry the caps are clamped to the room left of the instruction maxima. A loop exits with reason `budget` when
+  caps, clamped on every entry (first entries too) to the room left of the instruction maxima; an effector call is also
+  refused once the instruction `max_rw_cap` is used up, as a hard backstop. A loop exits with reason `budget` when
   no turn is left or, if its body has a phase with `rw_cap >= 1`, no rw call is left. The exit reason (`condition`,
   `max_iterations`, `budget`) is stated in the tool result and in the tree payload.
 - Example: "pick until it worked, at most 3 tries" is `{type:"while", id:"pickloop", condition:{outcome_of:"pick",

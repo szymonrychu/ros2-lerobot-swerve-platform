@@ -393,7 +393,9 @@ Covers:
   `max_iterations` without asking again, and retries; nested loops and the innermost-loop `iteration`; a pending ask blocking
   effectors (and `complete_phase` / `raise_phase_budget`) but not sensors; `answer_condition` validation and the
   `condition_pending` / `condition_answered` callbacks; a plan starting with an ask; loop exit with reason `budget` (no rw room),
-  `max_iterations` and `condition`; fresh, room-clamped caps and a new raise per re-entry; a sensing-only loop running without rw
+  `max_iterations` and `condition`; fresh, room-clamped caps and a new raise per re-entry; a phase entered for the first time after a
+  loop used up the room clamped to what is left (rw use never passes `max_rw_cap`); effectors refused at the instruction
+  rw maximum even if a phase cap is higher; a sensing-only loop running without rw
   room; the flat preorder payload with `id` / `depth` / `attempt` / `iteration` / `p_retry_success` and the `tree` field; flat
   phases converted to a seq with generated ids; exactly one of `phases` / `plan`; validation errors (depth, duplicate ids, 24
   nodes, 12 phases, `max_iterations` and `max_attempts` bounds and the config limit, unknown type, missing id / then / body,

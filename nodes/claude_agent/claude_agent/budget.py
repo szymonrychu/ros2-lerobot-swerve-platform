@@ -94,6 +94,10 @@ EXHAUSTED_AFTER_RAISE_MESSAGE = (
     "phase {number} '{name}' {label} budget exhausted ({used}/{cap}) and the phase was already raised once; call "
     "agent.complete_phase (outcome 'failed' if the goal is not met) or agent.revise_plan"
 )
+INSTRUCTION_RW_EXHAUSTED_MESSAGE = (
+    "the instruction effector maximum is used up ({used}/{cap}); complete the phase (outcome 'failed' if the goal is "
+    "not met) and report to the user"
+)
 TURN_NOTE = (
     "PHASE TURN CAP: phase {number} '{name}' used its {cap} turns. Effector tools are refused for this phase: call "
     "agent.complete_phase now (outcome 'failed' if the goal '{goal}' is not met), or agent.revise_plan, or raise the "
@@ -1107,20 +1111,16 @@ class PlanTracker:
         return root, parser
 
     def enter(self, phase: Phase, attempt: int, iteration: int) -> None:
-        """Make a phase entry active (silently) with fresh usage; a re-entry is clamped to the room left.
+        """Make a phase entry active (silently) with fresh usage; every entry is clamped to the room left.
 
         Args:
             phase (Phase): The phase.
             attempt (int): Attempt number of this entry.
             iteration (int): Iteration of the innermost enclosing loop.
         """
-        reentry = phase.attempt > 0
         room = self.room()
-        phase.rw_cap = phase.planned_rw_cap
-        phase.turn_cap = phase.planned_turn_cap
-        if reentry:
-            phase.rw_cap = min(phase.rw_cap, room["rw_cap"])
-            phase.turn_cap = max(min(phase.turn_cap, room["turn_cap"]), CAP_MINIMA["turn_cap"])
+        phase.rw_cap = min(phase.planned_rw_cap, room["rw_cap"])
+        phase.turn_cap = max(min(phase.planned_turn_cap, room["turn_cap"]), CAP_MINIMA["turn_cap"])
         phase.status = STATUS_ACTIVE
         phase.ro_used = phase.rw_used = phase.turns_used = 0
         phase.raised = phase.turn_noted = False
@@ -1525,6 +1525,8 @@ class PlanTracker:
                 return ASK_PENDING_MESSAGE.format(node_id=condition["node_id"], question=condition["question"])
             if self.active is None:
                 return PLAN_FINISHED_MESSAGE
+            if self.rw_used >= self.config.max_rw_cap:
+                return INSTRUCTION_RW_EXHAUSTED_MESSAGE.format(used=self.rw_used, cap=self.config.max_rw_cap)
             phase = self.phases[self.active]
             if phase.turns_used >= phase.turn_cap:
                 return self.exhausted(phase, "turn", phase.turns_used, phase.turn_cap)
