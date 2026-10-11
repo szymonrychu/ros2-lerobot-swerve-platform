@@ -16,6 +16,7 @@ from ros2_metrics import register_node_info
 from .config import MissingTokenError, config_path_from_env, load_config, token_from_env
 from .monitor import RobotMonitor
 from .ros_iface import NODE_NAME, RosRobot, init_ros
+from .serve import build_uvicorn_config
 from .spin import run_or_exit, spin_forever
 from .tools import build_app, build_mcp_server, stop_queued_motion
 
@@ -61,7 +62,7 @@ def main() -> int:
         LOGGER.info("battery cut-off gate on %s (%d cells)", config.battery.topic, config.battery.cells)
     LOGGER.info("serving MCP on http://%s:%d%s", config.server.host, config.server.port, config.server.path)
     try:
-        uvicorn.run(app, host=config.server.host, port=config.server.port, log_level="info")
+        uvicorn.Server(build_uvicorn_config(app, config.server.host, config.server.port)).run()
     finally:
         if stop_queued_motion(server, robot):
             LOGGER.info("shutdown: motion queue cleared and robot stopped")

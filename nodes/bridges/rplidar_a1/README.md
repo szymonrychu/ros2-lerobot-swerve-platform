@@ -26,7 +26,7 @@ Ansible deploys this node on the client (RPi 5). See [ansible/README.md](../../.
 
 ## Scan watchdog
 
-Ansible starts `scan_supervisor.py` instead of the launch file directly. It runs `ros2 launch launch/rplidar_a1.launch.py` as a child process and subscribes to `/scan`. If no scan arrives within 30 s of start, or scans stop for 5 s, it stops the child (SIGINT, then SIGKILL) and exits with status 1, so systemd (`Restart=on-failure`, 15 s delay) starts a fresh driver. On SIGTERM or SIGINT it stops the child and exits 0 without a traceback (`tests/test_rplidar_scan_supervisor_shutdown.py`). Why: the A1 driver sometimes wedges in its device handshake after a restart. The process keeps running at about 20% CPU but never creates the `/scan` publisher (seen 2026-10-03). The decision logic is in `scan_watch.py` (unit-tested in `tests/test_rplidar_scan_watch.py`).
+Ansible starts `scan_supervisor.py` instead of the launch file directly. It runs `ros2 launch launch/rplidar_a1.launch.py` as a child process and subscribes to `/scan`. If no scan arrives within 30 s of start, or scans stop for 5 s, it stops the child (SIGINT, then SIGKILL) and exits with status 1, so systemd (`Restart=on-failure`, 15 s delay) starts a fresh driver. On SIGTERM or SIGINT it stops the child and exits 0 without a traceback; the child ending with -15/-2 after that request is logged at INFO, not as an error, so systemd sees a clean stop (`tests/test_rplidar_scan_supervisor_shutdown.py`). Why: the A1 driver sometimes wedges in its device handshake after a restart. The process keeps running at about 20% CPU but never creates the `/scan` publisher (seen 2026-10-03). The decision logic is in `scan_watch.py` (unit-tested in `tests/test_rplidar_scan_watch.py`).
 
 ## Metrics
 

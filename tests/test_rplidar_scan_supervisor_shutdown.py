@@ -52,3 +52,61 @@ def test_main_returns_zero_after_the_context_is_shut_down(
     supervisor.child.send_signal.assert_called_once_with(signal.SIGINT)
     supervisor.Node.return_value.destroy_node.assert_called_once()
     assert fake.calls[-1] == "try_shutdown"
+
+
+def handler_for_sigterm(supervisor: ModuleType):
+    """Return the SIGTERM handler main() registered on the (mocked) signal.signal."""
+    for call in supervisor.signal.signal.call_args_list:
+        if call.args[0] == signal.SIGTERM:
+            return call.args[1]
+    raise AssertionError("no SIGTERM handler registered")
+
+
+class SigtermThenChildExits:
+    """rclpy double: the first spin_once delivers SIGTERM, the child then reports its exit code."""
+
+    def __init__(self, supervisor: ModuleType, child_code: int) -> None:
+        self.supervisor = supervisor
+        self.child_code = child_code
+        self.calls: list[str] = []
+
+    def init(self, *_a, **_k) -> None:
+        pass
+
+    def ok(self) -> bool:
+        return True
+
+    def spin_once(self, *_a, **_k) -> None:
+        handler_for_sigterm(self.supervisor)(signal.SIGTERM, None)
+        self.supervisor.child.poll.return_value = self.child_code
+        self.supervisor.child.returncode = self.child_code
+
+    def try_shutdown(self, *_a, **_k) -> None:
+        self.calls.append("try_shutdown")
+
+
+@pytest.mark.parametrize("child_code", [-15, -2, 0])
+def test_sigterm_stop_with_child_signalled_is_a_normal_stop(
+    supervisor: ModuleType, monkeypatch: pytest.MonkeyPatch, child_code: int
+) -> None:
+    monkeypatch.setattr(supervisor, "rclpy", SigtermThenChildExits(supervisor, child_code))
+    logger = supervisor.Node.return_value.get_logger.return_value
+
+    assert supervisor.main() == 0
+
+    logger.error.assert_not_called()
+    logger.info.assert_called()
+
+
+def test_unexpected_child_exit_while_running_still_errors_with_its_status(
+    supervisor: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakeRclpy()
+    supervisor.child.returncode = -15
+    fake.spin_once = lambda *_a, **_k: setattr(supervisor.child.poll, "return_value", -15)
+    monkeypatch.setattr(supervisor, "rclpy", fake)
+    logger = supervisor.Node.return_value.get_logger.return_value
+
+    assert supervisor.main() == -15
+
+    logger.error.assert_called_once()

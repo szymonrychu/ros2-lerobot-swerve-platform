@@ -67,6 +67,9 @@ def main() -> int:
         while not stopping["requested"]:
             rclpy.spin_once(node, timeout_sec=0.2)
             if child.poll() is not None:
+                if stopping["requested"]:  # we were asked to stop: the child ending (-15/-2/0) is the normal stop
+                    node.get_logger().info(f"rplidar launch ended with {child.returncode} during requested stop")
+                    break
                 node.get_logger().error(f"rplidar launch exited with {child.returncode}")
                 status = child.returncode or EXIT_RESTART
                 break

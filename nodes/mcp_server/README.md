@@ -1131,6 +1131,7 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
 | `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services |
 | `spin.py` | no | `spin_forever` (executor loop that survives rclpy stale-handle errors), `run_or_exit` (exits the process when the executor thread dies while ROS is up, so systemd restarts the node instead of serving stale data; an error after ROS was shut down is the normal end), `FrameCache` (latest camera frame) |
 | `metrics.py` | no | Prometheus `mcp_*` metric objects, the per-feed sample age collector |
+| `serve.py` | no | uvicorn config; `timeout_graceful_shutdown` 3 s so the claude_agent's open MCP stream cannot stall `systemctl stop` until the 30 s SIGKILL |
 | `__main__.py` | yes | entry point: executor thread + uvicorn |
 
 ## Metrics
