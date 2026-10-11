@@ -37,7 +37,7 @@ LIMITS_SNAPSHOT = {
     "nav2_bringup": ["75%", "512M"],
     "slam_toolbox": ["75%", "512M"],
     "web_ui": ["30%", "256M"],
-    "mcp_server": ["25%", "256M"],
+    "mcp_server": ["25%", "384M"],
     "poi_store": ["10%", "128M"],
     "claude_agent": ["150%", "1G"],
 }

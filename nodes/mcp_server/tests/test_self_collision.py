@@ -5,12 +5,15 @@ Every test pose is FK-checked (the tool point is where the test says) before its
 
 import json
 import math
+import tracemalloc
 from typing import Any
 
 import numpy as np
 import pytest
 import yaml
 
+from mcp_server import arm_reach
+from mcp_server.arm_reach import ReachEnvelope
 from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
 from mcp_server.floor_guard import JawModel, arm_to_base_link, base_link_to_arm
 from mcp_server.ik import ArmKinematics
@@ -302,3 +305,45 @@ def test_checked_points_follow_the_arm_into_base_link() -> None:
         parts["tool_point"][0],
         arm_to_base_link(np.array([KIN.forward(joints).x, KIN.forward(joints).y, KIN.forward(joints).z]), MOUNT),
     )
+
+
+def coarse_envelope_settings() -> BodyCheckSettings:
+    """Body check settings with few envelope headings (keeps the envelope tests fast)."""
+    return CONFIG.body_check.model_copy(update={"reach_heading_step_deg": 90.0})
+
+
+def test_envelope_compute_checks_bounded_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The envelope stacks at most ENVELOPE_BATCH_SAMPLES poses at a time (a whole heading peaked at 2.4 GB)."""
+    sizes: list[int] = []
+    original = CHECKER.stacked_points
+
+    def recording(samples: list[dict[str, float]]) -> dict[str, np.ndarray]:
+        sizes.append(len(samples))
+        return original(samples)
+
+    monkeypatch.setattr(CHECKER, "stacked_points", recording)
+    ReachEnvelope(CHECKER, coarse_envelope_settings(), None).compute()
+    assert sizes
+    assert max(sizes) <= arm_reach.ENVELOPE_BATCH_SAMPLES <= 128
+
+
+def test_envelope_peak_memory_is_bounded() -> None:
+    """Python/numpy allocations of the envelope stay far below the mcp_server unit's 256M memory cap."""
+    envelope = ReachEnvelope(CHECKER, coarse_envelope_settings(), None)
+    tracemalloc.start()
+    try:
+        envelope.compute()
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 64 * 2**20
+
+
+def test_envelope_batching_does_not_change_the_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The batched envelope equals the one computed from a single batch per heading."""
+    batched = ReachEnvelope(CHECKER, coarse_envelope_settings(), None)
+    batched.compute()
+    monkeypatch.setattr(arm_reach, "ENVELOPE_BATCH_SAMPLES", 10**6)
+    whole = ReachEnvelope(CHECKER, coarse_envelope_settings(), None)
+    whole.compute()
+    assert batched.get(0.0)["rows"] == whole.get(0.0)["rows"]

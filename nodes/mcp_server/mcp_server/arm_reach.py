@@ -7,7 +7,7 @@ wrist_roll 0, gripper closed): ENVELOPE_SAMPLES_PER_JOINT, ENVELOPE_WRIST_SAMPLE
 is at least hard_margin_m (not rejected) and whose tool point lies within half a height step of a grid height gives
 that cell's horizontal tool distance from the pan axis; a cell reports the min / max of them (null = no collision-free
 pose there). It is a sampled approximation (about a centimetre at full reach), computed once in a background thread
-started when the MCP server is built (about 95 s on the busy RPi5) and cached in memory and, with
+started when the MCP server is built (ENVELOPE_BATCH_SAMPLES poses at a time to bound memory; minutes on the busy RPi5) and cached in memory and, with
 BodyCheckSettings.reach_cache_file, on disk under a key of every input, so a restart loads it instead of recomputing.
 
 Per point (base_link x, y, z and optional pitch): IK within the joint limits for the given pitch, or for every pitch
@@ -36,6 +36,9 @@ SHOULDER_PAN = "shoulder_pan"
 ENVELOPE_JOINTS = ("shoulder_lift", "elbow_flex")
 ENVELOPE_SAMPLES_PER_JOINT = 13
 ENVELOPE_WRIST_SAMPLES = 7
+# Poses stacked and checked at once: a whole heading (1183 poses) peaked at about 2.4 GB against the unit's memory cap;
+# 32 adds about 70 MB RSS (64: 145 MB, 16: 60 MB but 1.7x slower).
+ENVELOPE_BATCH_SAMPLES = 32
 POINT_PITCHES_DEG = (-30.0, -15.0, 0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0)
 DEFAULT_SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 ROUND_M = 3
@@ -206,12 +209,18 @@ class ReachEnvelope:
                 }
                 for a, b, c in np.array(np.meshgrid(grids[0], grids[1], wrist)).reshape(3, -1).T
             ]
-            stacked = checker.stacked_points(samples)
-            tips = stacked["tool_point"][:, 0]
-            if checker.body.obstacles:
-                clear = checker.clear_of(stacked, cfg.hard_margin_m)
-            else:
-                clear = np.ones(len(samples), dtype=bool)
+            tip_parts, clear_parts = [], []
+            for start in range(0, len(samples), ENVELOPE_BATCH_SAMPLES):
+                batch = samples[start : start + ENVELOPE_BATCH_SAMPLES]
+                stacked = checker.stacked_points(batch)
+                tip_parts.append(stacked["tool_point"][:, 0])
+                if checker.body.obstacles:
+                    clear_parts.append(checker.clear_of(stacked, cfg.hard_margin_m))
+                else:
+                    clear_parts.append(np.ones(len(batch), dtype=bool))
+                del stacked
+            tips = np.concatenate(tip_parts)
+            clear = np.concatenate(clear_parts)
             radius = np.hypot(tips[:, 0] - pan_axis[0], tips[:, 1] - pan_axis[1])
             cells = []
             for z in heights:

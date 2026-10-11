@@ -523,7 +523,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   the default H body (names, lidar, crossbar, side frame, wheel dimensions) and its `describe()`; config validation
   (positive box sizes, positive cylinder radius and height, unique names, hard margin below the soft margin) and the
   client.yml `body:` / `body_check:` blocks equal the defaults
-- self-collision checker (`test_self_collision.py`, IK poses FK-checked): the checked parts (upper arm, forearm, wrist
+- self-collision checker (`test_self_collision.py`, IK poses FK-checked): the reach envelope computes in batches of at most `ENVELOPE_BATCH_SAMPLES` poses, its traced allocations stay under 64 MB and batching does not change the result; the checked parts (upper arm, forearm, wrist
   link, gripper body hull, jaw points), a clear pose, the 2026-10-10 home pose clear, the gripper pointing into the lidar
   column penetrating `lidar`, low over the front-right wheel penetrating `wheel_fr`, every measured 2026-10-10 floor
   touch-down in front of the robot clear of the hard margin (deployed offsets; the robot reached them without touching

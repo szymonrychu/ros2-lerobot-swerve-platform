@@ -357,7 +357,7 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | slam_toolbox | 75% | 512M |
 | nav2_bringup | 75% | 512M |
 | web_ui | 30% | 256M |
-| mcp_server | 25% | 256M |
+| mcp_server | 25% | 384M |
 | poi_store | 10% | 128M |
 | claude_agent | 150% (Nice=10) | 1G |
 

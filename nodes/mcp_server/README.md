@@ -530,7 +530,7 @@ Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_
 axis, the margins and a collision-free reach envelope; with up to `reach_max_points` (20) base_link points
 {x, y, z, pitch?} each point reports `reachable` (IK within the joint limits), `collision_free`, the working
 `pitch_range_deg` (pitches -30 .. 90 deg every 15 deg, or the given one), the `limiting` obstacle / link / clearance and
-a `suggestion`. The envelope (`arm_reach.py`) is computed once in a background thread (about 11 s on the dev Mac with the 2.5 mm box points, 3.6 s with the 1 cm points; on the busy RPi5 under the unit's CPU
+a `suggestion`. The envelope (`arm_reach.py`) is computed once in a background thread in batches of `ENVELOPE_BATCH_SAMPLES` (32) poses, about 30 MB of arrays and 70 MB RSS (a whole heading at once peaked at about 2.4 GB and OOM-looped the 256M unit on 2026-10-10) (about 40 s on the dev Mac with the 2.5 mm box points, 3.6 s with the 1 cm points; on the busy RPi5 under the unit's CPU
 quota it took about 95 s with the 1 cm points and is expected to take a few minutes now, measure it after deploying;
 `SelfCollisionChecker.clear_of` skips blocks of 32 box points whose bounding sphere is clear, which is what keeps it at 3x; a call waits up to `reach_wait_s` and otherwise reports `computing`).
 With `reach_cache_file` set (the robot: `/var/lib/ros2/arm/reach_envelope.json`) it starts when the server is built
