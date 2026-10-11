@@ -193,7 +193,7 @@ local_costmap:
         # Mask cells stay lethal (254) normally. 252 (below lethal, so inflation does not grow it) is written only
         # while the robot is inside a zone, so the planner and controller can still plan a way out.
         override_lethal_cost: true
-        lethal_override_cost: 252.0
+        lethal_override_cost: 252
       # Speed zones: a real costmap filter (applied after all layers, publishes /speed_limit, absolute topic shared
       # with controller_server.speed_limit_topic). Local costmap only; the global planner has no speed notion.
       filters: ["speed_filter"]
@@ -270,7 +270,7 @@ global_costmap:
         # Mask cells stay lethal (254) normally. 252 (below lethal, so inflation does not grow it) is written only
         # while the robot is inside a zone, so the planner and controller can still plan a way out.
         override_lethal_cost: true
-        lethal_override_cost: 252.0
+        lethal_override_cost: 252
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         # slam_toolbox publishes /map reliable + transient_local and keeps updating it while mapping.

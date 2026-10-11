@@ -604,7 +604,10 @@ def test_nav2_keepout_filter_settings(costmap: str) -> None:
     assert keepout["filter_info_topic"] == expected == "/costmap_filter_info/keepout"
     assert keepout["transform_tolerance"] == 0.2
     assert keepout["override_lethal_cost"] is True
-    assert keepout["lethal_override_cost"] == 252.0
+    # Jazzy declares lethal_override_cost as an integer parameter: a YAML float (252.0) makes the costmap
+    # activation throw "Wrong parameter type" and aborts the whole Nav2 bringup.
+    assert type(keepout["lethal_override_cost"]) is int
+    assert keepout["lethal_override_cost"] == 252
 
 
 def test_nav2_speed_filter_only_in_local_costmap() -> None:
