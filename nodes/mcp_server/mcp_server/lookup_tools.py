@@ -44,7 +44,7 @@ from .lookup_store import (
     LookupRecord,
     LookupStore,
     NearFilter,
-    record_summary,
+    photo_summary,
 )
 from .metrics import LOOKUP_WRITE_FAILURES, LOOKUP_WRITES
 from .models import RobotError
@@ -371,7 +371,7 @@ def register(ctx: ToolContext) -> None:
             )
         except ValidationError as exc:
             raise ToolError("; ".join(str(err["msg"]) for err in exc.errors())) from exc
-        found = [record_summary(rec) for rec in store().query(query)]
+        found = [photo_summary(rec) for rec in store().query(query)]
         data: dict[str, Any] = {"lookups": found, "count": len(found)}
         if text is not None and not found:
             data["hint"] = (
@@ -406,7 +406,7 @@ def register(ctx: ToolContext) -> None:
         width, height = rec.width, rec.height
         if max_px is not None:
             jpeg, width, height = shrink(jpeg, max_px, config.limits.jpeg_quality)
-        meta = record_summary(rec) | {"returned_size": {"width": width, "height": height}}
+        meta = photo_summary(rec) | {"returned_size": {"width": width, "height": height}}
         image = ImageContent(type="image", data=base64.b64encode(jpeg).decode(), mime_type="image/jpeg")
         return [image, TextContent(type="text", text=json.dumps(meta))]
 
@@ -441,7 +441,7 @@ def register(ctx: ToolContext) -> None:
             ctx.robot.poi_request("update", changes)
         except RobotError as exc:
             raise ToolError(str(exc)) from exc
-        data = record_summary(known(lookup_id))
+        data = photo_summary(known(lookup_id))
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(data))], structured_content=data)
 
     @server.tool(

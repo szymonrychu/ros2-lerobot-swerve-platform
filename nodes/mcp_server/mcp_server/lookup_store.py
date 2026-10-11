@@ -18,7 +18,7 @@ from ros2_common.lookups import (
     NearFilter,
     record_summary,
 )
-from ros2_common.photos import PHOTO_ID_RE, write_atomic
+from ros2_common.photos import PHOTO_ID_RE, effective_view, write_atomic
 
 __all__ = [
     "DEFAULT_QUERY_LIMIT",
@@ -28,7 +28,7 @@ __all__ = [
     "LookupRecord",
     "LookupStore",
     "NearFilter",
-    "record_summary",
+    "photo_summary",
 ]
 
 
@@ -47,6 +47,22 @@ def image_name(photo_id: str) -> str:
     if not PHOTO_ID_RE.match(photo_id):
         raise ValueError(f"photo id must be 32 lowercase hex characters, got {photo_id!r}")
     return f"{photo_id}.jpg"
+
+
+def photo_summary(rec: LookupRecord) -> dict[str, object]:
+    """JSON metadata of a photo for the tools: the record, an ISO time and its effective view.
+
+    Legacy index lines (pre-E11) carry no stored view; their view is derived on read from the stored base pose and
+    camera mount (ros2_common.photos.effective_view), the same way poi_store lists them as POIs.
+
+    Args:
+        rec (LookupRecord): Index record.
+
+    Returns:
+        dict[str, object]: Metadata with "view" as a JSON dict, or None when the photo has no pose.
+    """
+    view = effective_view(rec)
+    return record_summary(rec) | {"view": None if view is None else view.model_dump(mode="json")}
 
 
 class LookupStore:
