@@ -6,13 +6,18 @@ StaticLaserScanPolygonFilter does. Each beam's point (range * cos, range * sin o
 (shapely contains_xy, valid for non-convex polygons) becomes NaN; every other range (also inf / NaN) is kept.
 
 set_polygon replaces the polygon at runtime (mcp_server sets the dynamic footprint + margin through the node's
-'polygon' parameter); the cached transform is kept and only the scan-frame polygon is recomputed.
+'polygon' parameter, apply_polygon_param); the cached transform is kept and only the scan-frame polygon is
+recomputed. A polygon with non-finite coordinates or that is not a valid simple polygon (self-intersecting, zero area)
+is refused: shapely's contains_xy would silently filter nothing with it.
 """
+
+import math
 
 import numpy as np
 import shapely
 import yaml
 from shapely.geometry import Polygon
+from shapely.validation import explain_validity
 
 MIN_POLYGON_POINTS = 3
 
@@ -29,7 +34,7 @@ def parse_polygon(text: str) -> list[Point2]:
         list[Point2]: Vertices.
 
     Raises:
-        ValueError: Not a list of at least three numeric [x, y] pairs.
+        ValueError: Not a list of at least three finite numeric [x, y] pairs forming a valid simple polygon.
     """
     try:
         data = yaml.safe_load(text)
@@ -45,8 +50,59 @@ def parse_polygon(text: str) -> list[Point2]:
             or not all(isinstance(v, int | float) and not isinstance(v, bool) for v in item)
         ):
             raise ValueError(f"polygon point {item!r} is not a numeric [x, y] pair")
+        if not all(math.isfinite(v) for v in item):
+            raise ValueError(f"polygon point {item!r} is not finite")
         points.append((float(item[0]), float(item[1])))
+    shape = Polygon(points)
+    if not shape.is_valid or shape.area <= 0.0:
+        raise ValueError(f"polygon is not a valid simple polygon: {explain_validity(shape)}")
     return points
+
+
+def apply_polygon_param(self_filter: "SelfFilter", value: object) -> tuple[bool, str]:
+    """Runtime `polygon` parameter (the node's set-parameters callback): replace the filter polygon, or refuse an
+    invalid value and keep the current one.
+
+    Args:
+        self_filter (SelfFilter): The filter.
+        value (object): New parameter value (a polygon string).
+
+    Returns:
+        tuple[bool, str]: (accepted, replaced | unchanged | the reason it was refused).
+    """
+    if not isinstance(value, str):
+        return False, "polygon must be a string [[x, y], ...]"
+    try:
+        points = parse_polygon(value)
+    except ValueError as exc:
+        return False, str(exc)
+    if points == self_filter.polygon:
+        return True, "unchanged"
+    self_filter.set_polygon(points)
+    return True, "replaced"
+
+
+def quaternion_matrix(x: float, y: float, z: float, w: float) -> np.ndarray:
+    """Rotation matrix of a quaternion (normalised first; the TF rotation of the polygon -> scan frame transform).
+
+    Args:
+        x (float): Quaternion x.
+        y (float): Quaternion y.
+        z (float): Quaternion z.
+        w (float): Quaternion w.
+
+    Returns:
+        np.ndarray: (3, 3) rotation matrix.
+    """
+    q = np.array([x, y, z, w], dtype=np.float64)
+    x, y, z, w = q / np.linalg.norm(q)
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
 
 
 class SelfFilter:

@@ -1,12 +1,13 @@
 """Lidar self filter (laser_filter.self_filter, no ROS): polygon parsing, the polygon -> scan frame transform, the
-per-beam NaN marking and the runtime polygon replacement the mcp_server dynamic footprint uses."""
+per-beam NaN marking, the runtime polygon replacement the mcp_server dynamic footprint uses (the node's parameter
+callback: an invalid polygon is refused and the old one stays) and the TF quaternion -> rotation matrix."""
 
 import math
 
 import numpy as np
 import pytest
 
-from laser_filter.self_filter import SelfFilter, parse_polygon
+from laser_filter.self_filter import SelfFilter, apply_polygon_param, parse_polygon, quaternion_matrix
 
 SQUARE = "[[0.1, 0.1], [-0.1, 0.1], [-0.1, -0.1], [0.1, -0.1]]"
 BIG = "[[1.0, 1.0], [-1.0, 1.0], [-1.0, -1.0], [1.0, -1.0]]"
@@ -27,7 +28,20 @@ def test_parse_polygon_reads_the_laser_filters_string_format() -> None:
 
 @pytest.mark.parametrize(
     "text",
-    ["[[0.0, 0.0], [1.0, 0.0]]", "[[0, 0], [1, 0], [x, 1]]", "not a polygon", "[[0, 0, 0], [1, 0], [1, 1]]", "[]"],
+    [
+        "[[0.0, 0.0], [1.0, 0.0]]",
+        "[[0, 0], [1, 0], [x, 1]]",
+        "not a polygon",
+        "[[0, 0, 0], [1, 0], [1, 1]]",
+        "[]",
+        "[[0, 0], [1, 0], [.nan, 1]]",
+        "[[0, 0], [1, 0], [.inf, 1]]",
+        "[[0, 0], [1, 0], [1, -.inf]]",
+        # bow tie: self-intersecting, contains_xy would silently filter (almost) nothing
+        "[[0, 0], [1, 1], [1, 0], [0, 1]]",
+        # all on one line: zero area
+        "[[0, 0], [1, 1], [2, 2]]",
+    ],
 )
 def test_parse_polygon_rejects_bad_input(text: str) -> None:
     with pytest.raises(ValueError):
@@ -71,3 +85,45 @@ def test_not_ready_without_the_transform_of_the_scan_frame() -> None:
     assert flt.ready("laser_frame") and not flt.ready("other_frame")
     with pytest.raises(RuntimeError):
         SelfFilter(parse_polygon(SQUARE)).filter_ranges(np.zeros(4, dtype=np.float32), ANGLE_MIN, INCREMENT)
+
+
+def test_bad_polygon_parameter_keeps_the_old_polygon() -> None:
+    """The node's parameter callback (apply_polygon_param): a refused value leaves the filter untouched."""
+    flt = SelfFilter(parse_polygon(SQUARE))
+    flt.set_transform("laser_frame", IDENTITY, np.zeros(3))
+    before = flt.filter_ranges(np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32), ANGLE_MIN, INCREMENT)
+    for value in ("[[0, 0], [1, 1], [1, 0], [0, 1]]", "[[0, 0], [1, 0], [.nan, 1]]", 3.0, "nonsense"):
+        ok, reason = apply_polygon_param(flt, value)
+        assert not ok and reason
+        assert flt.polygon == parse_polygon(SQUARE)
+    after = flt.filter_ranges(np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32), ANGLE_MIN, INCREMENT)
+    np.testing.assert_array_equal(before, after)
+    ok, reason = apply_polygon_param(flt, BIG)
+    assert ok and reason == "replaced"
+    assert flt.polygon == parse_polygon(BIG)
+    assert apply_polygon_param(flt, BIG) == (True, "unchanged")
+
+
+@pytest.mark.parametrize(
+    ("quaternion", "expected"),
+    [
+        ((0.0, 0.0, 0.0, 1.0), np.eye(3)),
+        ((0.0, 0.0, 1.0, 0.0), yaw(math.pi)),
+        ((0.0, 0.0, math.sin(0.35), math.cos(0.35)), yaw(0.7)),
+        ((math.sin(math.pi / 4), 0.0, 0.0, math.cos(math.pi / 4)), np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]])),
+        # not normalised (TF rounding): normalised first
+        ((0.0, 0.0, 2.0, 0.0), yaw(math.pi)),
+    ],
+)
+def test_quaternion_matrix(quaternion: tuple[float, float, float, float], expected: np.ndarray) -> None:
+    np.testing.assert_allclose(quaternion_matrix(*quaternion), expected, atol=1e-12)
+
+
+def test_node_does_not_use_scipy() -> None:
+    """scipy was only imported for one quaternion -> matrix (RSS and startup cost on the Pi)."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    for path in (root / "laser_filter").glob("*.py"):
+        assert "scipy" not in path.read_text(), path
+    assert "scipy" not in (root / "pyproject.toml").read_text()

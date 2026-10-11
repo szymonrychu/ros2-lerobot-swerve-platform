@@ -2,8 +2,9 @@
 
 The `polygon` parameter (string "[[x, y], ...]" in polygon_frame) starts at the config polygon and may be set at
 runtime through the parameter service (`ros2 param set /laser_filter polygon "[[...]]"`; mcp_server does this with
-the dynamic footprint + margin when the arm is released out of the body outline). An invalid polygon is refused and
-the current one stays. A scan is published only once the polygon_frame -> scan frame TF is known (no unfiltered or
+the dynamic footprint + margin when the arm is released out of the static outline; it re-sends it the moment this
+node's parameter service comes up after a restart, which starts from the static config polygon). An invalid polygon
+(non-finite, self-intersecting, zero area) is refused and the current one stays. A scan is published only once the polygon_frame -> scan frame TF is known (no unfiltered or
 placeholder scans).
 """
 
@@ -15,12 +16,11 @@ from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rclpy.time import Time
-from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import LaserScan
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .config import LaserFilterConfig
-from .self_filter import SelfFilter, parse_polygon
+from .self_filter import SelfFilter, apply_polygon_param, parse_polygon, quaternion_matrix
 
 NODE_NAME = "laser_filter"
 POLYGON_PARAM = "polygon"
@@ -71,15 +71,13 @@ class LaserFilterNode(Node):
         for param in parameters:
             if param.name != POLYGON_PARAM:
                 continue
-            if param.type_ != Parameter.Type.STRING:
-                return SetParametersResult(successful=False, reason="polygon must be a string [[x, y], ...]")
-            try:
-                points = parse_polygon(param.value)
-            except ValueError as exc:
-                return SetParametersResult(successful=False, reason=str(exc))
-            if points != self.filter.polygon:
-                self.filter.set_polygon(points)
-                self.get_logger().info(f"laser_filter: polygon replaced ({len(points)} vertices)")
+            value = param.value if param.type_ == Parameter.Type.STRING else None
+            ok, outcome = apply_polygon_param(self.filter, value)
+            if not ok:
+                self.get_logger().warning(f"laser_filter: polygon refused: {outcome}")
+                return SetParametersResult(successful=False, reason=outcome)
+            if outcome == "replaced":
+                self.get_logger().info(f"laser_filter: polygon replaced ({len(self.filter.polygon)} vertices)")
         return SetParametersResult(successful=True)
 
     def on_scan(self, msg: LaserScan) -> None:
@@ -101,9 +99,7 @@ class LaserFilterNode(Node):
                 )
                 return
             q, t = tf.transform.rotation, tf.transform.translation
-            self.filter.set_transform(
-                frame, Rotation.from_quat([q.x, q.y, q.z, q.w]).as_matrix(), np.array([t.x, t.y, t.z])
-            )
+            self.filter.set_transform(frame, quaternion_matrix(q.x, q.y, q.z, q.w), np.array([t.x, t.y, t.z]))
             self.get_logger().info(f"laser_filter: TF {self.cfg.polygon_frame} -> {frame} obtained")
         out = LaserScan()
         out.header = msg.header
