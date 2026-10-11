@@ -145,7 +145,9 @@ previous tool call) and a vitals one-liner (battery V, hottest servo C, CPU C, t
 limits); get_body_state gives the full picture.
 Tilt guard: at tilt_warning (critical event) Nav2 goals are cancelled and navigate_to_pose, move_relative, look_around
 and queued base steps are refused; drive back to level ground manually with short drive moves, then wait for
-tilt_clear. At tilt_error the base drive is inhibited and every base motion tool is refused (arm tools still work).
+tilt_clear. At tilt_error the base drive is inhibited and every base motion tool is refused (arm tools still work);
+the inhibit can outlast the error (back at warning with the base still inhibited): drive works again only after the
+info event tilt_drive_enabled (or tilt_clear).
 A motion that ends with status 'interrupted' was stopped safely because of a critical event (interrupted_by): read
 the event, check get_body_state and decide before moving again. Motion results compare expected with achieved.
 Non-blocking motion: enqueue_motions queues several steps and returns at once (consecutive arm steps blend into one

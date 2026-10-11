@@ -76,11 +76,17 @@ MIN_QUATERNION_NORM = 0.5
 TILT_SOURCE = "tilt_guard"
 TILT_EVENT_TYPES = {"warning": "tilt_warning", "error": "tilt_error"}
 TILT_CLEAR_EVENT = "tilt_clear"
+TILT_DRIVE_ENABLED_EVENT = "tilt_drive_enabled"  # info: base drive released while the level is still warning
 TILT_MANUAL_HINT = (
     "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool; "
     "navigate_to_pose, move_relative, look_around and queued base steps are refused), then wait for the guard to clear"
 )
 TILT_INHIBITED = "base inhibited by the tilt guard"
+TILT_STILL_INHIBITED = (
+    "base drive still inhibited until the IMU is back within limits; no base motion tools work yet (drive, "
+    "move_relative, navigate_to_pose, look_around and queued base steps are refused). Wait for the guard to release "
+    "the base drive, then drive back to level ground manually with short base moves"
+)
 TILT_ERROR_NOTE = (
     "base drive is inhibited until the IMU is back within limits; no base motion tools work (drive, move_relative, "
     "navigate_to_pose, look_around and queued base steps are refused). Keep the arm still and compact"
@@ -568,10 +574,12 @@ class RobotMonitor:
 
     @delivers
     def apply_tilt_guard(self, state: TiltGuardState) -> bool:
-        """Store the guard state and emit an event when its level changes. Lock held (via delivers).
+        """Store the guard state and emit an event when its level or base_drive_inhibited changes. Lock held.
 
         warning and error entries are critical (claude_agent interrupts the running instruction at once), the return
-        to ok is an info tilt_clear event.
+        to ok is an info tilt_clear event. base_drive_inhibited can stay true at warning after an error (the contract
+        latches it); the warning entry then says the base is still inhibited, and its later release at warning is an
+        info tilt_drive_enabled event.
 
         Args:
             state (TiltGuardState): Parsed guard state.
@@ -579,10 +587,10 @@ class RobotMonitor:
         Returns:
             bool: True when the level entered warning or error (Nav2 goals must be cancelled).
         """
-        previous = "ok" if self.tilt_guard is None else self.tilt_guard[1].level
+        last = None if self.tilt_guard is None else self.tilt_guard[1]
+        previous = "ok" if last is None else last.level
+        was_inhibited = last is not None and last.base_drive_inhibited
         self.tilt_guard = (self.clock(), state)
-        if state.level == previous:
-            return False
         tilt = describe_tilt(state)
         data = {
             "level": state.level,
@@ -593,6 +601,17 @@ class RobotMonitor:
             "base_drive_inhibited": state.base_drive_inhibited,
             "imu_ok": state.imu_ok,
         }
+        if state.level == previous:
+            if state.level == "warning" and was_inhibited and not state.base_drive_inhibited:
+                self.emit(
+                    TILT_DRIVE_ENABLED_EVENT,
+                    "info",
+                    TILT_SOURCE,
+                    f"tilt guard still warning, base drive enabled again: {tilt}. {TILT_MANUAL_HINT}",
+                    data,
+                    debounce=False,
+                )
+            return False
         if state.level == "ok":
             self.emit(
                 TILT_CLEAR_EVENT,
@@ -603,7 +622,9 @@ class RobotMonitor:
                 debounce=False,
             )
             return False
-        if state.level == "warning":
+        if state.level == "warning" and state.base_drive_inhibited:
+            message = f"tilt guard back to warning: {tilt}. Active Nav2 goals are cancelled; {TILT_STILL_INHIBITED}"
+        elif state.level == "warning":
             lead = (
                 "tilt guard back to warning, base drive enabled again" if previous == "error" else "tilt guard warning"
             )
@@ -637,7 +658,8 @@ class RobotMonitor:
         return guard is not None and now - guard[0] <= self.cfg.tilt_guard_stale_s
 
     def tilt_refusal(self, kind: BaseUse) -> str | None:
-        """Why the tilt guard refuses a base motion now (warning: automatic navigation; error: every base motion).
+        """Why the tilt guard refuses a base motion now (warning: automatic navigation; error or base_drive_inhibited:
+        every base motion, since the controller drops base commands while inhibited).
 
         A stale state keeps its level enforced (fail-safe: the guard may have died while the robot was tilted).
 
@@ -652,7 +674,8 @@ class RobotMonitor:
         if guard is None:
             return None
         at, state = guard
-        if state.level == "ok" or (state.level == "warning" and kind == "manual"):
+        inhibited = state.level == "error" or state.base_drive_inhibited
+        if not inhibited and (state.level == "ok" or kind == "manual"):
             return None
         age = self.clock() - at
         stale = (
@@ -661,8 +684,11 @@ class RobotMonitor:
             else ""
         )
         tilt = describe_tilt(state)
-        if state.level == "error":
-            return f"{TILT_INHIBITED} (level error, {tilt}){stale}: no base motion until the IMU is back within limits"
+        if inhibited:
+            return (
+                f"{TILT_INHIBITED} (level {state.level}, {tilt}){stale}: no base motion until the IMU is back within "
+                "limits"
+            )
         return f"tilt guard warning ({tilt}){stale}: {TILT_MANUAL_HINT}"
 
     @delivers
@@ -977,7 +1003,8 @@ class RobotMonitor:
         guard = self.tilt_guard
         if guard is not None:
             stale = "" if self.tilt_guard_fresh(self.clock()) else " (stale)"
-            line += f", tilt guard {guard[1].level}{stale}: {describe_tilt(guard[1])}"
+            inhibited = ", base inhibited" if guard[1].base_drive_inhibited else ""
+            line += f", tilt guard {guard[1].level}{stale}{inhibited}: {describe_tilt(guard[1])}"
         return line
 
     def hottest(self) -> HottestServo | None:
@@ -1131,8 +1158,8 @@ class RobotMonitor:
             **state.model_dump(),
             age_s=round(age, 2),
             stale=stale,
-            navigation_allowed=state.level == "ok",
-            manual_drive_allowed=state.level != "error",
+            navigation_allowed=state.level == "ok" and not state.base_drive_inhibited,
+            manual_drive_allowed=state.level != "error" and not state.base_drive_inhibited,
         )
 
     def battery_vitals(self, now: float, notes: list[str]) -> BatteryVitals | None:

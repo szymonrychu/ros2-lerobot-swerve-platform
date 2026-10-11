@@ -531,13 +531,15 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   (roll/pitch vs limits, "automatic navigation is disabled", manual drive-back instruction) and cancels every Nav2 goal
   once (repeated 1 Hz states at the same level emit nothing); error entry (from warning or ok) emits a critical
   `tilt_error` saying the base drive is inhibited and cancels; error back to warning re-emits `tilt_warning` (base drive
-  enabled again); clear is an info `tilt_clear` without cancel; malformed states dropped; `tilt_warning` / `tilt_error`
+  enabled again, or "base drive still inhibited" when `base_drive_inhibited` stays true); the inhibit released while
+  still at warning is an info `tilt_drive_enabled`; clear is an info `tilt_clear` without cancel; malformed states dropped; `tilt_warning` / `tilt_error`
   interrupt running base motions (`BASE_INTERRUPTS`); a failing canceller is tolerated; refusal reasons by level (warning:
-  nav only, error: nav and manual, "base inhibited by the tilt guard"); a stale state keeps its level enforced and is
+  nav only, error: nav and manual, "base inhibited by the tilt guard"); manual drive, the allowed flags and the vitals
+  line follow `base_drive_inhibited` at warning, not only the level; a stale state keeps its level enforced and is
   flagged; the IMU fallback `tilt` warning is silent while the guard reports and returns when it goes stale; body state
   `tilt_guard` fields (level, roll/pitch, limits, allowed flags, age) and the vitals line; tools: classification
   (`TILT_NAV_TOOLS`, `TILT_MANUAL_BASE_TOOLS`), `navigate_to_pose` / `move_relative` / `look_around` refused with the
-  reason in warning and error without touching the robot, `drive` allowed in warning and refused in error, arm tools
+  reason in warning and error without touching the robot, `drive` allowed in warning, refused in warning while the base stays inhibited and refused in error, arm tools
   unaffected in error, `enqueue_motions` with a base step refused (arm/wait-only steps allowed), digest vitals carry the
   guard, a queued base step fails at dispatch (status `tilt_guard`)
 - camera config (`test_camera_config.py`): cameras default to not calibrated with parent frames `gripper_link` / `base_link`,

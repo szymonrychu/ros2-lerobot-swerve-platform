@@ -223,6 +223,7 @@ missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresho
 | `bump` | warning / critical | horizontal acceleration spike after baseline removal >= `bump_warn_mps2` 4 / `bump_critical_mps2` 9 m/s^2 for `bump_min_samples` (2) consecutive IMU samples; one glitchy sample is ignored and the severity follows the weakest sample of the run |
 | `tilt_warning` (source `tilt_guard`) | critical | `/tilt_guard/state` level entered `warning` (also on the way back down from `error`); see [Tilt guard](#tilt-guard) |
 | `tilt_error` (source `tilt_guard`) | critical | `/tilt_guard/state` level entered `error` (base drive inhibited by swerve_drive_controller) |
+| `tilt_drive_enabled` (source `tilt_guard`) | info | `base_drive_inhibited` released while the level is still `warning` (manual `drive` works again) |
 | `tilt_clear` (source `tilt_guard`) | info | `/tilt_guard/state` level back to `ok` |
 | `tilt` | warning | IMU fallback only while the tilt guard is silent (no `/tilt_guard/state` for `tilt_guard_stale_s` 3 s): tilt from the IMU orientation > `tilt_warn_deg` 10 deg |
 | `human_takeover` | critical | active source leaves `autonomy` while this server holds the lease |
@@ -352,19 +353,22 @@ that does not match the contract is logged and dropped.
 
 | Level change | Robot event | Nav2 goals | Tools |
 |---|---|---|---|
-| -> `warning` | `tilt_warning`, critical (claude_agent interrupts the running instruction at once): roll/pitch vs limits and "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool ...), then wait for the guard to clear". From `error` the message says the base drive is enabled again | every goal cancelled (`cancel_all_goals` from a worker thread), a running `navigate_to_pose` / `move_relative` / `drive` / `look_around` ends `interrupted` (`BASE_INTERRUPTS`) | `navigate_to_pose`, `move_relative`, `look_around` and `enqueue_motions` with a base step refused; queued base steps fail at dispatch (status `tilt_guard`); `drive` allowed |
+| -> `warning` | `tilt_warning`, critical (claude_agent interrupts the running instruction at once): roll/pitch vs limits and "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool ...), then wait for the guard to clear". From `error` the message says the base drive is enabled again, or, when `base_drive_inhibited` stays true (the inhibit can outlast the error), that the base drive is still inhibited and no base motion tools work yet | every goal cancelled (`cancel_all_goals` from a worker thread), a running `navigate_to_pose` / `move_relative` / `drive` / `look_around` ends `interrupted` (`BASE_INTERRUPTS`) | `navigate_to_pose`, `move_relative`, `look_around` and `enqueue_motions` with a base step refused; queued base steps fail at dispatch (status `tilt_guard`); `drive` allowed unless `base_drive_inhibited` is still true (then refused like at `error`) |
 | -> `error` | `tilt_error`, critical: "base drive is inhibited until the IMU is back within limits; no base motion tools work" | every goal cancelled | every base motion tool refused (`base inhibited by the tilt guard`) |
+| `warning`, `base_drive_inhibited` true -> false | `tilt_drive_enabled`, info: "base drive enabled again" plus the manual drive-back instruction | - | `drive` allowed again (navigation still refused) |
 | -> `ok` | `tilt_clear`, info | - | everything allowed again |
 
 The classification lives in `mcp_server/tool_context.py` (`TILT_NAV_TOOLS`, `TILT_MANUAL_BASE_TOOLS`,
-`ToolContext.tilt_gate`); the queue re-checks before every base step (`MotionQueue(tilt_gate=...)`). Arm tools are never
+`ToolContext.tilt_gate`). Manual drive follows `base_drive_inhibited` as well as the level: the controller drops base
+commands while inhibited, so `drive` is refused then instead of being silently ignored. The queue re-checks before every base step (`MotionQueue(tilt_gate=...)`). Arm tools are never
 affected. Refusals are MCP tool errors, e.g. `drive refused: base inhibited by the tilt guard (level error, roll 16.0 deg
 (limits 8/15), pitch 1.0 deg (limits 12/20)): no base motion until the IMU is back within limits`. A state older than
 `monitor.tilt_guard_stale_s` (3 s) is stale: its last level stays enforced (the refusal and `get_body_state` say so) and
 the IMU fallback `tilt` warning runs again. `get_body_state` reports `tilt_guard` (`level`, `roll_deg`, `pitch_deg`,
 `limits`, `since`, `base_drive_inhibited`, `imu_ok`, `age_s`, `stale`, `navigation_allowed`, `manual_drive_allowed`;
-null with a note before the first message) and the vitals line ends with e.g. `tilt guard warning: roll 9.0 deg
-(limits 8/15), pitch 2.5 deg (limits 12/20)` once a state has arrived.
+null with a note before the first message; both allowed flags are false while `base_drive_inhibited`) and the vitals
+line ends with e.g. `tilt guard warning: roll 9.0 deg (limits 8/15), pitch 2.5 deg (limits 12/20)` once a state has
+arrived (`tilt guard warning, base inhibited: ...` while the inhibit outlasts the error).
 
 ## Battery cut-off gate
 

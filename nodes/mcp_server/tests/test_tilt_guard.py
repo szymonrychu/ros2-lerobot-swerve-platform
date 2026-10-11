@@ -36,7 +36,7 @@ class Clock:
         return 1_700_000_000.0 + self.t
 
 
-def state(level: str, roll: float = 0.5, pitch: float = 1.0, imu_ok: bool = True) -> str:
+def state(level: str, roll: float = 0.5, pitch: float = 1.0, imu_ok: bool = True, inhibited: bool | None = None) -> str:
     return json.dumps(
         {
             "level": level,
@@ -44,7 +44,7 @@ def state(level: str, roll: float = 0.5, pitch: float = 1.0, imu_ok: bool = True
             "pitch_deg": pitch,
             "limits": LIMITS,
             "since": 1_700_000_000.0,
-            "base_drive_inhibited": level == "error",
+            "base_drive_inhibited": level == "error" if inhibited is None else inhibited,
             "imu_ok": imu_ok,
         }
     )
@@ -123,9 +123,32 @@ def test_error_straight_from_ok_cancels_nav() -> None:
 def test_error_back_to_warning_tells_the_agent_to_drive_back_manually() -> None:
     mon, _, seen, cancels = make()
     mon.on_tilt_guard(state("error", roll=16.0))
-    mon.on_tilt_guard(state("warning", roll=12.0))
+    mon.on_tilt_guard(state("warning", roll=12.0, inhibited=False))
     assert kinds(seen)[-1] == ("tilt_warning", "critical")
     assert MANUAL_HINT in seen[-1].message and "base drive enabled again" in seen[-1].message
+    assert cancels == [1, 1]
+
+
+def test_error_back_to_warning_with_the_base_still_inhibited_says_so() -> None:
+    mon, _, seen, _ = make()
+    mon.on_tilt_guard(state("error", roll=16.0))
+    mon.on_tilt_guard(state("warning", roll=12.0, inhibited=True))
+    assert kinds(seen)[-1] == ("tilt_warning", "critical")
+    msg = seen[-1].message
+    assert "base drive enabled again" not in msg
+    assert "base drive still inhibited" in msg and "no base motion tools work" in msg
+    assert seen[-1].data["base_drive_inhibited"] is True
+
+
+def test_inhibit_released_while_still_at_warning_is_an_info_event() -> None:
+    mon, _, seen, cancels = make()
+    mon.on_tilt_guard(state("error", roll=16.0))
+    mon.on_tilt_guard(state("warning", roll=12.0, inhibited=True))
+    mon.on_tilt_guard(state("warning", roll=11.0, inhibited=True))
+    assert len(seen) == 2
+    mon.on_tilt_guard(state("warning", roll=10.0, inhibited=False))
+    assert kinds(seen)[-1] == ("tilt_drive_enabled", "info")
+    assert "base drive enabled again" in seen[-1].message and MANUAL_HINT in seen[-1].message
     assert cancels == [1, 1]
 
 
@@ -182,6 +205,24 @@ def test_refusals_by_level() -> None:
         assert reason is not None and INHIBITED in reason
     mon.on_tilt_guard(state("ok"))
     assert mon.tilt_refusal("nav") is None
+
+
+def test_manual_drive_follows_base_drive_inhibited_not_only_the_level() -> None:
+    mon, _, _, _ = make()
+    mon.on_tilt_guard(state("error", roll=16.0))
+    mon.on_tilt_guard(state("warning", roll=12.0, inhibited=True))
+    reason = mon.tilt_refusal("manual")
+    assert reason is not None and INHIBITED in reason and "level warning" in reason
+    nav = mon.tilt_refusal("nav")
+    assert nav is not None and INHIBITED in nav
+    guard = mon.body_state().tilt_guard
+    assert guard is not None and guard.manual_drive_allowed is False and guard.navigation_allowed is False
+    assert "base inhibited" in mon.vitals_line()
+    mon.on_tilt_guard(state("warning", roll=10.0, inhibited=False))
+    assert mon.tilt_refusal("manual") is None
+    guard = mon.body_state().tilt_guard
+    assert guard is not None and guard.manual_drive_allowed is True
+    assert "base inhibited" not in mon.vitals_line()
 
 
 def test_stale_state_keeps_refusing_at_the_last_level() -> None:
@@ -287,6 +328,14 @@ def test_manual_drive_allowed_in_warning(tmp_path: Path) -> None:
     res = call(server, "drive", {"vx": -0.1, "duration_s": 0.5})
     assert res.structured_content["published"] == 3
     assert ("drive", (-0.1, 0.0, 0.0, 0.5)) in robot.calls
+
+
+def test_manual_drive_refused_in_warning_while_the_base_stays_inhibited(tmp_path: Path) -> None:
+    robot, server, monitor = guarded(tmp_path, "error")
+    monitor.on_tilt_guard(state("warning", roll=12.0, inhibited=True))
+    with pytest.raises(ToolError, match=INHIBITED):
+        call(server, "drive", {"vx": -0.1})
+    assert not [c for c in robot.calls if c[0] == "drive"]
 
 
 def test_manual_drive_refused_in_error(tmp_path: Path) -> None:
