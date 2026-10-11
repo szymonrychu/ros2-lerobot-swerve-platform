@@ -37,8 +37,12 @@ def test_defaults() -> None:
     assert {"drive", "move_relative", "navigate_to_pose", "move_arm_joints", "move_arm_cartesian"} <= set(
         cfg.effector_tools
     )
-    assert {"set_gripper", "arm_home", "arm_set_home"} <= set(cfg.effector_tools)
-    assert {"stop", "acquire_control", "release_control"} <= set(cfg.uncapped_tools)
+    assert {"set_gripper", "arm_home"} <= set(cfg.effector_tools)
+    assert "arm_set_home" not in cfg.effector_tools
+    assert cfg.denied_tools == ["arm_set_home"]
+    assert {"stop", "take_control", "release_control"} <= set(cfg.uncapped_tools)
+    assert "acquire_control" not in cfg.uncapped_tools
+    assert "get_control_state" in cfg.sensor_tools
     assert "look_around" in cfg.effector_tools
     assert {"get_body_state", "get_topdown_view", "list_pois", "add_poi", "remember_object", "pixel_to_ground"} <= set(
         cfg.sensor_tools
@@ -233,3 +237,9 @@ def test_client_group_vars_sets_plan_tree_and_retry_keys() -> None:
     raw = yaml.safe_load(agent["config"])
     assert (raw["max_loop_iterations"], raw["retry_success_threshold"], raw["max_auto_retries"]) == (5, 0.5, 6)
     ClaudeAgentConfig(**raw)
+
+
+def test_denied_tool_may_not_also_be_effector_uncapped_or_sensor() -> None:
+    for field in ("effector_tools", "uncapped_tools", "sensor_tools"):
+        with pytest.raises(ValueError, match="denied_tools"):
+            ClaudeAgentConfig(**{field: ["arm_set_home"]})

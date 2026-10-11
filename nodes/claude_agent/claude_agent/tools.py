@@ -16,6 +16,11 @@ MCP_SERVER_NAME = "robot"
 ROBOT_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 NOT_AVAILABLE_MESSAGE = "tool {name} is not available: only the robot tools (mcp__robot__*) can be used"
 KIND_UNCAPPED = "uncapped"
+KIND_DENIED = "denied"
+DENIED_REASONS = {
+    "arm_set_home": "arm_set_home is reserved for humans: the job-end check compares against the stored home",
+}
+DENIED_DEFAULT_REASON = "{name} is reserved for humans and may not be called by the agent"
 KIND_NOTES = "notes"
 KIND_PLAN = "plan"
 AGENT_PREFIX = "mcp__agent__"
@@ -81,7 +86,7 @@ def classify_tool(config: ClaudeAgentConfig, full_name: str) -> str | None:
         full_name (str): Full tool name.
 
     Returns:
-        str | None: "notes" for the five file tools, "plan" for the four planning tools, "effector", "uncapped" or "sensor" for
+        str | None: "notes" for the five file tools, "plan" for the four planning tools, "effector", "uncapped", "sensor" or "denied" for
         robot tools (a robot tool in no list is treated as an effector, so a new motion tool is counted as rw by
         default); None for any other tool.
     """
@@ -92,6 +97,8 @@ def classify_tool(config: ClaudeAgentConfig, full_name: str) -> str | None:
     if not full_name.startswith(ROBOT_PREFIX):
         return None
     name = short_name(full_name)
+    if name in config.denied_tools:
+        return KIND_DENIED
     if name in config.uncapped_tools:
         return KIND_UNCAPPED
     if name in config.sensor_tools:
@@ -156,7 +163,7 @@ class EffectorGate:
     """Permission callback: gates robot tools on the agent's plan and counts ro (sensor) / rw (effector) calls per phase.
 
     Until set_task_plan has been accepted for the instruction every sensor and effector tool is denied; the notes file
-    tools, the planning tools and the uncapped tools (stop, acquire/release control) are always allowed and never
+    tools, the planning tools and the uncapped tools (stop, take/release control) are always allowed and never
     counted (the planning tools validate their own input). Past a cap of the active phase the call is denied; the phase
     can be raised once, completed, or the plan revised.
 
@@ -287,7 +294,7 @@ class EffectorGate:
 
         Returns:
             PermissionResult: Allow for notes tools inside the workdir, the planning tools, uncapped tools, and
-            sensor/effector calls within the active phase's budget; Deny otherwise.
+            sensor/effector calls within the active phase's budget; Deny for denied tools (always) and otherwise.
         """
         kind = classify_tool(self.config, tool_name)
         if kind == KIND_NOTES:
@@ -298,6 +305,11 @@ class EffectorGate:
             return PermissionResultAllow()
         if kind is None:
             return self.deny(context.tool_use_id, tool_name, NOT_AVAILABLE_MESSAGE.format(name=tool_name))
+        if kind == KIND_DENIED:
+            name = short_name(tool_name)
+            return self.deny(
+                context.tool_use_id, name, DENIED_REASONS.get(name, DENIED_DEFAULT_REASON.format(name=name))
+            )
         if kind == KIND_EFFECTOR:
             reason = self.time_budget_denial(short_name(tool_name), tool_input)
             if reason:

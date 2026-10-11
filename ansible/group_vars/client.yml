@@ -1671,18 +1671,22 @@ ros2_nodes:
         - move_arm_cartesian
         - set_gripper
         - arm_home
-        - arm_set_home
         - look_around
         - grasp_object
         - release_object
         - enqueue_motions
       uncapped_tools:
         - stop
-        - acquire_control
+        - take_control
         - release_control
         - cancel_motions
+      # Motion tools the permission gate always refuses (effector_tools + denied_tools == mcp_server MOTION_TOOLS):
+      # the agent must not redefine home, the job-end check compares against the stored home.
+      denied_tools:
+        - arm_set_home
       sensor_tools:
         - plan_grasp
+        - get_control_state
         - get_motion_status
         - wait_for_event
         - get_robot_state

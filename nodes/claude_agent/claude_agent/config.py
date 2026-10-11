@@ -17,15 +17,17 @@ DEFAULT_EFFECTOR_TOOLS = [
     "move_arm_cartesian",
     "set_gripper",
     "arm_home",
-    "arm_set_home",
     "look_around",
     "grasp_object",
     "release_object",
     "enqueue_motions",
 ]
-DEFAULT_UNCAPPED_TOOLS = ["stop", "acquire_control", "release_control", "cancel_motions"]
+DEFAULT_UNCAPPED_TOOLS = ["stop", "take_control", "release_control", "cancel_motions"]
+# Motion tools the permission gate refuses outright: arm_set_home would let the agent redefine home to pass the job-end check.
+DEFAULT_DENIED_TOOLS = ["arm_set_home"]
 DEFAULT_SENSOR_TOOLS = [
     "plan_grasp",
+    "get_control_state",
     "get_motion_status",
     "wait_for_event",
     "get_robot_state",
@@ -106,6 +108,8 @@ class ClaudeAgentConfig(BaseModel):
         max_auto_retries: Most automatic phase re-entries per instruction, across all phases.
         effector_tools: Short names (no mcp__robot__ prefix) of the motion tools; keep in sync with mcp_server MOTION_TOOLS.
         uncapped_tools: Short names of safety/control tools that are never capped (stop never counts).
+        denied_tools: Short names of motion tools the gate always refuses (humans only); effector_tools plus denied_tools
+            equal mcp_server MOTION_TOOLS.
         sensor_tools: Short names of read-only tools (counted for telemetry, never capped or refused).
         mcp_url: Robot MCP server Streamable HTTP URL.
         mcp_token_file: File holding the MCP bearer token (``MCP_SERVER_TOKEN=<token>`` or the bare token); read at each session start.
@@ -161,6 +165,7 @@ class ClaudeAgentConfig(BaseModel):
     max_auto_retries: int = Field(default=DEFAULT_MAX_AUTO_RETRIES, ge=0)
     effector_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_EFFECTOR_TOOLS))
     uncapped_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_UNCAPPED_TOOLS))
+    denied_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_DENIED_TOOLS))
     sensor_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_SENSOR_TOOLS))
     mcp_url: str = "http://127.0.0.1:18200/mcp"
     mcp_token_file: str = "/etc/ros2/mcp_server/token"
@@ -208,7 +213,7 @@ class ClaudeAgentConfig(BaseModel):
 
     @model_validator(mode="after")
     def check_tool_lists(self) -> "ClaudeAgentConfig":
-        """Reject a tool listed in more than one class (stop must never be capped).
+        """Reject a tool listed in more than one class (stop must never be capped, a denied tool never allowed).
 
         Returns:
             ClaudeAgentConfig: The validated config.
@@ -217,6 +222,7 @@ class ClaudeAgentConfig(BaseModel):
             "effector_tools": self.effector_tools,
             "uncapped_tools": self.uncapped_tools,
             "sensor_tools": self.sensor_tools,
+            "denied_tools": self.denied_tools,
         }
         names = list(lists)
         for i, first in enumerate(names):

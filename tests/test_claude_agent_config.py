@@ -190,7 +190,7 @@ def test_claude_agent_config_valid_and_consistent_with_mcp_server() -> None:
     assert cfg.mcp_token_file == MCP_TOKEN_FILE
     assert cfg.model == "opus"
     tools = mcp_tool_names()
-    classified = set(cfg.effector_tools) | set(cfg.uncapped_tools) | set(cfg.sensor_tools)
+    classified = set(cfg.effector_tools) | set(cfg.uncapped_tools) | set(cfg.sensor_tools) | set(cfg.denied_tools)
     unknown = classified - tools
     assert not unknown, f"tools unknown to mcp_server: {sorted(unknown)}"
     assert "stop" in cfg.uncapped_tools and "stop" not in cfg.effector_tools
@@ -213,12 +213,31 @@ def mcp_server_motion_tools() -> set[str]:
     raise AssertionError("mcp_server tools.py defines no MOTION_TOOLS")
 
 
-def test_effector_tools_match_mcp_server_motion_tools() -> None:
-    """claude_agent effector_tools equal mcp_server MOTION_TOOLS exactly (look_around included)."""
+def test_effector_and_denied_tools_match_mcp_server_motion_tools() -> None:
+    """claude_agent effector_tools plus denied_tools equal mcp_server MOTION_TOOLS exactly, with no overlap."""
     cfg = yaml.safe_load(node_entry("claude_agent")["config"])
     motion = mcp_server_motion_tools()
     assert "look_around" in motion
-    assert set(cfg["effector_tools"]) == motion
+    assert cfg["denied_tools"] == ["arm_set_home"]
+    assert not set(cfg["effector_tools"]) & set(cfg["denied_tools"])
+    assert set(cfg["effector_tools"]) | set(cfg["denied_tools"]) == motion
+
+
+def test_control_lease_tools_classified_in_group_vars_and_defaults() -> None:
+    """take/release_control uncapped, get_control_state a sensor, arm_set_home denied, in client.yml and code defaults."""
+    pytest.importorskip("pydantic")
+    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    for uncapped, sensors, denied in (
+        (raw["uncapped_tools"], raw["sensor_tools"], raw["denied_tools"]),
+        (module.DEFAULT_UNCAPPED_TOOLS, module.DEFAULT_SENSOR_TOOLS, module.DEFAULT_DENIED_TOOLS),
+    ):
+        assert {"take_control", "release_control"} <= set(uncapped)
+        assert "acquire_control" not in uncapped
+        assert "get_control_state" in sensors
+        assert denied == ["arm_set_home"]
 
 
 def test_round2_tools_classified_in_group_vars_and_defaults() -> None:

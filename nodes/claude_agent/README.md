@@ -106,14 +106,17 @@ used up) and only counted (`ro_used`, per instruction and per active phase) for 
 
 | Counter | Counts | Instruction maximum (config) | Per-phase maximum (config) |
 |---|---|---|---|
-| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` (one call however many steps it queues); a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (150) | `max_phase_rw_cap` (40) |
+| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` (one call however many steps it queues); a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (150) | `max_phase_rw_cap` (40) |
 | turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (200) | `max_phase_turn_cap` (40) |
 
-Sensor calls (kind `sensor`: `plan_grasp` (dry run, no motion), `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `get_arm_reach`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools, the POI tools, `get_motion_status` and `wait_for_event`) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
+Sensor calls (kind `sensor`: `plan_grasp` (dry run, no motion), `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `get_arm_reach`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools, the POI tools, `get_motion_status`, `wait_for_event` and `get_control_state`) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
 
-Not counted: the notes file tools, the planning tools, and the control tools `stop`, `acquire_control`, `release_control`,
-`cancel_motions` (`stop` and `cancel_motions` must always work). Keep `effector_tools` equal to the motion classification of `nodes/mcp_server` (`MOTION_TOOLS`;
-`tests/test_claude_agent_config.py` checks it).
+Not counted: the notes file tools, the planning tools, and the control tools `stop`, `take_control`, `release_control`,
+`cancel_motions` (`stop` and `cancel_motions` must always work; `take_control` and `release_control` are never counted and never refused for time).
+`get_control_state` is a sensor. `denied_tools` (default and client.yml: `[arm_set_home]`) lists motion tools the gate always refuses,
+with an explicit reason (`arm_set_home is reserved for humans: the job-end check compares against the stored home`); the call is not counted
+and works with or without a plan. Keep `effector_tools` plus `denied_tools` equal to the motion classification of `nodes/mcp_server`
+(`MOTION_TOOLS`; `tests/test_claude_agent_config.py` checks it).
 
 The in-process SDK MCP server `agent` (`claude_agent_sdk.create_sdk_mcp_server`) offers five tools:
 
@@ -296,7 +299,7 @@ SIGKILL). Each of those waits is bounded by `shutdown_client_timeout_s`.
 Time budget: a PostToolUse hook appends `instruction time left: N s` to every tool result, and the permission gate
 denies an effector call with an explicit reason (report and end the instruction) when fewer than
 `min_effector_time_left_s` (60) seconds are left, so a slow grasp or gripper close is not started just to be cut off.
-Still allowed with no time left: the uncapped tools (`stop`, `cancel_motions`, `acquire_control`, `release_control`),
+Still allowed with no time left: the uncapped tools (`stop`, `cancel_motions`, `take_control`, `release_control`),
 `release_object` and `set_gripper` that opens (`close_until_effort` unset and `open_fraction >= 0.5`). `arm_home` and
 the rest of the effectors are refused (they start a motion). When the watchdog still fires mid-call, the `error` event
 names the cut-off call and its elapsed time (`cut_off_call: {name, id, elapsed_s}`) after the robot stop.
@@ -340,7 +343,7 @@ unknown keys are rejected.
 | `max_loop_iterations` | `5` | Largest `max_iterations` of a `while` node (1 to 5) |
 | `retry_success_threshold` | `0.5` | A failed phase is re-entered automatically from this `p_retry_success` on (0 to 1) |
 | `max_auto_retries` | `6` | Most automatic phase re-entries per instruction, across all phases |
-| `effector_tools` / `uncapped_tools` / `sensor_tools` | see above | Short tool names (no `mcp__robot__`) |
+| `effector_tools` / `uncapped_tools` / `sensor_tools` / `denied_tools` | see above | Short tool names (no `mcp__robot__`) |
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |
 | `mcp_token_file` | `/etc/ros2/mcp_server/token` | `MCP_SERVER_TOKEN=<token>` (or the bare token), read per session |
 | `http_host` / `http_port` | `127.0.0.1` / `18300` | API bind |

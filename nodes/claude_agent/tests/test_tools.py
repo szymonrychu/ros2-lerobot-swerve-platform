@@ -33,6 +33,9 @@ def test_classify(config: ClaudeAgentConfig) -> None:
     assert classify_tool(config, "mcp__robot__release_control") == "uncapped"
     assert classify_tool(config, "mcp__robot__get_camera_image") == "sensor"
     assert classify_tool(config, "mcp__robot__get_robot_state") == "sensor"
+    assert classify_tool(config, "mcp__robot__get_control_state") == "sensor"
+    assert classify_tool(config, "mcp__robot__take_control") == "uncapped"
+    assert classify_tool(config, "mcp__robot__arm_set_home") == "denied"
 
 
 def test_unknown_robot_tool_is_capped_as_effector(config: ClaudeAgentConfig) -> None:
@@ -110,7 +113,7 @@ async def test_planning_and_notes_tools_allowed_without_a_plan(workdir: Path) ->
 
 async def test_stop_and_control_tools_always_allowed_and_never_counted() -> None:
     gate = EffectorGate(ClaudeAgentConfig())
-    for name in ("stop", "acquire_control", "release_control"):
+    for name in ("stop", "take_control", "release_control"):
         assert isinstance(await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx()), PermissionResultAllow)
     gate.plan.set_plan("simple", "x", [one_phase(1, 5)])
     for _ in range(20):
@@ -422,7 +425,7 @@ async def test_effector_allowed_at_or_above_the_minimum_time_left() -> None:
     assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
 
 
-@pytest.mark.parametrize("name", ["stop", "cancel_motions", "release_object", "acquire_control", "release_control"])
+@pytest.mark.parametrize("name", ["stop", "cancel_motions", "release_object", "take_control", "release_control"])
 async def test_safety_tools_allowed_with_no_time_left(name: str) -> None:
     gate = gate_with_time_left(1.0)
     assert isinstance(await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx()), PermissionResultAllow)
@@ -489,3 +492,33 @@ async def test_gate_forwards_the_condition_callbacks() -> None:
     gate.plan.set_plan("simple", "x", plan=tree)
     gate.plan.answer_condition("check", False, "no")
     assert seen == [("pending", "check"), ("answered", "check")]
+
+
+ARM_SET_HOME_REASON = "arm_set_home is reserved for humans: the job-end check compares against the stored home"
+
+
+async def test_arm_set_home_denied_with_reason_even_with_a_plan_and_never_counted() -> None:
+    denied: list[dict] = []
+    gate = gate_with_plan(rw=5, on_denied=denied.append)
+    result = await gate.can_use_tool("mcp__robot__arm_set_home", {}, ctx())
+    assert isinstance(result, PermissionResultDeny)
+    assert ARM_SET_HOME_REASON in result.message
+    assert denied == [{"id": "tu1", "name": "arm_set_home", "reason": result.message}]
+    assert (gate.plan.ro_used, gate.plan.rw_used) == (0, 0)
+
+
+async def test_arm_set_home_denied_without_a_plan_with_the_denial_reason_not_the_plan_reason() -> None:
+    gate = EffectorGate(ClaudeAgentConfig())
+    result = await gate.can_use_tool("mcp__robot__arm_set_home", {}, ctx())
+    assert isinstance(result, PermissionResultDeny)
+    assert ARM_SET_HOME_REASON in result.message
+
+
+async def test_take_and_release_control_never_counted_never_time_refused_and_get_control_state_is_a_sensor() -> None:
+    gate = gate_with_time_left(1.0)
+    for name in ("take_control", "release_control"):
+        for _ in range(20):
+            assert isinstance(await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx()), PermissionResultAllow)
+    assert (gate.plan.ro_used, gate.plan.rw_used) == (0, 0)
+    assert isinstance(await gate.can_use_tool("mcp__robot__get_control_state", {}, ctx()), PermissionResultAllow)
+    assert (gate.plan.ro_used, gate.plan.rw_used) == (1, 0)
