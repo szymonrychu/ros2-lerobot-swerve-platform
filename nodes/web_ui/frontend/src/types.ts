@@ -48,6 +48,7 @@ export interface TabConfig {
   arm_offset?: [number, number, number] // arm mount in the base frame (ROS x, y, z metres)
   arm_command_topic?: string // sensor_msgs/JointState published by the draggable arm
   poi_list_topic?: string // default /poi/list (latched JSON list from poi_store)
+  poi_photos_topic?: string // default /poi/photos (latched photo store summary {revision, count, bytes, ...})
   poi_command_topic?: string // default /poi/command (edits go through POST /api/poi)
   poi_result_topic?: string // default /poi/result
   grasp_command_topic?: string // default /grasp/command (grasp requests go through POST /api/grasp)

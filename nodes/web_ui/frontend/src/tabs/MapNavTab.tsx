@@ -65,7 +65,7 @@ import type { GridImageMsg, PathMsg } from '../map3d/sceneLayers'
 import { browserStorage } from '../tabSelection'
 import { CANVAS_BG, MONO_FONT } from '../theme'
 import { TabConfig } from '../types'
-import { LookupListPanel } from '../lookups/LookupList'
+import { PhotoList } from '../photos/PhotoList'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
 import { canFinishArea, isClick } from '../poi/editor'
 import { DEFAULT_ARM_OFFSET, GraspStrategy } from '../grasp/grasp'
@@ -257,6 +257,8 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
     onResult: onPoiResult,
   })
   const poiAdding = poi.mode !== 'none'
+  const photoSummary = topicData[tab.poi_photos_topic ?? '/poi/photos'] as { revision?: unknown } | null | undefined
+  const photoRevision = typeof photoSummary?.revision === 'number' ? photoSummary.revision : null
 
   const armMount = useMemo(() => tab.arm_offset ?? DEFAULT_ARM_OFFSET, [tab.arm_offset])
   const grasp = useGrasp({ tabId: tab.id, topicData, mount: armMount, notify: setAction })
@@ -776,7 +778,12 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
                 onSend={poi.send}
               />
             )}
-            <LookupListPanel selectedPoiId={poi.selectedId} selectedPoiName={poi.selected ? poi.selected.name || '(unnamed)' : null} />
+            <PhotoList
+              tabId={tab.id}
+              revision={photoRevision}
+              selectedPoiId={poi.selectedId}
+              selectedPoiName={poi.selected ? poi.selected.name || '(unnamed)' : null}
+            />
           </Box>
         )}
 
