@@ -4,7 +4,9 @@ import sys
 import threading
 
 import rclpy
-from rclpy.executors import SingleThreadedExecutor
+from aiohttp import web
+from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
@@ -19,12 +21,22 @@ QOS = QoSProfile(
 )
 
 
-def _spin_node(node: Node) -> None:
-    """Run rclpy spin in a loop (for background thread)."""
+def spin_node(node: Node) -> None:
+    """Run rclpy spin in a loop (for background thread) until the context is shut down.
+
+    Args:
+        node (Node): Node whose publisher the HTTP handlers use.
+    """
     executor = SingleThreadedExecutor()
     executor.add_node(node)
-    while rclpy.ok():
-        executor.spin_once(timeout_sec=0.1)
+    try:
+        while rclpy.ok():
+            executor.spin_once(timeout_sec=0.1)
+    except ExternalShutdownException:
+        pass
+    except RCLError:
+        if rclpy.ok():  # a wait set racing the shutdown is noise; anything else is a bug
+            raise
 
 
 def main() -> int:
@@ -41,13 +53,11 @@ def main() -> int:
     node = Node("test_joint_api")
     pub = node.create_publisher(JointState, config.topic, QOS)
     set_ros_publisher(pub, node.get_clock())
-    spin_thread = threading.Thread(target=_spin_node, args=(node,), daemon=True)
+    spin_thread = threading.Thread(target=spin_node, args=(node,), daemon=True)
     spin_thread.start()
     app = create_app(config)
     try:
-        from aiohttp import web
-
         web.run_app(app, host=config.host, port=config.port)
     finally:
-        rclpy.shutdown()
+        rclpy.try_shutdown()
     return 0
