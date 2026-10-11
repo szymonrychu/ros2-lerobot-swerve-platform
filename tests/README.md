@@ -555,6 +555,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   input validation, poi_store down = RobotError, distance/bearing from the robot heading, label / near-point filters, no
   pose = no distance; one-time import of the legacy `objects.json` (fields kept, file renamed `.migrated`, no second
   import, retried while poi_store is down, empty file renamed, corrupt file moved aside)
+- navigation footprint (`test_footprint.py`): static / dynamic / conservative footprints, arm shadow and carried circle,
+  republish tick and consumers; a keep_position release without fresh joint states publishes the conservative
+  footprint with the carried circle at once (kind `conservative`, no "footprint unchanged" outcome) and the tick keeps it
 - look_around (`test_look_around.py`): equal-step plan covering 360 deg and its limits, clearance = footprint
   circumscribed radius + margin, refusal on a close obstacle or a missing lidar (robot not moved), the rotate-capture
   loop (3 rotations between 4 stops plus the closing step, camera and lidar at every stop, expected vs achieved

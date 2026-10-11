@@ -569,22 +569,23 @@ def test_keep_release_without_fresh_joints_publishes_conservative_footprint(tmp_
     ctl.take("arm")
     move_arm(robot, SIDEWAYS)
     make_stale(robot)
-    ctl.release("arm", keep_position=True, carried_object_radius_m=CARRIED)
     nav = ctl.footprint
     assert nav is not None
-    nav.tick()
-    assert nav.state().kind == "conservative"
+    outcome = ctl.release("arm", keep_position=True, carried_object_radius_m=CARRIED)
+    assert "footprint unchanged" not in str(outcome)
+    # published at once by the release itself, with the carried circle, before any tick.
+    state = nav.state()
+    assert state.kind == "conservative" and state.carried_object_radius_m == CARRIED
     reach = settings().conservative_reach_m
     mount = Point(robot.arm_mount_xy())
     published = Polygon(last_polygon(robot, COSTMAP_TOPICS[0]))
-    assert published.buffer(TOL).contains(mount.buffer(reach - 1e-3))
+    assert published.buffer(TOL).contains(mount.buffer(reach + CARRIED - 1e-3))
     assert published.buffer(TOL).contains(Polygon(static_points()))
     assert last_param(robot, "/collision_monitor", "ArmStop.enabled") is True
-    # control passes the carried object with the conservative footprint.
-    state = nav.publish_conservative(CARRIED)
+    # the republish tick keeps the conservative footprint and its carried circle.
+    nav.tick()
+    state = nav.state()
     assert state.kind == "conservative" and state.carried_object_radius_m == CARRIED
-    published = Polygon(last_polygon(robot, COSTMAP_TOPICS[0]))
-    assert published.buffer(TOL).contains(mount.buffer(reach + CARRIED - 1e-3))
 
 
 # --- publishing (M7, M8, M9, M10, L1, L12) ----------------------------------------------------------------------------

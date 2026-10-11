@@ -456,6 +456,7 @@ class ControlManager:
         Returns:
             str: homed | kept | failed: <why> | skipped: <why> | stopped: <why> (a footprint that could not be
                 computed is appended).
+            The footprint follows: static when homed, else the measured pose or, without fresh joint states, the conservative one.
         """
         if not self.arm_held:
             return NOT_HELD if self.arm.lost_note is None else f"{NOT_HELD} ({self.arm.lost_note})"
@@ -487,14 +488,15 @@ class ControlManager:
         return self.publish_footprint(outcome, radius)
 
     def publish_footprint(self, outcome: str, radius: float | None) -> str:
-        """Footprint after an arm release: static when homed, else the measured (frozen) pose.
+        """Footprint after an arm release: static when homed, the measured (frozen) pose when joint states are
+        fresh, else the conservative max-reach footprint (the pose is unknown), each with the carried object.
 
         Args:
             outcome (str): Arm reset outcome.
             radius (float | None): Carried object radius (m).
 
         Returns:
-            str: The outcome, with "; footprint unchanged: <why>" when the pose is unknown.
+            str: The outcome, unchanged.
         """
         if self.footprint is None:
             return outcome
@@ -503,7 +505,8 @@ class ControlManager:
             return outcome
         sample = self.arm.fresh_sample()
         if sample is None:
-            return f"{outcome}; footprint unchanged: no fresh arm joint states"
+            self.footprint.publish_conservative(radius)
+            return outcome
         self.footprint.publish_dynamic(self.arm.body_check.part_points(self.arm.measured(sample)), radius)
         return outcome
 
