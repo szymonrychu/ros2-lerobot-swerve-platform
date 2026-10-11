@@ -225,3 +225,11 @@ def test_plan_tree_and_retry_defaults() -> None:
 def test_plan_tree_and_retry_bounds(bad: dict) -> None:
     with pytest.raises(ValidationError):
         ClaudeAgentConfig(**bad)
+
+
+def test_client_group_vars_sets_plan_tree_and_retry_keys() -> None:
+    nodes = yaml.safe_load(CLIENT_GROUP_VARS.read_text())["ros2_nodes"]
+    agent = next(node for node in nodes if node["name"] == "claude_agent")
+    raw = yaml.safe_load(agent["config"])
+    assert (raw["max_loop_iterations"], raw["retry_success_threshold"], raw["max_auto_retries"]) == (5, 0.5, 6)
+    ClaudeAgentConfig(**raw)

@@ -1626,6 +1626,12 @@ ros2_nodes:
       max_turn_cap: 200
       max_phase_rw_cap: 40
       max_phase_turn_cap: 40
+      # Plan tree: largest max_iterations of a while node (1 to 5). A phase closed as failed is re-entered
+      # automatically when its p_retry_success >= retry_success_threshold, attempts and budget allow it, and
+      # fewer than max_auto_retries automatic re-entries happened in this instruction.
+      max_loop_iterations: 5
+      retry_success_threshold: 0.5
+      max_auto_retries: 6
       # Event monitor of mcp_server: critical events interrupt the running model step (see nodes/claude_agent/README.md).
       robot_events_topic: /robot_events
       http_host: "127.0.0.1"
