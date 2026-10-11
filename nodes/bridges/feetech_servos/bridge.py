@@ -39,6 +39,7 @@ from .registers import (
     write_register,
 )
 from .registers import read_register as read_register_raw
+from .serial_wait import use_blocking_reads
 from .set_register import apply_set_register
 from .startup_torque import hold_current_positions, set_startup_torque_state
 from .sync_read import PRESENT_POSITION_ADDRESS, SYNC_READ_LENGTH, read_positions_and_speeds
@@ -136,6 +137,7 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
             from st3215 import ST3215
 
             servo = ST3215(config.device)
+            use_blocking_reads(servo)  # the library opens the port non-blocking and busy-waits on reads
         except (ImportError, ValueError, OSError) as e:
             node.get_logger().error(f"Failed to open device {config.device}: {e}. No joint_states will be published.")
             servo = None
