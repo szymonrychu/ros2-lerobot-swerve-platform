@@ -210,3 +210,18 @@ async def test_user_stop_wins_over_a_pending_follow_up(tmp_path: Path) -> None:
     await asyncio.wait_for(runner.wait_idle(), timeout=3)
     assert len(FakeClient.instances[-1].queries) == 1
     assert [e for e in events.history() if e["type"] == "turn_end"][0]["status"] == "interrupted"
+
+
+async def test_critical_event_interrupts_at_once_even_while_a_phase_note_interrupt_waits_for_tools(
+    tmp_path: Path,
+) -> None:
+    runner, _ = event_runner(tmp_path)
+    runner.bind_loop()
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.1)
+    runner.interrupt_pending = runner.interrupt_deferred = True
+    runner.tools_in_flight = {"m": "mcp__robot__move_arm_cartesian"}
+    runner.handle_robot_event(parse_robot_event(raw()))
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    client = FakeClient.instances[-1]
+    assert len(client.queries) == 2 and "collision_stop: bumper hit" in client.queries[1]

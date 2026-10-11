@@ -16,6 +16,7 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     ResultMessage,
     StreamEvent,
+    ToolResultBlock,
     ToolUseBlock,
     UserMessage,
 )
@@ -51,7 +52,7 @@ from .poi_clear import PoiClearResult, call_clear_agent_pois
 from .prompt import build_system_prompt
 from .robot_events import FOLLOWUP_TEMPLATE, SEVERITY_CRITICAL, parse_robot_event
 from .robot_stop import STOP_TOOL_NAME, RobotStopResult, call_robot_stop
-from .tools import BUILTIN_TOOLS, KIND_UNCAPPED, MCP_SERVER_NAME, NOTES_TOOLS, ROBOT_PREFIX, EffectorGate
+from .tools import BUILTIN_TOOLS, KIND_UNCAPPED, MCP_SERVER_NAME, NOTES_TOOLS, ROBOT_PREFIX, EffectorGate, short_name
 
 REMOVED_ENV_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 # Sources of the stop call shown in the chat (the `source` field of its tool_call/tool_result events).
@@ -63,6 +64,14 @@ STOP_SOURCE_MAX_TURNS = "max_turns"
 STOP_SOURCE_ERROR = "error"
 STOP_SOURCE_TURN_CAP = "turn_cap"
 STOP_SENT_TEXT = "stop sent"
+# Claude Code's tool result for a call cancelled by an interrupt (also its text for a user rejection at a prompt).
+GENERIC_REJECTION_MARKER = "The user doesn't want to proceed with this tool use"
+REJECTION_CORRECTION = (
+    'NOTE FROM THE AGENT RUNNER: the {name} call came back "The user doesn\'t want to proceed with this tool use". '
+    "That is Claude Code's text for a call cancelled by an interrupt of the agent runner; it was not the user: nobody "
+    "rejected the call and the user is not waiting for you. Re-run the call if you still need it and continue the "
+    "instruction."
+)
 AUTH_ERROR_MESSAGE = (
     "Claude authentication failed (HTTP 401): CLAUDE_CODE_OAUTH_TOKEN is missing, invalid or expired. "
     "Run `claude setup-token`, then `export CLAUDE_CODE_OAUTH_TOKEN=...; ./scripts/deploy-nodes.sh client claude_agent`."
@@ -208,6 +217,9 @@ class AgentRunner:
         self.turn_capped = False
         self.streaming = False
         self.pending_followup: str | None = None
+        self.interrupt_pending = False
+        self.interrupt_deferred = False
+        self.tools_in_flight: dict[str, str] = {}
         self.clock: Callable[[], float] = time.monotonic
         self.last_instruction: str | None = None
         self.last_status = ""
@@ -366,6 +378,7 @@ class AgentRunner:
         self.interrupted = False
         self.turn_capped = False
         self.pending_followup = None
+        self.interrupt_pending = False
         self.digest = self.take_digest()
         self.last_instruction, self.last_status, self.last_text = text, "", ""
         self.gate.reset()
@@ -554,6 +567,7 @@ class AgentRunner:
                 await self.abort_on_timeout()
         finally:
             self.pending_followup = None
+            self.interrupt_pending = False
             self.busy = False
             BUSY.set(0)
             self.last_activity_at = time.time()
@@ -598,6 +612,8 @@ class AgentRunner:
         finished = False
         followup: str | None = None
         self.streaming = True
+        self.tools_in_flight = {}
+        self.interrupt_deferred = False
         try:
             async for message in client.receive_response():
                 if isinstance(message, StreamEvent):
@@ -609,6 +625,9 @@ class AgentRunner:
                     for block in message.content:
                         if isinstance(block, ToolUseBlock):
                             TOOL_USES.labels(block.name).inc()
+                            self.tools_in_flight[block.id] = block.name
+                if isinstance(message, UserMessage):
+                    self.note_tool_results(message)
                 for event_type, fields in normalize_message(message, self.config):
                     self.events.append(event_type, **fields)
                     if event_type == "assistant_text":
@@ -623,6 +642,9 @@ class AgentRunner:
                         await self.halt(STOP_SOURCE_TURN_CAP)
                     else:
                         self.note_phase_turn_cap()
+                if isinstance(message, UserMessage) and self.interrupt_deferred and not self.tools_in_flight:
+                    self.interrupt_deferred = False
+                    self.schedule_interrupt()
                 if isinstance(message, ResultMessage):
                     finished = True
                     self.record_usage(message)
@@ -672,16 +694,52 @@ class AgentRunner:
         """Inject a note when the active phase just used all its turns: interrupt the model, then continue with the note.
 
         The instruction goes on (only the instruction-level turn maximum ends it); the gate already refuses robot tools
-        for the phase, the note tells the model to complete or revise.
+        for the phase, the note tells the model to complete or revise. While tool calls of the turn are still running
+        the interrupt is deferred until their results arrived: an interrupt cancels a running call, and Claude Code
+        reports a cancelled call to the model as "The user doesn't want to proceed with this tool use".
         """
         note = self.plan.turn_note()
         if note is None or self.interrupted:
             return
-        if self.pending_followup is not None:
-            self.pending_followup += f" {note}"
+        self.add_followup(note)
+        if self.interrupt_pending:
             return
-        self.pending_followup = note
-        self.schedule_interrupt()
+        self.interrupt_pending = True
+        if self.tools_in_flight:
+            self.interrupt_deferred = True
+        else:
+            self.schedule_interrupt()
+
+    def add_followup(self, text: str) -> None:
+        """Append a text to the follow-up prompt sent when the current stream ends.
+
+        Args:
+            text (str): The text (a note, a robot event or a correction).
+        """
+        self.pending_followup = text if self.pending_followup is None else f"{self.pending_followup} {text}"
+
+    def note_tool_results(self, message: UserMessage) -> None:
+        """Track finished tool calls and correct Claude Code's generic rejection text in the follow-up.
+
+        A call cancelled by an interrupt of the runner (phase turn note, robot event) comes back with Claude Code's
+        "The user doesn't want to proceed with this tool use ... wait for the user" text. Unless the user stopped the
+        instruction, a ``tool_cancelled`` event is emitted and a correction saying it was not the user is queued for
+        the follow-up (sent when the stream ends, so the instruction continues instead of ending on that text).
+
+        Args:
+            message (UserMessage): A message of the response stream carrying tool results.
+        """
+        if not isinstance(message.content, list):
+            return
+        for block in message.content:
+            if not isinstance(block, ToolResultBlock):
+                continue
+            name = short_name(self.tools_in_flight.pop(block.tool_use_id, block.tool_use_id))
+            if not block.is_error or self.interrupted or GENERIC_REJECTION_MARKER not in str(block.content):
+                continue
+            self.logger.warning(f"tool call {name} ({block.tool_use_id}) was cancelled by Claude Code")
+            self.events.append("tool_cancelled", id=block.tool_use_id, name=name)
+            self.add_followup(REJECTION_CORRECTION.format(name=name))
 
     def schedule_interrupt(self) -> None:
         """Interrupt the model in the background (bounded by stop_timeout_s) so a queued follow-up is sent next."""
@@ -700,6 +758,7 @@ class AgentRunner:
             the result is a real error).
         """
         pending, self.pending_followup = self.pending_followup, None
+        self.interrupt_pending = False
         if pending is None or self.interrupted or self.turn_capped:
             return None
         aborted = (result.terminal_reason or "").startswith("aborted")
@@ -729,7 +788,9 @@ class AgentRunner:
 
         Runs on the asyncio loop. Idle events are only logged and emitted. A second critical event within
         ``robot_event_debounce_s`` of the last interrupt does not interrupt again (while the follow-up is still pending
-        its text is extended with the new event).
+        its text is extended with the new event). A critical event interrupts at once even while a phase-note
+        interrupt is deferred until the tool calls in flight finish (tool calls it cancels are corrected by
+        note_tool_results).
 
         Args:
             event (dict[str, Any]): Normalized event from parse_robot_event.
@@ -750,15 +811,17 @@ class AgentRunner:
         if self.interrupted or self.turn_capped:
             return
         line = FOLLOWUP_TEMPLATE.format(type=event["type"], message=event["message"])
-        if self.pending_followup is not None:
-            self.pending_followup += f" Also: {event['type']}: {event['message']}."
+        if self.interrupt_pending and not self.interrupt_deferred:
+            self.add_followup(f"Also: {event['type']}: {event['message']}.")
             return
         now = time.monotonic()
         last = self.last_event_interrupt
-        if last is not None and now - last < self.config.robot_event_debounce_s:
+        if not self.interrupt_deferred and last is not None and now - last < self.config.robot_event_debounce_s:
             return
         self.last_event_interrupt = now
-        self.pending_followup = line
+        self.add_followup(line)
+        self.interrupt_pending = True
+        self.interrupt_deferred = False
         self.schedule_interrupt()
 
     async def run_turn(self, text: str) -> None:

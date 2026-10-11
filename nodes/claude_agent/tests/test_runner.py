@@ -1016,3 +1016,109 @@ async def test_last_activity_is_set_by_an_instruction_end_and_a_reset(tmp_path: 
     await asyncio.sleep(0.01)
     assert await runner.reset() is True
     assert runner.last_activity_at > ended
+
+
+# --- runner interrupts and the CLI's generic "user doesn't want to proceed" rejection ------------------------------
+
+GENERIC_REJECTION = (
+    "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the "
+    "new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed."
+)
+
+
+def result_for(tool_use_id: str, text: str = "ok", is_error: bool = False) -> UserMessage:
+    return UserMessage(
+        content=[ToolResultBlock(tool_use_id=tool_use_id, content=[{"type": "text", "text": text}], is_error=is_error)]
+    )
+
+
+class ParallelToolsPhaseNoteClient(FakeClient):
+    """The 2026-10-11 10:07 sequence: one turn with an effector and a sensor call; the effector result arrives first
+    and reaches the phase turn cap while the sensor call is still running. Records whether the runner interrupted
+    before the sensor call finished (which makes the CLI cancel it with the generic rejection)."""
+
+    interrupted_with_tool_in_flight: bool | None = None
+
+    def receive_response(self):
+        return self.segment()
+
+    async def segment(self):
+        if len(self.queries) == 1:
+            await planner(phase_spec(turns=1, name="Locate"))(self)
+            yield assistant(
+                ToolUseBlock(id="m", name="mcp__robot__move_arm_cartesian", input={}),
+                ToolUseBlock(id="c", name="mcp__robot__get_annotated_camera_image", input={}),
+            )
+            yield result_for("m")
+            await asyncio.sleep(0.05)
+            ParallelToolsPhaseNoteClient.interrupted_with_tool_in_flight = self.interrupted.is_set()
+            yield result_for("c")
+            await asyncio.wait_for(self.interrupted.wait(), 1)
+            self.interrupted.clear()
+            yield make_result(terminal_reason="aborted_streaming")
+        else:
+            yield assistant(TextBlock(text="completing"))
+            yield make_result()
+
+
+async def test_phase_turn_cap_interrupt_waits_for_tool_calls_in_flight(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path)
+    runner.client_factory = ParallelToolsPhaseNoteClient
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    client = FakeClient.instances[-1]
+    assert ParallelToolsPhaseNoteClient.interrupted_with_tool_in_flight is False
+    assert len(client.queries) == 2 and client.queries[1].startswith("PHASE TURN CAP: phase 1 'Locate'")
+    assert [e["status"] for e in events.history() if e["type"] == "turn_end"] == ["done"]
+
+
+class GenericRejectionClient(FakeClient):
+    """First segment: a sensor call comes back with the CLI's generic rejection and the model ends its turn; the
+    follow-up segment finishes."""
+
+    def receive_response(self):
+        return self.segment()
+
+    async def segment(self):
+        if len(self.queries) == 1:
+            yield assistant(ToolUseBlock(id="c", name="mcp__robot__get_annotated_camera_image", input={}))
+            yield result_for("c", GENERIC_REJECTION, is_error=True)
+            yield assistant(TextBlock(text="I've stopped as you asked."))
+            yield make_result()
+        else:
+            yield assistant(TextBlock(text="continuing"))
+            yield make_result()
+
+
+async def test_generic_rejection_is_corrected_in_a_follow_up_that_says_it_was_not_the_user(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path)
+    runner.client_factory = GenericRejectionClient
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    client = FakeClient.instances[-1]
+    assert len(client.queries) == 2
+    note = client.queries[1]
+    assert "get_annotated_camera_image" in note and "not the user" in note and "re-run" in note.lower()
+    [cancelled] = [e for e in events.history() if e["type"] == "tool_cancelled"]
+    assert cancelled["id"] == "c" and cancelled["name"] == "get_annotated_camera_image"
+    assert [e["status"] for e in events.history() if e["type"] == "turn_end"] == ["done"]
+
+
+async def test_generic_rejection_after_a_user_stop_is_not_corrected(tmp_path: Path) -> None:
+    holder: dict[str, AgentRunner] = {}
+
+    async def user_stops(client: FakeClient) -> None:
+        await holder["runner"].interrupt()
+
+    script = [
+        assistant(ToolUseBlock(id="c", name="mcp__robot__get_camera_image", input={})),
+        user_stops,
+        result_for("c", GENERIC_REJECTION, is_error=True),
+        make_result(terminal_reason="aborted_streaming"),
+    ]
+    runner, events, _ = make_runner(tmp_path, script=script)
+    holder["runner"] = runner
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    assert len(FakeClient.instances[-1].queries) == 1
+    assert not [e for e in events.history() if e["type"] == "tool_cancelled"]

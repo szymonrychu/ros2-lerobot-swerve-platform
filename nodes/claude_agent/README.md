@@ -138,7 +138,17 @@ Gate (`tools.py`, `can_use_tool`):
   `tool_denied` event).
 - Phase turn cap: when the active phase has used its turns, effector tools are denied (sensors stay allowed) for that phase and, once per phase, the runner
   interrupts the model and continues the same instruction with a `PHASE TURN CAP` note (the same follow-up mechanism as robot events).
-  The instruction continues.
+  The instruction continues. While tool calls of the turn are still running (a parallel effector + sensor call) the interrupt
+  waits until all their results arrived: an interrupt cancels a running call, and Claude Code reports a cancelled call to the
+  model as "The user doesn't want to proceed with this tool use ... wait for the user".
+- An exception inside the gate (or in its denial callback) never escapes to the SDK (that would reach the model as a generic
+  rejection): it is logged and the call is denied with `internal error in the permission gate: <type>: <message>; the call did
+  not run. This refusal comes from an error in the agent runner, not the user ...`.
+- Generic rejection correction: when a tool result carries Claude Code's "The user doesn't want to proceed with this tool use"
+  text and the user did not stop the instruction (a robot-event interrupt, or any other cancellation), the runner emits a
+  `tool_cancelled` event and adds `NOTE FROM THE AGENT RUNNER: the <tool> call came back ... it was not the user ... Re-run the call
+  if you still need it` to the follow-up message, which is sent when the stream ends, so the instruction continues. The system
+  prompt also says refusals come from the budget gate or errors and that this text never means the person stopped it.
 - Instruction turn maximum: when `max_turn_cap` turns are used (checked when the tool results of that turn arrive, so its calls
   complete) the runner interrupts the model, stops the robot (`robot_stop`, source `turn_cap`) and ends the instruction with
   `turn_end` status `turn_cap`.
@@ -190,6 +200,8 @@ A background `SingleThreadedExecutor` thread runs the callback, which hands the 
   stop and report.` The robot is not stopped by the node (the reflexes already acted), no `turn_end` is emitted for the
   interrupted segment, and the plan, phase usage and turn count carry over. A critical event within `robot_event_debounce_s` (2 s) of the
   last interrupt does not interrupt again (while the follow-up is still pending its text is extended with the new event).
+  A critical event interrupts at once even while a phase-turn-note interrupt is waiting for running tool calls; a call it
+  cancels gets the generic rejection correction above.
 - Never interrupts while idle, during session start, after a user stop or after the turn cap.
 
 ## Stopping the robot
@@ -310,6 +322,7 @@ Every event is `{seq: int, ts: float, type, ...}`:
 | `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped` / `notes` / `plan`), `input`; `source` only on the node's own `stop` call (see above) |
 | `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated`; `source` only on the node's own `stop` call |
 | `tool_denied` | `id` (may be null), `name`, `reason` |
+| `tool_cancelled` | `id`, `name` (short); a tool result came back with Claude Code's generic "user doesn't want to proceed" text without a user stop (the follow-up corrects it for the model) |
 | `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls) |
 | `error` | `message` (authentication failures, missing token file, session failures) |
 | `plan` | the plan payload (`complexity`, `rationale`, `revised`, `revision_rationale`, `active_phase`, `phases` with caps and usage); emitted when the agent sets its plan |
