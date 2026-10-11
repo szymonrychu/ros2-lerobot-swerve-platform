@@ -53,6 +53,52 @@ All numbers must be finite. Files written before `object` existed load unchanged
   `revision` back, logs the error and answers `ok: false` with the reason, so memory and file never diverge and the node
   keeps running; no `/poi/list` is published for it.
 
+## Photo store (`poi_store/photo_store.py`)
+
+A photo is a POI of kind `photo`: a camera JPEG plus the camera pose at capture. Photos are not in `poi.json` and never
+on `/poi/list`; they live in `photos.store_dir` (default `/var/lib/ros2/poi/lookups`, the former mcp_server lookup
+store, kept in place so no data moves) as `<id>.jpg` files plus one line each in the append-only `index.jsonl`.
+mcp_server writes the JPEG; poi_store is the only writer of the index. The record type, `PhotoAdd` and
+`PhotoSelector` are the shared contract in `ros2_common` (`lookups.py`, `photos.py`); readers (mcp_server, web_ui)
+parse the index through `ros2_common.lookups.IndexCache`.
+
+`PhotoStore(root, max_records, max_bytes, max_age_days, max_image_bytes, clock)` (or `PhotoStore.from_settings`):
+
+- `records()` / `get(id)` / `id in store`: the valid index lines, oldest first (re-parsed only when the file changed).
+- `add(PhotoAdd)`: the file must resolve directly inside the store (a symlink out is refused), exist, be a regular file
+  and be at most `max_image_bytes`; `bytes` comes from the file size (a client value is not accepted) and a duplicate
+  id is refused. The line is appended with `fsync`, after terminating a trailing line a crash left without newline,
+  then retention runs.
+- `update(id, changes)`: only `name`, `note`, `status` and `poi_ids` change (an `id` equal to the photo's and
+  `kind: "photo"` are ignored); any capture field fails with `photo capture data is immutable`. Only that line is
+  rewritten (corrupt lines are kept) and `updated_at` is set; an update that changes nothing writes nothing.
+- `delete(id)`: rewrites the index without the line (corrupt lines kept) and unlinks the JPEG.
+- `delete_many(PhotoSelector)`: exactly one of `ids`, `older_than_s`, `keep_newest`, narrowed by `created_by` and
+  `camera` (so `keep_newest` counts within the filter). One index rewrite, then the JPEGs are unlinked; returns
+  `{removed, bytes_freed, missing}` (requested ids that are unknown or filtered out). With `dry_run` it returns
+  `{would_remove, bytes}` and changes nothing.
+- `strip_links(poi_id)`: removes a deleted POI from every photo's `poi_ids`; rewrites only when a photo references it.
+- `prune_now()`: retention without an add (the `prune_interval_s` timer); returns the number removed.
+- `summary()`: the `/poi/photos` payload `{revision, count, bytes, oldest_ts, newest_ts, limits: {max_records,
+  max_bytes, max_age_days}}` (timestamps `null` when empty); raises `OSError` when the index cannot be read, so the
+  node publishes nothing instead of a placeholder.
+
+`PhotoStoreError` (a `ValueError`) and `PhotoNotFoundError` (a `KeyError`) carry the refusal reason.
+
+Retention (moved from mcp_server `lookup_store.py`, same semantics): nothing is rewritten until the record count, the
+total JPEG bytes or the oldest age exceeds its limit by `PRUNE_SLACK` (5 %); then the oldest records are dropped back to
+the limit itself and their JPEGs unlinked. The record just added is never dropped. A prune rewrite drops corrupt lines.
+JPEGs that no index line names (a crash between the JPEG write and the add, or an add that timed out and never
+arrived) are swept once they are at least 60 s old, on the first prune of the process and on every index rewrite.
+
+The `revision` (in memory, starts at 0) moves only on a real change: an add, an update that changed something, a delete,
+a non-empty bulk delete, a link strip or a prune that removed something. A dry run, a refused command or an
+orphan sweep does not move it.
+
+Lines written before photo POIs existed (the mcp_server lookup format) load unchanged: kind `photo`, `created_by`
+`agent`, `status` `open`, `name` `""`, `updated_at` 0 and `view` derived on read; they update and delete like any
+other photo.
+
 ## Persistence
 
 `store_path` (default `/var/lib/ros2/poi/poi.json`, directory created and owned by the node user by Ansible) holds
@@ -67,6 +113,14 @@ list_topic: /poi/list
 command_topic: /poi/command
 result_topic: /poi/result
 metrics_port: 19109   # Prometheus /metrics on 127.0.0.1; omit to disable (env METRICS_PORT is the fallback)
+photos:                         # photo store; unknown keys are rejected
+  store_dir: /var/lib/ros2/poi/lookups   # <id>.jpg files and index.jsonl
+  max_records: 3000             # most photos kept, oldest pruned first
+  max_bytes: 300000000          # most total JPEG bytes kept
+  max_age_days: 14              # oldest photo age kept
+  max_image_bytes: 5000000      # largest single JPEG an add accepts
+  prune_interval_s: 3600        # retention timer period, so the age limit holds without camera activity
+  summary_topic: /poi/photos    # latched photo summary topic
 ```
 
 ## Metrics
@@ -77,9 +131,12 @@ Served on `127.0.0.1:<metrics_port>` (19109) at `/metrics`, scraped by Alloy. Be
 - `poi_commands_total{op,ok}`: commands handled (`op` is add/update/delete/clear, or `invalid` for unparseable ones).
 - `poi_save_failures_total`: store file writes that failed (the change is rolled back).
 - `poi_count`: POIs in the store.
+- `poi_photo_count`, `poi_photo_bytes`: photos in the photo index and their total JPEG bytes.
+- `poi_photo_pruned_total`: photos removed by retention (count, bytes or age limit; manual deletes are not counted).
 
 ## Layout and tests
 
-- `poi_store/models.py` pydantic `Poi` / `Command`; `store.py` `PoiStore` (pure logic, no rclpy); `config.py`;
+- `poi_store/models.py` pydantic `Poi` / `Command`; `store.py` `PoiStore` (pure logic, no rclpy); `photo_store.py`
+  `PhotoStore` (photo index and retention, no rclpy; depends on `ros2-common` from `shared/`); `config.py`;
   `node.py` the only rclpy module.
 - `cd nodes/poi_store && uv run pytest tests -q` (no ROS needed); `uv run poe lint`.

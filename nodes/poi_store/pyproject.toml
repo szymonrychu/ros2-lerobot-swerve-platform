@@ -7,10 +7,12 @@ requires-python = ">=3.12,<4"
 dependencies = [
     "pyyaml>=6.0",
     "pydantic>=2.5",
+    "ros2-common",
     "ros2-metrics",
 ]
 
 [tool.uv.sources]
+ros2-common = { path = "../../shared", editable = true }
 ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
 
 [dependency-groups]
