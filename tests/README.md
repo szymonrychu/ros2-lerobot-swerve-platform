@@ -1464,6 +1464,9 @@ Static wiring invariants of the poi_store node (Ansible, playbooks, lint script,
 | `test_poi_store_node_type_defaults` | `poi_store` node type: native, `nodes/poi_store`, `python3 -m poi_store`, `config_path` `/etc/ros2/poi_store`, env `POI_STORE_CONFIG`. |
 | `test_poi_store_entry_after_mcp_server_with_config` | Present + enabled `ros2_nodes` entry directly after `mcp_server`; config has `store_path` `/var/lib/ros2/poi/poi.json` and the `/poi/list`, `/poi/command`, `/poi/result` topics. |
 | `test_poi_directory_task_owned_by_node_user` | `poi_store_dir.yml` creates `/var/lib/ros2/poi` owned by `ansible_user`. |
+| `test_poi_store_config_photos_block` | The poi_store config carries `photos:` (`store_dir` `/var/lib/ros2/poi/lookups`, `max_records` 3000, `max_bytes` 300000000, `max_age_days` 14, `max_image_bytes` 5000000, `prune_interval_s` 3600, `summary_topic` `/poi/photos`). |
+| `test_poi_store_config_photos_block_has_a_comment_per_key` | Every key of the `photos:` block has a comment line directly above it. |
+| `test_poi_directory_task_ensures_photo_directory_after_parent` | `poi_store_dir.yml` also creates `/var/lib/ros2/poi/lookups` (`ansible_user`, `0755`) after `/var/lib/ros2/poi`. |
 | `test_poi_playbook_deploys_node_and_creates_directory` | `deploy_nodes_client.yml` creates the directory and deploy `poi_store` (after `mcp_server`). |
 | `test_lint_script_and_node_files` | `scripts/lint-all-nodes.sh` lists the node; pyproject, uv.lock, README and tests exist. |
 | `test_docs_mention_poi_store` | nodes/README.md, ansible/README.md and the ansible-deploy skill mention `poi_store`. |

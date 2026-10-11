@@ -1857,6 +1857,22 @@ ros2_nodes:
       list_topic: /poi/list
       command_topic: /poi/command
       result_topic: /poi/result
+      # Photo store: the camera photos mcp_server writes as JPEGs, indexed and pruned by poi_store.
+      photos:
+        # Directory of the <id>.jpg files and index.jsonl (created by playbooks/tasks/poi_store_dir.yml).
+        store_dir: /var/lib/ros2/poi/lookups
+        # Most photos kept; the oldest go first.
+        max_records: 3000
+        # Most total JPEG bytes kept (300 MB).
+        max_bytes: 300000000
+        # Oldest photo age kept (days).
+        max_age_days: 14
+        # Largest single JPEG an add accepts (5 MB).
+        max_image_bytes: 5000000
+        # Period of the retention timer (s), so the age limit holds without camera activity.
+        prune_interval_s: 3600
+        # Latched std_msgs/String photo summary topic.
+        summary_topic: /poi/photos
   - name: costmap_zones
     node_type: costmap_zones
     present: true
