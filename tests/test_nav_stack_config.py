@@ -1272,3 +1272,18 @@ def test_slam_waits_for_a_lagging_odom_transform() -> None:
     """slam_toolbox's message filter dropped every scan whose odom TF arrived after transform_timeout 0.2 s."""
     p = yaml.safe_load(SLAM_PARAMS.read_text())["slam_toolbox"]["ros__parameters"]
     assert p["transform_timeout"] >= 0.5
+
+
+def test_swerve_controller_tilt_guard_block() -> None:
+    """Tilt guard: larger limits on the longer (pitch) axis, warning below error, brake on error, state topic."""
+    tilt = node_config("swerve_controller")["tilt_guard"]
+    assert tilt["enabled"] is True
+    assert tilt["imu_topic"] == "/imu/data"
+    assert tilt["state_topic"] == "/tilt_guard/state"
+    assert tilt["roll_warning_deg"] < tilt["roll_error_deg"]
+    assert tilt["pitch_warning_deg"] < tilt["pitch_error_deg"]
+    assert tilt["pitch_warning_deg"] > tilt["roll_warning_deg"]
+    assert tilt["pitch_error_deg"] > tilt["roll_error_deg"]
+    assert tilt["error_action"] == "brake"
+    for key in ("persistence_s", "hysteresis_deg", "recovery_hold_s", "level_reference_roll_deg"):
+        assert key in tilt

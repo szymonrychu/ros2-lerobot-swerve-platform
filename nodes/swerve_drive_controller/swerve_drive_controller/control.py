@@ -12,7 +12,14 @@ from .kinematics import (
     wheel_states,
     wheels_parked,
 )
-from .metrics import CMD_VEL_AGE, JOINT_STATES_STALE, LOOP_DURATION, ODOM_PUBLISHED, SLIP_RESIDUAL
+from .metrics import (
+    CMD_VEL_AGE,
+    JOINT_STATES_STALE,
+    LOOP_DURATION,
+    ODOM_PUBLISHED,
+    SLIP_RESIDUAL,
+    TILT_INHIBITED_COMMANDS,
+)
 
 CMD_VEL_DEADBAND = 0.005  # m/s and rad/s
 NAN = float("nan")
@@ -90,6 +97,23 @@ class ControlOutput:
     parked: bool = False
 
 
+def gate_cmd_vel(sample: CmdVelSample, inhibited: bool) -> CmdVelSample:
+    """Drop a received drive command while the tilt guard inhibits the base drive.
+
+    Args:
+        sample: Command just received on cmd_vel.
+        inhibited: True while the tilt guard is in ERROR.
+
+    Returns:
+        CmdVelSample: The sample itself, or an empty sample (no command) when inhibited; dropped commands increment
+        tilt_guard_inhibited_commands_total.
+    """
+    if not inhibited:
+        return sample
+    TILT_INHIBITED_COMMANDS.inc()
+    return CmdVelSample()
+
+
 def build_joint_command(
     joint_names: list[str], steer_targets: list[float], drive_velocities: list[float]
 ) -> tuple[list[str], list[float], list[float]]:
@@ -118,6 +142,7 @@ def control_step(
     cmd: CmdVelSample,
     joints: JointSample,
     now: float,
+    inhibited: bool = False,
 ) -> tuple[ControlOutput | None, ControlState]:
     """Run one control cycle.
 
@@ -127,6 +152,8 @@ def control_step(
         cmd: Latest cmd_vel and its receive time.
         joints: Latest joint states and their update time.
         now: Current monotonic time, s.
+        inhibited: Tilt guard ERROR: the command is ignored, every drive is commanded to 0 rad/s (brake, torque
+            stays on) and the steering is held at its last targets (no idle recentering).
 
     Returns:
         tuple[ControlOutput | None, ControlState]: Output (None when joint states are stale or incomplete, so
@@ -143,7 +170,8 @@ def control_step(
         return None, replace(state, last_odom_time=None)
     steer_angles, drive_velocities = measured
 
-    vx, vy, omega = cmd.twist if now - cmd.time_s <= config.cmd_vel_timeout_s else (0.0, 0.0, 0.0)
+    fresh = now - cmd.time_s <= config.cmd_vel_timeout_s and not inhibited
+    vx, vy, omega = cmd.twist if fresh else (0.0, 0.0, 0.0)
     if abs(vx) < CMD_VEL_DEADBAND and abs(vy) < CMD_VEL_DEADBAND and abs(omega) < CMD_VEL_DEADBAND:
         vx, vy, omega = 0.0, 0.0, 0.0
 
@@ -162,7 +190,9 @@ def control_step(
     )
     stopped = vx == 0.0 and vy == 0.0 and omega == 0.0
     stopped_since = (state.stopped_since if state.stopped_since is not None else now) if stopped else None
-    if stopped and config.idle_recenter_s > 0 and now - stopped_since >= config.idle_recenter_s:
+    if inhibited:
+        desired_steer, desired_drive, steer_flip = list(steer_targets), [0.0] * 4, state.steer_flip
+    elif stopped and config.idle_recenter_s > 0 and now - stopped_since >= config.idle_recenter_s:
         # Idle long enough: steer straight ahead (drive is already zero while stopped).
         desired_steer = [0.0] * 4
         steer_flip = None
@@ -211,6 +241,7 @@ def run_cycle(
     joints: JointSample,
     now: float,
     publish: Callable[[ControlOutput, ControlState], None],
+    inhibited: bool = False,
 ) -> tuple[ControlState, bool]:
     """Run one timed control cycle: control_step, then publish when there is an output.
 
@@ -222,12 +253,13 @@ def run_cycle(
         now: Current monotonic time, s.
         publish: Called with (output, new state) when joint states are fresh and complete; publishes the
             joint command, odometry and TF. Odometry is counted after it returns.
+        inhibited: Tilt guard ERROR (see control_step).
 
     Returns:
         tuple[ControlState, bool]: State for the next cycle and whether anything was published.
     """
     with LOOP_DURATION.time():
-        output, new_state = control_step(config, state, cmd, joints, now)
+        output, new_state = control_step(config, state, cmd, joints, now, inhibited)
         if output is None:
             return new_state, False
         publish(output, new_state)

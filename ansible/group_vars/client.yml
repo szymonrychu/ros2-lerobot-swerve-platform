@@ -957,6 +957,27 @@ ros2_nodes:
       steer_error_threshold_rad: 0.35
       # Forward-kinematics residual (m/s) above which one slipping wheel is dropped from the odometry twist.
       slip_residual_threshold_mps: 0.05
+      # Tilt guard: roll/pitch from the /imu/data orientation minus the level reference. Pitch tips the robot over
+      # its longer front/rear edge, so its limits are larger. Warning: consumers stop automatic driving and ask for
+      # manual recovery. Error: cmd_vel ignored, wheels braked at zero speed (torque_off: drive torque off, the robot
+      # can roll on a slope). Latched JSON state on /tilt_guard/state.
+      tilt_guard:
+        enabled: true
+        imu_topic: /imu/data
+        state_topic: /tilt_guard/state
+        torque_topic: /follower/set_register
+        roll_warning_deg: 8.0
+        roll_error_deg: 15.0
+        pitch_warning_deg: 12.0
+        pitch_error_deg: 20.0
+        persistence_s: 0.5
+        hysteresis_deg: 2.0
+        recovery_hold_s: 2.0
+        imu_timeout_s: 0.5
+        level_reference_roll_deg: 0.0
+        level_reference_pitch_deg: 0.0
+        error_action: brake
+        state_publish_hz: 2.0
       joint_names:
         - fl_drive
         - fl_steer

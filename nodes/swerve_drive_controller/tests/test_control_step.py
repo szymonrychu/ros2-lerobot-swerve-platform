@@ -14,6 +14,7 @@ from swerve_drive_controller.control import (
     JointSample,
     build_joint_command,
     control_step,
+    gate_cmd_vel,
 )
 
 NAMES = ["fl_drive", "fl_steer", "fr_drive", "fr_steer", "rl_drive", "rl_steer", "rr_drive", "rr_steer"]
@@ -255,3 +256,50 @@ def test_control_step_flags_parked_from_measured_wheel_speeds(tmp_path: Path) ->
     deadband = CmdVelSample((0.0, 0.0, 1e-4), 10.0)
     tiny, _ = control_step(cfg, ControlState(), deadband, make_joints(10.0, 0.0, 0.0), 10.0)
     assert tiny is not None and tiny.parked, "a command inside the deadband is no command"
+
+
+def test_inhibited_ignores_drive_command_and_brakes(tmp_path: Path) -> None:
+    """Tilt error: a fresh drive command is ignored; every wheel is commanded to zero speed (torque stays on)."""
+    cfg = make_config(tmp_path)
+    out, state = control_step(
+        cfg, ControlState(), CmdVelSample((0.2, 0.0, 0.0), 10.0), make_joints(10.0), 10.0, inhibited=True
+    )
+    assert out is not None
+    assert [out.velocities[i] for i in (0, 2, 4, 6)] == [0.0, 0.0, 0.0, 0.0]
+    assert out.moving is False
+
+
+def test_inhibited_holds_steering_without_recentering(tmp_path: Path) -> None:
+    """Steering is held at its last target while inhibited, also past idle_recenter_s."""
+    cfg = make_config(tmp_path)
+    state = ControlState()
+    _, state = control_step(cfg, state, CmdVelSample((0.0, 0.1, 0.0), 10.0), make_joints(10.0), 10.0)
+    held = list(state.steer_targets or [])
+    assert all(abs(s) > 1.0 for s in held)
+    for t in (10.5, 14.0, 30.0):
+        out, state = control_step(
+            cfg, state, CmdVelSample((0.3, 0.0, 0.5), t), make_joints(t, steer=1.5), t, inhibited=True
+        )
+        assert out is not None
+        assert [out.positions[i] for i in (1, 3, 5, 7)] == held
+        assert [out.velocities[i] for i in (0, 2, 4, 6)] == [0.0] * 4
+
+
+def test_not_inhibited_passes_command_through(tmp_path: Path) -> None:
+    cfg = make_config(tmp_path)
+    out, _ = control_step(
+        cfg, ControlState(), CmdVelSample((0.1, 0.0, 0.0), 10.0), make_joints(10.0), 10.0, inhibited=False
+    )
+    assert out is not None and out.moving
+    assert all(out.velocities[i] > 0.0 for i in (0, 2, 4, 6))
+
+
+def test_gate_cmd_vel_drops_and_counts_commands_while_inhibited() -> None:
+    from prometheus_client import REGISTRY
+
+    before = REGISTRY.get_sample_value("tilt_guard_inhibited_commands_total") or 0.0
+    sample = CmdVelSample((0.2, 0.0, 0.1), 5.0)
+    assert gate_cmd_vel(sample, inhibited=False) is sample
+    assert REGISTRY.get_sample_value("tilt_guard_inhibited_commands_total") == before
+    assert gate_cmd_vel(sample, inhibited=True) == CmdVelSample()
+    assert REGISTRY.get_sample_value("tilt_guard_inhibited_commands_total") == before + 1

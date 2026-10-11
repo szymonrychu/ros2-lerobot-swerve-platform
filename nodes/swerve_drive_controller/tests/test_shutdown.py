@@ -7,10 +7,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from swerve_drive_controller.tilt_guard import TiltGuardConfig
+
 from .ros_stubs import FakeRclpy, context_invalid, external_shutdown, install_ros_stubs
 
 install_ros_stubs(
-    "geometry_msgs", "geometry_msgs.msg", "nav_msgs", "nav_msgs.msg", "sensor_msgs", "sensor_msgs.msg", "tf2_ros"
+    "geometry_msgs",
+    "geometry_msgs.msg",
+    "nav_msgs",
+    "nav_msgs.msg",
+    "sensor_msgs",
+    "sensor_msgs.msg",
+    "std_msgs",
+    "std_msgs.msg",
+    "tf2_ros",
 )
 
 CONFIG = SimpleNamespace(
@@ -26,6 +36,8 @@ CONFIG = SimpleNamespace(
     wheel_radius_m=0.03,
     max_steer_angle_rad=1.0,
     max_wheel_angular_velocity_rad_s=10.0,
+    joint_names=["fl_drive", "fl_steer", "fr_drive", "fr_steer", "rl_drive", "rl_steer", "rr_drive", "rr_steer"],
+    tilt_guard=TiltGuardConfig(),
 )
 
 

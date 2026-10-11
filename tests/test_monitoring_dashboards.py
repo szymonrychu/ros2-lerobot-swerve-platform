@@ -44,7 +44,8 @@ NODE_CONTRACT_METRICS = {
     "filter_input_age_seconds", "filter_active_source", "filter_source_switches_total", "filter_loop_overruns_total",
     # swerve_controller
     "swerve_cmd_vel_age_seconds", "swerve_joint_states_stale_total", "swerve_slip_residual",
-    "swerve_odom_published_total",
+    "swerve_odom_published_total", "tilt_guard_level", "tilt_roll_deg", "tilt_pitch_deg",
+    "tilt_guard_inhibited_commands_total",
     # rf2o_odom_relay
     "relay_messages_total", "relay_dt_rejected_total",
     # bno055_imu

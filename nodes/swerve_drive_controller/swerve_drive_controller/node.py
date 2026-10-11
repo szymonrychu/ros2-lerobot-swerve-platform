@@ -1,5 +1,6 @@
 """ROS2 swerve drive controller: cmd_vel -> joint commands, odometry from FK."""
 
+import json
 import math
 import time
 
@@ -9,14 +10,16 @@ from nav_msgs.msg import Odometry
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from ros2_metrics import resolve_metrics_port, start_metrics_server
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import Imu, JointState
+from std_msgs.msg import String
 from tf2_ros import TransformBroadcaster
 
 from .config import SwerveControllerConfig
-from .control import CmdVelSample, ControlOutput, ControlState, JointSample, run_cycle
+from .control import CmdVelSample, ControlOutput, ControlState, JointSample, gate_cmd_vel, run_cycle
 from .kinematics import odometry_twist_variances
+from .tilt_guard import TiltGuard, TiltLevel, TiltTransition, drive_torque_payloads
 
 NODE_NAME = "swerve_controller"
 WAIT_LOG_INTERVAL_S = 5.0
@@ -26,6 +29,15 @@ CONTROL_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
 )
+# Latched tilt guard state: a late subscriber (web UI, agent) gets the current level at once.
+TILT_STATE_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
+# REP 145: orientation_covariance[0] == -1 means the IMU provides no orientation estimate.
+IMU_NO_ORIENTATION_COVARIANCE = -1.0
 
 
 def joint_maps(msg: JointState) -> tuple[dict[str, float], dict[str, float]]:
@@ -122,6 +134,12 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
     (steer positions, drive velocities, NaN elsewhere) and /odom, plus the odom -> base_link TF when
     config.publish_tf is set.
 
+    The tilt guard (config.tilt_guard) evaluates every /imu/data orientation and publishes the latched
+    /tilt_guard/state JSON on every level change and at state_publish_hz. While it is in ERROR every received
+    cmd_vel is ignored and each cycle commands zero wheel speed with the steering held (error_action brake); with
+    error_action torque_off the drive motors' torque is also switched off through the bridge set_register topic
+    and switched back on when the error clears.
+
     Args:
         config: Controller configuration.
     """
@@ -134,6 +152,18 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
     pub_cmd = node.create_publisher(JointState, config.joint_commands_topic, CONTROL_QOS)
     pub_odom = node.create_publisher(Odometry, config.odom_topic, CONTROL_QOS)
     tf_broadcaster = TransformBroadcaster(node) if config.publish_tf else None
+    tilt_cfg = config.tilt_guard
+    guard = TiltGuard(tilt_cfg)
+    pub_tilt_state = node.create_publisher(String, tilt_cfg.state_topic, TILT_STATE_QOS)
+    pub_torque = (
+        node.create_publisher(String, tilt_cfg.torque_topic, CONTROL_QOS)
+        if tilt_cfg.error_action == "torque_off"
+        else None
+    )
+    drive_joints = [config.joint_names[i] for i in (0, 2, 4, 6)]
+    tilt_state_period_s = 1.0 / tilt_cfg.state_publish_hz
+    last_tilt_state_time = 0.0
+    imu_was_stale = False
 
     latest_cmd = CmdVelSample()
     latest_positions: dict[str, float] = {}
@@ -144,7 +174,44 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
 
     def on_cmd_vel(msg: Twist) -> None:
         nonlocal latest_cmd
-        latest_cmd = CmdVelSample((msg.linear.x, msg.linear.y, msg.angular.z), time.monotonic())
+        sample = CmdVelSample((msg.linear.x, msg.linear.y, msg.angular.z), time.monotonic())
+        latest_cmd = gate_cmd_vel(sample, guard.base_drive_inhibited)
+
+    def publish_tilt_state(now: float) -> None:
+        nonlocal last_tilt_state_time
+        state_dict = guard.state_dict(now, clock.now().nanoseconds)
+        if state_dict is None:  # no IMU sample yet: nothing real to report
+            return
+        msg = String()
+        msg.data = json.dumps(state_dict)
+        pub_tilt_state.publish(msg)
+        last_tilt_state_time = now
+
+    def on_tilt_transition(transition: TiltTransition, now: float) -> None:
+        nonlocal latest_cmd
+        if transition.current is TiltLevel.ERROR:
+            logger.error(transition.message)
+            latest_cmd = CmdVelSample()  # never resume a command received before the error
+        elif transition.current is TiltLevel.WARNING:
+            logger.warn(transition.message)
+        else:
+            logger.info(f"tilt guard: {transition.previous.name.lower()} cleared, {transition.message}")
+        entered_error = transition.current is TiltLevel.ERROR
+        if pub_torque is not None and entered_error != (transition.previous is TiltLevel.ERROR):
+            for payload in drive_torque_payloads(drive_joints, enable=not entered_error):
+                torque_msg = String()
+                torque_msg.data = payload
+                pub_torque.publish(torque_msg)
+        publish_tilt_state(now)
+
+    def on_imu(msg: Imu) -> None:
+        if msg.orientation_covariance[0] == IMU_NO_ORIENTATION_COVARIANCE:
+            return
+        now = time.monotonic()
+        q = msg.orientation
+        transition = guard.update_from_quaternion(q.x, q.y, q.z, q.w, now)
+        if transition is not None:
+            on_tilt_transition(transition, now)
 
     def on_joint_states(msg: JointState) -> None:
         nonlocal last_joint_states_time
@@ -166,22 +233,44 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
             tf_broadcaster.sendTransform(build_transform(config, new_state.pose, stamp))
 
     def on_timer() -> None:
-        nonlocal state, last_wait_log
+        nonlocal state, last_wait_log, imu_was_stale
         now = time.monotonic()
+        imu_stale = guard.last_sample_s is not None and guard.imu_stale(now)
+        if imu_stale != imu_was_stale:
+            imu_was_stale = imu_stale
+            if imu_stale:
+                logger.warn(
+                    f"tilt guard: IMU on {tilt_cfg.imu_topic} stale for > {tilt_cfg.imu_timeout_s:.1f} s, "
+                    f"holding level {guard.level.name.lower()}"
+                )
+            else:
+                logger.info(f"tilt guard: IMU on {tilt_cfg.imu_topic} fresh again")
+        if now - last_tilt_state_time >= tilt_state_period_s:
+            publish_tilt_state(now)
         joints = JointSample(latest_positions, latest_velocities, last_joint_states_time)
         # Nothing is published without fresh, complete wheel state (the bridge watchdog stops the wheels).
-        state, published = run_cycle(config, state, latest_cmd, joints, now, publish_cycle)
+        state, published = run_cycle(
+            config, state, latest_cmd, joints, now, publish_cycle, inhibited=guard.base_drive_inhibited
+        )
         if not published and now - last_wait_log > WAIT_LOG_INTERVAL_S:
             last_wait_log = now
             logger.warn(f"Waiting for fresh joint states on {config.joint_states_topic}")
 
     node.create_subscription(Twist, config.cmd_vel_topic, on_cmd_vel, CONTROL_QOS)
     node.create_subscription(JointState, config.joint_states_topic, on_joint_states, CONTROL_QOS)
+    node.create_subscription(Imu, tilt_cfg.imu_topic, on_imu, qos_profile_sensor_data)
     node.create_timer(1.0 / config.control_loop_hz, on_timer)
 
     logger.info(
         f"Swerve controller: {config.cmd_vel_topic} -> {config.joint_commands_topic}, odom -> {config.odom_topic} (Lx={config.half_length_m:.4f} Ly={config.half_width_m:.4f} R={config.wheel_radius_m:.3f}, steer limit {config.max_steer_angle_rad:.2f} rad, wheel max {config.max_wheel_angular_velocity_rad_s:.2f} rad/s, "
         f"{config.control_loop_hz:.0f} Hz, tf={config.publish_tf})"
+    )
+    logger.info(
+        f"Tilt guard {'enabled' if tilt_cfg.enabled else 'DISABLED'}: {tilt_cfg.imu_topic} -> {tilt_cfg.state_topic}, "
+        f"roll warn/error {tilt_cfg.roll_warning_deg:.1f}/{tilt_cfg.roll_error_deg:.1f} deg, pitch warn/error "
+        f"{tilt_cfg.pitch_warning_deg:.1f}/{tilt_cfg.pitch_error_deg:.1f} deg, persistence {tilt_cfg.persistence_s:.1f} s, "
+        f"hysteresis {tilt_cfg.hysteresis_deg:.1f} deg, hold {tilt_cfg.recovery_hold_s:.1f} s, "
+        f"error_action {tilt_cfg.error_action}"
     )
 
     try:

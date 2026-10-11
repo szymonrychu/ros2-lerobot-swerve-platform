@@ -1,12 +1,16 @@
-"""Configuration loading for swerve drive controller (geometry, topics, frame_ids, safeguard)."""
+"""Configuration loading for swerve drive controller (geometry, topics, frame_ids, safeguard, tilt guard)."""
 
+import logging
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
+
+from .tilt_guard import TiltGuardConfig
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/swerve_drive_controller/config.yaml")
 ENV_CONFIG_PATH_KEY = "SWERVE_DRIVE_CONTROLLER_CONFIG"
@@ -32,6 +36,8 @@ DEFAULT_SLIP_RESIDUAL_THRESHOLD_MPS = 0.05
 # Accepted string spellings for boolean options (compared lower-case).
 BOOL_TRUE_STRINGS = frozenset({"true", "yes", "on", "1"})
 BOOL_FALSE_STRINGS = frozenset({"false", "no", "off", "0"})
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -62,6 +68,8 @@ class SwerveControllerConfig:
         publish_tf: Broadcast the odom -> base_link TF (False: only /odom is published).
         imu_offset_xyyaw: Optional [x, y, yaw] offset of IMU from base_link (default 0,0,0).
         rplidar_offset_xyyaw: Optional [x, y, yaw] offset of lidar from base_link (default 0,0,0).
+        metrics_port: Prometheus /metrics port, or None for the ros2_metrics default.
+        tilt_guard: Tilt guard limits, timing and error action (validated by pydantic).
     """
 
     half_length_m: float
@@ -87,6 +95,7 @@ class SwerveControllerConfig:
     imu_offset_xyyaw: tuple[float, float, float]
     rplidar_offset_xyyaw: tuple[float, float, float]
     metrics_port: int | None = None
+    tilt_guard: TiltGuardConfig = field(default_factory=TiltGuardConfig)
 
 
 def parse_bool(value: Any, default: bool) -> bool:
@@ -134,7 +143,8 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
         path: Path to YAML file. If None, uses DEFAULT_CONFIG_PATH.
 
     Returns:
-        SwerveControllerConfig | None: Parsed config, or None if file missing/invalid.
+        SwerveControllerConfig | None: Parsed config, or None if file missing/invalid. An invalid tilt_guard block
+        makes the whole config invalid (safety limits never silently fall back to defaults).
     """
     if path is None:
         path = DEFAULT_CONFIG_PATH
@@ -191,6 +201,11 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
     rplidar_offset_xyyaw = _parse_offset(data.get("rplidar_offset_xyyaw"))
 
     raw_metrics_port = data.get("metrics_port")
+    try:
+        tilt_guard = TiltGuardConfig.model_validate(data.get("tilt_guard") or {})
+    except ValidationError as exc:
+        LOGGER.error("Invalid tilt_guard config in %s: %s", path, exc)
+        return None
     return SwerveControllerConfig(
         half_length_m=half_length_m,
         half_width_m=half_width_m,
@@ -215,6 +230,7 @@ def load_config(path: Path | None = None) -> SwerveControllerConfig | None:
         imu_offset_xyyaw=imu_offset_xyyaw,
         rplidar_offset_xyyaw=rplidar_offset_xyyaw,
         metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
+        tilt_guard=tilt_guard,
     )
 
 

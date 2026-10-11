@@ -14,3 +14,9 @@ LOOP_DURATION = Histogram(
     "swerve_loop_duration_seconds", "Duration of one control cycle including publishing", buckets=LOOP_DURATION_BUCKETS
 )
 ODOM_PUBLISHED = Counter("swerve_odom_published_total", "Odometry messages published")
+TILT_GUARD_LEVEL = Gauge("tilt_guard_level", "Tilt guard level: 0 ok, 1 warning, 2 error (base drive inhibited)")
+TILT_ROLL_DEG = Gauge("tilt_roll_deg", "Base roll from the IMU orientation minus the level reference, deg")
+TILT_PITCH_DEG = Gauge("tilt_pitch_deg", "Base pitch from the IMU orientation minus the level reference, deg")
+TILT_INHIBITED_COMMANDS = Counter(
+    "tilt_guard_inhibited_commands", "cmd_vel messages ignored because the tilt guard inhibits the base drive"
+)
