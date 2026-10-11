@@ -14,6 +14,10 @@ from .test_contact_delta import Gripper
 from .test_contact_delta import make as make_delta
 
 CONFIG = McpServerConfig()
+# These tests drive the absolute-load contact path (stall, target_load, retighten); the load-delta contact has its own
+# tests (test_contact_delta.py, delta_close below), so the default presets' contact_load_delta is cleared here.
+for preset in CONFIG.grip_profiles.presets.values():
+    preset.contact_load_delta = None
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
 HOLD_DELAY = 0.37  # distinct hold_check_delay_s so the fake can tell the post-grasp hold check sleeps apart
 STALL = -0.09  # jaw stops on a thin object 0.075 rad before closed, within the settle tolerance (0.59 rad travel)
