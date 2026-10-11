@@ -4,11 +4,36 @@ import os
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/poi_store/config.yaml")
 ENV_CONFIG_PATH_KEY = "POI_STORE_CONFIG"
 DEFAULT_STORE_PATH = "/var/lib/ros2/poi/poi.json"
+DEFAULT_PHOTO_DIR = "/var/lib/ros2/poi/lookups"
+
+
+class PhotoSettings(BaseModel):
+    """Photo store (photo POIs: <id>.jpg plus one index.jsonl line each) and its retention.
+
+    Attributes:
+        store_dir: Directory of the JPEGs and index.jsonl (mcp_server writes the JPEGs, poi_store the index).
+        max_records: Most photos kept; the oldest go first.
+        max_bytes: Most total JPEG bytes kept.
+        max_age_days: Oldest photo age kept (days).
+        max_image_bytes: Largest single JPEG an add accepts.
+        prune_interval_s: Period of the retention timer (s), so the age limit holds without camera activity.
+        summary_topic: Latched std_msgs/String photo summary topic.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    store_dir: str = Field(default=DEFAULT_PHOTO_DIR, min_length=1)
+    max_records: int = Field(default=3000, gt=0)
+    max_bytes: int = Field(default=300_000_000, gt=0)
+    max_age_days: float = Field(default=14.0, gt=0.0, allow_inf_nan=False)
+    max_image_bytes: int = Field(default=5_000_000, gt=0)
+    prune_interval_s: float = Field(default=3600.0, gt=0.0, allow_inf_nan=False)
+    summary_topic: str = Field(default="/poi/photos", min_length=1)
 
 
 class PoiStoreConfig(BaseModel):
@@ -20,6 +45,7 @@ class PoiStoreConfig(BaseModel):
         command_topic: std_msgs/String command topic.
         result_topic: std_msgs/String result topic.
         metrics_port: Prometheus /metrics port on 127.0.0.1; None falls back to env METRICS_PORT, else disabled.
+        photos: Photo store settings.
     """
 
     store_path: str = DEFAULT_STORE_PATH
@@ -27,6 +53,7 @@ class PoiStoreConfig(BaseModel):
     command_topic: str = "/poi/command"
     result_topic: str = "/poi/result"
     metrics_port: int | None = None
+    photos: PhotoSettings = Field(default_factory=PhotoSettings)
 
 
 def load_config(path: Path | None = None) -> PoiStoreConfig | None:
