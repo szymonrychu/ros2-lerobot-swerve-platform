@@ -938,6 +938,20 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   (`test_tilt_snapshot_*`, `test_last_event_age_s_newest_of_type_and_none_without`,
   `test_odom_speed_is_planar_speed_fresh_within_odom_fresh_s`), `test_footprint.py` (`test_arm_outside_static_m_*`: 0
   for the parked arm and inside, equals the farthest shadow vertex distance, a 5 cm protrusion measures 0.05 within 5 mm)
+- guard rule wiring (`test_guard_wiring.py`, fake robot through `RobotMCPServer.call_tool`, no base motion): tool entry -
+  `test_enforce_rule_refuses_navigate_to_pose_and_the_base_receives_nothing` (rejection text, digest appended, enforce
+  counter, refused before the blocking counter), `test_dry_run_rule_lets_navigate_through_and_counts` (dry_run counter
+  and `guard_rule_would_refuse` log), `test_tool_without_rules_never_calls_a_provider` (patched `GuardState.get` not
+  read for unruled tools, read for the ruled one), `test_take_control_arm_refused_after_human_takeover_base_allowed`
+  (injected `human_takeover`; arm lease not taken, base allowed), `test_guard_origin_is_the_tool_name_inside_the_tool_body`;
+  queue dispatch - `test_queued_base_relative_refused_stops_the_queue_even_with_on_fail_skip` (`step_failed` status
+  `guard_rule` with `data.rules`, `queue_stopped` dropping the next step, never skipped, nothing reaches the base),
+  `test_queued_arm_step_runs_with_its_kind_as_guard_origin` (arm phase refusal as `status: refused`); arm motion start -
+  `test_move_arm_cartesian_with_overreaching_ik_target_is_refused` (patched IK target shoulder_lift 1.9 / elbow_flex
+  -0.1, nothing streamed), `test_same_pose_from_arm_home_and_park_is_not_checked` (`arm_home` and the
+  `release_control` park reach that pose with no hit), `test_motion_guard_runs_once_per_motion_before_the_first_setpoint`
+  (start and full target pose), `test_motion_guard_checks_every_leg_of_a_blend_and_every_path_sample`,
+  `test_motion_guard_rejection_moves_nothing`, `test_roll_guard_runs_before_the_motion_guard`
 - unmeasured efforts (`test_effort_nan.py`, review L25: feetech_servos publishes NaN effort for joints without a
   reading): `arm.finite_effort` (finite value, None for NaN / inf / missing); a NaN effort of a non-effort joint is
   absent from `ArmState.efforts` and a NaN gripper effort gives `gripper_effort` None in the arm state, motion results

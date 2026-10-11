@@ -1407,6 +1407,31 @@ itself; every other field comes from a `FieldSource` (`get(field, ctx)`, ctx = p
   hypothetical tool-phase verdicts (`Verdict`: rule, mode, outcome pass/reject/skip, basis, message, values) without
   counters or logs.
 
+### Hooks and ordering
+
+`tools.register_tools` builds ONE `GuardEngine` (`config.guard_rules` over `guard_state.GuardState`) shared by three
+hooks (`RobotMCPServer.guard_engine` holds it):
+
+1. **Tool entry** (`RobotMCPServer.call_tool_with_digest`): lease refusal -> queue-exclusive refusal -> **guard tool
+   phase** -> blocking-motion counter -> tool body (battery and tilt gates inside). Only when
+   `has_rules("tool", name)`: `check_tool(name, arguments)` runs in the threadpool (the field providers take the
+   footprint / monitor locks, never on the event loop). A `GuardRejection` becomes a `ToolError` with the rejection text
+   (the digest is appended by the usual error path) and nothing reaches the robot. The tool body runs with
+   `GUARD_ORIGIN` = the tool name (next to the lease scope; it propagates into the threadpool like the expected lease).
+2. **Queue dispatch** (`MotionQueue.dispatch`, `guard_gate`): stop -> battery -> lease -> tilt (base steps) -> **guard
+   step phase** (`check_step(kind, step fields)` for every step of the blend group) -> precondition -> run. A rejection
+   fails the step with `status: guard_rule`, `data.rules` = the refusing rule names, and ALWAYS stops the queue
+   (`queue_stopped`), also with `on_fail='skip'`: the later steps were planned assuming this one ran. The group runs
+   with `GUARD_ORIGIN` = the head step's kind.
+3. **Arm motion start** (`ArmController.check_motion_guards`, all of `stream_to`, `move_path`, `move_blend`): the
+   wrist roll guard first, then `motion_guard(start, full target pose)` -> `check_arm` for every leg (every blend
+   target, every path sample) once, before the first setpoint and never inside the 25 Hz streaming loop. A rejection
+   is an `ArmError` carrying the rejection text, so tools report it like any refused arm motion (the MCP framework
+   prefixes "Error executing tool ...") and the queue fails the step with `status: refused`. Only origins named in a
+   rule's `arm_motion_from` are checked: `arm_home`, the `release_control` park, `/arm/home`, web UI grasps and stop
+   holds (no `GUARD_ORIGIN`, or an origin no rule may name) never are. This is where the IK-solved targets of
+   `move_arm_cartesian` and grasp sub-motions become visible.
+
 ### Rejection text
 
 Stable, parsed by claude_agent (`guard_rules.GUARD_REFUSAL_PATTERN`, one match per refused rule):
@@ -1428,6 +1453,10 @@ an unruled tool and < 500 us with five rules over fake providers.
 
 ## Safety model
 
+- **Guard rules**: configured `guard_rules` (see Guard rules) are checked at tool entry (after the lease and
+  queue-exclusive refusals, before the tool body), at queue dispatch (after the tilt gate, before the precondition;
+  a refusal always stops the queue) and once per arm motion leg before its first setpoint (after the wrist roll guard).
+  Recovery (`stop`, `cancel_motions`, `release_control`, `arm_home`) and read-only tools are never gated.
 - **Base**: navigation goes through Nav2 (planner, controller, velocity smoother, collision monitor). `drive` publishes
   on `/cmd_vel_nav` (upstream of the smoother and collision monitor), clamped and limited to 2 s, and always ends with
   a zero twist; the swerve controller also stops on its own 0.5 s cmd_vel timeout. One base motion at a time.

@@ -351,6 +351,9 @@ class ArmController:
         self.floor_guard = FloorGuard(kinematics, config.floor_guard, mount, self.jaw, self.gripper)
         self.body_check = SelfCollisionChecker.from_config(kinematics, config, self.jaw)
         self.tilt_source = tilt_source or (lambda: None)
+        # Guard rule arm phase (tools.register_tools wires GuardEngine.check_arm): called with (start, full target
+        # pose) once per motion leg before the first setpoint; raises ArmError to refuse. None = no rule engine.
+        self.motion_guard: Callable[[dict[str, float], dict[str, float]], None] | None = None
         self._held = False
         self._acquired_at = -math.inf
         # Bumped whenever a lease starts or ends (take, release, take-over): a tool that checked the lease at entry
@@ -925,7 +928,7 @@ class ArmController:
         # Targets are in measured (follower) space, limits in URDF space: clamp in URDF space, then convert back.
         safe = self.clamp_targets(targets)
         clamped = sorted(j for j in targets if abs(safe[j] - targets[j]) > CHANGED_EPS)
-        self.check_roll_guard(safe, self.command_base(sample), sample)
+        self.check_motion_guards(safe, self.command_base(sample), sample)
         self.ensure_lease()
         start = self.command_base(self.require_sample())
         with self.holding_arm_for_gripper(list(targets)):
@@ -967,7 +970,7 @@ class ArmController:
             clamped = sorted({j for s, c in zip(path, safe, strict=True) for j in s if abs(c[j] - s[j]) > CHANGED_EPS})
             base = self.command_base(sample)
             for target in safe:
-                self.check_roll_guard(target, base, sample)
+                self.check_motion_guards(target, base, sample)
             self.ensure_lease()
             start = self.command_base(self.require_sample())
             full = [start | s for s in safe]
@@ -1024,7 +1027,7 @@ class ArmController:
             for target in safe:
                 opening = max(opening, target.get(self.gripper, -math.inf))
                 guard_view = target | ({self.gripper: opening} if opening > -math.inf else {})
-                self.check_roll_guard(guard_view, pose, sample)
+                self.check_motion_guards(target, pose, sample, roll_view=guard_view)
                 pose = pose | target
                 full.append(pose)
             self.ensure_lease()
@@ -1117,6 +1120,33 @@ class ArmController:
                 self.cfg.limits.arm_limit_margin_overrides,
             )
         )
+
+    def check_motion_guards(
+        self,
+        safe: dict[str, float],
+        start: dict[str, float],
+        sample: JointSample,
+        roll_view: dict[str, float] | None = None,
+    ) -> None:
+        """Pre-motion guards of one motion leg, before its first setpoint (never on the streaming path).
+
+        The hard-coded roll guard runs first, then the injected guard rule hook (motion_guard) with the start pose and
+        the full target pose (joints the leg does not name keep their start value). The hook checks only the agent
+        motion named by guard_rules.GUARD_ORIGIN, so arm_home, a park, /arm/home, web UI motions and stop holds pass.
+
+        Args:
+            safe (dict[str, float]): Clamped targets of the leg (measured space).
+            start (dict[str, float]): Pose the leg starts from (last commanded or measured).
+            sample (JointSample): Fresh joint sample.
+            roll_view (dict[str, float] | None): Targets the roll guard judges instead of safe (a blend counts the
+                widest gripper target of the earlier legs); None uses safe.
+
+        Raises:
+            ArmError: When the roll guard or a guard rule refuses the leg (nothing moved).
+        """
+        self.check_roll_guard(safe if roll_view is None else roll_view, start, sample)
+        if self.motion_guard is not None:
+            self.motion_guard(start, start | safe)
 
     def check_roll_guard(self, safe: dict[str, float], start: dict[str, float], sample: JointSample) -> None:
         """Refuse a wrist roll while the gripper is wide open (the open moving finger can jam against the robot).

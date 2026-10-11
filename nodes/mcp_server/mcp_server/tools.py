@@ -32,6 +32,8 @@ from .control import MAX_CARRIED_RADIUS_M, ControlManager, LeaseNeed, ReleaseTar
 from .floor_guard import TiltOverrideDeg
 from .footprint import NavFootprint
 from .grasp_tools import SURFACES_DESC, floor_override, grip_profile_description
+from .guard_rules import GUARD_ORIGIN, GuardEngine, GuardRejection
+from .guard_state import GuardState
 from .metrics import TOOL_CALLS, TOOL_DURATION
 from .models import (
     ArmMotionResult,
@@ -317,6 +319,7 @@ class RobotMCPServer(MCPServer):
         self.monitor = monitor
         self.motion_queue: MotionQueue | None = None
         self.control: ControlManager | None = None
+        self.guard_engine: GuardEngine | None = None
         self.blocking: dict[str, int] = {}  # running blocking motion tools (QUEUE_EXCLUSIVE_TOOLS) -> count
 
     def blocking_tool(self) -> str | None:
@@ -397,14 +400,23 @@ class RobotMCPServer(MCPServer):
                     f"{name} refused: the motion queue is running (it owns the robot's motion). Use enqueue_motions, "
                     "wait for it with wait_for_event, or end it with cancel_motions / stop"
                 )
+            engine = self.guard_engine
+            if engine is not None and engine.has_rules("tool", name):
+                try:  # threadpool: the field providers take the footprint / monitor locks
+                    await run_in_threadpool(engine.check_tool, name, arguments)
+                except GuardRejection as rejection:
+                    logging.getLogger("mcp_server.tools").warning("%s", rejection.text)
+                    raise ToolError(rejection.text) from rejection
             blocks = exclusive or name in PARKING_TOOLS
             if blocks:
                 self.blocking[name] = self.blocking.get(name, 0) + 1
             session = lookup_tools.CURRENT_SESSION.set(session_key(context))
+            origin = GUARD_ORIGIN.set(name)  # the guard rule arm phase checks this tool's arm motions by its name
             try:
                 with self.lease_scope(need):
                     result = await super().call_tool(name, arguments, context)
             finally:
+                GUARD_ORIGIN.reset(origin)
                 lookup_tools.CURRENT_SESSION.reset(session)
                 if blocks:
                     self.blocking[name] -= 1
@@ -475,6 +487,10 @@ def register_tools(
 ) -> None:
     """Register every tool module (TOOL_MODULES plus extra_modules) with one shared ToolContext.
 
+    One GuardEngine (config.guard_rules over GuardState) serves the three guard rule hooks: tool entry
+    (RobotMCPServer.call_tool_with_digest), queue dispatch (MotionQueue guard_gate) and arm motion start
+    (ArmController.motion_guard).
+
     Args:
         server (MCPServer): Target server.
         robot (RobotApi): Robot implementation.
@@ -488,6 +504,10 @@ def register_tools(
     if footprint is not None:
         footprint.start()  # mcp_server start: the measured arm pose's footprint, then the republish tick
     control = ControlManager(robot.arm, robot, config, guard, footprint=footprint)
+    engine = GuardEngine(
+        config.guard_rules,
+        GuardState(robot, control, monitor, config, footprint, guard, queue_busy=lambda: queue.busy()),
+    )
     queue = MotionQueue(
         robot,
         config,
@@ -497,7 +517,9 @@ def register_tools(
         tilt_gate=lambda: monitor.tilt_refusal("nav"),
         lease_gate=control.step_refusal,
         lease_scope=control.step_scope,
+        guard_gate=engine.check_step,
     )
+    robot.arm.motion_guard = lambda start, target: arm_motion_guard(engine, start, target)
     control.queue_busy = queue.busy
     if isinstance(server, RobotMCPServer):
         control.blocking_tool = server.blocking_tool
@@ -505,6 +527,7 @@ def register_tools(
     if isinstance(server, RobotMCPServer):
         server.motion_queue = queue
         server.control = control
+        server.guard_engine = engine
     ctx = ToolContext(
         server=server,
         robot=robot,
@@ -517,6 +540,24 @@ def register_tools(
     )
     for module in (*TOOL_MODULES, *extra_modules):
         module(ctx)
+
+
+def arm_motion_guard(engine: GuardEngine, start: dict[str, float], target: dict[str, float]) -> None:
+    """Guard rule arm phase as the arm's motion_guard hook: a rejection becomes an ArmError (tools and the queue
+    report it like any refused arm motion).
+
+    Args:
+        engine (GuardEngine): The shared engine (checks only the origin in GUARD_ORIGIN).
+        start (dict[str, float]): Pose the motion leg starts from.
+        target (dict[str, float]): Full clamped target pose of the leg.
+
+    Raises:
+        ArmError: With the rejection text when enforce rules refuse.
+    """
+    try:
+        engine.check_arm(start, target)
+    except GuardRejection as rejection:
+        raise ArmError(rejection.text) from rejection
 
 
 def register_core_tools(ctx: ToolContext) -> None:

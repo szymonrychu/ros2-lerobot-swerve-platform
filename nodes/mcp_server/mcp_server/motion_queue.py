@@ -26,6 +26,7 @@ from .config import HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
 from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import ObjectSpec
 from .grasp_tools import floor_override
+from .guard_rules import GUARD_ORIGIN, GuardRejection
 from .ik import UnreachableError
 from .metrics import MOTION_QUEUE_DEPTH, MOTION_STEPS, MOTION_TRACKING_ERROR
 from .models import ArmMotionResult, BasePose, NavigationResult, RobotError, SettlePolicy
@@ -656,6 +657,7 @@ class MotionQueue:
         tilt_gate: Callable[[], str | None] | None = None,
         lease_gate: Callable[[str], str | None] | None = None,
         lease_scope: Callable[[str], AbstractContextManager[None]] | None = None,
+        guard_gate: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         """Create the queue (the worker starts on the first enqueue).
 
@@ -676,6 +678,9 @@ class MotionQueue:
             lease_scope (Callable[[str], AbstractContextManager[None]] | None): Binds a running step to the lease it
                 was checked against (control.ControlManager.step_scope): a lease lost while the step plans or moves
                 fails its next motion.
+            guard_gate (Callable[[str, dict[str, Any]], None] | None): Guard rule step phase (GuardEngine.check_step:
+                step kind, step fields), run for every step of a group after the tilt gate and before the
+                precondition; raises guard_rules.GuardRejection to refuse. None = no rule engine.
         """
         self.robot = robot
         self.cfg = config
@@ -689,6 +694,7 @@ class MotionQueue:
         self.tilt_gate = tilt_gate or (lambda: None)
         self.lease_gate = lease_gate or (lambda kind: None)
         self.lease_scope = lease_scope or (lambda kind: nullcontext())
+        self.guard_gate = guard_gate or (lambda kind, fields: None)
         self._cond = threading.Condition()
         self._pending: deque[QueuedStep] = deque()
         self._events: deque[MotionEvent] = deque(maxlen=self.settings.event_history)
@@ -1003,7 +1009,7 @@ class MotionQueue:
             return count != self._stop_baseline
 
     def dispatch(self, group: list[QueuedStep], generation: int) -> "Outcome":
-        """Check stop, battery and the precondition, then run the group.
+        """Check stop, battery, lease, tilt, guard rules and the precondition, then run the group.
 
         Args:
             group (list[QueuedStep]): Blend group (one step unless arm steps).
@@ -1024,6 +1030,13 @@ class MotionQueue:
             refusal = self.tilt_gate()
             if refusal is not None:
                 return Outcome(ok=False, status="tilt_guard", message=refusal)
+        try:
+            for q in group:
+                self.guard_gate(q.step.kind, q.step.model_dump())
+        except GuardRejection as exc:
+            # Always halts (never on_fail='skip'): the later steps were planned assuming this one ran.
+            rules = [v.rule for v in exc.verdicts]
+            return Outcome(ok=False, status="guard_rule", message=exc.text, data={"rules": rules}, halt=True)
         if head.precondition.type != "none":
             state = self.live_state(head.precondition.type == "base_still")
             ok, why = evaluate_precondition(head.precondition, state, self.cfg)
@@ -1036,8 +1049,12 @@ class MotionQueue:
                 self._running.phase = "planning"
             for q in group:
                 self.emit_locked("step_started", q, describe(q.step))
-        with self.lease_scope(head.kind):
-            return self.run_group(group, generation)
+        origin = GUARD_ORIGIN.set(head.kind)  # the guard rule arm phase checks this group's motions by its kind
+        try:
+            with self.lease_scope(head.kind):
+                return self.run_group(group, generation)
+        finally:
+            GUARD_ORIGIN.reset(origin)
 
     def run_group(self, group: list[QueuedStep], generation: int) -> "Outcome":
         """Run a dispatched group by its head's kind.
