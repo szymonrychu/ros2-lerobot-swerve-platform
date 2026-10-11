@@ -429,7 +429,8 @@ def register(ctx: ToolContext) -> None:
             "distance_m and bearing_deg from the robot (0 = ahead, positive = left; areas use the centroid and report "
             "`inside`). Filter by status ('open', 'done', 'cancelled'). near=true keeps only POIs within {poi_cfg.near_radius_m:g} m, nearest "
             "first. Areas show their `zone` ('none', 'keepout', 'slow') and `speed_limit_pct`; a zone is active only "
-            "while status is 'open'. Errors if poi_store is not running. No motion."
+            "while status is 'open'. Photos (POIs of kind 'photo', one per camera image) are not listed here: list "
+            "them with list_lookups. Errors if poi_store is not running. No motion."
         )
     )
     def list_pois(
@@ -509,7 +510,8 @@ def register(ctx: ToolContext) -> None:
             "'open'/'done'/'cancelled', x and y together, polygon for areas, zone 'none'/'keepout'/'slow' with speed_limit_pct; zone 'none' removes a zone, "
             "slow needs speed_limit_pct in the same call). Mark a POI 'done' when the work there is finished. "
             + ZONE_HELP
-            + " Errors if poi_store is not running or the id is unknown. No motion."
+            + " A photo id (from list_lookups) is accepted too: only name, note and status change for a photo. Errors "
+            "if poi_store is not running or the id is unknown. No motion."
         )
     )
     def update_poi(
@@ -551,7 +553,8 @@ def register(ctx: ToolContext) -> None:
 
     @server.tool(
         description=(
-            "Delete a POI through poi_store by id. Errors if poi_store is not running or the id is unknown. "
+            "Delete a POI through poi_store by id; a photo id (from list_lookups) deletes that photo and its image "
+            "(delete_photos deletes many). Errors if poi_store is not running or the id is unknown. "
             "Prefer update_poi with status 'done' or 'cancelled' to keep a record. No motion."
         )
     )

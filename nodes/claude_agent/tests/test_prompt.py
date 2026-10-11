@@ -634,6 +634,12 @@ def test_prompt_teaches_lookups() -> None:
             "get_lookup_image",
             "annotate_lookup",
             "lookup_id",
+            "photo poi",
+            "camera view",
+            "delete_photos",
+            "delete_poi",
+            "only when asked",
+            "survive",
         ),
     )
 

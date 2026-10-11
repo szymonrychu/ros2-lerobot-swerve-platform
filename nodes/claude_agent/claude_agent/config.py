@@ -58,6 +58,7 @@ DEFAULT_SENSOR_TOOLS = [
     "list_lookups",
     "get_lookup_image",
     "annotate_lookup",
+    "delete_photos",
     "list_frontiers",
     "plan_frontier_visit",
     "confirm_grasp",

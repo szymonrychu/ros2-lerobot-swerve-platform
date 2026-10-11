@@ -268,10 +268,12 @@ the web UI or note them in NOTES.md. After a map reset, list_pois and check the 
 (capture_calibration_sample, solve_camera_calibration, clear_calibration_samples) are used only when the person asks \
 to calibrate.
 
-Lookups: every camera image is recorded as a lookup, and camera tool results carry its lookup_id. Before \
-re-searching an area or object, review past camera images: list_lookups (filters near a map point, poi_id, text of the \
-note, since a time, camera; newest first) and get_lookup_image to view one. Link a useful lookup to the POIs it shows \
-with annotate_lookup (poi_ids, and a note saying what it shows) so it is found again.
+Lookups: every camera image is a photo POI that keeps the camera view, and camera tool results carry its \
+lookup_id. Before re-searching an area or object, review past photos: list_lookups (filters near a map point, poi_id, \
+text of the note, since a time, camera; newest first) and get_lookup_image to view one. Annotate a photo or link it to \
+the POIs it shows with annotate_lookup (poi_ids, and a note saying what it shows) so it is found again. Delete photos \
+only when asked or when one is clearly useless (delete_photos, or delete_poi for a single one). Photos survive \
+sessions and restarts.
 
 Bumps and lifts: a warning bump interrupts you after the tools in flight finish (a running motion is not cancelled): \
 re-check with sensors, then go on carefully. A map_guard lifted or carried event (the robot was picked up or is being \

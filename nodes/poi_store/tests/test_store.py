@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from poi_store.models import Command, Poi
+from poi_store.photo_store import IMMUTABLE_MESSAGE, PhotoStore
 from poi_store.store import PoiStore
 
 
@@ -304,3 +305,283 @@ def test_update_slow_to_none_drops_pct(store):
     ok, msg, updated = store.apply(Command(op="update", poi={"id": poi["id"], "zone": "none"}))
     assert ok, msg
     assert updated["zone"] == "none" and updated["speed_limit_pct"] is None
+
+
+# --- photo POIs (kind "photo", held by the PhotoStore) ----------------------------------------------------------
+
+PHOTO_TS = 1_760_000_000.0
+
+
+def photo_id(n: int) -> str:
+    return f"{n:032x}"
+
+
+@pytest.fixture
+def photos(tmp_path: Path) -> PhotoStore:
+    return PhotoStore(
+        tmp_path / "photos",
+        max_records=100,
+        max_bytes=10_000_000,
+        max_age_days=14.0,
+        max_image_bytes=1_000_000,
+        clock=lambda: PHOTO_TS,
+    )
+
+
+@pytest.fixture
+def pstore(tmp_path: Path, photos: PhotoStore) -> PoiStore:
+    return PoiStore(tmp_path / "poi.json", clock=lambda: PHOTO_TS, photos=photos)
+
+
+def photo_fields(n: int, photos: PhotoStore, size: int = 100, **extra) -> dict:
+    photos.root.mkdir(parents=True, exist_ok=True)
+    (photos.root / f"{photo_id(n)}.jpg").write_bytes(b"\xff" * size)
+    data = {
+        "kind": "photo",
+        "id": photo_id(n),
+        "ts": PHOTO_TS,
+        "tool": "get_camera_image",
+        "camera": "gripper",
+        "width": 64,
+        "height": 48,
+        "file": f"{photo_id(n)}.jpg",
+        "base_pose_map": {"x": 1.5, "y": -2.0, "yaw": 0.0},
+    }
+    data.update(extra)
+    return data
+
+
+def add_photo(pstore: PoiStore, photos: PhotoStore, n: int, **extra) -> dict:
+    ok, msg, poi = pstore.apply(Command(op="add", poi=photo_fields(n, photos, **extra)))
+    assert ok, msg
+    return poi
+
+
+def add_poi(pstore: PoiStore, **kw) -> str:
+    ok, msg, poi = pstore.apply(Command(op="add", poi=point(**kw)))
+    assert ok, msg
+    return poi["id"]
+
+
+def test_add_photo_goes_to_photo_store_and_returns_poi_form(pstore, photos):
+    poi = add_photo(pstore, photos, 1)
+    assert poi["kind"] == "photo" and poi["id"] == photo_id(1)
+    assert poi["x"] == 1.5 and poi["y"] == -2.0 and poi["photo"]["bytes"] == 100
+    assert photo_id(1) in photos
+    assert pstore.pois == {} and pstore.revision == 0
+
+
+def test_add_photo_without_pose_has_null_xy(pstore, photos):
+    poi = add_photo(pstore, photos, 1, base_pose_map=None)
+    assert poi["x"] is None and poi["y"] is None
+
+
+def test_add_photo_validates_with_photo_add(pstore, photos):
+    fields = photo_fields(1, photos)
+    fields["bytes"] = 5
+    ok, msg, poi = pstore.apply(Command(op="add", poi=fields))
+    assert not ok and "bytes" in msg and poi is None
+    ok, msg, _ = pstore.apply(Command(op="add", poi={**photo_fields(2, photos), "file": "other.jpg"}))
+    assert not ok and "file" in msg
+
+
+def test_add_photo_store_refusal_is_ok_false(pstore, photos):
+    fields = photo_fields(1, photos)
+    (photos.root / fields["file"]).unlink()
+    ok, msg, _ = pstore.apply(Command(op="add", poi=fields))
+    assert not ok and "does not exist" in msg
+    add_photo(pstore, photos, 2)
+    ok, msg, _ = pstore.apply(Command(op="add", poi=photo_fields(2, photos)))
+    assert not ok and "already exists" in msg
+
+
+def test_photo_ops_without_photo_store_fail(store):
+    ok, msg, _ = store.apply(Command(op="add", poi={"kind": "photo", "id": photo_id(1)}))
+    assert not ok and "photo store" in msg
+    ok, msg, _ = store.apply(Command(op="delete_photos", selector={"keep_newest": 0}))
+    assert not ok and "photo store" in msg
+
+
+def test_list_payload_and_file_never_contain_photos(pstore, photos, tmp_path):
+    add_poi(pstore)
+    add_photo(pstore, photos, 1)
+    listed = json.loads(pstore.list_json())
+    assert [p["kind"] for p in listed["pois"]] == ["point"]
+    assert photo_id(1) not in pstore.list_json()
+    assert photo_id(1) not in (tmp_path / "poi.json").read_text()
+
+
+def test_photo_change_does_not_move_list_revision(pstore, photos):
+    add_poi(pstore)
+    add_photo(pstore, photos, 1)
+    pstore.apply(Command(op="update", poi={"id": photo_id(1), "note": "n"}))
+    pstore.apply(Command(op="delete", poi={"id": photo_id(1)}))
+    assert pstore.revision == 1
+
+
+def test_update_photo_goes_to_photo_store(pstore, photos):
+    add_photo(pstore, photos, 1)
+    ok, msg, poi = pstore.apply(Command(op="update", poi={"id": photo_id(1), "name": "mug", "status": "done"}))
+    assert ok, msg
+    assert poi["kind"] == "photo" and poi["name"] == "mug" and poi["status"] == "done"
+    assert photos.get(photo_id(1)).name == "mug"
+
+
+def test_update_photo_capture_field_is_refused(pstore, photos):
+    add_photo(pstore, photos, 1)
+    ok, msg, _ = pstore.apply(Command(op="update", poi={"id": photo_id(1), "camera": "front"}))
+    assert not ok and IMMUTABLE_MESSAGE in msg
+
+
+def test_update_photo_links_existing_pois(pstore, photos):
+    target = add_poi(pstore)
+    add_photo(pstore, photos, 1)
+    ok, msg, poi = pstore.apply(Command(op="update", poi={"id": photo_id(1), "poi_ids": [target]}))
+    assert ok, msg
+    assert poi["poi_ids"] == [target]
+
+
+def test_update_photo_rejects_unknown_or_photo_poi_ids(pstore, photos):
+    add_photo(pstore, photos, 1)
+    add_photo(pstore, photos, 2)
+    ok, msg, _ = pstore.apply(Command(op="update", poi={"id": photo_id(1), "poi_ids": ["f" * 32]}))
+    assert not ok and "unknown poi id" in msg
+    ok, msg, _ = pstore.apply(Command(op="update", poi={"id": photo_id(1), "poi_ids": [photo_id(2)]}))
+    assert not ok and "photo" in msg
+    assert photos.get(photo_id(1)).poi_ids == []
+
+
+@pytest.mark.parametrize("bad", [[{}], [["x"]], [3]])
+def test_update_photo_non_string_poi_ids_is_ok_false(pstore, photos, bad):
+    add_photo(pstore, photos, 1)
+    raw = json.dumps({"op": "update", "request_id": "r", "poi": {"id": photo_id(1), "poi_ids": bad}})
+    out = json.loads(pstore.handle_message(raw))
+    assert out["ok"] is False and "poi_ids" in out["message"]
+    assert photos.get(photo_id(1)).poi_ids == []
+
+
+def test_add_photo_rejects_unknown_poi_ids(pstore, photos):
+    ok, msg, _ = pstore.apply(Command(op="add", poi=photo_fields(1, photos, poi_ids=["e" * 32])))
+    assert not ok and "unknown poi id" in msg
+    assert photo_id(1) not in photos
+
+
+def test_delete_photo_removes_line_and_jpeg(pstore, photos):
+    add_photo(pstore, photos, 1)
+    ok, msg, poi = pstore.apply(Command(op="delete", poi={"id": photo_id(1)}))
+    assert ok, msg
+    assert poi["kind"] == "photo" and poi["id"] == photo_id(1)
+    assert photo_id(1) not in photos
+    assert not (photos.root / f"{photo_id(1)}.jpg").exists()
+
+
+def test_delete_poi_strips_photo_links(pstore, photos):
+    target = add_poi(pstore)
+    other = add_poi(pstore, name="b")
+    add_photo(pstore, photos, 1, poi_ids=[target, other])
+    add_photo(pstore, photos, 2)
+    ok, msg, poi = pstore.apply(Command(op="delete", poi={"id": target}))
+    assert ok, msg and poi["id"] == target
+    assert photos.get(photo_id(1)).poi_ids == [other]
+    assert target not in pstore.pois
+
+
+def test_delete_poi_without_photo_links_does_not_rewrite_index(pstore, photos):
+    target = add_poi(pstore)
+    add_photo(pstore, photos, 1)
+    before = photos.revision
+    assert pstore.apply(Command(op="delete", poi={"id": target}))[0]
+    assert photos.revision == before
+
+
+def test_delete_photos_bulk(pstore, photos):
+    for n in (1, 2, 3):
+        add_photo(pstore, photos, n)
+    ok, msg, result = pstore.apply(Command(op="delete_photos", selector={"ids": [photo_id(1), photo_id(2), "a" * 32]}))
+    assert ok, msg
+    assert result == {"removed": 2, "bytes_freed": 200, "missing": ["a" * 32]}
+    assert [r.id for r in photos.records()] == [photo_id(3)]
+
+
+def test_delete_photos_dry_run_changes_nothing(pstore, photos):
+    add_photo(pstore, photos, 1)
+    ok, _, result = pstore.apply(Command(op="delete_photos", selector={"keep_newest": 0, "dry_run": True}))
+    assert ok and result == {"would_remove": 1, "bytes": 100}
+    assert photo_id(1) in photos
+
+
+def test_delete_photos_needs_selector():
+    with pytest.raises(ValidationError, match="selector"):
+        Command(op="delete_photos")
+    with pytest.raises(ValidationError):
+        Command(op="delete_photos", selector={"ids": ["a" * 32], "keep_newest": 1})
+    assert Command(op="delete_photos", selector={"keep_newest": 2}).selector.keep_newest == 2
+
+
+def test_delete_photos_via_handle_message(pstore, photos):
+    add_photo(pstore, photos, 1)
+    out = json.loads(
+        pstore.handle_message(json.dumps({"op": "delete_photos", "request_id": "d", "selector": {"keep_newest": 0}}))
+    )
+    assert out["ok"] and out["request_id"] == "d" and out["poi"]["removed"] == 1
+    bad = json.loads(pstore.handle_message(json.dumps({"op": "delete_photos", "request_id": "e"})))
+    assert not bad["ok"] and "selector" in bad["message"]
+
+
+def test_agent_clear_leaves_every_photo(pstore, photos):
+    add_poi(pstore, created_by="agent")
+    for n in (1, 2):
+        add_photo(pstore, photos, n, created_by="agent")
+    add_photo(pstore, photos, 3, created_by="user")
+    ok, _, result = pstore.apply(Command(op="clear", created_by="agent"))
+    assert ok and result == {"removed": 1}
+    assert [r.id for r in photos.records()] == [photo_id(1), photo_id(2), photo_id(3)]
+    assert all((photos.root / f"{photo_id(n)}.jpg").exists() for n in (1, 2, 3))
+
+
+def test_agent_clear_strips_cleared_pois_from_photo_links(pstore, photos):
+    agent_poi = add_poi(pstore, created_by="agent")
+    user_poi = add_poi(pstore, name="b", created_by="user")
+    add_photo(pstore, photos, 1, poi_ids=[agent_poi, user_poi])
+    add_photo(pstore, photos, 2, poi_ids=[agent_poi])
+    ok, _, result = pstore.apply(Command(op="clear", created_by="agent"))
+    assert ok and result == {"removed": 1}
+    assert photos.get(photo_id(1)).poi_ids == [user_poi]
+    assert photos.get(photo_id(2)).poi_ids == []
+
+
+def test_clear_survives_strip_links_failure(pstore, photos, monkeypatch):
+    agent_poi = add_poi(pstore, created_by="agent")
+    add_photo(pstore, photos, 1, poi_ids=[agent_poi])
+
+    def boom(*_a, **_k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(photos, "strip_links", boom)
+    ok, _, result = pstore.apply(Command(op="clear", created_by="agent"))
+    assert ok and result == {"removed": 1}
+    assert agent_poi not in pstore.pois
+
+
+def test_photo_write_failure_is_ok_false(pstore, photos, monkeypatch):
+    add_photo(pstore, photos, 1)
+
+    def boom(*_a, **_k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(photos, "rewrite", boom)
+    ok, msg, _ = pstore.apply(Command(op="delete", poi={"id": photo_id(1)}))
+    assert not ok and "photo store" in msg and "disk full" in msg
+
+
+def test_poi_delete_survives_strip_links_failure(pstore, photos, monkeypatch):
+    target = add_poi(pstore)
+    add_photo(pstore, photos, 1, poi_ids=[target])
+
+    def boom(*_a, **_k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(photos, "strip_links", boom)
+    ok, msg, _ = pstore.apply(Command(op="delete", poi={"id": target}))
+    assert ok, msg
+    assert target not in pstore.pois

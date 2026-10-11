@@ -1,4 +1,8 @@
-"""JSON-file POI store: add/update/delete semantics, atomic persistence, revision counter. No ROS imports."""
+"""JSON-file POI store: add/update/delete semantics, atomic persistence, revision counter. No ROS imports.
+
+Photo POIs (kind "photo") are not kept here: commands on them are dispatched to the PhotoStore, so they never reach
+poi.json, the /poi/list payload or its revision.
+"""
 
 import json
 import logging
@@ -10,13 +14,18 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
+from ros2_common.photos import PHOTO_KIND, PhotoAdd, PhotoSelector, photo_as_poi
 
 from .metrics import POI_COMMANDS, POI_COUNT, POI_SAVE_FAILURES
 from .models import Command, Poi
+from .photo_store import PhotoNotFoundError, PhotoStore, PhotoStoreError
 
 LOGGER = logging.getLogger("poi_store")
 IMMUTABLE_FIELDS = ("id", "created_at", "created_by")
 MISSING_ID_MESSAGE = "poi.id is required"
+NO_PHOTO_STORE_MESSAGE = "no photo store configured"
+
+Result = tuple[bool, str, dict[str, Any] | None]
 
 
 class PoiStore:
@@ -24,18 +33,23 @@ class PoiStore:
 
     Attributes:
         path: JSON file.
-        revision: Incremented on every successful change.
+        revision: Incremented on every successful change of the (non-photo) POIs.
+        photos: Photo store that photo commands go to; None rejects them.
     """
 
-    def __init__(self, path: Path | str, clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self, path: Path | str, clock: Callable[[], float] = time.time, photos: PhotoStore | None = None
+    ) -> None:
         """Load the store file (a corrupt one is moved aside) and start from it.
 
         Args:
             path: JSON file {"pois": [...], "revision": int}; created on the first change.
             clock: Unix-seconds time source.
+            photos: Photo store for kind "photo" commands; None rejects them.
         """
         self.path = Path(path)
         self.clock = clock
+        self.photos = photos
         self.revision = 0
         self.pois: dict[str, Poi] = {}
         self.load()
@@ -87,20 +101,24 @@ class PoiStore:
         self.revision += 1
         self.save()
 
-    def apply(self, command: Command) -> tuple[bool, str, dict[str, Any] | None]:
+    def apply(self, command: Command) -> Result:
         """Execute one command; when persisting fails (OSError) the in-memory change and revision are rolled back.
 
         Args:
             command: Parsed command.
 
         Returns:
-            tuple[bool, str, dict[str, Any] | None]: ok, message, the resulting (add/update) or deleted POI.
+            Result: ok, message, the resulting (add/update) or deleted POI.
         """
         pois_before, revision_before = dict(self.pois), self.revision
         try:
             if command.op == "clear":
                 return self.op_clear(command.created_by)
+            if command.op == "delete_photos":
+                return self.op_delete_photos(command.selector)
             return getattr(self, "op_" + command.op)(command.poi)
+        except PhotoStoreError as exc:
+            return False, str(exc), None
         except ValidationError as exc:
             return False, "; ".join("{}: {}".format(".".join(map(str, e["loc"])), e["msg"]) for e in exc.errors()), None
         except OSError as exc:
@@ -111,15 +129,17 @@ class PoiStore:
         finally:
             POI_COUNT.set(len(self.pois))
 
-    def op_add(self, fields: dict[str, Any]) -> tuple[bool, str, dict[str, Any] | None]:
+    def op_add(self, fields: dict[str, Any]) -> Result:
         """Add a POI, assigning id and timestamps when absent.
 
         Args:
             fields: POI fields.
 
         Returns:
-            tuple[bool, str, dict[str, Any] | None]: Result triple.
+            Result: Result triple.
         """
+        if fields.get("kind") == PHOTO_KIND:
+            return self.add_photo(fields)
         now = self.clock()
         poi = Poi(**fields)
         poi.id = poi.id or uuid.uuid4().hex
@@ -131,18 +151,20 @@ class PoiStore:
         self.commit()
         return True, "added", poi.to_json_dict()
 
-    def op_update(self, fields: dict[str, Any]) -> tuple[bool, str, dict[str, Any] | None]:
+    def op_update(self, fields: dict[str, Any]) -> Result:
         """Merge changed fields into an existing POI and bump updated_at.
 
         Args:
             fields: id plus changed fields (id, created_at, created_by cannot change).
 
         Returns:
-            tuple[bool, str, dict[str, Any] | None]: Result triple.
+            Result: Result triple.
         """
         poi_id = fields.get("id")
         if not poi_id:
             return False, MISSING_ID_MESSAGE, None
+        if self.is_photo(poi_id):
+            return self.update_photo(poi_id, fields)
         current = self.pois.get(poi_id)
         if current is None:
             return False, f"unknown poi id {poi_id}", None
@@ -154,38 +176,182 @@ class PoiStore:
         self.commit()
         return True, "updated", updated.to_json_dict()
 
-    def op_delete(self, fields: dict[str, Any]) -> tuple[bool, str, dict[str, Any] | None]:
+    def op_delete(self, fields: dict[str, Any]) -> Result:
         """Delete a POI.
 
         Args:
             fields: Must contain id.
 
         Returns:
-            tuple[bool, str, dict[str, Any] | None]: Result triple with the deleted POI.
+            Result: Result triple with the deleted POI.
         """
         poi_id = fields.get("id")
         if not poi_id:
             return False, MISSING_ID_MESSAGE, None
+        if self.is_photo(poi_id):
+            return self.delete_photo(poi_id)
         removed = self.pois.pop(poi_id, None)
         if removed is None:
             return False, f"unknown poi id {poi_id}", None
         self.commit()
+        self.strip_photo_links(poi_id)
         return True, "deleted", removed.to_json_dict()
 
-    def op_clear(self, created_by: str | None) -> tuple[bool, str, dict[str, Any] | None]:
-        """Delete every POI created by one creator (the revision only moves when something was removed).
+    def is_photo(self, poi_id: str) -> bool:
+        """Whether the photo store holds this id.
+
+        Args:
+            poi_id: Candidate id.
+
+        Returns:
+            bool: True for a photo id.
+        """
+        return self.photos is not None and poi_id in self.photos
+
+    def check_poi_links(self, poi_ids: Any) -> str | None:
+        """Check that photo links name existing non-photo POIs.
+
+        Args:
+            poi_ids: The poi_ids value of a photo add or update (non-lists are left to model validation).
+
+        Returns:
+            str | None: The error message, None when every id is fine.
+        """
+        if not isinstance(poi_ids, list):
+            return None
+        for poi_id in poi_ids:
+            if not isinstance(poi_id, str):
+                return f"poi_ids: entries must be POI id strings, got {poi_id!r}"
+            if self.is_photo(poi_id):
+                return f"poi_ids: {poi_id} is a photo; photos link only to non-photo POIs"
+            if poi_id not in self.pois:
+                return f"poi_ids: unknown poi id {poi_id}"
+        return None
+
+    def photo_failure(self, exc: OSError, op: str) -> Result:
+        """Result of a photo store write that failed on disk.
+
+        Args:
+            exc: The error.
+            op: The command op.
+
+        Returns:
+            Result: An ok=False result triple.
+        """
+        root = self.photos.root if self.photos is not None else None
+        LOGGER.error("could not write photo store %s (%s); %s failed", root, exc, op)
+        return False, f"could not write photo store {root}: {exc}", None
+
+    def add_photo(self, fields: dict[str, Any]) -> Result:
+        """Index a photo (its JPEG is already in the photo store directory).
+
+        Args:
+            fields: PhotoAdd fields plus kind "photo".
+
+        Returns:
+            Result: Result triple with the photo in POI form.
+        """
+        if self.photos is None:
+            return False, NO_PHOTO_STORE_MESSAGE, None
+        photo = PhotoAdd(**{k: v for k, v in fields.items() if k != "kind"})
+        error = self.check_poi_links(photo.poi_ids)
+        if error:
+            return False, error, None
+        try:
+            rec = self.photos.add(photo)
+        except OSError as exc:
+            return self.photo_failure(exc, "add")
+        return True, "added", photo_as_poi(rec)
+
+    def update_photo(self, photo_id: str, fields: dict[str, Any]) -> Result:
+        """Change a photo's name, note, status or POI links.
+
+        Args:
+            photo_id: Photo id (known to the photo store).
+            fields: id plus changed fields.
+
+        Returns:
+            Result: Result triple with the photo in POI form.
+        """
+        assert self.photos is not None  # is_photo held
+        error = self.check_poi_links(fields.get("poi_ids"))
+        if error:
+            return False, error, None
+        try:
+            rec = self.photos.update(photo_id, fields)
+        except PhotoNotFoundError:
+            return False, f"unknown poi id {photo_id}", None
+        except OSError as exc:
+            return self.photo_failure(exc, "update")
+        return True, "updated", photo_as_poi(rec)
+
+    def delete_photo(self, photo_id: str) -> Result:
+        """Delete a photo's index line and its JPEG.
+
+        Args:
+            photo_id: Photo id (known to the photo store).
+
+        Returns:
+            Result: Result triple with the deleted photo in POI form.
+        """
+        assert self.photos is not None  # is_photo held
+        try:
+            rec = self.photos.delete(photo_id)
+        except PhotoNotFoundError:
+            return False, f"unknown poi id {photo_id}", None
+        except OSError as exc:
+            return self.photo_failure(exc, "delete")
+        return True, "deleted", photo_as_poi(rec)
+
+    def strip_photo_links(self, poi_id: str) -> None:
+        """Remove a deleted POI from every photo's poi_ids; a failure is logged (the POI delete already persisted).
+
+        Args:
+            poi_id: The deleted POI id.
+        """
+        if self.photos is None:
+            return
+        try:
+            self.photos.strip_links(poi_id)
+        except OSError as exc:
+            LOGGER.error("could not strip deleted poi %s from the photo links (%s)", poi_id, exc)
+
+    def op_delete_photos(self, selector: PhotoSelector | None) -> Result:
+        """Bulk delete photos (or report what a dry run would delete).
+
+        Args:
+            selector: Which photos (Command validation guarantees it is set).
+
+        Returns:
+            Result: Result triple; the third item is {removed, bytes_freed, missing} or {would_remove, bytes}.
+        """
+        if self.photos is None:
+            return False, NO_PHOTO_STORE_MESSAGE, None
+        assert selector is not None  # Command.check_op_arguments
+        try:
+            result = self.photos.delete_many(selector)
+        except OSError as exc:
+            return self.photo_failure(exc, "delete_photos")
+        if selector.dry_run:
+            return True, f"would delete {result['would_remove']} photo(s)", result
+        return True, f"deleted {result['removed']} photo(s)", result
+
+    def op_clear(self, created_by: str | None) -> Result:
+        """Delete every POI created by one creator and strip them from photo links (photos themselves stay).
 
         Args:
             created_by: "agent" or "user".
 
         Returns:
-            tuple[bool, str, dict[str, Any] | None]: Result triple; the third item is {"removed": count}.
+            Result: Result triple; the third item is {"removed": count}.
         """
         doomed = [poi_id for poi_id, poi in self.pois.items() if poi.created_by == created_by]
         for poi_id in doomed:
             del self.pois[poi_id]
         if doomed:
             self.commit()
+        for poi_id in doomed:
+            self.strip_photo_links(poi_id)
         return True, f"cleared {len(doomed)}", {"removed": len(doomed)}
 
     def handle_message(self, raw: str) -> str:

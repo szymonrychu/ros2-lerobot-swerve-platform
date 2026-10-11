@@ -463,7 +463,10 @@ the weights.
 ### POI store directory
 
 `playbooks/tasks/poi_store_dir.yml` creates `/var/lib/ros2/poi` (owner `ansible_user`, mode `0755`) before `poi_store` is
-deployed, in `deploy_nodes_client.yml` (tags `setup`, `poi_store`). The node keeps `poi.json` there.
+deployed, in `deploy_nodes_client.yml` (tags `setup`, `poi_store`). It also ensures `/var/lib/ros2/poi/lookups` (same owner and mode, after the parent): the photo store, which poi_store
+owns (the `photos:` block of its config in `group_vars/client.yml`: `store_dir`, retention limits `max_records` /
+`max_bytes` / `max_age_days`, `max_image_bytes`, `prune_interval_s`, latched `summary_topic` `/poi/photos`). The node
+keeps `poi.json` and the photo index there.
 
 ### SLAM maps directory
 
