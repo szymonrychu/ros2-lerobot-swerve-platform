@@ -22,9 +22,12 @@ TWIST_XY_VARIANCE_FLOOR = 0.002
 TWIST_YAW_VARIANCE_FLOOR = 0.01
 # Measured wheel ground speed below which every wheel counts as parked, m/s.
 PARKED_SPEED_EPSILON_MPS = 0.005
-# Variances published while parked: the wheels are a trustworthy zero, which pins the heading against gyro bias.
+# Variances published while parked (wheels ~0 and no drive command): the wheels are a trustworthy zero, which pins the
+# heading against gyro bias. With the IMU yaw-rate variance 4e-4 the EKF's parked yaw rate is
+# var_odom / (var_odom + var_imu) = 1e-6 / 4.01e-4 = 0.25% of any gyro bias (the measured -5.83e-4 rad/s bias gives
+# about 0.3 deg/h instead of 26 deg/h).
 PARKED_XY_VARIANCE = 1e-3
-PARKED_YAW_VARIANCE = 1e-4
+PARKED_YAW_VARIANCE = 1e-6
 
 
 def wheel_positions(lx: float, ly: float) -> np.ndarray:

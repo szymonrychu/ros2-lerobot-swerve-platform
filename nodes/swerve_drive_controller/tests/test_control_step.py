@@ -248,4 +248,10 @@ def test_control_step_flags_parked_from_measured_wheel_speeds(tmp_path: Path) ->
     assert rolling is not None and not rolling.parked
     go = CmdVelSample((0.1, 0.0, 0.0), 10.0)
     commanded, _ = control_step(cfg, ControlState(), go, make_joints(10.0, 0.0, 0.0), 10.0)
-    assert commanded is not None and commanded.parked, "measured, not commanded, speeds decide"
+    assert commanded is not None and not commanded.parked, "an active command uses the normal variances"
+    stale = CmdVelSample((0.1, 0.0, 0.0), 1.0)
+    timed_out, _ = control_step(cfg, ControlState(), stale, make_joints(10.0, 0.0, 0.0), 10.0)
+    assert timed_out is not None and timed_out.parked, "an expired command is no command"
+    deadband = CmdVelSample((0.0, 0.0, 1e-4), 10.0)
+    tiny, _ = control_step(cfg, ControlState(), deadband, make_joints(10.0, 0.0, 0.0), 10.0)
+    assert tiny is not None and tiny.parked, "a command inside the deadband is no command"

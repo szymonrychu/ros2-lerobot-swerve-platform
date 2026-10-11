@@ -479,7 +479,16 @@ def test_odometry_twist_variances_grow_with_residual() -> None:
 def test_odometry_twist_variances_pin_heading_when_parked() -> None:
     var_xy, var_yaw = odometry_twist_variances(0.0, LX, LY, parked=True)
     assert var_xy == pytest.approx(1e-3)
-    assert var_yaw == pytest.approx(1e-4)
+    assert var_yaw == pytest.approx(1e-6)
+
+
+def test_parked_yaw_rate_is_under_one_percent_of_the_imu_bias() -> None:
+    """EKF weighting of two yaw-rate sources: the fused rate is var_odom / (var_odom + var_imu) of the gyro bias."""
+    imu_var, bias = 4e-4, -5.83e-4
+    _, var_yaw = odometry_twist_variances(0.0, LX, LY, parked=True)
+    fraction = var_yaw / (var_yaw + imu_var)
+    assert fraction < 0.01
+    assert abs(fraction * bias) < 0.01 * abs(bias)
 
 
 def test_wheels_parked_uses_measured_speeds() -> None:

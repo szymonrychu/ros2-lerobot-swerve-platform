@@ -77,7 +77,8 @@ class ControlOutput:
         odom_twist: Measured body twist (vx, vy, omega) from forward kinematics.
         moving: True when the (deadbanded) commanded twist is non-zero.
         odom_residual_mps: Wheel-consistency residual of the measured twist (m/s); drives the twist covariance.
-        parked: True when every measured wheel speed is ~0 (pins the heading through a tight covariance).
+        parked: True when every measured wheel speed is ~0 and no drive command is active (pins the heading through a
+            tight covariance).
     """
 
     names: list[str]
@@ -184,14 +185,15 @@ def control_step(
         pose = integrate_odometry(pose, twist, now - state.last_odom_time)
 
     out_names, positions, velocities = build_joint_command(names, desired_steer, desired_drive)
+    moving = abs(vx) > CMD_VEL_DEADBAND or abs(vy) > CMD_VEL_DEADBAND or abs(omega) > CMD_VEL_DEADBAND
     output = ControlOutput(
         names=out_names,
         positions=positions,
         velocities=velocities,
         odom_twist=twist,
-        moving=abs(vx) > CMD_VEL_DEADBAND or abs(vy) > CMD_VEL_DEADBAND or abs(omega) > CMD_VEL_DEADBAND,
+        moving=moving,
         odom_residual_mps=residual,
-        parked=wheels_parked(drive_velocities, config.wheel_radius_m),
+        parked=not moving and wheels_parked(drive_velocities, config.wheel_radius_m),
     )
     return output, ControlState(
         steer_targets=list(desired_steer),
