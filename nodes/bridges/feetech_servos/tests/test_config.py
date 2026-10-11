@@ -474,3 +474,34 @@ def test_load_config_direct_command_sources_invalid_rejected(tmp_path: Path) -> 
     p = tmp_path / "c.yaml"
     p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\ndirect_command_sources: autonomy\n")
     assert load_config(p) is None
+
+
+def test_bus_health_config_defaults(tmp_path: Path) -> None:
+    """Goal refresh 1 s; a servo failing 3 cycles in a row is backed off and probed every 5 s."""
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: follower\njoint_names:\n  - name: a\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.goal_refresh_interval_s == 1.0
+    assert cfg.read_failure_limit == 3
+    assert cfg.read_retry_interval_s == 5.0
+
+
+def test_bus_health_config_overrides_and_invalid_values(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "namespace: follower\njoint_names:\n  - name: a\n    id: 1\n"
+        "goal_refresh_interval_s: 0.5\nread_failure_limit: 5\nread_retry_interval_s: 2\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert (cfg.goal_refresh_interval_s, cfg.read_failure_limit, cfg.read_retry_interval_s) == (0.5, 5, 2.0)
+    p.write_text(
+        "namespace: follower\njoint_names:\n  - name: a\n    id: 1\n"
+        "goal_refresh_interval_s: -1\nread_failure_limit: 0\nread_retry_interval_s: x\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.goal_refresh_interval_s == 0.0  # negative clamps to 0 = refresh disabled
+    assert cfg.read_failure_limit == 3
+    assert cfg.read_retry_interval_s == 5.0

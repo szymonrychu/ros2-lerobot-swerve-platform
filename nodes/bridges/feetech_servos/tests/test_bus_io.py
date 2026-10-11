@@ -48,6 +48,8 @@ MAX_DUMP_TRANSACTIONS_PER_SERVO = 3
 SYNC_READ_ADDRESS = 56
 SYNC_READ_LENGTH = 6  # present_position, present_speed, present_load
 RANDOM_TABLES = 20
+GOAL_REFRESH_INTERVAL_S = 1.0
+CYCLE_PERIOD_S = 0.01  # control_loop_hz 100
 # Register values of a follower STS3215 (gripper, id 6), stored in address order; the rest of the table is zero.
 RECORDED_REGISTERS = {
     "model": 777,
@@ -129,8 +131,18 @@ def follower_bus() -> tuple[object, FakeStsPort]:
     return make_bus(tables)
 
 
-def make_cycle(bus: object) -> BridgeCycle:
-    """BridgeCycle over the bus with the swerve wheels in velocity mode."""
+class FakeClock:
+    """Manually advanced monotonic clock (seconds)."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def make_cycle(bus: object, clock: FakeClock | None = None) -> BridgeCycle:
+    """BridgeCycle over the bus with the swerve wheels in velocity mode (goal refresh every GOAL_REFRESH_INTERVAL_S)."""
     return BridgeCycle(
         servo=bus,
         goal_entry=get_register_entry_by_name("goal_position"),
@@ -139,7 +151,15 @@ def make_cycle(bus: object) -> BridgeCycle:
         command_limits={},
         last_written={},
         velocity_command_timeout_s=0.3,
+        clock=clock or FakeClock(),
+        goal_refresh_interval_s=GOAL_REFRESH_INTERVAL_S,
     )
+
+
+def goal_of(port: FakeStsPort, servo_id: int) -> int:
+    """goal_position register value of an emulated servo."""
+    table = port.servos[servo_id]
+    return table[STS_GOAL_POSITION_L] | (table[STS_GOAL_POSITION_L + 1] << 8)
 
 
 def sync_read(bus: object, servo_ids: list[int]) -> None:
@@ -302,3 +322,95 @@ def test_sync_write_register_with_nothing_to_write_sends_nothing() -> None:
     bus, port = follower_bus()
     assert sync_write_register(bus, get_register_entry_by_name("goal_position"), {})
     assert port.transactions == 0
+
+
+# --- goal refresh (a lost sync write is not cached forever) ---
+
+
+def test_unchanged_goal_rewritten_after_refresh_interval() -> None:
+    bus, port = follower_bus()
+    clock = FakeClock()
+    cycle = make_cycle(bus, clock)
+    cycle.handle_command(ARM_GROUP, ["gripper", "wrist_roll"], [0.2, 0.1], [])
+    cycle.write_pending_commands()
+    port.reset_counters()
+    clock.now = GOAL_REFRESH_INTERVAL_S / 2
+    cycle.handle_command(ARM_GROUP, ["gripper", "wrist_roll"], [0.2, 0.1], [])
+    cycle.write_pending_commands()
+    assert port.transactions == 0  # within the interval the cache still rate-limits identical goals
+    clock.now = GOAL_REFRESH_INTERVAL_S
+    cycle.handle_command(ARM_GROUP, ["gripper", "wrist_roll"], [0.2, 0.1], [])
+    cycle.write_pending_commands()
+    assert port.transactions == 1  # both refreshed goals share one sync write
+    assert sorted(e.servo_id for e in port.sync_writes) == [5, 6]
+
+
+def test_lost_sync_write_is_corrected_by_the_refresh() -> None:
+    """The packet is sent but a servo never applies it (corrupted on the wire): the refresh resends it."""
+    bus, port = follower_bus()
+    clock = FakeClock()
+    cycle = make_cycle(bus, clock)
+    del port.servos[6]  # the gripper misses this packet
+    cycle.handle_command(ARM_GROUP, ["gripper"], [0.2], [])
+    cycle.write_pending_commands()
+    port.servos[6] = register_table()
+    target = cycle.position_target_steps(ARM[5], 0.2)
+    for _ in range(round(GOAL_REFRESH_INTERVAL_S / CYCLE_PERIOD_S) + 1):
+        clock.now += CYCLE_PERIOD_S
+        cycle.handle_command(ARM_GROUP, ["gripper"], [0.2], [])  # 5 Hz hold republish of the same goal
+        cycle.write_pending_commands()
+    assert goal_of(port, 6) == target
+
+
+def test_emulated_servo_reset_corrected_within_refresh_cycles() -> None:
+    """emulated servo reset -> corrected within N cycles (N = refresh interval / control period + 1)."""
+    bus, port = follower_bus()
+    clock = FakeClock()
+    cycle = make_cycle(bus, clock)
+    target = cycle.position_target_steps(ARM[5], 0.2)
+    cycle.handle_command(ARM_GROUP, ["gripper"], [0.2], [])
+    cycle.write_pending_commands()
+    assert goal_of(port, 6) == target
+    put_word(port.servos[6], STS_GOAL_POSITION_L, 2048)  # brownout reset: goal back to the power-on value
+    max_cycles = round(GOAL_REFRESH_INTERVAL_S / CYCLE_PERIOD_S) + 1
+    for cycles in range(1, max_cycles + 1):
+        clock.now += CYCLE_PERIOD_S
+        cycle.handle_command(ARM_GROUP, ["gripper"], [0.2], [])
+        cycle.write_pending_commands()
+        if goal_of(port, 6) == target:
+            break
+    assert goal_of(port, 6) == target, f"goal not restored within {max_cycles} cycles"
+    assert cycles <= max_cycles
+
+
+def test_refresh_disabled_with_zero_interval_keeps_the_pure_cache() -> None:
+    bus, port = follower_bus()
+    clock = FakeClock()
+    cycle = make_cycle(bus, clock)
+    cycle.goal_refresh_interval_s = 0.0
+    cycle.handle_command(ARM_GROUP, ["gripper"], [0.2], [])
+    cycle.write_pending_commands()
+    port.reset_counters()
+    clock.now = 100.0
+    cycle.handle_command(ARM_GROUP, ["gripper"], [0.2], [])
+    cycle.write_pending_commands()
+    assert port.transactions == 0
+
+
+def test_follower_cycle_bus_time_keeps_the_control_rate() -> None:
+    """One full follower cycle (goal sync write incl. refresh + state sync read) fits the 100 Hz period."""
+    bus, port = follower_bus()
+    clock = FakeClock()
+    cycle = make_cycle(bus, clock)
+    ids = [j.id for j in ALL_JOINTS]
+    cycle.handle_command(ARM_GROUP, [j.name for j in ARM], [0.1] * len(ARM), [])
+    cycle.handle_command(SWERVE_GROUP, [j.name for j in STEER], [0.2] * len(STEER), [])
+    cycle.write_pending_commands()
+    clock.now = GOAL_REFRESH_INTERVAL_S  # every goal is due for a refresh: the worst case
+    port.reset_counters()
+    cycle.handle_command(ARM_GROUP, [j.name for j in ARM], [0.1] * len(ARM), [])
+    cycle.handle_command(SWERVE_GROUP, [j.name for j in STEER], [0.2] * len(STEER), [])
+    cycle.write_pending_commands()
+    sync_read(bus, ids)
+    assert len(port.sync_writes) == len(ARM) + len(STEER)
+    assert port.wire_time_s() < CYCLE_PERIOD_S / 2

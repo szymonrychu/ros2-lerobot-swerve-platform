@@ -11,6 +11,9 @@ Every loop iteration drains all pending ROS callbacks (bounded; command callback
 joint), writes the changed goal positions in one sync write (wheel speeds one acknowledged write each), then runs
 the watchdog and one state sync read (position, speed and, for publish_effort_joints, present load), then sleeps the
 remainder of the control period. Per-cycle logic lives in bridge_cycle.BridgeCycle (no rclpy).
+Unchanged goal positions are rewritten every goal_refresh_interval_s (a sync write has no reply). A sync read keeps
+every reply that arrived; a servo failing read_failure_limit cycles in a row is left out of it and probed every
+read_retry_interval_s. Each joint_states header is stamped with the request time of the group's oldest reading.
 """
 
 import json
@@ -28,7 +31,7 @@ from st3215.group_sync_read import GroupSyncRead
 from std_msgs.msg import String
 
 from .battery import BatteryMonitor, battery_fields
-from .bridge_cycle import MAX_STEPS, MIN_STEPS, BridgeCycle, drain_callbacks, end_cycle
+from .bridge_cycle import MAX_STEPS, MIN_STEPS, BridgeCycle, drain_callbacks, end_cycle, split_stamp_ns
 from .command_mapping import speed_register_to_velocity, steps_to_radians
 from .config import BridgeConfig, JointGroup, load_config_from_env
 from .joint_updates import get_position_updates
@@ -45,7 +48,9 @@ from .set_register import apply_set_register
 from .startup_torque import hold_current_positions, set_startup_torque_state
 from .sync_read import (
     PRESENT_POSITION_ADDRESS,
+    ReadBackoff,
     ServoState,
+    group_stamp_ns,
     joint_efforts,
     read_servo_state,
     read_servo_states,
@@ -243,7 +248,13 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
         last_written=last_written,
         velocity_command_timeout_s=config.velocity_command_timeout_s,
         direct_command_sources=config.direct_command_sources,
+        goal_refresh_interval_s=config.goal_refresh_interval_s,
     )
+    read_backoff = ReadBackoff(config.read_failure_limit, config.read_retry_interval_s)
+
+    def clock_ns() -> int:
+        return node.get_clock().now().nanoseconds
+
     callbacks_run = [0]  # incremented by every subscription callback; lets the loop tell when the queue is empty
 
     def make_on_command(group: JointGroup) -> Any:
@@ -294,9 +305,10 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
                 cycle.write_pending_commands()
                 # Velocity watchdog: stop wheels with no drive command within velocity_command_timeout_s.
                 cycle.stop_expired()
-                readings = read_servo_states(expected_ids, make_sync_group, fallback_read, state_read_length)
+                readings = read_servo_states(
+                    expected_ids, make_sync_group, fallback_read, state_read_length, read_backoff, clock_ns
+                )
                 record_read_cycle(metric_joints, readings)
-                stamp = node.get_clock().now().to_msg()
                 for group in groups:
                     missing = [j.name for j in group.joints if j.id not in readings]
                     if missing:
@@ -307,7 +319,11 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
                             node.get_logger().warn(f"/{group.namespace}: read failed for {missing}; skipping sample")
                         continue
                     msg = JointState()
-                    msg.header.stamp = stamp
+                    # Stamp of the oldest reading: a fallback read is later than the sync read it follows.
+                    stamp_ns = group_stamp_ns(group.joints, readings)
+                    msg.header.stamp.sec, msg.header.stamp.nanosec = split_stamp_ns(
+                        stamp_ns if stamp_ns is not None else clock_ns()
+                    )
                     msg.header.frame_id = ""
                     msg.name = list(group.joint_names)
                     msg.position = [steps_to_radians(readings[j.id].position, j.inverted) for j in group.joints]

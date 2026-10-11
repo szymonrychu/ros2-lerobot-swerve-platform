@@ -166,10 +166,17 @@ def test_sync_read_falls_back_per_servo_for_missing_reply() -> None:
     assert result == {1: ServoState(2048, 0), 32: ServoState(55, 7)}
 
 
-def test_sync_read_comm_failure_uses_fallback_and_omits_unreadable() -> None:
+def test_sync_read_comm_failure_keeps_partial_replies_and_omits_unreadable() -> None:
     fake = FakeGroupSyncRead({1: (2048, 0)}, comm_result=-1001)
-    result = read_servo_states([1, 32], lambda: fake, fallback_read=lambda sid: ServoState(10, 0) if sid == 1 else None)
-    assert result == {1: ServoState(10, 0)}
+    fallback_ids: list[int] = []
+
+    def fallback(sid: int) -> ServoState | None:
+        fallback_ids.append(sid)
+        return None
+
+    result = read_servo_states([1, 32], lambda: fake, fallback_read=fallback)
+    assert result == {1: ServoState(2048, 0)}  # servo 1 answered the failed sync read: its reply is used
+    assert fallback_ids == [32]  # only the servo missing from the reply is re-read
 
 
 # --- expired_velocity_joints ---

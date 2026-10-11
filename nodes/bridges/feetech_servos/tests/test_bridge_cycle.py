@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from feetech_servos.bridge_cycle import BridgeCycle, drain_callbacks, remaining_sleep_s
+from feetech_servos.bridge_cycle import BridgeCycle, drain_callbacks, remaining_sleep_s, split_stamp_ns
 from feetech_servos.command_mapping import map_position_to_steps
 from feetech_servos.config import JointEntry, JointGroup
 from feetech_servos.registers import STS_GOAL_POSITION_L, STS_GOAL_SPEED_L, get_register_entry_by_name
@@ -507,3 +507,8 @@ def test_direct_source_does_not_change_joints_without_mapping() -> None:
     cycle.handle_command(MAPPED_ARM, ["wrist_roll"], [0.1], [], source="autonomy")
     cycle.write_pending_commands()
     assert servo.position_writes(5) == [2048 + round(0.1 * 4096 / (2 * math.pi))]
+
+
+def test_split_stamp_ns_gives_header_sec_and_nanosec() -> None:
+    assert split_stamp_ns(1_700_000_000_123_456_789) == (1_700_000_000, 123_456_789)
+    assert split_stamp_ns(999) == (0, 999)

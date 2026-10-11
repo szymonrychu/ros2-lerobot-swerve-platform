@@ -17,6 +17,8 @@ BITS_PER_BYTE = 10  # 8N1 framing: start bit + 8 data bits + stop bit
 BAUDRATE = 1_000_000  # STS3215 default
 # Per-transaction overhead of a USB serial adapter round trip (latency timer, scheduling), seconds.
 TRANSACTION_OVERHEAD_S = 0.001
+# st3215 packet timeout spent waiting for a reply that never completes (LATENCY_TIMER = 50 ms), seconds.
+PACKET_TIMEOUT_S = 0.05
 
 
 @dataclass
@@ -89,6 +91,7 @@ class FakeStsPort:
         rx_bytes: Bytes read back by the host.
         packets: Every decoded instruction packet, in order.
         sync_writes: Every decoded SYNC_WRITE slice, in order.
+        timeouts: Replies the host gave up on (each costs PACKET_TIMEOUT_S on a real bus).
     """
 
     servos: dict[int, bytearray]
@@ -99,6 +102,7 @@ class FakeStsPort:
     rx_bytes: int = 0
     packets: list[StsPacket] = field(default_factory=list)
     sync_writes: list[SyncWriteEntry] = field(default_factory=list)
+    timeouts: int = 0
     rx: bytearray = field(default_factory=bytearray)
 
     def clearPort(self) -> None:  # noqa: N802 - PortHandler API
@@ -112,7 +116,8 @@ class FakeStsPort:
         """No-op: the emulated bus answers instantly or never."""
 
     def isPacketTimeout(self) -> bool:  # noqa: N802 - PortHandler API
-        """Return True: asked only when the reply is incomplete, and no more bytes will ever come."""
+        """Return True and count one timeout: asked only when the reply is incomplete, and no more bytes will come."""
+        self.timeouts += 1
         return True
 
     def readPort(self, length: int) -> bytes:  # noqa: N802 - PortHandler API
@@ -177,14 +182,19 @@ class FakeStsPort:
             raise AssertionError(f"unexpected instruction {packet.instruction}")
 
     def wire_time_s(self) -> float:
-        """Estimated bus time of the traffic so far: bytes at BAUDRATE plus a fixed cost per transaction."""
-        return (self.tx_bytes + self.rx_bytes) * BITS_PER_BYTE / BAUDRATE + self.transactions * TRANSACTION_OVERHEAD_S
+        """Estimated bus time so far: bytes at BAUDRATE, a fixed cost per transaction and PACKET_TIMEOUT_S per timeout."""
+        return (
+            (self.tx_bytes + self.rx_bytes) * BITS_PER_BYTE / BAUDRATE
+            + self.transactions * TRANSACTION_OVERHEAD_S
+            + self.timeouts * PACKET_TIMEOUT_S
+        )
 
     def reset_counters(self) -> None:
         """Zero the transaction and byte counters and forget recorded packets."""
         self.transactions = 0
         self.tx_bytes = 0
         self.rx_bytes = 0
+        self.timeouts = 0
         self.packets.clear()
         self.sync_writes.clear()
 

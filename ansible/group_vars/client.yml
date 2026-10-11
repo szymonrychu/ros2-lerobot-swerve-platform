@@ -900,6 +900,12 @@ ros2_nodes:
       # In-wheel servos (32, 35, 39, 36): wheel mode, velocity commands in rad/s, positive = forward
       # (left side 32/39 mounted mirrored -> inverted, verified on the bench 2026-10-03).
       velocity_command_timeout_s: 0.3
+      # Goal sync writes get no status reply: an unchanged goal is rewritten every second so a lost packet or a
+      # servo brownout reset is corrected. A servo failing 3 state reads in a row leaves the sync read (so its
+      # timeout does not stall the healthy servos every cycle) and is probed once every 5 s.
+      goal_refresh_interval_s: 1.0
+      read_failure_limit: 3
+      read_retry_interval_s: 5.0
       extra_groups:
         - namespace: swerve_drive
           joint_names:

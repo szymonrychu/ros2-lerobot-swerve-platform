@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .command_mapping import is_finite_command, map_position_to_steps, position_to_raw_steps, velocity_to_speed_register
-from .config import JointEntry, JointGroup
+from .config import DEFAULT_GOAL_REFRESH_INTERVAL_S, JointEntry, JointGroup
 from .metrics import COMMANDS, CYCLE_DURATION
 from .registers import RegisterEntry, write_register
 from .sync_write import sync_write_register
@@ -22,6 +22,7 @@ from .velocity_watchdog import apply_velocity_command, expired_velocity_joints
 MIN_STEPS = 0
 MAX_STEPS = 4095
 MAX_CALLBACKS_PER_CYCLE = 64
+NS_PER_S = 1_000_000_000
 
 
 def drain_callbacks(spin_ready: Callable[[], bool], max_callbacks: int = MAX_CALLBACKS_PER_CYCLE) -> int:
@@ -55,6 +56,18 @@ def remaining_sleep_s(period_s: float, elapsed_s: float) -> float:
         float: Seconds to sleep (never negative).
     """
     return max(0.0, period_s - elapsed_s)
+
+
+def split_stamp_ns(stamp_ns: int) -> tuple[int, int]:
+    """Split a clock time in ns into the builtin_interfaces/Time fields of a message header.
+
+    Args:
+        stamp_ns (int): Time in nanoseconds.
+
+    Returns:
+        tuple[int, int]: (sec, nanosec).
+    """
+    return stamp_ns // NS_PER_S, stamp_ns % NS_PER_S
 
 
 def end_cycle(period_s: float, elapsed_s: float) -> float:
@@ -93,6 +106,9 @@ class BridgeCycle:
         last_velocity_commands: servo_id -> (receive time of last drive command, applied rad/s) for the watchdog.
         pending_positions: servo_id -> latest unwritten position target (value in goal_position steps).
         pending_velocities: servo_id -> latest unwritten velocity target (value in rad/s).
+        goal_refresh_interval_s: An unchanged position target is rewritten when its last goal_position sync write
+            is this old (0 = never: the register cache alone decides).
+        goal_written_at: servo_id -> clock time of the last goal_position sync write that carried the servo.
     """
 
     def __init__(
@@ -106,6 +122,7 @@ class BridgeCycle:
         velocity_command_timeout_s: float,
         clock: Callable[[], float] = time.monotonic,
         direct_command_sources: Collection[str] = (),
+        goal_refresh_interval_s: float = DEFAULT_GOAL_REFRESH_INTERVAL_S,
     ) -> None:
         """Create the per-cycle logic.
 
@@ -120,6 +137,8 @@ class BridgeCycle:
             clock: Monotonic time source in seconds.
             direct_command_sources: joint_commands header.frame_id values whose positions are follower joint
                 radians: the source range mapping (source_min/max_steps) is skipped for them.
+            goal_refresh_interval_s: Rewrite an unchanged position target after this many seconds, so a lost
+                broadcast (no status reply) or a servo reset cannot leave a stale goal; 0 disables the refresh.
         """
         self.servo = servo
         self.goal_entry = goal_entry
@@ -135,6 +154,8 @@ class BridgeCycle:
         self.last_velocity_commands: dict[int, tuple[float, float]] = {}
         self.pending_positions: dict[int, PendingTarget] = {}
         self.pending_velocities: dict[int, PendingTarget] = {}
+        self.goal_refresh_interval_s = goal_refresh_interval_s
+        self.goal_written_at: dict[int, float] = {}
 
     def write_velocity(self, joint: JointEntry, velocity: float, received_at: float | None = None) -> bool:
         """Write goal_speed for a wheel joint and record it for the watchdog.
@@ -230,7 +251,8 @@ class BridgeCycle:
 
         Position targets of every group go out in one goal_position sync write (write_goal_positions); velocity
         targets keep one acknowledged goal_speed write each. A value equal to the last written one is skipped, so
-        only changed targets reach the bus. Pending
+        only changed targets reach the bus (an unchanged position target is still rewritten every
+        goal_refresh_interval_s). Pending
         targets are consumed whether or not the write succeeds (a failed write is not retried with a stale value;
         the next message brings a fresh one). Drive targets feed the watchdog with their receive time.
 
@@ -249,10 +271,12 @@ class BridgeCycle:
         return processed
 
     def write_goal_positions(self, targets: Iterable[PendingTarget]) -> bool:
-        """Write the changed goal_position targets of all position joints in one sync write (no status replies).
+        """Write the changed (or refresh-due) goal_position targets of all position joints in one sync write.
 
-        Targets equal to the last written value are left out (as write_register skips them). The register cache
-        is updated when the packet was sent: a broadcast has no reply to confirm each servo.
+        A sync write is a broadcast without status replies, so a servo that missed the packet (corrupted on the
+        wire) or reset since (brownout) cannot be detected here. The register cache therefore only rate-limits:
+        a target equal to the last written value is left out unless that write is goal_refresh_interval_s old,
+        then it is sent again. The cache and write times are updated when the packet was sent.
 
         Args:
             targets (Iterable[PendingTarget]): Position targets (value in goal_position steps).
@@ -261,16 +285,36 @@ class BridgeCycle:
             bool: True if the packet was sent or nothing had changed.
         """
         name = self.goal_entry.name
+        now = self.clock()
         changed: dict[int, int] = {}
         for target in targets:
+            sid = target.joint.id
             steps = int(target.value)
-            if self.last_written.setdefault(target.joint.id, {}).get(name) != steps:
-                changed[target.joint.id] = steps
+            if self.last_written.setdefault(sid, {}).get(name) != steps or self.goal_refresh_due(sid, now):
+                changed[sid] = steps
         if not sync_write_register(self.servo, self.goal_entry, changed):
             return False
         for sid, steps in changed.items():
             self.last_written[sid][name] = steps
+            self.goal_written_at[sid] = now
         return True
+
+    def goal_refresh_due(self, sid: int, now: float) -> bool:
+        """Return True when the servo's goal_position should be rewritten even though it is unchanged.
+
+        A goal cached by another writer (startup hold, set_register) has no sync write time and is due at once.
+
+        Args:
+            sid (int): Servo ID.
+            now (float): Current clock time, seconds.
+
+        Returns:
+            bool: True when the refresh is enabled and the last sync write is goal_refresh_interval_s old.
+        """
+        if self.goal_refresh_interval_s <= 0:
+            return False
+        written_at = self.goal_written_at.get(sid)
+        return written_at is None or now - written_at >= self.goal_refresh_interval_s
 
     def stop_expired(self) -> list[int]:
         """Velocity watchdog: stop wheels whose drive commands went stale.
