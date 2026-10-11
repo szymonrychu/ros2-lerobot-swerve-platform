@@ -57,13 +57,13 @@ def main() -> int:
     """Load the config, start the ROS2 node and serve the API until uvicorn exits.
 
     Returns:
-        int: 0 on clean shutdown, 1 when the config file is invalid or unreadable.
+        int: 0 on clean shutdown, os.EX_CONFIG (78, not restarted by systemd) when the config file is invalid or unreadable.
     """
     try:
         config = load_config(config_path_from_env(os.environ))
     except (ValidationError, OSError, ValueError) as exc:
         print(f"claude_agent: invalid configuration: {exc}", file=sys.stderr)
-        return 1
+        return os.EX_CONFIG
     for key in REMOVED_ENV_KEYS:
         os.environ.pop(key, None)
     rclpy.init()

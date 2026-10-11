@@ -1,4 +1,6 @@
-from scripts.topic_scraper_collect import build_record, parse_selector, parse_source, topic_endpoint
+import socket
+
+from scripts.topic_scraper_collect import build_record, http_get_json, parse_selector, parse_source, topic_endpoint
 
 
 def test_parse_source() -> None:
@@ -32,3 +34,13 @@ def test_build_record() -> None:
     assert record["header_stamp_ns"] == 9
     assert record["sample_seq"] == 3
     assert record["value"] == 0.2
+
+
+def test_connection_refused_prints_the_enable_hint(capsys) -> None:
+    """topic_scraper_api is disabled by default: a refused connection tells how to enable it."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    assert http_get_json(f"http://127.0.0.1:{port}/topics") is None
+    err = capsys.readouterr().err
+    assert "disabled by default" in err and "enabled: true" in err

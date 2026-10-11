@@ -96,9 +96,25 @@ def test_steamdeck_uses_client_static_peer() -> None:
 def test_shell_env_uses_localhost_discovery() -> None:
     tasks = yaml.safe_load((ANSIBLE_DIR / "playbooks" / "tasks" / "dds_host_setup.yml").read_text())
     profile = next(t for t in tasks if t.get("ansible.builtin.copy", {}).get("dest") == "/etc/profile.d/ros2_dds.sh")
-    content = profile["ansible.builtin.copy"]["content"]
+    template = profile["ansible.builtin.copy"]["content"]
+    content = jinja2.Environment(trim_blocks=True).from_string(template).render(**load_vars("all"))
     assert "ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST" in content
     assert "unset ROS_DISCOVERY_SERVER ROS_SUPER_CLIENT" in content
+    for entry in load_vars("all")["ros2_dds_env"]:
+        assert f"export {entry}\n" in content, entry
+    assert "FASTDDS_BUILTIN_TRANSPORTS=UDPv4" in content
+
+
+def test_no_orphan_fastdds_profile_xml() -> None:
+    """The XML profile (FASTRTPS_DEFAULT_PROFILES_FILE) was replaced by ros2_dds_env and is referenced nowhere."""
+    assert not list(ANSIBLE_DIR.rglob("fastdds_no_multicast*"))
+    text = (ANSIBLE_DIR / "README.md").read_text()
+    assert "FASTRTPS_DEFAULT_PROFILES_FILE" not in text
+
+
+def test_readme_documents_raw_image_over_loopback_as_unsupported() -> None:
+    text = (ANSIBLE_DIR / "README.md").read_text()
+    assert "unsupported" in text and "raw" in text and "MALLOC_MMAP_THRESHOLD_" in text
 
 
 def test_host_setup_keeps_ipc_of_node_user() -> None:

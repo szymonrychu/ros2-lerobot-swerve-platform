@@ -86,7 +86,7 @@ Use minimal amplitude first. If a test needs motion on more dramatic joints, sto
 
 ### Debug Telemetry Workflow
 
-For servo debugging and post-deploy verification, use **topic_scraper_api** plus **scripts/topic_scraper_collect.py** as the default telemetry/debug workflow (not raw `ros2 topic echo` or ad-hoc scripts).
+For servo debugging and post-deploy verification, use **topic_scraper_api** plus **scripts/topic_scraper_collect.py** as the default telemetry/debug workflow (not raw `ros2 topic echo` or ad-hoc scripts). topic_scraper_api is disabled by default (`enabled: false`): set `enabled: true` for it in `ansible/group_vars/<host>.yml` and run `scripts/deploy-nodes.sh <host> topic_scraper_api` before using the scraper workflow; otherwise connections to port 18100 are refused.
 
 **Leader–follower oscillation checks:**
 

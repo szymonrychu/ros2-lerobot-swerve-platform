@@ -36,3 +36,13 @@ def test_scraper_is_disabled_on_both_hosts_and_not_scraped() -> None:
         assert entry["enabled"] is False, path.name
         targets = data.get("monitoring_agent_node_targets") or []
         assert all(t["node"] != "topic_scraper_api" for t in targets), path.name
+
+
+def test_scraper_disabled_state_is_documented() -> None:
+    """CLAUDE.md, the scripts README and the diag scripts say the scraper is off by default and how to enable it."""
+    for path in (REPO_ROOT / "CLAUDE.md", REPO_ROOT / "scripts" / "README.md"):
+        text = path.read_text()
+        assert "disabled by default" in text and "enabled: true" in text, path.name
+    for path in (REPO_ROOT / "scripts").glob("*_diag.sh"):
+        assert "disabled by default" in path.read_text() or "topic_scraper_api" not in path.read_text(), path.name
+    assert "| topic_scraper_api (disabled) | 25% | 192M |" in (REPO_ROOT / "ansible" / "README.md").read_text()

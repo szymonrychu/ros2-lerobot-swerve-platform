@@ -12,6 +12,8 @@ SupplementaryGroups={{ node_supplementary_groups | join(' ') }}
 # Restart after ANY exit (a launch can exit 0 after its container crashed); a unit stopped by systemctl stays stopped.
 Restart=always
 RestartSec=15
+# Exit 78 (os.EX_CONFIG: bad config or missing token) is not retried: relaunching cannot fix it.
+RestartPreventExitStatus=78
 TimeoutStopSec=30
 {% if node_cpu_quota | default('') | string | length > 0 %}
 CPUQuota={{ node_cpu_quota }}

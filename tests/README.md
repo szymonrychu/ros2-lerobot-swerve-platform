@@ -136,7 +136,11 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
 units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). Measured working sets
-of 2026-10-11 (Mimir) are pinned in `MEASURED_MIB`.
+of 2026-10-11 (Mimir) are pinned in `MEASURED_MIB`. `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+
+### `test_config_exit_codes.py`
+
+The mains of mcp_server and claude_agent return `os.EX_CONFIG` (78) for config/token errors, never 1 (parsed with `ast`; the unit template does not restart exit 78).
 
 | Test | Description |
 |------|-------------|
@@ -196,6 +200,7 @@ Client topic_scraper_api config (`ansible/group_vars/client.yml`).
 | Test | Covers |
 |---|---|
 | `test_scraper_does_not_subscribe_raw_images` | Raw `sensor_msgs/msg/Image` is not in `allowed_types` (about 20 MB/s of raw frames cost about 0.4 cores to deserialize); `CompressedImage` stays. |
+| `test_scraper_disabled_state_is_documented` | CLAUDE.md and scripts/README.md say the scraper is disabled by default and how to enable it (`enabled: true`), and the ansible README server table marks it `(disabled)`. |
 | `test_scraper_is_disabled_on_both_hosts_and_not_scraped` | topic_scraper_api is installed (`present: true`) but `enabled: false` on the robot and the server, and Alloy has no scrape target for it. |
 
 ### `test_topic_scraper_collect.py`
@@ -208,6 +213,7 @@ Unit tests for `scripts/topic_scraper_collect.py` parser/format helpers.
 | `test_parse_selector` | Parses `/topic:jq-filter` selector into topic and jq expression. |
 | `test_topic_endpoint` | Verifies endpoint mapping (`/topic` -> `/topics/topic`). |
 | `test_build_record` | Verifies merged NDJSON record fields for source/topic/timing/value. |
+| `test_connection_refused_prints_the_enable_hint` | `http_get_json` against a closed port prints the "disabled by default / enabled: true" hint on stderr. |
 
 ### Per-node tests (feetech_servos)
 
@@ -996,7 +1002,7 @@ Client CPU load trims (load about 13 on 4 cores made the EKF miss its rate and t
 
 ### test_dds_discovery_config.py
 
-Static checks of the DDS discovery setup in Ansible: the shared `ros2_dds_env` is `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` plus `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` and the discovery-server variables are gone; no node env overrides discovery (`ROS_DISCOVERY_SERVER`, `ROS_SUPER_CLIENT`, `ROS_LOCALHOST_ONLY`, `ROS_AUTOMATIC_DISCOVERY_RANGE`) and the only `ROS_STATIC_PEERS` is the client `master2master` pointing at the server (server nodes have none); the former `fastdds_discovery_server` node is `present: false` / `enabled: false` on both hosts; the unit template renders the shared env before node env with no discovery-server ordering; `ros2_dds_env` also carries `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` and every node type of both hosts renders it (no other unit template renders the DDS env); Steam Deck uses the client as static peer; `/etc/profile.d/ros2_dds.sh` sets localhost discovery for shells; `--all` deploys include `tasks/ros_packages_sync.yml` after the repo sync (upgrade all ros-jazzy packages together, restart running nodes if anything was upgraded); the client and server deploy playbooks never stop the stack up front (`stop_ros_nodes.yml` is gone) and finally include `tasks/start_ros_nodes.yml` (queued nodes restarted and stopped ones started one by one, `ros2_node_start_interval_s` = 2), and web_ui is deployed first in the client `--all` playbook; secondary ethernet ports are `optional: true` in the rendered netplan, and `--all` deploys install the wait-online drop-in (`--any --timeout=30`); every `env:` key is a list (an empty `env:` parses as null and breaks deploys); logind keeps the node user's shared memory (`RemoveIPC=no`) and running `ros2-*` services restart once when that is first applied.
+Static checks of the DDS discovery setup in Ansible: the shared `ros2_dds_env` is `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` plus `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` and the discovery-server variables are gone; no node env overrides discovery (`ROS_DISCOVERY_SERVER`, `ROS_SUPER_CLIENT`, `ROS_LOCALHOST_ONLY`, `ROS_AUTOMATIC_DISCOVERY_RANGE`) and the only `ROS_STATIC_PEERS` is the client `master2master` pointing at the server (server nodes have none); the former `fastdds_discovery_server` node is `present: false` / `enabled: false` on both hosts; the unit template renders the shared env before node env with no discovery-server ordering; `ros2_dds_env` also carries `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` and every node type of both hosts renders it (no other unit template renders the DDS env); Steam Deck uses the client as static peer; `/etc/profile.d/ros2_dds.sh` renders the full `ros2_dds_env` (localhost discovery and UDPv4 transport) for shells; the orphan `fastdds_no_multicast.xml` is gone; the ansible README documents raw Image over loopback UDP as unsupported and the `MALLOC_MMAP_THRESHOLD_` caveat; `--all` deploys include `tasks/ros_packages_sync.yml` after the repo sync (upgrade all ros-jazzy packages together, restart running nodes if anything was upgraded); the client and server deploy playbooks never stop the stack up front (`stop_ros_nodes.yml` is gone) and finally include `tasks/start_ros_nodes.yml` (queued nodes restarted and stopped ones started one by one, `ros2_node_start_interval_s` = 2), and web_ui is deployed first in the client `--all` playbook; secondary ethernet ports are `optional: true` in the rendered netplan, and `--all` deploys install the wait-online drop-in (`--any --timeout=30`); every `env:` key is a list (an empty `env:` parses as null and breaks deploys); logind keeps the node user's shared memory (`RemoveIPC=no`) and running `ros2-*` services restart once when that is first applied.
 
 ### test_nav_stack_config.py
 

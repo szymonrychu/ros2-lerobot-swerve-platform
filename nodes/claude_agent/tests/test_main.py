@@ -104,11 +104,11 @@ def test_main_removes_api_key_from_process_env(stubs) -> None:
     assert "ANTHROPIC_API_KEY" not in os.environ
 
 
-def test_main_invalid_config_returns_1(monkeypatch, tmp_path, stubs) -> None:
+def test_main_invalid_config_returns_ex_config(monkeypatch, tmp_path, stubs) -> None:
     bad = tmp_path / "bad.yaml"
     bad.write_text("max_turn_cap: 0\n")
     monkeypatch.setenv("CLAUDE_AGENT_CONFIG", str(bad))
-    assert entry.main() == 1
+    assert entry.main() == 78
     assert "run" not in stubs
     assert "claude_agent.__main__" in sys.modules
 

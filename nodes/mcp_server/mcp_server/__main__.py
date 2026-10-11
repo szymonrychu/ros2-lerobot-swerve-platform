@@ -29,20 +29,20 @@ def main() -> int:
     """Load config and token, start the ROS node and serve MCP until uvicorn exits.
 
     Returns:
-        int: 0 on clean shutdown, 1 on configuration errors (missing token, bad config).
+        int: 0 on clean shutdown, os.EX_CONFIG (78, not restarted by systemd) on configuration errors (missing token, bad config).
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
         token = token_from_env()
     except MissingTokenError as exc:
         LOGGER.error("%s", exc)
-        return 1
+        return os.EX_CONFIG
     path = config_path_from_env()
     try:
         config = load_config(path)
     except (OSError, ValidationError, ValueError) as exc:
         LOGGER.error("invalid or missing config %s: %s", path, exc)
-        return 1
+        return os.EX_CONFIG
     register_node_info(NODE_NAME)
     init_ros()
     guard = BatteryGuard.from_config(config.battery) if config.battery is not None else None

@@ -9,7 +9,9 @@
     content: |
       # Managed by Ansible (playbooks/tasks/dds_host_setup.yml). DDS discovery settings matching the ROS2 nodes.
       unset ROS_DISCOVERY_SERVER ROS_SUPER_CLIENT
-      export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
+      {% for env in ros2_dds_env %}
+      export {{ env }}
+      {% endfor %}
   tags: [config]
 
 # Nodes run as a regular user; with logind's default RemoveIPC=yes every SSH logout of that user deletes

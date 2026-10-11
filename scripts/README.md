@@ -30,7 +30,7 @@ After calibration, the script tells you to **power cycle** the base (unplug/plug
 
 ### 2. Verify fixes (topic scraper)
 
-Requires **topic_scraper_api** running on server and client (port 18100) and **jq** installed.
+Requires **topic_scraper_api** running on server and client (port 18100) and **jq** installed. topic_scraper_api is disabled by default (`enabled: false`): set `enabled: true` for it in `ansible/group_vars/<host>.yml` and run `scripts/deploy-nodes.sh <host> topic_scraper_api` before using the scraper workflow; otherwise connections to port 18100 are refused.
 
 ```bash
 # One-shot: print latest /server/gps/fix and /client/gps/fix (status, lat, lon, alt)
@@ -138,7 +138,7 @@ python scripts/topic_scraper_collect.py \
 ### Other
 
 - **calibrate_rtk_base.py** — Low-level calibration script (run on the machine that has the base serial port). Used by `rtk_calibrate.sh` when not using `--local`.
-- **topic_scraper_collect.py** — Generic NDJSON collector for topic_scraper_api; used by `rtk_verify.sh`.
+- **topic_scraper_collect.py** — Generic NDJSON collector for topic_scraper_api (disabled by default, `enabled: true` to use it; prints a hint on connection refused); used by `rtk_verify.sh`.
 
 ## swerve_diag.sh
 

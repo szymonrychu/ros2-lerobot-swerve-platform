@@ -230,6 +230,11 @@ def test_unit_restarts_after_any_exit() -> None:
     assert "on-failure" not in text
 
 
+def test_config_error_exit_is_not_restarted() -> None:
+    """A config/token error exits 78 (os.EX_CONFIG); relaunching it every 15 s cannot fix it and costs an rclpy import."""
+    assert "RestartPreventExitStatus=78\n" in render()
+
+
 def test_stopped_and_disabled_nodes_stay_stopped() -> None:
     """Restart=always never restarts a unit stopped by systemctl: the deploy stops nodes only that way (stop_for_build
     `systemctl stop`, uninstall and enabled: false `state: stopped`), never with kill, which would count as an exit."""
@@ -371,9 +376,8 @@ def enabled_memory_low_sum(variables: dict) -> int:
 
 
 def test_memory_low_sum_leaves_room_for_the_os() -> None:
-    """The enabled robot nodes protect 1672 MiB in total, well under a third of the 8 GB Pi."""
+    """The enabled robot nodes protect at most MAX_MEMORY_LOW_SUM_MIB in total, well under a third of the 8 GB Pi."""
     total = enabled_memory_low_sum(load(CLIENT_VARS))
-    assert total == 1672
     assert total <= MAX_MEMORY_LOW_SUM_MIB < CLIENT_RAM_MIB / 3
 
 

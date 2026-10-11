@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# NOTE: topic_scraper_api is disabled by default (enabled: false in ansible/group_vars/<host>.yml); set enabled: true and deploy it to use the scraper sections.
 # Teleop pipeline diagnostic: leader->follower data path health check.
 #
 # Data path:

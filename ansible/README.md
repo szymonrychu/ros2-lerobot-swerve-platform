@@ -287,11 +287,12 @@ The network role writes a netplan file under `/etc/netplan/` and runs `netplan a
 
 ## ROS2 network setup (DDS discovery)
 
-- **All ROS2 nodes:** the unit template emits `ros2_dds_env` (`group_vars/all.yml`) first: `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (simple discovery restricted to the host) and `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` (the shared-memory transport is off: a SIGKILLed participant's SHM port is reused by its restart while peers keep writing into the deleted segment, which left web_ui deaf after an OOM restart on 2026-10-11; trade-off: same-host image topics are copied through loopback UDP, costing CPU). Node `env` entries come after it and override.
+- **All ROS2 nodes:** the unit template emits `ros2_dds_env` (`group_vars/all.yml`) first: `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` (simple discovery restricted to the host) and `FASTDDS_BUILTIN_TRANSPORTS=UDPv4` (the shared-memory transport is off: a SIGKILLed participant's SHM port is reused by its restart while peers keep writing into the deleted segment, which left web_ui deaf after an OOM restart on 2026-10-11; trade-off: same-host image topics are copied through loopback UDP, costing CPU). Node `env` entries come after it and override. Raw `sensor_msgs/Image` (640x480) over loopback UDP is unsupported: `rmem_default` is 1 MiB and no Fast DDS socket-buffer is configured, so a raw subscriber on the Pi can drop fragments; use the compressed topics.
+- **Allocator env:** `MALLOC_MMAP_THRESHOLD_` (client.yml, e.g. plan_grasp's node) disables glibc's dynamic mmap/trim threshold, so every allocation of 1 MiB or more is mmap'd and zero-faulted on each use. Do not change or copy it blindly: measure RSS and CPU on the robot first (and consider `MALLOC_TRIM_THRESHOLD_` only if the cost is visible).
 - **Cross-host:** only the client `master2master` adds `ROS_STATIC_PEERS={{ ros2_server_hostname }}`, so it is the single process exchanging DDS traffic with the server. Server nodes list no static peers: when they listed the client, every client node meshed with the server over Wi-Fi.
 - **Steam Deck UI:** SUBNET discovery with the client as static peer (`steamdeck_ros2_static_peers`).
-- **Shells:** `/etc/profile.d/ros2_dds.sh` (from `playbooks/tasks/dds_host_setup.yml`) sets the same localhost discovery for SSH sessions, so the `ros2` CLI and `scripts/*_diag.sh` see the graph. Non-login SSH commands should `source /etc/profile.d/ros2_dds.sh`.
-- **Shared memory:** nodes run as a regular user, and logind's default `RemoveIPC=yes` deletes that user's POSIX shared memory (the FastDDS SHM segments) on every SSH logout. Data then silently stops for processes started afterwards. `dds_host_setup.yml` installs `/etc/systemd/logind.conf.d/ros2-keep-ipc.conf` (`RemoveIPC=no`) and restarts running `ros2-*` services once when it is first applied.
+- **Shells:** `/etc/profile.d/ros2_dds.sh` (from `playbooks/tasks/dds_host_setup.yml`) renders the full `ros2_dds_env` (localhost discovery and `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`) for SSH sessions, so the `ros2` CLI and `scripts/*_diag.sh` see the graph. Non-login SSH commands should `source /etc/profile.d/ros2_dds.sh`.
+- **logind IPC:** nodes run as a regular user, and logind's default `RemoveIPC=yes` deletes that user's POSIX shared memory on every SSH logout (the nodes themselves use UDPv4, but other shared-memory users of that account would lose it too). `dds_host_setup.yml` installs `/etc/systemd/logind.conf.d/ros2-keep-ipc.conf` (`RemoveIPC=no`) and restarts running `ros2-*` services once when it is first applied.
 - **History:** a FastDDS discovery server per host was tried (2026-10-03) and removed: launch_ros' one-shot lifecycle and component-loading service calls (slam_toolbox configure, Nav2 composable nodes) hung intermittently through it on the busy client. The `fastdds_discovery_server` node stays `present: false` so deploys uninstall it.
 
 ## Boot network wait
@@ -434,7 +435,7 @@ The server shares the template but keeps its quotas and caps (no tiers, no `memo
 |---|---|---|
 | ros2-master | 20% | 128M |
 | lerobot_leader | 50% | 128M |
-| topic_scraper_api | 25% | 192M |
+| topic_scraper_api (disabled) | 25% | 192M |
 | gps_rtk_base | 25% | 64M |
 
 ### Proposing values from Prometheus

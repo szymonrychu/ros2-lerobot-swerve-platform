@@ -17,6 +17,10 @@ from dataclasses import dataclass
 from typing import Any
 
 DEFAULT_INTERVAL_S = 0.1
+DISABLED_HINT = (
+    "topic_scraper_api is disabled by default: set `enabled: true` for it in ansible/group_vars/<host>.yml and run "
+    "scripts/deploy-nodes.sh <host> topic_scraper_api."
+)
 HELP_EPILOG = """Examples
 ========
 Basic
@@ -170,7 +174,11 @@ def http_get_json(url: str, timeout_s: float = 2.0) -> dict[str, Any] | None:
             if not isinstance(data, dict):
                 return None
             return data
-    except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError):
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, ConnectionRefusedError):
+            print(f"{url}: connection refused. {DISABLED_HINT}", file=sys.stderr)
+        return None
+    except (ValueError, OSError):
         return None
 
 
