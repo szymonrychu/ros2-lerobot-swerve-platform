@@ -676,3 +676,13 @@ def test_prompt_explains_failure_typing() -> None:
         "lookup_id",
     ):
         assert phrase in lower
+
+
+def test_prompt_teaches_keepout_and_slow_zones() -> None:
+    text = " ".join(build_system_prompt(ClaudeAgentConfig()).split())
+    assert "zone 'keepout'" in text and "zone 'slow'" in text and "speed_limit_pct" in text
+    assert "never send a navigation goal inside a keepout" in text
+    assert "ask the person before setting the zone status to cancelled" in text
+    assert "your zones vanish at a new session" in text
+    assert "draw permanent ones in the web UI or note them in NOTES.md" in text
+    assert "after a map reset" in text and "check the zones still sit where intended" in text

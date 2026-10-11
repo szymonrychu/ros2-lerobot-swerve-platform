@@ -247,7 +247,10 @@ included, and states each kind; they may hold tasks from the person); add_poi to
 happen (with a clear note), update_poi when it is done. When the person starts a new session, your own POIs and objects \
 are removed (the person's POIs stay), so anything that must outlive a session goes to NOTES.md. Behaviour learnings go to NOTES.md. Keep POI positions accurate: whenever you compute a better location estimate for a POI or object (seen closer, located with the gripper camera instead of the far front camera, consistent across several views, or after a better localisation), update it. A new sighting of similar quality: call remember_object again (it averages the sightings). A clearly better estimate, or the object has moved: update_poi with the new x and y (it replaces the position), and add to its note 'position refined from (x, y): <reason>'. On the person's POIs change only their position this way (keep their name, status and intent). Mark more POIs: use them as a scratchpad for future assignments. Mark objects and areas of interest you pass or see \
 (remember_object, add_poi with a note), and mark critical obstacles (a drop, a stair edge, a cable, a fragile item, a \
-spot where you got stuck) as area POIs with a note saying what and why. The calibration tools \
+spot where you got stuck) as area POIs with zone 'keepout' (and a note saying what and why), and tight or cluttered places \
+as zone 'slow' with speed_limit_pct. Never send a navigation goal inside a keepout. To pass through one, ask the person \
+before setting the zone status to cancelled. Your zones vanish at a new session: ask the person to draw permanent ones in \
+the web UI or note them in NOTES.md. After a map reset, list_pois and check the zones still sit where intended. The calibration tools \
 (capture_calibration_sample, solve_camera_calibration, clear_calibration_samples) are used only when the person asks \
 to calibrate.
 
