@@ -592,7 +592,10 @@ def test_nav2_collision_monitor_uses_scan() -> None:
         assert polygon["action_type"] in ("stop", "slowdown", "approach", "limit")
         # nav2_collision_monitor (Jazzy) Polygon::getPolygonFromString rejects vvf.size() <= 3 even though its error
         # says "at least three points", and one bad polygon aborts the whole nav2 bringup: four points minimum.
-        if polygon["type"] == "polygon":
+        if polygon["type"] == "polygon" and "points" not in polygon:
+            # Dynamic shape (ArmStop): received on polygon_sub_topic, no static points to validate.
+            assert polygon["polygon_sub_topic"]
+        elif polygon["type"] == "polygon":
             assert len(yaml.safe_load(polygon["points"])) >= 4
         elif polygon["type"] == "velocity_polygon":
             for sub in polygon["velocity_polygons"]:
@@ -877,17 +880,12 @@ def test_nodes_readme_names_the_smac_lattice_planner() -> None:
 
 
 def test_laser_filter_polygon_matches_the_h_outline() -> None:
-    """Static polygon filter in base_link: the generated H footprint + 1 cm, no laser_filters padding (it moves
-    vertices by sign(x), sign(y), wrong for a non-convex outline); returns in the notches are kept."""
-    doc = yaml.safe_load(LASER_FILTER_PARAMS.read_text())
-    filters = doc["scan_to_scan_filter_chain"]["ros__parameters"]
-    assert list(filters) == ["filter1"]
-    poly_filter = filters["filter1"]
-    assert poly_filter["type"] == "laser_filters/StaticLaserScanPolygonFilter"
-    params = poly_filter["params"]
+    """Startup self polygon of the laser_filter node in base_link: the generated H footprint + 1 cm (no padding
+    parameter: the margin is generated into the polygon); returns in the notches are kept."""
+    params = yaml.safe_load(LASER_FILTER_PARAMS.read_text())
+    assert set(params) == {"scan_topic", "scan_filtered_topic", "polygon_frame", "transform_timeout_s", "polygon"}
     assert params["polygon_frame"] == "base_link"
-    assert params["invert"] is False
-    assert params["polygon_padding"] == 0.0
+    assert (params["scan_topic"], params["scan_filtered_topic"]) == ("/scan", FILTERED_SCAN)
     gen = footprint_geometry()
     polygon = [tuple(pt) for pt in yaml.safe_load(params["polygon"])]
     assert polygon == gen.laser_polygon
@@ -900,11 +898,13 @@ def test_laser_filter_polygon_matches_the_h_outline() -> None:
 def test_laser_filter_ansible_wiring() -> None:
     group = client_vars()
     defaults = group["ros2_node_type_defaults"]["laser_filter"]
-    assert "ros-jazzy-laser-filters" in defaults["apt_packages"]
-    cmd = defaults["node_launch_command"]
-    assert "laser_filters scan_to_scan_filter_chain" in cmd
-    assert "{{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml" in cmd
-    assert "scan:=/scan" in cmd and f"scan_filtered:={FILTERED_SCAN}" in cmd
+    # The repo's Python node (runtime-settable polygon), not laser_filters' scan_to_scan_filter_chain.
+    assert defaults["node_launch_command"] == "python3 -m laser_filter"
+    assert defaults["node_src_dir"] == "nodes/laser_filter"
+    assert "apt_packages" not in defaults
+    assert defaults["env"] == [
+        "LASER_FILTER_CONFIG={{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml"
+    ]
     entry = node_entry("laser_filter")
     assert entry["present"] is True and entry["enabled"] is True
     tasks = flat(yaml.safe_load((PLAYBOOKS_DIR / "deploy_nodes_client.yml").read_text())[0]["tasks"])

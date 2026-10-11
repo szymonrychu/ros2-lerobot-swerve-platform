@@ -34,7 +34,7 @@ params (notably collision_monitor and docking_server) fails to configure and abo
 | behavior_server | spin / backup / drive_on_heading / assisted_teleop / wait; `local_frame: odom`, `global_frame: map`, rotation <= 0.5 rad/s. |
 | smoother_server | SimpleSmoother. |
 | velocity_smoother | open loop, `max_velocity [0.25, 0.25, 0.5]`, `min_velocity [-0.25, -0.25, -0.5]`, accel 1.0 m/s^2, 2.0 rad/s^2. |
-| collision_monitor | `base_link` / `odom`, `cmd_vel_smoothed -> cmd_vel`; one direction-aware `stop` polygon `StopBox` (`velocity_polygon`): the H footprint swept 2 cm toward the commanded direction (generated), source `/scan_filtered`. `StopBox` is enabled (validated on the robot, see [Collision monitor](#collision-monitor)). |
+| collision_monitor | `base_link` / `odom`, `cmd_vel_smoothed -> cmd_vel`; a direction-aware `stop` polygon `StopBox` (`velocity_polygon`): the H footprint swept 2 cm toward the commanded direction (generated), source `/scan_filtered`. `StopBox` is enabled (validated on the robot, see [Collision monitor](#collision-monitor)). A second `stop` polygon `ArmStop` takes its shape from mcp_server and is enabled only while the arm is released out of the body (see [Dynamic footprint](#dynamic-footprint-arm-released)). |
 | docking_server | One `SimpleChargingDock` plugin (a non-empty plugin list is mandatory) and no docks: it configures with an empty dock database and only accepts requests that carry an explicit dock pose. |
 | waypoint_follower | WaitAtWaypoint. |
 | route_server | `graph_filepath: ""`: configures with an empty graph ("No graph file provided to load yet"); a graph can be loaded later through its `set_route_graph` service. |
@@ -70,12 +70,32 @@ Non-convex footprints in Nav2 Jazzy (checked in the navigation2 1.3.13 sources a
   switched off on both costmaps (`footprint_clearing_enabled: false`); the robot's own returns are already removed by
   the laser_filter self polygon, and raytracing clears stale cells.
 
+### Dynamic footprint (arm released)
+
+The footprint above is the static one, loaded from the params at startup. mcp_server replaces it at runtime when the
+agent releases the arm with `release_control(subsystem='arm', keep_position=true[, carried_object_radius_m])`: the
+arm stays frozen, so the footprint becomes the body outline + the arm's ground shadow (+ a circle of the carried
+object's radius at the tool point). `take_control('arm')`, a parked release and an mcp_server start publish the static
+outline again (details: `nodes/mcp_server/README.md`, "Navigation footprint").
+
+| Consumer | How it follows |
+|---|---|
+| local / global costmap | `Costmap2DROS` subscribes its relative `footprint` topic (`geometry_msgs/Polygon`, SystemDefaults QoS): mcp_server publishes on `/local_costmap/footprint` and `/global_costmap/footprint`. The costmaps re-publish it on `<costmap>/published_footprint`, which the behavior server and docking server read. `footprint_padding` stays 0 (mcp_server already includes the margins it wants). |
+| collision_monitor `StopBox` | Does not follow: Jazzy reads `velocity_polygon` sub-polygons once at configure and has no footprint topic for them. It keeps covering the body. |
+| collision_monitor `ArmStop` | `type: polygon`, `action_type: stop`, no static `points`: its shape arrives on `polygon_sub_topic` `/collision_monitor/arm_stop_polygon` (`PolygonStamped`, `polygon_subscribe_transient_local: true`); `enabled: false` at startup. mcp_server publishes the arm shadow + carried circle grown by `stopbox_margin_m` (2 cm, the StopBox sweep) and sets `ArmStop.enabled` true (the parameter is dynamic in Jazzy); static footprint: false. Checked in Docker with navigation2 1.3.13 (2026-10-11): "Polygon points are not defined. Using dynamic subscription instead", the shape update arrived, `ArmStop.enabled true` accepted. Not direction-aware: an obstacle within 2 cm of the released arm stops every motion. |
+| laser_filter | Its `polygon` parameter is set to the footprint + 1 cm (see `nodes/laser_filter/README.md`). |
+
+mcp_server re-sends the current footprint every 5 s, so a restarted Nav2 picks it up without waiting for the next
+release.
+
 ### Changing body numbers
 
 All derived geometry (footprint, inflation radius, StopBox sub-polygons, laser_filter polygon) comes from one body
 model. Its source is the mcp_server `body:` block in `ansible/group_vars/client.yml` (the arm self-collision model:
 `boxes` with centre/size and `cylinders` with x, y, radius, z range in `base_link`) when present, else the `body:` in
-`scripts/gen_nav_footprint.yaml`. After changing a number, regenerate and commit both config files:
+`scripts/gen_nav_footprint.yaml`. The script also writes the geometry numbers mcp_server's dynamic footprint uses
+(`nav_footprint:` in the mcp_server config of `client.yml`) and shares its outline code with mcp_server
+(`nodes/mcp_server/mcp_server/footprint_geometry.py`). After changing a number, regenerate and commit the files:
 
 ```bash
 uv run python scripts/gen_nav_footprint.py
@@ -172,7 +192,7 @@ Goals finish within 1 cm and 2 deg (`xy_goal_tolerance` 0.01, `yaw_goal_toleranc
 
 ## Collision monitor
 
-collision_monitor always runs and sits in the velocity chain (`cmd_vel_smoothed -> cmd_vel`). Its only polygon,
+collision_monitor always runs and sits in the velocity chain (`cmd_vel_smoothed -> cmd_vel`). Its body polygon,
 `StopBox` (the footprint swept 2 cm toward the motion, stop on 4+ points), is `enabled: true`: it reads `/scan_filtered`, where
 `nodes/laser_filter` has removed the lidar returns on the robot body. A 20 s stationary sample on the robot
 (2026-10-03) found 0 returns in the 5 cm band. Without the filter the raw `/scan` had ~130 self-hits inside the

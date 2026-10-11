@@ -272,11 +272,20 @@ class BaseControlState(BaseModel):
     steering_neutral: bool | None = None  # every steer joint within tolerance of 0; None without fresh joint states
 
 
+class FootprintState(BaseModel):
+    """Navigation footprint mcp_server publishes to Nav2 and the laser_filter (get_control_state)."""
+
+    kind: Literal["static", "dynamic"]  # static H body, or grown by the released arm (and carried object)
+    vertices: int  # vertex count of the published costmap footprint
+    carried_object_radius_m: float | None = None  # carried-object circle at the tool point, None without one
+
+
 class ControlState(BaseModel):
-    """Both leases (get_control_state, take_control)."""
+    """Both leases (get_control_state, take_control) and the published navigation footprint."""
 
     arm: ArmControlState
     base: BaseControlState
+    footprint: FootprintState | None = None  # None when nav_footprint is not configured
 
 
 class ReleaseResult(BaseModel):

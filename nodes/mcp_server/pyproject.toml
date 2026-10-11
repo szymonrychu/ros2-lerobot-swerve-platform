@@ -15,6 +15,7 @@ dependencies = [
     "pyyaml==6.0.3",
     "ros2-common",
     "ros2-metrics",
+    "shapely==2.2.0",
 ]
 
 [dependency-groups]

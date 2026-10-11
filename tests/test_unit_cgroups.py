@@ -44,7 +44,6 @@ MEASURED_MIB = {
     "rplidar_a1": (91.6, 92.9),
     "overview_camera": (94.6, 95.6),
     "swerve_controller": (49.8, 50.5),
-    "laser_filter": (35.7, 37.6),
     "static_tf_publisher": (44.5, 45.0),
     "rf2o_laser_odometry": (38.6, 39.3),
     "rf2o_odom_relay": (47.6, 48.2),
@@ -57,8 +56,9 @@ MEASURED_MIB = {
     "poi_store": (53.8, 54.3),
     "claude_agent": (93.4, 386.5),
 }
-# Robot node types with no series (not running on 2026-10-11): their MemoryLow is an estimate.
-UNMEASURED = {"master2master", "haptic_controller", "realsense_d435i"}
+# Robot node types with no series (not running on 2026-10-11, or replaced since: laser_filter became a Python node):
+# their MemoryLow is an estimate.
+UNMEASURED = {"master2master", "haptic_controller", "realsense_d435i", "laser_filter"}
 
 CRITICAL = {
     "weights": (1000, 1000, -900),
@@ -371,9 +371,9 @@ def enabled_memory_low_sum(variables: dict) -> int:
 
 
 def test_memory_low_sum_leaves_room_for_the_os() -> None:
-    """The enabled robot nodes protect 1648 MiB in total, well under a third of the 8 GB Pi."""
+    """The enabled robot nodes protect 1672 MiB in total, well under a third of the 8 GB Pi."""
     total = enabled_memory_low_sum(load(CLIENT_VARS))
-    assert total == 1648
+    assert total == 1672
     assert total <= MAX_MEMORY_LOW_SUM_MIB < CLIENT_RAM_MIB / 3
 
 
@@ -408,7 +408,7 @@ def test_system_slice_allocates_the_robot_memory_low() -> None:
     variables = load(CLIENT_VARS)
     text = render_headroom("system-slice-headroom.conf.j2", **variables)
     assert "[Slice]\n" in text
-    assert "MemoryLow=1648M\n" in text
+    assert "MemoryLow=1672M\n" in text
     assert "MemoryLow=0M\n" in render_headroom(
         "system-slice-headroom.conf.j2", ros2_nodes=[], ros2_node_type_defaults={}
     )

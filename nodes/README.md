@@ -23,7 +23,7 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **rf2o_laser_odometry/** — rf2o lidar odometry (source-built from a pinned upstream commit) on `/scan_filtered` → `/odom_rf2o`; no TF (Client only).
 - **rf2o_odom_relay/** — Re-publishes rf2o as a body-frame twist with a real covariance on `/odom_rf2o_twist` for the EKF (Client only).
 - **map_guard/** - SLAM map protection: scores each scan against the map and detects the robot being lifted, carried or rotated by hand; pauses slam_toolbox while disturbed, then resumes or backs up and resets the map (web_ui drops its GPS anchor); notifies the agent on `/robot_events` only while it is busy. Starts in dry run (Client only).
-- **laser_filter/** — laser_filters box filter removing lidar returns on the robot body: `/scan` → `/scan_filtered` for SLAM, costmaps and collision monitor (Client only).
+- **laser_filter/** — Python lidar self filter removing returns on the robot body (polygon settable at runtime; mcp_server sets the dynamic footprint when the arm is released): `/scan` → `/scan_filtered` for SLAM, costmaps and collision monitor (Client only).
 - **slam_toolbox/** — slam_toolbox online async SLAM from `/scan` + odometry TF: publishes `/map` and map → odom; saved posegraph in `/var/lib/ros2/maps` is reloaded at start (Client only).
 - **nav2_bringup/** — Nav2 2D navigation stack with repo params: footprint-aware Smac lattice global planner (OMNI, H-shaped footprint) on the SLAM map, MPPI Omni controller for the swerve base (Client only).
 - **haptic_controller/** — Force-feedback (resistance) and zero-G hold mode for leader gripper; gripper-only pilot (Client only).

@@ -48,7 +48,7 @@ Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every node pro
 | `test_workflow_has_no_poetry` | The workflow never mentions Poetry. |
 | `test_uv_pinned_in_every_job` | Every job installs uv through `astral-sh/setup-uv` pinned to version 0.11.29. |
 | `test_root_tests_job_present` | A job runs the root test suite (`uv run --frozen pytest tests`). |
-| `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q` (19 node projects, `map_guard` included). |
+| `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q` (20 node projects, `map_guard` and `laser_filter` included). |
 | `test_ansible_job_installs_collections_before_syntax_check` | The `lint-ansible` job installs `ansible/requirements.yml` collections (`ansible.posix`, used by the mount tasks) before `poe test-ansible`. |
 
 ### `test_precommit_config.py`
@@ -154,12 +154,12 @@ of 2026-10-11 (Mimir) are pinned in `MEASURED_MIB`.
 | `test_tiers_dominate_default_system_work` | Every tier is above the default weight 100 with a negative `OOMScoreAdjust`, ordered critical > normal > agent. |
 | `test_tiers_do_not_overlap` | A node type is in one tier only. |
 | `test_every_client_type_is_tiered` | Every client type but the uninstalled `fastdds_discovery_server` is tiered. |
-| `test_memory_low_is_about_the_measured_working_set` | `memory_low` is between the p50 working set and 16 MiB above it; unmeasured types have one. |
+| `test_memory_low_is_about_the_measured_working_set` | `memory_low` is between the p50 working set and 16 MiB above it; unmeasured types (also laser_filter since it became a Python node) have one. |
 | `test_memory_max_is_a_generous_safety_net` | `memory_max` is at least 2x the 24 h peak (2x `memory_low` when unmeasured); mcp_server at least 1G. |
 | `test_measured_and_unmeasured_cover_every_robot_type` | The measurement table names every robot type exactly once. |
-| `test_memory_low_sum_leaves_room_for_the_os` | The enabled nodes protect 1648 MiB, under a third of the 8 GB Pi. |
+| `test_memory_low_sum_leaves_room_for_the_os` | The enabled nodes protect 1672 MiB, under a third of the 8 GB Pi. |
 | `test_server_keeps_its_limits_without_tiers` | Server types keep `CPUQuota` / `MemoryMax`, carry no tier keys, render no `MemoryHigh` / `MemoryLow`. |
-| `test_system_slice_allocates_the_robot_memory_low` | The `system.slice` drop-in template sums `memory_low` over present and enabled nodes (M and G, missing keys 0): 1648M on the client. |
+| `test_system_slice_allocates_the_robot_memory_low` | The `system.slice` drop-in template sums `memory_low` over present and enabled nodes (M and G, missing keys 0): 1672M on the client. |
 | `test_user_slice_loses_to_robot_units` | The `user.slice` drop-in renders `CPUWeight=50`, `IOWeight=50` from `group_vars/client.yml`. |
 | `test_headroom_tasks_are_reversible_and_wired_into_the_client_deploy` | `cgroup_headroom.yml` installs both drop-ins, removes them when `ros2_cgroup_headroom_enabled` is false, reloads systemd; the client deploy includes it with tags `config`, `always`. |
 | `test_monitoring_slice_stays_low_priority` | `monitoring.slice` keeps CPU/IO weight 20, its memory caps and a positive `OOMScoreAdjust`. |
@@ -1005,8 +1005,8 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_lidar_static_tf_mounted_backwards` | Static TF base_link -> laser_frame is at (0.158, 0.06, 0.20) with yaw = pi (Platform dimensions.md gave (0.15, 0.04); corrected by the 2026-10-05 in-place turn test): the RPLidar is mounted rotated 180 deg (verified on the robot by driving forward). |
 | `test_tests_readme_lidar_tf_matches_client_yml` | The lidar TF row in tests/README.md quotes the same base_link -> laser_frame position as client.yml (stale doc guard). |
 | `test_nodes_readme_names_the_smac_lattice_planner` | nodes/README.md describes nav2_bringup with the Smac lattice planner, not the replaced NavFn. |
-| `test_laser_filter_polygon_matches_the_h_outline` | laser_filter is one `StaticLaserScanPolygonFilter` in `base_link` (not inverted, `polygon_padding` 0) whose polygon equals the generated H footprint + 1 cm: it contains the footprint and keeps returns in the front/rear notches and in the band just outside the body. |
-| `test_laser_filter_ansible_wiring` | laser_filter node type (apt `ros-jazzy-laser-filters`, `scan_to_scan_filter_chain` with the repo params, `/scan` -> `/scan_filtered`), enabled node entry, per-node playbook and inclusion in `deploy_nodes_client.yml`. |
+| `test_laser_filter_polygon_matches_the_h_outline` | The laser_filter node config (`/scan` -> `/scan_filtered`, `base_link`, only the known keys) has a startup polygon equal to the generated H footprint + 1 cm: it contains the footprint and keeps returns in the front/rear notches and in the band just outside the body. |
+| `test_laser_filter_ansible_wiring` | laser_filter node type is the repo Python node (`python3 -m laser_filter`, `node_src_dir nodes/laser_filter`, no laser_filters apt package, `LASER_FILTER_CONFIG` pointing at the repo config), enabled node entry, per-node playbook and inclusion in `deploy_nodes_client.yml`. |
 | `test_node_apt_install_refreshes_stale_cache` | The ros2_node_deploy apt install refreshes the package index (`update_cache: true`, `cache_valid_time: 3600`) so new packages do not 404 on a stale cache. |
 | `test_rplidar_runs_under_scan_supervisor` | rplidar_a1 is launched through `scan_supervisor.py` (runs the launch file, exits 1 for a systemd restart when `/scan` never starts or goes silent). |
 | `test_web_ui_frontend_build_runs_at_lowest_priority` | The web_ui `npm ci` / `npm run build` deploy steps run in a transient systemd scope (`CPUQuota={{ ros2_build_cpu_quota }}`, `CPUWeight={{ ros2_build_cpu_weight }}`, `IOWeight=10`) under `nice -n 19 ionice -c 3` (the build overheated and froze the Pi next to the running ROS stack). |
@@ -1036,7 +1036,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_obstacle_layer_keeps_obstacles_in_the_notches` | Both costmaps: obstacle layer `footprint_clearing_enabled: false` (its column fill treats the H as convex and would erase obstacles in the notches). |
 | `test_slam_map_resolution_cost_is_bounded` | slam_toolbox correlation and loop search windows are whole numbers of their own cells, the correlation grid is no coarser than the map, and `map_update_interval` is 10 s (the 2.5 cm raster has 4x the cells). |
 | `test_nav2_velocity_smoother_matches_swerve` | Smoother limits `[0.25, 0.25, 0.5]`, odom `/odometry/filtered`. |
-| `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) and a `/scan` observation source. |
+| `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) (static ones 4+ points, the dynamic ArmStop a `polygon_sub_topic`) and a `/scan` observation source. |
 | `test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan` | collision_monitor stays in the `cmd_vel_smoothed -> cmd_vel` chain with its core keys; `StopBox` (holonomic stop `velocity_polygon`, min 4 points) is enabled on the footprint-filtered scan. |
 | `test_stopbox_covers_every_velocity` | Every command (directions in 5 deg steps, speeds 0 to 0.25 m/s, yaw rates -0.5 to 0.5) selects a StopBox sub-polygon, as Nav2 keeps the previous one for an uncovered velocity. |
 | `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side (ahead of a front wheel, x 0.23; ahead of the lidar dome in the front notch, x 0.202 (dome front 0.187); behind a rear wheel; beside each side frame, y +-0.1658 with the measured 35 mm frames), a return 1.5 cm outside the H footprint (just outside the self-filter polygon) stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
@@ -1100,8 +1100,11 @@ Unit tests for `scripts/gen_nav_footprint.py` (shapely geometry, no ROS) and the
 | `test_stopbox_polygons_function_matches_generate` | `stopbox_polygons` gives the same result as `generate`. |
 | `test_nav2_params_equal_the_generator_output` | Re-rendering `nav2_params.yaml` changes nothing. |
 | `test_laser_filter_equals_the_generator_output` | Re-rendering `footprint_filter.yaml` changes nothing. |
-| `test_generated_values_land_in_the_parsed_yaml` | Parsed footprints, padding, inflation, StopBox order/points/ranges and the laser polygon equal the generator output. |
-| `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config, `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
+| `test_client_vars_equal_the_generator_output` | Re-rendering `client.yml` (the mcp_server `nav_footprint` region) changes nothing. |
+| `test_mcp_nav_footprint_numbers_come_from_the_generator_config` | The mcp_server `nav_footprint` numbers (circle segments, gap closing, laser and stopbox margins, dynamic simplification, decimals) equal `gen_nav_footprint.yaml`. |
+| `test_footprint_geometry_is_shared_with_mcp_server` | The generator's outline, offset and vertex-order functions are imported from `mcp_server.footprint_geometry` (one implementation for the static and the dynamic footprint). |
+| `test_generated_values_land_in_the_parsed_yaml` | Parsed footprints, padding, inflation, StopBox order/points/ranges, the laser polygon and the mcp_server `nav_footprint` numbers equal the generator output. |
+| `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config (and no client.yml, whose region is then skipped), `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
 
 ### test_poi_store_config.py
 

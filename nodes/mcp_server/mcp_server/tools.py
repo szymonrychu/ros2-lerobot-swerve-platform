@@ -28,8 +28,9 @@ from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
 from .camera_scene import camera_setup, pixel_scale
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
-from .control import ControlManager, LeaseNeed, ReleaseTarget, Subsystem
+from .control import MAX_CARRIED_RADIUS_M, ControlManager, LeaseNeed, ReleaseTarget, Subsystem
 from .floor_guard import TiltOverrideDeg
+from .footprint import NavFootprint
 from .grasp_tools import SURFACES_DESC, floor_override, grip_profile_description
 from .metrics import TOOL_CALLS, TOOL_DURATION
 from .models import (
@@ -471,7 +472,10 @@ def register_tools(
         extra_modules (tuple[Callable[[ToolContext], None], ...]): Additional tool modules.
     """
     monitor = monitor or RobotMonitor(config.monitor, guard, autonomy_source=config.arm.autonomy_source_name)
-    control = ControlManager(robot.arm, robot, config, guard)
+    footprint = None if config.nav_footprint is None else NavFootprint(config.nav_footprint, config.body, robot)
+    if footprint is not None:
+        footprint.start()  # mcp_server start: the static footprint, re-sent every republish_s
+    control = ControlManager(robot.arm, robot, config, guard, footprint=footprint)
     queue = MotionQueue(
         robot,
         config,
@@ -774,6 +778,15 @@ def register_core_tools(ctx: ToolContext) -> None:
         keep_position: Annotated[
             bool, Field(description="true: release without the reset (the arm keeps its last goal, the base stays)")
         ] = False,
+        carried_object_radius_m: Annotated[
+            float | None,
+            Field(
+                ge=0.0,
+                le=MAX_CARRIED_RADIUS_M,
+                description="keep_position=true arm release only: rough radius (m) of the object in the gripper, "
+                "a circle around the tool point added to the navigation footprint",
+            ),
+        ] = None,
     ) -> ReleaseResult:
         """Release control leases, parking first by default. arm: drive to the stored home pose (the same
         self-collision-safe routes as arm_home), then publish the autonomy release so the leader arm and web UI work
@@ -782,17 +795,26 @@ def register_core_tools(ctx: ToolContext) -> None:
         kept | failed: why | skipped: why; base neutral | kept | failed: why), never kept as a held lease. Under battery
         cut-off the arm park is skipped (skipped: battery_cutoff). A lease not held is reported as skipped: not held.
         Refused while the motion queue runs: cancel_motions or wait_for_event first. Call release_control whenever you
-        are done with a subsystem; a lease is otherwise kept indefinitely."""
+        are done with a subsystem; a lease is otherwise kept indefinitely. Navigation footprint: an arm release with
+        keep_position=true freezes the arm, so Nav2, the collision monitor and the lidar self filter then treat the
+        robot as its body plus the arm's ground shadow plus, with carried_object_radius_m (0..0.3 m, keep_position
+        only), a circle of that radius at the tool point: release the arm this way before driving with the arm out or
+        carrying something. take_control(subsystem='arm') and a parked release go back to the body footprint. Parking
+        the arm (keep_position=false, also subsystem='all') is REFUSED while the gripper carries an object
+        (carried_object_radius_m set, last grasp held, or a holding load): put the object down first
+        (release_object)."""
         with tool_errors():
-            return control.release(subsystem, keep_position)
+            return control.release(subsystem, keep_position, carried_object_radius_m)
 
     @tool()
     def get_control_state() -> ControlState:
         """Both control leases (no motion): arm {held, held_since (epoch s), at_home (the five non-gripper joints
         within settle tolerance of the stored home pose; the gripper is ignored, so holding an object at home counts;
         null when unknown or no home is stored), home_stored, active_source (filter_node: leader, web_ui, autonomy),
-        lost (how the lease ended if this server did not release it, e.g. taken over by web_ui)} and base {held,
-        held_since, steering_neutral (every steer joint near straight; null without fresh swerve joint states)}."""
+        lost (how the lease ended if this server did not release it, e.g. taken over by web_ui)}, base {held,
+        held_since, steering_neutral (every steer joint near straight; null without fresh swerve joint states)} and
+        footprint {kind (static: the body; dynamic: body + released arm shadow + carried object), vertices,
+        carried_object_radius_m} (null when the server publishes no footprint)."""
         with tool_errors():
             return control.state()
 

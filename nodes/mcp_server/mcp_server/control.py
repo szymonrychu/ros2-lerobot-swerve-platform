@@ -5,6 +5,12 @@ it. The base lease is a flag inside mcp_server (nothing downstream arbitrates /c
 Every arm or base tool is refused without its lease (tools.TOOL_SUBSYSTEM, checked centrally before the tool body).
 Releasing resets by default: the arm drives to its stored home pose, the base is zeroed (Nav2 cancelled, zero twist)
 and the steering is verified neutral. A failed reset is reported, but the release always happens.
+
+The navigation footprint (footprint.NavFootprint) follows the arm lease: take_control('arm') publishes the static
+body footprint (the arm may move from then on), an arm release that parked the arm publishes it too, and any other
+arm release (keep_position=true, or a park that failed) publishes the footprint of the measured, now frozen arm pose,
+with the carried object circle when carried_object_radius_m is given. Parking the arm is refused while it carries an
+object (carried_object_radius_m set at the last release, the last grasp held, or a holding load on the gripper).
 """
 
 import threading
@@ -17,8 +23,9 @@ from ros2_common.battery import BatteryGuard
 
 from .arm import ArmController, ArmError
 from .config import McpServerConfig
+from .footprint import NavFootprint
 from .models import ArmControlState, BaseControlState, ControlState, ReleaseResult
-from .motion_queue import ARM_KINDS, BASE_KINDS
+from .motion_queue import ARM_KINDS, BASE_KINDS, LiveState, Precondition, evaluate_precondition
 
 Subsystem = Literal["arm", "base"]
 ReleaseTarget = Literal["arm", "base", "all"]
@@ -31,6 +38,18 @@ SUBSYSTEMS: tuple[Subsystem, ...] = ("arm", "base")
 RELEASE_ORDER: tuple[Subsystem, ...] = ("base", "arm")  # base first: stop the wheels before the arm moves home
 QUEUE_BUSY_REFUSAL = "release_control refused: the motion queue is running - cancel_motions or wait_for_event first"
 NOT_HELD = "skipped: not held"
+# carried_object_radius_m range (m): the rough size of the object in the gripper.
+MAX_CARRIED_RADIUS_M = 0.3
+RADIUS_NEEDS_KEEP = (
+    "release_control refused: carried_object_radius_m is only valid with keep_position=true (the arm cannot park "
+    "with a carried object)"
+)
+RADIUS_NEEDS_ARM = "release_control refused: carried_object_radius_m applies to subsystem='arm' or 'all'"
+RADIUS_NEEDS_LEASE = "release_control refused: carried_object_radius_m needs the arm lease held (the footprint is set at the arm release)"
+CARRYING_REFUSAL = (
+    "release_control refused: the arm cannot park while the gripper carries an object ({reasons}) - put the object "
+    "down first (release_object), or release with keep_position=true"
+)
 
 
 class BaseOps(Protocol):
@@ -116,6 +135,7 @@ class ControlManager:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         wall: Callable[[], float] = time.time,
+        footprint: NavFootprint | None = None,
     ) -> None:
         """Create the manager.
 
@@ -128,8 +148,14 @@ class ControlManager:
             clock (Callable[[], float]): Monotonic clock for the steering wait (s).
             sleep (Callable[[float], None]): Sleep for the steering wait (s).
             wall (Callable[[], float]): Wall clock for held_since (s since the epoch).
+            footprint (NavFootprint | None): Published navigation footprint; None publishes nothing.
         """
         self.arm = arm
+        self.config = config
+        self.footprint = footprint
+        # carried_object_radius_m of the last arm release and the gripper open count then (an open clears it).
+        self.carried_radius: float | None = None
+        self.carried_opens = 0
         self.base = base
         self.cfg = config.control
         self.guard = guard
@@ -172,45 +198,106 @@ class ControlManager:
         if subsystem == "arm":
             if not self.arm.control_held:
                 self.arm.acquire()
+            if self.footprint is not None:
+                self.footprint.publish_static()
         else:
             with self.lock:
                 if self.base_since is None:
                     self.base_since = self.wall()
         return self.state()
 
-    def release(self, subsystem: ReleaseTarget, keep_position: bool = False) -> ReleaseResult:
+    def release(
+        self, subsystem: ReleaseTarget, keep_position: bool = False, carried_object_radius_m: float | None = None
+    ) -> ReleaseResult:
         """Release leases, resetting each by default. The release always happens; a failed reset is reported.
 
         Args:
             subsystem (ReleaseTarget): arm, base or all.
             keep_position (bool): True skips the reset (arm keeps its last goal, base only clears the flag).
+            carried_object_radius_m (float | None): keep_position=true arm release only: radius (0..0.3 m) of the
+                carried object, a circle around the tool point added to the footprint.
 
         Returns:
             ReleaseResult: Released subsystems, per subsystem reset outcome and the state afterwards.
 
         Raises:
-            ToolError: While the motion queue runs (nothing is released).
+            ToolError: While the motion queue runs, for an invalid carried_object_radius_m, or when the arm would park
+                while carrying an object (nothing is released).
         """
+        targets = RELEASE_ORDER if subsystem == "all" else (subsystem,)
+        if carried_object_radius_m is not None:
+            self.check_carried_radius(carried_object_radius_m, keep_position, "arm" in targets)
         if self.queue_busy():
             raise ToolError(QUEUE_BUSY_REFUSAL)
-        targets = RELEASE_ORDER if subsystem == "all" else (subsystem,)
+        if not keep_position and "arm" in targets and self.arm.control_held:
+            reasons = self.carrying()
+            if reasons:
+                raise ToolError(CARRYING_REFUSAL.format(reasons="; ".join(reasons)))
         released: list[str] = []
         reset: dict[str, str] = {}
         for name in targets:
-            outcome = self.release_base(keep_position) if name == "base" else self.release_arm(keep_position)
+            if name == "base":
+                outcome = self.release_base(keep_position)
+            else:
+                outcome = self.release_arm(keep_position, carried_object_radius_m)
             reset[name] = outcome
             if not outcome.startswith(NOT_HELD):
                 released.append(name)
         return ReleaseResult(released=released, reset=reset, state=self.state())
 
-    def release_arm(self, keep_position: bool) -> str:
-        """Release the arm lease, homing first unless kept, skipped under battery cut-off or no home is stored.
+    def check_carried_radius(self, radius: float, keep_position: bool, arm_targeted: bool) -> None:
+        """Validate carried_object_radius_m for a release.
+
+        Args:
+            radius (float): Radius (m).
+            keep_position (bool): The release keeps the position.
+            arm_targeted (bool): The release includes the arm.
+
+        Raises:
+            ToolError: Without keep_position, without the arm (target or lease), or outside 0..0.3 m.
+        """
+        if not keep_position:
+            raise ToolError(RADIUS_NEEDS_KEEP)
+        if not arm_targeted:
+            raise ToolError(RADIUS_NEEDS_ARM)
+        if not 0.0 <= radius <= MAX_CARRIED_RADIUS_M:
+            raise ToolError(
+                f"release_control refused: carried_object_radius_m must be within 0..{MAX_CARRIED_RADIUS_M:g} m "
+                f"(got {radius:g})"
+            )
+        if not self.arm.control_held:
+            raise ToolError(RADIUS_NEEDS_LEASE)
+
+    def carrying(self) -> list[str]:
+        """Why the gripper counts as carrying an object (empty when it does not).
+
+        Returns:
+            list[str]: carried_object_radius_m set at the last release (no gripper open since), the last grasp held
+                (ArmController.grasp_held), and a holding load on the gripper (the gripper_holding precondition).
+        """
+        reasons = []
+        if self.carried_radius is not None and self.arm.gripper_opens == self.carried_opens:
+            reasons.append(f"carried_object_radius_m {self.carried_radius:g} m set at the last arm release")
+        if self.arm.grasp_held:
+            reasons.append("the last grasp is held (the gripper was not opened since)")
+        sample = self.arm.fresh_sample()
+        if sample is not None:
+            live = LiveState(joints=self.arm.measured(sample), gripper_effort=sample.efforts.get(self.arm.gripper))
+            holding, why = evaluate_precondition(Precondition(type="gripper_holding"), live, self.config)
+            if holding:
+                reasons.append(f"holding load: {why}")
+        return reasons
+
+    def release_arm(self, keep_position: bool, carried_object_radius_m: float | None = None) -> str:
+        """Release the arm lease, homing first unless kept, skipped under battery cut-off or no home is stored; then
+        publish the footprint (static after a home, else the frozen measured pose with the carried object).
 
         Args:
             keep_position (bool): Release only.
+            carried_object_radius_m (float | None): Carried object radius (keep_position only).
 
         Returns:
-            str: homed | kept | failed: <why> | skipped: <why>.
+            str: homed | kept | failed: <why> | skipped: <why> (a footprint that could not be computed is appended).
         """
         if not self.arm.control_held:
             return NOT_HELD if self.arm.lost_note is None else f"{NOT_HELD} ({self.arm.lost_note})"
@@ -229,6 +316,30 @@ class ControlManager:
                 outcome = "homed" if result.status == "converged" else f"failed: {result.status}: {result.message}"
         if self.arm.control_held:
             self.arm.release()
+        radius = carried_object_radius_m if keep_position else None
+        self.carried_radius = radius
+        self.carried_opens = self.arm.gripper_opens
+        return self.publish_footprint(outcome, radius)
+
+    def publish_footprint(self, outcome: str, radius: float | None) -> str:
+        """Footprint after an arm release: static when homed, else the measured (frozen) pose.
+
+        Args:
+            outcome (str): Arm reset outcome.
+            radius (float | None): Carried object radius (m).
+
+        Returns:
+            str: The outcome, with "; footprint unchanged: <why>" when the pose is unknown.
+        """
+        if self.footprint is None:
+            return outcome
+        if outcome == "homed":
+            self.footprint.publish_static()
+            return outcome
+        sample = self.arm.fresh_sample()
+        if sample is None:
+            return f"{outcome}; footprint unchanged: no fresh arm joint states"
+        self.footprint.publish_dynamic(self.arm.body_check.part_points(self.arm.measured(sample)), radius)
         return outcome
 
     def release_base(self, keep_position: bool) -> str:
@@ -285,7 +396,8 @@ class ControlManager:
                 self.base.steer_positions(), self.cfg.steer_joint_names, self.cfg.steer_neutral_tolerance_rad
             ),
         )
-        return ControlState(arm=arm, base=base)
+        footprint = None if self.footprint is None else self.footprint.state()
+        return ControlState(arm=arm, base=base, footprint=footprint)
 
     def refusal(self, tool_name: str, need: LeaseNeed) -> str | None:
         """Refusal text for a tool whose lease is not held.

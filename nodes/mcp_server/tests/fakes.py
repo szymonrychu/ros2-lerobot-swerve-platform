@@ -138,6 +138,11 @@ class PerceptionFakeMixin:
         self.poi_commands: list[tuple[str, dict]] = []
         self.poi_clears: list[str] = []
         self.base_resets = 0
+        # Footprint sink (footprint.FootprintSink): published polygons, parameter sets and periodic callbacks.
+        self.footprint_polygons: list[tuple[str, list[tuple[float, float]]]] = []
+        self.stamped_polygons: list[tuple[str, str, list[tuple[float, float]]]] = []
+        self.node_params: list[tuple[str, str, str | bool]] = []
+        self.footprint_timers: list[tuple[float, Callable[[], None]]] = []
         self.steer: dict[str, float] | None = {j: 0.0 for j in STEER_JOINTS}  # None = no fresh swerve joint states
         self.topdown = TopdownInputs(
             pose=(1.0, 2.0, 0.5),
@@ -156,6 +161,18 @@ class PerceptionFakeMixin:
 
     def steer_positions(self) -> dict[str, float] | None:
         return None if self.steer is None else dict(self.steer)
+
+    def publish_polygon(self, topic: str, points: list[tuple[float, float]]) -> None:
+        self.footprint_polygons.append((topic, list(points)))
+
+    def publish_stamped_polygon(self, topic: str, frame: str, points: list[tuple[float, float]]) -> None:
+        self.stamped_polygons.append((topic, frame, list(points)))
+
+    def set_node_parameter(self, node: str, name: str, value: str | bool) -> None:
+        self.node_params.append((node, name, value))
+
+    def every(self, period_s: float, callback: Callable[[], None]) -> None:
+        self.footprint_timers.append((period_s, callback))
 
     def stop_count(self) -> int:
         return self.stops

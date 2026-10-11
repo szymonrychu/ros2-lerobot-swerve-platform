@@ -36,8 +36,13 @@ circle_segments: 16
 close_gap_m: 0.01
 # laser_filter self polygon = footprint + this (removes the robot's own returns, keeps returns in the notches).
 laser_filter_margin_m: 0.01
-# collision_monitor StopBox: the footprint swept this far toward the commanded direction (outside the filter margin).
+# collision_monitor StopBox: the footprint swept this far toward the commanded direction (outside the filter margin);
+# also the mcp_server ArmStop margin around the released arm shadow and carried object.
 stopbox_margin_m: 0.02
+# mcp_server dynamic footprint (arm released with keep_position=true): the arm shadow and carried-object circle are
+# simplified by this (m) before the union with the exact body outline (removes hull vertices, keeps the costmap
+# footprint check cheap; well inside the laser_filter and stopbox margins).
+dynamic_simplify_m: 0.005
 # Inflation falloff (1/m), the same on both costmaps. Steep so the penalty zone hugs the footprint: cost drops to 1/4 of
 # the inscribed cost within 6 cm. Upper bound: the cost at the circumscribed radius must stay >= 1, otherwise MPPI's
 # CostCritic and the Smac collision checker log "inflation is not set sufficiently" and check the full footprint

@@ -9,9 +9,13 @@ yaml's own `body:`. From its top-view union (an H with a front and a rear notch)
 - the collision_monitor StopBox: per direction sector, the footprint swept stopbox_margin_m toward the motion, plus
   the bounding box + margin for rotation in place,
 - the laser_filter self polygon (footprint + laser_filter_margin_m),
+- the mcp_server nav_footprint numbers (circle segments, gap closing, margins, simplification, decimals), so the
+  dynamic footprint mcp_server publishes at an arm release uses the same geometry (mcp_server/footprint.py),
 
 and rewrites the regions between `# >>> gen_nav_footprint: <name>` and `# <<< gen_nav_footprint: <name>` markers in
-nodes/nav2_bringup/config/nav2_params.yaml and nodes/laser_filter/config/footprint_filter.yaml.
+nodes/nav2_bringup/config/nav2_params.yaml, nodes/laser_filter/config/footprint_filter.yaml and the mcp_server config
+in ansible/group_vars/client.yml. The outline, circle and offset geometry is shared with mcp_server
+(nodes/mcp_server/mcp_server/footprint_geometry.py).
 
 Usage: uv run python scripts/gen_nav_footprint.py [config.yaml]
 """
@@ -24,11 +28,21 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, field_validator
 from shapely.geometry import LinearRing, MultiPoint, Point, Polygon, box
-from shapely.geometry.polygon import orient
 from shapely.ops import unary_union
 
 DEFAULT_CONFIG = Path(__file__).resolve().with_suffix(".yaml")
 REPO_ROOT = Path(__file__).resolve().parent.parent
+# The outline, circle, offset and vertex-order geometry lives in mcp_server (its dynamic footprint at arm release uses
+# the same code): imported by path, the script runs in the root uv environment.
+sys.path.insert(0, str(REPO_ROOT / "nodes" / "mcp_server"))
+from mcp_server.footprint_geometry import (  # noqa: E402
+    Point2,
+    body_outline,
+    offset_polygon,
+    polygon_text,
+    to_points,
+)
+
 MARKER_BEGIN = "# >>> gen_nav_footprint: {name}"
 MARKER_END = "# <<< gen_nav_footprint: {name}"
 MARKER_RE = re.compile(r"^(?P<indent>[ ]*)# >>> gen_nav_footprint: (?P<name>[a-z_]+)$")
@@ -51,11 +65,6 @@ THETA_LIMIT = 10.0
 FULL_TURN = 3.1416
 # Minimum number of vertices Jazzy's collision_monitor accepts per polygon (Polygon::getPolygonFromString).
 MIN_POLYGON_POINTS = 4
-SIMPLIFY_TOLERANCE = 1e-6
-# Offset corners are mitred up to 1.5 x the margin, then bevelled: a sharp vertex must not grow a long spike.
-OFFSET_MITRE_LIMIT = 1.5
-
-Point2 = tuple[float, float]
 
 
 class BoxPart(BaseModel):
@@ -96,6 +105,7 @@ class Settings(BaseModel):
     close_gap_m: float = Field(ge=0.0)
     laser_filter_margin_m: float = Field(ge=0.0)
     stopbox_margin_m: float = Field(gt=0.0)
+    dynamic_simplify_m: float = Field(ge=0.0)
     cost_scaling_factor: float = Field(gt=0.0)
     decimals: int = Field(ge=3, le=6)
 
@@ -124,6 +134,7 @@ class Generated(BaseModel):
     cost_scaling_factor: float
     stopbox: dict[str, dict]
     laser_polygon: list[Point2]
+    mcp_nav_footprint: dict[str, float | int]
 
 
 def load_settings(path: Path) -> Settings:
@@ -162,56 +173,6 @@ def resolve_body(settings: Settings, repo_root: Path) -> tuple[Body, str]:
     return settings.body, "gen_nav_footprint.yaml body"
 
 
-def num(value: float, decimals: int) -> float:
-    """Round for writing (and turn -0.0 into 0.0).
-
-    Args:
-        value (float): Value.
-        decimals (int): Decimal places.
-
-    Returns:
-        float: Rounded value.
-    """
-    return round(value, decimals) + 0.0
-
-
-def circle_polygon(x: float, y: float, radius: float, segments: int) -> Polygon:
-    """Polygon circumscribing a circle, edges tangent at 0/90/180/270 deg (never cuts into the circle).
-
-    Args:
-        x (float): Centre x (m).
-        y (float): Centre y (m).
-        radius (float): Radius (m).
-        segments (int): Vertex count (multiple of 4).
-
-    Returns:
-        Polygon: The polygon.
-    """
-    outer = radius / math.cos(math.pi / segments)
-    step = 2 * math.pi / segments
-    return Polygon(
-        [(x + outer * math.cos((k + 0.5) * step), y + outer * math.sin((k + 0.5) * step)) for k in range(segments)]
-    )
-
-
-def to_points(poly: Polygon, decimals: int) -> list[Point2]:
-    """Exterior of a polygon as rounded, counter-clockwise points without the closing point, starting at the vertex
-    with the largest x (then largest y) so the output is deterministic.
-
-    Args:
-        poly (Polygon): Polygon.
-        decimals (int): Decimal places.
-
-    Returns:
-        list[Point2]: Vertices.
-    """
-    poly = orient(Polygon(poly.exterior).simplify(SIMPLIFY_TOLERANCE, preserve_topology=True), 1.0)
-    points = [(num(x, decimals), num(y, decimals)) for x, y in poly.exterior.coords[:-1]]
-    deduped = [p for i, p in enumerate(points) if p != points[i - 1]]
-    start = max(range(len(deduped)), key=lambda i: deduped[i])
-    return deduped[start:] + deduped[:start]
-
-
 def footprint_polygon(body: Body, circle_segments: int, close_gap_m: float, decimals: int) -> list[Point2]:
     """Top-view outline of the body: union of all parts, sub-cell gaps closed, holes filled.
 
@@ -227,20 +188,7 @@ def footprint_polygon(body: Body, circle_segments: int, close_gap_m: float, deci
     Raises:
         ValueError: The parts do not form one connected outline.
     """
-    shapes = []
-    for b in body.boxes:
-        cx, cy, _cz = b.center
-        sx, sy, _sz = b.size
-        shapes.append(box(cx - sx / 2, cy - sy / 2, cx + sx / 2, cy + sy / 2))
-    for c in body.cylinders:
-        shapes.append(circle_polygon(c.x, c.y, c.radius, circle_segments))
-    union = unary_union(shapes)
-    if close_gap_m > 0.0:
-        closed = union.buffer(close_gap_m, join_style="mitre").buffer(-close_gap_m, join_style="mitre")
-        union = unary_union([union, closed])
-    if union.geom_type != "Polygon":
-        raise ValueError(f"body parts do not form one outline ({union.geom_type})")
-    return to_points(union, decimals)
+    return to_points(body_outline(body.boxes, body.cylinders, circle_segments, close_gap_m), decimals)
 
 
 def circumscribed_radius(points: list[Point2]) -> float:
@@ -278,20 +226,6 @@ def inflation_radius(points: list[Point2], resolution: float) -> float:
         float: Radius (m).
     """
     return round(math.ceil(circumscribed_radius(points) / resolution - 1e-9) * resolution, 6)
-
-
-def offset_polygon(points: list[Point2], margin: float, decimals: int) -> list[Point2]:
-    """Grow a polygon outward by `margin` (mitred corners, bevelled past 1.5 x margin; notches shrink by the margin).
-
-    Args:
-        points (list[Point2]): Polygon.
-        margin (float): Offset (m).
-        decimals (int): Decimal places.
-
-    Returns:
-        list[Point2]: Grown polygon.
-    """
-    return to_points(Polygon(points).buffer(margin, join_style="mitre", mitre_limit=OFFSET_MITRE_LIMIT), decimals)
 
 
 def sweep_polygon(points: list[Point2], start: float, end: float, margin: float) -> Polygon:
@@ -384,6 +318,14 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
         cost_scaling_factor=settings.cost_scaling_factor,
         stopbox=stopbox_polygons(footprint, settings.stopbox_margin_m, settings.decimals),
         laser_polygon=offset_polygon(footprint, settings.laser_filter_margin_m, settings.decimals),
+        mcp_nav_footprint={
+            "circle_segments": settings.circle_segments,
+            "close_gap_m": settings.close_gap_m,
+            "laser_filter_margin_m": settings.laser_filter_margin_m,
+            "stopbox_margin_m": settings.stopbox_margin_m,
+            "simplify_m": settings.dynamic_simplify_m,
+            "decimals": settings.decimals,
+        },
     )
 
 
@@ -396,7 +338,7 @@ def polygon_string(points: list[Point2]) -> str:
     Returns:
         str: Quoted YAML string value.
     """
-    return '"[' + ", ".join(f"[{x}, {y}]" for x, y in points) + ']"'
+    return f'"{polygon_text(points)}"'
 
 
 def region_lines(name: str, gen: Generated) -> list[str]:
@@ -417,7 +359,9 @@ def region_lines(name: str, gen: Generated) -> list[str]:
     if name == "inflation":
         return [f"cost_scaling_factor: {gen.cost_scaling_factor}", f"inflation_radius: {gen.inflation_radius}"]
     if name == "laser_polygon":
-        return [f"polygon: {polygon_string(gen.laser_polygon)}", "polygon_padding: 0.0"]
+        return [f"polygon: {polygon_string(gen.laser_polygon)}"]
+    if name == "mcp_nav_footprint":
+        return [f"{key}: {value}" for key, value in gen.mcp_nav_footprint.items()]
     if name == "stopbox":
         lines = ["velocity_polygons: [" + ", ".join(f'"{n}"' for n in gen.stopbox) + "]"]
         for sub_name, sub in gen.stopbox.items():
@@ -501,6 +445,19 @@ def render_laser_filter(text: str, gen: Generated) -> str:
     return render_regions(text, gen, {"laser_polygon"})
 
 
+def render_client_vars(text: str, gen: Generated) -> str:
+    """client.yml with the mcp_server nav_footprint region regenerated.
+
+    Args:
+        text (str): Current file content.
+        gen (Generated): Generator output.
+
+    Returns:
+        str: New content.
+    """
+    return render_regions(text, gen, {"mcp_nav_footprint"})
+
+
 def main(argv: list[str]) -> int:
     """Generate and write the footprint geometry into the Nav2 and laser_filter configs.
 
@@ -515,8 +472,12 @@ def main(argv: list[str]) -> int:
     for path_text, render in (
         (settings.nav2_params_path, render_nav2),
         (settings.laser_filter_path, render_laser_filter),
+        (settings.client_vars_path, render_client_vars),
     ):
         path = REPO_ROOT / path_text
+        if render is render_client_vars and not path.is_file():
+            print(f"skipped (missing): {path}")
+            continue
         old = path.read_text()
         new = render(old, gen)
         if new != old:

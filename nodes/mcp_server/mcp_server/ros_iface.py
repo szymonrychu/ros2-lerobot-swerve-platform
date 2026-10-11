@@ -15,10 +15,13 @@ import numpy as np
 import rclpy
 from action_msgs.msg import GoalInfo, GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import Point32, PolygonStamped, PoseStamped, Twist
+from geometry_msgs.msg import Polygon as PolygonMsg
 from nav2_msgs.action import NavigateToPose
 from nav2_msgs.msg import CollisionMonitorState
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
+from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.srv import SetParameters
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
@@ -47,6 +50,7 @@ from .base_motion import (
 )
 from .config import McpServerConfig
 from .floor_guard import monitor_tilt_sample
+from .footprint_geometry import Point2
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
 from .grasp_tools import GraspService
 from .ik import ArmKinematics, load_joint_limits
@@ -121,6 +125,38 @@ GOAL_STATUS_NAMES = {
     GoalStatus.STATUS_ABORTED: "aborted",
 }
 COLLISION_ACTIONS = {0: "do_nothing", 1: "stop", 2: "slowdown", 3: "approach", 4: "limit"}
+# Nav2 costmaps subscribe their `footprint` input with SystemDefaultsQoS (reliable, volatile).
+FOOTPRINT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=1)
+# collision_monitor ArmStop subscribes transient local (polygon_subscribe_transient_local: true): latched shape.
+ARM_STOP_QOS = MAP_QOS
+PARAM_WARN_THROTTLE_S = 30.0
+
+
+def polygon_msg(points: list[Point2]) -> PolygonMsg:
+    """geometry_msgs/Polygon of 2D points (z 0).
+
+    Args:
+        points (list[Point2]): Vertices (m).
+
+    Returns:
+        PolygonMsg: The message.
+    """
+    return PolygonMsg(points=[Point32(x=float(x), y=float(y), z=0.0) for x, y in points])
+
+
+def parameter_msg(name: str, value: str | bool) -> Parameter:
+    """rcl_interfaces/Parameter of a string or bool value.
+
+    Args:
+        name (str): Parameter name.
+        value (str | bool): Value.
+
+    Returns:
+        Parameter: The message.
+    """
+    if isinstance(value, bool):
+        return Parameter(name=name, value=ParameterValue(type=ParameterType.PARAMETER_BOOL, bool_value=value))
+    return Parameter(name=name, value=ParameterValue(type=ParameterType.PARAMETER_STRING, string_value=value))
 
 
 def twist_xyw(msg: Odometry) -> tuple[float, float, float]:
@@ -368,11 +404,117 @@ class RosRobot:
         self.startup_torque_timer = self.node.create_timer(
             STARTUP_TORQUE_PERIOD_S, self.startup_torque_limit, callback_group=self.group
         )
+        self.init_footprint_io(config)
         self.orphan_started = time.monotonic()
         self.orphan_timer = self.node.create_timer(
             ORPHAN_CHECK_PERIOD_S, self.check_orphan_lease, callback_group=self.group
         )
         self.log.info(f"mcp_server ROS interface ready (URDF {urdf}, home file {config.arm.home_file})")
+
+    # --- navigation footprint (footprint.FootprintSink) ---------------------------------------------------------
+
+    def init_footprint_io(self, config: McpServerConfig) -> None:
+        """Footprint publishers, parameter clients and the re-send timer (only with config.nav_footprint).
+
+        Args:
+            config (McpServerConfig): Node configuration.
+        """
+        self.polygon_pubs: dict[str, Any] = {}
+        self.param_clients: dict[str, Any] = {}
+        self.footprint_tick: Callable[[], None] | None = None
+        self.footprint_period_s = 0.0
+        nav = config.nav_footprint
+        if nav is None:
+            return
+        for topic in nav.costmap_footprint_topics:
+            self.polygon_pubs[topic] = self.node.create_publisher(PolygonMsg, topic, FOOTPRINT_QOS)
+        self.polygon_pubs[nav.arm_stop_topic] = self.node.create_publisher(
+            PolygonStamped, nav.arm_stop_topic, ARM_STOP_QOS
+        )
+        for name in (nav.collision_monitor_node, nav.laser_filter_node):
+            self.param_clients[name] = self.node.create_client(
+                SetParameters, f"{name}/set_parameters", callback_group=self.group
+            )
+        self.footprint_period_s = nav.republish_s
+        self.node.create_timer(nav.republish_s, self.on_footprint_tick, callback_group=self.group)
+
+    def on_footprint_tick(self) -> None:
+        """Timer: re-send the current footprint (a restarted Nav2 / laser_filter / collision_monitor gets it)."""
+        if self.footprint_tick is not None:
+            self.footprint_tick()
+
+    def publish_polygon(self, topic: str, points: list[Point2]) -> None:
+        """Publish a geometry_msgs/Polygon on a configured footprint topic.
+
+        Args:
+            topic (str): One of nav_footprint.costmap_footprint_topics.
+            points (list[Point2]): Vertices (base_link, m).
+        """
+        pub = self.polygon_pubs.get(topic)
+        if pub is None:
+            self.log.error(f"footprint: no publisher for {topic} (not in nav_footprint)")
+            return
+        pub.publish(polygon_msg(points))
+
+    def publish_stamped_polygon(self, topic: str, frame: str, points: list[Point2]) -> None:
+        """Publish a geometry_msgs/PolygonStamped (latched) on the configured ArmStop topic.
+
+        Args:
+            topic (str): nav_footprint.arm_stop_topic.
+            frame (str): Frame of the points.
+            points (list[Point2]): Vertices (m).
+        """
+        pub = self.polygon_pubs.get(topic)
+        if pub is None:
+            self.log.error(f"footprint: no publisher for {topic} (not in nav_footprint)")
+            return
+        msg = PolygonStamped()
+        msg.header.frame_id = frame
+        msg.header.stamp = self.node.get_clock().now().to_msg()
+        msg.polygon = polygon_msg(points)
+        pub.publish(msg)
+
+    def set_node_parameter(self, node: str, name: str, value: str | bool) -> None:
+        """Set a parameter of another node through its set_parameters service, without blocking (outcome logged).
+
+        Args:
+            node (str): Fully qualified node name (nav_footprint.collision_monitor_node / laser_filter_node).
+            name (str): Parameter name.
+            value (str | bool): Value.
+        """
+        client = self.param_clients.get(node)
+        if client is None or not client.service_is_ready():
+            self.log.warning(
+                f"footprint: {node}/set_parameters not available, {name} not set (re-sent every "
+                f"{self.footprint_period_s:g} s)",
+                throttle_duration_sec=PARAM_WARN_THROTTLE_S,
+            )
+            return
+        future = client.call_async(SetParameters.Request(parameters=[parameter_msg(name, value)]))
+
+        def done(fut: Any) -> None:
+            response = fut.result()
+            failed = [r.reason for r in (response.results if response is not None else []) if not r.successful]
+            if response is None or failed:
+                self.log.warning(
+                    f"footprint: {node} refused {name}: {failed or 'no response'}",
+                    throttle_duration_sec=PARAM_WARN_THROTTLE_S,
+                )
+
+        future.add_done_callback(done)
+
+    def every(self, period_s: float, callback: Callable[[], None]) -> None:
+        """Register the periodic footprint re-send (the timer runs at nav_footprint.republish_s).
+
+        Args:
+            period_s (float): Requested period (s); the timer was created with nav_footprint.republish_s.
+            callback (Callable[[], None]): Re-send.
+        """
+        if abs(period_s - self.footprint_period_s) > 1e-9:
+            self.log.warning(
+                f"footprint: re-send period {period_s:g} s requested, timer runs at {self.footprint_period_s:g} s"
+            )
+        self.footprint_tick = callback
 
     # --- data cache -------------------------------------------------------------------------------------------
 

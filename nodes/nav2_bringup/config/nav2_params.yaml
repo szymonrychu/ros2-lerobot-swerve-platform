@@ -418,7 +418,13 @@ collision_monitor:
     # To disable at runtime: `ros2 param set /collision_monitor StopBox.enabled false`.
     # Every polygon needs 4+ points: Jazzy's Polygon::getPolygonFromString rejects <= 3 (its error says "three"),
     # and one rejected sub-polygon aborts the whole nav2 bringup (the generator enforces 4+).
-    polygons: ["StopBox"]
+    # ArmStop: the released arm. The StopBox sub-polygons are static parameters (read once at configure), so when
+    # mcp_server releases the arm with keep_position=true (arm held out, maybe carrying an object; the costmap
+    # footprint then includes it) it publishes the arm's ground shadow + carried object grown by stopbox_margin_m
+    # (2 cm) on polygon_sub_topic (latched) and sets ArmStop.enabled true; take_control('arm') or a parked release
+    # sets it false again. Not direction-aware: an obstacle within 2 cm of the released arm stops every motion (take
+    # arm control and move the arm, which drops back to the body footprint).
+    polygons: ["StopBox", "ArmStop"]
     StopBox:
       type: "velocity_polygon"
       action_type: "stop"
@@ -501,6 +507,14 @@ collision_monitor:
         direction_start_angle: -1.3963
         direction_end_angle: -0.1745
       # <<< gen_nav_footprint: stopbox
+    ArmStop:
+      type: "polygon"
+      action_type: "stop"
+      min_points: 4
+      visualize: false
+      enabled: false
+      polygon_sub_topic: "/collision_monitor/arm_stop_polygon"
+      polygon_subscribe_transient_local: true
     observation_sources: ["scan"]
     scan:
       type: "scan"

@@ -26,6 +26,7 @@ from scripts.gen_nav_footprint import (
     load_settings,
     main,
     offset_polygon,
+    render_client_vars,
     render_laser_filter,
     render_nav2,
     resolve_body,
@@ -35,6 +36,7 @@ from scripts.gen_nav_footprint import (
 REPO_ROOT = Path(__file__).resolve().parent.parent
 NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yaml"
 LASER_FILTER_PARAMS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
+CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 # Rounding of the written coordinates (0.1 mm).
 TOL = 1.5e-4
 # A point deep in the front notch (6 cm ahead of the crossbar, >= 3.5 cm from the wheel, frame and lidar) and one in
@@ -43,6 +45,13 @@ FRONT_NOTCH = (0.16, -0.035)
 REAR_NOTCH = (-0.19, 0.0)
 # Inflation cost at distance d beyond the inscribed radius (nav2_costmap_2d InflationLayer::computeCost).
 INSCRIBED_COST = 253
+
+
+def mcp_nav_footprint() -> dict:
+    """The nav_footprint block of the deployed mcp_server config (client.yml)."""
+    nodes = yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"]
+    config = yaml.safe_load(next(n for n in nodes if n["name"] == "mcp_server")["config"])
+    return {k: v for k, v in config["nav_footprint"].items() if k in generated().mcp_nav_footprint}
 
 
 def settings_and_body():
@@ -350,6 +359,33 @@ def test_laser_filter_equals_the_generator_output() -> None:
     assert render_laser_filter(text, generated()) == text, "run: uv run python scripts/gen_nav_footprint.py"
 
 
+def test_client_vars_equal_the_generator_output() -> None:
+    text = CLIENT_VARS.read_text()
+    assert render_client_vars(text, generated()) == text, "run: uv run python scripts/gen_nav_footprint.py"
+
+
+def test_mcp_nav_footprint_numbers_come_from_the_generator_config() -> None:
+    """mcp_server's dynamic footprint uses the static generator's geometry numbers (no second copy by hand)."""
+    settings = load_settings(DEFAULT_CONFIG)
+    assert mcp_nav_footprint() == {
+        "circle_segments": settings.circle_segments,
+        "close_gap_m": settings.close_gap_m,
+        "laser_filter_margin_m": settings.laser_filter_margin_m,
+        "stopbox_margin_m": settings.stopbox_margin_m,
+        "simplify_m": settings.dynamic_simplify_m,
+        "decimals": settings.decimals,
+    }
+
+
+def test_footprint_geometry_is_shared_with_mcp_server() -> None:
+    """The generator imports the outline / offset / vertex-order code from mcp_server instead of keeping a copy."""
+    import scripts.gen_nav_footprint as gen_module
+
+    assert gen_module.to_points.__module__ == "mcp_server.footprint_geometry"
+    assert gen_module.offset_polygon.__module__ == "mcp_server.footprint_geometry"
+    assert gen_module.body_outline.__module__ == "mcp_server.footprint_geometry"
+
+
 def test_generated_values_land_in_the_parsed_yaml() -> None:
     gen = generated()
     doc = yaml.safe_load(NAV2_PARAMS.read_text())
@@ -365,9 +401,9 @@ def test_generated_values_land_in_the_parsed_yaml() -> None:
         assert [tuple(pt) for pt in yaml.safe_load(stop[name]["points"])] == sub["points"]
         for key in ("direction_start_angle", "direction_end_angle", "linear_min", "linear_max"):
             assert stop[name][key] == pytest.approx(sub[key])
-    filters = yaml.safe_load(LASER_FILTER_PARAMS.read_text())["scan_to_scan_filter_chain"]["ros__parameters"]
-    poly = filters["filter1"]["params"]
+    poly = yaml.safe_load(LASER_FILTER_PARAMS.read_text())
     assert [tuple(pt) for pt in yaml.safe_load(poly["polygon"])] == gen.laser_polygon
+    assert mcp_nav_footprint() == gen.mcp_nav_footprint
 
 
 def test_main_writes_the_files_and_is_idempotent(tmp_path: Path) -> None:
@@ -377,7 +413,7 @@ def test_main_writes_the_files_and_is_idempotent(tmp_path: Path) -> None:
     shutil.copy(NAV2_PARAMS, nav2)
     shutil.copy(LASER_FILTER_PARAMS, laser)
     config = yaml.safe_load(DEFAULT_CONFIG.read_text())
-    config["client_vars_path"] = str(tmp_path / "no_client.yml")
+    config["client_vars_path"] = str(tmp_path / "no_client.yml")  # no client.yml: the yaml body, region skipped
     config["nav2_params_path"] = str(nav2)
     config["laser_filter_path"] = str(laser)
     for c in config["body"]["cylinders"]:

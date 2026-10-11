@@ -183,6 +183,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "battery",
         "monitor",
         "footprint",
+        "nav_footprint",
         "topdown",
         "objects",
         "look_around",

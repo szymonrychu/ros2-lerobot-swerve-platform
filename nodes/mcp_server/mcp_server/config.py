@@ -681,6 +681,52 @@ class ControlSettings(StrictModel):
     steer_poll_s: float = Field(default=0.1, gt=0.0, le=1.0)  # steering check period while waiting
 
 
+class NavFootprintSettings(StrictModel):
+    """Navigation footprint published by mcp_server (footprint.py): the static H body outline, or at an arm release
+    with keep_position=true the outline grown by the frozen arm's ground shadow and an optional carried object.
+
+    The geometry numbers (circle_segments .. decimals) are generated into client.yml by scripts/gen_nav_footprint.py
+    from scripts/gen_nav_footprint.yaml, the same values the static Nav2 / laser_filter polygons were built with.
+    """
+
+    circle_segments: int = Field(ge=8)  # vertices per wheel / lidar / carried-object circle (multiple of 4)
+    close_gap_m: float = Field(ge=0.0)  # body outline: gaps narrower than 2 x this are closed
+    laser_filter_margin_m: float = Field(ge=0.0)  # laser_filter self polygon = footprint + this
+    stopbox_margin_m: float = Field(gt=0.0)  # collision_monitor ArmStop = arm shadow (+ carried object) + this
+    simplify_m: float = Field(ge=0.0)  # arm shadow + carried circle simplification tolerance (m)
+    decimals: int = Field(ge=3, le=6)  # decimal places of the published coordinates
+    # geometry_msgs/Polygon footprint inputs of the Nav2 costmaps (Costmap2DROS subscribes `<costmap>/footprint`).
+    costmap_footprint_topics: list[str] = Field(
+        default_factory=lambda: ["/local_costmap/footprint", "/global_costmap/footprint"], min_length=1
+    )
+    # collision_monitor stop polygon fed with the arm shadow (PolygonStamped, transient local) and toggled through its
+    # `<arm_stop_polygon>.enabled` parameter (the StopBox velocity polygons are static).
+    arm_stop_topic: str = "/collision_monitor/arm_stop_polygon"
+    collision_monitor_node: str = "/collision_monitor"
+    arm_stop_polygon: str = "ArmStop"
+    # laser_filter self filter: its `polygon` parameter (string "[[x, y], ...]", base_link) is set at runtime.
+    laser_filter_node: str = "/laser_filter"
+    laser_polygon_param: str = "polygon"
+    frame_id: str = "base_link"
+    # The current footprint is re-sent this often, so a restarted Nav2 / laser_filter picks it up (s).
+    republish_s: float = Field(default=5.0, gt=0.0, le=60.0)
+
+    @field_validator("circle_segments")
+    @classmethod
+    def multiple_of_four(cls, value: int) -> int:
+        """Circle polygons need edges tangent at the axes (as the static generator builds them).
+
+        Args:
+            value (int): Vertices per circle.
+
+        Returns:
+            int: The validated value.
+        """
+        if value % 4:
+            raise ValueError("circle_segments must be a multiple of 4")
+        return value
+
+
 class MotionQueueSettings(StrictModel):
     """Non-blocking motion queue (enqueue_motions, wait_for_event): limits and precondition thresholds."""
 
@@ -1161,6 +1207,8 @@ class McpServerConfig(StrictModel):
     look_around: LookAroundSettings = LookAroundSettings()
     motion_queue: MotionQueueSettings = MotionQueueSettings()
     control: ControlSettings = ControlSettings()
+    # None: no footprint is published (the Nav2 / laser_filter configs keep their static polygons).
+    nav_footprint: NavFootprintSettings | None = None
     poi: PoiSettings = PoiSettings()
     lookups: LookupSettings = Field(default_factory=LookupSettings)
     floor_guard: FloorGuardSettings = FloorGuardSettings()

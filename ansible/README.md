@@ -304,7 +304,7 @@ A deploy no longer stops the whole stack up front. The role's `stop_for_build.ym
 
 **Failure safety.** (1) The restart intent is written to the host queue by a task right after each change is applied (uv sync, npm build and static copy, config, launcher, unit, colcon build, source stamp), not only at the late handler flush; the source stamp is written last, after config, launcher and unit succeeded. A failure at any point therefore still leaves the restart queued, and the start step runs `systemctl daemon-reload` first so a changed unit takes effect. (2) Before a heavy step stops the running units, they are appended to `/var/lib/ros2-deploy/stopped-for-build`; the start step starts every listed unit whatever the run's scope (also with `--tags <node>`) and clears the file after success. (3) `playbooks/tasks/deploy_guard.yml` installs `ros2-deploy-recover.timer` (every 2 minutes): when the stopped list is older than `ros2_recover_after_min` (15) and no deploy lock younger than `ros2_deploy_lock_max_age_min` (240) exists, it starts the listed units and clears the file. This covers a lost controller or SSH session, where the rescue path cannot run on an unreachable host. The lock `/var/lib/ros2-deploy/deploy.lock` is taken as the last pre-task and released after verify or in the rescue; a lock left by a dead controller stops blocking after its max age. The pre-tasks (repo sync, apt, firmware config) run before any node is stopped, so a failure there needs no rescue. The rescue message carries the failed task, its message, rc and stderr.
 
-**What counts as a changed source.** Every node gets a source stamp (`/var/lib/ros2-deploy/stamps/<node>.src`) holding the hash of the git tree hashes of its source paths on the synced checkout: `node_src_dir` for Python nodes, `src_paths` for launch/config-only node types (rplidar_a1, overview_camera, laser_filter, rf2o_laser_odometry, robot_localization_ekf, slam_toolbox, nav2_bringup, ros2_master), plus the type's `src_extra_paths` (mcp_server also reads `nodes/web_ui/urdf`) and `shared/` when the type sets `src_shared: true` (every node type that imports `shared/ros2_metrics`: feetech_servos, filter_node, swerve_controller, rf2o_odom_relay, bno055_imu, gps_rtk, uvc_camera, poi_store, claude_agent, test_joint_api, topic_scraper_api, mcp_server, web_ui; a root test checks every pyproject with a `../../shared` dependency is declared). `rplidar_a1` has no venv: it lists `shared/ros2_metrics` in `src_extra_paths`, gets `python3-prometheus-client` from apt and `PYTHONPATH=<ros2_repo_dest>/shared/ros2_metrics` in its unit env. A different hash queues the restart. Running nodes nothing changed for are left alone and cost no sleep. `ros2_node_verify` runs last, after those restarts, and checks all units with one `systemctl is-active` per round.
+**What counts as a changed source.** Every node gets a source stamp (`/var/lib/ros2-deploy/stamps/<node>.src`) holding the hash of the git tree hashes of its source paths on the synced checkout: `node_src_dir` for Python nodes, `src_paths` for launch/config-only node types (rplidar_a1, overview_camera, rf2o_laser_odometry, robot_localization_ekf, slam_toolbox, nav2_bringup, ros2_master), plus the type's `src_extra_paths` (mcp_server also reads `nodes/web_ui/urdf`) and `shared/` when the type sets `src_shared: true` (every node type that imports `shared/ros2_metrics`: feetech_servos, filter_node, swerve_controller, rf2o_odom_relay, bno055_imu, gps_rtk, uvc_camera, poi_store, claude_agent, test_joint_api, topic_scraper_api, mcp_server, web_ui; a root test checks every pyproject with a `../../shared` dependency is declared). `rplidar_a1` has no venv: it lists `shared/ros2_metrics` in `src_extra_paths`, gets `python3-prometheus-client` from apt and `PYTHONPATH=<ros2_repo_dest>/shared/ros2_metrics` in its unit env. A different hash queues the restart. Running nodes nothing changed for are left alone and cost no sleep. `ros2_node_verify` runs last, after those restarts, and checks all units with one `systemctl is-active` per round.
 
 ## web_ui frontend build
 
@@ -389,7 +389,7 @@ estimate.
 | rf2o_laser_odometry | 38.6 / 39.3 | 40M | 128M |
 | rf2o_odom_relay | 47.6 / 48.2 | 48M | 128M |
 | robot_localization_ekf | 46.9 / 47.7 | 48M | 128M |
-| laser_filter | 35.7 / 37.6 | 40M | 128M |
+| laser_filter | not measured (Python node since 2026-10-11; the C++ chain was 35.7 / 37.6) | 64M | 256M |
 | slam_toolbox | 84.1 / 90.5 | 88M | 512M |
 | nav2_bringup | 168.7 / 198.9 | 176M | 512M |
 | map_guard | 63.7 / 66.4 | 64M | 160M |
@@ -406,7 +406,7 @@ estimate.
 | haptic_controller (disabled) | no data | 48M | 128M |
 | realsense_d435i (retired) | no data | 128M | 512M |
 
-The enabled nodes protect **1648 MiB** in total: under a quarter of the 8 GB Pi 5, which leaves about 6.3 GB for the
+The enabled nodes protect **1672 MiB** in total: under a quarter of the 8 GB Pi 5, which leaves about 6.3 GB for the
 OS, page cache, monitoring and unprotected work.
 
 ### Host slices (`playbooks/tasks/cgroup_headroom.yml`)
@@ -415,7 +415,7 @@ Every client deploy (tags `config`, `always`) installs two slice drop-ins named 
 systemd when either changed:
 
 - `/etc/systemd/system/system.slice.d/`: `MemoryLow=` the sum of `memory_low` over the present and enabled nodes
-  (1648M). A unit's `MemoryLow` only protects as far as every ancestor allocates protection, so without it the units'
+  (1672M). A unit's `MemoryLow` only protects as far as every ancestor allocates protection, so without it the units'
   values would protect nothing.
 - `/etc/systemd/system/user.slice.d/`: `CPUWeight=` / `IOWeight=` `ros2_user_slice_cpu_weight` /
   `ros2_user_slice_io_weight` (50). SSH sessions and the deploy's `become` steps (`uv sync`, git, apt) run in session
@@ -623,7 +623,7 @@ The server's per-unit caps add up to 2118M, under the slice's hard total, leavin
 
 Adding a node: give it a port (config `metrics_port` or env `METRICS_PORT`), add `{node, address, path}` to `monitoring_agent_node_targets` in `group_vars/client.yml`, deploy the node and `deploy-nodes.sh client monitoring`.
 
-**Unit health (systemd collector).** The unix exporter adds `enable_collectors = ["systemd"]` with `enable_restarts` and `start_time`, limited by `unit_include` (`monitoring_agent_systemd_unit_include`) to `ros2-*.service`, `alloy`, `mimir`, `loki`, `grafana-server` and `nginx`: `node_systemd_unit_state{name,state}`, `node_systemd_service_restart_total{name}`, `node_systemd_unit_start_time_seconds{name}`. Upstream nodes (slam_toolbox, nav2, robot_localization, rf2o, laser_filter) have no in-process metrics: their health is this collector plus their cgroup `container_*` series and their journal lines.
+**Unit health (systemd collector).** The unix exporter adds `enable_collectors = ["systemd"]` with `enable_restarts` and `start_time`, limited by `unit_include` (`monitoring_agent_systemd_unit_include`) to `ros2-*.service`, `alloy`, `mimir`, `loki`, `grafana-server` and `nginx`: `node_systemd_unit_state{name,state}`, `node_systemd_service_restart_total{name}`, `node_systemd_unit_start_time_seconds{name}`. Upstream nodes (slam_toolbox, nav2, robot_localization, rf2o) and laser_filter have no in-process metrics: their health is this collector plus their cgroup `container_*` series and their journal lines.
 
 **Validated with the real binaries** (`tests/test_monitoring_real_binaries.py`, runs when the images are present locally, never pulls): the rendered Mimir config starts `grafana/mimir:3.2.2` with only a loopback interface and reaches `/ready`; the Loki config passes `grafana/loki:3.7.8 -verify-config` and reaches `/ready`; both Alloy configs run in `grafana/alloy:latest` ("now listening", no "failed to evaluate"); both nginx sites pass `nginx:stable nginx -t` and the robot redirect keeps path and query; every PromQL query passes `promtool check rules` (`prom/prometheus:v2.45.3`) and every LogQL query Loki's `/loki/api/v1/format_query`.
 

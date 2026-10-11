@@ -326,6 +326,10 @@ class ArmController:
         self.tilt_source = tilt_source or (lambda: None)
         self._held = False
         self._acquired_at = -math.inf
+        # Carried-object tracking for release_control: the last gripper close ended 'grasped' and no open succeeded
+        # since (grasp_held); gripper_opens counts the successful opens (an open drops a carried object).
+        self.grasp_held = False
+        self.gripper_opens = 0
         # How the lease ended when this server did not release it itself (take-over, /arm/home); None otherwise.
         self.lost_note: str | None = None
         self.held_since: float | None = None  # wall clock (s since the epoch) the current lease was taken
@@ -1147,7 +1151,11 @@ class ArmController:
                     start_jaw = self.require_sample().positions[self.gripper]
                     result = self.stream_to(targets, vmax, floor)
                     if open_fraction == 0.0:
-                        return self.grasp_from_stall(result, start_jaw, self.cfg.grip_profiles.default.squeeze_rad)
+                        result = self.grasp_from_stall(result, start_jaw, self.cfg.grip_profiles.default.squeeze_rad)
+                        self.grasp_held = result.status == "grasped"
+                    elif result.status == "converged":
+                        self.grasp_held = False
+                        self.gripper_opens += 1
                     return result
                 finally:
                     self.restore_default_torque_limit()  # after the jaw moved: never squeeze harder before opening
@@ -1195,6 +1203,7 @@ class ArmController:
             finally:
                 if result is None or result.status != "grasped":
                     self.restore_default_torque_limit()
+        self.grasp_held = result.status == "grasped"
         if result.status == "converged":
             message = (
                 result.message if result.message.startswith("closed without contact") else "closed without contact"
