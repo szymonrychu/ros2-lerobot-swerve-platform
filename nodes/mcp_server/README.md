@@ -1961,6 +1961,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `grasp_check.py` | no | grasp verification models (`GripEvidence`, `CropInfo`, `GraspCheck`), `band_verdict`, `fuse` |
 | `jaw_crop.py` | no | jaw crop: project the jaw region into the gripper camera, `crop_jpeg` |
 | `base_motion.py` | no | timed clamped drive loop, continuous spin with marks (`run_spin`), stop sequence (`run_stop`) and its base half (`run_base_stop`) |
+| `base_dock.py` | no | `DockGoal` / `DockResult` / `DockPort` and the blocking `run_dock` loop over `nav2_msgs/action/DockRobot` (mirrors `run_nav`: server down or no answer raises `RobotError`; rejected, critical event = cancel + zero twist, stop, timeout, result and error-code mapping 0/901..906/999). The loop publishes nothing but a zero twist after a critical event; the docking server drives. The ROS adapter is `ros_dock.py`. |
 | `control.py` | no | control leases: `ControlManager` (take / release with the arm home and base steering resets / carried-object park refusal / footprint triggers / state / lease refusals / vitals digest), `wait_steering_neutral` |
 | `footprint.py`, `footprint_geometry.py` | no | navigation footprint: `NavFootprint` (static / dynamic / conservative, arm shadow, carried circle, republish tick following the released arm, consumers and their outcomes via `FootprintSink`), `python -m mcp_server.footprint` (parked-arm shadow for the generator); shared outline / parked-arm union / circle / offset / inflation geometry (also imported by `scripts/gen_nav_footprint.py`) |
 | `motion_queue.py` | no | motion queue: step models, blend groups, preconditions, worker thread, watch constraints (watcher thread, abort / pause / resume), events, waits |
@@ -2017,6 +2018,7 @@ expose it on the LAN. The MCP path and the admin route stay behind the token. `r
 | `mcp_motion_watch_triggers_total{metric,action}` | motion queue watch constraints that triggered, by metric and action (`abort`/`pause`) |
 | `mcp_frontier_compute_seconds{stage}`, `mcp_frontier_count` | `frontier_tools.refresh` / `geodesic_for`: per-stage frontier compute time (`extract`, `traversability`, `field`, `match` once per `/map` version, `geodesic` once per version and robot cell; a cache hit observes nothing) and the frontier count of the latest version; see [Frontiers](#frontiers) |
 | `mcp_nav_goals_total{result}`, `mcp_nav_goal_duration_seconds` | `nav_result` in `base_motion.py`, so every Nav2 goal that was sent (`succeeded`, `canceled`, `timeout`, `interrupted`, `rejected`, ...); errors before a goal exists (Nav2 not available) raise and are not counted |
+| `mcp_dock_goals_total{result}`, `mcp_dock_goal_duration_seconds` | `dock_result` in `base_dock.py`, one count per docking goal that was sent (`succeeded`, `failed`, `rejected`, `interrupted`, `canceled`, `timeout`); server unavailable or no answer raise and are not counted |
 
 ### Grasp result mapping
 

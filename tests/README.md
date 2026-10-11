@@ -741,6 +741,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   centred grasp), `grasp_shift` reported with `shift_m` and `fixed_jaw_clearance_m`, widths 0 / negative / 0.09 / NaN rejected); limit overrides widen the clamp of `move_joints`
   and make a below-floor Cartesian target reachable
 - drive (`test_base_motion.py`): rate, clamping, duration cap, abort always ends with a zero twist
+- run_dock (`test_base_dock.py`, `FakeDockPort`): server down and no answer raise `RobotError` before/without moving, rejection, success with last feedback state, every failure code (901..906, 999) mapped to its name with retries and message, unknown code name, succeeded-with-error is failed, server-cancelled result, interrupt = cancel + zero + `interrupted` (interrupt wins over stop), stop = cancel + `canceled`, timeout = cancel + `timeout`, cancel on every early exit and only zero twists ever published, `mcp_dock_goals_total` counted
 - tools (`test_tools.py`): all 41 tools (`TOOL_NAMES`) registered with real descriptions (arm motion tools explain `residual_error`
   and the commanded hold), `speed_scale` descriptions derived from `arm_max_joint_velocity_rps` (no hardcoded 0.5 rad/s),
   `move_arm_cartesian` accepting `wrist_roll` / `object_width_m` (bounds, `grasp_shift` in the result, description phrases),
