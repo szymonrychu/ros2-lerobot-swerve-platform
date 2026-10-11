@@ -943,7 +943,7 @@ def register(ctx: ToolContext) -> None:
 
     @ctx.server.tool(
         description=(
-            "Plan and execute a grasp (see plan_grasp): takes arm control, rolls only at the lifted pre-grasp with the "
+            "Plan and execute a grasp (see plan_grasp; needs the arm lease, take_control(subsystem='arm')): rolls only at the lifted pre-grasp with the "
             "gripper half open, opens to the object size plus a margin, approaches and slides in slowly, closes until "
             "the gripper feels the object (never a full squeeze), verifies the grasp (jaw stopped short of closed and "
             "load above threshold), then lifts and retreats. The grip_profile sets how hard it grips (torque limit, close "
@@ -960,7 +960,7 @@ def register(ctx: ToolContext) -> None:
             "(stopped and held; reasons say why) or infeasible (nothing moved). Soft objects (plush toys, foam, "
             "fabric) compress under the jaws: use grip_profile soft and expect 'unverified' when they squash into "
             "the empty band. A stop call "
-            f"aborts it. Keeps arm control: call release_control when done. {slow_note}"
+            f"aborts it. Keeps the arm lease: call release_control when done. {slow_note}"
         )
     )
     def grasp_object(
@@ -1007,7 +1007,7 @@ def register(ctx: ToolContext) -> None:
             f"{grasp.release_open_fraction:g}) and lift the tool point params.release_lift_m (default "
             f"{grasp.release_lift_m:g} m) straight up. Outcome released (reasons note a skipped, unreachable lift) or "
             "aborted. After an 'unverified' grasp_object whose attached image shows empty jaws (or not the object), "
-            f"call this to open and lift away, then retry the grasp. {slow_note}"
+            f"call this to open and lift away, then retry the grasp. Needs the arm lease. {slow_note}"
         )
     )
     def release_object(

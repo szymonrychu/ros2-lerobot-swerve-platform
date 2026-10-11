@@ -246,6 +246,28 @@ def run_stop(
     return StopResult(nav_goals_cancelled=cancelled, base_zeroed=True, arm_held=arm_held, message="; ".join(notes))
 
 
+def run_base_stop(
+    signal_base_stop: Callable[[], None],
+    publish: Callable[[float, float, float], None],
+    cancel_all_goals: Callable[[], bool],
+) -> bool:
+    """Base half of the stop sequence (release_control base reset): abort base calls, zero, cancel Nav2, zero again.
+
+    Args:
+        signal_base_stop (Callable[[], None]): Tells running navigate/drive calls to abort.
+        publish (Callable[[float, float, float], None]): Sends one twist (vx, vy, wz).
+        cancel_all_goals (Callable[[], bool]): Cancels every Nav2 goal; True when the cancel service answered.
+
+    Returns:
+        bool: True when the Nav2 cancel service answered.
+    """
+    signal_base_stop()
+    publish(0.0, 0.0, 0.0)
+    cancelled = cancel_all_goals()
+    publish(0.0, 0.0, 0.0)
+    return cancelled
+
+
 class NavPort(Protocol):
     """One NavigateToPose goal as run_nav needs it (implemented over rclpy futures in ros_iface, faked in tests)."""
 

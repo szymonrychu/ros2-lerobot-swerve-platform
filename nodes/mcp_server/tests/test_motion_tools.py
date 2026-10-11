@@ -19,7 +19,7 @@ from mcp_server.tools import (
 )
 
 from .test_motion_queue import GateRobot
-from .test_tools import TOKEN, call
+from .test_tools import TOKEN, call, take
 
 WAIT = {"timeout_s": 5.0}
 
@@ -34,7 +34,9 @@ def robot(tmp_path: Path) -> GateRobot:
 @pytest.fixture
 def server(robot: GateRobot) -> Any:
     cfg = McpServerConfig(objects={"store_path": robot.arm.cfg.arm.home_file.parent / "objects.json"})
-    return build_mcp_server(robot, cfg, TOKEN)
+    server = build_mcp_server(robot, cfg, TOKEN)
+    take(server)
+    return server
 
 
 def structured(result: Any) -> dict[str, Any]:

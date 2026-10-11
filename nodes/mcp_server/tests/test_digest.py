@@ -18,7 +18,7 @@ from mcp_server.tool_context import ToolContext
 from mcp_server.tools import TOOL_MODULES, TOOL_NAMES, build_mcp_server, register_tools
 
 from .test_battery_gate import ALLOWED_ARGS, MOTION_ARGS
-from .test_tools import TOKEN, FakeRobot, call
+from .test_tools import TOKEN, FakeRobot, call, take
 
 DIGEST_KEY = "robot_events_since_last_call"
 ALL_ARGS = {**ALLOWED_ARGS, **MOTION_ARGS}
@@ -134,6 +134,7 @@ def test_digest_covers_events_raised_during_the_call(server: Any, monitor: Robot
         return original(*args)
 
     robot.drive = drive_with_event  # type: ignore[method-assign]
+    take(server, "base")
     res = call(server, "drive", {"vx": 0.1})
     assert [e["type"] for e in res.structured_content[DIGEST_KEY]] == ["overheat"]
 
@@ -158,7 +159,9 @@ def test_tool_errors_carry_the_digest_in_the_message(server: Any, monitor: Robot
 def test_vitals_one_liner_matches_the_monitor(server: Any, monitor: RobotMonitor) -> None:
     overheat(monitor, "wrist_flex", 44)
     res = call(server, "get_arm_state", {})
-    assert res.structured_content["vitals"] == "battery n/a, hottest servo 44 C (wrist_flex), CPU 48 C"
+    assert (
+        res.structured_content["vitals"] == "battery n/a, hottest servo 44 C (wrist_flex), CPU 48 C, ctl arm=- base=-"
+    )
 
 
 def test_digest_on_a_future_tool_registered_by_a_module(robot: FakeRobot, monitor: RobotMonitor) -> None:

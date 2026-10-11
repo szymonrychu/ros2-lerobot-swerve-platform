@@ -27,7 +27,7 @@ from mcp_server.surfaces import SurfaceRegion
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, build_mcp_server
 
 from .fakes import FakeArmBackend
-from .test_tools import TOKEN, FakeRobot, call
+from .test_tools import TOKEN, FakeRobot, call, take
 
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
@@ -273,10 +273,13 @@ def robot(tmp_path: Path) -> FakeRobot:
 
 @pytest.fixture
 def server(robot: FakeRobot) -> Any:
-    return build_mcp_server(robot, McpServerConfig(), TOKEN)
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, "arm")
+    return server
 
 
 def test_plan_grasp_tool_is_a_dry_run(server: Any, robot: FakeRobot) -> None:
+    robot.arm_backend.commands.clear()  # the fixture's take_control held the measured pose
     res = call(server, "plan_grasp", {"object": OBJECT, "strategy": "top_down", "surface_z_m": -0.05})
     data = res.structured_content
     assert data["outcome"] == "planned" and data["plan"]["feasible"] is True

@@ -121,6 +121,12 @@ def call(server: Any, name: str, args: dict[str, Any]) -> Any:
     return anyio.run(run)
 
 
+def take(server: Any, *subsystems: str) -> None:
+    """Take control leases (both when none named) so the arm / base tools are allowed."""
+    for subsystem in subsystems or ("arm", "base"):
+        call(server, "take_control", {"subsystem": subsystem})
+
+
 @pytest.fixture
 def robot(tmp_path: Path) -> FakeRobot:
     return FakeRobot(tmp_path)
@@ -146,8 +152,9 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "drive",
         "stop",
         "get_arm_state",
-        "acquire_control",
+        "take_control",
         "release_control",
+        "get_control_state",
         "move_arm_joints",
         "move_arm_cartesian",
         "set_gripper",
@@ -213,6 +220,7 @@ def test_map_summary_with_png(server: Any) -> None:
 
 
 def test_navigate_and_move_relative_forward_arguments(server: Any, robot: FakeRobot) -> None:
+    take(server, "base")
     res = call(server, "navigate_to_pose", {"x": 1.0, "y": -2.0, "yaw": 0.3})
     assert res.structured_content["status"] == "succeeded"
     assert robot.calls[-1] == ("navigate", (1.0, -2.0, 0.3, "map", 120.0, False))
@@ -221,6 +229,7 @@ def test_navigate_and_move_relative_forward_arguments(server: Any, robot: FakeRo
 
 
 def test_drive_duration_capped(server: Any, robot: FakeRobot) -> None:
+    take(server, "base")
     call(server, "drive", {"vx": 0.1, "vy": 0.0, "wz": 0.0, "duration_s": 1.0})
     assert robot.calls[-1] == ("drive", (0.1, 0.0, 0.0, 1.0))
     with pytest.raises(ToolError):
@@ -234,8 +243,8 @@ def test_stop_always_available(server: Any, robot: FakeRobot) -> None:
 
 
 def test_arm_tools_round_trip(server: Any, robot: FakeRobot) -> None:
-    res = call(server, "acquire_control", {})
-    assert res.structured_content["control_held"] is True
+    res = call(server, "take_control", {"subsystem": "arm"})
+    assert res.structured_content["arm"]["held"] is True
     res = call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.2}, "speed_scale": 0.5})
     assert res.structured_content["status"] == "converged"
     assert call(server, "get_arm_state", {}).structured_content["positions"]["elbow_flex"] == pytest.approx(0.2)
@@ -246,16 +255,19 @@ def test_arm_tools_round_trip(server: Any, robot: FakeRobot) -> None:
     assert robot.arm_backend.positions["elbow_flex"] == pytest.approx(0.2)
     res = call(server, "set_gripper", {"open_fraction": 1.0})
     assert res.structured_content["status"] == "converged"
-    res = call(server, "release_control", {})
-    assert res.structured_content["control_held"] is False
+    res = call(server, "release_control", {"subsystem": "arm", "keep_position": True})
+    assert res.structured_content["state"]["arm"]["held"] is False
+    assert res.structured_content["reset"] == {"arm": "kept"}
 
 
 def test_move_arm_joints_rejects_fast_speed(server: Any) -> None:
+    take(server, "arm")
     with pytest.raises(ToolError):
         call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.2}, "speed_scale": 0.8})
 
 
 def test_move_arm_cartesian_reports_unreachable(server: Any) -> None:
+    take(server, "arm")
     res = call(server, "move_arm_cartesian", {"x": 2.0, "y": 0.0, "z": 0.2})
     assert res.structured_content["status"] == "unreachable"
 
@@ -269,26 +281,26 @@ def tool_descriptions(server: Any) -> dict[str, str]:
 
 def test_lease_tool_descriptions_require_explicit_release(server: Any) -> None:
     docs = tool_descriptions(server)
-    for name in ("acquire_control", "release_control", "move_arm_joints"):
+    for name in ("take_control", "release_control", "move_arm_joints"):
         assert "release_control" in docs[name], name
-    assert "ignored" in docs["acquire_control"]
-    assert "can take over" not in docs["acquire_control"]
-    assert "explicitly" in docs["acquire_control"]
-    assert "already held" in docs["arm_home"]
+    assert "ignored" in docs["take_control"]
+    assert "can take over" not in docs["take_control"]
+    assert "explicitly" in docs["take_control"]
+    assert "Needs the arm lease" in docs["arm_home"] and "keeps it" in docs["arm_home"]
     assert "not hold" in docs["stop"] or "only if" in docs["stop"]
 
 
-def test_arm_home_tool_releases_control_it_did_not_hold(server: Any, robot: FakeRobot) -> None:
+def test_arm_home_tool_refused_without_the_arm_lease(server: Any, robot: FakeRobot) -> None:
     call(server, "arm_set_home", {})
-    res = call(server, "arm_home", {})
-    assert res.structured_content["status"] == "converged"
+    with pytest.raises(ToolError, match="arm_home refused: arm control not held"):
+        call(server, "arm_home", {})
     assert robot.arm.control_held is False
-    assert robot.arm_backend.releases == 1
+    assert robot.arm_backend.commands == []
 
 
 def test_arm_home_tool_keeps_control_it_held(server: Any, robot: FakeRobot) -> None:
     call(server, "arm_set_home", {})
-    call(server, "acquire_control", {})
+    call(server, "take_control", {"subsystem": "arm"})
     call(server, "arm_home", {})
     assert robot.arm.control_held is True
     assert robot.arm_backend.releases == 0
@@ -301,6 +313,7 @@ def test_stop_tool_leaves_uncontrolled_arm_alone(server: Any, robot: FakeRobot) 
 
 
 def test_arm_home_without_stored_pose_errors(server: Any) -> None:
+    take(server, "arm")
     with pytest.raises(ToolError, match="home"):
         call(server, "arm_home", {})
 
@@ -427,6 +440,7 @@ def test_move_arm_cartesian_description_explains_roll_and_object_width(server: A
 
 
 def test_move_arm_cartesian_accepts_wrist_roll_and_object_width(server: Any, robot: FakeRobot) -> None:
+    take(server, "arm")
     pose = robot.arm.kin.forward({"shoulder_pan": 0.1, "shoulder_lift": -0.2, "elbow_flex": 0.4, "wrist_flex": 0.5})
     args = {"x": pose.x, "y": pose.y, "z": pose.z, "pitch": pose.pitch}
     res = call(server, "move_arm_cartesian", args | {"wrist_roll": -1.57, "object_width_m": 0.03})
@@ -446,6 +460,7 @@ def test_move_arm_cartesian_rejects_bad_object_widths(server: Any, width: float)
 
 
 def test_move_arm_joints_roll_guard_is_a_tool_error(server: Any, robot: FakeRobot) -> None:
+    take(server, "arm")
     robot.arm_backend.positions["gripper"] = 1.5
     with pytest.raises(ToolError, match="half open|open_fraction"):
         call(server, "move_arm_joints", {"targets": {"wrist_roll": -1.0}})
@@ -501,6 +516,7 @@ def test_admin_clear_is_not_an_mcp_tool(server: Any) -> None:
 
 
 def test_arm_motion_tools_take_slow_zone_overrides(server: Any, robot: FakeRobot) -> None:
+    take(server, "arm")
     low = {"x": 0.2, "y": 0.0, "z": McpServerConfig().arm.floor_z_m - 0.02, "pitch": 1.5708}
     slowed = call(server, "move_arm_cartesian", low).structured_content
     assert slowed["slow_zone"]["slowed_samples"] > 0
@@ -528,6 +544,7 @@ STAIR_SURFACE = {"name": "stair", "height_m": -0.2, "edge": {"point": [0.1, 0.0]
 
 
 def test_arm_motion_tools_take_surfaces(server: Any, robot: FakeRobot) -> None:
+    take(server, "arm")
     low = {"x": 0.2, "y": 0.0, "z": McpServerConfig().arm.floor_z_m - 0.02, "pitch": 1.5708}
     stair = call(server, "move_arm_cartesian", low | {"surfaces": [STAIR_SURFACE]}).structured_content
     assert stair["slow_zone"] is None  # 2 cm below the robot floor is 18 cm above the stair, 10 cm past its edge
@@ -557,6 +574,7 @@ def test_get_camera_image_defaults_to_384_px_and_larger_can_be_requested(server:
 
 
 def test_precise_flag_is_forwarded_to_the_base_tools(server: Any, robot: FakeRobot) -> None:
+    take(server, "base")
     call(server, "navigate_to_pose", {"x": 1.0, "y": 0.0, "precise": True})
     assert robot.calls[-1][1][-1] is True
     call(server, "move_relative", {"dx": 0.1, "precise": True})
@@ -568,6 +586,7 @@ def test_precise_flag_is_forwarded_to_the_base_tools(server: Any, robot: FakeRob
 
 
 def test_arm_move_settle_defaults_to_trajectory_end_and_gripper_moves_to_final(server: Any) -> None:
+    take(server, "arm")
     res = call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.2}, "speed_scale": 0.5})
     assert res.structured_content["settle"] == "trajectory_end"
     res = call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.1, "gripper": 0.5}, "speed_scale": 0.5})
@@ -585,7 +604,9 @@ def test_arm_move_settle_defaults_to_trajectory_end_and_gripper_moves_to_final(s
 def test_default_settle_follows_the_config(robot: FakeRobot) -> None:
     cfg = McpServerConfig()
     cfg.limits.arm_default_settle = "final"
-    res = call(build_mcp_server(robot, cfg, TOKEN), "move_arm_joints", {"targets": {"elbow_flex": 0.2}})
+    server = build_mcp_server(robot, cfg, TOKEN)
+    take(server, "arm")
+    res = call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.2}})
     assert res.structured_content["settle"] == "final"
 
 
@@ -610,6 +631,7 @@ def test_call_tool_logs_name_start_end_and_duration(server: Any, caplog: pytest.
 
 
 def test_arm_moves_log_trajectory_and_settle_seconds_separately(server: Any, caplog: pytest.LogCaptureFixture) -> None:
+    take(server, "arm")
     with caplog.at_level("INFO", logger="mcp_server.timing"):
         call(server, "move_arm_joints", {"targets": {"elbow_flex": 0.2}, "speed_scale": 0.5})
     rec = json.loads(

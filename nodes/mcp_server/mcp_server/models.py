@@ -253,6 +253,42 @@ class ControlResult(BaseModel):
     positions: dict[str, float] | None = None
 
 
+class ArmControlState(BaseModel):
+    """Arm lease (the filter_node autonomy lease) as get_control_state reports it."""
+
+    held: bool
+    held_since: float | None = None  # wall clock (s since the epoch) the lease was taken, None while not held
+    at_home: bool | None = None  # five non-gripper joints within settle tolerance of home; None: unknown/no home
+    home_stored: bool = False
+    active_source: str | None = None  # filter_node active arm source (leader, web_ui, autonomy)
+    lost: str | None = None  # how the lease ended when this server did not release it (e.g. taken over by web_ui)
+
+
+class BaseControlState(BaseModel):
+    """Base lease (mcp_server internal, advisory against humans) as get_control_state reports it."""
+
+    held: bool
+    held_since: float | None = None  # wall clock (s since the epoch) the lease was taken, None while not held
+    steering_neutral: bool | None = None  # every steer joint within tolerance of 0; None without fresh joint states
+
+
+class ControlState(BaseModel):
+    """Both leases (get_control_state, take_control)."""
+
+    arm: ArmControlState
+    base: BaseControlState
+
+
+class ReleaseResult(BaseModel):
+    """release_control result: what was released and how each reset went (the release itself always happens)."""
+
+    released: list[str]
+    # Per subsystem asked for: arm homed | kept | failed: <why> | skipped: <why>; base neutral | kept | failed: <why> |
+    # skipped: <why>.
+    reset: dict[str, str]
+    state: ControlState
+
+
 class HomeSetResult(BaseModel):
     """Stored home pose."""
 

@@ -650,6 +650,7 @@ class MotionQueue:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         tilt_gate: Callable[[], str | None] | None = None,
+        lease_gate: Callable[[str], str | None] | None = None,
     ) -> None:
         """Create the queue (the worker starts on the first enqueue).
 
@@ -664,6 +665,9 @@ class MotionQueue:
             sleep (Callable[[float], None]): Sleep (wait steps).
             tilt_gate (Callable[[], str | None] | None): Tilt guard refusal reason for a Nav2 base step (None when
                 allowed), re-checked before every base step.
+            lease_gate (Callable[[str], str | None] | None): Control lease refusal for a step kind (None when its
+                lease is held, control.ControlManager.step_refusal), re-checked before every step: a lease lost
+                mid-queue (web UI Home, a human take-over) fails the step instead of silently re-taking it.
         """
         self.robot = robot
         self.cfg = config
@@ -675,6 +679,7 @@ class MotionQueue:
         self.clock = clock
         self.sleep = sleep
         self.tilt_gate = tilt_gate or (lambda: None)
+        self.lease_gate = lease_gate or (lambda kind: None)
         self._cond = threading.Condition()
         self._pending: deque[QueuedStep] = deque()
         self._events: deque[MotionEvent] = deque(maxlen=self.settings.event_history)
@@ -1003,6 +1008,9 @@ class MotionQueue:
         if self.guard is not None and self.guard.is_cutoff():
             return Outcome(ok=False, status="battery_cutoff", message=self.guard.rejection_message())
         head = group[0].step
+        lease_refusal = self.lease_gate(head.kind)
+        if lease_refusal is not None:
+            return Outcome(ok=False, status="lease", message=lease_refusal)
         if head.kind in BASE_KINDS:
             refusal = self.tilt_gate()
             if refusal is not None:

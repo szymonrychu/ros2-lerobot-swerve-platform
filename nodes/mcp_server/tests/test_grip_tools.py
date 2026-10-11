@@ -18,7 +18,7 @@ from mcp_server.tools import build_mcp_server
 
 from .fakes import FakeArmBackend
 from .test_grasp_tools import OBJECT, START, make, object_in_jaws
-from .test_tools import TOKEN, FakeRobot, call
+from .test_tools import TOKEN, FakeRobot, call, take
 
 CONFIG = McpServerConfig()
 DEFAULT_TORQUE = CONFIG.grip_profiles.default.torque_limit
@@ -121,7 +121,9 @@ def robot(tmp_path: Path) -> FakeRobot:
 
 @pytest.fixture
 def server(robot: FakeRobot) -> Any:
-    return build_mcp_server(robot, McpServerConfig(), TOKEN)
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, "arm")
+    return server
 
 
 def test_set_gripper_tool_takes_a_grip_profile(server: Any, robot: FakeRobot) -> None:

@@ -197,7 +197,7 @@ def test_torque_restored_when_the_lease_ends(tmp_path: Path, end: str) -> None:
     if end == "release":
         arm.release()
     else:
-        arm.drop_lease()
+        arm.drop_lease("leader")
     assert torque_writes(be) == [GENTLE.torque_limit, DEFAULT_TORQUE]
 
 

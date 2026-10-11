@@ -29,14 +29,16 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `drive(vx, vy, wz, duration_s<=2)` | 20 Hz on `/cmd_vel_nav` (through velocity smoother + collision monitor), clamped to 0.25 m/s / 0.5 rad/s, then zero. |
 | `stop` | Always available: clears the motion queue first (dropped job ids in `motion_queue_dropped`), cancels all NavigateToPose goals and publishes a zero twist. Aborts any arm motion and holds the arm at its measured pose only if this server holds arm control (or a motion is running); otherwise the arm is not touched (`arm_held: false`). |
 | `get_arm_state` | Joint positions (measured follower values)/efforts, gripper effort, tool point pose (x, y, z, pitch; forward kinematics with `arm.joint_offsets_rad` applied), `floor_z_m` (floor height in the base_link frame), active source, lease, home stored. |
-| `acquire_control` / `release_control` | Start the autonomy lease (publish the measured pose on `/filter/autonomy_joint_commands`) / end it (`std_msgs/Bool` true on `/filter/autonomy_release`). The lease is sticky: release it explicitly when done. |
+| `take_control(subsystem: arm\|base)` | Take a control lease (see Control leases); moves nothing, a no-op when already held. `arm` starts the autonomy lease (publishes the measured pose on `/filter/autonomy_joint_commands`; needs fresh joint states); `base` sets the mcp_server-internal base lease. Returns `ControlState`. Allowed under battery cut-off and at any tilt level. Replaces `acquire_control`. |
+| `release_control(subsystem: arm\|base\|all = all, keep_position=false)` | Release leases, parking first by default: arm drives home (the `arm_home` routes) then publishes the release (`std_msgs/Bool` true on `/filter/autonomy_release`); base cancels Nav2, zeroes the twist and waits for neutral steering. Always releases; returns `ReleaseResult {released, reset, state}`. Refused while the motion queue runs. |
+| `get_control_state` | Both leases (sensor): `arm {held, held_since, at_home, home_stored, active_source, lost}`, `base {held, held_since, steering_neutral}`. |
 | `move_arm_joints(targets, speed_scale<=0.5, settle=None)` | `settle`: `trajectory_end` (default; `final` when the call moves the gripper joint, `limits.arm_default_settle`) or `final`, see the safety model.  Interpolated motion to joint targets (follower joint radians, as in `get_arm_state`). Unnamed joints keep their last commanded target. `speed_scale` 0.5 is the maximum, `limits.arm_max_joint_velocity_rps` (default 1.0 rad/s); the description states the configured value. A `wrist_roll` change above `limits.roll_guard_min_change_rad` is refused while the gripper is open wider than `limits.roll_max_gripper_open_rad` (see Wrist roll guard). `converged` results may carry `residual_error` (see Safety model). |
 | `move_arm_cartesian(x, y, z, pitch=None, frame='base_link', speed_scale, wrist_roll=None, object_width_m=None, settle=None)` | `settle` as for `move_arm_joints`.  ikpy IK on `nodes/web_ui/urdf/so101_arm.urdf` (5-DOF: position + approach pitch); `wrist_roll` (rad, measured space, clamped to the limits; clamping is listed in `clamped`) is the roll the IK keeps for this target and the motion rolls to, omitted = the current roll is kept; `object_width_m` (m, 0 < w <= 0.08) makes (x, y, z) the OBJECT CENTRE (see Grasp shift); `unreachable` is reported, never guessed. `base_link` here is the arm URDF root (arm mount, z = 0). The floor is at `z = -arm.arm_base_height_m` (default 0.104, measured 2026-10-10; see Arm mount); the tool descriptions and `get_arm_state.floor_z_m` state it. Motions near or below the effective surface are slowed (never blocked) by the floor slow zone; `surface_z_m`, `tilt_override_deg` and `surfaces` (also on `move_arm_joints`, `set_gripper` and `arm_home`; see Surface regions) shift it per call and results report `slow_zone`. |
 | `set_gripper(open_fraction | close_until_effort, effort_threshold, grip_profile, surfaces)` | Open to a fraction (0 closed, 1 open) or close with a grip profile (see Grip profiles) until `abs(effort) >= threshold` (default: the profile's `contact_effort_threshold`) or the closing load reaches the profile's `target_load` (then hold: `grasped`, else `closed_no_contact`). A stall or effort contact only counts as `grasped` when the jaw closed at least `limits.gripper_grasp_min_travel_rad` (0.10 rad; was 0.15 until a 39 mm jar was refused at 0.147 rad on 2026-10-10) from where it started AND stopped no more open than `limits.gripper_grasp_max_open_rad` (1.2 rad; a nearly open jaw that stalls is pushing on something); otherwise the status is `blocked` with "jaw stopped at X rad after Y rad travel - likely pressing on an object rather than holding it", and the measured jaw position is held (no squeeze). A stall or contact within `limits.gripper_empty_stall_rad` (0.08 rad, about 6 mm) of closed is an empty jaw: `closed_no_contact` with "closed without contact: the jaw stopped X rad before closed ...", never `grasped` (2026-10-10: the empty firm close stalled 0.055 rad before closed at load 148). `arm.gripper_closed_rad` / `gripper_open_rad` are follower gripper joint positions (defaults -0.165 / 1.5 rad; measured fully closed is -0.172 rad, URDF lower limit -0.1745, so the jaws close fully). With `close_until_effort` the load is ignored for `gripper_effort_ignore_s` (0.3 s, motor start-up spike) and then counts only once the jaw moved `gripper_contact_travel_rad` (0.03) or stalled with the command at least `gripper_stall_lead_rad` (0.15) ahead of it (or already at the close target: a jaw stopped less than 0.15 rad before closed can never see a larger lead). Stalls are classified by position: a jaw that stalls (that stall criterion: it moved less than `arm_settle_motion_rad` over `arm_settle_window_s`) at least `gripper_empty_stall_rad` from closed is a contact even when its load stays below `target_load` and its error exceeds the settle tolerance (an object loading the jaw lightly never settles within it): the close ends at once and the stall becomes `grasped` (hold = the stalled position plus the profile's `squeeze_rad` toward closed) or `blocked` by the travel/open rules above; a stall inside the empty-jaw band stays `closed_no_contact`. Until 2026-10-11 such a stall ended `timeout` and `grasp_object` aborted. A gripper-only motion near the floor or the robot body is slowed only by what moves (see Floor slow zone and Body collision): the 2026-10-11 10:27 close (jaw tip 12.5 mm above the floor, the stationary upper arm 14.9 mm from the lidar) ran 325 ticks instead of 64. The arm joints keep being held at their intended targets while the gripper moves (see Safety). |
 | `plan_grasp(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Dry-run grasp plan (sensor, no motion): outcome `planned` / `infeasible` with reasons, the resolved `grip_profile` (an unknown profile is refused), chosen strategy, pitch, wrist roll, jaw opening, waypoints and slow-zone annotations. See Grasp macros. |
 | `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Plan and execute (motion): outcome `grasped` / `unverified` / `missed` / `aborted` / `infeasible` (`unverified` also attaches a fresh gripper camera image, max 640 px, as an image content item), with the executed steps (each with the `residual_error` of arm joints off their intended target), the final gripper position/load, the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`, `retightened`; see Grip profiles), `residual_error` and `warnings` (joints off their target beyond their converge tolerance) and `held_pose` (measured jaw centre and tool point against the last waypoint). See Grasp macros. |
 | `release_object(params, surface_z_m, tilt_override_deg, surfaces)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. The way out of an `unverified` grasp whose image shows empty jaws (then retry). |
-| `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` keeps arm control afterwards only if it was already held before the call; otherwise it releases it. |
+| `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` needs the arm lease and keeps it afterwards (also after a failed motion); the `/arm/home` service (web UI Home button) still always releases. |
 | `pixel_to_ground(camera, u, v, surface_height_m=0.0, image_width, image_height)` | Point seen at a pixel (sensor). **u, v are pixels of the calibrated image size** (640x480; `get_annotated_camera_image` and `mark_candidate_points` images) unless `image_width` / `image_height` give the size of the image the pixel came from: `get_camera_image` returns 384x288 by default, and an unscaled small-image pixel lands at the wrong place (2026-10-10). Both sizes are needed and must keep the calibrated aspect (a crop is refused); the result then also reports `pixel_input` (what was passed and the scale). Returns `pixel` (calibrated size), `image` (calibrated size), `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
 | `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
 | `mark_candidate_points(camera, region, spacing_px=40, max_points=40, surface_height_m=0.0, image_width, image_height)` | Image (calibrated size) with numbered dots on a pixel grid plus a table `{set_id, surface_height_m, image {width, height}, points:[{n, u, v, ground_base_link{x,y,z}, ground_map}]}`; the points are intersected with the plane at floor + `surface_height_m` (as in `pixel_to_ground`); the last 10 sets are kept. `region` is in calibrated pixels unless `image_width` / `image_height` give the size it was read in. |
@@ -238,8 +240,9 @@ depth 50) as JSON `{"seq": int, "ts": float (epoch s), "type": str, "severity": 
 **Digest on every tool result.** `RobotMCPServer.call_tool` (one override, so every current and future tool gets it)
 adds `robot_events_since_last_call` (events since the previous tool call of the same MCP session: one cursor per `Mcp-Session-Id`, so
 claude_agent's own `robot_stop` session never consumes the model's events; a new session sees the retained history, at most
-16 sessions are tracked (LRU), calls without a session id share one cursor; newest `digest_max_events` 20 kept) and `vitals` (`battery 11.40 V, hottest servo 41 C (elbow_flex), CPU 52 C`,
-`n/a` when unknown) as a text block and, when the result is structured, as structured-content keys (image tools stay
+16 sessions are tracked (LRU), calls without a session id share one cursor; newest `digest_max_events` 20 kept) and `vitals` (`battery 11.40 V, hottest servo 41 C (elbow_flex), CPU 52 C, ctl arm=H@home base=-`,
+`n/a` when unknown; the tilt guard when known; `ctl` is the control lease summary: `H` held, `-` not held, `@home` /
+`@away` when the arm's home position is known, see Control leases) as a text block and, when the result is structured, as structured-content keys (image tools stay
 unstructured: text block plus `_meta`). Tool errors get the same JSON appended to the message. The tool output schemas do
 not list these two keys.
 
@@ -385,9 +388,51 @@ partition every tool):
 | Class | Tools |
 |---|---|
 | `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` |
-| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `plan_grasp`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `acquire_control`, `release_control`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi` |
+| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `plan_grasp`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi` |
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
+
+## Control leases
+
+Every arm and base tool needs a control lease (`control.py`, `ControlManager`). The table `TOOL_SUBSYSTEM` in
+`tools.py` (next to `MOTION_TOOLS`) is checked in one place, `RobotMCPServer.call_tool_with_digest`, before the tool
+body: so before the battery and tilt gates, and a tool without its lease is refused before anything is published.
+
+| Lease | Tools |
+|---|---|
+| arm | `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `grasp_object`, `release_object` |
+| base | `navigate_to_pose`, `move_relative`, `drive`, `look_around` (base-only spin) |
+| per step | `enqueue_motions`: `arm_joints` / `arm_cartesian` / `gripper` / `grasp` steps need arm, `base_relative` / `navigate_to_pose` (`motion_queue.BASE_KINDS`) need base; checked first inside the tool, naming every missing lease |
+| none | `stop`, `cancel_motions`, `wait_for_event`, `get_motion_status`, `take_control` / `release_control` / `get_control_state`, `plan_grasp`, `arm_set_home`, camera, perception and POI tools |
+| any (placeholder) | a future head tool: `LeaseNeed` `"any"` is satisfied by either lease, so a base-to-arm hand-over needs no head reset. No tool uses it yet; `ControlManager.refusal(name, "any")` implements it |
+
+- **Arm lease** = the filter_node autonomy lease (the hardware arbitration). `take_control('arm')` is
+  `ArmController.acquire()`. A human can end it: the web UI Home button calls `/arm/home` (always releases), and a
+  filter_node switch to another source drops it. The next arm tool is then refused saying how it was lost
+  (`ArmController.lost_note`: `taken over by web_ui`, `released by the /arm/home service (web UI Home button)`); the
+  agent never silently re-takes it. GraspService (web UI grasp) still takes it implicitly.
+- **Base lease** = a flag inside mcp_server (nothing downstream arbitrates `/cmd_vel_nav`; humans can still drive).
+- Both may be held at once. `stop` does not release leases.
+- **Refusal text**: `move_arm_joints refused: arm control not held - call take_control(subsystem='arm')`; with a lost
+  lease `arm control not held (taken over by web_ui) - ...`. At tilt warning without the base lease the lease refusal
+  comes first; with the lease held the tilt refusal follows as before.
+- **Queue dispatch**: the motion queue re-checks the lease before every step (`lease_gate`, step status `lease`), so a
+  lease lost mid-queue fails the next step instead of re-taking it.
+
+**release_control(subsystem, keep_position=false)** always releases; the reset outcome is reported per subsystem:
+
+| Subsystem | Default reset | `reset` values |
+|---|---|---|
+| arm | `ArmController.home(keep_prior_control=True)` (the self-collision-safe home routes), then `release()` | `homed`, `kept` (keep_position), `failed: no home pose stored`, `failed: <status>: <message>`, `failed: <error>`, `skipped: battery_cutoff` (battery below cut-off: release only), `skipped: not held` |
+| base | `RosRobot.reset_base()` (the base half of `stop`: abort base calls, zero twist, cancel every Nav2 goal, zero twist), then wait until every `control.steer_joint_names` joint on `/swerve_drive/joint_states` is within `control.steer_neutral_tolerance_rad` (0.05) of 0, at most `control.base_reset_timeout_s` (6 s = swerve `idle_recenter_s` 3 s + 3 s; the controller straightens the wheels itself after 3 s of zero twist) | `neutral`, `kept`, `failed: steering not neutral within 6 s (...)`, `failed: no fresh steer joint states ...`, `failed: Nav2 cancel service did not answer (zero twist sent)`, `skipped: not held` |
+
+`all` resets the base first (wheels stopped before the arm moves), then the arm. A lease not held is not released
+(`skipped: not held`). The call is refused while the motion queue runs (`cancel_motions or wait_for_event first`).
+
+**get_control_state** (sensor): `arm.at_home` is true when the five non-gripper joints are within
+`limits.settle_tolerance_for(joint)` (0.08 rad default) of the stored home pose; the gripper is excluded so a job may
+end at home holding an object; `null` without a stored home or fresh joint states. `base.steering_neutral` is `null`
+without fresh swerve joint states. `held_since` is wall-clock epoch seconds.
 
 ## Arm mount and floor slow zone
 
@@ -1114,12 +1159,14 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
   a zero twist; the swerve controller also stops on its own 0.5 s cmd_vel timeout. One base motion at a time.
 - **Arm**: the server never writes `/follower/joint_commands`. It publishes setpoints on filter_node's autonomy input
   (`/filter/autonomy_joint_commands`); filter_node arbitrates with the leader arm and the web UI and reports the active
-  source on `/filter/active_source`. Motion tools acquire the lease implicitly; if filter_node switches to another
-  source (after a 0.5 s grace) the lease is dropped and the motion stops without fighting the new source. While the
+  source on `/filter/active_source`. MCP arm tools need the lease taken with `take_control` (see Control leases); the
+  arm controller itself (GraspService, `/arm/home`, queued steps) still takes it implicitly when it moves. If
+  filter_node switches to another source (after a 0.5 s grace) the lease is dropped and the motion stops without
+  fighting the new source. While the
   lease is held and idle, the last setpoint is republished at `hold_republish_hz` (5 Hz) as a keepalive.
 - **Lease is sticky**: filter_node ignores the leader arm and the web UI while the autonomy lease is held, so the lease
   is only ended by an explicit `release_control` (the MCP client is told so in the tool descriptions), by `/arm/home`
-  (always releases), by `arm_home` when control was not held before it, or on shutdown.
+  (always releases), or on shutdown.
 - **Release is final**: every autonomy publish (setpoint, hold, keepalive, release) runs under one lock and setpoints
   are published only while the lease is held. `release_control` aborts the stream, stops the keepalive and then
   publishes the release, so no setpoint can follow the release and silently re-take the lease.
@@ -1244,7 +1291,8 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
 | `grasp.py` | no | grasp planner: strategies registry, waypoints, straight-line IK samples, feasibility reasons, surface / step-edge checks |
 | `grasp_tools.py` | no | `GraspExecutor`, the grasp MCP tools, `GraspService` (web-UI JSON) |
 | `grip.py` | no | grip profiles: resolve a preset name / inline overrides to a capped `GripProfile` |
-| `base_motion.py` | no | timed clamped drive loop, continuous spin with marks (`run_spin`), stop sequence (`run_stop`) |
+| `base_motion.py` | no | timed clamped drive loop, continuous spin with marks (`run_spin`), stop sequence (`run_stop`) and its base half (`run_base_stop`) |
+| `control.py` | no | control leases: `ControlManager` (take / release with the arm home and base steering resets / state / lease refusals / vitals digest), `wait_steering_neutral` |
 | `motion_queue.py` | no | motion queue: step models, blend groups, preconditions, worker thread, events, waits |
 | `motion_tools.py` | no | `enqueue_motions`, `get_motion_status`, `cancel_motions`, `wait_for_event` (one `TOOL_MODULES` entry) |
 | `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
@@ -1417,6 +1465,7 @@ topics:                   # perception additions (defaults shown)
   poi_list: /poi/list
   poi_command: /poi/command
   poi_result: /poi/result
+  swerve_joint_states: /swerve_drive/joint_states   # steer joints for the release_control base reset
 footprint: {length_m: 0.47, width_m: 0.386}
 topdown: {default_radius_m: 2.5, default_px: 480, arm_reach_m: 0.41, plan_max_age_s: 30}
 objects: {store_path: /var/lib/ros2/objects/objects.json, merge_radius_m: 0.25}  # store_path: legacy file, imported once into poi_store
@@ -1426,6 +1475,11 @@ motion_queue: {max_steps: 32, event_history: 200, status_events: 10, wait_events
                wait_max_s: 120, poll_s: 0.05, base_still_linear_mps: 0.02, base_still_angular_rps: 0.05,
                holding_min_effort: 100.0, holding_min_gap_rad: 0.05}
 poi: {request_timeout_s: 3.0, near_radius_m: 5.0}
+control:                  # control leases: release_control base reset (see Control leases)
+  steer_joint_names: [fl_steer, fr_steer, rl_steer, rr_steer]
+  steer_neutral_tolerance_rad: 0.05
+  base_reset_timeout_s: 6.0   # swerve idle_recenter_s (3.0) + 3 s
+  steer_poll_s: 0.1
 monitor:                  # all optional; thresholds of the body monitor (see Body awareness)
   servo_temp_warn_c: 60
   servo_temp_critical_c: 70

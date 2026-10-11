@@ -3,7 +3,7 @@
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -15,6 +15,9 @@ from .config import McpServerConfig
 from .models import BasePose, CameraFrame, MapSummary, NavigationResult, RobotState, ScanPoints, StopResult
 from .monitor import BaseUse, RobotMonitor
 from .topdown import TopdownInputs
+
+if TYPE_CHECKING:  # control imports motion_queue, which imports this module
+    from .control import ControlManager
 
 LOGGER = logging.getLogger("mcp_server.tools")
 # Tilt guard classification of the base motion tools: automatic navigation (Nav2 goals, autonomous turns) is refused
@@ -83,6 +86,16 @@ class RobotApi(Protocol):
         """Cancel navigation, zero the base, hold the arm only if this server controls it."""
         ...
 
+    def reset_base(self) -> bool:
+        """Base half of stop (release_control base reset): cancel every Nav2 goal and publish zero twist.
+
+        Returns True when the Nav2 cancel service answered."""
+        ...
+
+    def steer_positions(self) -> dict[str, float] | None:
+        """Fresh steer joint positions (rad) from the swerve joint states, None when missing or stale."""
+        ...
+
     def robot_pose(self) -> BasePose | None:
         """Fresh map -> base_link pose, None when missing or stale."""
         ...
@@ -126,6 +139,19 @@ class ToolContext:
     guard: BatteryGuard | None
     monitor: RobotMonitor
     queue: MotionOwner | None = None
+    control: "ControlManager | None" = None
+
+    def lease_gate(self, tool_name: str, kinds: list[str]) -> None:
+        """Refuse an enqueue whose steps need a control lease that is not held, before the robot is touched.
+
+        Args:
+            tool_name (str): Tool being called (named in the refusal).
+            kinds (list[str]): Step kinds (arm / gripper / grasp need the arm lease, Nav2 steps the base lease).
+        """
+        reason = None if self.control is None else self.control.steps_refusal(tool_name, kinds)
+        if reason is not None:
+            LOGGER.warning("%s", reason)
+            raise ToolError(reason)
 
     def battery_gate(self, tool_name: str) -> None:
         """Refuse a motion tool while the battery is below cut-off, before the robot is touched.

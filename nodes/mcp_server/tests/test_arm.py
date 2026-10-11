@@ -563,7 +563,7 @@ def test_intent_and_pending_relax_cleared_when_lease_ends(tmp_path: Path, end: s
     if end == "release":
         arm.release()
     elif end == "drop_lease":
-        arm.drop_lease()
+        arm.drop_lease("leader")
     else:
         be.source = "leader"
         be.t += 1.0

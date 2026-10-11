@@ -28,15 +28,17 @@ from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
 from .camera_scene import camera_setup, pixel_scale
 from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, GripProfileOverride, McpServerConfig
+from .control import ControlManager, LeaseNeed, ReleaseTarget, Subsystem
 from .floor_guard import TiltOverrideDeg
 from .grasp_tools import SURFACES_DESC, floor_override, grip_profile_description
 from .metrics import TOOL_CALLS, TOOL_DURATION
 from .models import (
     ArmMotionResult,
     ArmState,
-    ControlResult,
+    ControlState,
     HomeSetResult,
     NavigationResult,
+    ReleaseResult,
     RobotError,
     RobotState,
     SettlePolicy,
@@ -75,8 +77,9 @@ TOOL_NAMES = (
     "drive",
     "stop",
     "get_arm_state",
-    "acquire_control",
+    "take_control",
     "release_control",
+    "get_control_state",
     "move_arm_joints",
     "move_arm_cartesian",
     "set_gripper",
@@ -92,7 +95,8 @@ TOOL_NAMES = (
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
 # MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
 # arm_home drives to) and are refused while the battery is below cut-off. ALWAYS_ALLOWED_TOOLS (stop, sensors, state,
-# acquire/release control) keep working so the robot can always be stopped, inspected and handed back.
+# take/release control) keep working so the robot can always be stopped, inspected and handed back (under cut-off
+# release_control skips the arm home reset).
 MOTION_TOOLS = frozenset(
     {
         "navigate_to_pose",
@@ -116,8 +120,9 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         "get_map_summary",
         "stop",
         "get_arm_state",
-        "acquire_control",
+        "take_control",
         "release_control",
+        "get_control_state",
         "get_body_state",
         "get_arm_reach",
         *camera_tools.TOOL_NAMES,
@@ -131,18 +136,43 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
 # Blocking motion tools refused while the motion queue runs (the queue's worker is the single motion owner then).
 # enqueue_motions appends to the queue and arm_set_home moves nothing.
 QUEUE_EXCLUSIVE_TOOLS = MOTION_TOOLS - {"enqueue_motions", "arm_set_home"}
+# Control lease each tool needs, checked centrally (RobotMCPServer.call_tool_with_digest) before the tool body, so
+# before the battery and tilt gates. enqueue_motions is checked per step kind inside the tool (arm_joints /
+# arm_cartesian / gripper / grasp need arm, the Nav2 steps in motion_queue.BASE_KINDS need base). Every other tool
+# (stop, cancel_motions, wait_for_event, get_motion_status, take/release/get_control_state, plan_grasp, camera,
+# perception, POI, arm_set_home) needs none. A future head tool takes "any": either lease satisfies it, so a
+# base-to-arm hand-over needs no head reset.
+TOOL_SUBSYSTEM: dict[str, LeaseNeed] = {
+    "move_arm_joints": "arm",
+    "move_arm_cartesian": "arm",
+    "set_gripper": "arm",
+    "arm_home": "arm",
+    "grasp_object": "arm",
+    "release_object": "arm",
+    "navigate_to_pose": "base",
+    "move_relative": "base",
+    "drive": "base",
+    "look_around": "base",  # base-only spin (look_around never moves the arm)
+}
+# Tools that may move while parking (release_control homes the arm): counted as a running blocking motion so the queue
+# does not start meanwhile; their own queue-busy refusal lives in the tool (control.QUEUE_BUSY_REFUSAL).
+PARKING_TOOLS = frozenset({"release_control"})
 DIGEST_EVENTS_KEY = "robot_events_since_last_call"
 DIGEST_VITALS_KEY = "vitals"
 INSTRUCTIONS = """Controls a swerve-drive mobile robot with an SO101 5-DOF arm and gripper (ROS 2 Jazzy, Nav2, SLAM).
 Frames: 'map' is the SLAM map (x/y metres, yaw radians CCW); 'base_link' is the robot (x forward, y left).
 Look before moving: call get_robot_state, get_map_summary and get_camera_image first. Prefer navigate_to_pose /
 move_relative (Nav2 plans around obstacles) over drive. Arm motions are slow, clamped to joint limits and abort on
-stale feedback or tracking error. Arm control (the autonomy lease) is sticky: once taken (acquire_control or any arm
-motion) the leader arm and web UI are ignored until you call release_control, so release it as soon as you are done
-with the arm. Call stop at once if anything looks wrong; it is always available. Every tool result ends with
+stale feedback or tracking error. Control leases: call take_control(subsystem='arm') before any arm or gripper tool
+and take_control(subsystem='base') before any base tool (navigate_to_pose, move_relative, drive, look_around); a tool
+without its lease is refused and nothing moves. Both may be held at once. The arm lease is sticky: while held the
+leader arm and web UI are ignored. When done call release_control(subsystem='arm'|'base'|'all'): by default it parks
+(the arm drives to its stored home pose, the base stops and its steering straightens) and always releases, reporting
+a failed park; keep_position=true releases without moving. get_control_state shows both leases and whether the arm
+is at home. Call stop at once if anything looks wrong; it is always available (it does not release leases). Every tool result ends with
 robot_events_since_last_call (body events such as overheat, collision_stop, stall, bump, battery_low raised since the
 previous tool call) and a vitals one-liner (battery V, hottest servo C, CPU C, tilt guard level with roll/pitch vs
-limits); get_body_state gives the full picture.
+limits, leases as 'ctl arm=H@home base=-': H held, - not held); get_body_state gives the full picture.
 Tilt guard: at tilt_warning (critical event) Nav2 goals are cancelled and navigate_to_pose, move_relative, look_around
 and queued base steps are refused; drive back to level ground manually with short drive moves, then wait for
 tilt_clear. At tilt_error the base drive is inhibited and every base motion tool is refused (arm tools still work);
@@ -283,6 +313,7 @@ class RobotMCPServer(MCPServer):
         super().__init__(*args, **kwargs)
         self.monitor = monitor
         self.motion_queue: MotionQueue | None = None
+        self.control: ControlManager | None = None
         self.blocking: dict[str, int] = {}  # running blocking motion tools (QUEUE_EXCLUSIVE_TOOLS) -> count
 
     def blocking_tool(self) -> str | None:
@@ -341,18 +372,24 @@ class RobotMCPServer(MCPServer):
             Any: The tool result with robot_events_since_last_call and vitals added.
         """
         exclusive = name in QUEUE_EXCLUSIVE_TOOLS
+        need = TOOL_SUBSYSTEM.get(name)
         try:
+            refusal = None if need is None or self.control is None else self.control.refusal(name, need)
+            if refusal is not None:
+                logging.getLogger("mcp_server.tools").warning("%s", refusal)
+                raise ToolError(refusal)
             if exclusive and self.motion_queue is not None and self.motion_queue.busy():
                 raise ToolError(
                     f"{name} refused: the motion queue is running (it owns the robot's motion). Use enqueue_motions, "
                     "wait for it with wait_for_event, or end it with cancel_motions / stop"
                 )
-            if exclusive:
+            blocks = exclusive or name in PARKING_TOOLS
+            if blocks:
                 self.blocking[name] = self.blocking.get(name, 0) + 1
             try:
                 result = await super().call_tool(name, arguments, context)
             finally:
-                if exclusive:
+                if blocks:
                     self.blocking[name] -= 1
         except UnexpectedToolError:
             raise
@@ -430,6 +467,7 @@ def register_tools(
         extra_modules (tuple[Callable[[ToolContext], None], ...]): Additional tool modules.
     """
     monitor = monitor or RobotMonitor(config.monitor, guard, autonomy_source=config.arm.autonomy_source_name)
+    control = ControlManager(robot.arm, robot, config, guard)
     queue = MotionQueue(
         robot,
         config,
@@ -437,10 +475,16 @@ def register_tools(
         grasp_runner=motion_tools.make_grasp_runner(robot, config),
         external_busy=server.blocking_tool if isinstance(server, RobotMCPServer) else None,
         tilt_gate=lambda: monitor.tilt_refusal("nav"),
+        lease_gate=control.step_refusal,
     )
+    control.queue_busy = queue.busy
+    monitor.control_line = control.digest
     if isinstance(server, RobotMCPServer):
         server.motion_queue = queue
-    ctx = ToolContext(server=server, robot=robot, config=config, guard=guard, monitor=monitor, queue=queue)
+        server.control = control
+    ctx = ToolContext(
+        server=server, robot=robot, config=config, guard=guard, monitor=monitor, queue=queue, control=control
+    )
     for module in (*TOOL_MODULES, *extra_modules):
         module(ctx)
 
@@ -612,6 +656,7 @@ def register_core_tools(ctx: ToolContext) -> None:
             "Drive the base to a pose with Nav2 (path planning, obstacle avoidance, velocity smoothing, collision "
             "monitor). Blocks until Nav2 reports a result or the timeout expires (the goal is then cancelled), and "
             "returns the result and the final pose. Use get_map_summary first to pick a reachable free-space goal. "
+            "Needs the base lease (take_control(subsystem='base')). "
             f"{nav_note}"
         )
     )
@@ -633,7 +678,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         description=(
             "Move relative to the robot's current pose (base_link frame) through Nav2, e.g. dx=0.5 drives half a "
             "metre forward, dyaw=1.57 turns left 90 degrees. Same blocking/obstacle-avoiding behaviour as "
-            "navigate_to_pose. Small relative moves (a few cm) now really move the robot. "
+            "navigate_to_pose (needs the base lease). Small relative moves (a few cm) now really move the robot. "
             f"{nav_note}"
         )
     )
@@ -659,7 +704,7 @@ def register_core_tools(ctx: ToolContext) -> None:
     ) -> DriveOutcome:
         """Nudge the base with a direct velocity for at most 2 s (20 Hz on /cmd_vel_nav, then zero). Commands still
         pass the velocity smoother and the collision monitor, but there is no path planning: prefer move_relative
-        for anything beyond small adjustments."""
+        for anything beyond small adjustments. Needs the base lease (take_control(subsystem='base'))."""
         battery_gate("drive")
         ctx.tilt_gate("drive")
         with tool_errors():
@@ -690,29 +735,60 @@ def register_core_tools(ctx: ToolContext) -> None:
         with tool_errors():
             return robot.arm.state()
 
-    @tool()
-    def acquire_control() -> ControlResult:
-        """Take arm control (autonomy lease) by commanding the current measured pose, so the arm does not move.
-        Motion tools acquire implicitly. The lease is sticky: while it is held the leader arm and web UI are
-        ignored, and it is not handed back automatically - release it explicitly with release_control when done."""
-        with tool_errors():
-            return robot.arm.acquire()
+    control = ctx.control
+    assert control is not None, "register_tools creates the control manager"
 
     @tool()
-    def release_control() -> ControlResult:
-        """Give arm control back to the other sources (leader arm / web UI): aborts any running arm motion, stops
-        the setpoint keepalive and publishes the autonomy release. Call release_control whenever you are done with
-        the arm; control taken by acquire_control or an arm motion is otherwise kept indefinitely."""
+    def take_control(
+        subsystem: Annotated[Subsystem, Field(description="'arm' (arm and gripper tools) or 'base' (base tools)")],
+    ) -> ControlState:
+        """Take a control lease; nothing moves. Every arm/gripper tool (move_arm_joints, move_arm_cartesian,
+        set_gripper, arm_home, grasp_object, release_object, queued arm/gripper/grasp steps) needs the arm lease and
+        every base tool (navigate_to_pose, move_relative, drive, look_around, queued Nav2 steps) the base lease; a
+        tool without it is refused. arm: the autonomy lease, taken by commanding the measured pose (needs fresh joint
+        states); it is sticky: while it is held the leader arm and web UI are ignored, and it is not handed back
+        automatically - release it explicitly with release_control when done. A human can still end it (web UI Home
+        button): the next arm tool is then refused saying so. base: held inside this server (humans can still drive).
+        Both may be held at once. Taking a lease already held is a no-op (held_since unchanged). Allowed under battery
+        cut-off and at any tilt level: the motion tools themselves are still refused there."""
         with tool_errors():
-            return robot.arm.release()
+            return control.take(subsystem)
+
+    @tool()
+    def release_control(
+        subsystem: Annotated[ReleaseTarget, Field(description="'arm', 'base' or 'all'")] = "all",
+        keep_position: Annotated[
+            bool, Field(description="true: release without the reset (the arm keeps its last goal, the base stays)")
+        ] = False,
+    ) -> ReleaseResult:
+        """Release control leases, parking first by default. arm: drive to the stored home pose (the same
+        self-collision-safe routes as arm_home), then publish the autonomy release so the leader arm and web UI work
+        again. base: cancel Nav2 goals, publish zero twist and wait (bounded) until the steering is straight again.
+        keep_position=true skips the park. The release ALWAYS happens: a failed park is reported in reset (arm homed |
+        kept | failed: why | skipped: why; base neutral | kept | failed: why), never kept as a held lease. Under battery
+        cut-off the arm park is skipped (skipped: battery_cutoff). A lease not held is reported as skipped: not held.
+        Refused while the motion queue runs: cancel_motions or wait_for_event first. Call release_control whenever you
+        are done with a subsystem; a lease is otherwise kept indefinitely."""
+        with tool_errors():
+            return control.release(subsystem, keep_position)
+
+    @tool()
+    def get_control_state() -> ControlState:
+        """Both control leases (no motion): arm {held, held_since (epoch s), at_home (the five non-gripper joints
+        within settle tolerance of the stored home pose; the gripper is ignored, so holding an object at home counts;
+        null when unknown or no home is stored), home_stored, active_source (filter_node: leader, web_ui, autonomy),
+        lost (how the lease ended if this server did not release it, e.g. taken over by web_ui)} and base {held,
+        held_since, steering_neutral (every steer joint near straight; null without fresh swerve joint states)}."""
+        with tool_errors():
+            return control.state()
 
     @tool(
         description=(
             "Move arm joints to targets along a smooth (quintic) trajectory streamed at 25 Hz. Targets are clamped "
             "to the URDF limits minus a margin (reported in `clamped`). Blocks until converged or timed out; aborts "
             "and holds the measured pose if joint feedback goes stale (>0.3 s), the tracking error grows too large, "
-            "the joints do not settle near the target (status 'timeout'), or stop is called. Takes arm control if "
-            f"not already held and keeps it afterwards: call release_control when done. {roll_note} {settle_note} "
+            "the joints do not settle near the target (status 'timeout'), or stop is called. Needs the arm lease "
+            f"(take_control(subsystem='arm')) and keeps it afterwards: call release_control when done. {roll_note} {settle_note} "
             f"{slow_note}"
         )
     )
@@ -759,7 +835,7 @@ def register_core_tools(ctx: ToolContext) -> None:
             "centred between the jaws (the result reports grasp_shift incl. the fixed jaw point); without it the "
             "tool point itself goes to x, y, z. Returns status 'unreachable' without moving when no solution exists "
             "within joint limits (the arm can reach somewhat below the floor, limited by the joint limits). "
-            "Keeps arm control afterwards like move_arm_joints: call release_control when done. "
+            "Needs the arm lease and keeps it afterwards like move_arm_joints: call release_control when done. "
             f"{roll_note} {floor_note} {settle_note} {slow_note}"
         )
     )
@@ -836,7 +912,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         empty jaw stalls short of closed under a high torque limit). The load is ignored for
         the first 0.3 s of a close and counts only after the jaw moved or stalled. The arm stays held at its intended
         targets while the gripper moves. Give exactly one of
-        open_fraction or close_until_effort=true. Keeps arm control afterwards: call release_control when done.
+        open_fraction or close_until_effort=true. Needs the arm lease and keeps it: call release_control when done.
         Below-surface slow zone: near the surface (the moving jaw tip is checked too) the gripper moves slow; pass
         surface_z_m / tilt_override_deg / surfaces as for the arm motion tools. close_until_effort uses a grip profile
         (grip_profile: gentle / normal / firm / soft or inline overrides; plush / soft toys, foam and fabric: soft):
@@ -857,10 +933,9 @@ def register_core_tools(ctx: ToolContext) -> None:
 
     @tool(
         description=(
-            "Move the arm to its stored home pose. Afterwards (also after a failed motion) arm control is kept only "
-            "if it was already held before this call; otherwise it is released so the leader arm and web UI work "
-            "again. (The /arm/home ROS service, used by the web UI, always releases.) Fails if no home pose has been "
-            "stored yet with arm_set_home. Reports 'converged' with residual_error (target - measured, rad) when "
+            "Move the arm to its stored home pose. Needs the arm lease (take_control(subsystem='arm')) and keeps it "
+            "afterwards (also after a failed motion); release_control parks at home and releases in one call. (The "
+            "/arm/home ROS service, used by the web UI, always releases.) Fails if no home pose has been stored yet. Reports 'converged' with residual_error (target - measured, rad) when "
             f"joints settled short of the home pose by at most {config.limits.arm_settle_tolerance_rad} rad. "
             f"{slow_note}"
         )

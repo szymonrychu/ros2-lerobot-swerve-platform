@@ -133,6 +133,7 @@ class TopicSettings(StrictModel):
     map_frame: str = "map"
     base_frame: str = "base_link"
     home_service: str = "/arm/home"
+    swerve_joint_states: str = "/swerve_drive/joint_states"  # steer joints for the release_control base reset
     set_home_service: str = "/arm/set_home"
     # Web-UI grasp actions: JSON requests (std_msgs/String) on grasp_command, JSON results on grasp_result.
     grasp_command: str = "/grasp/command"
@@ -666,6 +667,19 @@ class ObjectSettings(StrictModel):
     merge_radius_m: float = Field(default=0.25, gt=0.0)  # same label within this distance is the same object
 
 
+class ControlSettings(StrictModel):
+    """Per-subsystem control leases (take_control / release_control): the base reset on release."""
+
+    # Steer joints on topics.swerve_joint_states (swerve_drive_controller joint_names, the *_steer ones).
+    steer_joint_names: list[str] = Field(
+        default_factory=lambda: ["fl_steer", "fr_steer", "rl_steer", "rr_steer"], min_length=1
+    )
+    steer_neutral_tolerance_rad: float = Field(default=0.05, gt=0.0, le=0.5)  # |steer| at most this counts as neutral
+    # Longest wait for neutral steering after the zero twist (swerve idle_recenter_s 3.0 + 3 s margin).
+    base_reset_timeout_s: float = Field(default=6.0, gt=0.0, le=30.0)
+    steer_poll_s: float = Field(default=0.1, gt=0.0, le=1.0)  # steering check period while waiting
+
+
 class MotionQueueSettings(StrictModel):
     """Non-blocking motion queue (enqueue_motions, wait_for_event): limits and precondition thresholds."""
 
@@ -1134,6 +1148,7 @@ class McpServerConfig(StrictModel):
     objects: ObjectSettings = ObjectSettings()
     look_around: LookAroundSettings = LookAroundSettings()
     motion_queue: MotionQueueSettings = MotionQueueSettings()
+    control: ControlSettings = ControlSettings()
     poi: PoiSettings = PoiSettings()
     floor_guard: FloorGuardSettings = FloorGuardSettings()
     body: BodySettings = BodySettings()

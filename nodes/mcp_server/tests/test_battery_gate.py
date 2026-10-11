@@ -11,7 +11,7 @@ from mcp_server.camera_tools import TOOL_NAMES as CAMERA_TOOL_NAMES
 from mcp_server.config import McpServerConfig, load_config
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, TOOL_NAMES, build_mcp_server
 
-from .test_tools import TOKEN, FakeRobot, call
+from .test_tools import TOKEN, FakeRobot, call, take
 
 LOW_V = 8.21  # 2.74 V/cell
 OK_V = 11.4
@@ -38,8 +38,9 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_map_summary": {},
     "stop": {},
     "get_arm_state": {},
-    "acquire_control": {},
+    "take_control": {"subsystem": "arm"},
     "release_control": {},
+    "get_control_state": {},
     "get_body_state": {},
     "get_arm_reach": {},
     "pixel_to_ground": {"camera": "front", "u": 100.0, "v": 100.0},
@@ -77,7 +78,9 @@ def make_guard(voltage: float | None) -> BatteryGuard:
 def make_server(robot: FakeRobot, guard: BatteryGuard | None) -> Any:
     cfg = McpServerConfig(objects={"store_path": robot.arm.cfg.arm.home_file.parent / "objects.json"})
     cfg.cameras.calibration_dir = robot.arm.cfg.arm.home_file.parent / "calibration"
-    return build_mcp_server(robot, cfg, TOKEN, guard)
+    server = build_mcp_server(robot, cfg, TOKEN, guard)
+    take(server)  # both leases (allowed in cut-off), so the battery gate is what refuses
+    return server
 
 
 def test_tool_classification_covers_every_tool_exactly_once() -> None:

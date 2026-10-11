@@ -253,6 +253,8 @@ class RobotMonitor:
         self.clock = clock
         self.wall = wall
         self.lease_held = lease_held
+        # Control lease summary appended to the vitals line (control.ControlManager.digest, set by register_tools).
+        self.control_line: Callable[[], str | None] = lambda: None
         self.autonomy_source = autonomy_source
         self.cpu_temp_reader = cpu_temp_reader or (lambda: read_cpu_temp_c(settings.cpu_temp_path))
         self.throttled_reader = throttled_reader or (lambda: read_throttled(settings.throttled_paths))
@@ -986,7 +988,8 @@ class RobotMonitor:
         return events, self.vitals_line()
 
     def vitals_line(self) -> str:
-        """One-line vitals: battery voltage, hottest servo, CPU temperature (n/a when unknown).
+        """One-line vitals: battery voltage, hottest servo, CPU temperature (n/a when unknown), the tilt guard and the
+        control leases when known.
 
         Returns:
             str: e.g. "battery 11.40 V, hottest servo 41 C (elbow_flex), CPU 50 C".
@@ -1005,6 +1008,9 @@ class RobotMonitor:
             stale = "" if self.tilt_guard_fresh(self.clock()) else " (stale)"
             inhibited = ", base inhibited" if guard[1].base_drive_inhibited else ""
             line += f", tilt guard {guard[1].level}{stale}{inhibited}: {describe_tilt(guard[1])}"
+        control = self.control_line()
+        if control:
+            line += f", {control}"
         return line
 
     def hottest(self) -> HottestServo | None:

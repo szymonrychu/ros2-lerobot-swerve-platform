@@ -537,15 +537,18 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   centred grasp), `grasp_shift` reported with `shift_m` and `fixed_jaw_clearance_m`, widths 0 / negative / 0.09 / NaN rejected); limit overrides widen the clamp of `move_joints`
   and make a below-floor Cartesian target reachable
 - drive (`test_base_motion.py`): rate, clamping, duration cap, abort always ends with a zero twist
-- tools (`test_tools.py`): all 32 tools registered with real descriptions (arm motion tools explain `residual_error`
+- tools (`test_tools.py`): all 41 tools (`TOOL_NAMES`) registered with real descriptions (arm motion tools explain `residual_error`
   and the commanded hold), `speed_scale` descriptions derived from `arm_max_joint_velocity_rps` (no hardcoded 0.5 rad/s),
   `move_arm_cartesian` accepting `wrist_roll` / `object_width_m` (bounds, `grasp_shift` in the result, description phrases),
   the roll guard as a tool error, structured outputs, camera JPEG + stamp,
-  argument validation, robot errors as tool errors, map PNG, arm tool round trip, bearer-token auth on the Streamable
+  argument validation, robot errors as tool errors, map PNG, arm tool round trip (take_control, moves, release_control
+  keep_position), take/release_control descriptions require an explicit release, `arm_home` refused without the arm
+  lease (nothing published) and keeping a held lease; the `take(server, ...)` helper takes leases for the motion tests;
+  bearer-token auth on the Streamable
   HTTP app (401 without/with a wrong token, 200 with the right one) and the configured path
 - battery gate (`test_battery_gate.py`): `MOTION_TOOLS` and `ALWAYS_ALLOWED_TOOLS` partition all tools; each motion tool
-  is refused in cut-off with the exact message, a logged warning and no robot call; `stop`, sensor, state and
-  acquire/release tools still work in cut-off; motion works with a good or unknown battery, without a guard and after
+  is refused in cut-off with the exact message, a logged warning and no robot call (both leases held, so the battery
+  gate is what refuses); `stop`, sensor, state and take/release/get_control_state still work in cut-off; motion works with a good or unknown battery, without a guard and after
   recovery; optional `battery` config section (absent = off, validated)
 - monitor (`test_monitor.py`): servo overheat warning/critical with hysteresis, debounce and `_cleared` info events, status
   error bits decoded (critical), battery low/cut-off from the shared guard, IMU bump (baseline removed, debounce,
@@ -568,7 +571,27 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   (`TILT_NAV_TOOLS`, `TILT_MANUAL_BASE_TOOLS`), `navigate_to_pose` / `move_relative` / `look_around` refused with the
   reason in warning and error without touching the robot, `drive` allowed in warning, refused in warning while the base stays inhibited and refused in error, arm tools
   unaffected in error, `enqueue_motions` with a base step refused (arm/wait-only steps allowed), digest vitals carry the
-  guard, a queued base step fails at dispatch (status `tilt_guard`)
+  guard, a queued base step fails at dispatch (status `tilt_guard`); the tool tests hold both leases so the tilt guard
+  is what refuses
+- control leases (`test_control.py`, `control.py`): `steering_neutral` per steer joint (missing joint or no data = None);
+  the steering waiter succeeds once the wheels recenter and times out naming the worst joint (or no fresh joint
+  states); `take_control` is idempotent (held_since kept, the hold not re-published) for arm and base; default
+  `release(arm)` runs the home motion and then publishes the release (release last, once), `keep_position` only
+  releases, no home pose = `failed: no home pose stored` and a home that does not converge = `failed: ...` both still
+  release, battery cut-off = `skipped: battery_cutoff` with only the release published; `release(base)` zeroes and
+  reports `neutral`, a steering timeout reports `failed: ... not neutral` after `base_reset_timeout_s` and still
+  releases, `keep_position` only clears the flag; `release(all)` resets the base and skips an arm not held; release
+  refused while the queue is busy (lease kept); `at_home` tolerance edges (0.99 / 1.01 x the shoulder_lift settle
+  tolerance), gripper excluded, None without home or fresh joint states; `TOOL_SUBSYSTEM` table (arm / base tools,
+  lease-free tools absent); arm and base tools refused without their lease with the exact text before any publish;
+  tools work once the lease is taken; a lease released by `/arm/home` names it in the refusal; `/arm/home` still
+  releases; `arm_home` requires and keeps the lease; an enqueue mixing a base and a gripper step with only base held
+  is refused naming arm only (nothing queued); lease-free steps need no lease; the lease refusal comes before the
+  tilt refusal (navigate_to_pose and enqueue at tilt warning), the tilt refusal after taking the lease;
+  `take_control` allowed in battery cut-off and `release_control` then skips the arm reset;
+  `get_control_state` / `release_control(all)` payloads; the vitals carry `ctl arm=-@home base=-` /
+  `ctl arm=H@away base=H`; the `any` need is satisfied by either lease; a queued gripper step fails at dispatch when
+  the arm lease is not held
 - camera config (`test_camera_config.py`): cameras default to not calibrated with parent frames `gripper_link` / `base_link`,
   intrinsics source rules (calibration file XOR hfov with width and height), mount parent frame adopted and checked, front
   camera restricted to `base_link`, unknown camera keys rejected, `arm.base_in_base_link` and reach ordering
@@ -596,7 +619,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   explain `image_width` / `image_height` (384x288)
 - IK link frames (`test_ik.py`): `link_frame` for base, `gripper_link`, `gripper_frame_link` and rejected off-chain links
 - digest + body state (`test_digest.py`): every tool result carries `robot_events_since_last_call` and `vitals` (text,
-  structured content, `_meta` for image tools, appended to tool errors), events reported once, events raised during the
+  structured content, `_meta` for image tools, appended to tool errors; the vitals line ends with the `ctl` lease
+  summary), events reported once, events raised during the
   call included, a tool registered by a later module gets it for free, `get_body_state` content/nulls, never refused in
   cut-off
 - early return (`test_early_return.py`): arm motions end `interrupted` with `interrupted_by` on overheat / servo error /

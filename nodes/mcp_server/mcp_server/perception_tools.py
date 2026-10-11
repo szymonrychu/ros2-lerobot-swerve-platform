@@ -307,7 +307,8 @@ def register(ctx: ToolContext) -> None:
             "per 45 degree sector, a top-down view after the turn, and the motion fields: expected vs achieved "
             "rotation and heading error, status ('interrupted' with interrupted_by when a critical event ended it "
             "early, 'stopped', 'failed'). Refused without moving when the lidar shows an obstacle inside the "
-            f"rotation circle (footprint circumscribed radius + {la.clearance_margin_m * 100:g} cm) or no fresh scan."
+            f"rotation circle (footprint circumscribed radius + {la.clearance_margin_m * 100:g} cm) or no fresh scan. "
+            "Needs the base lease (take_control(subsystem='base'))."
         ),
     )
     def look_around(

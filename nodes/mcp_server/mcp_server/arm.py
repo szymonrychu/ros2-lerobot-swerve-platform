@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import threading
+import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -49,6 +50,8 @@ CHANGED_EPS = 1e-9
 # After a restart, an 'autonomy' active source seen within this window (s) while not holding control is an orphaned
 # lease from a crashed predecessor and gets released.
 ORPHAN_LEASE_WINDOW_S = 3.0
+# lost_note after the /arm/home service (web UI Home button) released a lease this server held.
+HOME_SERVICE_RELEASE_NOTE = "released by the /arm/home service (web UI Home button)"
 # Widest object the jaws can enclose (m); move_cartesian's object_width_m must lie in (0, MAX_OBJECT_WIDTH_M].
 MAX_OBJECT_WIDTH_M = 0.08
 ROLL_JOINT = "wrist_roll"
@@ -323,6 +326,9 @@ class ArmController:
         self.tilt_source = tilt_source or (lambda: None)
         self._held = False
         self._acquired_at = -math.inf
+        # How the lease ended when this server did not release it itself (take-over, /arm/home); None otherwise.
+        self.lost_note: str | None = None
+        self.held_since: float | None = None  # wall clock (s since the epoch) the current lease was taken
         # Last published setpoint (keepalive, tracking check) and the intended target behind it: they differ only
         # after a settled residual hold relaxed to the measured pose. The intent seeds the next motion.
         self._last_setpoint: dict[str, float] | None = None
@@ -584,14 +590,21 @@ class ArmController:
             if not self._held:
                 self._held = True
                 self._acquired_at = self.backend.now()
+                self.held_since = time.time()
+                self.lost_note = None
             self.use_hold_modes_locked()  # acquire / hold publish a measured pose
             self.backend.publish_command(self.commanded(setpoint))
             self.remember_locked(setpoint)
 
-    def drop_lease(self) -> None:
-        """Forget the lease without publishing (another source took over) and restore the default gripper torque."""
+    def drop_lease(self, source: str) -> None:
+        """Forget the lease without publishing (another source took over) and restore the default gripper torque.
+
+        Args:
+            source (str): The source that took over (kept in lost_note).
+        """
         with self._lock:
             self._held = False
+            self.lost_note = f"taken over by {source}"
             self.forget_locked()
         self.restore_default_torque_limit()
 
@@ -616,6 +629,7 @@ class ArmController:
         self._stop.set()
         with self._lock:
             self._held = False
+            self.lost_note = None
             self.forget_locked()
             self.backend.publish_release()
         self.restore_default_torque_limit()
@@ -702,7 +716,7 @@ class ArmController:
             return
         other = self.lease_lost_to()
         if other is not None:
-            self.drop_lease()
+            self.drop_lease(other)
             return
         with self._lock:
             if not self._held:
@@ -1619,10 +1633,14 @@ class ArmController:
         Returns:
             tuple[bool, str]: success (converged) and message.
         """
+        was_held = self._held
         try:
             result = self.home(keep_prior_control=False)
         except ArmError as exc:
             return False, str(exc)
+        finally:
+            if was_held and not self._held:
+                self.lost_note = HOME_SERVICE_RELEASE_NOTE
         return result.status == "converged", f"{result.status}: {result.message}"
 
     def set_home(self) -> dict[str, float]:
@@ -1648,6 +1666,26 @@ class ArmController:
             return load_home(self.cfg.arm.home_file) is not None
         except HomeStoreError:
             return False
+
+    def at_home(self) -> bool | None:
+        """Whether the arm is at its stored home pose: every non-gripper joint within its settle tolerance.
+
+        The gripper is excluded, so the arm counts as home while holding an object.
+
+        Returns:
+            bool | None: True / False, or None when no home pose is stored (or it is unreadable) or the joint states
+                are stale.
+        """
+        try:
+            pose = load_home(self.cfg.arm.home_file)
+        except HomeStoreError:
+            return None
+        sample = self.fresh_sample()
+        if pose is None or sample is None:
+            return None
+        measured = self.measured(sample)
+        joints = [j for j in self.joint_names if j != self.gripper and j in pose]
+        return all(abs(measured[j] - pose[j]) <= self.cfg.limits.settle_tolerance_for(j) for j in joints)
 
     def state(self) -> ArmState:
         """Arm snapshot; positions/efforts omitted when the joint states are stale.
@@ -1782,11 +1820,12 @@ class ArmController:
         if event is not None:
             self._interrupted_by = event
             if event == "human_takeover":
-                self.drop_lease()  # never hold against the human who took over
+                src = self.backend.active_source()
+                self.drop_lease("another source" if src is None else src.value)  # never hold against the human
             return "interrupted", f"stopped early: critical event {event}; holding the measured pose"
         other = self.lease_lost_to()
         if other is not None:
-            self.drop_lease()
+            self.drop_lease(other)
             if self.monitor is not None:
                 self.monitor.report_lease_lost(other)
                 self._interrupted_by = "human_takeover"

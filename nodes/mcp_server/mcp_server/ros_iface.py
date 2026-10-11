@@ -34,7 +34,17 @@ from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .arm import ArmController, ArmError, JointSample
-from .base_motion import DriveError, DriveOutcome, NavPort, SpinOutcome, run_drive, run_nav, run_spin, run_stop
+from .base_motion import (
+    DriveError,
+    DriveOutcome,
+    NavPort,
+    SpinOutcome,
+    run_base_stop,
+    run_drive,
+    run_nav,
+    run_spin,
+    run_stop,
+)
 from .config import McpServerConfig
 from .floor_guard import monitor_tilt_sample
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
@@ -255,6 +265,7 @@ class RosRobot:
             config.monitor, battery_guard, autonomy_source=config.arm.autonomy_source_name
         )
         self.cache(JointState, t.follower_joint_states, "joint_states", SENSOR_QOS)
+        self.cache(JointState, t.swerve_joint_states, "swerve_joint_states", SENSOR_QOS)  # release_control base reset
         self.cache(
             String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
         )
@@ -1224,6 +1235,27 @@ class RosRobot:
         """
         self.stops += 1
         return run_stop(self.base_stop.set, self.publish_twist, self.cancel_all_goals, self.arm.stop_hold)
+
+    def reset_base(self) -> bool:
+        """Base half of stop (release_control base reset): cancel every Nav2 goal and publish zero twist.
+
+        Returns:
+            bool: True when the Nav2 cancel service answered.
+        """
+        return run_base_stop(self.base_stop.set, self.publish_twist, self.cancel_all_goals)
+
+    def steer_positions(self) -> dict[str, float] | None:
+        """Fresh steer joint positions from the swerve joint states (control.steer_joint_names present ones).
+
+        Returns:
+            dict[str, float] | None: Joint -> rad, None when no message is fresher than timeouts.state_stale_s.
+        """
+        item = self.get("swerve_joint_states", self.cfg.timeouts.state_stale_s)
+        if item is None:
+            return None
+        msg = item.value
+        steer = set(self.cfg.control.steer_joint_names)
+        return {n: float(p) for n, p in zip(msg.name, msg.position, strict=False) if n in steer}
 
     def shutdown(self) -> None:
         """Hand the arm back (release the lease if held) and destroy the node."""

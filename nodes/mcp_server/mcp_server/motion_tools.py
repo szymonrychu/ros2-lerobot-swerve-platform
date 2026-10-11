@@ -71,7 +71,7 @@ def register(ctx: ToolContext) -> None:
         description=(
             "Queue several motions and return AT ONCE (job ids, queue length): the robot keeps moving while you "
             "think. Steps run in order by one background executor with every safety guard of the blocking tools "
-            "(lease, stop, stale/tracking/effort aborts, critical events, roll guard, floor slow zone). Kinds: "
+            "(stop, stale/tracking/effort aborts, critical events, roll guard, floor slow zone). Kinds: "
             "arm_joints {targets}, arm_cartesian {x, y, z, pitch?, wrist_roll?, object_width_m?} (IK solved now: an "
             "unreachable target refuses the whole call, nothing queued), both with speed_scale?, settle?, "
             "surface_z_m?, tilt_override_deg?, surfaces?; gripper {open_fraction | close_until_effort, effort_threshold?, "
@@ -92,7 +92,9 @@ def register(ctx: ToolContext) -> None:
             "motion tools are refused (one motion owner); enqueue_motions is refused while a blocking motion tool "
             f"runs. At most {cfg.max_steps} pending steps. An arm step first PLANS (safety checks, current.phase "
             "'planning', planning_s growing, can take tens of seconds): that is normal, not a stall; progress follows "
-            "once it executes. Follow with wait_for_event, not polling."
+            "once it executes. Follow with wait_for_event, not polling. Leases: arm_joints / arm_cartesian / gripper / "
+            "grasp steps need the arm lease, base_relative / navigate_to_pose the base lease (take_control first; the "
+            "call is refused naming the missing one); a lease lost mid-queue fails its next step."
         )
     )
     def enqueue_motions(
@@ -100,6 +102,7 @@ def register(ctx: ToolContext) -> None:
         replace: Annotated[bool, Field(description="Drop the pending steps before adding these")] = False,
     ) -> EnqueueResult:
         """Queue motions; the tool description is passed to the decorator."""
+        ctx.lease_gate("enqueue_motions", [step.kind for step in steps])
         ctx.battery_gate("enqueue_motions")
         if any(step.kind in BASE_KINDS for step in steps):
             ctx.tilt_gate("enqueue_motions", "nav")

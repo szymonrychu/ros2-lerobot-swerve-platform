@@ -11,6 +11,7 @@ from mcp_server.staleness import Stamped
 from mcp_server.topdown import TopdownInputs
 
 JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
+STEER_JOINTS = ("fl_steer", "fr_steer", "rl_steer", "rr_steer")
 
 
 class FakeArmBackend:
@@ -127,7 +128,7 @@ class DelayedFollower:
 
 
 class PerceptionFakeMixin:
-    """RobotApi perception/memory/POI methods for the tool tests (state is set up by init_perception)."""
+    """RobotApi perception/memory/POI and base reset methods for the tool tests (state is set up by init_perception)."""
 
     def init_perception(self) -> None:
         self.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=0.5, age_s=0.05)
@@ -136,6 +137,8 @@ class PerceptionFakeMixin:
         self.pois: list[dict] = []
         self.poi_commands: list[tuple[str, dict]] = []
         self.poi_clears: list[str] = []
+        self.base_resets = 0
+        self.steer: dict[str, float] | None = {j: 0.0 for j in STEER_JOINTS}  # None = no fresh swerve joint states
         self.topdown = TopdownInputs(
             pose=(1.0, 2.0, 0.5),
             scan_points=np.array([[1.0, 0.0], [0.0, 1.0]]),
@@ -146,6 +149,13 @@ class PerceptionFakeMixin:
 
     def robot_pose(self) -> BasePose | None:
         return self.pose
+
+    def reset_base(self) -> bool:
+        self.base_resets += 1
+        return True
+
+    def steer_positions(self) -> dict[str, float] | None:
+        return None if self.steer is None else dict(self.steer)
 
     def stop_count(self) -> int:
         return self.stops

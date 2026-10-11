@@ -16,7 +16,7 @@ from mcp_server.tool_context import TILT_MANUAL_BASE_TOOLS, TILT_NAV_TOOLS
 from mcp_server.tools import MOTION_TOOLS, build_mcp_server
 
 from .test_motion_queue import WAIT, GateRobot, make_queue, steps
-from .test_tools import TOKEN, FakeRobot, call
+from .test_tools import TOKEN, FakeRobot, call, take
 
 LIMITS = {"roll_warn_deg": 8.0, "roll_error_deg": 15.0, "pitch_warn_deg": 12.0, "pitch_error_deg": 20.0}
 MANUAL_HINT = "drive back to level ground manually with short base moves"
@@ -302,7 +302,9 @@ def guarded(tmp_path: Path, level: str) -> tuple[FakeRobot, Any, RobotMonitor]:
     config = McpServerConfig()
     monitor = RobotMonitor(config.monitor, cpu_temp_reader=lambda: 50.0, throttled_reader=lambda: None)
     monitor.on_tilt_guard(state(level, roll=9.0 if level == "warning" else 16.0))
-    return robot, build_mcp_server(robot, config, TOKEN, monitor=monitor), monitor
+    server = build_mcp_server(robot, config, TOKEN, monitor=monitor)
+    take(server)  # both leases: the tilt guard is what refuses
+    return robot, server, monitor
 
 
 def test_tool_classification_covers_every_base_motion_tool() -> None:

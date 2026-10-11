@@ -15,7 +15,7 @@ from mcp_server.config import McpServerConfig
 from mcp_server.models import BasePose, NavigationResult
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, build_mcp_server
 
-from .test_tools import TOKEN, FakeRobot, call, tool_descriptions
+from .test_tools import TOKEN, FakeRobot, call, take, tool_descriptions
 
 
 @pytest.fixture
@@ -324,6 +324,7 @@ class RotatingRobot(FakeRobot):
 def test_look_around_tool_returns_montage_summary_and_topdown(tmp_path: Path) -> None:
     robot = RotatingRobot(tmp_path)
     server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, "base")
     res = call(server, "look_around", {"captures": 4, "camera": "gripper", "mode": "steps", "return_to_start": True})
     images = [c for c in res.content if c.type == "image"]
     assert len(images) == 2
@@ -342,6 +343,7 @@ def test_look_around_tool_returns_montage_summary_and_topdown(tmp_path: Path) ->
 def test_look_around_tool_defaults_to_one_spin_without_returning(tmp_path: Path) -> None:
     robot = RotatingRobot(tmp_path)
     server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, "base")
     sc = call(server, "look_around", {"captures": 4}).structured_content
     spins = [c for c in robot.calls if c[0] == "spin"]
     assert len(spins) == 1 and not [c for c in robot.calls if c[0] == "move_relative"]
@@ -356,6 +358,7 @@ def test_look_around_defaults_come_from_config(tmp_path: Path) -> None:
     robot = RotatingRobot(tmp_path)
     config = McpServerConfig(look_around={"default_captures": 3})
     server = build_mcp_server(robot, config, TOKEN)
+    take(server, "base")
     res = call(server, "look_around", {})
     assert len(res.structured_content["headings"]) == 3
 
@@ -376,6 +379,7 @@ def test_look_around_refusal_is_a_tool_error_and_does_not_move(tmp_path: Path) -
         None,
     )
     server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, "base")
     with pytest.raises(ToolError, match="rotation"):
         call(server, "look_around", {})
     assert not [c for c in robot.calls if c[0] == "move_relative"]
