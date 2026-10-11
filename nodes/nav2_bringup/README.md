@@ -224,6 +224,19 @@ The patched package is built from source into the `/opt/ros2-ws` overlay by the 
 `ros2_node_deploy` role; the nav2 launcher sources that workspace after `/opt/ros/jazzy`, so pluginlib loads the
 overlay's `nav2_mppi_controller` instead of the apt one.
 
+**Delay values.** `nav2_params.yaml` sets `model_delay_vx: 0.0`, `model_delay_vy: 0.3`, `model_delay_wz: 0.0` (the apt MPPI
+ignores them). MPPI rounds `delay / model_dt` to a step offset and 0 or 1 is a no-op, so only the step count matters:
+
+- `vy` 0.3 = 3 steps of `model_dt` 0.1. A 90 deg re-steer at `max_steer_angular_velocity_rad_s` 4.71 rad/s (ST3215,
+  0.222 s per 60 deg) takes 0.33 s; drive resumes after 0.26 s with `steer_error_threshold_rad` 0.35. Both round to 3.
+- `vx` 0: the rotation shim and idle recentering leave the wheels straight.
+- `wz` 0: the 48.8 deg in-place re-steer, until drive resumes at the 0.35 rad threshold, takes 0.11 s = 1 step (no-op), and the shim does the in-place turns.
+
+**Re-deriving.** If the steering servo, `max_steer_angular_velocity_rad_s` / `steer_error_threshold_rad` (swerve_controller
+config in `ansible/group_vars/client.yml`) or `model_dt` change, recompute `round(angle / rate / model_dt)` for 90 deg and
+for `90 deg - threshold`, set `model_delay_vy` to steps x `model_dt`, and run `uv run pytest tests/test_nav2_mppi_model_delay.py`,
+which pins that derivation.
+
 **Probe.** `./scripts/probe-mppi-overlay-docker.sh` clones the pin in an arm64 `ros:jazzy-ros-base` container, checks
 and applies the patch, builds the package with tests and runs `motion_model_tests`, `optimizer_unit_tests` and
 `optimizer_smoke_test` (the unchanged Jazzy tests plus the 5 delay tests). It prints `PASS`/`FAIL` per step and exits

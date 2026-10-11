@@ -1922,4 +1922,15 @@ Static checks of the Nav2 MPPI overlay (patched `nav2_mppi_controller` built int
 | `test_overlay_build_is_limited_to_the_mppi_subdirectory` | The overlay source sets `base_paths: [nav2_mppi_controller]` and the build passes `--base-paths` before `--packages-select` only when `base_paths` is set (sibling navigation2 packages must not shadow apt). |
 | `test_launcher_still_sources_the_first_source_workspace` | The launcher sources the first source's workspace `install/setup.bash` after `/opt/ros/jazzy`, so the overlay wins on `AMENT_PREFIX_PATH`. |
 
+## test_nav2_mppi_model_delay.py
+
+Static derivation of MPPI `model_delay_*` from the swerve steering kinematics (`nav2_params.yaml` FollowPath `model_dt`; `max_steer_angular_velocity_rad_s` and `steer_error_threshold_rad` from the `swerve_controller` config in `client.yml`).
+
+| Test | Description |
+|---|---|
+| `test_model_delay_vy_matches_the_ninety_degree_resteer` | `round((pi/2)/rate/model_dt)`, `round((pi/2 - threshold)/rate/model_dt)` and `round(model_delay_vy/model_dt)` all equal 3. |
+| `test_model_delay_vx_and_wz_are_zero` | `model_delay_vx` and `model_delay_wz` are 0.0. |
+| `test_inplace_resteer_rounds_to_a_noop_step` | The 48.8 deg in-place re-steer (minus the steer error threshold, when drive resumes) is 1 step (MPPI treats an offset of 1 as no delay), so `wz` needs no delay. |
+| `test_keys_sit_in_the_mppi_namespace_only` | The three keys are in `controller_server.FollowPath`, not at the controller_server level. |
+
 `test_nav_stack_config.py::test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` and `test_overview_camera_config.py::test_colcon_package_build_keeps_the_limits_and_stamp_logic` now expect the `MAKEFLAGS` expression above.

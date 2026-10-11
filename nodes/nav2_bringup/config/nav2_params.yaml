@@ -87,6 +87,15 @@ controller_server:
       ay_max: 1.0
       ay_min: -1.0
       az_max: 2.0
+      # Input-delay compensation (patched MPPI overlay; the apt MPPI ignores these keys). Derived from the swerve
+      # steering rate, see tests/test_nav2_mppi_model_delay.py and nodes/nav2_bringup/README.md.
+      # vy: a 90 deg re-steer at 4.71 rad/s takes 0.33 s (drive resumes at 0.26 s with the 0.35 rad steer error
+      # threshold) = 3 steps of model_dt 0.1.
+      model_delay_vy: 0.3
+      # vx 0: the rotation shim and idle recentering leave the wheels straight.
+      model_delay_vx: 0.0
+      # wz 0: the 48.8 deg in-place re-steer (to the 0.35 rad threshold) rounds to 1 step (a no-op) and the shim does the in-place turns.
+      model_delay_wz: 0.0
       vx_std: 0.1
       vy_std: 0.1
       wz_std: 0.3
