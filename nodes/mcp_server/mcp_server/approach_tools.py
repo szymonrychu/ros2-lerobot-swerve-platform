@@ -122,6 +122,9 @@ class ApproachResult(BaseModel):
         default=None, description="point_reach of the target from the measured pose after an arrival"
     )
     detections_published: int = Field(default=0, description="Detections the tracker published during a servoed dock")
+    detections_rejected: int = Field(
+        default=0, description="Tracker matches skipped for jumping beyond max_correction_m during a servoed dock"
+    )
     duration_s: float = 0.0
 
 
@@ -677,6 +680,7 @@ def register(ctx: ToolContext) -> None:
                     "num_retries": docked.num_retries,
                     "interrupted_by": docked.interrupted_by,
                     "detections_published": loop.published,
+                    "detections_rejected": loop.tracker.rejected,
                 }
                 final = docked.final_pose
             else:
@@ -701,6 +705,7 @@ def register(ctx: ToolContext) -> None:
                         "collision_free": r["collision_free"],
                         "pitch_range_deg": r["pitch_range_deg"],
                         "pose": {"x": at.x, "y": at.y, "yaw": at.yaw},
+                        "suggestion": r.get("suggestion"),
                     }
                     if not ok:
                         status = "arrived_out_of_reach"

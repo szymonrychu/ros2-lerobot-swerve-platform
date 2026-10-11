@@ -3,6 +3,7 @@
 import logging
 import math
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +38,13 @@ REACH_OK = {
     "pitch_range_deg": [0.0, 15.0],
     "pitches_deg": [0.0, 15.0],
 }
-REACH_NO = {"reachable": False, "collision_free": False, "pitch_range_deg": None, "pitches_deg": []}
+REACH_NO = {
+    "suggestion": "raise the point above z 0.30 m",
+    "reachable": False,
+    "collision_free": False,
+    "pitch_range_deg": None,
+    "pitches_deg": [],
+}
 
 
 class StubReachMap:
@@ -116,8 +123,9 @@ class Rig:
 
             def camera_image(camera: str, max_px: int) -> CameraFrame:
                 robot.calls.append(("camera_image", (camera, max_px)))
+                stamp_s = 10.0 + 0.01 * len([c for c in robot.calls if c[0] == "camera_image"])  # every frame is newer
                 return CameraFrame(
-                    camera=camera, topic="/x", jpeg=png, width=WIDTH, height=HEIGHT, stamp_s=10.0, age_s=0.0
+                    camera=camera, topic="/x", jpeg=png, width=WIDTH, height=HEIGHT, stamp_s=stamp_s, age_s=0.0
                 )
 
             monkeypatch.setattr(self.robot, "camera_image", camera_image)
@@ -465,6 +473,7 @@ def test_arrived_out_of_reach_is_never_a_success(rig: Rig) -> None:
     assert res["status"] == "arrived_out_of_reach"
     assert res["reach_after"]["reachable"] is False
     assert "out of reach" in res["message"]
+    assert res["reach_after"]["suggestion"] == REACH_NO["suggestion"]
 
 
 def test_failed_navigation_is_not_rechecked(rig: Rig) -> None:
@@ -494,7 +503,53 @@ def test_servoed_mode_runs_the_dock_goal_with_the_detection_loop(
     assert alive == [True]  # the loop runs while the dock goal runs
     assert not any(t.name == "target-tracker" and t.is_alive() for t in threading.enumerate())  # stopped after
     assert [c for c in rig.robot.calls if c[0] == "navigate"] == []
-    assert res["detections_published"] >= 0 and res["reach_after"]["reachable"] is True
+    assert res["reach_after"]["reachable"] is True
+
+
+def wait_for(condition: Any, timeout_s: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_servoed_detections_reach_publish_detection_with_pose_and_capture_stamp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch, config=calibrated(), textured=True)
+
+    def dock(goal: DockGoal, timeout_s: float) -> DockResult:
+        wait_for(lambda: rig.robot.detections)
+        return DockResult(status="succeeded", goal=goal, final_pose=BasePose(frame="map", x=1.0, y=2.0, yaw=0.5))
+
+    monkeypatch.setattr(rig.robot, "dock", dock)
+    res = rig.approach(**VISIBLE_TARGET)
+    assert rig.robot.detections, "the loop published nothing to robot.publish_detection"
+    pose, stamp_ns = rig.robot.detections[0]
+    assert isinstance(pose, BasePose) and pose.frame == "map"
+    assert (pose.x, pose.y) == pytest.approx((res["goal"]["x"], res["goal"]["y"]), abs=0.1)  # a dock pose near the plan
+    assert 10_000_000_000 < stamp_ns < 11_000_000_000  # the frame's capture stamp (10 s + 10 ms per frame)
+    assert res["detections_published"] == len(rig.robot.detections) >= 1
+    assert res["detections_rejected"] == 0
+
+
+def test_servoed_result_counts_rejected_detections(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config = calibrated()
+    config.approach.tracker.max_correction_m = 1e-9  # every match is a jump beyond the correction bound
+    rig = Rig(tmp_path, monkeypatch, config=config, textured=True)
+
+    def camera_calls() -> int:
+        return len([c for c in rig.robot.calls if c[0] == "camera_image"])
+
+    def dock(goal: DockGoal, timeout_s: float) -> DockResult:
+        wait_for(lambda: camera_calls() >= 6)
+        return DockResult(status="succeeded", goal=goal, final_pose=BasePose(frame="map", x=1.0, y=2.0, yaw=0.5))
+
+    monkeypatch.setattr(rig.robot, "dock", dock)
+    res = rig.approach(**VISIBLE_TARGET)
+    assert res["detections_rejected"] >= 1 and res["detections_published"] == 0 and rig.robot.detections == []
 
 
 def test_stop_during_dock_cancels_and_stops_the_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
