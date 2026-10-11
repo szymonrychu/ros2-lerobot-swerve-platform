@@ -49,6 +49,7 @@ All numbers must be finite. Files written before `object` existed load unchanged
   revision only moves when something was removed. `created_by` is required and must be `agent` or `user`.
   claude_agent sends it for "New session" so agent-made POIs and objects go while the person's POIs stay. Photos are
   never cleared (agent-made ones included): they outlive the session and go only through retention or a delete.
+  A cleared POI is stripped from every photo's `poi_ids`, as with `delete`.
 - `delete_photos`: `{"op": "delete_photos", "selector": {...}, "request_id": ...}` bulk-deletes photos; `selector` is
   required (the error names it) and is a `PhotoSelector`: exactly one of `ids` (1..500), `older_than_s` (> 0) or
   `keep_newest` (>= 0), optionally narrowed by `created_by` and `camera`, plus `dry_run` (default false). The result
@@ -172,6 +173,6 @@ Served on `127.0.0.1:<metrics_port>` (19109) at `/metrics`, scraped by Alloy. Be
   `node.py` the only rclpy module.
 - `cd nodes/poi_store && uv run pytest tests -q` (no ROS needed); `uv run poe lint`.
 - Tests: `test_store.py` (POI store and the photo dispatch: add/update/delete routing, `delete_photos`, clear leaves
-  photos, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore),
+  photos but strips cleared POIs from their links, link checks and stripping, no photos on `/poi/list` or in `poi.json`), `test_photo_store.py` (PhotoStore),
   `test_node_photos.py` (`/poi/photos` publishing, missing/unreadable directory, prune timer; rclpy stubbed via
   `ros_stubs.py`), `test_shutdown.py`, `test_config.py`, `test_metrics.py`, `test_zone_models.py`.

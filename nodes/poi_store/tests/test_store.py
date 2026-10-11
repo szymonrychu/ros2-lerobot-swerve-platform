@@ -539,6 +539,30 @@ def test_agent_clear_leaves_every_photo(pstore, photos):
     assert all((photos.root / f"{photo_id(n)}.jpg").exists() for n in (1, 2, 3))
 
 
+def test_agent_clear_strips_cleared_pois_from_photo_links(pstore, photos):
+    agent_poi = add_poi(pstore, created_by="agent")
+    user_poi = add_poi(pstore, name="b", created_by="user")
+    add_photo(pstore, photos, 1, poi_ids=[agent_poi, user_poi])
+    add_photo(pstore, photos, 2, poi_ids=[agent_poi])
+    ok, _, result = pstore.apply(Command(op="clear", created_by="agent"))
+    assert ok and result == {"removed": 1}
+    assert photos.get(photo_id(1)).poi_ids == [user_poi]
+    assert photos.get(photo_id(2)).poi_ids == []
+
+
+def test_clear_survives_strip_links_failure(pstore, photos, monkeypatch):
+    agent_poi = add_poi(pstore, created_by="agent")
+    add_photo(pstore, photos, 1, poi_ids=[agent_poi])
+
+    def boom(*_a, **_k):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(photos, "strip_links", boom)
+    ok, _, result = pstore.apply(Command(op="clear", created_by="agent"))
+    assert ok and result == {"removed": 1}
+    assert agent_poi not in pstore.pois
+
+
 def test_photo_write_failure_is_ok_false(pstore, photos, monkeypatch):
     add_photo(pstore, photos, 1)
 

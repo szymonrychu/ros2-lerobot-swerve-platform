@@ -337,7 +337,7 @@ class PoiStore:
         return True, f"deleted {result['removed']} photo(s)", result
 
     def op_clear(self, created_by: str | None) -> Result:
-        """Delete every POI created by one creator (the revision only moves when something was removed).
+        """Delete every POI created by one creator and strip them from photo links (photos themselves stay).
 
         Args:
             created_by: "agent" or "user".
@@ -350,6 +350,8 @@ class PoiStore:
             del self.pois[poi_id]
         if doomed:
             self.commit()
+        for poi_id in doomed:
+            self.strip_photo_links(poi_id)
         return True, f"cleared {len(doomed)}", {"removed": len(doomed)}
 
     def handle_message(self, raw: str) -> str:
