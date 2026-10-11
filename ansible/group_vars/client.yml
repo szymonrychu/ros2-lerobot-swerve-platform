@@ -1529,6 +1529,77 @@ ros2_nodes:
         base_still_linear_mps: 0.02
         base_still_angular_rps: 0.05
         holding_min_effort: 100.0
+        # watch_constraints of enqueue_motions: evaluation rate and the most constraints one call may attach.
+        watch_rate_hz: 10
+        watch_max_per_call: 8
+      # Guard rules (nodes/mcp_server/README.md "Guard rules"): declarative refusals checked outside the model.
+      # All start in dry_run (log guard_rule_would_refuse + mcp_guard_rule_hits_total, nothing refused). After a week of
+      # counters, flip one rule at a time to `mode: enforce` and redeploy (ansible/README.md "Guard rules").
+      guard_rules:
+        enabled: true
+        rules:
+          # Hazard: the footprint stays static while the agent holds the arm (control.py), so costmaps, collision_monitor
+          # and laser_filter ignore an extended arm. 0.03 m > stopbox_margin 0.02 and one 0.025 m costmap cell.
+          - name: base_motion_arm_outside_footprint
+            mode: dry_run
+            message: "The arm sticks out of the robot footprint, so obstacle avoidance cannot see it. Run arm_home (or fold the arm inside the
+              outline), then repeat the base move."
+            applies_to:
+              tools: [navigate_to_pose, move_relative, drive, look_around]
+              steps: [base_relative, navigate_to_pose]
+            all:
+              - {field: footprint.kind, op: eq, value: static}
+              - {field: arm.outside_footprint_m, op: gt, value: 0.03}
+            when_unknown: reject
+          # Hazard: a carried object is outside every footprint unless released with carried_object_radius_m (control.py).
+          - name: base_motion_carrying_without_object_footprint
+            mode: dry_run
+            message: "An object is carried but the footprint does not include it. Call release_control with carried_object_radius_m set to the
+              object radius (or put the object down with release_object), then repeat the base move."
+            applies_to:
+              tools: [navigate_to_pose, move_relative, drive, look_around]
+              steps: [base_relative, navigate_to_pose]
+            all:
+              - {field: arm.carrying, op: eq, value: true}
+              - {field: footprint.carried_radius_m, op: le, value: 0.0}
+            when_unknown: reject
+          # Hazard: take_control acquires unconditionally (control.py) and a human just took the arm (human_takeover, monitor.py).
+          - name: no_arm_retake_from_human
+            mode: dry_run
+            message: "A human is driving the arm (web UI) or took it less than 30 s ago. Do not retake it: wait 30 s or ask the user to hand
+              it back, then call take_control again."
+            applies_to:
+              tools: [take_control]
+            all:
+              - {field: args.subsystem, op: eq, value: arm}
+            any:
+              - {field: arm.active_source, op: eq, value: web_ui}
+              - {field: events.human_takeover_age_s, op: lt, value: 30}
+            when_unknown: allow
+          # Hazard: memory note 2026-10-08, roll only with the arm lifted and clear (finger tip sweeps ~0.10 m from the wrist).
+          - name: wrist_roll_needs_lifted_arm
+            mode: dry_run
+            message: "Wrist roll with the tool below 0.12 m would sweep the finger into the floor or body. Lift the arm first with
+              move_arm_cartesian to a tool height of at least 0.12 m, then roll."
+            applies_to:
+              arm_motion_from: [move_arm_joints, move_arm_cartesian, arm_joints, arm_cartesian]
+            all:
+              - {field: motion.abs_delta.wrist_roll, op: gt, value: 0.1}
+            any:
+              - {field: start.tool_height_m, op: lt, value: 0.12}
+              - {field: target.tool_height_m, op: lt, value: 0.12}
+            when_unknown: reject
+          # Hazard: memory note, negative elbow stretches; shoulder_lift past ~1.85 rad stalled the shoulder under load.
+          - name: no_stretched_shoulder_overreach
+            mode: dry_run
+            message: "Stretched pose (shoulder_lift above 1.85 rad with a negative elbow_flex) stalls the shoulder under load. Choose a target
+              nearer the base or bend the elbow (elbow_flex at or above 0), or run arm_home first."
+            applies_to:
+              arm_motion_from: [move_arm_joints, move_arm_cartesian, arm_joints, arm_cartesian, grasp_object, grasp]
+            all:
+              - {field: target.joint.shoulder_lift, op: gt, value: 1.85}
+              - {field: target.joint.elbow_flex, op: lt, value: 0.0}
+            when_unknown: reject
       poi:
         request_timeout_s: 3.0
         near_radius_m: 5.0

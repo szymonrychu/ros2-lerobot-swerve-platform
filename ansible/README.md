@@ -513,6 +513,26 @@ received, `<id>.jpg` + `index.jsonl`; the retention limits are the `lookups:` bl
 reads the token through `EnvironmentFile=`; the token never enters git. Fetch it on the dev machine with
 `eval "$(./scripts/robot_mcp_token.sh)"` (see `nodes/mcp_server/README.md`).
 
+### mcp_server guard rules
+
+The `guard_rules:` block of the mcp_server `config:` in `group_vars/client.yml` holds the deployed safety rules (R1
+`base_motion_arm_outside_footprint`, R2 `base_motion_carrying_without_object_footprint`, R3 `no_arm_retake_from_human`,
+R4 `wrist_roll_needs_lifted_arm`, R5 `no_stretched_shoulder_overreach`); each carries a one-line hazard comment. Schema
+and semantics: `nodes/mcp_server/README.md` "Guard rules". Next to it, `motion_queue.watch_rate_hz: 10` and
+`watch_max_per_call: 8` configure `watch_constraints`. A node test (`test_guard_rules_deployed.py`) validates the block
+with the node's own pydantic models and a root test (`test_mcp_server_config.py`) pins the five names and `dry_run`.
+
+**dry_run -> enforce.** Every rule ships as `mode: dry_run`: a hit is logged (`guard_rule_would_refuse`) and counted in
+`mcp_guard_rule_hits_total{rule,mode,phase,basis}`, nothing is refused. After about a week of counters, review each rule
+(hits, `basis="unknown"` share, whether the hits were real hazards), then flip one rule at a time:
+
+1. Edit that rule's `mode: dry_run` to `mode: enforce` in `group_vars/client.yml` (and update the root test if it
+   should no longer be dry_run).
+2. `uv run poe test-ansible`, commit, push.
+3. `./scripts/deploy-nodes.sh client mcp_server 2>&1 | tee .logs/deploy-client.log` (restarts mcp_server; check the
+   agent is idle first, a deploy kills a running agent session).
+4. Watch the counters (`mode="enforce"`) and the agent's refusals; roll back by setting the rule back to `dry_run`.
+
 ### claude_agent user and OAuth token
 
 `playbooks/tasks/claude_agent_setup.yml` runs before `claude_agent` is deployed (in `deploy_nodes_client.yml` and in

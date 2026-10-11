@@ -128,6 +128,10 @@
 * **master2master extended**: Added 9 new message types: `imu`, `navsatfix`, `laserscan`, `occupancygrid`, `odometry`, `posestamped`, `image`, `compressedimage`, `twist`. Client m2m now relays `/controller/*` namespace (sensors out, goal_pose in). `ROS_STATIC_PEERS` on client: `server.ros2.lan;controller.ros2.lan`.
 * **Future capabilities** (not implemented): SteamDeck controller inputs via node-hid/SDL2 → Twist; SteamDeck internal IMU via /dev/input/iio → Imu for LeRobot arm effector orientation; battery indicator via /sys/class/power_supply; offline OSM tile cache.
 
+## mcp_server guard rules
+
+* **Guard rules live in config.yaml, dry_run first**: motion safety rules (R1-R5: arm outside footprint, carrying without object footprint, arm retake from a human, wrist roll with a low arm, stretched shoulder overreach) are declarative `guard_rules:` in the mcp_server config (`ansible/group_vars/client.yml`), evaluated by the pure engine `nodes/mcp_server/mcp_server/guard_rules.py`, not hard-coded per tool. All ship as `mode: dry_run`; after a week of `mcp_guard_rule_hits_total` counters, flip rules to `enforce` one at a time (procedure in `ansible/README.md`). Recovery tools (stop, cancel_motions, release_control, arm_home, resume_motions) can never be gated.
+
 ## ROS2 topic publishing
 
 * **No placeholder data**: Only real, valid data from sensors or actual state may be published on ROS2 topics. Do not publish zeroed/coerced/synthetic data when reads fail or are invalid. If valid data is unavailable, skip publishing for that cycle. See CLAUDE.md "No Placeholder Data on Topics".

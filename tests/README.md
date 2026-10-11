@@ -938,6 +938,11 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   (`test_tilt_snapshot_*`, `test_last_event_age_s_newest_of_type_and_none_without`,
   `test_odom_speed_is_planar_speed_fresh_within_odom_fresh_s`), `test_footprint.py` (`test_arm_outside_static_m_*`: 0
   for the parked arm and inside, equals the farthest shadow vertex distance, a 5 cm protrusion measures 0.05 within 5 mm)
+- deployed guard rules (`test_guard_rules_deployed.py`, reads `ansible/group_vars/client.yml`):
+  `test_guard_rules_section_validates_with_the_five_rules_in_order` (GuardRuleSettings, names R1-R5),
+  `test_every_deployed_rule_starts_in_dry_run`, `test_every_message_names_a_way_out`, `test_scopes_match_the_design`
+  (tools/steps/arm origins, grasp excluded from the roll rule, when_unknown), `test_thresholds_match_the_design`
+  (0.03 m, 1.85 / 0.0 rad), `test_motion_queue_watch_settings_validate` (MotionQueueSettings, 10 Hz / 8 per call)
 - guard rule wiring (`test_guard_wiring.py`, fake robot through `RobotMCPServer.call_tool`, no base motion): tool entry -
   `test_enforce_rule_refuses_navigate_to_pose_and_the_base_receives_nothing` (rejection text, digest appended, enforce
   counter, refused before the blocking counter), `test_dry_run_rule_lets_navigate_through_and_counts` (dry_run counter
@@ -1525,6 +1530,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_setup_tasks_create_objects_dir_owned_by_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/objects` owned by `ansible_user`. |
 | `test_mcp_server_setup_tasks_create_lookups_dir_owned_by_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/poi` and then `/var/lib/ros2/poi/lookups` (camera lookup store), both directories owned by `ansible_user`, mode `0755`. |
 | `test_mcp_server_config_lazy_steer_states` | The client.yml mcp_server `control:` block sets the lazy `/swerve_drive/joint_states` subscription: `steer_states_wait_s` 0.5 (first-message wait) and `steer_states_idle_s` 30.0 (destroyed once unread that long). |
+| `test_mcp_server_config_renders_guard_rules_in_dry_run` | The client.yml mcp_server config renders `guard_rules:` with exactly the five rules (R1-R5 names, in order), every one `mode: dry_run`, and `motion_queue` `watch_rate_hz: 10` / `watch_max_per_call: 8` (YAML only; the node test validates the schema). |
 | `test_mcp_server_config_renders_lookup_retention` | The client.yml mcp_server config renders `lookups:` with `store_dir: /var/lib/ros2/poi/lookups` and the retention limits (3000 records, 300 MB, 14 days). |
 | `test_mcp_server_setup_tasks_create_token_and_arm_dir` | `tasks/mcp_server_setup.yml` creates `/etc/ros2/mcp_server`, the token (`MCP_SERVER_TOKEN=` + 48-char password lookup, `force: false`, 0640, owner `ansible_user`, group `mcp-token`, `no_log`) and `/var/lib/ros2/arm` owned by the node user. |
 | `test_playbooks_run_setup_before_deploying_mcp_server` | `deploy_nodes_client.yml` deploys mcp_server and includes the setup tasks before it. |

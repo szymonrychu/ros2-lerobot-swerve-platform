@@ -197,6 +197,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "grasp",
         "grip_profiles",
         "control",
+        "guard_rules",
     }
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
@@ -367,6 +368,22 @@ def test_mcp_server_perception_config_sections() -> None:
     assert cfg["look_around"]["clearance_margin_m"] > 0
     assert cfg["topdown"]["default_radius_m"] == 2.5 and cfg["topdown"]["default_px"] == 480
     assert cfg["poi"]["request_timeout_s"] == 3.0
+
+
+def test_mcp_server_config_renders_guard_rules_in_dry_run() -> None:
+    """client.yml renders the five guard rules, every one in dry_run, and the watch settings."""
+    cfg = node_config("mcp_server")
+    assert cfg["guard_rules"]["enabled"] is True
+    assert [r["name"] for r in cfg["guard_rules"]["rules"]] == [
+        "base_motion_arm_outside_footprint",
+        "base_motion_carrying_without_object_footprint",
+        "no_arm_retake_from_human",
+        "wrist_roll_needs_lifted_arm",
+        "no_stretched_shoulder_overreach",
+    ]
+    assert {r["mode"] for r in cfg["guard_rules"]["rules"]} == {"dry_run"}
+    assert cfg["motion_queue"]["watch_rate_hz"] == 10
+    assert cfg["motion_queue"]["watch_max_per_call"] == 8
 
 
 def test_mcp_server_config_lazy_steer_states() -> None:

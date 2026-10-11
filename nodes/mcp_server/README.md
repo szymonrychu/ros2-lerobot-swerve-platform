@@ -1497,6 +1497,17 @@ checks that had applicable rules) and `mcp_motion_watch_triggers_total{metric,ac
 cardinality is bounded by the configured rule names. Latency in the unit tests (dev Mac): `check_tool` p99 < 20 us on
 an unruled tool and < 500 us with five rules over fake providers.
 
+### Deployed rule set
+
+`ansible/group_vars/client.yml` deploys five rules, all `mode: dry_run` (`test_guard_rules_deployed.py` validates them
+with `GuardRuleSettings`): `base_motion_arm_outside_footprint` (static footprint and the arm more than 0.03 m outside
+it), `base_motion_carrying_without_object_footprint` (carrying with no carried-object radius), `no_arm_retake_from_human`
+(take_control arm while the web UI holds the arm or a human took it under 30 s ago), `wrist_roll_needs_lifted_arm`
+(wrist roll over 0.1 rad with the tool under 0.12 m) and `no_stretched_shoulder_overreach` (shoulder_lift over 1.85 rad
+with a negative elbow_flex). Each message names its way out. `motion_queue.watch_rate_hz: 10` and `watch_max_per_call: 8`
+sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_rule_hits_total` counters: see
+`ansible/README.md` "mcp_server guard rules".
+
 ## Safety model
 
 - **Guard rules**: configured `guard_rules` (see Guard rules) are checked at tool entry (after the lease and
