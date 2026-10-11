@@ -121,12 +121,12 @@ def image_path(root: Path, lookup_id: str) -> Path | None:
 
 
 @lru_cache(maxsize=THUMB_CACHE_ENTRIES)
-def scaled_jpeg(path: str, mtime_ns: int, max_px: int) -> bytes | None:
+def scaled_jpeg(path: str, _mtime_ns: int, max_px: int) -> bytes | None:
     """The JPEG downscaled so its longest side is at most max_px (the stored bytes when already small enough).
 
     Args:
         path (str): JPEG file.
-        mtime_ns (int): File modification time (cache key: a changed file is re-encoded).
+        _mtime_ns (int): File modification time (cache key: a changed file is re-encoded).
         max_px (int): Longest side limit (px).
 
     Returns:
