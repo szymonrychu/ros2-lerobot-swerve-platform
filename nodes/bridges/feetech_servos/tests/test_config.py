@@ -505,3 +505,24 @@ def test_bus_health_config_overrides_and_invalid_values(tmp_path: Path) -> None:
     assert cfg.goal_refresh_interval_s == 0.0  # negative clamps to 0 = refresh disabled
     assert cfg.read_failure_limit == 3
     assert cfg.read_retry_interval_s == 5.0
+
+
+def test_load_config_publish_current_joints(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """publish_current_joints defaults to []; unknown and extra-group names are dropped with a warning."""
+    joints = "namespace: follower\njoint_names:\n  - name: gripper\n    id: 6\n  - name: wrist\n    id: 5\n"
+    p = tmp_path / "c.yaml"
+    p.write_text(joints)
+    cfg = load_config(p)
+    assert cfg is not None and cfg.publish_current_joints == []
+    p.write_text(joints + "publish_current_joints: [gripper]\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.publish_current_joints == ["gripper"]
+    p.write_text(
+        joints
+        + "extra_groups:\n  - namespace: swerve\n    joint_names:\n      - name: wheel\n        id: 32\n"
+        + "publish_current_joints: [gripper, nope, wheel]\n"
+    )
+    with caplog.at_level("WARNING"):
+        cfg = load_config(p)
+    assert cfg is not None and cfg.publish_current_joints == ["gripper"]
+    assert "nope" in caplog.text and "wheel" in caplog.text

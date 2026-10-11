@@ -925,6 +925,12 @@ ros2_nodes:
       publish_effort_joints:
         - wrist_roll
         - gripper
+      # Present_Current (A, magnitude) of these joints on /follower/joint_currents, same stamp as joint_states.
+      # Cost: the one state sync read grows from 6 to 15 bytes for all 14 servos on the bus (+126 bytes per cycle,
+      # about +1.26 ms at 1 Mbaud). Gate: /follower/joint_states must still publish at 95 Hz or more.
+      # Rollback: set this to an empty list ([]) and redeploy; the read shrinks back and nothing is published.
+      publish_current_joints:
+        - gripper
       # filter_node tags /follower/joint_commands with its source in header.frame_id. web_ui and autonomy
       # (mcp_server) positions are follower joint radians (as in /follower/joint_states): the gripper's
       # leader -> follower source range mapping below applies only to leader (and untagged) commands.

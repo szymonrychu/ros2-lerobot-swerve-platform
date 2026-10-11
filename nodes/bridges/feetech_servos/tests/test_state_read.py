@@ -8,6 +8,7 @@ goal sync write plus one sync read that also carries present_load.
 import math
 from collections.abc import Sequence
 
+import pytest
 from st3215.group_sync_read import GroupSyncRead
 
 from feetech_servos.bridge_cycle import BridgeCycle
@@ -16,10 +17,13 @@ from feetech_servos.registers import decode_present_load, get_register_entry_by_
 from feetech_servos.sync_read import (
     PRESENT_POSITION_ADDRESS,
     SYNC_READ_LENGTH,
+    SYNC_READ_LENGTH_WITH_CURRENT,
     SYNC_READ_LENGTH_WITH_LOAD,
     ReadBackoff,
     ServoState,
+    decode_state,
     group_stamp_ns,
+    joint_currents,
     joint_efforts,
     read_servo_state,
     read_servo_states,
@@ -141,6 +145,14 @@ def read_states(bus: object, length: int) -> dict[int, ServoState]:
 def test_sync_read_length_includes_load_only_for_effort_joints() -> None:
     assert sync_read_length(with_load=False) == SYNC_READ_LENGTH == 4
     assert sync_read_length(with_load=True) == SYNC_READ_LENGTH_WITH_LOAD == 6
+
+
+def test_sync_read_length_with_current_covers_addresses_56_to_70() -> None:
+    assert SYNC_READ_LENGTH_WITH_CURRENT == 15
+    assert sync_read_length(with_load=False, with_current=True) == 15
+    assert sync_read_length(with_load=True, with_current=True) == 15
+    assert sync_read_length(with_load=True, with_current=False) == 6
+    assert sync_read_length(with_load=False, with_current=False) == 4
 
 
 def test_one_cycle_is_one_sync_write_plus_one_sync_read() -> None:
@@ -310,3 +322,77 @@ def test_each_reading_is_stamped_when_requested_and_the_group_stamp_is_the_oldes
     assert group_stamp_ns(ARM, readings) == 100
     assert group_stamp_ns(ARM[2:3], readings) == 200
     assert group_stamp_ns(ARM[:1], {1: ServoState(1, 0)}) is None  # unstamped readings give no stamp
+
+
+CURRENT_RAW = {1: 0, 2: 7, 3: 0x8000 | 20, 4: 3, 5: 4, 6: 154}  # raw present_current (address 69) per servo
+GRIPPER = [j for j in ARM if j.name == "gripper"]
+
+
+def arm_bus_with_current(missing: tuple[int, ...] = ()) -> tuple[object, object]:
+    """Emulated arm bus like arm_bus, plus present_current (address 69) per servo."""
+    tables = {}
+    for joint in ARM:
+        if joint.id in missing:
+            continue
+        table = register_table()
+        put_word(table, 56, 2000 + joint.id)
+        put_word(table, 58, SPEED_RAW)
+        put_word(table, 60, LOADS[joint.id])
+        put_word(table, 69, CURRENT_RAW[joint.id])
+        tables[joint.id] = table
+    return make_bus(tables)
+
+
+def test_decode_state_15_bytes_fills_load_and_current() -> None:
+    data = [0] * 15
+    data[0:2] = [0xD0, 0x07]  # position 2000
+    data[2:4] = [0x10, 0x80]  # speed
+    data[4:6] = [52, 0]  # load
+    data[13:15] = [0x9A, 0x00]  # current 154
+    state = decode_state(data)
+    assert (state.position, state.speed, state.load, state.current) == (2000, 0x8010, 52, 154)
+
+
+def test_decode_state_6_bytes_has_no_current() -> None:
+    state = decode_state([0xD0, 0x07, 0x10, 0x80, 52, 0])
+    assert state.load == 52 and state.current is None
+    assert decode_state([0xD0, 0x07, 0x10, 0x80]).current is None
+
+
+def test_sync_read_of_15_bytes_decodes_load_and_current() -> None:
+    bus, port = arm_bus_with_current()
+    readings = read_states(bus, SYNC_READ_LENGTH_WITH_CURRENT)
+    assert port.transactions == 1
+    for joint in ARM:
+        assert readings[joint.id] == ServoState(
+            2000 + joint.id, SPEED_RAW, LOADS[joint.id], None, CURRENT_RAW[joint.id]
+        )
+
+
+def test_fallback_read_at_15_bytes_decodes_current() -> None:
+    bus, port = arm_bus_with_current(missing=(5,))
+    readings = read_states(bus, SYNC_READ_LENGTH_WITH_CURRENT)
+    assert 5 not in readings
+    assert readings[6].current == 154
+    assert port.packets[1].servo_id == 5 and port.packets[1].params == [PRESENT_POSITION_ADDRESS, 15]
+    bus, _port = arm_bus_with_current()
+    assert read_servo_state(bus, 6, SYNC_READ_LENGTH_WITH_CURRENT) == ServoState(2006, SPEED_RAW, 52, None, 154)
+    assert read_servo_state(bus, 6, SYNC_READ_LENGTH_WITH_LOAD).current is None
+
+
+def test_joint_currents_are_amperes_for_the_listed_joints_only() -> None:
+    bus, _port = arm_bus_with_current()
+    readings = read_states(bus, SYNC_READ_LENGTH_WITH_CURRENT)
+    assert joint_currents(ARM, readings, {"gripper"}) == [pytest.approx(154 * 0.0065)]
+    assert joint_currents(ARM, readings, {"elbow_flex", "gripper"}) == [
+        pytest.approx(20 * 0.0065),
+        pytest.approx(154 * 0.0065),
+    ]
+    assert joint_currents(ARM, readings, set()) is None
+
+
+def test_joint_currents_is_none_when_a_listed_current_was_not_read() -> None:
+    readings = {j.id: ServoState(2000 + j.id, 0, 0, None, None) for j in ARM}
+    assert joint_currents(ARM, readings, {"gripper"}) is None
+    readings[6] = ServoState(2006, 0, 0, None, 0)
+    assert joint_currents(ARM, readings, {"gripper"}) == [0.0]  # a measured zero is a value, not "unmeasured"

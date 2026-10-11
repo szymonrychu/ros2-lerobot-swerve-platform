@@ -51,6 +51,7 @@ from .sync_read import (
     ReadBackoff,
     ServoState,
     group_stamp_ns,
+    joint_currents,
     joint_efforts,
     read_servo_state,
     read_servo_states,
@@ -135,6 +136,11 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
         g.namespace: node.create_publisher(JointState, f"/{g.namespace}/joint_states", DEFAULT_QOS_DEPTH)
         for g in groups
     }
+    pub_currents = (
+        node.create_publisher(JointState, f"/{config.namespace}/joint_currents", DEFAULT_QOS_DEPTH)
+        if config.publish_current_joints
+        else None
+    )
     pub_registers = node.create_publisher(String, f"/{config.namespace}/servo_registers", DEFAULT_QOS_DEPTH)
 
     pub_battery = node.create_publisher(BatteryState, config.battery_topic, DEFAULT_QOS_DEPTH)
@@ -161,8 +167,10 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
     pos_entry = get_register_entry_by_name("present_position")
     voltage_entry = get_register_entry_by_name("present_voltage")
     effort_joint_set = set(config.publish_effort_joints) if config.publish_effort_joints else set()
-    # present_load follows present_position/present_speed, so effort joints only lengthen the one state sync read.
-    state_read_length = sync_read_length(with_load=bool(effort_joint_set))
+    current_joint_set = set(config.publish_current_joints)
+    # present_load and present_current follow present_position/present_speed, so they only lengthen the one state sync
+    # read (one length for every servo; current is decoded and published only for current_joint_set).
+    state_read_length = sync_read_length(with_load=bool(effort_joint_set), with_current=bool(current_joint_set))
 
     if servo is not None:
         expected_ids = [j.id for j in all_joints]
@@ -329,6 +337,19 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
                     msg.position = [steps_to_radians(readings[j.id].position, j.inverted) for j in group.joints]
                     msg.velocity = [speed_register_to_velocity(readings[j.id].speed, j.inverted) for j in group.joints]
                     msg.effort = joint_efforts(group.joints, readings, effort_joint_set)
+                    currents = (
+                        joint_currents(group.joints, readings, current_joint_set)
+                        if pub_currents is not None and group.namespace == config.namespace
+                        else None
+                    )
+                    if currents is not None:
+                        # Same stamp as joint_states; published only when every listed current was read this cycle.
+                        current_msg = JointState()
+                        current_msg.header.stamp = msg.header.stamp
+                        current_msg.header.frame_id = ""
+                        current_msg.name = [j.name for j in group.joints if j.name in current_joint_set]
+                        current_msg.effort = currents
+                        pub_currents.publish(current_msg)
                     if config.publish_only_on_change:
                         changed = get_position_updates(
                             msg.name, msg.position, last_published_positions, config.publish_change_epsilon

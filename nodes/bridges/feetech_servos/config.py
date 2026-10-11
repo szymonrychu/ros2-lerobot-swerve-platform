@@ -1,11 +1,13 @@
 """Configuration loading for Feetech servos bridge (namespace, joints with name+id, device)."""
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
+LOGGER = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/feetech_servos/config.yaml")
 ENV_CONFIG_PATH_KEY = "FEETECH_SERVOS_CONFIG"
 
@@ -118,6 +120,8 @@ class BridgeConfig:
             Use >= 10 to avoid blocking the control loop and causing visible stutter; 1 Hz is not recommended.
         publish_effort_joints: Optional list of joint names for which to read present_load and publish
             in JointState.effort at control-loop rate (for haptic/force-feedback use). Empty/omit = no effort.
+        publish_current_joints: Optional list of main-group joint names for which Present_Current is published in A on
+            <namespace>/joint_currents. Non-empty lengthens the state sync read to 15 bytes for every servo. Empty = off.
         publish_only_on_change: If True, only publish joint_states when at least one joint position changed
             by more than publish_change_epsilon since the last publish. Useful for leader arms to avoid
             flooding the bus with identical messages and conflicting with external command sources.
@@ -151,6 +155,7 @@ class BridgeConfig:
     control_loop_hz: float = 100.0
     register_publish_interval_s: float = 10.0
     publish_effort_joints: list[str] = ()
+    publish_current_joints: list[str] = field(default_factory=list)
     publish_only_on_change: bool = False
     publish_change_epsilon: float = 1e-3
     extra_groups: list[JointGroup] = field(default_factory=list)
@@ -366,6 +371,15 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         publish_effort_joints = [n for n in publish_effort_joints if n in joint_name_set]
     else:
         publish_effort_joints = []
+    publish_current_joints = []
+    raw_current_joints = data.get("publish_current_joints")
+    if isinstance(raw_current_joints, list):
+        main_names = {j.name for j in joints}
+        for name in (str(j).strip() for j in raw_current_joints if j):
+            if name in main_names:
+                publish_current_joints.append(name)
+            else:
+                LOGGER.warning("publish_current_joints: %r is not a main-group joint; dropped", name)
     publish_only_on_change = data.get("publish_only_on_change", False)
     if not isinstance(publish_only_on_change, bool):
         publish_only_on_change = bool(publish_only_on_change)
@@ -432,6 +446,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         control_loop_hz=control_loop_hz,
         register_publish_interval_s=register_publish_interval_s,
         publish_effort_joints=publish_effort_joints,
+        publish_current_joints=publish_current_joints,
         publish_only_on_change=publish_only_on_change,
         publish_change_epsilon=publish_change_epsilon,
         extra_groups=extra_groups,

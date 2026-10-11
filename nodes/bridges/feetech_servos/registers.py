@@ -52,6 +52,10 @@ STS_PRESENT_TEMPERATURE = 63
 STS_STATUS = 65
 STS_MOVING = 66
 STS_PRESENT_CURRENT_L = 69
+# Present_Current: magnitude in bits 0-14 (no documented sign; lerobot tables.py lists it as a plain 2-byte value),
+# 6.5 mA per unit (Feetech STS memory table).
+CURRENT_MAGNITUDE_MASK = 0x7FFF
+CURRENT_LSB_A = 0.0065
 # Register dump block reads: map entries closer than this many unused bytes share one INST_READ. Keeps the
 # undocumented 50-54 gap out of the reads while the EPROM area (gaps of 1-2 bytes) is one block.
 REGISTER_BLOCK_MAX_GAP = 4
@@ -161,6 +165,18 @@ def decode_present_load(raw: int, inverted: bool = False) -> int:
     magnitude = raw & LOAD_MAGNITUDE_MASK
     signed = -magnitude if raw & LOAD_DIRECTION_BIT else magnitude
     return -signed if inverted else signed
+
+
+def decode_present_current(raw: int) -> float:
+    """Decode a raw Present_Current register value into amperes.
+
+    Args:
+        raw (int): Raw register value (magnitude in bits 0-14).
+
+    Returns:
+        float: Current magnitude in A (unsigned, 6.5 mA per unit).
+    """
+    return (raw & CURRENT_MAGNITUDE_MASK) * CURRENT_LSB_A
 
 
 def read_register(

@@ -1,4 +1,4 @@
-"""Read present position, speed and (optionally) load for many servos in one bus transaction (STS sync read).
+"""Read present position, speed and (optionally) load and current for many servos in one bus transaction (STS sync read).
 
 A sync read that times out (one servo did not answer) still keeps every reply that arrived: only the servos missing
 from it are read again one by one. A servo that keeps failing is backed off (ReadBackoff): it is left out of the sync
@@ -12,12 +12,15 @@ from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from typing import Any, NamedTuple
 
 from .config import DEFAULT_READ_FAILURE_LIMIT, DEFAULT_READ_RETRY_INTERVAL_S, JointEntry
-from .registers import decode_present_load
+from .registers import decode_present_current, decode_present_load
 
-# present_position (2 bytes) is immediately followed by present_speed (2 bytes) and present_load (2 bytes).
+# present_position (2 bytes) is immediately followed by present_speed (2 bytes) and present_load (2 bytes);
+# present_current (address 69) ends the read at address 70, 15 bytes from address 56.
 PRESENT_POSITION_ADDRESS = 56
 SYNC_READ_LENGTH = 4
 SYNC_READ_LENGTH_WITH_LOAD = 6
+SYNC_READ_LENGTH_WITH_CURRENT = 15
+CURRENT_OFFSET = 13  # present_current address 69 - PRESENT_POSITION_ADDRESS
 COMM_SUCCESS = 0
 UNMEASURED_EFFORT = math.nan  # JointState.effort for a joint without a measured load (never a placeholder 0.0)
 
@@ -30,12 +33,14 @@ class ServoState(NamedTuple):
         speed: present_speed, raw sign-magnitude.
         load: present_load, raw sign-magnitude; None when the read did not cover it.
         read_at_ns: Clock time the read was requested (when the servo sampled it), ns; None when not stamped.
+        current: present_current raw; None when the read did not cover it.
     """
 
     position: int
     speed: int
     load: int | None = None
     read_at_ns: int | None = None
+    current: int | None = None
 
 
 class ReadBackoff:
@@ -117,15 +122,18 @@ class ReadBackoff:
             self.next_probe_at[sid] = self.clock() + self.retry_interval_s
 
 
-def sync_read_length(with_load: bool) -> int:
-    """Return the state read length: position + speed, plus present_load when efforts are published.
+def sync_read_length(with_load: bool, with_current: bool = False) -> int:
+    """Return the state read length: position + speed, plus present_load, or through present_current.
 
     Args:
         with_load (bool): True when any joint publishes effort.
+        with_current (bool): True when any joint publishes current (the read then also covers present_load).
 
     Returns:
         int: Bytes read from PRESENT_POSITION_ADDRESS per servo.
     """
+    if with_current:
+        return SYNC_READ_LENGTH_WITH_CURRENT
     return SYNC_READ_LENGTH_WITH_LOAD if with_load else SYNC_READ_LENGTH
 
 
@@ -133,13 +141,16 @@ def decode_state(data: Sequence[int]) -> ServoState:
     """Decode the bytes read from PRESENT_POSITION_ADDRESS (little-endian 2-byte registers).
 
     Args:
-        data (Sequence[int]): SYNC_READ_LENGTH or SYNC_READ_LENGTH_WITH_LOAD bytes.
+        data (Sequence[int]): SYNC_READ_LENGTH, SYNC_READ_LENGTH_WITH_LOAD or SYNC_READ_LENGTH_WITH_CURRENT bytes.
 
     Returns:
-        ServoState: Raw position, speed and load (None for a 4-byte read).
+        ServoState: Raw position, speed, load (None for a 4-byte read) and current (None below 15 bytes).
     """
     load = data[4] | (data[5] << 8) if len(data) >= SYNC_READ_LENGTH_WITH_LOAD else None
-    return ServoState(data[0] | (data[1] << 8), data[2] | (data[3] << 8), load)
+    current = (
+        data[CURRENT_OFFSET] | (data[CURRENT_OFFSET + 1] << 8) if len(data) >= SYNC_READ_LENGTH_WITH_CURRENT else None
+    )
+    return ServoState(data[0] | (data[1] << 8), data[2] | (data[3] << 8), load, current=current)
 
 
 def read_servo_state(servo: Any, sts_id: int, length: int = SYNC_READ_LENGTH) -> ServoState | None:
@@ -148,7 +159,7 @@ def read_servo_state(servo: Any, sts_id: int, length: int = SYNC_READ_LENGTH) ->
     Args:
         servo (Any): ST3215-compatible bus (readTxRx).
         sts_id (int): Servo ID.
-        length (int): SYNC_READ_LENGTH or SYNC_READ_LENGTH_WITH_LOAD.
+        length (int): SYNC_READ_LENGTH, SYNC_READ_LENGTH_WITH_LOAD or SYNC_READ_LENGTH_WITH_CURRENT.
 
     Returns:
         ServoState | None: The state, or None on no reply, short reply or a servo error byte.
@@ -178,7 +189,7 @@ def read_servo_states(
         servo_ids: Servo IDs to read.
         group_factory: Returns a fresh st3215.GroupSyncRead-compatible object for address 56 and length.
         fallback_read: Per-servo read returning the state, or None on failure.
-        length: Bytes per servo, SYNC_READ_LENGTH or SYNC_READ_LENGTH_WITH_LOAD.
+        length: Bytes per servo, SYNC_READ_LENGTH, SYNC_READ_LENGTH_WITH_LOAD or SYNC_READ_LENGTH_WITH_CURRENT.
         backoff: Per-servo failure tracking (updated in place); None reads every servo every cycle.
         clock: Time source in ns stamping each reading with its request time (read_at_ns); None leaves it unset.
 
@@ -250,3 +261,24 @@ def joint_efforts(
         load = readings[joint.id].load if joint.name in effort_joints else None
         efforts.append(float(decode_present_load(load, joint.inverted)) if load is not None else UNMEASURED_EFFORT)
     return efforts
+
+
+def joint_currents(
+    joints: Sequence[JointEntry], readings: Mapping[int, ServoState], current_joints: Collection[str]
+) -> list[float] | None:
+    """Decode Present_Current in A for the listed joints of one group.
+
+    Args:
+        joints (Sequence[JointEntry]): Group joints, in message order (all present in readings).
+        readings (Mapping[int, ServoState]): State read result.
+        current_joints (Collection[str]): publish_current_joints names.
+
+    Returns:
+        list[float] | None: Current magnitude in A per listed joint, in group order; None when no listed joint is in
+            the group or any listed joint's current was not read (the sample is skipped, never filled).
+    """
+    listed = [j for j in joints if j.name in current_joints]
+    raws = [readings[j.id].current for j in listed]
+    if not listed or any(raw is None for raw in raws):
+        return None
+    return [decode_present_current(raw) for raw in raws]
