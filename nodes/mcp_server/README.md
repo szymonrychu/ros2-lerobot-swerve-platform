@@ -364,16 +364,25 @@ never reads it). The camera tool's metadata gains `lookup_id`, so the agent can 
 | `mcp_session` | Mcp-Session-Id of the call (a contextvar set in `RobotMCPServer.call_tool_with_digest`; empty without one). mcp_server cannot see claude_agent's instruction id: time range plus session stand in for it |
 | `note`, `poi_ids` | empty until `annotate_lookup` sets them |
 
-Retention is enforced on every write, oldest first, until all three limits hold: `lookups.max_records` (3000),
-`lookups.max_bytes` (300 MB of JPEG) and `lookups.max_age_days` (14). The record just written is never pruned. A
-session reset does not clear lookups (history is the point). Index lines that do not parse are logged and skipped;
-`annotate_lookup` rewrites only its own line (atomic temp file + rename). A write failure (full disk, missing
+Retention is oldest first against three limits: `lookups.max_records` (3000), `lookups.max_bytes` (300 MB of JPEG) and
+`lookups.max_age_days` (14). Pruning rewrites the whole index, so it only starts once a limit is exceeded by 5% and then
+drops back to the limit itself (no rewrite per camera call at the limit). The record just written is never pruned. JPEGs
+without an index line (crash between the image write and the index append) are removed on the first write of a process
+and with every prune rewrite, unless younger than 60 s. A
+session reset does not clear lookups (history is the point). Index lines that do not parse are logged once per distinct line and skipped;
+`annotate_lookup` rewrites only its own line (fsynced temp file, mode 0644, + rename) and not at all when nothing changes.
+An append first terminates a trailing line a crash left without newline, then fsyncs. The record, query and index reader
+types are shared with web_ui in `shared/ros2_common/lookups.py`; the parsed index is cached until the file changes. A write failure (full disk, missing
 directory, permissions) is logged on `mcp_server.lookups` and counted in `mcp_lookup_write_failures_total`; it never
 fails the camera tool, whose `lookup_id` is then null.
 
-`list_lookups` filters combine with AND: `since` / `until` (unix s, inclusive), `near` (map distance of
+`list_lookups` filters combine with AND: `since` / `until` (inclusive; unix seconds or an ISO-8601 time like
+`2025-10-09T08:53:20Z`, naive means UTC), `near` (map distance of
 `base_pose_map`; records without a pose never match), `poi_id` (member of `poi_ids`), `text` (case-insensitive
-substring of `note`), `camera`, `mcp_session`; `limit` 1-20 (default 10).
+substring of `note` only; notes are empty until `annotate_lookup` sets them, so an empty result of a `text` search carries a
+`hint`), `camera`, `mcp_session`; `limit` 1-20 (default 10). Every returned field is named in the tool description.
+`annotate_lookup` rejects `poi_ids` that are not existing POIs (checked against poi_store via `/poi/list`); when poi_store
+is not running the ids cannot be checked and are accepted as given.
 
 ## Tilt guard
 
@@ -1384,7 +1393,7 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
 | `tool_context.py`, `body_tools.py` | no | `ToolContext` / `RobotApi`; the `get_body_state` module |
 | `camera_tools.py` | no | the camera tool module (registered in `tools.TOOL_MODULES`) |
-| `lookup_store.py`, `lookup_tools.py` | no | camera lookup store (JPEG + `index.jsonl`, retention, queries); the recorder hook of the camera tools and the `list_lookups` / `get_lookup_image` / `annotate_lookup` module |
+| `lookup_store.py`, `lookup_tools.py` | no | camera lookup store (JPEG + `index.jsonl`, slack-based retention, orphan sweep; models shared via `ros2_common.lookups`); the recorder hook of the camera tools and the `list_lookups` / `get_lookup_image` / `annotate_lookup` module |
 | `camera_scene.py`, `camera_overlay.py`, `camera_candidates.py`, `camera_calib.py` | no | calibrated scene and frames, overlay drawing and candidate grids, candidate sets, sample store and solver wiring |
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |
 | `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services; the footprint sink (costmap / ArmStop polygon publishers, `set_parameters` clients, re-send timer) |

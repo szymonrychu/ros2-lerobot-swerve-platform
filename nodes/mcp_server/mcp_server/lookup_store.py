@@ -1,13 +1,13 @@
 """Camera lookup store: every camera image the agent received, as <id>.jpg files plus one index.jsonl line each.
 
 The store lives next to poi_store's poi.json (/var/lib/ros2/poi/lookups by default) so lookups can be linked to POI
-ids, but poi_store never reads it. Every add prunes oldest first until the retention limits (record count, total JPEG
-bytes, age) hold again; the record just written is never pruned. Index lines that do not parse are skipped (logged)
-when reading and kept untouched when annotate rewrites another line; a prune rewrite drops them.
+ids, but poi_store never reads it. The record, query and index-cache types are shared with web_ui
+(ros2_common.lookups). Retention (record count, total JPEG bytes, age) is enforced oldest first once a limit is
+exceeded by PRUNE_SLACK; the record just written is never pruned. Index lines that do not parse are skipped (logged
+once) when reading and kept untouched when annotate rewrites another line; a prune rewrite drops them.
 """
 
 import logging
-import math
 import os
 import tempfile
 import threading
@@ -16,120 +16,48 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from pydantic import BaseModel, Field, ValidationError
+from ros2_common.lookups import (
+    DEFAULT_QUERY_LIMIT,
+    INDEX_FILE,
+    MAX_QUERY_LIMIT,
+    CameraPose,
+    IndexCache,
+    LookupQuery,
+    LookupRecord,
+    NearFilter,
+    PlanarPose,
+    record_summary,
+)
+
+__all__ = [
+    "DEFAULT_QUERY_LIMIT",
+    "INDEX_FILE",
+    "MAX_QUERY_LIMIT",
+    "LookupNotFoundError",
+    "LookupQuery",
+    "LookupRecord",
+    "LookupStore",
+    "NearFilter",
+    "record_summary",
+    "write_atomic",
+]
 
 LOGGER = logging.getLogger("mcp_server.lookups")
-INDEX_FILE = "index.jsonl"
 DAY_S = 86400.0
-MAX_QUERY_LIMIT = 20
-DEFAULT_QUERY_LIMIT = 10
+# Pruning rewrites the whole index, so it only starts once a limit is exceeded by this fraction and then goes back to
+# the limit: at the limit a camera call no longer rewrites ~1 MB on the SD card every time.
+PRUNE_SLACK = 0.05
+# A JPEG without an index line younger than this may still be between its write and its index append.
+ORPHAN_MIN_AGE_S = 60.0
+FILE_MODE = 0o644
 
 
 class LookupNotFoundError(KeyError):
     """No lookup with the given id."""
 
 
-class PlanarPose(BaseModel):
-    """Robot pose in the map frame when the image was taken."""
-
-    x: float
-    y: float
-    yaw: float
-
-
-class CameraPose(BaseModel):
-    """Camera body pose in base_link (fixed-axis roll/pitch/yaw, rad)."""
-
-    xyz: list[float] = Field(min_length=3, max_length=3)
-    rpy: list[float] = Field(min_length=3, max_length=3)
-
-
-class LookupRecord(BaseModel):
-    """One index.jsonl line: a recorded camera image and where the robot was."""
-
-    id: str
-    ts: float = Field(description="Unix time the image was recorded (s)")
-    tool: str
-    camera: str
-    width: int
-    height: int
-    file: str = Field(description="JPEG file name, relative to the store directory")
-    bytes: int
-    base_pose_map: PlanarPose | None = None
-    arm_joints: dict[str, float] | None = None
-    camera_pose_base: CameraPose | None = None
-    mcp_session: str | None = None
-    note: str = ""
-    poi_ids: list[str] = Field(default_factory=list)
-
-
-class NearFilter(BaseModel):
-    """Lookups taken within radius_m of a map point."""
-
-    x: float = Field(description="map x (m)")
-    y: float = Field(description="map y (m)")
-    radius_m: float = Field(gt=0.0, description="Search radius (m)")
-
-
-class LookupQuery(BaseModel):
-    """list_lookups filters; every given filter must match (AND)."""
-
-    since: float | None = None
-    until: float | None = None
-    near: NearFilter | None = None
-    poi_id: str | None = None
-    text: str | None = None
-    camera: str | None = None
-    mcp_session: str | None = None
-    limit: int = Field(default=DEFAULT_QUERY_LIMIT, ge=1, le=MAX_QUERY_LIMIT)
-
-    def matches(self, rec: LookupRecord) -> bool:
-        """Whether a record passes every filter of this query.
-
-        Args:
-            rec (LookupRecord): Candidate record.
-
-        Returns:
-            bool: True when it matches.
-        """
-        if self.since is not None and rec.ts < self.since:
-            return False
-        if self.until is not None and rec.ts > self.until:
-            return False
-        if self.camera is not None and rec.camera != self.camera:
-            return False
-        if self.mcp_session is not None and rec.mcp_session != self.mcp_session:
-            return False
-        if self.poi_id is not None and self.poi_id not in rec.poi_ids:
-            return False
-        if self.text is not None and self.text.casefold() not in rec.note.casefold():
-            return False
-        if self.near is not None:
-            pose = rec.base_pose_map
-            if pose is None or math.hypot(pose.x - self.near.x, pose.y - self.near.y) > self.near.radius_m:
-                return False
-        return True
-
-
-def parse_line(line: str) -> LookupRecord | None:
-    """Parse one index line.
-
-    Args:
-        line (str): Raw line (without the newline).
-
-    Returns:
-        LookupRecord | None: The record, None for a blank or corrupt line.
-    """
-    if not line.strip():
-        return None
-    try:
-        return LookupRecord.model_validate_json(line)
-    except ValidationError:
-        return None
-
-
 def write_atomic(path: Path, data: bytes) -> None:
-    """Write a file atomically (temp file in the same directory + rename).
+    """Write a file atomically: fsynced temp file in the same directory (mode 0644), then rename.
 
     Args:
         path (Path): Target file.
@@ -138,7 +66,10 @@ def write_atomic(path: Path, data: bytes) -> None:
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}-")
     try:
         with os.fdopen(fd, "wb") as fh:
+            os.fchmod(fh.fileno(), FILE_MODE)
             fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
@@ -178,6 +109,8 @@ class LookupStore:
         self.max_age_s = max_age_days * DAY_S
         self.clock = clock
         self.lock = threading.Lock()
+        self.cache = IndexCache(root / INDEX_FILE)
+        self.swept = False
 
     @property
     def index_path(self) -> Path:
@@ -188,31 +121,14 @@ class LookupStore:
         """
         return self.root / INDEX_FILE
 
-    def read_lines(self) -> list[str]:
-        """Raw index lines (no newlines); empty when the index does not exist.
-
-        Returns:
-            list[str]: Lines in file order (oldest first).
-        """
-        try:
-            return self.index_path.read_text().splitlines()
-        except FileNotFoundError:
-            return []
-
     def records(self) -> list[LookupRecord]:
-        """Every valid record, oldest first; corrupt lines are logged and skipped.
+        """Every valid record, oldest first (the index is re-parsed only when it changed; corrupt lines are logged
+        once and skipped).
 
         Returns:
             list[LookupRecord]: Records.
         """
-        out: list[LookupRecord] = []
-        for number, line in enumerate(self.read_lines(), start=1):
-            rec = parse_line(line)
-            if rec is not None:
-                out.append(rec)
-            elif line.strip():
-                LOGGER.warning("lookup index %s line %d is corrupt, skipped", self.index_path, number)
-        return out
+        return self.cache.records()
 
     def add(
         self,
@@ -262,22 +178,64 @@ class LookupStore:
             image = self.root / rec.file
             write_atomic(image, jpeg)
             try:
-                with self.index_path.open("a") as fh:
-                    fh.write(rec.model_dump_json() + "\n")
+                self.append_line(rec)
             except BaseException:
                 image.unlink(missing_ok=True)
                 raise
             self.prune(rec.id)
         return rec
 
+    def append_line(self, rec: LookupRecord) -> None:
+        """Append one index line, first terminating a trailing line a crash left without newline; fsynced (caller
+        holds the lock).
+
+        Args:
+            rec (LookupRecord): Record to append.
+        """
+        fd = os.open(self.index_path, os.O_RDWR | os.O_APPEND | os.O_CREAT, FILE_MODE)
+        with os.fdopen(fd, "r+b") as fh:
+            os.fchmod(fh.fileno(), FILE_MODE)
+            if fh.seek(0, os.SEEK_END) > 0:
+                fh.seek(-1, os.SEEK_END)
+                if fh.read(1) != b"\n":
+                    fh.write(b"\n")
+                    fh.flush()
+            self.cache.entries()  # bring the cache up to date with the repaired file before the append
+            fh.write((rec.model_dump_json() + "\n").encode())
+            fh.flush()
+            os.fsync(fh.fileno())
+            self.cache.appended(rec)
+
     def prune(self, keep_id: str) -> None:
         """Drop the oldest records until count, bytes and age are within the limits (caller holds the lock).
+
+        Nothing is rewritten until a limit is exceeded by PRUNE_SLACK; then records are dropped back to the limit
+        itself. Image files without an index line (crash between the JPEG and the index append) are removed on the
+        first call of a process and with every rewrite.
 
         Args:
             keep_id (str): Record that is never dropped (the one just written).
         """
         recs = self.records()
         now = self.clock()
+        count = len(recs)
+        total = sum(r.bytes for r in recs)
+        slack = 1.0 + PRUNE_SLACK
+        oldest_age = max((now - r.ts for r in recs), default=0.0)
+        if count > self.max_records * slack or total > self.max_bytes * slack or oldest_age > self.max_age_s * slack:
+            self.drop_over_limit(recs, keep_id, now)
+        elif not self.swept:
+            self.remove_orphans({r.file for r in recs})
+        self.swept = True
+
+    def drop_over_limit(self, recs: list[LookupRecord], keep_id: str, now: float) -> None:
+        """Rewrite the index without the oldest records that bring count, bytes and age back to the limits.
+
+        Args:
+            recs (list[LookupRecord]): Every valid record.
+            keep_id (str): Record that is never dropped.
+            now (float): Current unix time (s).
+        """
         count = len(recs)
         total = sum(r.bytes for r in recs)
         dropped: set[str] = set()
@@ -288,14 +246,30 @@ class LookupStore:
             dropped.add(rec.id)
             count -= 1
             total -= rec.bytes
-        if not dropped:
-            return
         kept = [r for r in recs if r.id not in dropped]
-        write_atomic(self.index_path, "".join(r.model_dump_json() + "\n" for r in kept).encode())
-        for rec in recs:
-            if rec.id in dropped:
-                (self.root / rec.file).unlink(missing_ok=True)
-        LOGGER.info("lookup store pruned %d record(s), %d kept (%d bytes)", len(dropped), count, total)
+        if dropped:
+            write_atomic(self.index_path, "".join(r.model_dump_json() + "\n" for r in kept).encode())
+            self.cache.invalidate()
+            for rec in recs:
+                if rec.id in dropped:
+                    (self.root / rec.file).unlink(missing_ok=True)
+            LOGGER.info("lookup store pruned %d record(s), %d kept (%d bytes)", len(dropped), count, total)
+        self.remove_orphans({r.file for r in kept})
+
+    def remove_orphans(self, indexed_files: set[str]) -> None:
+        """Delete JPEGs in the store that no index line names (skipping ones younger than ORPHAN_MIN_AGE_S).
+
+        Args:
+            indexed_files (set[str]): File names that stay.
+        """
+        cutoff = time.time() - ORPHAN_MIN_AGE_S
+        for path in self.root.glob("*.jpg"):
+            try:
+                if path.name not in indexed_files and path.stat().st_mtime < cutoff:
+                    path.unlink(missing_ok=True)
+                    LOGGER.info("lookup store removed orphan image %s", path.name)
+            except FileNotFoundError:
+                continue
 
     def query(self, q: LookupQuery) -> list[LookupRecord]:
         """Records matching a query, newest first, at most q.limit.
@@ -344,9 +318,8 @@ class LookupStore:
             LookupRecord: The updated record.
         """
         with self.lock:
-            lines = self.read_lines()
-            for index, line in enumerate(lines):
-                rec = parse_line(line)
+            entries = self.cache.entries()
+            for index, (_, rec) in enumerate(entries):
                 if rec is None or rec.id != lookup_id:
                     continue
                 update: dict[str, object] = {}
@@ -355,21 +328,11 @@ class LookupStore:
                 if poi_ids is not None:
                     update["poi_ids"] = list(dict.fromkeys(poi_ids))
                 updated = rec.model_copy(update=update)
+                if updated == rec:
+                    return rec
+                lines = [line for line, _ in entries]
                 lines[index] = updated.model_dump_json()
                 write_atomic(self.index_path, "".join(f"{text}\n" for text in lines).encode())
+                self.cache.invalidate()
                 return updated
         raise LookupNotFoundError(lookup_id)
-
-
-def record_summary(rec: LookupRecord) -> dict[str, object]:
-    """JSON metadata of a record for the tools (the record plus an ISO time).
-
-    Args:
-        rec (LookupRecord): Record.
-
-    Returns:
-        dict[str, object]: Metadata.
-    """
-    data = rec.model_dump(mode="json")
-    data["time"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(rec.ts))
-    return data

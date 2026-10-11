@@ -183,6 +183,7 @@ def test_list_lookups_newest_first_metadata_only(server: Any) -> None:
 
 
 def test_list_lookups_filters(server: Any, robot: FakeRobot) -> None:
+    robot.pois = [{"id": "dock"}]
     near_id = payload(call(server, "get_camera_image", {"camera": "front"}))["lookup_id"]  # pose (1, 2)
     robot.pose = robot.pose.model_copy(update={"x": 10.0, "y": 10.0})
     far_id = payload(call(server, "get_camera_image", {"camera": "gripper"}))["lookup_id"]
@@ -223,7 +224,8 @@ def test_get_lookup_image_unknown_id_is_a_tool_error(server: Any) -> None:
         call(server, "get_lookup_image", {"lookup_id": "0" * 32})
 
 
-def test_annotate_lookup_rewrites_the_line(server: Any, store_dir: Path) -> None:
+def test_annotate_lookup_rewrites_the_line(server: Any, robot: FakeRobot, store_dir: Path) -> None:
+    robot.pois = [{"id": "p1"}]
     lookup_id = payload(call(server, "get_camera_image", {"camera": "front"}))["lookup_id"]
     res = call(server, "annotate_lookup", {"lookup_id": lookup_id, "note": "mug", "poi_ids": ["p1"]})
     assert res.structured_content["note"] == "mug" and res.structured_content["poi_ids"] == ["p1"]
@@ -231,3 +233,51 @@ def test_annotate_lookup_rewrites_the_line(server: Any, store_dir: Path) -> None
     assert len(rows) == 1 and rows[0]["note"] == "mug" and rows[0]["poi_ids"] == ["p1"]
     with pytest.raises(ToolError, match="unknown lookup"):
         call(server, "annotate_lookup", {"lookup_id": "1" * 32, "note": "x"})
+
+
+def test_annotate_lookup_rejects_dangling_poi_ids(server: Any, robot: FakeRobot, store_dir: Path) -> None:
+    robot.pois = [{"id": "known"}]
+    lookup_id = payload(call(server, "get_camera_image", {"camera": "front"}))["lookup_id"]
+    with pytest.raises(ToolError, match="unknown POI id.*ghost"):
+        call(server, "annotate_lookup", {"lookup_id": lookup_id, "poi_ids": ["known", "ghost"]})
+    assert index_rows(store_dir)[0]["poi_ids"] == []
+    res = call(server, "annotate_lookup", {"lookup_id": lookup_id, "poi_ids": ["known"]})
+    assert res.structured_content["poi_ids"] == ["known"]
+
+
+def test_annotate_lookup_without_poi_store_keeps_the_ids_unverified(server: Any, robot: FakeRobot) -> None:
+    robot.poi_store_up = False
+    lookup_id = payload(call(server, "get_camera_image", {"camera": "front"}))["lookup_id"]
+    res = call(server, "annotate_lookup", {"lookup_id": lookup_id, "poi_ids": ["anything"]})
+    assert res.structured_content["poi_ids"] == ["anything"]
+
+
+def test_annotate_lookup_clearing_links_needs_no_poi_store(server: Any, robot: FakeRobot) -> None:
+    lookup_id = payload(call(server, "get_camera_image", {"camera": "front"}))["lookup_id"]
+    robot.poi_store_up = False
+    assert call(server, "annotate_lookup", {"lookup_id": lookup_id, "poi_ids": []}).structured_content["poi_ids"] == []
+
+
+def test_since_accepts_iso_string(server: Any) -> None:
+    lookup_id = payload(call(server, "get_camera_image", {"camera": "front"}))["lookup_id"]
+    res = call(server, "list_lookups", {"since": "2000-01-01T00:00:00Z", "until": "2999-01-01T00:00:00+00:00"})
+    assert [r["id"] for r in res.structured_content["lookups"]] == [lookup_id]
+    assert call(server, "list_lookups", {"since": "2999-01-01T00:00:00Z"}).structured_content["count"] == 0
+    with pytest.raises(ToolError, match="ISO-8601"):
+        call(server, "list_lookups", {"since": "yesterday"})
+
+
+def test_list_lookups_description_names_every_returned_field(server: Any) -> None:
+    tool = next(t for t in anyio.run(server.list_tools) if t.name == "list_lookups")
+    payload(call(server, "get_camera_image", {"camera": "front"}))
+    row = call(server, "list_lookups", {}).structured_content["lookups"][0]
+    missing = [key for key in row if key not in tool.description]
+    assert not missing, missing
+
+
+def test_text_filter_without_notes_explains_itself(server: Any) -> None:
+    payload(call(server, "get_camera_image", {"camera": "front"}))
+    res = call(server, "list_lookups", {"text": "mug"})
+    assert res.structured_content["count"] == 0
+    assert "note" in res.structured_content["hint"] and "annotate_lookup" in res.structured_content["hint"]
+    assert "hint" not in call(server, "list_lookups", {}).structured_content

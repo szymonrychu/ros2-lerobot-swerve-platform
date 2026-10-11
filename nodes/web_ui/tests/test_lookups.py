@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import inspect
 import json
+import logging
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytest
+import ros2_common.lookups as shared_lookups
 from fastapi.testclient import TestClient
 
+from web_ui import lookups
 from web_ui.config import AppConfig, TabConfig
 from web_ui.server import build_app
 
@@ -163,3 +169,74 @@ def test_traversal_by_indexed_file_name_is_rejected(tmp_path: Path, urdf_dir: Pa
     resp = client.get("/api/lookups/evil.jpg")
     assert resp.status_code == 404
     assert b"secret" not in resp.content
+
+
+def real_jpeg(width: int, height: int) -> bytes:
+    ok, buf = cv2.imencode(".jpg", np.full((height, width, 3), 128, np.uint8))
+    assert ok
+    return buf.tobytes()
+
+
+def test_record_contract_is_the_shared_one() -> None:
+    assert lookups.LookupRecord is shared_lookups.LookupRecord
+    assert lookups.LookupQuery is shared_lookups.LookupQuery
+    rec = lookups.LookupRecord.model_validate(record("a", 1.0, camera_pose_base={"xyz": [0, 0, 1], "rpy": [0, 0, 0]}))
+    assert rec.base_pose_map is not None and rec.base_pose_map.x == 1.0
+    assert lookups.record_summary(rec)["time"] == "1970-01-01T00:00:01Z"
+
+
+def test_read_records_cached_until_index_changes(store: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    parsed: list[str] = []
+    real = shared_lookups.parse_line
+    monkeypatch.setattr(shared_lookups, "parse_line", lambda line: parsed.append(line) or real(line))
+    assert [r.id for r in lookups.read_records(store)] == ["a", "b", "c"]
+    lookups.read_records(store)
+    assert len(parsed) == 3
+    write_store(store, [record("a", 100.0), record("d", 400.0)])
+    assert [r.id for r in lookups.read_records(store)] == ["a", "d"]
+    assert len(parsed) == 5
+
+
+def test_corrupt_line_warns_once_across_requests(
+    tmp_path: Path, urdf_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    root = tmp_path / "lk"
+    write_store(root, [record("a", 1.0)], extra_lines=["{not json"])
+    client = make_client(tmp_path, urdf_dir, root)
+    with caplog.at_level(logging.WARNING):
+        for _ in range(3):
+            assert ids(client) == ["a"]
+    assert len([m for m in caplog.messages if "corrupt" in m]) == 1
+
+
+def test_routes_do_not_block_the_event_loop(client: TestClient) -> None:
+    routes = {r.path: r.endpoint for r in client.app.routes if r.path.startswith("/api/lookups")}  # type: ignore[attr-defined]
+    assert len(routes) == 2
+    assert not any(inspect.iscoroutinefunction(endpoint) for endpoint in routes.values())
+
+
+def test_since_and_until_accept_iso_strings(client: TestClient) -> None:
+    assert ids(client, "?since=1970-01-01T00:02:30Z") == ["c", "b"]
+    assert ids(client, "?until=1970-01-01T00:04:10%2B00:00") == ["b", "a"]
+    assert client.get("/api/lookups?since=yesterday").status_code == 422
+
+
+def test_thumbnail_is_downscaled_server_side(tmp_path: Path, urdf_dir: Path) -> None:
+    root = tmp_path / "lk"
+    write_store(root, [record("a", 1.0)])
+    big = real_jpeg(640, 480)
+    (root / "a.jpg").write_bytes(big)
+    client = make_client(tmp_path, urdf_dir, root)
+    resp = client.get("/api/lookups/a.jpg?max_px=96")
+    assert resp.status_code == 200 and resp.headers["content-type"] == "image/jpeg"
+    img = cv2.imdecode(np.frombuffer(resp.content, np.uint8), cv2.IMREAD_COLOR)
+    assert img.shape[:2] == (72, 96) and len(resp.content) < len(big)
+    assert "max-age" in resp.headers["cache-control"]
+    assert client.get("/api/lookups/a.jpg").content == big  # no max_px: the stored file
+    assert client.get("/api/lookups/a.jpg?max_px=5000").content == big  # never upscaled
+    assert client.get("/api/lookups/a.jpg?max_px=2").status_code == 422
+    assert client.get("/api/lookups/zzz.jpg?max_px=96").status_code == 404
+
+
+def test_thumbnail_of_an_undecodable_file_is_404(client: TestClient) -> None:
+    assert client.get("/api/lookups/a.jpg?max_px=64").status_code == 404

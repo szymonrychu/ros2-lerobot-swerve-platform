@@ -78,6 +78,28 @@ Unit tests for the shared library `shared/ros2_common/_utils.py`. Imports from r
 
 Unit tests for the metrics helper `shared/ros2_metrics` (`ros2_metrics`): `resolve_metrics_port` (config port wins over `METRICS_PORT`, env used without config, unset or empty = disabled, non-numeric / 0 / >65535 / negative raise `ValueError`); `register_node_info` exports `robot_node_info{node} 1` and `robot_node_start_time_seconds`; `start_metrics_server` returns `False` without a port and serves `/metrics` on a free localhost port with the node info.
 
+### `test_shared_lookups.py`
+
+Tests of `shared/ros2_common/lookups.py`, the camera lookup contract used by both `nodes/mcp_server` and `nodes/web_ui` (their own tests import it too: `test_lookup_store.py`, `test_lookup_tools.py`, `test_lookups.py`).
+
+| Test | Description |
+|------|-------------|
+| `test_record_contract_is_the_shared_one` (web_ui) | web_ui uses the shared `LookupRecord` / `LookupQuery`, not a copy. |
+| `test_record_contract_round_trips_every_field` | A full record survives JSON parse and dump unchanged. |
+| `test_record_rejects_a_malformed_pose` | A camera pose needs three xyz and three rpy values. |
+| `test_parse_line_skips_blank_and_corrupt_lines` | Blank, non-JSON and field-less lines give None. |
+| `test_since_accepts_iso_string` | `since` / `until` take unix numbers, numeric strings and ISO-8601 (Z, offset, naive = UTC); garbage is rejected. |
+| `test_time_filters_are_inclusive` | Records exactly at `since` / `until` match. |
+| `test_filter_matrix` | camera, session, POI, note text and near filters. |
+| `test_near_never_matches_a_record_without_pose` | A record without pose never matches `near`. |
+| `test_record_summary_adds_iso_time` | Metadata carries the UTC ISO `time`. |
+| `test_index_cache_reparses_only_when_the_index_changes` | A second read parses nothing; a rewritten index is re-parsed. |
+| `test_index_cache_missing_file_is_empty` | No index file reads as empty. |
+| `test_index_cache_warns_once_per_corrupt_line` | One warning per distinct corrupt line, however often it is read. |
+| `test_index_cache_entries_keep_corrupt_lines` | `entries()` keeps raw corrupt lines for rewrites. |
+
+mcp_server store tests added alongside: `test_add_after_partial_trailing_line_keeps_new_record`, `test_prune_rewrites_only_when_over_limit_by_slack`, `test_prune_removes_jpegs_without_index_line`, `test_write_atomic_fsyncs_before_replace`, `test_write_atomic_and_appended_index_are_both_world_readable`, `test_records_cached_until_index_changes`, `test_corrupt_line_warns_once_across_reads`, `test_annotate_without_change_does_not_rewrite`; tool tests `test_annotate_lookup_rejects_dangling_poi_ids` (and the poi_store-down variants), `test_since_accepts_iso_string`, `test_list_lookups_description_names_every_returned_field`, `test_text_filter_without_notes_explains_itself`. web_ui: `test_read_records_cached_until_index_changes`, `test_routes_do_not_block_the_event_loop`, `test_thumbnail_is_downscaled_server_side`, `test_since_and_until_accept_iso_strings`; frontend `api.test.ts` / `LookupList.test.tsx` cover the fetch error display and the thumbnail URL.
+
 ### `test_shared_camera_geometry.py`
 
 Tests of `shared/ros2_common/camera_geometry.py` and `scripts/solve_camera_mount.py` with synthetic cameras.

@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
-from pydantic import Field
+from pydantic import Field, ValidationError
 from scipy.spatial.transform import Rotation
 
 from .camera_scene import camera_setup, offset_matrix, parent_transform
@@ -31,6 +31,7 @@ from .lookup_store import (
     record_summary,
 )
 from .metrics import LOOKUP_WRITE_FAILURES, LOOKUP_WRITES
+from .models import RobotError
 from .tool_context import RobotApi, ToolContext
 
 LOGGER = logging.getLogger("mcp_server.lookups")
@@ -238,36 +239,52 @@ def register(ctx: ToolContext) -> None:
             "List past camera images (read-only): every get_camera_image and get_annotated_camera_image result is "
             "recorded automatically with the robot's map pose (base_pose_map), arm joints, camera pose in base_link "
             "and MCP session, and kept up to the store's retention limits. Returns metadata only, newest first: id, "
-            "ts (unix s), time (UTC), tool, camera, width, height, base_pose_map, note, poi_ids. Filters (all "
-            "optional, combined with AND): since / until (unix s, inclusive), near {x, y, radius_m} (map frame; "
-            "lookups without a pose never match), poi_id (linked with annotate_lookup), text (case-insensitive part "
-            f"of the note), camera, mcp_session. limit 1-{MAX_QUERY_LIMIT} (default 10). Review earlier views here "
+            "ts (unix s), time (UTC ISO), tool, camera, width, height, file, bytes, base_pose_map, arm_joints, "
+            "camera_pose_base, mcp_session, note, poi_ids. Filters (all optional, combined with AND): since / until "
+            "(inclusive; unix seconds or an ISO-8601 time such as 2025-10-09T08:53:20Z, naive means UTC), near "
+            "{x, y, radius_m} (map frame; lookups without a pose never match), poi_id (linked with annotate_lookup), "
+            "text (case-insensitive part of the note only; notes stay empty until annotate_lookup sets them), "
+            f"camera, mcp_session. limit 1-{MAX_QUERY_LIMIT} (default 10). Review earlier views here "
             "before driving back to look again; fetch one with get_lookup_image."
         )
     )
     def list_lookups(
-        since: Annotated[float | None, Field(description="Earliest ts (unix seconds), inclusive")] = None,
-        until: Annotated[float | None, Field(description="Latest ts (unix seconds), inclusive")] = None,
+        since: Annotated[
+            float | str | None, Field(description="Earliest time, inclusive: unix seconds or ISO-8601")
+        ] = None,
+        until: Annotated[
+            float | str | None, Field(description="Latest time, inclusive: unix seconds or ISO-8601")
+        ] = None,
         near: Annotated[NearFilter | None, Field(description="Taken within radius_m of map point (x, y)")] = None,
         poi_id: Annotated[str | None, Field(description="Only lookups linked to this POI id")] = None,
-        text: Annotated[str | None, Field(description="Case-insensitive substring of the note")] = None,
+        text: Annotated[
+            str | None, Field(description="Case-insensitive substring of the note (set with annotate_lookup)")
+        ] = None,
         camera: Annotated[str | None, Field(description="'gripper' or 'front'")] = None,
         mcp_session: Annotated[str | None, Field(description="Only lookups taken in this MCP session")] = None,
         limit: Annotated[int, Field(ge=1, le=MAX_QUERY_LIMIT, description="Most lookups returned")] = 10,
     ) -> CallToolResult:
         """Lookup metadata; the tool description is passed to the decorator."""
-        query = LookupQuery(
-            since=since,
-            until=until,
-            near=near,
-            poi_id=poi_id,
-            text=text,
-            camera=camera,
-            mcp_session=mcp_session,
-            limit=limit,
-        )
+        try:
+            query = LookupQuery(
+                since=since,  # type: ignore[arg-type]  # validated: float or ISO-8601 string
+                until=until,  # type: ignore[arg-type]
+                near=near,
+                poi_id=poi_id,
+                text=text,
+                camera=camera,
+                mcp_session=mcp_session,
+                limit=limit,
+            )
+        except ValidationError as exc:
+            raise ToolError("; ".join(str(err["msg"]) for err in exc.errors())) from exc
         found = [record_summary(rec) for rec in store().query(query)]
         data: dict[str, Any] = {"lookups": found, "count": len(found)}
+        if text is not None and not found:
+            data["hint"] = (
+                "text matches only the note of a lookup, and notes are empty until annotate_lookup sets one; "
+                "filter by time, near or camera instead, or annotate the images you want to find again"
+            )
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(data))], structured_content=data)
 
     @server.tool(
@@ -301,8 +318,9 @@ def register(ctx: ToolContext) -> None:
     @server.tool(
         description=(
             "Annotate a recorded camera image (read-only for the robot): note replaces its note (what it shows, "
-            "searchable with list_lookups text), poi_ids replaces the POI ids it is linked to (list_lookups poi_id). "
-            "Omitted fields stay as they are. Returns the updated metadata."
+            "searchable with list_lookups text), poi_ids replaces the POI ids it is linked to (list_lookups poi_id; "
+            "every id must be a POI that exists, checked against poi_store when it is running, otherwise accepted "
+            "unverified). Omitted fields stay as they are. Returns the updated metadata."
         )
     )
     def annotate_lookup(
@@ -311,6 +329,16 @@ def register(ctx: ToolContext) -> None:
         poi_ids: Annotated[list[str] | None, Field(max_length=50, description="POI ids this image shows")] = None,
     ) -> CallToolResult:
         """Set a lookup's note / POI links; the tool description is passed to the decorator."""
+        if poi_ids:
+            try:
+                existing = {str(p.get("id")) for p in ctx.robot.poi_list()[0]}
+            except RobotError:
+                existing = None  # poi_store is down: the ids cannot be checked
+            dangling = [] if existing is None else [p for p in poi_ids if p not in existing]
+            if dangling:
+                raise ToolError(
+                    f"unknown POI id(s) {', '.join(map(repr, dangling))} (list_pois shows the existing ones)"
+                )
         try:
             rec = store().annotate(lookup_id, note=note, poi_ids=poi_ids)
         except LookupNotFoundError as exc:

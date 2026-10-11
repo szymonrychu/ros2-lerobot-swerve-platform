@@ -1,10 +1,15 @@
 """Camera lookup store: JPEG + index.jsonl writes, retention pruning, corrupt lines, the query filter matrix."""
 
 import json
+import logging
+import os
+import stat
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
+import ros2_common.lookups as lookups_mod
 
 from mcp_server.lookup_store import (
     INDEX_FILE,
@@ -12,6 +17,7 @@ from mcp_server.lookup_store import (
     LookupQuery,
     LookupStore,
     NearFilter,
+    write_atomic,
 )
 
 DAY_S = 86400.0
@@ -240,3 +246,109 @@ def test_query_time_window_is_inclusive(populated: tuple[LookupStore, dict[str, 
     assert ids(store, until=hall_ts) == [recs["hall"].id, recs["kitchen"].id]
     assert ids(store, since=hall_ts, until=nopose_ts) == [recs["nopose"].id, recs["hall"].id]
     assert ids(store, since=nopose_ts + 1000.0) == []
+
+
+# --- robustness and write amplification ---------------------------------------------------------------------------
+
+
+def test_add_after_partial_trailing_line_keeps_new_record(tmp_path: Path, clock: FakeClock) -> None:
+    store = make_store(tmp_path, clock)
+    first = add(store, clock)
+    with (tmp_path / INDEX_FILE).open("a") as fh:
+        fh.write('{"id": "half-written')  # crash mid-append: no newline
+    fresh = make_store(tmp_path, clock)
+    new = add(fresh, clock)
+    assert fresh.get(new.id) is not None
+    assert [r.id for r in fresh.records()] == [first.id, new.id]
+    assert fresh.annotate(new.id, note="x").note == "x"
+
+
+def test_prune_rewrites_only_when_over_limit_by_slack(tmp_path: Path, clock: FakeClock) -> None:
+    store = make_store(tmp_path, clock, max_records=100)
+    for _ in range(100):
+        add(store, clock)
+    before = (tmp_path / INDEX_FILE).stat().st_ino
+    add(store, clock)  # 101 records: over the limit, inside the slack
+    assert (tmp_path / INDEX_FILE).stat().st_ino == before
+    assert len(store.records()) == 101
+    for _ in range(5):
+        add(store, clock)  # 106 > 105: prunes back to the limit
+    assert len(store.records()) == 100
+    assert (tmp_path / INDEX_FILE).stat().st_ino != before
+
+
+def test_prune_removes_jpegs_without_index_line(tmp_path: Path, clock: FakeClock) -> None:
+    store = make_store(tmp_path, clock)
+    add(store, clock)
+    old_orphan = tmp_path / "orphan-old.jpg"
+    young_orphan = tmp_path / "orphan-young.jpg"
+    old_orphan.write_bytes(JPEG)
+    young_orphan.write_bytes(JPEG)
+    os.utime(old_orphan, (time.time() - 3600, time.time() - 3600))
+    fresh = make_store(tmp_path, clock)  # a restarted store sweeps orphans on its first add
+    kept = add(fresh, clock)
+    assert not old_orphan.exists()
+    assert young_orphan.exists()  # a JPEG being written right now is not an orphan
+    assert (tmp_path / kept.file).exists()
+
+
+def test_write_atomic_fsyncs_before_replace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    real_fsync, real_replace = os.fsync, os.replace
+    monkeypatch.setattr(os, "fsync", lambda fd: (calls.append("fsync"), real_fsync(fd))[1])
+    monkeypatch.setattr(os, "replace", lambda a, b: (calls.append("replace"), real_replace(a, b))[1])
+    write_atomic(tmp_path / "f", b"data")
+    assert calls == ["fsync", "replace"]
+
+
+def test_write_atomic_and_appended_index_are_both_world_readable(tmp_path: Path, clock: FakeClock) -> None:
+    store = make_store(tmp_path, clock)
+    rec = add(store, clock)
+    assert stat.S_IMODE((tmp_path / rec.file).stat().st_mode) == 0o644
+    add(store, clock)
+    store.annotate(rec.id, note="x")  # index rewritten through write_atomic
+    assert stat.S_IMODE((tmp_path / INDEX_FILE).stat().st_mode) == 0o644
+
+
+def test_records_cached_until_index_changes(tmp_path: Path, clock: FakeClock, monkeypatch: pytest.MonkeyPatch) -> None:
+    store = make_store(tmp_path, clock)
+    add(store, clock)
+    parsed: list[str] = []
+    real_parse = lookups_mod.parse_line
+    monkeypatch.setattr(lookups_mod, "parse_line", lambda line: parsed.append(line) or real_parse(line))
+    fresh = make_store(tmp_path, clock)
+    fresh.records()
+    fresh.records()
+    fresh.get("nope")
+    assert len(parsed) == 1
+
+
+def test_corrupt_line_warns_once_across_reads(
+    tmp_path: Path, clock: FakeClock, caplog: pytest.LogCaptureFixture
+) -> None:
+    store = make_store(tmp_path, clock)
+    add(store, clock)
+    with (tmp_path / INDEX_FILE).open("a") as fh:
+        fh.write("{not json\n")
+    fresh = make_store(tmp_path, clock)
+    with caplog.at_level(logging.WARNING, logger="ros2_common.lookups"):
+        for _ in range(3):
+            fresh.records()
+    assert len([m for m in caplog.messages if "corrupt" in m]) == 1
+
+
+def test_annotate_without_change_does_not_rewrite(tmp_path: Path, clock: FakeClock) -> None:
+    store = make_store(tmp_path, clock)
+    rec = add(store, clock)
+    store.annotate(rec.id, note="mug", poi_ids=["p"])
+    before = (tmp_path / INDEX_FILE).stat().st_ino
+    again = store.annotate(rec.id, note="mug", poi_ids=["p"])
+    assert again.note == "mug" and (tmp_path / INDEX_FILE).stat().st_ino == before
+    assert store.annotate(rec.id).poi_ids == ["p"] and (tmp_path / INDEX_FILE).stat().st_ino == before
+
+
+def test_since_accepts_iso_string(populated: tuple[LookupStore, dict[str, Any]]) -> None:
+    store, recs = populated
+    hall_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(recs["hall"].ts))
+    assert ids(store, since=hall_iso) == [recs[k].id for k in ("shelf", "nopose", "hall")]
+    assert ids(store, until=hall_iso) == [recs["hall"].id, recs["kitchen"].id]

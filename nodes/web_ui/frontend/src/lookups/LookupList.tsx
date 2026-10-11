@@ -7,26 +7,35 @@ import ListItem from '@mui/material/ListItem'
 import ListItemText from '@mui/material/ListItemText'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
-import { fetchLookups, Lookup, LOOKUP_LIMIT, lookupImageUrl } from './api'
+import { fetchLookups, Lookup, LOOKUP_LIMIT, lookupImageUrl, lookupThumbUrl } from './api'
 
 const PANEL_BG = 'rgba(22, 27, 34, 0.92)'
 const THUMB_WIDTH_PX = 72
 const REFRESH_MS = 15000
 
 /**
- * Lookups of the backend, refreshed when the POI filter changes and every few seconds.
+ * Lookups of the backend, refreshed when the POI filter changes and every few seconds. A failed refresh keeps the
+ * last lookups and sets the error; the next successful one clears it.
  *
  * @param poiId - only lookups linked to this POI; null for all
- * @returns the lookups, newest first
+ * @returns the lookups (newest first) and the last fetch error, null when the last fetch worked
  */
-export function useLookups(poiId: string | null): Lookup[] {
+export function useLookups(poiId: string | null): { lookups: Lookup[]; error: string | null } {
   const [lookups, setLookups] = useState<Lookup[]>([])
+  const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
     const load = () => {
-      void fetchLookups(poiId, LOOKUP_LIMIT).then((list) => {
-        if (!cancelled) setLookups(list)
-      })
+      fetchLookups(poiId, LOOKUP_LIMIT).then(
+        (list) => {
+          if (cancelled) return
+          setLookups(list)
+          setError(null)
+        },
+        (err: unknown) => {
+          if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+        },
+      )
     }
     load()
     const timer = setInterval(load, REFRESH_MS)
@@ -35,11 +44,11 @@ export function useLookups(poiId: string | null): Lookup[] {
       clearInterval(timer)
     }
   }, [poiId])
-  return lookups
+  return { lookups, error }
 }
 
 /** Presentational list: a thumbnail (click opens the full image), camera, time and note per lookup. */
-export function LookupList({ lookups, selectedPoiName }: { lookups: Lookup[]; selectedPoiName: string | null }) {
+export function LookupList({ lookups, error = null, selectedPoiName }: { lookups: Lookup[]; error?: string | null; selectedPoiName: string | null }) {
   const title = selectedPoiName === null ? `Camera lookups (${lookups.length})` : `Lookups of ${selectedPoiName} (${lookups.length})`
   return (
     <Paper variant="outlined" sx={{ bgcolor: PANEL_BG, width: '100%' }} onPointerDown={(e) => e.stopPropagation()} data-testid="lookup-list-panel">
@@ -47,7 +56,12 @@ export function LookupList({ lookups, selectedPoiName }: { lookups: Lookup[]; se
         {title}
       </Typography>
       <List dense disablePadding sx={{ maxHeight: { xs: '24vh', sm: '32vh' }, overflowY: 'auto' }}>
-        {lookups.length === 0 && (
+        {error !== null && (
+          <Typography variant="body2" color="error" sx={{ px: 1.5, pb: 1 }} role="alert">
+            {`Could not load lookups: ${error}`}
+          </Typography>
+        )}
+        {lookups.length === 0 && error === null && (
           <Typography variant="body2" color="text.secondary" sx={{ px: 1.5, pb: 1 }}>
             {selectedPoiName === null ? 'No lookups yet.' : `No lookups linked to ${selectedPoiName} yet.`}
           </Typography>
@@ -57,7 +71,7 @@ export function LookupList({ lookups, selectedPoiName }: { lookups: Lookup[]; se
             <Link href={lookupImageUrl(l.id)} target="_blank" rel="noreferrer" sx={{ flexShrink: 0 }}>
               <Box
                 component="img"
-                src={lookupImageUrl(l.id)}
+                src={lookupThumbUrl(l.id)}
                 alt={`${l.camera} lookup ${l.time}`}
                 loading="lazy"
                 sx={{ width: THUMB_WIDTH_PX, height: 'auto', display: 'block', borderRadius: 0.5 }}
@@ -73,6 +87,6 @@ export function LookupList({ lookups, selectedPoiName }: { lookups: Lookup[]; se
 
 /** The list wired to the backend and the selected POI. */
 export function LookupListPanel({ selectedPoiId, selectedPoiName }: { selectedPoiId: string | null; selectedPoiName: string | null }) {
-  const lookups = useLookups(selectedPoiId)
-  return <LookupList lookups={lookups} selectedPoiName={selectedPoiName} />
+  const { lookups, error } = useLookups(selectedPoiId)
+  return <LookupList lookups={lookups} error={error} selectedPoiName={selectedPoiName} />
 }

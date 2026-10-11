@@ -3,6 +3,9 @@
 /** Most lookups the backend returns per request (mcp_server list_lookups limit). */
 export const LOOKUP_LIMIT = 10
 
+/** Longest side of a list thumbnail the backend renders (2x the 72 px CSS width, for high-DPI screens). */
+export const THUMB_PX = 144
+
 /** One recorded camera image (camelCase of the backend metadata). */
 export interface Lookup {
   id: string
@@ -39,6 +42,17 @@ export function lookupImageUrl(id: string): string {
   return `/api/lookups/${encodeURIComponent(id)}.jpg`
 }
 
+/**
+ * URL of a lookup's server-side downscaled JPEG.
+ *
+ * @param id - lookup id
+ * @param maxPx - longest side in pixels
+ * @returns the thumbnail URL
+ */
+export function lookupThumbUrl(id: string, maxPx: number = THUMB_PX): string {
+  return `${lookupImageUrl(id)}?max_px=${maxPx}`
+}
+
 function parseLookup(raw: unknown): Lookup | null {
   if (typeof raw !== 'object' || raw === null) return null
   const r = raw as Record<string, unknown>
@@ -56,21 +70,18 @@ function parseLookup(raw: unknown): Lookup | null {
 }
 
 /**
- * Fetch lookups, newest first. Never throws.
+ * Fetch lookups, newest first.
  *
  * @param poiId - only lookups linked to this POI; null for all
  * @param limit - most lookups to return
  * @param fetchImpl - fetch implementation (tests)
- * @returns the lookups; empty on any failure
+ * @returns the lookups (an empty list means there are none)
+ * @throws Error with a readable reason on a network failure, an HTTP error or an unexpected body
  */
 export async function fetchLookups(poiId: string | null, limit: number, fetchImpl: typeof fetch = fetch): Promise<Lookup[]> {
-  try {
-    const resp = await fetchImpl(lookupsUrl(poiId, limit))
-    if (!resp.ok) return []
-    const body = (await resp.json()) as { lookups?: unknown }
-    if (!Array.isArray(body.lookups)) return []
-    return body.lookups.map(parseLookup).filter((l): l is Lookup => l !== null)
-  } catch {
-    return []
-  }
+  const resp = await fetchImpl(lookupsUrl(poiId, limit))
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+  const body = (await resp.json()) as { lookups?: unknown }
+  if (!Array.isArray(body.lookups)) throw new Error('unexpected response')
+  return body.lookups.map(parseLookup).filter((l): l is Lookup => l !== null)
 }

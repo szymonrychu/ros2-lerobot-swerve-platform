@@ -32,8 +32,9 @@ same `../../shared` path resolves there; nothing extra is needed in Ansible. A n
 | `ros2_common._utils` | `clamp(value, low, high)` |
 | `ros2_common.battery` | `BatteryConfig` (pydantic: `topic` `/battery_state`, `cells` 3, `cutoff_cell_v` 2.8, `resume_cell_v` 2.9, `stale_s` 5.0; `resume_cell_v >= cutoff_cell_v`, `cells >= 1`) and `BatteryGuard` (thread-safe cut-off hysteresis: enter below `cells * cutoff_cell_v`, leave only above `cells * resume_cell_v`; no reading or older than `stale_s` = unknown = not blocked) |
 | `ros2_common.camera_geometry` | Pixel <-> ground-plane maths and mount calibration (see below) |
+| `ros2_common.lookups` | Camera lookup contract of mcp_server (writer) and web_ui (reader): `LookupRecord` (one `index.jsonl` line), `LookupQuery` + `NearFilter` (filters ANDed; `since` / `until` take unix seconds or ISO-8601, naive = UTC, via `parse_time`), `parse_line`, `record_summary` (record + ISO `time`) and `IndexCache` (parses the index only when its inode / mtime / size changed; corrupt lines warn once per distinct line; `appended()` lets the writer skip a re-parse) |
 
-Used by: `nodes/mcp_server` (motion tools refused in cut-off) and `nodes/web_ui` (commands rejected in cut-off; uv path source `ros2-common = { path = "../../shared", editable = true }`).
+Used by: `nodes/mcp_server` (motion tools refused in cut-off; lookup store) and `nodes/web_ui` (lookup routes; commands rejected in cut-off; uv path source `ros2-common = { path = "../../shared", editable = true }`).
 
 ## Camera geometry (`ros2_common.camera_geometry`)
 

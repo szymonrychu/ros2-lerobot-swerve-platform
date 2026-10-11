@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fetchLookups, lookupImageUrl, lookupsUrl } from './api'
+import { fetchLookups, lookupImageUrl, lookupsUrl, lookupThumbUrl, THUMB_PX } from './api'
 
 function fakeFetch(status: number, body: unknown) {
   return vi.fn(async () => ({ ok: status < 400, status, json: async () => body }) as Response)
@@ -31,12 +31,19 @@ describe('fetchLookups', () => {
     expect((f.mock.calls[0] as unknown as [string])[0]).toBe('/api/lookups?limit=10&poi_id=p')
   })
 
-  it('never throws: HTTP errors, bad bodies and network failures give an empty list', async () => {
-    expect(await fetchLookups(null, 5, fakeFetch(404, {}) as unknown as typeof fetch)).toEqual([])
-    expect(await fetchLookups(null, 5, fakeFetch(200, { nope: 1 }) as unknown as typeof fetch)).toEqual([])
+  it('rejects with a readable reason on HTTP errors, bad bodies and network failures', async () => {
+    await expect(fetchLookups(null, 5, fakeFetch(404, {}) as unknown as typeof fetch)).rejects.toThrow('HTTP 404')
+    await expect(fetchLookups(null, 5, fakeFetch(200, { nope: 1 }) as unknown as typeof fetch)).rejects.toThrow('unexpected response')
     const boom = vi.fn(async () => {
       throw new Error('offline')
     })
-    expect(await fetchLookups(null, 5, boom as unknown as typeof fetch)).toEqual([])
+    await expect(fetchLookups(null, 5, boom as unknown as typeof fetch)).rejects.toThrow('offline')
+  })
+})
+
+describe('lookupThumbUrl', () => {
+  it('asks the backend for a downscaled image', () => {
+    expect(lookupThumbUrl('abc123')).toBe(`/api/lookups/abc123.jpg?max_px=${THUMB_PX}`)
+    expect(lookupThumbUrl('a b', 96)).toBe('/api/lookups/a%20b.jpg?max_px=96')
   })
 })
