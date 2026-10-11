@@ -67,6 +67,7 @@ from .msg_serializer import (
     transform_to_pose_dict,
 )
 from .throttle import WarnThrottle
+from .tilt_guard import TILT_GUARD_STATE_TOPIC, parse_tilt_state
 
 log = structlog.get_logger(__name__)
 
@@ -282,6 +283,7 @@ class BridgeNode(Node):
         roles = topic_roles or {}
         self._map_topics = [topic for topic in topics if roles.get(topic) == "map"]
         self.create_subscription(Empty, MAP_GUARD_RESET_TOPIC, self.on_map_guard_reset, DEFAULT_SUB_QOS_DEPTH)
+        self.subscribe_tilt_guard()
         if gps_compass is not None:
             # Dedicated subscriptions: the same topics may also feed UI tabs through the generic loop below.
             self.create_subscription(Imu, gps_compass.imu_topic, self.on_anchor_imu, SENSOR_SUB_QOS)
@@ -404,6 +406,33 @@ class BridgeNode(Node):
             log.warning("gps_status_malformed", topic=topic)
             return
         self.store(topic, data)
+
+    def subscribe_tilt_guard(self) -> None:
+        """Subscribe to the latched tilt guard state; the 1 Hz stream feeds the stale-topic health check."""
+        self.create_subscription(String, TILT_GUARD_STATE_TOPIC, self.on_tilt_guard_state, MAP_SUB_QOS)
+        self._topic_last_rx[TILT_GUARD_STATE_TOPIC] = time.monotonic()
+
+    def on_tilt_guard_state(self, msg: Any) -> None:
+        """Cache the tilt guard state JSON for the WebSocket clients; invalid state is logged and dropped.
+
+        Args:
+            msg (Any): std_msgs/String with the state JSON.
+        """
+        data = parse_tilt_state(msg.data)
+        if data is None:
+            log.warning("tilt_guard_state_malformed", topic=TILT_GUARD_STATE_TOPIC)
+            return
+        self.store(TILT_GUARD_STATE_TOPIC, data)
+
+    def tilt_state(self) -> dict[str, Any] | None:
+        """Return the latest tilt guard state.
+
+        Returns:
+            dict[str, Any] | None: Parsed state, or None before the first valid message.
+        """
+        with self._lock:
+            envelope = self._latest.get(TILT_GUARD_STATE_TOPIC)
+        return envelope["data"] if envelope else None
 
     def poi_request_async(self, payload: dict[str, Any]) -> Future | None:
         """Publish a POI command with a fresh request_id; the future resolves with the matching /poi/result.

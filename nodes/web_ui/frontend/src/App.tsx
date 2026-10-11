@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import Alert from '@mui/material/Alert'
 import AppBar from '@mui/material/AppBar'
@@ -33,10 +33,13 @@ import { BatteryChip } from './components/BatteryChip'
 import { GpsChip } from './components/GpsChip'
 import { GPS_BASE_STATUS_KEY, baseGpsStatus, roverGpsStatus } from './gps/gpsStatus'
 import type { BaseGpsPayload, RoverGpsPayload } from './gps/gpsStatus'
+import { TiltBanner } from './components/TiltBanner'
 import { useRosBridge } from './hooks/useRosBridge'
 import { OverlayBar } from './overlays/OverlayBar'
 import { browserStorage, initialTabIndex, orderTabs, readStoredTabId, supportedTabs, writeStoredTabId } from './tabSelection'
 import { AppConfig, TabConfig } from './types'
+import { TILT_GUARD_STATE_KEY, tiltEntered, tiltStatus } from './tilt/tiltStatus'
+import type { TiltLevel, TiltPayload, TiltStatus } from './tilt/tiltStatus'
 import { feedAllGraphBuffers } from './utils/graphBuffers'
 
 const CameraTab = lazy(() => import('./tabs/CameraTab'))
@@ -51,6 +54,8 @@ const APP_TITLE = 'Robot'
 const BATTERY_TICK_MS = 1000
 // How long a command-rejected toast stays visible (ms).
 const ERROR_TOAST_MS = 8000
+// How long the tilt entry toast stays visible (ms); the banner stays for the whole condition.
+const TILT_TOAST_MS = 15000
 
 const TAB_ICONS: Record<string, ReactElement> = {
   map_nav: <MapIcon />,
@@ -78,6 +83,7 @@ function renderTab(
   topicData: Record<string, unknown>,
   publish: (t: string, mt: string, d: unknown) => void,
   battery: BatteryStatus,
+  tilt: TiltStatus,
 ) {
   const props = { tab, topicData, publish }
   switch (tab.type) {
@@ -85,7 +91,7 @@ function renderTab(
     case 'sensor_graph': return <SensorGraphTab {...props} />
     case 'imu_orientation': return <ImuOrientationTab {...props} />
     case 'rgbd_camera': return <RgbdCameraTab {...props} />
-    case 'map_nav': return <MapNavTab {...props} />
+    case 'map_nav': return <MapNavTab {...props} tilt={tilt} />
     case 'agent_chat': return <AgentChatTab {...props} battery={battery} />
     default:
       return (
@@ -106,6 +112,8 @@ export default function App() {
   const [batteryRxAt, setBatteryRxAt] = useState<number | null>(null)
   const [roverRxAt, setRoverRxAt] = useState<number | null>(null)
   const [baseRxAt, setBaseRxAt] = useState<number | null>(null)
+  const [tiltToast, setTiltToast] = useState<TiltStatus | null>(null)
+  const lastTiltLevel = useRef<TiltLevel>('ok')
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   // Map tabs first: the map is the primary view whatever order the config lists tabs in.
@@ -138,6 +146,13 @@ export default function App() {
     : []
 
   const { topicData, connected, publish } = useRosBridge(allTopics, (e) => setErrorToast(e.message))
+
+  const tilt = tiltStatus(topicData[TILT_GUARD_STATE_KEY] as TiltPayload | null | undefined)
+  useEffect(() => {
+    if (tiltEntered(lastTiltLevel.current, tilt.level)) setTiltToast(tilt)
+    else if (tilt.level === 'ok') setTiltToast(null)
+    lastTiltLevel.current = tilt.level
+  }, [tilt.level]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const batteryCfg = config?.battery ?? null
   const batteryData = batteryCfg ? (topicData[batteryCfg.topic] as BatteryPayload | null | undefined) : undefined
@@ -234,6 +249,7 @@ export default function App() {
           {banner}
         </Alert>
       )}
+      <TiltBanner status={tilt} />
 
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <List
@@ -257,7 +273,7 @@ export default function App() {
             </Centered>
           }
         >
-          {tab && renderTab(tab, topicData, publish, battery)}
+          {tab && renderTab(tab, topicData, publish, battery, tilt)}
         </Suspense>
       </Box>
 
@@ -269,6 +285,22 @@ export default function App() {
       >
         <Alert severity="error" variant="filled" onClose={() => setErrorToast(null)} sx={{ width: '100%' }}>
           {errorToast}
+        </Alert>
+      </Snackbar>
+
+      <Snackbar
+        open={tiltToast?.banner != null}
+        autoHideDuration={TILT_TOAST_MS}
+        onClose={(_e, reason) => reason !== 'clickaway' && setTiltToast(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert
+          severity={tiltToast?.banner?.severity ?? 'warning'}
+          variant="filled"
+          onClose={() => setTiltToast(null)}
+          sx={{ width: '100%' }}
+        >
+          {tiltToast?.banner?.text}
         </Alert>
       </Snackbar>
 

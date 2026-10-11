@@ -47,6 +47,7 @@ from .tiles import (
     tile_cache_fingerprint,
     validate_tile,
 )
+from .tilt_guard import TILT_GUARD_ERROR_SOURCE, nav_rejection_message
 from .urdf_scanner import scan_urdf_directory
 from .ws_clients import SEND_TIMEOUT_S, BackpressureWebSocketsProtocol, ClientConnection
 
@@ -477,6 +478,22 @@ def build_app(
         log.warning("command_rejected_battery_cutoff", action=action, message=message)
         return action_response(action, False, message, 503)
 
+    goal_topics = {tab.goal_topic for tab in config.tabs if tab.goal_topic}
+
+    def tilt_goal_rejection(msg: dict[str, Any]) -> str | None:
+        """Explain why a WebSocket publish of a navigation goal is refused by the tilt guard.
+
+        Args:
+            msg (dict[str, Any]): Decoded client frame.
+
+        Returns:
+            str | None: Refusal text for a goal publish at tilt warning/error, otherwise None.
+        """
+        if msg.get("type") != "publish" or msg.get("topic") not in goal_topics or bridge_node is None:
+            return None
+        state = bridge_node.tilt_state()
+        return nav_rejection_message(state) if isinstance(state, dict) else None
+
     register_agent_routes(app, config, battery_block, agent_transport)
 
     tile_tab = find_tile_tab(config)
@@ -796,6 +813,11 @@ def build_app(
                                 "ws_publish_rejected_battery_cutoff", client_id=client_id, topic=msg.get("topic", "")
                             )
                             conn.enqueue(json.dumps({"type": "error", "source": "battery", "message": error}))
+                        elif (tilt_error := tilt_goal_rejection(msg)) is not None:
+                            log.warning("ws_goal_rejected_tilt", client_id=client_id, topic=msg.get("topic", ""))
+                            conn.enqueue(
+                                json.dumps({"type": "error", "source": TILT_GUARD_ERROR_SOURCE, "message": tilt_error})
+                            )
                         elif msg.get("type") == "publish" and bridge_node is not None:
                             topic = msg.get("topic", "")
                             msg_type = msg.get("msg_type", "")

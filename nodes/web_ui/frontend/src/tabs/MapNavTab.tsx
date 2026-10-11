@@ -49,6 +49,9 @@ import { ActionResult, confirmClick, isCleared, parseActionResult, RESET_CONFIRM
 import { baseMarkerLabel, basePlacement } from '../gps/basePlacement'
 import { BaseGpsPayload, GPS_BASE_STATUS_KEY } from '../gps/gpsStatus'
 import { anchorSummary, validAnchor } from '../map3d/geo'
+import { goalButtonState } from '../map/goalControl'
+import { tiltStatus } from '../tilt/tiltStatus'
+import type { TiltStatus } from '../tilt/tiltStatus'
 import { draftGoalPose, finishGoalDraft, GoalDraft, startGoalDraft, updateGoalDraft } from '../map3d/goalGesture'
 import { Bounds, mapBounds } from '../map3d/groundMath'
 import {
@@ -108,6 +111,8 @@ interface Props {
   tab: TabConfig
   topicData: Record<string, unknown>
   publish: (topic: string, msgType: string, data: unknown) => void
+  /** Tilt guard state; at warning/error goal setting is disabled. */
+  tilt?: TiltStatus
 }
 
 interface FramedPose extends Pose2D {
@@ -138,7 +143,7 @@ function Centered({ children }: { children: ReactNode }) {
   )
 }
 
-export default function MapNavTab({ tab, topicData, publish }: Props) {
+export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(undefined) }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<SceneController | null>(null)
   const pointersRef = useRef<Set<number>>(new Set())
@@ -306,19 +311,24 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
     if (!graspOpen) setGraspPick()
   }, [graspOpen, setGraspPick])
 
+  const goalButton = goalButtonState({ hasGoalTopic: Boolean(tab.goal_topic), topView, tilt })
+  useEffect(() => {
+    if (tilt.navBlocked) setGoalMode(false)
+  }, [tilt.navBlocked])
+
   const robotPoseRef = useRef(robotPose)
   robotPoseRef.current = robotPose
 
   const sendGoal = useCallback(
     (g: Pose2D) => {
-      if (!tab.goal_topic) return
+      if (!tab.goal_topic || tilt.navBlocked) return
       log.info('[map] goal', g.x.toFixed(2), g.y.toFixed(2), 'yaw', g.yaw.toFixed(2), 'in', mapFrame)
       publish(tab.goal_topic, 'geometry_msgs/PoseStamped', {
         header: { frame_id: mapFrame, stamp: { sec: 0, nanosec: 0 } }, // backend stamps with the node clock
         pose: { position: { x: g.x, y: g.y, z: 0 }, orientation: yawToQuaternion(g.yaw) },
       })
     },
-    [tab.goal_topic, mapFrame, publish],
+    [tab.goal_topic, mapFrame, publish, tilt.navBlocked],
   )
 
   // Goal gesture: listeners on the container (bubble phase). Arm handles stop propagation on the canvas in the
@@ -490,7 +500,7 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
           >
             {topView ? 'Top view' : 'Orbit'}
           </Button>
-          <Tooltip title={topView ? '' : 'Switch to Top view to set goals'}>
+          <Tooltip title={goalButton.tooltip}>
             <span>
               <Button
                 variant={goalMode ? 'contained' : 'outlined'}
@@ -500,7 +510,7 @@ export default function MapNavTab({ tab, topicData, publish }: Props) {
                   poi.setMode('none')
                   setGoalMode((m) => !m)
                 }}
-                disabled={!tab.goal_topic || !topView}
+                disabled={goalButton.disabled}
                 aria-pressed={goalMode}
                 title="Press on the map to set the goal position; drag to set its heading"
               >
