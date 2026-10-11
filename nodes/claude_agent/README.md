@@ -18,7 +18,9 @@ web_ui (later: proxy)  --HTTP/WS-->  claude_agent (127.0.0.1:18300)
   unauthenticated by design; the web UI is the only client.
 - `runner.py`: one `ClaudeSDKClient` session (fresh on service start, created at the first instruction; `POST /api/reset`
   starts a new one), one instruction at a time. The MCP token file is read when a session is created and never logged.
-- `budget.py`: the agent-chosen task plan (`PlanTracker`: a plan tree of seq / if / while / phase nodes walked by a cursor stack and the pure `advance()`, phases with their own caps, maxima, completion with the retry policy, one revision, one raise per phase entry) and the in-process SDK MCP server `agent` with the tools `set_task_plan`, `complete_phase`, `revise_plan`, `raise_phase_budget` and `answer_condition` (see "Task plan").
+- `plan_tree.py`: the plan tree grammar (phase / seq / if / while nodes, `Phase` records, `TreeParser` validation of the tree and the flat form) and the pure cursor walk `advance()` plus `reachable_phases()` (see "Plan tree").
+- `budget.py`: `PlanTracker`, the per-instruction plan state: phases with their own caps, maxima and budget room, completion with the retry policy, one revision, one raise per phase entry, and the counters the gate charges (see "Task plan").
+- `plan_tools.py`: the in-process SDK MCP server `agent` with the tools `set_task_plan`, `complete_phase`, `revise_plan`, `raise_phase_budget` and `answer_condition`: schemas, descriptions and result texts.
 - `robot_events.py`: parsing of the `/robot_events` JSON and the follow-up text (see "Robot events and interrupts").
 - `tools.py`: `EffectorGate`, the `can_use_tool` callback. The only built-in tools are the five notes file tools
   (`tools=[Read, Write, Edit, Glob, Grep]`, see "Workdir and notes"); everything else is disabled (a deny list for Bash,

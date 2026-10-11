@@ -1,0 +1,459 @@
+"""The in-process SDK MCP server ``agent`` with the planning tools ``set_task_plan`` / ``complete_phase`` /
+``revise_plan`` / ``raise_phase_budget`` / ``answer_condition``: their schemas, descriptions and result texts, bound to
+a ``PlanTracker``."""
+
+from typing import Any
+
+from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
+
+from .budget import COMPLEXITIES, PlanTracker
+from .plan_tree import (
+    CAP_FIELDS,
+    MAX_PHASES,
+    MIN_PHASES,
+    NODE_IF,
+    NODE_PHASE,
+    NODE_SEQ,
+    NODE_TYPES,
+    OUTCOMES,
+    PlanError,
+)
+
+PLAN_SERVER_NAME = "agent"
+SET_PLAN_TOOL = "set_task_plan"
+COMPLETE_PHASE_TOOL = "complete_phase"
+REVISE_PLAN_TOOL = "revise_plan"
+RAISE_PHASE_TOOL = "raise_phase_budget"
+ANSWER_CONDITION_TOOL = "answer_condition"
+TOOL_NAMES = (SET_PLAN_TOOL, COMPLETE_PHASE_TOOL, REVISE_PLAN_TOOL, RAISE_PHASE_TOOL, ANSWER_CONDITION_TOOL)
+FULL_TOOL_NAMES = tuple(f"mcp__{PLAN_SERVER_NAME}__{name}" for name in TOOL_NAMES)
+PHASE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Short phase name, e.g. 'Locate mentioned objects'."},
+        "goal": {
+            "type": "string",
+            "description": "Measurable success criterion, e.g. 'within 10 cm of the tomato'.",
+        },
+        "rw_cap": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Most robot effector calls in this phase; 0 for a sensing-only phase.",
+        },
+        "turn_cap": {"type": "integer", "minimum": 1, "description": "Most model turns in this phase."},
+    },
+    "required": ["name", "goal", *CAP_FIELDS],
+}
+PHASES_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "minItems": MIN_PHASES,
+    "maxItems": MAX_PHASES,
+    "items": PHASE_SCHEMA,
+    "description": "Flat form: the phases in order, the first becomes active at once. Give phases OR plan.",
+}
+PLAN_NODE_DESCRIPTION = (
+    "Tree form (give plan OR phases): the root node. Node = {{type:'phase', id, name, goal, rw_cap, turn_cap, "
+    "max_attempts? (1-5, default 2)}} | {{type:'seq', id?, children: [Node, 1-12]}} | {{type:'if', id, condition: "
+    "Cond, then: Node, else?: Node}} | {{type:'while', id, condition: Cond, max_iterations: 1-{max_iterations}, body: "
+    "Node}}. Cond = {{ask: '<yes/no question you answer with agent.answer_condition and evidence>'}} | "
+    "{{outcome_of: '<phase id>', in: ['not_run'|'done'|'failed'|'skipped', ...]}} (the latest outcome of that phase). "
+    "'while' tests before each iteration, 'if' on entry. Limits: at most 24 nodes, 4 levels deep, 12 phases, unique "
+    "ids. Example: {{type:'while', id:'pickloop', condition:{{outcome_of:'pick', in:['not_run','failed']}}, "
+    "max_iterations:3, body:{{type:'seq', children:[{{type:'phase', id:'approach', ...}}, {{type:'phase', id:'pick', "
+    "...}}]}}}}."
+)
+SET_PLAN_DESCRIPTION = (
+    "Plan the current task as phases, each with its own budget: rw_cap (robot effector calls) and turn_cap (model "
+    "turns), plus a measurable goal. Give either a flat list of 1 to 12 phases or a plan tree with seq / if / while "
+    "nodes for branches and bounded loops. Sensor calls are unlimited and need no cap. Call this FIRST in every "
+    "instruction, then start working at once; effector tools are refused until a plan is set. The first phase is "
+    "active (or the first ask condition is pending). Plan generously (roughly double your estimate). Per-phase caps "
+    "above the per-phase maxima are clamped; the caps of all phases together (each phase counted once, both if "
+    "branches included) must stay within the instruction maxima or the plan is rejected."
+)
+COMPLETE_PHASE_DESCRIPTION = (
+    "Close the active phase with an honest outcome ('done' when its goal is met, 'failed' when it is not, 'skipped' "
+    "when it turned out unnecessary) and a short summary of what you found or did. A 'failed' outcome also needs "
+    "p_retry_success (0..1, your honest estimate that one more attempt succeeds) and retry_change (what that attempt "
+    "would do differently): when p_retry_success reaches the retry threshold ({threshold:g}) and attempts and budget "
+    "remain, the "
+    "phase is re-entered automatically with fresh caps and you must apply retry_change. Otherwise the plan moves on "
+    "(the next phase, a pending condition, or the end of the plan)."
+)
+REVISE_PLAN_DESCRIPTION = (
+    "Replace the REMAINING plan (once per instruction) when a phase failed or the situation changed, with a flat "
+    "phases list or a plan tree. Phases that already ran stay as they are (their ids cannot be reused, outcome_of may "
+    "name them); an unfinished active phase is closed as failed. Needs a rationale; the new phases get their own "
+    "rw_cap and turn_cap within what is left of the instruction maxima."
+)
+RAISE_PHASE_DESCRIPTION = (
+    "Raise the caps of the ACTIVE phase once per phase entry, giving a rationale. Pass the new total cap for each of "
+    "rw_cap, turn_cap you want raised (at least one); values are limited to what is left of the instruction maxima. "
+    "Do it early, when the phase runs low, rather than giving up."
+)
+ANSWER_CONDITION_DESCRIPTION = (
+    "Answer the pending 'ask' condition of an if or while node with true or false and the evidence you based it on "
+    "(what a camera image, sensor or state showed). While a condition is pending, effector tools are refused; sensor "
+    "tools stay allowed so you can look first."
+)
+COMPLETE_PHASE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "outcome": {"type": "string", "enum": list(OUTCOMES), "description": "Honest result of the phase."},
+        "summary": {"type": "string", "description": "What you found or did, and why the outcome."},
+        "p_retry_success": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Required when outcome is 'failed': probability that one more attempt succeeds.",
+        },
+        "retry_change": {
+            "type": "string",
+            "description": "Required when outcome is 'failed': what another attempt would change.",
+        },
+    },
+    "required": ["outcome", "summary"],
+}
+RAISE_PHASE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "rw_cap": {"type": "integer", "minimum": 0, "description": "New total effector call cap of the phase."},
+        "turn_cap": {"type": "integer", "minimum": 1, "description": "New total turn cap of the phase."},
+        "rationale": {"type": "string", "description": "Why the phase needs more."},
+    },
+    "required": ["rationale"],
+}
+ANSWER_CONDITION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "node_id": {"type": "string", "description": "Id of the if/while node whose condition is pending."},
+        "value": {"type": "boolean", "description": "Your answer to the question."},
+        "evidence": {"type": "string", "description": "What you observed that supports the answer."},
+    },
+    "required": ["node_id", "value", "evidence"],
+}
+
+
+def plan_node_schema(max_loop_iterations: int) -> dict[str, Any]:
+    """Build the (non-recursive) schema of the plan tree root; the grammar is in the description.
+
+    Args:
+        max_loop_iterations (int): Largest max_iterations of a while node.
+
+    Returns:
+        dict[str, Any]: JSON schema of the ``plan`` argument.
+    """
+    return {
+        "type": "object",
+        "properties": {"type": {"type": "string", "enum": list(NODE_TYPES)}},
+        "required": ["type"],
+        "description": PLAN_NODE_DESCRIPTION.format(max_iterations=max_loop_iterations),
+    }
+
+
+def set_plan_schema(max_loop_iterations: int) -> dict[str, Any]:
+    """Build the input schema of set_task_plan.
+
+    Args:
+        max_loop_iterations (int): Largest max_iterations of a while node.
+
+    Returns:
+        dict[str, Any]: JSON schema with complexity, rationale, phases and plan (phases or plan).
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "complexity": {"type": "string", "enum": list(COMPLEXITIES), "description": "Your judgement of the task."},
+            "rationale": {"type": "string", "description": "Why this plan and these caps."},
+            "phases": PHASES_SCHEMA,
+            "plan": plan_node_schema(max_loop_iterations),
+        },
+        "required": ["complexity", "rationale"],
+    }
+
+
+def revise_plan_schema(max_loop_iterations: int) -> dict[str, Any]:
+    """Build the input schema of revise_plan.
+
+    Args:
+        max_loop_iterations (int): Largest max_iterations of a while node.
+
+    Returns:
+        dict[str, Any]: JSON schema with rationale, phases and plan (phases or plan).
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "rationale": {"type": "string", "description": "Why the remaining plan changes."},
+            "phases": {**PHASES_SCHEMA, "description": "The new remaining phases; the first becomes active."},
+            "plan": plan_node_schema(max_loop_iterations),
+        },
+        "required": ["rationale"],
+    }
+
+
+def describe_phase(phase: dict[str, Any]) -> str:
+    """Describe a phase for the model.
+
+    Args:
+        phase (dict[str, Any]): Phase payload.
+
+    Returns:
+        str: One line with number, name, goal and caps (and the attempt from the second one on, the loop iteration
+        inside a loop).
+    """
+    attempt = f", attempt {phase['attempt']}/{phase['max_attempts']}" if phase.get("attempt", 0) > 1 else ""
+    iteration = f", loop iteration {phase['iteration']}" if phase.get("iteration", 0) > 0 else ""
+    return (
+        f"Phase {phase['index'] + 1} '{phase['name']}' (goal: {phase['goal']}; rw_cap={phase['rw_cap']}, "
+        f"turn_cap={phase['turn_cap']}{attempt}{iteration})"
+    )
+
+
+def describe_condition(condition: dict[str, Any]) -> str:
+    """Describe a condition payload in one phrase.
+
+    Args:
+        condition (dict[str, Any]): {ask} or {outcome_of, in}.
+
+    Returns:
+        str: E.g. ``ask "is it red?"`` or ``outcome_of pick in not_run|failed``.
+    """
+    if "ask" in condition:
+        return f'ask "{condition["ask"]}"'
+    return f"outcome_of {condition['outcome_of']} in {'|'.join(condition['in'])}"
+
+
+def outline(node: dict[str, Any]) -> str:
+    """Render a tree payload as a one-line flow outline.
+
+    Args:
+        node (dict[str, Any]): Tree payload node.
+
+    Returns:
+        str: E.g. ``seq(look, while pickloop [outcome_of pick in failed, max 3] do seq(approach, pick))``.
+    """
+    if node["type"] == NODE_PHASE:
+        return str(node["id"])
+    if node["type"] == NODE_SEQ:
+        return "seq(" + ", ".join(outline(child) for child in node["children"]) + ")"
+    if node["type"] == NODE_IF:
+        text = f"if {node['id']} [{describe_condition(node['condition'])}] then {outline(node['then'])}"
+        if "else" in node:
+            text += f" else {outline(node['else'])}"
+        return text
+    return (
+        f"while {node['id']} [{describe_condition(node['condition'])}, max {node['max_iterations']}] do "
+        f"{outline(node['body'])}"
+    )
+
+
+def has_control_nodes(node: dict[str, Any]) -> bool:
+    """Tell whether a tree payload holds if/while nodes or nested seqs (more than a flat list).
+
+    Args:
+        node (dict[str, Any]): Tree payload root.
+
+    Returns:
+        bool: False for a seq of phases (the flat form).
+    """
+    if node["type"] != NODE_SEQ:
+        return node["type"] != NODE_PHASE
+    return any(child["type"] != NODE_PHASE for child in node["children"])
+
+
+def sentences(notes: list[str]) -> str:
+    """Join notes as sentences.
+
+    Args:
+        notes (list[str]): Note texts.
+
+    Returns:
+        str: The notes each ending with a full stop, separated by spaces ("" for none).
+    """
+    return " ".join(note if note.endswith(".") else f"{note}." for note in notes)
+
+
+def describe_next(following: dict[str, Any] | None, pending: dict[str, Any] | None, retry: bool = False) -> str:
+    """Describe what the model does next.
+
+    Args:
+        following (dict[str, Any] | None): The active phase, or None.
+        pending (dict[str, Any] | None): The pending condition, or None.
+        retry (bool): Whether the active phase is an automatic retry of the phase just closed.
+
+    Returns:
+        str: The instruction text.
+    """
+    if following is not None:
+        verb = "is active again" if retry else "is now active"
+        return f"{describe_phase(following)} {verb}; continue."
+    if pending is not None:
+        return (
+            f"Condition '{pending['node_id']}' ({pending['node_type']}) is pending: {pending['question']} Look with "
+            "sensor tools if needed, then call agent.answer_condition with value and evidence; effector tools are "
+            "refused until then."
+        )
+    return "The plan is finished: report to the user what you did and what remains."
+
+
+def format_plan(plan: dict[str, Any], notes: list[str], verb: str) -> str:
+    """Build the tool result text for an accepted plan or revision.
+
+    Args:
+        plan (dict[str, Any]): The plan payload.
+        notes (list[str]): Notes about clamped caps.
+        verb (str): "accepted" or "revised".
+
+    Returns:
+        str: Text the model reads.
+    """
+    lines = [f"Plan {verb} ({plan['complexity']}), {len(plan['phases'])} phases:"]
+    lines += [f"{describe_phase(phase)} [{phase['status']}]" for phase in plan["phases"]]
+    tree = plan.get("tree")
+    if tree and has_control_nodes(tree):
+        lines.append(f"Flow: {outline(tree)}")
+    if notes:
+        lines.append("Caps adjusted: " + "; ".join(notes) + ".")
+    pending = plan.get("pending_condition")
+    if pending:
+        lines.append(describe_next(None, pending))
+    else:
+        lines.append("Start working now on the active phase; close each phase with agent.complete_phase.")
+    return "\n".join(lines)
+
+
+def format_completed(
+    closed: dict[str, Any],
+    following: dict[str, Any] | None,
+    notes: list[str] | None = None,
+    pending: dict[str, Any] | None = None,
+    retry: bool = False,
+) -> str:
+    """Build the tool result text for a closed phase.
+
+    Args:
+        closed (dict[str, Any]): The closed phase payload.
+        following (dict[str, Any] | None): The newly active phase, or None.
+        notes (list[str] | None): Transition notes (automatic retry, retry refusal, loop iterations and exits).
+        pending (dict[str, Any] | None): The pending condition, or None.
+        retry (bool): Whether the following phase is an automatic retry of the closed one (PlanTracker.retried).
+
+    Returns:
+        str: Text the model reads.
+    """
+    usage = (
+        f"{closed['ro_used']} sensor calls, rw {closed['rw_used']}/{closed['rw_cap']}, "
+        f"turns {closed['turns_used']}/{closed['turn_cap']}"
+    )
+    parts = [f"Phase {closed['index'] + 1} '{closed['name']}' {closed['status']} ({usage})."]
+    if notes:
+        parts.append(sentences(notes))
+    parts.append(describe_next(following, pending, retry))
+    return " ".join(parts)
+
+
+def format_answered(
+    answered: dict[str, Any], following: dict[str, Any] | None, notes: list[str], pending: dict[str, Any] | None
+) -> str:
+    """Build the tool result text for an answered condition.
+
+    Args:
+        answered (dict[str, Any]): The answered condition.
+        following (dict[str, Any] | None): The newly active phase, or None.
+        notes (list[str]): Transition notes (loop exits).
+        pending (dict[str, Any] | None): The next pending condition, or None.
+
+    Returns:
+        str: Text the model reads.
+    """
+    parts = [f"Condition '{answered['node_id']}' answered {'true' if answered['value'] else 'false'}."]
+    if notes:
+        parts.append(sentences(notes))
+    parts.append(describe_next(following, pending))
+    return " ".join(parts)
+
+
+def build_plan_tools(tracker: PlanTracker) -> list[SdkMcpTool[Any]]:
+    """Build the five planning tools bound to a tracker.
+
+    Args:
+        tracker (PlanTracker): Receives the plan, completions, answers, revision and raises.
+
+    Returns:
+        list[SdkMcpTool[Any]]: The tool list for the SDK MCP server.
+    """
+    max_iterations = tracker.config.max_loop_iterations
+    complete_description = COMPLETE_PHASE_DESCRIPTION.format(threshold=tracker.config.retry_success_threshold)
+
+    def text_result(text: str, is_error: bool = False) -> dict[str, Any]:
+        result: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
+        if is_error:
+            result["is_error"] = True
+        return result
+
+    @tool(SET_PLAN_TOOL, SET_PLAN_DESCRIPTION, set_plan_schema(max_iterations))
+    async def set_task_plan(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            plan, notes = tracker.set_plan(
+                args.get("complexity"), args.get("rationale"), args.get("phases"), args.get("plan")
+            )
+        except PlanError as exc:
+            return text_result(f"Plan rejected: {exc}", True)
+        return text_result(format_plan(plan, notes, "accepted"))
+
+    @tool(COMPLETE_PHASE_TOOL, complete_description, COMPLETE_PHASE_SCHEMA)
+    async def complete_phase(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            closed, following = tracker.complete_phase(
+                args.get("outcome"), args.get("summary"), args.get("p_retry_success"), args.get("retry_change")
+            )
+        except PlanError as exc:
+            return text_result(f"Phase not completed: {exc}", True)
+        return text_result(
+            format_completed(closed, following, tracker.transition_notes, tracker.pending_condition, tracker.retried)
+        )
+
+    @tool(REVISE_PLAN_TOOL, REVISE_PLAN_DESCRIPTION, revise_plan_schema(max_iterations))
+    async def revise_plan(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            plan, notes = tracker.revise_plan(args.get("rationale"), args.get("phases"), args.get("plan"))
+        except PlanError as exc:
+            return text_result(f"Revision rejected: {exc}", True)
+        return text_result(format_plan(plan, notes, "revised"))
+
+    @tool(RAISE_PHASE_TOOL, RAISE_PHASE_DESCRIPTION, RAISE_PHASE_SCHEMA)
+    async def raise_phase_budget(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            phase, notes = tracker.raise_phase_budget(args.get("rw_cap"), args.get("turn_cap"), args.get("rationale"))
+        except PlanError as exc:
+            return text_result(f"Raise rejected: {exc}", True)
+        text = (
+            f"Phase {phase['index'] + 1} budget raised: rw_cap={phase['rw_cap']}, "
+            f"turn_cap={phase['turn_cap']}. This phase entry cannot be raised again."
+        )
+        if notes:
+            text += " " + "; ".join(notes) + "."
+        return text_result(text)
+
+    @tool(ANSWER_CONDITION_TOOL, ANSWER_CONDITION_DESCRIPTION, ANSWER_CONDITION_SCHEMA)
+    async def answer_condition(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            answered, following = tracker.answer_condition(args.get("node_id"), args.get("value"), args.get("evidence"))
+        except PlanError as exc:
+            return text_result(f"Condition not answered: {exc}", True)
+        return text_result(format_answered(answered, following, tracker.transition_notes, tracker.pending_condition))
+
+    return [set_task_plan, complete_phase, revise_plan, raise_phase_budget, answer_condition]
+
+
+def build_plan_server(tracker: PlanTracker) -> McpSdkServerConfig:
+    """Build the in-process SDK MCP server named ``agent``.
+
+    Args:
+        tracker (PlanTracker): Receives the plan set by the agent.
+
+    Returns:
+        McpSdkServerConfig: Server config for ``ClaudeAgentOptions.mcp_servers["agent"]``.
+    """
+    return create_sdk_mcp_server(PLAN_SERVER_NAME, tools=build_plan_tools(tracker))

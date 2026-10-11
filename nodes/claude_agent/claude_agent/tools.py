@@ -8,9 +8,9 @@ from typing import Any
 
 from claude_agent_sdk import PermissionResult, PermissionResultAllow, PermissionResultDeny, ToolPermissionContext
 
-from .budget import FULL_TOOL_NAMES as PLAN_TOOL_FULL_NAMES
 from .budget import KIND_EFFECTOR, KIND_SENSOR, PlanTracker
 from .config import ClaudeAgentConfig
+from .plan_tools import FULL_TOOL_NAMES as PLAN_TOOL_FULL_NAMES
 
 MCP_SERVER_NAME = "robot"
 ROBOT_PREFIX = f"mcp__{MCP_SERVER_NAME}__"

@@ -23,7 +23,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from .budget import PLAN_SERVER_NAME, STATUS_PENDING, PlanTracker, build_plan_server, reachable_phases
+from .budget import PlanTracker
 from .config import ClaudeAgentConfig, MissingTokenError, read_mcp_token
 from .digest import build_digest
 from .events import (
@@ -52,6 +52,8 @@ from .metrics import (
     USAGE_TOKEN_KINDS,
     WATCHDOG_FIRES,
 )
+from .plan_tools import PLAN_SERVER_NAME, build_plan_server
+from .plan_tree import STATUS_PENDING, reachable_phases
 from .poi_clear import PoiClearResult, call_clear_agent_pois
 from .prompt import build_system_prompt
 from .robot_events import (

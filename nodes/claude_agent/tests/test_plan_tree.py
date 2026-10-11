@@ -5,14 +5,10 @@ from typing import Any
 
 import pytest
 
-from claude_agent.budget import (
-    ANSWER_CONDITION_TOOL,
-    FULL_TOOL_NAMES,
-    PlanError,
-    PlanTracker,
-    build_plan_tools,
-)
+from claude_agent.budget import PlanTracker
 from claude_agent.config import ClaudeAgentConfig
+from claude_agent.plan_tools import ANSWER_CONDITION_TOOL, FULL_TOOL_NAMES, build_plan_tools
+from claude_agent.plan_tree import PlanError
 
 END = "END"
 
