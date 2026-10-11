@@ -140,6 +140,15 @@
 * **Longer sync read for Present_Current**: feetech_servos' one state SYNC_READ grows from 6 to 15 bytes for all 14 servos (+126 bytes/cycle, about +1.26 ms at 1 Mbaud) when `publish_current_joints` is non-empty (`[gripper]` in client.yml), published on `/follower/joint_currents`. Gate: `/follower/joint_states` must stay at 95 Hz or more over 60 s (scraper `received_at_ns`). Rollback: `publish_current_joints: []` and redeploy. Fallback if the gate fails: gripper-only single read every other cycle (redesign).
 * **Agent-as-judge fusion**: the band (empty/ambiguous/object from load delta, jaw position and current vote) is fused with the agent's `confirm_grasp` verdict on the jaw crop (yes/no/unsure). Held closes return `unverified` plus a crop; only fused `grasped` counts as success, `unverified` means look again or release and retry, `missed` means release_object. The image alone never proves a grasp. `current_contact_delta_a` stays null (current does not vote) until tuned.
 
+## Photos are POIs (E11)
+
+- A camera image is a POI of kind `photo` owned by **poi_store**: poi_store is the only writer of the photo index and owns retention (max_records 3000 / 300 MB / 14 days, plus an hourly prune) and deletion (a delete removes the JPEG).
+- The JPEG stays a file under `/var/lib/ros2/poi/lookups/`; mcp_server writes it and sends a small `add` with metadata over `/poi/command`. No image bytes on topics (same user and host for poi_store, mcp_server and web_ui).
+- The existing append-only `index.jsonl` is the photo index (old lookup lines parse as photos, so the robot's history was kept without a rewrite). poi.json and `/poi/list` never contain photos: at 3000 photos `/poi/list` would be about 2.5 MB republished on every camera call. A latched `/poi/photos` summary (count, bytes, revision) tells clients to refresh; the web UI and agent page the index on disk.
+- Photos survive the agent session clear ("review past work"); deleting a linked POI strips its id from the photos.
+- mcp_server keeps `record_lookup`, the 32-hex lookup ids and the lookup tools as a facade, so the grasp jaw crop (E1, `full_frame=False`: no FOV), frontier facing (E5) and failure evidence (E8) did not change. New: `delete_photos`; `delete_poi` / `update_poi` take photo ids; each photo carries a `view` (camera position, yaw, pitch, hfov; the uncalibrated front camera uses the base heading and has no pitch or FOV, never invented).
+- Rejected: photos inside poi.json (multi-MB rewrite per camera call), a virtual photo kind owned by mcp_server (the web UI could not delete), SQLite (not needed at this size).
+
 ## ROS2 topic publishing
 
 * **No placeholder data**: Only real, valid data from sensors or actual state may be published on ROS2 topics. Do not publish zeroed/coerced/synthetic data when reads fail or are invalid. If valid data is unavailable, skip publishing for that cycle. See CLAUDE.md "No Placeholder Data on Topics".
