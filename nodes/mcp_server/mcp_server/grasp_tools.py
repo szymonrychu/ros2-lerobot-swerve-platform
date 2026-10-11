@@ -285,7 +285,7 @@ class GraspExecutor:
             stop_requested (Callable[[], bool]): True once a stop was requested (checked between steps).
 
         Returns:
-            GraspResult: infeasible / grasped / missed / aborted.
+            GraspResult: infeasible / grasped / unverified / missed / aborted.
         """
         grip = self.resolve_grip(params)  # an invalid profile refuses before anything moves
         floor = with_object_surfaces(floor, obj)
