@@ -16,6 +16,7 @@ from .arm import ArmController, JointSample, finite_effort
 from .config import McpServerConfig
 from .control import ControlManager
 from .footprint import NavFootprint
+from .grasp_check import finite
 from .guard_rules import FieldContext
 from .ik import ARM_CHAIN_JOINTS
 from .monitor import RobotMonitor
@@ -35,18 +36,6 @@ WATCH_METRICS = (
     "battery_v",
     "tool_height_m",
 )
-
-
-def finite(value: float | None) -> float | None:
-    """A number only when it is finite.
-
-    Args:
-        value (float | None): Raw value.
-
-    Returns:
-        float | None: The value, None for None, NaN and inf.
-    """
-    return value if value is not None and math.isfinite(value) else None
 
 
 def tool_height(arm: ArmController, joints: dict[str, float]) -> float | None:

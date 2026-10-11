@@ -27,6 +27,7 @@ from .grasp_check import (
     GraspCheck,
     GripMeasurements,
     ImageVerdict,
+    finite,
     fuse,
     grip_evidence,
 )
@@ -243,8 +244,7 @@ def finite_effort(efforts: dict[str, float], joint: str) -> float | None:
     Returns:
         float | None: The finite effort, or None when unmeasured.
     """
-    value = efforts.get(joint)
-    return value if value is not None and math.isfinite(value) else None
+    return finite(efforts.get(joint))
 
 
 @dataclass(frozen=True)
