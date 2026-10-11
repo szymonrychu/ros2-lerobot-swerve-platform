@@ -503,9 +503,10 @@ def test_contact_delta_settings_defaults_and_bounds() -> None:
             McpServerConfig.model_validate({"grip_profiles": bad})
 
 
-def test_grip_profile_contact_load_delta_defaults_to_20_and_must_be_positive() -> None:
+def test_grip_profile_contact_load_delta_defaults_off_and_must_be_positive() -> None:
+    """Delta contact is off by default: empty closes on the robot rose 35-124 above the free-closing baseline."""
     gp = McpServerConfig().grip_profiles
-    assert all(p.contact_load_delta == 20.0 for p in gp.presets.values())
+    assert all(p.contact_load_delta is None for p in gp.presets.values())
     preset = {"squeeze_rad": 0.03, "torque_limit": 500, "close_speed_rps": 0.5, "contact_effort_threshold": 300.0}
     cfg = McpServerConfig.model_validate(
         {"grip_profiles": {"presets": {"normal": {**preset, "contact_load_delta": 20.0}}}}
@@ -552,7 +553,7 @@ def test_new_e1_sections_reject_unknown_keys(data: dict) -> None:
 
 def test_contact_load_delta_appears_in_the_resolved_grip_report() -> None:
     cfg = McpServerConfig()
-    assert resolve_grip_profile(cfg.grip_profiles, cfg.limits, "firm").report()["contact_load_delta"] == 20.0
+    assert resolve_grip_profile(cfg.grip_profiles, cfg.limits, "firm").report()["contact_load_delta"] is None
     custom = resolve_grip_profile(cfg.grip_profiles, cfg.limits, {"base": "firm", "contact_load_delta": 20.0})
     assert custom.report()["contact_load_delta"] == 20.0
     assert custom.name == "firm+custom"
