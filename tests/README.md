@@ -994,6 +994,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_listed_in_nodes_readme_index` | `nodes/README.md` Layout index has an `mcp_server/` entry describing the MCP server. |
 | `test_mcp_gripper_closed_target_is_inside_the_follower_gripper_command_range` | The mcp_server closed gripper target (-0.165 rad = 1940 steps, follower gripper not inverted) is at or above the follower gripper `command_min_steps` (1900), `autonomy` is a direct command source, and the mcp_server README documents the steps and `command_min_steps`. |
 | `test_mcp_server_sag_compensation_uses_the_held_out_fit` | mcp_server `arm.sag_compensation` is enabled with `k` (shoulder_lift, elbow_flex) and `k_lowering` (shoulder_lift) equal to `docs/calibration/2026-10-10/sag_fit_results.json` within 5e-4, each with a held-out reduction above 50%, `max_rad` in (0, 0.12]; `sag_fit.md` exists and the mcp_server README documents the compensation, `arm_settle` and `sag_fit.py`. |
+| `test_mcp_server_unit_pins_the_allocator` | The mcp_server unit env pins glibc (`MALLOC_MMAP_THRESHOLD_=1048576`, `MALLOC_ARENA_MAX=2`) and `NUMPY_MADVISE_HUGEPAGE=0` so freed numpy temporaries return to the OS. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_mcp_server_config.py` is listed in this section. |
 
 ### test_battery_config.py

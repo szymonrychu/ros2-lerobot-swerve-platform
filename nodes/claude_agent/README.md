@@ -384,7 +384,7 @@ export CLAUDE_CODE_OAUTH_TOKEN=...; ./scripts/deploy-nodes.sh client claude_agen
 ```
 
 Ansible runs the service as the dedicated non-root user `claude_agent` (group `mcp-token` may read the MCP token),
-limited to 50% CPU, 1G memory and `Nice=10`. See `ansible/README.md` ("claude_agent user and OAuth token"). The token
+with no CPU cap (agent-facing CPUWeight tier, see `ansible/README.md` cgroups), a memory protection/safety cap and `Nice=10`. See `ansible/README.md` ("claude_agent user and OAuth token"). The token
 is written with `no_log` and never appears in git, logs or events.
 
 The Claude Code CLI is the native binary bundled in the `claude-agent-sdk` wheel (CLI version in

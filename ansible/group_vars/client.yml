@@ -518,8 +518,15 @@ ros2_node_type_defaults:
     # MemoryMax 1G: the 383 MB spike/growth is under investigation (256M OOM-looped 2026-10-10 when the unbatched
     # envelope peaked at about 2.4 GB; the 32-pose batches need about 125 MB idle plus 70 MB).
     config_path: /etc/ros2/mcp_server
+    # Allocator: glibc's dynamic mmap threshold kept the freed 4-16 MB numpy temporaries of every arm-motion check in
+    # the heap and THP collapsed them into huge pages, so RSS grew 185 -> 383 MB with no leak (2026-10-11, OOM at 384M).
+    # A fixed 1 MiB mmap threshold returns them to the OS (robot probe: 112 -> 39 MB), 2 arenas bound per-thread pools,
+    # and numpy stops marking its blocks MADV_HUGEPAGE.
     env:
       - MCP_SERVER_CONFIG=/etc/ros2/mcp_server/config.yaml
+      - MALLOC_MMAP_THRESHOLD_=1048576
+      - MALLOC_ARENA_MAX=2
+      - NUMPY_MADVISE_HUGEPAGE=0
     # MCP_SERVER_TOKEN=<48 random chars>, created once on the robot by playbooks/tasks/mcp_server_setup.yml (never in git).
     environment_file: /etc/ros2/mcp_server/token
   poi_store:

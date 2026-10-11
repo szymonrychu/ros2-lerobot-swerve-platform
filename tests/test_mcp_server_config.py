@@ -603,3 +603,11 @@ def test_mcp_server_sag_compensation_uses_the_held_out_fit() -> None:
     assert (REPO_ROOT / "docs" / "calibration" / "2026-10-10" / "sag_fit.md").is_file()
     readme = (NODE_DIR / "README.md").read_text()
     assert "Gravity sag compensation" in readme and "arm_settle" in readme and "sag_fit.py" in readme
+
+
+def test_mcp_server_unit_pins_the_allocator() -> None:
+    """mcp_server returns freed numpy temporaries to the OS (glibc kept them; RSS grew 185 -> 383 MB on 2026-10-11)."""
+    env = yaml.safe_load(CLIENT_VARS.read_text())["ros2_node_type_defaults"]["mcp_server"]["env"]
+    assert "MALLOC_MMAP_THRESHOLD_=1048576" in env
+    assert "MALLOC_ARENA_MAX=2" in env
+    assert "NUMPY_MADVISE_HUGEPAGE=0" in env
