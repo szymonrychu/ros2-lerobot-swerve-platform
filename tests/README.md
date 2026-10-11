@@ -233,6 +233,8 @@ Unit tests for `scripts/topic_scraper_collect.py` parser/format helpers.
 | `test_topic_endpoint` | Verifies endpoint mapping (`/topic` -> `/topics/topic`). |
 | `test_build_record` | Verifies merged NDJSON record fields for source/topic/timing/value. |
 | `test_connection_refused_prints_the_enable_hint` | `http_get_json` against a closed port prints the "disabled by default / enabled: true" hint on stderr. |
+| `test_parse_json_maps_null_and_legacy_non_finite_constants_to_none` | `parse_json` keeps null as None and turns legacy NaN/Infinity into None. |
+| `test_record_with_null_value_is_strict_json` | `format_record` output with null values is strict JSON (no NaN/Infinity). |
 
 ### Per-node tests (feetech_servos)
 

@@ -1,6 +1,7 @@
 """aiohttp app for topic scraper API."""
 
 import asyncio
+from functools import partial
 from typing import Any
 
 from aiohttp import web
@@ -8,6 +9,7 @@ from ros2_metrics import render_latest
 
 from . import metrics  # noqa: F401  (registers the node info and scraper metrics)
 from .paths import PREVIEW_PREFIX, STREAM_PREFIX, endpoint_to_topic, preview_endpoint_to_topic, stream_endpoint_to_topic
+from .serializer import dumps_strict
 
 MJPEG_BOUNDARY = b"frame"
 MJPEG_STREAM_INTERVAL_S = 0.05
@@ -23,39 +25,40 @@ def create_app(scraper: Any, observer: Any = None) -> web.Application:
     """
 
     app = web.Application()
+    json_response = partial(web.json_response, dumps=dumps_strict)
 
     async def get_metrics(_request: web.Request) -> web.Response:
         body, content_type = render_latest()
         return web.Response(body=body, headers={"Content-Type": content_type})
 
     async def get_topics(_request: web.Request) -> web.Response:
-        return web.json_response({"topics": scraper.get_topics_summary()})
+        return json_response({"topics": scraper.get_topics_summary()})
 
     async def get_topic_by_path(request: web.Request) -> web.Response:
         suffix = request.match_info.get("suffix", "")
         endpoint = f"/topics/{suffix}" if suffix else "/topics"
         topic = endpoint_to_topic(endpoint)
         if not topic:
-            return web.json_response({"error": "invalid topic endpoint"}, status=400)
+            return json_response({"error": "invalid topic endpoint"}, status=400)
         payload = scraper.get_topic_payload(topic)
         if payload is None:
-            return web.json_response({"error": "topic has no sample yet", "topic": topic}, status=404)
-        return web.json_response(payload)
+            return json_response({"error": "topic has no sample yet", "topic": topic}, status=404)
+        return json_response(payload)
 
     async def get_rules(_request: web.Request) -> web.Response:
         if observer is None:
-            return web.json_response({"rules": []})
-        return web.json_response({"rules": observer.get_rules_summary()})
+            return json_response({"rules": []})
+        return json_response({"rules": observer.get_rules_summary()})
 
     async def get_rule_by_name(request: web.Request) -> web.Response:
         if observer is None:
-            return web.json_response({"error": "no observation rules configured"}, status=404)
+            return json_response({"error": "no observation rules configured"}, status=404)
         name = request.match_info.get("name", "").strip()
         if not name:
-            return web.json_response({"error": "rule name required"}, status=400)
+            return json_response({"error": "rule name required"}, status=400)
         result = observer.get_rule_result(name)
         if result is None:
-            return web.json_response({"error": "unknown rule", "name": name}, status=404)
+            return json_response({"error": "unknown rule", "name": name}, status=404)
         payload = {
             "name": result.rule_name,
             "comparison": result.comparison,
@@ -63,34 +66,34 @@ def create_app(scraper: Any, observer: Any = None) -> web.Application:
             "oscillation_score": result.oscillation_score,
             "last_updated_ns": result.last_updated_ns,
         }
-        return web.json_response(payload)
+        return json_response(payload)
 
     async def get_streams_list(_request: web.Request) -> web.Response:
-        return web.json_response({"streams": scraper.get_image_topics_summary()})
+        return json_response({"streams": scraper.get_image_topics_summary()})
 
     async def get_stream_by_path(request: web.Request) -> web.Response:
         suffix = request.match_info.get("suffix", "").strip().strip("/")
         path = f"{STREAM_PREFIX}/{suffix}" if suffix else STREAM_PREFIX
         topic = stream_endpoint_to_topic(path)
         if not topic:
-            return web.json_response({"error": "invalid stream endpoint", "path": path}, status=400)
+            return json_response({"error": "invalid stream endpoint", "path": path}, status=400)
         if path.endswith("/mjpg"):
             return await _stream_mjpeg(request, scraper, topic)
         return _stream_html_response(path, topic)
 
     async def get_previews_list(_request: web.Request) -> web.Response:
-        return web.json_response({"previews": scraper.get_image_topics_summary()})
+        return json_response({"previews": scraper.get_image_topics_summary()})
 
     async def get_preview_by_path(request: web.Request) -> web.Response:
         suffix = request.match_info.get("suffix", "").strip().strip("/")
         path = f"{PREVIEW_PREFIX}/{suffix}" if suffix else PREVIEW_PREFIX
         topic = preview_endpoint_to_topic(path)
         if not topic:
-            return web.json_response({"error": "invalid preview endpoint", "path": path}, status=400)
+            return json_response({"error": "invalid preview endpoint", "path": path}, status=400)
         if path.endswith("/image.jpg"):
             jpeg = scraper.get_latest_jpeg(topic)
             if jpeg is None:
-                return web.json_response(
+                return json_response(
                     {"error": "no image sample yet", "topic": topic},
                     status=404,
                     content_type="application/json",

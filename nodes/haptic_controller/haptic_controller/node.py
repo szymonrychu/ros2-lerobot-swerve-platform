@@ -12,7 +12,7 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
 from .config import MODE_OFF, MODE_RESISTANCE, MODE_ZERO_G, HapticConfig
-from .resistance import compute_resistance_target, should_apply_resistance_hysteresis
+from .resistance import compute_resistance_target, is_measured_load, should_apply_resistance_hysteresis
 
 HAPTIC_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -104,10 +104,11 @@ def serve_haptic_node(config: HapticConfig, node: Node) -> None:
             if i >= len(msg.position):
                 continue
             follower_state[name] = float(msg.position[i])
-            if msg.effort and i < len(msg.effort):
-                follower_load[name] = float(msg.effort[i])
+            load = float(msg.effort[i]) if msg.effort and i < len(msg.effort) else float("nan")
+            if is_measured_load(load):
+                follower_load[name] = load
             else:
-                follower_load[name] = 0.0
+                follower_load.pop(name, None)  # unmeasured: no resistance for this joint
         follower_stamp = now
 
     node.create_subscription(
@@ -185,7 +186,10 @@ def serve_haptic_node(config: HapticConfig, node: Node) -> None:
                     resistance_was_active_per_joint[name] = False
                     continue
                 vel = leader_velocity.get(name, 0.0)
-                load = follower_load.get(name, 0.0)
+                load = follower_load.get(name)
+                if load is None:
+                    resistance_was_active_per_joint[name] = False
+                    continue
                 was_active = resistance_was_active_per_joint.get(name, False)
                 active = should_apply_resistance_hysteresis(
                     vel,

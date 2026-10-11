@@ -1,5 +1,6 @@
 """Observation rules runner: compare topics and detect oscillations from scraper samples."""
 
+import math
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -20,7 +21,12 @@ def _joint_state_positions_by_name(payload: dict[str, Any]) -> dict[str, float] 
     positions = msg.get("position")
     if not isinstance(names, list) or not isinstance(positions, list) or len(names) != len(positions):
         return None
-    return dict(zip(names, [float(p) for p in positions]))
+    out: dict[str, float] = {}
+    for name, position in zip(names, positions, strict=True):
+        value = float(position)
+        if math.isfinite(value):  # NaN/inf is an unmeasured joint: skip it, never compare it
+            out[name] = value
+    return out
 
 
 def _compare_positions(
@@ -39,7 +45,9 @@ def _compare_positions(
     out: dict[str, float] = {}
     for j in joints:
         if j in pos_a and j in pos_b:
-            out[j] = pos_a[j] - pos_b[j]
+            delta = pos_a[j] - pos_b[j]
+            if math.isfinite(delta):
+                out[j] = delta
     return out if out else None
 
 

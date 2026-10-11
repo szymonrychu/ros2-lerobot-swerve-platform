@@ -1,5 +1,22 @@
 """Resistance control law helpers for haptic force-feedback (no ROS2 dependency)."""
 
+import math
+
+
+def is_measured_load(follower_load: float) -> bool:
+    """Return True when the follower load is a real measurement.
+
+    The feetech bridge publishes NaN effort for non-effort joints and missing load readings;
+    such a load is unmeasured and must never drive resistance.
+
+    Args:
+        follower_load (float): Effort reported for the follower joint.
+
+    Returns:
+        bool: False for NaN and +/-inf, True otherwise.
+    """
+    return math.isfinite(follower_load)
+
 
 def should_apply_resistance(
     leader_vel: float,
@@ -12,6 +29,8 @@ def should_apply_resistance(
     Resistance is rendered only when follower load indicates contact and
     leader motion is in the closing direction with sufficient speed.
     """
+    if not is_measured_load(follower_load):
+        return False
     return follower_load > load_deadband and leader_vel > activation_velocity_threshold
 
 
@@ -29,6 +48,8 @@ def should_apply_resistance_hysteresis(
     Once active, stay active until load < load_deadband * load_release_ratio.
     load_release_ratio should be in (0, 1), e.g. 0.6.
     """
+    if not is_measured_load(follower_load):
+        return False
     release_threshold = load_deadband * load_release_ratio
     if was_active:
         if follower_load < release_threshold:
@@ -51,7 +72,7 @@ def compute_resistance_target(
     reports load above deadband, push back by reducing target position (open direction).
     Returns leader_pos with a resistance delta applied (clamped to max_step per cycle).
     """
-    if follower_load <= deadband:
+    if not is_measured_load(follower_load) or follower_load <= deadband:
         return leader_pos
     # Oppose closing: positive velocity (increasing position) = closing in typical gripper convention
     if leader_vel <= 0:

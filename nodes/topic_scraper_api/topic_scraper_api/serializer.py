@@ -1,5 +1,7 @@
 """ROS message serializer helpers."""
 
+import json
+import math
 from array import array
 from typing import Any
 
@@ -39,10 +41,12 @@ def ros_message_to_builtin(value: Any) -> Any:
         value: Primitive, list, dict, or ROS message-like object.
 
     Returns:
-        Any: JSON-safe object.
+        Any: JSON-safe object; non-finite floats (NaN, +/-inf) become None (JSON null).
     """
 
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if value is None or isinstance(value, (str, int, bool)):
         return value
     if isinstance(value, list):
         return [ros_message_to_builtin(item) for item in value]
@@ -86,3 +90,15 @@ def message_to_payload(msg: Any, type_name: str) -> Any:
         else:
             output[field_name] = ros_message_to_builtin(value)
     return output
+
+
+def dumps_strict(data: Any) -> str:
+    """Serialize to strict JSON: non-finite floats anywhere in data become null.
+
+    Args:
+        data: Builtin JSON-like object (dict, list, str, int, float, bool, None).
+
+    Returns:
+        str: JSON text that never contains NaN or Infinity.
+    """
+    return json.dumps(ros_message_to_builtin(data), allow_nan=False)

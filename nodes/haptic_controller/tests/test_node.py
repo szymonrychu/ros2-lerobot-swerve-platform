@@ -4,6 +4,7 @@ import pytest
 
 from haptic_controller.resistance import (
     compute_resistance_target,
+    is_measured_load,
     should_apply_resistance,
     should_apply_resistance_hysteresis,
 )
@@ -62,3 +63,27 @@ def test_should_apply_resistance_hysteresis_stays_active_until_release() -> None
     assert should_apply_resistance_hysteresis(0.02, 40.0, 50.0, 0.01, 0.6, True) is True
     # Was active; load 25 < 30 -> release
     assert should_apply_resistance_hysteresis(0.02, 25.0, 50.0, 0.01, 0.6, True) is False
+
+
+NON_FINITE = [float("nan"), float("inf"), float("-inf")]
+
+
+@pytest.mark.parametrize("load", NON_FINITE)
+def test_non_finite_load_is_unmeasured(load: float) -> None:
+    """A non-finite load never counts as contact, whatever the other inputs."""
+    assert is_measured_load(load) is False
+    assert should_apply_resistance(0.02, load, 50.0, 0.01) is False
+    assert should_apply_resistance_hysteresis(0.02, load, 50.0, 0.01, 0.6, False) is False
+    assert should_apply_resistance_hysteresis(0.02, load, 50.0, 0.01, 0.6, True) is False
+
+
+def test_is_measured_load_accepts_finite_values() -> None:
+    """Zero and negative loads are measurements."""
+    assert is_measured_load(0.0) is True
+    assert is_measured_load(-12.5) is True
+
+
+@pytest.mark.parametrize("load", NON_FINITE)
+def test_compute_resistance_target_never_returns_non_finite(load: float) -> None:
+    """A non-finite load leaves the leader position untouched instead of forwarding NaN."""
+    assert compute_resistance_target(2.5, 0.1, load, 50.0, 0.002, 0.05) == 2.5

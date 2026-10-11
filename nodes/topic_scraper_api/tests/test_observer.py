@@ -1,5 +1,7 @@
 """Unit tests for RulesObserver (compare and oscillation from scraper payloads)."""
 
+import math
+
 import pytest
 
 from topic_scraper_api.config import RULE_TYPE_COMPARE, RULE_TYPE_OSCILLATION, ObservationRule
@@ -76,3 +78,44 @@ def test_observer_rules_summary_has_entries() -> None:
     assert summary[0]["name"] == "r1"
     assert "has_result" in summary[0]
     assert "oscillation_detected" in summary[0]
+
+
+def _rule(rule_type: str) -> ObservationRule:
+    return ObservationRule(
+        name="ab",
+        topics=["/a", "/b"],
+        rule_type=rule_type,
+        joint_names=[],
+        window_s=10.0,
+        variance_threshold=1e-5,
+        sign_change_min_hz=0.0,
+    )
+
+
+def _js(positions: list[float]) -> dict:
+    return {"message": {"name": ["j1", "j2"], "position": positions}}
+
+
+def test_compare_skips_non_finite_joint() -> None:
+    obs = RulesObserver([_rule(RULE_TYPE_COMPARE)])
+    nan = float("nan")
+    obs.tick(lambda t: _js([nan, 1.0]) if t == "/a" else _js([0.0, 0.5]))
+    result = obs.get_rule_result("ab")
+    assert result.comparison == {"j2": pytest.approx(0.5)}
+
+
+def test_compare_all_non_finite_yields_none() -> None:
+    obs = RulesObserver([_rule(RULE_TYPE_COMPARE)])
+    inf = float("inf")
+    obs.tick(lambda t: _js([inf, inf]) if t == "/a" else _js([inf, 0.0]))
+    assert obs.get_rule_result("ab").comparison is None
+
+
+def test_oscillation_ignores_non_finite_samples() -> None:
+    obs = RulesObserver([_rule(RULE_TYPE_OSCILLATION)])
+    nan = float("nan")
+    for a in (0.0, nan, 0.4, nan, 0.0, 0.4, 0.0):
+        obs.tick(lambda t, a=a: _js([a, 0.0]) if t == "/a" else _js([0.0, 0.0]))
+    result = obs.get_rule_result("ab")
+    assert math.isfinite(result.oscillation_score)
+    assert result.oscillation_score > 0

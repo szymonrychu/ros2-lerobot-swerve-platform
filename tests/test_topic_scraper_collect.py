@@ -1,6 +1,15 @@
+import json
 import socket
 
-from scripts.topic_scraper_collect import build_record, http_get_json, parse_selector, parse_source, topic_endpoint
+from scripts.topic_scraper_collect import (
+    build_record,
+    format_record,
+    http_get_json,
+    parse_json,
+    parse_selector,
+    parse_source,
+    topic_endpoint,
+)
 
 
 def test_parse_source() -> None:
@@ -44,3 +53,16 @@ def test_connection_refused_prints_the_enable_hint(capsys) -> None:
     assert http_get_json(f"http://127.0.0.1:{port}/topics") is None
     err = capsys.readouterr().err
     assert "disabled by default" in err and "enabled: true" in err
+
+
+def test_parse_json_maps_null_and_legacy_non_finite_constants_to_none() -> None:
+    """null parses to None; NaN/Infinity from an older scraper also become None (never re-emitted)."""
+    assert parse_json('{"a": null, "b": [NaN, Infinity, -Infinity, 1.5]}') == {"a": None, "b": [None, None, None, 1.5]}
+
+
+def test_record_with_null_value_is_strict_json() -> None:
+    """A collected record whose value holds null serializes without NaN/Infinity."""
+    record = build_record("client", "/t", {}, parse_json("[null, 0.1]"))
+    text = format_record(record)
+    assert text == json.dumps(record, separators=(",", ":"), allow_nan=False)
+    assert "NaN" not in text

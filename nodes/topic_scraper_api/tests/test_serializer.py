@@ -104,3 +104,26 @@ def test_image_payload_peak_memory_is_bounded() -> None:
     peak = tracemalloc.get_traced_memory()[1] - base
     tracemalloc.stop()
     assert peak < frame_bytes // 4
+
+
+def test_non_finite_floats_become_none_and_output_is_strict_json() -> None:
+    msg = {"effort": [float("nan"), float("inf"), -float("inf"), 1.5], "x": float("nan")}
+    data = ros_message_to_builtin(msg)
+    assert data == {"effort": [None, None, None, 1.5], "x": None}
+    json.dumps(data, allow_nan=False)
+
+
+def test_non_finite_floats_in_array_become_none() -> None:
+    assert ros_message_to_builtin(array("d", [float("nan"), 2.0])) == [None, 2.0]
+
+
+def test_message_to_payload_sanitizes_binary_type_fields() -> None:
+    class Img:
+        height = float("nan")
+        data = b"abc"
+
+        def get_fields_and_field_types(self) -> dict[str, str]:
+            return {"height": "uint32", "data": "uint8[]"}
+
+    out = message_to_payload(Img(), "sensor_msgs/msg/Image")
+    assert out == {"height": None, "data": {"omitted": True, "byte_length": 3}}

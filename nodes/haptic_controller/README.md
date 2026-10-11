@@ -42,4 +42,4 @@ Deployed on the **client** only. Default Ansible config has the node **present**
 
 ## Tests
 
-From `nodes/haptic_controller`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers config loading (`test_config.py`) and resistance control law `compute_resistance_target` (`test_node.py`), with no ROS2 dependency.
+From `nodes/haptic_controller`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers non-finite load handling (NaN/inf load is unmeasured: no resistance, no NaN command), config loading (`test_config.py`) and resistance control law `compute_resistance_target` (`test_node.py`), with no ROS2 dependency.

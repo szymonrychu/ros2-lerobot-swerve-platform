@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from aiohttp.test_utils import TestClient, TestServer
@@ -258,4 +259,35 @@ async def test_get_stream_mjpg_no_sample_404() -> None:
     assert resp.status == 404
     data = await resp.json()
     assert "error" in data
+    await client.close()
+
+
+class NanScraper(FakeScraper):
+    def get_topic_payload(self, topic: str) -> dict[str, Any] | None:
+        return {"topic": topic, "message": {"effort": [float("nan"), float("inf"), 1.0]}}
+
+
+class NanObserver:
+    def get_rules_summary(self) -> list[dict[str, Any]]:
+        return [{"name": "r", "score": float("nan")}]
+
+    def get_rule_result(self, name: str) -> Any:
+        from topic_scraper_api.observer import RuleResult
+
+        return RuleResult(rule_name=name, comparison={"j": float("inf")}, oscillation_score=float("nan"))
+
+
+async def test_responses_are_strict_json_for_non_finite_values() -> None:
+    client = TestClient(TestServer(create_app(NanScraper(), NanObserver())))
+    await client.start_server()
+    for path in ("/topics/x", "/rules", "/rules/r"):
+        resp = await client.get(path)
+        assert resp.status == 200
+        text = await resp.text()
+        for bad in ("NaN", "Infinity"):
+            assert bad not in text
+        json.loads(text, parse_constant=lambda c: (_ for _ in ()).throw(ValueError(c)))
+    body = json.loads(await (await client.get("/rules/r")).text())
+    assert body["oscillation_score"] is None
+    assert body["comparison"] == {"j": None}
     await client.close()

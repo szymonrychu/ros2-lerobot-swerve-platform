@@ -156,6 +156,32 @@ def topic_endpoint(base_url: str, topic: str) -> str:
     return f"{base_url.rstrip('/')}/topics{topic}"
 
 
+def parse_json(text: str) -> Any:
+    """Parse JSON; null stays None and legacy NaN/Infinity constants also become None.
+
+    Args:
+        text (str): JSON text.
+
+    Returns:
+        Any: Parsed value with no non-finite floats.
+    """
+
+    return json.loads(text, parse_constant=lambda _constant: None)
+
+
+def format_record(record: dict[str, Any]) -> str:
+    """Serialize one NDJSON record as compact strict JSON (raises on NaN/Infinity).
+
+    Args:
+        record (dict[str, Any]): Record from build_record.
+
+    Returns:
+        str: One-line JSON.
+    """
+
+    return json.dumps(record, separators=(",", ":"), allow_nan=False)
+
+
 def http_get_json(url: str, timeout_s: float = 2.0) -> dict[str, Any] | None:
     """GET JSON object from URL.
 
@@ -170,7 +196,7 @@ def http_get_json(url: str, timeout_s: float = 2.0) -> dict[str, Any] | None:
             body = resp.read().decode("utf-8")
             if not body:
                 return None
-            data = json.loads(body)
+            data = parse_json(body)
             if not isinstance(data, dict):
                 return None
             return data
@@ -201,7 +227,7 @@ def apply_jq_filter(jq_filter: str, value: Any) -> Any:
     if not output:
         return None
     try:
-        return json.loads(output)
+        return parse_json(output)
     except ValueError:
         return output
 
@@ -252,7 +278,7 @@ def run_collect(sources: list[Source], selectors: list[Selector], interval_s: fl
                     )
                     continue
                 record = build_record(source.name, selector.topic, payload, selected_value)
-                print(json.dumps(record, separators=(",", ":")), flush=True)
+                print(format_record(record), flush=True)
         if once:
             break
         time.sleep(interval_s)
