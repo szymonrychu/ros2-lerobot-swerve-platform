@@ -14,9 +14,9 @@ import numpy as np
 
 from .perception import FREE_THRESHOLD, OCCUPIED_THRESHOLD, ImageEncodingError
 
-ALL_LAYERS = ("map", "costmap", "lidar", "footprint", "reach", "path", "pois", "objects")
+ALL_LAYERS = ("map", "costmap", "lidar", "footprint", "reach", "path", "pois", "objects", "frontiers")
 # Layers drawn in the map frame: they need the robot pose to be placed.
-POSE_LAYERS = frozenset({"map", "costmap", "path", "pois", "objects"})
+POSE_LAYERS = frozenset({"map", "costmap", "path", "pois", "objects", "frontiers"})
 ORIENTATION = "robot-up: base_link +x (heading) is image up, +y (left) is image left; robot at the image centre"
 SCALE_BAR_M = 0.5
 HEADING_EXTRA_M = 0.10  # the heading arrow reaches this far beyond the front edge of the footprint
@@ -37,6 +37,8 @@ COLOR_POI_OPEN = (0, 128, 255)
 COLOR_POI_DONE = (60, 140, 60)
 COLOR_POI_CANCELLED = (130, 130, 130)
 COLOR_OBJECT = (200, 0, 120)
+COLOR_FRONTIER = (255, 255, 0)  # cyan (BGR)
+MARKER_RADIUS_PX = 5
 COLOR_TEXT = (20, 20, 20)
 COLOR_LEGEND_BG = (255, 255, 255)
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -52,6 +54,7 @@ LEGEND_ENTRIES = {
     "path": ("Nav2 plan", COLOR_PATH),
     "pois": ("POI (orange open, green done)", COLOR_POI_OPEN),
     "objects": ("remembered object", COLOR_OBJECT),
+    "frontiers": ("frontier (number = list_frontiers id)", COLOR_FRONTIER),
 }
 
 
@@ -427,6 +430,37 @@ def draw_objects(image: np.ndarray, objects: Sequence[dict], pose: tuple[float, 
         draw_label(image, str(obj.get("label", "")), u + 6, v + 4, COLOR_OBJECT)
 
 
+def draw_frontiers(
+    image: np.ndarray, frontiers: Sequence[dict], pose: tuple[float, float, float], scale: float
+) -> None:
+    """Draw frontier cells in cyan and a filled marker at each target with its id on a white backing.
+
+    Args:
+        image (np.ndarray): BGR canvas (modified in place).
+        frontiers (Sequence[dict]): Dicts with id (int), target_xy (map-frame x, y) and cells_xy (Nx2 map-frame points).
+        pose (tuple[float, float, float]): Robot pose in the map frame.
+        scale (float): Metres per pixel.
+    """
+    px = image.shape[0]
+    for frontier in frontiers:
+        cells = np.asarray(frontier["cells_xy"], float).reshape(-1, 2)
+        if len(cells):
+            draw_points(image, map_points_to_px(cells, pose, px, scale), COLOR_FRONTIER)
+    for frontier in frontiers:
+        u, v = map_points_to_px(np.array([frontier["target_xy"]], float), pose, px, scale)[0]
+        if not (0 <= u < px and 0 <= v < px):
+            continue
+        centre = int_pt(u, v)
+        cv2.circle(image, centre, MARKER_RADIUS_PX, COLOR_FRONTIER, -1)
+        cv2.circle(image, centre, MARKER_RADIUS_PX, COLOR_TEXT, 1)
+        text = str(frontier["id"])
+        (w, h), baseline = cv2.getTextSize(text, FONT, LABEL_SCALE, 1)
+        x0 = min(centre[0] + MARKER_RADIUS_PX + 2, px - w - 2)
+        y0 = min(max(centre[1] + h // 2, h + 1), px - baseline - 1)
+        cv2.rectangle(image, (x0 - 1, y0 - h - 1), (x0 + w + 1, y0 + baseline), COLOR_LEGEND_BG, -1)
+        cv2.putText(image, text, (x0, y0), FONT, LABEL_SCALE, (0, 0, 0), 1, cv2.LINE_AA)
+
+
 def draw_legend(image: np.ndarray, layers: Sequence[str]) -> None:
     """Legend in the top-left corner: a colour swatch and name per drawn layer.
 
@@ -464,7 +498,11 @@ def draw_scale_bar(image: np.ndarray, scale: float) -> None:
 
 
 def layer_gaps(
-    inputs: TopdownInputs, layers: Sequence[str], pois: Sequence[dict] | None, objects: Sequence[dict] | None
+    inputs: TopdownInputs,
+    layers: Sequence[str],
+    pois: Sequence[dict] | None,
+    objects: Sequence[dict] | None,
+    frontiers: Sequence[dict] | None = None,
 ) -> dict[str, str]:
     """Reason per requested layer that cannot be drawn.
 
@@ -473,6 +511,7 @@ def layer_gaps(
         layers (Sequence[str]): Requested layers.
         pois (Sequence[dict] | None): POIs, None when unavailable.
         objects (Sequence[dict] | None): Remembered objects, None when unavailable.
+        frontiers (Sequence[dict] | None): Frontiers (id, target_xy, cells_xy), None when unavailable.
 
     Returns:
         dict[str, str]: Layer -> reason it is missing.
@@ -484,6 +523,7 @@ def layer_gaps(
         "path": inputs.plan is not None,
         "pois": pois is not None,
         "objects": objects is not None,
+        "frontiers": frontiers is not None,
         "footprint": True,
         "reach": True,
     }
@@ -506,6 +546,7 @@ def render_topdown(
     style: TopdownStyle,
     pois: Sequence[dict] | None = None,
     objects: Sequence[dict] | None = None,
+    frontiers: Sequence[dict] | None = None,
 ) -> TopdownRender:
     """Render the robot-up view. Layers whose data is missing are listed, never fabricated.
 
@@ -517,12 +558,13 @@ def render_topdown(
         style (TopdownStyle): Footprint and reach geometry.
         pois (Sequence[dict] | None): POI JSON objects, None when unavailable.
         objects (Sequence[dict] | None): Remembered objects (label, x, y), None when unavailable.
+        frontiers (Sequence[dict] | None): Frontiers (id, target_xy, cells_xy in the map frame), None when unavailable.
 
     Returns:
         TopdownRender: Image, scale and the present/missing layers.
     """
     scale = 2 * radius_m / px
-    gaps = layer_gaps(inputs, layers, pois, objects)
+    gaps = layer_gaps(inputs, layers, pois, objects, frontiers)
     drawn = [layer for layer in ALL_LAYERS if layer in layers and layer not in gaps]
     image = np.full((px, px, 3), COLOR_UNKNOWN, np.uint8)
     pose = inputs.pose
@@ -539,6 +581,8 @@ def render_topdown(
             draw_pois(image, pois, pose, scale)
         elif layer == "objects" and objects is not None and pose is not None:
             draw_objects(image, objects, pose, scale)
+        elif layer == "frontiers" and frontiers is not None and pose is not None:
+            draw_frontiers(image, frontiers, pose, scale)
         elif layer == "lidar" and inputs.scan_points is not None:
             draw_points(image, base_points_to_px(inputs.scan_points, px, scale), COLOR_LIDAR)
         elif layer == "footprint":

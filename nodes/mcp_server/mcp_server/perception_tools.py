@@ -8,11 +8,13 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Annotated, Any, Literal
 
+import numpy as np
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
+from .frontiers import FrontierTracker, cells_to_map
 from .look_around import LookMode, montage_jpeg, run_look_around
 from .models import RobotError
 from .object_memory import OBJECT_KIND, ObjectMemory, describe_objects, record_from_poi
@@ -41,7 +43,7 @@ SENSOR_TOOL_NAMES = (
     "delete_poi",
 )
 TOOL_NAMES = (*SENSOR_TOOL_NAMES, "look_around")
-Layer = Literal["map", "costmap", "lidar", "footprint", "reach", "path", "pois", "objects"]
+Layer = Literal["map", "costmap", "lidar", "footprint", "reach", "path", "pois", "objects", "frontiers"]
 Camera = Literal["front", "gripper"]
 PoiKind = Literal["point", "area"]
 PoiZone = Literal["none", "keepout", "slow"]
@@ -157,8 +159,38 @@ def topdown_style(config: McpServerConfig) -> TopdownStyle:
     )
 
 
+def frontier_markers(tracker: FrontierTracker | None, robot: RobotApi) -> list[dict]:
+    """Frontiers of the current map as topdown dicts (id, target_xy, cells_xy in the map frame).
+
+    Args:
+        tracker (FrontierTracker | None): Frontier tracker, None when not configured.
+        robot (RobotApi): Robot (the /map grid).
+
+    Returns:
+        list[dict]: One dict per frontier.
+
+    Raises:
+        ValueError: When the tracker is missing, the map is unavailable or the tracker fails.
+    """
+    if tracker is None:
+        raise ValueError("frontier tracker not configured")
+    grid = robot.map_grid()
+    if grid is None:
+        raise ValueError("/map unavailable: no recent map (or its frame has no TF)")
+    markers = []
+    for frontier in tracker.update(grid).frontiers:
+        xs, ys = cells_to_map(grid, frontier.cells[:, 0], frontier.cells[:, 1])
+        markers.append({"id": frontier.id, "target_xy": frontier.target_xy, "cells_xy": np.stack([xs, ys], axis=1)})
+    return markers
+
+
 def render_view(
-    robot: RobotApi, config: McpServerConfig, layers: list[str], radius_m: float, px: int
+    robot: RobotApi,
+    config: McpServerConfig,
+    layers: list[str],
+    radius_m: float,
+    px: int,
+    tracker: FrontierTracker | None = None,
 ) -> tuple[bytes, TopdownMeta]:
     """Gather the data and render one top-down view.
 
@@ -168,6 +200,7 @@ def render_view(
         layers (list[str]): Requested layers.
         radius_m (float): Half size of the view (m).
         px (int): Image side (pixels).
+        tracker (FrontierTracker | None): Frontier tracker, used only when the frontiers layer is requested.
 
     Returns:
         tuple[bytes, TopdownMeta]: PNG and metadata.
@@ -188,7 +221,15 @@ def render_view(
                 pois = [p for p in listed if p.get("kind") != OBJECT_KIND]
             if "objects" in layers:
                 objects = [record_from_poi(p).model_dump() for p in listed if p.get("kind") == OBJECT_KIND]
-    rendered = render_topdown(inputs, layers, radius_m, px, topdown_style(config), pois=pois, objects=objects)
+    frontiers = None
+    if "frontiers" in layers:
+        try:
+            frontiers = frontier_markers(tracker, robot)
+        except (RobotError, ValueError) as exc:
+            inputs.missing["frontiers"] = str(exc)
+    rendered = render_topdown(
+        inputs, layers, radius_m, px, topdown_style(config), pois=pois, objects=objects, frontiers=frontiers
+    )
     pose = inputs.pose
     meta = TopdownMeta(
         pose=None if pose is None else {"x": pose[0], "y": pose[1], "yaw": pose[2]},
@@ -200,6 +241,7 @@ def render_view(
         layers_present=rendered.layers_present,
         layers_missing=rendered.layers_missing,
         data_ages={k: round(v, 3) for k, v in inputs.ages.items()},
+        frontier_ids_drawn=[f["id"] for f in frontiers or [] if "frontiers" in rendered.layers_present],
     )
     return encode_png(rendered.image), meta
 
@@ -255,7 +297,8 @@ def register(ctx: ToolContext) -> None:
             "sits at the bottom left; one pixel is 2 * radius_m / px metres. Layers (all by default): map (SLAM map: "
             "white free, black wall, grey unknown), costmap (Nav2 local costmap, orange), lidar (green scan points), "
             "footprint, reach (arm reach circle), path (current Nav2 plan), pois (named points/areas), objects "
-            "(remembered objects with labels). A legend lists the layers drawn. The metadata gives the pose, "
+            "(remembered objects with labels), frontiers (cyan frontier cells between known free and unknown space, each "
+            "target marked with a number that is its list_frontiers id). A legend lists the layers drawn. The metadata gives the pose, "
             "scale_m_per_px, layers_present, layers_missing (with the reason; a missing layer is never fabricated) "
             "and data_ages."
         ),
@@ -269,7 +312,7 @@ def register(ctx: ToolContext) -> None:
     ) -> CallToolResult:
         """Render the robot-up view; the tool description is passed to the decorator (it states the conventions)."""
         with tool_errors():
-            png, meta = render_view(robot, config, list(layers), radius_m, px)
+            png, meta = render_view(robot, config, list(layers), radius_m, px, ctx.frontiers)
         content = [TextContent(type="text", text=meta.model_dump_json()), image_block(png, "image/png")]
         return CallToolResult(content=content, structured_content=meta.model_dump(mode="json"))
 
@@ -370,7 +413,9 @@ def register(ctx: ToolContext) -> None:
             montage = montage_jpeg(run.frames, la.frame_max_px)
             content: list[TextContent | ImageContent] = [image_block(montage, "image/jpeg")]
             try:
-                png, meta = render_view(robot, config, list(ALL_LAYERS), td.default_radius_m, td.default_px)
+                png, meta = render_view(
+                    robot, config, list(ALL_LAYERS), td.default_radius_m, td.default_px, ctx.frontiers
+                )
                 result.topdown = meta.model_dump(mode="json")
                 content.append(image_block(png, "image/png"))
             except (RobotError, ValueError) as exc:

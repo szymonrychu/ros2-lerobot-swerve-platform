@@ -12,9 +12,11 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_server import perception_tools
 from mcp_server.base_motion import SpinOutcome
 from mcp_server.config import McpServerConfig
+from mcp_server.frontiers import FrontierTracker
 from mcp_server.models import BasePose, NavigationResult
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, build_mcp_server
 
+from .test_frontier_tools import room
 from .test_tools import TOKEN, FakeRobot, call, take, tool_descriptions
 
 
@@ -298,6 +300,54 @@ def test_list_pois_with_distance_bearing_filter_and_near(server: Any, robot: Fak
     assert distances == sorted(distances)
 
 
+def test_frontiers_layer_is_drawn_numbered_and_listed_in_the_metadata(server: Any, robot: FakeRobot) -> None:
+    robot.map = room()
+    res = call(server, "get_topdown_view", {"layers": ["map", "frontiers"], "radius_m": 6.0, "px": 400})
+    meta = res.structured_content
+    assert "frontiers" in meta["layers_present"] and "frontiers" not in meta["layers_missing"]
+    assert meta["frontier_ids_drawn"] and meta["frontier_ids_drawn"] == sorted(meta["frontier_ids_drawn"])
+    listed = call(server, "list_frontiers", {}).structured_content["frontiers"]
+    assert set(meta["frontier_ids_drawn"]) <= {f["id"] for f in listed}
+
+
+def test_frontiers_layer_missing_reason_when_map_unavailable(server: Any, robot: FakeRobot) -> None:
+    robot.map = None
+    meta = call(server, "get_topdown_view", {"layers": ["frontiers"]}).structured_content
+    assert "/map unavailable" in meta["layers_missing"]["frontiers"]
+    assert meta["frontier_ids_drawn"] == []
+
+
+def test_frontiers_layer_tracker_failure_is_reported_not_raised(
+    server: Any, robot: FakeRobot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    robot.map = room()
+
+    def boom(self: FrontierTracker, grid: Any) -> Any:
+        raise ValueError("bad grid")
+
+    monkeypatch.setattr(FrontierTracker, "update", boom)
+    meta = call(server, "get_topdown_view", {"layers": ["map", "frontiers"]}).structured_content
+    assert "bad grid" in meta["layers_missing"]["frontiers"]
+    assert "map" in meta["layers_present"] or "map" in meta["layers_missing"]
+
+
+def test_tracker_and_map_are_untouched_when_frontiers_not_requested(
+    server: Any, robot: FakeRobot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    robot.map = room()
+    calls: list[str] = []
+    monkeypatch.setattr(FrontierTracker, "update", lambda self, grid: calls.append("update"))
+    monkeypatch.setattr(robot, "map_grid", lambda: calls.append("map_grid"))
+    meta = call(server, "get_topdown_view", {"layers": ["map", "footprint"]}).structured_content
+    assert calls == [] and "frontiers" not in meta["layers_requested"]
+    call(server, "get_topdown_view", {"layers": ["frontiers"]})
+    assert "map_grid" in calls
+
+
+def test_description_documents_the_frontiers_layer(server: Any) -> None:
+    assert "frontiers" in tool_descriptions(server)["get_topdown_view"]
+
+
 # --- look_around -----------------------------------------------------------------------------------------------
 
 
@@ -334,6 +384,7 @@ def test_look_around_tool_returns_montage_summary_and_topdown(tmp_path: Path) ->
     assert len(sc["headings"]) == 4 and sc["headings"][1]["heading_deg"] == 90
     assert sc["expected"]["rotation_deg"] == 360 and "achieved" in sc
     assert sc["topdown"]["layers_present"]
+    assert "frontiers" in sc["topdown"]["layers_requested"]
     moves = [c for c in robot.calls if c[0] == "move_relative"]
     assert len(moves) == 4
     cams = [c[1][0] for c in robot.calls if c[0] == "camera_image"]

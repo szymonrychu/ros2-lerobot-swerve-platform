@@ -10,10 +10,12 @@ from mcp_server.perception import scan_points
 from mcp_server.topdown import (
     ALL_LAYERS,
     COLOR_FOOTPRINT,
+    COLOR_FRONTIER,
     COLOR_HEADING,
     COLOR_LIDAR,
     COLOR_OBJECT,
     COLOR_PATH,
+    LEGEND_ENTRIES,
     GridLayer,
     TopdownInputs,
     TopdownStyle,
@@ -224,3 +226,57 @@ def test_grid_layer_from_message_fields_and_frame_pose() -> None:
 def test_transform_points_into_map_frame() -> None:
     pts = transform_points(np.array([[1.0, 0.0], [0.0, 1.0]]), (10.0, 20.0, math.pi / 2))
     assert pts == pytest.approx(np.array([[10.0, 21.0], [9.0, 20.0]]))
+
+
+# --- frontiers layer -------------------------------------------------------------------------------------------
+
+
+def frontier(fid: int, target: tuple[float, float], cells: list[tuple[float, float]]) -> dict:
+    return {"id": fid, "target_xy": target, "cells_xy": np.array(cells, float)}
+
+
+def test_frontier_cells_and_marker_follow_the_robot_up_transform() -> None:
+    # Robot at (1, 2) facing +y (yaw 90 deg): map +y is image up, map -x is image right.
+    inputs = TopdownInputs(pose=(1.0, 2.0, math.pi / 2))
+    marker = frontier(7, (1.0, 3.0), [(1.0, 3.0), (0.5, 3.0)])
+    result = render(inputs, ["frontiers"], frontiers=[marker])
+    assert result.layers_present == ["frontiers"] and result.layers_missing == {}
+    v = CENTRE - 1.0 / SCALE  # target 1 m straight ahead: image up
+    assert has_color(result.image, COLOR_FRONTIER, CENTRE, v, tol_px=1)
+    assert has_color(result.image, COLOR_FRONTIER, CENTRE - 0.5 / SCALE, v)  # the second cell is 0.5 m to the left
+
+
+def test_frontier_marker_is_numbered_on_a_white_backing() -> None:
+    inputs = TopdownInputs(pose=(0.0, 0.0, 0.0))
+    result = render(inputs, ["frontiers"], frontiers=[frontier(12, (1.0, 0.0), [(1.0, 0.0)])])
+    v = CENTRE - 1.0 / SCALE
+    window = result.image[int(v) - 14 : int(v) + 15, int(CENTRE) - 14 : int(CENTRE) + 30]
+    assert np.any(np.all(window == 255, axis=-1)), "white backing behind the number"
+    assert np.any(np.all(window == 0, axis=-1)), "black digits"
+    other = render(inputs, ["frontiers"], frontiers=[frontier(34, (1.0, 0.0), [(1.0, 0.0)])]).image
+    assert not np.array_equal(other, result.image)  # the id text is what differs
+
+
+def test_frontier_marker_outside_the_view_is_skipped() -> None:
+    inputs = TopdownInputs(pose=(0.0, 0.0, 0.0))
+    far = frontier(3, (50.0, 0.0), [(50.0, 0.0)])
+    base = render(inputs, ["frontiers"], frontiers=[]).image
+    assert np.array_equal(render(inputs, ["frontiers"], frontiers=[far]).image, base)
+
+
+def test_frontier_legend_entry_names_the_id_source() -> None:
+    assert "frontiers" in ALL_LAYERS
+    assert LEGEND_ENTRIES["frontiers"][0] == "frontier (number = list_frontiers id)"
+    assert LEGEND_ENTRIES["frontiers"][1] == COLOR_FRONTIER
+    with_layer = render(pose_inputs(), ["frontiers"], frontiers=[]).image
+    without = render(pose_inputs(), ["footprint"]).image
+    assert not np.array_equal(with_layer[:16, :200], without[:16, :200])  # the legend row differs
+
+
+def test_frontier_layer_missing_reason_and_nothing_drawn() -> None:
+    result = render(pose_inputs(missing={"frontiers": "/map unavailable"}), ["frontiers"], frontiers=None)
+    assert result.layers_present == [] and result.layers_missing == {"frontiers": "/map unavailable"}
+    default = render(pose_inputs(), ["frontiers"])
+    assert "frontiers" in default.layers_missing and default.layers_missing["frontiers"]
+    nopose = render(TopdownInputs(pose=None), ["frontiers"], frontiers=[frontier(1, (0, 1), [(0, 1)])])
+    assert "pose" in nopose.layers_missing["frontiers"]
