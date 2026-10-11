@@ -14,6 +14,8 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    HookCallback,
+    HookMatcher,
     ResultMessage,
     StreamEvent,
     ToolResultBlock,
@@ -53,7 +55,18 @@ from .poi_clear import PoiClearResult, call_clear_agent_pois
 from .prompt import build_system_prompt
 from .robot_events import FOLLOWUP_TEMPLATE, SEVERITY_CRITICAL, parse_robot_event
 from .robot_stop import STOP_TOOL_NAME, RobotStopResult, call_robot_stop
-from .tools import BUILTIN_TOOLS, KIND_UNCAPPED, MCP_SERVER_NAME, NOTES_TOOLS, ROBOT_PREFIX, EffectorGate, short_name
+from .tools import (
+    BUILTIN_TOOLS,
+    KIND_EFFECTOR,
+    KIND_UNCAPPED,
+    MCP_SERVER_NAME,
+    NOTES_TOOLS,
+    ROBOT_PREFIX,
+    TIME_LEFT_TEXT,
+    EffectorGate,
+    classify_tool,
+    short_name,
+)
 
 REMOVED_ENV_KEYS = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")
 # Sources of the stop call shown in the chat (the `source` field of its tool_call/tool_result events).
@@ -136,7 +149,12 @@ def build_child_env(base_env: Mapping[str, str], config: ClaudeAgentConfig | Non
 
 
 def build_options(
-    config: ClaudeAgentConfig, token: str, gate: EffectorGate, env: dict[str, str], system_prompt: str
+    config: ClaudeAgentConfig,
+    token: str,
+    gate: EffectorGate,
+    env: dict[str, str],
+    system_prompt: str,
+    post_tool_use: HookCallback | None = None,
 ) -> ClaudeAgentOptions:
     """Build the SDK options: the robot MCP tools, the in-process planning server and the five notes file tools, permissions decided by the gate.
 
@@ -146,6 +164,7 @@ def build_options(
         gate (EffectorGate): Permission callback; its plan tracker backs the ``agent`` server's planning tools.
         env (dict[str, str]): Child environment from build_child_env.
         system_prompt (str): System prompt text.
+        post_tool_use (HookCallback | None): PostToolUse hook whose context is appended to every tool result.
 
     Returns:
         ClaudeAgentOptions: Options whose built-in tools are exactly Read/Write/Edit/Glob/Grep (the gate confines them to
@@ -169,6 +188,7 @@ def build_options(
         disallowed_tools=list(BUILTIN_TOOLS),
         permission_mode="default",
         can_use_tool=gate.can_use_tool,
+        hooks={"PostToolUse": [HookMatcher(hooks=[post_tool_use])]} if post_tool_use else None,
         setting_sources=[],
         mcp_servers={
             MCP_SERVER_NAME: {"type": "http", "url": config.mcp_url, "headers": {"Authorization": f"Bearer {token}"}},
@@ -230,6 +250,7 @@ class AgentRunner:
             on_phase_completed=self.emit_phase_completed,
             on_plan_revised=self.emit_plan_revised,
             logger=self.logger,
+            time_left=self.instruction_time_left,
         )
         self.plan = self.gate.plan
         self.busy = False
@@ -246,6 +267,7 @@ class AgentRunner:
         self.interrupt_pending = False
         self.interrupt_deferred = False
         self.tools_in_flight: dict[str, str] = {}
+        self.tool_started_at: dict[str, float] = {}
         self.clock: Callable[[], float] = time.monotonic
         self.last_instruction: str | None = None
         self.last_status = ""
@@ -264,6 +286,42 @@ class AgentRunner:
         self.instruction_started_at = time.monotonic()
         self.session_totals: dict[str, float] = {}
         SECONDS_SINCE_ACTIVITY.set_function(self.seconds_since_activity)
+
+    def instruction_time_left(self) -> float:
+        """Seconds until the instruction watchdog fires.
+
+        Returns:
+            float: instruction_timeout_s minus the time since the instruction started, never below 0.
+        """
+        return max(0.0, self.config.instruction_timeout_s - (time.monotonic() - self.instruction_started_at))
+
+    async def add_time_left(self, _input_data: Any, tool_use_id: str | None, context: Any) -> dict[str, Any]:
+        """PostToolUse hook: add the remaining instruction time to every tool result the model sees.
+
+        Args:
+            _input_data (Any): Hook input (unused).
+            tool_use_id (str | None): Id of the finished call (unused).
+            context (Any): Hook context (unused).
+
+        Returns:
+            dict[str, Any]: hookSpecificOutput whose additionalContext reads "instruction time left: N s".
+        """
+        text = TIME_LEFT_TEXT.format(left=self.instruction_time_left())
+        return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}}
+
+    def cut_off_call(self) -> dict[str, Any] | None:
+        """The tool call still running now (an effector one preferred, else the latest started).
+
+        Returns:
+            dict[str, Any] | None: {name, id, elapsed_s}, or None when no call is in flight.
+        """
+        if not self.tools_in_flight:
+            return None
+        calls = list(self.tools_in_flight.items())
+        effectors = [c for c in calls if classify_tool(self.config, c[1]) == KIND_EFFECTOR]
+        call_id, full_name = (effectors or calls)[-1]
+        elapsed = self.clock() - self.tool_started_at.get(call_id, self.clock())
+        return {"name": short_name(full_name), "id": call_id, "elapsed_s": round(elapsed, 1)}
 
     def seconds_since_activity(self) -> float:
         """Seconds since the last activity (the session start before any), for the scrape-time gauge.
@@ -552,6 +610,7 @@ class AgentRunner:
                 self.gate,
                 build_child_env(self.base_env, self.config),
                 build_system_prompt(self.config),
+                self.add_time_left,
             )
             client = self.client_factory(options)
             try:
@@ -704,10 +763,18 @@ class AgentRunner:
         """The watchdog expired: stop the robot, interrupt and discard the session, end the turn as "timeout"."""
         WATCHDOG_FIRES.inc()
         message = f"instruction timed out after {self.config.instruction_timeout_s:g} s"
+        cut_off = self.cut_off_call()
+        fields: dict[str, Any] = {}
+        if cut_off is not None:
+            message += (
+                f"; {cut_off['name']} was cut off after running for {cut_off['elapsed_s']:g} s "
+                "(the robot was stopped, so the arm may be left mid-motion)"
+            )
+            fields["cut_off_call"] = cut_off
         self.logger.error(message)
         await self.halt(STOP_SOURCE_TIMEOUT)
         await self.drop_client()
-        self.events.append("error", message=message)
+        self.events.append("error", message=message, **fields)
         self.end_turn(status=STATUS_TIMEOUT, cost_usd=0.0, num_turns=0, effector_calls=self.plan.rw_used)
 
     async def start_session(self) -> ClientLike:
@@ -740,6 +807,7 @@ class AgentRunner:
         followup: str | None = None
         self.streaming = True
         self.tools_in_flight = {}
+        self.tool_started_at = {}
         self.interrupt_deferred = False
         try:
             async for message in client.receive_response():
@@ -753,6 +821,7 @@ class AgentRunner:
                         if isinstance(block, ToolUseBlock):
                             TOOL_USES.labels(block.name).inc()
                             self.tools_in_flight[block.id] = block.name
+                            self.tool_started_at[block.id] = self.clock()
                 if isinstance(message, UserMessage):
                     self.note_tool_results(message)
                 for event_type, fields in normalize_message(message, self.config):
@@ -862,6 +931,7 @@ class AgentRunner:
             if not isinstance(block, ToolResultBlock):
                 continue
             name = short_name(self.tools_in_flight.pop(block.tool_use_id, block.tool_use_id))
+            self.tool_started_at.pop(block.tool_use_id, None)
             if not block.is_error or self.interrupted or GENERIC_REJECTION_MARKER not in str(block.content):
                 continue
             self.logger.warning(f"tool call {name} ({block.tool_use_id}) was cancelled by Claude Code")

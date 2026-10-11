@@ -196,3 +196,10 @@ def test_mcp_check_timeout_default_and_validation() -> None:
     assert ClaudeAgentConfig().mcp_check_timeout_s == 30.0
     with pytest.raises(ValueError):
         ClaudeAgentConfig(mcp_check_timeout_s=0)
+
+
+def test_min_effector_time_left_defaults_to_60_and_must_not_be_negative() -> None:
+    assert ClaudeAgentConfig().min_effector_time_left_s == 60.0
+    assert ClaudeAgentConfig(min_effector_time_left_s=0).min_effector_time_left_s == 0
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig(min_effector_time_left_s=-1)

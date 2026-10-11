@@ -359,6 +359,12 @@ Covers:
   blending, queue at least 2 steps deep, `wait_for_event` instead of polling, `get_motion_status`, `cancel_motions` /
   `replace=true` on surprises, checkpoints only), the safety rules restated for queued motions (roll guard, negative
   elbow_flex stretches the arm, slow zone, stop), `look_around` `return_to_start`
+- instruction time budget (`test_tools.py`, `test_runner.py`, `test_config.py`, `test_prompt.py`): `min_effector_time_left_s` default 60 and not
+  negative; effector calls denied below the minimum with the explicit reason (time left, minimum, report and end the instruction) and not
+  counted as rw; allowed at the minimum; stop, cancel_motions, release_object, acquire/release_control and an opening `set_gripper`
+  allowed with no time left, a closing one denied; sensors and planning tools unaffected; a PostToolUse hook adds `instruction time left: N s`
+  (never negative); the timeout `error` event names the cut-off call (`cut_off_call` name and elapsed) and stays plain with no call in flight;
+  the prompt states the rule
 - shutdown stop (`test_robot_stop.py`, `test_runner.py`): a refused connection is reported as `unreachable` with a plain
   reason (no raw `ExceptionGroup`), tool errors of a reachable server are not; at shutdown an unreachable mcp_server is
   logged at INFO (an ERROR outside shutdown) and a hanging stop is bounded by `shutdown_stop_timeout_s`

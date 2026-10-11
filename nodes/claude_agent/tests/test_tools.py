@@ -392,3 +392,62 @@ async def test_a_failing_denial_callback_still_returns_the_explicit_denial(caplo
         result = await gate.can_use_tool("mcp__robot__drive", {}, ctx("y"))
     assert isinstance(result, PermissionResultDeny) and result.message == "call agent.set_task_plan first"
     assert "ui sink down" in caplog.text
+
+
+MIN_LEFT_S = 60.0
+
+
+def gate_with_time_left(left: float, **kwargs) -> EffectorGate:
+    gate = EffectorGate(ClaudeAgentConfig(min_effector_time_left_s=MIN_LEFT_S), time_left=lambda: left, **kwargs)
+    gate.plan.set_plan("simple", "test", [one_phase(rw=20)])
+    return gate
+
+
+@pytest.mark.parametrize("name", ["drive", "grasp_object", "arm_home", "navigate_to_pose", "enqueue_motions"])
+async def test_effector_denied_below_the_minimum_instruction_time_left(name: str) -> None:
+    denied: list[dict] = []
+    gate = gate_with_time_left(59.0, on_denied=denied.append)
+    result = await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx("t"))
+    assert isinstance(result, PermissionResultDeny)
+    assert "instruction time left: 59 s" in result.message
+    assert "below the 60 s minimum" in result.message
+    assert "report" in result.message and "end the instruction" in result.message
+    assert denied == [{"id": "t", "name": name, "reason": result.message}]
+    assert gate.plan.rw_used == 0
+
+
+async def test_effector_allowed_at_or_above_the_minimum_time_left() -> None:
+    gate = gate_with_time_left(60.0)
+    assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)
+
+
+@pytest.mark.parametrize("name", ["stop", "cancel_motions", "release_object", "acquire_control", "release_control"])
+async def test_safety_tools_allowed_with_no_time_left(name: str) -> None:
+    gate = gate_with_time_left(1.0)
+    assert isinstance(await gate.can_use_tool(f"mcp__robot__{name}", {}, ctx()), PermissionResultAllow)
+
+
+async def test_set_gripper_open_allowed_but_close_denied_with_no_time_left() -> None:
+    gate = gate_with_time_left(1.0)
+    allowed = [{"open_fraction": 1.0}, {"open_fraction": 0.5}]
+    for args in allowed:
+        assert isinstance(await gate.can_use_tool("mcp__robot__set_gripper", args, ctx()), PermissionResultAllow)
+    for args in (
+        {"open_fraction": 0.2},
+        {"close_until_effort": True},
+        {"open_fraction": 1.0, "close_until_effort": True},
+        {},
+    ):
+        result = await gate.can_use_tool("mcp__robot__set_gripper", args, ctx())
+        assert isinstance(result, PermissionResultDeny), args
+
+
+async def test_sensors_and_planning_tools_ignore_the_time_left() -> None:
+    gate = gate_with_time_left(1.0)
+    assert isinstance(await gate.can_use_tool("mcp__robot__get_robot_state", {}, ctx()), PermissionResultAllow)
+    assert isinstance(await gate.can_use_tool("mcp__agent__complete_phase", {}, ctx()), PermissionResultAllow)
+
+
+async def test_gate_without_a_time_source_never_denies_on_time() -> None:
+    gate = gate_with_plan()
+    assert isinstance(await gate.can_use_tool("mcp__robot__drive", {}, ctx()), PermissionResultAllow)

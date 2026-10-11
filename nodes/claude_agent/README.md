@@ -231,6 +231,14 @@ itself releases the arm lease when it shuts down.
 
 ## Watchdog and session start
 
+Time budget: a PostToolUse hook appends `instruction time left: N s` to every tool result, and the permission gate
+denies an effector call with an explicit reason (report and end the instruction) when fewer than
+`min_effector_time_left_s` (60) seconds are left, so a slow grasp or gripper close is not started just to be cut off.
+Still allowed with no time left: the uncapped tools (`stop`, `cancel_motions`, `acquire_control`, `release_control`),
+`release_object` and `set_gripper` that opens (`close_until_effort` unset and `open_fraction >= 0.5`). `arm_home` and
+the rest of the effectors are refused (they start a motion). When the watchdog still fires mid-call, the `error` event
+names the cut-off call and its elapsed time (`cut_off_call: {name, id, elapsed_s}`) after the robot stop.
+
 Each instruction runs under `instruction_timeout_s` (900): on expiry the model is interrupted, the robot stopped, the
 session discarded, an `error` event and `turn_end` status `timeout` are emitted and `busy` is cleared. Starting the
 Claude session is bounded by `connect_timeout_s` (240); a failure or timeout is an `error` event and clears `busy`. The
@@ -283,6 +291,7 @@ unknown keys are rejected.
 | `nav_intermediate_xy_tolerance_cm` / `nav_intermediate_yaw_tolerance_deg` | `3.0` / `5.0` | Tolerance at which a default navigation goal ends early (stated in the prompt; `precise=true` gives the values above; keep equal to mcp_server `nav.intermediate_*`) |
 | `camera_note` | see `config.py` | Camera mounting (angled gripper camera looks slightly from left to right, upright images) and the overhead `front` camera (640x480, looks down at the front of the robot and the arm; overview first, judge arm-to-object distance) |
 | `instruction_timeout_s` | `900` | Watchdog per instruction |
+| `min_effector_time_left_s` | `60` | Effector calls are denied when less instruction time is left (see Watchdog); the default needs no Ansible override |
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |
 | `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |
 | `mcp_check_timeout_s` | `30` | Bound for each step of the robot MCP server check before an instruction (status query, pending wait, reconnect) and for the `/metrics` reachability probe |

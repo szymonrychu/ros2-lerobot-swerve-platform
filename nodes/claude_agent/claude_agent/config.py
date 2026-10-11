@@ -119,6 +119,8 @@ class ClaudeAgentConfig(BaseModel):
         nav_intermediate_yaw_tolerance_deg: Heading tolerance at which a default goal ends early, stated in the prompt.
         camera_note: Description of the gripper camera mounting and image orientation, stated in the prompt.
         instruction_timeout_s: Watchdog per instruction; on expiry the model is interrupted, the robot stopped and the turn ends as "timeout".
+        min_effector_time_left_s: The permission gate denies an effector call (except stop/cancel/release-type safety tools and
+            an opening set_gripper) when less instruction time than this is left, so the watchdog never cuts a motion in half.
         connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
         stop_timeout_s: Bound for the robot ``stop`` call and for the model interrupt, each.
         shutdown_stop_timeout_s: Shorter bound for the robot ``stop`` call at service shutdown (mcp_server may be gone).
@@ -165,6 +167,7 @@ class ClaudeAgentConfig(BaseModel):
     nav_intermediate_yaw_tolerance_deg: float = Field(default=DEFAULT_NAV_INTERMEDIATE_YAW_TOLERANCE_DEG, gt=0)
     camera_note: str = DEFAULT_CAMERA_NOTE
     instruction_timeout_s: float = Field(default=900.0, gt=0)
+    min_effector_time_left_s: float = Field(default=60.0, ge=0)
     connect_timeout_s: float = Field(default=240.0, gt=0)
     stop_timeout_s: float = Field(default=5.0, gt=0)
     shutdown_stop_timeout_s: float = Field(default=2.0, gt=0)

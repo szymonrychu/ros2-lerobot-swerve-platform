@@ -431,3 +431,9 @@ def test_prompt_says_tool_rejections_never_come_from_the_user() -> None:
     assert "never from the person" in lower
     assert "budget gate" in lower
     assert "re-run" in lower
+
+
+def test_prompt_explains_the_instruction_time_left_rule() -> None:
+    text = build_system_prompt(ClaudeAgentConfig(min_effector_time_left_s=45))
+    assert "instruction time left" in text
+    assert "45 s" in text

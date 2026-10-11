@@ -1,15 +1,19 @@
 """AgentRunner with a fake Claude client: options, turn flow, busy handling, interrupt, reset, auth errors."""
 
 import asyncio
+import re
+import time
 from pathlib import Path
 
 import pytest
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
+    PermissionResultDeny,
     ResultMessage,
     StreamEvent,
     TextBlock,
+    ToolPermissionContext,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -1275,3 +1279,87 @@ async def test_mcp_status_failure_is_logged_and_the_instruction_runs(
         await run_one(runner)
     assert FakeClient.instances[0].queries == ["pick up the croc"]
     assert "control request unsupported" in caplog.text
+
+
+async def post_tool_use_context(runner: AgentRunner) -> str:
+    """Run the PostToolUse hook of the session options like the SDK does and return the context it adds."""
+    matchers = FakeClient.instances[-1].options.hooks["PostToolUse"]
+    out = await matchers[0].hooks[0]({"hook_event_name": "PostToolUse", "tool_name": "mcp__robot__drive"}, "t1", {})
+    assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+    return out["hookSpecificOutput"]["additionalContext"]
+
+
+async def test_tool_results_carry_the_instruction_time_left(tmp_path: Path) -> None:
+    cfg = ClaudeAgentConfig(mcp_token_file=str(tmp_path / "token"), instruction_timeout_s=900)
+    runner, _, _ = make_runner(tmp_path, config=cfg, script=[make_result()])
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    runner.instruction_started_at = time.monotonic() - 300
+    text = await post_tool_use_context(runner)
+    assert re.fullmatch(r"instruction time left: (59\d|600) s", text), text
+
+
+async def test_time_left_never_goes_negative(tmp_path: Path) -> None:
+    cfg = ClaudeAgentConfig(mcp_token_file=str(tmp_path / "token"), instruction_timeout_s=900)
+    runner, _, _ = make_runner(tmp_path, config=cfg, script=[make_result()])
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    runner.instruction_started_at = time.monotonic() - 2000
+    assert await post_tool_use_context(runner) == "instruction time left: 0 s"
+
+
+async def test_runner_gate_denies_effectors_when_the_instruction_is_nearly_out_of_time(tmp_path: Path) -> None:
+    cfg = ClaudeAgentConfig(mcp_token_file=str(tmp_path / "token"), instruction_timeout_s=900)
+    runner, _, _ = make_runner(tmp_path, config=cfg, script=[make_result()])
+    await runner.start_instruction("go")
+    await runner.wait_idle()
+    runner.gate.plan.set_plan("simple", "test", [{"name": "w", "goal": "g", "rw_cap": 5, "turn_cap": 20}])
+    runner.instruction_started_at = time.monotonic() - 850
+    result = await runner.gate.can_use_tool("mcp__robot__drive", {}, ToolPermissionContext(tool_use_id="t"))
+    assert isinstance(result, PermissionResultDeny)
+    assert "instruction time left" in result.message
+
+
+async def test_timeout_event_names_the_effector_call_that_was_cut_off(tmp_path: Path) -> None:
+    stopper = FakeStopper()
+    cfg = ClaudeAgentConfig(mcp_token_file=str(tmp_path / "token"), instruction_timeout_s=0.3)
+    runner, events, _ = make_runner(tmp_path, config=cfg, stopper=stopper)
+
+    async def call_then_hang(client: FakeClient) -> None:
+        await asyncio.sleep(3600)
+
+    runner.client_factory = lambda options: _scripted(
+        options,
+        [
+            AssistantMessage(
+                content=[ToolUseBlock(id="g1", name="mcp__robot__set_gripper", input={"close_until_effort": True})],
+                model="opus",
+            ),
+            call_then_hang,
+        ],
+    )
+    await runner.start_instruction("grab it")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    errors = [e for e in events.history() if e["type"] == "error"]
+    assert len(errors) == 1
+    message = errors[0]["message"]
+    assert "instruction timed out after 0.3 s" in message
+    assert "set_gripper" in message and "cut off" in message
+    assert re.search(r"running for \d+(\.\d+)? s", message)
+    assert errors[0]["cut_off_call"]["name"] == "set_gripper"
+    assert errors[0]["cut_off_call"]["elapsed_s"] >= 0
+
+
+async def test_timeout_without_a_call_in_flight_keeps_the_plain_message(tmp_path: Path) -> None:
+    cfg = ClaudeAgentConfig(mcp_token_file=str(tmp_path / "token"), instruction_timeout_s=0.2)
+    runner, events, _ = make_runner(tmp_path, config=cfg, stopper=FakeStopper())
+
+    async def never_finish(client: FakeClient) -> None:
+        await asyncio.sleep(3600)
+
+    runner.client_factory = lambda options: _scripted(options, [never_finish])
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    errors = [e for e in events.history() if e["type"] == "error"]
+    assert errors[0]["message"] == "instruction timed out after 0.2 s"
+    assert "cut_off_call" not in errors[0]

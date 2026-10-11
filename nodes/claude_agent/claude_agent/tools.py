@@ -19,6 +19,16 @@ KIND_UNCAPPED = "uncapped"
 KIND_NOTES = "notes"
 KIND_PLAN = "plan"
 AGENT_PREFIX = "mcp__agent__"
+TIME_LEFT_TEXT = "instruction time left: {left:.0f} s"
+TIME_BUDGET_MESSAGE = (
+    "{name} denied: " + TIME_LEFT_TEXT + ", below the {minimum:g} s minimum for starting a motion (the instruction "
+    "watchdog would cut it off half done). Do not start new motions: report what is done and what is left, and end the "
+    "instruction (stop, cancel_motions, release_object and opening the gripper are still allowed)"
+)
+# Effector tools that stay allowed with no instruction time left: they release or stop, never start a new motion.
+TIME_EXEMPT_EFFECTORS = ("release_object",)
+# set_gripper counts as opening (allowed) from this open_fraction up, unless close_until_effort is set.
+SAFE_OPEN_FRACTION = 0.5
 INTERNAL_ERROR_MESSAGE = (
     "internal error in the permission gate: {error}; the call did not run. This refusal comes from an error in the "
     "agent runner, not the user: retry the call once, or report the error"
@@ -125,6 +135,23 @@ def check_notes_input(workdir: str, tool_name: str, tool_input: dict[str, Any]) 
     return None
 
 
+def is_opening(tool_input: dict[str, Any]) -> bool:
+    """Whether a set_gripper call opens the gripper (never starts a grasp).
+
+    Args:
+        tool_input (dict[str, Any]): set_gripper arguments.
+
+    Returns:
+        bool: True when close_until_effort is not set and open_fraction is at least SAFE_OPEN_FRACTION.
+    """
+    fraction = tool_input.get("open_fraction")
+    return (
+        not tool_input.get("close_until_effort")
+        and isinstance(fraction, int | float)
+        and fraction >= SAFE_OPEN_FRACTION
+    )
+
+
 class EffectorGate:
     """Permission callback: gates robot tools on the agent's plan and counts ro (sensor) / rw (effector) calls per phase.
 
@@ -147,6 +174,7 @@ class EffectorGate:
         on_phase_completed: Callable[[dict[str, Any]], None] | None = None,
         on_plan_revised: Callable[[dict[str, Any]], None] | None = None,
         logger: logging.Logger | Any = None,
+        time_left: Callable[[], float] | None = None,
     ) -> None:
         """Create the gate.
 
@@ -160,6 +188,8 @@ class EffectorGate:
             on_plan_revised (Callable[[dict], None] | None): Called with the plan payload after a revision.
             logger (logging.Logger | Any): Object with error(str) for internal gate errors; defaults to the stdlib
                 ``claude_agent`` logger.
+            time_left (Callable[[], float] | None): Seconds of instruction time left; effector calls are denied below
+                ``config.min_effector_time_left_s`` (None disables the check).
         """
         self.config = config
         self.plan = PlanTracker(
@@ -171,6 +201,7 @@ class EffectorGate:
             on_change=on_count,
         )
         self.on_denied = on_denied
+        self.time_left = time_left
         self.logger = logger or logging.getLogger("claude_agent")
 
     def reset(self) -> None:
@@ -194,6 +225,27 @@ class EffectorGate:
             except Exception as exc:  # noqa: BLE001 - a broken event sink must not turn into a CLI-side rejection
                 self.logger.error(f"recording the denial of {name} failed: {type(exc).__name__}: {exc}")
         return PermissionResultDeny(message=reason)
+
+    def time_budget_denial(self, name: str, tool_input: dict[str, Any]) -> str | None:
+        """Reason to refuse an effector call because too little instruction time is left.
+
+        Args:
+            name (str): Short tool name.
+            tool_input (dict[str, Any]): Tool arguments (set_gripper: open_fraction, close_until_effort).
+
+        Returns:
+            str | None: The denial reason, or None when time suffices, no time source is set, or the tool is a
+            release/opening one (release_object, set_gripper with close_until_effort false and open_fraction >= 0.5).
+        """
+        if self.time_left is None or name in TIME_EXEMPT_EFFECTORS:
+            return None
+        left = self.time_left()
+        minimum = self.config.min_effector_time_left_s
+        if left >= minimum:
+            return None
+        if name == "set_gripper" and is_opening(tool_input):
+            return None
+        return TIME_BUDGET_MESSAGE.format(name=name, left=left, minimum=minimum)
 
     async def can_use_tool(
         self, tool_name: str, tool_input: dict[str, Any], context: ToolPermissionContext
@@ -239,6 +291,10 @@ class EffectorGate:
             return PermissionResultAllow()
         if kind is None:
             return self.deny(context.tool_use_id, tool_name, NOT_AVAILABLE_MESSAGE.format(name=tool_name))
+        if kind == KIND_EFFECTOR:
+            reason = self.time_budget_denial(short_name(tool_name), tool_input)
+            if reason:
+                return self.deny(context.tool_use_id, short_name(tool_name), reason)
         if kind in (KIND_SENSOR, KIND_EFFECTOR):
             reason = self.plan.charge(kind)
             if reason:

@@ -71,6 +71,11 @@ Body awareness: every tool result carries robot_events_since_last_call and vital
 when something seems off (heat, load, battery, tilt). Motion results give expected vs achieved and interrupted_by: \
 after an interruption re-check with sensors. A critical event may interrupt you with a ROBOT EVENT message.
 
+Time: every tool result ends with 'instruction time left: N s'. An effector call (a grasp or gripper close can take \
+minutes) is refused when less than {min_time_left} s are left - then stop starting motions, report what is done and \
+what is not, and end the instruction; stop, cancel_motions, release_object and opening the gripper stay allowed. \
+Do not start a long motion you cannot finish in the time left.
+
 Robot body: seen from above the robot looks like the letter H - two side frames (about 5 cm tall, holding the \
 steering servos) run above the wheels, a crossbar between them carries the arm base, and the lidar dome stands \
 front-left of the arm. The wheels steer, so their whole steering circle counts. The arm can hit these: every arm \
@@ -231,6 +236,7 @@ def build_system_prompt(config: ClaudeAgentConfig) -> str:
         max_rw=config.max_rw_cap,
         max_turns=config.max_turn_cap,
         workdir=config.workdir,
+        min_time_left=f"{config.min_effector_time_left_s:g}",
         reach=f"{config.arm_reach_cm:g}",
         base_height=f"{config.arm_base_height_m * 100:g}",
         camera_note=config.camera_note.strip(),
