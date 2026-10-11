@@ -114,7 +114,9 @@ Contract of `/robot_events` (`nodes/claude_agent/claude_agent/robot_events.py`):
 Events are published **only while the agent is busy**: `GET agent_state_url` returns `busy: true`. The flag is
 fetched at most every `agent_poll_s` with an `agent_timeout_s` timeout, from the guard worker thread (never the
 executor). An unreachable agent, a timeout or a malformed answer counts as not busy. In dry run the events are still
-sent while busy, with the message prefixed `[dry run] ` and severity always `warning`.
+sent while busy, with the message prefixed `[dry run] `. Dry run only suppresses the slam_toolbox calls and the reset topic: lifted / carried
+`map_guard_disturbed` events stay `critical` so a lift interrupts the agent; every other event is `warning` in dry run
+(including the would-have-reset event).
 
 ## Metrics
 

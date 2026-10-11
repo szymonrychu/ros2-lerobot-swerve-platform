@@ -89,14 +89,15 @@ def event_severity(kind: str, reason: str, dry_run: bool) -> str:
     Args:
         kind (str): EVENT_* type.
         reason (str): Trigger reason.
-        dry_run (bool): Dry run (never critical).
+        dry_run (bool): Dry run: a reset is only a would-have-reset, so it is a warning.
 
     Returns:
-        str: "critical" for a reset and for a lifted/carried disturbance, else "warning".
+        str: "critical" for a lifted/carried disturbance (also in dry run, the agent must stop driving) and for
+            a real reset, else "warning".
     """
-    if dry_run:
-        return SEVERITY_WARNING
-    if kind == EVENT_RESET or (kind == EVENT_DISTURBED and reason in STOP_DRIVING_REASONS):
+    if kind == EVENT_DISTURBED and reason in STOP_DRIVING_REASONS:
+        return SEVERITY_CRITICAL
+    if kind == EVENT_RESET and not dry_run:
         return SEVERITY_CRITICAL
     return SEVERITY_WARNING
 
@@ -118,7 +119,7 @@ def build_event(
         kind (str): EVENT_* type.
         reason (str): Trigger reason.
         ratio (float | None): Latest agreement median, None when unknown.
-        dry_run (bool): Dry run: message prefixed with "[dry run] ", severity warning.
+        dry_run (bool): Dry run: message prefixed with "[dry run] ", reset is a warning (lift/carry stay critical).
         data (dict[str, Any] | None): Extra data fields.
 
     Returns:

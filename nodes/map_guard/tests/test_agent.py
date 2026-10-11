@@ -122,12 +122,23 @@ def test_severity_by_kind_and_reason(kind: str, reason: str, severity: str) -> N
     assert event is not None and event["severity"] == severity
 
 
-@pytest.mark.parametrize("kind", [EVENT_DISTURBED, EVENT_RESET, EVENT_RESUMED])
-def test_dry_run_events_are_warnings_with_prefix(kind: str) -> None:
+@pytest.mark.parametrize(
+    ("kind", "reason", "severity"),
+    [
+        (EVENT_DISTURBED, "lifted", "critical"),
+        (EVENT_DISTURBED, "carried", "critical"),
+        (EVENT_DISTURBED, "rotated", "warning"),
+        (EVENT_DISTURBED, "mismatch", "warning"),
+        (EVENT_RESUMED, "lifted", "warning"),
+        (EVENT_RESET, "mismatch", "warning"),
+        (EVENT_RESET, "lifted", "warning"),
+    ],
+)
+def test_dry_run_severity_keeps_lift_critical(kind: str, reason: str, severity: str) -> None:
     notifier, published = make_notifier({"busy": True}, dry_run=True)
-    event = notifier.notify(0.0, kind, "lifted", 0.2)
+    event = notifier.notify(0.0, kind, reason, 0.2)
     assert event is not None
-    assert event["severity"] == "warning"
+    assert event["severity"] == severity
     assert event["message"].startswith("[dry run] ")
     assert event["data"]["dry_run"] is True
     assert len(published) == 1
