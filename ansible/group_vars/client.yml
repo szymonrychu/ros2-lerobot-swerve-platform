@@ -1786,6 +1786,7 @@ ros2_nodes:
         - grasp_object
         - release_object
         - enqueue_motions
+        - resume_motions
       uncapped_tools:
         - stop
         - take_control
@@ -1800,6 +1801,7 @@ ros2_nodes:
         - get_control_state
         - get_motion_status
         - wait_for_event
+        - check_guard_rules
         - get_robot_state
         - get_camera_image
         - get_map_summary

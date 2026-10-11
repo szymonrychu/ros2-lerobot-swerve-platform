@@ -1143,7 +1143,14 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   refused while the queue runs and allowed again afterwards; `enqueue_motions` refused while a blocking motion tool
   runs; `stop` clears the queue and reports `motion_queue_dropped`; `cancel_motions`; infeasible steps are tool errors;
   `replace`; `until='failure'` returns `idle` at once; the process shutdown hook (`stop_queued_motion`) clears a busy
-  queue and stops the robot, and leaves an idle robot alone
+  queue and stops the robot, and leaves an idle robot alone; `watch_constraints` validation errors (bad metric / op /
+  missing joint / `for_s` / action / non-finite value, too many per call) queue nothing, a watched enqueue shows in
+  `get_motion_status.watches`; `resume_motions` no-op when not paused, refused while the watch still violates, resumes
+  once clear; the descriptions of `enqueue_motions`, `resume_motions`, `wait_for_event` and `get_motion_status` mention
+  the watch fields, pause and resume
+- guard rule tool (`test_guard_tools.py`): `check_guard_rules` is always allowed; reject / pass / unknown verdicts carry
+  the observed values and message; off rules are `skip`, unruled tools give `[]`; no hit counter changes and no log
+  line; the description says arm-target rules are evaluated at motion start
 - spin (`test_base_motion.py`): `run_spin` turns the measured angle with marks in order at the right rotation and ends
   with a zero twist, clamps the yaw rate, ends on stop, a critical event, a refused mark, a lost pose or the timeout,
   rejects a zero angle or rate

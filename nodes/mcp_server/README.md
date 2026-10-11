@@ -52,7 +52,9 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `get_topdown_view(radius_m=2.5, layers=all, px=480)` | Robot-up PNG centred on the robot (see Perception and memory) plus metadata `pose`, `scale_m_per_px`, `layers_present`, `layers_missing` (reason each), `data_ages`. Sensor. |
 | `remember_object` / `list_objects` / `forget_object` | Object memory in map coordinates, stored as object POIs in poi_store (merge, distance/bearing from the robot). Sensor. |
 | `look_around(captures=4, camera='front', mode=None, return_to_start=None)` | Effector, ONE motion call: in-place turn through equal headings with a camera frame and lidar summary per heading. `mode` `spin` (default, `look_around.mode`): one continuous slow rotation; `steps`: one precise Nav2 rotation per heading. Ends facing the last heading unless `return_to_start=true` (default `look_around.return_to_start`, false). |
-| `enqueue_motions(steps, replace=false)` | Effector: queue motion steps and return at once (job ids, queue length, blend groups). See [Motion queue](#motion-queue). |
+| `enqueue_motions(steps, replace=false, watch_constraints=None)` | Effector: queue motion steps and return at once (job ids, queue length, blend groups); `watch_constraints` abort or pause the queue on a sensor condition. See [Motion queue](#motion-queue). |
+| `resume_motions` | Effector (battery gate): continue a queue paused by a watch constraint; refused while a watch of the pending steps still violates; a no-op message when not paused. |
+| `check_guard_rules(tool, arguments={})` | Sensor, read-only: the tool-phase guard rule verdicts (`pass` / `reject` / `skip`, basis, message, observed values) a call would get now; no counters, no logs, nothing moves. Arm-target rules are evaluated at motion start, so they are not predicted. |
 | `get_motion_status` | Queue snapshot (sensor): running, current step (elapsed, phase, planning_s, progress, blend group), pending steps, last events. |
 | `cancel_motions` | Uncapped control: drop the pending steps and abort the running one (base zeroed, arm held when a motion step runs). |
 | `wait_for_event(timeout_s, until='queue_empty', since_seq)` | Sensor: block until the queue drains or something relevant happens; returns the new events, the queue status and a compact state digest. |
@@ -432,8 +434,8 @@ partition every tool):
 
 | Class | Tools |
 |---|---|
-| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` |
-| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `plan_grasp`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi`, `list_lookups`, `get_lookup_image`, `annotate_lookup` |
+| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions`, `resume_motions` |
+| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `check_guard_rules`, `plan_grasp`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi`, `list_lookups`, `get_lookup_image`, `annotate_lookup` |
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
 
@@ -1246,7 +1248,7 @@ returns the events not returned before (`since_seq` overrides the cursor) plus t
 
 **Single motion owner.** While the queue is busy (a step runs, steps are pending or a watch paused it) the worker owns
 the robot's motion:
-`RobotMCPServer.call_tool` refuses every tool in `QUEUE_EXCLUSIVE_TOOLS` (`MOTION_TOOLS` except `enqueue_motions` and
+`RobotMCPServer.call_tool` refuses every tool in `QUEUE_EXCLUSIVE_TOOLS` (`MOTION_TOOLS` except `enqueue_motions`, `resume_motions` and
 `arm_set_home`) with "the motion queue is running". Conversely `enqueue_motions` is refused while one of those blocking
 tools runs, or while another arm motion holds the arm (a web-UI grasp or `/arm/home`). Should a blocking motion still
 start in between, the arm motion lock and the base motion lock make the later one fail (`step_failed`, status
@@ -1296,7 +1298,7 @@ were sampled, the late trip is dropped. It emits `watch_triggered` {watch, metri
 
 `watch_triggered` and `paused` are failure events, so `wait_for_event` (`queue_empty`, `step_done`, `failure`) wakes
 with reason `watch_triggered`. `get_motion_status` lists `watches: [{name, metric, joint, op, value, last_value,
-job_ids, active, triggered}]`. Without a sampler (`MotionQueue(sampler=None)`) watch constraints are refused.
+job_ids, active, triggered}]`. Tool surface: `enqueue_motions(..., watch_constraints=[{metric, op, value, for_s, action, joint, name, on_unknown}])` (at most `watch_max_per_call`; the description lists metrics, ops, `for_s`, abort vs pause and the scope = the steps of that call) and `resume_motions` (battery gate, returns `ResumeResult`; refusals are tool errors). Without a sampler (`MotionQueue(sampler=None)`) watch constraints are refused.
 
 ## Gravity sag compensation
 
@@ -1645,7 +1647,8 @@ an unruled tool and < 500 us with five rules over fake providers.
 | `control.py` | no | control leases: `ControlManager` (take / release with the arm home and base steering resets / carried-object park refusal / footprint triggers / state / lease refusals / vitals digest), `wait_steering_neutral` |
 | `footprint.py`, `footprint_geometry.py` | no | navigation footprint: `NavFootprint` (static / dynamic / conservative, arm shadow, carried circle, republish tick following the released arm, consumers and their outcomes via `FootprintSink`), `python -m mcp_server.footprint` (parked-arm shadow for the generator); shared outline / parked-arm union / circle / offset / inflation geometry (also imported by `scripts/gen_nav_footprint.py`) |
 | `motion_queue.py` | no | motion queue: step models, blend groups, preconditions, worker thread, watch constraints (watcher thread, abort / pause / resume), events, waits |
-| `motion_tools.py` | no | `enqueue_motions`, `get_motion_status`, `cancel_motions`, `wait_for_event` (one `TOOL_MODULES` entry) |
+| `motion_tools.py` | no | `enqueue_motions`, `resume_motions`, `get_motion_status`, `cancel_motions`, `wait_for_event` (one `TOOL_MODULES` entry) |
+| `guard_tools.py` | no | `check_guard_rules` (read-only `GuardEngine.explain_tool`; one `TOOL_MODULES` entry) |
 | `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
 | `topdown.py`, `perception_models.py` | no | robot-up top-down renderer (layers, transforms); perception result models |
 | `object_memory.py`, `look_around.py`, `poi_client.py` | no | object POI memory + merge, look_around plan/loop/montage, POI request matching |

@@ -18,6 +18,7 @@ from .topdown import TopdownInputs
 
 if TYPE_CHECKING:  # control imports motion_queue, which imports this module; lookup_tools imports this module
     from .control import ControlManager
+    from .guard_rules import GuardEngine
     from .lookup_tools import LookupRecorder
 
 LOGGER = logging.getLogger("mcp_server.tools")
@@ -142,6 +143,7 @@ class ToolContext:
     queue: MotionOwner | None = None
     control: "ControlManager | None" = None
     lookups: "LookupRecorder | None" = None  # camera lookup recorder (lookup_tools.record_lookup)
+    engine: "GuardEngine | None" = None  # guard rule engine (guard_tools.check_guard_rules)
 
     def lease_gate(self, tool_name: str, kinds: list[str]) -> None:
         """Refuse an enqueue whose steps need a control lease that is not held, before the robot is touched.

@@ -21,6 +21,7 @@ DEFAULT_EFFECTOR_TOOLS = [
     "grasp_object",
     "release_object",
     "enqueue_motions",
+    "resume_motions",
 ]
 DEFAULT_UNCAPPED_TOOLS = ["stop", "take_control", "release_control", "cancel_motions"]
 # Motion tools the permission gate refuses outright: arm_set_home would let the agent redefine home to pass the job-end check.
@@ -30,6 +31,7 @@ DEFAULT_SENSOR_TOOLS = [
     "get_control_state",
     "get_motion_status",
     "wait_for_event",
+    "check_guard_rules",
     "get_robot_state",
     "get_camera_image",
     "get_map_summary",

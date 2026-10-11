@@ -32,6 +32,7 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
     },
     "release_object": {},
     "enqueue_motions": {"steps": [{"kind": "wait_s", "seconds": 0.1}]},
+    "resume_motions": {},
 }
 ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_robot_state": {},
@@ -65,6 +66,7 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_motion_status": {},
     "cancel_motions": {},
     "wait_for_event": {"timeout_s": 0.1},
+    "check_guard_rules": {"tool": "navigate_to_pose"},
     "list_lookups": {},
     "get_lookup_image": {"lookup_id": "0" * 32},
     "annotate_lookup": {"lookup_id": "0" * 32, "note": "n"},

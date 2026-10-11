@@ -23,7 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import body_tools, camera_tools, grasp_tools, lookup_tools, motion_tools, perception_tools
+from . import body_tools, camera_tools, grasp_tools, guard_tools, lookup_tools, motion_tools, perception_tools
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
 from .camera_scene import camera_setup, pixel_scale
@@ -94,6 +94,7 @@ TOOL_NAMES = (
     *perception_tools.TOOL_NAMES,
     *grasp_tools.TOOL_NAMES,
     *motion_tools.TOOL_NAMES,
+    *guard_tools.TOOL_NAMES,
     *lookup_tools.TOOL_NAMES,
 )
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
@@ -115,6 +116,7 @@ MOTION_TOOLS = frozenset(
         "grasp_object",
         "release_object",
         "enqueue_motions",
+        "resume_motions",
     }
 )
 ALWAYS_ALLOWED_TOOLS = frozenset(
@@ -135,12 +137,13 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         "get_motion_status",
         "cancel_motions",
         "wait_for_event",
+        *guard_tools.TOOL_NAMES,
         *lookup_tools.TOOL_NAMES,
     }
 )
 # Blocking motion tools refused while the motion queue runs (the queue's worker is the single motion owner then).
-# enqueue_motions appends to the queue and arm_set_home moves nothing.
-QUEUE_EXCLUSIVE_TOOLS = MOTION_TOOLS - {"enqueue_motions", "arm_set_home"}
+# enqueue_motions appends to the queue, resume_motions continues it and arm_set_home moves nothing.
+QUEUE_EXCLUSIVE_TOOLS = MOTION_TOOLS - {"enqueue_motions", "resume_motions", "arm_set_home"}
 # Control lease each tool needs, checked centrally (RobotMCPServer.call_tool_with_digest) before the tool body, so
 # before the battery and tilt gates. enqueue_motions is checked per step kind inside the tool (arm_joints /
 # arm_cartesian / gripper / grasp need arm, the Nav2 steps in motion_queue.BASE_KINDS need base). Every other tool
@@ -189,7 +192,10 @@ Non-blocking motion: enqueue_motions queues several steps and returns at once (c
 continuous trajectory), wait_for_event blocks until the queue drains or something relevant happens and returns the
 events plus a state digest, cancel_motions or stop clear the queue. A running arm step first shows phase 'planning'
 (planning_s growing, safety checks before the first setpoint): normal work, not a stall, do not cancel it. While the queue runs the blocking motion tools are
-refused."""
+refused. enqueue_motions can carry watch_constraints (a sensor metric crossing a threshold aborts or pauses the
+queue; wait_for_event wakes with watch_triggered; resume_motions continues a pause).
+Guard rules: a refusal whose text starts "guard rule '<name>' refused" names the rule and the observed values; adapt
+(take the way out the text names) and do not retry the same call; check_guard_rules shows the verdicts without calling."""
 
 Camera = Literal["gripper", "front"]
 
@@ -538,6 +544,7 @@ def register_tools(
         queue=queue,
         control=control,
         lookups=lookup_tools.make_recorder(robot, config),
+        engine=engine,
     )
     for module in (*TOOL_MODULES, *extra_modules):
         module(ctx)
@@ -1077,6 +1084,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     perception_tools.register,
     grasp_tools.register,
     motion_tools.register,
+    guard_tools.register,
     lookup_tools.register,
 )
 

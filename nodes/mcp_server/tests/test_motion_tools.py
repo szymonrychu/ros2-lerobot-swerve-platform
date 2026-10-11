@@ -44,9 +44,10 @@ def structured(result: Any) -> dict[str, Any]:
 
 
 def test_queue_tools_are_registered_and_classified() -> None:
-    names = {"enqueue_motions", "get_motion_status", "cancel_motions", "wait_for_event"}
+    names = {"enqueue_motions", "resume_motions", "get_motion_status", "cancel_motions", "wait_for_event"}
     assert names <= set(TOOL_NAMES)
-    assert "enqueue_motions" in MOTION_TOOLS
+    assert {"enqueue_motions", "resume_motions"} <= MOTION_TOOLS
+    assert "resume_motions" not in QUEUE_EXCLUSIVE_TOOLS
     assert {"get_motion_status", "cancel_motions", "wait_for_event"} <= ALWAYS_ALLOWED_TOOLS
     assert "enqueue_motions" not in QUEUE_EXCLUSIVE_TOOLS and "stop" not in QUEUE_EXCLUSIVE_TOOLS
     assert {"move_arm_joints", "navigate_to_pose", "look_around", "grasp_object", "drive"} <= QUEUE_EXCLUSIVE_TOOLS
@@ -196,3 +197,91 @@ def test_shutdown_halts_a_busy_queue_and_stops_the_robot(server: Any, robot: Gat
 def test_shutdown_leaves_an_idle_robot_alone(server: Any, robot: GateRobot) -> None:
     assert stop_queued_motion(server, robot) is False
     assert not robot.stopped.is_set()
+
+
+WATCH = {"metric": "base_speed_mps", "op": "gt", "value": 0.5, "action": "pause"}
+WAIT_STEP = {"kind": "wait_s", "seconds": 5.0}
+
+
+def tool_description(server: Any, name: str) -> str:
+    import anyio
+
+    async def run() -> Any:
+        return await server.list_tools()
+
+    return next(t.description for t in anyio.run(run) if t.name == name)
+
+
+@pytest.mark.parametrize(
+    "watch",
+    [
+        {**WATCH, "metric": "bogus"},
+        {**WATCH, "op": "eq"},
+        {**WATCH, "metric": "joint_position"},  # joint required
+        {**WATCH, "for_s": 9.0},
+        {**WATCH, "action": "explode"},
+        {**WATCH, "value": float("inf")},
+    ],
+)
+def test_enqueue_rejects_invalid_watch_constraints(server: Any, robot: GateRobot, watch: dict[str, Any]) -> None:
+    with pytest.raises(ToolError):
+        call(server, "enqueue_motions", {"steps": [WAIT_STEP], "watch_constraints": [watch]})
+    assert structured(call(server, "get_motion_status", {}))["queue"] == []
+
+
+def test_enqueue_rejects_too_many_watch_constraints(server: Any) -> None:
+    limit = server.motion_queue.settings.watch_max_per_call
+    with pytest.raises(ToolError, match="watch_constraints"):
+        call(server, "enqueue_motions", {"steps": [WAIT_STEP], "watch_constraints": [WATCH] * (limit + 1)})
+
+
+def test_enqueue_with_watch_constraints_shows_them_in_status(server: Any) -> None:
+    out = structured(call(server, "enqueue_motions", {"steps": [WAIT_STEP], "watch_constraints": [WATCH]}))
+    status = structured(call(server, "get_motion_status", {}))
+    assert [w["metric"] for w in status["watches"]] == ["base_speed_mps"]
+    assert status["watches"][0]["job_ids"] == out["job_ids"]
+    call(server, "cancel_motions", {})
+
+
+def pause_queue(server: Any, speed: float) -> None:
+    """Enqueue a watched wait step with the sampler faked to `speed` and wait until the watch paused the queue."""
+    queue = server.motion_queue
+    queue.sampler = lambda metric, joint: speed
+    call(server, "enqueue_motions", {"steps": [WAIT_STEP, WAIT_STEP], "watch_constraints": [WATCH]})
+    waited = structured(call(server, "wait_for_event", WAIT))
+    assert waited["reason"] == "watch_triggered"
+
+
+def test_resume_motions_when_not_paused_is_a_no_op(server: Any) -> None:
+    out = structured(call(server, "resume_motions", {}))
+    assert out["resumed"] is False and "not paused" in out["message"]
+
+
+def test_resume_motions_refused_while_the_watch_still_violates(server: Any) -> None:
+    pause_queue(server, 0.9)
+    assert structured(call(server, "get_motion_status", {}))["paused"] is not None
+    with pytest.raises(ToolError, match="base_speed_mps"):
+        call(server, "resume_motions", {})
+    assert structured(call(server, "get_motion_status", {}))["paused"] is not None
+    call(server, "cancel_motions", {})
+
+
+def test_resume_motions_continues_a_paused_queue(server: Any) -> None:
+    pause_queue(server, 0.9)
+    server.motion_queue.sampler = lambda metric, joint: 0.0
+    out = structured(call(server, "resume_motions", {}))
+    assert out["resumed"] is True
+    assert structured(call(server, "get_motion_status", {}))["paused"] is None
+    call(server, "cancel_motions", {})
+
+
+def test_descriptions_mention_watches_pause_and_resume(server: Any) -> None:
+    enqueue = tool_description(server, "enqueue_motions")
+    for word in ("watch_constraints", "for_s", "abort", "pause", "resume_motions", "watch_triggered", "gripper_effort"):
+        assert word in enqueue, word
+    assert " lt" in enqueue and "ge" in enqueue
+    resume = tool_description(server, "resume_motions")
+    assert "pause" in resume and "watch" in resume
+    for name in ("wait_for_event", "get_motion_status"):
+        text = tool_description(server, name)
+        assert "paused" in text and "watch" in text, name

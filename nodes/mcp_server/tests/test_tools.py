@@ -174,6 +174,8 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "grasp_object",
         "release_object",
         "enqueue_motions",
+        "resume_motions",
+        "check_guard_rules",
         "get_motion_status",
         "cancel_motions",
         "wait_for_event",

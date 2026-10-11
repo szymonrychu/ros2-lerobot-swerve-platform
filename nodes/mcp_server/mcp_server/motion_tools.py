@@ -1,4 +1,4 @@
-"""Motion queue tools: enqueue_motions, get_motion_status, cancel_motions, wait_for_event."""
+"""Motion queue tools: enqueue_motions, resume_motions, get_motion_status, cancel_motions, wait_for_event."""
 
 from collections.abc import Callable
 from typing import Annotated
@@ -19,14 +19,16 @@ from .motion_queue import (
     MotionStatus,
     MotionStep,
     QueueError,
+    ResumeResult,
     WaitResult,
     WaitUntil,
+    WatchConstraint,
     state_digest,
     step_floor,
 )
 from .tool_context import RobotApi, ToolContext
 
-TOOL_NAMES = ("enqueue_motions", "get_motion_status", "cancel_motions", "wait_for_event")
+TOOL_NAMES = ("enqueue_motions", "resume_motions", "get_motion_status", "cancel_motions", "wait_for_event")
 
 
 def make_grasp_runner(robot: RobotApi, config: McpServerConfig) -> GraspRunner:
@@ -94,12 +96,27 @@ def register(ctx: ToolContext) -> None:
             "'planning', planning_s growing, can take tens of seconds): that is normal, not a stall; progress follows "
             "once it executes. Follow with wait_for_event, not polling. Leases: arm_joints / arm_cartesian / gripper / "
             "grasp steps need the arm lease, base_relative / navigate_to_pose the base lease (take_control first; the "
-            "call is refused naming the missing one); a lease lost mid-queue fails its next step."
+            "call is refused naming the missing one); a lease lost mid-queue fails its next step. "
+            "WATCH CONSTRAINTS: watch_constraints [{metric, op, value, for_s?, action?, joint?, name?, on_unknown?}] "
+            "stop the queue on a live sensor condition, checked about 10 times a second while the steps of THIS call "
+            "run (from their start to their end; later calls have their own watches). metric: gripper_effort, "
+            "gripper_position, joint_position / joint_effort (needs joint), tilt_deg, roll_deg, pitch_deg, "
+            "base_speed_mps, distance_travelled_m (driven since the watch became active), battery_v, tool_height_m "
+            "(efforts compare by magnitude). op: lt, le, gt, ge. for_s (0..5 s) = the condition must hold that long "
+            "without a break. action 'abort' (default) cancels the running step and drops the pending ones, like "
+            "cancel_motions; 'pause' stops the running step, keeps the pending ones and holds the queue until "
+            "resume_motions (cancel_motions ends it). A value that cannot be read is ignored unless "
+            "on_unknown='trigger'. A trip emits the event watch_triggered (wait_for_event wakes with that reason); "
+            f"at most {cfg.watch_max_per_call} watches per call."
         )
     )
     def enqueue_motions(
         steps: Annotated[list[MotionStep], Field(min_length=1, description="Steps in execution order")],
         replace: Annotated[bool, Field(description="Drop the pending steps before adding these")] = False,
+        watch_constraints: Annotated[
+            list[WatchConstraint] | None,
+            Field(description="Sensor conditions that abort or pause the queue while the steps of this call run"),
+        ] = None,
     ) -> EnqueueResult:
         """Queue motions; the tool description is passed to the decorator."""
         ctx.lease_gate("enqueue_motions", [step.kind for step in steps])
@@ -107,7 +124,23 @@ def register(ctx: ToolContext) -> None:
         if any(step.kind in BASE_KINDS for step in steps):
             ctx.tilt_gate("enqueue_motions", "nav")
         try:
-            return queue.enqueue(list(steps), replace)
+            return queue.enqueue(list(steps), replace, watch_constraints)
+        except QueueError as exc:
+            raise ToolError(str(exc)) from exc
+
+    @ctx.server.tool(
+        description=(
+            "Continue a queue that a watch constraint (action 'pause') paused: the pending steps run again, with "
+            "their watches re-armed. Refused while a watch of the pending steps still violates (fix the cause "
+            "first, or end the pause with cancel_motions) and in battery cut-off. When the queue is not paused it "
+            "does nothing (resumed false). Returns whether it resumed and the pending step count."
+        )
+    )
+    def resume_motions() -> ResumeResult:
+        """Resume a paused queue; the tool description is passed to the decorator."""
+        ctx.battery_gate("resume_motions")
+        try:
+            return queue.resume()
         except QueueError as exc:
             raise ToolError(str(exc)) from exc
 
@@ -118,7 +151,9 @@ def register(ctx: ToolContext) -> None:
         events. phase 'planning' (with a growing planning_s, progress 0) is an arm step running its safety checks
         before the first setpoint: normal work that can take tens of seconds, NOT a stall, do not cancel it. Then
         phase 'executing' and progress = fraction of the trajectory time published (smooth, also for blended groups).
-        Prefer wait_for_event to polling this."""
+        paused (set while a watch constraint paused the queue: resume_motions continues, cancel_motions ends it) and
+        watches (the watch constraints of the queued steps with their last value and whether they triggered) are
+        part of the snapshot. Prefer wait_for_event to polling this."""
         return queue.status()
 
     @ctx.server.tool()
@@ -138,7 +173,9 @@ def register(ctx: ToolContext) -> None:
             f"returned before (since_seq overrides). Default timeout {cfg.wait_default_s:g} s, at most "
             f"{cfg.wait_max_s:g} s (then reason 'timeout' and the queue keeps running). The returned status carries "
             "current.phase: 'planning' with a growing planning_s is normal work (arm safety checks before the first "
-            "setpoint), not a stall; the 'planned' event (data planning_s) marks its end and never wakes the wait."
+            "setpoint), not a stall; the 'planned' event (data planning_s) marks its end and never wakes the wait. A watch constraint that "
+            "tripped wakes the wait with reason 'watch_triggered' (also when it paused the queue: the status then "
+            "shows paused; a paused queue is not idle, continue with resume_motions or end it with cancel_motions)."
         )
     )
     def wait_for_event(
