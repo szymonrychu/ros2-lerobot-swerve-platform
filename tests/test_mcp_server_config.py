@@ -526,15 +526,19 @@ def test_mcp_server_setup_tasks_create_lookups_dir_owned_by_node_user() -> None:
     assert list(dirs).index(POI_DIR) < list(dirs).index(LOOKUPS_DIR)
 
 
-def test_mcp_server_config_renders_lookup_retention() -> None:
-    """client.yml renders the lookup store directory and the three retention limits."""
+def test_mcp_server_config_lookups_block_is_only_the_store_dir() -> None:
+    """client.yml renders only the JPEG directory; poi_store owns the index and retention; it validates."""
+    pytest.importorskip("pydantic")
     lookups = node_config("mcp_server")["lookups"]
-    assert lookups == {
-        "store_dir": LOOKUPS_DIR,
-        "max_records": 3000,
-        "max_bytes": 300_000_000,
-        "max_age_days": 14,
-    }
+    assert lookups == {"store_dir": LOOKUPS_DIR}
+    sys.path[:0] = [str(REPO_ROOT / "nodes" / "mcp_server"), str(REPO_ROOT / "shared")]
+    try:
+        from mcp_server.config import McpServerConfig
+
+        cfg = McpServerConfig.model_validate(node_config("mcp_server"))
+    finally:
+        del sys.path[:2]
+    assert str(cfg.lookups.store_dir) == LOOKUPS_DIR
 
 
 def test_mcp_server_config_validates_with_frontiers_block_at_defaults() -> None:
