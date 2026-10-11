@@ -22,6 +22,7 @@ from claude_agent_sdk import (
 from claude_agent.config import TURN_MARGIN, ClaudeAgentConfig, MissingTokenError
 from claude_agent.events import EventLog
 from claude_agent.poi_clear import PoiClearResult
+from claude_agent.retry_ledger import RETRY_LEDGER_RELPATH
 from claude_agent.robot_stop import RobotToolResult
 from claude_agent.runner import AgentRunner, build_child_env, build_options
 from claude_agent.tools import BUILTIN_TOOLS, EffectorGate
@@ -197,6 +198,7 @@ def make_runner(
     statuses: list[list[str]] | None = None,
     probe_result: str | None = None,
     tool_caller: FakeToolCaller | None = None,
+    config_ledger: bool = False,
 ):
     FakeClient.instances.clear()
     FakeClient.status_scripts = statuses or []
@@ -220,6 +222,7 @@ def make_runner(
         poi_clearer=clearer or FakeClearer(),
         mcp_prober=FakeProber(probe_result),
         robot_tool_caller=tool_caller or FakeToolCaller(),
+        retry_ledger_path=None if config_ledger else tmp_path / RETRY_LEDGER_RELPATH,
     )
     return runner, events, cfg
 

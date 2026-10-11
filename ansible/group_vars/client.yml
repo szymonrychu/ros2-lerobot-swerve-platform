@@ -1697,6 +1697,10 @@ ros2_nodes:
       max_loop_iterations: 5
       retry_success_threshold: 0.5
       max_auto_retries: 6
+      # Bound of the retry calibration ledger <state_dir>/calibration/retry_outcomes.jsonl (each failed-phase
+      # p_retry_success paired with the next attempt's outcome; survives /api/reset). Past it the oldest half is
+      # dropped. At least 100.
+      retry_ledger_max_records: 5000
       # Job end: an instruction may only end with the arm at home, no control lease held and the plan finished.
       # The runner sends up to job_end_max_followups refusal follow-ups, then parks the arm itself (release_control all).
       job_end_max_followups: 2

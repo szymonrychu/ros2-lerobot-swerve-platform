@@ -88,6 +88,8 @@ DEFAULT_MAX_LOOP_ITERATIONS = 5
 MAX_LOOP_ITERATIONS_LIMIT = 5
 DEFAULT_RETRY_SUCCESS_THRESHOLD = 0.5
 DEFAULT_MAX_AUTO_RETRIES = 6
+DEFAULT_RETRY_LEDGER_MAX_RECORDS = 5000
+MIN_RETRY_LEDGER_MAX_RECORDS = 100
 DEFAULT_JOB_END_MAX_FOLLOWUPS = 2
 DEFAULT_JOB_END_PARK_TIMEOUT_S = 60.0
 # mcp_server re-emits a bump at most every 2 s: on a rough floor one interrupt per 10 s per warning type is enough.
@@ -114,6 +116,8 @@ class ClaudeAgentConfig(BaseModel):
         retry_success_threshold: A phase closed as failed is re-entered automatically when the agent's p_retry_success
             is at least this (and attempts, max_auto_retries and the instruction budget allow it).
         max_auto_retries: Most automatic phase re-entries per instruction, across all phases.
+        retry_ledger_max_records: Bound of the retry calibration ledger ``<state_dir>/calibration/retry_outcomes.jsonl``;
+            past it the oldest half of the records is dropped (at least 100).
         job_end_max_followups: "JOB END REFUSED" follow-ups the runner sends when an instruction would end with the arm
             out of home, a lease held or the plan unfinished; after that many the runner parks the arm itself.
         job_end_park_timeout_s: Bound for each robot call of the runner's forced job-end park (cancel_motions,
@@ -180,6 +184,7 @@ class ClaudeAgentConfig(BaseModel):
     max_loop_iterations: int = Field(default=DEFAULT_MAX_LOOP_ITERATIONS, ge=1, le=MAX_LOOP_ITERATIONS_LIMIT)
     retry_success_threshold: float = Field(default=DEFAULT_RETRY_SUCCESS_THRESHOLD, ge=0, le=1)
     max_auto_retries: int = Field(default=DEFAULT_MAX_AUTO_RETRIES, ge=0)
+    retry_ledger_max_records: int = Field(default=DEFAULT_RETRY_LEDGER_MAX_RECORDS, ge=MIN_RETRY_LEDGER_MAX_RECORDS)
     job_end_max_followups: int = Field(default=DEFAULT_JOB_END_MAX_FOLLOWUPS, ge=0)
     job_end_park_timeout_s: float = Field(default=DEFAULT_JOB_END_PARK_TIMEOUT_S, gt=0)
     effector_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_EFFECTOR_TOOLS))

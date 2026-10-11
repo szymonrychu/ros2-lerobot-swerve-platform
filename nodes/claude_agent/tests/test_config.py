@@ -216,6 +216,13 @@ def test_plan_tree_and_retry_defaults() -> None:
     assert cfg.max_auto_retries == 6
 
 
+def test_retry_ledger_max_records_defaults_to_5000_and_has_a_floor_of_100() -> None:
+    assert ClaudeAgentConfig().retry_ledger_max_records == 5000
+    assert ClaudeAgentConfig(retry_ledger_max_records=100).retry_ledger_max_records == 100
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig(retry_ledger_max_records=99)
+
+
 def test_job_end_max_followups_defaults_to_2_and_must_not_be_negative() -> None:
     assert ClaudeAgentConfig().job_end_max_followups == 2
     assert ClaudeAgentConfig(job_end_max_followups=0).job_end_max_followups == 0

@@ -45,6 +45,8 @@ from .metrics import (
     COST_USD,
     INSTRUCTION_SECONDS,
     INSTRUCTIONS,
+    PHASE_FAILURES,
+    RETRY_SUCCESS_THRESHOLD,
     SECONDS_SINCE_ACTIVITY,
     SESSION_RESETS,
     TOKENS,
@@ -57,6 +59,7 @@ from .plan_tools import PLAN_SERVER_NAME, build_plan_server
 from .plan_tree import STATUS_PENDING, reachable_phases
 from .poi_clear import PoiClearResult, call_clear_agent_pois
 from .prompt import build_system_prompt
+from .retry_ledger import RETRY_LEDGER_RELPATH, RetryLedger
 from .robot_events import (
     FOLLOWUP_TEMPLATE,
     SEVERITY_CRITICAL,
@@ -256,6 +259,7 @@ class AgentRunner:
         poi_clearer: Callable[[], Awaitable[PoiClearResult]] | None = None,
         mcp_prober: Callable[[], Awaitable[str | None]] | None = None,
         robot_tool_caller: Callable[[str, dict[str, Any], float], Awaitable[RobotToolResult]] | None = None,
+        retry_ledger_path: Path | None = None,
     ) -> None:
         """Create the runner (the Claude session starts lazily at the first instruction).
 
@@ -275,6 +279,8 @@ class AgentRunner:
             robot_tool_caller (Callable[[str, dict[str, Any], float], Awaitable[RobotToolResult]] | None): Calls one
                 robot MCP tool directly (name, arguments, timeout in s) for the job-end check and park; defaults to
                 call_robot_tool with the configured URL and token file.
+            retry_ledger_path (Path | None): File of the retry calibration ledger; defaults to
+                ``<state_dir>/calibration/retry_outcomes.jsonl``.
         """
         self.config = config
         self.events = events
@@ -283,6 +289,14 @@ class AgentRunner:
         self.logger = logger or logging.getLogger("claude_agent")
         self.evidence = EvidenceCollector()
         self.instruction_id = ""
+        self.ledger = RetryLedger(
+            retry_ledger_path or Path(config.state_dir) / RETRY_LEDGER_RELPATH,
+            config.retry_ledger_max_records,
+            config.model,
+            self.logger,
+        )
+        self.ledger_close: tuple[dict[str, Any], float] | None = None
+        RETRY_SUCCESS_THRESHOLD.set(config.retry_success_threshold)
         self.gate = EffectorGate(
             config,
             on_denied=self.emit_denied,
@@ -397,6 +411,8 @@ class AgentRunner:
         Args:
             **fields: Payload of the turn_end event (must contain ``status``).
         """
+        self.flush_ledger_close()
+        self.ledger.end_instruction(self.instruction_id)
         self.events.append("turn_end", instruction_id=self.instruction_id, **fields)
         INSTRUCTIONS.labels(fields["status"]).inc()
         INSTRUCTION_SECONDS.observe(time.monotonic() - self.instruction_started_at)
@@ -581,6 +597,8 @@ class AgentRunner:
             phase (dict[str, Any]): The phase payload.
         """
         self.evidence.start_entry(phase["id"], phase["attempt"], time.time())
+        self.flush_ledger_close()
+        self.ledger.on_phase_started(self.instruction_id, phase)
         self.events.append("phase_started", **phase)
         self.emit_state()
 
@@ -609,7 +627,31 @@ class AgentRunner:
             failure=phase["failure"],
         )
         self.evidence.end_entry()
+        if phase["failure"] is not None:
+            PHASE_FAILURES.labels(phase["failure"]["type"], phase["failure"]["eai_error_type"]).inc()
+        self.flush_ledger_close()
+        self.ledger_close = (phase, time.time())
         self.emit_state()
+
+    def flush_ledger_close(self) -> None:
+        """Hand the last phase close to the retry ledger, with the tracker's retry decision for it.
+
+        The tracker announces a close before it decides the retry, so the close is held until the next phase start,
+        phase close or turn end; by then tracker.retried and tracker.last_refusal_code describe that close (only
+        complete_phase changes them, and it needs an active phase, so a phase start always comes first).
+        """
+        if self.ledger_close is None:
+            return
+        phase, closed_at = self.ledger_close
+        self.ledger_close = None
+        self.ledger.on_phase_completed(
+            self.instruction_id,
+            phase,
+            self.plan.retried,
+            self.plan.last_refusal_code,
+            self.config.retry_success_threshold,
+            ts=closed_at,
+        )
 
     def emit_condition_pending(self, condition: dict[str, Any]) -> None:
         """Gate callback: an ask condition of the plan tree waits for agent.answer_condition.

@@ -284,6 +284,35 @@ miss and record what worked in `NOTES.md`. `Surfaces and speed:` tells it to pas
 the robot's floor, that the arm reaches somewhat below floor level within its joint limits, and that the arm is fast by default
 (a lower `speed_scale` only for the last centimetres of a grasp or near obstacles). Each is asserted in `tests/test_prompt.py`.
 
+### Retry calibration ledger
+
+Every failed close by the model carries `p_retry_success`; the ledger pairs that prediction with what the next attempt of
+the same phase did, so `retry_success_threshold` can be calibrated offline. It lives in
+`<state_dir>/calibration/retry_outcomes.jsonl` (`claude_agent/retry_ledger.py`, created at the first record), apart from
+the session log: `/api/reset` and `EventLog.reset` never touch it, so it survives evaluation runs that reset between
+trials. It holds at most `retry_ledger_max_records` (5000) records; past that the oldest half is dropped with an atomic
+rewrite. Corrupt lines are skipped on read. A write failure is logged once and never breaks the agent (the metrics still
+move).
+
+One JSON object per line (`RetryRecord`, `schema_version` 1): `ts` (close time of the predicting attempt), `instruction_id`,
+`phase_id`, `phase_name`, `attempt`, `iteration`, `p_retry_success`, `threshold` (the configured value at decision time),
+`retried` (automatic retry granted), `refusal` (`low_p`, `attempts`, `cap`, `budget`, `plan_failure` or null),
+`failure_type`, `eai_error_type`, `next_outcome` (`done`, `failed`, `skipped` or `unobserved`), `next_via` (`auto_retry`,
+`loop` or `none`) and `model`.
+
+Pairing: a failed close with `p_retry_success` opens a pending prediction keyed by (`instruction_id`, phase id). The next
+close of the same phase id in the same instruction resolves it, with `next_via` `auto_retry` when the retry was granted
+(`PlanTracker.retried`) and `loop` when a `while` loop re-entered the phase later. A failed re-entry resolves the old
+prediction and opens a new one. Predictions still pending at `turn_end` are written as `unobserved` / `none`.
+`revise_plan`'s implicit close (no `p_retry_success`) neither opens nor resolves a prediction. The runner hands each
+close to the ledger at the next `phase_started`, phase close or `turn_end`, because the tracker announces a close before
+it decides the retry.
+
+Censoring: with the threshold at 0.5 a refused prediction (low `p`, attempts, cap, budget, plan_failure) is only observed
+when a loop re-enters the phase, so the observed records cover mostly `p >= 0.5`. Unobserved records are censored, never
+failures. To explore lower `p`, run an evaluation session with `retry_success_threshold: 0.0` in group_vars (a deliberate,
+reversible operator action) and put the calibrated value back afterwards.
+
 ## Robot events and interrupts
 
 The node subscribes to `robot_events_topic` (`/robot_events`, `std_msgs/String`, BEST_EFFORT + VOLATILE QoS, published by the
@@ -452,6 +481,7 @@ unknown keys are rejected.
 | `max_loop_iterations` | `5` | Largest `max_iterations` of a `while` node (1 to 5) |
 | `retry_success_threshold` | `0.5` | A failed phase is re-entered automatically from this `p_retry_success` on (0 to 1) |
 | `max_auto_retries` | `6` | Most automatic phase re-entries per instruction, across all phases |
+| `retry_ledger_max_records` | `5000` | Bound of the retry calibration ledger; past it the oldest half is dropped (at least 100, see "Retry calibration ledger") |
 | `job_end_max_followups` | `2` | "JOB END REFUSED" follow-ups before the runner parks the arm itself (see "Job end") |
 | `job_end_park_timeout_s` | `60` | Bound of each robot call of the forced park (`cancel_motions`, `release_control`, the keep_position fallback) |
 | `effector_tools` / `uncapped_tools` / `sensor_tools` / `denied_tools` | see above | Short tool names (no `mcp__robot__`) |
@@ -562,6 +592,10 @@ and re-encoded as JPEG.
 | `agent_session_resets_total` | counter | | Completed `reset()` |
 | `agent_tokens_total` | counter | `kind` (`input`, `output`, `cache_read`, `cache_creation`) | `ResultMessage.usage`; the SDK reports session totals, so only the growth since the previous result is added (cleared when the session is dropped) |
 | `agent_cost_usd_total` | counter | | `ResultMessage.total_cost_usd`, same delta rule |
+| `agent_phase_failures_total` | counter | `failure_type`, `eai_error_type` | Each failed phase close carrying a failure record (`phase_completed.failure`) |
+| `agent_retry_predictions_total` | counter | `bin` (`0.0`..`0.9`, 0.1 wide, 1.0 in `0.9`), `outcome` (`success`, `failure`, `unobserved`) | Each retry ledger record written (`success` = next outcome `done`; `failed` and `skipped` count as `failure`) |
+| `agent_retry_squared_error` | histogram (0.01, 0.04, ..., 0.81, 1.0) | | `(p_retry_success - y)^2` of each observed ledger record (y = 1 for `done`); sum/count is the running Brier score |
+| `agent_retry_success_threshold` | gauge | | Set from `retry_success_threshold` at runner init |
 
 ## Authentication and deployment
 
