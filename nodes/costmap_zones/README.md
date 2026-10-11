@@ -99,8 +99,60 @@ Set `present: false` for `costmap_zones` in `ros2_nodes` (Ansible) and `enabled:
 `nav2_params.yaml`; the zone fields on POIs stay harmless data. At runtime each Nav2 filter has a SetBool
 `toggle_filter` service (e.g. `ros2 service call /global_costmap/keepout_filter/toggle_filter std_srvs/srv/SetBool "{data: false}"`).
 
+## Robot verification (motion-free)
+
+`scripts/costmap_zones_verify.sh` (from the repo root; see `scripts/README.md`) checks the whole chain on the client
+without moving the base, so it is safe while the robot is charging:
+
+```bash
+mkdir -p .logs
+./scripts/costmap_zones_verify.sh 2>&1 | tee .logs/costmap-zones-verify.log
+```
+
+The script runs step 0 over ssh, then `python -m costmap_zones.verify` in the node venv
+(`/opt/ros2-nodes/costmap_zones/venv`, `PYTHONPATH` = the repo copy of this directory) with the ROS environment
+sourced. The verifier reads `verify.yaml` (env `COSTMAP_ZONES_VERIFY_CONFIG`, default the file in this directory;
+pydantic, unknown keys rejected). Its geometry is relative to the robot pose (`map` -> `base_link`) at step 2:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `goal_ahead_m` | `1.2` | planning goal straight ahead of the robot |
+| `rect_ahead_m` / `rect_depth_m` / `rect_width_m` | `0.6` / `0.3` / `1.0` | test rectangle across the robot -> goal line (must lie between the robot box and the goal) |
+| `robot_box_m` | `0.6` | square zone centred on `base_link` (steps 4 and 5) |
+| `slow_pct` | `40` | speed limit of the step 5 slow zone |
+| `poi_name_prefix` | `E7-verify-` | every test POI carries it; step 6 deletes all of them |
+| `timeouts.*` | see the file | `nav_status_s`, `discovery_s`, `tf_s`, `poi_s`, `mask_s`, `costmap_s`, `plan_s`, `speed_limit_s` (3 s) |
+
+Topic, frame and action names are also keys of the file (defaults as in the tables above, plus
+`/global_costmap/costmap`, `/speed_limit`, `/poi/command`, `/poi/result`, `/compute_path_to_pose`,
+`/navigate_to_pose/_action/status`).
+
+| Step | Check |
+|---|---|
+| 0 | `ros-jazzy-nav2-costmap-2d` >= 1.3.10 (live mask updates) and `ros2-costmap_zones`, `ros2-poi_store`, `ros2-nav2_bringup` active (shell script) |
+| 1 | both masks received; their frame and info equal `/map`; keepout values only -1/100, speed values only 0..100 |
+| 2 | control: `compute_path_to_pose` (robot -> goal, `use_start: false`) succeeds and its path crosses the test rectangle |
+| 3 | keepout POI `E7-verify-keepout` (created_by user) on the rectangle: mask 100 at its centre, `/global_costmap/costmap` 99/100 there, and the planner fails or returns a path that avoids the rectangle; the POI is deleted afterwards |
+| 4 | keepout POI around the robot: the global costmap cell under the robot is >= 98 (lethal_override_cost 252 translates to 98), and a path to the goal still succeeds (`override_lethal_cost`) |
+| 5 | slow POI (40 %) around the robot: `/speed_limit` reports `speed_limit: 40.0, percentage: true` within 3 s; after deleting it, `speed_limit: 0.0` within 3 s |
+| 6 | always (also after a failure or Ctrl+C / SIGTERM / SIGHUP): every `E7-verify-*` POI is deleted, the masks return to background at the rectangle and the robot, and the costmap cell at the rectangle centre is no longer 100 |
+
+Safety and output:
+
+- The verifier creates one publisher, `/poi/command`, and the `compute_path_to_pose` action client. It never
+  publishes a velocity command (a unit test guards this). It refuses (exit 2) while `/navigate_to_pose` has an
+  accepted, executing or canceling goal.
+- Leftover `E7-verify-*` POIs from an interrupted run are removed before step 1.
+- stdout carries one `PASS step N name: detail` / `FAIL step N name: detail` line per step and a `RESULT:` line;
+  progress goes to stderr. Exit 0 only when every step passed, 1 on any FAIL, 2 when refused or the config is missing.
+  The shell script adds the step 0 line and an `OVERALL:` line and exits non-zero on any failure.
+
 ## Tests
 
 `uv run pytest tests -v` in this directory: `test_config.py`, `test_zones.py`, `test_raster.py` (pure modules),
 `test_node.py` (publish rule, mask content, infos, metrics with fake publishers and messages from `ros_stubs.py`),
-`test_shutdown.py` (clean exit on SIGTERM, missing config exits 1).
+`test_shutdown.py` (clean exit on SIGTERM, missing config exits 1), `test_verify.py` (verification pure parts: the
+rectangle and goal placement ahead of a pose, the path/polygon intersection, cell lookup, mask and costmap checks,
+the speed-limit expectation, navigate_to_pose activity, POI command payloads, the PASS/FAIL summary and exit code,
+`verify.yaml` validation, and that the verifier creates no publisher other than `/poi/command`; rclpy, tf2_ros,
+nav2_msgs and action_msgs are stubbed).

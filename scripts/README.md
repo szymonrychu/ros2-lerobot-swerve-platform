@@ -149,6 +149,22 @@ Read-only health check of the swerve drive on the client: service states (`lerob
 ./scripts/swerve_diag.sh --logs-only --lines 40
 ```
 
+## costmap_zones_verify.sh
+
+Motion-free robot check of the keepout / slow zone chain (POI area zones -> costmap_zones masks -> Nav2 KeepoutFilter and SpeedFilter). Safe while the robot is charging: it only adds and deletes `E7-verify-*` POIs on `/poi/command` and asks the planner for paths with `compute_path_to_pose`; it never sends a velocity command, and the verifier refuses to run while `/navigate_to_pose` has an active goal.
+
+- **Step 0** (in the script, over ssh): `ros-jazzy-nav2-costmap-2d` >= 1.3.10 (`dpkg --compare-versions`) and `systemctl is-active` for `ros2-costmap_zones`, `ros2-poi_store`, `ros2-nav2_bringup`.
+- **Steps 1-6** (`python -m costmap_zones.verify` in the node venv on the client, `ROS_ENV` as `swerve_diag.sh`, geometry from `nodes/costmap_zones/verify.yaml`): masks on the `/map` grid with valid values; a control path through a 0.3 x 1.0 m rectangle 0.6 m ahead; a keepout on it (global costmap 99/100, planner fails or avoids it); a keepout around the robot (a path out still succeeds); a 40 % slow zone around the robot (`/speed_limit` 40 percent, then 0); and, always, the deletion of every `E7-verify-*` POI. Details in `nodes/costmap_zones/README.md`.
+
+One `PASS`/`FAIL` line per step, then `RESULT:` and `OVERALL:`; the exit code is non-zero on any failure.
+
+```bash
+mkdir -p .logs
+./scripts/costmap_zones_verify.sh 2>&1 | tee .logs/costmap-zones-verify.log
+```
+
+Env: `COSTMAP_ZONES_CLIENT_HOST` (default `client.ros2.lan`), `COSTMAP_ZONES_SSH_USER` (default from `ansible/inventory` or `$USER`), `COSTMAP_ZONES_REMOTE_REPO` (default `/opt/ros2-lerobot-swerve-platform`), `COSTMAP_ZONES_REMOTE_VENV` (default `/opt/ros2-nodes/costmap_zones/venv`).
+
 ## propose_unit_limits.py
 
 Prints proposed `MemoryLow`, `MemoryMax`, `CPUWeight` and `IOWeight` for the `ros2-*` systemd units in the robot-headroom model (no `CPUQuota`, no `MemoryHigh`) from metrics history (p99 CPU, typical (p50) and peak memory working set) next to the values configured in `ansible/group_vars/client.yml`: `MemoryLow` = typical working set rounded up to 8 MiB, `MemoryMax` = 2x the peak (a larger current cap kept), weights = the configured tier (else 500), plus the sum of the proposed `MemoryLow`. Flags: `oom risk`, `tight max`, `unprotected`, `throttle risk` (only where a `CPUQuota` is still set). It queries the Prometheus API of the server's Mimir (`prometheus_url: http://server.ros2.lan:9009/prometheus`, 1 d retention), which stores both hosts' series, and selects one host with `host: client` (the `host` label set by Alloy; use `server` together with `group_vars_path: ansible/group_vars/server.yml` for the server's units). Configured by `scripts/propose_unit_limits.yaml` (URL, host, window, percentiles, `memory_max_factor`, minimums, default weights, `format: table|yaml`); read-only, it never edits `client.yml`. See `ansible/README.md` (Node resource model).

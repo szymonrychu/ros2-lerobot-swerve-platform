@@ -1,0 +1,35 @@
+# Motion-free robot verification of costmap_zones (python -m costmap_zones.verify, run by
+# scripts/costmap_zones_verify.sh). Geometry is relative to the robot pose (map -> base_link) at the start.
+# No velocity command is ever sent: the run only adds and deletes E7-verify-* POIs and asks the planner
+# for paths (compute_path_to_pose).
+
+goal_ahead_m: 1.2      # planning goal, straight ahead of the robot
+rect_ahead_m: 0.6      # centre of the test rectangle on the robot -> goal line
+rect_depth_m: 0.3      # rectangle size along the heading
+rect_width_m: 1.0      # rectangle size across the heading
+robot_box_m: 0.6       # square zone centred on base_link (steps 4 and 5)
+slow_pct: 40           # speed limit of the step 5 slow zone, percent
+poi_name_prefix: E7-verify-
+
+map_frame: map
+base_frame: base_link
+map_topic: /map
+keepout_mask_topic: /costmap_zones/keepout_mask
+speed_mask_topic: /costmap_zones/speed_mask
+global_costmap_topic: /global_costmap/costmap
+speed_limit_topic: /speed_limit
+poi_command_topic: /poi/command
+poi_result_topic: /poi/result
+poi_list_topic: /poi/list
+compute_path_action: /compute_path_to_pose
+navigate_status_topic: /navigate_to_pose/_action/status
+
+timeouts:
+  nav_status_s: 2.0     # listen for /navigate_to_pose goal status before refusing or starting
+  discovery_s: 5.0      # poi_store / planner discovery
+  tf_s: 5.0             # map -> base_link lookup
+  poi_s: 5.0            # /poi/result answer to one command
+  mask_s: 10.0          # costmap_zones republishes the masks
+  costmap_s: 15.0       # global costmap (1 Hz full publish) shows the change
+  plan_s: 20.0          # one compute_path_to_pose call
+  speed_limit_s: 3.0    # /speed_limit reacts to the slow zone (design: within 3 s)
