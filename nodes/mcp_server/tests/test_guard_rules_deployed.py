@@ -65,6 +65,13 @@ def test_every_message_names_a_way_out() -> None:
         assert any(word in rule.message.lower() for word in WAY_OUT_WORDS), rule.message
 
 
+def test_r1_names_both_exits() -> None:
+    r1 = next(r for r in deployed_rules() if r.name == "base_motion_arm_outside_footprint")
+    assert "arm_home" in r1.message
+    assert "release_control" in r1.message
+    assert "keep_position" in r1.message
+
+
 def test_scopes_match_the_design() -> None:
     by_name = {r.name: r for r in deployed_rules()}
     base_tools = ["navigate_to_pose", "move_relative", "drive", "look_around"]
