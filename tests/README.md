@@ -301,7 +301,7 @@ The **topic_scraper_api** node has tests under `nodes/topic_scraper_api/tests/`.
 - image encoding (`test_image_encoding.py`: is_image_type, CompressedImage jpeg passthrough, raw Image bgr8/mono8 to JPEG, unsupported encoding returns None)
 - dynamic subscription bookkeeping (`test_scraper.py`: allow-list handling, add/remove topic subscriptions; image topic metadata and lazy JPEG (no encode without a request, one encode per frame cached across requests, a new frame is encoded on the next request, `has_sample` without encoding); sensor QoS selection by type; image callback payload has no data list and keeps the JPEG)
 - HTTP API behavior (`test_app.py`: `/topics`, `/topics/<topic-path>`, `/rules`, `/rules/<name>`; `/streams`, `/previews` lists; stream/preview HTML pages; `/previews/<topic>/image.jpg` JPEG snapshot; 404 when no image sample for stream/preview image)
-- observation rules (`test_observer.py`: RulesObserver empty rules, compare rule produces position delta, missing payload yields None comparison, rules summary)
+- observation rules (`test_observer.py`: RulesObserver empty rules, compare rule produces position delta, missing payload yields None comparison, rules summary; non-finite, None (serialized NaN) and non-numeric positions are skipped, never crash the rules loop)
 
 - Metrics (`test_metrics.py`): `scraper_subscriptions` follows `sync_topics` (add and remove), each callback bumps `scraper_messages_total` and `scraper_callback_seconds`, no `scraper_*` sample carries a topic label, `GET /metrics` returns the registry with `robot_node_info{node="topic_scraper_api"}`.
 

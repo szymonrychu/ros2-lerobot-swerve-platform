@@ -47,7 +47,7 @@ Sample response shape:
 
 ## Non-finite values
 
-NaN and +/-Infinity (e.g. the NaN effort the feetech bridge publishes for non-effort joints) are emitted as JSON `null` in every response, so output is always valid JSON. Rules (`compare`, `oscillation`) skip non-finite joint positions and deltas. `scripts/topic_scraper_collect.py` keeps `null` as `null` in its NDJSON records.
+NaN and +/-Infinity (e.g. the NaN effort the feetech bridge publishes for non-effort joints) are emitted as JSON `null` in every response, so output is always valid JSON. Rules (`compare`, `oscillation`) skip non-finite joint positions and deltas, including the `None` a serialized NaN arrives as. `scripts/topic_scraper_collect.py` keeps `null` as `null` in its NDJSON records.
 
 ## Metrics
 
