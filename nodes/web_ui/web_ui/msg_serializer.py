@@ -586,6 +586,24 @@ def _bytes_per_pixel(encoding: str) -> int:
     return 1
 
 
+def serialize_poi_photos(msg: Any) -> dict[str, Any]:
+    """Parse the poi_store /poi/photos std_msgs/String JSON (the photo store summary).
+
+    Args:
+        msg (Any): std_msgs/String whose data is {"revision": int, "count": int, "bytes": int, ...}.
+
+    Returns:
+        dict[str, Any]: The summary object unchanged.
+
+    Raises:
+        ValueError: If the data is not a JSON object with an integer revision.
+    """
+    data = json.loads(msg.data)
+    if not isinstance(data, dict) or not isinstance(data.get("revision"), int):
+        raise ValueError("photo summary must be an object with an integer revision")
+    return data
+
+
 def serialize_poi_list(msg: Any) -> dict[str, Any]:
     """Parse the poi_store /poi/list std_msgs/String JSON.
 

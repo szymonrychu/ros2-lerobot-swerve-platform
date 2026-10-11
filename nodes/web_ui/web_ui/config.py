@@ -70,6 +70,7 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "poi_list_topic": "/poi/list",
     "poi_command_topic": "/poi/command",
     "poi_result_topic": "/poi/result",
+    "poi_photos_topic": "/poi/photos",
     "grasp_command_topic": "/grasp/command",
     "grasp_result_topic": "/grasp/result",
     "lookups_dir": "/var/lib/ros2/poi/lookups",
@@ -115,6 +116,7 @@ MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
     ("gps_fix_topic", "gps"),
     ("poi_list_topic", "poi_list"),
     ("poi_result_topic", "poi_result"),
+    ("poi_photos_topic", "poi_photos"),
     ("grasp_result_topic", "grasp_result"),
 )
 
@@ -225,6 +227,7 @@ class TabConfig(BaseModel):
     gps_fix_topic: str | None = None  # map_nav: sensor_msgs/NavSatFix of the rover
     poi_list_topic: str | None = None  # map_nav: std_msgs/String JSON POI list (latched, from poi_store)
     poi_command_topic: str | None = None  # map_nav: std_msgs/String JSON POI add/update/delete commands
+    poi_photos_topic: str | None = None  # map_nav: std_msgs/String JSON photo store summary (latched, from poi_store)
     poi_result_topic: str | None = None  # map_nav: std_msgs/String JSON command results (matched by request_id)
     grasp_command_topic: str | None = None  # map_nav: std_msgs/String JSON grasp requests (mcp_server GraspService)
     grasp_result_topic: str | None = None  # map_nav: std_msgs/String JSON grasp answers (matched by request_id)
@@ -232,7 +235,7 @@ class TabConfig(BaseModel):
     grasp_accept_wait_s: float = Field(
         default=DEFAULT_GRASP_ACCEPT_WAIT_S, gt=0
     )  # map_nav: seconds an execute/release waits for an immediate rejection
-    lookups_dir: str | None = None  # map_nav: mcp_server camera lookup store (index.jsonl + JPEGs), served read-only
+    lookups_dir: str | None = None  # map_nav: photo store (index.jsonl + JPEGs, written by poi_store), served read-only
     arm_home_service: str | None = None  # map_nav: std_srvs/Trigger moving the arm to its home pose
     arm_set_home_service: str | None = None  # map_nav: std_srvs/Trigger storing the current arm pose as home
     arm_service_timeout_s: float = Field(
@@ -446,7 +449,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_result" and "grasp_result" (std_msgs/String JSON) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:

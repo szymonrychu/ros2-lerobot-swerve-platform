@@ -54,6 +54,43 @@ def test_poi_roles_and_subscriptions() -> None:
     assert cfg.poi_command_topic() == "/poi/command"
 
 
+def test_map_nav_poi_photos_topic_default_and_role() -> None:
+    tab = TabConfig(id="m", type="map_nav", label="Map")
+    assert tab.poi_photos_topic == "/poi/photos"
+    cfg = AppConfig(tabs=[tab])
+    assert cfg.topic_roles()["/poi/photos"] == "poi_photos"
+    assert "/poi/photos" in cfg.all_subscribed_topics()
+
+
+def test_subscription_spec_poi_photos_is_latched() -> None:
+    from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
+
+    from web_ui.bridge import subscription_spec
+    from web_ui.msg_serializer import serialize_poi_photos
+
+    _, qos, serializer = subscription_spec("/poi/photos", "poi_photos")
+    assert qos.reliability is ReliabilityPolicy.RELIABLE
+    assert qos.durability is DurabilityPolicy.TRANSIENT_LOCAL
+    assert serializer is serialize_poi_photos
+
+
+def test_serialize_poi_photos_forwards_the_summary_and_rejects_malformed() -> None:
+    from web_ui.msg_serializer import serialize_poi_photos
+
+    summary = {
+        "revision": 3,
+        "count": 2,
+        "bytes": 10,
+        "oldest_ts": 1.0,
+        "newest_ts": 2.0,
+        "limits": {"max_records": 3000},
+    }
+    assert serialize_poi_photos(SimpleNamespace(data=json.dumps(summary))) == summary
+    for raw in ("{bad", "[]", json.dumps({"count": 1})):
+        with pytest.raises(ValueError):
+            serialize_poi_photos(SimpleNamespace(data=raw))
+
+
 def test_poi_command_topic_none_without_map_nav() -> None:
     assert AppConfig(tabs=[]).poi_command_topic() is None
 
@@ -205,3 +242,43 @@ def test_api_poi_allowed_during_battery_cutoff(tmp_path: Path) -> None:
     result = {"request_id": "x", "ok": True, "message": "added", "poi": None}
     resp = make_client(tmp_path, FakeBridge(result), guard).post("/api/poi?tab=map", json={"op": "add", "poi": {}})
     assert resp.status_code == 200
+
+
+def test_api_poi_delete_photos_forwards_the_selector(tmp_path: Path) -> None:
+    result = {
+        "request_id": "x",
+        "ok": True,
+        "message": "removed",
+        "poi": {"removed": 2, "bytes_freed": 9, "missing": []},
+    }
+    bridge = FakeBridge(result)
+    resp = make_client(tmp_path, bridge).post(
+        "/api/poi?tab=map", json={"op": "delete_photos", "selector": {"older_than_s": 86400, "dry_run": True}}
+    )
+    assert resp.status_code == 200 and resp.json() == result
+    assert bridge.payloads == [{"op": "delete_photos", "selector": {"older_than_s": 86400.0, "dry_run": True}}]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"op": "delete_photos"},
+        {"op": "delete_photos", "selector": []},
+        {"op": "delete_photos", "poi": {}},
+        {"op": "delete_photos", "selector": {}},
+        {"op": "delete_photos", "selector": {"ids": ["a"], "keep_newest": 3}},
+        {"op": "delete_photos", "selector": {"older_than_s": -1}},
+    ],
+)
+def test_api_poi_delete_photos_bad_selector_is_422(tmp_path: Path, body: Any) -> None:
+    bridge = FakeBridge({})
+    assert make_client(tmp_path, bridge).post("/api/poi?tab=map", json=body).status_code == 422
+    assert bridge.payloads == []
+
+
+@pytest.mark.parametrize("op", ["update", "delete"])
+def test_api_poi_update_and_delete_still_need_poi(tmp_path: Path, op: str) -> None:
+    resp = make_client(tmp_path, FakeBridge({})).post(
+        "/api/poi?tab=map", json={"op": op, "selector": {"keep_newest": 1}}
+    )
+    assert resp.status_code == 422
