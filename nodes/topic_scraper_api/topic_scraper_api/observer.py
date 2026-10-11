@@ -23,6 +23,8 @@ def _joint_state_positions_by_name(payload: dict[str, Any]) -> dict[str, float] 
         return None
     out: dict[str, float] = {}
     for name, position in zip(names, positions, strict=True):
+        if isinstance(position, bool) or not isinstance(position, (int, float)):
+            continue  # None (serialized NaN) or junk: unmeasured, skip
         value = float(position)
         if math.isfinite(value):  # NaN/inf is an unmeasured joint: skip it, never compare it
             out[name] = value

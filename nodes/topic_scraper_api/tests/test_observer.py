@@ -119,3 +119,23 @@ def test_oscillation_ignores_non_finite_samples() -> None:
     result = obs.get_rule_result("ab")
     assert math.isfinite(result.oscillation_score)
     assert result.oscillation_score > 0
+
+
+def test_compare_skips_none_positions_from_serialized_nan() -> None:
+    """message_to_payload turns NaN into None; the rules loop must skip it, not crash."""
+    obs = RulesObserver([_rule(RULE_TYPE_COMPARE)])
+    obs.tick(lambda t: _js([None, 1.0]) if t == "/a" else _js([0.0, 0.5]))
+    assert obs.get_rule_result("ab").comparison == {"j2": pytest.approx(0.5)}
+
+
+def test_oscillation_survives_none_positions() -> None:
+    obs = RulesObserver([_rule(RULE_TYPE_OSCILLATION)])
+    for a in (0.0, None, 0.4, None, 0.0, 0.4, 0.0):
+        obs.tick(lambda t, a=a: _js([a, 0.0]) if t == "/a" else _js([0.0, 0.0]))
+    assert obs.get_rule_result("ab").oscillation_score > 0
+
+
+def test_compare_skips_non_numeric_positions() -> None:
+    obs = RulesObserver([_rule(RULE_TYPE_COMPARE)])
+    obs.tick(lambda t: _js(["x", 1.0]) if t == "/a" else _js([0.0, 0.5]))
+    assert obs.get_rule_result("ab").comparison == {"j2": pytest.approx(0.5)}
