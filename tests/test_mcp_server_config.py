@@ -292,7 +292,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "close_speed_rps": 0.2,
             "target_load": 80,
             "contact_effort_threshold": 120,
-            "contact_load_delta": 20,
+            "contact_load_delta": None,
             "crush_load": 200,
             "retighten": False,
         },
@@ -302,7 +302,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "close_speed_rps": 0.5,
             "target_load": 200,
             "contact_effort_threshold": 300,
-            "contact_load_delta": 20,
+            "contact_load_delta": None,
             "crush_load": 450,
             "retighten": True,
         },
@@ -312,7 +312,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "close_speed_rps": 0.4,
             "target_load": 300,
             "contact_effort_threshold": 350,
-            "contact_load_delta": 20,
+            "contact_load_delta": None,
             "crush_load": 600,
             "retighten": True,
         },
@@ -322,7 +322,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "close_speed_rps": 0.3,
             "target_load": 150,
             "contact_effort_threshold": 250,
-            "contact_load_delta": 20,
+            "contact_load_delta": None,
             "crush_load": 550,
             "retighten": True,
         },
@@ -743,7 +743,9 @@ def test_mcp_server_unit_pins_the_allocator() -> None:
     assert "NUMPY_MADVISE_HUGEPAGE=0" in env
 
 
-GRIP_PRESET_CONTACT_LOAD_DELTA = 20.0  # load units, arXiv 2608.23983; retuned per preset in rollout
+# Load-rise contact is off on every preset: on the robot (2026-10-11) empty closes rose 35-124 load units above the
+# free-closing baseline at our closing speeds, so no delta separates closing from touching (the paper closes at 5 mm/s).
+GRIP_PRESET_CONTACT_LOAD_DELTA = None
 
 
 def validated_mcp_config():
@@ -782,9 +784,9 @@ def test_mcp_server_grip_profiles_set_delta_contact_keys() -> None:
 
 
 def test_mcp_server_grip_presets_keep_absolute_backstops() -> None:
-    """Delta contact is primary but every preset keeps its absolute contact_effort_threshold and target_load."""
+    """Every preset keeps its absolute contact_effort_threshold and target_load (delta contact is off until retuned)."""
     for name, preset in validated_mcp_config().grip_profiles.presets.items():
-        assert preset.contact_effort_threshold > preset.contact_load_delta, name
+        assert preset.contact_effort_threshold > (preset.contact_load_delta or 0), name
         assert preset.target_load > 0, name
 
 
