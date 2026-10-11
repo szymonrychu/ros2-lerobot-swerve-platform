@@ -111,7 +111,9 @@ def test_box_includes_the_depth_points(kin: ArmKinematics, jaw: JawModel) -> Non
     assert box is not None and shallow is not None
     assert (box[2] - box[0]) * (box[3] - box[1]) > (shallow[2] - shallow[0]) * (shallow[3] - shallow[1])
     depth_axis = kin.link_frame(JOINTS, GRIPPER_LINK)[:3, :3] @ jaw.depth_axis
-    back = np.array([p + 0.05 * depth_axis for p in jaw_points(kin, jaw, kin.link_frames(JOINTS), JOINTS["gripper"]).values()])
+    back = np.array(
+        [p + 0.05 * depth_axis for p in jaw_points(kin, jaw, kin.link_frames(JOINTS), JOINTS["gripper"]).values()]
+    )
     for u, v in pixels_of(setup, kin, back):
         assert box[0] <= u <= box[2] and box[1] <= v <= box[3]
 
@@ -192,7 +194,9 @@ def test_crop_jpeg_rejects_undecodable_input() -> None:
         crop_jpeg(b"not a jpeg", (0, 0, 10, 10), 100)
 
 
-def test_self_collision_fixed_points_reuse_jaw_points(cfg: McpServerConfig, kin: ArmKinematics, jaw: JawModel, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_self_collision_fixed_points_reuse_jaw_points(
+    cfg: McpServerConfig, kin: ArmKinematics, jaw: JawModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """SelfCollisionChecker.fixed_points takes its jaw points from jaw_crop.jaw_points (one definition)."""
     from mcp_server import self_collision
 
