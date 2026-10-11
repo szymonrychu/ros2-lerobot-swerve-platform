@@ -760,9 +760,21 @@ def planner(*phases: dict, complexity: str = "simple", rationale: str = "why"):
     return run
 
 
-def completer(outcome: str = "done", summary: str = "ok", p_retry_success: float = 0.0, retry_change: str = "none"):
+def completer(
+    outcome: str = "done",
+    summary: str = "ok",
+    p_retry_success: float = 0.0,
+    retry_change: str = "none",
+    failure_type: str = "execution_failure",
+    eai_error_type: str = "affordance",
+    explanation: str = "the step did not take effect",
+):
+    """Close the active phase; failed closes carry the required failure fields (ignored for done/skipped)."""
+
     async def run(client: FakeClient) -> None:
-        gate_of(client).plan.complete_phase(outcome, summary, p_retry_success, retry_change)
+        gate_of(client).plan.complete_phase(
+            outcome, summary, p_retry_success, retry_change, failure_type, eai_error_type, explanation
+        )
 
     return run
 
