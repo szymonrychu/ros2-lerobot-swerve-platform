@@ -93,10 +93,10 @@ class FakeArmBackend:
 class DelayedFollower:
     """Follower whose joints reach each published command only after a per-joint delay (an on_sleep hook).
 
-    Fitted to the 2026-10-11 12:19:55 arm_home tracking abort: every joint, the unloaded wrist_flex as much as the
-    gravity-loaded shoulder_lift and elbow_flex, followed the streamed quintic as a pure delay (least-squares fit of the
-    follower's measured joint lines against the reconstructed setpoints: shoulder_lift 0.53 s, elbow_flex 0.65 s,
-    wrist_flex 0.63 s). Joints without a measured delay use default_delay_s.
+    Lag model of the follower chain: every joint follows the streamed setpoints as a pure delay. Fitted 2026-10-11
+    against the actual setpoint publish times with P=16: 0.20-0.24 s on every joint (tests use 0.22 s). The earlier fit
+    against index-timed setpoints (0.53-0.65 s) included the 25% tick stretch of the fixed-sleep stream. Joints
+    without their own delay use default_delay_s.
     """
 
     def __init__(self, backend: FakeArmBackend, delays_s: dict[str, float], default_delay_s: float) -> None:

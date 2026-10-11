@@ -39,6 +39,7 @@ from .trajectory import (
     clamp_to_limits,
     max_abs_error,
     path_trajectory,
+    plan_sample,
     plan_trajectory,
 )
 
@@ -242,42 +243,40 @@ class ArmBackend(Protocol):
         ...
 
 
-def tracking_limit(base_rad: float, lag_s: float, velocity_rps: float, travel_rad: float = 0.0) -> float:
+def tracking_limit(base_rad: float, lag_s: float, velocity_rps: float) -> float:
     """Tracking-error abort threshold of a joint: servos lag their setpoint more the faster they move.
 
     Args:
         base_rad (float): Threshold at standstill (rad).
         lag_s (float): Expected servo lag (s); the threshold grows by lag_s * velocity_rps.
         velocity_rps (float): Per-joint velocity cap of the motion (rad/s).
-        travel_rad (float): How far the joint's setpoint travelled within the follower delay window
-            (limits.arm_tracking_delay_s); replaces the speed term when larger.
 
     Returns:
         float: The abort threshold (rad).
     """
-    return base_rad + max(lag_s * velocity_rps, travel_rad)
+    return base_rad + lag_s * velocity_rps
 
 
-def setpoint_travel(history: list[tuple[float, dict[str, float]]], now: float, window_s: float) -> dict[str, float]:
-    """Span of each joint's setpoints over the last window_s (a joint delayed by up to window_s lags by at most this).
+def setpoint_band(history: list[tuple[float, dict[str, float]]], since: float) -> dict[str, tuple[float, float]]:
+    """Per joint, the lowest and highest setpoint commanded since a time, the one current at that time included.
 
     Args:
-        history (list[tuple[float, dict[str, float]]]): (time, setpoint) pairs, oldest first; the newest is current.
-        now (float): Current time (s).
-        window_s (float): Window length (s); the setpoint current at its start counts too.
+        history (list[tuple[float, dict[str, float]]]): (publish time, setpoint) pairs, oldest first.
+        since (float): Window start (s, backend clock); before the history the oldest setpoint counts as current.
 
     Returns:
-        dict[str, float]: Joint -> max - min of its setpoints in the window (rad); empty without history.
+        dict[str, tuple[float, float]]: Joint -> (low, high) of its setpoints in the window; empty without history.
     """
-    if not history:
-        return {}
     first = 0
     for index, (stamp, _) in enumerate(history):
-        if stamp <= now - window_s:
+        if stamp <= since:
             first = index
-    recent = [setpoint for _, setpoint in history[first:]]
-    joints = set(history[-1][1])
-    return {j: max(s[j] for s in recent if j in s) - min(s[j] for s in recent if j in s) for j in sorted(joints)}
+    band: dict[str, tuple[float, float]] = {}
+    for _, setpoint in history[first:]:
+        for joint, value in setpoint.items():
+            low, high = band.get(joint, (value, value))
+            band[joint] = (min(low, value), max(high, value))
+    return band
 
 
 class ArmController:
@@ -333,7 +332,8 @@ class ArmController:
         self._streaming = False
         self._moving: list[str] = []  # joints of the running motion
         self._tracking_vmax = 0.0  # velocity cap of the running motion (rad/s), sets the speed term of tracking_limit
-        # (time, setpoint) seen by the running motion's tracking checks, pruned to limits.arm_tracking_delay_s.
+        # (publish time, setpoint) of the running motion, pruned to limits.arm_tracking_delay_s: the tracking check
+        # compares the measured joints against the setpoint commanded that long ago.
         self._setpoint_history: list[tuple[float, dict[str, float]]] = []
         self._slow_zone: dict[str, object] | None = None  # slow-zone summary of the running motion
         self._self_collision: dict[str, object] | None = None  # body soft-boundary summary of the running motion
@@ -522,6 +522,8 @@ class ArmController:
                 return False
             self.backend.publish_command(self.commanded(setpoint))
             self.remember_locked(setpoint)
+            if self._streaming:
+                self._setpoint_history.append((self.backend.now(), dict(setpoint)))
         return True
 
     def remember_locked(self, setpoint: dict[str, float]) -> None:
@@ -861,7 +863,7 @@ class ArmController:
             floor (FloorOverride | None): Per-call slow-zone overrides.
             settle (SettlePolicy): Settle policy at the final target.
             on_via (Callable[[int], None] | None): Called with the target index when the stream passes that target.
-            on_tick (Callable[[int, int], None] | None): Called with (setpoints published, total setpoints) after
+            on_tick (Callable[[int, int], None] | None): Called with (planned setpoints reached, total setpoints) after
                 every published setpoint; the first call ends the planning (guard) phase.
 
         Returns:
@@ -1817,12 +1819,15 @@ class ArmController:
     def tracking_violation(
         self, now: float, setpoint: dict[str, float], positions: dict[str, float], tracked: list[str]
     ) -> tuple[str, float, float] | None:
-        """Record the current setpoint and find the joint lagging it beyond its tracking limit.
+        """Find the joint lagging the setpoint commanded limits.arm_tracking_delay_s ago beyond its tracking limit.
 
-        A joint's limit is tracking_limit with the speed term of the motion's velocity cap, or the travel of its setpoint
-        within limits.arm_tracking_delay_s when larger: the follower chain reaches a setpoint that much later (measured
-        2026-10-11), so a joint that far behind is following, not jammed. The limit shrinks back to the speed term once
-        the setpoint has stood still for the window.
+        The follower chain reaches a setpoint about 0.2 s after it was published (clean servo lag 0.20-0.24 s, measured
+        2026-10-11), so a joint is judged against the setpoints of the last arm_tracking_delay_s (by publish time), not
+        the newest one alone: its error is the distance to the band between the setpoint commanded arm_tracking_delay_s
+        ago and the newest (lowest to highest setpoint in that window). A lagging joint is therefore compared against
+        the setpoint of arm_tracking_delay_s ago, and a joint following faster than that is no fault. The limit is
+        tracking_limit with the speed term of the motion's velocity cap. Before any setpoint of the motion is that old
+        the motion's start pose counts; without a motion history the last published setpoint does.
 
         Args:
             now (float): Backend time of the check (s).
@@ -1835,20 +1840,19 @@ class ArmController:
                 their limit, or None when every tracked joint is within its limit.
         """
         limits = self.cfg.limits
-        window = limits.arm_tracking_delay_s
-        history = self._setpoint_history
-        history.append((now, dict(setpoint)))
-        while len(history) > 1 and history[1][0] <= now - window:
-            history.pop(0)
-        travel = setpoint_travel(history, now, window)
+        since = now - limits.arm_tracking_delay_s
+        with self._lock:
+            history = self._setpoint_history
+            while len(history) > 1 and history[1][0] <= since:
+                history.pop(0)
+            band = setpoint_band(history, since) or {j: (v, v) for j, v in setpoint.items()}
+        limit = tracking_limit(limits.arm_tracking_error_rad, limits.arm_tracking_lag_s, self._tracking_vmax)
         worst: tuple[str, float, float] | None = None
         for joint in tracked:
-            if joint not in setpoint:
+            if joint not in band:
                 continue
-            error = abs(setpoint[joint] - positions[joint])
-            limit = tracking_limit(
-                limits.arm_tracking_error_rad, limits.arm_tracking_lag_s, self._tracking_vmax, travel.get(joint, 0.0)
-            )
+            low, high = band[joint]
+            error = max(low - positions[joint], positions[joint] - high, 0.0)
             if error > limit and (worst is None or error > worst[1]):
                 worst = (joint, error, limit)
         return worst
@@ -2101,6 +2105,11 @@ class ArmController:
     ) -> ArmMotionResult:
         """Stream setpoints at arm_rate_hz, then wait for convergence; abort and hold on any safety check.
 
+        Ticks are scheduled on a deadline (next += period, sleep until it) and each publishes the planned trajectory at
+        the actual elapsed time (interpolated between the planned samples, clamped to the goal), so the motion ends at
+        its planned time whatever the tick jitter. A tick that overruns past the next deadline publishes the plan at its
+        real time once (one larger step) and drops the missed ticks instead of bursting to catch up.
+
         The planned trajectory is checked once against the below-surface slow zone (floor_guard): steps with a sample
         near or below the effective surface are time-scaled to floor_guard.slow_speed_scale (same streaming rate).
 
@@ -2126,10 +2135,11 @@ class ArmController:
             path (list[dict[str, float]] | None): Full-pose samples the trajectory passes through (ends at goal).
             settle (SettlePolicy): 'final' or 'trajectory_end' (see above).
             blend (bool): path holds via points of one continuous spline (move_blend).
-            on_via (Callable[[int], None] | None): Called with the via index once its setpoint was published (blend).
+            on_via (Callable[[int], None] | None): Called with the via index once the stream reached its setpoint
+                (blend; an overrun that skips past several vias reports each, in order).
             target_load (float | None): Close-until-effort: stop once the closing-direction load reaches this.
-            on_tick (Callable[[int, int], None] | None): Called with (setpoints published, total) after each setpoint
-                (before on_via); the planning above runs before the first call.
+            on_tick (Callable[[int, int], None] | None): Called with (planned setpoints reached, total) after each
+                published setpoint (before on_via); the planning above runs before the first call.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -2144,7 +2154,6 @@ class ArmController:
         self._trajectory_end = None
         start = self.start_from_settling(start, moving)
         self._tracking_vmax = vmax
-        self._setpoint_history = []
         started = self.backend.now()
         self._moving = list(moving)
         self._settle_probe = None
@@ -2180,11 +2189,20 @@ class ArmController:
 
         with self._lock:
             self._streaming = True
+            self._setpoint_history = [(started, dict(start))]
         try:
             sample: JointSample | None = None
             points = self.guarded_trajectory(start, goal, vmax, floor, path, blend)
-            via_at = {tick: index for index, tick in enumerate(self._via_ticks)}
-            for tick, point in enumerate(points):
+            total = len(points)
+            pending_vias = list(enumerate(self._via_ticks))
+            # Ticks run on a deadline and sample the plan at the elapsed time: setpoint index k (points[k - 1]) is due
+            # k periods after the first tick, which publishes the setpoint one period ahead (points[0]) like a
+            # perfectly timed stream would. A late tick takes the plan at its real time and an overrun past the next
+            # deadline drops the missed ticks, so jitter never stretches the motion and nothing bursts to catch up.
+            first_tick = self.backend.now()
+            next_tick = first_tick
+            reached = 0
+            while reached < total:
                 latest = self.backend.joint_sample()
                 sample = latest or sample
                 verdict = self.check(latest, tracked, *contact_gate(latest))
@@ -2193,16 +2211,22 @@ class ArmController:
                 stall = stall_contact()
                 if stall is not None:
                     return stall
-                self.ramp_sag(tick + 1, len(points))
-                if not self.command(point):
+                index = min(float(total), (self.backend.now() - first_tick) * rate + 1.0)
+                reached = max(reached + 1, min(total, math.floor(index + 1e-9)))
+                self.ramp_sag(reached, total)
+                if not self.command(plan_sample(start, points, max(index, float(reached)))):
                     return self.finish("stopped", "control released", goal, sample, clamped, started, hold=False)
                 self.note_tick(kind, started)
                 if on_tick is not None:
-                    on_tick(tick + 1, len(points))
-                if on_via is not None and tick in via_at:
-                    on_via(via_at[tick])
-                self.backend.sleep(period)
-            self.ramp_sag(len(points), len(points))
+                    on_tick(reached, total)
+                while on_via is not None and pending_vias and pending_vias[0][1] < reached:
+                    on_via(pending_vias.pop(0)[0])
+                next_tick += period
+                now = self.backend.now()
+                if next_tick <= now:
+                    next_tick = now + period
+                self.backend.sleep(next_tick - now)
+            self.ramp_sag(total, total)
             self._trajectory_end = self.backend.now()
             if settle == "trajectory_end":
                 return self.finish_at_trajectory_end(goal, sample, judged, tracked, clamped, started)

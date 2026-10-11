@@ -161,12 +161,12 @@ class LimitSettings(StrictModel):
     # speed (2026-10-08: 0.35-0.37 rad at 0.8-1.0 rad/s on free moves).
     arm_tracking_error_rad: float = Field(default=0.25, gt=0.0)
     arm_tracking_lag_s: float = Field(default=0.25, ge=0.0)
-    # Command-to-motion delay of the follower chain (s): a joint's abort threshold is at least arm_tracking_error_rad
-    # plus how far its setpoint travelled within this window, so a joint following its setpoint this much later is no
-    # jam. Measured 2026-10-11 12:19:55 (full-speed arm_home aborted at 0.504 rad on shoulder_lift with nominal
-    # ticks): every joint followed the quintic as a pure delay, the unloaded wrist_flex as much as the loaded ones
-    # (fit: shoulder_lift 0.53 s, elbow_flex 0.65 s, wrist_flex 0.63 s). 0 restores the instantaneous threshold.
-    arm_tracking_delay_s: float = Field(default=0.65, ge=0.0, le=2.0)
+    # Command-to-motion delay of the follower chain (s): the tracking abort compares each joint against the setpoints
+    # commanded within this window (by publish time), so a joint following its setpoint this much later is no jam.
+    # Clean servo lag 0.20-0.24 s measured 2026-10-11 with P=16 (fit of the follower lines against the actual setpoint
+    # times); 0.35 leaves margin. The old 0.65 compensated the 25% tick stretch of the fixed-sleep stream (49.8 ms ticks
+    # for the planned 40 ms) and the follower register-dump stall. 0 compares against the newest setpoint.
+    arm_tracking_delay_s: float = Field(default=0.35, ge=0.0, le=2.0)
     arm_converge_tolerance_rad: float = Field(default=0.03, gt=0.0)
     # Per-joint replacements of the converge/settle tolerances. The two gravity-loaded joints carry the arm's weight and
     # sag by more than the global 0.03 rad (the cause of the measured convergence timeouts: 54 of the moves ran into the

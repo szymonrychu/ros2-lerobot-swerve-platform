@@ -1,10 +1,11 @@
-"""arm_home under the measured servo delay (2026-10-11 12:19:55 aborted_tracking) and the delay-aware tracking limit."""
+"""arm_home under the measured servo lag and the tracking check against the setpoint of arm_tracking_delay_s ago."""
 
+import re
 from pathlib import Path
 
 import pytest
 
-from mcp_server.arm import ArmController, setpoint_travel, tracking_limit
+from mcp_server.arm import ArmController, tracking_limit
 from mcp_server.config import McpServerConfig
 from mcp_server.home_store import save_home
 from mcp_server.ik import ArmKinematics, load_joint_limits
@@ -32,9 +33,11 @@ HOME = {
     "wrist_roll": -1.637,
     "gripper": 0.1,
 }
-# Command-to-motion delay per joint fitted to the follower's measured lines during the aborted home (s).
-MEASURED_DELAYS_S = {"shoulder_lift": 0.53, "elbow_flex": 0.65, "wrist_flex": 0.63}
-DEFAULT_DELAY_S = 0.6
+# Clean command-to-motion lag of the follower (fit of the measured joint lines against the actual setpoint times,
+# 2026-10-11 with P=16: 0.20-0.24 s on every joint).
+SERVO_LAG_S = 0.22
+# A follower stalled far longer than the clean lag (the old register-dump stall the 0.65 s window had covered).
+STALLED_LAG_S = 1.2
 
 
 def make(tmp_path: Path, config: McpServerConfig = CONFIG) -> tuple[ArmController, FakeArmBackend]:
@@ -54,61 +57,44 @@ def make(tmp_path: Path, config: McpServerConfig = CONFIG) -> tuple[ArmControlle
     return ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg), be
 
 
-def test_home_with_the_measured_servo_delay_converges(tmp_path: Path) -> None:
-    """The 2026-10-11 abort: full-speed home lagged by the measured delay converges instead of aborted_tracking."""
+def test_home_with_the_measured_servo_lag_converges(tmp_path: Path) -> None:
+    """Full-speed home on a follower lagging the measured 0.22 s converges with arm_tracking_delay_s 0.35."""
+    assert CONFIG.limits.arm_tracking_delay_s == pytest.approx(0.35)
     arm, be = make(tmp_path)
-    DelayedFollower(be, MEASURED_DELAYS_S, DEFAULT_DELAY_S)
+    DelayedFollower(be, {}, SERVO_LAG_S)
     res = arm.home()
     assert res.status == "converged", res.message
     assert be.positions["shoulder_lift"] == pytest.approx(HOME["shoulder_lift"], abs=0.05)
 
 
-def test_home_with_the_measured_delay_aborted_with_the_instantaneous_limit(tmp_path: Path) -> None:
-    """Without the delay window (arm_tracking_delay_s 0) the same home aborts like on the robot (0.504 rad over 0.500).
-
-    At nominal 40 ms ticks the fake trips on elbow_flex (longest delay) just before shoulder_lift; on the robot (48.5 ms
-    ticks, plus its gravity sag) shoulder_lift led.
-    """
-    cfg = CONFIG.model_copy(deep=True)
-    cfg.limits.arm_tracking_delay_s = 0.0
-    arm, be = make(tmp_path, cfg)
-    DelayedFollower(be, MEASURED_DELAYS_S, DEFAULT_DELAY_S)
+def test_home_aborts_on_a_follower_stalled_far_beyond_the_delay(tmp_path: Path) -> None:
+    """The tracking check compares against the setpoint of arm_tracking_delay_s ago: a 1.2 s stall is a fault."""
+    arm, be = make(tmp_path)
+    DelayedFollower(be, {}, STALLED_LAG_S)
     res = arm.home()
-    assert res.status == "aborted_tracking"
-    assert "exceeds 0.500" in res.message
-    assert res.message.endswith(("(shoulder_lift)", "(elbow_flex)"))
+    assert res.status == "aborted_tracking", res.message
 
 
 def test_a_jammed_joint_still_aborts_a_full_speed_home(tmp_path: Path) -> None:
-    """A joint that does not move at all (jam, collision) still aborts, the limit stays bounded."""
+    """A joint that does not move at all (jam, collision) still aborts, the limit stays the speed-term limit."""
     arm, be = make(tmp_path)
     arm.acquire()
     be.follow = False
     res = arm.home()
     assert res.status == "aborted_tracking"
     lim = CONFIG.limits
-    vmax = lim.arm_max_joint_velocity_rps
-    worst = lim.arm_tracking_error_rad + max(lim.arm_tracking_lag_s * vmax, lim.arm_tracking_delay_s * vmax)
+    worst = tracking_limit(lim.arm_tracking_error_rad, lim.arm_tracking_lag_s, lim.arm_max_joint_velocity_rps)
     assert abs(be.positions["shoulder_lift"] - START["shoulder_lift"]) < 1e-9
-    assert float(res.message.split("tracking error ")[1].split(" ")[0]) <= worst + 0.05
+    match = re.search(r"tracking error ([0-9.]+) rad exceeds ([0-9.]+)", res.message)
+    assert match is not None, res.message
+    error, limit = float(match.group(1)), float(match.group(2))
+    assert limit == pytest.approx(worst, abs=1e-3)
+    assert error <= worst + 0.05
 
 
-def test_tracking_limit_takes_the_larger_of_the_speed_term_and_the_recent_travel() -> None:
-    assert tracking_limit(0.25, 0.25, 1.0, 0.6) == pytest.approx(0.85)
-    assert tracking_limit(0.25, 0.25, 1.0, 0.1) == pytest.approx(0.5)
+def test_tracking_limit_grows_with_the_speed() -> None:
     assert tracking_limit(0.25, 0.25, 1.0) == pytest.approx(0.5)
-
-
-def test_setpoint_travel_spans_the_window() -> None:
-    history = [
-        (0.0, {"shoulder_lift": 0.0, "elbow_flex": 0.0}),
-        (0.5, {"shoulder_lift": -0.3, "elbow_flex": 0.1}),
-        (1.0, {"shoulder_lift": -0.5, "elbow_flex": 0.1}),
-    ]
-    assert setpoint_travel(history, 1.0, 0.6) == pytest.approx({"shoulder_lift": 0.5, "elbow_flex": 0.1})
-    assert setpoint_travel(history, 1.0, 0.4) == pytest.approx({"shoulder_lift": 0.2, "elbow_flex": 0.0})
-    assert setpoint_travel(history, 1.0, 0.0) == pytest.approx({"shoulder_lift": 0.0, "elbow_flex": 0.0})
-    assert setpoint_travel([], 1.0, 0.6) == {}
+    assert tracking_limit(0.25, 0.25, 0.2) == pytest.approx(0.3)
 
 
 def test_joints_constant_is_complete() -> None:

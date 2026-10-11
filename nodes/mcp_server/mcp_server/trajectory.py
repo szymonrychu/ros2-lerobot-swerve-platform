@@ -123,6 +123,31 @@ def plan_trajectory(
     return points
 
 
+def plan_sample(start: dict[str, float], points: list[dict[str, float]], index: float) -> dict[str, float]:
+    """The planned trajectory at a fractional setpoint index (linear between samples), clamped to its ends.
+
+    Index 0 is the start pose and index k (1..len(points)) is points[k - 1], so at rate_hz the plan at elapsed time t
+    is plan_sample(start, points, t * rate_hz).
+
+    Args:
+        start (dict[str, float]): Pose before the first point.
+        points (list[dict[str, float]]): Setpoints at the streaming rate (the last one is the goal).
+        index (float): Fractional setpoint index; below 0 gives the start, beyond len(points) the goal.
+
+    Returns:
+        dict[str, float]: Interpolated setpoint (the joints of the points; start's joints when there are none).
+    """
+    if not points or index <= 0.0:
+        return dict(start)
+    if index >= len(points):
+        return dict(points[-1])
+    below = math.floor(index)
+    frac = index - below
+    a = start if below == 0 else points[below - 1]
+    b = points[below]
+    return {j: a[j] + (b[j] - a[j]) * frac for j in b}
+
+
 def max_abs_error(a: dict[str, float], b: dict[str, float], joints: list[str]) -> float:
     """Largest absolute difference between two joint maps over the given joints.
 

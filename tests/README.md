@@ -649,13 +649,17 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   relaxed after the hold window; stale-feedback and tracking aborts still fire; `final` waits (timeout) and splits
   `trajectory_s` / `settle_s`; a stuck gripper no longer times an arm move out, a gripper-only move still judges the
   jaw; per-joint converge/settle tolerance defaults (loaded shoulder_lift / elbow_flex wider) and their validation
-- arm home under the follower delay (`test_arm_home_tracking.py`): a fake follower (`fakes.DelayedFollower`) reaching
-  each command after the per-joint delay fitted to the 2026-10-11 12:19:55 abort (shoulder_lift 0.53 s, elbow_flex
-  0.65 s, wrist_flex 0.63 s, others 0.6 s) runs the logged full-speed home from the logged start pose: it converges
-  with the delay window and aborts with `arm_tracking_delay_s: 0` (the robot's 0.50x rad over 0.500, on a loaded joint
-  named in the message); a jammed arm still aborts a full-speed home within base + max(lag x vmax, delay x vmax);
-  `tracking_limit` takes the larger of the speed term and the setpoint travel; `setpoint_travel` spans the window
-  (the setpoint current at its start included, zero window, empty history)
+- arm home under the follower lag (`test_arm_home_tracking.py`): a fake follower (`fakes.DelayedFollower`) reaching
+  each command after the measured clean servo lag (0.22 s) runs the logged full-speed home from the logged start pose
+  and converges with the default `arm_tracking_delay_s` 0.35; a follower stalled 1.2 s still aborts (the check compares
+  against the setpoint of 0.35 s ago); a jammed arm still aborts a full-speed home at the speed-term limit
+  (base + lag x vmax); `tracking_limit` grows with the speed
+- stream timing (`test_arm_stream_timing.py`): on a fake clock with jittery 40-60 ms ticks (late wake-ups) a full-speed
+  move finishes at its planned `trajectory_s` (+- one period) with every setpoint equal to the analytic quintic at its
+  publish time; a tick overrunning by 2.5 periods publishes the plan at the real time in one larger step with no burst
+  of setpoints after it; with the body soft margin the jittery move still ends at the stretched planned time;
+  `plan_sample` interpolates the plan at a fractional index (clamped at both ends); `setpoint_band` spans the setpoints
+  commanded since a time (the one current then included, before the history, empty history)
 - gravity sag model (`test_sag.py`): URDF gravity torques of a synthetic two-joint chain (horizontal point masses,
   hanging link, cosine law, missing joints, unknown joint rejected) and of the SO-101 (no torque on the vertical pan
   axis, stretched arm loads the shoulder most, shoulder > elbow > wrist, plausible total mass); deflection k * tau with

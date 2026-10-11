@@ -218,7 +218,7 @@ missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresho
 | `battery_cutoff` | critical | the shared `BatteryGuard` cut-off (hysteresis as in the gate) |
 | `collision_stop` | critical | collision monitor STOP while a base motion runs. The monitor publishes its state only on change, so a STOP from before the motion counts only if no fresher state arrives within `collision_latch_grace_s` 0.5 s: a drive away from the obstacle gets a new state and is not cut short |
 | `stall` | critical | base: commanded speed (> 0.05 m/s or 0.1 rad/s) but measured odometry/rf2o ~0 for > `stall_s` 1.0 s while a base motion runs (the arm's tracking abort is its own `arm_tracking_abort` event) |
-| `arm_tracking_abort` | warning | arm: setpoint vs measured tracking error of a joint (named in the event) above `limits.arm_tracking_error_rad` + the larger of `limits.arm_tracking_lag_s` x the motion's velocity and the joint's setpoint travel within `limits.arm_tracking_delay_s`; never interrupts the model's turn or a base motion (not in `BASE_INTERRUPTS`) |
+| `arm_tracking_abort` | warning | arm: setpoint vs measured tracking error of a joint (named in the event) above `limits.arm_tracking_error_rad` + `limits.arm_tracking_lag_s` x the motion's velocity, measured against the setpoint commanded `limits.arm_tracking_delay_s` earlier; never interrupts the model's turn or a base motion (not in `BASE_INTERRUPTS`) |
 | `wheel_slip` | warning | swerve residual (decoded from the twist covariance `var_xy = 0.002 + r^2`; parked fixed value = none) > `slip_residual_warn_mps` 0.1 |
 | `bump` | warning / critical | horizontal acceleration spike after baseline removal >= `bump_warn_mps2` 4 / `bump_critical_mps2` 9 m/s^2 for `bump_min_samples` (2) consecutive IMU samples; one glitchy sample is ignored and the severity follows the weakest sample of the run |
 | `tilt` | warning | tilt from the IMU orientation > `tilt_warn_deg` 10 deg |
@@ -1101,20 +1101,22 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
   -0.172 rad); synchronised quintic trajectory
   with per-joint velocity <= `arm_max_joint_velocity_rps` (default 1.0 rad/s; `speed_scale` 0.5 = that maximum, lower is proportionally slower) streamed at
   25 Hz; blocks until converged (`arm_converge_tolerance_rad`) or `arm_converge_timeout_s` after the trajectory.
-  Aborts and holds the measured pose when `/follower/joint_states` is older than 0.3 s, the tracking error (setpoint vs
-  measured, gripper excluded) of a joint exceeds `arm_tracking_error_rad` (0.25) + the larger of `arm_tracking_lag_s` (0.25 s) x the motion's joint velocity cap (0.5 rad at full speed 1.0 rad/s, 0.3 rad at 0.2 rad/s: servos lag more at speed) and how far that joint's setpoint travelled within the last `arm_tracking_delay_s` (0.65 s), or `stop` is called. The abort message and the `arm_tracking_abort` event name the joint. One arm motion at a time.
-- **Tracking limit and the follower delay** (2026-10-11 12:19:55, `arm_home` aborted: tracking error 0.504 rad over 0.500
-  after 1.6 s of a 1.0 rad/s home, the following slow `move_arm_joints` converged). Evidence: the follower's `joint:value`
-  journal lines (Loki, `ros2-lerobot_follower.service`) against the setpoints reconstructed from the mcp_server timing line
-  (first setpoint, 33 ticks of the 54-tick quintic) show every joint following as a pure delay, the unloaded, lowering
-  wrist_flex as much as the gravity-loaded ones (least-squares delay: shoulder_lift 0.53 s, elbow_flex 0.65 s, wrist_flex
-  0.63 s); at the abort shoulder_lift lagged 0.47 rad (plus its sag) and elbow_flex 0.43 rad. The bus loop ran normally
-  (Mimir `servo_cycle_duration_seconds` about 11 ms, 80 cycles/s). Until about 10:33 mcp_server was CPU-starved
-  (ticks 85-140 ms), so motions ran 2-3x slower and the same delay stayed under the 0.5 rad limit; with nominal ticks a
-  full-speed joint is about 0.5-0.65 rad behind its setpoint while it follows correctly. The fix keeps the base
-  threshold and the speed term and only lets a joint lag by the setpoint travel of the measured delay window, so the
-  limit shrinks back to 0.25 + 0.25 x vmax once the setpoint stands still; a jammed joint still aborts (at full speed
-  after about 0.85 rad instead of 0.5). `arm_tracking_delay_s: 0` restores the instantaneous threshold.
+  Aborts and holds the measured pose when `/follower/joint_states` is older than 0.3 s, the tracking error (gripper
+  excluded: the measured joint against the setpoint commanded `arm_tracking_delay_s` (0.35 s) earlier, by publish time;
+  a joint between that setpoint and the newest one has error 0) of a joint exceeds `arm_tracking_error_rad` (0.25) +
+  `arm_tracking_lag_s` (0.25 s) x the motion's joint velocity cap (0.5 rad at full speed 1.0 rad/s, 0.3 rad at 0.2 rad/s:
+  servos lag more at speed), or `stop` is called. The abort message and the `arm_tracking_abort` event name the joint. One arm motion at a time.
+- **Tracking limit and the follower delay**: the follower chain reaches a setpoint about 0.2 s after it is published
+  (clean servo lag 0.20-0.24 s on every joint, the unloaded wrist_flex as much as the gravity-loaded ones: least-squares
+  fit of the follower's `joint:value` journal lines against the actual setpoint publish times, 2026-10-11 with P=16).
+  The tracking check therefore compares each joint against the setpoint commanded `arm_tracking_delay_s` (0.35 s, margin
+  over the lag) earlier, measured on the backend clock from the publish times (the motion's start pose before any
+  setpoint is that old), and counts a joint anywhere between that setpoint and the newest one as following (error 0).
+  A jammed joint aborts once the delayed setpoint moved 0.25 + 0.25 x vmax away from it; a follower stalled far beyond
+  the window (1.2 s in the tests) aborts too. History: H1 (2026-10-11 12:19:55, `arm_home` aborted at 0.504 rad over
+  0.500) raised the window to 0.65 s from a fit against index-timed setpoints (0.53-0.65 s), which included the 25%
+  tick stretch of the old fixed-sleep stream (see Motion timing) and the follower register-dump stall; with ticks on a
+  deadline and time-stamped setpoints 0.35 s suffices. `arm_tracking_delay_s: 0` compares against the newest setpoint.
 - **Settle policy** (`settle` on `move_arm_joints` / `move_arm_cartesian`): `final` waits for convergence (above);
   `trajectory_end` returns as soon as the last setpoint is streamed (after one more stale/tracking check) with status
   `converged`, `settling=true` while joints are still outside their converge tolerance, and `tracking_error_rad` (the
@@ -1138,10 +1140,19 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
   `tool_call {"tool", "started_at", "ended_at", "duration_s", "ok", ...}`; arm moves add `status`, `trajectory_s`,
   `settle_s`, `settle`, `settling`, `tracking_error_rad`, `time_to_first_setpoint_s` and `tick_rate_hz`, so trajectory
   and settle seconds are separable in the journal.
-- **Motion timing**: every arm/gripper motion result carries `time_to_first_setpoint_s` (motion start to the first
+- **Motion timing**: `ArmController.stream` schedules its ticks on a deadline (`next += period`, then sleeps
+  `max(0, next - now)`) and every tick publishes the planned trajectory at the actual elapsed time (interpolated between
+  the 25 Hz plan samples, clamped to the goal; the slow-zone and body-margin time scaling stretch that plan and are kept).
+  A motion therefore finishes at its planned `trajectory_s` whatever the tick jitter; a tick that overruns past the next
+  deadline publishes the plan at its real time once (one larger step) and drops the missed ticks instead of bursting to
+  catch up. Before 2026-10-11 each tick did its work and then slept a fixed period, so ticks averaged 49.8 ms for the
+  planned 40 ms (Mimir `mcp_motion_tick_period_seconds`: 31% 40-45, 34% 45-50, 25% 50-60, 9% 60-80 ms) and every
+  trajectory played about 25% slower than planned. Vias of a blend (`on_via`) fire when the stream reaches their
+  setpoint (each one in order when an overrun skips past several), `on_tick` reports (planned setpoints reached,
+  total). Every arm/gripper motion result carries `time_to_first_setpoint_s` (motion start to the first
   published trajectory setpoint: planning, slow zone and body check), `ticks` (trajectory setpoints published) and
-  `tick_rate_hz` (`ticks / trajectory_s`; the plan streams at 25 Hz, a lower value means the host could not keep up,
-  e.g. a CPU-throttled robot). Queued motion events carry the same two timing fields.
+  `tick_rate_hz` (`ticks / trajectory_s`; the plan streams at 25 Hz, a lower value means ticks were dropped because the
+  host could not keep up, e.g. a CPU-throttled robot; the motion still ends on time). Queued motion events carry the same two timing fields.
 - **No sag ratchet**: while the lease is held, a motion starts from the last commanded pose and joints it does not name
   keep their last commanded target (the measured pose is used only right after acquiring). Re-commanding the measured
   pose would lock gravity sag in and let it accumulate over calls.
