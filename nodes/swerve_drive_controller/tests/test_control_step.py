@@ -303,3 +303,33 @@ def test_gate_cmd_vel_drops_and_counts_commands_while_inhibited() -> None:
     assert REGISTRY.get_sample_value("tilt_guard_inhibited_commands_total") == before
     assert gate_cmd_vel(sample, inhibited=True) == CmdVelSample()
     assert REGISTRY.get_sample_value("tilt_guard_inhibited_commands_total") == before + 1
+
+
+def speed_scale_after(
+    tmp_path: Path, twist: tuple[float, float, float], inhibited: bool = False, age: float = 0.0
+) -> float:
+    from prometheus_client import REGISTRY
+
+    cfg = make_config(tmp_path)
+    out, _ = control_step(
+        cfg, ControlState(), CmdVelSample(twist, 10.0 - age), make_joints(10.0), 10.0, inhibited=inhibited
+    )
+    assert out is not None
+    value = REGISTRY.get_sample_value("swerve_cmd_speed_scale")
+    assert value is not None
+    return value
+
+
+def test_speed_scale_gauge_reports_corner_clamp(tmp_path: Path) -> None:
+    assert speed_scale_after(tmp_path, (0.25, 0.25, 0.0)) == pytest.approx(0.799, abs=1e-3)
+
+
+def test_speed_scale_gauge_is_one_within_limit(tmp_path: Path) -> None:
+    assert speed_scale_after(tmp_path, (0.1, 0.0, 0.0)) == 1.0
+
+
+def test_speed_scale_gauge_is_one_when_stopped_or_inhibited(tmp_path: Path) -> None:
+    speed_scale_after(tmp_path, (0.25, 0.25, 0.0))
+    assert speed_scale_after(tmp_path, (0.0, 0.0, 0.0)) == 1.0
+    speed_scale_after(tmp_path, (0.25, 0.25, 0.0))
+    assert speed_scale_after(tmp_path, (0.25, 0.25, 0.0), inhibited=True) == 1.0

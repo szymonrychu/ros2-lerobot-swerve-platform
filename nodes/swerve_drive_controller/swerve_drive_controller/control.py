@@ -7,12 +7,15 @@ from .config import SwerveControllerConfig
 from .kinematics import (
     compute_wheel_commands,
     integrate_odometry,
+    inverse_kinematics,
     robust_forward_kinematics,
     should_zero_drive,
+    wheel_speed_scale,
     wheel_states,
     wheels_parked,
 )
 from .metrics import (
+    CMD_SPEED_SCALE,
     CMD_VEL_AGE,
     JOINT_STATES_STALE,
     LOOP_DURATION,
@@ -174,6 +177,9 @@ def control_step(
     vx, vy, omega = cmd.twist if fresh else (0.0, 0.0, 0.0)
     if abs(vx) < CMD_VEL_DEADBAND and abs(vy) < CMD_VEL_DEADBAND and abs(omega) < CMD_VEL_DEADBAND:
         vx, vy, omega = 0.0, 0.0, 0.0
+
+    _, ik_drive = inverse_kinematics(vx, vy, omega, config.half_length_m, config.half_width_m, config.wheel_radius_m)
+    CMD_SPEED_SCALE.set(wheel_speed_scale(ik_drive, config.max_wheel_angular_velocity_rad_s))
 
     steer_targets = state.steer_targets if state.steer_targets is not None else list(steer_angles)
     desired_steer, desired_drive, steer_flip = compute_wheel_commands(

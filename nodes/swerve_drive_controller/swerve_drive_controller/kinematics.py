@@ -339,6 +339,22 @@ def fold_to_steer_range(
     return (max(-limit, min(limit, best[0])), best[1])
 
 
+def wheel_speed_scale(drives: list[float], max_speed: float) -> float:
+    """Common factor that brings the fastest wheel down to max_speed.
+
+    Args:
+        drives: Wheel drive angular velocities, rad/s.
+        max_speed: Maximum allowed magnitude, rad/s.
+
+    Returns:
+        float: min(1, max_speed / peak); 1.0 when all wheels are at or below the limit (also for all zeros).
+    """
+    peak = max((abs(d) for d in drives), default=0.0)
+    if peak <= max_speed:
+        return 1.0
+    return max_speed / peak
+
+
 def desaturate_wheel_speeds(drives: list[float], max_speed: float) -> list[float]:
     """Scale all wheel speeds by a common factor so none exceeds max_speed (keeps the motion direction).
 
@@ -349,10 +365,9 @@ def desaturate_wheel_speeds(drives: list[float], max_speed: float) -> list[float
     Returns:
         list[float]: Scaled wheel speeds, rad/s.
     """
-    peak = max((abs(d) for d in drives), default=0.0)
-    if peak <= max_speed or peak == 0.0:
+    scale = wheel_speed_scale(drives, max_speed)
+    if scale == 1.0:
         return list(drives)
-    scale = max_speed / peak
     return [d * scale for d in drives]
 
 

@@ -13,6 +13,10 @@ SLIP_RESIDUAL = Gauge("swerve_slip_residual", "Wheel-consistency residual of the
 LOOP_DURATION = Histogram(
     "swerve_loop_duration_seconds", "Duration of one control cycle including publishing", buckets=LOOP_DURATION_BUCKETS
 )
+CMD_SPEED_SCALE = Gauge(
+    "swerve_cmd_speed_scale",
+    "Factor (0-1] the wheel speed limit scales the commanded twist by; 1 when the command fits",
+)
 ODOM_PUBLISHED = Counter("swerve_odom_published_total", "Odometry messages published")
 TILT_GUARD_LEVEL = Gauge("tilt_guard_level", "Tilt guard level: 0 ok, 1 warning, 2 error (base drive inhibited)")
 TILT_ROLL_DEG = Gauge("tilt_roll_deg", "Base roll from the IMU orientation minus the level reference, deg")

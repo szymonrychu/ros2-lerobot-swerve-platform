@@ -24,6 +24,7 @@ from swerve_drive_controller.kinematics import (
     solve_twist,
     steer_angle_difference,
     wheel_positions,
+    wheel_speed_scale,
     wheel_states,
     wheels_parked,
 )
@@ -512,3 +513,49 @@ def test_solve_twist_residual_is_normalised_by_sqrt_of_degrees_of_freedom() -> N
     keep = [row for row in range(8) if row // 2 != 0]
     sub_twist, sub_residual = solve_twist(A[keep], b[keep])
     assert sub_residual == pytest.approx(np.linalg.norm(A[keep] @ np.array(sub_twist) - b[keep]) / math.sqrt(3))
+
+
+def test_wheel_speed_scale_is_one_within_limit_and_for_zeros() -> None:
+    assert wheel_speed_scale([1.0, -2.0, 0.0, 3.9], 4.0) == 1.0
+    assert wheel_speed_scale([0.0] * 4, 4.0) == 1.0
+    assert wheel_speed_scale([], 4.0) == 1.0
+
+
+def test_wheel_speed_scale_is_limit_over_peak() -> None:
+    assert wheel_speed_scale([2.0, -8.0, 4.0, 1.0], 4.0) == pytest.approx(0.5)
+
+
+MPPI_LIMIT_RAD_S = 4.71
+
+
+def test_full_mppi_envelope_is_clamped_to_one_common_factor() -> None:
+    """Test of existing behaviour: over vx, vy in +-0.25 and wz in +-0.5 no wheel exceeds the limit and the twist
+    keeps its direction (one factor k in (0, 1]).
+
+    The exception is the steering hysteresis band: a heading up to STEER_LIMIT_HYSTERESIS_RAD past +-90 deg is
+    clamped to the limit (documented; the wheel's equivalent heading a + pi counts too), which bends the direction; those points only get the drive limit check.
+    """
+    vxy = [round(-0.25 + 0.05 * i, 2) for i in range(11)]
+    wzs = [-0.5, -0.25, 0.0, 0.25, 0.5]
+    for vx in vxy:
+        for vy in vxy:
+            for wz in wzs:
+                if vx == vy == wz == 0.0:
+                    continue
+                steer, drive, _ = compute_wheel_commands(vx, vy, wz, [0.0] * 4, LX, LY, R, HALF_PI, MPPI_LIMIT_RAD_S)
+                assert max(abs(d) for d in drive) <= MPPI_LIMIT_RAD_S + 1e-9
+                ik_steer, _ = inverse_kinematics(vx, vy, wz, LX, LY, R)
+                if any(abs(abs(normalize_angle(a)) - HALF_PI) <= STEER_LIMIT_HYSTERESIS_RAD for a in ik_steer):
+                    continue
+                twist = forward_kinematics(steer, drive, LX, LY, R)
+                cmd = np.array([vx, vy, wz])
+                k = float(np.dot(twist, cmd) / np.dot(cmd, cmd))
+                assert 0.0 < k <= 1.0 + 1e-9
+                assert twist == pytest.approx(tuple(k * cmd), abs=1e-6)
+
+
+def test_diagonal_corner_is_scaled_to_the_wheel_limit() -> None:
+    steer, drive, _ = compute_wheel_commands(0.25, 0.25, 0.0, [0.0] * 4, LX, LY, R, HALF_PI, MPPI_LIMIT_RAD_S)
+    twist = forward_kinematics(steer, drive, LX, LY, R)
+    assert twist[0] / 0.25 == pytest.approx(0.2826 / 0.3536, abs=1e-3)
+    assert twist[1] / 0.25 == pytest.approx(0.2826 / 0.3536, abs=1e-3)
