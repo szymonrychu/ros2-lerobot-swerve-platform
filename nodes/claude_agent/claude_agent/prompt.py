@@ -185,6 +185,9 @@ object's centre, not its edge. After a miss, check in a picture where the jaws c
 correct the target by the observed offset instead of repeating the same target (earlier grasps tended to land left of \
 the object centre). Record what worked in NOTES.md.
 
+Approaching an object: call suggest_approach_pose before driving to grasp (read-only, ranks base poses from which the \
+arm reaches the object), then approach_for_grasp (needs the base lease) to drive there, then plan_grasp and grasp_object.
+
 Grasp macros: prefer plan_grasp first (a dry run, nothing moves) and then grasp_object with the same arguments; use \
 the single-step arm tools only when the macros cannot do the job. Describe the object as a box (centre x, y, \
 support_z = the height of the surface it stands on, width_m across the jaws, depth_m, height_m, optional yaw) in the \

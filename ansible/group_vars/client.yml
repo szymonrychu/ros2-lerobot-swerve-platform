@@ -1962,6 +1962,7 @@ ros2_nodes:
         - resume_motions
         - go_to_frontier
         - look_toward_frontier
+        - approach_for_grasp
       uncapped_tools:
         - stop
         - take_control
@@ -1972,6 +1973,7 @@ ros2_nodes:
       denied_tools:
         - arm_set_home
       sensor_tools:
+        - suggest_approach_pose
         - plan_grasp
         - get_control_state
         - get_motion_status

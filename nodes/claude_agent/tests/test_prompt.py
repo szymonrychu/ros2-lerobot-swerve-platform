@@ -336,6 +336,16 @@ def test_default_tool_lists_include_the_grasp_tools() -> None:
     cfg = ClaudeAgentConfig()
     assert {"grasp_object", "release_object"} <= set(cfg.effector_tools)
     assert "plan_grasp" in cfg.sensor_tools and "plan_grasp" not in cfg.effector_tools
+    assert "approach_for_grasp" in cfg.effector_tools and "approach_for_grasp" not in cfg.sensor_tools
+    assert "suggest_approach_pose" in cfg.sensor_tools and "suggest_approach_pose" not in cfg.effector_tools
+
+
+def test_prompt_orders_the_approach_tools_before_the_grasp_macros() -> None:
+    lower = prompt_lower()
+    line = lower[lower.index("suggest_approach_pose before") :]
+    line = line[: line.index("grasp_object") + len("grasp_object")]
+    assert line.index("suggest_approach_pose") < line.index("approach_for_grasp") < line.index("plan_grasp")
+    assert "base lease" in line
 
 
 def test_prompt_uses_checkpoint_verification_not_a_check_after_every_motion() -> None:
