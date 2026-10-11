@@ -152,6 +152,7 @@ class PerceptionFakeMixin:
         self.path_info = PathInfo(status="ok", length_m=1.0)
         self.costmap: CostGrid | None = None
         self.detections: list[tuple[BasePose, int]] = []
+        self.dock_server_up = True  # whether the docking action server answers
         # Footprint sink (footprint.FootprintSink): published polygons, parameter sets and periodic callbacks.
         self.footprint_polygons: list[tuple[str, list[tuple[float, float]]]] = []
         self.stamped_polygons: list[tuple[str, str, list[tuple[float, float]]]] = []
@@ -204,6 +205,9 @@ class PerceptionFakeMixin:
     def dock(self, goal: DockGoal, timeout_s: float) -> DockResult:
         self.dock_goals.append((goal, timeout_s))
         return self.dock_result or DockResult(status="succeeded", goal=goal, final_pose=self.pose)
+
+    def dock_ready(self) -> bool:
+        return self.dock_server_up
 
     def plan_path(self, goal: BasePose) -> PathInfo:
         self.planned_poses.append(goal)

@@ -8,6 +8,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryConfig, BatteryGuard
 
+from mcp_server.approach_tools import SENSOR_TOOL_NAMES as APPROACH_TOOL_NAMES
 from mcp_server.camera_tools import TOOL_NAMES as CAMERA_TOOL_NAMES
 from mcp_server.config import McpServerConfig, load_config
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, TOOL_NAMES, build_mcp_server
@@ -36,6 +37,7 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
     "resume_motions": {},
     "go_to_frontier": {"id": 1},
     "look_toward_frontier": {"id": 1},
+    "approach_for_grasp": {"x": 1.5, "y": 2.0, "z": 0.05},
 }
 ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_robot_state": {},
@@ -76,6 +78,7 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "annotate_lookup": {"lookup_id": "0" * 32, "note": "n"},
     "list_frontiers": {},
     "plan_frontier_visit": {"id": 1},
+    "suggest_approach_pose": {"x": 1.5, "y": 2.0, "z": 0.05},
 }
 
 
@@ -136,11 +139,9 @@ def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> N
         args["lookup_id"] = json.loads(next(c.text for c in taken.content if c.type == "text"))["lookup_id"]
     try:
         call(server, name, args)
-    except (
-        ToolError
-    ) as exc:  # uncalibrated cameras and an unknown grasp_id fail on their own terms, never on the battery
+    except ToolError as exc:  # uncalibrated cameras, an unknown grasp_id or a missing costmap fail on their own terms
         assert "battery below cut-off" not in str(exc)
-        assert name in CAMERA_TOOL_NAMES or name == "confirm_grasp"
+        assert name in CAMERA_TOOL_NAMES or name == "confirm_grasp" or name in APPROACH_TOOL_NAMES
 
 
 @pytest.mark.parametrize("voltage", [OK_V, None])

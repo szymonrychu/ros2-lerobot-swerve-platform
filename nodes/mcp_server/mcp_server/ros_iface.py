@@ -1523,6 +1523,14 @@ class RosRobot:
         finally:
             self.base_motion.release()
 
+    def dock_ready(self) -> bool:
+        """Whether the grasp docking action server answers within the action server wait.
+
+        Returns:
+            bool: True when available.
+        """
+        return bool(self.dock_client.wait_for_server(timeout_sec=self.cfg.timeouts.action_server_wait_s))
+
     def plan_path(self, goal: BasePose) -> PathInfo:
         """Plan from the robot's pose to a goal with ComputePathToPose (planning only, nothing moves).
 

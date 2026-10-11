@@ -526,3 +526,13 @@ def test_plan_path_publication_and_costmap_are_delegated(ros_iface: ModuleType, 
     robot.costmap_cache = MagicMock()
     robot.costmap_cache.latest.return_value = None
     assert robot.global_costmap() is None
+
+
+def test_dock_ready_asks_the_action_server_within_the_configured_wait(ros_iface: ModuleType, dock: ModuleType) -> None:
+    robot = wired_robot(ros_iface)
+    robot.dock_client = MagicMock()
+    robot.dock_client.wait_for_server.return_value = True
+    assert robot.dock_ready() is True
+    robot.dock_client.wait_for_server.assert_called_once_with(timeout_sec=robot.cfg.timeouts.action_server_wait_s)
+    robot.dock_client.wait_for_server.return_value = False
+    assert robot.dock_ready() is False
