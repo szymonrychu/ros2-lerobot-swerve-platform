@@ -380,16 +380,27 @@ the tool point, rotating about the URDF `gripper` pivot), the wrist (`wrist_link
 - (a) the robot plane shifted to the expected surface: `base_link z = surface_z_m` (config `floor_guard.surface_z_m`,
   default 0), and
 - (b) the gravity-level plane through `base_link (0, 0, surface_z_m)` from the robot tilt: the IMU `/imu/data`
-  orientation (roll/pitch only, from the body monitor), ignored when older than `floor_guard.imu_max_age_s` (1 s; then
-  plane (a) only, logged once per outage), or the per-call `tilt_override_deg {roll, pitch}`. With pitch p (nose down
+  orientation (roll/pitch only, from the body monitor) minus `floor_guard.imu_level_reference {roll_deg, pitch_deg}`,
+  ignored when older than `floor_guard.imu_max_age_s` (1 s; then plane (a) only, logged once per outage), or the
+  per-call `tilt_override_deg {roll, pitch}` (used as given, not shifted by the reference). With pitch p (nose down
   > 0) and roll r (left side up > 0) the level plane is `z = x tan(p) / cos(r) - y tan(r)`: a robot tilted nose down
   raises the zone in front of it.
+
+IMU level reference: the BNO055 is not mounted exactly level; on the floor the robot height (`arm.arm_base_height_m`
+0.100) was fitted on it reads a constant roll 0.5-0.8 / pitch 1.2-1.4 deg. That floor IS the robot plane, so the raw
+tilt counted the mounting bias twice: at base_link x 0.29-0.32 it lifted the surface 5.3-8.2 mm, and top_down tips
+ended 16.3 mm above the floor on a 20 mm leg (3.7 mm jaw overlap). The slow zone, the grasp surface and the reported
+`tilt_deg` therefore use the IMU tilt minus `imu_level_reference` (default 0, 0); an IMU-sourced `slow_zone` / plan
+`surface` also reports the raw `imu_tilt_deg` and `imu_level_reference_deg`. client.yml sets roll 0.7 / pitch 1.3 deg
+(the 2026-10-11 investigation values, not a fresh capture). Re-capture it (mean IMU roll/pitch while parked level)
+whenever the floor height is recalibrated; a real slope beyond the reference still lifts the surface.
 
 A trajectory step whose either end has a checked point closer than `floor_guard.margin_m` (0.02 m) to that surface
 (or below it) is time-scaled to `floor_guard.slow_speed_scale` (0.2) of its normal speed: it is split into `1/scale`
 linear sub-steps at the same 25 Hz rate. The guard NEVER blocks a motion; the tracking-error and gripper effort/stall
 detection stay the contact safety net. Results carry `slow_zone` (`slowed_samples`, `samples`, `speed_scale`,
-`margin_m`, `min_clearance_m`, `lowest_point`, `surface_z_m`, `tilt_source` imu|override|none, `tilt_deg`; with
+`margin_m`, `min_clearance_m`, `lowest_point`, `surface_z_m`, `tilt_source` imu|override|none, `tilt_deg` (relative to
+the level reference; with an IMU source also `imu_tilt_deg` and `imu_level_reference_deg`); with
 surfaces also `lowest_feature` and `surfaces`), null when the whole motion ran at normal speed.
 
 Gripper-only motions (only the gripper joint changes over the planned samples: `set_gripper`, a grasp's close or
@@ -600,7 +611,7 @@ can only approach in the vertical plane of `shoulder_pan`, so every strategy app
 |---|---|
 | `scoop` | Only for an object with room under it: `gap_below_m` must be at least `jaw_thickness_m` + `scoop_gap_margin_m` (0.008 + 0.004 m), otherwise the plan is infeasible with "no gap under object for the fixed jaw" (in the sim a scoop against a box resting flat pushes or tips it instead of getting under it). Wrist roll about 0 (fixed jaw underneath, moving jaw closes from above), horizontal radial slide at the object's bottom height until the fixed jaw tip is under the object centre. The fixed jaw top goes `below_object_offset_m` under the object bottom, clamped so the jaw (`jaw_thickness_m`) stays `skim_clearance_m` above the effective surface when the object rests on it (`skim`). Opening = height + `jaw_open_margin_m` (+ how far a skimming jaw sits above the object bottom), held over the object's depth in the jaws (see Jaw clearance). Approach pitch starts at `scoop_pitch_deg` (0, horizontal) and steepens in `scoop_pitch_step_deg` up to `scoop_max_pitch_deg` (40; sim: every gap scoop up to 40 deg lifted, steeper ones swing the moving jaw into the object top and slip): a near-horizontal gripper cannot reach low near the base. |
 | `angled` | radial approach pitched down by `approach_pitch_deg` (default `angled_pitch_deg` 45), jaws across the object width (roll from the object yaw relative to the pan direction), jaw opening centred on the object (grasp shift, see Jaw clearance), tool point at mid-height (tall narrow objects: see below). |
-| `top_down` | pitch 90 deg (straight down), jaws across the width, opening centred on the object (see Jaw clearance), vertical approach. |
+| `top_down` | pitch 90 deg (straight down), jaws across the width, opening centred on the object (see Jaw clearance), vertical approach, minimum jaw overlap (below). |
 | `auto` | `auto_order` (default top_down, angled 45, scoop): the first feasible plan wins; `attempts` lists each try (a flat object's scoop attempt carries the no-gap reason). |
 
 Tall narrow objects (`height_m / width_m` above `tall_ratio`, 1.5) pivot out of the jaws when gripped at mid-height:
@@ -608,6 +619,15 @@ Tall narrow objects (`height_m / width_m` above `tall_ratio`, 1.5) pivot out of 
 lower than a jaw thickness plus `skim_clearance_m` above the surface) and the `lift` waypoint carries `lift_speed_scale`
 (0.05) instead of `slide_speed_scale`; the executor runs every straight-line step at its waypoint's speed scale. Objects
 narrower across the jaws (the scoop: taller) than `min_object_width_m` (0.01) are rejected: "the jaws cannot hold it".
+
+Minimum jaw overlap (vertical approach: `top_down`, or `angled` at 90 deg): the fixed-jaw tip (the tool point) goes at
+or below object top - max(`min_jaw_overlap_m` 0.008, `min_jaw_overlap_fraction` 0.4 x height), so a short object is
+gripped below mid-height. The floor clamp (surface + `skim_clearance_m` + `jaw_thickness_m`, 11 mm above a flat floor)
+wins over it: when it leaves less overlap, the plan stays feasible with `warnings: ["shallow_overlap: expected jaw
+overlap X mm ..."]` (also in the summary) as long as the overlap is at least `shallow_overlap_min_m` (0.004), and is
+infeasible ("jaw overlap X mm below shallow_overlap_min_m ...") below that. On the robot floor 19 mm and taller get the
+full 8 mm, 15-19 mm are shallow, under 15 mm infeasible for a vertical grasp. Angled grasps below 90 deg keep the
+mid-height rule.
 The strategies and defaults are validated in the MuJoCo sim with the jaws calibrated to `arm.tool_offset_m`
 (`sim/README.md`, "Planner scenario matrix").
 
@@ -1223,6 +1243,9 @@ floor_guard:              # below-surface slow zone (see Arm mount and floor slo
   slow_speed_scale: 0.2
   surface_z_m: 0.0
   imu_max_age_s: 1.0
+  imu_level_reference:    # IMU roll/pitch (deg) on the calibration floor, subtracted from the IMU tilt
+    roll_deg: 0.0         # client.yml: 0.7 (BNO055 mounting bias); re-capture after a floor height recalibration
+    pitch_deg: 0.0        # client.yml: 1.3
 grasp:                    # grasp planner defaults, overridable per call via params (see Grasp macros)
   approach_distance_m: 0.04
   pre_grasp_clearance_m: 0.05
@@ -1249,6 +1272,9 @@ grasp:                    # grasp planner defaults, overridable per call via par
   scoop_gap_margin_m: 0.004     # scoop only when gap_below_m >= jaw_thickness_m + this
   tall_ratio: 1.5               # height / width above this: tall narrow object
   tall_grasp_height_fraction: 0.3
+  min_jaw_overlap_m: 0.008      # vertical approach: fixed-jaw tip at least max(this, fraction x height) below the top
+  min_jaw_overlap_fraction: 0.4
+  shallow_overlap_min_m: 0.004  # floor clamp leaves less overlap: shallow_overlap warning, infeasible below this
   lift_speed_scale: 0.05        # lift speed of tall narrow objects
   angled_pitch_deg: 45
   stall_shoulder_lift_rad: 1.85

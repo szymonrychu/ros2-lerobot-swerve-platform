@@ -477,6 +477,13 @@ The 74 mm was the dome's diameter, and the centre (0.150 forward, 0.040 left of 
 
 Per strategy now (lifted / feasible of 48): top_down 15/15, angled45 26/27, scoop_gap 6/6, auto 34/35, scoop 0/0; the two
 not lifted are the known 6x6x3 low-ledge slips. 13 more plans are feasible than at the 10 mm margin.
+
+IMU level reference and minimum jaw overlap (2026-10-11): re-run unchanged, 240 planned, 83 feasible, 81 lifted, 0 body
+contacts, the same per-strategy table. The matrix plans with no tilt (`tilt=None`, so `floor_guard.imu_level_reference`
+does not enter) and its boxes are 30 mm or taller, deep enough for the 8 mm minimum jaw overlap at mid-height; the rule
+changes only shorter objects (on the floor: 15-19 mm shallow_overlap warning, under 15 mm infeasible for top_down). The
+case it fixes, the 20 mm leg at arm (0.234, 0.124) with the IMU's 0.72 / 1.21 deg mounting bias (3.7 mm overlap, missed
+in the investigation's sim replay), is pinned by the planner unit tests (`nodes/mcp_server/tests/test_grasp.py`).
 Tip-over set (`--tipover`, unchanged by the 2 mm margin): top_down and auto of the 2026-10-10 jar plan and lift (err0 and err3: 4 of 6 plans, 0 body
 contacts); angled 50 is infeasible (lidar). Golden plans (`tests/data/grasp_golden.json`): the same 6 cases, the two r30
 ledge 0.07 scoop_gap baselines moved (`regenerate_grasp_golden`), see `nodes/mcp_server/README.md`, "Planner". With the

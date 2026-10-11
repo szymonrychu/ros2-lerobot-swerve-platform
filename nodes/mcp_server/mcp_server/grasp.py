@@ -42,6 +42,10 @@ UP = np.array([0.0, 0.0, 1.0])
 DOWN = np.array([0.0, 0.0, -1.0])
 TOP_DOWN_PITCH_RAD = math.pi / 2
 MIN_DIRECTION_NORM = 1e-6
+# An approach whose direction has a z component within this of -1 is vertical (top_down, angled at 90 deg).
+VERTICAL_APPROACH_TOLERANCE = 1e-6
+SHALLOW_OVERLAP = "shallow_overlap"
+OVERLAP_TOLERANCE_M = 1e-9  # float slack of the jaw overlap comparisons
 # Waypoint labels in execution order.
 WAYPOINT_ORDER = ("pre_grasp", "open", "approach", "grasp", "close", "lift", "retreat")
 LINEAR_LABELS = ("approach", "grasp", "lift", "retreat")
@@ -155,6 +159,11 @@ class GraspPlan(BaseModel):
     rejected_candidates: list[str] = Field(
         default_factory=list, description="Why candidates tried before the chosen one were rejected (surfaces only)"
     )
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Feasible but degraded, e.g. 'shallow_overlap: ...' when the floor clamp keeps the fixed-jaw tip "
+        "less than the minimum jaw overlap below the object top (the expected overlap is stated)",
+    )
 
     def summary(self) -> dict[str, Any]:
         """JSON-ready plan summary without the joint samples.
@@ -185,6 +194,8 @@ class GraspPlan(BaseModel):
         }
         if self.rejected_candidates:
             out["rejected_candidates"] = self.rejected_candidates
+        if self.warnings:
+            out["warnings"] = self.warnings
         return out
 
 
@@ -223,6 +234,7 @@ class GraspGeometry:
             Raised for an object beyond a step so the arm descends from above the upper surface.
         lift_height: Lift of the grasped object before the retreat (m); None = params.lift_height_m. Raised for an
             object beyond a step so the retreat does not drag the gripper over the step edge.
+        warnings: Copied into the plan's warnings when the candidate is realized (e.g. shallow_overlap).
     """
 
     pitch: float
@@ -240,6 +252,7 @@ class GraspGeometry:
     lift_speed: float | None = None
     pre_grasp_clearance: float | None = None
     lift_height: float | None = None
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass
@@ -406,7 +419,9 @@ def centred_grasp(req: GraspRequest, pitch: float, approach: np.ndarray, extent:
 
     The tool point goes to mid-height of the object; a tall narrow object (height / width above tall_ratio) is
     gripped lower, at tall_grasp_height_fraction of its height, and lifted at lift_speed_scale so it does not pivot
-    out of the jaws. Never lower than a jaw thickness plus the skim clearance above the surface.
+    out of the jaws. Never lower than a jaw thickness plus the skim clearance above the surface (the floor clamp).
+    With a vertical approach the tool point (the fixed-jaw tip) also goes at least the minimum jaw overlap below the
+    object top (min_jaw_overlap); see min_jaw_overlap for when the floor clamp leaves less.
 
     Args:
         req (GraspRequest): Request.
@@ -416,11 +431,20 @@ def centred_grasp(req: GraspRequest, pitch: float, approach: np.ndarray, extent:
 
     Returns:
         GraspGeometry: The grasp.
+
+    Raises:
+        Ineligible: Vertical approach whose floor clamp leaves less than shallow_overlap_min_m of jaw overlap.
     """
     p, obj = req.params, req.obj
     tall = obj.height_m / obj.width_m > p.tall_ratio
     fraction = p.tall_grasp_height_fraction if tall else 0.5
-    z = max(obj.support_z + obj.height_m * fraction, req.surface_z + p.skim_clearance_m + p.jaw_thickness_m)
+    z = obj.support_z + obj.height_m * fraction
+    floor_clamp = req.surface_z + p.skim_clearance_m + p.jaw_thickness_m
+    warnings: tuple[str, ...] = ()
+    if approach[2] <= -1.0 + VERTICAL_APPROACH_TOLERANCE:
+        z, warning = min_jaw_overlap(obj, p, z, floor_clamp)
+        warnings = () if warning is None else (warning,)
+    z = max(z, floor_clamp)
     clearance = jaw_clearance(p)
     return GraspGeometry(
         pitch=pitch,
@@ -435,6 +459,45 @@ def centred_grasp(req: GraspRequest, pitch: float, approach: np.ndarray, extent:
         fixed_clearance=clearance,
         jaw_depth=jaw_depth(obj, pitch, z),
         lift_speed=p.lift_speed_scale if tall else None,
+        warnings=warnings,
+    )
+
+
+def min_jaw_overlap(obj: ObjectSpec, params: GraspParams, z: float, floor_clamp: float) -> tuple[float, str | None]:
+    """Fixed-jaw tip height of a vertical approach with the minimum jaw overlap.
+
+    The tip goes at or below object top - max(min_jaw_overlap_m, min_jaw_overlap_fraction * height). When the floor
+    clamp is higher than that, the overlap left (top - floor clamp) of at least shallow_overlap_min_m is accepted
+    with a shallow_overlap warning stating it; less is infeasible.
+
+    Args:
+        obj (ObjectSpec): Object (arm frame).
+        params (GraspParams): min_jaw_overlap_m, min_jaw_overlap_fraction, shallow_overlap_min_m.
+        z (float): Nominal tool point height (mid-height or the tall-object height), arm frame (m).
+        floor_clamp (float): Lowest allowed tool point height (surface + skim clearance + jaw thickness), arm frame.
+
+    Returns:
+        tuple[float, str | None]: Tool point height before the floor clamp is applied, and the warning (None when
+            the full overlap fits).
+
+    Raises:
+        Ineligible: The floor clamp leaves less than shallow_overlap_min_m of overlap.
+    """
+    top = obj.support_z + obj.height_m
+    need = max(params.min_jaw_overlap_m, params.min_jaw_overlap_fraction * obj.height_m)
+    z = min(z, top - need)
+    if floor_clamp <= top - need + OVERLAP_TOLERANCE_M:
+        return z, None
+    overlap = top - floor_clamp
+    if overlap < params.shallow_overlap_min_m - OVERLAP_TOLERANCE_M:
+        raise Ineligible(
+            f"jaw overlap {overlap * 1000:.1f} mm below shallow_overlap_min_m {params.shallow_overlap_min_m * 1000:.1f} "
+            f"mm: the {obj.height_m * 1000:.1f} mm object is too short for a vertical grasp above the floor clamp "
+            f"(surface + skim_clearance_m + jaw_thickness_m), needs {need * 1000:.1f} mm"
+        )
+    return z, (
+        f"{SHALLOW_OVERLAP}: expected jaw overlap {overlap * 1000:.1f} mm, below the {need * 1000:.1f} mm minimum: "
+        f"the floor clamp keeps the fixed-jaw tip above object top - {need * 1000:.1f} mm"
     )
 
 
@@ -1010,6 +1073,7 @@ class GraspPlanner:
             center_width_m=geo.center_width,
             skim=geo.skim,
             surface=surface.describe(),
+            warnings=list(geo.warnings),
         )
         reasons = self.opening_reasons(geo, params)
         if reasons:

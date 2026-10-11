@@ -1445,6 +1445,12 @@ ros2_nodes:
         slow_speed_scale: 0.2
         surface_z_m: 0.0
         imu_max_age_s: 1.0
+        # BNO055 mounting bias: IMU roll/pitch while the robot stands level on the floor arm_base_height_m was fitted
+        # on (2026-10-11 investigation: roll 0.5-0.8, pitch 1.2-1.4 deg; values from it, not a fresh capture). The
+        # slow zone and grasp surface use the IMU tilt minus this. Re-capture it whenever the floor height is recalibrated.
+        imu_level_reference:
+          roll_deg: 0.7
+          pitch_deg: 1.3
       # Robot body the arm must not hit (nodes/mcp_server/README.md, "Body collision"), base_link metres (x forward, y left,
       # z up from the floor). Seen from above the robot is an H: two side frames above the wheels, the crossbar between
       # them (the arm base and the lidar stand on it; the arm base/shoulder link is not checked), the wheels as their

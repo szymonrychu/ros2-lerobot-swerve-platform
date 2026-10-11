@@ -554,7 +554,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
 - config additions (`test_config.py`): arm base height 0.100 (floor_z -0.100) and the mount measured 2026-10-10
   `{x 0.0592, y -0.05, z 0.100, yaw 0}` enabled by default, mount z must equal `arm_base_height_m` (null allowed), `floor_guard` and `grasp` defaults and
-  validation, `/grasp/command` and `/grasp/result` topic defaults
+  validation, `floor_guard.imu_level_reference` defaults to roll/pitch 0 and rejects unknown keys while the deployed
+  client.yml carries roll 0.7 / pitch 1.3 deg, `/grasp/command` and `/grasp/result` topic defaults
 - robot body model (`test_body_model.py`): exact signed distances of points to a box (face, edge, corner, inside, on
   the surface) and a vertical cylinder (mantle, discs, rim, inside), capsule vs box and capsule vs cylinder against
   hand-computed values (parallel, through the centre, nearest at an end, degenerate segment), vectorised evaluation;
@@ -602,7 +603,10 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - floor slow zone (`test_floor_guard.py`, a synthetic 15 cm mount with its own floor, independent of the configured
   one): arm <-> base_link conversions (with yaw), quaternion roll/pitch, effective
   surface (robot plane vs level plane, roll/pitch signs, shifted by `surface_z_m`), fresh IMU used / stale or missing
-  IMU ignored and logged once, tilt override replaces the IMU, flat robot slows only samples inside the margin, IMU
+  IMU ignored and logged once, tilt override replaces the IMU, the IMU tilt is taken relative to
+  `imu_level_reference` (the reference reading gives no lift, `tilt_deg` 0 with `imu_tilt_deg` / `imu_level_reference_deg`
+  in the description, a real 3 deg slope beyond it still lifts, default 0/0 keeps the raw tilt), a tilt override is not
+  shifted by the reference, flat robot slows only samples inside the margin, IMU
   pitch raises the zone in front, `surface_z_m` allows normal speed down to a stair, configured surface/margin/scale,
   disabled guard, elbow and wrist checked, jaw model (gap grows with opening, inverse, closed tip at the tool point;
   `inner_gap` equals the tip gap 3 mm in, narrows deeper into the jaws (sim jar contact 46.5 mm 2.75 cm in at 0.534 rad),
@@ -711,7 +715,13 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   object bottom, scoop needs `gap_below_m` >= jaw thickness + margin ("no gap under object for the fixed jaw", also in
   auto's reasons), top_down (pitch 90 deg, jaws aligned with the object width for two yaws), angled (requested pitch on
   every waypoint, jaws across the width), auto order (top_down first) and fallback, tall narrow objects gripped at
-  `tall_grasp_height_fraction` and lifted at `lift_speed_scale` (and not below `tall_ratio`), objects below
+  `tall_grasp_height_fraction` and lifted at `lift_speed_scale` (and not below `tall_ratio`); IMU level reference and
+  minimum jaw overlap: the 25 x 30 x 20 mm leg at arm (0.234, 0.124) top_down with IMU tilt 0.72 / 1.21 deg and the
+  same reference puts the tool point at least 8 mm below its top (3.7 mm before) without warnings, without a tilt it
+  stays at the floor clamp z -0.089, a real slope beyond the reference still lifts the grasp surface, the overlap rule
+  on the floor (30 and 19 mm full overlap, 16 and 15 mm feasible with a `shallow_overlap` warning also in the summary,
+  14.5 mm infeasible with a "jaw overlap" reason) and a 12 mm object on a raised support gripped 8 mm below its top
+  instead of at mid-height; objects below
   `min_object_width_m` rejected, unreachable and too-wide reasons, roll only at the lifted half-open
   pre-grasp (`roll_guard_violations`), straight-line IK samples (spacing, line, joint jumps), joint-jump and shoulder
   stall reasons, slow-zone annotations, base_link objects and a missing mount, params overrides, JSON summary;
@@ -992,7 +1002,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
 | `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` (and the `nav_intermediate_*` pair) in client.yml equal the mcp_server `nav` values. |
 | `test_mcp_server_arm_mount_measured_and_height_agree_with_claude_agent` | mcp_server config `arm.arm_base_height_m` is 0.100 and `arm.base_in_base_link` is the mount measured 2026-10-10 `{x: 0.0592, y: -0.05, z: 0.104, yaw: 0.0}`; the claude_agent `arm_base_height_m` states the same height. |
-| `test_mcp_server_floor_guard_and_grasp_blocks_are_deployed` | mcp_server config has the `floor_guard` block (enabled, 2 cm margin, 0.2 slow speed scale, surface 0, IMU max age 1 s), the `grasp` block (5 mm interpolation, 8 cm max opening, auto order top_down, angled, scoop, scoop max pitch 40 deg and gap margin 4 mm, tall ratio 1.5 / grasp height fraction 0.3 / lift speed 0.05, min object width 1 cm, fixed jaw clearance 7.5 mm with the 15 mm opening margin) and the `/grasp/command` / `/grasp/result` topics; the claude_agent lists `grasp_object` / `release_object` as effectors and `plan_grasp` as a sensor. |
+| `test_mcp_server_floor_guard_and_grasp_blocks_are_deployed` | mcp_server config has the `floor_guard` block (enabled, 2 cm margin, 0.2 slow speed scale, surface 0, IMU max age 1 s, `imu_level_reference` roll 0.7 / pitch 1.3 deg: the BNO055 mounting bias from the 2026-10-11 investigation), the `grasp` block (5 mm interpolation, 8 cm max opening, auto order top_down, angled, scoop, scoop max pitch 40 deg and gap margin 4 mm, tall ratio 1.5 / grasp height fraction 0.3 / lift speed 0.05, min object width 1 cm, fixed jaw clearance 7.5 mm with the 15 mm opening margin) and the `/grasp/command` / `/grasp/result` topics; the claude_agent lists `grasp_object` / `release_object` as effectors and `plan_grasp` as a sensor. |
 | `test_mcp_server_grip_profiles_block_is_deployed` | mcp_server config has the `grip_profiles` block: presets gentle / normal / firm with increasing torque_limit and squeeze, all within the hard caps (torque_limit_max 800, squeeze_max_rad 0.08), default `normal`, gentle closing slower with a target_load below its contact threshold, close speeds within the 0.5 rad/s gripper cap and crush loads above the target loads; the presets equal the 2026-10-10 tuned values (gentle 0.01 / 250 / 0.2 / 80 / 120 / 200, normal 0.03 / 500 / 0.5 / 200 / 300 / 450, firm 0.05 / 650 / 0.4 / 300 / 350 / 600); `grasp.approach_speed_scale` is 0.3, within `arm_max_speed_scale`; the grasp block sets no fixed `close_effort_threshold`; `topics.follower_set_register` is the follower bridge's `set_register` topic and the follower publishes the gripper effort. |
 | `test_mcp_server_monitor_block_has_ordered_thresholds` | mcp_server `monitor` block: servo 60/70 C, CPU 75/82 C, bump warning below critical, stall 1.0 s, tilt 10 deg, battery warning margin 0.2 V/cell. |
 | `test_mcp_server_monitor_topics_match_their_producers` | mcp_server monitor topics: `/follower/servo_registers`, `/imu/data`, `/robot_events`, `swerve_odom` equals the swerve controller `odom_topic`, `rf2o_twist` equals the rf2o relay `output_topic`. |

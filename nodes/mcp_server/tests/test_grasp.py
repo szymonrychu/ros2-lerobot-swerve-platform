@@ -6,8 +6,8 @@ import math
 import numpy as np
 import pytest
 
-from mcp_server.config import BodyCheckSettings, GraspSettings, McpServerConfig
-from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel, arm_to_base_link
+from mcp_server.config import BodyCheckSettings, GraspSettings, ImuLevelReference, McpServerConfig
+from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel, Tilt, TiltSample, arm_to_base_link
 from mcp_server.grasp import (
     STRATEGIES,
     GraspPlan,
@@ -435,3 +435,71 @@ def test_scoop_opens_for_the_object_depth_in_the_jaws_too() -> None:
         obj.support_z + obj.height_m - waypoint(p, "grasp").z
     )
     assert JAW.inner_gap(p.open_gripper_rad, depth) >= p.opening_m - 2e-4
+
+
+# Leg-like object from the 2026-10-11 investigation: 25 x 30 x 20 mm on the floor at arm (0.234, 0.124); the IMU read
+# roll 0.72 / pitch 1.21 deg while the robot stood level on the floor its height was calibrated on.
+LEG = ObjectSpec(frame="arm", x=0.234, y=0.124, support_z=FLOOR, width_m=0.025, depth_m=0.03, height_m=0.02)
+BIAS = TiltSample(tilt=Tilt(roll_rad=math.radians(0.72), pitch_rad=math.radians(1.21)), stamp=0.0)
+
+
+def guard_with_reference(roll_deg: float, pitch_deg: float) -> FloorGuard:
+    settings = CONFIG.floor_guard.model_copy(
+        update={"imu_level_reference": ImuLevelReference(roll_deg=roll_deg, pitch_deg=pitch_deg)}
+    )
+    return FloorGuard(KIN, settings, MOUNT, JAW)
+
+
+def test_top_down_with_the_imu_bias_as_reference_overlaps_the_object_by_8_mm() -> None:
+    surface = guard_with_reference(0.72, 1.21).surface(None, BIAS, 0.0)
+    p = PLANNER.plan(LEG, "top_down", PARAMS, surface, SEED)
+    assert p.feasible, p.reasons
+    top = LEG.support_z + LEG.height_m
+    assert waypoint(p, "grasp").z <= top - 0.008 + 1e-9
+    assert not p.warnings
+
+
+def test_top_down_without_tilt_keeps_the_floor_clamp() -> None:
+    p = plan(LEG, "top_down")
+    assert p.feasible, p.reasons
+    assert waypoint(p, "grasp").z == pytest.approx(-0.089, abs=1e-6)
+    assert waypoint(p, "grasp").z == pytest.approx(FLOOR + PARAMS.skim_clearance_m + PARAMS.jaw_thickness_m)
+
+
+def test_a_real_slope_still_lifts_the_grasp_surface() -> None:
+    sloped = TiltSample(tilt=Tilt(roll_rad=math.radians(0.72), pitch_rad=math.radians(2.71)), stamp=0.0)
+    level = guard_with_reference(0.72, 1.21).surface(None, BIAS, 0.0)
+    slope = guard_with_reference(0.72, 1.21).surface(None, sloped, 0.0)
+    centre = np.array([LEG.x, LEG.y, LEG.support_z])
+    assert slope.surface_z_arm(centre) > level.surface_z_arm(centre) + 0.005
+    assert level.surface_z_arm(centre) == pytest.approx(FLOOR, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("height", "feasible", "shallow"),
+    [(0.03, True, False), (0.019, True, False), (0.016, True, True), (0.015, True, True), (0.0145, False, False)],
+)
+def test_top_down_minimum_jaw_overlap(height: float, feasible: bool, shallow: bool) -> None:
+    """The fixed-jaw tip goes at least max(8 mm, 0.4 * height) below the object top; when the floor clamp
+    (surface + skim + jaw thickness = 11 mm) leaves less, 4 mm or more is a shallow_overlap warning, less infeasible:
+    on the floor the full 8 mm needs 19 mm, 15 mm is the shortest feasible object."""
+    obj = ObjectSpec(frame="arm", x=0.26, y=0.03, support_z=FLOOR, width_m=0.03, depth_m=0.03, height_m=height)
+    p = plan(obj, "top_down")
+    assert p.feasible is feasible, p.reasons
+    top = FLOOR + height
+    if feasible:
+        overlap = top - waypoint(p, "grasp").z
+        assert overlap >= (0.004 if shallow else max(0.008, 0.4 * height)) - 1e-9
+        assert any(w.startswith("shallow_overlap") for w in p.warnings) is shallow
+        assert ("warnings" in p.summary()) is shallow
+    else:
+        assert any("jaw overlap" in r for r in p.reasons), p.reasons
+
+
+def test_minimum_jaw_overlap_lowers_a_short_object_grasp_below_mid_height() -> None:
+    """On a raised support (no floor clamp near) a 12 mm object is gripped 8 mm below its top, not at mid-height."""
+    surface = SurfaceModel(surface_z_m=-0.11 + MOUNT.z, tilt=None, tilt_source="none", mount=MOUNT)
+    obj = ObjectSpec(frame="arm", x=0.26, y=0.03, support_z=-0.08, width_m=0.03, depth_m=0.03, height_m=0.012)
+    p = PLANNER.plan(obj, "top_down", PARAMS, surface, SEED)
+    assert p.feasible, p.reasons
+    assert waypoint(p, "grasp").z == pytest.approx(-0.08 + 0.012 - 0.008, abs=1e-6)

@@ -708,12 +708,25 @@ class PoiSettings(StrictModel):
     near_radius_m: float = Field(default=5.0, gt=0.0)  # list_pois(near=True) keeps POIs within this distance
 
 
+class ImuLevelReference(StrictModel):
+    """IMU roll/pitch (deg) read while the robot stands level on the floor its height (arm_base_height_m) was fitted on.
+
+    The BNO055 is not mounted exactly level: it reads a constant tilt on that floor. The slow zone and the grasp
+    surface use the IMU tilt minus this reference, so the mounting bias is not counted as a floor slope (the floor
+    height already absorbs it). Re-capture it whenever the floor height is recalibrated.
+    """
+
+    roll_deg: float = Field(default=0.0, ge=-10.0, le=10.0)
+    pitch_deg: float = Field(default=0.0, ge=-10.0, le=10.0)
+
+
 class FloorGuardSettings(StrictModel):
     """Below-surface slow zone (floor_guard): arm trajectory segments with a checked point (jaw tips, wrist, elbow) below
     the effective surface + margin_m run at slow_speed_scale of their normal speed. It never blocks a motion.
 
     The effective surface at a point is the higher of the robot plane (base_link z = surface_z_m) and the gravity-level
-    plane through base_link (0, 0, surface_z_m) derived from the IMU roll/pitch (or a per-call tilt override).
+    plane through base_link (0, 0, surface_z_m) derived from the IMU roll/pitch minus imu_level_reference (or a
+    per-call tilt override, taken as is).
     """
 
     enabled: bool = True
@@ -721,6 +734,7 @@ class FloorGuardSettings(StrictModel):
     slow_speed_scale: float = Field(default=0.2, gt=0.0, le=1.0)
     surface_z_m: float = Field(default=0.0, ge=-1.0, le=1.0)
     imu_max_age_s: float = Field(default=1.0, gt=0.0)
+    imu_level_reference: ImuLevelReference = ImuLevelReference()
 
 
 class BodyBox(StrictModel):
@@ -1034,6 +1048,15 @@ class GraspSettings(StrictModel):
     # them at tall_grasp_height_fraction of their height from the bottom and lift at lift_speed_scale.
     tall_ratio: float = Field(default=1.5, gt=0.0, le=20.0)
     tall_grasp_height_fraction: float = Field(default=0.3, gt=0.0, le=0.5)
+    # Minimum jaw overlap for a vertical approach (top_down, or angled at 90 deg): the fixed-jaw tip (the tool point)
+    # goes at least max(min_jaw_overlap_m, min_jaw_overlap_fraction * object height) below the object top. When the
+    # floor clamp (surface + skim_clearance_m + jaw_thickness_m) leaves less, a plan with at least
+    # shallow_overlap_min_m stays feasible with a 'shallow_overlap' warning; below that it is infeasible. On the robot
+    # floor (11 mm clamp) objects of 15 mm and taller stay feasible. 2026-10-11: tips ended 3.7 mm into a 20 mm leg and
+    # missed it.
+    min_jaw_overlap_m: float = Field(default=0.008, ge=0.0, le=0.05)
+    min_jaw_overlap_fraction: float = Field(default=0.4, ge=0.0, le=0.5)
+    shallow_overlap_min_m: float = Field(default=0.004, ge=0.0, le=0.05)
     lift_speed_scale: float = Field(default=0.05, gt=0.0, le=HARD_MAX_SPEED_SCALE)
     angled_pitch_deg: float = Field(default=45.0, ge=0.0, le=90.0)
     # A stretched arm (elbow_flex at or below stretched_elbow_max_rad, measured; negative elbow_flex stretches) with

@@ -273,3 +273,32 @@ def test_rotate_many_vectors_matches_one_at_a_time() -> None:
         c, s = math.cos(0.37), math.sin(0.37)
         expected = v * c + np.cross(axis, v) * s + axis * float(axis @ v) * (1.0 - c)
         assert turned == pytest.approx(expected, abs=1e-15)
+
+
+def test_imu_tilt_is_taken_relative_to_the_level_reference() -> None:
+    """The IMU mounting bias (imu_level_reference) is subtracted before the level plane is built: on the floor the
+    robot was calibrated on the IMU reads the reference, so the surface stays the robot plane."""
+    reference = {"roll_deg": 0.72, "pitch_deg": 1.21}
+    g = guard(imu_level_reference=reference)
+    biased = TiltSample(tilt=Tilt(roll_rad=math.radians(0.72), pitch_rad=math.radians(1.21)), stamp=NOW)
+    surface = g.surface(None, biased, NOW)
+    assert surface.tilt_source == "imu"
+    assert surface.tilt == Tilt(roll_rad=pytest.approx(0.0), pitch_rad=pytest.approx(0.0))
+    assert surface.tilt_lift(0.3, -0.1) == pytest.approx(0.0, abs=1e-12)
+    described = surface.describe()
+    assert described["tilt_deg"] == {"roll": 0.0, "pitch": 0.0}
+    assert described["imu_tilt_deg"] == {"roll": 0.72, "pitch": 1.21}
+    assert described["imu_level_reference_deg"] == {"roll": 0.72, "pitch": 1.21}
+    # A real slope (IMU differs from the reference) still lifts the surface in front.
+    sloped = TiltSample(tilt=Tilt(roll_rad=math.radians(0.72), pitch_rad=math.radians(4.21)), stamp=NOW)
+    lift = g.surface(None, sloped, NOW).tilt_lift(0.3, 0.0)
+    assert lift == pytest.approx(0.3 * math.tan(math.radians(3.0)), rel=1e-3)
+    # Without a reference (default 0, 0) the raw IMU tilt is used as before.
+    assert guard().surface(None, biased, NOW).tilt_lift(0.3, 0.0) > 0.005
+
+
+def test_tilt_override_is_not_shifted_by_the_imu_level_reference() -> None:
+    g = guard(imu_level_reference={"roll_deg": 0.7, "pitch_deg": 1.3})
+    surface = g.surface(FloorOverride(tilt_override_deg=TiltOverrideDeg(roll=0.0, pitch=0.0)), None, NOW)
+    assert surface.tilt == Tilt(roll_rad=0.0, pitch_rad=0.0)
+    assert "imu_level_reference_deg" not in surface.describe()

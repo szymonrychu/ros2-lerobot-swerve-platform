@@ -330,3 +330,13 @@ def test_nav_intermediate_tolerances_are_looser_than_the_precise_ones() -> None:
         McpServerConfig(nav={"intermediate_xy_tolerance_m": 0.005})
     with pytest.raises(ValidationError):
         McpServerConfig(nav={"intermediate_yaw_tolerance_deg": 1.0})
+
+
+def test_imu_level_reference_defaults_to_zero_and_the_deployed_config_carries_the_mounting_bias() -> None:
+    assert McpServerConfig().floor_guard.imu_level_reference.model_dump() == {"roll_deg": 0.0, "pitch_deg": 0.0}
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"floor_guard": {"imu_level_reference": {"yaw_deg": 1.0}}})
+    nodes = yaml.safe_load((REPO_ROOT / "ansible" / "group_vars" / "client.yml").read_text())["ros2_nodes"]
+    entry = next(n for n in nodes if n["name"] == "mcp_server")
+    reference = McpServerConfig.model_validate(yaml.safe_load(entry["config"])).floor_guard.imu_level_reference
+    assert (reference.roll_deg, reference.pitch_deg) == (0.7, 1.3)  # 2026-10-11 investigation (BNO055 bias)

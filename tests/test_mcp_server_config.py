@@ -237,6 +237,8 @@ def test_mcp_server_floor_guard_and_grasp_blocks_are_deployed() -> None:
     guard = cfg["floor_guard"]
     assert guard["enabled"] is True and guard["margin_m"] == 0.02 and guard["slow_speed_scale"] == 0.2
     assert guard["surface_z_m"] == 0.0 and guard["imu_max_age_s"] == 1.0
+    # BNO055 mounting bias on the calibration floor (2026-10-11 investigation), subtracted from the IMU tilt
+    assert guard["imu_level_reference"] == {"roll_deg": 0.7, "pitch_deg": 1.3}
     grasp = cfg["grasp"]
     assert grasp["interpolation_step_m"] == 0.005 and grasp["max_object_width_m"] == 0.08
     assert [e["strategy"] for e in grasp["auto_order"]] == ["top_down", "angled", "scoop"]

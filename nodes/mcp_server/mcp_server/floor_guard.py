@@ -2,8 +2,8 @@
 
 'Below ground' is relative to the ROBOT: base_link z = 0 is the plane under the wheels. The effective surface at a
 point is the higher of (a) the robot plane shifted to the expected surface height (base_link z = surface_z_m) and (b)
-the gravity-level plane through base_link (0, 0, surface_z_m), derived from the robot tilt (IMU roll/pitch, or a
-per-call override). With per-call surfaces (surfaces.SurfaceRegion: stairs, table tops, holes) the expected height is
+the gravity-level plane through base_link (0, 0, surface_z_m), derived from the robot tilt (IMU roll/pitch minus the
+configured imu_level_reference, i.e. the BNO055 mounting bias read on the calibration floor, or a per-call override). With per-call surfaces (surfaces.SurfaceRegion: stairs, table tops, holes) the expected height is
 the local region height instead of one surface_z_m, raised by the same tilt term, and the vertical step faces between
 regions of different height count as surfaces too (a sample near a stair edge is slowed). A trajectory sample whose checked FK points (fixed jaw tip, tool point, moving jaw tip, wrist and
 elbow link origins) come closer than margin_m to that surface is executed at slow_speed_scale of its normal speed. The
@@ -162,6 +162,31 @@ def monitor_tilt_sample(imu: tuple[float, float, float, float] | None) -> TiltSa
     return TiltSample(tilt=Tilt(roll_rad=math.radians(imu[1]), pitch_rad=math.radians(imu[2])), stamp=imu[0])
 
 
+def relative_tilt(tilt: Tilt, reference: Tilt) -> Tilt:
+    """IMU tilt relative to the level reference (the reading on the floor the robot height was calibrated on).
+
+    Args:
+        tilt (Tilt): Measured roll/pitch.
+        reference (Tilt): Roll/pitch read while the robot stood level on the calibration floor.
+
+    Returns:
+        Tilt: tilt minus reference, per axis.
+    """
+    return Tilt(roll_rad=tilt.roll_rad - reference.roll_rad, pitch_rad=tilt.pitch_rad - reference.pitch_rad)
+
+
+def tilt_deg(tilt: Tilt) -> dict[str, float]:
+    """Roll/pitch in degrees for reports.
+
+    Args:
+        tilt (Tilt): Roll/pitch (rad).
+
+    Returns:
+        dict[str, float]: {roll, pitch} in deg, rounded to 0.01.
+    """
+    return {"roll": round(math.degrees(tilt.roll_rad), 2), "pitch": round(math.degrees(tilt.pitch_rad), 2)}
+
+
 def level_plane_z(x: float, y: float, tilt: Tilt) -> float:
     """Height (base_link z) at (x, y) of the gravity-level plane through the base_link origin.
 
@@ -197,13 +222,18 @@ def effective_surface_z(xy: Sequence[float], surface_z_m: float, tilt: Tilt | No
 
 @dataclass(frozen=True)
 class SurfaceModel:
-    """Resolved surface of one motion: expected height, tilt, where the tilt came from and the optional regions."""
+    """Resolved surface of one motion: expected height, tilt, where the tilt came from and the optional regions.
+
+    tilt is the tilt every consumer uses (for an IMU source already relative to the level reference); imu_reference
+    is that reference (None unless the tilt came from the IMU).
+    """
 
     surface_z_m: float
     tilt: Tilt | None
     tilt_source: TiltSource
     mount: ArmBaseOffset
     terrain: Terrain | None = None
+    imu_reference: Tilt | None = None
 
     def tilt_lift(self, x: float, y: float) -> float:
         """Rise of the effective surface at a base_link (x, y) from the tilt (0 without one).
@@ -289,17 +319,19 @@ class SurfaceModel:
         """JSON summary of the surface.
 
         Returns:
-            dict[str, object]: surface_z_m, tilt_source and tilt_deg (null without a tilt).
+            dict[str, object]: surface_z_m, tilt_source and tilt_deg (the tilt used, relative to the IMU level
+                reference; null without a tilt); for an IMU tilt also imu_tilt_deg (raw reading) and
+                imu_level_reference_deg.
         """
-        tilt = (
-            None
-            if self.tilt is None
-            else {
-                "roll": round(math.degrees(self.tilt.roll_rad), 2),
-                "pitch": round(math.degrees(self.tilt.pitch_rad), 2),
-            }
-        )
+        tilt = None if self.tilt is None else tilt_deg(self.tilt)
         out: dict[str, object] = {"surface_z_m": self.surface_z_m, "tilt_source": self.tilt_source, "tilt_deg": tilt}
+        if self.tilt is not None and self.imu_reference is not None:
+            raw = Tilt(
+                roll_rad=self.tilt.roll_rad + self.imu_reference.roll_rad,
+                pitch_rad=self.tilt.pitch_rad + self.imu_reference.pitch_rad,
+            )
+            out["imu_tilt_deg"] = tilt_deg(raw)
+            out["imu_level_reference_deg"] = tilt_deg(self.imu_reference)
         if self.terrain is not None:
             out["surfaces"] = self.terrain.describe()
         return out
@@ -519,6 +551,7 @@ class FloorGuard:
         """Resolve the surface of a motion from the config, the per-call override and the IMU.
 
         A missing or stale IMU (older than imu_max_age_s) leaves only the robot plane; that is logged once per outage.
+        An IMU tilt is taken relative to settings.imu_level_reference; a per-call tilt override is used as given.
 
         Args:
             override (FloorOverride | None): Per-call overrides.
@@ -540,7 +573,10 @@ class FloorGuard:
             return SurfaceModel(surface_z, tilt, "override", self.mount, terrain)
         if imu is not None and now - imu.stamp <= self.settings.imu_max_age_s:
             self.imu_missing_logged = False
-            return SurfaceModel(surface_z, imu.tilt, "imu", self.mount, terrain)
+            ref = self.settings.imu_level_reference
+            reference = Tilt(roll_rad=math.radians(ref.roll_deg), pitch_rad=math.radians(ref.pitch_deg))
+            tilt = relative_tilt(imu.tilt, reference)
+            return SurfaceModel(surface_z, tilt, "imu", self.mount, terrain, imu_reference=reference)
         if not self.imu_missing_logged:
             LOGGER.warning(
                 "no IMU tilt newer than %.1f s: the arm slow zone uses the robot plane only",
