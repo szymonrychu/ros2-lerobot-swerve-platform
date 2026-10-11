@@ -14,7 +14,7 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
-from .frontiers import FrontierTracker, cells_to_map
+from .frontiers import FrontierTracker, cells_to_map, update_recorded
 from .look_around import LookMode, montage_jpeg, run_look_around
 from .models import RobotError
 from .object_memory import OBJECT_KIND, ObjectMemory, describe_objects, record_from_poi
@@ -178,7 +178,7 @@ def frontier_markers(tracker: FrontierTracker | None, robot: RobotApi) -> list[d
     if grid is None:
         raise ValueError("/map unavailable: no recent map (or its frame has no TF)")
     markers = []
-    for frontier in tracker.update(grid).frontiers:
+    for frontier in update_recorded(tracker, grid)[0].frontiers:
         xs, ys = cells_to_map(grid, frontier.cells[:, 0], frontier.cells[:, 1])
         markers.append({"id": frontier.id, "target_xy": frontier.target_xy, "cells_xy": np.stack([xs, ys], axis=1)})
     return markers

@@ -22,6 +22,7 @@ from scipy.sparse.csgraph import dijkstra
 from scipy.spatial.transform import Rotation
 
 from .config import FootprintSettings, FrontierSettings
+from .metrics import FRONTIER_COMPUTE, FRONTIER_COUNT
 from .perception import FREE_THRESHOLD, OCCUPIED_THRESHOLD
 
 UNKNOWN = -1
@@ -1007,3 +1008,23 @@ def nearest_poi(
         "kind": str(poi.get("kind", "")),
         "distance_m": round(distance, 3),
     }
+
+
+def update_recorded(tracker: "FrontierTracker", grid: Any) -> tuple[Any, bool]:
+    """tracker.update(grid), recording the stage times and the count when a new map version was computed.
+
+    Args:
+        tracker (FrontierTracker): Tracker.
+        grid (Any): Current MapGrid.
+
+    Returns:
+        tuple[Any, bool]: The snapshot and whether this call computed it (False on a cache hit).
+    """
+    before = tracker.compute_count
+    snapshot = tracker.update(grid)
+    computed = tracker.compute_count != before
+    if computed:
+        for stage, ms in snapshot.timings_ms.items():
+            FRONTIER_COMPUTE.labels(stage).observe(ms / 1000.0)
+        FRONTIER_COUNT.set(len(snapshot.frontiers))
+    return snapshot, computed

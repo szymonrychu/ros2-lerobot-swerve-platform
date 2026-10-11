@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
+from prometheus_client import REGISTRY
 
 from mcp_server import perception_tools
 from mcp_server.base_motion import SpinOutcome
@@ -531,3 +532,18 @@ def test_poi_tool_descriptions_explain_zones(server: Any) -> None:
         text = docs[name]
         assert "keepout" in text and "slow" in text and "session" in text and "open" in text and "goal" in text
     assert "zone" in docs["list_pois"]
+
+
+def frontier_metric_samples() -> tuple[float, float]:
+    count = REGISTRY.get_sample_value("mcp_frontier_compute_seconds_count", {"stage": "extract"}) or 0.0
+    return count, REGISTRY.get_sample_value("mcp_frontier_count") or 0.0
+
+
+def test_topdown_frontier_compute_is_measured_once_per_map_version(server: Any, robot: FakeRobot) -> None:
+    robot.map = room()
+    before, _ = frontier_metric_samples()
+    call(server, "get_topdown_view", {"layers": ["map", "frontiers"]})
+    after, gauge = frontier_metric_samples()
+    assert after == before + 1 and gauge > 0
+    call(server, "list_frontiers", {})
+    assert frontier_metric_samples()[0] == after

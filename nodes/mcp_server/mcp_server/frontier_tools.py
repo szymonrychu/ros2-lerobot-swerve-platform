@@ -25,11 +25,12 @@ from .frontiers import (
     ViewPose,
     facing_lookup,
     nearest_poi,
+    update_recorded,
 )
 from .geometry import normalize_angle
 from .look_around import check_clearance, read_sectors, required_clearance_m
 from .lookup_tools import record_lookup
-from .metrics import FRONTIER_COMPUTE, FRONTIER_COUNT
+from .metrics import FRONTIER_COMPUTE
 from .models import BasePose, NavigationResult, RobotError
 from .perception_models import (
     XY,
@@ -121,14 +122,8 @@ def refresh(ctx: ToolContext) -> tuple[FrontierTracker, FrontierSnapshot, dict[s
         raise ToolError(
             f"/map unavailable: no map within {ctx.config.frontiers.map_max_age_s:g} s (or its frame has no TF)"
         )
-    before = tracker.compute_count
-    snapshot = tracker.update(grid)
-    computed = tracker.compute_count != before
+    snapshot, computed = update_recorded(tracker, grid)
     spent = {stage: round(ms if computed else 0.0, ROUND_MS) for stage, ms in snapshot.timings_ms.items()}
-    if computed:
-        for stage, ms in snapshot.timings_ms.items():
-            FRONTIER_COMPUTE.labels(stage).observe(ms / 1000.0)
-        FRONTIER_COUNT.set(len(snapshot.frontiers))
     return tracker, snapshot, spent
 
 
