@@ -7,6 +7,8 @@ from typing import Any, NoReturn
 import cv2
 import numpy as np
 import rclpy
+from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import CompressedImage, Image
@@ -140,10 +142,15 @@ def run_bridge(device: str | int, topic: str, frame_id: str, rotate_deg: int = 0
                 pub_compressed.publish(compressed_msg)
 
             rclpy.spin_once(node, timeout_sec=0.001)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    except RCLError:
+        if rclpy.ok():  # a publish or spin racing the SIGTERM handler is shutdown noise; anything else is a bug
+            raise
     finally:
         cap.release()
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
 
 
 def main() -> None:
