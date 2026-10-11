@@ -688,6 +688,15 @@ ros2_nodes:
       compute_covariance: false
       covariance_window: 100      # rolling window size (samples, ~2 s at 50 Hz)
       covariance_min_samples: 20  # samples before estimated covariance replaces config values
+      # Zero-rate gyro bias learned only while the swerve wheel odometry reports the robot stopped (parked heading drift).
+      odom_topic: /odom
+      odom_timeout_s: 1.0
+      stationary_linear_mps: 0.01
+      stationary_angular_rad_s: 0.01
+      gyro_bias_stillness_s: 2.0
+      gyro_bias_tau_s: 60.0
+      gyro_bias_max_rad_s: 0.02
+      gyro_bias_sanity_rad_s: 0.05
   # RPi 5: GPIO UART0 (pins 14/15) needs dtoverlay=uart0-pi5; creates /dev/ttyAMA0
   - name: gps_rtk_rover
     node_type: gps_rtk

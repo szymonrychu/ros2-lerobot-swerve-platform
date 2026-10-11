@@ -16,6 +16,14 @@ DEFAULT_CALIBRATION_FILE = "/var/lib/ros2/bno055_imu/calibration.json"
 DEFAULT_CALIBRATION_SAVE_INTERVAL_S = 60.0
 DEFAULT_MAX_SOFT_RESTORES = 3
 DEFAULT_REINIT_AFTER_S = 10.0
+DEFAULT_ODOM_TOPIC = "/odom"
+DEFAULT_ODOM_TIMEOUT_S = 1.0
+DEFAULT_STATIONARY_LINEAR_MPS = 0.01
+DEFAULT_STATIONARY_ANGULAR_RAD_S = 0.01
+DEFAULT_GYRO_BIAS_STILLNESS_S = 2.0
+DEFAULT_GYRO_BIAS_TAU_S = 60.0
+DEFAULT_GYRO_BIAS_MAX_RAD_S = 0.02
+DEFAULT_GYRO_BIAS_SANITY_RAD_S = 0.05
 
 
 def _diagonal_covariance(var: float) -> list[float]:
@@ -28,6 +36,23 @@ def _diagonal_covariance(var: float) -> list[float]:
         list[float]: 9-element row-major covariance (diagonal = var, rest 0).
     """
     return [float(var), 0.0, 0.0, 0.0, float(var), 0.0, 0.0, 0.0, float(var)]
+
+
+def parse_float(raw: Any, default: float, minimum: float) -> float:
+    """Parse a float config value, falling back to default when invalid and clamping to minimum.
+
+    Args:
+        raw: Config value.
+        default: Value used when raw is not a number.
+        minimum: Lower bound of the result.
+
+    Returns:
+        float: max(minimum, float(raw)), or default when raw is invalid.
+    """
+    try:
+        return max(minimum, float(raw))
+    except (TypeError, ValueError):
+        return default
 
 
 def _parse_covariance(raw: Any, default_var: float) -> list[float]:
@@ -72,6 +97,15 @@ class ImuNodeConfig:
         calibration_save_interval_s: Minimum seconds between calibration saves (once gyro, accel, mag are all 3).
         max_soft_restores: Consecutive soft mode restores without a published sample before a full re-init (min 0).
         reinit_after_s: Seconds without a published sample before a full re-init regardless of failure path (min 1).
+        odom_topic: nav_msgs/Odometry topic (wheel odometry) that tells when the robot is stationary; None disables
+            gyro bias learning (raw angular velocity is published).
+        odom_timeout_s: Odometry older than this counts as not stationary (min 0.1).
+        stationary_linear_mps: Odometry |vx|, |vy| below this counts as still.
+        stationary_angular_rad_s: Odometry |wz| below this counts as still.
+        gyro_bias_stillness_s: Seconds of continuous stillness before the gyro bias is learned.
+        gyro_bias_tau_s: Time constant of the bias moving average in seconds (min 1).
+        gyro_bias_max_rad_s: Clamp of the bias magnitude per axis in rad/s.
+        gyro_bias_sanity_rad_s: A sample whose gyro norm minus the current bias exceeds this is not learned.
         metrics_port: Port of the Prometheus /metrics endpoint on 127.0.0.1; None falls back to env METRICS_PORT.
     """
 
@@ -92,6 +126,14 @@ class ImuNodeConfig:
     calibration_save_interval_s: float = DEFAULT_CALIBRATION_SAVE_INTERVAL_S
     max_soft_restores: int = DEFAULT_MAX_SOFT_RESTORES
     reinit_after_s: float = DEFAULT_REINIT_AFTER_S
+    odom_topic: str | None = DEFAULT_ODOM_TOPIC
+    odom_timeout_s: float = DEFAULT_ODOM_TIMEOUT_S
+    stationary_linear_mps: float = DEFAULT_STATIONARY_LINEAR_MPS
+    stationary_angular_rad_s: float = DEFAULT_STATIONARY_ANGULAR_RAD_S
+    gyro_bias_stillness_s: float = DEFAULT_GYRO_BIAS_STILLNESS_S
+    gyro_bias_tau_s: float = DEFAULT_GYRO_BIAS_TAU_S
+    gyro_bias_max_rad_s: float = DEFAULT_GYRO_BIAS_MAX_RAD_S
+    gyro_bias_sanity_rad_s: float = DEFAULT_GYRO_BIAS_SANITY_RAD_S
     metrics_port: int | None = None
 
 
@@ -176,6 +218,7 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         reinit_after_s = max(1.0, float(raw_reinit))
     except (TypeError, ValueError):
         reinit_after_s = DEFAULT_REINIT_AFTER_S
+    odom_topic = str(data.get("odom_topic", DEFAULT_ODOM_TOPIC) or "").strip() or None
     raw_metrics_port = data.get("metrics_port")
     try:
         metrics_port = int(raw_metrics_port) if raw_metrics_port is not None else None
@@ -199,6 +242,26 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         calibration_save_interval_s=calibration_save_interval_s,
         max_soft_restores=max_soft_restores,
         reinit_after_s=reinit_after_s,
+        odom_topic=odom_topic,
+        odom_timeout_s=parse_float(data.get("odom_timeout_s", DEFAULT_ODOM_TIMEOUT_S), DEFAULT_ODOM_TIMEOUT_S, 0.1),
+        stationary_linear_mps=parse_float(
+            data.get("stationary_linear_mps", DEFAULT_STATIONARY_LINEAR_MPS), DEFAULT_STATIONARY_LINEAR_MPS, 0.0
+        ),
+        stationary_angular_rad_s=parse_float(
+            data.get("stationary_angular_rad_s", DEFAULT_STATIONARY_ANGULAR_RAD_S),
+            DEFAULT_STATIONARY_ANGULAR_RAD_S,
+            0.0,
+        ),
+        gyro_bias_stillness_s=parse_float(
+            data.get("gyro_bias_stillness_s", DEFAULT_GYRO_BIAS_STILLNESS_S), DEFAULT_GYRO_BIAS_STILLNESS_S, 0.0
+        ),
+        gyro_bias_tau_s=parse_float(data.get("gyro_bias_tau_s", DEFAULT_GYRO_BIAS_TAU_S), DEFAULT_GYRO_BIAS_TAU_S, 1.0),
+        gyro_bias_max_rad_s=parse_float(
+            data.get("gyro_bias_max_rad_s", DEFAULT_GYRO_BIAS_MAX_RAD_S), DEFAULT_GYRO_BIAS_MAX_RAD_S, 0.0
+        ),
+        gyro_bias_sanity_rad_s=parse_float(
+            data.get("gyro_bias_sanity_rad_s", DEFAULT_GYRO_BIAS_SANITY_RAD_S), DEFAULT_GYRO_BIAS_SANITY_RAD_S, 0.0
+        ),
         metrics_port=metrics_port,
     )
 

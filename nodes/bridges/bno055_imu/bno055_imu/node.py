@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import rclpy
+from nav_msgs.msg import Odometry
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
@@ -19,6 +20,7 @@ from .burst import read_sample
 from .calibration import CalibrationProfile, apply_profile, load_profile, save_if_changed, should_save
 from .config import ImuNodeConfig
 from .covariance import CovarianceEstimator
+from .gyro_bias import GyroBiasEstimator
 from .imu_msg import build_imu_message, quaternion_wxyz_to_xyzw
 from .pacing import next_tick, spin_until
 from .recovery import Action, RecoveryPolicy
@@ -43,6 +45,8 @@ CALIBRATION_KEYS = ("sys", "gyro", "accel", "mag")
 CALIBRATION_PUBLISH_PERIOD_S = 1.0
 
 NODE_NAME = "bno055_imu"
+
+ODOM_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=5)
 
 IMU_QOS = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
@@ -353,6 +357,28 @@ def create_sensor(config: ImuNodeConfig, node: Node) -> tuple[Any, int, Calibrat
     return bno, used_addr, profile
 
 
+def make_bias_estimator(config: ImuNodeConfig) -> GyroBiasEstimator | None:
+    """Build the gyro bias estimator, or None when no odometry topic is configured.
+
+    Args:
+        config (ImuNodeConfig): Node config.
+
+    Returns:
+        GyroBiasEstimator | None: Fresh estimator (zero bias), or None when learning is disabled.
+    """
+    if not config.odom_topic:
+        return None
+    return GyroBiasEstimator(
+        stillness_s=config.gyro_bias_stillness_s,
+        tau_s=config.gyro_bias_tau_s,
+        max_bias_rad_s=config.gyro_bias_max_rad_s,
+        sanity_rad_s=config.gyro_bias_sanity_rad_s,
+        odom_timeout_s=config.odom_timeout_s,
+        max_linear_mps=config.stationary_linear_mps,
+        max_angular_rad_s=config.stationary_angular_rad_s,
+    )
+
+
 def run_imu_node(config: ImuNodeConfig) -> None:
     """Run the IMU node: read BNO055, publish Imu at config.publish_hz."""
     rclpy.init()
@@ -366,6 +392,15 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         node.create_publisher(String, config.calibration_topic, IMU_QOS) if config.calibration_topic else None
     )
     last_calibration_pub_s = 0.0
+    bias_est = make_bias_estimator(config)
+    if bias_est is not None:
+
+        def on_odometry(msg: Odometry) -> None:
+            """Feed the wheel odometry twist to the bias estimator."""
+            twist = msg.twist.twist
+            bias_est.update_odometry(time.monotonic(), twist.linear.x, twist.linear.y, twist.angular.z)
+
+        node.create_subscription(Odometry, config.odom_topic, on_odometry, ODOM_QOS)
     clock = node.get_clock()
     period_s = 1.0 / max(1.0, config.publish_hz)
 
@@ -539,6 +574,11 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             gyro_vals = gyro_vals + (0.0,)
         while len(accel_vals) < 3:
             accel_vals = accel_vals + (0.0,)
+
+        if bias_est is not None:
+            bias_est.update(time.monotonic(), gyro_vals)
+            gyro_vals = bias_est.correct(gyro_vals)
+            metrics.record_gyro_bias(bias_est.bias, bias_est.learning)
 
         # Feed estimators (only when compute_covariance is enabled).
         if gyro_est is not None:

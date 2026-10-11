@@ -30,6 +30,14 @@ YAML config path: `BNO055_IMU_CONFIG` or `/etc/ros2/bno055_imu/config.yaml`.
 | `calibration_save_interval_s` | `60` | Minimum seconds between calibration saves (min 1) |
 | `max_soft_restores` | `3` | Consecutive soft mode restores without a published sample before a full re-init (min 0) |
 | `reinit_after_s` | `10.0` | Seconds without a published sample before a full re-init, whatever the failure path (min 1) |
+| `odom_topic` | `/odom` | `nav_msgs/Odometry` (wheel odometry) that says when the robot is stationary; empty disables gyro bias learning |
+| `odom_timeout_s` | `1.0` | Odometry older than this counts as not stationary (min 0.1) |
+| `stationary_linear_mps` | `0.01` | Odometry `abs(vx)`, `abs(vy)` below this counts as still |
+| `stationary_angular_rad_s` | `0.01` | Odometry `abs(wz)` below this counts as still |
+| `gyro_bias_stillness_s` | `2.0` | Seconds of continuous stillness before the bias is learned |
+| `gyro_bias_tau_s` | `60` | Time constant of the bias moving average (min 1) |
+| `gyro_bias_max_rad_s` | `0.02` | Clamp of the bias magnitude per axis |
+| `gyro_bias_sanity_rad_s` | `0.05` | Samples whose gyro norm minus the current bias exceeds this are not learned |
 | `metrics_port` | unset | Prometheus `/metrics` port on 127.0.0.1 (robot: `19103`); unset falls back to env `METRICS_PORT`, then disabled |
 
 Example:
@@ -59,6 +67,8 @@ Served on `127.0.0.1:<metrics_port>` (`19103` on the robot) via `ros2-metrics`, 
 | `imu_published_total` | counter | Imu samples published |
 | `imu_mode` | gauge | OPR_MODE register value (0x08 IMUPLUS, 0x0b NDOF_FMC_OFF, 0x0c NDOF) |
 | `imu_seconds_since_publish` | gauge | Seconds since the last published sample |
+| `imu_gyro_bias_rad_s{axis}` | gauge | Learned gyro bias subtracted from `angular_velocity` (`x`, `y`, `z`); 0 until learned |
+| `imu_gyro_bias_learning` | gauge | 1 while the last sample updated the bias (robot stationary), else 0 |
 | `imu_cycle_seconds` | histogram | Work time of one cycle (burst read, decode, publish, periodic calibration); buckets 0.002 to 0.1 s |
 | `imu_cycle_overruns_total` | counter | Cycles that finished after their next slot; the missed slots were skipped |
 
@@ -95,6 +105,25 @@ and full re-initialisation:
   the covariance estimators and warms up. Logged at warn: `BNO055 full re-init (reinit #N): <reason>` with reason
   `soft restores exhausted (...)`, `watchdog: N s without data` or `I2C hard errors, soft restore not possible`.
 - Nothing is published while reads are invalid (no placeholder data).
+
+## Gyro bias estimation
+
+The gyro reads a small constant offset at rest: measured -5.83e-4 rad/s on z (-2 deg/min). The EKF fuses the gyro yaw
+rate, so while parked the heading drifted 26 deg/h. The node therefore learns the bias and publishes
+`angular_velocity = raw - bias`. The orientation from the BNO055 fusion is not altered.
+
+- **Estimate**: per axis (x, y, z) exponential moving average of the raw gyro reading with time constant
+  `gyro_bias_tau_s`, clamped to `gyro_bias_max_rad_s`.
+- **Learn only when stationary**: the wheel odometry on `odom_topic` (best-effort QoS) must report `abs(vx)`, `abs(vy)` below
+  `stationary_linear_mps` and `abs(wz)` below `stationary_angular_rad_s` continuously for `gyro_bias_stillness_s`, the
+  odometry must be fresher than `odom_timeout_s` (no data means no learning), and the gyro norm minus the current bias must
+  stay below `gyro_bias_sanity_rad_s` (rejects bumps and being carried and rotated).
+- **Before anything is learned** the raw reading is published (bias 0), never placeholder data. An empty `odom_topic`
+  disables the whole feature.
+- **Not persisted**: the bias is relearned after each restart (about one time constant of stillness). Unlike the
+  sensor offsets in `calibration.json` it is a software estimate that drifts with temperature, so a stored value would go
+  stale and would need its own invalidation; relearning is simpler and always current.
+- **Watch it**: `imu_gyro_bias_rad_s{axis="z"}` should settle near -5.8e-4 and `imu_gyro_bias_learning` is 1 while parked.
 
 ## Calibration persistence
 

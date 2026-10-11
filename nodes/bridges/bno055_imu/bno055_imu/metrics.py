@@ -11,6 +11,7 @@ from prometheus_client import Counter, Gauge, Histogram
 from .recovery import Action, Decision
 
 CALIBRATION_SUBSYSTEMS = ("sys", "gyro", "accel", "mag")
+GYRO_AXES = ("x", "y", "z")
 
 READ_ERRORS = Counter("imu_read_errors_total", "BNO055 I2C read errors (RuntimeError/OSError)")
 SOFT_RESTORES = Counter("imu_soft_restores_total", "Soft operation-mode restores issued by the recovery policy")
@@ -20,6 +21,9 @@ CALIBRATION_LEVEL = Gauge("imu_calibration_level", "BNO055 calibration level 0-3
 PUBLISHED = Counter("imu_published_total", "sensor_msgs/Imu samples published")
 MODE = Gauge("imu_mode", "BNO055 OPR_MODE register value as last read")
 SECONDS_SINCE_PUBLISH = Gauge("imu_seconds_since_publish", "Seconds since the last published sample")
+
+GYRO_BIAS = Gauge("imu_gyro_bias_rad_s", "Learned gyro zero-rate bias subtracted from angular_velocity", ["axis"])
+GYRO_BIAS_LEARNING = Gauge("imu_gyro_bias_learning", "1 while the stationary gyro bias estimator is learning, else 0")
 
 CYCLE_SECONDS = Histogram(
     "imu_cycle_seconds",
@@ -94,3 +98,15 @@ def record_cycle(seconds: float) -> None:
 def record_overrun() -> None:
     """Count a cycle that overran its slot."""
     CYCLE_OVERRUNS.inc()
+
+
+def record_gyro_bias(bias: tuple[float, float, float], learning: bool) -> None:
+    """Export the learned gyro bias and whether the estimator is learning right now.
+
+    Args:
+        bias (tuple[float, float, float]): Bias (x, y, z) in rad/s.
+        learning (bool): True when the last gyro sample was used to update the bias.
+    """
+    for axis, value in zip(GYRO_AXES, bias, strict=True):
+        GYRO_BIAS.labels(axis).set(value)
+    GYRO_BIAS_LEARNING.set(1 if learning else 0)

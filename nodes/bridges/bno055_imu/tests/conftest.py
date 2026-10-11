@@ -44,6 +44,7 @@ def _stub_ros2_modules() -> None:
 
     class _FakeEnum:
         RELIABLE = "RELIABLE"
+        BEST_EFFORT = "BEST_EFFORT"
         KEEP_LAST = "KEEP_LAST"
 
     qos_mod.QoSProfile = _FakeQoS  # type: ignore[attr-defined]
@@ -55,6 +56,12 @@ def _stub_ros2_modules() -> None:
     sensor_msgs_msg = _make_stub_module("sensor_msgs.msg")
     sensor_msgs.msg = sensor_msgs_msg  # type: ignore[attr-defined]
     sensor_msgs_msg.Imu = object  # type: ignore[attr-defined]
+
+    # nav_msgs.msg
+    nav_msgs = _make_stub_module("nav_msgs")
+    nav_msgs_msg = _make_stub_module("nav_msgs.msg")
+    nav_msgs.msg = nav_msgs_msg  # type: ignore[attr-defined]
+    nav_msgs_msg.Odometry = object  # type: ignore[attr-defined]
 
     # std_msgs.msg
     std_msgs = _make_stub_module("std_msgs")

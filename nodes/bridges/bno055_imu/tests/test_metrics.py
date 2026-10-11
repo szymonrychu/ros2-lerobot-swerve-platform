@@ -87,3 +87,13 @@ def test_cycle_overruns_counter() -> None:
     before = sample("imu_cycle_overruns_total")
     metrics.record_overrun()
     assert sample("imu_cycle_overruns_total") == before + 1
+
+
+def test_gyro_bias_gauges() -> None:
+    metrics.record_gyro_bias((1e-3, -2e-3, -5.83e-4), True)
+    assert sample("imu_gyro_bias_rad_s", {"axis": "x"}) == pytest.approx(1e-3)
+    assert sample("imu_gyro_bias_rad_s", {"axis": "y"}) == pytest.approx(-2e-3)
+    assert sample("imu_gyro_bias_rad_s", {"axis": "z"}) == pytest.approx(-5.83e-4)
+    assert sample("imu_gyro_bias_learning") == 1
+    metrics.record_gyro_bias((1e-3, -2e-3, -5.83e-4), False)
+    assert sample("imu_gyro_bias_learning") == 0

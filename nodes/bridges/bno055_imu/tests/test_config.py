@@ -254,3 +254,37 @@ def test_metrics_port_defaults_to_none_and_is_read(tmp_path: Path) -> None:
     assert load_config(path).metrics_port == 19103
     path.write_text("metrics_port: bogus\n")
     assert load_config(path).metrics_port is None
+
+
+def test_gyro_bias_config_defaults(tmp_path: Path) -> None:
+    p = tmp_path / "config.yaml"
+    p.write_text("topic: /imu/data\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.odom_topic == "/odom"
+    assert cfg.gyro_bias_stillness_s == 2.0
+    assert cfg.gyro_bias_tau_s == 60.0
+    assert cfg.gyro_bias_max_rad_s == 0.02
+    assert cfg.gyro_bias_sanity_rad_s == 0.05
+    assert cfg.odom_timeout_s == 1.0
+    assert cfg.stationary_linear_mps == 0.01
+    assert cfg.stationary_angular_rad_s == 0.01
+
+
+def test_gyro_bias_config_explicit_and_invalid(tmp_path: Path) -> None:
+    p = tmp_path / "config.yaml"
+    p.write_text("odom_topic: /wheel/odom\ngyro_bias_tau_s: 30\ngyro_bias_max_rad_s: abc\nodom_timeout_s: -3\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.odom_topic == "/wheel/odom"
+    assert cfg.gyro_bias_tau_s == 30.0
+    assert cfg.gyro_bias_max_rad_s == 0.02
+    assert cfg.odom_timeout_s == 0.1
+
+
+def test_empty_odom_topic_disables_bias_learning(tmp_path: Path) -> None:
+    p = tmp_path / "config.yaml"
+    p.write_text("odom_topic: ''\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.odom_topic is None
