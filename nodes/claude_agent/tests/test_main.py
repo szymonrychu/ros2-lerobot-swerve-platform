@@ -55,9 +55,15 @@ def stubs(monkeypatch, tmp_path):
     StubNode.subscriptions.clear()
     StubNode.publishers.clear()
     calls: dict = {"init": 0, "shutdown": 0}
+
+    def shutdown_twice() -> None:
+        raise RuntimeError("failed to shutdown: rcl_shutdown already called on the given context")
+
     monkeypatch.setattr(entry.rclpy, "init", lambda: calls.__setitem__("init", calls["init"] + 1), raising=False)
+    # rclpy's own signal handler may already have shut the context down: rclpy.shutdown() then raises.
+    monkeypatch.setattr(entry.rclpy, "shutdown", shutdown_twice, raising=False)
     monkeypatch.setattr(
-        entry.rclpy, "shutdown", lambda: calls.__setitem__("shutdown", calls["shutdown"] + 1), raising=False
+        entry.rclpy, "try_shutdown", lambda: calls.__setitem__("shutdown", calls["shutdown"] + 1), raising=False
     )
     monkeypatch.setattr(entry, "Node", StubNode)
     monkeypatch.setattr(entry.uvicorn, "run", lambda app, **kw: calls.update(run=kw, app=app))
@@ -119,3 +125,11 @@ def test_robot_event_callback_hands_the_payload_to_the_runner() -> None:
     msg.data = '{"type": "x"}'
     entry.make_robot_event_callback(Runner())(msg)
     assert posted == ['{"type": "x"}']
+
+
+def test_spin_executor_swallows_external_shutdown() -> None:
+    class StubExecutor:
+        def spin(self) -> None:
+            raise entry.ExternalShutdownException()
+
+    entry.spin_executor(StubExecutor())

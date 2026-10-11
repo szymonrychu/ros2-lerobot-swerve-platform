@@ -9,7 +9,7 @@ from pathlib import Path
 import rclpy
 import uvicorn
 from pydantic import ValidationError
-from rclpy.executors import SingleThreadedExecutor
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
@@ -38,6 +38,18 @@ def make_robot_event_callback(runner: AgentRunner) -> Callable[[String], None]:
         runner.post_robot_event(msg.data)
 
     return on_robot_event
+
+
+def spin_executor(executor: SingleThreadedExecutor) -> None:
+    """Spin the executor until it is shut down; a context shut down by the signal handler is a normal end.
+
+    Args:
+        executor (SingleThreadedExecutor): Executor with the node added (runs on the rclpy-executor thread).
+    """
+    try:
+        executor.spin()
+    except ExternalShutdownException:
+        pass
 
 
 def main() -> int:
@@ -73,14 +85,14 @@ def main() -> int:
         )
         node.create_subscription(String, config.robot_events_topic, make_robot_event_callback(runner), qos)
         executor.add_node(node)
-        threading.Thread(target=executor.spin, name="rclpy-executor", daemon=True).start()
+        threading.Thread(target=spin_executor, args=(executor,), name="rclpy-executor", daemon=True).start()
         app = create_app(runner, events, config, on_shutdown=runner.close, on_startup=runner.bind_loop)
         logger.info(f"serving the agent API on http://{config.http_host}:{config.http_port} (model {config.model})")
         uvicorn.run(app, host=config.http_host, port=config.http_port, log_level="info")
     finally:
         executor.shutdown()
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
     return 0
 
 

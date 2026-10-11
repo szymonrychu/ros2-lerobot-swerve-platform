@@ -18,6 +18,9 @@ sys.modules["rclpy.executors"].SingleThreadedExecutor = type(  # type: ignore[at
     (),
     {"add_node": lambda self, node: None, "spin": lambda self: None, "shutdown": lambda self: None},
 )
+sys.modules["rclpy.executors"].ExternalShutdownException = type(  # type: ignore[attr-defined]
+    "ExternalShutdownException", (Exception,), {}
+)
 for _name in ("QoSProfile",):
     setattr(sys.modules["rclpy.qos"], _name, type(_name, (), {"__init__": lambda self, **kw: self.__dict__.update(kw)}))
 for _name in ("ReliabilityPolicy", "DurabilityPolicy", "HistoryPolicy"):
