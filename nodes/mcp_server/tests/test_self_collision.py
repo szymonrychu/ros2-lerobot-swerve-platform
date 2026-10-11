@@ -17,7 +17,13 @@ from mcp_server.arm_reach import ReachEnvelope
 from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
 from mcp_server.floor_guard import JawModel, arm_to_base_link, base_link_to_arm
 from mcp_server.ik import ArmKinematics
-from mcp_server.self_collision import CHECKED_PARTS, SelfCollisionChecker, combine_scales, joint_line
+from mcp_server.self_collision import (
+    CHECKED_PARTS,
+    SampleGeometry,
+    SelfCollisionChecker,
+    combine_scales,
+    joint_line,
+)
 
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
@@ -315,13 +321,13 @@ def coarse_envelope_settings() -> BodyCheckSettings:
 def test_envelope_compute_checks_bounded_batches(monkeypatch: pytest.MonkeyPatch) -> None:
     """The envelope stacks at most ENVELOPE_BATCH_SAMPLES poses at a time (a whole heading peaked at 2.4 GB)."""
     sizes: list[int] = []
-    original = CHECKER.stacked_points
+    original = CHECKER.geometry
 
-    def recording(samples: list[dict[str, float]]) -> dict[str, np.ndarray]:
+    def recording(samples: list[dict[str, float]]) -> SampleGeometry:
         sizes.append(len(samples))
         return original(samples)
 
-    monkeypatch.setattr(CHECKER, "stacked_points", recording)
+    monkeypatch.setattr(CHECKER, "geometry", recording)
     ReachEnvelope(CHECKER, coarse_envelope_settings(), None).compute()
     assert sizes
     assert max(sizes) <= arm_reach.ENVELOPE_BATCH_SAMPLES <= 128
@@ -347,3 +353,115 @@ def test_envelope_batching_does_not_change_the_result(monkeypatch: pytest.Monkey
     whole = ReachEnvelope(CHECKER, coarse_envelope_settings(), None)
     whole.compute()
     assert batched.get(0.0)["rows"] == whole.get(0.0)["rows"]
+
+
+# --- bounding-sphere pruning: same verdicts and reported clearances as the full computation --------------------------
+
+PRUNE_SEED = 20261011
+PRUNE_RANDOM_LINES = 24
+ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
+
+
+def random_pose(rng: np.random.Generator) -> dict[str, float]:
+    """Uniform pose inside the usable joint ranges, gripper anywhere between closed and open."""
+    pose = {j: float(rng.uniform(*arm_reach.joint_range(CHECKER, j))) for j in ARM_JOINTS}
+    return pose | {"gripper": float(rng.uniform(0.0, 1.5))}
+
+
+def scenario_poses() -> list[dict[str, float]]:
+    """The scenario poses of this file: clear, home, slow band, hard margin, penetrating."""
+    return [
+        clear_pose(),
+        HOME,
+        lidar_pose(),
+        hover_over_lidar(),
+        inside_lidar_margin(),
+        deep_lidar_pose(),
+        beside_lidar(LIDAR.z_max + 0.008),
+        solve_base_link(0.30, -0.05, 0.25, 0.6),
+    ]
+
+
+def prune_trajectories() -> list[list[dict[str, float]]]:
+    """Seeded random joint lines, the joint lines between every pair of scenario poses, single poses."""
+    rng = np.random.default_rng(PRUNE_SEED)
+    lines = [joint_line(random_pose(rng), random_pose(rng), 0.05) for _ in range(PRUNE_RANDOM_LINES)]
+    poses = scenario_poses()
+    lines += [joint_line(a, b, 0.02) for i, a in enumerate(poses) for b in poses[i + 1 :]]
+    return lines + [
+        [pose] for pose in poses + [random_pose(rng) for _ in range(16)]
+    ]  # single poses (planner waypoints)
+
+
+def report_fields(report: Any) -> dict[str, Any]:
+    return {
+        "scales": report.scales,
+        "clearances": report.clearances,
+        "obstacles": report.obstacles,
+        "parts": report.parts,
+        "violation": report.violation,
+        "violation_obstacle": report.violation_obstacle,
+        "violation_part": report.violation_part,
+        "violation_clearance": report.violation_clearance,
+        "hints": report.hints,
+        "summary": report.summary(),
+        "rejection": report.rejection(),
+    }
+
+
+@pytest.mark.parametrize("allow_escape", [True, False])
+def test_pruned_path_equals_the_full_computation(allow_escape: bool) -> None:
+    """Every report field (scales, per-sample clearance/obstacle/part, the verdict and its clearance) of the pruned
+    path equals the full computation exactly, also beyond the soft margin (the min-clearance gauge reports it)."""
+    lines = prune_trajectories()
+    verdicts = set()
+    for samples in lines:
+        pruned = CHECKER.path(samples, allow_escape=allow_escape)
+        full = CHECKER.path(samples, allow_escape=allow_escape, prune=False)
+        assert report_fields(pruned) == report_fields(full)
+        verdicts.add((pruned.rejected, pruned.summary() is not None))
+    assert verdicts == {(True, True), (False, True), (False, False)}  # the set covers rejected, slowed and clear
+
+
+def test_closest_equals_the_pose_clearance() -> None:
+    """The pruned per-sample closest obstacle (hard clearance, obstacle, part) equals pose() for random and scenario
+    poses."""
+    rng = np.random.default_rng(PRUNE_SEED)
+    poses = scenario_poses() + [random_pose(rng) for _ in range(64)]
+    for pose, closest in zip(poses, CHECKER.closest(poses), strict=True):
+        check = CHECKER.pose(pose)
+        assert closest == (check.min_clearance, check.obstacle, check.part)
+
+
+def test_point_reach_equals_the_unpruned_pose_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """point_reach (batched, pruned closest) reports what the per-pitch full pose() check reports."""
+    envelope = ReachEnvelope(CHECKER, CONFIG.body_check, None)
+    points = [
+        {"x": 0.30, "y": -0.05, "z": 0.12, "pitch": None},
+        {"x": LIDAR.center_xy[0] + 0.06, "y": LIDAR.center_xy[1] - 0.02, "z": LIDAR.z_max - 0.03, "pitch": None},
+        {"x": LIDAR.center_xy[0], "y": LIDAR.center_xy[1], "z": LIDAR.z_max - 0.04, "pitch": None},
+        {"x": 0.33, "y": -0.10, "z": 0.12, "pitch": 0.8},
+    ]
+    pruned = [arm_reach.point_reach(CHECKER, p, SEED, envelope) for p in points]
+
+    def unpruned(samples: list[dict[str, float]]) -> list[tuple[float, str, str]]:
+        return [(c.min_clearance, c.obstacle, c.part) for c in map(CHECKER.pose, samples)]
+
+    monkeypatch.setattr(CHECKER, "closest", unpruned)
+    assert pruned == [arm_reach.point_reach(CHECKER, p, SEED, envelope) for p in points]
+    assert any(r["limiting"] for r in pruned) and any(r["collision_free"] for r in pruned)
+    assert any(r["slowed"] for r in pruned) and not all(r["slowed"] for r in pruned)
+
+
+def test_pruned_path_evaluates_few_point_distances() -> None:
+    """The pruned check of the slowed clear-pose-to-home line evaluates under a third of the point and capsule
+    distances of the full computation (counted, not timed)."""
+    samples = joint_line(clear_pose(), HOME, 0.02)
+    CHECKER.distance_counts.clear()
+    CHECKER.path(samples, prune=False)
+    full = dict(CHECKER.distance_counts)
+    CHECKER.distance_counts.clear()
+    CHECKER.path(samples)
+    pruned = dict(CHECKER.distance_counts)
+    assert pruned["points"] * 3 < full["points"]
+    assert pruned["capsules"] * 3 < full["capsules"]

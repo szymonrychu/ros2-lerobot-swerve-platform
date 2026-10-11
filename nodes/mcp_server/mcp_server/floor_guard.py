@@ -302,18 +302,19 @@ class SurfaceModel:
 
 
 def rotate(vector: np.ndarray, axis: np.ndarray, angle: float) -> np.ndarray:
-    """Rodrigues rotation of a vector about a unit axis.
+    """Rodrigues rotation of vectors about a unit axis.
 
     Args:
-        vector (np.ndarray): 3-vector.
+        vector (np.ndarray): 3-vector, or (K, 3) vectors rotated at once.
         axis (np.ndarray): Unit rotation axis.
         angle (float): Angle (rad).
 
     Returns:
-        np.ndarray: Rotated vector.
+        np.ndarray: Rotated vector(s), the shape of vector.
     """
     c, s = math.cos(angle), math.sin(angle)
-    return vector * c + np.cross(axis, vector) * s + axis * float(axis @ vector) * (1.0 - c)
+    along = (np.asarray(vector) @ axis)[..., None]
+    return vector * c + np.cross(axis, vector) * s + axis * along * (1.0 - c)
 
 
 class JawModel:
@@ -385,10 +386,7 @@ class JawModel:
         Returns:
             float: Opening (m); inf when the jaw has no material up to that depth.
         """
-        turned = np.array(
-            [rotate(p - self.pivot, self.axis, self.sign * (angle - self.closed_rad)) for p in self.profile]
-        )
-        turned += self.pivot
+        turned = rotate(self.profile - self.pivot, self.axis, self.sign * (angle - self.closed_rad)) + self.pivot
         depths = (turned - self.closed_tip) @ self.depth_axis
         offsets = (turned - self.closed_tip) @ self.open_axis
         inside = depths <= depth

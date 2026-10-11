@@ -190,7 +190,8 @@ def test_clear_of_equals_the_hard_check_of_the_full_clearances() -> None:
     base = [{j: float(rng.uniform(*limits[j])) for j in KIN.joint_names} for _ in range(100)]
     near_zero = [{j: float(rng.uniform(-0.5, 0.5)) for j in KIN.joint_names} for _ in range(100)]
     stacked = CHECKER.stacked_points(base + near_zero)
+    geometry = CHECKER.geometry(base + near_zero)
     for margin in (CONFIG.body_check.hard_margin_m, 0.02):
         full = CHECKER.clearances_of(stacked)[0].min(axis=1) >= margin
-        assert np.array_equal(CHECKER.clear_of(stacked, margin), full)
+        assert np.array_equal(CHECKER.clear_of(geometry, margin), full)
         assert full.any() and not full.all()

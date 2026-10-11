@@ -212,13 +212,10 @@ class ReachEnvelope:
             tip_parts, clear_parts = [], []
             for start in range(0, len(samples), ENVELOPE_BATCH_SAMPLES):
                 batch = samples[start : start + ENVELOPE_BATCH_SAMPLES]
-                stacked = checker.stacked_points(batch)
-                tip_parts.append(stacked["tool_point"][:, 0])
-                if checker.body.obstacles:
-                    clear_parts.append(checker.clear_of(stacked, cfg.hard_margin_m))
-                else:
-                    clear_parts.append(np.ones(len(batch), dtype=bool))
-                del stacked
+                geometry = checker.geometry(batch)
+                tip_parts.append(geometry.fixed["tool_point"][:, 0])
+                clear_parts.append(checker.clear_of(geometry, cfg.hard_margin_m))
+                del geometry
             tips = np.concatenate(tip_parts)
             clear = np.concatenate(clear_parts)
             radius = np.hypot(tips[:, 0] - pan_axis[0], tips[:, 1] - pan_axis[1])
@@ -293,17 +290,18 @@ def point_reach(
     reachable: list[float] = []
     working: list[tuple[float, float]] = []
     limiting: dict[str, Any] | None = None
+    solutions: list[dict[str, float]] = []
     for p in pitches:
         try:
-            joints = kin.inverse(*target, p, seed=seed)
+            solutions.append(kin.inverse(*target, p, seed=seed))
         except UnreachableError:
             continue
         reachable.append(p)
-        check = checker.pose(joints)
-        if check.min_clearance >= cfg.hard_margin_m:
-            working.append((p, check.min_clearance))
-        elif limiting is None or check.min_clearance > limiting["clearance_m"]:
-            limiting = {"obstacle": check.obstacle, "link": check.part, "clearance_m": round(check.min_clearance, 4)}
+    for p, (clearance, obstacle, part) in zip(reachable, checker.closest(solutions), strict=True):
+        if clearance >= cfg.hard_margin_m:
+            working.append((p, clearance))
+        elif limiting is None or clearance > limiting["clearance_m"]:
+            limiting = {"obstacle": obstacle, "link": part, "clearance_m": round(clearance, 4)}
     pan_axis = arm_to_base_link((*kin.pan_axis_xy, 0.0), checker.mount)
     heading = math.degrees(math.atan2(y - pan_axis[1], x - pan_axis[0]))
     r = math.hypot(x - pan_axis[0], y - pan_axis[1])

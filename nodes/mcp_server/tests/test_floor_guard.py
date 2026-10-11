@@ -20,6 +20,7 @@ from mcp_server.floor_guard import (
     effective_surface_z,
     monitor_tilt_sample,
     retime,
+    rotate,
     step_scales,
     tilt_from_quaternion,
 )
@@ -258,3 +259,17 @@ def test_surface_description_lists_surfaces_only_when_given() -> None:
     assert "surfaces" not in g.surface(None, None, NOW).describe()
     described = g.surface(FloorOverride(surfaces=[STAIR_ARM]), None, NOW).describe()
     assert described["surfaces"][0]["points_base_link"] == [[pytest.approx(0.32), pytest.approx(-0.04)]]
+
+
+def test_rotate_many_vectors_matches_one_at_a_time() -> None:
+    """rotate on (K, 3) vectors (JawModel.inner_gap turns the whole jaw silhouette at once) equals rotating each."""
+    rng = np.random.default_rng(7)
+    axis = rng.normal(size=3)
+    axis /= np.linalg.norm(axis)
+    vectors = rng.normal(size=(12, 3))
+    together = rotate(vectors, axis, 0.37)
+    assert together.shape == (12, 3)
+    for v, turned in zip(vectors, together, strict=True):
+        c, s = math.cos(0.37), math.sin(0.37)
+        expected = v * c + np.cross(axis, v) * s + axis * float(axis @ v) * (1.0 - c)
+        assert turned == pytest.approx(expected, abs=1e-15)

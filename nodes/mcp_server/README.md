@@ -526,13 +526,41 @@ Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_
 - Metrics: `mcp_self_collision_rejections_total{obstacle}`, `mcp_self_collision_slowdowns_total{obstacle}`,
   `mcp_self_collision_min_clearance_m` (last executed motion, slow-band clearance).
 
+Check cost (bounding-sphere pruning, `SelfCollisionChecker.bounded_clearances`): the 2.5 mm box points are about 9
+million point distances for an 83-sample path, so every check that needs only verdicts and the nearest clearance
+prunes: the guarded trajectory and joint_line checks (`path`: `ArmController.guarded_trajectory`, `check_body`, home
+routes, queue checks), the grasp plan body check (`GraspPlanner.body_problem`), `point_reach` of `get_arm_reach`
+(`closest`, one batch for all pitches) and the reach envelope (`clear_of`). The box and hull points sit in blocks of
+32 on their link (`LINK_BLOCKS`) with a bounding sphere; per sample only the sphere centres are placed in base_link,
+and a block (or capsule) is placed point by point and evaluated only when its sphere comes within the sample's
+nearest clearance (bounded from above by the nearest sphere) or the hard limit of an obstacle. Every reported value
+is unchanged, bit for bit: per-sample scales, clearances, obstacles and links (also beyond the soft margin, which the
+min-clearance gauge and the plan annotations report), `slow_zone` / `self_collision` summaries and the rejection
+(tests compare the pruned reports with `path(..., prune=False)` over seeded random and scenario trajectories; points
+are placed element by element so a point gets the same bits in any batch). The three capsules of an obstacle share one
+golden-section search. Dev Mac (MacBook M4), deployed default config, before -> after (best of 7; +-30% with load):
+
+| Case | Before | After |
+|---|---|---|
+| guarded move, clear pose -> home (78 samples, slowed near the lidar) | 136 ms | 21 ms |
+| joint_line clear pose -> home (83 samples) | 144 ms | 21 ms |
+| grasp plan top_down feasible (4 cm cube, x 0.25): body check / whole plan | 342 / 503 ms | 58 / 193 ms |
+| grasp plan angled 45 infeasible: body check / whole plan | 38 / 102 ms | 9 / 49 ms |
+| `point_reach` (all 9 pitches) | 71 ms | 9 ms |
+| reach envelope (full grid, deployed headings) | 17.4 s | 5.4 s |
+
+The rest of a cold plan is ikpy (cached per instance, see Planner speed). `JawModel.inner_gap` now turns the whole jaw
+silhouette in one vectorised Rodrigues rotation (it ran one rotation per profile point, about 15% of a plan). On the
+robot (busy RPi5, 25% CPU quota) plan_grasp took 52.6 s and grasp_object 205-259 s before this; expect the body check
+share to drop by the same factor.
+
 `get_arm_reach(points?)` (in `body_tools.py`, never refused): the obstacle list with dimensions, the arm mount and pan
 axis, the margins and a collision-free reach envelope; with up to `reach_max_points` (20) base_link points
 {x, y, z, pitch?} each point reports `reachable` (IK within the joint limits), `collision_free`, the working
 `pitch_range_deg` (pitches -30 .. 90 deg every 15 deg, or the given one), the `limiting` obstacle / link / clearance and
-a `suggestion`. The envelope (`arm_reach.py`) is computed once in a background thread in batches of `ENVELOPE_BATCH_SAMPLES` (32) poses, about 30 MB of arrays and 70 MB RSS (a whole heading at once peaked at about 2.4 GB and OOM-looped the 256M unit on 2026-10-10) (about 40 s on the dev Mac with the 2.5 mm box points, 3.6 s with the 1 cm points; on the busy RPi5 under the unit's CPU
-quota it took about 95 s with the 1 cm points and is expected to take a few minutes now, measure it after deploying;
-`SelfCollisionChecker.clear_of` skips blocks of 32 box points whose bounding sphere is clear, which is what keeps it at 3x; a call waits up to `reach_wait_s` and otherwise reports `computing`).
+a `suggestion`. The envelope (`arm_reach.py`) is computed once in a background thread in batches of `ENVELOPE_BATCH_SAMPLES` (32) poses, about 30 MB of arrays and 70 MB RSS (a whole heading at once peaked at about 2.4 GB and OOM-looped the 256M unit on 2026-10-10) (about 5.4 s on the dev Mac with the 2.5 mm box points, 17 s before the link-frame blocks of Check cost, 3.6 s with the 1 cm points; on the busy RPi5 under the unit's CPU
+quota it took about 95 s with the 1 cm points, measure it after deploying;
+`SelfCollisionChecker.clear_of` places and evaluates only the blocks of 32 box points whose bounding sphere comes within the hard margin; a call waits up to `reach_wait_s` and otherwise reports `computing`).
 With `reach_cache_file` set (the robot: `/var/lib/ros2/arm/reach_envelope.json`) it starts when the server is built
 and is saved to that file under a hash of every input (body, arm link model, mount, joint limits and offsets, grid,
 hard margin), so

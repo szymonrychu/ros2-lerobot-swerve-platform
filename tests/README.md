@@ -538,7 +538,14 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   sharp edge between samples can come closer than the margin undetected (accepted, documented in the mcp_server README); a clear pose checks its soft clearance (slow band) and its hard clearance; path checks: into the lidar rejected with obstacle, link,
   clearance, margin and hint, lowering toward the lidar slowed (scale 0.3, clearance in the slow band) not rejected, a
   clear path untouched, escaping from a colliding start allowed while going deeper is rejected, the disabled check,
-  `combine_scales` (slower wins), `joint_line` sampling and the part points in base_link
+  `combine_scales` (slower wins), `joint_line` sampling and the part points in base_link; bounding-sphere pruning:
+  `test_pruned_path_equals_the_full_computation` (with and without escape) compares every report field (scales,
+  per-sample clearances, obstacles, links, verdict, summary, rejection) of the pruned `path` with `path(...,
+  prune=False)` exactly over 24 seeded random joint lines, the lines between every pair of scenario poses and single
+  poses (covering rejected, slowed and clear), `test_closest_equals_the_pose_clearance` the batched `closest` against
+  `pose()`, `test_point_reach_equals_the_unpruned_pose_check` `point_reach` against the per-pitch full check, and
+  `test_pruned_path_evaluates_few_point_distances` counts (not times) under a third of the point and capsule distances
+  of the full check on the clear-pose-to-home line
 - self-collision wiring (`test_self_collision_wiring.py`): move_joints into the lidar refused before anything moves
   (details, rejection metric), a move near the lidar slowed and reported (`self_collision`, slowdown metric, min
   clearance gauge, more setpoints than unchecked), floor and body reports together, move_cartesian refused, disabled
@@ -555,7 +562,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   measured lidar dome
 - arm link boxes (`test_arm_link_boxes.py`): the body check's link boxes are the six collision boxes of the grasp_sim
   `so101.xml` (upper arm, forearm, wrist; read from the MJCF independently), the upper arm boxes contact-only; the face
-  points cover every face within spacing / sqrt(2) and that bound stays within the default hard margin (2 mm, `BOX_POINT_SPACING_M` 2.5 mm); `clear_of` (envelope's pruned check) equals the hard verdict of the full clearances over random poses; over 300 random poses the checker's clearance never exceeds the
+  points cover every face within spacing / sqrt(2) and that bound stays within the default hard margin (2 mm, `BOX_POINT_SPACING_M` 2.5 mm); `clear_of` (envelope's pruned check on `SelfCollisionChecker.geometry`) equals the hard verdict of the full clearances over random poses; over 300 random poses the checker's clearance never exceeds the
   sim box surface clearance (plus the hard margin for contact-only boxes) by more than that bound; the 2026-10-10
   pose whose sim upper arm box edge comes within the hard margin of the lidar dome is rejected, home stays clear, and a
   pose with the upper arm box 23 mm from the dome edge is not slowed by the upper arm boxes
@@ -566,7 +573,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   pitch raises the zone in front, `surface_z_m` allows normal speed down to a stair, configured surface/margin/scale,
   disabled guard, elbow and wrist checked, jaw model (gap grows with opening, inverse, closed tip at the tool point;
   `inner_gap` equals the tip gap 3 mm in, narrows deeper into the jaws (sim jar contact 46.5 mm 2.75 cm in at 0.534 rad),
-  inf once the open tips retract past the depth, `angle_for_inner_gap` inverts it and opens wider than the tip model),
+  inf once the open tips retract past the depth, `angle_for_inner_gap` inverts it and opens wider than the tip model;
+  `rotate` on many vectors at once equals rotating each, as `inner_gap` uses it),
   monitor IMU record to tilt sample, per-step scales and constant-rate retiming of slow steps; with `surfaces`: the
   local region height (normal speed over a stair, slow below the robot floor before its edge, flat model unchanged),
   slow near a step face (`lowest_feature`, `surfaces` in the summary), surfaces combined with a tilt override and
