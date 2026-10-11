@@ -5,7 +5,8 @@ Covers: the re-send timer runs at the period NavFootprint asks for; parameter se
 no response and a request still unanswered at the next tick is cancelled and reported as a timeout; double values
 for the costmap inflation; `<costmap>/published_footprint` polygons are kept per topic; a parameter service coming
 up (unavailable -> ready edge) calls the consumer-ready callback once; the arm pose accessors; a successful
-/arm/home runs the footprint tick at once (back to static) and a failed one does not.
+/arm/home runs the footprint tick at once (back to static) and a failed one does not; with the real arm and
+NavFootprint a converged home goes from the dynamic to the static footprint (the single home footprint hook).
 """
 
 import importlib
@@ -19,8 +20,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from mcp_server.config import McpServerConfig
+from mcp_server.footprint import NavFootprint
 
-from .test_footprint import HOME, deployed_config, footprint_robot, move_arm
+from .test_footprint import HOME, SIDEWAYS, deployed_config, footprint_robot, move_arm, settings
 
 ROS_MODULES = (
     "rclpy",
@@ -246,3 +248,21 @@ def test_home_service_without_a_footprint_tick_still_answers(ros_iface: ModuleTy
     robot.arm.home_service_call.return_value = (True, "done")
     response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))
     assert response.success is True
+
+
+def test_converged_home_service_ends_with_the_static_footprint(ros_iface: ModuleType, tmp_path: Path) -> None:
+    """The single /arm/home footprint hook: a converged home (real arm) re-runs the tick, which publishes the static
+    footprint from the parked pose; a home that cannot converge leaves the dynamic footprint alone."""
+    robot = make_robot(ros_iface, tmp_path, [0.0])
+    nav = NavFootprint(settings(), robot.cfg.body, robot)
+    move_arm(robot, HOME)
+    robot.arm.set_home()
+    move_arm(robot, SIDEWAYS)
+    nav.start()  # as tools.py does: the released arm is out, and the tick is wired to RosRobot
+    assert nav.state().kind == "dynamic"
+    robot.arm_backend.follow = False  # the home motion cannot converge
+    response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))
+    assert response.success is False and nav.state().kind == "dynamic"
+    robot.arm_backend.follow = True
+    response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))
+    assert response.success is True and nav.state().kind == "static"

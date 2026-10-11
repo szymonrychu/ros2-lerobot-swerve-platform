@@ -348,8 +348,6 @@ class ArmController:
         # grip_profiles.unverified_hold_relax_s); None without one.
         self._unverified_since: float | None = None
         self.stop_requests = 0  # request_stop calls (a stop during release_control's park keeps the lease)
-        # Called with the converged flag after every /arm/home service call (control: static footprint).
-        self.on_home_service: Callable[[bool], None] | None = None
         # Home pose cache: ((mtime_ns, size, inode) of the file or None when missing, pose or the load error).
         self._home_cache: tuple[tuple[int, int, int] | None, dict[str, float] | None | HomeStoreError] | None = None
         # How the lease ended when this server did not release it itself (take-over, /arm/home); None otherwise.
@@ -1775,10 +1773,7 @@ class ArmController:
         finally:
             if was_held and not self._held:
                 self.lost_note = HOME_SERVICE_RELEASE_NOTE
-        converged = result.status == "converged"
-        if self.on_home_service is not None:
-            self.on_home_service(converged)
-        return converged, f"{result.status}: {result.message}"
+        return result.status == "converged", f"{result.status}: {result.message}"
 
     def set_home(self) -> dict[str, float]:
         """Store the measured pose as the home pose.

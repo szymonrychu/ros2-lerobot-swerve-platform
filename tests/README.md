@@ -678,8 +678,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   kept, a measured jaw wider than `gripper_grasp_max_open_rad` clears grasp_held and the radius, radius 0 does not
   block parking, `take_control` / `get_control_state` show `arm.carrying` with the radius after a keep release and the
   refusal names it, an empty carrying state; persistence (H7): the carry record survives a restarted ArmController
-  (park still refused), the orphan release notes `mcp_server restarted`, a converged `/arm/home` publishes the static
-  footprint (a non-converged one does not); release refused while an arm motion or another blocking tool runs
+  (park still refused), the orphan release notes `mcp_server restarted`; release refused while an arm motion or another blocking tool runs
   (release_control itself does not count) (M1); base tools refused during the base reset and a `take_control('base')`
   during the steering wait stays held (M3); a stop during the park keeps the lease (`stopped: ...`, no release) (L3);
   `filter_node reports no active source (restarted?)` after an active source `none` (L2); the home pose is read once

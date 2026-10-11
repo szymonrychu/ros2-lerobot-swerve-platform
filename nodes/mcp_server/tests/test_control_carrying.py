@@ -3,7 +3,7 @@ human override from being reversed (H1), the agent lease separate from implicit 
 a keep_position release while carrying (H3), unverified holds counting as carrying (H4), release refused while an arm
 motion runs (M1), the base lease cleared before its reset (M3), release_control(all) while carrying (M4), a zero
 carried radius (M6), the carrying state in get_control_state after take_control (live L2), its persistence across a
-restart (H7), the static footprint after the /arm/home service (H7), the stop during a park (L3), the lost_note after
+restart (H7), the stop during a park (L3), the lost_note after
 a filter_node restart (L2), the home pose cache (L1) and own Nav2 goals (M2). No ROS."""
 
 import threading
@@ -17,7 +17,7 @@ from mcp_server import arm as arm_module
 from mcp_server.arm import ArmController
 from mcp_server.carry import CARRY_FILE_NAME
 from mcp_server.config import McpServerConfig
-from mcp_server.control import ControlManager, NavGoalRegistry
+from mcp_server.control import NavGoalRegistry
 from mcp_server.grasp import ObjectSpec, grasp_params
 from mcp_server.grasp_tools import GraspExecutor, GraspService
 from mcp_server.ik import ArmKinematics, load_joint_limits
@@ -329,39 +329,6 @@ def test_orphan_lease_release_notes_the_restart(robot: FakeRobot) -> None:
     outcome = robot.arm.check_orphan_lease(started_at=robot.arm_backend.t - 1.0)
     assert outcome == "released"
     assert robot.arm.lost_note is not None and "mcp_server restarted" in robot.arm.lost_note
-
-
-def test_home_service_restores_static_footprint(robot: FakeRobot) -> None:
-    published: list[str] = []
-
-    class Footprint:
-        def publish_static(self) -> None:
-            published.append("static")
-
-        def state(self) -> None:
-            return None
-
-    clock = FakeClock()
-    ctl = ControlManager(
-        robot.arm,
-        robot,
-        robot.arm.cfg,
-        None,
-        clock=clock,
-        sleep=clock.sleep,
-        footprint=Footprint(),  # type: ignore[arg-type]
-    )
-    store_home_then_move_away(robot)
-    ctl.take("arm")
-    published.clear()
-    ok, _ = robot.arm.home_service_call()
-    assert ok and published == ["static"]
-    robot.arm.set_home()
-    robot.arm_backend.positions["elbow_flex"] = 0.4
-    robot.arm_backend.follow = False  # the home motion cannot converge
-    published.clear()
-    robot.arm.home_service_call()
-    assert published == []
 
 
 # --- M1 / M3 / L3 ------------------------------------------------------------------------------------------------------

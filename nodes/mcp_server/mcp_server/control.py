@@ -238,7 +238,6 @@ class ControlManager:
         # taken; None while the agent does not hold the arm.
         self.arm_generation: int | None = None
         self.arm_since: float | None = None
-        arm.on_home_service = self.home_service_done
 
     @property
     def base_held(self) -> bool:
@@ -486,16 +485,6 @@ class ControlManager:
         radius = carried_object_radius_m if keep_position else None
         self.arm.carry.update(radius_m=radius)
         return self.publish_footprint(outcome, radius)
-
-    def home_service_done(self, converged: bool) -> None:
-        """After the /arm/home service (web UI Home button): a converged home parks the arm, so the static body
-        footprint applies again.
-
-        Args:
-            converged (bool): Whether the home motion converged.
-        """
-        if converged and self.footprint is not None:
-            self.footprint.publish_static()
 
     def publish_footprint(self, outcome: str, radius: float | None) -> str:
         """Footprint after an arm release: static when homed, else the measured (frozen) pose.
