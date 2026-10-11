@@ -13,6 +13,7 @@ import time
 from collections import OrderedDict, deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -227,6 +228,27 @@ class MotionWatch:
             str | None: Event type, or None to continue.
         """
         return self.monitor.interrupt_for(self.start_seq, self.types)
+
+
+@dataclass(frozen=True)
+class TiltSnapshot:
+    """Copy of the tilt state for the guard fields and watches; None = never received.
+
+    Attributes:
+        level (str | None): Last /tilt_guard/state level (ok, warning, error); kept when stale.
+        level_age_s (float | None): Age of that state (s).
+        roll_deg (float | None): Last /imu/data roll (deg).
+        pitch_deg (float | None): Last /imu/data pitch (deg).
+        tilt_deg (float | None): Last /imu/data total tilt (deg).
+        imu_age_s (float | None): Age of the IMU sample (s).
+    """
+
+    level: str | None = None
+    level_age_s: float | None = None
+    roll_deg: float | None = None
+    pitch_deg: float | None = None
+    tilt_deg: float | None = None
+    imu_age_s: float | None = None
 
 
 class RobotMonitor:
@@ -985,6 +1007,52 @@ class RobotMonitor:
         """
         with self.lock:
             return self.seq
+
+    def tilt_snapshot(self) -> TiltSnapshot:
+        """Tilt guard level and IMU angles with their ages (a copy; the caller applies its own freshness limit).
+
+        Returns:
+            TiltSnapshot: Level, roll, pitch, tilt and ages, None for what never arrived.
+        """
+        with self.lock:
+            now = self.clock()
+            imu, guard = self.imu, self.tilt_guard
+        return TiltSnapshot(
+            level=None if guard is None else guard[1].level,
+            level_age_s=None if guard is None else now - guard[0],
+            roll_deg=None if imu is None else imu[1],
+            pitch_deg=None if imu is None else imu[2],
+            tilt_deg=None if imu is None else imu[3],
+            imu_age_s=None if imu is None else now - imu[0],
+        )
+
+    def last_event_age_s(self, type_: str) -> float | None:
+        """Age of the newest retained event of a type.
+
+        Args:
+            type_ (str): Event type, e.g. human_takeover.
+
+        Returns:
+            float | None: Seconds since it was raised (wall clock), None when none is in the retained history.
+        """
+        with self.lock:
+            for event in reversed(self.events):
+                if event.type == type_:
+                    return max(0.0, self.wall() - event.ts)
+        return None
+
+    def odom_speed(self) -> float | None:
+        """Measured planar base speed of the filtered odometry.
+
+        Returns:
+            float | None: m/s, None when no twist arrived within odom_fresh_s.
+        """
+        with self.lock:
+            odom = self.odom
+            now = self.clock()
+        if odom is None or now - odom[0] > self.cfg.odom_fresh_s:
+            return None
+        return math.hypot(odom[1], odom[2])
 
     def interrupt_for(self, since_seq: int, types: frozenset[str]) -> str | None:
         """Type of a critical event in `types` raised after `since_seq`; the battery cut-off is also read live.

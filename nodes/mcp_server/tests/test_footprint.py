@@ -722,3 +722,42 @@ def test_consumer_ready_edge_resends_its_parameters(tmp_path: Path) -> None:
     ready(COSTMAP_NODES[1])
     assert {k for n, k, _ in robot.node_params if n == COSTMAP_NODES[1]} == {INFLATION_RADIUS, COST_SCALING}
     assert robot.footprint_polygons == [(COSTMAP_TOPICS[1], dynamic)]
+
+
+# --- arm_outside_static_m (E4-T2: guard field arm.outside_footprint_m) ----------------------------------------------
+
+
+def test_arm_outside_static_m_is_zero_for_the_parked_arm(tmp_path: Path) -> None:
+    robot = footprint_robot(tmp_path)
+    nav = NavFootprint(settings(), robot.arm.cfg.body, robot)
+    assert nav.arm_outside_static_m(parts_at(robot, HOME)) == 0.0
+
+
+def test_arm_outside_static_m_is_the_protrusion_distance(tmp_path: Path) -> None:
+    robot = footprint_robot(tmp_path)
+    nav = NavFootprint(settings(), robot.arm.cfg.body, robot)
+    parts = parts_at(robot, SIDEWAYS)
+    outside = nav.arm_outside_static_m(parts)
+    shadow = arm_shadow(parts, settings().circle_segments)
+    expected = max(Point(x, y).distance(nav.static) for x, y in shadow.exterior.coords)
+    assert outside > 0.1
+    assert outside == pytest.approx(expected, abs=1e-9)
+
+
+def test_arm_outside_static_m_five_cm_protrusion_within_5_mm(tmp_path: Path) -> None:
+    """A synthetic part cloud sticking 5 cm out of the middle of the longest static edge measures 0.05."""
+    robot = footprint_robot(tmp_path)
+    nav = NavFootprint(settings(), robot.arm.cfg.body, robot)
+    ring = np.asarray(nav.static.exterior.coords)
+    edges = list(zip(ring[:-1], ring[1:], strict=True))
+    (x0, y0), (x1, y1) = max(edges, key=lambda e: math.dist(e[0], e[1]))
+    mid = Point((x0 + x1) / 2, (y0 + y1) / 2)
+    length = math.dist((x0, y0), (x1, y1))
+    normal = np.array([(y1 - y0) / length, -(x1 - x0) / length])
+    if nav.static.contains(Point(mid.x + 1e-3 * normal[0], mid.y + 1e-3 * normal[1])):
+        normal = -normal
+    tip = np.array([mid.x, mid.y]) + 0.05 * normal
+    parts = {"tool_point": np.array([[tip[0], tip[1], 0.1], [mid.x, mid.y, 0.1]])}
+    assert nav.arm_outside_static_m(parts) == pytest.approx(0.05, abs=0.005)
+    inside = nav.static.representative_point()
+    assert nav.arm_outside_static_m({"tool_point": np.array([[inside.x, inside.y, 0.1]])}) == 0.0

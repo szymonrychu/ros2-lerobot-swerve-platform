@@ -925,6 +925,19 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `test_latency_five_rules_over_fake_providers_p99_under_500_us` (2000 `check_tool` calls each, best p99 of 3 runs against OS preemption). Config
   (`test_config.py`): `test_guard_rules_default_is_enabled_without_rules`, `test_guard_rules_load_from_yaml`,
   `test_invalid_guard_rule_fails_config_load` (never-gated tool, unknown field)
+- guard field source and watch sampler (`test_guard_state.py`, fakes only): `GuardState` per registry field - fresh
+  value, stale -> None, NaN -> None, collaborator not configured -> None (`test_arm_joint_*`,
+  `test_arm_tool_height_is_the_forward_kinematics_z`, `test_start_and_target_tool_height_use_the_context_poses`,
+  `test_outside_footprint_*`, `test_footprint_kind_and_carried_radius`, `test_base_speed_fresh_stale_missing`,
+  `test_tilt_level_keeps_last_level_when_stale`, `test_tilt_deg_fresh_stale_missing`, `test_battery_*`,
+  `test_queue_busy_and_unknown_without_a_queue`), `test_human_takeover_age_from_events_and_infinity_without`
+  (injected events, `+inf` without); `WatchSampler` - `test_sampler_gripper_effort_is_absolute_and_finite_only`,
+  `test_sampler_joint_effort_abs_nan_and_missing_joint`, `test_sampler_gripper_and_joint_position`,
+  `test_sampler_imu_metrics_fresh_and_stale`, `test_sampler_base_speed_battery_and_tool_height`,
+  `test_sampler_without_battery_and_unknown_metric`, `test_watch_metrics_constant`. Accessors: `test_monitor.py`
+  (`test_tilt_snapshot_*`, `test_last_event_age_s_newest_of_type_and_none_without`,
+  `test_odom_speed_is_planar_speed_fresh_within_odom_fresh_s`), `test_footprint.py` (`test_arm_outside_static_m_*`: 0
+  for the parked arm and inside, equals the farthest shadow vertex distance, a 5 cm protrusion measures 0.05 within 5 mm)
 - unmeasured efforts (`test_effort_nan.py`, review L25: feetech_servos publishes NaN effort for joints without a
   reading): `arm.finite_effort` (finite value, None for NaN / inf / missing); a NaN effort of a non-effort joint is
   absent from `ArmState.efforts` and a NaN gripper effort gives `gripper_effort` None in the arm state, motion results

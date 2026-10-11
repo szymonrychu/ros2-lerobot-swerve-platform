@@ -1358,21 +1358,33 @@ every field must be readable in every phase the rule runs in (`args.*` only with
 Closed registry (`guard_rules.FIELDS`, plus the patterns `arm.joint.<j>`, `target.joint.<j>`, `motion.abs_delta.<j>`
 with `<j>` in `ARM_JOINTS`, and `args.<name>`). Unknown is `None`, never a substitute value.
 
-| Field | Type | Phases |
-|---|---|---|
-| `tool.name` / `step.kind` | str | tool / step |
-| `args.<name>` | any (raw tool arguments / step fields) | tool, step |
-| `arm.lease_held`, `arm.carrying`, `arm.at_home` | bool | all |
-| `arm.active_source` | str (`leader`, `web_ui`, `autonomy`, `none`) | all |
-| `arm.joint.<j>`, `arm.tool_height_m`, `arm.outside_footprint_m` | float | all |
-| `footprint.kind` | str (`static`, `dynamic`, `conservative`) | all |
-| `footprint.carried_radius_m` | float | all |
-| `base.lease_held` | bool | all |
-| `base.speed_mps` | float | all |
-| `tilt.level` | str (`ok`, `warning`, `error`) | all |
-| `tilt.deg`, `battery.voltage_v`, `events.human_takeover_age_s` | float | all |
-| `battery.cutoff`, `queue.busy` | bool | all |
-| `start.tool_height_m`, `target.tool_height_m`, `target.joint.<j>`, `motion.abs_delta.<j>` | float | arm |
+| Field | Type | Phases | Source (cached, no new subscription; unknown = `None`) |
+|---|---|---|---|
+| `tool.name` / `step.kind` | str | tool / step | the call / step (engine) |
+| `args.<name>` | any | tool, step | raw tool arguments / step fields (engine) |
+| `arm.lease_held` | bool | all | `ControlManager.arm_held` |
+| `arm.active_source` | str (`leader`, `web_ui`, `autonomy`, `none`) | all | `arm.backend.active_source()`; unknown when older than `timeouts.state_stale_s` |
+| `arm.carrying` | bool | all | `ControlManager.carrying_state().carrying` |
+| `arm.at_home` | bool | all | `ArmController.at_home()`; unknown without a stored home or with stale joint states |
+| `arm.joint.<j>` | float | all | measured position of a fresh joint sample; stale or NaN is unknown |
+| `arm.tool_height_m` | float | all | `ik.forward(measured).z` (base_link z = height above the floor); stale joint states unknown |
+| `arm.outside_footprint_m` | float | all | `NavFootprint.arm_outside_static_m(part_points(measured))`: largest distance of the arm shadow outside the static outline, 0 inside; unknown without `nav_footprint` or with stale joint states |
+| `footprint.kind` | str (`static`, `dynamic`, `conservative`) | all | `NavFootprint.current.kind`; unknown without `nav_footprint` |
+| `footprint.carried_radius_m` | float | all | `NavFootprint.current.carried_radius_m` or 0; unknown without `nav_footprint` |
+| `base.lease_held` | bool | all | `ControlManager.base_held` |
+| `base.speed_mps` | float | all | `RobotMonitor.odom_speed()` (filtered odometry twist, fresh within `monitor.odom_fresh_s`) |
+| `tilt.level` | str (`ok`, `warning`, `error`) | all | `RobotMonitor.tilt_snapshot().level`; a stale state keeps its last level (as `tilt_refusal`), unknown before the first state |
+| `tilt.deg` | float | all | `RobotMonitor.tilt_snapshot().tilt_deg`, fresh within `floor_guard.imu_max_age_s` |
+| `battery.voltage_v`, `battery.cutoff` | float, bool | all | `BatteryGuard.state()`; stale or no guard is unknown |
+| `events.human_takeover_age_s` | float | all | `RobotMonitor.last_event_age_s("human_takeover")`; `+inf` when no `human_takeover` is in the retained history |
+| `queue.busy` | bool | all | `MotionQueue.busy()`; unknown when no queue is bound |
+| `start.tool_height_m`, `target.tool_height_m` | float | arm | forward kinematics of the motion start (command base) / clamped target (joints the motion does not name keep the start value) |
+| `target.joint.<j>`, `motion.abs_delta.<j>` | float | arm | clamped target, abs(target - start) (engine) |
+
+`guard_state.py` implements these (`GuardState`, a `FieldSource`) and also `WatchSampler.sample(metric, joint)` for the
+motion watches: `gripper_effort` and `joint_effort` (absolute, finite only), `gripper_position`, `joint_position`,
+`tilt_deg`, `roll_deg`, `pitch_deg` (IMU fresh within `floor_guard.imu_max_age_s`), `base_speed_mps`, `battery_v`,
+`tool_height_m`; `None` for anything stale, NaN or not configured, never a substitute value.
 
 The engine resolves `tool.name`, `step.kind`, `args.*`, `target.joint.*` and `motion.abs_delta.*` (abs(target - start))
 itself; every other field comes from a `FieldSource` (`get(field, ctx)`, ctx = phase, key, args, start, target).
@@ -1545,6 +1557,7 @@ an unruled tool and < 500 us with five rules over fake providers.
 | Module | ROS? | Purpose |
 |---|---|---|
 | `config.py` | no | pydantic config, `MCP_SERVER_CONFIG`, `MCP_SERVER_TOKEN` |
+| `guard_state.py` | no | guard rule field source over cached robot state (`GuardState`) and the watch metric sampler (`WatchSampler`) |
 | `guard_rules.py` | no | guard rules: schema (`GuardRuleSettings`), field registry, Kleene evaluation (`GuardEngine`), rejection text and `GUARD_REFUSAL_PATTERN` |
 | `trajectory.py` | no | quintic interpolation, limit clamping, tracking error, `blend_trajectory` (velocity-continuous spline through via points) |
 | `ik.py` | no | URDF limits, ikpy FK/IK with verification |

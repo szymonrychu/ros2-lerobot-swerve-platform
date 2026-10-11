@@ -521,3 +521,58 @@ def test_settings_validate_threshold_order() -> None:
     with pytest.raises(ValueError):
         MonitorSettings(bump_warn_mps2=9, bump_critical_mps2=4)
     assert McpServerConfig().monitor.servo_temp_critical_c == 70
+
+
+# --- guard state accessors (E4-T2: tilt_snapshot, last_event_age_s, odom_speed) ------------------------------------
+
+
+def roll_quat(deg: float) -> tuple[float, float, float, float]:
+    half = math.radians(deg) / 2.0
+    return (math.sin(half), 0.0, 0.0, math.cos(half))
+
+
+def test_tilt_snapshot_is_empty_before_any_sample() -> None:
+    mon, _, _ = make()
+    snap = mon.tilt_snapshot()
+    assert snap.level is None and snap.tilt_deg is None and snap.roll_deg is None and snap.pitch_deg is None
+    assert snap.imu_age_s is None and snap.level_age_s is None
+
+
+def test_tilt_snapshot_carries_guard_level_and_imu_angles_with_ages() -> None:
+    mon, clock, _ = make()
+    mon.on_imu(0.0, 0.0, 9.81, *roll_quat(12.0))
+    mon.on_tilt_guard(
+        '{"level": "warning", "roll_deg": 9.0, "pitch_deg": 1.0, "limits": {"roll_warn_deg": 8.0, "roll_error_deg": 15.0, '
+        '"pitch_warn_deg": 12.0, "pitch_error_deg": 20.0}, "since": 1.0, "base_drive_inhibited": false, "imu_ok": true}'
+    )
+    clock.t += 2.0
+    snap = mon.tilt_snapshot()
+    assert snap.level == "warning"
+    assert snap.roll_deg == pytest.approx(12.0, abs=0.01)
+    assert snap.tilt_deg == pytest.approx(12.0, abs=0.01)
+    assert snap.imu_age_s == pytest.approx(2.0) and snap.level_age_s == pytest.approx(2.0)
+
+
+def test_last_event_age_s_newest_of_type_and_none_without() -> None:
+    mon, clock, _ = make()
+    assert mon.last_event_age_s("human_takeover") is None
+    mon.takeover("web_ui")
+    clock.t += 5.0
+    mon.on_servo_registers(dump(temp=65))
+    assert mon.last_event_age_s("human_takeover") == pytest.approx(5.0)
+    assert mon.last_event_age_s("overheat") == pytest.approx(0.0)
+    clock.t += 100.0
+    mon.takeover("web_ui")
+    assert mon.last_event_age_s("human_takeover") == pytest.approx(0.0)
+    assert mon.last_event_age_s("stall") is None
+
+
+def test_odom_speed_is_planar_speed_fresh_within_odom_fresh_s() -> None:
+    mon, clock, _ = make()
+    assert mon.odom_speed() is None
+    mon.on_odom(0.3, 0.4, 2.0)
+    assert mon.odom_speed() == pytest.approx(0.5)
+    clock.t += mon.cfg.odom_fresh_s - 0.01
+    assert mon.odom_speed() == pytest.approx(0.5)
+    clock.t += 0.02
+    assert mon.odom_speed() is None

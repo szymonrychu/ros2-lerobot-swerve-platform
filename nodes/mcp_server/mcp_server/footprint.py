@@ -48,7 +48,8 @@ from typing import Literal, Protocol
 
 import numpy as np
 import yaml
-from shapely.geometry import MultiPoint, Polygon
+from shapely import get_coordinates
+from shapely.geometry import MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 
 from .arm_geometry import LINK_CAPSULE_RADIUS_M
@@ -667,6 +668,19 @@ class NavFootprint:
                 bad = sorted({o for o in channels.values() if o != OK})
                 out[consumer] = "; ".join(bad) if bad else (OK if channels else PENDING)
             return out
+
+    def arm_outside_static_m(self, parts: dict[str, np.ndarray]) -> float:
+        """Largest distance of an arm pose's ground shadow outside the static outline.
+
+        Args:
+            parts (dict[str, np.ndarray]): self_collision part_points of the pose (base_link, m).
+
+        Returns:
+            float: Metres; 0 when the whole shadow is inside the static outline. The shadow is convex, so the
+                farthest point is one of its vertices.
+        """
+        shadow = arm_shadow(parts, self.cfg.circle_segments)
+        return max(Point(x, y).distance(self.static) for x, y in get_coordinates(shadow))
 
     def state(self) -> FootprintState:
         """What is published now.
