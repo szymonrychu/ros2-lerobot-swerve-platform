@@ -277,7 +277,15 @@ def test_tool_subsystem_table() -> None:
         "look_toward_frontier",
         "approach_for_grasp",
     }
-    for free in ("stop", "cancel_motions", "take_control", "release_control", "get_control_state", "enqueue_motions", "suggest_approach_pose"):
+    for free in (
+        "stop",
+        "cancel_motions",
+        "take_control",
+        "release_control",
+        "get_control_state",
+        "enqueue_motions",
+        "suggest_approach_pose",
+    ):
         assert free not in TOOL_SUBSYSTEM
 
 
