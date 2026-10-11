@@ -7,6 +7,7 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -59,8 +60,10 @@ SERIALIZE_MAP_RESULT_SUCCESS = 0
 RESET_MAP_TIMEOUT_S = 10.0
 # slam_toolbox Reset.Response.RESULT_SUCCESS.
 RESET_MAP_RESULT_SUCCESS = 0
-# Seconds to wait for the NavigateToPose cancel_goal response before reporting a timeout.
-NAV_STOP_TIMEOUT_S = 5.0
+# Seconds to wait for the NavigateToPose cancel_goal response before reporting a timeout (nav2 can be slow under load).
+NAV_STOP_TIMEOUT_S = 10.0
+# Appended to a nav stop timeout message: the request was sent, so nav2 may still cancel. web_ui itself commands nothing else.
+NAV_STOP_TIMEOUT_NOTE = "the cancel request was sent and may still complete; web_ui did not command the base to zero"
 # action_msgs/srv/CancelGoal.Response return codes.
 CANCEL_GOAL_RETURN_CODES: dict[int, str] = {
     0: "none",
@@ -152,7 +155,32 @@ def action_response(action: str, ok: bool, message: str, status_code: int) -> JS
     return JSONResponse({"ok": ok, "message": message}, status_code=status_code)
 
 
-async def call_ros_service(action: str, future: Any, service: str, timeout_s: float) -> tuple[Any, JSONResponse | None]:
+async def coalesce(inflight: dict[str, asyncio.Task[Any]], key: str, factory: Callable[[], Awaitable[Any]]) -> Any:
+    """Share one in-flight call between concurrent requests with the same key.
+
+    The first caller starts factory() as a task; callers arriving while it is pending await that same task and get
+    the same result instead of issuing a new call. A caller that is cancelled (client disconnect) does not cancel
+    the shared task. Once the task is done the key is free again.
+
+    Args:
+        inflight (dict[str, asyncio.Task[Any]]): Pending tasks by key (one dict per app).
+        key (str): What is being called (e.g. "nav_stop:/navigate_to_pose").
+        factory (Callable[[], Awaitable[Any]]): Builds the coroutine that does the call; only used by the first caller.
+
+    Returns:
+        Any: Whatever factory's coroutine returned (or raised).
+    """
+    task = inflight.get(key)
+    if task is None:
+        task = asyncio.ensure_future(factory())
+        inflight[key] = task
+        task.add_done_callback(lambda done: inflight.pop(key, None) if inflight.get(key) is done else None)
+    return await asyncio.shield(task)
+
+
+async def call_ros_service(
+    action: str, future: Any, service: str, timeout_s: float, timeout_note: str = ""
+) -> tuple[Any, JSONResponse | None]:
     """Await a ROS service call future, mapping unavailability, timeouts and errors to action responses.
 
     Args:
@@ -160,6 +188,7 @@ async def call_ros_service(action: str, future: Any, service: str, timeout_s: fl
         future (Any): rclpy Future from the bridge, or None when the service is unavailable.
         service (str): Service name, for messages.
         timeout_s (float): Maximum seconds to wait.
+        timeout_note (str): Optional text appended to the timeout message.
 
     Returns:
         tuple[Any, JSONResponse | None]: (service response, None) on completion, or (None, error response).
@@ -169,7 +198,8 @@ async def call_ros_service(action: str, future: Any, service: str, timeout_s: fl
     try:
         return await await_ros_future(future, timeout_s), None
     except TimeoutError:
-        return None, action_response(action, False, f"{service} timed out after {timeout_s:g} s", 504)
+        note = f"; {timeout_note}" if timeout_note else ""
+        return None, action_response(action, False, f"{service} timed out after {timeout_s:g} s{note}", 504)
     except Exception as exc:
         return None, action_response(action, False, f"{service} failed: {exc}", 500)
 
@@ -419,6 +449,8 @@ def build_app(
         FastAPI: Configured application instance.
     """
     app = FastAPI(title="web_ui", docs_url=None, redoc_url=None)
+    # Pending coalesced service calls (nav stop, map reset) by key; see coalesce().
+    inflight_calls: dict[str, asyncio.Task[Any]] = {}
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(MetricsMiddleware)
     tile_proxies = make_tile_proxies(config, tile_transport)
@@ -562,18 +594,23 @@ def build_app(
         if bridge_node is None:
             return action_response("map_reset", False, "ROS bridge unavailable", 503)
         service = tab_cfg.map_reset_service
-        response, error = await call_ros_service(
-            "map_reset", bridge_node.reset_map_async(service), service, RESET_MAP_TIMEOUT_S
-        )
-        if error is not None:
-            return error
-        if response is None or response.result != RESET_MAP_RESULT_SUCCESS:
-            code = getattr(response, "result", None)
-            return action_response("map_reset", False, f"slam_toolbox could not reset the map (result {code})", 500)
-        if tab_cfg.map_topic:
-            bridge_node.clear_and_notify(tab_cfg.map_topic)
-        bridge_node.reset_gps_anchor()
-        return action_response("map_reset", True, "map reset; SLAM is building a new map", 200)
+        node = bridge_node
+
+        async def run_reset() -> JSONResponse:
+            response, error = await call_ros_service(
+                "map_reset", node.reset_map_async(service), service, RESET_MAP_TIMEOUT_S
+            )
+            if error is not None:
+                return error
+            if response is None or response.result != RESET_MAP_RESULT_SUCCESS:
+                code = getattr(response, "result", None)
+                return action_response("map_reset", False, f"slam_toolbox could not reset the map (result {code})", 500)
+            if tab_cfg.map_topic:
+                node.clear_and_notify(tab_cfg.map_topic)
+            node.reset_gps_anchor()
+            return action_response("map_reset", True, "map reset; SLAM is building a new map", 200)
+
+        return await coalesce(inflight_calls, f"map_reset:{service}", run_reset)
 
     @app.post("/api/nav/stop")
     async def stop_nav(tab: str) -> JSONResponse:
@@ -583,23 +620,29 @@ def build_app(
         if bridge_node is None:
             return action_response("nav_stop", False, "ROS bridge unavailable", 503)
         action = tab_cfg.navigate_action
-        response, error = await call_ros_service(
-            "nav_stop",
-            bridge_node.cancel_all_goals_async(action),
-            action + CANCEL_GOAL_SERVICE_SUFFIX,
-            NAV_STOP_TIMEOUT_S,
-        )
-        if error is not None:
-            return error
-        code = getattr(response, "return_code", None)
-        if code != CANCEL_GOAL_ERROR_NONE:
-            reason = CANCEL_GOAL_RETURN_CODES.get(code, "unknown error") if isinstance(code, int) else "no response"
-            return action_response("nav_stop", False, f"cancel {reason} (return code {code})", 500)
-        if tab_cfg.goal_topic:
-            bridge_node.clear_and_notify(tab_cfg.goal_topic)
-        count = len(response.goals_canceling)
-        message = f"stopped: canceling {count} goal(s)" if count else "stopped: no active goal to cancel"
-        return action_response("nav_stop", True, message, 200)
+        node = bridge_node
+
+        async def run_stop() -> JSONResponse:
+            response, error = await call_ros_service(
+                "nav_stop",
+                node.cancel_all_goals_async(action),
+                action + CANCEL_GOAL_SERVICE_SUFFIX,
+                NAV_STOP_TIMEOUT_S,
+                NAV_STOP_TIMEOUT_NOTE,
+            )
+            if error is not None:
+                return error
+            code = getattr(response, "return_code", None)
+            if code != CANCEL_GOAL_ERROR_NONE:
+                reason = CANCEL_GOAL_RETURN_CODES.get(code, "unknown error") if isinstance(code, int) else "no response"
+                return action_response("nav_stop", False, f"cancel {reason} (return code {code})", 500)
+            if tab_cfg.goal_topic:
+                node.clear_and_notify(tab_cfg.goal_topic)
+            count = len(response.goals_canceling)
+            message = f"stopped: canceling {count} goal(s)" if count else "stopped: no active goal to cancel"
+            return action_response("nav_stop", True, message, 200)
+
+        return await coalesce(inflight_calls, f"nav_stop:{action}", run_stop)
 
     async def call_arm_trigger(action: str, tab: str, service_attr: str) -> JSONResponse:
         if (blocked := battery_block(action)) is not None:

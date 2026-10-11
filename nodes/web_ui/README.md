@@ -144,7 +144,7 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
   - **List:** a collapsible panel "Points of interest (n)" lists name, kind, creator, status and age (newest first); clicking a row selects the POI and centres the view on it. Open by default on wide screens, collapsed on a phone.
   - All edits go through `POST /api/poi` and are visible to the agent and other browsers via the latched `/poi/list`. The code is in `frontend/src/poi/` (pure logic: `geometry.ts`, `editor.ts`, `style.ts`, `api.ts`; React: `PoiLayer.tsx`, `PoiPanels.tsx`, `usePoiEditor.ts`).
 - **Grasp panel:** see [Grasp panel](#grasp-panel) (toolbar dropdown **Grasp**; **STOP GRASP** appears in the toolbar while a grasp runs).
-- **STOP** (red) calls `POST /api/nav/stop`. **Save map** calls `POST /api/map/save`. **Reset map** needs two clicks like Set home (**Confirm reset**). Results appear as a snackbar.
+- **STOP** (red) calls `POST /api/nav/stop`. Concurrent stop requests (and concurrent `POST /api/map/reset` requests) share one in-flight service call: a request arriving while one is pending awaits the same result (same status and body) instead of calling the service again; once it finishes, the next request calls again. The cancel waits up to `NAV_STOP_TIMEOUT_S` (10 s, nav2 can be slow under CPU load); on a timeout the answer is 504 saying the cancel request was sent and may still complete. web_ui does not command the base to zero itself. **Save map** calls `POST /api/map/save`. **Reset map** needs two clicks like Set home (**Confirm reset**). Results appear as a snackbar.
 
 ### Fields
 
