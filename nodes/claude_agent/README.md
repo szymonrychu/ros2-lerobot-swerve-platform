@@ -64,6 +64,13 @@ workdir is not touched.
 
 ## Prompt sections
 
+Guard rules and watches (short, for the prompt cache): the "Refused and cancelled tool calls" paragraph says a result
+starting `guard rule '<name>' refused` is a robot safety rule (it names the rule and the observed values): do not repeat
+the call, take the exit the message names, and call `check_guard_rules` before a risky base move. The motion queue
+paragraph adds `watch_constraints` on `enqueue_motions` (e.g. `gripper_effort` drop while carrying -> pause, `tilt_deg`
+-> abort, a `distance_travelled_m` cap), `resume_motions` after a pause, and that a guard refusal of a queued step
+stops the queue.
+
 Besides the budget and working method, the system prompt (`prompt.py`) has compact sections (about 1.4 k characters
 added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
 interrupts), the tilt guard (warning: drive back manually; error: base disabled, report and wait), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
@@ -607,6 +614,7 @@ and re-encoded as JPEG.
 | `agent_retry_predictions_total` | counter | `bin` (`0.0`..`0.9`, 0.1 wide, 1.0 in `0.9`), `outcome` (`success`, `failure`, `unobserved`) | Each retry ledger record written (`success` = next outcome `done`; `failed` and `skipped` count as `failure`) |
 | `agent_retry_squared_error` | histogram (0.01, 0.04, ..., 0.81, 1.0) | | `(p_retry_success - y)^2` of each observed ledger record (y = 1 for `done`); sum/count is the running Brier score |
 | `agent_retry_success_threshold` | gauge | | Set from `retry_success_threshold` at runner init |
+| `agent_guard_refusals_total` | counter | `rule` | Every `ToolResultBlock` that is an error or a `wait_for_event` result and whose text matches the mcp_server `GUARD_REFUSAL_PATTERN` (`guard rule '<name>' refused ...`); once per tool call and rule. dry_run log lines (`guard_rule_would_refuse`) never match |
 
 ## Authentication and deployment
 

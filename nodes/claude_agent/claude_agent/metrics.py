@@ -27,6 +27,9 @@ SECONDS_SINCE_ACTIVITY = Gauge("agent_seconds_since_activity", "Seconds since th
 WATCHDOG_FIRES = Counter("agent_watchdog_fires_total", "Instruction watchdog expiries")
 SESSION_RESETS = Counter("agent_session_resets_total", "Completed session resets")
 TOKENS = Counter("agent_tokens_total", "Tokens reported by the SDK result usage", ["kind"])
+GUARD_REFUSALS = Counter(
+    "agent_guard_refusals_total", "Guard rule refusals seen in tool results, once per call and rule", ["rule"]
+)
 COST_USD = Counter("agent_cost_usd_total", "Cost in USD reported by the SDK results")
 PHASE_FAILURES = Counter(
     "agent_phase_failures_total",

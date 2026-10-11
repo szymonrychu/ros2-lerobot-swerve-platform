@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import re
 import time
 import uuid
 from collections import deque
@@ -43,6 +44,7 @@ from .mcp_health import probe_mcp_server
 from .metrics import (
     BUSY,
     COST_USD,
+    GUARD_REFUSALS,
     INSTRUCTION_SECONDS,
     INSTRUCTIONS,
     PHASE_FAILURES,
@@ -118,6 +120,13 @@ ARM_NOT_PARKED_MESSAGE = "arm not parked after the forced job-end release_contro
 RELEASED_TEXT = "released"
 SHUTDOWN_INTERRUPTED_MESSAGE = "instruction interrupted by service shutdown"
 # Claude Code's tool result for a call cancelled by an interrupt (also its text for a user rejection at a prompt).
+# Copy of mcp_server.guard_rules.GUARD_REFUSAL_PATTERN (pinned to its source by tests/test_guard_refusals.py).
+GUARD_REFUSAL_PATTERN = (
+    r"guard rule '(?P<rule>[a-z][a-z0-9_]{2,63})' refused "
+    r"(?P<what>queued [a-z_]+ step|arm motion of [a-z_]+|[a-z_]+): "
+)
+GUARD_REFUSAL_RE = re.compile(GUARD_REFUSAL_PATTERN)
+WAIT_FOR_EVENT_TOOL = "wait_for_event"
 GENERIC_REJECTION_MARKER = "The user doesn't want to proceed with this tool use"
 REJECTION_CORRECTION = (
     'NOTE FROM THE AGENT RUNNER: the {name} call came back "The user doesn\'t want to proceed with this tool use". '
@@ -237,6 +246,20 @@ def build_options(
         env=env,
         cwd=work_dir if work_dir.is_dir() else None,
     )
+
+
+def count_guard_refusals(content: Any) -> None:
+    """Count each guard rule named in a tool result text once (agent_guard_refusals_total{rule}).
+
+    Args:
+        content (Any): ``ToolResultBlock.content``: a string, a list of text blocks or None.
+    """
+    if isinstance(content, list):
+        text = " ".join(str(item.get("text", "")) if isinstance(item, dict) else str(item) for item in content)
+    else:
+        text = str(content or "")
+    for rule in {match.group("rule") for match in GUARD_REFUSAL_RE.finditer(text)}:
+        GUARD_REFUSALS.labels(rule).inc()
 
 
 class AgentRunner:
@@ -1265,6 +1288,8 @@ class AgentRunner:
             self.tool_started_at.pop(block.tool_use_id, None)
             if name == TAKE_CONTROL_TOOL and not block.is_error:
                 self.took_control = True
+            if block.is_error or name == WAIT_FOR_EVENT_TOOL:
+                count_guard_refusals(block.content)
             if not block.is_error or self.interrupted or GENERIC_REJECTION_MARKER not in str(block.content):
                 continue
             self.logger.warning(f"tool call {name} ({block.tool_use_id}) was cancelled by Claude Code")
