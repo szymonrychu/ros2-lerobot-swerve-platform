@@ -1,0 +1,16 @@
+# Config for scripts/mppi_cpu_compare.py (validated by its pydantic Settings model).
+# Compares the CPU of the nav2_bringup unit before and after the MPPI overlay went live, from the server's Mimir.
+prometheus_url: http://server.ros2.lan:9009/prometheus
+# `host` label of the series (client = robot).
+host: client
+# systemd unit (cgroup id /system.slice/<unit>).
+unit: ros2-nav2_bringup.service
+# Length of each compared window (hours): [switch - window, switch] and [switch + settle, switch + settle + window].
+window_h: 6
+# Minutes after the switch left out of the "after" window (restart, warm-up).
+settle_min: 10
+# PASS when after <= max(before * (1 + rel_limit), before + abs_limit_cores) for both mean and p95.
+rel_limit: 0.05
+abs_limit_cores: 0.01
+# "auto" = latest container_start_time_seconds of the unit (the deploy that restarted it), else an epoch in seconds.
+switch_time: auto

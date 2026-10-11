@@ -165,6 +165,23 @@ mkdir -p .logs
 
 Env: `COSTMAP_ZONES_CLIENT_HOST` (default `client.ros2.lan`), `COSTMAP_ZONES_SSH_USER` (default from `ansible/inventory` or `$USER`), `COSTMAP_ZONES_REMOTE_REPO` (default `/opt/ros2-lerobot-swerve-platform`), `COSTMAP_ZONES_REMOTE_VENV` (default `/opt/ros2-nodes/costmap_zones/venv`).
 
+## mppi_overlay_diag.sh
+
+Read-only check that the patched `nav2_mppi_controller` overlay is built and loaded on the client: the `/opt/ros2-ws/.built-nav2_mppi_controller-*` build stamp, the dpkg version of `ros-jazzy-nav2-mppi-controller` against the tag pinned in `ansible/group_vars/client.yml` (prints `WARN` when they differ, i.e. time to bump the pin), the `libmppi_controller.so` / `libmppi_critics.so` paths mapped by the nav2 process (`/proc/<pid>/maps`; `/opt/ros2-ws/install/...` is the overlay, `/opt/ros/jazzy/...` the apt library), `ros2 param get /controller_server FollowPath.model_delay_vx/vy/wz`, and recent `ros2-nav2_bringup` journal lines matching "missed its desired rate". Env: `MPPI_CLIENT_HOST`, `MPPI_SSH_USER`.
+
+```bash
+./scripts/mppi_overlay_diag.sh
+./scripts/mppi_overlay_diag.sh --lines 40
+```
+
+## mppi_cpu_compare.py
+
+Compares the CPU of `ros2-nav2_bringup.service` before and after the overlay deploy from the server's Mimir (`prometheus_url: http://server.ros2.lan:9009/prometheus`, `host: client`). Queries `rate(container_cpu_usage_seconds_total{host, id="/system.slice/<unit>"}[1m])` over `[switch - window_h, switch]` and `[switch + settle_min, switch + settle_min + window_h]` (the settle period after the restart is left out) and prints mean and p95 of both windows. PASS when after <= `max(before * (1 + rel_limit), before + abs_limit_cores)` for both statistics; exit 1 on FAIL, exit 2 when a series is empty or Mimir is unreachable (never a PASS). `switch_time: auto` takes the latest `container_start_time_seconds` of the unit (the deploy restart), or set an epoch in seconds. Configured by `scripts/mppi_cpu_compare.yaml` (pydantic-validated: defaults `window_h` 6, `settle_min` 10, `rel_limit` 0.05, `abs_limit_cores` 0.01). Mimir keeps 1 d of metrics, so the before window must still be in retention. See `nodes/nav2_bringup/README.md` (Verifying the MPPI overlay).
+
+```bash
+uv run python scripts/mppi_cpu_compare.py
+```
+
 ## probe-mppi-overlay-docker.sh
 
 Docker probe (arm64 `ros:jazzy-ros-base`, runs natively on an Apple Silicon Mac) for the nav2 MPPI overlay patch

@@ -263,6 +263,22 @@ installed either way). The apt plugin does not declare `model_delay_*`, so those
 stops every `ros2-*` unit (claude_agent and mcp_server included) while it runs; do not deploy during an agent session.
 Re-enable with `nav2_mppi_overlay: true`; the stamp then matches (or rebuilds when the apt version moved).
 
+### Verifying the MPPI overlay
+
+1. **Loaded and configured** (after a deploy): `./scripts/mppi_overlay_diag.sh`. Expect the build stamp, a
+   `/opt/ros2-ws/install/lib/libmppi_controller.so` mapping, `model_delay_vy: 0.3` with `vx` and `wz` 0.0, an apt
+   version equal to the pin (otherwise `WARN`: bump the pin) and no new "missed its desired rate" lines.
+2. **Idle CPU** (accepted check): after at least 6 h idle on the new build, run
+   `uv run python scripts/mppi_cpu_compare.py` (`switch_time: auto` is the deploy restart). At idle MPPI does not
+   run, so any rise means a load-time or overlay regression (for example a debug build). PASS: mean and p95 CPU of
+   `ros2-nav2_bringup.service` after <= `max(before x 1.05, before + 0.01 core)`; the working set p50 stays under
+   `MemoryLow` (176M) on the same Mimir panel. Mimir keeps 1 d of metrics, so the 6 h "before" window must still be
+   in retention: run it within about 17 h of the deploy.
+3. **Active A/B (deferred, needs the robot to drive)**: apt MPPI against the overlay with `model_delay_vy` 0 and
+   0.3 on one fixed route, same speed. Acceptance: controller CPU of the overlay <= apt + 5 % and no new
+   "missed its desired rate" lines. Not run while the robot charges; `mppi_cpu_compare.py` can score each leg by
+   setting `switch_time` to the epoch of the switch and a short `window_h`.
+
 ## Rotate first, drive front-first
 
 `FollowPath` is the `RotationShimController` wrapping MPPI. When a new path points more than 45 deg away from the robot heading, it first rotates in place (0.5 rad/s) until within about 17 deg, then MPPI follows the path. At the end, once inside the goal tolerance, the shim alone turns to the goal heading (`rotate_to_heading_once`, `max_angular_accel` 0.5). MPPI's `GoalAngleCritic` is off because the two fought. The measured 58 deg overshoot had one cause: the default BT replans at 1 Hz and every replan resets the goal checker latch and the shim's position check, so the shim lost the in-tolerance state mid-turn and MPPI took over. `GoalCritic` (weight 8) brings the robot close before the turn. MPPI's `PathAngleCritic` runs in mode 0 (forward preference, weight 4.0), so the robot keeps its front toward the direction of travel instead of strafing. Why: the lidar is partly covered at the back and on the right, so it sees best ahead.

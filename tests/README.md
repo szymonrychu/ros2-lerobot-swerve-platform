@@ -1934,3 +1934,19 @@ Static derivation of MPPI `model_delay_*` from the swerve steering kinematics (`
 | `test_keys_sit_in_the_mppi_namespace_only` | The three keys are in `controller_server.FollowPath`, not at the controller_server level. |
 
 `test_nav_stack_config.py::test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` and `test_overview_camera_config.py::test_colcon_package_build_keeps_the_limits_and_stamp_logic` now expect the `MAKEFLAGS` expression above.
+
+## test_mppi_cpu_compare.py
+
+`scripts/mppi_cpu_compare.py` against a mocked httpx transport (no network).
+
+| Test | Description |
+|---|---|
+| `test_pass_when_after_equals_before` | Equal windows PASS with the expected mean and p95. |
+| `test_fail_on_relative_limit` | +20 % and +0.02 core FAILs. |
+| `test_pass_on_abs_slack_when_rel_exceeded` / `test_pass_on_rel_slack_when_abs_exceeded` | The limit is the larger of the relative and the absolute allowance. |
+| `test_fail_on_abs_limit` | Above both allowances FAILs. |
+| `test_fail_when_only_p95_regresses` | Mean inside its limit but p95 outside FAILs. |
+| `test_auto_switch_time_uses_container_start_time` / `test_auto_switch_time_without_series_is_an_error` / `test_numeric_switch_time_skips_the_start_time_query` | `auto` takes `container_start_time_seconds`; an epoch needs no query. |
+| `test_window_bounds_exclude_the_settle_period` / `test_settle_period_samples_are_never_requested` | The after window starts `settle_min` after the switch and no query touches the settle period. |
+| `test_empty_series_is_an_error_not_a_pass` | An empty before or after series raises `NoDataError`. |
+| `test_default_config_loads_with_the_documented_values` / `test_config_validation_rejects_bad_values` | The YAML defaults, and negative limits, zero window, bad switch_time are rejected. |
