@@ -5,7 +5,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
-from claude_agent.api import create_app
+from claude_agent.api import create_app, deny_tools_problem
 from claude_agent.config import TURN_MARGIN, ClaudeAgentConfig
 from claude_agent.events import EventLog
 
@@ -334,3 +334,8 @@ def test_retry_outcomes_limit_bounds_422(setup, limit) -> None:
     client, runner, _ = setup
     assert client.get(f"/api/retry_outcomes?limit={limit}").status_code == 422
     assert runner.ledger.limits == []
+
+
+def test_deny_tools_accepts_tool_subsystem_entries() -> None:
+    assert deny_tools_problem(["take_control:base", "drive"], ["drive", "look_around"]) is None
+    assert deny_tools_problem(["take_control:wheels"], ["drive"]) is not None

@@ -554,7 +554,7 @@ The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this
 
 ### Arm-only evaluation mode
 
-`POST /api/message` accepts an optional `deny_tools` list (for example `["navigate_to_pose", "move_relative", "drive"]`)
+`POST /api/message` accepts an optional `deny_tools` list (for example `["navigate_to_pose", "move_relative", "drive", "look_around", "take_control:base"]`; the `take_control:base` entry refuses only `take_control(subsystem="base")`, so without a base lease mcp_server refuses every base motion, including base steps inside `enqueue_motions`)
 that the permission gate refuses for that one instruction: the call is denied through the normal `tool_denied` path with
 the reason `<tool> is disabled for this instruction (evaluation arm-only mode)` and is not counted against the phase
 budget. The list is cleared at every instruction start, so it never carries over, and the `user_message` event records

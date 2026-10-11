@@ -14,6 +14,7 @@ from . import metrics as metrics  # noqa: PLC0414  (registers the node info and 
 from .config import ClaudeAgentConfig
 from .events import RESET_MARKER, EventLog
 from .retry_ledger import RetryLedger
+from .tools import SUBSYSTEM_DENY_ENTRIES
 
 HISTORY_DEFAULT_LIMIT = 100
 HISTORY_MAX_LIMIT = 500
@@ -41,7 +42,8 @@ def deny_tools_problem(deny_tools: Any, effector_tools: list[str]) -> str | None
 
     Args:
         deny_tools (Any): The request value (None when absent).
-        effector_tools (list[str]): Tool names that may be listed (config.effector_tools).
+        effector_tools (list[str]): Tool names that may be listed (config.effector_tools); the
+            '<tool>:<subsystem>' entries in SUBSYSTEM_DENY_ENTRIES are accepted as well.
 
     Returns:
         str | None: A message naming the problem or the bad entry, or None when valid.
@@ -51,8 +53,8 @@ def deny_tools_problem(deny_tools: Any, effector_tools: list[str]) -> str | None
     if not isinstance(deny_tools, list):
         return "deny_tools must be a list of tool names"
     for entry in deny_tools:
-        if not isinstance(entry, str) or entry not in effector_tools:
-            return f"deny_tools entry {entry!r} is not an effector tool"
+        if not isinstance(entry, str) or (entry not in effector_tools and entry not in SUBSYSTEM_DENY_ENTRIES):
+            return f"deny_tools entry {entry!r} is not an effector tool or one of {sorted(SUBSYSTEM_DENY_ENTRIES)}"
     return None
 
 

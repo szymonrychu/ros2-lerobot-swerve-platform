@@ -46,7 +46,7 @@ class RunConfig(BaseModel):
     base_url: str
     testset: str = "scripts/eval/testset_v1.yaml"
     mode: Mode = "arm_only"
-    arm_only_deny_tools: list[str] = Field(default_factory=lambda: ["navigate_to_pose", "move_relative", "drive"])
+    arm_only_deny_tools: list[str] = Field(default_factory=lambda: ["navigate_to_pose", "move_relative", "drive", "look_around", "take_control:base"])
     k: int = Field(default=3, ge=1)
     stop_on_success: bool = True
     reset_between_trials: bool = True

@@ -612,3 +612,14 @@ async def test_instruction_denied_tools_cannot_unlock_config_denied_tools() -> N
     result = await gate.can_use_tool("mcp__robot__arm_set_home", {}, ctx())
     assert isinstance(result, PermissionResultDeny)
     assert "evaluation arm-only mode" not in result.message
+
+
+async def test_instruction_denied_subsystem_entry_refuses_take_control_base_only() -> None:
+    """Arm-only mode blocks the base by mechanism: no base lease means every base step is refused by mcp_server."""
+    gate = gate_with_plan(rw=5)
+    gate.set_instruction_denied(["take_control:base"])
+    base = await gate.can_use_tool("mcp__robot__take_control", {"subsystem": "base"}, ctx())
+    assert isinstance(base, PermissionResultDeny)
+    assert base.message == "take_control(subsystem='base') is disabled for this instruction (evaluation arm-only mode)"
+    arm = await gate.can_use_tool("mcp__robot__take_control", {"subsystem": "arm"}, ctx())
+    assert isinstance(arm, PermissionResultAllow)

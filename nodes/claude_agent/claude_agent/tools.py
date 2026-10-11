@@ -33,6 +33,9 @@ TIME_BUDGET_MESSAGE = (
 )
 # Effector tools that only let go of an object: never refused by the time left, the plan or the caps (still counted).
 INSTRUCTION_DENIED_MESSAGE = "{name} is disabled for this instruction (evaluation arm-only mode)"
+# Per-instruction deny entries that refuse a tool only for one subsystem argument. "take_control:base" keeps the
+# base lease out of reach, so mcp_server refuses every base motion (drive, look_around, base queue steps) by mechanism.
+SUBSYSTEM_DENY_ENTRIES = {"take_control:base"}
 TIME_EXEMPT_EFFECTORS = ("release_object",)
 # set_gripper counts as opening (allowed) from this open_fraction up, unless close_until_effort is set.
 SAFE_OPEN_FRACTION = 0.5
@@ -351,6 +354,10 @@ class EffectorGate:
             return PermissionResultAllow()
         if kind == KIND_EFFECTOR and name in self.instruction_denied:
             return self.deny(context.tool_use_id, name, INSTRUCTION_DENIED_MESSAGE.format(name=name))
+        subsystem = tool_input.get("subsystem")
+        if f"{name}:{subsystem}" in self.instruction_denied:
+            label = f"{name}(subsystem={subsystem!r})"
+            return self.deny(context.tool_use_id, name, INSTRUCTION_DENIED_MESSAGE.format(name=label))
         denial = self.time_budget_denial(name, tool_input) if kind == KIND_EFFECTOR else None
         if denial is None and kind in (KIND_SENSOR, KIND_EFFECTOR):
             denial = self.plan.charge(kind)
