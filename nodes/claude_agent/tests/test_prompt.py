@@ -482,3 +482,167 @@ def test_prompt_has_the_tilt_guard_section() -> None:
         "never try to work around",
     ):
         assert needle in section, needle
+
+
+def assert_phrases(lower: str, phrases: tuple[str, ...]) -> None:
+    for phrase in phrases:
+        assert phrase in lower, phrase
+
+
+def test_prompt_teaches_control_leases() -> None:
+    lower = prompt_lower()
+    assert_phrases(
+        lower,
+        (
+            "take_control(subsystem 'arm' or 'base')",
+            "before any arm or base motion",
+            "release_control(subsystem, keep_position=false)",
+            "arm homed",
+            "base steering neutral",
+            "get_control_state",
+            "head tool (future) works under either lease",
+            "arm_set_home is denied to you",
+        ),
+    )
+    assert "acquire_control" not in lower
+    assert "use arm_set_home" not in lower
+
+
+def test_prompt_replaces_the_old_release_rule_with_the_end_of_job_rule() -> None:
+    lower = prompt_lower()
+    assert "when you are done with the arm so the leader arm and web ui work again" not in lower
+    assert_phrases(
+        lower,
+        (
+            "end of the job",
+            "release_control(subsystem='all')",
+            "arm is parked",
+            "leases are released",
+            "plan is finished",
+            "job end refused",
+            "after 2 refusals",
+            "force-parks",
+        ),
+    )
+
+
+def test_prompt_teaches_the_dynamic_footprint_and_carrying() -> None:
+    lower = prompt_lower()
+    assert_phrases(
+        lower,
+        (
+            "release_control(subsystem='arm', keep_position=true, carried_object_radius_m=<radius of the held object",
+            "0 to 0.3",
+            "arm shadow",
+            "carried circle",
+            "taking arm control back reverts to the static footprint",
+            "refused while you carry an object",
+            "put it down first with release_object",
+            "cannot park with an object in the gripper",
+        ),
+    )
+
+
+def test_prompt_teaches_the_plan_tree() -> None:
+    lower = prompt_lower()
+    assert_phrases(
+        lower,
+        (
+            "plan tree",
+            "'seq'",
+            "'if'",
+            "'while'",
+            "'phase'",
+            "max_iterations",
+            "max_attempts",
+            "pickloop",
+            "outcome_of",
+            "{ask:",
+            "answer_condition(node_id, value, evidence)",
+            "while an ask is pending",
+            "effector tools are refused",
+        ),
+    )
+    assert "agent.answer_condition" in build_system_prompt(ClaudeAgentConfig())
+
+
+def test_prompt_teaches_retry_estimates() -> None:
+    lower = prompt_lower()
+    assert_phrases(
+        lower,
+        (
+            "p_retry_success",
+            "0 to 1",
+            "honest estimate",
+            "retry_change",
+            "automatic retry",
+            "threshold",
+            "attempts remain",
+            "automatic retry n/m - apply: ...",
+        ),
+    )
+
+
+def test_prompt_asks_for_more_pois() -> None:
+    lower = prompt_lower()
+    assert_phrases(
+        lower,
+        (
+            "mark more pois",
+            "objects and areas of interest",
+            "scratchpad for future assignments",
+            "critical obstacles",
+            "area poi",
+            "with a note",
+        ),
+    )
+
+
+def test_prompt_verifies_every_pick_up_with_sensors() -> None:
+    lower = prompt_lower()
+    assert_phrases(
+        lower,
+        (
+            "verify every pick-up",
+            "gripper camera",
+            "holding_load",
+            "slipping",
+            "jaw position",
+            "get_arm_state",
+            "before complete_phase done",
+            "close it as failed with a p_retry_success estimate",
+            "'unverified' outcome means look and decide",
+        ),
+    )
+
+
+def test_prompt_teaches_lookups() -> None:
+    lower = prompt_lower()
+    assert_phrases(
+        lower,
+        (
+            "before re-searching an area or object",
+            "list_lookups",
+            "near",
+            "poi_id",
+            "text",
+            "since",
+            "get_lookup_image",
+            "annotate_lookup",
+            "lookup_id",
+        ),
+    )
+
+
+def test_prompt_teaches_bump_and_lift_interrupts() -> None:
+    lower = prompt_lower()
+    assert_phrases(
+        lower,
+        (
+            "warning bump interrupts you after the tools in flight finish",
+            "lifted",
+            "carried",
+            "critical interrupts",
+            "stop and report",
+        ),
+    )
