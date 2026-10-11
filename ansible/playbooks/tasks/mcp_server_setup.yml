@@ -1,6 +1,7 @@
 ---
 # mcp_server prerequisites, run before its deploy: the bearer token EnvironmentFile, the arm home pose directory, the
-# camera calibration sample directory (capture_calibration_sample writes <camera>.json there) and the object memory directory.
+# camera calibration sample directory (capture_calibration_sample writes <camera>.json there), the object memory directory
+# and the camera lookup store (/var/lib/ros2/poi/lookups, next to poi_store's poi.json; web_ui reads it as the same user).
 # The token is generated once on the robot and never overwritten (force: false); it never enters git.
 # Group mcp-token (read-only) lets other services, e.g. claude_agent, use it. Fetch it on the dev machine with scripts/robot_mcp_token.sh.
 - name: Ensure mcp_server config directory exists
@@ -63,4 +64,18 @@
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
     mode: "0755"
+  tags: [setup]
+
+# The parent is poi_store's directory (poi_store_dir.yml makes it too, but runs after mcp_server's deploy): created here
+# first so the lookups directory never gets a root-owned parent.
+- name: Ensure camera lookup store directory exists (owned by the node user)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+  loop:
+    - /var/lib/ros2/poi
+    - /var/lib/ros2/poi/lookups
   tags: [setup]

@@ -177,6 +177,9 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "get_motion_status",
         "cancel_motions",
         "wait_for_event",
+        "list_lookups",
+        "get_lookup_image",
+        "annotate_lookup",
     }
     for t in tools:
         assert t.description and len(t.description) > 60, t.name

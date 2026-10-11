@@ -1464,6 +1464,14 @@ ros2_nodes:
       poi:
         request_timeout_s: 3.0
         near_radius_m: 5.0
+      # Camera lookups (nodes/mcp_server/README.md, "Camera lookups"): every get_camera_image /
+      # get_annotated_camera_image JPEG the agent received, as <id>.jpg + index.jsonl next to poi_store's poi.json
+      # (directory made by mcp_server_setup.yml). Pruned oldest first on every write to all three limits.
+      lookups:
+        store_dir: /var/lib/ros2/poi/lookups
+        max_records: 3000
+        max_bytes: 300000000
+        max_age_days: 14
       # Below-surface slow zone of every arm motion (nodes/mcp_server/README.md, "Floor slow zone"): trajectory steps
       # where a jaw tip, the wrist or the elbow is within margin_m of the effective surface (the higher of the robot
       # plane at surface_z_m and the IMU gravity-level plane through base_link) run at slow_speed_scale of their speed.
@@ -1713,6 +1721,9 @@ ros2_nodes:
         - add_poi
         - update_poi
         - delete_poi
+        - list_lookups
+        - get_lookup_image
+        - annotate_lookup
 
 # ---- monitoring (roles/monitoring_agent + roles/web_proxy; ./scripts/deploy-nodes.sh client monitoring) ---------------
 # `host` label of every series and log stream this host sends to the server's Mimir and Loki.

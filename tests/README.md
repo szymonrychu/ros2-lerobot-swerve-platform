@@ -624,6 +624,21 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - camera calibration (`test_camera_calib.py`): sample store JSON round trip, counts per camera, clear, parent frame change
   refused, non-finite / unwritable / corrupt files, the solver recovers a known mount from synthetic samples, minimum sample
   count, YAML snippet shape
+- camera lookup store (`test_lookup_store.py`, tmp_path store with a fake clock): one JPEG + one `index.jsonl` line
+  per add with the full `LookupRecord`, optional context fields null, prune oldest first by count / bytes / age (the
+  record just written is never pruned), corrupt and blank index lines skipped, a missing store reads empty,
+  `annotate` rewrites only its own line (corrupt lines kept, omitted fields kept, unknown id raises), queries newest
+  first with default limit 10 and limit capped at 20, the filter matrix (camera, mcp_session, poi_id, case-insensitive
+  text, near with pose-less records never matching, combined filters) and the inclusive since / until window. The
+  package `conftest.py` points the default store directory at each test's tmp dir so no test writes to /var/lib
+- camera lookup tools (`test_lookup_tools.py`): the three tools are registered, always allowed and not motion tools;
+  retention defaults; `get_camera_image` writes exactly one record whose JPEG is byte-identical to the returned image
+  (pose, arm joints, session) and returns its `lookup_id`; a failed camera call writes nothing; the MCP session id
+  reaches the record and the `mcp_session` filter; an unwritable store does not fail the camera tool (`lookup_id`
+  null, `mcp_lookup_write_failures_total` + 1); a failing pose read still records; `get_annotated_camera_image`
+  records the annotated JPEG with `camera_pose_base`; `list_lookups` newest first, metadata only, limit and its cap,
+  near / camera / poi_id / text / time filters; `get_lookup_image` returns the image and metadata, downscales with
+  `max_px`, unknown id errors; `annotate_lookup` rewrites the line and errors on an unknown id
 - camera tools (`test_camera_tools.py`): the seven tools and descriptions, documented not-calibrated errors,
   `pixel_to_ground` (front/gripper, arm offset, missing map pose, stale joints, sky), annotated images (all overlays,
   notes for overlays that cannot be drawn, validation), candidate points (table vs projection, sky skipped, region, last
@@ -1146,6 +1161,8 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_perception_config_sections` | mcp_server config carries `objects` (`/var/lib/ros2/objects/objects.json`, merge radius 0.25 m), `footprint` 0.47 x 0.386 m, `look_around` defaults (4 captures, positive clearance margin), `topdown` defaults and `poi.request_timeout_s` 3 s. |
 | `test_mcp_server_readme_documents_perception_tools` | `nodes/mcp_server/README.md` documents get_topdown_view, the object memory tools, look_around, the POI tools, the objects file, the robot-up convention, `layers_missing` and the `MOTION_TOOLS` classification. |
 | `test_mcp_server_setup_tasks_create_objects_dir_owned_by_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/objects` owned by `ansible_user`. |
+| `test_mcp_server_setup_tasks_create_lookups_dir_owned_by_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/poi` and then `/var/lib/ros2/poi/lookups` (camera lookup store), both directories owned by `ansible_user`, mode `0755`. |
+| `test_mcp_server_config_renders_lookup_retention` | The client.yml mcp_server config renders `lookups:` with `store_dir: /var/lib/ros2/poi/lookups` and the retention limits (3000 records, 300 MB, 14 days). |
 | `test_mcp_server_setup_tasks_create_token_and_arm_dir` | `tasks/mcp_server_setup.yml` creates `/etc/ros2/mcp_server`, the token (`MCP_SERVER_TOKEN=` + 48-char password lookup, `force: false`, 0640, owner `ansible_user`, group `mcp-token`, `no_log`) and `/var/lib/ros2/arm` owned by the node user. |
 | `test_playbooks_run_setup_before_deploying_mcp_server` | `deploy_nodes_client.yml` deploys mcp_server and includes the setup tasks before it. |
 | `test_unit_template_renders_environment_file_only_when_set` | The native unit template renders `EnvironmentFile=` (before `ExecStart=`) only when `node_environment_file` is non-empty. |
@@ -1188,6 +1205,7 @@ layout; no ROS needed).
 | `test_effector_and_denied_tools_match_mcp_server_motion_tools` | `effector_tools` plus `denied_tools` (`[arm_set_home]`, no overlap) in the claude_agent config equal mcp_server `MOTION_TOOLS` exactly (parsed from tools.py with `ast`), so the effector cap, the gate deny list and the battery gate cover the same tools. Strict: `look_around` must be in `MOTION_TOOLS`. |
 | `test_control_lease_tools_classified_in_group_vars_and_defaults` | `take_control` / `release_control` are uncapped (`acquire_control` is gone), `get_control_state` a sensor and `arm_set_home` denied, in both the client.yml config and the code defaults. |
 | `test_round2_tools_classified_in_group_vars_and_defaults` | `look_around` is an effector and `get_body_state` plus the round-2 sensor tools (pixel_to_ground, annotated image, candidates, calibration, topdown view, objects, POIs) are sensors, in both the client.yml config and the code defaults. |
+| `test_lookup_tools_are_sensor_tools_in_group_vars_and_defaults` | The camera lookup tools (`list_lookups`, `get_lookup_image`, `annotate_lookup`) exist in mcp_server and are sensor tools (never effector or uncapped) in both the client.yml config and the code defaults. |
 | `test_motion_queue_tools_classified_in_group_vars_and_defaults` | The motion queue tools are classified in both the client.yml config and the code defaults: `enqueue_motions` is an effector, `cancel_motions` uncapped (like `stop`), `get_motion_status` and `wait_for_event` are sensors. |
 | `test_service_template_user_groups_and_nice_are_optional` | Unit template: `User=` defaults to `ansible_user`; `node_user`, `SupplementaryGroups=` and `Nice=` only when set. |
 | `test_resolve_and_deploy_passes_user_groups_and_nice` | `resolve_and_deploy.yml` hands `user`, `supplementary_groups` and `nice` of the node type to the role. |

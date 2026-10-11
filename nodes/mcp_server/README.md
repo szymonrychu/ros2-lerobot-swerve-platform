@@ -21,7 +21,10 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | Tool | What it does |
 |---|---|
 | `get_robot_state` | map -> base_link pose (TF), odometry twist, latest Nav2 goal status, collision monitor action (if published), arm joints/efforts, gripper effort, filter_node active source, lease state, data age per source. Stale data is omitted and listed in `notes`. |
-| `get_camera_image(camera, max_px<=1024)` | Default size `limits.default_camera_px` (384 px on the longest side; ask for more only to read detail, images fill the context: 640x480 is about 400 tokens). Waits for the next frame on a persistent per-camera subscription (created at startup, never destroyed: per-call subscriptions raced the executor and killed it), with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.front_camera` (default `/overview_camera/image_raw/compressed`, 640x480 overhead Camera Module 3 looking down at the front of the robot, the arm and the floor in front; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + metadata: capture stamp, the picture's `width` x `height`, `calibrated_image` (the size the pixel tools work in, 640x480 here), `scale_to_calibrated` and a `pixel_note` saying to pass `image_width` / `image_height` with pixels read from this picture; error if no frame within `image_timeout_s` or the frame is older than 1 s. |
+| `get_camera_image(camera, max_px<=1024)` | Default size `limits.default_camera_px` (384 px on the longest side; ask for more only to read detail, images fill the context: 640x480 is about 400 tokens). Waits for the next frame on a persistent per-camera subscription (created at startup, never destroyed: per-call subscriptions raced the executor and killed it), with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.front_camera` (default `/overview_camera/image_raw/compressed`, 640x480 overhead Camera Module 3 looking down at the front of the robot, the arm and the floor in front; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + metadata: capture stamp, the picture's `width` x `height`, `calibrated_image` (the size the pixel tools work in, 640x480 here), `scale_to_calibrated` and a `pixel_note` saying to pass `image_width` / `image_height` with pixels read from this picture, and `lookup_id` (the picture as recorded in the lookup store, null when the write failed; see [Camera lookups](#camera-lookups)); error if no frame within `image_timeout_s` or the frame is older than 1 s. |
+| `list_lookups(since, until, near{x,y,radius_m}, poi_id, text, camera, mcp_session, limit<=20)` | Past camera images, metadata only, newest first (default 10). Sensor. See [Camera lookups](#camera-lookups). |
+| `get_lookup_image(lookup_id, max_px)` | One recorded image (JPEG, exactly as the model received it; `max_px` only downscales) plus its metadata. Sensor. |
+| `annotate_lookup(lookup_id, note, poi_ids)` | Set a lookup's note and/or POI links (replacing them; omitted fields stay); rewrites its index line. Sensor. |
 | `get_body_state` | Body vitals (sensor, always allowed): per-servo latest temperature / load / current / voltage / status flags with data age, hottest servo, battery V, per-cell V, margin to cut-off and cut-off state, IMU roll/pitch/tilt and last bump, wheel slip residual, commanded vs measured base speed, CPU temperature and firmware throttling flag, active source + lease, last 10 events. Missing data is `null` with a reason in `notes`. |
 | `get_map_summary(include_png, radius_m)` | Nearest `/scan_filtered` obstacle in 8 sectors around base_link, `/map` size and known/occupied/free cells, robot pose, optional small PNG of the map around the robot. |
 | `navigate_to_pose(x, y, yaw, frame='map', timeout_s, precise=false)` | Nav2 `NavigateToPose`; by default the goal ends early (cancelled, base zeroed, status `succeeded`) as soon as the measured pose is within `nav.intermediate_xy_tolerance_m` / `nav.intermediate_yaw_tolerance_deg` (3 cm / 5 deg); `precise=true` waits for Nav2's own checker (`nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg`, 1 cm / 2 deg, slower). Blocks until result/timeout (goal cancelled on timeout or stop); returns result and final pose. The description states the goal precision from `nav.goal_xy_tolerance_m` / `nav.goal_yaw_tolerance_deg` (default 1 cm / 2 deg, keep equal to the Nav2 goal checker) and that a sideways goal first turns the robot toward the path (front leading) and turns back to the goal heading at the end. |
@@ -343,6 +346,35 @@ the given fields; `delete_poi(id)`. Each call waits up to `poi.request_timeout_s
 same `request_id`; the tool errors when poi_store is not running (no subscriber on `/poi/command`), does not answer
 or rejects the change.
 
+## Camera lookups
+
+Every successful `get_camera_image` and `get_annotated_camera_image` call is recorded automatically
+(`lookup_store.py`, `lookup_tools.py`): the exact JPEG the model received (the annotated image for the annotated tool)
+goes to `<lookups.store_dir>/<id>.jpg` and one JSON line (`LookupRecord`) is appended to `index.jsonl` in the same
+directory (default `/var/lib/ros2/poi/lookups`, next to poi_store's `poi.json`, created by Ansible; poi_store itself
+never reads it). The camera tool's metadata gains `lookup_id`, so the agent can link the picture to a POI right away.
+
+| Field | Meaning |
+|---|---|
+| `id`, `ts`, `tool` | uuid hex, unix time of the record, `get_camera_image` / `get_annotated_camera_image` |
+| `camera`, `width`, `height`, `file`, `bytes` | camera, image size (px), JPEG file name relative to the store, JPEG size |
+| `base_pose_map` | `{x, y, yaw}` in map at capture, null when the pose is unknown |
+| `arm_joints` | measured arm joints (rad), null when stale |
+| `camera_pose_base` | `{xyz, rpy}` of the camera body in base_link (fixed-axis rpy), when the camera has a mount (the gripper camera also needs `arm.base_in_base_link` and fresh joints); null otherwise |
+| `mcp_session` | Mcp-Session-Id of the call (a contextvar set in `RobotMCPServer.call_tool_with_digest`; empty without one). mcp_server cannot see claude_agent's instruction id: time range plus session stand in for it |
+| `note`, `poi_ids` | empty until `annotate_lookup` sets them |
+
+Retention is enforced on every write, oldest first, until all three limits hold: `lookups.max_records` (3000),
+`lookups.max_bytes` (300 MB of JPEG) and `lookups.max_age_days` (14). The record just written is never pruned. A
+session reset does not clear lookups (history is the point). Index lines that do not parse are logged and skipped;
+`annotate_lookup` rewrites only its own line (atomic temp file + rename). A write failure (full disk, missing
+directory, permissions) is logged on `mcp_server.lookups` and counted in `mcp_lookup_write_failures_total`; it never
+fails the camera tool, whose `lookup_id` is then null.
+
+`list_lookups` filters combine with AND: `since` / `until` (unix s, inclusive), `near` (map distance of
+`base_pose_map`; records without a pose never match), `poi_id` (member of `poi_ids`), `text` (case-insensitive
+substring of `note`), `camera`, `mcp_session`; `limit` 1-20 (default 10).
+
 ## Tilt guard
 
 swerve_drive_controller owns the tilt guard (roll/pitch from the IMU relative to the level reference, persistence and
@@ -388,7 +420,7 @@ partition every tool):
 | Class | Tools |
 |---|---|
 | `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` |
-| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `plan_grasp`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi` |
+| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `plan_grasp`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi`, `list_lookups`, `get_lookup_image`, `annotate_lookup` |
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
 
@@ -1303,6 +1335,7 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
 | `tool_context.py`, `body_tools.py` | no | `ToolContext` / `RobotApi`; the `get_body_state` module |
 | `camera_tools.py` | no | the camera tool module (registered in `tools.TOOL_MODULES`) |
+| `lookup_store.py`, `lookup_tools.py` | no | camera lookup store (JPEG + `index.jsonl`, retention, queries); the recorder hook of the camera tools and the `list_lookups` / `get_lookup_image` / `annotate_lookup` module |
 | `camera_scene.py`, `camera_overlay.py`, `camera_candidates.py`, `camera_calib.py` | no | calibrated scene and frames, overlay drawing and candidate grids, candidate sets, sample store and solver wiring |
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |
 | `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services |
@@ -1336,6 +1369,7 @@ expose it on the LAN. The MCP path and the admin route stay behind the token. `r
 | `mcp_self_collision_min_clearance_m` | smallest arm-to-body clearance of the last executed arm motion (m) |
 | `mcp_robot_events_total{severity}` | `RobotMonitor.emit` (debounced repeats are not counted) |
 | `mcp_sample_age_seconds{feed}` | age of the latest cached sample per ROS feed (`RosRobot.latest` keys, via `staleness.sample_ages`), read at scrape time; a feed without a sample has no series |
+| `mcp_lookup_writes_total{tool}`, `mcp_lookup_write_failures_total` | `LookupRecorder.record` (`lookup_tools.py`): camera images recorded in the lookup store, and the ones it failed to record (the camera tool still answered) |
 | `mcp_nav_goals_total{result}`, `mcp_nav_goal_duration_seconds` | `nav_result` in `base_motion.py`, so every Nav2 goal that was sent (`succeeded`, `canceled`, `timeout`, `interrupted`, `rejected`, ...); errors before a goal exists (Nav2 not available) raise and are not counted |
 
 ### Grasp result mapping
@@ -1475,6 +1509,11 @@ motion_queue: {max_steps: 32, event_history: 200, status_events: 10, wait_events
                wait_max_s: 120, poll_s: 0.05, base_still_linear_mps: 0.02, base_still_angular_rps: 0.05,
                holding_min_effort: 100.0, holding_min_gap_rad: 0.05}
 poi: {request_timeout_s: 3.0, near_radius_m: 5.0}
+lookups:                  # camera lookup store (see Camera lookups); pruned oldest first on every write
+  store_dir: /var/lib/ros2/poi/lookups
+  max_records: 3000
+  max_bytes: 300000000    # total JPEG bytes (300 MB)
+  max_age_days: 14
 control:                  # control leases: release_control base reset (see Control leases)
   steer_joint_names: [fl_steer, fr_steer, rl_steer, rr_steer]
   steer_neutral_tolerance_rad: 0.05

@@ -37,6 +37,8 @@ TOKEN_FILE = "/etc/ros2/mcp_server/token"
 ARM_DIR = "/var/lib/ros2/arm"
 OBJECTS_DIR = "/var/lib/ros2/objects"
 OBJECTS_FILE = "/var/lib/ros2/objects/objects.json"
+POI_DIR = "/var/lib/ros2/poi"
+LOOKUPS_DIR = "/var/lib/ros2/poi/lookups"
 PERCEPTION_TOOLS = (
     "get_topdown_view",
     "remember_object",
@@ -186,6 +188,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "look_around",
         "motion_queue",
         "poi",
+        "lookups",
         "cameras",
         "floor_guard",
         "body",
@@ -441,6 +444,35 @@ def test_mcp_server_setup_tasks_create_objects_dir_owned_by_node_user() -> None:
     objects = dirs[OBJECTS_DIR]
     assert objects["state"] == "directory"
     assert objects["owner"] == "{{ ansible_user }}" and objects["group"] == "{{ ansible_user }}"
+
+
+def test_mcp_server_setup_tasks_create_lookups_dir_owned_by_node_user() -> None:
+    """The camera lookup store and its parent (poi_store's directory) exist before mcp_server starts, owned by the
+    node user (mcp_server writes, web_ui reads as the same user)."""
+    tasks = yaml.safe_load(SETUP_TASKS.read_text())
+    dirs: dict[str, dict] = {}
+    for task in tasks:
+        args = task.get("ansible.builtin.file")
+        if args is not None:
+            for path in task.get("loop", [args["path"]]):
+                dirs[path] = args
+    for path in (POI_DIR, LOOKUPS_DIR):
+        args = dirs[path]
+        assert args["state"] == "directory"
+        assert args["owner"] == "{{ ansible_user }}" and args["group"] == "{{ ansible_user }}"
+        assert args["mode"] == "0755"
+    assert list(dirs).index(POI_DIR) < list(dirs).index(LOOKUPS_DIR)
+
+
+def test_mcp_server_config_renders_lookup_retention() -> None:
+    """client.yml renders the lookup store directory and the three retention limits."""
+    lookups = node_config("mcp_server")["lookups"]
+    assert lookups == {
+        "store_dir": LOOKUPS_DIR,
+        "max_records": 3000,
+        "max_bytes": 300_000_000,
+        "max_age_days": 14,
+    }
 
 
 def test_mcp_server_setup_tasks_create_token_and_arm_dir() -> None:

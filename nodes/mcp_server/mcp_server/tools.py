@@ -23,7 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import body_tools, camera_tools, grasp_tools, motion_tools, perception_tools
+from . import body_tools, camera_tools, grasp_tools, lookup_tools, motion_tools, perception_tools
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
 from .camera_scene import camera_setup, pixel_scale
@@ -91,6 +91,7 @@ TOOL_NAMES = (
     *perception_tools.TOOL_NAMES,
     *grasp_tools.TOOL_NAMES,
     *motion_tools.TOOL_NAMES,
+    *lookup_tools.TOOL_NAMES,
 )
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
 # MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
@@ -131,6 +132,7 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         "get_motion_status",
         "cancel_motions",
         "wait_for_event",
+        *lookup_tools.TOOL_NAMES,
     }
 )
 # Blocking motion tools refused while the motion queue runs (the queue's worker is the single motion owner then).
@@ -140,7 +142,7 @@ QUEUE_EXCLUSIVE_TOOLS = MOTION_TOOLS - {"enqueue_motions", "arm_set_home"}
 # before the battery and tilt gates. enqueue_motions is checked per step kind inside the tool (arm_joints /
 # arm_cartesian / gripper / grasp need arm, the Nav2 steps in motion_queue.BASE_KINDS need base). Every other tool
 # (stop, cancel_motions, wait_for_event, get_motion_status, take/release/get_control_state, plan_grasp, camera,
-# perception, POI, arm_set_home) needs none. A future head tool takes "any": either lease satisfies it, so a
+# perception, POI, lookup, arm_set_home) needs none. A future head tool takes "any": either lease satisfies it, so a
 # base-to-arm hand-over needs no head reset.
 TOOL_SUBSYSTEM: dict[str, LeaseNeed] = {
     "move_arm_joints": "arm",
@@ -386,9 +388,11 @@ class RobotMCPServer(MCPServer):
             blocks = exclusive or name in PARKING_TOOLS
             if blocks:
                 self.blocking[name] = self.blocking.get(name, 0) + 1
+            session = lookup_tools.CURRENT_SESSION.set(session_key(context))
             try:
                 result = await super().call_tool(name, arguments, context)
             finally:
+                lookup_tools.CURRENT_SESSION.reset(session)
                 if blocks:
                     self.blocking[name] -= 1
         except UnexpectedToolError:
@@ -483,7 +487,14 @@ def register_tools(
         server.motion_queue = queue
         server.control = control
     ctx = ToolContext(
-        server=server, robot=robot, config=config, guard=guard, monitor=monitor, queue=queue, control=control
+        server=server,
+        robot=robot,
+        config=config,
+        guard=guard,
+        monitor=monitor,
+        queue=queue,
+        control=control,
+        lookups=lookup_tools.make_recorder(robot, config),
     )
     for module in (*TOOL_MODULES, *extra_modules):
         module(ctx)
@@ -633,6 +644,9 @@ def register_core_tools(ctx: ToolContext) -> None:
             size = config.limits.default_camera_px if max_px is None else max_px
             frame = robot.camera_image(camera, min(size, config.limits.max_image_px))
         meta = frame.model_dump(mode="json") | camera_image_scale(config, camera, frame.width, frame.height)
+        meta["lookup_id"] = lookup_tools.record_lookup(
+            ctx, "get_camera_image", camera, frame.jpeg, frame.width, frame.height
+        )
         return [image_content(frame.jpeg, "image/jpeg"), TextContent(type="text", text=json.dumps(meta))]
 
     @tool(structured_output=False)
@@ -972,6 +986,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     perception_tools.register,
     grasp_tools.register,
     motion_tools.register,
+    lookup_tools.register,
 )
 
 

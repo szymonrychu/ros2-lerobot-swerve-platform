@@ -48,6 +48,7 @@ from .camera_scene import (
     pixel_scale,
 )
 from .config import HARD_MAX_IMAGE_PX
+from .lookup_tools import record_lookup
 from .models import BasePose, RobotError
 from .tool_context import ToolContext
 
@@ -375,7 +376,11 @@ def register(ctx: ToolContext) -> None:
                 image={"width": scene.intr.width, "height": scene.intr.height},
                 notes=notes,
             )
-            return image_result(encode(img), meta)
+            jpeg = encode(img)
+            meta["lookup_id"] = record_lookup(
+                ctx, "get_annotated_camera_image", camera, jpeg, scene.intr.width, scene.intr.height
+            )
+            return image_result(jpeg, meta)
 
     @server.tool(
         structured_output=False,

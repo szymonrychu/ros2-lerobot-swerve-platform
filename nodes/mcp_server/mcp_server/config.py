@@ -24,6 +24,7 @@ DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the gripper camera is mounted on
 FRONT_CAMERA_PARENT = "base_link"
 DEFAULT_OBJECTS_FILE = Path("/var/lib/ros2/objects/objects.json")
+DEFAULT_LOOKUPS_DIR = Path("/var/lib/ros2/poi/lookups")  # camera lookups, next to poi_store's poi.json
 MIN_TOKEN_LENGTH = 24
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 # Hard caps no config may exceed (match the Nav2 velocity smoother and the swerve controller).
@@ -732,6 +733,17 @@ class PoiSettings(StrictModel):
     near_radius_m: float = Field(default=5.0, gt=0.0)  # list_pois(near=True) keeps POIs within this distance
 
 
+class LookupSettings(StrictModel):
+    """Camera lookup store (lookup_store.py): every get_camera_image / get_annotated_camera_image JPEG the agent
+    received, kept for list_lookups / get_lookup_image / annotate_lookup. Pruned oldest first on every write."""
+
+    # Read at validation time (not import time) so tests can point the default at a temporary directory.
+    store_dir: Path = Field(default_factory=lambda: DEFAULT_LOOKUPS_DIR)
+    max_records: int = Field(default=3000, ge=1)
+    max_bytes: int = Field(default=300_000_000, ge=1)  # total JPEG bytes (300 MB)
+    max_age_days: float = Field(default=14.0, gt=0.0)
+
+
 class ImuLevelReference(StrictModel):
     """IMU roll/pitch (deg) read while the robot stands level on the floor its height (arm_base_height_m) was fitted on.
 
@@ -1150,6 +1162,7 @@ class McpServerConfig(StrictModel):
     motion_queue: MotionQueueSettings = MotionQueueSettings()
     control: ControlSettings = ControlSettings()
     poi: PoiSettings = PoiSettings()
+    lookups: LookupSettings = Field(default_factory=LookupSettings)
     floor_guard: FloorGuardSettings = FloorGuardSettings()
     body: BodySettings = BodySettings()
     body_check: BodyCheckSettings = BodyCheckSettings()

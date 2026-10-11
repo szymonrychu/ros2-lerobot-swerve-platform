@@ -256,6 +256,25 @@ def test_round2_tools_classified_in_group_vars_and_defaults() -> None:
         assert not ROUND2_SENSOR_TOOLS & set(effectors)
 
 
+LOOKUP_TOOLS = {"list_lookups", "get_lookup_image", "annotate_lookup"}
+
+
+def test_lookup_tools_are_sensor_tools_in_group_vars_and_defaults() -> None:
+    """The camera lookup tools are read-only: sensor tools (never capped) in client.yml and the code defaults."""
+    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
+    pytest.importorskip("pydantic")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    assert LOOKUP_TOOLS <= mcp_tool_names()
+    for effectors, uncapped, sensors in (
+        (raw["effector_tools"], raw["uncapped_tools"], raw["sensor_tools"]),
+        (module.DEFAULT_EFFECTOR_TOOLS, module.DEFAULT_UNCAPPED_TOOLS, module.DEFAULT_SENSOR_TOOLS),
+    ):
+        assert LOOKUP_TOOLS <= set(sensors)
+        assert not LOOKUP_TOOLS & (set(effectors) | set(uncapped))
+
+
 def test_service_template_user_groups_and_nice_are_optional() -> None:
     jinja2 = pytest.importorskip("jinja2")
     template = jinja2.Template(SERVICE_TEMPLATE.read_text())

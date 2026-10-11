@@ -51,6 +51,9 @@ DEFAULT_SENSOR_TOOLS = [
     "add_poi",
     "update_poi",
     "delete_poi",
+    "list_lookups",
+    "get_lookup_image",
+    "annotate_lookup",
 ]
 # Approximate maximum horizontal reach of the SO-101 from the shoulder_lift axis, in cm: the straight-line sum of the link
 # offsets in nodes/web_ui/urdf/so101_arm.urdf (shoulder_lift -> elbow_flex 11.6 + elbow_flex -> wrist_flex 13.5 +

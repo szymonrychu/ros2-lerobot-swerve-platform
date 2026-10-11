@@ -1,5 +1,6 @@
 """Battery cut-off gate: motion/effector tools are refused in cut-off, stop and read-only tools keep working."""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,9 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_motion_status": {},
     "cancel_motions": {},
     "wait_for_event": {"timeout_s": 0.1},
+    "list_lookups": {},
+    "get_lookup_image": {"lookup_id": "0" * 32},
+    "annotate_lookup": {"lookup_id": "0" * 32, "note": "n"},
 }
 
 
@@ -118,6 +122,9 @@ def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> N
     args = dict(ALLOWED_ARGS[name])
     if name == "forget_object":
         args["id"] = call(server, "remember_object", ALLOWED_ARGS["remember_object"]).structured_content["id"]
+    if name in ("get_lookup_image", "annotate_lookup"):  # a real lookup, recorded by a camera call in cut-off
+        taken = call(server, "get_camera_image", {"camera": "front"})
+        args["lookup_id"] = json.loads(next(c.text for c in taken.content if c.type == "text"))["lookup_id"]
     try:
         call(server, name, args)
     except ToolError as exc:  # uncalibrated cameras fail on their own terms, never on the battery

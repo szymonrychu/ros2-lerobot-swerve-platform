@@ -16,8 +16,9 @@ from .models import BasePose, CameraFrame, MapSummary, NavigationResult, RobotSt
 from .monitor import BaseUse, RobotMonitor
 from .topdown import TopdownInputs
 
-if TYPE_CHECKING:  # control imports motion_queue, which imports this module
+if TYPE_CHECKING:  # control imports motion_queue, which imports this module; lookup_tools imports this module
     from .control import ControlManager
+    from .lookup_tools import LookupRecorder
 
 LOGGER = logging.getLogger("mcp_server.tools")
 # Tilt guard classification of the base motion tools: automatic navigation (Nav2 goals, autonomous turns) is refused
@@ -140,6 +141,7 @@ class ToolContext:
     monitor: RobotMonitor
     queue: MotionOwner | None = None
     control: "ControlManager | None" = None
+    lookups: "LookupRecorder | None" = None  # camera lookup recorder (lookup_tools.record_lookup)
 
     def lease_gate(self, tool_name: str, kinds: list[str]) -> None:
         """Refuse an enqueue whose steps need a control lease that is not held, before the robot is touched.

@@ -79,6 +79,11 @@ NAV_GOALS = Counter("mcp_nav_goals_total", "Navigation goals by final result sta
 NAV_DURATION = Histogram(
     "mcp_nav_goal_duration_seconds", "Navigation goal duration (goal start to finish)", buckets=NAV_BUCKETS
 )
+LOOKUP_WRITES = Counter("mcp_lookup_writes_total", "Camera images recorded in the lookup store", ["tool"])
+LOOKUP_WRITE_FAILURES = Counter(
+    "mcp_lookup_write_failures_total",
+    "Camera images the lookup store failed to record (the camera tool still answered)",
+)
 
 SampleAges = Callable[[], Mapping[str, float]]
 
