@@ -2,7 +2,6 @@
 
 import importlib
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -141,19 +140,14 @@ def test_missing_photo_directory_publishes_nothing(node_module: ModuleType, tmp_
     assert "photo" in node.logger.error.call_args.args[0]
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root reads any file")
 def test_unreadable_photo_index_publishes_nothing(node_module: ModuleType, tmp_path: Path) -> None:
     photo_dir = tmp_path / "photos"
     photo_dir.mkdir()
-    index = photo_dir / "index.jsonl"
-    index.write_text("")
-    index.chmod(0)
-    try:
-        node = run(node_module, make_config(tmp_path))
-    finally:
-        index.chmod(0o644)
+    (photo_dir / "index.jsonl").mkdir()  # reading a directory fails for every user, root included
+    node = run(node_module, make_config(tmp_path))
     assert node.publishers["/poi/photos"].sent == []
     node.logger.error.assert_called()
+    assert "cannot be read" in node.logger.error.call_args.args[0]
 
 
 def test_photo_add_republishes_summary_not_list(node_module: ModuleType, tmp_path: Path) -> None:
