@@ -1054,6 +1054,49 @@ only asked when it is up), so a stop is never delayed by it. `reset_base` (the `
 the NavigateToPose and the docking goals this server sent. `dock()` takes the same base motion lock and stop flag as
 `navigate_to_pose` and ends on critical events (`run_dock`).
 
+### Camera target tracker (servoed mode)
+
+`mcp_server/target_tracker.py` (pure: frames, `Scene`s, base poses and the surface height are passed in) is the
+detection source of the servoed grasp approach. Settings: `approach.tracker` (`TrackerSettings`).
+
+- `visible(scene, point_base_link, edge_margin_px)`: the precheck that picks the mode. True only when the base_link
+  point projects into the image (`Scene.project`) at least `edge_margin_px` (20) from every border; False behind the
+  camera, off the image, inside the margin, or when the scene cannot reach base_link (gripper camera without
+  `arm.base_in_base_link`).
+- `dock_pose_from_target(target_map, dock_yaw, t_rel)`: dock pose = target - R(dock_yaw) t_rel, yaw = dock_yaw, frame
+  `map` (`t_rel` = the target in the planned dock frame).
+- `TargetTracker(planned_target, dock_yaw, t_rel, settings)`: seeded with a grayscale `template_px` (48) patch either
+  around the agent's pixel (`seed_from_pixel`, pixel targets; the estimate becomes that pixel's surface point) or, on
+  the first `step` where the projected planned target is in view with room for the patch, around that projection (the
+  seed frame returns no detection: matching a template against its own frame would only echo the plan). Each
+  `step(frame_bgr, stamp, scene, base_pose_at_stamp, surface_z)` predicts the target pixel from the estimate, rescales
+  the template by the predicted distance ratio (seed camera distance / current), runs `cv2.matchTemplate`
+  TM_CCOEFF_NORMED in a `search_px` (96, grown with the template) window with a sub-pixel peak, accepts a score >=
+  `min_score` (0.6), cuts the pixel's ray with the surface plane (`Scene.ground_point`), takes it to the map with the
+  base pose at the capture stamp, and rejects it when it is farther than `max_correction_m` (0.10) from the planned
+  target. Counters: `frames`, `accepted`, `rejected` (jumps), `low_score`. The `Detection` carries the dock pose, the
+  capture stamp unchanged, the target, the pixel and the score.
+- `DetectionLoop(tracker, source, publish, rate_hz)`: a thread that pulls the newest `TrackerInput` from `source` at
+  `rate_hz` (5, at least twice the docking plugin's `external_detection_timeout` rate), skips frames whose stamp is not
+  newer than the last one, and calls `publish` (`publish_detection`) only for accepted detections. `stop()` (or leaving
+  the `with` block) sets the stop event and joins the thread; source, tracking and publish errors are logged and
+  counted in `errors` without ending the loop.
+
+No accepted match means nothing is published for that frame, and a stored target position is never re-stamped as a
+detection: when detections stop, the docking plugin times out (FAILED_TO_DETECT_DOCK, 904) and stops the base.
+
+Limits today:
+
+- The front camera is not calibrated (no intrinsics and mount in the client config), so it cannot see a target in the
+  tracker's sense; the gripper camera is calibrated but, with the arm parked, often does not see the target from the
+  staging and dock poses. Until a camera sees the target, approaches run in blind mode (`navigate_to_pose(precise)`)
+  and the servoed loop stays unexercised on the robot; the tool's `mode` / `mode_reason` say which mode ran and why.
+- The template is rescaled isotropically by distance only: perspective foreshortening from a changing view angle and
+  in-plane rotation of the base are not compensated, so large heading changes or steep view-angle changes during the
+  approach lower the score (frames below `min_score` publish nothing).
+- The target must lie on a flat surface of known height (`surface_z`) and carry visible texture (a featureless patch is
+  not seeded); repeated textures can produce a confident wrong match, which `max_correction_m` bounds.
+
 ## Unmeasured efforts
 
 feetech_servos publishes a NaN effort for a joint without an effort reading (a non-effort joint, a missing load).
