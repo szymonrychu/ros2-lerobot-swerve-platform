@@ -159,11 +159,13 @@ class LimitSettings(StrictModel):
     # Per-joint margins replacing arm_limit_margin_rad. The gripper may close to the measured physical stop
     # (-0.172 rad, URDF lower limit -0.1745).
     arm_limit_margin_overrides: dict[str, float] = Field(default_factory=lambda: {"gripper": 0.005})
-    # Tracking-error abort (jam / collision detector): a moving joint lagging its setpoint by more than
-    # arm_tracking_error_rad + arm_tracking_lag_s * velocity (rad/s of the motion) aborts the motion. Servos lag more at
-    # speed (2026-10-08: 0.35-0.37 rad at 0.8-1.0 rad/s on free moves).
+    # Tracking-error abort (jam / collision detector): a moving joint farther than arm_tracking_error_rad +
+    # arm_tracking_lag_s * velocity (rad/s of the motion) from the setpoint band of the last arm_tracking_delay_s aborts
+    # the motion. The delay window already carries the servo lag (2026-10-08: 0.35-0.37 rad at 0.8-1.0 rad/s were the
+    # lag against the newest setpoint), so the speed term is 0: a jam at vmax 1 rad/s aborts with the newest setpoint
+    # about 0.6 rad ahead (0.25 + 0.35 s * 1 rad/s), not 0.85 as with both terms stacked.
     arm_tracking_error_rad: float = Field(default=0.25, gt=0.0)
-    arm_tracking_lag_s: float = Field(default=0.25, ge=0.0)
+    arm_tracking_lag_s: float = Field(default=0.0, ge=0.0)
     # Command-to-motion delay of the follower chain (s): the tracking abort compares each joint against the setpoints
     # commanded within this window (by publish time), so a joint following its setpoint this much later is no jam.
     # Clean servo lag 0.20-0.24 s measured 2026-10-11 with P=16 (fit of the follower lines against the actual setpoint
@@ -553,6 +555,10 @@ class MonitorSettings(StrictModel):
     # /tilt_guard/state arrives at 1 Hz; older than this it is stale (the last level stays enforced, and the IMU
     # fallback tilt warning above runs again).
     tilt_guard_stale_s: float = Field(default=3.0, gt=0.0)
+    # Nav2 goal cancel at a tilt warning/error entry: tries (tilt_cancel_retry_s apart) before the critical
+    # tilt_nav_cancel_failed event.
+    tilt_cancel_attempts: int = Field(default=3, ge=1, le=10)
+    tilt_cancel_retry_s: float = Field(default=1.0, ge=0.0, le=10.0)
     debounce_default_s: float = Field(default=30.0, ge=0.0)  # min time between repeats of one (type, source) event
     debounce_s: dict[str, float] = Field(
         default_factory=lambda: {"bump": 2.0, "collision_stop": 1.5, "stall": 1.5, "human_takeover": 5.0}
@@ -818,8 +824,10 @@ class ImuLevelReference(StrictModel):
     height already absorbs it). Re-capture it whenever the floor height is recalibrated.
     """
 
-    roll_deg: float = Field(default=0.0, ge=-10.0, le=10.0)
-    pitch_deg: float = Field(default=0.0, ge=-10.0, le=10.0)
+    # Defaults = the measured BNO055 mounting bias (2026-10-11), equal to swerve_drive_controller's tilt guard
+    # DEFAULT_LEVEL_REFERENCE_*_DEG (parity test), so both nodes agree even without the Ansible values.
+    roll_deg: float = Field(default=0.7, ge=-10.0, le=10.0)
+    pitch_deg: float = Field(default=1.3, ge=-10.0, le=10.0)
 
 
 class FloorGuardSettings(StrictModel):
@@ -1005,6 +1013,9 @@ class GripProfile(StrictModel):
     contact_effort_threshold: float = Field(gt=0.0)  # |load| counted as contact while closing
     # A holding |load| above this reports crush_risk (the object is squeezed too hard for this profile); None = never.
     crush_load: float | None = Field(default=None, gt=0.0)
+    # Opt in to the hold re-tighten (grip_profiles.retighten_load_below): a relaxed hold steps once to squeeze_max_rad
+    # past the contact. Off for gentle: its 0.01 rad squeeze would grow 8x on a light rigid object reading ~0 load.
+    retighten: bool = False
 
 
 def default_grip_presets() -> dict[str, GripProfile]:
@@ -1031,6 +1042,7 @@ def default_grip_presets() -> dict[str, GripProfile]:
             target_load=80.0,
             contact_effort_threshold=120.0,
             crush_load=200.0,
+            retighten=False,
         ),
         "normal": GripProfile(
             squeeze_rad=0.03,
@@ -1039,6 +1051,7 @@ def default_grip_presets() -> dict[str, GripProfile]:
             target_load=200.0,
             contact_effort_threshold=300.0,
             crush_load=450.0,
+            retighten=True,
         ),
         "firm": GripProfile(
             squeeze_rad=0.05,
@@ -1047,6 +1060,7 @@ def default_grip_presets() -> dict[str, GripProfile]:
             target_load=300.0,
             contact_effort_threshold=350.0,
             crush_load=600.0,
+            retighten=True,
         ),
         "soft": GripProfile(
             squeeze_rad=0.08,
@@ -1055,6 +1069,7 @@ def default_grip_presets() -> dict[str, GripProfile]:
             target_load=150.0,
             contact_effort_threshold=250.0,
             crush_load=550.0,
+            retighten=True,
         ),
     }
 
@@ -1077,9 +1092,10 @@ class GripProfileSettings(StrictModel):
     # when the jaw closed more than slip_threshold_rad between the two samples.
     hold_check_delay_s: float = Field(default=0.25, ge=0.0, le=2.0)
     slip_threshold_rad: float = Field(default=0.01, gt=0.0, le=0.2)
-    # Hold re-tighten (any profile): when the hold check's closing-direction holding load is below this and the jaw is
-    # still outside the empty band, the hold steps once toward closed to squeeze_max_rad past the contact (never past
-    # closed, torque limit unchanged) and the hold is measured again; None = never re-tighten.
+    # Hold re-tighten (profiles with retighten: true): when the hold check's closing-direction holding load is below
+    # this and the jaw is still outside the empty band, the hold steps once toward closed to squeeze_max_rad past the
+    # contact (never past closed, torque limit unchanged) and the hold is measured again; a re-tightened hold that then
+    # shows crush_risk goes back to the hold before it. None = never re-tighten.
     retighten_load_below: float | None = Field(default=30.0, gt=0.0)
     # An 'unverified' empty-band hold (grasp_object) keeps its profile's torque limit while the agent looks at the image;
     # after this long (s) the default preset's torque limit is restored so the servo does not heat; None = never.
@@ -1121,6 +1137,7 @@ class GripProfileOverride(StrictModel):
     target_load: float | None = Field(default=None, gt=0.0)
     contact_effort_threshold: float | None = Field(default=None, gt=0.0)
     crush_load: float | None = Field(default=None, gt=0.0)
+    retighten: bool | None = None
 
 
 class GraspAutoEntry(StrictModel):

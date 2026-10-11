@@ -223,6 +223,11 @@ class ArmMotionResult(BaseModel):
         "soft object relaxed under the hold) and the hold was stepped once further toward closed, within the "
         "squeeze cap; holding_load / slipping are then measured after it; null when nothing was grasped",
     )
+    retighten_reverted: bool | None = Field(
+        default=None,
+        description="True when the hold measured after the re-tighten showed crush_risk and the hold went back to "
+        "the squeeze before it (crush_risk then reports that measurement); null without a re-tighten",
+    )
     torque_limit_readback: str | None = Field(
         default=None,
         description="Gripper Torque_Limit write check from the bridge's register dump: 'verified', 'mismatch ...' or "

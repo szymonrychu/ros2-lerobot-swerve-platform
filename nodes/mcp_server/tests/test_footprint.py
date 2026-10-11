@@ -284,7 +284,7 @@ def test_parked_release_publishes_the_static_footprint(tmp_path: Path) -> None:
     robot.arm.set_home()
     ctl = manager(robot)
     ctl.take("arm")
-    move_arm(robot, {"elbow_flex": 0.4})
+    robot.arm.move_joints({"elbow_flex": 0.4})  # commanded (a teleported follower would be a tracking fault)
     result = ctl.release("arm", keep_position=False)
     assert result.reset == {"arm": "homed"}
     assert result.state.footprint is not None and result.state.footprint.kind == "static"

@@ -1,5 +1,6 @@
 """Tests for mcp_server.config (pydantic YAML config, env lookup, bearer token)."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -209,7 +210,9 @@ def test_nav_goal_tolerance_defaults_and_validation() -> None:
 def test_settle_tolerance_defaults_between_converge_tolerance_and_tracking_abort() -> None:
     lim = McpServerConfig().limits
     assert lim.arm_settle_tolerance_rad == pytest.approx(0.08)
-    assert lim.arm_tracking_error_rad == pytest.approx(0.25) and lim.arm_tracking_lag_s == pytest.approx(0.25)
+    assert (
+        lim.arm_tracking_error_rad == pytest.approx(0.25) and lim.arm_tracking_lag_s == 0.0
+    )  # the delay carries the lag
     assert lim.arm_tracking_delay_s == pytest.approx(0.35)
     assert lim.arm_converge_tolerance_rad < lim.arm_settle_tolerance_rad < lim.arm_tracking_error_rad
 
@@ -333,8 +336,22 @@ def test_nav_intermediate_tolerances_are_looser_than_the_precise_ones() -> None:
         McpServerConfig(nav={"intermediate_yaw_tolerance_deg": 1.0})
 
 
-def test_imu_level_reference_defaults_to_zero_and_the_deployed_config_carries_the_mounting_bias() -> None:
-    assert McpServerConfig().floor_guard.imu_level_reference.model_dump() == {"roll_deg": 0.0, "pitch_deg": 0.0}
+def swerve_level_reference_defaults() -> tuple[float, float]:
+    """Code defaults of the swerve tilt guard level reference (read from its source: another node's venv)."""
+    source = (REPO_ROOT / "nodes" / "swerve_drive_controller" / "swerve_drive_controller" / "tilt_guard.py").read_text()
+    roll = re.search(r"^DEFAULT_LEVEL_REFERENCE_ROLL_DEG = ([-0-9.]+)$", source, re.MULTILINE)
+    pitch = re.search(r"^DEFAULT_LEVEL_REFERENCE_PITCH_DEG = ([-0-9.]+)$", source, re.MULTILINE)
+    assert roll is not None and pitch is not None
+    return float(roll.group(1)), float(pitch.group(1))
+
+
+def test_imu_level_reference_code_default_matches_the_swerve_tilt_guard() -> None:
+    """Both nodes subtract the same BNO055 mounting bias; equal code defaults keep them equal without Ansible too."""
+    reference = McpServerConfig().floor_guard.imu_level_reference
+    assert (reference.roll_deg, reference.pitch_deg) == swerve_level_reference_defaults()
+
+
+def test_imu_level_reference_is_validated_and_the_deployed_config_carries_the_mounting_bias() -> None:
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"floor_guard": {"imu_level_reference": {"yaw_deg": 1.0}}})
     nodes = yaml.safe_load((REPO_ROOT / "ansible" / "group_vars" / "client.yml").read_text())["ros2_nodes"]

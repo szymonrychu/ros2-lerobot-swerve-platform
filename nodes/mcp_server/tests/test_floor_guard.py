@@ -36,6 +36,8 @@ NOW = 50.0
 
 
 def guard(**settings: object) -> FloorGuard:
+    """FloorGuard on the test mount; without an imu_level_reference the raw IMU tilt is used (reference 0, 0)."""
+    settings.setdefault("imu_level_reference", {"roll_deg": 0.0, "pitch_deg": 0.0})
     return FloorGuard(
         KIN,
         FloorGuardSettings(**settings),
@@ -293,7 +295,7 @@ def test_imu_tilt_is_taken_relative_to_the_level_reference() -> None:
     sloped = TiltSample(tilt=Tilt(roll_rad=math.radians(0.72), pitch_rad=math.radians(4.21)), stamp=NOW)
     lift = g.surface(None, sloped, NOW).tilt_lift(0.3, 0.0)
     assert lift == pytest.approx(0.3 * math.tan(math.radians(3.0)), rel=1e-3)
-    # Without a reference (default 0, 0) the raw IMU tilt is used as before.
+    # With a zero reference the raw IMU tilt is used as before.
     assert guard().surface(None, biased, NOW).tilt_lift(0.3, 0.0) > 0.005
 
 

@@ -374,7 +374,7 @@ class RosRobot:
 
         self.events_pub = self.node.create_publisher(String, t.robot_events, EVENT_QOS)
         self.monitor.set_sink(self.publish_event)
-        self.monitor.set_nav_canceller(self.cancel_goals_async)
+        self.monitor.set_nav_canceller(self.cancel_all_goals)  # run off the callback thread, retried
 
         self.cmd_pub = self.node.create_publisher(JointState, t.autonomy_command, COMMAND_QOS)
         self.release_pub = self.node.create_publisher(Bool, t.autonomy_release, COMMAND_QOS)
@@ -1497,22 +1497,6 @@ class RosRobot:
         request = CancelGoal.Request()
         request.goal_info = GoalInfo()
         return wait_future(self.cancel_client.call_async(request), CANCEL_WAIT_S)
-
-    def cancel_goals_async(self) -> bool:
-        """Cancel every NavigateToPose goal from a worker thread (the tilt guard callback must not block the executor).
-
-        Returns:
-            bool: True (the cancel was started; its outcome is logged).
-        """
-
-        def run() -> None:
-            if self.cancel_all_goals():
-                self.log.warning("tilt guard: every Nav2 goal cancelled")
-            else:
-                self.log.error("tilt guard: Nav2 cancel service did not answer; goals may still be active")
-
-        threading.Thread(target=run, name="tilt-guard-nav-cancel", daemon=True).start()
-        return True
 
     def stop(self) -> StopResult:
         """Cancel navigation and zero the base always; hold the arm only if this server controls it.

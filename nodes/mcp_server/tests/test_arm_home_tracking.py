@@ -99,3 +99,28 @@ def test_tracking_limit_grows_with_the_speed() -> None:
 
 def test_joints_constant_is_complete() -> None:
     assert set(START) == set(HOME) == set(JOINTS)
+
+
+def test_stuck_joint_at_full_speed_aborts_within_the_delay_lead(tmp_path: Path) -> None:
+    """A jammed joint aborts once the setpoint of arm_tracking_delay_s ago is arm_tracking_error_rad past it: the
+    delay carries the servo lag, so no extra lag * vmax term widens the band (newest setpoint lead <= error + delay *
+    vmax plus one tick)."""
+    lim = CONFIG.limits
+    assert lim.arm_tracking_lag_s == 0.0
+    arm, be = make(tmp_path)
+    arm.acquire()
+    be.follow = False
+    res = arm.home()
+    assert res.status == "aborted_tracking", res.message
+    lead = max(abs(c["shoulder_lift"] - START["shoulder_lift"]) for c in be.commands)
+    vmax = lim.arm_max_joint_velocity_rps
+    tick = vmax / lim.arm_rate_hz
+    assert lead <= lim.arm_tracking_error_rad + lim.arm_tracking_delay_s * vmax + 2 * tick + 0.02
+
+
+def test_follower_lagging_0_4_s_still_converges(tmp_path: Path) -> None:
+    """A follower 0.4 s behind (just past the 0.35 s delay window, e.g. a register-dump hiccup) is no jam."""
+    arm, be = make(tmp_path)
+    DelayedFollower(be, {}, 0.4)
+    res = arm.home()
+    assert res.status == "converged", res.message

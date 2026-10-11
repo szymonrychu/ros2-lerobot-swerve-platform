@@ -471,3 +471,45 @@ def test_empty_band_close_reports_no_retighten(tmp_path: Path) -> None:
     res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="normal")
     assert res.status == "closed_no_contact", res.message
     assert res.retightened is None and res.holding_load is None
+
+
+def test_gentle_hold_is_never_retightened(tmp_path: Path) -> None:
+    """A gentle hold (squeeze 0.01) on a light rigid object reads ~0 load: re-tightening would push it to 8x."""
+    be = relaxing(0.29, 100.0, 0.0)
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="gentle")
+    assert res.status == "grasped", res.message
+    assert res.retightened is False
+    assert min(c["gripper"] for c in be.commands) >= 0.29 - GENTLE.squeeze_rad - 1e-9  # never past its squeeze
+    assert CONFIG.grip_profiles.presets["gentle"].retighten is False
+    assert all(CONFIG.grip_profiles.presets[name].retighten for name in ("normal", "firm", "soft"))
+
+
+def test_inline_override_can_opt_out_of_the_retighten(tmp_path: Path) -> None:
+    be = relaxing(0.29, 150.0, 0.0)
+    res = make_default(tmp_path, be).set_gripper(
+        close_until_effort=True, grip_profile={"base": "normal", "retighten": False}
+    )
+    assert res.retightened is False
+
+
+def test_a_retighten_that_crushes_is_reverted_to_the_previous_hold(tmp_path: Path) -> None:
+    normal = CONFIG.grip_profiles.presets["normal"]
+    be = FakeArmBackend()
+    be.positions["gripper"] = 0.531
+    checks: list[int] = []
+
+    def step(b: FakeArmBackend) -> None:
+        if b.last_sleep == HOLD_DELAY:
+            checks.append(1)
+            b.efforts["gripper"] = 0.0 if len(checks) <= 2 else 500.0  # relaxed, then crushing after the re-tighten
+            b.positions["gripper"] = max(b.positions["gripper"], 0.29)
+        elif b.positions["gripper"] <= 0.29 + 1e-9:
+            b.positions["gripper"] = 0.29
+            b.efforts["gripper"] = 150.0
+
+    be.on_sleep = step
+    res = make_default(tmp_path, be).set_gripper(close_until_effort=True, grip_profile="normal")
+    assert res.status == "grasped", res.message
+    assert res.retightened is True and res.retighten_reverted is True
+    assert res.crush_risk is True  # reported: the hold measured after the re-tighten
+    assert be.commands[-1]["gripper"] == pytest.approx(0.29 - normal.squeeze_rad)  # back to the previous hold

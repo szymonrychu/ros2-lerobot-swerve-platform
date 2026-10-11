@@ -21,6 +21,7 @@ def test_default_presets_gentle_normal_firm_soft() -> None:
         "target_load": 80.0,
         "contact_effort_threshold": 120.0,
         "crush_load": 200.0,
+        "retighten": False,
     }
     # normal = the behaviour before grip profiles (0.03 rad squeeze, 0.5 rad/s close, 300 contact load) plus a
     # closing-load stop at 200.
@@ -31,6 +32,7 @@ def test_default_presets_gentle_normal_firm_soft() -> None:
         "target_load": 200.0,
         "contact_effort_threshold": 300.0,
         "crush_load": 450.0,
+        "retighten": True,
     }
     assert firm.model_dump() == {
         "squeeze_rad": 0.05,
@@ -39,6 +41,7 @@ def test_default_presets_gentle_normal_firm_soft() -> None:
         "target_load": 300.0,
         "contact_effort_threshold": 350.0,
         "crush_load": 600.0,
+        "retighten": True,
     }
     assert gentle.torque_limit < normal.torque_limit < firm.torque_limit
     assert gentle.squeeze_rad < normal.squeeze_rad < firm.squeeze_rad

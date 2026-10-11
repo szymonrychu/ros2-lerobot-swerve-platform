@@ -1298,8 +1298,15 @@ class ArmController:
                 update: dict[str, object] = {"grip_profile": grip.report()}
                 if result.status == "grasped" and closing.positions is not None:
                     report = self.hold_report(grip)
-                    retightened = self.retighten_hold(closing.positions[self.gripper], report)
-                    update |= (self.hold_report(grip) if retightened else report) | {"retightened": retightened}
+                    previous = self.retighten_hold(closing.positions[self.gripper], report, grip)
+                    update |= {"retightened": previous is not None}
+                    if previous is None:
+                        update |= report
+                    else:
+                        after = self.hold_report(grip)
+                        update |= after | {"retighten_reverted": bool(after.get("crush_risk"))}
+                        if after.get("crush_risk"):
+                            self.revert_retighten(previous)
                 update["torque_limit_readback"] = self.torque_limit_readback()
                 result = result.model_copy(update=update)
             finally:
@@ -1379,7 +1386,18 @@ class ArmController:
             "crush_risk": crush is not None and abs(load) > crush,
         }
 
-    def retighten_hold(self, contact_jaw: float, report: dict[str, object]) -> bool:
+    def revert_retighten(self, previous: float) -> None:
+        """Put the gripper hold back where it was before a re-tighten that showed crush_risk (caller holds the guard).
+
+        Args:
+            previous (float): Gripper hold target before the re-tighten (rad).
+        """
+        with self._lock:
+            intent = dict(self._last_target) if self._last_target is not None else None
+        if intent is not None and self.command(intent | {self.gripper: previous}):
+            LOGGER.info("re-tightened gripper hold showed crush risk: back to %.3f rad", previous)
+
+    def retighten_hold(self, contact_jaw: float, report: dict[str, object], grip: ResolvedGrip) -> float | None:
         """Step a relaxed grasp hold once further toward closed (caller holds the motion guard).
 
         A soft object (plush, foam) compresses under the hold and the jaw loses its force: the hold check reads a
@@ -1388,34 +1406,36 @@ class ArmController:
         the gripper hold moves to squeeze_max_rad past the contact position toward closed (never past closed), the
         arm joints staying at their intended targets. Bounded by the caps: the total squeeze from the contact never
         exceeds squeeze_max_rad and the torque limit is not changed, so the servo stalls on the compressed object at
-        the profile's torque limit. Nothing happens when the hold is already at that allowance.
+        the profile's torque limit. Nothing happens when the hold is already at that allowance, or for a profile
+        without retighten (gentle).
 
         Args:
             contact_jaw (float): Measured jaw position where the close stopped on the object (rad).
             report (dict[str, object]): hold_report of the hold (holding_load, None without fresh joint states).
+            grip (ResolvedGrip): Profile of the close (retighten opt-in).
 
         Returns:
-            bool: True when the hold was re-tightened.
+            float | None: The gripper hold target before the re-tighten when it was re-tightened, else None.
         """
         cfg = self.cfg.grip_profiles
         load = report.get("holding_load")
-        if cfg.retighten_load_below is None or not isinstance(load, float | int):
-            return False
+        if not grip.profile.retighten or cfg.retighten_load_below is None or not isinstance(load, float | int):
+            return None
         if cfg.closing_load_sign * load >= cfg.retighten_load_below:
-            return False
+            return None
         sample = self.fresh_sample()
         if sample is None or self.empty_jaw_message(sample.positions[self.gripper]) is not None:
-            return False
+            return None
         with self._lock:
             intent = dict(self._last_target) if self._last_target is not None else None
         if intent is None or self.gripper not in intent:
-            return False
+            return None
         toward_closed = self.cfg.arm.gripper_closed_rad - contact_jaw
         target = contact_jaw + math.copysign(min(cfg.squeeze_max_rad, abs(toward_closed)), toward_closed)
         if (target - intent[self.gripper]) * math.copysign(1.0, toward_closed) <= RETIGHTEN_MIN_STEP_RAD:
-            return False
+            return None
         if not self.command(intent | {self.gripper: target}):
-            return False
+            return None
         LOGGER.info(
             "gripper hold relaxed (holding load %g): re-tightened from %.3f to %.3f rad (contact %.3f rad)",
             load,
@@ -1423,7 +1443,7 @@ class ArmController:
             target,
             contact_jaw,
         )
-        return True
+        return intent[self.gripper]
 
     @contextmanager
     def holding_arm_for_gripper(self, moving: list[str]) -> Iterator[None]:

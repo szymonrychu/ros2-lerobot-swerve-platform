@@ -58,6 +58,8 @@ def make(settings: MonitorSettings | None = None) -> tuple[RobotMonitor, Clock, 
         wall=clock.wall,
         cpu_temp_reader=lambda: 50.0,
         throttled_reader=lambda: None,
+        spawn=lambda fn: fn(),  # run the Nav2 cancel (and its retries) inline
+        sleep=lambda seconds: None,
     )
     seen: list[RobotEvent] = []
     cancels: list[int] = []
@@ -184,7 +186,7 @@ def test_canceller_failure_does_not_break_detection() -> None:
 
     mon.set_nav_canceller(broken)
     mon.on_tilt_guard(state("warning", roll=9.0))
-    assert kinds(seen) == [("tilt_warning", "critical")]
+    assert kinds(seen) == [("tilt_warning", "critical"), ("tilt_nav_cancel_failed", "critical")]
 
 
 # --- monitor: refusals -----------------------------------------------------------------------------------------
@@ -234,6 +236,61 @@ def test_stale_state_keeps_refusing_at_the_last_level() -> None:
     body = mon.body_state()
     assert body.tilt_guard is not None and body.tilt_guard.stale is True
     assert any("tilt guard" in note for note in body.notes)
+
+
+def test_stale_ok_refuses_nav_allows_manual() -> None:
+    mon, clock, _, _ = make()
+    mon.on_tilt_guard(state("ok"))
+    clock.t += MonitorSettings().tilt_guard_stale_s + 1.0
+    reason = mon.tilt_refusal("nav")
+    assert reason is not None and "stale" in reason and "navigation" in reason
+    assert mon.tilt_refusal("manual") is None
+    guard = mon.body_state().tilt_guard
+    assert guard is not None and guard.navigation_allowed is False and guard.manual_drive_allowed is True
+    mon.on_tilt_guard(state("ok"))  # the guard reports again
+    assert mon.tilt_refusal("nav") is None
+
+
+def test_imu_ok_false_at_ok_refuses_nav() -> None:
+    mon, _, _, _ = make()
+    mon.on_tilt_guard(state("ok", imu_ok=False))
+    reason = mon.tilt_refusal("nav")
+    assert reason is not None and "IMU" in reason
+    assert mon.tilt_refusal("manual") is None
+    guard = mon.body_state().tilt_guard
+    assert guard is not None and guard.navigation_allowed is False
+    mon.on_tilt_guard(state("ok", imu_ok=True))
+    assert mon.tilt_refusal("nav") is None
+
+
+def test_missed_nav_cancel_is_retried() -> None:
+    mon, _, seen, _ = make()
+    answers = [False, False, True]
+    calls: list[int] = []
+
+    def flaky() -> bool:
+        calls.append(1)
+        return answers[len(calls) - 1]
+
+    mon.set_nav_canceller(flaky)
+    mon.on_tilt_guard(state("warning", roll=9.0))
+    assert len(calls) == 3
+    assert kinds(seen) == [("tilt_warning", "critical")]
+
+
+def test_nav_cancel_failing_every_attempt_raises_an_event() -> None:
+    mon, _, seen, _ = make()
+    calls: list[int] = []
+
+    def dead() -> bool:
+        calls.append(1)
+        return False
+
+    mon.set_nav_canceller(dead)
+    mon.on_tilt_guard(state("error", roll=16.0))
+    assert len(calls) == MonitorSettings().tilt_cancel_attempts
+    assert kinds(seen) == [("tilt_error", "critical"), ("tilt_nav_cancel_failed", "critical")]
+    assert "Nav2" in seen[-1].message and "stop" in seen[-1].message
 
 
 # --- monitor: IMU fallback tilt warning ------------------------------------------------------------------------

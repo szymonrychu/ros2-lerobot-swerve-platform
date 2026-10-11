@@ -1383,6 +1383,9 @@ ros2_nodes:
         # measured 2026-10-11 with P=16; 0.35 leaves margin. The old 0.65 compensated the 25% tick stretch (fixed sleep
         # per tick, now deadline-scheduled) and the follower register-dump stall.
         arm_tracking_delay_s: 0.35
+        # No extra lag * velocity term on top of the delay window (it double-counted the lag: a jam at 1 rad/s aborted
+        # only 0.85 rad behind the newest setpoint); a jam now aborts about 0.6 rad behind it.
+        arm_tracking_lag_s: 0.0
       # Camera geometry for pixel_to_ground, annotated images and candidate points (nodes/mcp_server/README.md, "Camera
       # tools and calibration"). Both cameras are NOT calibrated until intrinsics and mount are set. intrinsics is
       # {calibration_file: <camera_calibration yaml>} or an approximation {hfov_deg: 66.0, width: 640, height: 480};
@@ -1441,6 +1444,11 @@ ros2_nodes:
         bump_warn_mps2: 4.0
         bump_critical_mps2: 9.0
         tilt_warn_deg: 10
+        # /tilt_guard/state (1 Hz) older than this is stale: its last level stays enforced and, at level ok,
+        # navigation is refused (as with imu_ok false) until the guard reports again; manual drive still works.
+        tilt_guard_stale_s: 3.0
+        tilt_cancel_attempts: 3       # Nav2 goal cancel tries at a tilt warning/error entry, then tilt_nav_cancel_failed
+        tilt_cancel_retry_s: 1.0
         debounce_default_s: 30
       # Robot outer frame (m, centred on base_link): drawn by get_topdown_view, sets look_around's rotation clearance.
       footprint:
@@ -1613,8 +1621,11 @@ ros2_nodes:
         closing_load_sign: 1          # decoded effort sign while closing on an object (gripper not inverted)
         hold_check_delay_s: 0.25      # holding_load / slipping sampled this long after the hold (twice)
         slip_threshold_rad: 0.01      # jaw closing more than this between the samples = slipping
-        retighten_load_below: 30      # any profile: a hold relaxed below this (jaw not in the empty band) steps once
-                                      # to squeeze_max_rad past the contact, never past closed (null = never)
+        retighten_load_below: 30      # retighten profiles: a hold relaxed below this (jaw not in the empty band) steps
+                                      # once to squeeze_max_rad past the contact, never past closed (null = never); a
+                                      # re-tightened hold showing crush_risk goes back to the hold before it
+        unverified_hold_relax_s: 60   # an unverified (empty-band) hold keeps the profile torque this long, then the
+                                      # default torque is restored (servo heating while the agent looks; null = never)
         presets:                      # tuned on the real gripper 2026-10-10 (grip tuning session, mcp_server README)
           gentle:                     # fragile or light objects (a plush still gets squashed: load cannot see it)
             squeeze_rad: 0.01
@@ -1623,6 +1634,7 @@ ros2_nodes:
             target_load: 80           # stop closing once the closing load reaches this
             contact_effort_threshold: 120
             crush_load: 200           # holding load above this reports crush_risk
+            retighten: false          # its 0.01 squeeze would grow 8x on a light rigid object reading ~0 load
           normal:                     # ordinary objects (squeeze, speed and contact load used before profiles)
             squeeze_rad: 0.03
             torque_limit: 500
@@ -1630,6 +1642,7 @@ ros2_nodes:
             target_load: 200
             contact_effort_threshold: 300
             crush_load: 450
+            retighten: true
           firm:                       # heavy or slippery objects, tools (unvalidated on a held object)
             squeeze_rad: 0.05
             torque_limit: 650
@@ -1637,6 +1650,7 @@ ros2_nodes:
             target_load: 300
             contact_effort_threshold: 350
             crush_load: 600
+            retighten: true
           soft:                       # plush, foam, fabric: compresses under the hold (2026-10-11 croc head slipped
                                       # out of a normal hold that relaxed to load 0). Full squeeze cap past the contact;
                                       # torque 600 < cap 800: the hold target is inside the object, so the servo stalls
@@ -1647,6 +1661,7 @@ ros2_nodes:
             target_load: 150
             contact_effort_threshold: 250
             crush_load: 550           # a hold near the torque limit flags crush_risk
+            retighten: true
   - name: poi_store
     node_type: poi_store
     present: true

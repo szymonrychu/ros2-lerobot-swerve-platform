@@ -44,6 +44,10 @@ SURFACES_DESC = (
     "step edge) and arm motions slow near it."
 )
 StrategyChoice = Literal["auto", "scoop", "angled", "top_down"]
+# What an 'unverified' reason tells the agent to do: the grasp_object tool attaches the image (LOOK_ATTACHED); every
+# other path (queued grasp, web UI) carries no image (LOOK_CALL).
+LOOK_CALL = "call get_camera_image 'gripper' and look at it"
+LOOK_ATTACHED = "look at the attached gripper camera image"
 GraspOutcome = Literal["planned", "infeasible", "grasped", "unverified", "missed", "aborted", "released"]
 
 
@@ -82,8 +86,9 @@ class GraspResult(BaseModel):
     outcome: GraspOutcome = Field(
         description="planned (dry run, feasible), infeasible (nothing moved), grasped (holding, lifted and retreated), "
         "unverified (the jaw closed into the empty band: kept closed with the profile squeeze, lifted and retreated; "
-        "the object may be soft and squashed or absent: look at the attached gripper camera image, treat it as held "
-        "if it is in the jaws, else release_object and retry), missed (a contact that failed verification or a "
+        "the object may be soft and squashed or absent: look at the gripper camera image (attached to a grasp_object "
+        "result; otherwise call get_camera_image 'gripper'), treat it as held if it is in the jaws, else "
+        "release_object and retry), missed (a contact that failed verification or a "
         "blocked close: opened and retreated), aborted (stopped and held; see reasons), released"
     )
     reasons: list[str] = Field(default_factory=list, description="Why a plan is infeasible or a run ended early")
@@ -109,6 +114,10 @@ class GraspResult(BaseModel):
         default=None,
         description="The hold relaxed to about 0 load with the jaw short of closed (a soft object) and was stepped "
         "once further toward closed within the squeeze cap; holding_load is measured after it",
+    )
+    retighten_reverted: bool | None = Field(
+        default=None,
+        description="The re-tightened hold showed crush_risk and went back to the squeeze before it",
     )
     residual_error: dict[str, float] = Field(
         default_factory=dict,
@@ -456,6 +465,7 @@ class GraspExecutor:
             slipping=None if close is None else close.slipping,
             crush_risk=None if close is None else close.crush_risk,
             retightened=None if close is None else close.retightened,
+            retighten_reverted=None if close is None else close.retighten_reverted,
             residual_error=residual,
             warnings=warnings,
             held_pose=None if plan is None or reached is None else self.held_pose(plan, reached),
@@ -476,8 +486,8 @@ class GraspExecutor:
         return (
             f"jaw closed{jaw} into the empty band (within gripper_empty_stall_rad {limit:g} rad of closed; close: "
             f"{close.message}): the object may be soft and squashed between the jaws (plush) or absent, the load "
-            "cannot tell. Kept closed and lifted: look at the attached gripper camera image; if the object is in the "
-            "jaws treat it as held, otherwise call release_object (opens and lifts) and retry"
+            f"cannot tell. Kept closed and lifted: {LOOK_CALL}; if the object is in the jaws treat it as held, "
+            "otherwise call release_object (opens and lifts) and retry"
         )
 
     def verify(self, close: ArmMotionResult, params: GraspParams) -> str | None:
@@ -825,11 +835,13 @@ def grip_profile_description(config: McpServerConfig) -> str:
     )
     return (
         f"Grip strength: a preset name ({presets}) or inline overrides {{base?, squeeze_rad?, torque_limit?, "
-        "close_speed_rps?, target_load?, contact_effort_threshold?, crush_load?}. Default "
+        "close_speed_rps?, target_load?, contact_effort_threshold?, crush_load?, retighten?}. Default "
         f"{grip.default_grip_profile!r}. gentle for fragile or light objects; normal for ordinary ones; firm "
         "for heavy, slippery objects and tools; soft for plush, foam or fabric (plush / soft toys: they compress "
-        "under the hold, soft squeezes the full cap past the contact). A hold that relaxes to about 0 load with the "
-        "jaw short of closed is re-tightened once within the caps (retightened: true). Hard caps (enforced whatever you pass): torque_limit <= "
+        "under the hold, soft squeezes the full cap past the contact). With a retighten profile (not gentle), a hold "
+        "that relaxes to about 0 load with the jaw short of closed is re-tightened once within the caps "
+        "(retightened: true; back to the previous hold when it then shows crush_risk: retighten_reverted: true). "
+        "Hard caps (enforced whatever you pass): torque_limit <= "
         f"{grip.torque_limit_max}, squeeze_rad <= {grip.squeeze_max_rad:g}. The default torque limit is restored "
         "after an open, release or abort."
     )
@@ -997,6 +1009,7 @@ def register(ctx: ToolContext) -> None:
             try:
                 frame = robot.camera_image("gripper", min(UNVERIFIED_IMAGE_PX, config.limits.max_image_px))
                 image = ImageContent(type="image", data=base64.b64encode(frame.jpeg).decode(), mime_type="image/jpeg")
+                result.reasons = [r.replace(LOOK_CALL, LOOK_ATTACHED) for r in result.reasons]
             except (RobotError, ValueError) as exc:
                 result.warnings.append(f"no gripper camera image attached: {exc}; call get_camera_image 'gripper'")
         return grasp_tool_result(result, image)

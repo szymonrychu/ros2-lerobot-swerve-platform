@@ -551,3 +551,53 @@ def test_grasp_object_schema_offers_approach_speed_scale(server: Any) -> None:
     tools = {t.name: json.dumps(t.input_schema) + (t.description or "") for t in anyio.run(run)}
     assert "approach_speed_scale" in tools["grasp_object"]
     assert "approach_speed_scale" in tools["plan_grasp"]
+
+
+def test_queue_path_reason_claims_no_image(tmp_path: Path) -> None:
+    """Outside the grasp_object tool (queued grasp, web UI) no image is attached: the reason says how to get one."""
+    arm, be = make(tmp_path)
+    plush_in_jaws(be)
+    result = run_grasp(arm)
+    assert result.outcome == "unverified"
+    text = " ".join(result.reasons)
+    assert "get_camera_image" in text and "'gripper'" in text
+    assert "attached" not in text
+
+
+def test_grasp_object_reason_points_at_the_attached_image(server: Any, robot: FakeRobot) -> None:
+    plush_in_jaws(robot.arm_backend)
+    data = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"}).structured_content
+    assert data["outcome"] == "unverified"
+    text = " ".join(data["reasons"])
+    assert "attached gripper camera image" in text and "get_camera_image" not in text
+
+
+def test_outcome_description_does_not_promise_an_image_everywhere() -> None:
+    text = GraspResult.model_fields["outcome"].description or ""
+    assert "get_camera_image" in text
+
+
+def test_unverified_hold_relaxes_to_the_default_torque_after_the_timeout(tmp_path: Path) -> None:
+    """L7: an unverified hold keeps the soft torque (600) while the agent looks, then relaxes to the default."""
+    arm, be = make(tmp_path)
+    plush_in_jaws(be)
+    params = grasp_params(CONFIG.grasp, None, "soft")
+    result = GraspExecutor(arm, CONFIG).grasp(ObjectSpec(**OBJECT), "top_down", params, None, None, lambda: False)
+    assert result.outcome == "unverified", result.reasons
+    soft = CONFIG.grip_profiles.presets["soft"].torque_limit
+    writes = [v for j, r, v in be.register_writes if r == "torque_limit"]
+    assert writes[-1] == soft
+    relax_s = CONFIG.grip_profiles.unverified_hold_relax_s
+    assert relax_s is not None
+    held_at = arm._unverified_since  # backend time the hold started (lift and retreat ran since)
+    assert held_at is not None
+    be.t = held_at + relax_s - 1.0
+    arm.keepalive_tick()
+    assert [v for j, r, v in be.register_writes if r == "torque_limit"][-1] == soft  # not yet
+    be.t += 2.0
+    arm.keepalive_tick()
+    assert [v for j, r, v in be.register_writes if r == "torque_limit"][-1] == CONFIG.grip_profiles.default.torque_limit
+    assert arm.grasp_held is True  # still holding (only the torque relaxed)
+    count = len(be.register_writes)
+    arm.keepalive_tick()
+    assert len(be.register_writes) == count  # once

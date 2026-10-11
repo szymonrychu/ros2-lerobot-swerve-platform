@@ -630,7 +630,7 @@ def arm_result_data(result: ArmMotionResult) -> dict[str, Any]:
         value = getattr(result, key)
         if value:
             data[key] = value
-    for key in ("grip_profile", "holding_load", "slipping", "crush_risk", "retightened"):
+    for key in ("grip_profile", "holding_load", "slipping", "crush_risk", "retightened", "retighten_reverted"):
         value = getattr(result, key)
         if value is not None:
             data[key] = value
@@ -1201,8 +1201,8 @@ class MotionQueue:
             generation (int): Dispatch generation (a cancel/stop makes stop_requested true).
 
         Returns:
-            Outcome: 'grasped' succeeds (contact event); unverified (holding, needs a look)/missed/aborted/infeasible
-                fail.
+            Outcome: 'grasped' succeeds (contact event); unverified (holding, needs a look: always halts the queue,
+                also with on_fail='skip')/missed/aborted/infeasible fail.
         """
         assert self.grasp_runner is not None  # resolve() refuses grasp steps without a runner
 
@@ -1222,6 +1222,7 @@ class MotionQueue:
             message="; ".join(reasons),
             data={"outcome": outcome, "reasons": reasons},
             contact=outcome == "grasped",
+            halt=outcome == "unverified",
         )
 
     def finish_locked(self, group: list[QueuedStep], generation: int, outcome: "Outcome") -> None:
@@ -1269,7 +1270,7 @@ class MotionQueue:
             head = rest[0] if rest else group[-1]
             if outcome.contact:
                 self.emit_locked("contact", head, outcome.message, {"status": outcome.status})
-            policy_skip = all(q.step.on_fail == "skip" for q in rest)
+            policy_skip = not outcome.halt and all(q.step.on_fail == "skip" for q in rest)
             failed = {"status": outcome.status, **outcome.data}
             if policy_skip:
                 failed[SKIPPED_KEY] = "skip"
@@ -1417,3 +1418,4 @@ class Outcome:
     contact: bool = False
     stopped: bool = False
     precondition: bool = False
+    halt: bool = False  # always stop the queue, whatever on_fail says (an unverified grasp may hold the object)

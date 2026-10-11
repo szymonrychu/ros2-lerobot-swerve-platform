@@ -682,3 +682,23 @@ def test_blended_progress_follows_trajectory_time_not_only_vias(robot: GateRobot
     assert len(set(progress)) > 2  # more than the two via fractions
     assert 0.0 < progress[0] < 1.0
     assert progress[-1] == pytest.approx(1.0, abs=0.01)
+
+
+def test_unverified_with_on_fail_skip_halts(robot: GateRobot) -> None:
+    """An unverified grasp may hold the object: the queue never continues past it, whatever on_fail says."""
+    queue = make_queue(robot, grasp_runner=lambda step, stop: ("unverified", ["jaw in the empty band"]))
+    queue.enqueue(
+        steps(
+            {
+                "kind": "grasp",
+                "on_fail": "skip",
+                "object": {"x": 0.2, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.03},
+            },
+            {"kind": "wait_s", "seconds": 0.01},
+        )
+    )
+    result = queue.wait(WAIT, "queue_empty")
+    names = types(result.events)
+    assert "step_failed" in names and "queue_stopped" in names
+    assert "step_skipped" not in names
+    assert not [e for e in result.events if e.type == "step_done"]

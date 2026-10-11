@@ -12,7 +12,7 @@ from mcp_server.grasp import jaw_clearance
 from mcp_server.ik import ArmKinematics, grasp_offset, load_joint_limits
 from mcp_server.models import ArmMotionResult
 
-from .fakes import JOINTS, FakeArmBackend
+from .fakes import JOINTS, DelayedFollower, FakeArmBackend
 
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
@@ -1057,13 +1057,13 @@ def test_tracking_limit_grows_with_the_commanded_speed() -> None:
     assert tracking_limit(0.25, 0.0, 1.0) == pytest.approx(0.25)
 
 
-def test_fast_motion_tolerates_lag_within_its_speed_scaled_limit(tmp_path: Path) -> None:
-    """A 0.4 rad lag at full speed (1.0 rad/s, limit 0.5 rad) is not a tracking abort (2026-10-08: 0.35-0.37 rad
-    lag aborted fast moves)."""
+def test_fast_motion_tolerates_the_servo_lag_through_the_delay_window(tmp_path: Path) -> None:
+    """A follower 0.35 s behind at full speed (0.35 rad behind the newest setpoint at 1.0 rad/s, the 2026-10-08 lag
+    that aborted fast moves) is not a tracking abort: the delay window carries the lag, no speed term is needed."""
     arm, be = make(tmp_path)
-    be.sag = {"shoulder_lift": -0.4}
+    DelayedFollower(be, {}, 0.35)
     res = arm.move_joints({"shoulder_lift": 0.8}, speed_scale=0.5)
-    assert res.status != "aborted_tracking"
+    assert res.status != "aborted_tracking", res.message
 
 
 def test_slow_motion_still_aborts_on_the_same_lag(tmp_path: Path) -> None:

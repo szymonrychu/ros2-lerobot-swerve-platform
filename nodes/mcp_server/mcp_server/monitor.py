@@ -77,6 +77,13 @@ TILT_SOURCE = "tilt_guard"
 TILT_EVENT_TYPES = {"warning": "tilt_warning", "error": "tilt_error"}
 TILT_CLEAR_EVENT = "tilt_clear"
 TILT_DRIVE_ENABLED_EVENT = "tilt_drive_enabled"  # info: base drive released while the level is still warning
+# critical: Nav2 never answered the goal cancel at a warning/error entry (after tilt_cancel_attempts tries).
+TILT_CANCEL_FAILED_EVENT = "tilt_nav_cancel_failed"
+# Navigation refused at level ok when the guard cannot vouch for it (state stale, or its IMU missing).
+TILT_NAV_UNVERIFIED = (
+    "automatic navigation is refused until the tilt guard reports a fresh state with its IMU (manual short drive "
+    "moves still work)"
+)
 TILT_MANUAL_HINT = (
     "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool; "
     "navigate_to_pose, move_relative, look_around and queued base steps are refused), then wait for the guard to clear"
@@ -235,6 +242,8 @@ class RobotMonitor:
         autonomy_source: str = "autonomy",
         cpu_temp_reader: Callable[[], float | None] | None = None,
         throttled_reader: Callable[[], int | None] | None = None,
+        spawn: Callable[[Callable[[], None]], None] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         """Create the monitor.
 
@@ -247,6 +256,9 @@ class RobotMonitor:
             autonomy_source (str): active_source value while the autonomy lease is active.
             cpu_temp_reader (Callable[[], float | None] | None): CPU temp in C; default reads sysfs.
             throttled_reader (Callable[[], int | None] | None): Firmware throttle bits; default reads sysfs.
+            spawn (Callable[[Callable[[], None]], None] | None): Runs the Nav2 cancel (with its retries) off the
+                calling thread; default a daemon thread (the tilt guard callback must not block the executor).
+            sleep (Callable[[float], None]): Sleep between cancel retries (s).
         """
         self.cfg = settings
         self.guard = guard
@@ -258,6 +270,10 @@ class RobotMonitor:
         self.autonomy_source = autonomy_source
         self.cpu_temp_reader = cpu_temp_reader or (lambda: read_cpu_temp_c(settings.cpu_temp_path))
         self.throttled_reader = throttled_reader or (lambda: read_throttled(settings.throttled_paths))
+        self.spawn = spawn or (
+            lambda fn: threading.Thread(target=fn, name="tilt-guard-nav-cancel", daemon=True).start()
+        )
+        self.sleep = sleep
         self.lock = threading.RLock()
         self.outbox: list[RobotEvent] = []
         self.sink: Callable[[RobotEvent], None] | None = None
@@ -637,15 +653,44 @@ class RobotMonitor:
         return True
 
     def cancel_nav(self) -> None:
-        """Cancel every Nav2 goal through the canceller (outside the lock); failures are logged, never raised."""
+        """Cancel every Nav2 goal through the canceller, off the calling thread (spawn): retried up to
+        tilt_cancel_attempts times tilt_cancel_retry_s apart; a cancel never answered raises a critical
+        tilt_nav_cancel_failed event. Failures never raise."""
         canceller = self.nav_canceller
         if canceller is None:
             return
-        try:
-            if not canceller():
-                LOGGER.warning("tilt guard: Nav2 goal cancel was not sent")
-        except Exception:  # a broken canceller must not stop detection
-            LOGGER.exception("tilt guard: Nav2 goal cancel failed")
+
+        def run() -> None:
+            attempts = self.cfg.tilt_cancel_attempts
+            for attempt in range(1, attempts + 1):
+                try:
+                    if canceller():
+                        return
+                    LOGGER.warning("tilt guard: Nav2 goal cancel not answered (attempt %d/%d)", attempt, attempts)
+                except Exception:  # a broken canceller must not stop detection
+                    LOGGER.exception("tilt guard: Nav2 goal cancel failed (attempt %d/%d)", attempt, attempts)
+                if attempt < attempts:
+                    self.sleep(self.cfg.tilt_cancel_retry_s)
+            self.report_cancel_failure(attempts)
+
+        self.spawn(run)
+
+    @delivers
+    def report_cancel_failure(self, attempts: int) -> None:
+        """Raise the critical event for a Nav2 cancel that failed every attempt. Lock held.
+
+        Args:
+            attempts (int): Attempts made.
+        """
+        self.emit(
+            TILT_CANCEL_FAILED_EVENT,
+            "critical",
+            TILT_SOURCE,
+            f"tilt guard: the Nav2 goal cancel was not answered after {attempts} attempts; a Nav2 goal may still be "
+            "driving the tilted robot - call stop",
+            {"attempts": attempts},
+            debounce=False,
+        )
 
     def tilt_guard_fresh(self, now: float) -> bool:
         """Whether a guard state arrived within tilt_guard_stale_s. Lock held or not.
@@ -677,9 +722,17 @@ class RobotMonitor:
             return None
         at, state = guard
         inhibited = state.level == "error" or state.base_drive_inhibited
-        if not inhibited and (state.level == "ok" or kind == "manual"):
-            return None
         age = self.clock() - at
+        if not inhibited and state.level == "ok":
+            if kind == "manual":
+                return None
+            if age > self.cfg.tilt_guard_stale_s:
+                return f"tilt guard state stale (last state {age:.0f} s old, level ok): {TILT_NAV_UNVERIFIED}"
+            if not state.imu_ok:
+                return f"tilt guard reports its IMU missing or stale (imu_ok false at level ok): {TILT_NAV_UNVERIFIED}"
+            return None
+        if not inhibited and kind == "manual":
+            return None
         stale = (
             f" (last state {age:.0f} s old, stale: the last level stays enforced)"
             if age > self.cfg.tilt_guard_stale_s
@@ -1164,7 +1217,7 @@ class RobotMonitor:
             **state.model_dump(),
             age_s=round(age, 2),
             stale=stale,
-            navigation_allowed=state.level == "ok" and not state.base_drive_inhibited,
+            navigation_allowed=state.level == "ok" and not state.base_drive_inhibited and state.imu_ok and not stale,
             manual_drive_allowed=state.level != "error" and not state.base_drive_inhibited,
         )
 
