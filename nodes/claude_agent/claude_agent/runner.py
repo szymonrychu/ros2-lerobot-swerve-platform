@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import re
 import time
 import uuid
 from collections import deque
@@ -95,6 +96,9 @@ JOB_END_CARRY_TEXT = "You are carrying an object: put the object down first (rel
 CARRY_REFUSAL_MARKER = "put the object down first"
 # A successful one of these after such a refusal means the object was put down (or the park went through).
 CARRY_CLEARING_TOOLS = (RELEASE_CONTROL_TOOL, "release_object")
+GRASP_TOOL = "grasp_object"
+# grasp_object outcomes after which the jaws are closed on (maybe) an object; get_control_state does not say so.
+CARRY_GRASP_OUTCOME = re.compile(r'"outcome"\s*:\s*"(grasped|unverified)"')
 JOB_END_CHECK_ERROR = "job-end check failed: {reason}; the instruction ends without the arm, lease and plan check"
 ARM_NOT_PARKED_MESSAGE = "arm not parked after the forced job-end release_control: {detail}"
 RELEASED_TEXT = "released"
@@ -311,7 +315,7 @@ class AgentRunner:
         self.mcp_prober = mcp_prober or self.default_mcp_prober
         self.robot_tool_caller = robot_tool_caller or self.default_robot_tool_caller
         self.job_end_followups = 0
-        self.carry_refused = False
+        self.carrying_seen = False
         self.mcp_poll_interval_s = MCP_POLL_INTERVAL_S
         self.instruction_started_at = time.monotonic()
         self.session_totals: dict[str, float] = {}
@@ -633,7 +637,7 @@ class AgentRunner:
         self.pending_followup = None
         self.interrupt_pending = False
         self.job_end_followups = 0
-        self.carry_refused = False
+        self.carrying_seen = False
         self.digest = self.take_digest()
         self.last_instruction, self.last_status, self.last_text = text, "", ""
         self.gate.reset()
@@ -1008,7 +1012,7 @@ class AgentRunner:
             self.logger.error(message)
             self.events.append("error", message=message)
             return None, {"check_error": reason}
-        carrying = self.carry_refused or is_carrying(state)
+        carrying = self.carrying_seen or is_carrying(state)
         problems = job_end_problems(state, carrying) + self.plan_problems()
         if not problems:
             return None, None
@@ -1134,15 +1138,30 @@ class AgentRunner:
                 continue
             name = short_name(self.tools_in_flight.pop(block.tool_use_id, block.tool_use_id))
             self.tool_started_at.pop(block.tool_use_id, None)
-            if name == RELEASE_CONTROL_TOOL and block.is_error and CARRY_REFUSAL_MARKER in str(block.content):
-                self.carry_refused = True
-            elif name in CARRY_CLEARING_TOOLS and not block.is_error:
-                self.carry_refused = False
+            self.track_carrying(name, block)
             if not block.is_error or self.interrupted or GENERIC_REJECTION_MARKER not in str(block.content):
                 continue
             self.logger.warning(f"tool call {name} ({block.tool_use_id}) was cancelled by Claude Code")
             self.events.append("tool_cancelled", id=block.tool_use_id, name=name)
             self.add_followup(REJECTION_CORRECTION.format(name=name))
+
+    def track_carrying(self, name: str, block: ToolResultBlock) -> None:
+        """Note from a tool result whether the gripper carries an object, for the job-end follow-up text.
+
+        get_control_state only shows a carried object through the footprint radius, so the runner also tracks the
+        tool results: a grasp_object that ended grasped/unverified or a parking release_control refused for carrying
+        sets it; a successful release_object or release_control clears it.
+
+        Args:
+            name (str): Short tool name.
+            block (ToolResultBlock): Its result.
+        """
+        if name == GRASP_TOOL and not block.is_error and CARRY_GRASP_OUTCOME.search(tool_result_text(block)):
+            self.carrying_seen = True
+        elif name == RELEASE_CONTROL_TOOL and block.is_error and CARRY_REFUSAL_MARKER in tool_result_text(block):
+            self.carrying_seen = True
+        elif name in CARRY_CLEARING_TOOLS and not block.is_error:
+            self.carrying_seen = False
 
     def schedule_interrupt(self) -> None:
         """Interrupt the model in the background (bounded by stop_timeout_s) so a queued follow-up is sent next."""
@@ -1390,7 +1409,9 @@ def nested(data: Any, *keys: str) -> Any:
 
 
 def is_carrying(state: dict[str, Any]) -> bool:
-    """Whether get_control_state says the gripper carries an object (arm ``carrying`` or a carried object radius).
+    """Whether get_control_state says the gripper carries an object: a carried object radius on the published
+    footprint (``footprint.carried_object_radius_m``, set by a keep_position arm release; the only carrying signal
+    ControlState has).
 
     Args:
         state (dict[str, Any]): get_control_state result.
@@ -1398,7 +1419,24 @@ def is_carrying(state: dict[str, Any]) -> bool:
     Returns:
         bool: True when it does.
     """
-    return bool(nested(state, "arm", "carrying")) or nested(state, "arm", "carried_object_radius_m") is not None
+    return nested(state, "footprint", "carried_object_radius_m") is not None
+
+
+def tool_result_text(block: ToolResultBlock) -> str:
+    """Text of a tool result block (its text parts joined, or the plain string content).
+
+    Args:
+        block (ToolResultBlock): Tool result.
+
+    Returns:
+        str: The text ("" without any).
+    """
+    content = block.content
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    return "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
 
 
 def job_end_problems(state: dict[str, Any], carrying: bool) -> list[str]:

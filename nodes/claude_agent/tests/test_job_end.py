@@ -25,7 +25,18 @@ ARM_OUT = {
     "base": {"held": False, "steering_neutral": True},
 }
 CLEAN = {"arm": {"held": False, "at_home": True, "home_stored": True}, "base": {"held": False}}
-CARRYING = {"arm": {"held": True, "at_home": False, "home_stored": True, "carrying": True}, "base": {"held": False}}
+# The shape mcp_server's ControlState really has: the carried object radius lives under footprint, there is no
+# arm "carrying" field.
+CARRYING = {
+    "arm": {"held": False, "at_home": False, "home_stored": True},
+    "base": {"held": False},
+    "footprint": {"kind": "dynamic", "vertices": 14, "carried_object_radius_m": 0.05},
+}
+NOT_CARRYING_FOOTPRINT = {
+    "arm": {"held": False, "at_home": False, "home_stored": True},
+    "base": {"held": False},
+    "footprint": {"kind": "static", "vertices": 12, "carried_object_radius_m": None},
+}
 CARRY_TEXT = "put the object down first (release_object)"
 PARK_TEXT = 'release_control(subsystem="all")'
 
@@ -280,3 +291,54 @@ async def test_object_put_down_after_a_refused_park_clears_the_carrying_note(tmp
     await run(runner)
     assert FakeClient.instances[0].queries == ["go"]
     assert "job_end" not in of_type(events, "turn_end")[0]
+
+
+def tool_call(call_id: str, name: str) -> AssistantMessage:
+    return AssistantMessage(content=[ToolUseBlock(id=call_id, name=f"mcp__robot__{name}", input={})], model="opus")
+
+
+def tool_result(call_id: str, text: str, is_error: bool = False) -> UserMessage:
+    block = ToolResultBlock(tool_use_id=call_id, content=[{"type": "text", "text": text}], is_error=is_error)
+    return UserMessage(content=[block])
+
+
+async def test_a_static_footprint_without_a_carried_object_is_not_carrying(tmp_path: Path) -> None:
+    caller = FakeToolCaller({"get_control_state": [state(NOT_CARRYING_FOOTPRINT), state(CLEAN)]})
+    runner, _, _ = make_runner(tmp_path, script=reply_script(), tool_caller=caller)
+    await run(runner)
+    followup = FakeClient.instances[0].queries[1]
+    assert "arm not at home" in followup
+    assert CARRY_TEXT not in followup and "carrying an object" not in followup
+
+
+async def test_a_held_grasp_tells_the_model_to_put_the_object_down_before_any_park_refusal(tmp_path: Path) -> None:
+    """grasp_object ended grasped and nothing released it: the first follow-up already says put it down first."""
+    script = [
+        tool_call("g1", "grasp_object"),
+        tool_result("g1", '{"outcome": "grasped", "reasons": []}'),
+        *reply_script(),
+    ]
+    caller = FakeToolCaller({"get_control_state": [state(ARM_OUT), state(CLEAN)]})
+    runner, _, _ = make_runner(tmp_path, script=script, tool_caller=caller)
+    await run(runner)
+    followup = FakeClient.instances[0].queries[1]
+    assert "carrying an object" in followup and CARRY_TEXT in followup
+    assert followup.index(CARRY_TEXT) < followup.index(PARK_TEXT)
+
+
+async def test_a_missed_grasp_or_a_released_object_is_not_carrying(tmp_path: Path) -> None:
+    script = [
+        tool_call("g1", "grasp_object"),
+        tool_result("g1", '{"outcome": "missed", "reasons": ["no contact"]}'),
+        tool_call("g2", "grasp_object"),
+        tool_result("g2", '{"outcome": "grasped", "reasons": []}'),
+        tool_call("o1", "release_object"),
+        tool_result("o1", '{"outcome": "released"}'),
+        *reply_script(),
+    ]
+    caller = FakeToolCaller({"get_control_state": [state(ARM_OUT), state(CLEAN)]})
+    runner, _, _ = make_runner(tmp_path, script=script, tool_caller=caller)
+    await run(runner)
+    followup = FakeClient.instances[0].queries[1]
+    assert "arm not at home" in followup
+    assert CARRY_TEXT not in followup and "carrying an object" not in followup
