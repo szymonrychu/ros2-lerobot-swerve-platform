@@ -1290,7 +1290,7 @@ def test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit() 
     )
     assert "--merge-install" in cmd and "--parallel-workers 1" in cmd
     assert "-DCMAKE_BUILD_TYPE=Release" in cmd
-    assert build["environment"]["MAKEFLAGS"] == "-j{{ ros2_build_jobs }}"
+    assert build["environment"]["MAKEFLAGS"] == "-j{{ colcon_src.jobs | default(ros2_build_jobs) }}"
     assert "_colcon_patch_key" in build["ansible.builtin.command"]["creates"]
     assert "_colcon_patch_key" in cmd
     assert build["notify"] == "Restart ROS2 node"

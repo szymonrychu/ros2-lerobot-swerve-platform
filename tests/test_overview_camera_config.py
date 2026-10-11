@@ -267,7 +267,7 @@ def test_colcon_package_build_keeps_the_limits_and_stamp_logic() -> None:
         " -p IOWeight=10 nice -n 19 ionice -c 3",
         "colcon build --merge-install --parallel-workers 1",
         "--packages-select {{ colcon_src.package }}",
-        'MAKEFLAGS: "-j{{ ros2_build_jobs }}"',
+        'MAKEFLAGS: "-j{{ colcon_src.jobs | default(ros2_build_jobs) }}"',
         "source /opt/ros/jazzy/setup.bash",
         "install/setup.bash",
         "creates:",

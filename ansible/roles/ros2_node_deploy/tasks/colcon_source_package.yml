@@ -1,16 +1,19 @@
 ---
 # Build ONE pinned source package into a colcon workspace (included once per source by colcon_source_build.yml).
 # Expects colcon_src: {repo, commit (SHA, tag or branch), package, workspace, patches (optional list of unified diffs,
-# strip 1), cmake_args (optional, default -DCMAKE_BUILD_TYPE=Release), meson_args (optional: build with colcon-meson)}.
+# strip 1), cmake_args (optional, default -DCMAKE_BUILD_TYPE=Release), meson_args (optional: build with colcon-meson),
+# stamp_apt_packages (optional list of apt packages whose installed version is part of the stamp key, for a source that
+# is built against apt headers: a ros-jazzy sync then rebuilds it), jobs (optional make -j, default ros2_build_jobs)}.
 # Build dependencies come from the node type's apt_packages.
 # Idempotent and cheap on a no-change deploy: the stamp key is derived first (it needs no checkout) and when the stamp
 # exists and install/setup.bash is there, the clone, patch and build are all skipped (no git network access either).
-# The stamp file is named after the pinned commit, the content hash of the patches and the build args, so the build
-# only reruns when one of them changes (or when install/setup.bash is gone: the stamp is then removed).
+# The stamp file is named after the pinned commit, the content hash of the patches, the build args and (only when
+# stamp_apt_packages is set) the installed apt versions, so the build only reruns when one of them changes (or when install/setup.bash is
+# gone: the stamp is then removed).
 # A later source of the same node type also rebuilds when an earlier one (its dependency) changed (_colcon_chain_key).
 # Sources after the first also source the workspace install (their dependencies, e.g. libcamera for camera_ros); the first
 # source builds exactly as a lone rf2o always did.
-# Build limits (group_vars/all.yml): one colcon worker, make -j{{ ros2_build_jobs }}, CPU cap ros2_build_cpu_quota, CPU
+# Build limits (group_vars/all.yml): one colcon worker, make -j{{ ros2_build_jobs }} (or the source's jobs), CPU cap ros2_build_cpu_quota, CPU
 # weight ros2_build_cpu_weight, low IO weight, lowest CPU (nice 19) and IO (ionice idle) priority so the running stack
 # keeps precedence.
 
@@ -33,11 +36,22 @@
   become: true
   tags: [build]
 
-- name: Derive the build stamp key from the commit and the patch contents
+# Read-only: runs in check mode too. Empty loop (no output appended to the key) for every source without the field.
+- name: Read the installed apt versions that feed the stamp key
+  ansible.builtin.command: "dpkg-query -W -f='${Version}' {{ item }}"
+  register: _colcon_apt_versions
+  changed_when: false
+  check_mode: false
+  loop: "{{ colcon_src.stamp_apt_packages | default([]) }}"
+  tags: [build]
+
+- name: Derive the build stamp key from the commit, the patch contents and the apt versions
   ansible.builtin.set_fact:
     _colcon_patch_key: >-
       {{ (colcon_src.commit ~ (_colcon_patch_stats.results | map(attribute='stat.checksum') | join(''))
       ~ (colcon_src.meson_args | default([]) | join(' ')) ~ (colcon_src.cmake_args | default([]) | join(' '))
+      ~ (_colcon_apt_versions.results | map(attribute='stdout') | join(' ')
+      if colcon_src.stamp_apt_packages | default([]) | length > 0 else '')
       ~ (_colcon_chain_key | default(''))) | hash('sha1') }}
   tags: [build]
 
@@ -103,7 +117,7 @@
     chdir: "{{ colcon_src.workspace }}"
     creates: "{{ colcon_src.workspace }}/.built-{{ colcon_src.package }}-{{ _colcon_patch_key }}"
   environment:
-    MAKEFLAGS: "-j{{ ros2_build_jobs }}"
+    MAKEFLAGS: "-j{{ colcon_src.jobs | default(ros2_build_jobs) }}"
   become: true
   when: not _colcon_stamp_stat.stat.exists
   register: _colcon_build_result

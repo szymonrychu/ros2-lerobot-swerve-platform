@@ -1408,7 +1408,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_rf2o_params_match_the_stack` | rf2o params: scan `/scan_filtered`, odom `/odom_rf2o`, `publish_tf` false, frames `base_link` / `odom`, empty `init_pose_from_topic`, `freq` 7-10 Hz. |
 | `test_rf2o_nodes_are_deployed_before_the_ekf` | `rf2o_laser_odometry` and `rf2o_odom_relay` are present, enabled, listed before the EKF, have per-node playbooks and are deployed before the EKF in `deploy_nodes_client.yml`. |
 | `test_rf2o_relay_wiring_matches_ekf_input` | `rf2o_odom_relay` node type/config: reads `/odom_rf2o`, publishes the topic the EKF fuses, positive variances. |
-| `test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` | `colcon_source_build.yml` clones the pinned commit and builds with `systemd-run` (CPUQuota `ros2_build_cpu_quota`, CPUWeight `ros2_build_cpu_weight`, IOWeight 10), nice 19, ionice idle, `--merge-install`, one worker, `MAKEFLAGS=-j2`, a per-commit-and-patch-hash stamp (`creates:`) and a restart notify; included by the role. |
+| `test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` | `colcon_source_build.yml` clones the pinned commit and builds with `systemd-run` (CPUQuota `ros2_build_cpu_quota`, CPUWeight `ros2_build_cpu_weight`, IOWeight 10), nice 19, ionice idle, `--merge-install`, one worker, `MAKEFLAGS=-j{{ colcon_src.jobs | default(ros2_build_jobs) }}` (default 4), a per-commit-and-patch-hash stamp (`creates:`) and a restart notify; included by the role. |
 | `test_colcon_source_build_applies_patches_and_keys_the_stamp_on_their_content` | `colcon_source_build.yml` applies the `colcon_source.patches` with `ansible.builtin.patch` between the (forced) clone and the build, hashes them into the stamp key, and drops the stamp when `install/setup.bash` is missing. |
 | `test_rf2o_retry_laser_tf_patch_exists_and_is_wired` | `patches/0001-retry-laser-tf.patch` exists, skips scans until the laser TF lookup succeeds, and is listed in the rf2o node type's `colcon_source.patches`. |
 | `test_rf2o_odom_relay_declares_numpy` | `rf2o_odom_relay/pyproject.toml` lists `numpy` in `[project].dependencies` (numpy guard, parsed with `tomllib`). |
@@ -1636,7 +1636,7 @@ Static checks of the overview_camera node from the repo files (YAML via `yaml.sa
 | `test_retired_stereo_nodes_are_gone_from_the_client_wiring` | No `stereo_camera` / `stereo_depth` in the client playbook or group vars, their node directories, per-node playbooks and the `stereo_depth` lint-all-nodes entry are gone. |
 | `test_rf2o_build_inputs_are_unchanged` | rf2o keeps its single-dict `colcon_source` with the exact repo, commit, package, workspace and patch. |
 | `test_colcon_build_accepts_one_dict_or_a_list_of_sources` | `colcon_source_build.yml` wraps a single dict into a list and builds each source in list order through `colcon_source_package.yml`. |
-| `test_colcon_package_build_keeps_the_limits_and_stamp_logic` | The per-source build keeps systemd-run (with the background CPU weight)/nice/ionice, `--merge-install`, one worker, `MAKEFLAGS=-j2`, the git `force`, the `creates` stamp, the restart handler and the Release default; supports `--meson-args` and `--cmake-args`. |
+| `test_colcon_package_build_keeps_the_limits_and_stamp_logic` | The per-source build keeps systemd-run (with the background CPU weight)/nice/ionice, `--merge-install`, one worker, `MAKEFLAGS=-j{{ colcon_src.jobs | default(ros2_build_jobs) }}`, the git `force`, the `creates` stamp, the restart handler and the Release default; supports `--meson-args` and `--cmake-args`. |
 | `test_colcon_stamp_key_is_unchanged_for_the_first_source_and_chained_after` | The stamp key still starts from commit + patch checksums (rf2o unchanged) and later sources chain the earlier keys so a libcamera rebuild rebuilds camera_ros. |
 | `test_overview_camera_node_type_builds_libcamera_then_camera_ros` | `overview_camera` builds libcamera (tag `v0.7.2+rpt20260817`, all required meson args) before camera_ros (pinned full SHA) in `/opt/ros2-ws`. |
 | `test_builds_use_all_cores_at_lowest_priority_and_nodes_start_quickly` | `all.yml`: `ros2_build_jobs` 4 and `ros2_build_cpu_quota` 400% for source/frontend builds (still nice 19, idle IO), `ros2_node_start_interval_s` 2. |
@@ -1905,3 +1905,20 @@ Clean shutdown of `nodes/bridges/rplidar_a1/scan_supervisor.py` with rclpy stubb
 ### Per-node shutdown tests
 
 Every Python ROS2 node with an rclpy main loop has a `tests/test_shutdown.py` (poi_store, rf2o_odom_relay, swerve_drive_controller, static_tf_publisher, filter_node, haptic_controller, map_guard, claude_agent, test_joint_api, gps_rtk, uvc_camera, bno055_imu, feetech_servos) using a copy of the same `ros_stubs.py` helper. They simulate systemd stopping the unit: the loop raises `ExternalShutdownException` / `KeyboardInterrupt` / the context-invalid `RCLError` with the context already shut down, and assert the entry function returns normally, the existing cleanup ran (node destroyed, wheels stopped, serial closed, camera released), `rclpy.shutdown()` was not called and `rclpy.try_shutdown()` was. A context-invalid `RCLError` while `rclpy.ok()` is still true must propagate. mcp_server: `test_spin.py::test_run_or_exit_ignores_an_error_raised_by_the_shutdown_itself`; `nodes/mcp_server/tests/test_uvicorn_config.py` (`build_uvicorn_config` sets `timeout_graceful_shutdown` to the 3 s constant, host and port).
+
+## test_nav2_mppi_overlay.py
+
+Static checks of the Nav2 MPPI overlay (patched `nav2_mppi_controller` built into `/opt/ros2-ws`; YAML via `yaml.safe_load`, patch and probe as text).
+
+| Test | Description |
+|---|---|
+| `test_overlay_source_is_pinned_to_the_apt_tag_with_the_patch` | `nav2_mppi_overlay` is true and `nav2_mppi_overlay_source` is exactly the navigation2 repo, the full 1.3.13 SHA, package, `/opt/ros2-ws`, the E9 patch under `ros2_repo_dest`, Release + `BUILD_TESTING=OFF`, `stamp_apt_packages` and `jobs: 2`. |
+| `test_overlay_patch_exists_and_only_touches_the_mppi_package` | The patch file exists and every file it touches is under `nav2_mppi_controller/`. |
+| `test_probe_pin_equals_the_client_commit` | `PIN` in `scripts/probe-mppi-overlay-docker.sh` equals the overlay commit in `client.yml`. |
+| `test_nav2_colcon_source_is_gated_on_the_rollback_flag` | The nav2_bringup `colcon_source` is `overlay_source if nav2_mppi_overlay \| bool else {}`. |
+| `test_nav2_apt_packages_carry_the_overlay_build_dependencies` | nav2_bringup `apt_packages` include the toolchain, colcon, xtensor/xsimd/benchmark/openmp dev packages, the ament/nav2 deps and the apt MPPI. |
+| `test_apt_version_feeds_the_stamp_key_only_for_a_non_empty_list` | `dpkg-query -W -f='${Version}'` (never changed, runs in check mode) loops over `stamp_apt_packages`; its output joins the stamp key only under a `length > 0` condition and the original key formula is intact (rf2o/libcamera/camera_ros keys unchanged). |
+| `test_build_jobs_default_to_ros2_build_jobs` | The build `MAKEFLAGS` is `-j{{ colcon_src.jobs \| default(ros2_build_jobs) }}`. |
+| `test_launcher_still_sources_the_first_source_workspace` | The launcher sources the first source's workspace `install/setup.bash` after `/opt/ros/jazzy`, so the overlay wins on `AMENT_PREFIX_PATH`. |
+
+`test_nav_stack_config.py::test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` and `test_overview_camera_config.py::test_colcon_package_build_keeps_the_limits_and_stamp_logic` now expect the `MAKEFLAGS` expression above.

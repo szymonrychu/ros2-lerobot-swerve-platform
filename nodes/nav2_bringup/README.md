@@ -243,6 +243,13 @@ does not hide its MPPI fixes):
 the patch, the probe and the overlay source from `client.yml`, keep the `model_delay_*` values in
 `config/nav2_params.yaml`, and the apt `nav2_mppi_controller` reads them natively.
 
+**Rollback.** Set `nav2_mppi_overlay: false` in `ansible/group_vars/client.yml` and deploy
+(`./scripts/deploy-nodes.sh client nav2_bringup`). The nav2_bringup `colcon_source` becomes `{}`, so no build runs, the
+launcher stops sourcing `/opt/ros2-ws` and pluginlib loads the apt `ros-jazzy-nav2-mppi-controller` again (which is
+installed either way). The apt plugin does not declare `model_delay_*`, so those params-file values are ignored. The overlay's build is synchronous and
+stops every `ros2-*` unit (claude_agent and mcp_server included) while it runs; do not deploy during an agent session.
+Re-enable with `nav2_mppi_overlay: true`; the stamp then matches (or rebuilds when the apt version moved).
+
 ## Rotate first, drive front-first
 
 `FollowPath` is the `RotationShimController` wrapping MPPI. When a new path points more than 45 deg away from the robot heading, it first rotates in place (0.5 rad/s) until within about 17 deg, then MPPI follows the path. At the end, once inside the goal tolerance, the shim alone turns to the goal heading (`rotate_to_heading_once`, `max_angular_accel` 0.5). MPPI's `GoalAngleCritic` is off because the two fought. The measured 58 deg overshoot had one cause: the default BT replans at 1 Hz and every replan resets the goal checker latch and the shim's position check, so the shim lost the in-tolerance state mid-turn and MPPI took over. `GoalCritic` (weight 8) brings the robot close before the turn. MPPI's `PathAngleCritic` runs in mode 0 (forward preference, weight 4.0), so the robot keeps its front toward the direction of travel instead of strafing. Why: the lidar is partly covered at the back and on the right, so it sees best ahead.
