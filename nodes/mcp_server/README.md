@@ -50,6 +50,8 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `solve_camera_calibration(camera, initial)` | Fit the mount pose to the stored samples; returns `rms_px` and a YAML snippet for `client.yml` (never edits the config). |
 | `clear_calibration_samples(camera)` | Delete the stored samples of a camera. |
 | `get_topdown_view(radius_m=2.5, layers=all, px=480)` | Robot-up PNG centred on the robot (see Perception and memory) plus metadata `pose`, `scale_m_per_px`, `layers_present`, `layers_missing` (reason each), `data_ages`. Sensor. |
+| `list_frontiers(max_count, reachable_only)` / `plan_frontier_visit(id)` | Frontiers of the SLAM map (numbered, stable ids) with geodesic distance, bearing, observation pose, nearest POI and last facing lookup; plan one visit with a Nav2 check. Sensors, no lease. See [Frontiers](#frontiers). |
+| `go_to_frontier(id, timeout_s)` / `look_toward_frontier(id, camera)` | Effectors (base lease, battery and tilt gates): Nav2 drive to a frontier's observation pose; in-place turn plus one recorded camera image toward it (no travel). See [Frontiers](#frontiers). |
 | `remember_object` / `list_objects` / `forget_object` | Object memory in map coordinates, stored as object POIs in poi_store (merge, distance/bearing from the robot). Sensor. |
 | `look_around(captures=4, camera='front', mode=None, return_to_start=None)` | Effector, ONE motion call: in-place turn through equal headings with a camera frame and lidar summary per heading. `mode` `spin` (default, `look_around.mode`): one continuous slow rotation; `steps`: one precise Nav2 rotation per heading. Ends facing the last heading unless `return_to_start=true` (default `look_around.return_to_start`, false). |
 | `enqueue_motions(steps, replace=false, watch_constraints=None)` | Effector: queue motion steps and return at once (job ids, queue length, blend groups); `watch_constraints` abort or pause the queue on a sensor condition. See [Motion queue](#motion-queue). |
@@ -283,7 +285,8 @@ its frame, orange tint), `lidar` (`/scan_filtered` points), `footprint`, `reach`
 the shoulder_pan axis in base_link: `arm.base_in_base_link` plus the URDF pan joint origin, 38.8 mm ahead of the mount;
 about base_link `0` without a mount), `path` (latest `/plan`, only when younger than
 `topdown.plan_max_age_s`), `pois` (points as circles with their radius, areas as polygons, names; orange open, green
-done, grey cancelled) and `objects` (remembered objects as diamonds with labels). A layer without data is **never
+done, grey cancelled), `objects` (remembered objects as diamonds with labels) and `frontiers` (cyan frontier cells with a numbered marker at each
+frontier target, the `list_frontiers` id; see [Frontiers](#frontiers)). A layer without data is **never
 fabricated**: it is listed in `layers_missing` with the reason (no TF, stale, poi_store down, ...); layers that live in
 the map frame also need the robot pose.
 
@@ -386,6 +389,90 @@ substring of `note` only; notes are empty until `annotate_lookup` sets them, so 
 `hint`), `camera`, `mcp_session`; `limit` 1-20 (default 10). Every returned field is named in the tool description.
 `annotate_lookup` rejects `poi_ids` that are not existing POIs (checked against poi_store via `/poi/list`); when poi_store
 is not running the ids cannot be checked and are accepted as given.
+
+## Frontiers
+
+Module `frontier_tools.py` (one `tools.TOOL_MODULES` entry) on top of the rclpy-free `frontiers.py`. A frontier is the
+boundary between known free space and unknown space on the SLAM `/map`: where the map ends and exploring can go on. The
+server only supplies geometry (reachability, distance, bearing, nearest POI, whether a camera already looked that way);
+the agent ranks the frontiers itself. No ROS topic is published (nothing to fake: a value that cannot be computed is
+`null` with a line in `notes`).
+
+**Algorithm (`frontiers.py`).** Computed lazily, only when a tool or the topdown layer asks, and cached per `/map`
+version (`MapGrid.version` = stamp sec, nanosec, width, height, origin x, y; slam_toolbox publishes every 10 s).
+
+1. *Detection, a vectorised Wavefront Frontier Detector.* Frontier cells = unknown cells with an 8-neighbour known-free
+   cell (`binary_dilation`); clusters = `scipy.ndimage.label` with 8-connectivity; size, centroid and bbox from
+   `ndimage`. The work is cropped to the bbox of known cells plus one cell, so unknown padding costs nothing. A map
+   border cell counts only when it touches free space. Clusters shorter than `frontiers.min_length_m` are dropped. Each
+   frontier has `centroid` (mean of its cells, may lie off the frontier) and `target` (the frontier cell nearest the
+   centroid, always on the frontier). This is the output of the classic two-level-BFS WFD without a Python loop.
+2. *Traversability.* Known free cells whose distance to the nearest non-free cell (unknown counts as an obstacle,
+   `distance_transform_edt`) is at least `footprint.width_m / 2 + pass_clearance_margin_m`.
+3. *Geodesic ranking.* One `scipy.sparse.csgraph.dijkstra` from the robot over the traversable grid (8 neighbours,
+   costs 1 and sqrt 2 times the cell size, on a grid `geodesic_downsample` times coarser than the map). One pass gives
+   the distance to every candidate; cached per (map version, robot cell). A robot cell that is not traversable (hugging
+   a wall) snaps to the nearest traversable cell within 0.3 m, else every frontier is `reachable: false` with a note.
+4. *Observation pose.* Candidates are known free cells with clearance of at least the current circumscribed radius of
+   the navigation footprint (`NavFootprint.circumscribed_radius()`, the static half-diagonal when `nav_footprint` is
+   off) plus `view_clearance_margin_m`, at a distance from the nearest frontier cell inside
+   `[standoff_min_m, standoff_max_m]`. Score = geodesic distance + abs(distance - mid standoff). The pose is the first
+   of the best `los_candidates` whose straight line to the frontier crosses no occupied and no unknown cell; yaw faces
+   the target. **Never a pose in unknown space**: no pose, no goal.
+5. *Nav2 check, chosen pose only.* `plan_frontier_visit` asks Nav2 (`ComputePathToPose`, `use_start: false`,
+   `topics.planner_id`) for one path to the observation pose. It is not run per frontier: SmacPlannerLattice may spend
+   up to 2 s per plan on the busy Pi, and an external plan request can preempt the planner while a navigation runs, so
+   the check is skipped with a note while a navigation is active (`nav_active()`: the base_motion lock is held or
+   Nav2 reports an accepted/executing goal).
+
+**Stable ids, epochs, retired successors.** `FrontierTracker` (one per server, thread-safe, `ToolContext.frontiers`)
+matches each new snapshot to the previous one with `scipy.optimize.linear_sum_assignment` on centroid distance, gated by
+`match_radius_m`. A matched cluster keeps its integer id (matching is in map coordinates, so map growth and origin
+shifts do not renumber); new clusters get the next integer. An id that disappears is *retired* with a `reason`:
+`explored` (no successor), `merged into N` or `split into N` (`successor` = the nearest current id within twice the
+match radius). The last `retired_keep` retired ids are remembered, and `list_frontiers.retired_since_last_call` reports
+the ones retired since the previous call. A retired or unknown id in a tool gives a `ToolError` such as `frontier 7 is
+gone (explored); nearest current frontier: 9`. When known cells fall below `epoch_reset_known_fraction` of the previous
+map (a SLAM reset) or the resolution changes, a new **epoch** starts: everything is cleared, ids restart at 1 and the
+list notes `map reset: frontier ids restarted`. Ids are only comparable inside one `epoch`.
+
+**Tools.** `list_frontiers` / `plan_frontier_visit` are in `ALWAYS_ALLOWED_TOOLS`; the two motion tools are in
+`MOTION_TOOLS`, `TOOL_SUBSYSTEM` (`base`) and `TILT_NAV_TOOLS`, and are also refused (like `look_around`) by the lease,
+battery and tilt gates.
+
+| Tool | Class | Fields |
+|---|---|---|
+| `list_frontiers(max_count=None, reachable_only=false)` | sensor, no lease, no motion | `frontiers[]`: `id`, `centroid {x,y}`, `target {x,y}`, `length_m`, `cells`, `reachable`, `path_distance_m` (geodesic to the observation pose, null when unreachable), `straight_distance_m`, `bearing_deg` (from the robot: 0 ahead, + left), `observation_pose {x,y,yaw}` or null, `nearest_poi {id,name,kind,distance_m}` within `poi_radius_m` or null, `last_lookup_facing` (below) or null. Top level: `map_version`, `map_age_s`, `epoch`, `retired_since_last_call [{id,reason,successor}]`, `compute_ms` (per stage; 0 = served from the cache), `robot_pose`, `notes`. Reachable first, by path distance; capped at `max_listed`. Errors when `/map` is missing or older than `map_max_age_s`; without the robot pose the distance, bearing and reachable fields are null plus a note. |
+| `plan_frontier_visit(id)` | sensor, no lease, no motion | `frontier` (the list entry), `observation_pose`, `reachable`, `path_distance_m`, `rotation_deg` (signed in-place turn from the current heading to face the target, + left), `rotation_clearance` (the `look_around` lidar check of the rotation circle), `nav2_check {status: succeeded/failed/timeout/unavailable, length_m, planning_time_s, error_code, error_msg}` (null or skipped with a note while navigating), `notes`. |
+| `go_to_frontier(id, timeout_s=None)` | motion, base lease, battery gate, tilt gate | Recomputes the snapshot, resolves the id, then `navigate` to the observation pose with the published dynamic footprint. Returns the `navigate_to_pose` fields plus `frontier_id`, `observation_pose`, `frontier_still_present` (checked after the move; null when the map did not update). Refused with nothing moving for a gone id or when no reachable observation pose exists. A frontier explored on the way is not an error: the move ends at the pose. |
+| `look_toward_frontier(id, camera=frontiers.look_camera)` | motion (base only, the arm never moves), base lease, battery gate, tilt gate | Lidar clearance check like `look_around` (refused without moving), then a precise in-place rotation to face the target (skipped within `nav.goal_yaw_tolerance_deg`), then one camera image recorded as a lookup with tool `look_toward_frontier`. Returns the image plus `frontier_id`, `status`, `rotation_deg`, `heading_error_deg`, `camera`, `image_captured`, `lookup_id`, `nav`, `notes`. No capture when the rotation failed or was interrupted (status passed through). The gripper camera is captured at its current pose; head pan/tilt aiming is not built. |
+
+**Topdown layer.** `get_topdown_view(layers=[..., "frontiers"])` (part of the default `all`) draws the frontier cells in
+cyan and a filled marker at each `target` with the `list_frontiers` id in black on white (legend: `frontier (number =
+list_frontiers id)`); `frontier_ids_drawn` in the metadata lists the markers that are inside the view. The layer uses
+the cached snapshot (the tracker is only called when the layer is requested); when `/map` or the robot pose is missing
+it is listed in `layers_missing` with the reason and nothing is drawn.
+
+**Facing lookup (`last_lookup_facing`).** The newest lookup (from the lookup store `index.jsonl`) whose camera axis
+points at the frontier `target` within `facing_half_angle_deg`, no further than `facing_max_distance_m` from the lookup
+position. Result: `{lookup_id, age_s, camera, distance_m, off_axis_deg}`; prefer frontiers where it is null (nobody has
+looked there). The camera axis in the map frame = the record's `base_pose_map` yaw plus the yaw of the body x axis of
+`camera_pose_base`. **Front-camera assumption:** the front camera is uncalibrated (no mount, no intrinsics), so its
+record has no `camera_pose_base`; for `camera == "front"` the axis is taken to be the base heading (the camera looks
+forward). This is approximate and goes away when the front or head camera is calibrated. Gripper records without a pose
+are skipped, never guessed.
+
+**CPU budget and `mcp_frontier_compute_seconds`.** The Pi 5 runs near 90% CPU, so there is no timer: work happens only
+inside tool calls and the topdown layer, once per `/map` version (detection stages) and once per (version, robot cell)
+(geodesic). Measured on an M4 (synthetic map with walls): 400x400 cells extract 7 ms, geodesic 3 ms; 1200x1200 extract
+114 ms, geodesic 115 ms; expect 3-5x on the Pi. Budget: extract + geodesic p95 <= 300 ms on the real map. Read the
+histogram `mcp_frontier_compute_seconds{stage}` from `/metrics` (stages `extract`, `traversability`, `field`, `match`
+once per map version; `geodesic` once per map version and robot cell). Every `list_frontiers` result also carries the
+per-call `compute_ms`; a repeated call on the same map version shows ~0 for the detection stages. If the sum of the
+stage p95 values exceeds 300 ms, raise `frontiers.geodesic_downsample` (2 -> 3). `mcp_frontier_count` is the number of
+frontiers of the latest computed version. A frontier that is `reachable: true` here can still fail the Nav2 check (the
+geodesic uses half-width clearance, Nav2 the real footprint on a lattice): `plan_frontier_visit` is the authority for
+the chosen pose; tune `pass_clearance_margin_m` if the two disagree often.
 
 ## Tilt guard
 
@@ -1663,6 +1750,8 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
 | `topdown.py`, `perception_models.py` | no | robot-up top-down renderer (layers, transforms); perception result models |
 | `object_memory.py`, `look_around.py`, `poi_client.py` | no | object POI memory + merge, look_around plan/loop/montage, POI request matching |
+| `frontiers.py` | no | frontier core: `MapGrid`, vectorised WFD `extract_frontiers`, `traversability`, `geodesic_from`, `observation_pose`, `FrontierTracker` (stable ids, epochs, retired successors), `facing_lookup`, `nearest_poi`, cell/map conversion |
+| `frontier_tools.py` | no | `list_frontiers`, `plan_frontier_visit`, `go_to_frontier`, `look_toward_frontier` (one `TOOL_MODULES` entry) |
 | `perception_tools.py` | no | the perception, memory, look_around and POI tools (one `TOOL_MODULES` entry) |
 | `home_store.py`, `staleness.py`, `geometry.py`, `models.py` | no | home YAML, data age, pose math, result models |
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
@@ -1706,6 +1795,7 @@ expose it on the LAN. The MCP path and the admin route stay behind the token. `r
 | `mcp_guard_rule_hits_total{rule,mode,phase,basis}` | `GuardEngine.run` (`guard_rules.py`): a rule hit at a tool / step / arm check; mode `enforce` (refused) or `dry_run` (would-be refusal), basis `match` or `unknown` (resolved to reject by `when_unknown`) |
 | `mcp_guard_eval_seconds{phase}` | `GuardEngine.run`: evaluation time of a check that had applicable rules (buckets 10 us .. 50 ms); unruled tools are not observed |
 | `mcp_motion_watch_triggers_total{metric,action}` | motion queue watch constraints that triggered, by metric and action (`abort`/`pause`) |
+| `mcp_frontier_compute_seconds{stage}`, `mcp_frontier_count` | `frontier_tools.refresh` / `geodesic_for`: per-stage frontier compute time (`extract`, `traversability`, `field`, `match` once per `/map` version, `geodesic` once per version and robot cell; a cache hit observes nothing) and the frontier count of the latest version; see [Frontiers](#frontiers) |
 | `mcp_nav_goals_total{result}`, `mcp_nav_goal_duration_seconds` | `nav_result` in `base_motion.py`, so every Nav2 goal that was sent (`succeeded`, `canceled`, `timeout`, `interrupted`, `rejected`, ...); errors before a goal exists (Nav2 not available) raise and are not counted |
 
 ### Grasp result mapping
@@ -1836,11 +1926,32 @@ topics:                   # perception additions (defaults shown)
   poi_command: /poi/command
   poi_result: /poi/result
   swerve_joint_states: /swerve_drive/joint_states   # steer joints for the release_control base reset
+  compute_path_action: /compute_path_to_pose        # Nav2 ComputePathToPose, the plan_frontier_visit check
+  planner_id: GridBased                             # planner_server plugin id used by compute_path_action
 footprint: {length_m: 0.47, width_m: 0.386}
 topdown: {default_radius_m: 2.5, default_px: 480, arm_reach_m: 0.41, plan_max_age_s: 30}
 objects: {store_path: /var/lib/ros2/objects/objects.json, merge_radius_m: 0.25}  # store_path: legacy file, imported once into poi_store
 look_around: {default_captures: 4, clearance_margin_m: 0.10, step_timeout_s: 30, mode: spin, spin_speed_rps: 0.4,
               spin_rate_hz: 20, spin_timeout_margin_s: 10, return_to_start: false}
+frontiers:                # frontier tools (see Frontiers); all optional, defaults shown
+  min_length_m: 0.30             # smaller clusters are dropped (12 cells at 2.5 cm)
+  map_max_age_s: 60.0            # older /map is unavailable
+  geodesic_downsample: 2         # geodesic grid = map resolution x this (raise to 3 if over the CPU budget)
+  pass_clearance_margin_m: 0.03  # traversable = clearance >= footprint.width_m / 2 + this
+  view_clearance_margin_m: 0.05  # observation pose clearance >= circumscribed radius + this
+  standoff_min_m: 0.4            # observation pose distance window to the nearest frontier cell
+  standoff_max_m: 1.2
+  los_candidates: 5              # best-scored poses checked for line of sight
+  match_radius_m: 0.6            # centroid distance that keeps an id across map versions
+  epoch_reset_known_fraction: 0.5   # known cells below this fraction of the previous map: new epoch, ids restart
+  retired_keep: 50               # retired ids remembered (gone, replaced by)
+  max_listed: 15                 # list_frontiers cap
+  poi_radius_m: 2.0              # nearest_poi search radius
+  facing_half_angle_deg: 30.0    # a lookup faces a frontier within this angle of the camera axis
+  facing_max_distance_m: 6.0     # ... and within this distance of the lookup position
+  compute_path_timeout_s: 5.0    # plan_frontier_visit Nav2 check
+  look_timeout_s: 20.0           # look_toward_frontier rotation timeout
+  look_camera: front             # default camera (front | gripper)
 motion_queue: {max_steps: 32, event_history: 200, status_events: 10, wait_events: 40, wait_default_s: 30,
                wait_max_s: 120, poll_s: 0.05, base_still_linear_mps: 0.02, base_still_angular_rps: 0.05,
                holding_min_effort: 100.0, holding_min_gap_rad: 0.05,
@@ -1924,6 +2035,12 @@ uv sync    # also installs the shared `ros2-common` package (path dependency ../
 uv run pytest tests -q   # rclpy-free unit tests (rclpy is only imported by ros_iface.py / __main__.py)
 uv run poe lint          # ruff check, ruff format --check, vulture
 ```
+
+Frontier tests: `tests/test_frontiers.py` (pure core on synthetic grids: detection, geodesic, observation pose, tracker ids
+/ epochs / successors, facing lookup, nearest POI, a 1200x1200 timing guard), `tests/test_ros_iface_frontiers.py`
+(`map_grid` version and staleness, `compute_path` outcomes, `nav_active`), `tests/test_frontier_tools.py` (the four
+tools with `FakeRobot`), plus the frontier cases in `test_config.py`, `test_footprint.py`, `test_topdown.py`,
+`test_perception_tools.py`, `test_tools.py` and `test_metrics.py`.
 
 Deploy: `./scripts/deploy-nodes.sh client mcp_server` (a `--tags mcp_server` run of `ansible/playbooks/deploy_nodes_client.yml`).
 
