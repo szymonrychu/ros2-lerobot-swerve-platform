@@ -818,14 +818,10 @@ class PoiSettings(StrictModel):
 
 
 class LookupSettings(StrictModel):
-    """Camera lookup store (lookup_store.py): every get_camera_image / get_annotated_camera_image JPEG the agent
-    received, kept for list_lookups / get_lookup_image / annotate_lookup. Pruned oldest first on every write."""
+    """Camera photo directory: the JPEG target of every camera image (poi_store owns the index and retention)."""
 
     # Read at validation time (not import time) so tests can point the default at a temporary directory.
     store_dir: Path = Field(default_factory=lambda: DEFAULT_LOOKUPS_DIR)
-    max_records: int = Field(default=3000, ge=1)
-    max_bytes: int = Field(default=300_000_000, ge=1)  # total JPEG bytes (300 MB)
-    max_age_days: float = Field(default=14.0, gt=0.0)
 
 
 class ImuLevelReference(StrictModel):

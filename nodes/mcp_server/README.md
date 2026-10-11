@@ -21,10 +21,11 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | Tool | What it does |
 |---|---|
 | `get_robot_state` | map -> base_link pose (TF), odometry twist, latest Nav2 goal status, collision monitor action (if published), arm joints/efforts, gripper effort, filter_node active source, lease state, data age per source. Stale data is omitted and listed in `notes`. |
-| `get_camera_image(camera, max_px<=1024)` | Default size `limits.default_camera_px` (384 px on the longest side; ask for more only to read detail, images fill the context: 640x480 is about 400 tokens). Waits for the next frame on a persistent per-camera subscription (created at startup, never destroyed: per-call subscriptions raced the executor and killed it), with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.front_camera` (default `/overview_camera/image_raw/compressed`, 640x480 overhead Camera Module 3 looking down at the front of the robot, the arm and the floor in front; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + metadata: capture stamp, the picture's `width` x `height`, `calibrated_image` (the size the pixel tools work in, 640x480 here), `scale_to_calibrated` and a `pixel_note` saying to pass `image_width` / `image_height` with pixels read from this picture, and `lookup_id` (the picture as recorded in the lookup store, null when the write failed; see [Camera lookups](#camera-lookups)); error if no frame within `image_timeout_s` or the frame is older than 1 s. |
-| `list_lookups(since, until, near{x,y,radius_m}, poi_id, text, camera, mcp_session, limit<=20)` | Past camera images, metadata only, newest first (default 10). Sensor. See [Camera lookups](#camera-lookups). |
+| `get_camera_image(camera, max_px<=1024)` | Default size `limits.default_camera_px` (384 px on the longest side; ask for more only to read detail, images fill the context: 640x480 is about 400 tokens). Waits for the next frame on a persistent per-camera subscription (created at startup, never destroyed: per-call subscriptions raced the executor and killed it), with timeout. `gripper`: `/camera_0/image_raw/compressed` (JPEG passed through or downscaled once); `front`: `topics.front_camera` (default `/overview_camera/image_raw/compressed`, 640x480 overhead Camera Module 3 looking down at the front of the robot, the arm and the floor in front; JPEG passed through or downscaled once, best view for judging gripper-to-object position). Returns MCP image content (JPEG) + metadata: capture stamp, the picture's `width` x `height`, `calibrated_image` (the size the pixel tools work in, 640x480 here), `scale_to_calibrated` and a `pixel_note` saying to pass `image_width` / `image_height` with pixels read from this picture, and `lookup_id` (the picture's photo POI id, null when it was not recorded; see [Photos (photo POIs)](#photos-photo-pois)); error if no frame within `image_timeout_s` or the frame is older than 1 s. |
+| `list_lookups(since, until, near{x,y,radius_m}, poi_id, text, camera, mcp_session, limit<=20)` | Past camera images (photo POIs), metadata only, newest first (default 10). Sensor. See [Photos (photo POIs)](#photos-photo-pois). |
 | `get_lookup_image(lookup_id, max_px)` | One recorded image (JPEG, exactly as the model received it; `max_px` only downscales) plus its metadata. Sensor. |
-| `annotate_lookup(lookup_id, note, poi_ids)` | Set a lookup's note and/or POI links (replacing them; omitted fields stay); rewrites its index line. Sensor. |
+| `annotate_lookup(lookup_id, note, poi_ids)` | Set a photo's note and/or POI links (replacing them; omitted fields stay) through a poi_store `update`; errors when poi_store is down. Sensor. |
+| `delete_photos(ids, older_than_days, keep_newest, dry_run=false)` | Delete photos (index lines and JPEGs) through a poi_store `delete_photos` with exactly one selector; `dry_run` only reports. Sensor, no motion. |
 | `get_body_state` | Body vitals (sensor, always allowed): per-servo latest temperature / load / current / voltage / status flags with data age, hottest servo, battery V, per-cell V, margin to cut-off and cut-off state, IMU roll/pitch/tilt and last bump, wheel slip residual, commanded vs measured base speed, CPU temperature and firmware throttling flag, active source + lease, last 10 events. Missing data is `null` with a reason in `notes`. |
 | `get_map_summary(include_png, radius_m)` | Nearest `/scan_filtered` obstacle in 8 sectors around base_link, `/map` size and known/occupied/free cells, robot pose, optional small PNG of the map around the robot. |
 | `navigate_to_pose(x, y, yaw, frame='map', timeout_s, precise=false)` | Nav2 `NavigateToPose`; by default the goal ends early (cancelled, base zeroed, status `succeeded`) as soon as the measured pose is within `nav.intermediate_xy_tolerance_m` / `nav.intermediate_yaw_tolerance_deg` (3 cm / 5 deg); `precise=true` waits for Nav2's own checker (`nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg`, 1 cm / 2 deg, slower). Blocks until result/timeout (goal cancelled on timeout or stop); returns result and final pose. The description states the goal precision from `nav.goal_xy_tolerance_m` / `nav.goal_yaw_tolerance_deg` (default 1 cm / 2 deg, keep equal to the Nav2 goal checker) and that a sideways goal first turns the robot toward the path (front leading) and turns back to the goal heading at the end. |
@@ -353,43 +354,67 @@ the given fields; `delete_poi(id)`. Each call waits up to `poi.request_timeout_s
 same `request_id`; the tool errors when poi_store is not running (no subscriber on `/poi/command`), does not answer
 or rejects the change.
 
-## Camera lookups
+## Photos (photo POIs)
 
-Every successful `get_camera_image` and `get_annotated_camera_image` call is recorded automatically
-(`lookup_store.py`, `lookup_tools.py`): the exact JPEG the model received (the annotated image for the annotated tool)
-goes to `<lookups.store_dir>/<id>.jpg` and one JSON line (`LookupRecord`) is appended to `index.jsonl` in the same
-directory (default `/var/lib/ros2/poi/lookups`, next to poi_store's `poi.json`, created by Ansible; poi_store itself
-never reads it). The camera tool's metadata gains `lookup_id`, so the agent can link the picture to a POI right away.
+A photo is a POI of kind `photo` owned by `poi_store` (see `nodes/poi_store/README.md`): a camera image plus the camera
+pose at capture. Every successful camera tool image (`get_camera_image`, `get_annotated_camera_image`,
+`look_toward_frontier`, the grasp jaw crop) is recorded automatically by `LookupRecorder.record` (`lookup_tools.py`):
+
+1. it gathers the robot context (map pose, arm joints, camera pose in base_link) and the camera `view`;
+2. it writes exactly the JPEG the model received to `<lookups.store_dir>/<id>.jpg` (`LookupStore.write_image`, atomic,
+   mode 0644; default `/var/lib/ros2/poi/lookups`, next to poi_store's `poi.json`);
+3. it sends a poi_store `add` with `{kind: "photo", ...PhotoAdd}` (the shared `ros2_common.photos.PhotoAdd` payload;
+   poi_store sets `bytes` from the file and appends the `index.jsonl` line) and waits up to `poi.request_timeout_s`;
+4. it returns the id, which the camera tool reports as `lookup_id`, so the agent can link the picture to a POI right away.
+
+When poi_store is not running or refuses the add, the JPEG is removed again; when it does not answer in time the JPEG
+is kept (poi_store may still index it, otherwise its orphan sweep removes it). Both, like a failed JPEG write, are
+logged on `mcp_server.lookups` and counted in `mcp_lookup_write_failures_total`, and never fail the camera tool, whose
+`lookup_id` is then null.
+
+mcp_server never writes `index.jsonl`: `LookupStore` (`lookup_store.py`) is a read-only view (`records`, `get`,
+`query`, `image`) over the shared stat-keyed `IndexCache` (`shared/ros2_common/lookups.py`), plus `write_image` /
+`remove_image`. Index lines that do not parse are logged once per distinct line and skipped. Retention, annotation
+writes and deletes all happen in poi_store.
 
 | Field | Meaning |
 |---|---|
-| `id`, `ts`, `tool` | uuid hex, unix time of the record, `get_camera_image` / `get_annotated_camera_image` |
+| `id`, `ts`, `tool` | uuid hex (also the POI id), unix time of the capture, the camera tool that took it |
 | `camera`, `width`, `height`, `file`, `bytes` | camera, image size (px), JPEG file name relative to the store, JPEG size |
 | `base_pose_map` | `{x, y, yaw}` in map at capture, null when the pose is unknown |
 | `arm_joints` | measured arm joints (rad), null when stale |
 | `camera_pose_base` | `{xyz, rpy}` of the camera body in base_link (fixed-axis rpy), when the camera has a mount (the gripper camera also needs `arm.base_in_base_link` and fresh joints); null otherwise |
+| `view` | camera pose in map from `ros2_common.photos.camera_view`: `x`, `y`, `z`, `yaw` (camera forward axis), `pitch` (positive looking down), `hfov`, `source` (`camera_mount`, or `base_heading` without a mount: base position and yaw, z / pitch / hfov null); null without a map pose |
 | `mcp_session` | Mcp-Session-Id of the call (a contextvar set in `RobotMCPServer.call_tool_with_digest`; empty without one). mcp_server cannot see claude_agent's instruction id: time range plus session stand in for it |
-| `note`, `poi_ids` | empty until `annotate_lookup` sets them |
+| `kind`, `name`, `status`, `created_by`, `updated_at` | `photo`, label, `open` / `done` / `cancelled`, `agent` / `user`, unix time of the last edit (0 = never) |
+| `note`, `poi_ids` | empty until `annotate_lookup` (or `update_poi` for the note) sets them |
 
-Retention is oldest first against three limits: `lookups.max_records` (3000), `lookups.max_bytes` (300 MB of JPEG) and
-`lookups.max_age_days` (14). Pruning rewrites the whole index, so it only starts once a limit is exceeded by 5% and then
-drops back to the limit itself (no rewrite per camera call at the limit). The record just written is never pruned. JPEGs
-without an index line (crash between the image write and the index append) are removed on the first write of a process
-and with every prune rewrite, unless younger than 60 s. A
-session reset does not clear lookups (history is the point). Index lines that do not parse are logged once per distinct line and skipped;
-`annotate_lookup` rewrites only its own line (fsynced temp file, mode 0644, + rename) and not at all when nothing changes.
-An append first terminates a trailing line a crash left without newline, then fsyncs. The record, query and index reader
-types are shared with web_ui in `shared/ros2_common/lookups.py`; the parsed index is cached until the file changes. A write failure (full disk, missing
-directory, permissions) is logged on `mcp_server.lookups` and counted in `mcp_lookup_write_failures_total`; it never
-fails the camera tool, whose `lookup_id` is then null.
+`view.hfov` is `2*atan(width / (2*fx))` from the camera's configured intrinsics (`cameras.<camera>.intrinsics`), only
+for a full frame: `record_lookup(ctx, tool, camera, jpeg, w, h, full_frame=True)` keeps its positional contract, and the
+grasp jaw crop passes `full_frame=False` (a crop's field of view is not the camera's), so its hfov is null. Without
+intrinsics hfov is null too; nothing is invented.
+
+Photos survive the agent session reset (poi_store's `clear` never touches them). Legacy index lines (written before
+photos were POIs) read as photos with the defaults above; `list_lookups`, `get_lookup_image` and `annotate_lookup`
+return their `view` derived on read from the stored pose (`photo_summary` in `lookup_store.py`, via
+`ros2_common.photos.effective_view`), the same view poi_store lists for them.
 
 `list_lookups` filters combine with AND: `since` / `until` (inclusive; unix seconds or an ISO-8601 time like
 `2025-10-09T08:53:20Z`, naive means UTC), `near` (map distance of
 `base_pose_map`; records without a pose never match), `poi_id` (member of `poi_ids`), `text` (case-insensitive
 substring of `note` only; notes are empty until `annotate_lookup` sets them, so an empty result of a `text` search carries a
 `hint`), `camera`, `mcp_session`; `limit` 1-20 (default 10). Every returned field is named in the tool description.
-`annotate_lookup` rejects `poi_ids` that are not existing POIs (checked against poi_store via `/poi/list`); when poi_store
-is not running the ids cannot be checked and are accepted as given.
+`list_pois` does not list photos; its description points at `list_lookups`.
+
+`annotate_lookup(lookup_id, note, poi_ids)` refuses ids that are not photos in the index, rejects `poi_ids` that are not
+existing POIs (checked against `/poi/list`), deduplicates them and sends a poi_store `update {id, note?, poi_ids?}`;
+the result is the re-read record in the `list_lookups` shape. It errors when poi_store is not running.
+
+`delete_photos(ids, older_than_days, keep_newest, dry_run=false)` takes exactly one selector (a ToolError otherwise) and
+sends a poi_store `delete_photos` command whose `selector` field is a shared `PhotoSelector`
+(`older_than_days` becomes `older_than_s`). The result is `{removed, bytes_freed, missing}` or, with `dry_run`,
+`{would_remove, bytes}`. `PoiRequests.request` puts the payload of this op in the command's `selector` field instead of
+`poi`. `delete_poi(id)` and `update_poi(id, name, note, status)` accept photo ids as well; their descriptions say so.
 
 ## Frontiers
 
@@ -523,7 +548,7 @@ partition every tool):
 | Class | Tools |
 |---|---|
 | `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions`, `resume_motions` |
-| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `check_guard_rules`, `plan_grasp`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi`, `list_lookups`, `get_lookup_image`, `annotate_lookup` |
+| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `check_guard_rules`, `plan_grasp`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi`, `list_lookups`, `get_lookup_image`, `annotate_lookup`, `delete_photos` |
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
 
@@ -1325,8 +1350,8 @@ measured gripper angle) plus the same points moved `grasp_check.crop_depth_m` (0
 camera, takes their bounding box plus `crop_margin_px` (24), clamps it to the frame and crops the JPEG
 (`crop_jpeg`, longest side `grasp_check.image_px` 640, capped by `limits.max_image_px`). `crop_min_px` (64): a smaller
 box, an uncalibrated camera, a jaw region behind the camera or no fresh joint states give the full frame with
-`grasp_check.crop.full_frame_reason` (a real image, never a placeholder). The image is stored as a camera lookup
-(`record_lookup`, tool `grasp_object` / `set_gripper`, id in `crop.lookup_id`) and `crop.box_px` is the box in the frame.
+`grasp_check.crop.full_frame_reason` (a real image, never a placeholder). The image is stored as a photo POI
+(`record_lookup`, tool `grasp_object` / `set_gripper`, id in `crop.lookup_id`; `full_frame=False` for a crop, so no hfov) and `crop.box_px` is the box in the frame.
 `grasp_check.image` is then `pending`; with no frame (camera failure) it is `not_attached`, the result has a warning and
 the outcome is still `unverified` (use `get_camera_image` and then `confirm_grasp`). `mark_visual_pending` sets the carry
 record to an unverified hold awaiting `confirm_grasp` (and starts the `unverified_hold_relax_s` timer).
@@ -1848,7 +1873,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
 | `tool_context.py`, `body_tools.py` | no | `ToolContext` / `RobotApi`; the `get_body_state` module |
 | `camera_tools.py` | no | the camera tool module (registered in `tools.TOOL_MODULES`) |
-| `lookup_store.py`, `lookup_tools.py` | no | camera lookup store (JPEG + `index.jsonl`, slack-based retention, orphan sweep; models shared via `ros2_common.lookups`); the recorder hook of the camera tools and the `list_lookups` / `get_lookup_image` / `annotate_lookup` module |
+| `lookup_store.py`, `lookup_tools.py` | no | photo store facade: read-only `LookupStore` over poi_store's `index.jsonl` (`records`, `get`, `query`, `image`) plus `write_image` / `remove_image` of the JPEG, and `photo_summary` (record metadata with the view derived on read for legacy lines); models shared via `ros2_common.lookups` / `ros2_common.photos`. The recorder hook of the camera tools (JPEG write, then a poi_store photo `add`) and the `list_lookups` / `get_lookup_image` / `annotate_lookup` / `delete_photos` module (see [Photos (photo POIs)](#photos-photo-pois)) |
 | `camera_scene.py`, `camera_overlay.py`, `camera_candidates.py`, `camera_calib.py` | no | calibrated scene and frames, overlay drawing and candidate grids, candidate sets, sample store and solver wiring |
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |
 | `ros_iface.py` | yes | `RosRobot`: subscriptions, TF, Nav2 action, publishers, services; the footprint sink (costmap / ArmStop polygon publishers, `published_footprint` subscriptions, `set_parameters` clients with outcome reports and timeouts, the republish timer, the consumer readiness poll, the arm pose) |
@@ -1883,7 +1908,7 @@ expose it on the LAN. The MCP path and the admin route stay behind the token. `r
 | `mcp_self_collision_min_clearance_m` | smallest arm-to-body clearance of the last executed arm motion (m) |
 | `mcp_robot_events_total{severity}` | `RobotMonitor.emit` (debounced repeats are not counted) |
 | `mcp_sample_age_seconds{feed}` | age of the latest cached sample per ROS feed (`RosRobot.latest` keys, via `staleness.sample_ages`), read at scrape time; a feed without a sample has no series |
-| `mcp_lookup_writes_total{tool}`, `mcp_lookup_write_failures_total` | `LookupRecorder.record` (`lookup_tools.py`): camera images recorded in the lookup store, and the ones it failed to record (the camera tool still answered) |
+| `mcp_lookup_writes_total{tool}`, `mcp_lookup_write_failures_total` | `LookupRecorder.record` (`lookup_tools.py`): camera images recorded as photo POIs, and the ones it failed to record (JPEG write failed, poi_store down, refused or timed out) (the camera tool still answered) |
 | `mcp_guard_rule_hits_total{rule,mode,phase,basis}` | `GuardEngine.run` (`guard_rules.py`): a rule hit at a tool / step / arm check; mode `enforce` (refused) or `dry_run` (would-be refusal), basis `match` or `unknown` (resolved to reject by `when_unknown`) |
 | `mcp_guard_eval_seconds{phase}` | `GuardEngine.run`: evaluation time of a check that had applicable rules (buckets 10 us .. 50 ms); unruled tools are not observed |
 | `mcp_motion_watch_triggers_total{metric,action}` | motion queue watch constraints that triggered, by metric and action (`abort`/`pause`) |
@@ -2055,11 +2080,8 @@ motion_queue: {max_steps: 32, event_history: 200, status_events: 10, wait_events
                holding_min_effort: 100.0, holding_min_gap_rad: 0.05,
                watch_rate_hz: 10.0, watch_max_per_call: 8}  # watcher rate (gt 0, le 20) and watches per call (1..16)
 poi: {request_timeout_s: 3.0, near_radius_m: 5.0}
-lookups:                  # camera lookup store (see Camera lookups); pruned oldest first on every write
+lookups:                  # photo JPEG directory (see Photos (photo POIs)); poi_store owns the index and retention
   store_dir: /var/lib/ros2/poi/lookups
-  max_records: 3000
-  max_bytes: 300000000    # total JPEG bytes (300 MB)
-  max_age_days: 14
 control:                  # control leases: release_control base reset (see Control leases)
   steer_joint_names: [fl_steer, fr_steer, rl_steer, rr_steer]
   steer_neutral_tolerance_rad: 0.05

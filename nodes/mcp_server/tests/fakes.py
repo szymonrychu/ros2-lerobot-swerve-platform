@@ -1,9 +1,16 @@
-"""Test doubles: a simulated follower arm backend with a fake clock."""
+"""Test doubles: a simulated follower arm backend with a fake clock, and poi_store's photo store."""
 
+import time
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 import numpy as np
+from pydantic import ValidationError
+from ros2_common.lookups import INDEX_FILE, LookupRecord
+from ros2_common.photos import PHOTO_KIND, PhotoAdd, PhotoSelector, photo_as_poi
 
+from mcp_server import config as mcp_config
 from mcp_server.arm import JointSample
 from mcp_server.frontiers import MapGrid
 from mcp_server.models import BasePose, PathPlan, RobotError
@@ -132,6 +139,103 @@ class DelayedFollower:
                     break
 
 
+PHOTO_EDITABLE = {"id", "name", "note", "status", "poi_ids"}
+
+
+class FakePhotoStore:
+    """poi_store's photo store as the tool tests see it (E11): it owns index.jsonl next to the JPEGs mcp_server writes.
+
+    add / update / delete / delete_photos follow the poi_store contract and answer in photo_as_poi form; a rejection is
+    a RobotError carrying poi_store's message.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    @property
+    def index(self) -> Path:
+        return self.root / INDEX_FILE
+
+    def records(self) -> list[LookupRecord]:
+        if not self.index.exists():
+            return []
+        recs = []
+        for line in self.index.read_text().splitlines():
+            try:
+                recs.append(LookupRecord.model_validate_json(line))
+            except ValidationError:
+                continue
+        return recs
+
+    def holds(self, photo_id: object) -> bool:
+        return any(r.id == photo_id for r in self.records())
+
+    def write(self, recs: list[LookupRecord]) -> None:
+        self.index.write_text("".join(r.model_dump_json() + "\n" for r in recs))
+
+    def add(self, poi: dict[str, Any]) -> dict[str, Any]:
+        try:
+            payload = PhotoAdd.model_validate({k: v for k, v in poi.items() if k != "kind"})
+        except ValidationError as exc:
+            raise RobotError(f"poi_store rejected the add: {exc}") from exc
+        image = self.root / payload.file
+        if not image.is_file():
+            raise RobotError(f"poi_store rejected the add: photo file {payload.file} does not exist")
+        if self.holds(payload.id):
+            raise RobotError(f"poi_store rejected the add: photo id {payload.id} exists")
+        rec = LookupRecord.model_validate(payload.model_dump() | {"bytes": image.stat().st_size})
+        with self.index.open("a") as fh:
+            fh.write(rec.model_dump_json() + "\n")
+        return photo_as_poi(rec)
+
+    def update(self, poi: dict[str, Any], pois: list[dict[str, Any]]) -> dict[str, Any]:
+        if set(poi) - PHOTO_EDITABLE:
+            raise RobotError("poi_store rejected the update: photo capture data is immutable")
+        known = {str(p.get("id")) for p in pois}
+        dangling = [p for p in poi.get("poi_ids", []) if p not in known]
+        if dangling:
+            raise RobotError(f"poi_store rejected the update: unknown poi_ids {dangling}")
+        recs = self.records()
+        index = next(i for i, r in enumerate(recs) if r.id == poi["id"])
+        changes = {k: v for k, v in poi.items() if k != "id"}
+        recs[index] = recs[index].model_copy(update=changes | {"updated_at": time.time()})
+        self.write(recs)
+        return photo_as_poi(recs[index])
+
+    def delete(self, photo_id: str) -> dict[str, Any]:
+        recs = self.records()
+        rec = next(r for r in recs if r.id == photo_id)
+        self.write([r for r in recs if r.id != photo_id])
+        (self.root / rec.file).unlink(missing_ok=True)
+        return photo_as_poi(rec)
+
+    def delete_many(self, raw: dict[str, Any]) -> dict[str, Any]:
+        selector = PhotoSelector.model_validate(raw)
+        recs = [
+            r
+            for r in self.records()
+            if (selector.created_by is None or r.created_by == selector.created_by)
+            and (selector.camera is None or r.camera == selector.camera)
+        ]
+        missing: list[str] = []
+        if selector.ids is not None:
+            chosen = [r for r in recs if r.id in selector.ids]
+            missing = [i for i in selector.ids if i not in {r.id for r in chosen}]
+        elif selector.older_than_s is not None:
+            chosen = [r for r in recs if time.time() - r.ts > selector.older_than_s]
+        else:
+            newest = sorted(recs, key=lambda r: r.ts, reverse=True)
+            chosen = newest[selector.keep_newest :]
+        size = sum(r.bytes for r in chosen)
+        if selector.dry_run:
+            return {"would_remove": len(chosen), "bytes": size}
+        gone = {r.id for r in chosen}
+        self.write([r for r in self.records() if r.id not in gone])
+        for rec in chosen:
+            (self.root / rec.file).unlink(missing_ok=True)
+        return {"removed": len(chosen), "bytes_freed": size, "missing": missing}
+
+
 class PerceptionFakeMixin:
     """RobotApi perception/memory/POI and base reset methods for the tool tests (state is set up by init_perception)."""
 
@@ -142,6 +246,11 @@ class PerceptionFakeMixin:
         self.pois: list[dict] = []
         self.poi_commands: list[tuple[str, dict]] = []
         self.poi_clears: list[str] = []
+        # poi_store's photo store (E11) in the default lookups dir (conftest points it at the test's tmp dir), every
+        # photo command (op, payload) and an error to raise for photo commands (PoiTimeout, PoiStoreDown, ...).
+        self.photo_store = FakePhotoStore(mcp_config.DEFAULT_LOOKUPS_DIR)
+        self.photo_commands: list[tuple[str, dict]] = []
+        self.photo_error: Exception | None = None
         self.base_resets = 0
         # Footprint sink (footprint.FootprintSink): published polygons, parameter sets and periodic callbacks.
         self.footprint_polygons: list[tuple[str, list[tuple[float, float]]]] = []
@@ -255,7 +364,14 @@ class PerceptionFakeMixin:
 
     def poi_request(self, op: str, poi: dict) -> dict:
         if not self.poi_store_up:
-            raise RobotError("poi_store is not running (no subscriber on /poi/command)")
+            raise PoiStoreDown("poi_store is not running (no subscriber on /poi/command)")
+        is_photo = (
+            op == "delete_photos"
+            or (op == "add" and poi.get("kind") == PHOTO_KIND)
+            or (op in ("update", "delete") and self.photo_store.holds(poi.get("id")))
+        )
+        if is_photo:
+            return self.photo_request(op, poi)
         self.poi_commands.append((op, dict(poi)))
         if op == "add":
             stored = {"id": f"id{len(self.pois)}", "status": "open", "polygon": [], "radius_m": 0.2, **poi}
@@ -269,3 +385,17 @@ class PerceptionFakeMixin:
         else:
             self.pois.remove(match)
         return {"ok": True, "message": op, "poi": match}
+
+    def photo_request(self, op: str, poi: dict) -> dict:
+        """A photo command answered by the fake photo store (photo_error is raised instead when set)."""
+        self.photo_commands.append((op, dict(poi)))
+        if self.photo_error is not None:
+            raise self.photo_error
+        store = self.photo_store
+        if op == "add":
+            return {"ok": True, "message": "added photo", "poi": store.add(poi)}
+        if op == "update":
+            return {"ok": True, "message": "updated photo", "poi": store.update(poi, self.pois)}
+        if op == "delete":
+            return {"ok": True, "message": "deleted photo", "poi": store.delete(poi["id"])}
+        return {"ok": True, "message": "deleted photos", "poi": store.delete_many(poi)}

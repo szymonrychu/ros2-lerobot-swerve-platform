@@ -125,3 +125,18 @@ def test_clear_store_down_and_timeout_raise_distinct_errors() -> None:
         make([], store_up=False).clear("agent")
     with pytest.raises(PoiTimeout):
         make([]).clear("agent")
+
+
+def test_delete_photos_sends_the_selector_field() -> None:
+    published: list[dict] = []
+
+    def answer(client: PoiRequests, msg: dict) -> None:
+        client.on_result(
+            json.dumps({"request_id": msg["request_id"], "ok": True, "message": "", "poi": {"removed": 1}})
+        )
+
+    result = make(published, responder=answer).request("delete_photos", {"ids": ["a" * 32], "dry_run": False})
+    assert result["poi"] == {"removed": 1}
+    (msg,) = published
+    assert msg["op"] == "delete_photos" and msg["selector"] == {"ids": ["a" * 32], "dry_run": False}
+    assert "poi" not in msg

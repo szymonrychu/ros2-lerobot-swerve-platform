@@ -337,7 +337,7 @@ def test_frontier_tools_classified_in_group_vars_and_defaults() -> None:
         assert not FRONTIER_EFFECTORS & set(sensors) and not FRONTIER_SENSORS & set(effectors)
 
 
-LOOKUP_TOOLS = {"list_lookups", "get_lookup_image", "annotate_lookup"}
+LOOKUP_TOOLS = {"list_lookups", "get_lookup_image", "annotate_lookup", "delete_photos"}
 
 
 def test_lookup_tools_are_sensor_tools_in_group_vars_and_defaults() -> None:
