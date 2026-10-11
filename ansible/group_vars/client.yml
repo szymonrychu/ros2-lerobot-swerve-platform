@@ -1669,9 +1669,14 @@ ros2_nodes:
       # Job end: an instruction may only end with the arm at home, no control lease held and the plan finished.
       # The runner sends up to job_end_max_followups refusal follow-ups, then parks the arm itself (release_control all).
       job_end_max_followups: 2
+      # Bound of each robot call of the runner's forced park (cancel_motions, release_control and, when refused for
+      # carrying, the release_control keep_position=true fallback that frees the leases without moving the arm).
+      job_end_park_timeout_s: 60
       # Event monitor of mcp_server: critical events interrupt the running model step (see nodes/claude_agent/README.md).
       # Warning events of these types interrupt the agent after the tool calls in flight finished (a bump never cancels a motion call).
       interrupt_warning_types: [bump]
+      # A warning type interrupts at most once per this many seconds (mcp_server re-emits bump every 2 s on rough floor).
+      warning_interrupt_debounce_s: 10
       robot_events_topic: /robot_events
       http_host: "127.0.0.1"
       http_port: 18300

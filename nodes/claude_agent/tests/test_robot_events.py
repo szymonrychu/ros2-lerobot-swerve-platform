@@ -10,8 +10,9 @@ from claude_agent_sdk import AssistantMessage, TextBlock, ToolResultBlock, ToolU
 
 from claude_agent.config import ClaudeAgentConfig
 from claude_agent.robot_events import FOLLOWUP_TEMPLATE, parse_robot_event
+from claude_agent.robot_stop import RobotToolResult
 
-from .test_runner import FakeClient, FakeStopper, make_result, make_runner
+from .test_runner import FakeClient, FakeStopper, FakeToolCaller, make_result, make_runner
 
 CRITICAL = {
     "seq": 7,
@@ -377,3 +378,168 @@ async def test_critical_lifted_event_interrupts_immediately_despite_a_tool_in_fl
     ToolEventClient.release.set()
     await asyncio.wait_for(runner.wait_idle(), timeout=3)
     assert "map_guard_disturbed: robot lifted" in FakeClient.instances[-1].queries[1]
+
+
+# --- job-end check vs. robot events (H10), warning debounce (M26), stale interrupt tasks (L18) ----------------------
+
+BUMP = {"type": "bump", "severity": "warning", "message": "bumper touched"}
+LIFTED = {"type": "map_guard_disturbed", "severity": "critical", "source": "map_guard", "message": "robot lifted"}
+ARM_OUT_STATE = {"arm": {"held": True, "at_home": False}, "base": {"held": False}}
+CLEAN_STATE = {"arm": {"held": False, "at_home": True}, "base": {"held": False}}
+
+
+class CountingClient(FakeClient):
+    """Counts interrupt calls; subclasses script the segments with access to the runner."""
+
+    runner = None
+
+    def __init__(self, options) -> None:
+        super().__init__(options)
+        self.interrupt_calls = 0
+
+    async def interrupt(self) -> None:
+        self.interrupt_calls += 1
+        await super().interrupt()
+
+    def receive_response(self):
+        return self.segment()
+
+
+class EventDuringCheckCaller(FakeToolCaller):
+    """Fires a warning bump while the first job-end get_control_state runs."""
+
+    runner = None
+
+    async def __call__(self, name: str, args: dict, timeout_s: float) -> RobotToolResult:
+        if name == "get_control_state" and not self.calls:
+            self.runner.handle_robot_event(parse_robot_event(raw(**BUMP)))
+            await asyncio.sleep(0.05)
+        return await super().__call__(name, args, timeout_s)
+
+
+class JobEndStreamClient(CountingClient):
+    """1: the model ends. 2 (JOB END follow-up): a critical event arrives mid-stream. 3: the model parks and ends."""
+
+    interrupts_before_critical: int | None = None
+
+    async def segment(self):
+        index = len(self.queries)
+        if index == 1:
+            yield assistant_text("done")
+            yield make_result()
+        elif index == 2:
+            yield assistant_text("parking")
+            await asyncio.sleep(0.05)
+            type(self).interrupts_before_critical = self.interrupt_calls
+            self.runner.handle_robot_event(parse_robot_event(raw(**LIFTED)))
+            await asyncio.wait_for(self.interrupted.wait(), 1)
+            self.interrupted.clear()
+            yield make_result(terminal_reason="aborted_streaming")
+        else:
+            yield assistant_text("re-checked")
+            yield make_result()
+
+
+async def test_event_during_the_job_end_check_does_not_interrupt_and_later_criticals_still_do(tmp_path: Path) -> None:
+    caller = EventDuringCheckCaller(
+        {
+            "get_control_state": [
+                RobotToolResult(False, "s", data=ARM_OUT_STATE),
+                RobotToolResult(False, "s", data=CLEAN_STATE),
+            ]
+        }
+    )
+    runner, events, _ = make_runner(tmp_path, tool_caller=caller)
+    caller.runner = JobEndStreamClient.runner = runner
+    runner.client_factory = JobEndStreamClient
+    runner.bind_loop()
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    client = FakeClient.instances[-1]
+    assert JobEndStreamClient.interrupts_before_critical == 0, "an event during the check must not interrupt"
+    assert client.interrupt_calls == 1
+    assert len(client.queries) == 3
+    assert client.queries[1].startswith("JOB END REFUSED") and "bump: bumper touched" in client.queries[1]
+    assert "map_guard_disturbed: robot lifted" in client.queries[2]
+    assert [e["status"] for e in events.history() if e["type"] == "turn_end"] == ["done"]
+
+
+class BumpTwiceClient(CountingClient):
+    """1: a bump at t=100 interrupts. 2: a second bump at t=101 arrives mid-stream."""
+
+    second_interrupted: bool | None = None
+
+    async def segment(self):
+        index = len(self.queries)
+        if index == 1:
+            yield assistant_text("driving")
+            self.runner.clock = lambda: 100.0
+            self.runner.handle_robot_event(parse_robot_event(raw(seq=1, **BUMP)))
+            await asyncio.wait_for(self.interrupted.wait(), 1)
+            self.interrupted.clear()
+            yield make_result(terminal_reason="aborted_streaming")
+        elif index == 2:
+            yield assistant_text("checking")
+            self.runner.clock = lambda: 101.0
+            self.runner.handle_robot_event(parse_robot_event(raw(seq=2, **BUMP)))
+            await asyncio.sleep(0.05)
+            type(self).second_interrupted = self.interrupted.is_set() or self.runner.interrupt_pending
+            if type(self).second_interrupted:
+                await asyncio.wait_for(self.interrupted.wait(), 1)
+                self.interrupted.clear()
+                yield make_result(terminal_reason="aborted_streaming")
+            else:
+                yield make_result()
+        else:
+            yield assistant_text("ok")
+            yield make_result()
+
+
+@pytest.mark.parametrize(("debounce", "second_interrupts"), [(5.0, False), (0.5, True)])
+async def test_warning_interrupts_are_debounced_per_type(
+    tmp_path: Path, debounce: float, second_interrupts: bool
+) -> None:
+    runner, events, cfg = make_runner(tmp_path)
+    runner.config = ClaudeAgentConfig(mcp_token_file=cfg.mcp_token_file, warning_interrupt_debounce_s=debounce)
+    BumpTwiceClient.runner = runner
+    runner.client_factory = BumpTwiceClient
+    runner.bind_loop()
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    client = FakeClient.instances[-1]
+    assert BumpTwiceClient.second_interrupted is second_interrupts
+    assert client.interrupt_calls == (2 if second_interrupts else 1)
+    assert len(client.queries) == (3 if second_interrupts else 2)
+    assert len(robot_events(events)) == 2, "a debounced warning is still shown in the chat"
+
+
+class SlowInterruptClient(CountingClient):
+    """1: a note is queued (interrupt scheduled) but the stream ends on its own first. 2: waits past the interrupt."""
+
+    landed_during_followup: int | None = None
+
+    async def interrupt(self) -> None:
+        await asyncio.sleep(0.15)
+        await super().interrupt()
+
+    async def segment(self):
+        if len(self.queries) == 1:
+            yield assistant_text("working")
+            self.runner.interrupt_after_tools("PHASE NOTE")
+            yield make_result()
+        else:
+            await asyncio.sleep(0.3)
+            type(self).landed_during_followup = self.interrupt_calls
+            yield assistant_text("continuing")
+            yield make_result()
+
+
+async def test_a_consumed_followup_cancels_its_pending_interrupt(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path)
+    SlowInterruptClient.runner = runner
+    runner.client_factory = SlowInterruptClient
+    await runner.start_instruction("go")
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    client = FakeClient.instances[-1]
+    assert client.queries[1] == "PHASE NOTE"
+    assert SlowInterruptClient.landed_during_followup == 0, "the stale interrupt must not hit the follow-up query"

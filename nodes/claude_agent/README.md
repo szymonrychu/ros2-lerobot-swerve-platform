@@ -181,14 +181,27 @@ Cond = {ask: "<yes/no question>"}
 A phase closed as `failed` is re-entered at once (attempt + 1, fresh caps, `phase_started` with the new `attempt`) only when all
 of these hold: `p_retry_success >= retry_success_threshold` (0.5), `attempt < max_attempts` (per phase, default 2), automatic
 retries used `< max_auto_retries` (6 per instruction, across all phases) and the instruction budget has room (a turn, and an rw
-call when the phase plans effector calls). The tool result then says `Automatic retry n/m - apply: <retry_change>`. Otherwise
-the result says why not and the failure flows on: the next sibling runs, or an enclosing `while` re-tests its `outcome_of`.
+call when the phase plans effector calls). The tool result then says `Automatic retry n/m - apply: <retry_change>` and
+`... is active again` (`PlanTracker.retried` is the explicit flag). Otherwise the result says why not and the failure flows
+on: the next sibling runs, or an enclosing `while` re-tests its `outcome_of`; a new loop iteration is stated as `Loop '<id>'
+iteration k/max` and the phase line shows `loop iteration k`. A phase entered with `rw_cap` 0 although it planned effector
+calls (the instruction maximum is used up) gets a note saying it can only sense. The retry threshold is stated in the
+system prompt and the `complete_phase` description.
+
+Budget room: what is left of an instruction maximum counts everything used, inside phases or not (turns before the plan
+was set, releases after it ended): `max - max(phase usage, instruction counter)`. Loop re-entries, retries, raises and a
+revision all use this room. `raise_phase_budget` also reserves the caps of the pending phases the cursor can still reach
+(a branch not taken or an ended loop reserves nothing); when no room is left beyond the current cap the note says
+`<cap> stays at N`.
 
 Gate (`tools.py`, `can_use_tool`):
 
 - Sensor tools are always allowed (counted only). Every effector tool is denied with `call agent.set_task_plan first` until a plan
   exists, and with `all phases are completed; ...` after the last phase. The notes tools, the planning tools and the control tools
   stay allowed.
+- Releases are never refused: `release_object` and an opening `set_gripper` (`close_until_effort` unset, `open_fraction >=
+  0.5`) are counted as rw (against the active phase when there is one) but pass regardless of a missing or finished plan, a
+  pending condition, exhausted caps or the time left, so the model can always put an object down before the job end.
 - Effector calls are counted against the ACTIVE phase and denied past its cap: `phase 2 'Drive' rw budget exhausted (N/N); call
   agent.complete_phase (outcome 'failed' if ...), agent.revise_plan, or raise this phase once with agent.raise_phase_budget` (a
   `tool_denied` event).
@@ -211,7 +224,7 @@ Gate (`tools.py`, `can_use_tool`):
 - The SDK `max_turns` is not a config key: it is `max_turn_cap + 10` (`TURN_MARGIN`), a backstop above the hard maximum. The old keys
   `max_turns` and `effector_call_cap` are rejected as unknown.
 
-The system prompt also covers (each asserted in `tests/test_prompt.py`): control leases (`take_control` arm or base before any motion, `release_control(subsystem, keep_position=false)` resets by default, `get_control_state`, `arm_set_home` denied); the end-of-job rule (arm parked, leases released, plan finished; `JOB END REFUSED` follow-ups, forced park after 2); the dynamic footprint (`release_control(subsystem='arm', keep_position=true, carried_object_radius_m=0..0.3)` before driving with the arm out, parking refused while carrying: `release_object` first); the plan tree (`seq` / `if` / `while` / `phase`, the `pickloop` retry example, `ask` vs `outcome_of` conditions, `answer_condition` before effectors); retry fields (`p_retry_success`, `retry_change`, `Automatic retry n/m - apply: ...`); more POIs (objects, areas, critical obstacles as area POIs); pick verification (gripper camera, `holding_load` / `slipping`, jaw position via `get_arm_state`, `unverified` means look and decide); lookups (`list_lookups`, `get_lookup_image`, `annotate_lookup`, `lookup_id`); and the bump / lift interrupts (warning bump after in-flight tools, lifted / carried are critical: stop and report).
+The system prompt also covers (each asserted in `tests/test_prompt.py`): control leases (`take_control` arm or base before any motion, `release_control(subsystem, keep_position=false)` resets by default, `get_control_state`, `arm_set_home` denied); the end-of-job rule (arm parked, leases released, plan finished; `JOB END REFUSED` follow-ups, forced park after `job_end_max_followups`); the dynamic footprint (`release_control(subsystem='arm', keep_position=true, carried_object_radius_m=0..0.3)` before driving with the arm out, parking refused while carrying: `release_object` first); the plan tree (`seq` / `if` / `while` / `phase`, the `pickloop` retry example, `ask` vs `outcome_of` conditions, `answer_condition` before effectors); retry fields (`p_retry_success`, `retry_change`, `Automatic retry n/m - apply: ...`); more POIs (objects, areas, critical obstacles as area POIs); pick verification (gripper camera, `holding_load` / `slipping`, jaw position via `get_arm_state`, `unverified` means look and decide); lookups (`list_lookups`, `get_lookup_image`, `annotate_lookup`, `lookup_id`); and the bump / lift interrupts (warning bump after in-flight tools, lifted / carried are critical: stop and report).
 
 The system prompt explains the planning with the example "put plushie tomato into toy car" (1 Locate mentioned objects, 2 Drive
 towards tomato within 10 cm, 3 Pick up tomato, 4 Drive towards toy car within 10 cm, 5 Drop tomato into the toy car, 6 Get back to
@@ -263,8 +276,11 @@ A background `SingleThreadedExecutor` thread runs the callback, which hands the 
   cancels gets the generic rejection correction above.
 - A **warning** event whose type is in `interrupt_warning_types` (default `[bump]`) queues the follow-up `ROBOT EVENT (warning):
   <type>: <message>. ...` and interrupts through the deferred path: it waits until the tool calls in flight returned, so a warning
-  never cancels a running motion call. Info events and warnings of other types never interrupt. Critical events (for example a
+  never cancels a running motion call. Each warning type interrupts at most once per `warning_interrupt_debounce_s` (10 s);
+  later ones are only shown. Info events and warnings of other types never interrupt. Critical events (for example a
   lifted or carried `map_guard_disturbed`) keep the immediate interrupt.
+- An interrupt scheduled for a stream that ended on its own before it landed is cancelled when its follow-up is taken, so
+  it never hits the next query; `interrupt_pending` is reset before every query.
 - Never interrupts while idle, during session start, after a user stop or after the turn cap.
 
 ## Stopping the robot
@@ -300,27 +316,44 @@ timeout, turn cap, `error` and `max_turns` skip the check: the robot was halted 
 runner calls mcp_server's `get_control_state` itself (`call_robot_tool`, bounded by `stop_timeout_s`) and checks the plan.
 Problems:
 
-- the arm is not at home (`arm.at_home` is `false`; `null`, no home stored or no fresh joint states, is not refused);
+- the arm is not at home (`arm.at_home` is `false`; `null`, no home stored or no fresh joint states, is not refused),
+  but only when the agent holds the arm (`arm.held`) or took control (a successful `take_control`) in this instruction:
+  an arm a human positioned (leader arm, web UI) is not the agent's to park, so "what do you see?" never gets refused;
 - any lease is held (`arm.held`, `base.held`);
 - the plan exists and is not finished (an active phase or a pending condition);
-- the gripper carries an object: `footprint.carried_object_radius_m` set in the state (the only carrying signal
-  `ControlState` has; set by a `keep_position` arm release), or, in this instruction, a `grasp_object` of the model that
-  ended `grasped` / `unverified` or a `release_control` of the model refused with "put the object down first" (a later
-  `release_object` with outcome `released` or a successful `release_control` clears the tool-result signals; an
-  `aborted` release, e.g. stopped before the gripper opened, still counts as carrying).
+- the gripper carries an object. The one carrying signal is `ControlState.arm.carrying` (`{carrying: bool, reasons:
+  [str], radius_m: float | null}`, from mcp_server); against an mcp_server without that field the runner falls back to
+  `footprint.carried_object_radius_m` being set. Tool-result text (grasp outcomes, refusals) is not parsed.
+
+A user Stop (or the turn cap) while the check reads the state ends the check there: no follow-up, no park, the turn ends
+`interrupted`, and no further query is sent once Stop was pressed. Robot events that arrive during the check do not
+interrupt (no model step runs): their text is appended to the JOB END follow-up when one is sent, otherwise dropped
+(they are in the chat anyway).
 
 With problems and fewer than `job_end_max_followups` (2) job-end follow-ups used in the instruction, the runner sends
-`JOB END REFUSED: <problems>. Park: release_control(subsystem="all"); close the active phase with complete_phase.` as
-the next prompt (the same path as the robot-event follow-ups). While carrying an object the text also says `You are
-carrying an object: put the object down first (release_object), then park.`: mcp_server refuses a parking
-`release_control` while the gripper carries something (design F). The model parks first because it knows what it holds
-and what is around; the home routes only avoid the robot's own body.
+`JOB END REFUSED: <problems>. <carry><park><remedy>` as the next prompt (the same path as the robot-event follow-ups):
 
-After the last follow-up the runner parks itself: `release_control(subsystem="all")` with the default reset (the arm
-drives home), bounded by 60 s, shown in the chat as a `tool_call` / `tool_result` pair with `source: "job_end"`, and
-`turn_end` gains `job_end: {forced_park: true, result}` (the structured release result, else its text). When the arm is
-still not home afterwards (failed park, refused while carrying, mcp_server gone) an `error` event "arm not parked after
-the forced job-end release_control: ..." precedes `turn_end`; the status stays as it was.
+- carry, while carrying: `You are carrying an object (<reasons>): put the object down first (release_object), then
+  park.` mcp_server refuses a parking `release_control` while the gripper carries something (design F). The gate never
+  refuses `release_object` or an opening `set_gripper` on plan or cap grounds (see the gate below), so this is always
+  possible, also after the plan finished.
+- park, when a robot problem exists: `Park: release_control(subsystem="all").`
+- remedy, from the plan state: a pending condition gives `Answer condition '<id>' with agent.answer_condition ...`; an
+  active phase gives `Close phase N '<name>' [and the K remaining phases after it] with agent.complete_phase, or replace
+  the rest of the plan with agent.revise_plan.`; no plan or a finished plan gives nothing. Phase numbers are 1-based like
+  every other message.
+
+The model parks first because it knows what it holds and what is around; the home routes only avoid the robot's own
+body.
+
+After the last follow-up the runner parks itself, each call bounded by `job_end_park_timeout_s` (60) and shown in the
+chat as a `tool_call` / `tool_result` pair with `source: "job_end"`: `cancel_motions` first (mcp_server refuses a
+release while the motion queue runs), then `release_control(subsystem="all")` with the default reset (the arm drives
+home). When that release is refused because the gripper carries an object, `release_control(subsystem="all",
+keep_position=true)` follows: it frees both leases without moving the arm. `turn_end` gains `job_end: {forced_park:
+true, result, keep_position_release?}` (structured results, else their text). When the arm is still not home afterwards
+(failed park, refused while carrying, mcp_server gone) an `error` event "arm not parked after the forced job-end
+release_control: ..." precedes `turn_end`; the status stays as it was.
 
 When the check itself fails (mcp_server unreachable, unreadable state) the runner emits an `error` "job-end check
 failed: ..." and ends the instruction normally with `job_end: {check_error: <reason>}`; it never loops.
@@ -385,6 +418,7 @@ unknown keys are rejected.
 | `retry_success_threshold` | `0.5` | A failed phase is re-entered automatically from this `p_retry_success` on (0 to 1) |
 | `max_auto_retries` | `6` | Most automatic phase re-entries per instruction, across all phases |
 | `job_end_max_followups` | `2` | "JOB END REFUSED" follow-ups before the runner parks the arm itself (see "Job end") |
+| `job_end_park_timeout_s` | `60` | Bound of each robot call of the forced park (`cancel_motions`, `release_control`, the keep_position fallback) |
 | `effector_tools` / `uncapped_tools` / `sensor_tools` / `denied_tools` | see above | Short tool names (no `mcp__robot__`) |
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |
 | `mcp_token_file` | `/etc/ros2/mcp_server/token` | `MCP_SERVER_TOKEN=<token>` (or the bare token), read per session |
@@ -411,6 +445,7 @@ unknown keys are rejected.
 | `robot_events_history` | `50` | Robot events kept in memory |
 | `interrupt_warning_types` | `[bump]` | Warning event types that interrupt the agent through the deferred path (after tool calls in flight finish) |
 | `robot_event_debounce_s` | `2` | A critical event does not interrupt again within this window |
+| `warning_interrupt_debounce_s` | `10` | A listed warning type (bump) interrupts at most once per this window; later ones are only shown in the chat (mcp_server re-emits bump every 2 s on a rough floor) |
 | `effort` | `medium` | SDK `effort` (low, medium, high, xhigh, max). Output tokens dominate the measured model gap (about 1.3 s + 10 ms per output token); changing it invalidates the prompt cache |
 | `thinking_display` | `omitted` | Adaptive thinking is always on; `omitted` does not stream the thinking text, `summarized` does |
 | `prompt_cache_ttl` | `1h` | Sets `CLAUDE_CODE_PROMPT_CACHE_TTL` for the CLI so the cache survives idle gaps over 5 min; empty leaves it unset |
@@ -457,11 +492,11 @@ Every event is `{seq: int, ts: float, type, ...}`:
 |---|---|
 | `user_message` | `text` |
 | `assistant_text` | `text` |
-| `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped` / `notes` / `plan`), `input`; `source` only on the node's own calls (`stop`, see above, and the job-end `release_control`, source `job_end`) |
-| `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated`; `source` only on the node's own calls (`stop`, job-end `release_control`) |
+| `tool_call` | `id`, `name` (short), `full_name`, `kind` (`sensor` / `effector` / `uncapped` / `notes` / `plan`), `input`; `source` only on the node's own calls (`stop`, see above, and the job-end `cancel_motions` / `release_control`, source `job_end`) |
+| `tool_result` | `id`, `is_error`, `content` (`{type: "text", text}` or `{type: "image", media_type: "image/jpeg", data_b64}`), `truncated`; `source` only on the node's own calls (`stop`, job-end `cancel_motions` / `release_control`) |
 | `tool_denied` | `id` (may be null), `name`, `reason` |
 | `tool_cancelled` | `id`, `name` (short); a tool result came back with Claude Code's generic "user doesn't want to proceed" text without a user stop (the follow-up corrects it for the model) |
-| `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls); `job_end` (`{forced_park: true, result}` or `{check_error}`) only when the job-end check forced a park or failed |
+| `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls); `job_end` (`{forced_park: true, result, keep_position_release?}` or `{check_error}`) only when the job-end check forced a park or failed |
 | `error` | `message` (authentication failures, missing token file, session failures) |
 | `plan` | the plan payload (`complexity`, `rationale`, `revised`, `revision_rationale`, `active_phase`, `phases` as a flat preorder list with `index`, caps and usage, `tree` (the plan tree: phase nodes as `{type, id, index}`, `if` with `branch`, `while` with `iteration` and `exit_reason`), `pending_condition` (`null` or `{node_id, node_type, question, iteration}`)); emitted when the agent sets its plan |
 | `phase_started` | the phase payload (`index`, `name`, `goal`, `status`, caps, usage, `raised`, `summary`, `id`, `depth` (root level 1), `attempt`, `max_attempts`, `iteration` (of the innermost `while`, 0 outside loops), `p_retry_success`, `retry_change`); emitted when a phase becomes active, again on each loop iteration and automatic retry |

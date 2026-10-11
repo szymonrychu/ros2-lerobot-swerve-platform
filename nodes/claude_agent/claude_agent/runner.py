@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import os
-import re
 import time
 import uuid
 from collections import deque
@@ -24,7 +23,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
-from .budget import PLAN_SERVER_NAME, build_plan_server
+from .budget import PLAN_SERVER_NAME, STATUS_PENDING, PlanTracker, build_plan_server, reachable_phases
 from .config import ClaudeAgentConfig, MissingTokenError, read_mcp_token
 from .digest import build_digest
 from .events import (
@@ -90,24 +89,24 @@ STOP_SENT_TEXT = "stop sent"
 JOB_END_SOURCE = "job_end"
 CONTROL_STATE_TOOL = "get_control_state"
 RELEASE_CONTROL_TOOL = "release_control"
+CANCEL_MOTIONS_TOOL = "cancel_motions"
+TAKE_CONTROL_TOOL = "take_control"
 JOB_END_PARK_ARGS: dict[str, Any] = {"subsystem": "all"}
-JOB_END_PARK_TIMEOUT_S = 60.0
+# Fallback of a park refused for carrying: frees both leases without moving the arm (mcp_server keeps the pose).
+JOB_END_KEEP_ARGS: dict[str, Any] = {"subsystem": "all", "keep_position": True}
 JOB_END_FOLLOWUP_MARKER = "JOB END REFUSED:"
-JOB_END_FOLLOWUP = (
-    JOB_END_FOLLOWUP_MARKER + ' {problems}. {carry}Park: release_control(subsystem="all"); close the active phase with '
-    "complete_phase."
+JOB_END_CARRY_TEXT = "You are carrying an object{reasons}: put the object down first (release_object), then park. "
+JOB_END_PARK_TEXT = 'Park: release_control(subsystem="all"). '
+PLAN_REMEDY_PENDING = (
+    "Answer condition '{node_id}' with agent.answer_condition (value and evidence) so the plan moves on."
 )
-JOB_END_CARRY_TEXT = "You are carrying an object: put the object down first (release_object), then park. "
+PLAN_REMEDY_ACTIVE = (
+    "Close phase {number} '{name}'{rest} with agent.complete_phase, or replace the rest of the plan with "
+    "agent.revise_plan."
+)
 # mcp_server refuses a parking release_control while the gripper carries an object with this text (design F).
 CARRY_REFUSAL_MARKER = "put the object down first"
-# A successful one of these after such a refusal means the object was put down (or the park went through).
-RELEASE_OBJECT_TOOL = "release_object"
-GRASP_TOOL = "grasp_object"
-# grasp_object outcomes after which the jaws are closed on (maybe) an object; get_control_state does not say so.
-CARRY_GRASP_OUTCOME = re.compile(r'"outcome"\s*:\s*"(grasped|unverified)"')
-# Only a release_object that ended "released" put the object down; "aborted" (e.g. stopped before the open step)
-# still holds it.
-RELEASED_OUTCOME = re.compile(r'"outcome"\s*:\s*"released"')
+CANCELLED_TEXT = "cancelled"
 JOB_END_CHECK_ERROR = "job-end check failed: {reason}; the instruction ends without the arm, lease and plan check"
 ARM_NOT_PARKED_MESSAGE = "arm not parked after the forced job-end release_control: {detail}"
 RELEASED_TEXT = "released"
@@ -324,7 +323,9 @@ class AgentRunner:
         self.mcp_prober = mcp_prober or self.default_mcp_prober
         self.robot_tool_caller = robot_tool_caller or self.default_robot_tool_caller
         self.job_end_followups = 0
-        self.carrying_seen = False
+        self.took_control = False
+        self.checking_job_end = False
+        self.last_warning_interrupt: dict[str, float] = {}
         self.mcp_poll_interval_s = MCP_POLL_INTERVAL_S
         self.instruction_started_at = time.monotonic()
         self.session_totals: dict[str, float] = {}
@@ -646,7 +647,8 @@ class AgentRunner:
         self.pending_followup = None
         self.interrupt_pending = False
         self.job_end_followups = 0
-        self.carrying_seen = False
+        self.took_control = False
+        self.last_warning_interrupt = {}
         self.digest = self.take_digest()
         self.last_instruction, self.last_status, self.last_text = text, "", ""
         self.gate.reset()
@@ -961,7 +963,7 @@ class AgentRunner:
                         continue
                     job_end: dict[str, Any] | None = None
                     if self.job_end_applies(message):
-                        followup, job_end = await self.check_job_end()
+                        followup, job_end = await self.run_job_end_check()
                         if followup is not None:
                             continue
                     status = self.finish_turn(message, job_end)
@@ -1002,18 +1004,39 @@ class AgentRunner:
         except Exception as exc:  # noqa: BLE001 - the job end must never break on a failing caller
             return RobotToolResult(True, f"{name} call failed: {type(exc).__name__}: {exc}")
 
+    async def run_job_end_check(self) -> tuple[str | None, dict[str, Any] | None]:
+        """Run check_job_end with robot events held back: an event during the check only adds its text to the follow-up
+        (no interrupt: no model step runs), sent with a JOB END follow-up and dropped when the instruction ends.
+
+        Returns:
+            tuple[str | None, dict[str, Any] | None]: As check_job_end, with the queued event texts appended to the
+            follow-up.
+        """
+        self.checking_job_end = True
+        try:
+            followup, job_end = await self.check_job_end()
+        finally:
+            self.checking_job_end = False
+        queued, self.pending_followup = self.pending_followup, None
+        if followup is not None and queued is not None:
+            followup = f"{followup} {queued}"
+        return followup, job_end
+
     async def check_job_end(self) -> tuple[str | None, dict[str, Any] | None]:
         """Refuse an instruction end with the arm out of home, a lease held or the plan unfinished.
 
         The first job_end_max_followups refusals return a "JOB END REFUSED" follow-up prompt (the model parks the
         arm itself: it knows what it holds and what is around); after that the runner parks the arm itself
         (force_park). A failing check (mcp_server unreachable, unreadable state) is reported and the instruction ends.
+        A user Stop (or the turn cap) during the state read ends the check without a follow-up or a park.
 
         Returns:
             tuple[str | None, dict[str, Any] | None]: (the follow-up prompt to send next, or None to end the turn;
             the job_end report for turn_end, or None when there is nothing to report).
         """
         result = await self.call_robot_tool_safely(CONTROL_STATE_TOOL, {}, self.config.stop_timeout_s)
+        if self.interrupted or self.turn_capped:
+            return None, None
         state = result.data
         if result.is_error or state is None or not isinstance(state.get("arm"), dict):
             reason = result.text if result.is_error else f"unreadable {CONTROL_STATE_TOOL} result: {result.text[:200]}"
@@ -1021,55 +1044,68 @@ class AgentRunner:
             self.logger.error(message)
             self.events.append("error", message=message)
             return None, {"check_error": reason}
-        carrying = self.carrying_seen or is_carrying(state)
-        problems = job_end_problems(state, carrying) + self.plan_problems()
+        carrying = carrying_reasons(state)
+        robot = job_end_problems(state, carrying, self.took_control)
+        problems = robot + plan_problems(self.plan)
         if not problems:
             return None, None
         if self.job_end_followups < self.config.job_end_max_followups:
             self.job_end_followups += 1
             self.logger.warning(f"job end refused ({self.job_end_followups}): {'; '.join(problems)}")
-            carry = JOB_END_CARRY_TEXT if carrying else ""
-            return JOB_END_FOLLOWUP.format(problems="; ".join(problems), carry=carry), None
+            return job_end_followup(problems, carrying, bool(robot), plan_remedy(self.plan)), None
         self.logger.warning(f"job end still refused after {self.job_end_followups} follow-ups; parking the arm")
-        return None, await self.force_park()
+        return None, await self.force_park(carrying is not None)
 
-    def plan_problems(self) -> list[str]:
-        """The plan part of the job-end check.
+    async def job_end_call(self, name: str, args: dict[str, Any], default_text: str) -> RobotToolResult:
+        """Call a robot tool for the forced park, shown in the chat as a job_end call (bounded by job_end_park_timeout_s).
 
-        Returns:
-            list[str]: ["plan unfinished (...)"] when a plan exists and its cursor has not reached the end, else [].
-        """
-        plan = self.plan
-        if plan.root is None or plan.plan_finished:
-            return []
-        pending = plan.pending_condition
-        if pending is not None:
-            return [f"plan unfinished (condition pending: {pending['question']})"]
-        if plan.active is not None:
-            return [f"plan unfinished (active phase {plan.active} '{plan.phases[plan.active].name}')"]
-        return ["plan unfinished"]
-
-    async def force_park(self) -> dict[str, Any]:
-        """Release every lease with the default reset (the arm drives home), shown in the chat as a job_end call.
-
-        Emits an "arm not parked" error when the arm is still not at home afterwards (failed park, refused while
-        carrying an object, mcp_server unreachable).
+        Args:
+            name (str): Tool name (no prefix).
+            args (dict[str, Any]): Tool arguments.
+            default_text (str): Result text shown when the tool returned none.
 
         Returns:
-            dict[str, Any]: {forced_park: True, result: the release_control result (structured, else its text)}.
+            RobotToolResult: Outcome (never raises).
         """
-        full_name = f"{ROBOT_PREFIX}{RELEASE_CONTROL_TOOL}"
-        kind = classify_tool(self.config, full_name)
-        call_id = self.emit_direct_call(RELEASE_CONTROL_TOOL, JOB_END_PARK_ARGS, JOB_END_SOURCE, kind)
-        result = await self.call_robot_tool_safely(RELEASE_CONTROL_TOOL, JOB_END_PARK_ARGS, JOB_END_PARK_TIMEOUT_S)
-        self.emit_direct_result(call_id, result, JOB_END_SOURCE, RELEASED_TEXT)
+        kind = classify_tool(self.config, f"{ROBOT_PREFIX}{name}")
+        call_id = self.emit_direct_call(name, args, JOB_END_SOURCE, kind)
+        result = await self.call_robot_tool_safely(name, args, self.config.job_end_park_timeout_s)
+        self.emit_direct_result(call_id, result, JOB_END_SOURCE, default_text)
+        return result
+
+    async def force_park(self, carrying: bool) -> dict[str, Any] | None:
+        """Cancel the motion queue, then release every lease with the default reset (the arm drives home).
+
+        A running queue makes mcp_server refuse the release, so cancel_motions goes first. A release refused because
+        the gripper carries an object is followed by release_control(all, keep_position=true), which frees both leases
+        without moving the arm. Emits an "arm not parked" error when the arm is still not at home afterwards (failed
+        park, refused while carrying an object, mcp_server unreachable). Nothing is called once the user stopped.
+
+        Args:
+            carrying (bool): Whether the job-end check saw the gripper carrying an object.
+
+        Returns:
+            dict[str, Any] | None: {forced_park: True, result: the release_control result (structured, else its text),
+            keep_position_release: the fallback result when it ran}; None when the user stopped first.
+        """
+        if self.interrupted or self.turn_capped:
+            return None
+        await self.job_end_call(CANCEL_MOTIONS_TOOL, {}, CANCELLED_TEXT)
+        if self.interrupted or self.turn_capped:
+            return None
+        result = await self.job_end_call(RELEASE_CONTROL_TOOL, JOB_END_PARK_ARGS, RELEASED_TEXT)
+        report: dict[str, Any] = {"forced_park": True, "result": structured_or_text(result)}
+        refused_for_carrying = result.is_error and (carrying or CARRY_REFUSAL_MARKER in result.text)
+        if refused_for_carrying and not self.interrupted:
+            kept = await self.job_end_call(RELEASE_CONTROL_TOOL, JOB_END_KEEP_ARGS, RELEASED_TEXT)
+            report["keep_position_release"] = structured_or_text(kept)
         at_home = None if result.is_error else nested(result.data, "state", "arm", "at_home")
         if at_home is not True:
             detail = result.text if result.is_error else f"arm reset {nested(result.data, 'reset', 'arm')}"
             message = ARM_NOT_PARKED_MESSAGE.format(detail=detail)
             self.logger.error(message)
             self.events.append("error", message=message)
-        return {"forced_park": True, "result": result.data if result.data is not None else result.text}
+        return report
 
     def note_stream_event(self, message: StreamEvent) -> None:
         """Time one API call from the partial stream and log it as an ``api_timing`` event at its end.
@@ -1143,6 +1179,9 @@ class AgentRunner:
     def note_tool_results(self, message: UserMessage) -> None:
         """Track finished tool calls and correct Claude Code's generic rejection text in the follow-up.
 
+        A successful take_control marks the instruction as one in which the agent took control (the job-end check then
+        refuses an arm left out of home even after a release in place).
+
         A call cancelled by an interrupt of the runner (phase turn note, robot event) comes back with Claude Code's
         "The user doesn't want to proceed with this tool use ... wait for the user" text. Unless the user stopped the
         instruction, a ``tool_cancelled`` event is emitted and a correction saying it was not the user is queued for
@@ -1158,38 +1197,24 @@ class AgentRunner:
                 continue
             name = short_name(self.tools_in_flight.pop(block.tool_use_id, block.tool_use_id))
             self.tool_started_at.pop(block.tool_use_id, None)
-            self.track_carrying(name, block)
+            if name == TAKE_CONTROL_TOOL and not block.is_error:
+                self.took_control = True
             if not block.is_error or self.interrupted or GENERIC_REJECTION_MARKER not in str(block.content):
                 continue
             self.logger.warning(f"tool call {name} ({block.tool_use_id}) was cancelled by Claude Code")
             self.events.append("tool_cancelled", id=block.tool_use_id, name=name)
             self.add_followup(REJECTION_CORRECTION.format(name=name))
 
-    def track_carrying(self, name: str, block: ToolResultBlock) -> None:
-        """Note from a tool result whether the gripper carries an object, for the job-end follow-up text.
-
-        get_control_state only shows a carried object through the footprint radius, so the runner also tracks the
-        tool results: a grasp_object that ended grasped/unverified or a parking release_control refused for carrying
-        sets it; a release_object whose outcome is "released" or a successful release_control clears it.
-
-        Args:
-            name (str): Short tool name.
-            block (ToolResultBlock): Its result.
-        """
-        if name == GRASP_TOOL and not block.is_error and CARRY_GRASP_OUTCOME.search(tool_result_text(block)):
-            self.carrying_seen = True
-        elif name == RELEASE_CONTROL_TOOL and block.is_error and CARRY_REFUSAL_MARKER in tool_result_text(block):
-            self.carrying_seen = True
-        elif name == RELEASE_CONTROL_TOOL and not block.is_error:
-            self.carrying_seen = False
-        elif name == RELEASE_OBJECT_TOOL and not block.is_error and RELEASED_OUTCOME.search(tool_result_text(block)):
-            self.carrying_seen = False
-
     def schedule_interrupt(self) -> None:
         """Interrupt the model in the background (bounded by stop_timeout_s) so a queued follow-up is sent next."""
         task = asyncio.create_task(self.interrupt_client())
         self.event_tasks.add(task)
         task.add_done_callback(self.event_tasks.discard)
+
+    def cancel_scheduled_interrupts(self) -> None:
+        """Cancel interrupts scheduled for the stream that just ended, so a late one cannot hit the next query."""
+        for task in list(self.event_tasks):
+            task.cancel()
 
     def take_followup(self, result: ResultMessage) -> str | None:
         """Take the pending robot-event follow-up when the instruction should continue with it.
@@ -1203,6 +1228,7 @@ class AgentRunner:
         """
         pending, self.pending_followup = self.pending_followup, None
         self.interrupt_pending = False
+        self.cancel_scheduled_interrupts()
         if pending is None or self.interrupted or self.turn_capped:
             return None
         aborted = (result.terminal_reason or "").startswith("aborted")
@@ -1231,7 +1257,9 @@ class AgentRunner:
         """Publish a robot event; a critical one interrupts the running model step and queues a follow-up message.
 
         A warning whose type is in ``interrupt_warning_types`` (default bump) queues a follow-up and interrupts through
-        the deferred path (after the tool calls in flight finished). Info events and other warnings never interrupt.
+        the deferred path (after the tool calls in flight finished), at most once per ``warning_interrupt_debounce_s``
+        per type. Info events and other warnings never interrupt. During the job-end check (no model step runs) a
+        critical or listed warning event only adds its text to the follow-up.
 
         Runs on the asyncio loop. Idle events are only logged and emitted. A second critical event within
         ``robot_event_debounce_s`` of the last interrupt does not interrupt again (while the follow-up is still pending
@@ -1253,18 +1281,30 @@ class AgentRunner:
             message=event["message"],
             data=event["data"],
         )
-        if not (self.busy and self.streaming) or self.interrupted or self.turn_capped:
+        if not self.busy or self.interrupted or self.turn_capped:
             return
-        if event["severity"] == SEVERITY_WARNING and event["type"] in self.config.interrupt_warning_types:
-            self.interrupt_after_tools(WARNING_FOLLOWUP_TEMPLATE.format(type=event["type"], message=event["message"]))
+        warning = event["severity"] == SEVERITY_WARNING and event["type"] in self.config.interrupt_warning_types
+        if not warning and event["severity"] != SEVERITY_CRITICAL:
             return
-        if event["severity"] != SEVERITY_CRITICAL:
+        template = WARNING_FOLLOWUP_TEMPLATE if warning else FOLLOWUP_TEMPLATE
+        line = template.format(type=event["type"], message=event["message"])
+        if self.checking_job_end:
+            self.add_followup(line)
             return
-        line = FOLLOWUP_TEMPLATE.format(type=event["type"], message=event["message"])
+        if not self.streaming:
+            return
+        if warning:
+            now = self.clock()
+            last = self.last_warning_interrupt.get(event["type"])
+            if last is not None and now - last < self.config.warning_interrupt_debounce_s:
+                return
+            self.last_warning_interrupt[event["type"]] = now
+            self.interrupt_after_tools(line)
+            return
         if self.interrupt_pending and not self.interrupt_deferred:
             self.add_followup(f"Also: {event['type']}: {event['message']}.")
             return
-        now = time.monotonic()
+        now = self.clock()
         last = self.last_event_interrupt
         if not self.interrupt_deferred and last is not None and now - last < self.config.robot_event_debounce_s:
             return
@@ -1293,8 +1333,9 @@ class AgentRunner:
             if self.digest is not None:
                 prompt = f"{self.digest}\n\nNew instruction:\n{text}"
             finished = False
-            while prompt is not None:
+            while prompt is not None and not self.interrupted:
                 self.request_sent_at = self.clock()
+                self.interrupt_pending = False
                 await client.query(prompt)
                 finished, prompt = await self.consume_response(client)
             if not finished:
@@ -1436,57 +1477,127 @@ def nested(data: Any, *keys: str) -> Any:
     return data
 
 
-def is_carrying(state: dict[str, Any]) -> bool:
-    """Whether get_control_state says the gripper carries an object: a carried object radius on the published
-    footprint (``footprint.carried_object_radius_m``, set by a keep_position arm release; the only carrying signal
-    ControlState has).
+def structured_or_text(result: RobotToolResult) -> Any:
+    """The structured result of a direct call, else its text (for the job_end report).
+
+    Args:
+        result (RobotToolResult): Outcome of the call.
+
+    Returns:
+        Any: result.data when set, else result.text.
+    """
+    return result.data if result.data is not None else result.text
+
+
+def carrying_reasons(state: dict[str, Any]) -> list[str] | None:
+    """Whether get_control_state says the gripper carries an object, and why.
+
+    The ControlState field ``arm.carrying`` ({carrying, reasons, radius_m}) is the one carrying signal; an mcp_server
+    without it is read through the carried object radius on the published footprint
+    (``footprint.carried_object_radius_m``, set by a keep_position arm release).
 
     Args:
         state (dict[str, Any]): get_control_state result.
 
     Returns:
-        bool: True when it does.
+        list[str] | None: The reasons (empty when none are given) while carrying, None when not carrying.
     """
-    return nested(state, "footprint", "carried_object_radius_m") is not None
+    field = nested(state, "arm", "carrying")
+    if isinstance(field, dict):
+        if not field.get("carrying"):
+            return None
+        reasons = field.get("reasons")
+        return [str(reason) for reason in reasons] if isinstance(reasons, list) else []
+    return [] if nested(state, "footprint", "carried_object_radius_m") is not None else None
 
 
-def tool_result_text(block: ToolResultBlock) -> str:
-    """Text of a tool result block (its text parts joined, or the plain string content).
-
-    Args:
-        block (ToolResultBlock): Tool result.
-
-    Returns:
-        str: The text ("" without any).
-    """
-    content = block.content
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return ""
-    return "\n".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
-
-
-def job_end_problems(state: dict[str, Any], carrying: bool) -> list[str]:
+def job_end_problems(state: dict[str, Any], carrying: list[str] | None, took_control: bool) -> list[str]:
     """The robot part of the job-end check.
 
     Args:
-        state (dict[str, Any]): get_control_state result ({arm: {held, at_home, ...}, base: {held, ...}}).
-        carrying (bool): Whether the gripper carries an object.
+        state (dict[str, Any]): get_control_state result ({arm: {held, at_home, carrying, ...}, base: {held, ...}}).
+        carrying (list[str] | None): carrying_reasons of the state (None when not carrying).
+        took_control (bool): Whether the agent took control in this instruction.
 
     Returns:
         list[str]: Problems in chat wording (empty when the arm is home and no lease is held). An unknown at_home
-        (null: no home stored or no fresh joint states) is not refused: the model could not fix it.
+        (null: no home stored or no fresh joint states) is not refused: the model could not fix it. An arm out of home
+        is only refused when the agent holds the arm or took control in this instruction: an arm a human positioned
+        (leader arm, web UI) is not the agent's to park.
     """
     problems = []
-    if carrying:
+    if carrying is not None:
         problems.append("carrying an object")
-    if nested(state, "arm", "at_home") is False:
+    agent_arm = bool(nested(state, "arm", "held")) or took_control
+    if nested(state, "arm", "at_home") is False and agent_arm:
         problems.append("arm not at home")
     for subsystem in ("arm", "base"):
         if nested(state, subsystem, "held"):
             problems.append(f"{subsystem} lease held")
     return problems
+
+
+def plan_problems(plan: PlanTracker) -> list[str]:
+    """The plan part of the job-end check.
+
+    Args:
+        plan (PlanTracker): The instruction's plan.
+
+    Returns:
+        list[str]: ["plan unfinished (...)"] when a plan exists and its cursor has not reached the end (phase numbers
+        1-based like every other message), else [].
+    """
+    if plan.root is None or plan.plan_finished:
+        return []
+    pending = plan.pending_condition
+    if pending is not None:
+        return [f"plan unfinished (condition '{pending['node_id']}' pending: {pending['question']})"]
+    if plan.active is not None:
+        return [f"plan unfinished (active phase {plan.active + 1} '{plan.phases[plan.active].name}')"]
+    return ["plan unfinished"]
+
+
+def plan_remedy(plan: PlanTracker) -> str:
+    """What the model must do to finish the plan, for the job-end follow-up.
+
+    Args:
+        plan (PlanTracker): The instruction's plan.
+
+    Returns:
+        str: Answer the pending condition; close the active phase (and the remaining reachable ones) or revise; ""
+        without a plan or when it is finished.
+    """
+    if plan.root is None or plan.plan_finished:
+        return ""
+    pending = plan.pending_condition
+    if pending is not None:
+        return PLAN_REMEDY_PENDING.format(node_id=pending["node_id"])
+    if plan.active is None:
+        return ""
+    phase = plan.phases[plan.active]
+    left = len([p for p in reachable_phases(plan.stack) if p.status == STATUS_PENDING])
+    rest = f" and the {left} remaining phase{'' if left == 1 else 's'} after it" if left else ""
+    return PLAN_REMEDY_ACTIVE.format(number=phase.index + 1, name=phase.name, rest=rest)
+
+
+def job_end_followup(problems: list[str], carrying: list[str] | None, park: bool, remedy: str) -> str:
+    """Build the JOB END REFUSED follow-up.
+
+    Args:
+        problems (list[str]): Robot and plan problems.
+        carrying (list[str] | None): carrying_reasons (None when not carrying).
+        park (bool): Whether a robot problem needs the park clause.
+        remedy (str): plan_remedy text ("" when the plan needs nothing).
+
+    Returns:
+        str: The follow-up prompt.
+    """
+    text = f"{JOB_END_FOLLOWUP_MARKER} {'; '.join(problems)}. "
+    if carrying is not None:
+        text += JOB_END_CARRY_TEXT.format(reasons=f" ({'; '.join(carrying)})" if carrying else "")
+    if park:
+        text += JOB_END_PARK_TEXT
+    return (text + remedy).rstrip()
 
 
 def cli_process(client: ClientLike | None) -> Any:

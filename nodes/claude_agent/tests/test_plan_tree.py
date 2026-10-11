@@ -704,3 +704,103 @@ async def test_revise_plan_handler_accepts_a_tree() -> None:
     t.set_plan("simple", "r", plan=seq(ph("a")))
     res = await handlers(t)["revise_plan"]({"rationale": "new", "plan": seq(ph("b"))})
     assert not res.get("is_error") and "B" in res["content"][0]["text"]
+
+
+# --- budget room outside phases (M23), loop re-entry text (M24), raise notes (L14), no-retry text (L15) -------------
+
+
+def test_room_counts_turns_outside_phases() -> None:
+    t = PlanTracker(ClaudeAgentConfig(max_turn_cap=20))
+    for _ in range(9):
+        t.count_turn()
+    t.set_plan("simple", "r", plan=seq(ph("a", turns=5)))
+    assert t.room()["turn_cap"] == 11, "9 turns were used before the plan existed"
+    with pytest.raises(PlanError, match="only 11 remain"):
+        t.revise_plan("more", plan=seq(ph("b", turns=12)))
+    t.revise_plan("fits", plan=seq(ph("c", turns=11)))
+
+
+def test_room_counts_rw_calls_outside_phases() -> None:
+    t = PlanTracker(ClaudeAgentConfig(max_rw_cap=10))
+    t.set_plan("simple", "r", plan=seq(ph("a", rw=2)))
+    t.complete_phase("done", "ok")
+    t.charge_release()
+    t.charge_release()
+    assert t.rw_used == 2 and t.room()["rw_cap"] == 8
+
+
+async def test_loop_reentry_text_names_the_iteration_not_a_retry() -> None:
+    t = PlanTracker(ClaudeAgentConfig())
+    t.set_plan(
+        "simple", "r", plan=while_("pickloop", outcome_of("pick", "not_run", "failed"), ph("pick", max_attempts=1))
+    )
+    res = await handlers(t)["complete_phase"](
+        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.2, "retry_change": "closer"}
+    )
+    text = res["content"][0]["text"]
+    assert "No automatic retry: p_retry_success 0.2 is below the threshold 0.5" in text
+    assert "Loop 'pickloop' iteration 2/3" in text
+    assert "is now active" in text and "active again" not in text
+    assert "loop iteration 2" in text
+    assert t.retried is False
+
+
+async def test_automatic_retry_text_says_active_again() -> None:
+    t = PlanTracker(ClaudeAgentConfig())
+    t.set_plan("simple", "r", plan=seq(ph("a")))
+    res = await handlers(t)["complete_phase"](
+        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.9, "retry_change": "closer"}
+    )
+    text = res["content"][0]["text"]
+    assert "Automatic retry 2/2" in text and "is active again" in text and "Loop" not in text
+    assert t.retried is True
+
+
+def test_raise_note_says_the_cap_stays_when_no_room_is_left() -> None:
+    t = PlanTracker(ClaudeAgentConfig(max_turn_cap=20))
+    for _ in range(9):
+        t.count_turn()
+    t.set_plan("simple", "r", plan=seq(ph("a", turns=8), ph("b", turns=3)))
+    phase, notes = t.raise_phase_budget(None, 10, "need more")
+    assert phase["turn_cap"] == 8
+    assert notes == ["turn_cap stays at 8: nothing is left of the instruction maximum 20 beyond the current cap"]
+
+
+def test_raise_room_ignores_phases_in_branches_not_taken() -> None:
+    tree = seq(if_("check", ask(), ph("b", rw=4), ph("c", rw=4)), ph("a", rw=2))
+    t = PlanTracker(ClaudeAgentConfig(max_rw_cap=10))
+    t.set_plan("simple", "r", plan=tree)
+    t.answer_condition("check", True, "red")
+    phase, notes = t.raise_phase_budget(8, None, "need more")
+    assert phase["rw_cap"] == 8 and notes == [], "c can no longer run, so its cap is not reserved"
+
+
+async def test_no_retry_for_budget_does_not_say_report_and_continue() -> None:
+    t = PlanTracker(ClaudeAgentConfig(max_rw_cap=4))
+    t.set_plan("simple", "r", plan=seq(ph("a", rw=4), ph("b", rw=0)))
+    spend(t, 4)
+    res = await handlers(t)["complete_phase"](
+        {"outcome": "failed", "summary": "missed", "p_retry_success": 0.9, "retry_change": "closer"}
+    )
+    text = res["content"][0]["text"]
+    assert "No automatic retry: the instruction budget has no room left (rw 0" in text
+    assert "report to the user" not in text
+    assert "Phase 2 'B'" in text and "is now active" in text
+
+
+async def test_a_phase_entered_without_effector_room_says_so() -> None:
+    tree = seq(while_("loop", outcome_of("a", "not_run", "failed"), ph("a", rw=3, max_attempts=1), 2), ph("b", rw=3))
+    t = PlanTracker(ClaudeAgentConfig(max_rw_cap=6))
+    t.set_plan("simple", "r", plan=tree)
+    h = handlers(t)
+    spend(t, 3)
+    await h["complete_phase"]({"outcome": "failed", "summary": "m", "p_retry_success": 0.0, "retry_change": "x"})
+    spend(t, 3)
+    res = await h["complete_phase"]({"outcome": "failed", "summary": "m", "p_retry_success": 0.0, "retry_change": "x"})
+    text = res["content"][0]["text"]
+    assert "Phase 2 'B' gets rw_cap 0" in text and "no effector calls are left" in text
+
+
+def test_complete_phase_description_states_the_retry_threshold() -> None:
+    tools = {tool.name: tool for tool in build_plan_tools(PlanTracker(ClaudeAgentConfig(retry_success_threshold=0.7)))}
+    assert "retry threshold (0.7)" in tools["complete_phase"].description

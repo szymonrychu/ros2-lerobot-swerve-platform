@@ -134,16 +134,20 @@ def setup_tasks() -> list[dict]:
     return yaml.safe_load(SETUP_TASKS.read_text())
 
 
-def mcp_tool_names() -> set[str]:
-    """Names of the tools registered by the mcp_server modules (functions decorated with @tool / @server.tool).
+def mcp_tool_names(directory: Path = MCP_TOOLS.parent) -> set[str]:
+    """Names of the tools registered by the mcp_server modules (sync or async functions decorated with @tool /
+    @server.tool).
+
+    Args:
+        directory: Package directory whose modules are scanned.
 
     Returns:
         set[str]: Tool function names.
     """
     names = set()
-    for module in MCP_TOOLS.parent.glob("*.py"):
+    for module in directory.glob("*.py"):
         for node in ast.walk(ast.parse(module.read_text())):
-            if isinstance(node, ast.FunctionDef):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 for deco in node.decorator_list:
                     target = deco.func if isinstance(deco, ast.Call) else deco
                     if (isinstance(target, ast.Name) and target.id == "tool") or (
@@ -151,6 +155,18 @@ def mcp_tool_names() -> set[str]:
                     ):
                         names.add(node.name)
     return names
+
+
+def load_agent_config_module():
+    """Import nodes/claude_agent/claude_agent/config.py without installing the node.
+
+    Returns:
+        module: The config module.
+    """
+    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_claude_agent_node_type_defaults() -> None:
@@ -179,9 +195,7 @@ def test_claude_agent_entry_after_mcp_server_and_enabled() -> None:
 
 def test_claude_agent_config_valid_and_consistent_with_mcp_server() -> None:
     pytest.importorskip("pydantic")
-    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_agent_config_module()
     raw = yaml.safe_load(node_entry("claude_agent")["config"])
     cfg = module.ClaudeAgentConfig.model_validate(raw)
     assert cfg.http_host == "127.0.0.1", "the agent API must stay on loopback"
@@ -213,6 +227,55 @@ def mcp_server_motion_tools() -> set[str]:
     raise AssertionError("mcp_server tools.py defines no MOTION_TOOLS")
 
 
+TOOL_LISTS = ("effector_tools", "uncapped_tools", "sensor_tools", "denied_tools")
+
+
+def test_mcp_tool_names_finds_async_tools(tmp_path: Path) -> None:
+    (tmp_path / "tools.py").write_text(
+        "@server.tool()\ndef sync_tool():\n    pass\n\n@tool\nasync def async_tool():\n    pass\n"
+    )
+    assert mcp_tool_names(tmp_path) == {"sync_tool", "async_tool"}
+
+
+def test_every_registered_mcp_tool_is_classified_exactly_once() -> None:
+    """Each registered mcp_server tool sits in exactly one claude_agent list (client.yml and code defaults)."""
+    pytest.importorskip("pydantic")
+    module = load_agent_config_module()
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    defaults = {
+        "effector_tools": module.DEFAULT_EFFECTOR_TOOLS,
+        "uncapped_tools": module.DEFAULT_UNCAPPED_TOOLS,
+        "sensor_tools": module.DEFAULT_SENSOR_TOOLS,
+        "denied_tools": module.DEFAULT_DENIED_TOOLS,
+    }
+    registered = mcp_tool_names()
+    for lists in ({name: raw[name] for name in TOOL_LISTS}, defaults):
+        listed = [tool for name in TOOL_LISTS for tool in lists[name]]
+        twice = sorted({tool for tool in listed if listed.count(tool) > 1})
+        assert not twice, f"tools classified more than once: {twice}"
+        assert set(listed) == registered, (
+            f"unclassified: {sorted(registered - set(listed))}, unknown: {sorted(set(listed) - registered)}"
+        )
+
+
+def test_client_yml_claude_agent_config_equals_the_code_defaults() -> None:
+    """Every key client.yml sets for claude_agent equals the code default (config.py is the one source of values)."""
+    pytest.importorskip("pydantic")
+    module = load_agent_config_module()
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    defaults = module.ClaudeAgentConfig().model_dump()
+    differing = {key: (value, defaults.get(key)) for key, value in raw.items() if defaults.get(key) != value}
+    assert not differing, f"client.yml differs from the code defaults (client.yml, default): {differing}"
+
+
+def test_default_effector_and_denied_tools_equal_mcp_server_motion_tools() -> None:
+    pytest.importorskip("pydantic")
+    module = load_agent_config_module()
+    effectors, denied = set(module.DEFAULT_EFFECTOR_TOOLS), set(module.DEFAULT_DENIED_TOOLS)
+    assert not effectors & denied
+    assert effectors | denied == mcp_server_motion_tools()
+
+
 def test_effector_and_denied_tools_match_mcp_server_motion_tools() -> None:
     """claude_agent effector_tools plus denied_tools equal mcp_server MOTION_TOOLS exactly, with no overlap."""
     cfg = yaml.safe_load(node_entry("claude_agent")["config"])
@@ -226,9 +289,7 @@ def test_effector_and_denied_tools_match_mcp_server_motion_tools() -> None:
 def test_control_lease_tools_classified_in_group_vars_and_defaults() -> None:
     """take/release_control uncapped, get_control_state a sensor, arm_set_home denied (client.yml and defaults)."""
     pytest.importorskip("pydantic")
-    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_agent_config_module()
     raw = yaml.safe_load(node_entry("claude_agent")["config"])
     for uncapped, sensors, denied in (
         (raw["uncapped_tools"], raw["sensor_tools"], raw["denied_tools"]),
@@ -242,10 +303,8 @@ def test_control_lease_tools_classified_in_group_vars_and_defaults() -> None:
 
 def test_round2_tools_classified_in_group_vars_and_defaults() -> None:
     """look_around is an effector, every other round-1/2 tool a sensor, in the client.yml config and code defaults."""
-    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
     pytest.importorskip("pydantic")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_agent_config_module()
     raw = yaml.safe_load(node_entry("claude_agent")["config"])
     for effectors, sensors in (
         (raw["effector_tools"], raw["sensor_tools"]),
@@ -261,10 +320,8 @@ LOOKUP_TOOLS = {"list_lookups", "get_lookup_image", "annotate_lookup"}
 
 def test_lookup_tools_are_sensor_tools_in_group_vars_and_defaults() -> None:
     """The camera lookup tools are read-only: sensor tools (never capped) in client.yml and the code defaults."""
-    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
     pytest.importorskip("pydantic")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_agent_config_module()
     raw = yaml.safe_load(node_entry("claude_agent")["config"])
     assert LOOKUP_TOOLS <= mcp_tool_names()
     for effectors, uncapped, sensors in (
@@ -575,9 +632,7 @@ def test_claude_agent_config_has_budget_maxima_and_robot_events_topic() -> None:
 def test_motion_queue_tools_classified_in_group_vars_and_defaults() -> None:
     """enqueue_motions is an effector, cancel_motions uncapped (like stop), status and wait are sensors."""
     pytest.importorskip("pydantic")
-    spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = load_agent_config_module()
     raw = yaml.safe_load(node_entry("claude_agent")["config"])
     for effectors, uncapped, sensors in (
         (raw["effector_tools"], raw["uncapped_tools"], raw["sensor_tools"]),

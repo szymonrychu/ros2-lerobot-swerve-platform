@@ -30,7 +30,7 @@ TIME_BUDGET_MESSAGE = (
     "watchdog would cut it off half done). Do not start new motions: report what is done and what is left, and end the "
     "instruction (stop, cancel_motions, release_object and opening the gripper are still allowed)"
 )
-# Effector tools that stay allowed with no instruction time left: they release or stop, never start a new motion.
+# Effector tools that only let go of an object: never refused by the time left, the plan or the caps (still counted).
 TIME_EXEMPT_EFFECTORS = ("release_object",)
 # set_gripper counts as opening (allowed) from this open_fraction up, unless close_until_effort is set.
 SAFE_OPEN_FRACTION = 0.5
@@ -142,6 +142,19 @@ def check_notes_input(workdir: str, tool_name: str, tool_input: dict[str, Any]) 
     return None
 
 
+def is_release(name: str, tool_input: dict[str, Any]) -> bool:
+    """Whether an effector call only lets go of an object (release_object or an opening set_gripper).
+
+    Args:
+        name (str): Short tool name.
+        tool_input (dict[str, Any]): Tool arguments.
+
+    Returns:
+        bool: True for release_object and for set_gripper calls that open (see is_opening).
+    """
+    return name in TIME_EXEMPT_EFFECTORS or (name == "set_gripper" and is_opening(tool_input))
+
+
 def is_opening(tool_input: dict[str, Any]) -> bool:
     """Whether a set_gripper call opens the gripper (never starts a grasp).
 
@@ -251,13 +264,11 @@ class EffectorGate:
             str | None: The denial reason, or None when time suffices, no time source is set, or the tool is a
             release/opening one (release_object, set_gripper with close_until_effort false and open_fraction >= 0.5).
         """
-        if self.time_left is None or name in TIME_EXEMPT_EFFECTORS:
+        if self.time_left is None or is_release(name, tool_input):
             return None
         left = self.time_left()
         minimum = self.config.min_effector_time_left_s
         if left >= minimum:
-            return None
-        if name == "set_gripper" and is_opening(tool_input):
             return None
         return TIME_BUDGET_MESSAGE.format(name=name, left=left, minimum=minimum)
 
@@ -293,8 +304,10 @@ class EffectorGate:
             context (ToolPermissionContext): Carries the tool_use_id.
 
         Returns:
-            PermissionResult: Allow for notes tools inside the workdir, the planning tools, uncapped tools, and
-            sensor/effector calls within the active phase's budget; Deny for denied tools (always) and otherwise.
+            PermissionResult: Allow for notes tools inside the workdir, the planning tools, uncapped tools,
+            sensor/effector calls within the active phase's budget, and releases (release_object, an opening
+            set_gripper: counted, never refused by the plan, the caps or the time left, so the model can always put an
+            object down before the job end); Deny for denied tools (always) and otherwise.
         """
         kind = classify_tool(self.config, tool_name)
         if kind == KIND_NOTES:
@@ -305,17 +318,17 @@ class EffectorGate:
             return PermissionResultAllow()
         if kind is None:
             return self.deny(context.tool_use_id, tool_name, NOT_AVAILABLE_MESSAGE.format(name=tool_name))
+        name = short_name(tool_name)
         if kind == KIND_DENIED:
-            name = short_name(tool_name)
             return self.deny(
                 context.tool_use_id, name, DENIED_REASONS.get(name, DENIED_DEFAULT_REASON.format(name=name))
             )
-        if kind == KIND_EFFECTOR:
-            reason = self.time_budget_denial(short_name(tool_name), tool_input)
-            if reason:
-                return self.deny(context.tool_use_id, short_name(tool_name), reason)
-        if kind in (KIND_SENSOR, KIND_EFFECTOR):
-            reason = self.plan.charge(kind)
-            if reason:
-                return self.deny(context.tool_use_id, short_name(tool_name), reason)
+        if kind == KIND_EFFECTOR and is_release(name, tool_input):
+            self.plan.charge_release()
+            return PermissionResultAllow()
+        denial = self.time_budget_denial(name, tool_input) if kind == KIND_EFFECTOR else None
+        if denial is None and kind in (KIND_SENSOR, KIND_EFFECTOR):
+            denial = self.plan.charge(kind)
+        if denial:
+            return self.deny(context.tool_use_id, name, denial)
         return PermissionResultAllow()

@@ -131,6 +131,7 @@ CLEAN_CONTROL_STATE = {
     "arm": {"held": False, "at_home": True, "home_stored": True},
     "base": {"held": False, "steering_neutral": True},
 }
+CANCELLED = {"cancelled": 0}
 PARKED_RELEASE = {
     "released": ["arm", "base"],
     "reset": {"arm": "homed", "base": "neutral"},
@@ -154,6 +155,8 @@ class FakeToolCaller:
             return RobotToolResult(False, "state", data=CLEAN_CONTROL_STATE)
         if name == "release_control":
             return RobotToolResult(False, "released", data=PARKED_RELEASE)
+        if name == "cancel_motions":
+            return RobotToolResult(False, "cancelled", data=CANCELLED)
         return RobotToolResult(True, f"unexpected tool {name}")
 
     def names(self) -> list[str]:

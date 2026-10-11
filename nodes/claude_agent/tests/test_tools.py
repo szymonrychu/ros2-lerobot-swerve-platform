@@ -522,3 +522,55 @@ async def test_take_and_release_control_never_counted_never_time_refused_and_get
     assert (gate.plan.ro_used, gate.plan.rw_used) == (0, 0)
     assert isinstance(await gate.can_use_tool("mcp__robot__get_control_state", {}, ctx()), PermissionResultAllow)
     assert (gate.plan.ro_used, gate.plan.rw_used) == (1, 0)
+
+
+# --- H9: putting an object down is never refused by the plan or the caps --------------------------------------------
+
+RELEASES = [("release_object", {}), ("set_gripper", {"open_fraction": 1.0})]
+
+
+def finished_gate() -> EffectorGate:
+    gate = gate_with_plan()
+    gate.plan.complete_phase("done", "all done")
+    return gate
+
+
+def pending_gate() -> EffectorGate:
+    gate = EffectorGate(ClaudeAgentConfig())
+    gate.plan.set_plan(
+        "simple",
+        "t",
+        plan={
+            "type": "if",
+            "id": "check",
+            "condition": {"ask": "red?"},
+            "then": {"type": "phase", "id": "a", **one_phase()},
+        },
+    )
+    return gate
+
+
+def exhausted_gate() -> EffectorGate:
+    gate = gate_with_plan(rw=1)
+    gate.plan.charge("effector")
+    return gate
+
+
+@pytest.mark.parametrize(
+    "make_gate", [finished_gate, pending_gate, exhausted_gate, lambda: EffectorGate(ClaudeAgentConfig())]
+)
+@pytest.mark.parametrize(("name", "args"), RELEASES)
+async def test_release_object_and_opening_the_gripper_are_never_refused_by_the_plan(
+    make_gate, name: str, args: dict
+) -> None:
+    gate = make_gate()
+    before = gate.plan.rw_used
+    assert isinstance(await gate.can_use_tool(f"mcp__robot__{name}", args, ctx()), PermissionResultAllow)
+    assert gate.plan.rw_used == before + 1, "the release is still counted"
+
+
+@pytest.mark.parametrize("make_gate", [finished_gate, pending_gate, exhausted_gate])
+async def test_closing_the_gripper_is_still_refused_by_the_plan(make_gate) -> None:
+    gate = make_gate()
+    result = await gate.can_use_tool("mcp__robot__set_gripper", {"open_fraction": 0.1}, ctx())
+    assert isinstance(result, PermissionResultDeny)

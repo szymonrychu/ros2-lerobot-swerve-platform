@@ -271,3 +271,22 @@ def test_client_group_vars_sets_interrupt_warning_types() -> None:
     raw = yaml.safe_load(agent["config"])
     assert raw["interrupt_warning_types"] == ["bump"]
     assert ClaudeAgentConfig(**raw).interrupt_warning_types == ["bump"]
+
+
+def test_job_end_park_timeout_and_warning_debounce_defaults_and_bounds() -> None:
+    cfg = ClaudeAgentConfig()
+    assert cfg.job_end_park_timeout_s == 60.0
+    assert cfg.warning_interrupt_debounce_s == 10.0
+    assert ClaudeAgentConfig(warning_interrupt_debounce_s=0).warning_interrupt_debounce_s == 0
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig(job_end_park_timeout_s=0)
+    with pytest.raises(ValidationError):
+        ClaudeAgentConfig(warning_interrupt_debounce_s=-1)
+
+
+def test_client_group_vars_sets_job_end_park_timeout_and_warning_debounce() -> None:
+    nodes = yaml.safe_load(CLIENT_GROUP_VARS.read_text())["ros2_nodes"]
+    agent = next(node for node in nodes if node["name"] == "claude_agent")
+    raw = yaml.safe_load(agent["config"])
+    assert raw["job_end_park_timeout_s"] == 60
+    assert raw["warning_interrupt_debounce_s"] == 10

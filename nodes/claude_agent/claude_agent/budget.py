@@ -107,8 +107,15 @@ RETRY_NOTE = "Automatic retry {attempt}/{max_attempts} - apply: {change}"
 NO_RETRY_LOW_P_NOTE = "No automatic retry: p_retry_success {p:g} is below the threshold {threshold:g}"
 NO_RETRY_ATTEMPTS_NOTE = "No automatic retry: attempt {attempt}/{max_attempts} was the last"
 NO_RETRY_CAP_NOTE = "No automatic retry: the {cap} automatic retries of this instruction are used up"
-NO_RETRY_BUDGET_NOTE = (
-    "No automatic retry: the instruction budget has no room left (rw {rw_room}, turns {turn_room}); report to the user"
+NO_RETRY_BUDGET_NOTE = "No automatic retry: the instruction budget has no room left (rw {rw_room}, turns {turn_room})"
+LOOP_ITERATION_NOTE = "Loop '{node_id}' iteration {iteration}/{max_iterations}"
+NO_RW_ROOM_NOTE = (
+    "Phase {number} '{name}' gets rw_cap 0 (planned {planned}): no effector calls are left of the instruction maximum "
+    "{maximum}; sense only, then close it (outcome 'failed' if its goal needs a motion)"
+)
+RAISE_LIMITED_NOTE = "{cap} limited from {value} to {room}, what is left of the instruction maximum {maximum}"
+RAISE_STAYS_NOTE = (
+    "{cap} stays at {current}: nothing is left of the instruction maximum {maximum} beyond the current cap"
 )
 LOOP_EXIT_NOTES = {
     EXIT_CONDITION: "Loop '{node_id}' ended after {iterations} iteration(s): its condition no longer holds",
@@ -167,7 +174,8 @@ COMPLETE_PHASE_DESCRIPTION = (
     "Close the active phase with an honest outcome ('done' when its goal is met, 'failed' when it is not, 'skipped' "
     "when it turned out unnecessary) and a short summary of what you found or did. A 'failed' outcome also needs "
     "p_retry_success (0..1, your honest estimate that one more attempt succeeds) and retry_change (what that attempt "
-    "would do differently): when p_retry_success reaches the retry threshold and attempts and budget remain, the "
+    "would do differently): when p_retry_success reaches the retry threshold ({threshold:g}) and attempts and budget "
+    "remain, the "
     "phase is re-entered automatically with fresh caps and you must apply retry_change. Otherwise the plan moves on "
     "(the next phase, a pending condition, or the end of the plan)."
 )
@@ -564,6 +572,46 @@ def loop_iteration(stack: tuple[Frame, ...]) -> int:
         if frame.node.type == NODE_WHILE:
             return frame.iteration
     return 0
+
+
+def subtree_phases(node: PlanNode) -> list[Phase]:
+    """Return the phase records of a subtree in preorder.
+
+    Args:
+        node (PlanNode): Subtree root.
+
+    Returns:
+        list[Phase]: Its phases.
+    """
+    if node.phase is not None:
+        return [node.phase]
+    return [phase for child in node.children for phase in subtree_phases(child)]
+
+
+def reachable_phases(stack: tuple[Frame, ...]) -> list[Phase]:
+    """Return the phases the cursor can still enter (a branch not taken and an ended loop are unreachable).
+
+    Args:
+        stack (tuple[Frame, ...]): Cursor frames.
+
+    Returns:
+        list[Phase]: Each reachable phase once (the entered phase on top excluded).
+    """
+    found: dict[int, Phase] = {}
+    for frame in stack:
+        node = frame.node
+        if node.type == NODE_SEQ:
+            subtrees = node.children[frame.index :]
+        elif node.type == NODE_IF:
+            subtrees = [] if frame.index else [node]
+        elif node.type == NODE_WHILE:
+            subtrees = node.children if frame.iteration < node.max_iterations else []
+        else:
+            subtrees = [] if frame.index else [node]
+        for subtree in subtrees:
+            for phase in subtree_phases(subtree):
+                found.setdefault(id(phase), phase)
+    return list(found.values())
 
 
 def as_int(name: str, value: Any, minimum: int) -> int:
@@ -963,6 +1011,7 @@ class PlanTracker:
         self.pending_iteration = 0
         self.finished = False
         self.auto_retries = 0
+        self.retried = False
         self.transition_notes: list[str] = []
         self.spent = {field_name: 0 for field_name in CAP_FIELDS}
         self.complexity = ""
@@ -1081,13 +1130,26 @@ class PlanTracker:
             used += self.phase_usage(self.phases[self.active], cap)
         return used
 
+    def instruction_used(self, cap: str) -> int:
+        """Return how much of an instruction maximum is used: the phase usage, or the instruction counter when more
+        was spent outside phases (turns before the plan, releases after it ended).
+
+        Args:
+            cap (str): rw_cap or turn_cap.
+
+        Returns:
+            int: Calls (or turns) used in the instruction.
+        """
+        counter = {"rw_cap": self.rw_used, "turn_cap": self.turns_used}[cap]
+        return max(self.used_by_started(cap), counter)
+
     def room(self) -> dict[str, int]:
-        """Return what is left of the instruction maxima after the phase usage so far.
+        """Return what is left of the instruction maxima after everything used so far (inside phases or not).
 
         Returns:
             dict[str, int]: rw_cap and turn_cap room (never negative).
         """
-        return {cap: max(maximum - self.used_by_started(cap), 0) for cap, maximum in self.instruction_maxima().items()}
+        return {cap: max(maximum - self.instruction_used(cap), 0) for cap, maximum in self.instruction_maxima().items()}
 
     def parse(self, phases: Any, plan: Any, first_index: int, taken_ids: set[str]) -> tuple[PlanNode, TreeParser]:
         """Parse the flat or the tree form.
@@ -1129,6 +1191,15 @@ class PlanTracker:
         phase.attempt = attempt
         phase.iteration = iteration
         self.active = phase.index
+        if phase.planned_rw_cap >= 1 and phase.rw_cap == 0:
+            self.transition_notes.append(
+                NO_RW_ROOM_NOTE.format(
+                    number=phase.index + 1,
+                    name=phase.name,
+                    planned=phase.planned_rw_cap,
+                    maximum=self.config.max_rw_cap,
+                )
+            )
 
     def walk(self, answer: bool | None) -> str:
         """Advance the cursor and apply the step silently (activate a phase or set a pending condition).
@@ -1147,6 +1218,9 @@ class PlanTracker:
             elif effect == EFFECT_ITERATION:
                 node.iteration = value
                 node.exit_reason = ""
+                self.transition_notes.append(
+                    LOOP_ITERATION_NOTE.format(node_id=node.id, iteration=value, max_iterations=node.max_iterations)
+                )
             else:
                 node.exit_reason = value
                 template = LOOP_EXIT_NOTES[value]
@@ -1337,12 +1411,14 @@ class PlanTracker:
             if not change:
                 raise PlanError(CHANGE_REQUIRED_MESSAGE)
         self.transition_notes = []
+        self.retried = False
         self.close_active(outcome, text, p, change)
         closed = phase.as_dict()
         if outcome == OUTCOME_FAILED:
             refusal = self.retry_decision(phase)
             if refusal is None:
                 self.auto_retries += 1
+                self.retried = True
                 self.enter(phase, phase.attempt + 1, phase.iteration)
                 self.transition_notes.append(
                     RETRY_NOTE.format(attempt=phase.attempt, max_attempts=phase.max_attempts, change=change)
@@ -1407,7 +1483,7 @@ class PlanTracker:
         text = as_text("rationale", rationale)
         kept = [phase for phase in self.phases if phase.status != STATUS_PENDING]
         root, parser = self.parse(phases, plan, len(kept), {phase.id for phase in kept})
-        self.check_sums(parser.phases, {cap: self.used_by_started(cap) for cap in CAP_FIELDS})
+        self.check_sums(parser.phases, {cap: self.instruction_used(cap) for cap in CAP_FIELDS})
         if self.active is not None:
             self.close_active(OUTCOME_FAILED, f"{REVISED_SUMMARY}: {text}")
         for index, phase in enumerate(kept):
@@ -1455,18 +1531,19 @@ class PlanTracker:
         maxima = self.instruction_maxima()
         notes: list[str] = []
         updates: dict[str, int] = {}
+        reachable = [p for p in reachable_phases(self.stack) if p.status == STATUS_PENDING]
         for cap, value in given.items():
-            if value < getattr(phase, cap):
-                raise PlanError(
-                    f"{cap} {value} is lower than the current {getattr(phase, cap)}; a raise cannot lower a cap"
-                )
-            reserved = sum(getattr(p, cap) for p in self.phases if p.status == STATUS_PENDING)
-            room = maxima[cap] - (self.used_by_started(cap) - self.phase_usage(phase, cap)) - reserved
+            current = getattr(phase, cap)
+            if value < current:
+                raise PlanError(f"{cap} {value} is lower than the current {current}; a raise cannot lower a cap")
+            reserved = sum(getattr(p, cap) for p in reachable)
+            room = maxima[cap] - (self.instruction_used(cap) - self.phase_usage(phase, cap)) - reserved
             if value > room:
+                value = max(room, current)
+                template = RAISE_STAYS_NOTE if value == current else RAISE_LIMITED_NOTE
                 notes.append(
-                    f"{cap} limited from {value} to {room}, what is left of the instruction maximum {maxima[cap]}"
+                    template.format(cap=cap, value=given[cap], room=value, current=current, maximum=maxima[cap])
                 )
-                value = max(room, getattr(phase, cap))
             updates[cap] = value
         for cap, value in updates.items():
             setattr(phase, cap, value)
@@ -1538,6 +1615,15 @@ class PlanTracker:
             self.on_change()
         return None
 
+    def charge_release(self) -> None:
+        """Count one effector call that puts an object down (release_object, an opening set_gripper): never refused by
+        the plan or the caps, so the model can always let go (also after the plan finished or while an ask waits)."""
+        self.rw_used += 1
+        if self.active is not None:
+            self.phases[self.active].rw_used += 1
+        if self.on_change:
+            self.on_change()
+
     def count_turn(self) -> None:
         """Count one model turn (one AssistantMessage) for the instruction and the active phase."""
         self.turns_used += 1
@@ -1588,12 +1674,14 @@ def describe_phase(phase: dict[str, Any]) -> str:
         phase (dict[str, Any]): Phase payload.
 
     Returns:
-        str: One line with number, name, goal and caps (and the attempt from the second one on).
+        str: One line with number, name, goal and caps (and the attempt from the second one on, the loop iteration
+        inside a loop).
     """
     attempt = f", attempt {phase['attempt']}/{phase['max_attempts']}" if phase.get("attempt", 0) > 1 else ""
+    iteration = f", loop iteration {phase['iteration']}" if phase.get("iteration", 0) > 0 else ""
     return (
         f"Phase {phase['index'] + 1} '{phase['name']}' (goal: {phase['goal']}; rw_cap={phase['rw_cap']}, "
-        f"turn_cap={phase['turn_cap']}{attempt})"
+        f"turn_cap={phase['turn_cap']}{attempt}{iteration})"
     )
 
 
@@ -1715,14 +1803,16 @@ def format_completed(
     following: dict[str, Any] | None,
     notes: list[str] | None = None,
     pending: dict[str, Any] | None = None,
+    retry: bool = False,
 ) -> str:
     """Build the tool result text for a closed phase.
 
     Args:
         closed (dict[str, Any]): The closed phase payload.
         following (dict[str, Any] | None): The newly active phase, or None.
-        notes (list[str] | None): Transition notes (automatic retry, retry refusal, loop exits).
+        notes (list[str] | None): Transition notes (automatic retry, retry refusal, loop iterations and exits).
         pending (dict[str, Any] | None): The pending condition, or None.
+        retry (bool): Whether the following phase is an automatic retry of the closed one (PlanTracker.retried).
 
     Returns:
         str: Text the model reads.
@@ -1734,7 +1824,6 @@ def format_completed(
     parts = [f"Phase {closed['index'] + 1} '{closed['name']}' {closed['status']} ({usage})."]
     if notes:
         parts.append(sentences(notes))
-    retry = following is not None and following.get("id") == closed.get("id") and following["index"] == closed["index"]
     parts.append(describe_next(following, pending, retry))
     return " ".join(parts)
 
@@ -1770,6 +1859,7 @@ def build_plan_tools(tracker: PlanTracker) -> list[SdkMcpTool[Any]]:
         list[SdkMcpTool[Any]]: The tool list for the SDK MCP server.
     """
     max_iterations = tracker.config.max_loop_iterations
+    complete_description = COMPLETE_PHASE_DESCRIPTION.format(threshold=tracker.config.retry_success_threshold)
 
     def text_result(text: str, is_error: bool = False) -> dict[str, Any]:
         result: dict[str, Any] = {"content": [{"type": "text", "text": text}]}
@@ -1787,7 +1877,7 @@ def build_plan_tools(tracker: PlanTracker) -> list[SdkMcpTool[Any]]:
             return text_result(f"Plan rejected: {exc}", True)
         return text_result(format_plan(plan, notes, "accepted"))
 
-    @tool(COMPLETE_PHASE_TOOL, COMPLETE_PHASE_DESCRIPTION, COMPLETE_PHASE_SCHEMA)
+    @tool(COMPLETE_PHASE_TOOL, complete_description, COMPLETE_PHASE_SCHEMA)
     async def complete_phase(args: dict[str, Any]) -> dict[str, Any]:
         try:
             closed, following = tracker.complete_phase(
@@ -1795,7 +1885,9 @@ def build_plan_tools(tracker: PlanTracker) -> list[SdkMcpTool[Any]]:
             )
         except PlanError as exc:
             return text_result(f"Phase not completed: {exc}", True)
-        return text_result(format_completed(closed, following, tracker.transition_notes, tracker.pending_condition))
+        return text_result(
+            format_completed(closed, following, tracker.transition_notes, tracker.pending_condition, tracker.retried)
+        )
 
     @tool(REVISE_PLAN_TOOL, REVISE_PLAN_DESCRIPTION, revise_plan_schema(max_iterations))
     async def revise_plan(args: dict[str, Any]) -> dict[str, Any]:

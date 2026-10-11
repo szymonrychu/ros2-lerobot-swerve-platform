@@ -399,7 +399,7 @@ Covers:
 - system prompt (`test_prompt.py`): the "Tilt guard" section (tilt_warning / tilt_error / tilt_clear, no Nav2 goals, manual short base moves, arm still and compact, never work around the guard); tool refusals come from the budget gate or errors, never from the person, and the generic "user doesn't want to proceed" text means re-run, not stop;
   grip profiles (`grip_profile` on set_gripper / grasp_object, gentle for fragile or light objects, soft for plush / soft toys, foam and fabric, normal for ordinary ones, firm for heavy, slippery objects and tools, check `holding_load` / `slipping` / `crush_risk` and retry firmer or gentler, soft plush gets squashed whatever the load; plush and soft toys go to `grip_profile soft` (not gentle or normal) and a relaxed hold reports `retightened`; the `unverified` grasp outcome: look at the attached gripper camera image, treat the object as held when it is in the jaws, else `release_object` and retry), pixel sizes (always pass `image_width` / `image_height` with pixels from a 384x288 `get_camera_image` picture, or use `get_annotated_camera_image`), the centred grasp (`grasp_shift`, `tool_point` beside the jaw centre by `shift_m` = half the object width plus the fixed jaw clearance is not a drift, `residual_error` / `warnings` / `held_pose`, `approach_speed_scale`), the phase-plan workflow (split into phases first, the four planning tools, the tomato example, per-phase rw/turn guidance ranges, no ro budget and unlimited sensor calls, generous rw/turn caps (double the estimate, raise early), the grasping guidance (several viewpoints by changing the roll incl. directly above, `pixel_to_ground`, average within 1 cm, centre not edge, correct by the observed offset, NOTES.md), retry budgeting (room for retries, raise the budget before it runs out or add a retry phase), fixed vs moving jaw and `object_width_m`, the agent chooses the grasp `wrist_roll`, camera views by roll, the rolling protocol (half open, arm lifted), `surface_height_m` and below-floor reach, stairs / tables / holes described as `surfaces` (step edge point and direction or polygon, height relative to the robot floor) instead of a single `surface_z_m` with `support_z` that must match, fast arm by default, phase and instruction maxima from the config, explicit honest `complete_phase`, once-per-instruction revision and once-per-phase raise, no waiting for approval, no old fixed caps), lists every tool by kind, body awareness / spatial perception / memory-POI-calibration sections (objects are POIs on the person's map, own POIs and objects removed on a new session, the person's POIs stay), safety rules, persona,
   `system_prompt_extra` appended
-- epic prompt (`test_prompt.py`): control leases (take/release/get_control_state, head under either lease, arm_set_home denied, no acquire_control), the end-of-job rule (parked arm, released leases, finished plan, JOB END REFUSED, force-park after 2), dynamic footprint and carrying (carried_object_radius_m 0 to 0.3, parking refused while carrying), plan tree (seq/if/while/phase, pickloop, ask vs outcome_of, answer_condition), retry fields (p_retry_success, retry_change, Automatic retry n/m), more POIs, pick verification, lookups (list_lookups, get_lookup_image, annotate_lookup) and the bump / lift interrupts
+- epic prompt (`test_prompt.py`): control leases (take/release/get_control_state, head under either lease, arm_set_home denied, no acquire_control), the end-of-job rule (parked arm, released leases, finished plan, JOB END REFUSED, force-park after 2), dynamic footprint and carrying (carried_object_radius_m 0 to 0.3, parking refused while carrying), plan tree (seq/if/while/phase, pickloop, ask vs outcome_of, answer_condition), retry fields (p_retry_success, retry_change, Automatic retry n/m), more POIs, pick verification, lookups (list_lookups, get_lookup_image, annotate_lookup) and the bump / lift interrupts; the force-park count follows `job_end_max_followups` ("after 3 refusals", "after 1 refusal", "at once" for 0) and the retry threshold value is stated (L17)
 - motion queue prompt (`test_prompt.py`): the queue pattern (`enqueue_motions` with preconditions and `on_fail`,
   blending, queue at least 2 steps deep, `wait_for_event` instead of polling, `get_motion_status`, `cancel_motions` /
   `replace=true` on surprises, checkpoints only), the safety rules restated for queued motions (roll guard, negative
@@ -417,19 +417,27 @@ Covers:
   and returns the structured result as `data`; a missing token file is an error with no data; a hanging server is bounded
   and the timeout text names the tool
 - job end (`test_job_end.py`, fake client plus fake tool caller `FakeToolCaller` in `test_runner.py`): the arm not at home and
-  the arm lease held refused with a `JOB END REFUSED` follow-up naming both and `release_control(subsystem="all")` /
-  `complete_phase`, and the model fixing it (instruction ends `done`, no `job_end` field, no extra events); never fixed: 2
-  follow-ups (`job_end_max_followups` default), then the runner's own `release_control(subsystem="all")` shown as
-  `tool_call` / `tool_result` with `source: "job_end"` and `turn_end.job_end = {forced_park: true, result}`; a park leaving the arm
-  out and a park refused while carrying emit "arm not parked" before `turn_end`; `job_end_max_followups: 0` parks at once; a
-  failing check (mcp_server unreachable, unreadable state) emits "job-end check failed" and ends `done` with
-  `job_end.check_error`, without follow-ups; user stop, timeout, turn cap, `error` and `max_turns` skip the check; carrying an
-  object (`footprint.carried_object_radius_m` in the real `ControlState` shape, a `grasp_object` that ended `grasped`, or a
-  `release_control` of the model refused with "put the object down first") puts "put the object
-  down first (release_object)" before the park text, and a later `release_object` with outcome `released` or a successful
-  `release_control` clears it while an `aborted` release_object keeps it; a static footprint without a radius and a missed grasp are not carrying; an unfinished plan names its active phase and ends with a forced park, a
-  finished one passes; the follow-up count resets per instruction. `test_config.py`: `job_end_max_followups` default 2, 0
-  allowed, negative rejected. Existing runner tests close their plan (`completer()`) so the check passes
+  the arm lease held refused with a `JOB END REFUSED` follow-up naming both and `release_control(subsystem="all")` (no
+  `complete_phase` clause without a plan), and the model fixing it (instruction ends `done`, no `job_end` field, no extra
+  events); never fixed: 2 follow-ups (`job_end_max_followups` default), then the runner's own `cancel_motions` and
+  `release_control(subsystem="all")` shown as `tool_call` / `tool_result` with `source: "job_end"` and `turn_end.job_end =
+  {forced_park: true, result}`; a running motion queue cancelled before the release (`QueueRunningCaller` refuses the release
+  until `cancel_motions`); a park leaving the arm out emits "arm not parked" before `turn_end`; a park refused while carrying
+  falls back to `release_control(subsystem="all", keep_position=true)` (reported as `keep_position_release`) and still emits
+  "arm not parked"; each park call bounded by `job_end_park_timeout_s`; `job_end_max_followups: 0` parks at once; a failing
+  check (mcp_server unreachable, unreadable state) emits "job-end check failed" and ends `done` with `job_end.check_error`,
+  without follow-ups; user stop, timeout, turn cap, `error` and `max_turns` skip the check, and a user Stop during the
+  check's `get_control_state` (`StopDuringCheckCaller`) sends no follow-up and never parks (C1); carrying from
+  `arm.carrying` (its reasons named in the follow-up; `carrying: false` wins over a stale footprint radius) or, without the
+  field, from `footprint.carried_object_radius_m` puts "put the object down first (release_object)" before the park text,
+  while grasp or refusal tool-result text alone no longer counts; with a finished plan the model can still call
+  `release_object` through the gate and the job ends without a forced park (H9); an arm out of home the agent never held
+  passes, one it took control of in this instruction is refused, a refused `take_control` does not count (M22); an
+  unfinished plan names its active phase 1-based with the `complete_phase` / `revise_plan` remedy and ends with a forced park,
+  a finished one passes; `plan_problems` / `plan_remedy` give one text per plan state (none, one active phase, several left,
+  pending ask, finished; M25); the follow-up count resets per instruction. `test_config.py`: `job_end_max_followups` default
+  2, 0 allowed, negative rejected; `job_end_park_timeout_s` default 60 and positive, `warning_interrupt_debounce_s` default 10
+  and not negative, both set in client.yml. Existing runner tests close their plan (`completer()`) so the check passes
 - plan (`test_budget.py`): `PlanTracker` validation (complexity enum, 1 to 12 phases, integer caps, rw 0 allowed, names and goals, a stray `ro_cap` ignored), clamping to the
   per-phase maxima with notes, rejection when the phase caps summed exceed an instruction maximum, the phase lifecycle (first phase active,
   `complete_phase` outcomes and next activation, plan end), sensor calls never refused (no plan, plan finished, turn cap used up) but counted, rw/turn counting and exact exhausted reasons, the once-per-phase raise
@@ -454,12 +462,20 @@ Covers:
   `retry_change` rejected, p 0.49 vs 0.5 at the threshold, re-entry with attempt n/m, fresh caps and the `Automatic retry n/m -
   apply: ...` text, attempts exhausted, the cap of 6 automatic retries across two phases, the configured threshold and cap, no
   retry with rw room 0 or turn room 0, a retry inside a `while` before the loop re-tests, a revision close needing no retry fields;
-  and the SDK tool schemas and handler texts (tree accepted, automatic retry, pending question, `answer_condition`, tree revise)
+  the SDK tool schemas and handler texts (tree accepted, automatic retry, pending question, `answer_condition`, tree revise);
+  the room counting turns and rw calls spent outside phases, also for a revision (M23); a loop re-entry text naming `Loop '<id>'
+  iteration k/max` and `is now active` while an automatic retry says `is active again` (`retried` flag, M24); a raise note
+  saying the cap stays when no room is left and no reservation for a branch not taken (L14); the budget no-retry note without
+  "report to the user" and a phase entered with `rw_cap` 0 despite planned effectors saying so (L15); the retry threshold in
+  the `complete_phase` description (L17)
 - robot events (`test_robot_events.py`): `/robot_events` JSON parsing and normalization, idle events emitted but never interrupting, bounded
   history, non-critical events not interrupting, a critical event interrupting the running step and continuing the same instruction
   with the follow-up message (no robot stop, plan and turns carried over), the 2 s debounce, thread-safe hand-over from the rclpy thread,
   garbage and unbound-loop events dropped, a user stop winning over a pending follow-up, a critical event interrupting at once
-  even while a phase-note interrupt waits for running tool calls; tilt guard events (`tilt_warning`, `tilt_error`) interrupting with the event text in the follow-up, `tilt_clear` (info) not interrupting; warning events of a type in `interrupt_warning_types` (default `bump`) waiting for the tool call in flight and then interrupting with a `ROBOT EVENT (warning)` follow-up (also immediate with no call in flight), a warning of an unlisted type and an info event of a listed type not interrupting, the type list read from config, and a critical `map_guard_disturbed` (lifted) interrupting at once despite a call in flight; `test_config.py` covers the `interrupt_warning_types` default and the client.yml value
+  even while a phase-note interrupt waits for running tool calls; an event during the job-end check never interrupting (its
+  text goes into the JOB END follow-up) while a critical event in the following JOB END stream still does (H10); warning
+  interrupts debounced per type by `warning_interrupt_debounce_s` (M26); a follow-up taken before its scheduled interrupt
+  landed cancels that interrupt so it never hits the next query (L18); tilt guard events (`tilt_warning`, `tilt_error`) interrupting with the event text in the follow-up, `tilt_clear` (info) not interrupting; warning events of a type in `interrupt_warning_types` (default `bump`) waiting for the tool call in flight and then interrupting with a `ROBOT EVENT (warning)` follow-up (also immediate with no call in flight), a warning of an unlisted type and an info event of a listed type not interrupting, the type list read from config, and a critical `map_guard_disturbed` (lifted) interrupting at once despite a call in flight; `test_config.py` covers the `interrupt_warning_types` default and the client.yml value
 - control leases and denied tools (`test_tools.py`, `test_config.py`): `take_control` / `release_control` uncapped (never counted, never refused with no time left), `get_control_state` a sensor, `arm_set_home` classified `denied` and refused with the reason "arm_set_home is reserved for humans: the job-end check compares against the stored home" with or without a plan and never counted; `denied_tools` may not overlap the other tool lists.
 - tools (`test_tools.py`): classification (sensor / effector / uncapped / plan, unknown robot tool counted as rw, non-robot unclassified),
   built-in tool deny list, effector tools denied until a plan is set while sensors stay allowed (notes tools, the planning tools, `stop` and the
@@ -468,7 +484,8 @@ Covers:
   sensor call both allowed; past the rw cap the extra effectors denied with the budget reason, the sensor allowed), an exception
   inside the gate or its denial callback turned into an explicit, logged `internal error in the permission gate` denial;
   `answer_condition` allowed as a planning tool, a pending ask denying effectors (sensors allowed) until answered, the condition
-  callbacks forwarded to the tracker
+  callbacks forwarded to the tracker; `release_object` and an opening `set_gripper` allowed and counted with a finished plan, a
+  pending ask, an exhausted cap or no plan, a closing `set_gripper` still refused (H9)
 - events (`test_events.py`): ring buffer and sequence numbers, subscribers, normalization of assistant text / tool calls /
   tool results from SDK objects, image thumbnails (size, no upscaling, RGBA, undecodable), 4000-char truncation flag,
   turn_end statuses (done, interrupted, max_turns, error) and auth-error detection
@@ -1236,6 +1253,10 @@ layout; no ROS needed).
 | `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `poi_store` (which follows `mcp_server`). |
 | `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
 | `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (rw 150 / turns 200), the per-phase maxima (40 / 40), no ro maxima and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`; no `poi_command_topic` (the reset clears POIs over HTTP via mcp_server). |
+| `test_mcp_tool_names_finds_async_tools` | The registered-tool scanner reads both `def` and `async def` functions decorated with `@tool` / `@server.tool`, so an async mcp_server tool cannot slip past the parity checks. |
+| `test_every_registered_mcp_tool_is_classified_exactly_once` | Every tool mcp_server registers sits in exactly one of `effector_tools`, `uncapped_tools`, `sensor_tools` and `denied_tools`, and the lists name no unknown tool, in both the client.yml config and the code defaults. |
+| `test_client_yml_claude_agent_config_equals_the_code_defaults` | Every key the client.yml claude_agent config sets equals the `ClaudeAgentConfig` default, so config.py stays the one source of the values (including `job_end_park_timeout_s` and `warning_interrupt_debounce_s`). |
+| `test_default_effector_and_denied_tools_equal_mcp_server_motion_tools` | The code defaults `DEFAULT_EFFECTOR_TOOLS` plus `DEFAULT_DENIED_TOOLS` (no overlap) equal mcp_server `MOTION_TOOLS`, like the client.yml lists. |
 | `test_effector_and_denied_tools_match_mcp_server_motion_tools` | `effector_tools` plus `denied_tools` (`[arm_set_home]`, no overlap) in the claude_agent config equal mcp_server `MOTION_TOOLS` exactly (parsed from tools.py with `ast`), so the effector cap, the gate deny list and the battery gate cover the same tools. Strict: `look_around` must be in `MOTION_TOOLS`. |
 | `test_control_lease_tools_classified_in_group_vars_and_defaults` | `take_control` / `release_control` are uncapped (`acquire_control` is gone), `get_control_state` a sensor and `arm_set_home` denied, in both the client.yml config and the code defaults. |
 | `test_round2_tools_classified_in_group_vars_and_defaults` | `look_around` is an effector and `get_body_state` plus the round-2 sensor tools (pixel_to_ground, annotated image, candidates, calibration, topdown view, objects, POIs) are sensors, in both the client.yml config and the code defaults. |

@@ -646,3 +646,15 @@ def test_prompt_teaches_bump_and_lift_interrupts() -> None:
             "stop and report",
         ),
     )
+
+
+def test_prompt_states_the_job_end_followups_and_retry_threshold_from_config() -> None:
+    text = " ".join(
+        build_system_prompt(ClaudeAgentConfig(job_end_max_followups=3, retry_success_threshold=0.7)).split()
+    )
+    assert "after 3 refusals" in text and "after 2 refusals" not in text
+    assert "retry threshold (0.7)" in text
+    once = " ".join(build_system_prompt(ClaudeAgentConfig(job_end_max_followups=1)).split())
+    assert "after 1 refusal," in once
+    at_once = " ".join(build_system_prompt(ClaudeAgentConfig(job_end_max_followups=0)).split())
+    assert "force-parks the arm at once" in at_once

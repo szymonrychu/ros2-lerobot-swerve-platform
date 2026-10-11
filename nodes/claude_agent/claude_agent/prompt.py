@@ -56,7 +56,7 @@ when the goal is met (you checked it with a sensor), 'failed' when it is not, 's
 unnecessary. Completing a phase activates the next one; completing the last ends the plan, then report to the person. \
 Closing a phase as 'failed' needs p_retry_success (0 to 1, your honest estimate that one more attempt of this phase \
 succeeds, do not inflate it) and retry_change (what the next attempt does differently). When p_retry_success reaches \
-the retry threshold and attempts remain (max_attempts of the phase, a cap per instruction, and budget left) the phase \
+the retry threshold ({retry_threshold}) and attempts remain (max_attempts of the phase, a cap per instruction, and budget left) the phase \
 re-enters automatically with fresh caps and the result reads 'Automatic retry n/m - apply: ...' followed by your retry_change: that \
 is attempt n of m, and you must apply that change, not repeat the same moves. Below the threshold or without attempts \
 left the result says 'No automatic retry: ...' and the plan moves on (revise_plan if the task is not done). \
@@ -265,8 +265,9 @@ Safety rules:
 3. Call stop whenever you are unsure, something looks wrong, or the person asks you to halt.
 4. End of the job: an instruction cannot end unless the arm is parked (release_control(subsystem='all'), the default \
 reset), all leases are released and the plan is finished (every phase completed). Do that before your final report. The \
-runner refuses an early end with 'JOB END REFUSED' follow-ups naming what is missing and force-parks the arm after 2 \
-refusals, so park yourself, with the object put down first when you carry one.
+runner refuses an early end with 'JOB END REFUSED' follow-ups naming what is missing and force-parks the arm \
+{force_park_when}, so park yourself, with the object put down first when you carry one (release_object and opening the \
+gripper are never refused by the plan, also after its last phase).
 5. The battery cut-off refuses motion when the battery is too low: if a motion tool refuses for that reason, do not \
 retry; tell the person.
 6. Verify at checkpoints, not after every motion. Check with a sensor (get_robot_state, get_arm_state or a camera \
@@ -288,6 +289,20 @@ restate your plan between tool calls and use short tool arguments. Batch indepen
 sensor reads) in one turn instead of one call per turn. For aiming checks request smaller images with \
 get_camera_image max_px (for example 384 or less) and ask for larger ones only when you must read detail.
 """
+
+
+def force_park_when(followups: int) -> str:
+    """Say when the runner force-parks the arm, for the end-of-job rule.
+
+    Args:
+        followups (int): job_end_max_followups.
+
+    Returns:
+        str: "at once", "after 1 refusal" or "after N refusals".
+    """
+    if followups == 0:
+        return "at once"
+    return f"after {followups} refusal{'' if followups == 1 else 's'}"
 
 
 def build_system_prompt(config: ClaudeAgentConfig) -> str:
@@ -316,6 +331,8 @@ def build_system_prompt(config: ClaudeAgentConfig) -> str:
         nav_yaw=f"{config.nav_goal_yaw_tolerance_deg:g}",
         nav_mid_xy=f"{config.nav_intermediate_xy_tolerance_cm:g}",
         nav_mid_yaw=f"{config.nav_intermediate_yaw_tolerance_deg:g}",
+        retry_threshold=f"{config.retry_success_threshold:g}",
+        force_park_when=force_park_when(config.job_end_max_followups),
     ).rstrip()
     extra = config.system_prompt_extra.strip()
     return f"{text}\n\n{extra}" if extra else text

@@ -89,6 +89,9 @@ MAX_LOOP_ITERATIONS_LIMIT = 5
 DEFAULT_RETRY_SUCCESS_THRESHOLD = 0.5
 DEFAULT_MAX_AUTO_RETRIES = 6
 DEFAULT_JOB_END_MAX_FOLLOWUPS = 2
+DEFAULT_JOB_END_PARK_TIMEOUT_S = 60.0
+# mcp_server re-emits a bump at most every 2 s: on a rough floor one interrupt per 10 s per warning type is enough.
+DEFAULT_WARNING_INTERRUPT_DEBOUNCE_S = 10.0
 DEFAULT_INTERRUPT_WARNING_TYPES = ("bump",)
 
 
@@ -113,6 +116,8 @@ class ClaudeAgentConfig(BaseModel):
         max_auto_retries: Most automatic phase re-entries per instruction, across all phases.
         job_end_max_followups: "JOB END REFUSED" follow-ups the runner sends when an instruction would end with the arm
             out of home, a lease held or the plan unfinished; after that many the runner parks the arm itself.
+        job_end_park_timeout_s: Bound for each robot call of the runner's forced job-end park (cancel_motions,
+            release_control and its keep_position fallback).
         effector_tools: Short names (no mcp__robot__ prefix) of the motion tools; keep in sync with mcp_server MOTION_TOOLS.
         uncapped_tools: Short names of safety/control tools that are never capped (stop never counts).
         denied_tools: Short names of motion tools the gate always refuses (humans only); effector_tools plus denied_tools
@@ -153,6 +158,8 @@ class ClaudeAgentConfig(BaseModel):
         interrupt_warning_types: Event types whose warning-severity events interrupt the model step through the deferred path
             (after the tool calls in flight finished, so a warning never cancels a running motion call). Critical events always
             interrupt at once; info events and warnings of other types never interrupt.
+        warning_interrupt_debounce_s: A warning of one type does not interrupt the model again within this many seconds of
+            the last interrupt by that type (it is still shown in the chat).
         effort: Reasoning effort of the model (SDK ``effort``): low, medium, high, xhigh or max. Changing it invalidates the prompt cache.
         thinking_display: ``omitted`` skips streaming the thinking text (less latency), ``summarized`` streams summaries.
         prompt_cache_ttl: Value of CLAUDE_CODE_PROMPT_CACHE_TTL for the CLI (``1h`` keeps the cache across idle gaps over 5 min); empty leaves it unset.
@@ -174,6 +181,7 @@ class ClaudeAgentConfig(BaseModel):
     retry_success_threshold: float = Field(default=DEFAULT_RETRY_SUCCESS_THRESHOLD, ge=0, le=1)
     max_auto_retries: int = Field(default=DEFAULT_MAX_AUTO_RETRIES, ge=0)
     job_end_max_followups: int = Field(default=DEFAULT_JOB_END_MAX_FOLLOWUPS, ge=0)
+    job_end_park_timeout_s: float = Field(default=DEFAULT_JOB_END_PARK_TIMEOUT_S, gt=0)
     effector_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_EFFECTOR_TOOLS))
     uncapped_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_UNCAPPED_TOOLS))
     denied_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_DENIED_TOOLS))
@@ -206,6 +214,7 @@ class ClaudeAgentConfig(BaseModel):
     robot_events_history: int = Field(default=50, ge=1)
     robot_event_debounce_s: float = Field(default=2.0, ge=0)
     interrupt_warning_types: list[str] = Field(default_factory=lambda: list(DEFAULT_INTERRUPT_WARNING_TYPES))
+    warning_interrupt_debounce_s: float = Field(default=DEFAULT_WARNING_INTERRUPT_DEBOUNCE_S, ge=0)
     effort: Literal["low", "medium", "high", "xhigh", "max"] = DEFAULT_EFFORT
     thinking_display: Literal["omitted", "summarized"] = "omitted"
     prompt_cache_ttl: str = DEFAULT_PROMPT_CACHE_TTL
