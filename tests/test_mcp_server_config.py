@@ -822,3 +822,15 @@ def test_mcp_server_readme_lookups_example_has_only_store_dir() -> None:
     assert "store_dir" in block
     for key in ("max_records", "max_bytes", "max_age_days"):
         assert key not in block, key
+
+
+def test_client_yml_lookups_comment_points_to_an_existing_readme_section() -> None:
+    """Every quoted README section named in the client.yml lookups comment exists as a heading."""
+    lines = CLIENT_VARS.read_text().splitlines()
+    idx = next(i for i, line in enumerate(lines) if line.strip() == "lookups:" and "store_dir" in lines[i + 1])
+    comment = "\n".join(line for line in lines[idx - 4 : idx] if line.strip().startswith("#"))
+    sections = re.findall(r'README\.md, "([^"]+)"', comment)
+    assert sections
+    readme = (NODE_DIR / "README.md").read_text()
+    for section in sections:
+        assert f"\n## {section}\n" in readme, section

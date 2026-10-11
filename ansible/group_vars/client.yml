@@ -1650,7 +1650,7 @@ ros2_nodes:
       poi:
         request_timeout_s: 3.0
         near_radius_m: 5.0
-      # Camera photos (nodes/mcp_server/README.md, "Camera lookups"): the JPEG target directory only; every camera
+      # Camera photos (nodes/mcp_server/README.md, "Photos (photo POIs)"): the JPEG target directory only; every camera
       # image is a photo POI whose index and retention (max_records / max_bytes / max_age_days) poi_store owns
       # (poi_store photos: block below).
       lookups:
