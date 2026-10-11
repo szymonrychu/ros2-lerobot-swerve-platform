@@ -241,7 +241,7 @@ def render_view(
         layers_present=rendered.layers_present,
         layers_missing=rendered.layers_missing,
         data_ages={k: round(v, 3) for k, v in inputs.ages.items()},
-        frontier_ids_drawn=[f["id"] for f in frontiers or [] if "frontiers" in rendered.layers_present],
+        frontier_ids_drawn=rendered.frontier_ids_drawn,
     )
     return encode_png(rendered.image), meta
 

@@ -109,6 +109,7 @@ class TopdownRender:
     scale_m_per_px: float
     layers_present: list[str]
     layers_missing: dict[str, str]
+    frontier_ids_drawn: list[int] = field(default_factory=list)
 
 
 def grid_layer(
@@ -432,7 +433,7 @@ def draw_objects(image: np.ndarray, objects: Sequence[dict], pose: tuple[float, 
 
 def draw_frontiers(
     image: np.ndarray, frontiers: Sequence[dict], pose: tuple[float, float, float], scale: float
-) -> None:
+) -> list[int]:
     """Draw frontier cells in cyan and a filled marker at each target with its id on a white backing.
 
     Args:
@@ -440,8 +441,12 @@ def draw_frontiers(
         frontiers (Sequence[dict]): Dicts with id (int), target_xy (map-frame x, y) and cells_xy (Nx2 map-frame points).
         pose (tuple[float, float, float]): Robot pose in the map frame.
         scale (float): Metres per pixel.
+
+    Returns:
+        list[int]: Ids of the frontiers whose numbered marker is inside the view.
     """
     px = image.shape[0]
+    drawn: list[int] = []
     for frontier in frontiers:
         cells = np.asarray(frontier["cells_xy"], float).reshape(-1, 2)
         if len(cells):
@@ -450,6 +455,7 @@ def draw_frontiers(
         u, v = map_points_to_px(np.array([frontier["target_xy"]], float), pose, px, scale)[0]
         if not (0 <= u < px and 0 <= v < px):
             continue
+        drawn.append(frontier["id"])
         centre = int_pt(u, v)
         cv2.circle(image, centre, MARKER_RADIUS_PX, COLOR_FRONTIER, -1)
         cv2.circle(image, centre, MARKER_RADIUS_PX, COLOR_TEXT, 1)
@@ -459,6 +465,7 @@ def draw_frontiers(
         y0 = min(max(centre[1] + h // 2, h + 1), px - baseline - 1)
         cv2.rectangle(image, (x0 - 1, y0 - h - 1), (x0 + w + 1, y0 + baseline), COLOR_LEGEND_BG, -1)
         cv2.putText(image, text, (x0, y0), FONT, LABEL_SCALE, (0, 0, 0), 1, cv2.LINE_AA)
+    return drawn
 
 
 def draw_legend(image: np.ndarray, layers: Sequence[str]) -> None:
@@ -568,6 +575,7 @@ def render_topdown(
     drawn = [layer for layer in ALL_LAYERS if layer in layers and layer not in gaps]
     image = np.full((px, px, 3), COLOR_UNKNOWN, np.uint8)
     pose = inputs.pose
+    frontier_ids: list[int] = []
     for layer in drawn:
         if layer == "map" and inputs.map is not None and pose is not None:
             draw_map(image, inputs.map, pose, scale)
@@ -582,14 +590,16 @@ def render_topdown(
         elif layer == "objects" and objects is not None and pose is not None:
             draw_objects(image, objects, pose, scale)
         elif layer == "frontiers" and frontiers is not None and pose is not None:
-            draw_frontiers(image, frontiers, pose, scale)
+            frontier_ids = draw_frontiers(image, frontiers, pose, scale)
         elif layer == "lidar" and inputs.scan_points is not None:
             draw_points(image, base_points_to_px(inputs.scan_points, px, scale), COLOR_LIDAR)
         elif layer == "footprint":
             draw_footprint(image, style, scale)
     draw_legend(image, drawn)
     draw_scale_bar(image, scale)
-    return TopdownRender(image=image, scale_m_per_px=scale, layers_present=drawn, layers_missing=gaps)
+    return TopdownRender(
+        image=image, scale_m_per_px=scale, layers_present=drawn, layers_missing=gaps, frontier_ids_drawn=frontier_ids
+    )
 
 
 def base_points_to_px(points: np.ndarray, px: int, scale: float) -> np.ndarray:

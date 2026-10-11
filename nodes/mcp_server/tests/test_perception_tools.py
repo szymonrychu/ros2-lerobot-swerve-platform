@@ -310,6 +310,16 @@ def test_frontiers_layer_is_drawn_numbered_and_listed_in_the_metadata(server: An
     assert set(meta["frontier_ids_drawn"]) <= {f["id"] for f in listed}
 
 
+def test_frontier_ids_drawn_excludes_markers_outside_the_view(server: Any, robot: FakeRobot) -> None:
+    robot.map = room()
+    wide = {"layers": ["map", "frontiers"], "radius_m": 6.0, "px": 400}
+    assert call(server, "get_topdown_view", wide).structured_content["frontier_ids_drawn"]
+    robot.pose = BasePose(frame="map", x=-5.0, y=2.0, yaw=0.0, age_s=0.05)
+    meta = call(server, "get_topdown_view", {**wide, "radius_m": 1.0}).structured_content
+    assert "frontiers" in meta["layers_present"]
+    assert meta["frontier_ids_drawn"] == []
+
+
 def test_frontiers_layer_missing_reason_when_map_unavailable(server: Any, robot: FakeRobot) -> None:
     robot.map = None
     meta = call(server, "get_topdown_view", {"layers": ["frontiers"]}).structured_content

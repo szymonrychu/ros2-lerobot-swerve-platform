@@ -264,6 +264,14 @@ def test_frontier_marker_outside_the_view_is_skipped() -> None:
     assert np.array_equal(render(inputs, ["frontiers"], frontiers=[far]).image, base)
 
 
+def test_render_reports_only_the_frontier_ids_whose_marker_is_visible() -> None:
+    inputs = TopdownInputs(pose=(0.0, 0.0, 0.0))
+    near = frontier(1, (1.0, 0.0), [(1.0, 0.0)])
+    far = frontier(3, (50.0, 0.0), [(50.0, 0.0)])
+    assert render(inputs, ["frontiers"], frontiers=[near, far]).frontier_ids_drawn == [1]
+    assert render(inputs, ["map"]).frontier_ids_drawn == []
+
+
 def test_frontier_legend_entry_names_the_id_source() -> None:
     assert "frontiers" in ALL_LAYERS
     assert LEGEND_ENTRIES["frontiers"][0] == "frontier (number = list_frontiers id)"
