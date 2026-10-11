@@ -54,6 +54,7 @@ jobs:
           - bridges/gps_rtk
           - bridges/uvc_camera
           - claude_agent
+          - costmap_zones
           - filter_node
           - haptic_controller
           - laser_filter

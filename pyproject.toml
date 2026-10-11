@@ -88,6 +88,7 @@ lint-nodes = { shell = """
   (cd nodes/laser_filter && uv run --frozen poe lint)
   (cd nodes/rf2o_odom_relay && uv run --frozen poe lint)
   (cd nodes/map_guard && uv run --frozen poe lint)
+  (cd nodes/costmap_zones && uv run --frozen poe lint)
   (cd nodes/steamdeck_ui/bridge && uv run --frozen poe lint)
 """ }
 lint-ansible = { shell = """
