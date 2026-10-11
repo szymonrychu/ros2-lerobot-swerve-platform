@@ -24,7 +24,8 @@ import SendIcon from '@mui/icons-material/Send'
 import StopIcon from '@mui/icons-material/Stop'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { postAgent } from '../agent/agentApi'
-import { composerBlockReason, headerStatus, phaseRows, statusLabel } from '../agent/agentModel'
+import { PhaseProgress } from '../agent/PhaseProgress'
+import { composerBlockReason, headerStatus, phaseProgress, phaseRows, statusLabel } from '../agent/agentModel'
 import type { ChatItem, PhaseRow, PhaseStatus, RobotEventSeverity, ToolContent, ToolKind, UsageBar, UsageChip, UsageLevel } from '../agent/agentModel'
 import { useAgentChat } from '../agent/useAgentChat'
 import { cutoffBanner } from '../battery/batteryStatus'
@@ -164,6 +165,7 @@ function PhaseRowView({ row }: { row: PhaseRow }) {
         <Chip size="small" color={PHASE_STATUS_COLORS[row.status]} variant={row.active ? 'filled' : 'outlined'} label={row.status} />
         <Typography variant="body2" sx={{ fontWeight: row.active ? 700 : 500 }}>{row.number}. {row.name}</Typography>
         {row.raised && <Chip size="small" variant="outlined" label="raised" />}
+        <PhaseProgress attemptLabel={row.attemptLabel} iterationLabel={row.iterationLabel} pRetrySuccess={row.pRetrySuccess} />
         <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{row.goal}</Typography>
       </Stack>
       {row.status !== 'pending' && (
@@ -216,6 +218,7 @@ function PhaseStartedCard({ item }: { item: PhaseStartedItem }) {
     <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ alignSelf: 'stretch', px: 1, py: 0.25 }}>
       <Chip size="small" color="primary" label={`Phase ${item.index + 1} started`} />
       <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.name}</Typography>
+      <PhaseProgress {...phaseProgress(item.attempt, item.maxAttempts, item.iteration)} pRetrySuccess={null} />
       <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
         {item.goal} (rw {item.rwCap}, turns {item.turnCap})
       </Typography>
@@ -229,6 +232,7 @@ function PhaseCompletedCard({ item }: { item: PhaseCompletedItem }) {
     <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap" sx={{ alignSelf: 'stretch', px: 1, py: 0.25 }}>
       <Chip size="small" color={color} label={`Phase ${item.index + 1} ${item.outcome}`} />
       <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.name}</Typography>
+      <PhaseProgress {...phaseProgress(item.attempt, item.maxAttempts, item.iteration)} pRetrySuccess={item.pRetrySuccess} />
       <Typography variant="caption" color="text.secondary">
         sensors {item.usage.roUsed}, rw {item.usage.rwUsed}/{item.caps.rwCap}, turns {item.usage.turnsUsed}/{item.caps.turnCap}
       </Typography>
@@ -395,6 +399,7 @@ export default function AgentChatTab({ battery }: Props) {
         <Chip size="small" color={header.busy ? 'warning' : connected ? 'success' : 'default'} label={header.busy ? 'working' : connected ? 'idle' : 'disconnected'} />
         {header.complexity !== null && <Chip size="small" color="secondary" label={header.complexity.replace('_', ' ')} />}
         {header.phase !== null && <Chip size="small" color="primary" label={`phase ${header.phase.number}/${header.phase.total}: ${header.phase.name}`} data-testid="active-phase" />}
+        {header.phase !== null && <PhaseProgress attemptLabel={header.phase.attemptLabel} iterationLabel={header.phase.iterationLabel} pRetrySuccess={null} />}
         {header.chips.map((chip) => (
           <UsageChipView key={chip.key} chip={chip} />
         ))}

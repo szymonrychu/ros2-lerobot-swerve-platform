@@ -34,6 +34,14 @@ export interface PhaseInfo {
   turnsUsed: number
   raised: boolean
   summary: string
+  /** Attempt of the current entry of the phase (1-based; 0 before the first entry or when the agent does not report it). */
+  attempt: number
+  /** Most attempts of one entry of the phase; null when the agent does not report it. */
+  maxAttempts: number | null
+  /** Iteration of the enclosing while loop at entry (1-based; 0 outside loops or when not reported). */
+  iteration: number
+  /** The model's estimate that another attempt succeeds, given when it closed the phase; null when not given. */
+  pRetrySuccess: number | null
 }
 
 /** The plan the agent made for the running instruction (camelCase of the `plan` event / state payload). */
@@ -104,6 +112,10 @@ export type ChatItem =
       summary: string
       usage: { roUsed: number; rwUsed: number; turnsUsed: number }
       caps: { rwCap: number; turnCap: number }
+      attempt: number
+      maxAttempts: number | null
+      iteration: number
+      pRetrySuccess: number | null
     }
   | {
       key: string
@@ -167,6 +179,11 @@ export interface PhaseRow {
   active: boolean
   summary: string
   raised: boolean
+  /** "attempt n/m" (or "attempt n" without a known max); null when the agent reports no attempt. */
+  attemptLabel: string | null
+  /** "iteration k" inside a while loop; null outside loops or when not reported. */
+  iterationLabel: string | null
+  pRetrySuccess: number | null
   /** Sensor calls so far in the phase (a plain count, sensors have no cap). */
   sensorCalls: number
   bars: UsageBar[]
@@ -183,7 +200,7 @@ export interface HeaderStatus {
   busy: boolean
   complexity: string | null
   /** The active phase (1-based number, phase count, name); null without a plan or after the last phase. */
-  phase: { number: number; total: number; name: string } | null
+  phase: { number: number; total: number; name: string; attemptLabel: string | null; iterationLabel: string | null } | null
   chips: UsageChip[]
 }
 
@@ -230,6 +247,24 @@ function num(value: unknown, fallback = 0): number {
 
 const PHASE_STATUSES: PhaseStatus[] = ['pending', 'active', 'done', 'failed', 'skipped']
 
+function optNum(value: unknown): number | null {
+  return typeof value === 'number' ? value : null
+}
+
+/**
+ * Labels for the attempt and iteration of a phase.
+ * @param attempt attempt number (0 when unknown)
+ * @param maxAttempts most attempts, null when unknown
+ * @param iteration while-loop iteration (0 outside loops)
+ * @returns "attempt n/m" (or "attempt n") and "iteration k"; null for a value that is 0 (old plans report neither)
+ */
+export function phaseProgress(attempt: number, maxAttempts: number | null, iteration: number): { attemptLabel: string | null; iterationLabel: string | null } {
+  return {
+    attemptLabel: attempt > 0 ? (maxAttempts !== null && maxAttempts > 0 ? `attempt ${attempt}/${maxAttempts}` : `attempt ${attempt}`) : null,
+    iterationLabel: iteration > 0 ? `iteration ${iteration}` : null,
+  }
+}
+
 function parsePhase(raw: unknown, fallbackIndex: number): PhaseInfo {
   const p = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
   return {
@@ -244,6 +279,10 @@ function parsePhase(raw: unknown, fallbackIndex: number): PhaseInfo {
     turnsUsed: num(p.turns_used),
     raised: p.raised === true,
     summary: str(p.summary),
+    attempt: num(p.attempt),
+    maxAttempts: optNum(p.max_attempts),
+    iteration: num(p.iteration),
+    pRetrySuccess: optNum(p.p_retry_success),
   }
 }
 
@@ -366,7 +405,12 @@ export function reduceEvent(state: ChatState, event: AgentEvent): ChatState {
       const { status: _status, ...rest } = phase
       return {
         ...next,
-        plan: withPhase(state.plan, phase.index, (p) => ({ ...p, status: 'active' }), phase.index),
+        plan: withPhase(
+          state.plan,
+          phase.index,
+          (p) => ({ ...p, status: 'active', attempt: phase.attempt, maxAttempts: phase.maxAttempts, iteration: phase.iteration }),
+          phase.index,
+        ),
         items: [...state.items, { ...base, kind: 'phase_started', ...rest }],
       }
     }
@@ -387,11 +431,15 @@ export function reduceEvent(state: ChatState, event: AgentEvent): ChatState {
         summary,
         usage: { roUsed: num(usage.ro_used), rwUsed: num(usage.rw_used), turnsUsed: num(usage.turns_used) },
         caps: { rwCap: num(caps.rw_cap), turnCap: num(caps.turn_cap) },
+        attempt: num(event.attempt),
+        maxAttempts: optNum(event.max_attempts),
+        iteration: num(event.iteration),
+        pRetrySuccess: optNum(event.p_retry_success),
       }
       const plan = withPhase(
         state.plan,
         index,
-        (p) => ({ ...p, status, summary, roUsed: num(usage.ro_used, p.roUsed), rwUsed: num(usage.rw_used, p.rwUsed), turnsUsed: num(usage.turns_used, p.turnsUsed) }),
+        (p) => ({ ...p, status, summary, pRetrySuccess: optNum(event.p_retry_success) ?? p.pRetrySuccess, roUsed: num(usage.ro_used, p.roUsed), rwUsed: num(usage.rw_used, p.rwUsed), turnsUsed: num(usage.turns_used, p.turnsUsed) }),
         state.plan?.activePhase === index ? null : (state.plan?.activePhase ?? null),
       )
       return { ...next, plan, items: [...state.items, item] }
@@ -577,6 +625,8 @@ export function phaseRows(plan: PlanInfo | null): PhaseRow[] {
     active: p.status === 'active' && plan.activePhase === p.index,
     summary: p.summary,
     raised: p.raised,
+    ...phaseProgress(p.attempt, p.maxAttempts, p.iteration),
+    pRetrySuccess: p.pRetrySuccess,
     sensorCalls: p.roUsed,
     bars: [usageBar('rw', 'rw', p.rwUsed, p.rwCap), usageBar('turns', 'turns', p.turnsUsed, p.turnCap)],
   }))
@@ -596,7 +646,7 @@ export function headerStatus(info: AgentInfo | null, state: ChatState): HeaderSt
     model: info?.model ?? null,
     busy: state.busy,
     complexity: plan?.complexity ?? null,
-    phase: plan && active ? { number: active.index + 1, total: plan.phases.length, name: active.name } : null,
+    phase: plan && active ? { number: active.index + 1, total: plan.phases.length, name: active.name, ...phaseProgress(active.attempt, active.maxAttempts, active.iteration) } : null,
     chips: active
       ? [
           usageChip('ro', 'sensors', active.roUsed, null),

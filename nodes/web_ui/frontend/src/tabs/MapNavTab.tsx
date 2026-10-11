@@ -65,6 +65,7 @@ import type { GridImageMsg, PathMsg } from '../map3d/sceneLayers'
 import { browserStorage } from '../tabSelection'
 import { CANVAS_BG, MONO_FONT } from '../theme'
 import { TabConfig } from '../types'
+import { LookupListPanel } from '../lookups/LookupList'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
 import { canFinishArea, isClick } from '../poi/editor'
 import { DEFAULT_ARM_OFFSET, GraspStrategy } from '../grasp/grasp'
@@ -775,6 +776,7 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
                 onSend={poi.send}
               />
             )}
+            <LookupListPanel selectedPoiId={poi.selectedId} selectedPoiName={poi.selected ? poi.selected.name || '(unnamed)' : null} />
           </Box>
         )}
 

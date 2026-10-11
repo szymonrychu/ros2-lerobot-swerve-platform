@@ -71,6 +71,7 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "poi_result_topic": "/poi/result",
     "grasp_command_topic": "/grasp/command",
     "grasp_result_topic": "/grasp/result",
+    "lookups_dir": "/var/lib/ros2/poi/lookups",
 }
 # Default disk cache cap for proxied map tiles (MiB).
 DEFAULT_TILE_CACHE_MAX_MB = 256
@@ -230,6 +231,7 @@ class TabConfig(BaseModel):
     grasp_accept_wait_s: float = Field(
         default=DEFAULT_GRASP_ACCEPT_WAIT_S, gt=0
     )  # map_nav: seconds an execute/release waits for an immediate rejection
+    lookups_dir: str | None = None  # map_nav: mcp_server camera lookup store (index.jsonl + JPEGs), served read-only
     arm_home_service: str | None = None  # map_nav: std_srvs/Trigger moving the arm to its home pose
     arm_set_home_service: str | None = None  # map_nav: std_srvs/Trigger storing the current arm pose as home
     arm_service_timeout_s: float = Field(

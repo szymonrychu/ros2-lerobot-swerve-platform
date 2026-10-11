@@ -26,6 +26,7 @@ from starlette.responses import Response
 from .agent_proxy import register_agent_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
 from .config import AppConfig, TabConfig, TileSourceConfig
+from .lookups import register_lookup_routes
 from .metrics import (
     BROADCAST_SECONDS,
     BROADCASTER_SLOW,
@@ -495,6 +496,7 @@ def build_app(
         return nav_rejection_message(state) if isinstance(state, dict) else None
 
     register_agent_routes(app, config, battery_block, agent_transport)
+    register_lookup_routes(app, config)
 
     tile_tab = find_tile_tab(config)
     tile_sources = {src.id: src for src in tile_tab.resolved_tile_sources()} if tile_tab is not None else {}

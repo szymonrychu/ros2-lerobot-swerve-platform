@@ -789,6 +789,7 @@ def test_web_ui_has_map_nav_tab() -> None:
         # Grasp panel: JSON requests/answers of the mcp_server GraspService (POST /api/grasp).
         "grasp_command_topic": "/grasp/command",
         "grasp_result_topic": "/grasp/result",
+        "lookups_dir": "/var/lib/ros2/poi/lookups",
         # Parked GPS anchor from one fix + the BNO055 NDOF compass heading, gated by its calibration.
         "gps_anchor_imu_topic": "/imu/data",
         "gps_anchor_imu_calibration_topic": "/imu/calibration",

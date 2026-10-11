@@ -13,6 +13,7 @@ import {
   usageLevel,
   parseAgentFrame,
   parsePlan,
+  phaseProgress,
   phaseRows,
   reduceEvent,
   statusLabel,
@@ -333,7 +334,7 @@ describe('statusLabel / headerStatus', () => {
     const s = { ...emptyChat(), plan, roUsed: 17, rwUsed: 6, turnsUsed: 7 }
     const h = headerStatus(INFO, s)
     expect(h.complexity).toBe('complex')
-    expect(h.phase).toEqual({ number: 2, total: 3, name: 'Drive' })
+    expect(h.phase).toEqual({ number: 2, total: 3, name: 'Drive', attemptLabel: null, iterationLabel: null })
     expect(h.chips).toEqual([
       { key: 'ro', label: 'sensors 8', level: 'ok' },
       { key: 'rw', label: 'rw 5 / 5', level: 'full' },
@@ -468,5 +469,56 @@ describe('historyQuery', () => {
   it('builds the paging URL', () => {
     expect(historyQuery(42, 100)).toBe('/api/agent/history?before_seq=42&limit=100')
     expect(historyQuery(null, 50)).toBe('/api/agent/history?limit=50')
+  })
+})
+
+describe('attempt and iteration of a phase', () => {
+  const NEW_FIELDS = { id: 'pick', attempt: 2, max_attempts: 3, iteration: 4, p_retry_success: 0.7, depth: 1 }
+  const withNew = { ...PLAN_PAYLOAD, tree: { type: 'seq', children: [] }, phases: PLAN_PAYLOAD.phases.map((p, i) => (i === 1 ? { ...p, ...NEW_FIELDS } : p)) }
+
+  it('parsePlan reads attempt, max_attempts, iteration and p_retry_success and ignores tree', () => {
+    const plan = parsePlan(withNew)
+    expect(plan).not.toHaveProperty('tree')
+    expect(plan?.phases[1]).toMatchObject({ attempt: 2, maxAttempts: 3, iteration: 4, pRetrySuccess: 0.7 })
+  })
+
+  it('an old plan without the new fields still parses with neutral values', () => {
+    const plan = parsePlan(PLAN_PAYLOAD)
+    expect(plan?.phases[0]).toMatchObject({ attempt: 0, maxAttempts: null, iteration: 0, pRetrySuccess: null })
+    expect(phaseRows(plan).map((r) => [r.attemptLabel, r.iterationLabel])).toEqual([[null, null], [null, null], [null, null]])
+  })
+
+  it('phaseProgress labels: attempt n/m, attempt n without a max, iteration k, nothing for 0', () => {
+    expect(phaseProgress(2, 3, 4)).toEqual({ attemptLabel: 'attempt 2/3', iterationLabel: 'iteration 4' })
+    expect(phaseProgress(1, null, 0)).toEqual({ attemptLabel: 'attempt 1', iterationLabel: null })
+    expect(phaseProgress(0, 2, 0)).toEqual({ attemptLabel: null, iterationLabel: null })
+  })
+
+  it('phaseRows carry the labels and the retry estimate', () => {
+    const rows = phaseRows(parsePlan(withNew))
+    expect(rows[1]).toMatchObject({ attemptLabel: 'attempt 2/3', iterationLabel: 'iteration 4', pRetrySuccess: 0.7 })
+  })
+
+  it('phase_started updates attempt and iteration of the phase in the plan (a retry re-enters it)', () => {
+    const base = run([ev(1, 'plan', withNew)])
+    const s = run([ev(2, 'phase_started', { ...PLAN_PAYLOAD.phases[1], ...NEW_FIELDS, attempt: 3, status: 'active' })], base)
+    expect(s.plan?.phases[1]).toMatchObject({ status: 'active', attempt: 3, maxAttempts: 3, iteration: 4 })
+    expect(s.items[1]).toMatchObject({ kind: 'phase_started', attempt: 3, maxAttempts: 3, iteration: 4 })
+  })
+
+  it('phase_completed stores the retry estimate; legacy completion events still work', () => {
+    const base = run([ev(1, 'plan', withNew)])
+    const s = run([ev(2, 'phase_completed', { index: 1, name: 'Drive', goal: 'g', outcome: 'failed', summary: 'x', usage: {}, caps: {}, attempt: 2, max_attempts: 3, iteration: 4, p_retry_success: 0.2 })], base)
+    expect(s.plan?.phases[1]).toMatchObject({ status: 'failed', pRetrySuccess: 0.2 })
+    expect(s.items[1]).toMatchObject({ kind: 'phase_completed', attempt: 2, maxAttempts: 3, iteration: 4, pRetrySuccess: 0.2 })
+    const legacy = run([ev(2, 'phase_completed', { index: 1, name: 'Drive', goal: 'g', outcome: 'done', summary: '', usage: {}, caps: {} })], run([ev(1, 'plan', PLAN_PAYLOAD)]))
+    expect(legacy.items[1]).toMatchObject({ attempt: 0, maxAttempts: null, iteration: 0, pRetrySuccess: null })
+  })
+
+  it('headerStatus shows the labels of the active phase', () => {
+    const state = run([ev(1, 'plan', withNew)])
+    expect(headerStatus(INFO as never, state).phase).toMatchObject({ number: 2, attemptLabel: 'attempt 2/3', iterationLabel: 'iteration 4' })
+    const old = run([ev(1, 'plan', PLAN_PAYLOAD)])
+    expect(headerStatus(INFO as never, old).phase).toMatchObject({ number: 2, attemptLabel: null, iterationLabel: null })
   })
 })
