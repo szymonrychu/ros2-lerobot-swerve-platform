@@ -1683,7 +1683,11 @@ async def test_robot_event_inside_a_phase_is_collected(tmp_path: Path) -> None:
 async def test_reconnect_notice_is_fed_to_the_collector_but_info_is_not_evidence(tmp_path: Path) -> None:
     runner, _, _ = make_runner(tmp_path)
     runner.evidence.start_entry("p1", 1, 0.0)
+    seen: list[dict] = []
+    real_add_event = runner.evidence.add_event
+    runner.evidence.add_event = lambda event: (seen.append(event), real_add_event(event))[1]  # type: ignore[method-assign]
     runner.emit_reconnected("reconnected", False)
+    assert [(e["type"], e["severity"]) for e in seen] == [("robot_event", "info")]
     assert runner.evidence.snapshot().robot_events == []
 
 
