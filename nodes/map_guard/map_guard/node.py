@@ -14,8 +14,9 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
 from rcl_interfaces.msg import ParameterType
 from rcl_interfaces.srv import GetParameters
+from rclpy._rclpy_pybind11 import RCLError
 from rclpy.callback_groups import ReentrantCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
@@ -311,12 +312,14 @@ def run_node(config: MapGuardConfig) -> None:
     node.worker.start()
     try:
         executor.spin()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RCLError:
+        if rclpy.ok():  # a publish or wait set racing the SIGTERM handler is shutdown noise; anything else is a bug
+            raise
     finally:
         node.stop.set()
         node.worker.join(timeout=2.0)
         executor.shutdown()
         node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        rclpy.try_shutdown()
