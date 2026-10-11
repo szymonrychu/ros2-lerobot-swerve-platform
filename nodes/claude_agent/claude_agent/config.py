@@ -89,6 +89,7 @@ MAX_LOOP_ITERATIONS_LIMIT = 5
 DEFAULT_RETRY_SUCCESS_THRESHOLD = 0.5
 DEFAULT_MAX_AUTO_RETRIES = 6
 DEFAULT_JOB_END_MAX_FOLLOWUPS = 2
+DEFAULT_INTERRUPT_WARNING_TYPES = ("bump",)
 
 
 class MissingTokenError(RuntimeError):
@@ -149,6 +150,9 @@ class ClaudeAgentConfig(BaseModel):
         robot_events_topic: ROS2 topic (std_msgs/String JSON) of the mcp_server event monitor.
         robot_events_history: Number of most recent robot events kept in memory.
         robot_event_debounce_s: A critical event does not interrupt the model again within this many seconds of the last interrupt.
+        interrupt_warning_types: Event types whose warning-severity events interrupt the model step through the deferred path
+            (after the tool calls in flight finished, so a warning never cancels a running motion call). Critical events always
+            interrupt at once; info events and warnings of other types never interrupt.
         effort: Reasoning effort of the model (SDK ``effort``): low, medium, high, xhigh or max. Changing it invalidates the prompt cache.
         thinking_display: ``omitted`` skips streaming the thinking text (less latency), ``summarized`` streams summaries.
         prompt_cache_ttl: Value of CLAUDE_CODE_PROMPT_CACHE_TTL for the CLI (``1h`` keeps the cache across idle gaps over 5 min); empty leaves it unset.
@@ -201,6 +205,7 @@ class ClaudeAgentConfig(BaseModel):
     robot_events_topic: str = DEFAULT_ROBOT_EVENTS_TOPIC
     robot_events_history: int = Field(default=50, ge=1)
     robot_event_debounce_s: float = Field(default=2.0, ge=0)
+    interrupt_warning_types: list[str] = Field(default_factory=lambda: list(DEFAULT_INTERRUPT_WARNING_TYPES))
     effort: Literal["low", "medium", "high", "xhigh", "max"] = DEFAULT_EFFORT
     thinking_display: Literal["omitted", "summarized"] = "omitted"
     prompt_cache_ttl: str = DEFAULT_PROMPT_CACHE_TTL

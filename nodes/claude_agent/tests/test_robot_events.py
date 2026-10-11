@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 
 import pytest
-from claude_agent_sdk import AssistantMessage, TextBlock, ToolResultBlock, UserMessage
+from claude_agent_sdk import AssistantMessage, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage
 
 from claude_agent.config import ClaudeAgentConfig
 from claude_agent.robot_events import FOLLOWUP_TEMPLATE, parse_robot_event
@@ -262,3 +262,118 @@ async def test_critical_event_interrupts_at_once_even_while_a_phase_note_interru
     await asyncio.wait_for(runner.wait_idle(), timeout=3)
     client = FakeClient.instances[-1]
     assert len(client.queries) == 2 and "collision_stop: bumper hit" in client.queries[1]
+
+
+class ToolEventClient(FakeClient):
+    """First segment: a tool call starts, waits for ``release``, returns its result, then blocks until interrupted."""
+
+    release: asyncio.Event
+
+    def receive_response(self):
+        return self.segment()
+
+    async def segment(self):
+        if len(self.queries) == 1:
+            yield AssistantMessage(
+                content=[ToolUseBlock(id="t", name="mcp__robot__move_arm_cartesian", input={})], model="opus"
+            )
+            await type(self).release.wait()
+            yield tool_result()
+            await self.interrupted.wait()
+            self.interrupted.clear()
+            yield make_result(terminal_reason="aborted_streaming")
+        else:
+            yield assistant_text("re-checked")
+            yield make_result()
+
+
+def warning_runner(tmp_path: Path, **config):
+    runner, events, cfg = make_runner(tmp_path)
+    runner.config = ClaudeAgentConfig(mcp_token_file=cfg.mcp_token_file, **config)
+    ToolEventClient.release = asyncio.Event()
+    runner.client_factory = ToolEventClient
+    return runner, events
+
+
+async def test_warning_bump_waits_for_the_tool_in_flight_then_interrupts(tmp_path: Path) -> None:
+    runner, _ = warning_runner(tmp_path)
+    runner.bind_loop()
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.1)
+    assert runner.tools_in_flight
+    runner.handle_robot_event(parse_robot_event(raw(type="bump", severity="warning", message="bumper touched")))
+    await asyncio.sleep(0.1)
+    client = FakeClient.instances[-1]
+    assert runner.interrupt_deferred and runner.interrupt_pending
+    assert not client.interrupted.is_set()
+    ToolEventClient.release.set()
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    assert len(client.queries) == 2
+    assert "bump: bumper touched" in client.queries[1]
+    assert "warning" in client.queries[1]
+
+
+async def test_warning_bump_without_tool_in_flight_interrupts_now(tmp_path: Path) -> None:
+    runner, _ = event_runner(tmp_path)
+    runner.bind_loop()
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.1)
+    runner.handle_robot_event(parse_robot_event(raw(type="bump", severity="warning", message="bumper touched")))
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    assert len(FakeClient.instances[-1].queries) == 2
+
+
+async def test_warning_of_an_unlisted_type_does_not_interrupt(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path, block=True)
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.05)
+    runner.handle_robot_event(parse_robot_event(raw(type="map_guard_rotated", severity="warning")))
+    await asyncio.sleep(0.05)
+    assert not FakeClient.instances[0].interrupted.is_set()
+    assert not runner.interrupt_pending
+    await runner.interrupt()
+    await runner.wait_idle()
+
+
+async def test_info_event_of_a_listed_type_does_not_interrupt(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path, block=True)
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.05)
+    runner.handle_robot_event(parse_robot_event(raw(type="bump", severity="info")))
+    await asyncio.sleep(0.05)
+    assert not FakeClient.instances[0].interrupted.is_set()
+    assert not runner.interrupt_pending
+    await runner.interrupt()
+    await runner.wait_idle()
+
+
+async def test_warning_type_list_comes_from_config(tmp_path: Path) -> None:
+    runner, _ = warning_runner(tmp_path, interrupt_warning_types=["custom_warn"])
+    runner.bind_loop()
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.1)
+    runner.handle_robot_event(parse_robot_event(raw(type="bump", severity="warning")))
+    assert not runner.interrupt_pending
+    runner.handle_robot_event(parse_robot_event(raw(type="custom_warn", severity="warning")))
+    assert runner.interrupt_pending and runner.interrupt_deferred
+    ToolEventClient.release.set()
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+
+
+async def test_critical_lifted_event_interrupts_immediately_despite_a_tool_in_flight(tmp_path: Path) -> None:
+    runner, _ = warning_runner(tmp_path)
+    runner.bind_loop()
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.1)
+    assert runner.tools_in_flight
+    runner.handle_robot_event(
+        parse_robot_event(
+            raw(type="map_guard_disturbed", severity="critical", source="map_guard", message="robot lifted")
+        )
+    )
+    assert runner.interrupt_pending and not runner.interrupt_deferred
+    await asyncio.sleep(0.1)
+    assert FakeClient.instances[-1].interrupted.is_set() or len(FakeClient.instances[-1].queries) == 2
+    ToolEventClient.release.set()
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    assert "map_guard_disturbed: robot lifted" in FakeClient.instances[-1].queries[1]

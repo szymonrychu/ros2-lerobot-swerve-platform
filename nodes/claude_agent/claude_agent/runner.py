@@ -55,7 +55,13 @@ from .metrics import (
 )
 from .poi_clear import PoiClearResult, call_clear_agent_pois
 from .prompt import build_system_prompt
-from .robot_events import FOLLOWUP_TEMPLATE, SEVERITY_CRITICAL, parse_robot_event
+from .robot_events import (
+    FOLLOWUP_TEMPLATE,
+    SEVERITY_CRITICAL,
+    SEVERITY_WARNING,
+    WARNING_FOLLOWUP_TEMPLATE,
+    parse_robot_event,
+)
 from .robot_stop import STOP_TOOL_NAME, RobotToolResult, call_robot_stop, call_robot_tool
 from .tools import (
     BUILTIN_TOOLS,
@@ -1106,7 +1112,18 @@ class AgentRunner:
         note = self.plan.turn_note()
         if note is None or self.interrupted:
             return
-        self.add_followup(note)
+        self.interrupt_after_tools(note)
+
+    def interrupt_after_tools(self, text: str) -> None:
+        """Queue a follow-up and interrupt the model step once the tool calls in flight returned (deferred path).
+
+        An interrupt cancels a running call, so with calls in flight it is deferred until their results arrived. An
+        interrupt that is already pending (immediate or deferred) only gets the text added.
+
+        Args:
+            text (str): The follow-up text (a phase note or a warning event).
+        """
+        self.add_followup(text)
         if self.interrupt_pending:
             return
         self.interrupt_pending = True
@@ -1213,6 +1230,9 @@ class AgentRunner:
     def handle_robot_event(self, event: dict[str, Any]) -> None:
         """Publish a robot event; a critical one interrupts the running model step and queues a follow-up message.
 
+        A warning whose type is in ``interrupt_warning_types`` (default bump) queues a follow-up and interrupts through
+        the deferred path (after the tool calls in flight finished). Info events and other warnings never interrupt.
+
         Runs on the asyncio loop. Idle events are only logged and emitted. A second critical event within
         ``robot_event_debounce_s`` of the last interrupt does not interrupt again (while the follow-up is still pending
         its text is extended with the new event). A critical event interrupts at once even while a phase-note
@@ -1233,9 +1253,12 @@ class AgentRunner:
             message=event["message"],
             data=event["data"],
         )
-        if event["severity"] != SEVERITY_CRITICAL or not (self.busy and self.streaming):
+        if not (self.busy and self.streaming) or self.interrupted or self.turn_capped:
             return
-        if self.interrupted or self.turn_capped:
+        if event["severity"] == SEVERITY_WARNING and event["type"] in self.config.interrupt_warning_types:
+            self.interrupt_after_tools(WARNING_FOLLOWUP_TEMPLATE.format(type=event["type"], message=event["message"]))
+            return
+        if event["severity"] != SEVERITY_CRITICAL:
             return
         line = FOLLOWUP_TEMPLATE.format(type=event["type"], message=event["message"])
         if self.interrupt_pending and not self.interrupt_deferred:

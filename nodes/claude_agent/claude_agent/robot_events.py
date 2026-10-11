@@ -6,10 +6,15 @@ from typing import Any
 
 SEVERITIES = ("info", "warning", "critical")
 SEVERITY_CRITICAL = "critical"
+SEVERITY_WARNING = "warning"
 MESSAGE_MAX_CHARS = 500
 DATA_MAX_JSON_CHARS = 2000
 FOLLOWUP_TEMPLATE = (
     "ROBOT EVENT (critical): {type}: {message}. The robot reacted on its own (reflexes). "
+    "Re-check state with sensors before continuing; adapt the plan or stop and report."
+)
+WARNING_FOLLOWUP_TEMPLATE = (
+    "ROBOT EVENT (warning): {type}: {message}. The running motion call was allowed to finish. "
     "Re-check state with sensors before continuing; adapt the plan or stop and report."
 )
 

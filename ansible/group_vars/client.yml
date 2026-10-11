@@ -1655,6 +1655,8 @@ ros2_nodes:
       # The runner sends up to job_end_max_followups refusal follow-ups, then parks the arm itself (release_control all).
       job_end_max_followups: 2
       # Event monitor of mcp_server: critical events interrupt the running model step (see nodes/claude_agent/README.md).
+      # Warning events of these types interrupt the agent after the tool calls in flight finished (a bump never cancels a motion call).
+      interrupt_warning_types: [bump]
       robot_events_topic: /robot_events
       http_host: "127.0.0.1"
       http_port: 18300

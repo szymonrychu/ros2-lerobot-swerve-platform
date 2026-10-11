@@ -258,3 +258,16 @@ def test_client_group_vars_sets_job_end_max_followups() -> None:
     raw = yaml.safe_load(agent["config"])
     assert raw["job_end_max_followups"] == 2
     assert ClaudeAgentConfig(**raw).job_end_max_followups == 2
+
+
+def test_interrupt_warning_types_defaults_to_bump() -> None:
+    assert ClaudeAgentConfig().interrupt_warning_types == ["bump"]
+    assert ClaudeAgentConfig(interrupt_warning_types=[]).interrupt_warning_types == []
+
+
+def test_client_group_vars_sets_interrupt_warning_types() -> None:
+    nodes = yaml.safe_load(CLIENT_GROUP_VARS.read_text())["ros2_nodes"]
+    agent = next(node for node in nodes if node["name"] == "claude_agent")
+    raw = yaml.safe_load(agent["config"])
+    assert raw["interrupt_warning_types"] == ["bump"]
+    assert ClaudeAgentConfig(**raw).interrupt_warning_types == ["bump"]

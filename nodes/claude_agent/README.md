@@ -261,6 +261,10 @@ A background `SingleThreadedExecutor` thread runs the callback, which hands the 
   last interrupt does not interrupt again (while the follow-up is still pending its text is extended with the new event).
   A critical event interrupts at once even while a phase-turn-note interrupt is waiting for running tool calls; a call it
   cancels gets the generic rejection correction above.
+- A **warning** event whose type is in `interrupt_warning_types` (default `[bump]`) queues the follow-up `ROBOT EVENT (warning):
+  <type>: <message>. ...` and interrupts through the deferred path: it waits until the tool calls in flight returned, so a warning
+  never cancels a running motion call. Info events and warnings of other types never interrupt. Critical events (for example a
+  lifted or carried `map_guard_disturbed`) keep the immediate interrupt.
 - Never interrupts while idle, during session start, after a user stop or after the turn cap.
 
 ## Stopping the robot
@@ -405,6 +409,7 @@ unknown keys are rejected.
 | `shutdown_client_timeout_s` | `1` | Bound at service shutdown for each of the model interrupt, the session disconnect and the CLI wait after SIGTERM (then SIGKILL) |
 | `robot_events_topic` | `/robot_events` | std_msgs/String JSON events of the mcp_server monitor |
 | `robot_events_history` | `50` | Robot events kept in memory |
+| `interrupt_warning_types` | `[bump]` | Warning event types that interrupt the agent through the deferred path (after tool calls in flight finish) |
 | `robot_event_debounce_s` | `2` | A critical event does not interrupt again within this window |
 | `effort` | `medium` | SDK `effort` (low, medium, high, xhigh, max). Output tokens dominate the measured model gap (about 1.3 s + 10 ms per output token); changing it invalidates the prompt cache |
 | `thinking_display` | `omitted` | Adaptive thinking is always on; `omitted` does not stream the thinking text, `summarized` does |
