@@ -686,3 +686,4 @@ def test_prompt_teaches_keepout_and_slow_zones() -> None:
     assert "your zones vanish at a new session" in text
     assert "draw permanent ones in the web ui or note them in notes.md" in text
     assert "after a map reset" in text and "check the zones still sit where intended" in text
+    assert "a place the person says not to go" in text
