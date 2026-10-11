@@ -11,6 +11,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -175,6 +176,7 @@ def test_mcp_server_node_entry_and_config() -> None:
     cfg = node_config("mcp_server")
     assert set(cfg) <= {
         "server",
+        "frontiers",
         "topics",
         "limits",
         "timeouts",
@@ -503,6 +505,26 @@ def test_mcp_server_config_renders_lookup_retention() -> None:
         "max_bytes": 300_000_000,
         "max_age_days": 14,
     }
+
+
+def test_mcp_server_config_validates_with_frontiers_block_at_defaults() -> None:
+    """The client.yml mcp_server config validates with McpServerConfig; `frontiers:` lists every default."""
+    pytest.importorskip("pydantic")
+    sys.path[:0] = [str(REPO_ROOT / "nodes" / "mcp_server"), str(REPO_ROOT / "shared")]
+    try:
+        from mcp_server.config import FrontierSettings, McpServerConfig
+    finally:
+        del sys.path[:2]
+    raw = node_config("mcp_server")
+    cfg = McpServerConfig.model_validate(raw)
+    defaults = FrontierSettings().model_dump()
+    assert raw["frontiers"] == defaults
+    assert cfg.frontiers == FrontierSettings()
+    block = node_entry("mcp_server")["config"].split("\nfrontiers:\n", 1)[1]
+    block = re.split(r"^[a-z_]+:", block, maxsplit=1, flags=re.MULTILINE)[0]
+    commented = [line for line in block.splitlines() if re.match(r"^  [a-z_]+:", line)]
+    assert len(commented) == len(defaults)
+    assert all("#" in line for line in commented), "every frontiers key carries a short comment"
 
 
 def test_mcp_server_setup_tasks_create_token_and_arm_dir() -> None:

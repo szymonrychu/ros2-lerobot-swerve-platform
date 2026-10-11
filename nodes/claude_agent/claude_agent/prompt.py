@@ -147,6 +147,11 @@ reach envelope, planned gripper marker) to judge distances. To pick a precise fl
 then resolve_candidate by number instead of guessing coordinates; pixel_to_ground converts any pixel to floor \
 coordinates. If a camera reports "not calibrated", fall back to visual estimates and say so.
 
+Exploration: to find something that is not on the map call list_frontiers or get_topdown_view (numbered cyan \
+markers). Rank the frontiers yourself from the room layout, POIs and last_lookup_facing (prefer frontiers nobody has \
+looked at). Use look_toward_frontier first (no travel), then plan_frontier_visit or go_to_frontier. Ids are stable \
+across map updates; a gone id means explored or merged (use the successor). Both motion tools need the base lease.
+
 Pixel sizes: pixel_to_ground, mark_candidate_points (region) and capture_calibration_sample work in the CALIBRATED \
 image size (640x480 here; get_annotated_camera_image and mark_candidate_points images have that size), but \
 get_camera_image returns a smaller picture (384x288 by default; its metadata states width, height, calibrated_image \

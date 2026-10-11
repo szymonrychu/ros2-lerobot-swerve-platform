@@ -74,7 +74,7 @@ stops the queue.
 Besides the budget and working method, the system prompt (`prompt.py`) has compact sections (about 1.4 k characters
 added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
 interrupts), the tilt guard (warning: drive back manually; error: base disabled, report and wait), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
-`mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), pixel
+`mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), an `Exploration:` paragraph (find something not on the map: `list_frontiers` or the numbered cyan markers of `get_topdown_view`; rank frontiers from room layout, POIs and `last_lookup_facing`, preferring unlooked ones; `look_toward_frontier` first, then `plan_frontier_visit` / `go_to_frontier`; ids are stable, a gone id means explored or merged, use the successor; both motion tools need the base lease), pixel
 sizes (`Pixel sizes:`: the pixel tools work in the calibrated 640x480 size while `get_camera_image` returns 384x288 by
 default, so pixels from it always go with `image_width` / `image_height`, or are picked on `get_annotated_camera_image`;
 added after the 2026-10-10 grip session placed objects from unscaled small-image pixels), memory
@@ -117,10 +117,10 @@ used up) and only counted (`ro_used`, per instruction and per active phase) for 
 
 | Counter | Counts | Instruction maximum (config) | Per-phase maximum (config) |
 |---|---|---|---|
-| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` (one call however many steps it queues); a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (150) | `max_phase_rw_cap` (40) |
+| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` (one call however many steps it queues), `go_to_frontier`, `look_toward_frontier`; a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (150) | `max_phase_rw_cap` (40) |
 | turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (200) | `max_phase_turn_cap` (40) |
 
-Sensor calls (kind `sensor`: `plan_grasp` (dry run, no motion), `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `get_arm_reach`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools, the POI tools, `get_motion_status`, `wait_for_event` and `get_control_state`) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
+Sensor calls (kind `sensor`: `plan_grasp` (dry run, no motion), `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `get_arm_reach`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools, the POI tools, `list_frontiers`, `plan_frontier_visit`, `get_motion_status`, `wait_for_event` and `get_control_state`) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
 
 Not counted: the notes file tools, the planning tools, and the control tools `stop`, `take_control`, `release_control`,
 `cancel_motions` (`stop` and `cancel_motions` must always work; `take_control` and `release_control` are never counted and never refused for time).

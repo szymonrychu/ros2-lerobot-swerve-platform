@@ -687,3 +687,25 @@ def test_prompt_teaches_keepout_and_slow_zones() -> None:
     assert "draw permanent ones in the web ui or note them in notes.md" in text
     assert "after a map reset" in text and "check the zones still sit where intended" in text
     assert "a place the person says not to go" in text
+
+
+def test_prompt_teaches_frontier_exploration() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    lower = " ".join(text.lower().split())
+    section = lower[lower.index("exploration:") :]
+    section = section[: section.index("pixel sizes:")]
+    for needle in (
+        "list_frontiers",
+        "get_topdown_view",
+        "cyan",
+        "last_lookup_facing",
+        "nobody has looked",
+        "look_toward_frontier",
+        "plan_frontier_visit",
+        "go_to_frontier",
+        "stable",
+        "successor",
+        "lease",
+    ):
+        assert needle in section, needle
+    assert lower.index("spatial perception:") < lower.index("exploration:")

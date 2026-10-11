@@ -22,6 +22,8 @@ DEFAULT_EFFECTOR_TOOLS = [
     "release_object",
     "enqueue_motions",
     "resume_motions",
+    "go_to_frontier",
+    "look_toward_frontier",
 ]
 DEFAULT_UNCAPPED_TOOLS = ["stop", "take_control", "release_control", "cancel_motions"]
 # Motion tools the permission gate refuses outright: arm_set_home would let the agent redefine home to pass the job-end check.
@@ -56,6 +58,8 @@ DEFAULT_SENSOR_TOOLS = [
     "list_lookups",
     "get_lookup_image",
     "annotate_lookup",
+    "list_frontiers",
+    "plan_frontier_visit",
 ]
 # Approximate maximum horizontal reach of the SO-101 from the shoulder_lift axis, in cm: the straight-line sum of the link
 # offsets in nodes/web_ui/urdf/so101_arm.urdf (shoulder_lift -> elbow_flex 11.6 + elbow_flex -> wrist_flex 13.5 +

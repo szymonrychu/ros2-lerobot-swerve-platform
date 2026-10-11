@@ -1612,6 +1612,27 @@ ros2_nodes:
         max_records: 3000
         max_bytes: 300000000
         max_age_days: 14
+      # Frontier exploration (list_frontiers, plan_frontier_visit, go_to_frontier, look_toward_frontier), computed per /map
+      # version; every key at its FrontierSettings default (nodes/mcp_server/README.md).
+      frontiers:
+        min_length_m: 0.3 # smaller frontier clusters are dropped
+        map_max_age_s: 60.0 # an older /map counts as unavailable
+        geodesic_downsample: 2 # geodesic grid cell = map resolution x this
+        pass_clearance_margin_m: 0.03 # traversable cell clearance = footprint half width + this
+        view_clearance_margin_m: 0.05 # observation pose clearance = footprint circumscribed radius + this
+        standoff_min_m: 0.4 # observation pose: nearest distance to the frontier
+        standoff_max_m: 1.2 # observation pose: farthest distance to the frontier
+        los_candidates: 5 # best-scored observation poses checked for line of sight
+        match_radius_m: 0.6 # centroid distance that keeps a frontier id across map versions
+        epoch_reset_known_fraction: 0.5 # known cells below this fraction of the previous map restart the ids
+        retired_keep: 50 # retired ids remembered for "gone, replaced by"
+        max_listed: 15 # list_frontiers cap, reachable first by path distance
+        poi_radius_m: 2.0 # nearest-POI search radius per frontier
+        facing_half_angle_deg: 30.0 # a lookup faces a frontier within this angle
+        facing_max_distance_m: 6.0 # ... and within this distance of the lookup position
+        compute_path_timeout_s: 5.0 # plan_frontier_visit Nav2 path check timeout
+        look_timeout_s: 20.0 # look_toward_frontier rotation timeout
+        look_camera: front # look_toward_frontier default camera (front or gripper)
       # Below-surface slow zone of every arm motion (nodes/mcp_server/README.md, "Floor slow zone"): trajectory steps
       # where a jaw tip, the wrist or the elbow is within margin_m of the effective surface (the higher of the robot
       # plane at surface_z_m and the IMU gravity-level plane through base_link) run at slow_speed_scale of their speed.
@@ -1859,6 +1880,8 @@ ros2_nodes:
         - release_object
         - enqueue_motions
         - resume_motions
+        - go_to_frontier
+        - look_toward_frontier
       uncapped_tools:
         - stop
         - take_control
@@ -1898,6 +1921,8 @@ ros2_nodes:
         - list_lookups
         - get_lookup_image
         - annotate_lookup
+        - list_frontiers
+        - plan_frontier_visit
 
 # ---- monitoring (roles/monitoring_agent + roles/web_proxy; ./scripts/deploy-nodes.sh client monitoring) ---------------
 # `host` label of every series and log stream this host sends to the server's Mimir and Loki.

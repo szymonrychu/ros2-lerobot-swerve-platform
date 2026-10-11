@@ -1533,6 +1533,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_config_lazy_steer_states` | The client.yml mcp_server `control:` block sets the lazy `/swerve_drive/joint_states` subscription: `steer_states_wait_s` 0.5 (first-message wait) and `steer_states_idle_s` 30.0 (destroyed once unread that long). |
 | `test_mcp_server_config_renders_guard_rules_in_dry_run` | The client.yml mcp_server config renders `guard_rules:` with exactly the five rules (R1-R5 names, in order), every one `mode: dry_run`, and `motion_queue` `watch_rate_hz: 10` / `watch_max_per_call: 8` (YAML only; the node test validates the schema). |
 | `test_mcp_server_config_renders_lookup_retention` | The client.yml mcp_server config renders `lookups:` with `store_dir: /var/lib/ros2/poi/lookups` and the retention limits (3000 records, 300 MB, 14 days). |
+| `test_mcp_server_config_validates_with_frontiers_block_at_defaults` | The client.yml mcp_server config validates with `McpServerConfig`; its `frontiers:` block equals every `FrontierSettings` default and each key carries a comment. |
 | `test_mcp_server_setup_tasks_create_token_and_arm_dir` | `tasks/mcp_server_setup.yml` creates `/etc/ros2/mcp_server`, the token (`MCP_SERVER_TOKEN=` + 48-char password lookup, `force: false`, 0640, owner `ansible_user`, group `mcp-token`, `no_log`) and `/var/lib/ros2/arm` owned by the node user. |
 | `test_playbooks_run_setup_before_deploying_mcp_server` | `deploy_nodes_client.yml` deploys mcp_server and includes the setup tasks before it. |
 | `test_unit_template_renders_environment_file_only_when_set` | The native unit template renders `EnvironmentFile=` (before `ExecStart=`) only when `node_environment_file` is non-empty. |
@@ -1604,6 +1605,7 @@ layout; no ROS needed).
 | `test_setup_tasks_create_persistent_workdir_owned_0750` | `claude_agent_setup.yml` creates `/var/lib/claude_agent/workspace` (the agent's persistent notes volume) as a directory owned by `claude_agent`, mode 0750, after its parent HOME directory. |
 | `test_ansible_never_removes_the_workdir_or_state_dir` | No Ansible task (file `state: absent`, `rm` in command/shell) deletes anything under `/var/lib/claude_agent`, so notes and the session log survive deploys. |
 | `test_claude_agent_config_workdir_state_dir_and_hardware_facts` | The entry's config sets `workdir`, `state_dir`, `arm_base_height_m` 0.100 (measured mount, equal to mcp_server) and `arm_reach_cm`; the service `HOME` stays `/var/lib/claude_agent`, separate from the workdir. |
+| `test_frontier_tools_classified_in_group_vars_and_defaults` | `go_to_frontier` / `look_toward_frontier` are effectors (and in mcp_server MOTION_TOOLS), `list_frontiers` / `plan_frontier_visit` sensors, never uncapped, in the client.yml config and the code defaults. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_claude_agent_config.py` is listed in this section. |
 
 ### test_web_ui_agent_tab.py

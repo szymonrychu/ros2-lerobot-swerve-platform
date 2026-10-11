@@ -315,6 +315,28 @@ def test_round2_tools_classified_in_group_vars_and_defaults() -> None:
         assert not ROUND2_SENSOR_TOOLS & set(effectors)
 
 
+FRONTIER_EFFECTORS = {"go_to_frontier", "look_toward_frontier"}
+FRONTIER_SENSORS = {"list_frontiers", "plan_frontier_visit"}
+
+
+def test_frontier_tools_classified_in_group_vars_and_defaults() -> None:
+    """go_to_frontier / look_toward_frontier are effectors, the list and plan tools sensors."""
+    pytest.importorskip("pydantic")
+    module = load_agent_config_module()
+    raw = yaml.safe_load(node_entry("claude_agent")["config"])
+    assert FRONTIER_EFFECTORS | FRONTIER_SENSORS <= mcp_tool_names()
+    assert FRONTIER_EFFECTORS <= mcp_server_motion_tools()
+    assert not FRONTIER_SENSORS & mcp_server_motion_tools()
+    for effectors, uncapped, sensors in (
+        (raw["effector_tools"], raw["uncapped_tools"], raw["sensor_tools"]),
+        (module.DEFAULT_EFFECTOR_TOOLS, module.DEFAULT_UNCAPPED_TOOLS, module.DEFAULT_SENSOR_TOOLS),
+    ):
+        assert FRONTIER_EFFECTORS <= set(effectors)
+        assert FRONTIER_SENSORS <= set(sensors)
+        assert not (FRONTIER_EFFECTORS | FRONTIER_SENSORS) & set(uncapped)
+        assert not FRONTIER_EFFECTORS & set(sensors) and not FRONTIER_SENSORS & set(effectors)
+
+
 LOOKUP_TOOLS = {"list_lookups", "get_lookup_image", "annotate_lookup"}
 
 

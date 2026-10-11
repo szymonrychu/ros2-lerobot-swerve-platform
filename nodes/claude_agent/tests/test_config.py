@@ -49,6 +49,8 @@ def test_defaults() -> None:
     )
     assert not set(cfg.effector_tools) & set(cfg.uncapped_tools)
     assert not set(cfg.effector_tools) & set(cfg.sensor_tools)
+    assert {"go_to_frontier", "look_toward_frontier"} <= set(cfg.effector_tools)
+    assert {"list_frontiers", "plan_frontier_visit"} <= set(cfg.sensor_tools)
 
 
 def test_persistence_and_hardware_defaults() -> None:
