@@ -165,8 +165,36 @@ def test_torque_off_action_disables_and_restores_drive_torque(
     writes = h.torque_writes()
     assert [w["joint_name"] for w in writes] == ["fl_drive", "fr_drive", "rl_drive", "rr_drive"]
     assert {w["register"] for w in writes} == {"torque_enable"} and {w["value"] for w in writes} == {0}
+    h.imu(12.0, 2.1)  # error -> warning: the base stays inhibited, so torque stays off
+    assert len(h.torque_writes()) == 4
     h.imu(0.0, 2.1)
     assert [w["value"] for w in h.torque_writes()[4:]] == [1, 1, 1, 1]
+
+
+def test_drive_stays_zeroed_in_warning_after_error(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    h = Harness(node_module, monkeypatch, make_config(tmp_path))
+    h.imu(25.0, 0.6)
+    h.imu(12.0, 2.1)
+    state = h.states()[-1]
+    assert state["level"] == "warning" and state["base_drive_inhibited"] is True
+    h.cmd_vel(0.1)
+    assert h.cycle() == [0.0, 0.0, 0.0, 0.0]
+    h.imu(0.0, 2.1)
+    assert h.states()[-1]["base_drive_inhibited"] is False
+    h.cmd_vel(0.1)
+    assert all(v > 0.0 for v in h.cycle())
+
+
+def test_state_heartbeat_is_1_hz(node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    h = Harness(node_module, monkeypatch, make_config(tmp_path))
+    h.imu(0.0, 0.02)
+    count = len(h.states())
+    for _ in range(125):  # 2.5 s of 50 Hz IMU samples and control cycles, level the whole time
+        h.imu(0.0, 0.0)
+        h.timer()
+    assert len(h.states()) - count == 3  # t = 0, 1, 2 s
 
 
 def test_state_heartbeat_reports_stale_imu(
@@ -178,5 +206,5 @@ def test_state_heartbeat_reports_stale_imu(
     h.imu(0.0, 0.1)
     h.now += 5.0
     h.timer()
-    assert h.states()[-1]["imu_stale"] is True
+    assert h.states()[-1]["imu_ok"] is False
     assert any("IMU" in str(c) for c in h.logger.warn.call_args_list)

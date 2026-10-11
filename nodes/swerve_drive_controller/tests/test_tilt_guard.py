@@ -2,10 +2,11 @@
 
 import json
 import math
+from typing import Literal
 
 import pytest
 from prometheus_client import REGISTRY
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from swerve_drive_controller.tilt_guard import (
     STATE_KEYS,
@@ -137,9 +138,17 @@ def test_asymmetric_axis_limits(roll: float, pitch: float, expected: TiltLevel) 
     assert guard.level is expected
 
 
+def test_default_level_reference_and_heartbeat() -> None:
+    """Level reference = the BNO055 mounting bias (same as mcp_server floor_guard.imu_level_reference); 1 Hz state."""
+    cfg = TiltGuardConfig()
+    assert cfg.level_reference_roll_deg == 0.7
+    assert cfg.level_reference_pitch_deg == 1.3
+    assert cfg.state_publish_hz == 1.0
+
+
 def test_default_limits_are_larger_on_the_longer_pitch_axis() -> None:
     cfg = TiltGuardConfig()
-    assert cfg.pitch_warning_deg > cfg.roll_warning_deg
+    assert cfg.pitch_warn_deg > cfg.roll_warn_deg
     assert cfg.pitch_error_deg > cfg.roll_error_deg
     assert cfg.error_action == "brake"
 
@@ -159,12 +168,47 @@ def test_error_recovers_only_below_hysteresis_after_hold() -> None:
     assert guard.level is TiltLevel.ERROR
     t = feed(guard, 12.0, 0.0, t, 0.3)
     assert guard.level is TiltLevel.WARNING
-    assert not guard.base_drive_inhibited
     # 7 deg is inside the warning hysteresis band (8 - 2 = 6): stays warning.
     t = feed(guard, 7.0, 0.0, t, 3.0)
     assert guard.level is TiltLevel.WARNING
     t = feed(guard, 1.0, 0.0, t, 2.1)
     assert guard.level is TiltLevel.OK
+
+
+def test_base_drive_stays_inhibited_after_error_until_below_warning_recovery() -> None:
+    """After an error the base stays inhibited in warning; only below warn - hysteresis (8 - 2 = 6 deg) it drives."""
+    guard = TiltGuard(TiltGuardConfig())
+    t = feed(guard, 18.0, 0.0, 0.0, 1.0)
+    assert guard.base_drive_inhibited
+    t = feed(guard, 12.0, 0.0, t, 2.1)
+    assert guard.level is TiltLevel.WARNING
+    assert guard.base_drive_inhibited  # 12 deg roll: still far too steep to hand the drive back
+    state = guard.state_dict(t, stamp_ns=0)
+    assert state is not None and state["base_drive_inhibited"] is True
+    assert "disabled" in state["message"] and "6.0" in state["message"]
+    t = feed(guard, 7.0, 0.0, t, 3.0)
+    assert guard.level is TiltLevel.WARNING and guard.base_drive_inhibited
+    # Below 6 deg but before the 2 s hold: still inhibited.
+    t = feed(guard, 5.0, 0.0, t, 1.8)
+    assert guard.base_drive_inhibited
+    t = feed(guard, 5.0, 0.0, t, 0.3)
+    assert guard.level is TiltLevel.OK and not guard.base_drive_inhibited
+
+
+def test_warning_without_prior_error_does_not_inhibit() -> None:
+    guard = TiltGuard(TiltGuardConfig())
+    feed(guard, 12.0, 0.0, 0.0, 1.0)
+    assert guard.level is TiltLevel.WARNING and not guard.base_drive_inhibited
+
+
+def test_inhibition_latched_again_when_error_returns_from_warning() -> None:
+    guard = TiltGuard(TiltGuardConfig())
+    t = feed(guard, 18.0, 0.0, 0.0, 1.0)
+    t = feed(guard, 12.0, 0.0, t, 2.1)
+    t = feed(guard, 18.0, 0.0, t, 1.0)
+    assert guard.level is TiltLevel.ERROR and guard.base_drive_inhibited
+    feed(guard, 0.0, 0.0, t, 2.1)
+    assert guard.level is TiltLevel.OK and not guard.base_drive_inhibited
 
 
 def test_error_recovers_directly_to_ok_when_level() -> None:
@@ -235,7 +279,7 @@ def test_disabled_guard_never_inhibits() -> None:
 
 def test_config_rejects_warning_above_error() -> None:
     with pytest.raises(ValidationError):
-        TiltGuardConfig(roll_warning_deg=16.0, roll_error_deg=15.0)
+        TiltGuardConfig(roll_warn_deg=16.0, roll_error_deg=15.0)
 
 
 def test_config_rejects_hysteresis_wider_than_warning() -> None:
@@ -253,49 +297,81 @@ def test_config_rejects_unknown_error_action_and_keys() -> None:
 # --- state JSON (contract) ------------------------------------------------------------------------------------------
 
 
+class ContractLimits(BaseModel):
+    """Mirror of the shared /tilt_guard/state contract limits (as parsed by mcp_server models.TiltLimits)."""
+
+    roll_warn_deg: float
+    roll_error_deg: float
+    pitch_warn_deg: float
+    pitch_error_deg: float
+
+
+class ContractState(BaseModel):
+    """Mirror of the shared /tilt_guard/state contract (as parsed by mcp_server models.TiltGuardState)."""
+
+    level: Literal["ok", "warning", "error"]
+    roll_deg: float
+    pitch_deg: float
+    limits: ContractLimits
+    since: float
+    base_drive_inhibited: bool
+    imu_ok: bool
+
+
+EPOCH_NS = 1_760_000_000_000_000_000  # wall clock at the publish
+
+
 def test_state_json_matches_contract() -> None:
     guard = TiltGuard(TiltGuardConfig())
     t = feed(guard, 18.0, -3.0, 0.0, 1.0)
-    state = guard.state_dict(t, stamp_ns=123)
+    state = guard.state_dict(t, stamp_ns=EPOCH_NS)
     assert state is not None
     assert tuple(state) == STATE_KEYS
-    assert state["level"] == "error"
+    parsed = ContractState.model_validate_json(json.dumps(state))
+    assert parsed.level == "error"
+    assert parsed.roll_deg == pytest.approx(18.0)
+    assert parsed.pitch_deg == pytest.approx(-3.0)
+    assert parsed.base_drive_inhibited is True
+    assert parsed.imu_ok is True
+    assert parsed.limits == ContractLimits(
+        roll_warn_deg=8.0, roll_error_deg=15.0, pitch_warn_deg=12.0, pitch_error_deg=20.0
+    )
+    assert state["limits"]["hysteresis_deg"] == 2.0
+    # The error started 0.5 s into the feed (persistence): since is that moment in epoch seconds.
+    assert parsed.since == pytest.approx(EPOCH_NS / 1e9 - (t - 0.5), abs=0.05)
     assert state["level_code"] == 2
-    assert state["roll_deg"] == pytest.approx(18.0)
-    assert state["pitch_deg"] == pytest.approx(-3.0)
     assert state["axis"] == "roll"
-    assert state["base_drive_inhibited"] is True
     assert state["error_action"] == "brake"
-    assert state["imu_stale"] is False
-    assert state["limits"] == {
-        "roll_warning_deg": 8.0,
-        "roll_error_deg": 15.0,
-        "pitch_warning_deg": 12.0,
-        "pitch_error_deg": 20.0,
-        "hysteresis_deg": 2.0,
-    }
-    assert state["level_age_s"] == pytest.approx(0.5, abs=0.05)
-    assert state["stamp_ns"] == 123
+    assert state["stamp_ns"] == EPOCH_NS
     assert "roll 18.0 deg" in state["message"] and "15.0" in state["message"]
-    json.dumps(state)
+
+
+def test_state_since_is_first_sample_while_level_never_changed() -> None:
+    guard = TiltGuard(TiltGuardConfig())
+    feed(guard, 0.0, 0.0, 10.0, 0.0)
+    state = guard.state_dict(13.0, stamp_ns=EPOCH_NS)
+    assert state is not None and state["since"] == pytest.approx(EPOCH_NS / 1e9 - 3.0)
 
 
 def test_state_json_warning_and_ok_messages() -> None:
     guard = TiltGuard(TiltGuardConfig())
     t = feed(guard, 0.0, 0.0, 0.0, 0.1)
-    ok = guard.state_dict(t, stamp_ns=1)
+    ok = guard.state_dict(t, stamp_ns=EPOCH_NS)
     assert ok is not None and ok["level"] == "ok" and ok["axis"] is None and ok["base_drive_inhibited"] is False
     t = feed(guard, 0.0, 13.0, t, 1.0)
-    warn = guard.state_dict(t, stamp_ns=2)
+    warn = guard.state_dict(t, stamp_ns=EPOCH_NS)
     assert warn is not None and warn["level"] == "warning" and warn["level_code"] == 1 and warn["axis"] == "pitch"
+    assert warn["base_drive_inhibited"] is False
     assert "manually" in warn["message"]
+    ContractState.model_validate_json(json.dumps(warn))
 
 
-def test_state_json_stale_flag() -> None:
+def test_state_json_imu_ok_false_when_stale() -> None:
     guard = TiltGuard(TiltGuardConfig())
     t = feed(guard, 0.0, 0.0, 0.0, 0.1)
-    state = guard.state_dict(t + 5.0, stamp_ns=1)
-    assert state is not None and state["imu_stale"] is True
+    assert guard.state_dict(t, stamp_ns=EPOCH_NS)["imu_ok"] is True
+    state = guard.state_dict(t + 5.0, stamp_ns=EPOCH_NS)
+    assert state is not None and state["imu_ok"] is False and "IMU stale" in state["message"]
 
 
 # --- metrics ----------------------------------------------------------------------------------------------------------

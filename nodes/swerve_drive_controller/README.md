@@ -48,18 +48,18 @@ Body frame: x forward, y left, yaw CCW positive. Wheel `i` sits at `(x_i, y_i)` 
 
 `tilt_guard.py` (pure logic, unit-tested) protects the base against driving on a slope that can tip it over.
 
-- **Attitude:** roll and pitch come from the `/imu/data` orientation quaternion (normalised, ZYX Euler with numpy), minus `level_reference_roll_deg` / `level_reference_pitch_deg` (the IMU reading when the base stands level: park on a level floor, read `roll_deg`/`pitch_deg` from `/tilt_guard/state` with both references at 0, and copy them into the config). `imu_link` is mounted aligned with `base_link`, so roll is about the x (forward) axis and pitch about the y (left) axis. A non-finite or zero quaternion, or `orientation_covariance[0] == -1` (REP 145: no orientation), is not a sample.
+- **Attitude:** roll and pitch come from the `/imu/data` orientation quaternion (normalised, ZYX Euler with numpy), minus `level_reference_roll_deg` / `level_reference_pitch_deg` (the IMU reading when the base stands level; default roll 0.7 / pitch 1.3 deg, the BNO055 mounting bias measured on 2026-10-11 and the same values as mcp_server `floor_guard.imu_level_reference`. To re-measure: park on a level floor, read `roll_deg`/`pitch_deg` from `/tilt_guard/state` with both references at 0, and copy them into the config). `imu_link` is mounted aligned with `base_link`, so roll is about the x (forward) axis and pitch about the y (left) axis. A non-finite or zero quaternion, or `orientation_covariance[0] == -1` (REP 145: no orientation), is not a sample.
 - **Asymmetric limits:** pitch tips the robot over its longer front/rear edge (305 mm vs 266.6 mm), so pitch gets the larger limits: defaults roll warning 8 / error 15 deg, pitch warning 12 / error 20 deg. For example roll 13 deg is a warning, roll 18 deg an error, pitch 13 or 18 deg a warning.
-- **Levels:** `ok` (0), `warning` (1): consumers (claude_agent, web UI) get an interrupt, stop automatic (SLAM/Nav2) driving and tell the operator to drive back to level ground manually; the base still accepts `/cmd_vel`. `error` (2): the base drive is inhibited.
+- **Levels:** `ok` (0), `warning` (1): consumers (claude_agent, web UI) get an interrupt, stop automatic (SLAM/Nav2) driving and tell the operator to drive back to level ground manually; the base still accepts `/cmd_vel`. `error` (2): the base drive is inhibited. The inhibition is latched: when an error falls back to `warning` the base stays inhibited (`base_drive_inhibited: true`), and it drives again only when the guard is back at `ok`, i.e. the tilt stayed below the warning recovery threshold `warn - hysteresis_deg` (roll 6 deg, pitch 10 deg by default) for `recovery_hold_s`. A warning entered from `ok` never inhibits.
 - **Rise:** a level is entered only after the tilt stayed beyond its limit for `persistence_s` (0.5 s), so a bump (e.g. 0.2 s over a threshold) does not trip it. A tilt straight into the error band goes from ok to error directly.
 - **Recovery:** a level clears only after the tilt stayed below `limit - hysteresis_deg` (2 deg) on both axes for `recovery_hold_s` (2 s); the guard then drops to the level those lowered limits give (error can drop straight to ok). Any sample back inside the band restarts the hold.
-- **Stale IMU:** the IMU is stale when no valid sample arrived for `imu_timeout_s` (0.5 s). The level is held (an error never clears without fresh IMU data: the base motors stay disabled), pending persistence/recovery timers restart after the gap, the state shows `imu_stale: true`, and the node logs the stale and fresh-again transitions. A missing IMU never raises the level by itself.
-- **Error enforcement:** while `base_drive_inhibited`, every received `/cmd_vel` is dropped (counted in `tilt_guard_inhibited_commands_total`), the latest command is cleared so nothing resumes after recovery, and each control cycle commands 0 rad/s on every drive joint with the steering held at its last targets (no idle recentering). `error_action: brake` (default) keeps the drive torque on, so the stalled wheels hold the robot on the slope. `error_action: torque_off` additionally writes `torque_enable 0` for the four drive joints through the bridge `set_register` topic on entering error and `torque_enable 1` when it clears; the robot can then roll freely on a slope, which is why it is not the default.
+- **Stale IMU:** the IMU is stale when no valid sample arrived for `imu_timeout_s` (0.5 s). The level is held (an error never clears without fresh IMU data: the base motors stay disabled), pending persistence/recovery timers restart after the gap, the state shows `imu_ok: false`, and the node logs the stale and fresh-again transitions. A missing IMU never raises the level by itself.
+- **Error enforcement:** while `base_drive_inhibited`, every received `/cmd_vel` is dropped (counted in `tilt_guard_inhibited_commands_total`), the latest command is cleared so nothing resumes after recovery, and each control cycle commands 0 rad/s on every drive joint with the steering held at its last targets (no idle recentering). `error_action: brake` (default) keeps the drive torque on, so the stalled wheels hold the robot on the slope. `error_action: torque_off` additionally writes `torque_enable 0` for the four drive joints through the bridge `set_register` topic on entering error and `torque_enable 1` when the inhibition clears (back at ok); the robot can then roll freely on a slope, which is why it is not the default.
 - **Logging:** entering error is logged at error level, warning at warn level, clearing at info level, each with the state message.
 
 ### `/tilt_guard/state` contract
 
-std_msgs/String, JSON object, QoS reliable + transient_local, depth 1 (a late subscriber gets the current state). Published on every level change at once and as a heartbeat at `state_publish_hz` (2 Hz). Nothing is published before the first valid IMU sample (no placeholder state).
+std_msgs/String, JSON object, QoS reliable + transient_local, depth 1 (a late subscriber gets the current state). Published on every level change at once and as a heartbeat at `state_publish_hz` (1 Hz). Nothing is published before the first valid IMU sample (no placeholder state).
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -67,20 +67,22 @@ std_msgs/String, JSON object, QoS reliable + transient_local, depth 1 (a late su
 | `level_code` | int | 0, 1, 2 (same as the `tilt_guard_level` gauge) |
 | `roll_deg`, `pitch_deg` | float | Last roll / pitch relative to the level reference, deg (signed) |
 | `axis` | string or null | `roll` or `pitch`: the axis that caused the current level; null while ok |
-| `base_drive_inhibited` | bool | True in `error`: drive commands are ignored and the wheels are stopped |
+| `base_drive_inhibited` | bool | True from entering `error` until back at `ok` (also in a `warning` that follows an error): drive commands are ignored and the wheels are stopped |
+| `imu_ok` | bool | False when no valid IMU sample arrived for `imu_timeout_s`; the level is held |
+| `since` | float | Epoch seconds at which the current level started (the first IMU sample while the level never changed) |
 | `error_action` | string | `brake` or `torque_off` |
-| `imu_stale` | bool | No valid IMU sample for `imu_timeout_s`; the level is held |
-| `level_age_s` | float or null | Seconds since the current level was entered; null if the level never changed since start |
-| `limits` | object | `roll_warning_deg`, `roll_error_deg`, `pitch_warning_deg`, `pitch_error_deg`, `hysteresis_deg` |
-| `message` | string | Human-readable text, e.g. `tilt error: roll 18.0 deg beyond the 15.0 deg error limit; base drive motors disabled (brake) until the IMU reads below 13.0 deg for 2.0 s` |
+| `limits` | object | `roll_warn_deg`, `roll_error_deg`, `pitch_warn_deg`, `pitch_error_deg`, plus `hysteresis_deg` |
+| `message` | string | Human-readable text, e.g. `tilt error: roll 18.0 deg beyond the 15.0 deg error limit; base drive motors disabled (brake) until the IMU reads below 6.0 deg roll for 2.0 s` |
 | `stamp_ns` | int | ROS clock time of the publish, ns |
+
+The shared contract consumers parse (mcp_server `models.TiltGuardState`, web_ui) is `level`, `roll_deg`, `pitch_deg`, `limits.{roll_warn_deg, roll_error_deg, pitch_warn_deg, pitch_error_deg}`, `since`, `base_drive_inhibited`, `imu_ok`; the other keys are extras.
 
 Example:
 
 ```json
 {"level": "warning", "level_code": 1, "roll_deg": 1.2, "pitch_deg": 13.4, "axis": "pitch",
- "base_drive_inhibited": false, "error_action": "brake", "imu_stale": false, "level_age_s": 3.1,
- "limits": {"roll_warning_deg": 8.0, "roll_error_deg": 15.0, "pitch_warning_deg": 12.0, "pitch_error_deg": 20.0,
+ "base_drive_inhibited": false, "imu_ok": true, "since": 1760183996.9, "error_action": "brake",
+ "limits": {"roll_warn_deg": 8.0, "roll_error_deg": 15.0, "pitch_warn_deg": 12.0, "pitch_error_deg": 20.0,
             "hysteresis_deg": 2.0},
  "message": "tilt warning: pitch 13.4 deg beyond the 12.0 deg warning limit; stop automatic driving and drive back to level ground manually",
  "stamp_ns": 1760184000000000000}
@@ -107,15 +109,15 @@ YAML config (path via `SWERVE_DRIVE_CONTROLLER_CONFIG` or `/etc/ros2/swerve_driv
 | `imu_topic` | `/imu/data` | sensor_msgs/Imu input |
 | `state_topic` | `/tilt_guard/state` | JSON state output |
 | `torque_topic` | `/follower/set_register` | bridge set_register topic used by `torque_off` |
-| `roll_warning_deg` / `roll_error_deg` | `8.0` / `15.0` | roll limits (shorter axis), warning must be below error |
-| `pitch_warning_deg` / `pitch_error_deg` | `12.0` / `20.0` | pitch limits (longer axis) |
+| `roll_warn_deg` / `roll_error_deg` | `8.0` / `15.0` | roll limits (shorter axis), warning must be below error |
+| `pitch_warn_deg` / `pitch_error_deg` | `12.0` / `20.0` | pitch limits (longer axis) |
 | `persistence_s` | `0.5` | tilt beyond a limit this long raises the level, s |
 | `hysteresis_deg` | `2.0` | a level clears below `limit - hysteresis_deg`; must be below both warning limits |
 | `recovery_hold_s` | `2.0` | tilt below the lowered limit this long clears the level, s |
 | `imu_timeout_s` | `0.5` | IMU stale after this long without a valid sample, s |
-| `level_reference_roll_deg` / `level_reference_pitch_deg` | `0.0` | IMU roll/pitch when the base is level (within +-30), deg |
+| `level_reference_roll_deg` / `level_reference_pitch_deg` | `0.7` / `1.3` | IMU roll/pitch when the base is level (within +-30), deg |
 | `error_action` | `brake` | `brake` (zero speed, torque on) or `torque_off` (drive torque off, can roll) |
-| `state_publish_hz` | `2.0` | heartbeat rate of the state topic, Hz |
+| `state_publish_hz` | `1.0` | heartbeat rate of the state topic, Hz |
 
 ## Driving manually
 

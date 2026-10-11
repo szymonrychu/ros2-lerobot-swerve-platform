@@ -163,22 +163,24 @@ def test_slip_residual_threshold_default_and_override(tmp_path: Path) -> None:
 def test_tilt_guard_defaults(tmp_path: Path) -> None:
     cfg = _load(tmp_path, "{}\n")
     assert cfg.tilt_guard.enabled is True
-    assert cfg.tilt_guard.roll_warning_deg == 8.0 and cfg.tilt_guard.roll_error_deg == 15.0
-    assert cfg.tilt_guard.pitch_warning_deg == 12.0 and cfg.tilt_guard.pitch_error_deg == 20.0
+    assert cfg.tilt_guard.roll_warn_deg == 8.0 and cfg.tilt_guard.roll_error_deg == 15.0
+    assert cfg.tilt_guard.pitch_warn_deg == 12.0 and cfg.tilt_guard.pitch_error_deg == 20.0
     assert cfg.tilt_guard.persistence_s == 0.5
     assert cfg.tilt_guard.recovery_hold_s == 2.0
     assert cfg.tilt_guard.error_action == "brake"
     assert cfg.tilt_guard.imu_topic == "/imu/data"
     assert cfg.tilt_guard.state_topic == "/tilt_guard/state"
+    assert cfg.tilt_guard.level_reference_roll_deg == 0.7 and cfg.tilt_guard.level_reference_pitch_deg == 1.3
+    assert cfg.tilt_guard.state_publish_hz == 1.0
 
 
 def test_tilt_guard_block_parsed(tmp_path: Path) -> None:
     cfg = _load(
         tmp_path,
-        "tilt_guard:\n  roll_warning_deg: 6\n  roll_error_deg: 12\n  error_action: torque_off\n"
+        "tilt_guard:\n  roll_warn_deg: 6\n  roll_error_deg: 12\n  error_action: torque_off\n"
         "  level_reference_pitch_deg: 1.5\n",
     )
-    assert cfg.tilt_guard.roll_warning_deg == 6.0 and cfg.tilt_guard.roll_error_deg == 12.0
+    assert cfg.tilt_guard.roll_warn_deg == 6.0 and cfg.tilt_guard.roll_error_deg == 12.0
     assert cfg.tilt_guard.error_action == "torque_off"
     assert cfg.tilt_guard.level_reference_pitch_deg == 1.5
 
@@ -186,7 +188,7 @@ def test_tilt_guard_block_parsed(tmp_path: Path) -> None:
 def test_tilt_guard_invalid_block_rejects_config(tmp_path: Path) -> None:
     """A safety limit that does not validate fails the whole config instead of falling back to defaults."""
     path = tmp_path / "c.yaml"
-    path.write_text("tilt_guard:\n  roll_warning_deg: 20\n  roll_error_deg: 15\n")
+    path.write_text("tilt_guard:\n  roll_warn_deg: 20\n  roll_error_deg: 15\n")
     assert load_config(path) is None
 
 

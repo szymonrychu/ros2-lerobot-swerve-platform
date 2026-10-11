@@ -135,10 +135,10 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
     config.publish_tf is set.
 
     The tilt guard (config.tilt_guard) evaluates every /imu/data orientation and publishes the latched
-    /tilt_guard/state JSON on every level change and at state_publish_hz. While it is in ERROR every received
-    cmd_vel is ignored and each cycle commands zero wheel speed with the steering held (error_action brake); with
-    error_action torque_off the drive motors' torque is also switched off through the bridge set_register topic
-    and switched back on when the error clears.
+    /tilt_guard/state JSON on every level change and at state_publish_hz. From entering ERROR until it is back at
+    OK (an error falling to WARNING stays inhibited) every received cmd_vel is ignored and each cycle commands zero
+    wheel speed with the steering held (error_action brake); with error_action torque_off the drive motors' torque
+    is also switched off through the bridge set_register topic and switched back on when the inhibition clears.
 
     Args:
         config: Controller configuration.
@@ -164,6 +164,7 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
     tilt_state_period_s = 1.0 / tilt_cfg.state_publish_hz
     last_tilt_state_time = 0.0
     imu_was_stale = False
+    torque_disabled = False
 
     latest_cmd = CmdVelSample()
     latest_positions: dict[str, float] = {}
@@ -188,7 +189,7 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
         last_tilt_state_time = now
 
     def on_tilt_transition(transition: TiltTransition, now: float) -> None:
-        nonlocal latest_cmd
+        nonlocal latest_cmd, torque_disabled
         if transition.current is TiltLevel.ERROR:
             logger.error(transition.message)
             latest_cmd = CmdVelSample()  # never resume a command received before the error
@@ -196,9 +197,9 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
             logger.warn(transition.message)
         else:
             logger.info(f"tilt guard: {transition.previous.name.lower()} cleared, {transition.message}")
-        entered_error = transition.current is TiltLevel.ERROR
-        if pub_torque is not None and entered_error != (transition.previous is TiltLevel.ERROR):
-            for payload in drive_torque_payloads(drive_joints, enable=not entered_error):
+        if pub_torque is not None and guard.base_drive_inhibited != torque_disabled:
+            torque_disabled = guard.base_drive_inhibited
+            for payload in drive_torque_payloads(drive_joints, enable=not torque_disabled):
                 torque_msg = String()
                 torque_msg.data = payload
                 pub_torque.publish(torque_msg)
@@ -267,8 +268,8 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
     )
     logger.info(
         f"Tilt guard {'enabled' if tilt_cfg.enabled else 'DISABLED'}: {tilt_cfg.imu_topic} -> {tilt_cfg.state_topic}, "
-        f"roll warn/error {tilt_cfg.roll_warning_deg:.1f}/{tilt_cfg.roll_error_deg:.1f} deg, pitch warn/error "
-        f"{tilt_cfg.pitch_warning_deg:.1f}/{tilt_cfg.pitch_error_deg:.1f} deg, persistence {tilt_cfg.persistence_s:.1f} s, "
+        f"roll warn/error {tilt_cfg.roll_warn_deg:.1f}/{tilt_cfg.roll_error_deg:.1f} deg, pitch warn/error "
+        f"{tilt_cfg.pitch_warn_deg:.1f}/{tilt_cfg.pitch_error_deg:.1f} deg, persistence {tilt_cfg.persistence_s:.1f} s, "
         f"hysteresis {tilt_cfg.hysteresis_deg:.1f} deg, hold {tilt_cfg.recovery_hold_s:.1f} s, "
         f"error_action {tilt_cfg.error_action}"
     )

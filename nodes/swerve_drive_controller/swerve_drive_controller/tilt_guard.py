@@ -3,9 +3,11 @@
 Pure logic (no rclpy imports, unit-testable). The node feeds every /imu/data orientation into TiltGuard and
 publishes state_dict() on /tilt_guard/state. Levels:
 
-- WARNING: |roll| > roll_warning_deg or |pitch| > pitch_warning_deg. Consumers (agent, web UI) stop automatic
+- WARNING: |roll| > roll_warn_deg or |pitch| > pitch_warn_deg. Consumers (agent, web UI) stop automatic
   driving and tell the operator to drive back to level ground manually; the base still drives.
-- ERROR: |roll| > roll_error_deg or |pitch| > pitch_error_deg. The base drive is inhibited (see the node).
+- ERROR: |roll| > roll_error_deg or |pitch| > pitch_error_deg. The base drive is inhibited (see the node). The
+  inhibition is latched: it stays on when the error falls back to WARNING and clears only when the guard returns
+  to OK (tilt below warn - hysteresis_deg for recovery_hold_s).
 
 Pitch (about the y axis) tips the robot over its longer front/rear edge, so its limits are larger than roll's.
 
@@ -37,13 +39,18 @@ STATE_KEYS = (
     "pitch_deg",
     "axis",
     "base_drive_inhibited",
+    "imu_ok",
+    "since",
     "error_action",
-    "imu_stale",
-    "level_age_s",
     "limits",
     "message",
     "stamp_ns",
 )
+NS_PER_S = 1e9
+# BNO055 mounting bias: IMU roll/pitch with the base on a level floor (same as mcp_server
+# floor_guard.imu_level_reference, measured 2026-10-11).
+DEFAULT_LEVEL_REFERENCE_ROLL_DEG = 0.7
+DEFAULT_LEVEL_REFERENCE_PITCH_DEG = 1.3
 
 Axis = Literal["roll", "pitch"]
 
@@ -64,9 +71,9 @@ class TiltGuardConfig(BaseModel):
         imu_topic: sensor_msgs/Imu input with a fused orientation (BNO055 NDOF).
         state_topic: std_msgs/String JSON output (reliable, transient_local).
         torque_topic: feetech bridge set_register topic used by error_action torque_off.
-        roll_warning_deg: |roll| above this is a warning, deg.
+        roll_warn_deg: |roll| above this is a warning, deg.
         roll_error_deg: |roll| above this is an error, deg.
-        pitch_warning_deg: |pitch| above this is a warning (longer axis: larger than roll), deg.
+        pitch_warn_deg: |pitch| above this is a warning (longer axis: larger than roll), deg.
         pitch_error_deg: |pitch| above this is an error, deg.
         persistence_s: Tilt must stay beyond a limit this long before the level rises, s.
         hysteresis_deg: A level clears only below (limit - hysteresis_deg), deg.
@@ -76,7 +83,7 @@ class TiltGuardConfig(BaseModel):
         level_reference_pitch_deg: IMU pitch when the base stands level (mount offset), deg.
         error_action: 'brake' (zero wheel speed, torque on, holds on a slope) or 'torque_off' (drive torque off,
             the robot can roll).
-        state_publish_hz: Heartbeat rate of the state topic (transitions are published at once), Hz.
+        state_publish_hz: Heartbeat rate of the state topic (transitions are published at once), Hz (1 Hz).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -85,18 +92,22 @@ class TiltGuardConfig(BaseModel):
     imu_topic: str = "/imu/data"
     state_topic: str = "/tilt_guard/state"
     torque_topic: str = "/follower/set_register"
-    roll_warning_deg: PositiveFloat = 8.0
+    roll_warn_deg: PositiveFloat = 8.0
     roll_error_deg: PositiveFloat = 15.0
-    pitch_warning_deg: PositiveFloat = 12.0
+    pitch_warn_deg: PositiveFloat = 12.0
     pitch_error_deg: PositiveFloat = 20.0
     persistence_s: NonNegativeFloat = 0.5
     hysteresis_deg: NonNegativeFloat = 2.0
     recovery_hold_s: NonNegativeFloat = 2.0
     imu_timeout_s: PositiveFloat = 0.5
-    level_reference_roll_deg: float = Field(0.0, ge=-MAX_LEVEL_REFERENCE_DEG, le=MAX_LEVEL_REFERENCE_DEG)
-    level_reference_pitch_deg: float = Field(0.0, ge=-MAX_LEVEL_REFERENCE_DEG, le=MAX_LEVEL_REFERENCE_DEG)
+    level_reference_roll_deg: float = Field(
+        DEFAULT_LEVEL_REFERENCE_ROLL_DEG, ge=-MAX_LEVEL_REFERENCE_DEG, le=MAX_LEVEL_REFERENCE_DEG
+    )
+    level_reference_pitch_deg: float = Field(
+        DEFAULT_LEVEL_REFERENCE_PITCH_DEG, ge=-MAX_LEVEL_REFERENCE_DEG, le=MAX_LEVEL_REFERENCE_DEG
+    )
     error_action: Literal["brake", "torque_off"] = "brake"
-    state_publish_hz: PositiveFloat = 2.0
+    state_publish_hz: PositiveFloat = 1.0
 
     @model_validator(mode="after")
     def check_limits(self) -> Self:
@@ -108,11 +119,11 @@ class TiltGuardConfig(BaseModel):
         Raises:
             ValueError: When the limits are inconsistent.
         """
-        if self.roll_warning_deg >= self.roll_error_deg:
-            raise ValueError("roll_warning_deg must be below roll_error_deg")
-        if self.pitch_warning_deg >= self.pitch_error_deg:
-            raise ValueError("pitch_warning_deg must be below pitch_error_deg")
-        if self.hysteresis_deg >= min(self.roll_warning_deg, self.pitch_warning_deg):
+        if self.roll_warn_deg >= self.roll_error_deg:
+            raise ValueError("roll_warn_deg must be below roll_error_deg")
+        if self.pitch_warn_deg >= self.pitch_error_deg:
+            raise ValueError("pitch_warn_deg must be below pitch_error_deg")
+        if self.hysteresis_deg >= min(self.roll_warn_deg, self.pitch_warn_deg):
             raise ValueError("hysteresis_deg must be below both warning limits")
         return self
 
@@ -127,8 +138,8 @@ class TiltGuardConfig(BaseModel):
             float: Limit, deg.
         """
         if axis == "roll":
-            return self.roll_error_deg if level is TiltLevel.ERROR else self.roll_warning_deg
-        return self.pitch_error_deg if level is TiltLevel.ERROR else self.pitch_warning_deg
+            return self.roll_error_deg if level is TiltLevel.ERROR else self.roll_warn_deg
+        return self.pitch_error_deg if level is TiltLevel.ERROR else self.pitch_warn_deg
 
 
 @dataclass(frozen=True)
@@ -194,7 +205,8 @@ class TiltGuard:
         roll_deg: Last roll minus the level reference, deg (None before the first sample).
         pitch_deg: Last pitch minus the level reference, deg (None before the first sample).
         last_sample_s: Monotonic time of the last valid sample, s.
-        level_since_s: Monotonic time the current level was entered, s.
+        level_since_s: Monotonic time the current level was entered (the first sample until the level changes), s.
+        inhibited: Base drive inhibition latch: set on entering ERROR, cleared only on returning to OK.
     """
 
     def __init__(self, config: TiltGuardConfig) -> None:
@@ -212,16 +224,20 @@ class TiltGuard:
         self.level_since_s: float | None = None
         self.rise_since: dict[TiltLevel, float] = {}
         self.clear_since: float | None = None
+        self.inhibited = False
         TILT_GUARD_LEVEL.set(int(self.level))
 
     @property
     def base_drive_inhibited(self) -> bool:
-        """True while the level is ERROR: drive commands are ignored and the wheels are stopped.
+        """True from entering ERROR until the guard is back at OK: drive commands are ignored, the wheels stopped.
+
+        An error that falls back to WARNING keeps the base inhibited: the tilt must drop below the warning
+        recovery threshold (warn - hysteresis_deg, held for recovery_hold_s) before the base drives again.
 
         Returns:
             bool: Whether the base drive is inhibited.
         """
-        return self.level is TiltLevel.ERROR
+        return self.inhibited
 
     def imu_stale(self, now: float) -> bool:
         """Return whether the IMU is stale.
@@ -308,6 +324,8 @@ class TiltGuard:
             self.rise_since.clear()
             self.clear_since = None
         self.roll_deg, self.pitch_deg, self.last_sample_s = roll, pitch, now
+        if self.level_since_s is None:
+            self.level_since_s = now
         TILT_ROLL_DEG.set(roll)
         TILT_PITCH_DEG.set(pitch)
         if not self.config.enabled:
@@ -348,6 +366,10 @@ class TiltGuard:
         previous = self.level
         self.level, self.level_since_s, self.clear_since = level, now, None
         self.axis = axis
+        if level is TiltLevel.ERROR:
+            self.inhibited = True
+        elif level is TiltLevel.OK:
+            self.inhibited = False
         TILT_GUARD_LEVEL.set(int(level))
         return TiltTransition(previous, level, self.axis, self.message())
 
@@ -364,23 +386,26 @@ class TiltGuard:
             return f"level: roll {roll:.1f} deg, pitch {pitch:.1f} deg within limits"
         value = abs(roll if self.axis == "roll" else pitch)
         limit = cfg.limit(self.axis, self.level)
+        recovery = cfg.limit(self.axis, TiltLevel.WARNING) - cfg.hysteresis_deg
+        disabled = (
+            f"base drive motors disabled ({cfg.error_action}) until the IMU reads below {recovery:.1f} deg {self.axis} "
+            f"for {cfg.recovery_hold_s:.1f} s"
+        )
         if self.level is TiltLevel.WARNING:
+            if self.inhibited:
+                return f"tilt warning after an error: {self.axis} {value:.1f} deg beyond the {limit:.1f} deg warning limit; {disabled}"
             return (
                 f"tilt warning: {self.axis} {value:.1f} deg beyond the {limit:.1f} deg warning limit; stop automatic "
                 "driving and drive back to level ground manually"
             )
-        return (
-            f"tilt error: {self.axis} {value:.1f} deg beyond the {limit:.1f} deg error limit; base drive motors "
-            f"disabled ({cfg.error_action}) until the IMU reads below {limit - cfg.hysteresis_deg:.1f} deg for "
-            f"{cfg.recovery_hold_s:.1f} s"
-        )
+        return f"tilt error: {self.axis} {value:.1f} deg beyond the {limit:.1f} deg error limit; {disabled}"
 
     def state_dict(self, now: float, stamp_ns: int) -> dict[str, Any] | None:
         """Build the /tilt_guard/state JSON object.
 
         Args:
             now: Monotonic time, s.
-            stamp_ns: ROS clock time of the publish, ns.
+            stamp_ns: ROS clock (wall, epoch) time of the publish, ns; 'since' is derived from it.
 
         Returns:
             dict[str, Any] | None: State with the keys in STATE_KEYS order, or None before the first IMU sample
@@ -390,6 +415,7 @@ class TiltGuard:
             return None
         cfg = self.config
         stale = self.imu_stale(now)
+        level_since_s = self.level_since_s if self.level_since_s is not None else self.last_sample_s
         message = self.message()
         if stale:
             message += f" (IMU stale: last sample {now - self.last_sample_s:.1f} s ago)"
@@ -400,13 +426,13 @@ class TiltGuard:
             "pitch_deg": self.pitch_deg,
             "axis": self.axis,
             "base_drive_inhibited": self.base_drive_inhibited,
+            "imu_ok": not stale,
+            "since": stamp_ns / NS_PER_S - (now - level_since_s),
             "error_action": cfg.error_action,
-            "imu_stale": stale,
-            "level_age_s": None if self.level_since_s is None else now - self.level_since_s,
             "limits": {
-                "roll_warning_deg": cfg.roll_warning_deg,
+                "roll_warn_deg": cfg.roll_warn_deg,
                 "roll_error_deg": cfg.roll_error_deg,
-                "pitch_warning_deg": cfg.pitch_warning_deg,
+                "pitch_warn_deg": cfg.pitch_warn_deg,
                 "pitch_error_deg": cfg.pitch_error_deg,
                 "hysteresis_deg": cfg.hysteresis_deg,
             },

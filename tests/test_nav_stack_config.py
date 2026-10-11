@@ -1280,10 +1280,14 @@ def test_swerve_controller_tilt_guard_block() -> None:
     assert tilt["enabled"] is True
     assert tilt["imu_topic"] == "/imu/data"
     assert tilt["state_topic"] == "/tilt_guard/state"
-    assert tilt["roll_warning_deg"] < tilt["roll_error_deg"]
-    assert tilt["pitch_warning_deg"] < tilt["pitch_error_deg"]
-    assert tilt["pitch_warning_deg"] > tilt["roll_warning_deg"]
+    assert tilt["roll_warn_deg"] < tilt["roll_error_deg"]
+    assert tilt["pitch_warn_deg"] < tilt["pitch_error_deg"]
+    assert tilt["pitch_warn_deg"] > tilt["roll_warn_deg"]
     assert tilt["pitch_error_deg"] > tilt["roll_error_deg"]
     assert tilt["error_action"] == "brake"
     for key in ("persistence_s", "hysteresis_deg", "recovery_hold_s", "level_reference_roll_deg"):
         assert key in tilt
+    # Same BNO055 mounting bias as mcp_server floor_guard.imu_level_reference; contract heartbeat 1 Hz.
+    assert tilt["level_reference_roll_deg"] == 0.7
+    assert tilt["level_reference_pitch_deg"] == 1.3
+    assert tilt["state_publish_hz"] == 1.0
