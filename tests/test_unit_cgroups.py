@@ -25,8 +25,9 @@ CLIENT_PLAYBOOK = ANSIBLE_DIR / "playbooks" / "deploy_nodes_client.yml"
 MONITORING_DEFAULTS = ANSIBLE_DIR / "roles" / "monitoring_agent" / "defaults" / "main.yml"
 NODE_TASKS = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "main.yml"
 NODES_DIR = REPO_ROOT / "nodes"
-# A CPU limit stated in a node README: a literal CPUQuota value, the unit's cpu_quota key or an "N % CPU quota".
-STALE_CPU_QUOTA_RE = re.compile(r"CPUQuota=\d|`cpu_quota`|CPU quota", re.IGNORECASE)
+# A CPU limit stated in a node README: a literal CPUQuota value, the unit's cpu_quota key or an "N % CPU quota"
+# (whitespace includes a line break, so a phrase wrapped across two README lines still matches).
+STALE_CPU_QUOTA_RE = re.compile(r"CPUQuota=\d|`cpu_quota`|CPU\s+quota", re.IGNORECASE)
 STOP_FOR_BUILD = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "stop_for_build.yml"
 
 # Measured 2026-10-11 08:23 UTC from Mimir (scripts/propose_unit_limits.py, host=client, 24 h window): node_type ->
@@ -474,10 +475,10 @@ def test_builds_run_at_background_cpu_weight() -> None:
 def test_node_readmes_state_no_cpu_quota() -> None:
     """Node READMEs describe the weight model: no robot unit CPU quota, no literal build quota (name the variable)."""
     stale = [
-        f"{path.relative_to(REPO_ROOT)}:{number}: {line.strip()}"
+        f"{path.relative_to(REPO_ROOT)}:{text.count(chr(10), 0, match.start()) + 1}: {match.group(0)!r}"
         for path in sorted(NODES_DIR.rglob("README.md"))
         if "node_modules" not in path.parts
-        for number, line in enumerate(path.read_text().splitlines(), start=1)
-        if STALE_CPU_QUOTA_RE.search(line)
+        for text in [path.read_text()]
+        for match in STALE_CPU_QUOTA_RE.finditer(text)
     ]
     assert stale == []
