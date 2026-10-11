@@ -250,3 +250,11 @@ def test_denied_tool_may_not_also_be_effector_uncapped_or_sensor() -> None:
     for field in ("effector_tools", "uncapped_tools", "sensor_tools"):
         with pytest.raises(ValueError, match="denied_tools"):
             ClaudeAgentConfig(**{field: ["arm_set_home"]})
+
+
+def test_client_group_vars_sets_job_end_max_followups() -> None:
+    nodes = yaml.safe_load(CLIENT_GROUP_VARS.read_text())["ros2_nodes"]
+    agent = next(node for node in nodes if node["name"] == "claude_agent")
+    raw = yaml.safe_load(agent["config"])
+    assert raw["job_end_max_followups"] == 2
+    assert ClaudeAgentConfig(**raw).job_end_max_followups == 2
