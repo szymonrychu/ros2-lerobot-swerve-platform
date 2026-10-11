@@ -1457,6 +1457,13 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_speed_filter_only_in_local_costmap` | Local `filters` is `[speed_filter]` (`SpeedFilter`, info topic equal to the `costmap_zones` default, `/speed_limit`, tolerance 0.2); global costmap has no speed filter. |
 | `test_nav2_keepout_docs_describe_lethal_override_correctly` | The nav2_params comments and the README zones section say 252 is written only while the robot is inside a zone (not that zone cells are blocked at 252) and that 1.3.10 gives live mask updates. |
 | `test_nav2_controller_listens_on_the_speed_limit_topic` | `controller_server.speed_limit_topic` equals the SpeedFilter topic `/speed_limit`. |
+| `test_nav2_launch_uses_the_repo_wrapper` | client.yml starts nav2_bringup with `nodes/nav2_bringup/launch/nav2_launch.py` and installs `ros-jazzy-opennav-docking`. |
+| `test_nav2_launch_includes_stock_bringup_without_localization` | `nav2_launch.py` (via `ast`) includes the stock `bringup_launch.py` with `use_localization` `'False'` and the repo `nav2_params.yaml`. |
+| `test_nav2_launch_grasp_docking_server_is_namespaced_and_remapped` | One `PushRosNamespace('grasp')` group with `opennav_docking` `docking_server` (remaps `cmd_vel` to `/cmd_vel_nav`, `navigate_to_pose` to `/navigate_to_pose`, params `grasp_docking_params.yaml`) and `lifecycle_manager_grasp` (autostart, `node_names ['docking_server']`). |
+| `test_grasp_docking_params_plugin_and_external_detection` | `/grasp/docking_server`: plugin list `grasp_servoed` = `SimpleNonChargingDock`, external detection on with timeout 1.0, all translations/rotations zero, no stall detection. |
+| `test_grasp_docking_controller_uses_absolute_costmap_topics_and_clears_the_dock_threshold` | Controller costmap and footprint topics are absolute (`/local_costmap/...`), collision detection on, `simulation_time_step` set, `dock_collision_threshold` >= 0.25 + `docking_threshold`. |
+| `test_grasp_docking_angular_speed_within_swerve_limit` | `v_angular_max` and `rotate_to_heading_angular_vel` are at most the swerve wz limit (velocity_smoother 0.5). |
+| `test_mcp_server_approach_block_matches_grasp_docking_params` | mcp_server `approach`: `staging_offset_m` = -`staging_x_offset`, `docking_threshold_m` = `docking_threshold`, `/grasp/detected_dock_pose`, `/grasp/dock_robot`, tracker `rate_hz` > 2 / `external_detection_timeout`. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_nav_stack_config.py` is listed in this section. |
 
 ### test_nav_footprint.py

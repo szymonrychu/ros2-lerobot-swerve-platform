@@ -452,9 +452,9 @@ ros2_node_type_defaults:
   nav2_bringup:
     deploy_mode: native
     # SLAM runs as its own node (slam_toolbox, online async), so Nav2 starts without localization/map_server.
-    node_launch_command: >-
-      ros2 launch nav2_bringup bringup_launch.py use_localization:=False
-      params_file:={{ ros2_repo_dest }}/nodes/nav2_bringup/config/nav2_params.yaml
+    # Repo wrapper: stock bringup_launch.py (use_localization False, nav2_params.yaml) plus the namespaced grasp
+    # docking server (nodes/nav2_bringup/README.md, "Grasp docking server").
+    node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/nav2_bringup/launch/nav2_launch.py"
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/nav2_bringup]
@@ -490,6 +490,7 @@ ros2_node_type_defaults:
       - ros-jazzy-nav2-behaviors
       - ros-jazzy-nav2-bt-navigator
       - ros-jazzy-nav2-waypoint-follower
+      - ros-jazzy-opennav-docking
   slam_toolbox:
     deploy_mode: native
     # Online async mapping; repo nodes/slam_toolbox/config/slam_params.yaml are the defaults, the ros2_nodes
@@ -1454,6 +1455,34 @@ ros2_nodes:
         z_max_m: 0.45
         planar_samples: [72, 72, 37]
         samples_per_cell: 2
+      # Approach pose planner and grasp docking interfaces: explicit values equal to the defaults. staging_offset_m,
+      # docking_threshold_m, dock_action and detection_topic must equal nodes/nav2_bringup/config/grasp_docking_params.yaml
+      # (staging_x_offset, docking_threshold, /grasp/docking_server); tracker.rate_hz > 2 / external_detection_timeout.
+      approach:
+        yaw_step_deg: 10.0
+        cells_per_yaw: 30
+        min_expected_margin_m: 0.0
+        pose_error_xy_m: 0.03
+        pose_error_yaw_deg: 3.0
+        margin_cap_m: 0.08
+        staging_offset_m: 0.30
+        docking_threshold_m: 0.03
+        corridor_samples: 5
+        verify_top_k: 5
+        path_check_k: 3
+        global_costmap_topic: /global_costmap/costmap
+        costmap_stale_s: 5.0
+        planner_action: /compute_path_to_pose
+        dock_action: /grasp/dock_robot
+        detection_topic: /grasp/detected_dock_pose
+        dock_timeout_s: 120.0
+        tracker:
+          rate_hz: 5.0
+          min_score: 0.6
+          template_px: 48
+          search_px: 96
+          max_correction_m: 0.10
+          edge_margin_px: 20
       limits:
         # Tracking abort compares each joint against the setpoint commanded this long ago (s). Clean servo lag 0.20-0.24 s
         # measured 2026-10-11 with P=16; 0.35 leaves margin. The old 0.65 compensated the 25% tick stretch (fixed sleep
