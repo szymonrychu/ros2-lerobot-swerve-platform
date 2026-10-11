@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatUpdated, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS } from './style'
+import { formatUpdated, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
 import type { Poi } from './types'
 
 function poi(over: Partial<Poi>): Poi {
@@ -101,5 +101,81 @@ describe('list helpers', () => {
     expect(formatUpdated(100, 100 + 7200)).toBe('2 h ago')
     expect(formatUpdated(100, 100 + 3 * 86400)).toBe('3 d ago')
     expect(formatUpdated(200, 100)).toBe('just now')
+  })
+})
+
+const SQUARE: [number, number][] = [
+  [0, 0],
+  [1, 0],
+  [1, 1],
+]
+
+function area(over: Partial<Poi>): Poi {
+  return poi({ kind: 'area', polygon: SQUARE, ...over })
+}
+
+describe('parsePoiList zones', () => {
+  const parse = (p: unknown) => parsePoiList({ pois: [p], revision: 1 })?.pois ?? []
+
+  it('defaults a missing zone to none', () => {
+    const [p] = parse(area({}))
+    expect(p.zone).toBe('none')
+  })
+
+  it('keeps valid keepout and slow zones', () => {
+    expect(parse(area({ zone: 'keepout', speed_limit_pct: null }))[0].zone).toBe('keepout')
+    const [slow] = parse(area({ zone: 'slow', speed_limit_pct: 40 }))
+    expect(slow.zone).toBe('slow')
+    expect(slow.speed_limit_pct).toBe(40)
+  })
+
+  it('drops an unknown zone', () => {
+    expect(parse(area({ zone: 'lava' as never }))).toHaveLength(0)
+  })
+
+  it('drops a slow zone without a valid pct', () => {
+    expect(parse(area({ zone: 'slow' }))).toHaveLength(0)
+    expect(parse(area({ zone: 'slow', speed_limit_pct: null }))).toHaveLength(0)
+    expect(parse(area({ zone: 'slow', speed_limit_pct: 5 }))).toHaveLength(0)
+    expect(parse(area({ zone: 'slow', speed_limit_pct: 101 }))).toHaveLength(0)
+    expect(parse(area({ zone: 'slow', speed_limit_pct: 40.5 }))).toHaveLength(0)
+    expect(parse(area({ zone: 'slow', speed_limit_pct: 10 }))).toHaveLength(1)
+    expect(parse(area({ zone: 'slow', speed_limit_pct: 100 }))).toHaveLength(1)
+  })
+})
+
+describe('zoneStyle and zoneLabel', () => {
+  it('is null / empty for a plain area', () => {
+    expect(zoneStyle(area({}), false)).toBeNull()
+    expect(zoneStyle(area({ zone: 'none' }), false)).toBeNull()
+    expect(zoneLabel(area({ zone: 'none' }))).toBe('')
+  })
+
+  it('draws an open keepout red, thick and solid', () => {
+    const s = zoneStyle(area({ zone: 'keepout' }), false)
+    expect(s).toMatchObject({ fill: '#ff4136', outline: '#ff4136', opacity: 0.45, dashed: false })
+    expect(s?.lineWidth).toBeGreaterThanOrEqual(4)
+  })
+
+  it('draws an open slow zone cyan', () => {
+    const s = zoneStyle(area({ zone: 'slow', speed_limit_pct: 40 }), false)
+    expect(s).toMatchObject({ fill: '#39cccc', opacity: 0.35 })
+  })
+
+  it('greys out a zone whose status is not open', () => {
+    for (const status of ['done', 'cancelled'] as const) {
+      const s = zoneStyle(area({ zone: 'keepout', status }), false)
+      expect(s?.fill).toBe(STATUS_COLORS.cancelled)
+      expect(s?.opacity).toBeLessThan(0.35)
+    }
+  })
+
+  it('keeps the selection outline', () => {
+    expect(zoneStyle(area({ zone: 'keepout' }), true)?.outline).not.toBe('#ff4136')
+  })
+
+  it('labels zones', () => {
+    expect(zoneLabel(area({ zone: 'keepout' }))).toBe('KEEPOUT')
+    expect(zoneLabel(area({ zone: 'slow', speed_limit_pct: 40 }))).toBe('SLOW 40%')
   })
 })

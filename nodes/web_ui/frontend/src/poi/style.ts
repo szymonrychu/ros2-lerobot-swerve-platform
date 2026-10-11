@@ -1,6 +1,6 @@
 /** POI presentation (colours by status, creator marker) and list helpers. */
 import type { Poi, PoiList } from './types'
-import { POI_STATUSES } from './types'
+import { POI_STATUSES, POI_ZONES, ZONE_PCT_MAX, ZONE_PCT_MIN, type PoiZone } from './types'
 
 const DEFAULT_CONFIDENCE = 1
 
@@ -12,6 +12,11 @@ const SELECTED_OUTLINE = '#ff4fd8'
 const CLOSED_OPACITY = 0.35
 const OPEN_OPACITY = 0.6
 const MIN_AREA_VERTICES = 3
+export const ZONE_COLORS = { keepout: '#ff4136', slow: '#39cccc' } as const
+const ZONE_OPACITY = { keepout: 0.45, slow: 0.35 } as const
+const INACTIVE_ZONE_OPACITY = 0.2
+const KEEPOUT_LINE_WIDTH = 4
+const SLOW_LINE_WIDTH = 3
 
 export interface PoiStyle {
   fill: string
@@ -40,6 +45,40 @@ export function poiStyle(poi: Poi, selected: boolean): PoiStyle {
   }
 }
 
+/**
+ * Style of an area with a keepout or slow zone: red / cyan fill, solid outline; grey and faint unless the POI is open.
+ *
+ * @param poi - POI
+ * @param selected - whether it is the selected POI
+ * @returns style, or null when the POI has no zone
+ */
+export function zoneStyle(poi: Poi, selected: boolean): PoiStyle | null {
+  const zone = poi.zone ?? 'none'
+  if (zone === 'none') return null
+  const active = poi.status === 'open'
+  const color = active ? ZONE_COLORS[zone] : STATUS_COLORS.cancelled
+  return {
+    fill: color,
+    outline: selected ? SELECTED_OUTLINE : color,
+    opacity: active ? ZONE_OPACITY[zone] : INACTIVE_ZONE_OPACITY,
+    lineWidth: selected ? KEEPOUT_LINE_WIDTH + 1 : zone === 'keepout' ? KEEPOUT_LINE_WIDTH : SLOW_LINE_WIDTH,
+    dashed: false,
+    creatorTag: poi.created_by,
+  }
+}
+
+/**
+ * Label text of a zone.
+ *
+ * @param poi - POI
+ * @returns "KEEPOUT", "SLOW 40%", or '' when the POI has no zone
+ */
+export function zoneLabel(poi: Poi): string {
+  if (poi.zone === 'keepout') return 'KEEPOUT'
+  if (poi.zone === 'slow') return `SLOW ${poi.speed_limit_pct}%`
+  return ''
+}
+
 function isNum(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v)
 }
@@ -53,12 +92,18 @@ function isPoi(raw: unknown): raw is Poi {
   if (typeof p.name !== 'string' || typeof p.note !== 'string') return false
   if (!POI_STATUSES.includes(p.status as never) || (p.created_by !== 'agent' && p.created_by !== 'user')) return false
   if (!Array.isArray(p.polygon) || !p.polygon.every((v) => Array.isArray(v) && v.length === 2 && v.every(isNum))) return false
-  return p.kind !== 'area' || p.polygon.length >= MIN_AREA_VERTICES
+  if (p.kind === 'area' && p.polygon.length < MIN_AREA_VERTICES) return false
+  const zone = p.zone ?? 'none'
+  if (!POI_ZONES.includes(zone as PoiZone)) return false
+  const pct = p.speed_limit_pct
+  return zone !== 'slow' || (typeof pct === 'number' && Number.isInteger(pct) && pct >= ZONE_PCT_MIN && pct <= ZONE_PCT_MAX)
 }
 
 function withObjectDefaults(p: Poi): Poi {
   return {
     ...p,
+    zone: p.zone ?? 'none',
+    speed_limit_pct: p.zone === 'slow' ? p.speed_limit_pct : null,
     times_seen: isNum(p.times_seen) ? p.times_seen : 0,
     first_seen: isNum(p.first_seen) ? p.first_seen : 0,
     last_seen: isNum(p.last_seen) ? p.last_seen : 0,

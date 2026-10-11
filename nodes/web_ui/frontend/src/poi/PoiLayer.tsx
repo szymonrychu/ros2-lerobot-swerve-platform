@@ -8,7 +8,7 @@ import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Vec2 } from '../map/mapMath'
 import { rosToThree, ThreeTuple } from '../map3d/coords'
-import { objectDetails, poiStyle, STATUS_COLORS } from './style'
+import { objectDetails, poiStyle, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
 import type { Poi } from './types'
 
 /** Stacking heights (three y, metres), above the goal marker. */
@@ -27,6 +27,7 @@ function closedOutline(polygon: [number, number][], lift: number): ThreeTuple[] 
 function PoiLabel({ poi, lift }: { poi: Poi; lift: number }) {
   const tag = poi.kind === 'object' ? 'obj' : poi.created_by === 'agent' ? 'A' : 'U'
   const seen = poi.kind === 'object' && (poi.times_seen ?? 0) > 1 ? ` x${poi.times_seen}` : ''
+  const zone = zoneLabel(poi)
   return (
     <Html position={rosToThree(poi, lift)} center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
       <div
@@ -45,6 +46,7 @@ function PoiLabel({ poi, lift }: { poi: Poi; lift: number }) {
         <span style={{ opacity: 0.7, marginRight: 4 }}>{tag}</span>
         {poi.name || '(unnamed)'}
         {seen}
+        {zone && <span style={{ marginLeft: 6, color: zoneStyle(poi, false)?.fill, fontWeight: 800 }}>{zone}</span>}
       </div>
     </Html>
   )
@@ -109,7 +111,8 @@ const ObjectMarker = memo(function ObjectMarker({ poi, selected }: { poi: Poi; s
 })
 
 const AreaMarker = memo(function AreaMarker({ poi, selected }: { poi: Poi; selected: boolean }) {
-  const style = poiStyle(poi, selected)
+  const style = zoneStyle(poi, selected) ?? poiStyle(poi, selected)
+  const fillOpacity = zoneStyle(poi, selected) ? style.opacity : style.opacity * 0.6
   const geometry = useMemo(() => {
     const shape = new THREE.Shape(poi.polygon.map(([x, y]) => new THREE.Vector2(x, y)))
     return new THREE.ShapeGeometry(shape)
@@ -122,7 +125,7 @@ const AreaMarker = memo(function AreaMarker({ poi, selected }: { poi: Poi; selec
         <meshBasicMaterial
           color={style.fill}
           transparent
-          opacity={style.opacity * 0.6}
+          opacity={fillOpacity}
           depthWrite={false}
           side={THREE.DoubleSide}
           toneMapped={false}

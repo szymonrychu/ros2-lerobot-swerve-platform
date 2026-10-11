@@ -1,7 +1,7 @@
 /** Pure editor state logic for POIs: area drafting, new-POI fields, drag previews and update commands. */
 import type { Vec2 } from '../map/mapMath'
 import { polygonCentroid, distance, type Hit } from './geometry'
-import { isPointLike, type Poi, type PoiCommand, type PoiFields, type PoiKind } from './types'
+import { isPointLike, ZONE_PCT_MAX, ZONE_PCT_MIN, type Poi, type PoiCommand, type PoiFields, type PoiKind, type PoiStatus, type PoiZone } from './types'
 
 /** A press that moves less than this (screen px) is a click. */
 export const CLICK_MAX_DRAG_PX = 6
@@ -184,4 +184,47 @@ export function dragCommand(poi: Poi, drag: DragState): Extract<PoiCommand, { op
 export function applyOverride(pois: Poi[], override: Poi | null): Poi[] {
   if (!override) return pois
   return pois.map((p) => (p.id === override.id ? override : p))
+}
+
+/** Values of the POI editor form. */
+export interface EditorForm {
+  name: string
+  note: string
+  status: PoiStatus
+  radiusText: string
+  zone: PoiZone
+  pctText: string
+}
+
+/**
+ * Validate the "Speed %" field of the editor.
+ *
+ * @param zone - selected zone
+ * @param pctText - field text
+ * @returns an error message, or null when valid (always valid unless the zone is slow)
+ */
+export function zonePctError(zone: PoiZone, pctText: string): string | null {
+  if (zone !== 'slow') return null
+  const v = Number(pctText)
+  if (pctText.trim() === '' || !Number.isInteger(v) || v < ZONE_PCT_MIN || v > ZONE_PCT_MAX) {
+    return `Whole number ${ZONE_PCT_MIN}-${ZONE_PCT_MAX}`
+  }
+  return null
+}
+
+/**
+ * The update command that saves the editor form.
+ *
+ * @param poi - POI being edited
+ * @param form - form values (already validated)
+ * @returns op "update" with id, name, note, status, plus radius_m for a point or zone and speed_limit_pct (null unless slow) for an area
+ */
+export function zoneUpdateCommand(poi: Poi, form: EditorForm): Extract<PoiCommand, { op: 'update' }> {
+  const changes: Partial<Poi> & { id: string } = { id: poi.id, name: form.name, note: form.note, status: form.status }
+  if (poi.kind === 'point') changes.radius_m = Number(form.radiusText)
+  if (poi.kind === 'area') {
+    changes.zone = form.zone
+    changes.speed_limit_pct = form.zone === 'slow' ? Number(form.pctText) : null
+  }
+  return { op: 'update', poi: changes }
 }

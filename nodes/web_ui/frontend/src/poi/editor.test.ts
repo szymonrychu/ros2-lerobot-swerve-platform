@@ -12,6 +12,8 @@ import {
   newPointFields,
   startDrag,
   updateDrag,
+  zonePctError,
+  zoneUpdateCommand,
 } from './editor'
 import type { Poi } from './types'
 
@@ -141,5 +143,46 @@ describe('overrides', () => {
     const moved = { ...a, x: 9 }
     expect(applyOverride([a, b], moved)).toEqual([moved, b])
     expect(applyOverride([a, b], null)).toEqual([a, b])
+  })
+})
+
+describe('zones in the editor', () => {
+  const base = { name: 'n', note: '', status: 'open' as const, radiusText: '0.2' }
+  const areaPoi = poi({ id: 'z1', kind: 'area', polygon: SQUARE })
+
+  it('validates the speed percentage only for slow', () => {
+    expect(zonePctError('none', '')).toBeNull()
+    expect(zonePctError('keepout', 'abc')).toBeNull()
+    expect(zonePctError('slow', '40')).toBeNull()
+    expect(zonePctError('slow', '10')).toBeNull()
+    expect(zonePctError('slow', '100')).toBeNull()
+    expect(zonePctError('slow', '')).not.toBeNull()
+    expect(zonePctError('slow', '9')).not.toBeNull()
+    expect(zonePctError('slow', '101')).not.toBeNull()
+    expect(zonePctError('slow', '40.5')).not.toBeNull()
+  })
+
+  it('sends zone and speed_limit_pct for a slow area', () => {
+    expect(zoneUpdateCommand(areaPoi, { ...base, zone: 'slow', pctText: '40' })).toEqual({
+      op: 'update',
+      poi: { id: 'z1', name: 'n', note: '', status: 'open', zone: 'slow', speed_limit_pct: 40 },
+    })
+  })
+
+  it('sends a null speed for keepout and none', () => {
+    expect(zoneUpdateCommand(areaPoi, { ...base, zone: 'keepout', pctText: '40' }).poi).toMatchObject({
+      zone: 'keepout',
+      speed_limit_pct: null,
+    })
+    expect(zoneUpdateCommand(areaPoi, { ...base, zone: 'none', pctText: '' }).poi).toMatchObject({
+      zone: 'none',
+      speed_limit_pct: null,
+    })
+  })
+
+  it('sends the radius for a point and no zone fields', () => {
+    const point = poi({ id: 'p1', kind: 'point' })
+    const cmd = zoneUpdateCommand(point, { ...base, zone: 'none', pctText: '', radiusText: '0.5' })
+    expect(cmd.poi).toEqual({ id: 'p1', name: 'n', note: '', status: 'open', radius_m: 0.5 })
   })
 })

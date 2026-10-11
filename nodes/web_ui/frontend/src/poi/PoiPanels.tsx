@@ -22,8 +22,9 @@ import CloseIcon from '@mui/icons-material/Close'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { MONO_FONT } from '../theme'
+import { zonePctError, zoneUpdateCommand } from './editor'
 import { formatUpdated, objectDetails, OBJECT_COLOR, sortPois, STATUS_COLORS } from './style'
-import { Poi, POI_NAME_MAX, POI_NOTE_MAX, POI_STATUSES, PoiCommand, PoiResult, PoiStatus } from './types'
+import { Poi, POI_NAME_MAX, POI_NOTE_MAX, POI_STATUSES, POI_ZONES, PoiCommand, PoiResult, PoiStatus, PoiZone, ZONE_PCT_MAX, ZONE_PCT_MIN } from './types'
 
 const PANEL_BG = 'rgba(22, 27, 34, 0.92)'
 const KIND_TITLES = { point: 'Point', area: 'Area', object: 'Object' } as const
@@ -121,16 +122,22 @@ export function PoiEditorPanel({
   const [note, setNote] = useState(poi.note)
   const [status, setStatus] = useState<PoiStatus>(poi.status)
   const [radius, setRadius] = useState(String(poi.radius_m))
+  const [zone, setZone] = useState<PoiZone>(poi.zone ?? 'none')
+  const [pct, setPct] = useState(poi.speed_limit_pct == null ? '' : String(poi.speed_limit_pct))
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const radiusValue = Number(radius)
   const radiusValid = poi.kind !== 'point' || (radius.trim() !== '' && Number.isFinite(radiusValue) && radiusValue > 0)
+  const isArea = poi.kind === 'area'
+  const pctError = isArea ? zonePctError(zone, pct) : null
+  const zoneDirty = isArea && (zone !== (poi.zone ?? 'none') || (zone === 'slow' && pct !== String(poi.speed_limit_pct ?? '')))
   const dirty =
+    zoneDirty ||
     name !== poi.name ||
     note !== poi.note ||
     status !== poi.status ||
     (poi.kind === 'point' && radiusValid && radiusValue !== poi.radius_m)
-  const valid = name.length <= POI_NAME_MAX && note.length <= POI_NOTE_MAX && radiusValid
+  const valid = name.length <= POI_NAME_MAX && note.length <= POI_NOTE_MAX && radiusValid && !pctError
 
   // Follow updates from elsewhere (the agent, another browser) unless the user has unsaved edits.
   useEffect(() => {
@@ -139,13 +146,13 @@ export function PoiEditorPanel({
     setNote(poi.note)
     setStatus(poi.status)
     setRadius(String(poi.radius_m))
+    setZone(poi.zone ?? 'none')
+    setPct(poi.speed_limit_pct == null ? '' : String(poi.speed_limit_pct))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [poi.updated_at, poi.id])
 
   const save = () => {
-    const changes: Partial<Poi> & { id: string } = { id: poi.id, name, note, status }
-    if (poi.kind === 'point') changes.radius_m = radiusValue
-    void onSend({ op: 'update', poi: changes }, 'POI saved')
+    void onSend(zoneUpdateCommand(poi, { name, note, status, radiusText: radius, zone, pctText: pct }), 'POI saved')
   }
   const remove = () => {
     setConfirmDelete(false)
@@ -197,6 +204,27 @@ export function PoiEditorPanel({
             </MenuItem>
           ))}
         </TextField>
+        {isArea && (
+          <TextField select label="Zone" size="small" value={zone} onChange={(e) => setZone(e.target.value as PoiZone)}>
+            {POI_ZONES.map((z) => (
+              <MenuItem key={z} value={z}>
+                {z}
+              </MenuItem>
+            ))}
+          </TextField>
+        )}
+        {isArea && zone === 'slow' && (
+          <TextField
+            label="Speed %"
+            size="small"
+            type="number"
+            value={pct}
+            onChange={(e) => setPct(e.target.value)}
+            error={!!pctError}
+            helperText={pctError ?? undefined}
+            slotProps={{ htmlInput: { min: ZONE_PCT_MIN, max: ZONE_PCT_MAX, step: 1 } }}
+          />
+        )}
         {poi.kind === 'point' && (
           <TextField
             label="Radius (m)"

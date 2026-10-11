@@ -4,6 +4,13 @@
 export type PoiKind = 'point' | 'area' | 'object'
 export type PoiStatus = 'open' | 'done' | 'cancelled'
 export type PoiCreator = 'agent' | 'user'
+/** Nav2 zone of an area: keepout (no entry) or slow (speed cap); active only while the POI is open. */
+export type PoiZone = 'none' | 'keepout' | 'slow'
+
+export const POI_ZONES: readonly PoiZone[] = ['none', 'keepout', 'slow']
+/** Allowed speed_limit_pct range of a slow zone (percent). */
+export const ZONE_PCT_MIN = 10
+export const ZONE_PCT_MAX = 100
 
 export const POI_STATUSES: readonly PoiStatus[] = ['open', 'done', 'cancelled']
 export const POI_NAME_MAX = 60
@@ -27,6 +34,8 @@ export interface Poi {
   first_seen?: number // objects: unix seconds of the first sighting
   last_seen?: number // objects: unix seconds of the latest sighting
   confidence?: number // objects: 0..1
+  zone?: PoiZone // areas only; absent means 'none'
+  speed_limit_pct?: number | null // slow zones: ZONE_PCT_MIN..ZONE_PCT_MAX, else null
 }
 
 /**
