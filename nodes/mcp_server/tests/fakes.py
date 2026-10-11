@@ -22,6 +22,8 @@ class FakeArmBackend:
         self.t = 100.0
         self.positions: dict[str, float] = dict(positions or {j: 0.0 for j in JOINTS})
         self.efforts: dict[str, float] = {j: 0.0 for j in JOINTS}
+        # Gripper Present_Current (A) as /follower/joint_currents would carry it; empty = no fresh currents message.
+        self.currents: dict[str, float] = {}
         self.commands: list[dict[str, float]] = []
         self.releases = 0
         self.source: str | None = "autonomy"
@@ -50,7 +52,9 @@ class FakeArmBackend:
         if self.no_samples:
             return None
         stamp = self.t if self.stale_after is None else min(self.t, self.stale_after)
-        return JointSample(positions=dict(self.positions), efforts=dict(self.efforts), stamp=stamp)
+        return JointSample(
+            positions=dict(self.positions), efforts=dict(self.efforts), stamp=stamp, currents=dict(self.currents)
+        )
 
     def publish_command(self, positions: dict[str, float]) -> None:
         if self.on_publish_command is not None:

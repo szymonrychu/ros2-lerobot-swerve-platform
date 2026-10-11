@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from mcp_server.config import (
     DEFAULT_CONFIG_PATH,
     REPO_ROOT,
+    GripProfileOverride,
     McpServerConfig,
     MissingTokenError,
     MotionQueueSettings,
@@ -17,6 +18,7 @@ from mcp_server.config import (
     load_config,
     token_from_env,
 )
+from mcp_server.grip import resolve_grip_profile
 
 
 def test_defaults_match_documented_server_endpoint() -> None:
@@ -468,3 +470,89 @@ def test_frontier_settings_accept_a_valid_override() -> None:
         }
     ).frontiers
     assert (f.standoff_min_m, f.standoff_max_m, f.geodesic_downsample, f.look_camera) == (0.5, 2.0, 3, "gripper")
+
+
+def test_follower_joint_currents_topic_default() -> None:
+    """E1: Present_Current of the gripper from the feetech bridge (sensor_msgs/JointState, effort in A)."""
+    assert McpServerConfig().topics.follower_joint_currents == "/follower/joint_currents"
+    cfg = McpServerConfig.model_validate({"topics": {"follower_joint_currents": "/x/joint_currents"}})
+    assert cfg.topics.follower_joint_currents == "/x/joint_currents"
+
+
+def test_contact_delta_settings_defaults_and_bounds() -> None:
+    """E1 (arXiv 2608.23983): baseline over N_warm=10 samples, contact persists N_persist=3, current off by default."""
+    gp = McpServerConfig().grip_profiles
+    assert (gp.contact_baseline_samples, gp.contact_persist_samples, gp.current_contact_delta_a) == (10, 3, None)
+    ok = McpServerConfig.model_validate(
+        {
+            "grip_profiles": {
+                "contact_baseline_samples": 3,
+                "contact_persist_samples": 1,
+                "current_contact_delta_a": 0.05,
+            }
+        }
+    ).grip_profiles
+    assert (ok.contact_baseline_samples, ok.contact_persist_samples, ok.current_contact_delta_a) == (3, 1, 0.05)
+    for bad in (
+        {"contact_baseline_samples": 2},
+        {"contact_persist_samples": 0},
+        {"current_contact_delta_a": 0.0},
+        {"current_contact_delta_a": -0.1},
+    ):
+        with pytest.raises(ValidationError):
+            McpServerConfig.model_validate({"grip_profiles": bad})
+
+
+def test_grip_profile_contact_load_delta_defaults_none_and_must_be_positive() -> None:
+    gp = McpServerConfig().grip_profiles
+    assert all(p.contact_load_delta is None for p in gp.presets.values())
+    preset = {"squeeze_rad": 0.03, "torque_limit": 500, "close_speed_rps": 0.5, "contact_effort_threshold": 300.0}
+    cfg = McpServerConfig.model_validate(
+        {"grip_profiles": {"presets": {"normal": {**preset, "contact_load_delta": 20.0}}}}
+    )
+    assert cfg.grip_profiles.presets["normal"].contact_load_delta == 20.0
+    for bad in (0.0, -5.0):
+        with pytest.raises(ValidationError):
+            McpServerConfig.model_validate(
+                {"grip_profiles": {"presets": {"normal": {**preset, "contact_load_delta": bad}}}}
+            )
+
+
+def test_grip_profile_override_accepts_contact_load_delta() -> None:
+    assert GripProfileOverride().contact_load_delta is None
+    assert GripProfileOverride.model_validate({"contact_load_delta": 25.0}).contact_load_delta == 25.0
+    with pytest.raises(ValidationError):
+        GripProfileOverride.model_validate({"contact_load_delta": 0.0})
+    cfg = McpServerConfig.model_validate({"grasp": {"grip_profile": {"base": "soft", "contact_load_delta": 15.0}}})
+    assert isinstance(cfg.grasp.grip_profile, GripProfileOverride)
+    assert cfg.grasp.grip_profile.contact_load_delta == 15.0
+
+
+def test_grasp_check_settings_defaults_and_validation() -> None:
+    gc = McpServerConfig().grasp_check
+    assert (gc.crop_depth_m, gc.crop_margin_px, gc.crop_min_px, gc.image_px) == (0.045, 24, 64, 640)
+    for bad in ({"crop_depth_m": -0.01}, {"crop_margin_px": -1}, {"crop_min_px": 0}, {"image_px": 0}):
+        with pytest.raises(ValidationError):
+            McpServerConfig.model_validate({"grasp_check": bad})
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"grasp_check": {"crop_depth": 0.05}},
+        {"grip_profiles": {"contact_baseline": 10}},
+        {"grasp": {"grip_profile": {"contact_delta": 20.0}}},
+        {"topics": {"follower_currents": "/x"}},
+    ],
+)
+def test_new_e1_sections_reject_unknown_keys(data: dict) -> None:
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate(data)
+
+
+def test_contact_load_delta_appears_in_the_resolved_grip_report() -> None:
+    cfg = McpServerConfig()
+    assert resolve_grip_profile(cfg.grip_profiles, cfg.limits, "firm").report()["contact_load_delta"] is None
+    custom = resolve_grip_profile(cfg.grip_profiles, cfg.limits, {"base": "firm", "contact_load_delta": 20.0})
+    assert custom.report()["contact_load_delta"] == 20.0
+    assert custom.name == "firm+custom"

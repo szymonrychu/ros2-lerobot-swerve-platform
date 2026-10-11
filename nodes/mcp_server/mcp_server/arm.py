@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -230,11 +230,16 @@ def finite_effort(efforts: dict[str, float], joint: str) -> float | None:
 
 @dataclass(frozen=True)
 class JointSample:
-    """One /follower/joint_states sample keyed by joint name, with its receive time (monotonic s)."""
+    """One /follower/joint_states sample keyed by joint name, with its receive time (monotonic s).
+
+    currents holds the Present_Current magnitudes (A) of /follower/joint_currents when a message arrived within
+    timeouts.follower_stale_s of this sample; empty otherwise (the bridge publishes it only for its current joints).
+    """
 
     positions: dict[str, float]
     efforts: dict[str, float]
     stamp: float
+    currents: dict[str, float] = field(default_factory=dict)
 
 
 class ArmBackend(Protocol):

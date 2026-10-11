@@ -20,6 +20,7 @@ def test_default_presets_gentle_normal_firm_soft() -> None:
         "close_speed_rps": 0.2,
         "target_load": 80.0,
         "contact_effort_threshold": 120.0,
+        "contact_load_delta": None,
         "crush_load": 200.0,
         "retighten": False,
     }
@@ -31,6 +32,7 @@ def test_default_presets_gentle_normal_firm_soft() -> None:
         "close_speed_rps": 0.5,
         "target_load": 200.0,
         "contact_effort_threshold": 300.0,
+        "contact_load_delta": None,
         "crush_load": 450.0,
         "retighten": True,
     }
@@ -40,6 +42,7 @@ def test_default_presets_gentle_normal_firm_soft() -> None:
         "close_speed_rps": 0.4,
         "target_load": 300.0,
         "contact_effort_threshold": 350.0,
+        "contact_load_delta": None,
         "crush_load": 600.0,
         "retighten": True,
     }

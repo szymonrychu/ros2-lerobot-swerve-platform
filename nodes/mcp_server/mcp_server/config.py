@@ -113,6 +113,9 @@ class TopicSettings(StrictModel):
     autonomy_release: str = "/filter/autonomy_release"
     active_source: str = "/filter/active_source"
     follower_joint_states: str = "/follower/joint_states"
+    # feetech bridge publish_current_joints (the gripper): sensor_msgs/JointState, effort = Present_Current magnitude in
+    # A, same header stamp as joint_states; read into JointSample.currents when within timeouts.follower_stale_s.
+    follower_joint_currents: str = "/follower/joint_currents"
     cmd_vel: str = "/cmd_vel_nav"
     odom: str = "/odometry/filtered"
     swerve_odom: str = "/odom"  # swerve_drive_controller odometry: its twist covariance encodes the slip residual
@@ -1019,7 +1022,11 @@ class GripProfile(StrictModel):
     close_speed_rps: float = Field(gt=0.0, le=1.5)  # capped to limits.gripper_velocity_rps
     # Stop the close once the load in the closing direction reaches this, then hold; None = stall/contact only.
     target_load: float | None = Field(default=None, gt=0.0)
-    contact_effort_threshold: float = Field(gt=0.0)  # |load| counted as contact while closing
+    contact_effort_threshold: float = Field(gt=0.0)  # |load| counted as contact while closing (absolute backstop)
+    # Primary contact signal (arXiv 2608.23983): closing-direction load minus the measured baseline at or above this
+    # for grip_profiles.contact_persist_samples consecutive samples; also the hold delta a band 'object' needs.
+    # None = delta contact off for this profile (the band then uses grasp.hold_effort_min on |holding_load|).
+    contact_load_delta: float | None = Field(default=None, gt=0.0)
     # A holding |load| above this reports crush_risk (the object is squeezed too hard for this profile); None = never.
     crush_load: float | None = Field(default=None, gt=0.0)
     # Opt in to the hold re-tighten (grip_profiles.retighten_load_below): a relaxed hold steps once to squeeze_max_rad
@@ -1109,6 +1116,14 @@ class GripProfileSettings(StrictModel):
     # An 'unverified' empty-band hold (grasp_object) keeps its profile's torque limit while the agent looks at the image;
     # after this long (s) the default preset's torque limit is restored so the servo does not heat; None = never.
     unverified_hold_relax_s: float | None = Field(default=60.0, gt=0.0)
+    # Load-delta contact (arXiv 2608.23983: N_warm 10, N_persist 3): the baseline is the mean of this many finite
+    # closing loads (free-closing after contact_allowed opens, else the rest samples before the stream) ...
+    contact_baseline_samples: int = Field(default=10, ge=3)
+    # ... and contact needs this many consecutive samples at or above the profile's contact_load_delta.
+    contact_persist_samples: int = Field(default=3, ge=1)
+    # Gripper current rise (A, topics.follower_joint_currents) that votes 'object' in the grasp band; below it votes
+    # against. None = current is recorded in the evidence but does not vote.
+    current_contact_delta_a: float | None = Field(default=None, gt=0.0)
 
     @model_validator(mode="after")
     def presets_within_caps(self) -> "GripProfileSettings":
@@ -1145,6 +1160,7 @@ class GripProfileOverride(StrictModel):
     close_speed_rps: float | None = Field(default=None, gt=0.0, le=1.5)
     target_load: float | None = Field(default=None, gt=0.0)
     contact_effort_threshold: float | None = Field(default=None, gt=0.0)
+    contact_load_delta: float | None = Field(default=None, gt=0.0)
     crush_load: float | None = Field(default=None, gt=0.0)
     retighten: bool | None = None
 
@@ -1179,7 +1195,8 @@ class GraspSettings(StrictModel):
     # close_until_effort contact threshold; None = the grip profile's contact_effort_threshold.
     close_effort_threshold: float | None = Field(default=None, gt=0.0)
     # Grip profile of the close: a grip_profiles preset name or inline overrides {base?, squeeze_rad?, torque_limit?,
-    # close_speed_rps?, target_load?, contact_effort_threshold?, crush_load?}; None = grip_profiles.default_grip_profile.
+    # close_speed_rps?, target_load?, contact_effort_threshold?, contact_load_delta?, crush_load?, retighten?};
+    # None = grip_profiles.default_grip_profile.
     grip_profile: str | GripProfileOverride | None = None
     hold_effort_min: float = Field(default=100.0, ge=0.0)  # |gripper load| a verified grasp must still show
     min_hold_gap_rad: float = Field(default=0.08, ge=0.0)  # verified grasp: jaw stopped this far short of closed
@@ -1275,6 +1292,15 @@ class FrontierSettings(StrictModel):
         return self
 
 
+class GraspCheckSettings(StrictModel):
+    """Post-lift visual grasp check: the gripper camera frame cropped to the region between the jaws."""
+
+    crop_depth_m: float = Field(default=0.045, ge=0.0, le=0.2)  # how far into the jaws (toward gripper_link) it reaches
+    crop_margin_px: int = Field(default=24, ge=0, le=512)  # added on every side of the projected jaw box
+    crop_min_px: int = Field(default=64, ge=1)  # a smaller crop falls back to the full frame
+    image_px: int = Field(default=640, ge=1)  # longest side of the attached image (capped to limits.max_image_px)
+
+
 class McpServerConfig(StrictModel):
     """Top-level mcp_server configuration."""
 
@@ -1305,6 +1331,7 @@ class McpServerConfig(StrictModel):
     # Declarative guard rules (guard_rules.py); code default: enabled, no rules (the deployed set lives in client.yml).
     guard_rules: GuardRuleSettings = GuardRuleSettings()
     frontiers: FrontierSettings = FrontierSettings()
+    grasp_check: GraspCheckSettings = GraspCheckSettings()
 
 
 def load_config(path: Path) -> McpServerConfig:

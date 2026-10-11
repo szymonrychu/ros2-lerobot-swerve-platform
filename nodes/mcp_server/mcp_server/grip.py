@@ -25,7 +25,7 @@ class ResolvedGrip:
 
         Returns:
             dict[str, Any]: {name, squeeze_rad, torque_limit, close_speed_rps, target_load, contact_effort_threshold,
-                crush_load, capped}.
+                contact_load_delta, crush_load, retighten, capped}.
         """
         return {"name": self.name, **self.profile.model_dump(), "capped": list(self.capped)}
 

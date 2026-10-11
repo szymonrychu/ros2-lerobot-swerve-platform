@@ -9,7 +9,7 @@ import json
 import math
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -181,6 +181,19 @@ def twist_xyw(msg: Odometry) -> tuple[float, float, float]:
     return tw.linear.x, tw.linear.y, tw.angular.z
 
 
+def finite_by_name(names: Sequence[str], values: Sequence[float]) -> dict[str, float]:
+    """Pair JointState names with values, dropping non-finite ones (feetech_servos publishes NaN for unmeasured).
+
+    Args:
+        names (Sequence[str]): JointState name.
+        values (Sequence[float]): JointState effort (or another per-joint array).
+
+    Returns:
+        dict[str, float]: Joint name -> finite value.
+    """
+    return {n: v for n, v in zip(names, (float(x) for x in values), strict=False) if math.isfinite(v)}
+
+
 def wait_future(future: Any, timeout_s: float) -> bool:
     """Block the calling (non-executor) thread until an rclpy future completes.
 
@@ -325,6 +338,7 @@ class RosRobot:
             config.monitor, battery_guard, autonomy_source=config.arm.autonomy_source_name
         )
         self.cache(JointState, t.follower_joint_states, "joint_states", SENSOR_QOS)
+        self.cache(JointState, t.follower_joint_currents, "joint_currents", SENSOR_QOS)
         self.cache(
             String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
         )
@@ -807,6 +821,9 @@ class RosRobot:
     def joint_sample(self) -> JointSample | None:
         """Latest follower joint sample keyed by name.
 
+        currents come from the latest topics.follower_joint_currents message when it was received within
+        timeouts.follower_stale_s of the joint states; otherwise they are empty (never a stale or placeholder value).
+
         Returns:
             JointSample | None: Sample or None before the first message.
         """
@@ -816,8 +833,12 @@ class RosRobot:
         msg = item.value
         positions = dict(zip(msg.name, (float(p) for p in msg.position), strict=False))
         # feetech_servos publishes NaN effort for a joint without an effort reading: unmeasured, omitted
-        efforts = {n: e for n, e in zip(msg.name, (float(v) for v in msg.effort), strict=False) if math.isfinite(e)}
-        return JointSample(positions=positions, efforts=efforts, stamp=item.stamp)
+        efforts = finite_by_name(msg.name, msg.effort)
+        currents: dict[str, float] = {}
+        cur = self.get("joint_currents")
+        if cur is not None and abs(cur.stamp - item.stamp) <= self.cfg.timeouts.follower_stale_s:
+            currents = finite_by_name(cur.value.name, cur.value.effort)
+        return JointSample(positions=positions, efforts=efforts, stamp=item.stamp, currents=currents)
 
     def publish_command(self, positions: dict[str, float]) -> None:
         """Publish an autonomy setpoint.
