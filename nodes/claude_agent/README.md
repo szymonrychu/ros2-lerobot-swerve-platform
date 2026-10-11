@@ -62,7 +62,7 @@ workdir is not touched.
 
 Besides the budget and working method, the system prompt (`prompt.py`) has compact sections (about 1.4 k characters
 added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
-interrupts), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
+interrupts), the tilt guard (warning: drive back manually; error: base disabled, report and wait), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
 `mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), pixel
 sizes (`Pixel sizes:`: the pixel tools work in the calibrated 640x480 size while `get_camera_image` returns 384x288 by
 default, so pixels from it always go with `image_width` / `image_height`, or are picked on `get_annotated_camera_image`;
@@ -197,6 +197,7 @@ A background `SingleThreadedExecutor` thread runs the callback, which hands the 
 `loop.call_soon_threadsafe` (`AgentRunner.post_robot_event`); invalid payloads are dropped.
 
 - Every event is kept (last `robot_events_history`, 50) and emitted as a `robot_event` chat event (also while idle).
+- Tilt guard events from mcp_server (`tilt_warning`, `tilt_error`: critical; `tilt_clear`: info) use this same path: the first two interrupt the running step at once and the follow-up carries `type: message`; `tilt_clear` is only shown. The system prompt has a "Tilt guard" section (warning: stop navigation, no Nav2 goals, drive back manually with short base moves watching `get_body_state` tilt, wait for `tilt_clear`; error: base motion disabled, keep the arm still and compact, report and wait; never work around the guard).
 - While an instruction is being worked on, a **critical** event interrupts the current model step (`client.interrupt()`) and the
   runner continues the same instruction in the same session by sending the follow-up user message `ROBOT EVENT (critical):
   <type>: <message>. The robot reacted on its own (reflexes). Re-check state with sensors before continuing; adapt the plan or

@@ -462,3 +462,23 @@ def test_prompt_explains_the_instruction_time_left_rule() -> None:
     text = build_system_prompt(ClaudeAgentConfig(min_effector_time_left_s=45))
     assert "instruction time left" in text
     assert "45 s" in text
+
+
+def test_prompt_has_the_tilt_guard_section() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    section = lower[lower.index("tilt guard:") :]
+    for needle in (
+        "tilt_warning",
+        "tilt_clear",
+        "tilt_error",
+        "nav2",
+        "refused",
+        "manually",
+        "short base moves",
+        "get_body_state",
+        "base motion is disabled",
+        "arm still and compact",
+        "report to the user",
+        "never try to work around",
+    ):
+        assert needle in section, needle

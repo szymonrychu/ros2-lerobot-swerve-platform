@@ -5,6 +5,7 @@ import json
 import threading
 from pathlib import Path
 
+import pytest
 from claude_agent_sdk import AssistantMessage, TextBlock, ToolResultBlock, UserMessage
 
 from claude_agent.config import ClaudeAgentConfig
@@ -140,6 +141,40 @@ async def test_critical_event_while_running_interrupts_then_continues_same_instr
     assert len(turn_ends) == 1 and turn_ends[0]["status"] == "done"
     assert stopper.calls == 0, "the robot reacts by itself; the agent is not stopping it"
     assert [e["text"] for e in events.history() if e["type"] == "assistant_text"] == ["working", "re-checked"]
+
+
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [
+        ("tilt_warning", "tilt 18 deg (limit 15): stop, drive back to level ground manually"),
+        ("tilt_error", "tilt 32 deg: base motors disabled until the IMU reads level"),
+    ],
+)
+async def test_tilt_guard_events_interrupt_and_the_follow_up_carries_their_text(
+    tmp_path: Path, name: str, message: str
+) -> None:
+    runner, _ = event_runner(tmp_path)
+    runner.bind_loop()
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.1)
+    runner.handle_robot_event(parse_robot_event(raw(type=name, message=message)))
+    await asyncio.wait_for(runner.wait_idle(), timeout=3)
+    client = FakeClient.instances[-1]
+    assert len(client.queries) == 2
+    assert client.queries[1] == FOLLOWUP_TEMPLATE.format(type=name, message=message)
+    assert f"{name}: {message}" in client.queries[1]
+
+
+async def test_tilt_clear_info_event_does_not_interrupt(tmp_path: Path) -> None:
+    runner, events, _ = make_runner(tmp_path, block=True)
+    await runner.start_instruction("go")
+    await asyncio.sleep(0.05)
+    runner.handle_robot_event(parse_robot_event(raw(type="tilt_clear", severity="info", message="level again")))
+    await asyncio.sleep(0.05)
+    assert not FakeClient.instances[0].interrupted.is_set()
+    assert robot_events(events)[0]["event_type"] == "tilt_clear"
+    await runner.interrupt()
+    await runner.wait_idle()
 
 
 async def test_plan_and_turns_carry_over_the_follow_up(tmp_path: Path) -> None:

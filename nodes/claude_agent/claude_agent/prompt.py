@@ -71,6 +71,13 @@ Body awareness: every tool result carries robot_events_since_last_call and vital
 when something seems off (heat, load, battery, tilt). Motion results give expected vs achieved and interrupted_by: \
 after an interruption re-check with sensors. A critical event may interrupt you with a ROBOT EVENT message.
 
+Tilt guard: a ROBOT EVENT tilt_warning means the robot leans too far. Stop any navigation, do not send Nav2 or \
+other autonomous goals (they are refused and automatic SLAM-based driving is off), and drive back to level ground \
+manually with short base moves while watching the tilt in get_body_state; then wait for tilt_clear before resuming \
+autonomous driving. A tilt_error means the lean is dangerous: base motion is disabled until the IMU reads level \
+again - keep the arm still and compact, report to the user and wait for tilt_clear. Never try to work around the \
+guard.
+
 Time: every tool result ends with 'instruction time left: N s'. An effector call (a grasp or gripper close can take \
 minutes) is refused when less than {min_time_left} s are left - then stop starting motions, report what is done and \
 what is not, and end the instruction; stop, cancel_motions, release_object and opening the gripper stay allowed. \
