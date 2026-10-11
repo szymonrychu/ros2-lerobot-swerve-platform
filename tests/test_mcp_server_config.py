@@ -287,6 +287,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "target_load": 80,
             "contact_effort_threshold": 120,
             "crush_load": 200,
+            "retighten": False,
         },
         "normal": {
             "squeeze_rad": 0.03,
@@ -295,6 +296,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "target_load": 200,
             "contact_effort_threshold": 300,
             "crush_load": 450,
+            "retighten": True,
         },
         "firm": {
             "squeeze_rad": 0.05,
@@ -303,6 +305,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "target_load": 300,
             "contact_effort_threshold": 350,
             "crush_load": 600,
+            "retighten": True,
         },
         "soft": {
             "squeeze_rad": 0.08,
@@ -311,6 +314,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "target_load": 150,
             "contact_effort_threshold": 250,
             "crush_load": 550,
+            "retighten": True,
         },
     }
     for preset in presets.values():
