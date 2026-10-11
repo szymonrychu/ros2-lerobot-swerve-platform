@@ -596,3 +596,87 @@ def test_status_reports_running_step_progress_and_queue(robot: GateRobot) -> Non
     assert status.last_events
     robot.gate.set()
     queue.wait(WAIT, "queue_empty")
+
+
+# --- planning phase and trajectory-time progress -------------------------------------------------------------------
+
+
+def gate_blend_planning(robot: FakeRobot, snapshots: list[Any], queue_ref: list[MotionQueue]) -> threading.Event:
+    """Hold move_blend in 'planning' until the returned event is set; record the status at every published tick."""
+    release = threading.Event()
+    entered = threading.Event()
+    original = robot.arm.move_blend
+
+    def gated(targets: list[dict[str, float]], *args: Any, **kwargs: Any) -> Any:
+        entered.set()
+        assert release.wait(WAIT)
+        queue_callback = kwargs["on_tick"]
+
+        def recording(published: int, total: int) -> None:
+            queue_callback(published, total)
+            snapshots.append(queue_ref[0].status().current)
+
+        kwargs["on_tick"] = recording
+        return original(targets, *args, **kwargs)
+
+    robot.arm.move_blend = gated  # type: ignore[method-assign]
+    release.entered = entered  # type: ignore[attr-defined]
+    return release
+
+
+def test_status_shows_planning_until_the_first_setpoint_then_executing(robot: GateRobot) -> None:
+    snapshots: list[Any] = []
+    holder: list[MotionQueue] = []
+    release = gate_blend_planning(robot, snapshots, holder)
+    queue = make_queue(robot)
+    holder.append(queue)
+    queue.enqueue(steps({"kind": "arm_joints", "targets": {"shoulder_pan": 0.3}}))
+    assert release.entered.wait(WAIT)  # type: ignore[attr-defined]
+    planning = queue.status().current
+    assert planning is not None and planning.phase == "planning"
+    assert planning.planning_s is not None and planning.planning_s >= 0.0
+    assert planning.progress in (None, 0.0)
+    release.set()
+    result = queue.wait(WAIT, "queue_empty")
+    assert snapshots and all(s is not None and s.phase == "executing" for s in snapshots)
+    assert all(s is not None and s.planning_s is None for s in snapshots)
+    assert "planned" in types(result.events)
+
+
+def test_planned_event_carries_planning_seconds_and_precedes_the_step_done(robot: GateRobot) -> None:
+    queue = make_queue(robot)
+    queue.enqueue(steps({"kind": "arm_joints", "targets": {"shoulder_pan": 0.3}}))
+    result = queue.wait(WAIT, "queue_empty")
+    names = types(result.events)
+    assert names.index("step_started") < names.index("planned") < names.index("step_done")
+    planned = next(e for e in result.events if e.type == "planned")
+    assert planned.data["planning_s"] >= 0.0
+    assert planned.job_id is not None
+
+
+def test_planned_event_does_not_wake_a_wait(robot: GateRobot) -> None:
+    from mcp_server.motion_queue import WAKE_EVENTS
+
+    assert all("planned" not in events for events in WAKE_EVENTS.values())
+
+
+def test_blended_progress_follows_trajectory_time_not_only_vias(robot: GateRobot) -> None:
+    snapshots: list[Any] = []
+    holder: list[MotionQueue] = []
+    release = gate_blend_planning(robot, snapshots, holder)
+    queue = make_queue(robot)
+    holder.append(queue)
+    queue.enqueue(
+        steps(
+            {"kind": "arm_joints", "targets": {"shoulder_pan": 0.2}},
+            {"kind": "arm_joints", "targets": {"shoulder_pan": 0.6}},
+        )
+    )
+    release.set()
+    queue.wait(WAIT, "queue_empty")
+    progress = [s.progress for s in snapshots if s is not None and s.progress is not None]
+    assert len(progress) > 5
+    assert progress == sorted(progress)
+    assert len(set(progress)) > 2  # more than the two via fractions
+    assert 0.0 < progress[0] < 1.0
+    assert progress[-1] == pytest.approx(1.0, abs=0.01)

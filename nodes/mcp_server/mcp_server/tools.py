@@ -137,7 +137,8 @@ A motion that ends with status 'interrupted' was stopped safely because of a cri
 the event, check get_body_state and decide before moving again. Motion results compare expected with achieved.
 Non-blocking motion: enqueue_motions queues several steps and returns at once (consecutive arm steps blend into one
 continuous trajectory), wait_for_event blocks until the queue drains or something relevant happens and returns the
-events plus a state digest, cancel_motions or stop clear the queue. While the queue runs the blocking motion tools are
+events plus a state digest, cancel_motions or stop clear the queue. A running arm step first shows phase 'planning'
+(planning_s growing, safety checks before the first setpoint): normal work, not a stall, do not cancel it. While the queue runs the blocking motion tools are
 refused."""
 
 Camera = Literal["gripper", "front"]

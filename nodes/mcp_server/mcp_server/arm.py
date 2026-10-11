@@ -792,6 +792,7 @@ class ArmController:
         floor: FloorOverride | None = None,
         settle: SettlePolicy = "final",
         on_via: Callable[[int], None] | None = None,
+        on_tick: Callable[[int, int], None] | None = None,
     ) -> ArmMotionResult:
         """Stream ONE continuous trajectory through several joint targets (no stop at the intermediate ones).
 
@@ -808,6 +809,8 @@ class ArmController:
             floor (FloorOverride | None): Per-call slow-zone overrides.
             settle (SettlePolicy): Settle policy at the final target.
             on_via (Callable[[int], None] | None): Called with the target index when the stream passes that target.
+            on_tick (Callable[[int, int], None] | None): Called with (setpoints published, total setpoints) after
+                every published setpoint; the first call ends the planning (guard) phase.
 
         Returns:
             ArmMotionResult: Outcome of the whole blended motion.
@@ -840,7 +843,17 @@ class ArmController:
             start = self.command_base(self.require_sample())
             moving = sorted({j for t in targets for j in t})
             return self.stream(
-                start, full[-1], vmax, moving, clamped, floor=floor, path=full, settle=settle, blend=True, on_via=on_via
+                start,
+                full[-1],
+                vmax,
+                moving,
+                clamped,
+                floor=floor,
+                path=full,
+                settle=settle,
+                blend=True,
+                on_via=on_via,
+                on_tick=on_tick,
             )
 
     def solve_cartesian(
@@ -1843,6 +1856,7 @@ class ArmController:
         blend: bool = False,
         on_via: Callable[[int], None] | None = None,
         target_load: float | None = None,
+        on_tick: Callable[[int, int], None] | None = None,
     ) -> ArmMotionResult:
         """Stream setpoints at arm_rate_hz, then wait for convergence; abort and hold on any safety check.
 
@@ -1873,6 +1887,8 @@ class ArmController:
             blend (bool): path holds via points of one continuous spline (move_blend).
             on_via (Callable[[int], None] | None): Called with the via index once its setpoint was published (blend).
             target_load (float | None): Close-until-effort: stop once the closing-direction load reaches this.
+            on_tick (Callable[[int, int], None] | None): Called with (setpoints published, total) after each setpoint
+                (before on_via); the planning above runs before the first call.
 
         Returns:
             ArmMotionResult: Outcome.
@@ -1919,6 +1935,8 @@ class ArmController:
                 self.ramp_sag(tick + 1, len(points))
                 if not self.command(point):
                     return self.finish("stopped", "control released", goal, sample, clamped, started, hold=False)
+                if on_tick is not None:
+                    on_tick(tick + 1, len(points))
                 if on_via is not None and tick in via_at:
                     on_via(via_at[tick])
                 self.backend.sleep(period)

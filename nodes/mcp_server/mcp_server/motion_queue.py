@@ -57,6 +57,7 @@ OnFail = Literal["stop_queue", "skip"]
 WaitUntil = Literal["any", "queue_empty", "step_done", "failure"]
 EventType = Literal[
     "step_started",
+    "planned",
     "step_done",
     "step_failed",
     "step_skipped",
@@ -278,7 +279,19 @@ class CurrentStepView(QueuedStepView):
     """The step being executed."""
 
     elapsed_s: float
-    progress: float | None = Field(default=None, description="0..1 when known (blend vias passed, wait elapsed)")
+    phase: Literal["planning", "executing"] = Field(
+        default="executing",
+        description="'planning': arm steps while the safety checks run, before the first setpoint (normal work, not a "
+        "stall); 'executing': the motion is running",
+    )
+    planning_s: float | None = Field(
+        default=None, description="Seconds spent planning so far (only while phase=planning)"
+    )
+    progress: float | None = Field(
+        default=None,
+        description="0..1 when known: arm steps = fraction of the published trajectory time (0 while planning), "
+        "wait elapsed",
+    )
     blend_group: list[str] = Field(default_factory=list, description="Job ids blended into this one motion")
 
 
@@ -338,6 +351,9 @@ class Running:
     started: float
     passed: int = 0
     expected_s: float | None = None
+    phase: Literal["planning", "executing"] = "executing"
+    ticks: int = 0
+    total_ticks: int = 0
     done: set[str] = field(default_factory=set)
 
 
@@ -987,6 +1003,8 @@ class MotionQueue:
         with self._cond:
             if generation != self._generation:
                 return Outcome(ok=False, status="cancelled", message="cancelled before it started")
+            if self._running is not None and head.kind in ARM_KINDS:
+                self._running.phase = "planning"
             for q in group:
                 self.emit_locked("step_started", q, describe(q.step))
         kind = head.kind
@@ -1023,6 +1041,18 @@ class MotionQueue:
                     MOTION_STEPS.labels(item.step.kind, "blended").inc()
                     self.emit_locked("step_done", item, "passed (blended, no stop)", {"blended": True})
 
+        def ticked(published: int, total: int) -> None:
+            with self._cond:
+                running = self._running
+                if running is None or generation != self._generation:
+                    return
+                running.ticks, running.total_ticks = published, total
+                if running.phase == "planning":
+                    running.phase = "executing"
+                    planning_s = round(self.clock() - running.started, 3)
+                    for item in group:
+                        self.emit_locked("planned", item, f"planned in {planning_s} s", {"planning_s": planning_s})
+
         try:
             result = self.robot.arm.move_blend(
                 [q.targets or {} for q in group],
@@ -1030,6 +1060,7 @@ class MotionQueue:
                 step_floor(first),
                 resolve_settle(last, self.cfg, group[-1].targets),
                 on_via=passed,
+                on_tick=ticked,
             )
         except SelfCollisionError as exc:
             return Outcome(ok=False, status="self_collision", message=str(exc), data={"self_collision": exc.details})
@@ -1305,8 +1336,10 @@ class MotionQueue:
             item = running.group[index]
             elapsed = self.clock() - running.started
             progress = None
-            if len(running.group) > 1:
-                progress = running.passed / len(running.group)
+            if running.total_ticks:
+                progress = running.ticks / running.total_ticks
+            elif running.phase == "planning":
+                progress = 0.0
             elif running.expected_s:
                 progress = min(1.0, elapsed / running.expected_s)
             current = CurrentStepView(
@@ -1315,6 +1348,8 @@ class MotionQueue:
                 label=item.step.label,
                 summary=describe(item.step),
                 elapsed_s=round(elapsed, 3),
+                phase=running.phase,
+                planning_s=round(elapsed, 3) if running.phase == "planning" else None,
                 progress=None if progress is None else round(progress, 3),
                 blend_group=[q.job_id for q in running.group] if len(running.group) > 1 else [],
             )

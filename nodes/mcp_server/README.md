@@ -48,7 +48,7 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `remember_object` / `list_objects` / `forget_object` | Object memory in map coordinates, stored as object POIs in poi_store (merge, distance/bearing from the robot). Sensor. |
 | `look_around(captures=4, camera='front', mode=None, return_to_start=None)` | Effector, ONE motion call: in-place turn through equal headings with a camera frame and lidar summary per heading. `mode` `spin` (default, `look_around.mode`): one continuous slow rotation; `steps`: one precise Nav2 rotation per heading. Ends facing the last heading unless `return_to_start=true` (default `look_around.return_to_start`, false). |
 | `enqueue_motions(steps, replace=false)` | Effector: queue motion steps and return at once (job ids, queue length, blend groups). See [Motion queue](#motion-queue). |
-| `get_motion_status` | Queue snapshot (sensor): running, current step (elapsed, progress, blend group), pending steps, last events. |
+| `get_motion_status` | Queue snapshot (sensor): running, current step (elapsed, phase, planning_s, progress, blend group), pending steps, last events. |
 | `cancel_motions` | Uncapped control: drop the pending steps and abort the running one (base zeroed, arm held when a motion step runs). |
 | `wait_for_event(timeout_s, until='queue_empty', since_seq)` | Sensor: block until the queue drains or something relevant happens; returns the new events, the queue status and a compact state digest. |
 | `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. |
@@ -897,6 +897,16 @@ streamed step of the spline like any other motion, and convergence is judged at 
 A step with `settle='final'` (also the default of a step naming the gripper joint), any non-arm step, a precondition
 other than `none`, or a different `speed_scale` / slow-zone override ends a group: the arm comes to rest there. The
 intermediate steps of a group report `step_done` when the stream passes their via point.
+
+**Planning phase and progress.** An arm group first plans: the body / floor / sag checks of the whole trajectory run
+before the first setpoint is published and can take tens of seconds. From `step_started` until that first setpoint,
+`current.phase` is `planning` (progress 0, `planning_s` = seconds so far, growing); then `executing` (`planning_s`
+null; non-arm steps are `executing` from the start). When planning ends the queue emits one `planned` event per job of
+the group (`data.planning_s`; it never wakes `wait_for_event`, `until='any'` excepted). Progress of an arm group is the
+fraction of the published trajectory time (setpoints published / total, so it advances smoothly for single moves and
+blend groups and includes the slow-zone time scaling); it reaches 1.0 when the trajectory ends, before convergence
+settling. `wait_s` progress is the elapsed fraction. The tool descriptions tell the agent that a growing `planning_s`
+is normal work, not a stall.
 
 **Preconditions and failure policy.** `precondition {type, joints, tol, min_fraction}` is evaluated on live state when
 its step is dispatched: `none`, `gripper_holding` (jaw at least `motion_queue.holding_min_gap_rad` short of closed, no

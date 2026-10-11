@@ -663,7 +663,10 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   between steps halts it; `cancel` aborts the running step (robot stopped) and drops the rest, but never stops an idle
   robot; `replace` drops pending steps only; battery cut-off at dispatch; enqueue refused while a blocking tool or
   another arm motion runs; grasp steps through the runner (grasped = contact, missed = failure, refused without a
-  runner); waits (idle at once, `step_done`, timeout, cursor), status with progress
+  runner); waits (idle at once, `step_done`, timeout, cursor), status with progress; planning phase (status `phase`
+  `planning` with `planning_s` until the first setpoint, then `executing`; `planned` event with `planning_s` between
+  `step_started` and `step_done`, never waking a wait) and blended-group progress that follows published trajectory
+  time, not only vias passed
 - motion queue tools (`test_motion_tools.py`): registration and classification (`enqueue_motions` motion,
   status/cancel/wait always allowed, `QUEUE_EXCLUSIVE_TOOLS`); `enqueue_motions` returns job ids and blend groups and
   `wait_for_event` returns events, status and the state digest (plus the robot event digest); blocking motion tools are

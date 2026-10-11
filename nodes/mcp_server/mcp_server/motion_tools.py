@@ -87,7 +87,9 @@ def register(ctx: ToolContext) -> None:
             "('stop_queue' default: drop the rest; 'skip': continue). replace=true drops the pending steps first (a "
             "running step finishes). stop and cancel_motions clear the queue. While the queue runs, the blocking "
             "motion tools are refused (one motion owner); enqueue_motions is refused while a blocking motion tool "
-            f"runs. At most {cfg.max_steps} pending steps. Follow with wait_for_event, not polling."
+            f"runs. At most {cfg.max_steps} pending steps. An arm step first PLANS (safety checks, current.phase "
+            "'planning', planning_s growing, can take tens of seconds): that is normal, not a stall; progress follows "
+            "once it executes. Follow with wait_for_event, not polling."
         )
     )
     def enqueue_motions(
@@ -104,7 +106,10 @@ def register(ctx: ToolContext) -> None:
     @ctx.server.tool()
     def get_motion_status() -> MotionStatus:
         """Motion queue snapshot (no motion): whether it runs, the current step (job id, kind, elapsed seconds,
-        progress 0..1 when known, the job ids blended into the current motion), the pending steps and the last events.
+        phase, progress 0..1 when known, the job ids blended into the current motion), the pending steps and the last
+        events. phase 'planning' (with a growing planning_s, progress 0) is an arm step running its safety checks
+        before the first setpoint: normal work that can take tens of seconds, NOT a stall, do not cancel it. Then
+        phase 'executing' and progress = fraction of the trajectory time published (smooth, also for blended groups).
         Prefer wait_for_event to polling this."""
         return queue.status()
 
@@ -123,7 +128,9 @@ def register(ctx: ToolContext) -> None:
             "step; a failure skipped with on_fail=skip does not end it), 'step_done' (also after any single step finished), 'failure' (only failures), 'any' (any new "
             "event). Returns at once with reason 'idle' when the queue is empty. Each call returns only events not "
             f"returned before (since_seq overrides). Default timeout {cfg.wait_default_s:g} s, at most "
-            f"{cfg.wait_max_s:g} s (then reason 'timeout' and the queue keeps running)."
+            f"{cfg.wait_max_s:g} s (then reason 'timeout' and the queue keeps running). The returned status carries "
+            "current.phase: 'planning' with a growing planning_s is normal work (arm safety checks before the first "
+            "setpoint), not a stall; the 'planned' event (data planning_s) marks its end and never wakes the wait."
         )
     )
     def wait_for_event(
