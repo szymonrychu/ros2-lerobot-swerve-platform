@@ -87,6 +87,18 @@ def _serialize_msg(msg: Any) -> dict[str, Any]:
     return result
 
 
+def finite_or_none(value: float) -> float | None:
+    """Map NaN/inf to None: JSON has no NaN, and a bare NaN token makes the browser drop the whole frame.
+
+    Args:
+        value (float): Float field value (feetech publishes NaN effort for unmeasured joints).
+
+    Returns:
+        float | None: The value, or None when it is not finite.
+    """
+    return value if math.isfinite(value) else None
+
+
 def _serialize_value(value: Any) -> Any:
     """Convert a single ROS2 field value to a JSON-serializable type.
 
@@ -97,12 +109,14 @@ def _serialize_value(value: Any) -> Any:
         Any: JSON-serializable representation.
     """
     if isinstance(value, array.array):
-        return list(value)
+        return [finite_or_none(v) for v in value] if value.typecode in "fd" else list(value)
     if isinstance(value, (bytes, bytearray)):
         return list(value)
     if isinstance(value, (list, tuple)):
         return [_serialize_value(v) for v in value]
-    if isinstance(value, (int, float, bool, str)) or value is None:
+    if isinstance(value, float):
+        return finite_or_none(value)
+    if isinstance(value, (int, bool, str)) or value is None:
         return value
     if hasattr(value, "__slots__"):
         return _serialize_msg(value)
