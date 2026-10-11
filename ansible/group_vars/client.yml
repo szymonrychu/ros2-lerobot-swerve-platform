@@ -1377,6 +1377,8 @@ ros2_nodes:
         rf2o_twist: /odom_rf2o_twist
         imu: /imu/data
         robot_events: /robot_events
+        # Gripper Present_Current (A) from the follower bridge (publish_current_joints there): the grasp band's current vote.
+        follower_joint_currents: /follower/joint_currents
         # get_topdown_view: local costmap (subscribed lazily, latest message only) and the current Nav2 plan.
         local_costmap: /local_costmap/costmap
         plan: /plan
@@ -1773,6 +1775,12 @@ ros2_nodes:
       # the real gripper: torque_limit is the gripper servo's Torque_Limit RAM register (0.1 % of max torque, written
       # before the close, default restored after every open, release, abort and at startup), loads are the decoded
       # gripper effort. Hard caps torque_limit_max / squeeze_max_rad apply to every profile, preset or inline.
+      # Post-lift visual grasp check (confirm_grasp): the gripper camera frame cropped to the region between the jaws.
+      grasp_check:
+        crop_depth_m: 0.045           # how far into the jaws (toward gripper_link) the crop reaches
+        crop_margin_px: 24            # added on every side of the projected jaw box
+        crop_min_px: 64               # a smaller crop falls back to the full frame
+        image_px: 640                 # longest side of the attached image
       grip_profiles:
         default_grip_profile: normal
         torque_limit_max: 800         # never above 80 % torque (the SO-101 gripper burns out squeezing blocked objects)
@@ -1785,13 +1793,25 @@ ros2_nodes:
                                       # re-tightened hold showing crush_risk goes back to the hold before it
         unverified_hold_relax_s: 60   # an unverified (empty-band) hold keeps the profile torque this long, then the
                                       # default torque is restored (servo heating while the agent looks; null = never)
+        # Delta contact (arXiv 2608.23983, SO-ARM101 / STS3215): the baseline is the mean of this many closing loads
+        # (free-closing after contact_allowed opens, else the rest samples); contact needs closing load - baseline >=
+        # the preset's contact_load_delta for contact_persist_samples ticks in a row. contact_effort_threshold,
+        # target_load and the stall check stay as absolute backstops (a close that starts touching the object).
+        contact_baseline_samples: 10
+        contact_persist_samples: 3
+        # Gripper current rise (A) that votes 'object' in the grasp band; null = recorded but not voting. Set it from
+        # the empty-jaw close noise (rollout step 4: about 3-4 sigma).
+        current_contact_delta_a: null
         presets:                      # tuned on the real gripper 2026-10-10 (grip tuning session, mcp_server README)
+                                      # contact_load_delta: initial 20 load units for every preset (paper value, noise
+                                      # +-3-5); retune per preset from the empty-jaw close noise (3-4 sigma)
           gentle:                     # fragile or light objects (a plush still gets squashed: load cannot see it)
             squeeze_rad: 0.01
             torque_limit: 250
             close_speed_rps: 0.2
             target_load: 80           # stop closing once the closing load reaches this
             contact_effort_threshold: 120
+            contact_load_delta: 20
             crush_load: 200           # holding load above this reports crush_risk
             retighten: false          # its 0.01 squeeze would grow 8x on a light rigid object reading ~0 load
           normal:                     # ordinary objects (squeeze, speed and contact load used before profiles)
@@ -1800,6 +1820,7 @@ ros2_nodes:
             close_speed_rps: 0.5
             target_load: 200
             contact_effort_threshold: 300
+            contact_load_delta: 20
             crush_load: 450
             retighten: true
           firm:                       # heavy or slippery objects, tools (unvalidated on a held object)
@@ -1808,6 +1829,7 @@ ros2_nodes:
             close_speed_rps: 0.4
             target_load: 300
             contact_effort_threshold: 350
+            contact_load_delta: 20
             crush_load: 600
             retighten: true
           soft:                       # plush, foam, fabric: compresses under the hold (2026-10-11 croc head slipped
@@ -1819,6 +1841,7 @@ ros2_nodes:
             close_speed_rps: 0.3
             target_load: 150
             contact_effort_threshold: 250
+            contact_load_delta: 20
             crush_load: 550           # a hold near the torque limit flags crush_risk
             retighten: true
   - name: poi_store

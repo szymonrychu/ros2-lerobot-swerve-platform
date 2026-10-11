@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+SHARED_DIR = REPO_ROOT / "shared"
 ANSIBLE_DIR = REPO_ROOT / "ansible"
 CLIENT_VARS = ANSIBLE_DIR / "group_vars" / "client.yml"
 PLAYBOOKS_DIR = ANSIBLE_DIR / "playbooks"
@@ -177,6 +178,7 @@ def test_mcp_server_node_entry_and_config() -> None:
     assert set(cfg) <= {
         "server",
         "frontiers",
+        "grasp_check",
         "topics",
         "limits",
         "timeouts",
@@ -290,6 +292,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "close_speed_rps": 0.2,
             "target_load": 80,
             "contact_effort_threshold": 120,
+            "contact_load_delta": 20,
             "crush_load": 200,
             "retighten": False,
         },
@@ -299,6 +302,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "close_speed_rps": 0.5,
             "target_load": 200,
             "contact_effort_threshold": 300,
+            "contact_load_delta": 20,
             "crush_load": 450,
             "retighten": True,
         },
@@ -308,6 +312,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "close_speed_rps": 0.4,
             "target_load": 300,
             "contact_effort_threshold": 350,
+            "contact_load_delta": 20,
             "crush_load": 600,
             "retighten": True,
         },
@@ -317,6 +322,7 @@ def test_mcp_server_grip_profiles_block_is_deployed() -> None:
             "close_speed_rps": 0.3,
             "target_load": 150,
             "contact_effort_threshold": 250,
+            "contact_load_delta": 20,
             "crush_load": 550,
             "retighten": True,
         },
@@ -735,3 +741,68 @@ def test_mcp_server_unit_pins_the_allocator() -> None:
     assert "MALLOC_MMAP_THRESHOLD_=1048576" in env
     assert "MALLOC_ARENA_MAX=2" in env
     assert "NUMPY_MADVISE_HUGEPAGE=0" in env
+
+
+GRIP_PRESET_CONTACT_LOAD_DELTA = 20.0  # load units, arXiv 2608.23983; retuned per preset in rollout
+
+
+def validated_mcp_config():
+    """Load the client.yml mcp_server config through the node's McpServerConfig (unknown keys are rejected).
+
+    Returns:
+        McpServerConfig: The validated config.
+    """
+    for path in (REPO_ROOT / "nodes" / "mcp_server", SHARED_DIR):
+        if str(path) not in sys.path:
+            sys.path.insert(0, str(path))
+    from mcp_server.config import McpServerConfig
+
+    return McpServerConfig.model_validate(node_config("mcp_server"))
+
+
+def test_mcp_server_client_config_validates_and_reads_follower_currents() -> None:
+    """client.yml mcp_server passes McpServerConfig and subscribes the follower's gripper current topic."""
+    cfg = validated_mcp_config()
+    assert cfg.topics.follower_joint_currents == "/follower/joint_currents"
+    assert node_config("mcp_server")["topics"]["follower_joint_currents"] == "/follower/joint_currents"
+
+
+def test_mcp_server_grip_profiles_set_delta_contact_keys() -> None:
+    """client.yml sets the delta-contact sampling keys, the current vote key and a contact_load_delta per preset."""
+    raw = node_config("mcp_server")["grip_profiles"]
+    grips = validated_mcp_config().grip_profiles
+    assert raw["contact_baseline_samples"] == grips.contact_baseline_samples == 10
+    assert raw["contact_persist_samples"] == grips.contact_persist_samples == 3
+    assert "current_contact_delta_a" in raw  # null until tuned on the robot; validated gt 0 when set
+    assert grips.current_contact_delta_a is None or grips.current_contact_delta_a > 0
+    assert set(raw["presets"]) == set(grips.presets)
+    for name, preset in grips.presets.items():
+        assert preset.contact_load_delta == GRIP_PRESET_CONTACT_LOAD_DELTA, name
+        assert raw["presets"][name]["contact_load_delta"] == preset.contact_load_delta, name
+
+
+def test_mcp_server_grip_presets_keep_absolute_backstops() -> None:
+    """Delta contact is primary but every preset keeps its absolute contact_effort_threshold and target_load."""
+    for name, preset in validated_mcp_config().grip_profiles.presets.items():
+        assert preset.contact_effort_threshold > preset.contact_load_delta, name
+        assert preset.target_load > 0, name
+
+
+def test_mcp_server_grasp_check_block() -> None:
+    """client.yml renders the grasp_check block with the jaw-crop settings."""
+    raw = node_config("mcp_server")["grasp_check"]
+    assert raw == {"crop_depth_m": 0.045, "crop_margin_px": 24, "crop_min_px": 64, "image_px": 640}
+    grasp = validated_mcp_config().grasp_check
+    assert (grasp.crop_depth_m, grasp.crop_margin_px, grasp.crop_min_px, grasp.image_px) == (0.045, 24, 64, 640)
+
+
+def test_follower_publishes_gripper_current() -> None:
+    """The follower bridge publishes /follower/joint_currents for the gripper only (empty list = rollback)."""
+    assert node_config("lerobot_follower")["publish_current_joints"] == ["gripper"]
+
+
+def test_claude_agent_confirm_grasp_is_a_sensor_tool() -> None:
+    """confirm_grasp records a verdict without moving, so it is a sensor tool and not an effector."""
+    cfg = node_config("claude_agent")
+    assert "confirm_grasp" in cfg["sensor_tools"]
+    assert "confirm_grasp" not in cfg["effector_tools"]
