@@ -22,7 +22,7 @@ const DEG = Math.PI / 180
 export type GraspFrame = 'arm' | 'base_link'
 export type GraspStrategy = 'auto' | 'scoop' | 'angled' | 'top_down'
 export type GraspAction = 'plan' | 'execute' | 'release'
-export type GraspOutcomeName = 'planned' | 'infeasible' | 'grasped' | 'missed' | 'aborted' | 'released'
+export type GraspOutcomeName = 'planned' | 'infeasible' | 'grasped' | 'unverified' | 'missed' | 'aborted' | 'released'
 
 /** mcp_server grip_profiles preset: how hard the gripper grips (torque limit, close speed, squeeze). */
 export type GripProfileName = 'gentle' | 'normal' | 'firm'
@@ -441,7 +441,7 @@ export interface GraspAnswer {
   crushRisk?: boolean
 }
 
-const OUTCOMES: readonly string[] = ['planned', 'infeasible', 'grasped', 'missed', 'aborted', 'released']
+const OUTCOMES: readonly string[] = ['planned', 'infeasible', 'grasped', 'unverified', 'missed', 'aborted', 'released']
 
 type Rec = Record<string, unknown>
 
@@ -575,7 +575,11 @@ const OUTCOME_TEXT: Record<GraspOutcomeName, { text: string; severity: Severity 
   planned: { text: 'Plan feasible (dry run, nothing moved)', severity: 'success' },
   infeasible: { text: 'Infeasible: nothing moved', severity: 'error' },
   grasped: { text: 'Grasped: holding the object', severity: 'success' },
-  missed: { text: 'Missed: closed on nothing, opened and retreated', severity: 'warning' },
+  unverified: {
+    text: 'Unverified: jaw closed almost fully (soft object squashed, or nothing); kept closed and lifted - check the gripper camera',
+    severity: 'warning',
+  },
+  missed: { text: 'Missed: no verified hold, opened and retreated', severity: 'warning' },
   aborted: { text: 'Aborted: stopped and held', severity: 'error' },
   released: { text: 'Released: gripper opened', severity: 'success' },
 }

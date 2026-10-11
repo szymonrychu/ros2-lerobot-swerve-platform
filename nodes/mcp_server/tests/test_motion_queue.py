@@ -508,8 +508,9 @@ def test_grasp_step_runs_through_the_runner(robot: GateRobot) -> None:
     assert {"step_done", "contact"} <= set(types(result.events))
 
 
-def test_missed_grasp_is_a_failure(robot: GateRobot) -> None:
-    queue = make_queue(robot, grasp_runner=lambda step, stop: ("missed", ["closed on nothing"]))
+@pytest.mark.parametrize("outcome", ["missed", "unverified"])
+def test_missed_or_unverified_grasp_is_a_failure(robot: GateRobot, outcome: str) -> None:
+    queue = make_queue(robot, grasp_runner=lambda step, stop: (outcome, ["jaw in the empty band"]))
     queue.enqueue(
         steps(
             {
@@ -520,6 +521,7 @@ def test_missed_grasp_is_a_failure(robot: GateRobot) -> None:
     )
     result = queue.wait(WAIT, "queue_empty")
     assert "step_failed" in types(result.events)
+    assert "contact" not in types(result.events)
 
 
 def test_grasp_step_refused_without_a_runner(robot: GateRobot) -> None:

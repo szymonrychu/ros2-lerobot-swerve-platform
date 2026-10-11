@@ -425,6 +425,22 @@ def test_prompt_states_soft_objects_get_squashed_whatever_the_load() -> None:
     assert "squash" in para and "plush" in para
 
 
+def test_prompt_explains_the_unverified_grasp_outcome() -> None:
+    """2026-10-11 plush croc: a squashed soft object closes the jaw into the empty band; grasp_object keeps the hold,
+    returns 'unverified' with a gripper camera image and the agent decides from the picture."""
+    lower = prompt_lower()
+    macros = lower[lower.index("grasp_object reports") :]
+    macros = macros[: macros.index("grip strength:")]
+    assert "unverified" in macros
+    assert "attached" in macros and "image" in macros
+    assert "treat it as held" in macros and "release_object" in macros and "retry" in macros
+    para = lower[lower.index("grip strength:") :]
+    para = para[: para.index("surfaces and speed:")]
+    assert "unverified" in para and "plush" in para
+    assert "gentle or normal" in para
+    assert "an empty close (nothing between the jaws) is reported as missed" not in para
+
+
 def test_prompt_says_tool_rejections_never_come_from_the_user() -> None:
     lower = build_system_prompt(ClaudeAgentConfig()).lower()
     assert "the user doesn't want to proceed with this tool use" in lower

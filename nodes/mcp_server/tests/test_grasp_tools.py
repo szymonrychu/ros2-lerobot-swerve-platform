@@ -8,12 +8,20 @@ from typing import Any
 import anyio
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ImageContent, TextContent
 
-from mcp_server.arm import ArmController
+from mcp_server.arm import ArmController, ArmError
 from mcp_server.config import McpServerConfig
 from mcp_server.floor_guard import FloorOverride
 from mcp_server.grasp import ObjectSpec, grasp_params
-from mcp_server.grasp_tools import TOOL_NAMES, GraspExecutor, GraspService, floor_override
+from mcp_server.grasp_tools import (
+    TOOL_NAMES,
+    UNVERIFIED_IMAGE_PX,
+    GraspExecutor,
+    GraspResult,
+    GraspService,
+    floor_override,
+)
 from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.surfaces import SurfaceRegion
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, build_mcp_server
@@ -35,6 +43,8 @@ START = {
 }
 OBJECT_STOP_RAD = 0.22  # jaw angle of a 3 cm gap (JawModel)
 HOLD_EFFORT = 400.0
+PLUSH_SHORT_RAD = 0.05  # 2026-10-11 plush croc: the jaw squashed it to 0.05 rad short of closed
+PLUSH_LOAD = 140.0
 
 
 def make(tmp_path: Path, start: dict[str, float] | None = None) -> tuple[ArmController, FakeArmBackend]:
@@ -86,13 +96,113 @@ def test_grasp_closes_on_the_object_then_lifts_and_retreats(tmp_path: Path) -> N
     assert arm.control_held
 
 
-def test_a_close_without_load_is_a_miss_that_opens_and_retreats(tmp_path: Path) -> None:
+def test_a_contact_that_fails_verification_is_a_miss_that_opens_and_retreats(tmp_path: Path) -> None:
     arm, be = make(tmp_path)
-    result = run_grasp(arm)
+    object_in_jaws(be)
+    params = grasp_params(CONFIG.grasp, {"min_hold_gap_rad": 1.0})  # the 3 cm stop counts as too close to closed
+    result = GraspExecutor(arm, CONFIG).grasp(ObjectSpec(**OBJECT), "top_down", params, None, None, lambda: False)
     assert result.outcome == "missed", result.reasons
     labels = [s.label for s in result.steps]
     assert labels[-3:] == ["open", "lift", "retreat"]
     assert be.positions["gripper"] > 0.3  # opened again
+
+
+def plush_in_jaws(be: FakeArmBackend, short_rad: float = PLUSH_SHORT_RAD, load: float = PLUSH_LOAD) -> None:
+    """Simulate a soft plush squashed in the jaws: the jaw stalls short_rad before closed (inside the empty band
+    gripper_empty_stall_rad) at a low load, so the close ends closed_no_contact."""
+    stall = CONFIG.arm.gripper_closed_rad + short_rad
+
+    def squash(b: FakeArmBackend) -> None:
+        if b.positions["gripper"] < stall:
+            b.positions["gripper"] = stall
+        b.efforts["gripper"] = load if b.positions["gripper"] <= stall + 1e-9 else 0.0
+
+    be.on_sleep = squash
+
+
+def gripper_after(be: FakeArmBackend, start: int) -> list[float]:
+    return [c["gripper"] for c in be.commands[start:]]
+
+
+def test_an_empty_band_close_keeps_the_hold_lifts_and_is_unverified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-10-11 plush croc: the jaw squashed it to 0.05 rad short of closed and the grasp was thrown away."""
+    arm, be = make(tmp_path)
+    plush_in_jaws(be)
+    executor = GraspExecutor(arm, CONFIG)
+    marks: dict[str, int] = {}
+    step = executor.step
+
+    def spy(label: str, *args: Any, **kw: Any) -> Any:
+        marks.setdefault(label, len(be.commands))
+        return step(label, *args, **kw)
+
+    monkeypatch.setattr(executor, "step", spy)
+    params = grasp_params(CONFIG.grasp, None)
+    result = executor.grasp(ObjectSpec(**OBJECT), "top_down", params, None, None, lambda: False)
+    assert result.outcome == "unverified", result.reasons
+    labels = [s.label for s in result.steps]
+    assert labels[-4:] == ["close", "hold", "lift", "retreat"]
+    assert labels.count("open") == 1  # only the open before the approach: never opened after the close
+    close = next(s for s in result.steps if s.label == "close")
+    assert close.status == "closed_no_contact"
+    text = " ".join(result.reasons)
+    assert "empty" in text and "soft" in text and "absent" in text and "release_object" in text
+    squeeze = CONFIG.grip_profiles.default.squeeze_rad
+    stall = CONFIG.arm.gripper_closed_rad + PLUSH_SHORT_RAD
+    hold = max(CONFIG.arm.gripper_closed_rad, stall - squeeze)
+    after = gripper_after(be, marks["lift"])
+    assert after and all(g == pytest.approx(hold, abs=1e-6) for g in after)  # the squeeze hold rides the lift
+    assert be.positions["gripper"] < stall + 0.01  # still closed on the object
+    assert arm.control_held
+
+
+def test_an_empty_band_close_holds_with_the_profile_torque(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    plush_in_jaws(be)
+    params = grasp_params(CONFIG.grasp, None, "gentle")
+    result = GraspExecutor(arm, CONFIG).grasp(ObjectSpec(**OBJECT), "top_down", params, None, None, lambda: False)
+    assert result.outcome == "unverified", result.reasons
+    gentle = CONFIG.grip_profiles.presets["gentle"]
+    writes = [v for j, r, v in be.register_writes if j == "gripper" and r == "torque_limit"]
+    assert writes[-1] == gentle.torque_limit <= CONFIG.grip_profiles.torque_limit_max
+    assert result.grip_profile is not None and result.grip_profile["name"] == "gentle"
+
+
+def test_an_empty_close_on_nothing_is_unverified_too(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)  # nothing between the jaws: the jaw closes fully
+    result = run_grasp(arm)
+    assert result.outcome == "unverified", result.reasons
+    assert [s.label for s in result.steps][-4:] == ["close", "hold", "lift", "retreat"]
+    assert be.positions["gripper"] < 0.1  # still closed
+
+
+def test_a_blocked_close_is_still_a_miss_that_opens(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    arm, be = make(tmp_path)
+    set_gripper = arm.set_gripper
+
+    def blocked(**kw: Any) -> Any:
+        result = set_gripper(**kw)
+        return result.model_copy(update={"status": "blocked"}) if kw.get("close_until_effort") else result
+
+    monkeypatch.setattr(arm, "set_gripper", blocked)
+    result = run_grasp(arm)
+    assert result.outcome == "missed", result.reasons
+    assert [s.label for s in result.steps][-4:] == ["close", "open", "lift", "retreat"]
+
+
+def test_hold_empty_close_needs_arm_control(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    with pytest.raises(ArmError, match="arm control"):
+        arm.hold_empty_close(None)
+    assert be.commands == []
+
+
+def test_the_outcome_schema_lists_unverified() -> None:
+    schema = json.dumps(GraspResult.model_json_schema())
+    assert '"unverified"' in schema
+    assert "unverified" in GraspResult.model_fields["outcome"].description
 
 
 def test_a_stop_between_steps_aborts_and_reports(tmp_path: Path) -> None:
@@ -200,6 +310,58 @@ def test_grasp_tools_reject_bad_params(server: Any) -> None:
 def test_release_object_tool(server: Any, robot: FakeRobot) -> None:
     res = call(server, "release_object", {"params": {"release_lift_m": 0.02}})
     assert res.structured_content["outcome"] == "released"
+
+
+def test_an_unverified_grasp_object_attaches_a_gripper_camera_image(server: Any, robot: FakeRobot) -> None:
+    plush_in_jaws(robot.arm_backend)
+    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down", "grip_profile": "gentle"})
+    data = res.structured_content
+    assert data["outcome"] == "unverified", data["reasons"]
+    images = [c for c in res.content if isinstance(c, ImageContent)]
+    assert len(images) == 1 and images[0].mime_type == "image/jpeg" and images[0].data
+    assert ("camera_image", ("gripper", UNVERIFIED_IMAGE_PX)) in robot.calls
+    assert UNVERIFIED_IMAGE_PX == 640
+    texts = [json.loads(c.text) for c in res.content if isinstance(c, TextContent)]
+    assert any(t.get("outcome") == "unverified" for t in texts)
+
+
+def test_an_unverified_grasp_object_without_a_camera_frame_still_reports(server: Any, robot: FakeRobot) -> None:
+    plush_in_jaws(robot.arm_backend)
+    robot.camera_error = "no frame from /camera_0/image_raw within 2 s"
+    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
+    data = res.structured_content
+    assert data["outcome"] == "unverified"
+    assert any("gripper camera image" in w and "no frame" in w for w in data["warnings"])
+    assert not [c for c in res.content if isinstance(c, ImageContent)]
+
+
+def test_a_grasped_grasp_object_attaches_no_image(server: Any, robot: FakeRobot) -> None:
+    object_in_jaws(robot.arm_backend)
+    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
+    assert res.structured_content["outcome"] == "grasped"
+    assert not [c for c in res.content if isinstance(c, ImageContent)]
+    assert not [c for c in robot.calls if c[0] == "camera_image"]
+
+
+def test_grasp_tool_descriptions_explain_unverified(server: Any) -> None:
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tools = {t.name: t for t in anyio.run(run)}
+    for name in ("grasp_object", "release_object"):
+        text = tools[name].description or ""
+        assert "unverified" in text and "image" in text, name
+    grasp_text = tools["grasp_object"].description or ""
+    assert "release_object" in grasp_text and "plush" in grasp_text and "gentle" in grasp_text
+    assert '"unverified"' in json.dumps(tools["grasp_object"].output_schema)
+
+
+def test_grasp_service_reports_an_unverified_grasp(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    plush_in_jaws(be)
+    done = GraspService(arm, CONFIG).handle({"action": "execute", "object": OBJECT, "strategy": "top_down"})
+    assert done["ok"] is True and done["result"]["outcome"] == "unverified"
+    assert [s["label"] for s in done["result"]["steps"]][-4:] == ["close", "hold", "lift", "retreat"]
 
 
 def test_grasp_service_contract(tmp_path: Path) -> None:

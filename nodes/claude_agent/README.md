@@ -69,7 +69,9 @@ default, so pixels from it always go with `image_width` / `image_height`, or are
 added after the 2026-10-10 grip session placed objects from unscaled small-image pixels), memory
 (`remember_object`/`list_objects`, POIs via `list_pois`/`add_poi`/`update_poi`, `NOTES.md`; positions are refined when a better location estimate exists: `remember_object` averages comparable sightings, `update_poi` x/y replaces the position for a clearly better estimate or a moved object, noting "position refined from"; on the person's POIs only the position), the calibration tools
 (only when the person asks), the grasp macros (`plan_grasp` first, then `grasp_object`; strategies scoop / angled /
-top_down / auto, radial approach only, `release_object`, outcomes grasped / missed / aborted / infeasible; top_down and
+top_down / auto, radial approach only, `release_object`, outcomes grasped / unverified / missed / aborted / infeasible, where unverified (jaw closed into the
+empty band, kept closed and lifted, gripper camera image attached) means look at the image: object in the jaws, treat
+it as held, else `release_object` and retry; top_down and
 angled centre the object between the jaws, so the waypoints are the jaw centre and the reported tool point (fixed jaw,
 `tool_point`, `grasp_shift`) sits `shift_m` (half the width plus the fixed jaw clearance, both jaws clear of the object
 before closing) beside it: that is the centring, not a drift, compare `held_pose`
@@ -78,7 +80,8 @@ pre-grasp moves run at `approach_speed_scale`), grip
 strength (`grip_profile` on `grasp_object`, `set_gripper` and queued gripper steps: gentle for fragile, soft or light
 objects, normal by default, firm for heavy or slippery objects and tools; after a grasp the agent checks
 `holding_load`, `slipping` and `crush_risk` and retries with a firmer or gentler profile; the load cannot see a soft
-object being squashed (gentle flattened a 4 cm plush tail to about 7 mm), so it checks a picture of plush holds) and the
+object being squashed (gentle flattened a 4 cm plush tail to about 7 mm), so for plush it prefers gentle or normal,
+expects `unverified` and decides from the attached image) and the
 below-surface slow zone of the arm (never blocks; `surface_z_m` for a stair or hole below, `tilt_override_deg`
 replacing the IMU tilt). When the robot floor and the object's surface differ (stair, table top, ledge, hole) it tells
 the agent to pass `surfaces` instead of a single `surface_z_m`: regions with `height_m` relative to the robot floor and

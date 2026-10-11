@@ -145,6 +145,7 @@ def test_grasp_result_mapping_covers_every_executed_outcome() -> None:
     assert GRASP_RESULT_BY_OUTCOME == {
         "grasped": "lifted",
         "missed": "missed",
+        "unverified": "unverified",
         "aborted": "aborted",
         "infeasible": "infeasible",
     }
@@ -156,9 +157,18 @@ def test_grasp_attempts_are_counted_by_mode_and_result(tmp_path: Path) -> None:
     object_in_jaws(be)
     assert run_grasp(arm).outcome == "grasped"
     assert lifted() == 1
-    missed = Delta("mcp_grasp_attempts_total", mode="top_down", result="missed")
+    unverified = Delta("mcp_grasp_attempts_total", mode="top_down", result="unverified")
     arm, _ = make(tmp_path)
-    assert run_grasp(arm).outcome == "missed"
+    assert run_grasp(arm).outcome == "unverified"
+    assert unverified() == 1
+    missed = Delta("mcp_grasp_attempts_total", mode="top_down", result="missed")
+    arm, be = make(tmp_path)
+    object_in_jaws(be)
+    params = grasp_params(CONFIG.grasp, {"min_hold_gap_rad": 1.0})
+    assert (
+        GraspExecutor(arm, CONFIG).grasp(ObjectSpec(**OBJECT), "top_down", params, None, None, lambda: False).outcome
+        == "missed"
+    )
     assert missed() == 1
     aborted = Delta("mcp_grasp_attempts_total", mode="top_down", result="aborted")
     arm, _ = make(tmp_path)

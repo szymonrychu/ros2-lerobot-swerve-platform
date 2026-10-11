@@ -2,6 +2,7 @@
 plan_grasp / grasp_object / release_object, and GraspService, the JSON request handler behind the /grasp/command and
 /grasp/result topics the web UI uses (contract in the README, "Grasp macros")."""
 
+import base64
 import json
 import math
 import threading
@@ -9,6 +10,7 @@ from collections.abc import Callable
 from typing import Annotated, Any, Literal, Protocol
 
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .arm import ROLL_JOINT, ArmController, ArmError
@@ -17,7 +19,7 @@ from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, grasp_params
 from .grip import ResolvedGrip, resolve_grip_profile
 from .metrics import GRASP_ATTEMPTS, GRASP_PLANS, GRASP_RESULT_BY_OUTCOME
-from .models import ArmMotionResult
+from .models import ArmMotionResult, RobotError
 from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import ToolContext
 
@@ -26,6 +28,8 @@ TOOL_NAMES = ("plan_grasp", "grasp_object", "release_object")
 DEFAULT_SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 MOTION_OK = frozenset({"converged"})
 CLOSE_OK = frozenset({"grasped", "closed_no_contact", "blocked"})
+# Longest side of the gripper camera image attached to an 'unverified' grasp_object result.
+UNVERIFIED_IMAGE_PX = 640
 
 # How the agent describes stairs, tables and holes (shared by the grasp and arm motion tools).
 SURFACES_DESC = (
@@ -40,7 +44,7 @@ SURFACES_DESC = (
     "step edge) and arm motions slow near it."
 )
 StrategyChoice = Literal["auto", "scoop", "angled", "top_down"]
-GraspOutcome = Literal["planned", "infeasible", "grasped", "missed", "aborted", "released"]
+GraspOutcome = Literal["planned", "infeasible", "grasped", "unverified", "missed", "aborted", "released"]
 
 
 class CutoffGuard(Protocol):
@@ -77,7 +81,10 @@ class GraspResult(BaseModel):
 
     outcome: GraspOutcome = Field(
         description="planned (dry run, feasible), infeasible (nothing moved), grasped (holding, lifted and retreated), "
-        "missed (closed without an object: opened and retreated), aborted (stopped and held; see reasons), released"
+        "unverified (the jaw closed into the empty band: kept closed with the profile squeeze, lifted and retreated; "
+        "the object may be soft and squashed or absent: look at the attached gripper camera image, treat it as held "
+        "if it is in the jaws, else release_object and retry), missed (a contact that failed verification or a "
+        "blocked close: opened and retreated), aborted (stopped and held; see reasons), released"
     )
     reasons: list[str] = Field(default_factory=list, description="Why a plan is infeasible or a run ended early")
     plan: dict[str, Any] | None = Field(default=None, description="Plan summary: waypoints, pitch, roll, slow zone")
@@ -447,6 +454,25 @@ class GraspExecutor:
             held_pose=None if plan is None or reached is None else self.held_pose(plan, reached),
         )
 
+    def unverified_reason(self, close: ArmMotionResult) -> str:
+        """Why a closed_no_contact close is 'unverified' rather than a miss (the jaw keeps its hold).
+
+        Args:
+            close (ArmMotionResult): Close result with status closed_no_contact.
+
+        Returns:
+            str: The reason, with what the agent should do next.
+        """
+        sample = self.arm.fresh_sample()
+        jaw = "" if sample is None else f" at {sample.positions[self.arm.gripper]:.3f} rad"
+        limit = self.cfg.limits.gripper_empty_stall_rad
+        return (
+            f"jaw closed{jaw} into the empty band (within gripper_empty_stall_rad {limit:g} rad of closed; close: "
+            f"{close.message}): the object may be soft and squashed between the jaws (plush) or absent, the load "
+            "cannot tell. Kept closed and lifted: look at the attached gripper camera image; if the object is in the "
+            "jaws treat it as held, otherwise call release_object (opens and lifts) and retry"
+        )
+
     def verify(self, close: ArmMotionResult, params: GraspParams) -> str | None:
         """Grasp check after the close: the jaw stopped short of closed and the gripper felt the object.
 
@@ -482,7 +508,10 @@ class GraspExecutor:
     ) -> GraspResult:
         """Run a feasible plan: (half-open,) pre-grasp, roll, open, approach, slide, close, verify, lift, retreat.
 
-        A miss (closed without load) opens the gripper, lifts and retreats; any abort stops and holds the arm.
+        A close into the empty band (closed_no_contact: a squashed soft object or nothing) keeps the jaw closed with
+        the profile's squeeze and torque limit (step 'hold'), lifts and retreats and is 'unverified'. A miss (a
+        contact that fails verification, or a blocked close) opens the gripper, lifts and retreats; any abort stops
+        and holds the arm.
 
         Args:
             plan (GraspPlan): Feasible plan.
@@ -491,7 +520,7 @@ class GraspExecutor:
             stop_requested (Callable[[], bool]): Stop check between steps.
 
         Returns:
-            GraspResult: grasped / missed / aborted.
+            GraspResult: grasped / unverified / missed / aborted.
         """
         steps: list[GraspStep] = []
         arm, gripper, limits = self.arm, self.arm.gripper, self.cfg.limits
@@ -499,6 +528,8 @@ class GraspExecutor:
         slide = params.slide_speed_scale
         close: ArmMotionResult | None = None
         reached: Waypoint | None = None  # last waypoint commanded: the arm's intended pose
+        unverified: str | None = None
+        missed: str | None = None
         try:
             try:
                 sample = arm.require_sample()
@@ -551,7 +582,11 @@ class GraspExecutor:
                 CLOSE_OK,
                 intent=held,
             )
-            missed = self.verify(close, params)
+            if close.status == "closed_no_contact":
+                unverified = self.unverified_reason(close)
+                self.hold_step(steps, stop_requested, params)
+            else:
+                missed = self.verify(close, params)
             if missed is not None:
                 self.step(
                     "open",
@@ -571,9 +606,31 @@ class GraspExecutor:
             arm.stop_hold()
             arm.restore_default_torque_limit()  # never leave the gripper weakened (or firm) after an abort
             return self.finish("aborted", [str(exc)], plan, steps, close, reached)
+        if unverified is not None:
+            return self.finish("unverified", [unverified], plan, steps, close, reached)
         if missed is not None:
             return self.finish("missed", [missed], plan, steps, close, reached)
         return self.finish("grasped", [], plan, steps, close, reached)
+
+    def hold_step(self, steps: list[GraspStep], stop_requested: Callable[[], bool], params: GraspParams) -> None:
+        """Step 'hold': keep an empty-band close gripping with the profile's squeeze and torque limit.
+
+        Args:
+            steps (list[GraspStep]): Step log (appended).
+            stop_requested (Callable[[], bool]): Stop check.
+            params (GraspParams): grip_profile of the close.
+
+        Raises:
+            GraspAbort: On a stop or when the hold cannot be commanded.
+        """
+        if stop_requested():
+            raise GraspAbort("hold: stop requested")
+        try:
+            message = self.arm.hold_empty_close(params.grip_profile)
+        except ArmError as exc:
+            steps.append(GraspStep(label="hold", status="refused", message=str(exc)))
+            raise GraspAbort(f"hold: {exc}") from exc
+        steps.append(GraspStep(label="hold", status="holding", message=message))
 
     def release(
         self, params: GraspParams, floor: FloorOverride | None, stop_requested: Callable[[], bool]
@@ -727,6 +784,23 @@ class GraspService:
         return head | {"ok": True, "result": result.model_dump(mode="json")}
 
 
+def grasp_tool_result(result: GraspResult, image: ImageContent | None) -> CallToolResult:
+    """grasp_object's MCP result: the GraspResult as structured content and JSON text, plus an optional image.
+
+    Args:
+        result (GraspResult): The grasp outcome.
+        image (ImageContent | None): Gripper camera image (attached to an 'unverified' grasp), or None.
+
+    Returns:
+        CallToolResult: The tool result.
+    """
+    data = result.model_dump(mode="json")
+    content: list[ContentBlock] = [TextContent(type="text", text=json.dumps(data))]
+    if image is not None:
+        content.append(image)
+    return CallToolResult(content=content, structured_content=data)
+
+
 def grip_profile_description(config: McpServerConfig) -> str:
     """Tool argument description of grip_profile with the configured presets.
 
@@ -867,10 +941,15 @@ def register(ctx: ToolContext) -> None:
             "speed, squeeze); the result reports grip_profile, holding_load, slipping and crush_risk. Every arm joint "
             "stays commanded at its planned target; residual_error and warnings list joints that ended a step (or the "
             "hold) off it by more than their tolerance, held_pose where the jaw centre and the tool point ended. "
-            "Outcome: grasped, missed (closed on nothing: opened and "
-            "retreated - check a picture and correct the object position), aborted (stopped and held; reasons say "
-            "why) or infeasible (nothing moved). A stop call aborts it. Keeps arm control: call release_control when "
-            f"done. {slow_note}"
+            "Outcome: grasped; unverified (the jaw closed into the empty band, within gripper_empty_stall_rad of "
+            "closed, so the load cannot tell a soft, squashed object from empty jaws: it stays closed with the "
+            f"profile squeeze, lifts and retreats, and the result carries a fresh gripper camera image (max "
+            f"{UNVERIFIED_IMAGE_PX} px) - look at the attached image: if the object is in the jaws treat it as held, "
+            "otherwise call release_object (opens and lifts) and retry); missed (a contact that failed "
+            "verification: opened and retreated - check a picture and correct the object position); aborted "
+            "(stopped and held; reasons say why) or infeasible (nothing moved). Soft objects (plush toys, foam) "
+            "squash flat under the jaws: prefer grip_profile gentle or normal and expect 'unverified'. A stop call "
+            f"aborts it. Keeps arm control: call release_control when done. {slow_note}"
         )
     )
     def grasp_object(
@@ -884,8 +963,9 @@ def register(ctx: ToolContext) -> None:
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
         ] = None,
-    ) -> GraspResult:
-        """Grasp an object; the tool description is passed to the decorator."""
+    ) -> Annotated[CallToolResult, GraspResult]:
+        """Grasp an object; the tool description is passed to the decorator. An 'unverified' result also carries
+        a fresh gripper camera image so the agent can look."""
         ctx.battery_gate("grasp_object")
         baseline = robot.stop_count()
 
@@ -900,14 +980,23 @@ def register(ctx: ToolContext) -> None:
                 lambda: robot.stop_count() != baseline,
             )
 
-        return run(body)
+        result = run(body)
+        image: ImageContent | None = None
+        if result.outcome == "unverified":
+            try:
+                frame = robot.camera_image("gripper", min(UNVERIFIED_IMAGE_PX, config.limits.max_image_px))
+                image = ImageContent(type="image", data=base64.b64encode(frame.jpeg).decode(), mime_type="image/jpeg")
+            except (RobotError, ValueError) as exc:
+                result.warnings.append(f"no gripper camera image attached: {exc}; call get_camera_image 'gripper'")
+        return grasp_tool_result(result, image)
 
     @ctx.server.tool(
         description=(
             f"Release a held object: open the gripper to params.release_open_fraction (default "
             f"{grasp.release_open_fraction:g}) and lift the tool point params.release_lift_m (default "
             f"{grasp.release_lift_m:g} m) straight up. Outcome released (reasons note a skipped, unreachable lift) or "
-            f"aborted. {slow_note}"
+            "aborted. After an 'unverified' grasp_object whose attached image shows empty jaws (or not the object), "
+            f"call this to open and lift away, then retry the grasp. {slow_note}"
         )
     )
     def release_object(

@@ -1380,6 +1380,47 @@ class ArmController:
             self.command(intent | {self.gripper: result.positions[self.gripper]})
         return result.model_copy(update={"status": "blocked", "message": message})
 
+    def hold_empty_close(self, grip_profile: GripChoice) -> str:
+        """Keep a jaw that closed into the empty band (closed_no_contact) gripping as a grasp would.
+
+        grasp_object's 'unverified' hold: a soft object (a plush) squashes until the jaw is within
+        gripper_empty_stall_rad of closed, so the close cannot tell it from empty jaws. The close restored the default
+        torque limit; this writes the grip profile's (capped) torque limit again and holds the measured jaw plus the
+        profile's squeeze_rad toward closed (never past closed), the arm joints staying at their intended targets.
+
+        Args:
+            grip_profile (GripChoice): Grip profile of the close (preset name, inline overrides or None = default).
+
+        Returns:
+            str: What is held (jaw target, squeeze, profile and torque limit).
+
+        Raises:
+            ArmError: Without arm control, fresh joint states or an intended pose, or for an invalid profile.
+        """
+        try:
+            grip = resolve_grip_profile(self.cfg.grip_profiles, self.cfg.limits, grip_profile)
+        except ValueError as exc:
+            raise ArmError(str(exc)) from exc
+        with self.exclusive_motion():
+            if not self._held:
+                raise ArmError("arm control lost before the hold")
+            jaw = self.require_sample().positions[self.gripper]
+            with self._lock:
+                intent = dict(self._last_target) if self._last_target is not None else None
+            if intent is None:
+                raise ArmError("no intended arm pose to hold")
+            closed = self.cfg.arm.gripper_closed_rad
+            toward_closed = closed - jaw
+            squeeze = min(grip.profile.squeeze_rad, abs(toward_closed))
+            hold = jaw + math.copysign(squeeze, toward_closed)
+            self.write_torque_limit(grip.profile.torque_limit)
+            if not self.command(intent | {self.gripper: hold}):
+                raise ArmError("arm control lost before the hold")
+        return (
+            f"holding the jaw at {hold:.3f} rad ({squeeze:.3f} rad squeeze past {jaw:.3f} rad) with grip profile "
+            f"{grip.name} (torque_limit {grip.profile.torque_limit})"
+        )
+
     def grasp_from_stall(self, result: ArmMotionResult, start_jaw: float, squeeze_rad: float) -> ArmMotionResult:
         """Treat a closing jaw that settled before the closed target as a grasp (caller holds the motion guard).
 

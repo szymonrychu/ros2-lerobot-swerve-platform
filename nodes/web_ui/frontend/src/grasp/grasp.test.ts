@@ -318,6 +318,7 @@ describe('response parsing', () => {
     expect(parseGraspResponse(null, 500)).toMatchObject({ ok: false, error: 'HTTP 500' })
     expect(parseGraspResponse('x', 200).ok).toBe(false)
     expect(parseGraspResponse({ ok: true, result: { outcome: 'weird' } }, 200).outcome).toBeUndefined()
+    expect(parseGraspResponse({ ok: true, action: 'execute', result: { outcome: 'unverified', reasons: ['empty band'] } }, 200).outcome).toBe('unverified')
   })
 })
 
@@ -343,6 +344,10 @@ describe('text', () => {
     expect(describeOutcome('planned').severity).toBe('success')
     expect(describeOutcome('released').severity).toBe('success')
     expect(describeOutcome('missed').severity).toBe('warning')
+    expect(describeOutcome('unverified')).toEqual({
+      text: 'Unverified: jaw closed almost fully (soft object squashed, or nothing); kept closed and lifted - check the gripper camera',
+      severity: 'warning',
+    })
     expect(describeOutcome('infeasible').severity).toBe('error')
     expect(describeOutcome('aborted').severity).toBe('error')
   })

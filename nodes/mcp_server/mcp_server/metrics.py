@@ -18,7 +18,13 @@ FIRST_SETPOINT_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.
 # Around the 0.04 s period of the 25 Hz arm rate: anything above it is a tick the host could not keep up with.
 TICK_PERIOD_BUCKETS = (0.02, 0.035, 0.04, 0.045, 0.05, 0.06, 0.08, 0.1, 0.15, 0.25, 0.5)
 # GraspResult.outcome of an executed grasp -> the mcp_grasp_attempts_total result label (documented in the README).
-GRASP_RESULT_BY_OUTCOME = {"grasped": "lifted", "missed": "missed", "aborted": "aborted", "infeasible": "infeasible"}
+GRASP_RESULT_BY_OUTCOME = {
+    "grasped": "lifted",
+    "missed": "missed",
+    "unverified": "unverified",
+    "aborted": "aborted",
+    "infeasible": "infeasible",
+}
 
 TOOL_CALLS = Counter("mcp_tool_calls_total", "MCP tool calls by tool and outcome (ok/error)", ["tool", "outcome"])
 TOOL_DURATION = Histogram("mcp_tool_duration_seconds", "MCP tool call duration", ["tool"], buckets=TOOL_BUCKETS)

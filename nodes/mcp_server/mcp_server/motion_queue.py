@@ -1163,7 +1163,8 @@ class MotionQueue:
             generation (int): Dispatch generation (a cancel/stop makes stop_requested true).
 
         Returns:
-            Outcome: 'grasped' succeeds (contact event); missed/aborted/infeasible fail.
+            Outcome: 'grasped' succeeds (contact event); unverified (holding, needs a look)/missed/aborted/infeasible
+                fail.
         """
         assert self.grasp_runner is not None  # resolve() refuses grasp steps without a runner
 

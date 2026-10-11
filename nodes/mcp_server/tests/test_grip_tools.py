@@ -80,12 +80,21 @@ def test_grasp_abort_after_the_close_restores_the_torque(tmp_path: Path) -> None
 
 
 def test_grasp_miss_restores_the_torque(tmp_path: Path) -> None:
-    arm, be = make(tmp_path)  # nothing between the jaws
-    params = grasp_params(CONFIG.grasp, None, "firm")
+    arm, be = make(tmp_path)
+    object_in_jaws(be)  # a contact, but verification rejects it (min_hold_gap_rad beyond the stop)
+    params = grasp_params(CONFIG.grasp, {"min_hold_gap_rad": 1.0}, "firm")
     result = GraspExecutor(arm, CONFIG).grasp(ObjectSpec(**OBJECT), "top_down", params, None, None, lambda: False)
     assert result.outcome == "missed"
     assert FIRM_TORQUE in torque_writes(be)
     assert torque_writes(be)[-1] == DEFAULT_TORQUE
+
+
+def test_grasp_empty_band_close_keeps_the_profile_torque(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)  # nothing between the jaws: closed_no_contact
+    params = grasp_params(CONFIG.grasp, None, "firm")
+    result = GraspExecutor(arm, CONFIG).grasp(ObjectSpec(**OBJECT), "top_down", params, None, None, lambda: False)
+    assert result.outcome == "unverified"
+    assert torque_writes(be)[-1] == FIRM_TORQUE <= CONFIG.grip_profiles.torque_limit_max  # held like a grasp
 
 
 def test_release_restores_the_torque(tmp_path: Path) -> None:

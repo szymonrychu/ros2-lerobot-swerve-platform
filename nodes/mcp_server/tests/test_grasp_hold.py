@@ -198,8 +198,11 @@ def test_result_reports_the_jaw_centre_and_the_tool_point_of_a_centred_grasp(
     assert "tool_point" in held
 
 
-def test_empty_firm_close_stalling_short_of_closed_is_a_miss(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """2026-10-10 yellow cube: the firm close on nothing stalled at -0.110 rad (0.055 short of closed) at load 148."""
+def test_empty_firm_close_stalling_short_of_closed_is_unverified(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-10-10 yellow cube: the firm close on nothing stalled at -0.110 rad (0.055 short of closed) at load 148.
+    The same stall is what a squashed plush gives (2026-10-11), so the jaw keeps its hold and the agent looks."""
     arm, be, cfg = make(tmp_path)
     stall = cfg.arm.gripper_closed_rad + 0.055
 
@@ -211,7 +214,8 @@ def test_empty_firm_close_stalling_short_of_closed_is_a_miss(tmp_path: Path, mon
 
     be.on_sleep = empty_stall
     result, _, _ = run(arm, cfg, monkeypatch, grip="firm")
-    assert result.outcome == "missed", result.reasons
+    assert result.outcome == "unverified", result.reasons
     close = next(s for s in result.steps if s.label == "close")
     assert close.status == "closed_no_contact", close.message
+    assert "open" not in [s.label for s in result.steps[result.steps.index(close) :]]
     assert result.holding_load is None
