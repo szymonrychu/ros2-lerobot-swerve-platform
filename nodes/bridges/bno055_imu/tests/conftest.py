@@ -29,6 +29,11 @@ def _stub_ros2_modules() -> None:
     # rclpy.executors
     executors_mod = _make_stub_module("rclpy.executors")
     executors_mod.SingleThreadedExecutor = object  # type: ignore[attr-defined]
+    executors_mod.ExternalShutdownException = type("ExternalShutdownException", (Exception,), {})  # type: ignore[attr-defined]
+
+    # rclpy._rclpy_pybind11 (RCLError is a RuntimeError subclass in rclpy)
+    pybind_mod = _make_stub_module("rclpy._rclpy_pybind11")
+    pybind_mod.RCLError = type("RCLError", (RuntimeError,), {})  # type: ignore[attr-defined]
 
     # rclpy.qos
     qos_mod = _make_stub_module("rclpy.qos")

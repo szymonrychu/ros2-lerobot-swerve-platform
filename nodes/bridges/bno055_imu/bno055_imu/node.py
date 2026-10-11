@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import rclpy
+from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
@@ -147,6 +148,27 @@ def _spin_once_safe(executor: SingleThreadedExecutor, timeout_sec: float = 0.01)
         executor.spin_once(timeout_sec=timeout_sec)
     except Exception:  # noqa: BLE001
         pass  # context may be invalid during shutdown or reconnect
+
+
+def publish_if_ok(publisher: Any, msg: Any) -> bool:
+    """Publish unless the rclpy context is gone (SIGTERM handled mid-cycle); the loop condition then ends the run.
+
+    Args:
+        publisher (Any): rclpy publisher.
+        msg (Any): Message to publish.
+
+    Returns:
+        bool: True when published, False when the context was already shut down.
+    """
+    if not rclpy.ok():
+        return False
+    try:
+        publisher.publish(msg)
+    except RCLError:
+        if rclpy.ok():  # not the shutdown race: a genuine publish failure
+            raise
+        return False
+    return True
 
 
 def pace_cycle(executor: SingleThreadedExecutor, slot_s: float, period_s: float) -> float:
@@ -367,7 +389,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             _spin_once_safe(executor, timeout_sec=0.01)
     if bno is None:
         node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()
         return
 
     actual_mode = bno.mode
@@ -559,7 +581,8 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             angular_velocity_covariance=angular_vel_cov,
             linear_acceleration_covariance=linear_accel_cov,
         )
-        pub.publish(msg)
+        if not publish_if_ok(pub, msg):
+            break
         metrics.record_publish()
         policy.on_publish()  # a restore only counts as successful once a valid sample is published
         if calibration_pub is not None and time.monotonic() - last_calibration_pub_s >= CALIBRATION_PUBLISH_PERIOD_S:
@@ -571,7 +594,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             except (RuntimeError, OSError):
                 payload = None
             if payload is not None:
-                calibration_pub.publish(String(data=payload))
+                publish_if_ok(calibration_pub, String(data=payload))
                 node.get_logger().debug(f"BNO055 calibration {payload}")
         if calibration_path is not None:
             now_s = time.monotonic()
@@ -589,4 +612,4 @@ def run_imu_node(config: ImuNodeConfig) -> None:
         slot_s = pace_cycle(executor, slot_s, period_s)
 
     node.destroy_node()
-    rclpy.shutdown()
+    rclpy.try_shutdown()
