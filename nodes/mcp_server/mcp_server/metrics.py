@@ -16,6 +16,8 @@ TRACKING_ERROR_BUCKETS = (0.001, 0.003, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0)
 NAV_BUCKETS = (1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0)
 FIRST_SETPOINT_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0)
 # Around the 0.04 s period of the 25 Hz arm rate: anything above it is a tick the host could not keep up with.
+# Per-stage frontier compute on the Pi (budget: extract + geodesic p95 <= 300 ms on the real map).
+FRONTIER_BUCKETS = (0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0, 2.5)
 TICK_PERIOD_BUCKETS = (0.02, 0.035, 0.04, 0.045, 0.05, 0.06, 0.08, 0.1, 0.15, 0.25, 0.5)
 # Guard rule evaluation: a ruled tool check is ~10-100 us on the dev Mac, a base rule with FK + footprint ~ms on the Pi.
 GUARD_EVAL_BUCKETS = (1e-5, 2.5e-5, 5e-5, 1e-4, 2.5e-4, 5e-4, 1e-3, 2.5e-3, 5e-3, 1e-2, 2.5e-2, 5e-2)
@@ -103,6 +105,14 @@ MOTION_WATCH_TRIGGERS = Counter(
     "Motion queue watch constraints that triggered, by metric and action (abort/pause)",
     ["metric", "action"],
 )
+FRONTIER_COMPUTE = Histogram(
+    "mcp_frontier_compute_seconds",
+    "Frontier computation time per stage: extract, traversability, field, match (once per /map version) and geodesic "
+    "(once per map version and robot cell)",
+    ["stage"],
+    buckets=FRONTIER_BUCKETS,
+)
+FRONTIER_COUNT = Gauge("mcp_frontier_count", "Frontiers in the latest computed /map version")
 
 SampleAges = Callable[[], Mapping[str, float]]
 

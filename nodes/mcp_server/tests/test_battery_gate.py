@@ -12,6 +12,7 @@ from mcp_server.camera_tools import TOOL_NAMES as CAMERA_TOOL_NAMES
 from mcp_server.config import McpServerConfig, load_config
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, TOOL_NAMES, build_mcp_server
 
+from .test_frontier_tools import room
 from .test_tools import TOKEN, FakeRobot, call, take
 
 LOW_V = 8.21  # 2.74 V/cell
@@ -33,6 +34,8 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
     "release_object": {},
     "enqueue_motions": {"steps": [{"kind": "wait_s", "seconds": 0.1}]},
     "resume_motions": {},
+    "go_to_frontier": {"id": 1},
+    "look_toward_frontier": {"id": 1},
 }
 ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_robot_state": {},
@@ -70,6 +73,8 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "list_lookups": {},
     "get_lookup_image": {"lookup_id": "0" * 32},
     "annotate_lookup": {"lookup_id": "0" * 32, "note": "n"},
+    "list_frontiers": {},
+    "plan_frontier_visit": {"id": 1},
 }
 
 
@@ -120,6 +125,7 @@ def test_refusal_message_is_exact(tmp_path: Path) -> None:
 def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> None:
     robot = FakeRobot(tmp_path)
     robot.pois.append({"id": "id0", "name": "dock", "kind": "point", "x": 0.0, "y": 0.0, "status": "open"})
+    robot.map = room()  # a map with frontier 1 for the frontier sensor tools
     server = make_server(robot, make_guard(LOW_V))
     args = dict(ALLOWED_ARGS[name])
     if name == "forget_object":

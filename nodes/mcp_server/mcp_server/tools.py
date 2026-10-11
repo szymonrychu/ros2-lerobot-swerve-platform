@@ -23,7 +23,16 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from . import body_tools, camera_tools, grasp_tools, guard_tools, lookup_tools, motion_tools, perception_tools
+from . import (
+    body_tools,
+    camera_tools,
+    frontier_tools,
+    grasp_tools,
+    guard_tools,
+    lookup_tools,
+    motion_tools,
+    perception_tools,
+)
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import DriveError, DriveOutcome
 from .camera_scene import camera_setup, pixel_scale
@@ -31,6 +40,7 @@ from .config import HARD_MAX_DRIVE_S, HARD_MAX_IMAGE_PX, HARD_MAX_SPEED_SCALE, G
 from .control import MAX_CARRIED_RADIUS_M, ControlManager, LeaseNeed, ReleaseTarget, Subsystem
 from .floor_guard import TiltOverrideDeg
 from .footprint import NavFootprint
+from .frontiers import FrontierTracker
 from .grasp_tools import SURFACES_DESC, floor_override, grip_profile_description
 from .guard_rules import GUARD_ORIGIN, GuardEngine, GuardRejection
 from .guard_state import GuardState
@@ -96,6 +106,7 @@ TOOL_NAMES = (
     *motion_tools.TOOL_NAMES,
     *guard_tools.TOOL_NAMES,
     *lookup_tools.TOOL_NAMES,
+    *frontier_tools.TOOL_NAMES,
 )
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
 # MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
@@ -117,6 +128,8 @@ MOTION_TOOLS = frozenset(
         "release_object",
         "enqueue_motions",
         "resume_motions",
+        "go_to_frontier",
+        "look_toward_frontier",
     }
 )
 ALWAYS_ALLOWED_TOOLS = frozenset(
@@ -139,6 +152,7 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         "wait_for_event",
         *guard_tools.TOOL_NAMES,
         *lookup_tools.TOOL_NAMES,
+        *frontier_tools.SENSOR_TOOL_NAMES,
     }
 )
 # Blocking motion tools refused while the motion queue runs (the queue's worker is the single motion owner then).
@@ -161,6 +175,8 @@ TOOL_SUBSYSTEM: dict[str, LeaseNeed] = {
     "move_relative": "base",
     "drive": "base",
     "look_around": "base",  # base-only spin (look_around never moves the arm)
+    "go_to_frontier": "base",
+    "look_toward_frontier": "base",  # base-only turn (the arm never moves)
 }
 # Tools that may move while parking (release_control homes the arm): counted as a running blocking motion so the queue
 # does not start meanwhile; their own queue-busy refusal lives in the tool (control.QUEUE_BUSY_REFUSAL).
@@ -177,7 +193,9 @@ without its lease is refused and nothing moves. Both may be held at once. The ar
 leader arm and web UI are ignored. When done call release_control(subsystem='arm'|'base'|'all'): by default it parks
 (the arm drives to its stored home pose, the base stops and its steering straightens) and always releases, reporting
 a failed park; keep_position=true releases without moving. get_control_state shows both leases and whether the arm
-is at home. Call stop at once if anything looks wrong; it is always available (it does not release leases). Every tool result ends with
+is at home. Exploring: list_frontiers (or the numbered frontiers on get_topdown_view) shows where the known map ends;
+rank them yourself, look_toward_frontier first (turn and photo, no travel), then plan_frontier_visit / go_to_frontier
+(base lease). Call stop at once if anything looks wrong; it is always available (it does not release leases). Every tool result ends with
 robot_events_since_last_call (body events such as overheat, collision_stop, stall, bump, battery_low raised since the
 previous tool call) and a vitals one-liner (battery V, hottest servo C, CPU C, tilt guard level with roll/pitch vs
 limits, leases as 'ctl arm=H@home base=-': H held, - not held); get_body_state gives the full picture.
@@ -545,6 +563,7 @@ def register_tools(
         control=control,
         lookups=lookup_tools.make_recorder(robot, config),
         engine=engine,
+        frontiers=FrontierTracker(config.frontiers, footprint_width_m=config.footprint.width_m),
     )
     for module in (*TOOL_MODULES, *extra_modules):
         module(ctx)
@@ -1086,6 +1105,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     motion_tools.register,
     guard_tools.register,
     lookup_tools.register,
+    frontier_tools.register,
 )
 
 

@@ -351,6 +351,8 @@ NAV_ARGS: dict[str, dict[str, Any]] = {
     "navigate_to_pose": {"x": 1.0, "y": 0.0},
     "move_relative": {"dx": 0.5},
     "look_around": {},
+    "go_to_frontier": {"id": 1},
+    "look_toward_frontier": {"id": 1},
 }
 
 
@@ -365,7 +367,13 @@ def guarded(tmp_path: Path, level: str) -> tuple[FakeRobot, Any, RobotMonitor]:
 
 
 def test_tool_classification_covers_every_base_motion_tool() -> None:
-    assert TILT_NAV_TOOLS == {"navigate_to_pose", "move_relative", "look_around"}
+    assert TILT_NAV_TOOLS == {
+        "navigate_to_pose",
+        "move_relative",
+        "look_around",
+        "go_to_frontier",
+        "look_toward_frontier",
+    }
     assert TILT_MANUAL_BASE_TOOLS == {"drive"}
     assert (TILT_NAV_TOOLS | TILT_MANUAL_BASE_TOOLS) <= MOTION_TOOLS
 

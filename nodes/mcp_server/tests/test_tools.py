@@ -26,7 +26,18 @@ from mcp_server.models import (
     StopResult,
 )
 from mcp_server.poi_client import PoiTimeout
-from mcp_server.tools import TOOL_NAMES, StaticTokenVerifier, build_app, build_mcp_server
+from mcp_server.tool_context import TILT_NAV_TOOLS
+from mcp_server.tools import (
+    ALWAYS_ALLOWED_TOOLS,
+    INSTRUCTIONS,
+    MOTION_TOOLS,
+    QUEUE_EXCLUSIVE_TOOLS,
+    TOOL_NAMES,
+    TOOL_SUBSYSTEM,
+    StaticTokenVerifier,
+    build_app,
+    build_mcp_server,
+)
 
 from .fakes import FakeArmBackend, PerceptionFakeMixin
 
@@ -42,6 +53,9 @@ PERCEPTION_TOOLS = (
     "update_poi",
     "delete_poi",
 )
+FRONTIER_SENSOR_TOOLS = {"list_frontiers", "plan_frontier_visit"}
+FRONTIER_MOTION_TOOLS = {"go_to_frontier", "look_toward_frontier"}
+FRONTIER_TOOLS = (*sorted(FRONTIER_SENSOR_TOOLS), *sorted(FRONTIER_MOTION_TOOLS))
 
 
 class FakeRobot(PerceptionFakeMixin):
@@ -182,6 +196,7 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "list_lookups",
         "get_lookup_image",
         "annotate_lookup",
+        *FRONTIER_TOOLS,
     }
     for t in tools:
         assert t.description and len(t.description) > 60, t.name
@@ -657,3 +672,37 @@ def test_failing_call_is_logged_with_ok_false(server: Any, robot: FakeRobot, cap
         next(r.getMessage() for r in caplog.records if r.name == "mcp_server.timing").split("tool_call ", 1)[1]
     )
     assert rec["tool"] == "get_camera_image" and rec["ok"] is False
+
+
+def test_frontier_tools_are_classified_for_lease_battery_tilt_and_queue() -> None:
+    assert FRONTIER_MOTION_TOOLS <= MOTION_TOOLS and not FRONTIER_MOTION_TOOLS & ALWAYS_ALLOWED_TOOLS
+    assert FRONTIER_SENSOR_TOOLS <= ALWAYS_ALLOWED_TOOLS and not FRONTIER_SENSOR_TOOLS & MOTION_TOOLS
+    assert {name: TOOL_SUBSYSTEM.get(name) for name in FRONTIER_TOOLS} == {
+        "go_to_frontier": "base",
+        "look_toward_frontier": "base",
+        "list_frontiers": None,
+        "plan_frontier_visit": None,
+    }
+    assert FRONTIER_MOTION_TOOLS <= TILT_NAV_TOOLS and not FRONTIER_SENSOR_TOOLS & TILT_NAV_TOOLS
+    assert FRONTIER_MOTION_TOOLS <= QUEUE_EXCLUSIVE_TOOLS and not FRONTIER_SENSOR_TOOLS & QUEUE_EXCLUSIVE_TOOLS
+
+
+@pytest.mark.parametrize("name", sorted(FRONTIER_MOTION_TOOLS))
+def test_frontier_motion_tools_refused_without_the_base_lease(server: Any, robot: FakeRobot, name: str) -> None:
+    take(server, "arm")
+    with pytest.raises(ToolError, match="base"):
+        call(server, name, {"id": 1})
+    assert not [c for c in robot.calls if c[0] in ("navigate", "move_relative", "camera_image")]
+
+
+@pytest.mark.parametrize("name", sorted(FRONTIER_MOTION_TOOLS))
+def test_frontier_motion_tools_refused_while_the_queue_runs(server: Any, robot: FakeRobot, name: str) -> None:
+    take(server, "base")
+    server.motion_queue.busy = lambda: True
+    with pytest.raises(ToolError, match="motion queue is running"):
+        call(server, name, {"id": 1})
+    assert not [c for c in robot.calls if c[0] in ("navigate", "move_relative", "camera_image")]
+
+
+def test_instructions_point_to_the_frontier_tools() -> None:
+    assert "list_frontiers" in INSTRUCTIONS and "look_toward_frontier" in INSTRUCTIONS

@@ -18,6 +18,7 @@ from mcp_server.tools import build_app, build_mcp_server
 
 from .test_arm import low_pose, make_guarded
 from .test_early_return import Clock, FakeNav, nav
+from .test_frontier_tools import FrontierRobot, room
 from .test_grasp_tools import CONFIG, OBJECT, make, object_in_jaws, run_grasp
 from .test_monitor import dump
 from .test_monitor import make as make_monitor
@@ -314,6 +315,23 @@ def test_navigation_errors_without_a_goal_are_not_counted() -> None:
     with pytest.raises(RobotError):
         nav(port, clock)
     assert count() == 0
+
+
+# --- frontiers ---------------------------------------------------------------------------------------------------
+
+
+def test_frontier_compute_stages_and_count_are_recorded(tmp_path: Path) -> None:
+    frontier_robot = FrontierRobot(tmp_path)
+    server = build_mcp_server(frontier_robot, McpServerConfig(), TOKEN)
+    stages = ("extract", "traversability", "field", "match", "geodesic")
+    deltas = {stage: Delta("mcp_frontier_compute_seconds_count", stage=stage) for stage in stages}
+    call(server, "list_frontiers", {})
+    assert {stage: d() for stage, d in deltas.items()} == dict.fromkeys(stages, 1)
+    assert sample("mcp_frontier_count") == 1
+    frontier_robot.map = room(None)  # gap explored: no frontier left
+    call(server, "list_frontiers", {})
+    assert sample("mcp_frontier_count") == 0
+    assert deltas["extract"]() == 2
 
 
 # --- GET /metrics ------------------------------------------------------------------------------------------------
