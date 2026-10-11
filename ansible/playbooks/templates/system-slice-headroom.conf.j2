@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Robot headroom (playbooks/tasks/cgroup_headroom.yml): a unit's MemoryLow protects only as far as every ancestor
+# allocates protection, so system.slice allocates the sum of the memory_low of the present and enabled ROS2 nodes.
+{% set ns = namespace(mib=0) %}
+{% for node in ros2_nodes if (node.present | default(true)) and (node.enabled | default(true)) %}
+{% set low = (ros2_node_type_defaults[node.node_type] | default({})).memory_low | default('') | string %}
+{% if low[-1:] in ['M', 'G'] and low[:-1].isdigit() %}
+{% set ns.mib = ns.mib + (low[:-1] | int) * (1024 if low[-1:] == 'G' else 1) %}
+{% endif %}
+{% endfor %}
+[Slice]
+MemoryLow={{ ns.mib }}M

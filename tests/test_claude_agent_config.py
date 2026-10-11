@@ -158,7 +158,8 @@ def test_claude_agent_node_type_defaults() -> None:
     assert d["deploy_mode"] == "native"
     assert d["node_src_dir"] == "nodes/claude_agent"
     assert d["node_launch_command"] == "python3 -m claude_agent"
-    assert (d["cpu_quota"], d["memory_max"]) == ("150%", "1G")
+    assert "cpu_quota" not in d and d["memory_max"] == "1G"
+    assert (d["memory_low"], d["cpu_weight"], d["oom_score_adjust"]) == ("96M", 300, -200)
     assert d["nice"] >= 5
     assert d["config_path"] == "/etc/ros2/claude_agent"
     assert d["user"] == SERVICE_USER

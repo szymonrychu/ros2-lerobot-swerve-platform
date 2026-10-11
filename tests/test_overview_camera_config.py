@@ -263,7 +263,8 @@ def test_colcon_build_accepts_one_dict_or_a_list_of_sources() -> None:
 def test_colcon_package_build_keeps_the_limits_and_stamp_logic() -> None:
     text = COLCON_ONE_TASKS.read_text()
     for needle in (
-        "systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3",
+        "systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p CPUWeight={{ ros2_build_cpu_weight }}"
+        " -p IOWeight=10 nice -n 19 ionice -c 3",
         "colcon build --merge-install --parallel-workers 1",
         "--packages-select {{ colcon_src.package }}",
         'MAKEFLAGS: "-j{{ ros2_build_jobs }}"',
@@ -346,7 +347,8 @@ def test_overview_camera_node_type_resources_and_launch_command() -> None:
     defaults = type_defaults("overview_camera")
     assert defaults["deploy_mode"] == "native"
     assert defaults["node_src_dir"] == ""
-    assert defaults["cpu_quota"] == "100%"
+    assert "cpu_quota" not in defaults
+    assert defaults["memory_low"] == "96M"
     assert defaults["memory_max"] == "256M"
     assert defaults["nice"] == 5
     assert defaults["config_path"] == "/etc/ros2/overview_camera"

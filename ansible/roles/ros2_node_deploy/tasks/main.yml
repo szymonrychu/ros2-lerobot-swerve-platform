@@ -2,7 +2,8 @@
 # Deploy or uninstall a ROS2 node as a native systemd service (deploy_mode: native).
 # Expects from resolve_and_deploy.yml:
 #   node_name, node_present, node_enabled, node_deploy_mode
-#   Native: node_launch_command, node_src_dir (optional), node_apt_packages, node_cpu_quota, node_memory_max,
+#   Native: node_launch_command, node_src_dir (optional), node_apt_packages, the cgroup keys (node_cpu_quota,
+#     node_memory_max, node_memory_low, node_memory_high, node_cpu_weight, node_io_weight, node_oom_score_adjust),
 #     node_colcon_source (optional {repo, commit, package, workspace} or a list of them: built from source, see colcon_source_build.yml)
 #   Both: node_config_path, node_config, node_env, repo_dest
 # Deploy speed (see ansible/README.md, "Deploy performance"): nothing here restarts or stops a node directly. Changes
@@ -260,7 +261,9 @@
 
     - name: Run npm ci for web_ui frontend
       ansible.builtin.command:
-        cmd: systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3 npm ci
+        cmd: >-
+          systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p CPUWeight={{ ros2_build_cpu_weight }}
+          -p IOWeight=10 nice -n 19 ionice -c 3 npm ci
         chdir: "{{ repo_dest }}/nodes/web_ui/frontend"
       when:
         - node_name == 'web_ui'
@@ -279,7 +282,9 @@
 
     - name: Run npm run build for web_ui frontend
       ansible.builtin.command:
-        cmd: systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3 npm run build
+        cmd: >-
+          systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p CPUWeight={{ ros2_build_cpu_weight }}
+          -p IOWeight=10 nice -n 19 ionice -c 3 npm run build
         chdir: "{{ repo_dest }}/nodes/web_ui/frontend"
       when:
         - node_name == 'web_ui'

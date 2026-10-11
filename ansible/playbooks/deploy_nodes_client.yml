@@ -93,6 +93,10 @@
       ansible.builtin.include_tasks: tasks/network_wait_online.yml
       tags: [boot]
 
+    - name: Slice drop-ins that guarantee robot headroom (system.slice MemoryLow, user.slice low weights)
+      ansible.builtin.include_tasks: tasks/cgroup_headroom.yml
+      tags: [config, always]
+
     - name: Install the self-healing recovery timer for stopped nodes
       ansible.builtin.include_tasks: tasks/deploy_guard.yml
       tags: [config, always]

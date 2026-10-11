@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+# Background constrained (playbooks/tasks/cgroup_headroom.yml): ssh sessions and the deploy's become steps (uv sync,
+# git) run in session scopes under user.slice, which loses every CPU/IO contention to system.slice (default 100) and
+# so to the robot units in it.
+[Slice]
+CPUWeight={{ ros2_user_slice_cpu_weight }}
+IOWeight={{ ros2_user_slice_io_weight }}

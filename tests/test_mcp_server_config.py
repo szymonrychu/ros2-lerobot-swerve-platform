@@ -156,7 +156,9 @@ def test_mcp_server_node_type_defaults() -> None:
     assert d["deploy_mode"] == "native"
     assert d["node_src_dir"] == "nodes/mcp_server"
     assert d["node_launch_command"] == "python3 -m mcp_server"
-    assert (d["cpu_quota"], d["memory_max"]) == ("100%", "384M")
+    # No CPU quota (robot headroom model); MemoryMax 1G safety net while the 383 MB spike is investigated.
+    assert "cpu_quota" not in d and d["memory_max"] == "1G"
+    assert (d["memory_low"], d["cpu_weight"], d["oom_score_adjust"]) == ("184M", 300, -200)
     assert d["config_path"] == CONFIG_DIR
     assert f"MCP_SERVER_CONFIG={CONFIG_DIR}/config.yaml" in d["env"]
     assert d["environment_file"] == TOKEN_FILE

@@ -1,0 +1,52 @@
+---
+# Robot headroom guaranteed, background constrained (ansible/README.md, "Node resource model"): host-level slice
+# drop-ins next to the per-unit weights and MemoryLow of the ROS2 units.
+#   system.slice: MemoryLow = sum of the present and enabled nodes' memory_low. Protection only reaches a unit as far as
+#     every ancestor allocates it, so without this the units' MemoryLow would protect nothing.
+#   user.slice: CPUWeight / IOWeight ros2_user_slice_cpu_weight / ros2_user_slice_io_weight (50): ssh sessions and the
+#     deploy's become steps (uv sync, git) run in session scopes there and lose every contention to system.slice (100).
+# ros2_cgroup_headroom_enabled: false removes both drop-ins (reversible); systemd reloads when either file changed.
+
+- name: Create the slice drop-in directories
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - system.slice
+    - user.slice
+  when: ros2_cgroup_headroom_enabled | default(false) | bool
+  tags: [config, always]
+
+- name: Install the robot headroom slice drop-ins
+  ansible.builtin.template:
+    src: "{{ playbook_dir }}/templates/{{ item.src }}"
+    dest: "/etc/systemd/system/{{ item.slice }}.d/50-robot-headroom.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - { slice: system.slice, src: system-slice-headroom.conf.j2 }
+    - { slice: user.slice, src: user-slice-headroom.conf.j2 }
+  when: ros2_cgroup_headroom_enabled | default(false) | bool
+  register: ros2_headroom_installed
+  tags: [config, always]
+
+- name: Remove the robot headroom slice drop-ins (disabled)
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}.d/50-robot-headroom.conf"
+    state: absent
+  loop:
+    - system.slice
+    - user.slice
+  when: not (ros2_cgroup_headroom_enabled | default(false) | bool)
+  register: ros2_headroom_removed
+  tags: [config, always]
+
+- name: Reload systemd so the slices pick up the changed drop-ins
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: ros2_headroom_installed is changed or ros2_headroom_removed is changed
+  tags: [config, always]

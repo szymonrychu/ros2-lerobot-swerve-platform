@@ -9,11 +9,17 @@ User={{ node_user if (node_user | default('') | length > 0) else ansible_user }}
 {% if node_supplementary_groups | default([]) | length > 0 %}
 SupplementaryGroups={{ node_supplementary_groups | join(' ') }}
 {% endif %}
-Restart=on-failure
+# Restart after ANY exit (a launch can exit 0 after its container crashed); a unit stopped by systemctl stays stopped.
+Restart=always
 RestartSec=15
 TimeoutStopSec=30
-CPUQuota={{ node_cpu_quota | default('50%') }}
+{% if node_cpu_quota | default('') | string | length > 0 %}
+CPUQuota={{ node_cpu_quota }}
+{% endif %}
 MemoryMax={{ node_memory_max | default('256M') }}
+{% if node_memory_low | default('') | string | length > 0 %}
+MemoryLow={{ node_memory_low }}
+{% endif %}
 {% if node_cpu_weight | default('') | string | length > 0 %}
 CPUWeight={{ node_cpu_weight }}
 {% endif %}

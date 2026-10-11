@@ -18,6 +18,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - There are no per-node playbooks: `deploy_nodes_client.yml` / `deploy_nodes_server.yml` are the only node deploys and every node's steps carry its name as an Ansible tag, so `scripts/deploy-nodes.sh client web_ui mcp_server` is ONE run of the client playbook with `--tags web_ui,mcp_server` (see [Deploy tags](#deploy-tags)).
   - **`tasks/repo_sync.yml`** — Shared include: ensures the Git repo is cloned and up-to-date on the target host.
   - **`tasks/resolve_and_deploy.yml`** — Shared include: looks up a node by name from `ros2_nodes`, resolves all vars, and calls the `ros2_node_deploy` role. Accepts `_deploy_node_name` and optional `_extra_env`.
+  - **`tasks/cgroup_headroom.yml`** — Client deploys: `system.slice` and `user.slice` drop-ins (templates in `playbooks/templates/`) that guarantee robot headroom; see "Node resource model".
 - **`roles/`**
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
   - **`network`** — Netplan: primary interface gets static IP (ethernet or wlan, auto-detected); other interfaces DHCP; IPv6 disabled. Runs when `network_address` and `network_gateway` are set; for primary WiFi set `network_wifi_ssid` (and optionally `network_wifi_password`).
@@ -307,11 +308,11 @@ A deploy no longer stops the whole stack up front. The role's `stop_for_build.ym
 
 ## web_ui frontend build
 
-The web_ui frontend is built on the client during deploy (`npm ci`, `npm run build`), but only when needed: `npm ci` when the hash of `package.json` + `package-lock.json` differs from `frontend/.npm-ci-stamp` (or `node_modules` is gone), `npm run build` when the git tree hash of `nodes/web_ui/frontend` differs from `frontend/.build-stamp`, after an `npm ci`, or when `dist/index.html` / `web_ui/static/index.html` is missing. The stamps are written after the step succeeded; the node restarts only when a build ran. Both steps run in a transient systemd scope (`systemd-run --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10`, 400% = all four cores since the Pi got active cooling; was 100% while it overheated) under `nice -n 19 ionice -c 3`, which keeps the running ROS nodes first in line. On 2026-10-03 a full-priority build next to Nav2, SLAM and the bridges on the then-uncooled Pi 5 overheated it until it stopped responding: lower `ros2_build_cpu_quota` again if temperatures climb.
+The web_ui frontend is built on the client during deploy (`npm ci`, `npm run build`), but only when needed: `npm ci` when the hash of `package.json` + `package-lock.json` differs from `frontend/.npm-ci-stamp` (or `node_modules` is gone), `npm run build` when the git tree hash of `nodes/web_ui/frontend` differs from `frontend/.build-stamp`, after an `npm ci`, or when `dist/index.html` / `web_ui/static/index.html` is missing. The stamps are written after the step succeeded; the node restarts only when a build ran. Both steps run in a transient systemd scope (`systemd-run --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p CPUWeight={{ ros2_build_cpu_weight }} -p IOWeight=10`, 400% = all four cores since the Pi got active cooling; was 100% while it overheated) under `nice -n 19 ionice -c 3`, which keeps the running ROS nodes first in line. On 2026-10-03 a full-priority build next to Nav2, SLAM and the bridges on the then-uncooled Pi 5 overheated it until it stopped responding: lower `ros2_build_cpu_quota` again if temperatures climb.
 
 ### Source-built ROS packages (colcon)
 
-Packages missing from the Jazzy apt distribution are built from a pinned git commit. A node type with a `colcon_source` block gets `roles/ros2_node_deploy/tasks/colcon_source_build.yml`, which takes ONE source dict (`rf2o_laser_odometry`) or a LIST of sources (`overview_camera`) and builds them in list order, so dependencies come first (libcamera before camera_ros). Each source is `{repo, commit, package, workspace}` plus optional `patches`, `cmake_args` (default `-DCMAKE_BUILD_TYPE=Release`) and `meson_args` (builds that package with colcon-meson, `--meson-args`). `commit` is a SHA or a tag. `colcon_source_package.yml` builds one source: the commit is cloned to `<workspace>/src/<package>` and built with `colcon build --merge-install --parallel-workers 1 --packages-select <package>` (`MAKEFLAGS=-j{{ ros2_build_jobs }}`; meson's ninja uses all cores the cgroup allows) inside the same `systemd-run --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3` wrapper as the web_ui build, after sourcing `/opt/ros/jazzy/setup.bash` and the workspace's own `install/setup.bash` (so camera_ros finds the fresh libcamera). Optional `patches` (a list of unified diffs in the repo, applied with `ansible.builtin.patch` after the checkout; the git task uses `force` so the clone is reset before they are re-applied) can fix upstream bugs. A stamp file `<workspace>/.built-<package>-<hash>` makes it idempotent; the hash covers the pinned commit, the content of every patch, the build args and (for the second and later sources) the stamps of the sources before it, so the build only reruns, and the node restarts, when one of them changes, or when `<workspace>/install/setup.bash` is missing (the stamp is then removed). For rf2o (single source, no build args) the hash is the original `sha1(commit + patch checksums)`, so existing stamps stay valid. The launcher script sources `<workspace>/install/setup.bash` (of the first source) after `/opt/ros/jazzy/setup.bash`. Used by `rf2o_laser_odometry` and `overview_camera` (workspace `/opt/ros2-ws`); the first deploy compiles on the Pi, so expect a slow, low-priority build (libcamera needs network once for its libpisp meson wrap). Build dependencies come from the node type's `apt_packages`.
+Packages missing from the Jazzy apt distribution are built from a pinned git commit. A node type with a `colcon_source` block gets `roles/ros2_node_deploy/tasks/colcon_source_build.yml`, which takes ONE source dict (`rf2o_laser_odometry`) or a LIST of sources (`overview_camera`) and builds them in list order, so dependencies come first (libcamera before camera_ros). Each source is `{repo, commit, package, workspace}` plus optional `patches`, `cmake_args` (default `-DCMAKE_BUILD_TYPE=Release`) and `meson_args` (builds that package with colcon-meson, `--meson-args`). `commit` is a SHA or a tag. `colcon_source_package.yml` builds one source: the commit is cloned to `<workspace>/src/<package>` and built with `colcon build --merge-install --parallel-workers 1 --packages-select <package>` (`MAKEFLAGS=-j{{ ros2_build_jobs }}`; meson's ninja uses all cores the cgroup allows) inside the same `systemd-run --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p CPUWeight={{ ros2_build_cpu_weight }} -p IOWeight=10 nice -n 19 ionice -c 3` wrapper as the web_ui build, after sourcing `/opt/ros/jazzy/setup.bash` and the workspace's own `install/setup.bash` (so camera_ros finds the fresh libcamera). Optional `patches` (a list of unified diffs in the repo, applied with `ansible.builtin.patch` after the checkout; the git task uses `force` so the clone is reset before they are re-applied) can fix upstream bugs. A stamp file `<workspace>/.built-<package>-<hash>` makes it idempotent; the hash covers the pinned commit, the content of every patch, the build args and (for the second and later sources) the stamps of the sources before it, so the build only reruns, and the node restarts, when one of them changes, or when `<workspace>/install/setup.bash` is missing (the stamp is then removed). For rf2o (single source, no build args) the hash is the original `sha1(commit + patch checksums)`, so existing stamps stay valid. The launcher script sources `<workspace>/install/setup.bash` (of the first source) after `/opt/ros/jazzy/setup.bash`. Used by `rf2o_laser_odometry` and `overview_camera` (workspace `/opt/ros2-ws`); the first deploy compiles on the Pi, so expect a slow, low-priority build (libcamera needs network once for its libpisp meson wrap). Build dependencies come from the node type's `apt_packages`.
 
 **Camera boot overlay.** `playbooks/tasks/overview_camera_boot_config.yml` (included from `pre_tasks` of `deploy_nodes_client.yml`, tags `boot` and `overview_camera`) ensures `camera_auto_detect=0`, `dtoverlay=imx708,cam0` and `dtoverlay=arducam-pivariety,cam1` (Arducam ToF camera on the second CSI port; the Pivariety driver and overlay ship with the Ubuntu raspi kernel) in `/boot/firmware/config.txt` (same file and `lineinfile` pattern as the UART overlay), removes stale `dtoverlay=imx219...` lines left by the retired stereo pair, and reboots the client only when a line was added, changed or removed. The `overview_camera` node type installs no apt `ros-jazzy-camera-ros` / `ros-jazzy-libcamera`: they would shadow the source-built fork. `realsense_d435i` is `present: false` (uninstalled on deploy); no `camera_link` frame is published by `static_tf_publisher` until the overview camera mount pose is measured. See `nodes/overview_camera/README.md`.
 
@@ -319,11 +320,115 @@ Packages missing from the Jazzy apt distribution are built from a pinned git com
 
 `--all` deploys (`deploy_nodes_client.yml`, `deploy_nodes_server.yml`) run `playbooks/tasks/ros_packages_sync.yml` right after the repo sync. It refreshes the apt index (at most hourly), upgrades every installed `ros-jazzy-*` package that has an update, and restarts the running `ros2-*` services when anything was upgraded. Mixing packages from different packages.ros.org syncs breaks ABI: on 2026-10-03 a freshly installed `laser_filters` failed with an undefined `diagnostic_updater` symbol.
 
-## Node Resource Limits
+## Node resource model: robot headroom guaranteed, background constrained
 
-Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` and `group_vars/server.yml`.
+The robot (client) Pi exists to run the robot. Its cgroups therefore guarantee the ROS2 node units stable headroom
+instead of squeezing them to a minimum, and constrain everything else. Until 2026-10-11 every robot unit had a hard
+`CPUQuota` and a `MemoryHigh` of 7/8 `MemoryMax`: the follower was throttled in 87 of 105 periods, web_ui, the scraper and
+map_guard in every period, and mcp_server sat above `MemoryHigh` (PSI some 83-85%, 57k memory.high events) until it was
+OOM-killed. The model now is:
+
+- **No CPU quota, no reclaim throttling for robot units.** Client node types set no `cpu_quota` and no `memory_high`;
+  the template renders `CPUQuota=` / `MemoryHigh=` only when a type sets them (the server's types still do).
+- **Priority from weights.** `CPUWeight` / `IOWeight` tiers far above systemd's default 100, so robot units win every
+  contention inside `system.slice` while idle cores stay usable by anyone.
+- **Memory protection from `MemoryLow`** at about each type's measured typical working set: under memory pressure the
+  kernel reclaims from everything else first.
+- **`MemoryMax` only as a safety net**, at least twice the 24 h peak (mcp_server 1G while its 383 MB spike is being
+  investigated), so a leak is contained without ever clipping normal operation.
+- **`OOMScoreAdjust` negative for robot units** (critical most negative); monitoring units are +500, so the OOM killer
+  takes background work first.
+- **`Restart=always`** (`RestartSec=15`): a unit comes back after any exit, a clean one included. On 2026-10-11 09:45
+  nav2_bringup's launch exited 0 after its component container segfaulted and stayed down under `Restart=on-failure`.
+  A unit stopped through systemd (the deploy's `systemctl stop` before a build in `stop_for_build.yml`, `state: stopped`
+  for `present: false` and `enabled: false` nodes) is not an exit and stays stopped.
+
+### Unit directives
+
+The native unit template (`roles/ros2_node_deploy/templates/ros2-node-native.service.j2`) renders each optional
+directive only when its `ros2_node_type_defaults` key is set; `playbooks/tasks/resolve_and_deploy.yml` maps every key
+straight through (empty when unset, nothing is derived). A unit change queues the usual daemon-reload + restart.
+
+| `ros2_node_type_defaults` key | Template variable | Unit directive |
+|---|---|---|
+| `cpu_quota` | `node_cpu_quota` | `CPUQuota=` (server types only) |
+| `memory_low` | `node_memory_low` | `MemoryLow=` |
+| `memory_max` | `node_memory_max` | `MemoryMax=` (always; 256M when unset) |
+| `memory_high` | `node_memory_high` | `MemoryHigh=` (no type sets it) |
+| `cpu_weight` | `node_cpu_weight` | `CPUWeight=` |
+| `io_weight` | `node_io_weight` | `IOWeight=` |
+| `oom_score_adjust` | `node_oom_score_adjust` | `OOMScoreAdjust=` |
+
+### Client weight tiers
+
+| Tier | cpu_weight | io_weight | oom_score_adjust | Node types |
+|---|---|---|---|---|
+| critical | 1000 | 1000 | -900 | `feetech_servos` (lerobot_follower, swerve_drive_servos), `swerve_controller`, `ros2_master`, `filter_node`, `static_tf_publisher`, `bno055_imu` |
+| normal robot | 500 | 500 | -500 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `overview_camera`, `uvc_camera`, `realsense_d435i`, `test_joint_api`, `map_guard` |
+| agent-facing | 300 | 300 | -200 | `mcp_server`, `claude_agent`, `web_ui`, `topic_scraper_api`, `master2master`, `haptic_controller` |
+
+Background for comparison: other `system.slice` services 100, `user.slice` 50, deploy build scopes 20,
+`monitoring.slice` 20. Weights are shares under contention, not limits: a critical unit gets twice a normal one's share
+and ten times a default service's. `overview_camera` keeps `Nice=5` and `claude_agent` `Nice=10` inside their cgroups.
+
+### Client memory (measured 2026-10-11 08:23 UTC, Mimir, 24 h window)
+
+`memory_low` is the p50 working set rounded up to 8 MiB, `memory_max` at least twice the 24 h peak. Types with no
+series that day (`master2master`, `haptic_controller` are deployed disabled, `realsense_d435i` is retired) carry an
+estimate.
+
+| Node (type) | p50 / peak MiB | MemoryLow | MemoryMax |
+|---|---|---|---|
+| ros2-master (`ros2_master`) | 42.6 / 46.9 | 48M | 128M |
+| lerobot_follower (`feetech_servos`) | 49.7 / 50.4 | 56M | 128M |
+| swerve_controller | 49.8 / 50.5 | 56M | 128M |
+| filter_node | 47.6 / 48.2 | 48M | 128M |
+| static_tf_publisher | 44.5 / 45.0 | 48M | 96M |
+| bno055_imu | 53.6 / 57.6 | 56M | 128M |
+| rplidar_a1 | 91.6 / 92.9 | 96M | 192M |
+| rf2o_laser_odometry | 38.6 / 39.3 | 40M | 128M |
+| rf2o_odom_relay | 47.6 / 48.2 | 48M | 128M |
+| robot_localization_ekf | 46.9 / 47.7 | 48M | 128M |
+| laser_filter | 35.7 / 37.6 | 40M | 128M |
+| slam_toolbox | 84.1 / 90.5 | 88M | 512M |
+| nav2_bringup | 168.7 / 198.9 | 176M | 512M |
+| map_guard | 63.7 / 66.4 | 64M | 160M |
+| gps_rtk_rover (`gps_rtk`) | 55.0 / 55.8 | 56M | 128M |
+| poi_store | 53.8 / 54.3 | 56M | 128M |
+| overview_camera | 94.6 / 95.6 | 96M | 256M |
+| gripper_uvc_camera (`uvc_camera`) | 66.7 / 68.2 | 72M | 256M |
+| test_joint_api | 57.6 / 58.2 | 64M | 128M |
+| mcp_server | 177.9 / 383.4 | 184M | 1G |
+| claude_agent | 93.4 / 386.5 | 96M | 1G |
+| web_ui | 106.4 / 253.1 | 112M | 512M |
+| topic_scraper_api | 119.6 / 128.0 (the old 128M cap) | 120M | 256M |
+| master2master (disabled) | no data | 64M | 128M |
+| haptic_controller (disabled) | no data | 48M | 128M |
+| realsense_d435i (retired) | no data | 128M | 512M |
+
+The enabled nodes protect **1768 MiB** in total: under a quarter of the 8 GB Pi 5, which leaves about 6.3 GB for the
+OS, page cache, monitoring and unprotected work.
+
+### Host slices (`playbooks/tasks/cgroup_headroom.yml`)
+
+Every client deploy (tags `config`, `always`) installs two slice drop-ins named `50-robot-headroom.conf` and reloads
+systemd when either changed:
+
+- `/etc/systemd/system/system.slice.d/`: `MemoryLow=` the sum of `memory_low` over the present and enabled nodes
+  (1768M). A unit's `MemoryLow` only protects as far as every ancestor allocates protection, so without it the units'
+  values would protect nothing.
+- `/etc/systemd/system/user.slice.d/`: `CPUWeight=` / `IOWeight=` `ros2_user_slice_cpu_weight` /
+  `ros2_user_slice_io_weight` (50). SSH sessions and the deploy's `become` steps (`uv sync`, git, apt) run in session
+  scopes under `user.slice` (sudo keeps the caller's cgroup), so they lose every contention to `system.slice` (100).
+
+`ros2_cgroup_headroom_enabled: false` in `group_vars/client.yml` removes both drop-ins again. The heavy builds (`npm`,
+colcon) run in their own transient scope with `-p CPUWeight={{ ros2_build_cpu_weight }}` (20, `group_vars/all.yml`)
+next to the `CPUQuota` cap, `IOWeight=10`, nice 19 and idle IO; the deploy also stops the nodes before them.
+`monitoring.slice` (`roles/monitoring_agent`, see Monitoring) stays at CPU/IO weight 20 with its CPU and memory caps.
 
 ### Server
+
+The server shares the template but keeps its quotas and caps (no tiers, no `memory_low`, no `MemoryHigh`):
 
 | Node | CPUQuota | MemoryMax |
 |---|---|---|
@@ -332,73 +437,26 @@ Systemd `CPUQuota` and `MemoryMax` are set per node in `group_vars/client.yml` a
 | topic_scraper_api | 25% | 192M |
 | gps_rtk_base | 25% | 64M |
 
-### Client
+### Proposing values from Prometheus
 
-Raised after the 2026-10-11 24 h peaks hit the cap (peak/cap): topic_scraper_api 128/128 (OOM-killed, 192M on both hosts), test_joint_api 58.2/64, bno055_imu 57.6/64, gps_rtk_rover 55.8/64 (96M each).
-
-| Node | CPUQuota | MemoryMax |
-|---|---|---|
-| ros2-master | 20% | 128M |
-| master2master | 25% | 128M |
-| filter_node | 25% | 128M |
-| test_joint_api | 15% | 96M |
-| topic_scraper_api | 25% | 192M |
-| bno055_imu | 15% | 96M |
-| gps_rtk_rover | 25% | 96M |
-| haptic_controller | 25% | 64M |
-| gripper_uvc_camera | 30% | 256M |
-| rplidar_a1 | 30% | 128M |
-| realsense_d435i | 50% | 512M (retired, `present: false`) |
-| overview_camera | 100% (Nice=5) | 256M |
-| lerobot_follower | 50% | 128M |
-| swerve_controller | 30% | 128M |
-| static_tf_publisher | 10% | 64M |
-| rf2o_laser_odometry | 25% | 128M |
-| rf2o_odom_relay | 10% | 64M |
-| robot_localization_ekf | 25% | 128M |
-| slam_toolbox | 75% | 512M |
-| nav2_bringup | 75% | 512M |
-| web_ui | 30% | 256M |
-| mcp_server | 100% (normal tier; was 25%: plan_grasp took 52.6 s, grasp_object 205-259 s on 2026-10-11) | 384M |
-| poi_store | 10% | 128M |
-| claude_agent | 150% (Nice=10) | 1G |
-
-### Cgroup weights and priority tiers
-
-Besides `CPUQuota` / `MemoryMax`, the native unit template (`ros2-node-native.service.j2`) renders four optional directives,
-only when the value is set. They come from the `ros2_node_type_defaults` keys below via `playbooks/tasks/resolve_and_deploy.yml`.
-Weights are priorities under contention, not limits; a unit change queues the usual daemon-reload + restart handlers.
-`MemoryHigh` is rendered for every unit: a type's `memory_high` wins, otherwise `resolve_and_deploy.yml` derives 7/8 of `memory_max` (M or G suffix, whole MiB; 64M -> 56M, 1G -> 896M; no `memory_max` means the 256M default, so 224M), so a unit is throttled before the hard `MemoryMax` kill.
-
-| `ros2_node_type_defaults` key | Template variable | Unit directive |
-|---|---|---|
-| `cpu_weight` | `node_cpu_weight` | `CPUWeight=` |
-| `io_weight` | `node_io_weight` | `IOWeight=` |
-| `memory_high` | `node_memory_high` | `MemoryHigh=` |
-| `oom_score_adjust` | `node_oom_score_adjust` | `OOMScoreAdjust=` |
-
-Client tiers (set per node type in `group_vars/client.yml`; `cpu_quota` / `memory_max` are unchanged by the tiers):
-
-| Tier | cpu_weight | io_weight | oom_score_adjust | Node types |
-|---|---|---|---|---|
-| critical | 400 | 400 | -500 | `feetech_servos` (lerobot_follower, swerve_drive_servos), `swerve_controller`, `ros2_master`, `filter_node`, `static_tf_publisher`, `bno055_imu` |
-| normal | 100 | unset | 0 | `rplidar_a1`, `rf2o_laser_odometry`, `rf2o_odom_relay`, `robot_localization_ekf`, `nav2_bringup`, `slam_toolbox`, `laser_filter`, `gps_rtk`, `poi_store`, `overview_camera`, `uvc_camera`, `test_joint_api`, `map_guard`, `mcp_server` |
-| low | 50 | 50 | 300 | `web_ui`, `claude_agent`, `topic_scraper_api`, `master2master`, `haptic_controller` |
-
-`realsense_d435i` (retired) is left alone. The server shares the template but gets no tiers: only the robot (client) is tuned for now.
-
-### Proposing limits from Prometheus
-
-`scripts/propose_unit_limits.py` queries the Prometheus API of the server's Mimir (`http://server.ros2.lan:9009/prometheus`; `container_cpu_usage_seconds_total`,
-`container_memory_working_set_bytes` for `/system.slice/ros2-*.service`, selected by `host="client"`) and prints, per unit, the current limits, the observed p99 CPU and
-p99/max memory, and a proposed `CPUQuota`, `MemoryMax` and `MemoryHigh`, flagging units whose current limit is below what was observed.
-Options (URL, `host` label (client or server, with the matching `group_vars_path`), window (default 24h, the whole Mimir retention), percentile, margins, minimums, output `format: table|yaml`) live in `scripts/propose_unit_limits.yaml`; there are no CLI flags.
+`scripts/propose_unit_limits.py` queries the Prometheus API of the server's Mimir (`http://server.ros2.lan:9009/prometheus`;
+`container_cpu_usage_seconds_total`, `container_memory_working_set_bytes` for `/system.slice/ros2-*.service`, selected by
+`host="client"`) and prints, per unit, the configured `CPUWeight` / `MemoryLow` / `MemoryMax`, the observed p99 CPU,
+typical (p50) and peak working set, and the proposed `MemoryLow` (typical rounded up to 8 MiB), `MemoryMax` (2x the peak
+rounded up to 16 MiB, a larger current cap kept) and `CPUWeight` / `IOWeight` (the configured tier, else the normal tier
+500), followed by the sum of the proposed `MemoryLow` (what `system.slice` must allocate). Flags: `oom risk` (peak above
+`MemoryMax`), `tight max` (`MemoryMax` under 2x the peak), `unprotected` (no `MemoryLow`, or one under the typical working
+set), `throttle risk` (a `CPUQuota` is still set and p99 CPU reaches 90% of it). Options (URL, `host` label (client or
+server, with the matching `group_vars_path`), window (default 24h, the whole Mimir retention), percentiles, the
+`MemoryMax` factor, minimums, default weights, output `format: table|yaml`) live in `scripts/propose_unit_limits.yaml`;
+there are no CLI flags.
 
 ```bash
 uv run python scripts/propose_unit_limits.py
 ```
 
-The script never edits `client.yml`: applying a proposal is a manual, reviewed edit of `cpu_quota` / `memory_max` / `memory_high`.
+The script never edits `client.yml`: applying a proposal is a manual, reviewed edit of `memory_low` / `memory_max` /
+the weights.
 
 ### POI store directory
 

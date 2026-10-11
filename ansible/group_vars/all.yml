@@ -45,6 +45,8 @@ ros2_repo_root: "{{ playbook_dir }}/../.."
 # Source (colcon) and web_ui frontend builds: cgroup CPU cap and parallel jobs. Builds still run at nice 19 with idle IO
 # priority, so the running stack keeps precedence; raise only if the Pi stays cool (it throttles at 85 C).
 ros2_build_cpu_quota: "400%"
+# CPUWeight of the build scope: below every robot weight tier and the default 100, so a build loses every contention.
+ros2_build_cpu_weight: 20
 ros2_build_jobs: 4
 
 # Deploy state on the host: stamps (what source/config was deployed) and the persistent restart queue. A restart is

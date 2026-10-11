@@ -134,45 +134,59 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 
 ### `test_unit_cgroups.py`
 
-Cgroup tiers and the unit template directives (`CPUWeight`, `IOWeight`, `MemoryHigh`, `OOMScoreAdjust`).
+Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). Measured working sets
+of 2026-10-11 (Mimir) are pinned in `MEASURED_MIB`.
 
 | Test | Description |
 |------|-------------|
-| `test_template_omits_new_directives_when_unset` | Unset variables render no new directive; `CPUQuota` / `MemoryMax` stay. |
+| `test_template_omits_optional_directives_when_unset` | Unset variables render no `CPUQuota`, weights, `MemoryHigh`, `MemoryLow` or `OOMScoreAdjust`; `MemoryMax=256M` stays. |
 | `test_template_omits_directives_for_empty_strings` | Empty strings (unset type keys) render nothing. |
 | `test_template_renders_directives_when_set` | Each directive renders with its value, `OOMScoreAdjust=0` included. |
 | `test_directives_sit_in_the_service_section` | Directives land between `[Service]` and `[Install]`. |
-| `test_resolve_maps_new_keys` | `resolve_and_deploy.yml` maps the four type default keys. |
-| `test_tiers_have_expected_weights` | Every client node type of the critical / normal / low tiers has its weights (`map_guard` is in the normal tier, 20% / 128M; `mcp_server` is in the normal tier with a 100% quota since 2026-10-11). |
+| `test_unit_restarts_after_any_exit` | `Restart=always`, `RestartSec=15`, no `on-failure` (nav2_bringup exited 0 after a segfault and stayed down). |
+| `test_stopped_and_disabled_nodes_stay_stopped` | The deploy stops nodes only through systemd (`systemctl stop` before builds, `state: stopped` for uninstall and `enabled: false`), never `systemctl kill`, so `Restart=always` does not bring them back. |
+| `test_resolve_maps_cgroup_keys` | `resolve_and_deploy.yml` maps `cpu_quota`, `cpu_weight`, `io_weight`, `memory_high`, `memory_low`, `oom_score_adjust` straight through, empty when unset. |
+| `test_no_memory_high_is_derived` | No `MemoryHigh` derivation on either host; an explicit `memory_high` still passes through. |
+| `test_unset_cpu_quota_resolves_empty` | A type without `cpu_quota` gets no `CPUQuota` line; `memory_max` defaults to 256M. |
+| `test_robot_types_carry_no_cpu_quota_or_memory_high` | No client node type sets `cpu_quota` or `memory_high`. |
+| `test_tiers_have_expected_weights` | Critical 1000/1000/-900, normal robot 500/500/-500, agent-facing 300/300/-200 (cpu_weight/io_weight/oom_score_adjust) per node type. |
+| `test_tiers_dominate_default_system_work` | Every tier is above the default weight 100 with a negative `OOMScoreAdjust`, ordered critical > normal > agent. |
 | `test_tiers_do_not_overlap` | A node type is in one tier only. |
-| `test_untiered_types_have_no_weights` | Types outside the tiers carry no new keys. |
-| `test_existing_limits_unchanged` | `cpu_quota` / `memory_max` match a hard-coded snapshot of main. |
-| `test_limits_unchanged_versus_main` | Against `git show main:` when the ref exists: `cpu_quota` equal (or the deliberate value recorded in the snapshot), `memory_max` never lower. |
-| `test_memory_high_is_seven_eighths_of_memory_max`, `test_explicit_memory_high_wins` | The `node_memory_high` expression of `resolve_and_deploy.yml`: 7/8 of `memory_max` for M and G values, 224M without `memory_max`, empty for other suffixes; a type's `memory_high` wins. |
-| `test_every_node_type_gets_memory_high_below_memory_max` | Every node type on both hosts resolves a `MemoryHigh` below its `MemoryMax` and the unit renders both. |
-| `test_scraper_and_sensor_caps_raised_on_both_hosts` | topic_scraper_api 192M (both hosts); test_joint_api, bno055_imu, gps_rtk 96M (client). |
-| `test_server_gets_no_tiers` | Only the robot is tuned: no server node type carries `cpu_weight`, `io_weight`, `memory_high` or `oom_score_adjust`. |
+| `test_every_client_type_is_tiered` | Every client type but the uninstalled `fastdds_discovery_server` is tiered. |
+| `test_memory_low_is_about_the_measured_working_set` | `memory_low` is between the p50 working set and 16 MiB above it; unmeasured types have one. |
+| `test_memory_max_is_a_generous_safety_net` | `memory_max` is at least 2x the 24 h peak (2x `memory_low` when unmeasured); mcp_server at least 1G. |
+| `test_measured_and_unmeasured_cover_every_robot_type` | The measurement table names every robot type exactly once. |
+| `test_memory_low_sum_leaves_room_for_the_os` | The enabled nodes protect 1768 MiB, under a third of the 8 GB Pi. |
+| `test_server_keeps_its_limits_without_tiers` | Server types keep `CPUQuota` / `MemoryMax`, carry no tier keys, render no `MemoryHigh` / `MemoryLow`. |
+| `test_system_slice_allocates_the_robot_memory_low` | The `system.slice` drop-in template sums `memory_low` over present and enabled nodes (M and G, missing keys 0): 1768M on the client. |
+| `test_user_slice_loses_to_robot_units` | The `user.slice` drop-in renders `CPUWeight=50`, `IOWeight=50` from `group_vars/client.yml`. |
+| `test_headroom_tasks_are_reversible_and_wired_into_the_client_deploy` | `cgroup_headroom.yml` installs both drop-ins, removes them when `ros2_cgroup_headroom_enabled` is false, reloads systemd; the client deploy includes it with tags `config`, `always`. |
+| `test_monitoring_slice_stays_low_priority` | `monitoring.slice` keeps CPU/IO weight 20, its memory caps and a positive `OOMScoreAdjust`. |
+| `test_builds_run_at_background_cpu_weight` | All three build `systemd-run` scopes pass `-p CPUWeight={{ ros2_build_cpu_weight }}` (20). |
 
 ### `test_propose_unit_limits.py`
 
-Unit tests for `scripts/propose_unit_limits.py` with fixture Prometheus JSON (no network).
+Unit tests for `scripts/propose_unit_limits.py` (robot-headroom model: MemoryLow / MemoryMax / weights) with fixture
+Prometheus JSON (no network).
 
 | Test | Description |
 |------|-------------|
-| `test_settings_defaults`, `test_load_settings_from_yaml`, `test_settings_reject_bad_values` | pydantic config defaults (Mimir's Prometheus API `http://server.ros2.lan:9009/prometheus`, `host: client`), file loading and validation. |
-| `test_shipped_yaml_queries_the_robot_series_in_mimir` | `scripts/propose_unit_limits.yaml` points at the server's Mimir with `host: client`. |
+| `test_settings_defaults`, `test_load_settings_from_yaml`, `test_settings_reject_bad_values` | pydantic config defaults (Mimir's Prometheus API `http://server.ros2.lan:9009/prometheus`, `host: client`, p99 CPU, p50 typical memory, `memory_max_factor` 2, minimums, default weights 500), file loading and validation. |
+| `test_shipped_yaml_queries_the_robot_series_in_mimir` | `scripts/propose_unit_limits.yaml` points at the server's Mimir with `host: client`, factor 2 and the p50 typical working set. |
 | `test_round_up` | Rounding to a step. |
-| `test_cpu_quota_rounds_up_to_five_with_margin`, `test_cpu_quota_minimum` | CPUQuota = p99 * margin rounded up to 5 %, at least the minimum. |
-| `test_memory_max_uses_larger_of_margin_and_headroom`, `test_memory_max_minimum` | MemoryMax = max(p99 * margin, max * 1.2) rounded up to 16 MiB, at least the minimum. |
-| `test_memory_high_is_85_percent` | MemoryHigh is about 85 % of the proposed MemoryMax. |
+| `test_memory_low_is_the_typical_working_set_rounded_up_to_8`, `test_memory_low_minimum` | MemoryLow = typical working set rounded up to 8 MiB, at least the minimum. |
+| `test_memory_max_is_twice_the_peak_rounded_up_to_16`, `test_memory_max_keeps_a_larger_current_cap_and_the_minimum` | MemoryMax = peak x factor rounded up to 16 MiB; a larger current cap and the minimum win. |
+| `test_weights_keep_the_configured_tier_or_use_the_default` | CPUWeight / IOWeight keep the type's tier, else the default. |
 | `test_parse_quota_and_memory` | `50%`, `128M`, `1G` parsing. |
 | `test_parse_vector_keys_by_unit_and_filters_regex`, `test_parse_vector_ignores_error_response` | Prometheus vector parsing and unit filtering. |
-| `test_load_node_limits_maps_node_to_type` | Node name -> node_type -> limits from a fixture group_vars, template defaults, `present: false` skipped. |
-| `test_build_queries_use_window_and_percentile` | PromQL uses the window, percentile and 1m rate. |
+| `test_load_node_limits_maps_node_to_type` | Node name -> node_type -> MemoryLow / MemoryMax / weights / optional quota from a fixture group_vars, `None` when unset, MemoryMax 256M default, `present: false` skipped. |
+| `test_build_queries_use_window_and_percentiles` | PromQL uses the window, the CPU percentile with the 1m rate and the typical-memory percentile. |
 | `test_build_queries_select_the_configured_host` | (client, server) every query selects `host="<host>"`. |
-| `test_build_rows_proposals_and_flags` | Proposals and the throttle / OOM risk flags. |
+| `test_build_rows_proposals_and_flags` | Proposals and the `oom risk`, `tight max`, `unprotected` and (quota only) `throttle risk` flags. |
 | `test_build_rows_reports_no_data_and_unknown_units` | Units without a full set of series are `no data` with no proposal. |
-| `test_render_table_shows_columns_and_no_data`, `test_render_yaml_roundtrips` | Table columns and YAML output. |
+| `test_memory_low_sum_counts_rows_with_a_proposal` | The MemoryLow sum skips rows without data. |
+| `test_render_table_shows_columns_and_the_memory_low_sum`, `test_render_yaml_roundtrips` | Table columns (no CPUQuota / MemoryHigh) with the closing sum line, and YAML output (`memory_low`, `memory_max`, `cpu_weight`, `io_weight`). |
 
 ### `test_topic_scraper_collect.py`
 
@@ -816,7 +830,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_laser_filter_ansible_wiring` | laser_filter node type (apt `ros-jazzy-laser-filters`, `scan_to_scan_filter_chain` with the repo params, `/scan` -> `/scan_filtered`), enabled node entry, per-node playbook and inclusion in `deploy_nodes_client.yml`. |
 | `test_node_apt_install_refreshes_stale_cache` | The ros2_node_deploy apt install refreshes the package index (`update_cache: true`, `cache_valid_time: 3600`) so new packages do not 404 on a stale cache. |
 | `test_rplidar_runs_under_scan_supervisor` | rplidar_a1 is launched through `scan_supervisor.py` (runs the launch file, exits 1 for a systemd restart when `/scan` never starts or goes silent). |
-| `test_web_ui_frontend_build_runs_at_lowest_priority` | The web_ui `npm ci` / `npm run build` deploy steps run in a transient systemd scope capped to one core (`CPUQuota=100%`, `IOWeight=10`) under `nice -n 19 ionice -c 3` (the build overheated and froze the Pi next to the running ROS stack). |
+| `test_web_ui_frontend_build_runs_at_lowest_priority` | The web_ui `npm ci` / `npm run build` deploy steps run in a transient systemd scope (`CPUQuota={{ ros2_build_cpu_quota }}`, `CPUWeight={{ ros2_build_cpu_weight }}`, `IOWeight=10`) under `nice -n 19 ionice -c 3` (the build overheated and froze the Pi next to the running ROS stack). |
 | `test_restart_handler_skips_disabled_nodes` | The ros2_node_deploy "Restart ROS2 node" handler is conditioned on the node being enabled (a disabled node was stopped and then restarted by the change handler). |
 | `test_ekf_repo_config_matches_ansible_block` | `nodes/robot_localization_ekf/config/ekf.yaml` equals the Ansible `config: \|` block. |
 | `test_ekf_frames_inputs_and_tf` | Both EKF configs: 2D, `publish_tf`, odom/base_link frames, `/odom` fuses vx/vy/vyaw, `/imu/data` fuses yaw rate (absolute yaw only with `imu0_relative: true`). |
@@ -828,7 +842,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_slam_launch_appends_override_params_only_when_present` | `params_files` returns the repo `slam_params.yaml` first and appends the deployed config only when it exists and is non-empty (ROS params files: later wins). |
 | `test_slam_launch_override_defaults_and_env` | Launch reads the override path from `SLAM_TOOLBOX_CONFIG`, defaulting to `/etc/ros2/slam_toolbox/config.yaml`. |
 | `test_slam_launch_map_base_from_configuration` | `configured_map_base` takes `map_file_name` from the last params file that sets it (falls back to `/var/lib/ros2/maps/slam_map`); an explicit `SLAM_TOOLBOX_MAP_BASE` value wins over the files. |
-| `test_slam_toolbox_ansible_wiring` | Node type defaults (native, apt package, repo launch, budget, `config_path: /etc/ros2/slam_toolbox`, env `SLAM_TOOLBOX_CONFIG`) and an enabled `ros2_nodes` entry. |
+| `test_slam_toolbox_ansible_wiring` | Node type defaults (native, apt package, repo launch, no CPU quota, `memory_low` / `memory_max`, `config_path: /etc/ros2/slam_toolbox`, env `SLAM_TOOLBOX_CONFIG`) and an enabled `ros2_nodes` entry. |
 | `test_slam_toolbox_ansible_config_overrides` | The `ros2_nodes` slam_toolbox `config: \|` block parses as YAML with `map_file_name` (`/var/lib/ros2/maps/slam_map`), `min_laser_range` 0.15 and `max_laser_range` 12.0, only known slam_toolbox params, and the same map path as the web_ui Map tab `map_save_path`. |
 | `test_slam_playbooks_deploy_node_and_create_maps_dir` | `deploy_nodes_client.yml` deploys slam_toolbox and create `/var/lib/ros2/maps` (owner `ansible_user`, 0755). |
 | `test_nav2_launch_passes_repo_params_without_localization` | Nav2 launch passes the repo `params_file`, keeps `use_localization:=False`. |
@@ -874,7 +888,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_rf2o_params_match_the_stack` | rf2o params: scan `/scan_filtered`, odom `/odom_rf2o`, `publish_tf` false, frames `base_link` / `odom`, empty `init_pose_from_topic`, `freq` 7-10 Hz. |
 | `test_rf2o_nodes_are_deployed_before_the_ekf` | `rf2o_laser_odometry` and `rf2o_odom_relay` are present, enabled, listed before the EKF, have per-node playbooks and are deployed before the EKF in `deploy_nodes_client.yml`. |
 | `test_rf2o_relay_wiring_matches_ekf_input` | `rf2o_odom_relay` node type/config: reads `/odom_rf2o`, publishes the topic the EKF fuses, positive variances. |
-| `test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` | `colcon_source_build.yml` clones the pinned commit and builds with `systemd-run` (CPUQuota 100%, IOWeight 10), nice 19, ionice idle, `--merge-install`, one worker, `MAKEFLAGS=-j2`, a per-commit-and-patch-hash stamp (`creates:`) and a restart notify; included by the role. |
+| `test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit` | `colcon_source_build.yml` clones the pinned commit and builds with `systemd-run` (CPUQuota `ros2_build_cpu_quota`, CPUWeight `ros2_build_cpu_weight`, IOWeight 10), nice 19, ionice idle, `--merge-install`, one worker, `MAKEFLAGS=-j2`, a per-commit-and-patch-hash stamp (`creates:`) and a restart notify; included by the role. |
 | `test_colcon_source_build_applies_patches_and_keys_the_stamp_on_their_content` | `colcon_source_build.yml` applies the `colcon_source.patches` with `ansible.builtin.patch` between the (forced) clone and the build, hashes them into the stamp key, and drops the stamp when `install/setup.bash` is missing. |
 | `test_rf2o_retry_laser_tf_patch_exists_and_is_wired` | `patches/0001-retry-laser-tf.patch` exists, skips scans until the laser TF lookup succeeds, and is listed in the rf2o node type's `colcon_source.patches`. |
 | `test_rf2o_odom_relay_declares_numpy` | `rf2o_odom_relay/pyproject.toml` lists `numpy` in `[project].dependencies` (numpy guard, parsed with `tomllib`). |
@@ -943,7 +957,7 @@ fake `ssh`; no ROS needed).
 
 | Test (group) | Description |
 |------|-------------|
-| `test_mcp_server_node_type_defaults` | `mcp_server` node type: native, `nodes/mcp_server`, `python3 -m mcp_server`, 100% / 384M, `config_path` `/etc/ros2/mcp_server`, env `MCP_SERVER_CONFIG`, token only via `environment_file: /etc/ros2/mcp_server/token`. |
+| `test_mcp_server_node_type_defaults` | `mcp_server` node type: native, `nodes/mcp_server`, `python3 -m mcp_server`, no CPU quota, MemoryMax 1G, MemoryLow 184M, agent-facing tier, `config_path` `/etc/ros2/mcp_server`, env `MCP_SERVER_CONFIG`, token only via `environment_file: /etc/ros2/mcp_server/token`. |
 | `test_mcp_server_node_entry_and_config` | Present + enabled `ros2_nodes` entry; config block keys, server 0.0.0.0:18200 `/mcp`, repo-relative arm URDF that exists, home file `/var/lib/ros2/arm/home.yaml`. |
 | `test_mcp_server_topics_match_filter_node_lease` | mcp_server autonomy command/release/active source and follower feedback topics equal filter_node's. |
 | `test_filter_node_autonomy_params` | filter_node config sets `autonomy_input_topic`, `autonomy_release_topic`, `active_source_topic`. |
@@ -1001,7 +1015,7 @@ layout; no ROS needed).
 
 | Test (group) | Description |
 |---|---|
-| `test_claude_agent_node_type_defaults` | `claude_agent` node type: native, `nodes/claude_agent`, `python3 -m claude_agent`, 150% / 1G (the CLI needs about 1.3 s of CPU per request), nice, user `claude_agent`, group `mcp-token`, `environment_file` `/etc/ros2/claude_agent/env`, `DISABLE_AUTOUPDATER=1`, no secret in `env`. |
+| `test_claude_agent_node_type_defaults` | `claude_agent` node type: native, `nodes/claude_agent`, `python3 -m claude_agent`, no CPU quota (the CLI needs about 1.3 s of CPU per request), MemoryMax 1G, MemoryLow 96M, agent-facing tier, nice, user `claude_agent`, group `mcp-token`, `environment_file` `/etc/ros2/claude_agent/env`, `DISABLE_AUTOUPDATER=1`, no secret in `env`. |
 | `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `poi_store` (which follows `mcp_server`). |
 | `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
 | `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (rw 150 / turns 200), the per-phase maxima (40 / 40), no ro maxima and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`; no `poi_command_topic` (the reset clears POIs over HTTP via mcp_server). |
@@ -1060,7 +1074,7 @@ Static checks of the overview_camera node from the repo files (YAML via `yaml.sa
 | `test_retired_stereo_nodes_are_gone_from_the_client_wiring` | No `stereo_camera` / `stereo_depth` in the client playbook or group vars, their node directories, per-node playbooks and the `stereo_depth` lint-all-nodes entry are gone. |
 | `test_rf2o_build_inputs_are_unchanged` | rf2o keeps its single-dict `colcon_source` with the exact repo, commit, package, workspace and patch. |
 | `test_colcon_build_accepts_one_dict_or_a_list_of_sources` | `colcon_source_build.yml` wraps a single dict into a list and builds each source in list order through `colcon_source_package.yml`. |
-| `test_colcon_package_build_keeps_the_limits_and_stamp_logic` | The per-source build keeps systemd-run/nice/ionice, `--merge-install`, one worker, `MAKEFLAGS=-j2`, the git `force`, the `creates` stamp, the restart handler and the Release default; supports `--meson-args` and `--cmake-args`. |
+| `test_colcon_package_build_keeps_the_limits_and_stamp_logic` | The per-source build keeps systemd-run (with the background CPU weight)/nice/ionice, `--merge-install`, one worker, `MAKEFLAGS=-j2`, the git `force`, the `creates` stamp, the restart handler and the Release default; supports `--meson-args` and `--cmake-args`. |
 | `test_colcon_stamp_key_is_unchanged_for_the_first_source_and_chained_after` | The stamp key still starts from commit + patch checksums (rf2o unchanged) and later sources chain the earlier keys so a libcamera rebuild rebuilds camera_ros. |
 | `test_overview_camera_node_type_builds_libcamera_then_camera_ros` | `overview_camera` builds libcamera (tag `v0.7.2+rpt20260817`, all required meson args) before camera_ros (pinned full SHA) in `/opt/ros2-ws`. |
 | `test_builds_use_all_cores_at_lowest_priority_and_nodes_start_quickly` | `all.yml`: `ros2_build_jobs` 4 and `ros2_build_cpu_quota` 400% for source/frontend builds (still nice 19, idle IO), `ros2_node_start_interval_s` 2. |
@@ -1071,7 +1085,7 @@ Static checks of the overview_camera node from the repo files (YAML via `yaml.sa
 | `test_libcamera_patch_adds_a_meson_package_xml` | The libcamera patch adds a `package.xml` with `build_type` meson. |
 | `test_apt_packages_carry_the_build_deps_and_never_the_apt_camera_stack` | The apt list has the build dependencies and the image_transport compressed plugins, no stereo/image_proc/calibration packages, and no node type installs `ros-jazzy-camera-ros` or `ros-jazzy-libcamera`. |
 | `test_launcher_template_sources_the_first_source_workspace_for_a_list` | The launcher template sources the workspace of a dict source or of the first list item. |
-| `test_overview_camera_node_type_resources_and_launch_command` | Node type: native, `CPUQuota` 100%, `Nice` 5, `MemoryMax` 256M, config path/env and the `ros2 launch` command. |
+| `test_overview_camera_node_type_resources_and_launch_command` | Node type: native, no `CPUQuota`, `MemoryLow` 96M, `Nice` 5, `MemoryMax` 256M, config path/env and the `ros2 launch` command. |
 | `test_overview_camera_node_entry_is_present_and_enabled` | The `overview_camera` ros2_nodes entry is present and enabled and its config only holds `camera_id`. |
 | `test_realsense_is_uninstalled` | `realsense_d435i` is `present: false`. |
 | `test_guessed_camera_link_frame_is_removed_from_the_static_tf_config` | `static_tf_publisher` no longer publishes `camera_link` (imu_link and laser_frame stay). |

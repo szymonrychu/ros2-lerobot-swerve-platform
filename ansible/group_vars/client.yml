@@ -15,7 +15,21 @@ hostname: "client-rpi5"
 # Server hostname for master2master, rtcm, and ROS2 DDS (resolved via /etc/hosts).
 ros2_server_host: "{{ ros2_server_hostname }}"
 
+# Host-level cgroup drop-ins (playbooks/tasks/cgroup_headroom.yml, every client deploy): system.slice allocates the sum
+# of the enabled nodes' memory_low (a unit's MemoryLow protects only as far as its ancestors allocate), and user.slice
+# (ssh sessions and the deploy's become steps such as uv sync) loses every CPU/IO contention to system.slice (default
+# 100). false removes both drop-ins again.
+ros2_cgroup_headroom_enabled: true
+ros2_user_slice_cpu_weight: 50
+ros2_user_slice_io_weight: 50
+
 # ROS2 node types. All nodes use localhost-only simple discovery; master2master adds the server as a static peer.
+# Cgroup model (ansible/README.md, "Node resource model"): robot headroom guaranteed, background constrained. Robot node
+# types set no cpu_quota and no memory_high; priority comes from the weight tiers (systemd default weight is 100):
+#   critical (servos, swerve, ros2_master, filter_node, static_tf, bno055_imu)  cpu/io_weight 1000, oom_score_adjust -900
+#   normal   (lidar, odometry, EKF, Nav2, SLAM, cameras, GPS, POI, map_guard)    cpu/io_weight  500, oom_score_adjust -500
+#   agent    (mcp_server, claude_agent, web_ui, scraper, master2master, haptic)  cpu/io_weight  300, oom_score_adjust -200
+# memory_low protects about the measured typical working set, memory_max is a safety net at >= 2x the 24 h peak.
 ros2_node_type_defaults:
   fastdds_discovery_server:
     # Uninstalled (see ros2_dds_env in all.yml); kept so deploys remove the old service.
@@ -30,20 +44,22 @@ ros2_node_type_defaults:
     node_src_dir: ""
     # No repo path to watch (runs no repo code): constant source key, restarts only for config/unit changes.
     src_paths: []
-    cpu_quota: "20%"
+    # Working set MiB p50/24 h peak 42.6/46.9 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "48M"
     memory_max: "128M"
-    cpu_weight: 400
-    io_weight: 400
-    oom_score_adjust: -500
+    cpu_weight: 1000
+    io_weight: 1000
+    oom_score_adjust: -900
   master2master:
     deploy_mode: native
     node_launch_command: "python3 -m master2master"
     node_src_dir: "nodes/master2master"
-    cpu_quota: "25%"
+    # Not running on 2026-10-11 (no series): MemoryLow estimated from comparable nodes, MemoryMax 2x it or more.
+    memory_low: "64M"
     memory_max: "128M"
-    cpu_weight: 50
-    io_weight: 50
-    oom_score_adjust: 300
+    cpu_weight: 300
+    io_weight: 300
+    oom_score_adjust: -200
     config_path: /etc/ros2/master2master
     env:
       - "ROS_STATIC_PEERS={{ ros2_server_hostname }}"
@@ -56,11 +72,12 @@ ros2_node_type_defaults:
     pythonpath_parent: true
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "50%"
+    # Working set MiB p50/24 h peak 49.7/50.4 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "56M"
     memory_max: "128M"
-    cpu_weight: 400
-    io_weight: 400
-    oom_score_adjust: -500
+    cpu_weight: 1000
+    io_weight: 1000
+    oom_score_adjust: -900
     config_path: /etc/ros2/feetech_servos
     env:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
@@ -71,21 +88,24 @@ ros2_node_type_defaults:
     pythonpath_parent: true
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "30%"
+    # Working set MiB p50/24 h peak 66.7/68.2 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "72M"
     memory_max: "256M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
   filter_node:
     deploy_mode: native
     node_launch_command: "python3 -m filter_node"
     node_src_dir: "nodes/filter_node"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "25%"
+    # Working set MiB p50/24 h peak 47.6/48.2 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "48M"
     memory_max: "128M"
-    cpu_weight: 400
-    io_weight: 400
-    oom_score_adjust: -500
+    cpu_weight: 1000
+    io_weight: 1000
+    oom_score_adjust: -900
     config_path: /etc/ros2/filter_node
     env:
       - FILTER_NODE_CONFIG=/etc/ros2/filter_node/config.yaml
@@ -95,10 +115,12 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/test_joint_api"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "15%"
-    memory_max: "96M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    # Working set MiB p50/24 h peak 57.6/58.2 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "64M"
+    memory_max: "128M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     config_path: /etc/ros2/test_joint_api
     env:
       - TEST_JOINT_API_CONFIG=/etc/ros2/test_joint_api/config.yaml
@@ -108,12 +130,13 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/topic_scraper_api"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "25%"
-    # 128M -> 192M: peak 128/128 (OOM-killed) on 2026-10-11.
-    memory_max: "192M"
-    cpu_weight: 50
-    io_weight: 50
-    oom_score_adjust: 300
+    # Working set MiB p50/24 h peak 119.6/128.0 (Mimir, 2026-10-11; the peak was the old 128M cap, OOM-killed there):
+    # MemoryLow ~ p50, MemoryMax >= 2x peak. Agent-facing tier.
+    memory_low: "120M"
+    memory_max: "256M"
+    cpu_weight: 300
+    io_weight: 300
+    oom_score_adjust: -200
     config_path: /etc/ros2/topic_scraper_api
     env:
       - TOPIC_SCRAPER_API_CONFIG=/etc/ros2/topic_scraper_api/config.yaml
@@ -123,12 +146,14 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/bridges/bno055_imu"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    # Measured 2026-10-10: ~6.8 ms CPU per sample (i2c-gpio bit-bang in kernel time counts here); 50 Hz needs ~34%.
-    cpu_quota: "45%"
-    memory_max: "96M"
-    cpu_weight: 400
-    io_weight: 400
-    oom_score_adjust: -500
+    # Measured 2026-10-10: ~6.8 ms CPU per sample (i2c-gpio bit-bang in kernel time counts here); 50 Hz needs ~34% of a
+    # core, which the critical tier weight guarantees under contention (no quota to throttle it).
+    # Working set MiB p50/24 h peak 53.6/57.6 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "56M"
+    memory_max: "128M"
+    cpu_weight: 1000
+    io_weight: 1000
+    oom_score_adjust: -900
     config_path: /etc/ros2/bno055_imu
     env:
       - BLINKA_FORCECHIP=BCM2XXX
@@ -137,11 +162,12 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m haptic_controller"
     node_src_dir: "nodes/haptic_controller"
-    cpu_quota: "25%"
-    memory_max: "64M"
-    cpu_weight: 50
-    io_weight: 50
-    oom_score_adjust: 300
+    # Not running on 2026-10-11 (no series): MemoryLow estimated from comparable nodes, MemoryMax 2x it or more.
+    memory_low: "48M"
+    memory_max: "128M"
+    cpu_weight: 300
+    io_weight: 300
+    oom_score_adjust: -200
     config_path: /etc/ros2/haptic_controller
     env:
       - HAPTIC_CONTROLLER_CONFIG=/etc/ros2/haptic_controller/config.yaml
@@ -151,10 +177,12 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/bridges/gps_rtk"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "25%"
-    memory_max: "96M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    # Working set MiB p50/24 h peak 55.0/55.8 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "56M"
+    memory_max: "128M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     config_path: /etc/ros2/gps_rtk
     env:
       - GPS_RTK_CONFIG=/etc/ros2/gps_rtk/config.yaml
@@ -167,10 +195,12 @@ ros2_node_type_defaults:
     src_paths: [nodes/bridges/rplidar_a1]
     # No venv: the supervisor imports ros2_metrics from the checkout (PYTHONPATH below) and prometheus_client from apt.
     src_extra_paths: [shared/ros2_metrics]
-    cpu_quota: "30%"
-    memory_max: "128M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    # Working set MiB p50/24 h peak 91.6/92.9 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "96M"
+    memory_max: "192M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     apt_packages:
       - ros-jazzy-rplidar-ros
       - python3-prometheus-client
@@ -185,8 +215,12 @@ ros2_node_type_defaults:
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/bridges/realsense_d435i]
-    cpu_quota: "200%"
+    # Not running on 2026-10-11 (no series): MemoryLow estimated from comparable nodes, MemoryMax 2x it or more.
+    memory_low: "128M"
     memory_max: "512M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     apt_packages:
       - ros-jazzy-realsense2-camera
   # Raspberry Pi Camera Module 3 (IMX708) on CSI cam0, mounted overhead: Raspberry Pi libcamera fork + camera_ros built
@@ -199,11 +233,13 @@ ros2_node_type_defaults:
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/overview_camera]
-    # One 640x480 camera at 15 fps with JPEG compression: one core is plenty.
-    cpu_quota: "100%"
+    # One 640x480 camera at 15 fps with JPEG compression (p99 13% of a core on 2026-10-11).
+    # Working set MiB p50/24 h peak 94.6/95.6 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "96M"
     memory_max: "256M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     nice: 5
     config_path: /etc/ros2/overview_camera
     env:
@@ -262,11 +298,12 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/swerve_drive_controller"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "30%"
+    # Working set MiB p50/24 h peak 49.8/50.5 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "56M"
     memory_max: "128M"
-    cpu_weight: 400
-    io_weight: 400
-    oom_score_adjust: -500
+    cpu_weight: 1000
+    io_weight: 1000
+    oom_score_adjust: -900
     config_path: /etc/ros2/swerve_drive_controller
     env:
       - SWERVE_DRIVE_CONTROLLER_CONFIG=/etc/ros2/swerve_drive_controller/config.yaml
@@ -279,21 +316,24 @@ ros2_node_type_defaults:
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/laser_filter]
-    cpu_quota: "20%"
+    # Working set MiB p50/24 h peak 35.7/37.6 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "40M"
     memory_max: "128M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     apt_packages:
       - ros-jazzy-laser-filters
   static_tf_publisher:
     deploy_mode: native
     node_launch_command: "python3 -m static_tf_publisher"
     node_src_dir: "nodes/static_tf_publisher"
-    cpu_quota: "10%"
-    memory_max: "64M"
-    cpu_weight: 400
-    io_weight: 400
-    oom_score_adjust: -500
+    # Working set MiB p50/24 h peak 44.5/45.0 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "48M"
+    memory_max: "96M"
+    cpu_weight: 1000
+    io_weight: 1000
+    oom_score_adjust: -900
     config_path: /etc/ros2/static_tf_publisher
     env:
       - STATIC_TF_PUBLISHER_CONFIG=/etc/ros2/static_tf_publisher/config.yaml
@@ -309,10 +349,12 @@ ros2_node_type_defaults:
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/rf2o_laser_odometry]
-    cpu_quota: "25%"
+    # Working set MiB p50/24 h peak 38.6/39.3 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "40M"
     memory_max: "128M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     colcon_source:
       repo: https://github.com/MAPIRlab/rf2o_laser_odometry.git
       commit: b38c68e46387b98845ecbfeb6660292f967a00d3
@@ -346,10 +388,12 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/rf2o_odom_relay"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "10%"
-    memory_max: "64M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    # Working set MiB p50/24 h peak 47.6/48.2 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "48M"
+    memory_max: "128M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     config_path: /etc/ros2/rf2o_odom_relay
     env:
       - RF2O_ODOM_RELAY_CONFIG=/etc/ros2/rf2o_odom_relay/config.yaml
@@ -359,10 +403,12 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/map_guard"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "20%"
-    memory_max: "128M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    # Working set MiB p50/24 h peak 63.7/66.4 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "64M"
+    memory_max: "160M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     config_path: /etc/ros2/map_guard
     # Imports slam_toolbox.srv (Pause, Reset, SerializePoseGraph) for its service clients.
     apt_packages:
@@ -375,10 +421,12 @@ ros2_node_type_defaults:
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/robot_localization_ekf]
-    cpu_quota: "25%"
+    # Working set MiB p50/24 h peak 46.9/47.7 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "48M"
     memory_max: "128M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     apt_packages:
       - ros-jazzy-robot-localization
     config_path: /etc/ros2/robot_localization_ekf
@@ -393,10 +441,12 @@ ros2_node_type_defaults:
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/nav2_bringup]
-    cpu_quota: "75%"
+    # Working set MiB p50/24 h peak 168.7/198.9 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "176M"
     memory_max: "512M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     apt_packages:
       - ros-jazzy-nav2-bringup
       - ros-jazzy-nav2-core
@@ -416,10 +466,12 @@ ros2_node_type_defaults:
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/slam_toolbox]
-    cpu_quota: "75%"
+    # Working set MiB p50/24 h peak 84.1/90.5 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "88M"
     memory_max: "512M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     apt_packages:
       - ros-jazzy-slam-toolbox
     config_path: /etc/ros2/slam_toolbox
@@ -431,11 +483,12 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/web_ui"
     # Depends on shared/ (editable path dependency in [tool.uv.sources]): its source and metadata matter.
     src_shared: true
-    cpu_quota: "30%"
-    memory_max: "256M"
-    cpu_weight: 50
-    io_weight: 50
-    oom_score_adjust: 300
+    # Working set MiB p50/24 h peak 106.4/253.1 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "112M"
+    memory_max: "512M"
+    cpu_weight: 300
+    io_weight: 300
+    oom_score_adjust: -200
     config_path: /etc/ros2/web_ui
     # web_ui imports slam_toolbox.srv (map save) at module top; install it here so web_ui deploys standalone.
     apt_packages:
@@ -453,15 +506,17 @@ ros2_node_type_defaults:
     src_shared: true
     # mcp_server loads the arm URDF from the web_ui package directory.
     src_extra_paths: [nodes/web_ui/urdf]
-    # One full core, normal tier (cpu_weight 100, oom_score_adjust 0; was 25% in the low tier): mcp_server serves the
-    # agent's interactive tool calls (single-threaded numpy bursts for motion and grasp planning). Measured 2026-10-11
-    # at 81-91% robot CPU: plan_grasp took 52.6 s, grasp_object 205-259 s, and the agent instruction timed out.
-    cpu_quota: "100%"
-    # 384M: about 125 MB idle plus about 70 MB while the reach envelope computes in 32-pose batches (256M OOM-looped
-    # 2026-10-10 when the unbatched envelope peaked at about 2.4 GB).
-    memory_max: "384M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    # No quota (was 25%, then 100%): mcp_server serves the agent's interactive tool calls (single-threaded numpy bursts
+    # for motion and grasp planning). Measured 2026-10-11 at 81-91% robot CPU under the 25% quota: plan_grasp took
+    # 52.6 s, grasp_object 205-259 s, and the agent instruction timed out. Agent-facing tier.
+    # Working set MiB p50/24 h peak 177.9/383.4 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "184M"
+    memory_max: "1G"
+    cpu_weight: 300
+    io_weight: 300
+    oom_score_adjust: -200
+    # MemoryMax 1G: the 383 MB spike/growth is under investigation (256M OOM-looped 2026-10-10 when the unbatched
+    # envelope peaked at about 2.4 GB; the 32-pose batches need about 125 MB idle plus 70 MB).
     config_path: /etc/ros2/mcp_server
     env:
       - MCP_SERVER_CONFIG=/etc/ros2/mcp_server/config.yaml
@@ -474,29 +529,32 @@ ros2_node_type_defaults:
     node_src_dir: "nodes/poi_store"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    cpu_quota: "10%"
+    # Working set MiB p50/24 h peak 53.8/54.3 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "56M"
     memory_max: "128M"
-    cpu_weight: 100
-    oom_score_adjust: 0
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     config_path: /etc/ros2/poi_store
     env:
       - POI_STORE_CONFIG=/etc/ros2/poi_store/config.yaml
   claude_agent:
     # Claude (Agent SDK, bundled pinned Claude Code CLI) chat agent that drives the robot through mcp_server:
-    # see nodes/claude_agent/README.md. Runs as its own non-root user; resource-capped and niced.
+    # see nodes/claude_agent/README.md. Runs as its own non-root user, niced, in the agent-facing weight tier.
     deploy_mode: native
     node_launch_command: "python3 -m claude_agent"
     node_src_dir: "nodes/claude_agent"
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    # 150% of the four Pi 5 cores (was 50%): the CLI child needs about 1.3 s of CPU per model request, and the 50% quota
-    # stretched that floor on every turn (47% of the wall time of 17 measured sessions was model-only). nice 10 stays, so
-    # the control nodes (arm, base, Nav2) still win the cores under contention; the quota only bounds a runaway CLI.
-    cpu_quota: "150%"
+    # No quota (was 50%, then 150%): the CLI child needs about 1.3 s of CPU per model request, and the 50% quota stretched
+    # that floor on every turn (47% of the wall time of 17 measured sessions was model-only). The agent-facing weight
+    # (300 vs 1000/500) makes the control nodes (arm, base, Nav2) win the cores under contention.
+    # Working set MiB p50/24 h peak 93.4/386.5 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    memory_low: "96M"
     memory_max: "1G"
-    cpu_weight: 50
-    io_weight: 50
-    oom_score_adjust: 300
+    cpu_weight: 300
+    io_weight: 300
+    oom_score_adjust: -200
     nice: 10
     user: claude_agent
     # Hardening (claude_agent only): the MCP bearer token is in the CLI child's argv (--mcp-config), so hide other

@@ -348,7 +348,7 @@ def test_slam_toolbox_ansible_wiring() -> None:
     assert defaults["node_launch_command"] == (
         "ros2 launch {{ ros2_repo_dest }}/nodes/slam_toolbox/launch/slam.launch.py"
     )
-    assert defaults["cpu_quota"] and defaults["memory_max"]
+    assert "cpu_quota" not in defaults and defaults["memory_low"] and defaults["memory_max"]
     assert defaults["config_path"] == SLAM_CONFIG_DIR
     assert f"SLAM_TOOLBOX_CONFIG={SLAM_CONFIG_FILE}" in defaults["env"]
     entry = node_entry("slam_toolbox")
@@ -989,8 +989,12 @@ def test_web_ui_frontend_build_runs_at_lowest_priority() -> None:
     ]
     assert len(cmds) == 2, cmds
     for cmd in cmds:
-        # Shared build cgroup cap (all.yml ros2_build_cpu_quota, low IO weight) plus lowest CPU and IO priority.
-        assert cmd.startswith("systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 "), cmd
+        # Shared build cgroup cap (all.yml ros2_build_cpu_quota, background CPU weight, low IO weight) plus lowest CPU
+        # and IO priority.
+        assert cmd.startswith(
+            "systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }}"
+            " -p CPUWeight={{ ros2_build_cpu_weight }} -p IOWeight=10 "
+        ), cmd
         assert "nice -n 19 ionice -c 3 npm " in cmd, cmd
 
 
@@ -1187,7 +1191,8 @@ def test_colcon_source_build_runs_at_lowest_priority_and_only_on_a_new_commit() 
     build = next(t for t in tasks if "colcon build" in str(t.get("ansible.builtin.command", "")))
     cmd = build["ansible.builtin.command"]["cmd"]
     assert cmd.startswith(
-        "systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p IOWeight=10 nice -n 19 ionice -c 3 "
+        "systemd-run --quiet --scope -p CPUQuota={{ ros2_build_cpu_quota }} -p CPUWeight={{ ros2_build_cpu_weight }}"
+        " -p IOWeight=10 nice -n 19 ionice -c 3 "
     )
     assert "--merge-install" in cmd and "--parallel-workers 1" in cmd
     assert "-DCMAKE_BUILD_TYPE=Release" in cmd
