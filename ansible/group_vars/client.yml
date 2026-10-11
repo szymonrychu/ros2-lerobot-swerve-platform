@@ -1442,6 +1442,18 @@ ros2_nodes:
           k: {shoulder_lift: 0.141, elbow_flex: 0.169}
           k_lowering: {shoulder_lift: 0.004}
           max_rad: 0.12
+      # Inverse reachability map grid (nodes/mcp_server/README.md, "Reach map"): explicit values equal to the defaults.
+      # The committed artifact nodes/mcp_server/mcp_server/data/reach_map.npz is built from this block plus the body, arm
+      # mount, joint limits/offsets and margins above by scripts/gen_reach_map.py; its key must match (tests fail when
+      # any of them changes without regenerating: uv run python scripts/gen_reach_map.py).
+      reach_map:
+        heading_step_deg: 5.0
+        r_step_m: 0.02
+        r_max_m: 0.48
+        z_step_m: 0.025
+        z_max_m: 0.45
+        planar_samples: [72, 72, 37]
+        samples_per_cell: 2
       limits:
         # Tracking abort compares each joint against the setpoint commanded this long ago (s). Clean servo lag 0.20-0.24 s
         # measured 2026-10-11 with P=16; 0.35 leaves margin. The old 0.65 compensated the 25% tick stretch (fixed sleep

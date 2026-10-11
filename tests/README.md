@@ -1570,6 +1570,10 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_grasp_check_block` | The `grasp_check` block renders `crop_depth_m` 0.045, `crop_margin_px` 24, `crop_min_px` 64, `image_px` 640 and validates. |
 | `test_follower_current_read_is_rolled_back` | The follower's `publish_current_joints` is `[]`: the longer Present_Current state read failed the 95 Hz gate on the robot (93.4 Hz, p99 18 ms), so the design's config rollback applies and the grasp band runs without the current vote. |
 | `test_claude_agent_confirm_grasp_is_a_sensor_tool` | claude_agent `sensor_tools` include `confirm_grasp` and `effector_tools` do not. |
+| `test_reach_map_artifact_key_matches_deployed_config` | The committed `nodes/mcp_server/mcp_server/data/reach_map.npz` exists, loads, and its key equals the key computed (in the mcp_server uv environment) from client.yml's mcp_server config; the failure names `scripts/gen_reach_map.py`. |
+| `test_reach_map_artifact_grid_equals_configured_grid` | The artifact's meta grid (steps, radius and height counts, planar samples, samples per cell) equals client.yml's `reach_map:` block. |
+| `test_reach_map_block_is_explicit_and_default_file` | client.yml spells out every `reach_map` grid field (no `file` override) and names `scripts/gen_reach_map.py`. |
+| `test_gen_reach_map_check_passes_on_committed_artifact` | `scripts/gen_reach_map.py --check` exits 0 for the committed artifact. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_mcp_server_config.py` is listed in this section. |
 
 ### test_battery_config.py

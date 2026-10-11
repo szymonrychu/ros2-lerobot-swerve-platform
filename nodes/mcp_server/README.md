@@ -969,7 +969,11 @@ uv run python -m mcp_server.reach_map check --client-yml ../../ansible/group_var
 Regenerate after any change to the body, arm mount, joint limits or offsets, tool point, jaw, margins or the
 `reach_map` grid. Measured on the M4 dev Mac 2026-10-11 with the deployed client.yml config and the default grid:
 82 s (191,808 FK samples, 147,798 body-checked poses, 101,436 clear; 12,838 of 18,576 cells and 52,738 cell-pitches
-reachable), 360 MB peak RSS, a 17 KB file. Doubling the planar density on the default r / z cells (30 deg headings)
+reachable), 360 MB peak RSS, a 17 KB file. The committed artifact is this build: `uv run python scripts/gen_reach_map.py`
+(repo root; `--check` exits 1 when stale) wrote it in 93 s CPU / 2 min 26 s wall, 12,838 reachable of 18,576 cells, 52,738
+reachable cell-pitches, 17,188 bytes. `tests/test_mcp_server_config.py` fails (naming the script) when its key no longer
+matches client.yml's mcp_server config or its grid differs from the `reach_map:` block there. The hatchling wheel
+includes `mcp_server/data/` (package files), and the robot runs from the git checkout, which carries the committed file. Doubling the planar density on the default r / z cells (30 deg headings)
 adds 1.9 % reachable cell-pitches.
 
 ## Unmeasured efforts
