@@ -1552,7 +1552,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_grip_profiles_set_delta_contact_keys` | `grip_profiles` sets `contact_baseline_samples` 10, `contact_persist_samples` 3, a `current_contact_delta_a` key (null or positive) and `contact_load_delta` 20 (arXiv 2608.23983 initial value, retuned in rollout) on every preset. |
 | `test_mcp_server_grip_presets_keep_absolute_backstops` | Delta contact is primary but every preset keeps `contact_effort_threshold` (above the delta) and `target_load` as absolute backstops. |
 | `test_mcp_server_grasp_check_block` | The `grasp_check` block renders `crop_depth_m` 0.045, `crop_margin_px` 24, `crop_min_px` 64, `image_px` 640 and validates. |
-| `test_follower_publishes_gripper_current` | `lerobot_follower` config has `publish_current_joints: [gripper]` (an empty list is the rollback). |
+| `test_follower_current_read_is_rolled_back` | The follower's `publish_current_joints` is `[]`: the longer Present_Current state read failed the 95 Hz gate on the robot (93.4 Hz, p99 18 ms), so the design's config rollback applies and the grasp band runs without the current vote. |
 | `test_claude_agent_confirm_grasp_is_a_sensor_tool` | claude_agent `sensor_tools` include `confirm_grasp` and `effector_tools` do not. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_mcp_server_config.py` is listed in this section. |
 

@@ -929,8 +929,9 @@ ros2_nodes:
       # Cost: the one state sync read grows from 6 to 15 bytes for all 14 servos on the bus (+126 bytes per cycle,
       # about +1.26 ms at 1 Mbaud). Gate: /follower/joint_states must still publish at 95 Hz or more.
       # Rollback: set this to an empty list ([]) and redeploy; the read shrinks back and nothing is published.
-      publish_current_joints:
-        - gripper
+      # ROLLED BACK 2026-10-11: with [gripper] the bridge ran at 93.4 Hz, p99 18 ms (gate 95 Hz; before 95.7 Hz, 12 ms).
+      # Follow-up: a gripper-only single read every N cycles instead of lengthening the shared sync read.
+      publish_current_joints: []
       # filter_node tags /follower/joint_commands with its source in header.frame_id. web_ui and autonomy
       # (mcp_server) positions are follower joint radians (as in /follower/joint_states): the gripper's
       # leader -> follower source range mapping below applies only to leader (and untagged) commands.

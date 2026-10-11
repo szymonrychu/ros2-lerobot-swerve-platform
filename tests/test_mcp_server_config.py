@@ -796,9 +796,10 @@ def test_mcp_server_grasp_check_block() -> None:
     assert (grasp.crop_depth_m, grasp.crop_margin_px, grasp.crop_min_px, grasp.image_px) == (0.045, 24, 64, 640)
 
 
-def test_follower_publishes_gripper_current() -> None:
-    """The follower bridge publishes /follower/joint_currents for the gripper only (empty list = rollback)."""
-    assert node_config("lerobot_follower")["publish_current_joints"] == ["gripper"]
+def test_follower_current_read_is_rolled_back() -> None:
+    """The longer state read (Present_Current) failed the 95 Hz gate on the robot (93.4 Hz, p99 18 ms, 2026-10-11), so
+    publish_current_joints is empty (the rollback the design defines); the grasp band runs without the current vote."""
+    assert node_config("lerobot_follower")["publish_current_joints"] == []
 
 
 def test_claude_agent_confirm_grasp_is_a_sensor_tool() -> None:
