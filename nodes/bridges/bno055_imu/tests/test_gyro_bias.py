@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from bno055_imu.gyro_bias import GyroBiasEstimator
+from bno055_imu.gyro_bias import GyroBiasEstimator, load_bias, save_bias
 
 RAW_BIAS = (1.0e-3, -2.0e-3, -5.83e-4)
 DT_S = 0.02
@@ -18,6 +18,7 @@ def make(**overrides: float) -> GyroBiasEstimator:
         "max_bias_rad_s": 0.02,
         "sanity_rad_s": 0.05,
         "odom_timeout_s": 0.5,
+        "mean_s": 0.0,
         "max_linear_mps": 0.01,
         "max_angular_rad_s": 0.01,
     }
@@ -156,3 +157,91 @@ def test_large_time_gap_does_not_jump_the_bias() -> None:
     est.update_odometry(1000.0, 0.0, 0.0, 0.0)
     est.update(1000.0, (0.0, 0.0, 0.01))
     assert est.bias[2] < 0.01
+
+
+def test_first_mean_s_is_a_running_mean_not_an_ema() -> None:
+    est = make(mean_s=30.0, tau_s=5.0)
+    t, i = 0.0, 0
+    learned: list[float] = []
+    while t < 10.0:  # noise around 1e-3: a running mean ends at the exact mean, an EMA stays off by alpha * noise
+        value = 1.0e-3 + (2.0e-3 if i % 2 else -2.0e-3)
+        est.update_odometry(t, 0.0, 0.0, 0.0)
+        est.update(t, (0.0, 0.0, value))
+        if est.learning:
+            learned.append(value)
+        t += DT_S
+        i += 1
+    assert len(learned) > 100
+    assert est.bias[2] == pytest.approx(sum(learned) / len(learned), abs=1e-9)
+
+
+def test_switches_to_ema_after_mean_s() -> None:
+    est = make(mean_s=2.0, tau_s=5.0)
+    t = run(est, 0.0, 20.0, (0.0, 0.0, 1.0e-3))
+    assert est.settled is True
+    before = est.bias[2]
+    run(est, t, 5.0, (0.0, 0.0, 3.0e-3))  # an EMA moves by 1 - exp(-1) of the step in one tau; a mean would barely move
+    assert est.bias[2] - before > 0.5 * (3.0e-3 - before)
+
+
+def test_settled_only_after_mean_s_of_learning() -> None:
+    est = make(mean_s=5.0)
+    assert est.settled is False
+    t = run(est, 0.0, 3.0, RAW_BIAS)
+    assert est.settled is False
+    run(est, t, 10.0, RAW_BIAS)
+    assert est.settled is True
+
+
+def test_set_bias_is_used_at_once_and_clamped() -> None:
+    est = make()
+    est.set_bias((1.0e-3, 0.5, -5.83e-4))
+    assert est.bias == (1.0e-3, 0.02, -5.83e-4)
+    assert est.correct((1.0e-3, 0.0, 0.0))[0] == 0.0
+    assert est.settled is False  # nothing learned this run
+
+
+def test_loaded_bias_is_the_prior_of_the_running_mean() -> None:
+    est = make(mean_s=30.0)
+    est.set_bias((0.0, 0.0, 1.0e-3))
+    run(est, 0.0, 30.0, (0.0, 0.0, 1.0e-3))
+    assert est.bias[2] == pytest.approx(1.0e-3, abs=1e-9)
+
+
+def test_counts_rejected_samples_only_while_stationary() -> None:
+    est = make(sanity_rad_s=0.05)
+    t = run(est, 0.0, 3.0, (0.0, 0.0, 0.2))  # still, but the gyro norm is far above the sanity gate
+    assert est.rejected_samples > 0
+    assert est.bias == (0.0, 0.0, 0.0)
+    rejected = est.rejected_samples
+    run(est, t, 3.0, (0.0, 0.0, 0.2), odom=(1.0, 0.0, 0.0))  # moving: not a rejection, simply not learning
+    assert est.rejected_samples == rejected
+
+
+def test_bias_file_roundtrip(tmp_path) -> None:
+    path = tmp_path / "state" / "gyro_bias.json"
+    save_bias(path, RAW_BIAS)
+    assert load_bias(path) == RAW_BIAS
+    assert not list(path.parent.glob(".*.tmp"))
+
+
+def test_load_bias_missing_file_is_none(tmp_path) -> None:
+    assert load_bias(tmp_path / "absent.json") is None
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "not json",
+        "[1, 2, 3]",
+        '{"bias": [1, 2]}',
+        '{"bias": [0, 0, "x"]}',
+        '{"bias": [0, 0, NaN]}',
+        '{"bias": [0, 0, Infinity]}',
+    ],
+)
+def test_load_bias_rejects_corrupt_content(tmp_path, content: str) -> None:
+    path = tmp_path / "gyro_bias.json"
+    path.write_text(content)
+    with pytest.raises(ValueError):
+        load_bias(path)

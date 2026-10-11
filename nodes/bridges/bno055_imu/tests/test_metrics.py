@@ -97,3 +97,10 @@ def test_gyro_bias_gauges() -> None:
     assert sample("imu_gyro_bias_learning") == 1
     metrics.record_gyro_bias((1e-3, -2e-3, -5.83e-4), False)
     assert sample("imu_gyro_bias_learning") == 0
+
+
+def test_gyro_bias_rejected_counter() -> None:
+    before = sample("imu_gyro_bias_rejected_samples_total")
+    metrics.record_gyro_rejected(3)
+    metrics.record_gyro_rejected(0)
+    assert sample("imu_gyro_bias_rejected_samples_total") == before + 3

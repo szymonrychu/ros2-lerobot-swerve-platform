@@ -26,6 +26,8 @@ CONFIG = ImuNodeConfig(
     covariance_min_samples=20,
     calibration_topic=None,
     calibration_file=None,
+    gyro_bias_file=None,
+    gyro_bias_topic=None,
 )
 QUATERNION = (1.0, 0.0, 0.0, 0.0)
 SAMPLE = SimpleNamespace(

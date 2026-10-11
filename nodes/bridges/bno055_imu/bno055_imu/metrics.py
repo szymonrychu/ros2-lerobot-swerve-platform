@@ -23,6 +23,10 @@ MODE = Gauge("imu_mode", "BNO055 OPR_MODE register value as last read")
 SECONDS_SINCE_PUBLISH = Gauge("imu_seconds_since_publish", "Seconds since the last published sample")
 
 GYRO_BIAS = Gauge("imu_gyro_bias_rad_s", "Learned gyro zero-rate bias subtracted from angular_velocity", ["axis"])
+GYRO_BIAS_REJECTED = Counter(
+    "imu_gyro_bias_rejected_samples_total",
+    "Gyro samples taken while stationary but rejected by the bias sanity gate (a true bias this large is never learned)",
+)
 GYRO_BIAS_LEARNING = Gauge("imu_gyro_bias_learning", "1 while the stationary gyro bias estimator is learning, else 0")
 
 CYCLE_SECONDS = Histogram(
@@ -110,3 +114,13 @@ def record_gyro_bias(bias: tuple[float, float, float], learning: bool) -> None:
     for axis, value in zip(GYRO_AXES, bias, strict=True):
         GYRO_BIAS.labels(axis).set(value)
     GYRO_BIAS_LEARNING.set(1 if learning else 0)
+
+
+def record_gyro_rejected(count: int) -> None:
+    """Count stationary gyro samples the bias estimator rejected.
+
+    Args:
+        count (int): New rejections since the last call (0 counts nothing).
+    """
+    if count > 0:
+        GYRO_BIAS_REJECTED.inc(count)

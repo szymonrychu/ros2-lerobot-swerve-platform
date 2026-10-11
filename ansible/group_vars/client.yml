@@ -748,6 +748,11 @@ ros2_nodes:
       i2c_address: 0x28
       # Sensor offsets survive node restarts here (directory created by tasks/bno055_state_dir.yml).
       calibration_file: /var/lib/ros2/bno055_imu/calibration.json
+      # Learned gyro bias, loaded at start (same state dir); /imu/gyro_bias publishes the raw gyro, bias and counters.
+      gyro_bias_file: /var/lib/ros2/bno055_imu/gyro_bias.json
+      gyro_bias_save_interval_s: 60
+      gyro_bias_mean_s: 30
+      gyro_bias_topic: /imu/gyro_bias
       orientation_covariance: 0.01
       # Fixed small gyro covariance: the rolling-variance estimate inflated the yaw rate exactly while turning, so the
       # EKF preferred the slip-prone wheel yaw rate over the gyro.

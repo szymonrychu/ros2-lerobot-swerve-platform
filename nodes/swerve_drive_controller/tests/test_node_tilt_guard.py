@@ -208,3 +208,98 @@ def test_state_heartbeat_reports_stale_imu(
     h.timer()
     assert h.states()[-1]["imu_ok"] is False
     assert any("IMU" in str(c) for c in h.logger.warn.call_args_list)
+
+
+def torque_values(h: Harness) -> list[int]:
+    return [w["value"] for w in h.torque_writes()]
+
+
+def test_restart_starts_inhibited_until_the_first_imu_sample(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    h = Harness(node_module, monkeypatch, make_config(tmp_path))
+    h.cmd_vel(0.1)
+    assert h.cycle() == [0.0, 0.0, 0.0, 0.0]  # the latch of a previous run is unknown: no motion without an evaluation
+    h.imu(0.0, 0.1)
+    h.cmd_vel(0.1)
+    assert all(v > 0.0 for v in h.cycle())
+
+
+def test_restart_on_a_steep_slope_never_drives(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    h = Harness(node_module, monkeypatch, make_config(tmp_path))
+    h.imu(25.0, 0.0)  # the very first sample is already beyond the error limit
+    assert h.states()[-1]["level"] == "error" and h.states()[-1]["base_drive_inhibited"] is True
+    h.cmd_vel(0.1)
+    assert h.cycle() == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_missing_imu_after_start_is_logged(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    h = Harness(node_module, monkeypatch, make_config(tmp_path))
+    h.timer()
+    assert not any("no IMU sample" in str(c) for c in h.logger.warn.call_args_list)
+    h.now += 5.0
+    h.timer()
+    assert any("no IMU sample" in str(c) and "inhibited" in str(c) for c in h.logger.warn.call_args_list)
+
+
+def test_disabled_guard_does_not_wait_for_an_imu_sample(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    h = Harness(node_module, monkeypatch, make_config(tmp_path, "  enabled: false\n"))
+    h.cmd_vel(0.1)
+    assert all(v > 0.0 for v in h.cycle())
+
+
+def test_torque_off_is_republished_on_every_heartbeat_while_disabled(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    h = Harness(node_module, monkeypatch, make_config(tmp_path, "  error_action: torque_off\n"))
+    h.imu(25.0, 0.6)
+    assert torque_values(h) == [0, 0, 0, 0]
+    for _ in range(150):  # 3 s of 50 Hz samples and cycles, still in error
+        h.imu(25.0, 0.0)
+        h.timer()
+    values = torque_values(h)
+    assert len(values) >= 12 and set(values) == {0}  # a lost off write is repeated; never an enable while inhibited
+
+
+def test_torque_on_restore_is_repeated_so_a_lost_write_is_corrected(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    h = Harness(node_module, monkeypatch, make_config(tmp_path, "  error_action: torque_off\n"))
+    h.imu(25.0, 0.6)
+    h.imu(0.0, 2.1)
+    assert torque_values(h)[4:] == [1, 1, 1, 1]
+    for _ in range(250):  # 5 s of level samples with cycles
+        h.imu(0.0, 0.0)
+        h.timer()
+    assert torque_values(h)[4:] == [1] * 12  # the restore plus two repeats, then quiet
+    for _ in range(250):
+        h.imu(0.0, 0.0)
+        h.timer()
+    assert len(h.torque_writes()) == 16
+
+
+def test_torque_is_restored_once_at_startup(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A restart while torque was switched off must not leave the drive motors limp."""
+    h = Harness(node_module, monkeypatch, make_config(tmp_path, "  error_action: torque_off\n"))
+    assert h.torque_writes() == []
+    h.timer()
+    assert [w["joint_name"] for w in h.torque_writes()] == ["fl_drive", "fr_drive", "rl_drive", "rr_drive"]
+    assert torque_values(h) == [1, 1, 1, 1]
+    h.timer()
+    assert len(h.torque_writes()) == 4
+
+
+def test_brake_mode_never_writes_torque_at_startup(
+    node_module: ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    h = Harness(node_module, monkeypatch, make_config(tmp_path))
+    h.timer()
+    assert h.torque_writes() == []

@@ -354,8 +354,8 @@ def test_state_json_matches_contract() -> None:
         roll_warn_deg=8.0, roll_error_deg=15.0, pitch_warn_deg=12.0, pitch_error_deg=20.0
     )
     assert state["limits"]["hysteresis_deg"] == 2.0
-    # The error started 0.5 s into the feed (persistence): since is that moment in epoch seconds.
-    assert parsed.since == pytest.approx(EPOCH_NS / 1e9 - (t - 0.5), abs=0.05)
+    # A guard's first sample beyond the error limit enters ERROR at once: since is the feed start in epoch seconds.
+    assert parsed.since == pytest.approx(EPOCH_NS / 1e9 - t, abs=0.05)
     assert state["level_code"] == 2
     assert state["axis"] == "roll"
     assert state["error_action"] == "brake"
@@ -409,3 +409,34 @@ def test_drive_torque_payloads() -> None:
     payloads = [json.loads(p) for p in drive_torque_payloads(DRIVE_JOINTS, enable=False)]
     assert payloads == [{"joint_name": j, "register": "torque_enable", "value": 0} for j in DRIVE_JOINTS]
     assert json.loads(drive_torque_payloads(DRIVE_JOINTS, enable=True)[0])["value"] == 1
+
+
+def test_fresh_guard_is_inhibited_until_the_first_sample() -> None:
+    """A restart loses the latch: the guard starts inhibited and only evaluates the first IMU sample to release it."""
+    guard = TiltGuard(TiltGuardConfig())
+    assert guard.base_drive_inhibited
+    assert guard.update(0.5, 0.5, 0.0) is None  # level ground: released at once, no persistence wait
+    assert not guard.base_drive_inhibited and guard.level is TiltLevel.OK
+
+
+def test_first_sample_beyond_the_error_limit_latches_error_at_once() -> None:
+    """After a restart on a steep slope the 0.5 s persistence must not open a window where the base drives."""
+    guard = TiltGuard(TiltGuardConfig())
+    transition = guard.update(25.0, 0.0, 0.0)
+    assert transition is not None and transition.previous is TiltLevel.OK and transition.current is TiltLevel.ERROR
+    assert transition.axis == "roll"
+    assert guard.base_drive_inhibited and guard.level is TiltLevel.ERROR
+
+
+def test_first_sample_in_warning_does_not_inhibit() -> None:
+    guard = TiltGuard(TiltGuardConfig())
+    guard.update(10.0, 0.0, 0.0)
+    assert not guard.base_drive_inhibited
+    assert guard.level is TiltLevel.OK  # a warning still needs its persistence
+
+
+def test_disabled_guard_never_starts_inhibited() -> None:
+    guard = TiltGuard(TiltGuardConfig(enabled=False))
+    assert not guard.base_drive_inhibited
+    guard.update(25.0, 0.0, 0.0)
+    assert not guard.base_drive_inhibited

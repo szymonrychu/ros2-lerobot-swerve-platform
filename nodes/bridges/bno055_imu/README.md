@@ -38,6 +38,10 @@ YAML config path: `BNO055_IMU_CONFIG` or `/etc/ros2/bno055_imu/config.yaml`.
 | `gyro_bias_tau_s` | `60` | Time constant of the bias moving average (min 1) |
 | `gyro_bias_max_rad_s` | `0.02` | Clamp of the bias magnitude per axis |
 | `gyro_bias_sanity_rad_s` | `0.05` | Samples whose gyro norm minus the current bias exceeds this are not learned |
+| `gyro_bias_file` | `/var/lib/ros2/bno055_imu/gyro_bias.json` | Persisted learned bias, loaded at start; empty disables persistence |
+| `gyro_bias_save_interval_s` | `60` | Minimum seconds between bias saves (min 1); only a changed, settled bias is written |
+| `gyro_bias_mean_s` | `30` | Seconds of learning that use a running mean instead of the EMA (min 0) |
+| `gyro_bias_topic` | `/imu/gyro_bias` | `std_msgs/String` JSON bias diagnostic at 1 Hz; empty disables it |
 | `metrics_port` | unset | Prometheus `/metrics` port on 127.0.0.1 (robot: `19103`); unset falls back to env `METRICS_PORT`, then disabled |
 
 Example:
@@ -68,6 +72,7 @@ Served on `127.0.0.1:<metrics_port>` (`19103` on the robot) via `ros2-metrics`, 
 | `imu_mode` | gauge | OPR_MODE register value (0x08 IMUPLUS, 0x0b NDOF_FMC_OFF, 0x0c NDOF) |
 | `imu_seconds_since_publish` | gauge | Seconds since the last published sample |
 | `imu_gyro_bias_rad_s{axis}` | gauge | Learned gyro bias subtracted from `angular_velocity` (`x`, `y`, `z`); 0 until learned |
+| `imu_gyro_bias_rejected_samples_total` | counter | Stationary gyro samples rejected by the sanity gate (`gyro_bias_sanity_rad_s`); a bias this large is never learned |
 | `imu_gyro_bias_learning` | gauge | 1 while the last sample updated the bias (robot stationary), else 0 |
 | `imu_cycle_seconds` | histogram | Work time of one cycle (burst read, decode, publish, periodic calibration); buckets 0.002 to 0.1 s |
 | `imu_cycle_overruns_total` | counter | Cycles that finished after their next slot; the missed slots were skipped |
@@ -121,9 +126,10 @@ rate, so while parked the heading drifted 26 deg/h. The node therefore learns th
   stay below `gyro_bias_sanity_rad_s` (rejects bumps and being carried and rotated).
 - **Before anything is learned** the raw reading is published (bias 0), never placeholder data. An empty `odom_topic`
   disables the whole feature.
-- **Not persisted**: the bias is relearned after each restart (about one time constant of stillness). Unlike the
-  sensor offsets in `calibration.json` it is a software estimate that drifts with temperature, so a stored value would go
-  stale and would need its own invalidation; relearning is simpler and always current.
+- **Running mean first**: during the first `gyro_bias_mean_s` (30 s) of learning in a run the estimate is the running mean of the accepted stationary samples (a stored bias counts as one sample), so it converges in about half a minute of stillness instead of several time constants; after that the EMA tracks slow drift.
+- **Persisted**: once the mean window completed the bias is written to `gyro_bias_file` (atomic JSON `{"bias": [x, y, z]}`, next to `calibration.json`, same Ansible state dir) at most every `gyro_bias_save_interval_s` and only when it changed. It is loaded at start and applied from the first sample, so a restart no longer publishes raw gyro for minutes. A bias saved from a window shorter than `gyro_bias_mean_s` is never written. A missing file means zero bias; a corrupt or non-finite file is ignored with a warning. Delete the file to reset it.
+- **Rejected samples**: while the robot is stationary but the gyro is more than `gyro_bias_sanity_rad_s` (0.05) from the current bias, the sample is counted in `imu_gyro_bias_rejected_samples_total` and the node warns at most every 30 s. With the clamp at 0.02 a true bias above about 0.07 rad/s is never learned, and this is how you see it.
+- **Audit topic**: `gyro_bias_topic` (`/imu/gyro_bias`, 1 Hz, std_msgs/String JSON) carries the real last raw gyro sample (`raw`, rad/s, before correction), the `bias`, `learning`, `settled` (mean window done), `rejected_samples` and `learned_s`. Published only from real samples, never a placeholder.
 - **Watch it**: `imu_gyro_bias_rad_s{axis="z"}` should settle near -5.8e-4 and `imu_gyro_bias_learning` is 1 while parked.
 
 ## Calibration persistence

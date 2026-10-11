@@ -38,6 +38,9 @@ TILT_STATE_QOS = QoSProfile(
 )
 # REP 145: orientation_covariance[0] == -1 means the IMU provides no orientation estimate.
 IMU_NO_ORIENTATION_COVARIANCE = -1.0
+# After a torque-on restore the payloads are repeated on this many further heartbeats: the publish is volatile
+# (a subscriber that was not matched yet misses it) and a lost restore leaves the drive motors limp.
+TORQUE_RESTORE_REPEATS = 2
 
 
 def joint_maps(msg: JointState) -> tuple[dict[str, float], dict[str, float]]:
@@ -165,6 +168,11 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
     last_tilt_state_time = 0.0
     imu_was_stale = False
     torque_disabled = False
+    torque_synced = False  # True once the torque state was written (startup restore or a transition)
+    torque_restore_repeats_left = 0
+    last_torque_pub_time = 0.0
+    start_time = time.monotonic()
+    last_no_imu_log = start_time
 
     latest_cmd = CmdVelSample()
     latest_positions: dict[str, float] = {}
@@ -188,8 +196,36 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
         pub_tilt_state.publish(msg)
         last_tilt_state_time = now
 
+    def publish_torque(enable: bool, now: float) -> None:
+        nonlocal torque_synced, last_torque_pub_time
+        assert pub_torque is not None
+        for payload in drive_torque_payloads(drive_joints, enable=enable):
+            torque_msg = String()
+            torque_msg.data = payload
+            pub_torque.publish(torque_msg)
+        torque_synced = True
+        last_torque_pub_time = now
+
+    def sync_torque(now: float) -> None:
+        """Startup restore, heartbeat repeat of the torque-off writes and the repeats after a restore."""
+        nonlocal torque_synced, torque_restore_repeats_left
+        if pub_torque is None:
+            return
+        if not torque_synced:  # a restart: the previous run may have left the drive motors with torque off
+            if not torque_disabled:
+                publish_torque(True, now)
+            torque_synced = True
+            return
+        if now - last_torque_pub_time < tilt_state_period_s:
+            return
+        if torque_disabled:
+            publish_torque(False, now)
+        elif torque_restore_repeats_left > 0:
+            torque_restore_repeats_left -= 1
+            publish_torque(True, now)
+
     def on_tilt_transition(transition: TiltTransition, now: float) -> None:
-        nonlocal latest_cmd, torque_disabled
+        nonlocal latest_cmd, torque_disabled, torque_restore_repeats_left
         if transition.current is TiltLevel.ERROR:
             logger.error(transition.message)
             latest_cmd = CmdVelSample()  # never resume a command received before the error
@@ -199,10 +235,8 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
             logger.info(f"tilt guard: {transition.previous.name.lower()} cleared, {transition.message}")
         if pub_torque is not None and guard.base_drive_inhibited != torque_disabled:
             torque_disabled = guard.base_drive_inhibited
-            for payload in drive_torque_payloads(drive_joints, enable=not torque_disabled):
-                torque_msg = String()
-                torque_msg.data = payload
-                pub_torque.publish(torque_msg)
+            torque_restore_repeats_left = 0 if torque_disabled else TORQUE_RESTORE_REPEATS
+            publish_torque(not torque_disabled, now)
         publish_tilt_state(now)
 
     def on_imu(msg: Imu) -> None:
@@ -234,7 +268,7 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
             tf_broadcaster.sendTransform(build_transform(config, new_state.pose, stamp))
 
     def on_timer() -> None:
-        nonlocal state, last_wait_log, imu_was_stale
+        nonlocal state, last_wait_log, imu_was_stale, last_no_imu_log
         now = time.monotonic()
         imu_stale = guard.last_sample_s is not None and guard.imu_stale(now)
         if imu_stale != imu_was_stale:
@@ -248,6 +282,17 @@ def run_swerve_controller(config: SwerveControllerConfig) -> None:
                 logger.info(f"tilt guard: IMU on {tilt_cfg.imu_topic} fresh again")
         if now - last_tilt_state_time >= tilt_state_period_s:
             publish_tilt_state(now)
+        sync_torque(now)
+        if (
+            guard.startup_pending
+            and now - start_time > tilt_cfg.imu_timeout_s
+            and now - last_no_imu_log >= WAIT_LOG_INTERVAL_S
+        ):
+            last_no_imu_log = now
+            logger.warn(
+                f"tilt guard: no IMU sample yet on {tilt_cfg.imu_topic} ({now - start_time:.0f} s after start), "
+                "base drive inhibited until the first orientation is evaluated"
+            )
         joints = JointSample(latest_positions, latest_velocities, last_joint_states_time)
         # Nothing is published without fresh, complete wheel state (the bridge watchdog stops the wheels).
         state, published = run_cycle(

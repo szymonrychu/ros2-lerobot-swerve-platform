@@ -24,6 +24,10 @@ DEFAULT_GYRO_BIAS_STILLNESS_S = 2.0
 DEFAULT_GYRO_BIAS_TAU_S = 60.0
 DEFAULT_GYRO_BIAS_MAX_RAD_S = 0.02
 DEFAULT_GYRO_BIAS_SANITY_RAD_S = 0.05
+DEFAULT_GYRO_BIAS_FILE = "/var/lib/ros2/bno055_imu/gyro_bias.json"
+DEFAULT_GYRO_BIAS_SAVE_INTERVAL_S = 60.0
+DEFAULT_GYRO_BIAS_MEAN_S = 30.0
+DEFAULT_GYRO_BIAS_TOPIC = "/imu/gyro_bias"
 
 
 def _diagonal_covariance(var: float) -> list[float]:
@@ -106,6 +110,13 @@ class ImuNodeConfig:
         gyro_bias_tau_s: Time constant of the bias moving average in seconds (min 1).
         gyro_bias_max_rad_s: Clamp of the bias magnitude per axis in rad/s.
         gyro_bias_sanity_rad_s: A sample whose gyro norm minus the current bias exceeds this is not learned.
+        gyro_bias_file: JSON file the settled gyro bias is saved to and loaded from at start (next to the calibration
+            file); None disables persistence.
+        gyro_bias_save_interval_s: Minimum seconds between bias saves (min 1); only a bias that changed is written.
+        gyro_bias_mean_s: Seconds of learning during which the bias is a running mean instead of an EMA (min 0); a
+            bias is saved only after this window completed.
+        gyro_bias_topic: std_msgs/String JSON diagnostic at 1 Hz (raw gyro, bias, learning, settled, rejected
+            samples); None disables it.
         metrics_port: Port of the Prometheus /metrics endpoint on 127.0.0.1; None falls back to env METRICS_PORT.
     """
 
@@ -134,6 +145,10 @@ class ImuNodeConfig:
     gyro_bias_tau_s: float = DEFAULT_GYRO_BIAS_TAU_S
     gyro_bias_max_rad_s: float = DEFAULT_GYRO_BIAS_MAX_RAD_S
     gyro_bias_sanity_rad_s: float = DEFAULT_GYRO_BIAS_SANITY_RAD_S
+    gyro_bias_file: str | None = DEFAULT_GYRO_BIAS_FILE
+    gyro_bias_save_interval_s: float = DEFAULT_GYRO_BIAS_SAVE_INTERVAL_S
+    gyro_bias_mean_s: float = DEFAULT_GYRO_BIAS_MEAN_S
+    gyro_bias_topic: str | None = DEFAULT_GYRO_BIAS_TOPIC
     metrics_port: int | None = None
 
 
@@ -262,6 +277,16 @@ def load_config(path: Path | None = None) -> ImuNodeConfig | None:
         gyro_bias_sanity_rad_s=parse_float(
             data.get("gyro_bias_sanity_rad_s", DEFAULT_GYRO_BIAS_SANITY_RAD_S), DEFAULT_GYRO_BIAS_SANITY_RAD_S, 0.0
         ),
+        gyro_bias_file=str(data.get("gyro_bias_file", DEFAULT_GYRO_BIAS_FILE) or "").strip() or None,
+        gyro_bias_save_interval_s=parse_float(
+            data.get("gyro_bias_save_interval_s", DEFAULT_GYRO_BIAS_SAVE_INTERVAL_S),
+            DEFAULT_GYRO_BIAS_SAVE_INTERVAL_S,
+            1.0,
+        ),
+        gyro_bias_mean_s=parse_float(
+            data.get("gyro_bias_mean_s", DEFAULT_GYRO_BIAS_MEAN_S), DEFAULT_GYRO_BIAS_MEAN_S, 0.0
+        ),
+        gyro_bias_topic=str(data.get("gyro_bias_topic", DEFAULT_GYRO_BIAS_TOPIC) or "").strip() or None,
         metrics_port=metrics_port,
     )
 

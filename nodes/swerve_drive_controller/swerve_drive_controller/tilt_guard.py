@@ -206,7 +206,9 @@ class TiltGuard:
         pitch_deg: Last pitch minus the level reference, deg (None before the first sample).
         last_sample_s: Monotonic time of the last valid sample, s.
         level_since_s: Monotonic time the current level was entered (the first sample until the level changes), s.
-        inhibited: Base drive inhibition latch: set on entering ERROR, cleared only on returning to OK.
+        inhibited: Base drive inhibition latch: set on entering ERROR, cleared only on returning to OK. A restart
+            loses the latch, so a guard that is enabled starts inhibited until its first IMU sample is evaluated.
+        startup_pending: True until the first valid sample was evaluated (enabled guards only).
         rise_since: Per higher level, monotonic time the tilt started continuously exceeding its limit, s.
         clear_since: Per lower level, monotonic time the tilt started continuously staying below its recovery
             threshold (limit - hysteresis_deg), s.
@@ -227,7 +229,8 @@ class TiltGuard:
         self.level_since_s: float | None = None
         self.rise_since: dict[TiltLevel, float] = {}
         self.clear_since: dict[TiltLevel, float] = {}
-        self.inhibited = False
+        self.startup_pending = config.enabled
+        self.inhibited = config.enabled
         TILT_GUARD_LEVEL.set(int(self.level))
 
     @property
@@ -334,7 +337,14 @@ class TiltGuard:
         if not self.config.enabled:
             return None
 
-        raw, _ = self.classify(roll, pitch, 0.0)
+        raw, raw_axis = self.classify(roll, pitch, 0.0)
+        if self.startup_pending:
+            # First evaluation after a (re)start: the previous latch is unknown, so an error is entered at once
+            # (no persistence window in which the base could drive); anything else releases the start inhibition.
+            self.startup_pending = False
+            self.inhibited = False
+            if raw is TiltLevel.ERROR:
+                return self.enter(TiltLevel.ERROR, raw_axis, now)
         for level in (TiltLevel.WARNING, TiltLevel.ERROR):
             if raw >= level:
                 self.rise_since.setdefault(level, now)

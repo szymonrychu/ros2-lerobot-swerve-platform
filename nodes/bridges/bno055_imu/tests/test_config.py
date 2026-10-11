@@ -288,3 +288,24 @@ def test_empty_odom_topic_disables_bias_learning(tmp_path: Path) -> None:
     cfg = load_config(p)
     assert cfg is not None
     assert cfg.odom_topic is None
+
+
+def test_gyro_bias_persistence_config_defaults(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text("{}\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.gyro_bias_file == "/var/lib/ros2/bno055_imu/gyro_bias.json"
+    assert cfg.gyro_bias_save_interval_s == 60.0
+    assert cfg.gyro_bias_mean_s == 30.0
+    assert cfg.gyro_bias_topic == "/imu/gyro_bias"
+
+
+def test_gyro_bias_persistence_config_explicit_and_disabled(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text("gyro_bias_file: ''\ngyro_bias_topic: ''\ngyro_bias_save_interval_s: 0\ngyro_bias_mean_s: abc\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.gyro_bias_file is None and cfg.gyro_bias_topic is None
+    assert cfg.gyro_bias_save_interval_s == 1.0
+    assert cfg.gyro_bias_mean_s == 30.0

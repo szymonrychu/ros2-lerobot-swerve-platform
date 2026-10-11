@@ -20,7 +20,7 @@ from .burst import read_sample
 from .calibration import CalibrationProfile, apply_profile, load_profile, save_if_changed, should_save
 from .config import ImuNodeConfig
 from .covariance import CovarianceEstimator
-from .gyro_bias import GyroBiasEstimator
+from .gyro_bias import GyroBiasEstimator, load_bias, save_bias
 from .imu_msg import build_imu_message, quaternion_wxyz_to_xyzw
 from .pacing import next_tick, spin_until
 from .recovery import Action, RecoveryPolicy
@@ -43,6 +43,9 @@ OPERATION_MODE_VALUES = {
 }
 CALIBRATION_KEYS = ("sys", "gyro", "accel", "mag")
 CALIBRATION_PUBLISH_PERIOD_S = 1.0
+GYRO_BIAS_PUBLISH_PERIOD_S = 1.0
+GYRO_BIAS_REJECT_LOG_PERIOD_S = 30.0
+BIAS_SAVE_MIN_CHANGE_RAD_S = 1e-6
 
 NODE_NAME = "bno055_imu"
 
@@ -376,6 +379,55 @@ def make_bias_estimator(config: ImuNodeConfig) -> GyroBiasEstimator | None:
         odom_timeout_s=config.odom_timeout_s,
         max_linear_mps=config.stationary_linear_mps,
         max_angular_rad_s=config.stationary_angular_rad_s,
+        mean_s=config.gyro_bias_mean_s,
+    )
+
+
+def load_saved_bias(
+    config: ImuNodeConfig, node: Node, bias_est: GyroBiasEstimator
+) -> tuple[float, float, float] | None:
+    """Start the estimator from the persisted bias; a missing, corrupt or invalid file means start from zero.
+
+    Args:
+        config (ImuNodeConfig): Node config (gyro_bias_file; None disables persistence).
+        node (Node): ROS2 node (logger).
+        bias_est (GyroBiasEstimator): Estimator to seed.
+
+    Returns:
+        tuple[float, float, float] | None: The bias on disk, or None.
+    """
+    if not config.gyro_bias_file:
+        return None
+    try:
+        bias = load_bias(Path(config.gyro_bias_file))
+    except (ValueError, OSError) as exc:
+        node.get_logger().warn(f"ignoring gyro bias file {config.gyro_bias_file}: {exc}; starting from zero bias")
+        return None
+    if bias is not None:
+        bias_est.set_bias(bias)
+        node.get_logger().info(f"loaded gyro bias {bias} rad/s from {config.gyro_bias_file}")
+    return bias
+
+
+def gyro_bias_payload(bias_est: GyroBiasEstimator, raw: tuple[float, float, float]) -> str:
+    """Encode the bias diagnostic (all values real: the last raw gyro sample and the estimator state).
+
+    Args:
+        bias_est (GyroBiasEstimator): Estimator.
+        raw (tuple[float, float, float]): Last raw (uncorrected) gyro sample in rad/s.
+
+    Returns:
+        str: JSON {raw, bias, learning, settled, rejected_samples, learned_s}.
+    """
+    return json.dumps(
+        {
+            "raw": list(raw),
+            "bias": list(bias_est.bias),
+            "learning": bias_est.learning,
+            "settled": bias_est.settled,
+            "rejected_samples": bias_est.rejected_samples,
+            "learned_s": bias_est.learned_s,
+        }
     )
 
 
@@ -393,7 +445,19 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     )
     last_calibration_pub_s = 0.0
     bias_est = make_bias_estimator(config)
+    bias_pub = (
+        node.create_publisher(String, config.gyro_bias_topic, IMU_QOS)
+        if bias_est is not None and config.gyro_bias_topic
+        else None
+    )
+    saved_bias: tuple[float, float, float] | None = None
+    last_bias_save_s = time.monotonic()
+    last_bias_pub_s = 0.0
+    last_reject_log_s = time.monotonic()
+    rejected_counted = 0
+    rejected_logged = 0
     if bias_est is not None:
+        saved_bias = load_saved_bias(config, node, bias_est)
 
         def on_odometry(msg: Odometry) -> None:
             """Feed the wheel odometry twist to the bias estimator."""
@@ -576,9 +640,39 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             accel_vals = accel_vals + (0.0,)
 
         if bias_est is not None:
-            bias_est.update(time.monotonic(), gyro_vals)
+            now_s = time.monotonic()
+            raw_gyro = gyro_vals
+            bias_est.update(now_s, gyro_vals)
             gyro_vals = bias_est.correct(gyro_vals)
             metrics.record_gyro_bias(bias_est.bias, bias_est.learning)
+            metrics.record_gyro_rejected(bias_est.rejected_samples - rejected_counted)
+            rejected_counted = bias_est.rejected_samples
+            if now_s - last_reject_log_s >= GYRO_BIAS_REJECT_LOG_PERIOD_S:
+                last_reject_log_s = now_s
+                if bias_est.rejected_samples > rejected_logged:
+                    node.get_logger().warn(
+                        f"gyro bias: {bias_est.rejected_samples - rejected_logged} stationary samples rejected in the "
+                        f"last {GYRO_BIAS_REJECT_LOG_PERIOD_S:.0f} s (gyro more than {config.gyro_bias_sanity_rad_s} "
+                        f"rad/s from the bias {bias_est.bias}); a true bias this large is never learned"
+                    )
+                    rejected_logged = bias_est.rejected_samples
+            if bias_pub is not None and now_s - last_bias_pub_s >= GYRO_BIAS_PUBLISH_PERIOD_S:
+                last_bias_pub_s = now_s
+                publish_if_ok(bias_pub, String(data=gyro_bias_payload(bias_est, raw_gyro)))
+            if (
+                config.gyro_bias_file
+                and bias_est.settled
+                and now_s - last_bias_save_s >= config.gyro_bias_save_interval_s
+            ):
+                last_bias_save_s = now_s
+                if saved_bias is None or any(
+                    abs(a - b) > BIAS_SAVE_MIN_CHANGE_RAD_S for a, b in zip(bias_est.bias, saved_bias, strict=True)
+                ):
+                    try:
+                        save_bias(Path(config.gyro_bias_file), bias_est.bias)
+                        saved_bias = bias_est.bias
+                    except OSError as e:
+                        node.get_logger().warn(f"gyro bias save failed: {e}")
 
         # Feed estimators (only when compute_covariance is enabled).
         if gyro_est is not None:
