@@ -1,0 +1,23 @@
+# Evaluation test set v1 (scripts/eval/testset.py). Versioned: never edit in place; a change gets testset_v2.yaml.
+# 10 objects x 3 placements = 30 cases; arm-only mode runs the 2 arm_only placements (20 cases).
+version: 1
+place_target:
+  id: bin
+  description: "the small grey box 25 cm right of the arm base"
+objects:
+  - {id: tomato_plush, name: "plush tomato", description: "red soft plush tomato, about 7 cm across", soft: true}
+  - {id: carrot_plush, name: "plush carrot", description: "orange soft plush carrot, about 12 cm long and 4 cm thick", soft: true}
+  - {id: bear_plush, name: "small plush bear", description: "brown soft teddy bear, about 10 cm tall", soft: true}
+  - {id: tennis_ball, name: "tennis ball", description: "yellow felt tennis ball, 6.7 cm diameter"}
+  - {id: rubber_duck, name: "rubber duck", description: "yellow rubber bath duck, about 8 cm long", soft: true}
+  - {id: kitchen_sponge, name: "kitchen sponge", description: "green and yellow dish sponge, 9 x 6 x 3 cm", soft: true}
+  - {id: tape_roll, name: "roll of tape", description: "roll of clear adhesive tape on a 2.5 cm wide core, about 7 cm across"}
+  - {id: glue_stick, name: "glue stick", description: "white and blue glue stick, about 9 cm long and 2.5 cm thick"}
+  - {id: plastic_cup, name: "plastic cup", description: "empty red plastic cup standing upright, 9 cm tall"}
+  - {id: rolled_sock, name: "rolled-up sock", description: "dark blue cotton sock rolled into a ball, about 6 cm across", soft: true}
+placements:
+  - {id: front_center, description: "on the floor 25 cm in front of the arm base, centred", arm_only: true}
+  - {id: front_left, description: "on the floor 25 cm in front of the arm base, 15 cm to the left", arm_only: true}
+  - {id: far_room, description: "on the floor 1.5 m straight ahead of the robot", arm_only: false}
+prompt_template: "Pick up the {object_name} lying {placement_description} and put it into {place_description}."
+arm_only_suffix: " The robot is charging: do not drive the base; everything is within arm reach."

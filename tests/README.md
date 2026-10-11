@@ -247,6 +247,70 @@ Unit tests for `scripts/calibrate_retry_threshold.py` (Brier score, reliability 
 | `test_main_insufficient_data_message` | `main` prints `insufficient data, keep 0.5` for a thin source. |
 | `test_main_empty_source` | An empty source reports `keep unknown` instead of crashing. |
 
+### `test_eval_testset.py`
+
+Unit tests for `scripts/eval/testset.py` (fixed 10x3 evaluation test set).
+
+| Test | Description |
+|------|-------------|
+| `test_valid_testset_loads` | A 10-object, 3-placement set validates; `TOTAL_CASES` is 30. |
+| `test_wrong_object_count_rejected` | 9 or 11 objects are rejected ("exactly 10 objects"). |
+| `test_wrong_placement_count_rejected` | 2 or 4 placements are rejected ("exactly 3 placements"). |
+| `test_duplicate_object_ids_rejected`, `test_duplicate_placement_ids_rejected` | Duplicate ids are rejected. |
+| `test_no_arm_only_placement_rejected` | A set without an `arm_only` placement is rejected. |
+| `test_unknown_key_rejected` | Unknown top-level keys are rejected. |
+| `test_template_with_unknown_placeholder_rejected` | `prompt_template` placeholders other than object_name / placement_description / place_description are rejected. |
+| `test_full_mode_expands_to_30_object_major` | `full` gives 30 unique cases in object-major order. |
+| `test_arm_only_expansion_gives_20_arm_only_cases` | `arm_only` gives the 20 arm-only cases; case key `<object>/<placement>`. |
+| `test_unknown_mode_rejected` | An unknown mode raises. |
+| `test_render_prompt_full_and_arm_only` | Prompt rendering; arm-only appends the suffix. |
+| `test_render_prompt_unknown_case_rejected` | An unknown object id raises `KeyError`. |
+| `test_shipped_v1_testset` | `scripts/eval/testset_v1.yaml` validates: 10 objects, 2 arm-only and 1 navigation placement, 20 arm-only cases, no TODO-like text, non-empty descriptions, rendered prompt. |
+| `test_load_testset_from_file` | YAML loading. |
+
+### `test_eval_stages.py`
+
+Unit tests for `scripts/eval/stages.py` with event fixtures shaped like real claude_agent events (tool_call / tool_result with GraspResult JSON text and image blocks, phase_started / phase_completed with attempt and failure, turn_end with instruction_id).
+
+| Test | Description |
+|------|-------------|
+| `test_happy_path_claims_and_grasp_attempts` | Grasp missed then grasped: grasp attempts 2, locate / grasp / verify / place ok, navigate not reached, instruction id, turn_end and lookup ids. |
+| `test_per_phase_stage_attempts_and_failures` | Phase-to-stage mapping, attempts from phase_completed, failure records of failed closes. |
+| `test_phase_names_are_ignored` | A phase named "navigate" that only grasps maps to grasp. |
+| `test_no_nav_calls_is_navigate_not_reached` | No nav calls: navigate not reached; no grasp: grasp / verify / place not reached. |
+| `test_navigate_last_result_decides`, `test_navigate_call_without_result_fails` | The last nav result decides; a nav call without a result fails. |
+| `test_locate_fails_without_grasp_or_planned_plan`, `test_locate_ok_with_planned_plan_and_no_grasp`, `test_locate_not_reached_when_grasp_without_perception` | Locate rule: an infeasible plan fails, a planned plan_grasp is ok, no perception before the grasp is not reached. |
+| `test_grasp_unverified_is_ok_and_missed_last_fails`, `test_grasp_error_result_fails` | Grasp rule on the last outcome. |
+| `test_verify_needs_check_after_last_grasp_and_phase_close`, `test_verify_front_camera_is_not_a_check`, `test_verify_phase_closed_failed_is_fail` | Verify needs a gripper image or get_arm_state after the last grasp and a phase close; front images do not count; a failed close fails. |
+| `test_verify_release_before_place_stage_fails`, `test_verify_and_place_in_one_phase_is_ok` | A release in a verify-mapped phase fails verify; check plus release in one phase maps to place (tie rule) and both are ok. |
+| `test_release_then_done_gives_place_ok`, `test_release_with_phase_failed_or_open_fails`, `test_release_error_fails_place`, `test_retry_release_before_last_grasp_is_not_place` | Place rule: released and phase done; a failed or never-closed phase or an error fails; a retry release before the last grasp is not place. |
+| `test_stage_mapping_tie_goes_to_later_stage` | Most stage tools wins, ties go to the later stage, a phase without stage tools has no stage. |
+| `test_loop_reentry_keeps_max_attempt_per_phase_id` | Re-entries of one phase id: highest attempt, last outcome, every failed close listed (untyped as None). |
+| `test_runner_direct_calls_are_ignored` | Runner calls (events with `source`) do not count. |
+| `test_events_are_sorted_by_seq_and_turn_end_matches_instruction` | Events in any order are sorted by seq. |
+| `test_no_turn_end_and_no_phases` | Works without turn_end or phases. |
+| `test_extract_helpers` | `extract_lookup_ids` (32-hex only) and `result_outcome` over image plus JSON text blocks. |
+
+### `test_eval_report.py`
+
+Unit tests for `scripts/eval/report.py` (TrialRecord and the evaluation report).
+
+| Test | Description |
+|------|-------------|
+| `test_trial_record_validation` | JSON round trip; unknown stage, unknown status, unknown first failed stage and trial 0 rejected. |
+| `test_success_at_1_and_at_k_with_stop_on_success` | success@1 and success@k: a case stopped after a success counts, a case with fewer than k trials and no success is incomplete and left out. |
+| `test_success_at_k_ignores_trials_beyond_k` | Trials after k do not count. |
+| `test_stage_conditional_success_and_first_failure_share` | Per stage attempted, success conditional on reaching it and share of first failures. |
+| `test_first_failure_share_none_without_failures` | No failed trial: share is None. |
+| `test_agreement_and_false_ok_rate` | Claim vs label accuracy and false "ok" rate per stage; n/a labels not compared. |
+| `test_mean_attempts_retries_and_failure_histograms` | Mean attempts per phase overall and per stage (unmapped bucket), mean automatic retries per trial, failure_type / eai_error_type histograms and untyped failed closes. |
+| `test_cost_and_time_per_trial` | Cost total and mean, duration mean and max, mean turns. |
+| `test_coverage_header_states_cases_of_30` | Coverage counts and the "Coverage: 20 of 30 cases run" header line. |
+| `test_empty_report_and_json` | An empty run gives None rates and is JSON-serializable. |
+| `test_build_rejects_bad_k` | k < 1 raises. |
+| `test_render_text_sections` | The text report has every section. |
+| `test_trial_record_from_derivation` | A TrialRecord built from `stages.derive` carries instruction id, turn_end fields, claims, phases and lookup ids. |
+
 ### `test_topic_scraper_config.py`
 
 Client topic_scraper_api config (`ansible/group_vars/client.yml`).
