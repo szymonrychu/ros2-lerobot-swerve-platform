@@ -1009,6 +1009,22 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   is written to disk and loaded by a new envelope without recomputing, and a changed hard margin, a changed arm link
   model (collision boxes) or a corrupt file recomputes; the blend velocity cap and home-start grid stay clear of the
   measured lidar dome
+- reach map (`test_reach_map.py`, coarse fixture: the default r / z cells every 30 deg of heading, 48 x 48 x 26
+  planar samples): `ReachMapSettings` defaults (5 deg, 0.02 / 0.48 m, 0.025 / 0.45 m, 72 x 72 x 37, 2 per cell, package
+  `data/reach_map.npz`) and validation; `ReachEnvelope.cache_key` unchanged by extracting `reach_inputs` (compared with
+  the old formula for the default and the deployed config); the key changes with the body, mount, joint limits, tool
+  point, hard margin, every grid field and `REACH_MAP_VERSION` but not with the file path; the pan axis: FK at pan
+  theta equals the pan 0 FK rotated about the pan joint axis (1e-6 m), the axis is vertical and the vertical rotation
+  the map uses is within 5 um, a tilted pan or mount is refused; build: shapes, dtypes, grid and meta (key, version,
+  counts consistent with the mask, clearance >= the hard margin where reachable and NaN elsewhere), deterministic,
+  traced allocations under 64 MiB, body checks in batches of at most `ENVELOPE_BATCH_SAMPLES`, the clearance pass gives
+  exactly `clear_of`'s verdict, doubling `planar_samples` changes the reachable cell-pitch count under 3 %, and
+  `point_reach` confirms at least 18 of 20 sampled reachable cells and refutes at least 18 of 20 unreachable ones;
+  save / load round trip (atomic, no temporary file left), missing and unreadable files raise `ReachMapMissing`, another
+  grid raises `ReachMapStale` with the expected and found keys; `cells`: margins on a synthetic mask (neighbour cells,
+  the ring beyond `r_max_m`, the heading rows beyond the pan range), pitch filter (nearest bin within 7.5 deg, others
+  refused), heights outside the grid give nothing; `describe`; the CLI builds and checks (exit 0), and exits 1 for a
+  stale or missing file; `config_from_client_yml` reads the mcp_server node
 - arm link boxes (`test_arm_link_boxes.py`): the body check's link boxes are the six collision boxes of the grasp_sim
   `so101.xml` (upper arm, forearm, wrist; read from the MJCF independently), the upper arm boxes contact-only; the face
   points cover every face within spacing / sqrt(2) and that bound stays within the default hard margin (2 mm, `BOX_POINT_SPACING_M` 2.5 mm); `clear_of` (envelope's pruned check on `SelfCollisionChecker.geometry`) equals the hard verdict of the full clearances over random poses; over 300 random poses the checker's clearance never exceeds the

@@ -26,6 +26,8 @@ GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the grippe
 FRONT_CAMERA_PARENT = "base_link"
 DEFAULT_OBJECTS_FILE = Path("/var/lib/ros2/objects/objects.json")
 DEFAULT_LOOKUPS_DIR = Path("/var/lib/ros2/poi/lookups")  # camera lookups, next to poi_store's poi.json
+# Offline inverse reachability map (reach_map.py), committed inside the package so it deploys with the git checkout.
+DEFAULT_REACH_MAP_FILE = Path(__file__).resolve().parent / "data" / "reach_map.npz"
 MIN_TOKEN_LENGTH = 24
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 # Hard caps no config may exceed (match the Nav2 velocity smoother and the swerve controller).
@@ -1010,6 +1012,39 @@ class BodyCheckSettings(StrictModel):
         return self
 
 
+class ReachMapSettings(StrictModel):
+    """Grid of the offline inverse reachability map (reach_map.py); every field except file is part of its key.
+
+    Pan headings every heading_step_deg inside the shoulder_pan range (minus the limit margin), tool distance from the
+    pan axis r_step_m .. r_max_m every r_step_m, tool height (base_link z, floor = 0) z_step_m .. z_max_m every z_step_m,
+    and the approach pitches of arm_reach.POINT_PITCHES_DEG. The map is built by forward sampling planar_samples
+    (shoulder_lift, elbow_flex, wrist_flex) configurations at pan 0 and keeping up to samples_per_cell of them nearest
+    each cell and pitch for the body check.
+    """
+
+    heading_step_deg: float = Field(default=5.0, ge=1.0, le=90.0)
+    r_step_m: float = Field(default=0.02, gt=0.0, le=0.2)
+    r_max_m: float = Field(default=0.48, gt=0.0, le=1.0)
+    z_step_m: float = Field(default=0.025, gt=0.0, le=0.2)
+    z_max_m: float = Field(default=0.45, gt=0.0, le=1.0)
+    planar_samples: tuple[int, int, int] = (72, 72, 37)
+    samples_per_cell: int = Field(default=2, ge=1, le=16)
+    file: Path = DEFAULT_REACH_MAP_FILE
+
+    @model_validator(mode="after")
+    def grid_has_cells(self) -> "ReachMapSettings":
+        """Require at least one radius and one height cell and at least two samples per planar joint.
+
+        Returns:
+            ReachMapSettings: The validated settings.
+        """
+        if self.r_max_m < self.r_step_m or self.z_max_m < self.z_step_m:
+            raise ValueError("reach_map: r_max_m / z_max_m must be at least r_step_m / z_step_m")
+        if min(self.planar_samples) < 2:
+            raise ValueError("reach_map.planar_samples needs at least 2 samples for each of the 3 planar joints")
+        return self
+
+
 class GripProfile(StrictModel):
     """How the gripper closes on and holds one kind of object (values in servo units, tune on the real gripper).
 
@@ -1330,6 +1365,7 @@ class McpServerConfig(StrictModel):
     floor_guard: FloorGuardSettings = FloorGuardSettings()
     body: BodySettings = BodySettings()
     body_check: BodyCheckSettings = BodyCheckSettings()
+    reach_map: ReachMapSettings = ReachMapSettings()
     grasp: GraspSettings = GraspSettings()
     grip_profiles: GripProfileSettings = GripProfileSettings()
     # Declarative guard rules (guard_rules.py); code default: enabled, no rules (the deployed set lives in client.yml).

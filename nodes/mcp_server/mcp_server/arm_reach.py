@@ -63,6 +63,27 @@ def joint_range(checker: SelfCollisionChecker, joint: str) -> tuple[float, float
     return lo - offset + kin.margin, hi - offset - kin.margin
 
 
+def reach_inputs(checker: SelfCollisionChecker) -> dict[str, Any]:
+    """The arm and body inputs every reach computation depends on (envelope and reach map keys hash them).
+
+    Args:
+        checker (SelfCollisionChecker): Checker (body, mount, kinematics).
+
+    Returns:
+        dict[str, Any]: body, links (link collision model), mount, limits (URDF, rad), offsets (joint zero offsets,
+            rad), margin (joint limit margin, rad); JSON-serialisable.
+    """
+    kin = checker.kin
+    return {
+        "body": checker.body.describe(),
+        "links": link_model_description(),
+        "mount": checker.mount.model_dump(),
+        "limits": {k: list(v) for k, v in sorted(kin.limits.items())},
+        "offsets": dict(sorted(kin.offsets.items())),
+        "margin": kin.margin,
+    }
+
+
 class ReachEnvelope:
     """Lazily computed, cached collision-free reach envelope (see the module docstring)."""
 
@@ -111,15 +132,9 @@ class ReachEnvelope:
         Returns:
             str: Hex digest.
         """
-        kin = self.checker.kin
         inputs = {
             "version": CACHE_VERSION,
-            "body": self.checker.body.describe(),
-            "links": link_model_description(),
-            "mount": self.checker.mount.model_dump(),
-            "limits": {k: list(v) for k, v in sorted(kin.limits.items())},
-            "offsets": dict(sorted(kin.offsets.items())),
-            "margin": kin.margin,
+            **reach_inputs(self.checker),
             "settings": self.settings.model_dump(
                 include={"hard_margin_m", "reach_heading_step_deg", "reach_height_max_m", "reach_height_step_m"}
             ),

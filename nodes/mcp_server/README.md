@@ -907,6 +907,71 @@ cap) and up to 8.7 mm between two `joint_line` samples (0.02 rad: planner free m
 cross any obstacle (the thinnest, a side frame, is 35 mm) and a dip along a straight chord past a round surface is below
 1 mm, but a path skimming a sharp obstacle edge between two samples can come closer than 2 mm undetected.
 
+## Reach map
+
+`mcp_server/reach_map.py` is an offline inverse reachability map of the arm with the robot body: for every cell of a
+grid around the shoulder_pan axis it stores which approach pitches put the tool point there without touching the body.
+It is built on the dev Mac and is meant to be loaded at runtime (the approach planner ranks base poses with it); the
+robot never computes it, so it costs no robot CPU.
+
+Grid (`reach_map:` config, `ReachMapSettings`; values are the defaults):
+
+| Axis | Values |
+|---|---|
+| heading | tool bearing from the pan axis in base_link, every `heading_step_deg` (5) inside the bearings the pan range minus the limit margin covers (43 headings, -105 .. 105 deg) |
+| r | horizontal distance from the pan axis, `r_step_m` (0.02) .. `r_max_m` (0.48) every `r_step_m` (24) |
+| z | tool height in base_link (floor = 0), `z_step_m` (0.025) .. `z_max_m` (0.45) every `z_step_m` (18) |
+| pitch | `POINT_PITCHES_DEG` (-30 .. 90 every 15 deg, + down), one bit each |
+
+Build (forward sampling, RM4D-style, no numeric IK): forward kinematics of an even `planar_samples` (72 x 72 x 37)
+grid of shoulder_lift x elbow_flex x wrist_flex inside their limits (minus the margin) at pan 0, wrist_roll 0, gripper
+closed. The pan axis is vertical, so turning the pan only rotates a sample about it: its r, z and pitch stay and its
+bearing moves by the pan angle (`pan_geometry` checks that FK at a pan angle equals the pan 0 FK rotated about the
+pan joint axis within 1e-6 m, and that the axis is vertical within 1e-4 rad; the URDF's `rpy="3.14159 ..."` tilts it
+2.65e-6 rad, under 2 um at full reach). Each sample belongs to the cell nearest its (r, z) and to the nearest pitch
+within 7.5 deg. Per heading every sample whose required pan lies inside the pan range is a candidate; the
+`samples_per_cell` (2) nearest each cell centre and pitch are body checked at that pan in batches of
+`ENVELOPE_BATCH_SAMPLES` (32). The verdict is `SelfCollisionChecker.clear_of`'s at `body_check.hard_margin_m` (one
+pruned pass bounded at the soft margin gives it and the clearance; a test pins the verdict to `clear_of`). Stored in
+a compressed `.npz` (written to a temporary file and renamed):
+
+- `pitch_mask` uint16 [H, R, Z]: bit k set = pitch k reachable and collision-free in that cell;
+- `clearance` float16 [H, R, Z]: best body clearance of the cell's clear samples (m, saturated at the 3 cm soft
+  margin), NaN where no pitch works;
+- `meta` JSON: key, version, grid (headings, radii, heights, pitches, pan axis), planar_samples, samples_per_cell,
+  compute_s, created_at and counts (samples, checked, clear, reachable cells and cell-pitches).
+
+A cell is reachable when some sample within half a cell of its centre works, so its edge cells are about a centimetre
+optimistic; on the 30 deg test grid `point_reach` (IK at the exact centre) confirms at least 90 % of sampled reachable
+cells and refutes at least 90 % of the unreachable ones.
+
+Key: sha256 of `arm_reach.reach_inputs(checker)` (body, arm link model, mount, joint limits, joint offsets, limit
+margin: the same inputs as the envelope's key, which is unchanged), the tool point offset, the jaw (closed angle, open
+axis), the hard and soft margins, the grid fields (everything in `ReachMapSettings` but `file`), the pitches and
+`REACH_MAP_VERSION`. `ReachMap.load(path, checker, settings)` raises `ReachMapMissing` (no file or unreadable) or
+`ReachMapStale(expected, found)` (built for other inputs); both messages name the regenerate command, so a stale map
+is never used silently. The file defaults to the package `mcp_server/data/reach_map.npz` (`reach_map.file`), so it
+deploys with the git checkout.
+
+Query: `ReachMap.cells(z, pitch_deg | None)` returns the reachable cells of the height slice nearest z (within half a
+step; outside the grid nothing): heading_deg, r_m, the working pitches, clearance and `margin_m`, the horizontal
+distance from the cell centre to the nearest unreachable cell centre in that slice (cells outside the grid count as
+unreachable: the ring one r step beyond `r_max_m` and the heading rows one step beyond each end of the pan range).
+`ReachMap.describe()` gives key, version, created_at, compute_s, grid and counts.
+
+CLI (from `nodes/mcp_server`):
+
+```bash
+uv run python -m mcp_server.reach_map build --client-yml ../../ansible/group_vars/client.yml --out mcp_server/data/reach_map.npz
+uv run python -m mcp_server.reach_map check --client-yml ../../ansible/group_vars/client.yml  # exit 1 when missing or stale
+```
+
+Regenerate after any change to the body, arm mount, joint limits or offsets, tool point, jaw, margins or the
+`reach_map` grid. Measured on the M4 dev Mac 2026-10-11 with the deployed client.yml config and the default grid:
+82 s (191,808 FK samples, 147,798 body-checked poses, 101,436 clear; 12,838 of 18,576 cells and 52,738 cell-pitches
+reachable), 360 MB peak RSS, a 17 KB file. Doubling the planar density on the default r / z cells (30 deg headings)
+adds 1.9 % reachable cell-pitches.
+
 ## Unmeasured efforts
 
 feetech_servos publishes a NaN effort for a joint without an effort reading (a non-effort joint, a missing load).
