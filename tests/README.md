@@ -648,6 +648,13 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   relaxed after the hold window; stale-feedback and tracking aborts still fire; `final` waits (timeout) and splits
   `trajectory_s` / `settle_s`; a stuck gripper no longer times an arm move out, a gripper-only move still judges the
   jaw; per-joint converge/settle tolerance defaults (loaded shoulder_lift / elbow_flex wider) and their validation
+- arm home under the follower delay (`test_arm_home_tracking.py`): a fake follower (`fakes.DelayedFollower`) reaching
+  each command after the per-joint delay fitted to the 2026-10-11 12:19:55 abort (shoulder_lift 0.53 s, elbow_flex
+  0.65 s, wrist_flex 0.63 s, others 0.6 s) runs the logged full-speed home from the logged start pose: it converges
+  with the delay window and aborts with `arm_tracking_delay_s: 0` (the robot's 0.50x rad over 0.500, on a loaded joint
+  named in the message); a jammed arm still aborts a full-speed home within base + max(lag x vmax, delay x vmax);
+  `tracking_limit` takes the larger of the speed term and the setpoint travel; `setpoint_travel` spans the window
+  (the setpoint current at its start included, zero window, empty history)
 - gravity sag model (`test_sag.py`): URDF gravity torques of a synthetic two-joint chain (horizontal point masses,
   hanging link, cosine law, missing joints, unknown joint rejected) and of the SO-101 (no torque on the vertical pan
   axis, stretched arm loads the shoulder most, shoulder > elbow > wrist, plausible total mass); deflection k * tau with

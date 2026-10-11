@@ -218,7 +218,7 @@ missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresho
 | `battery_cutoff` | critical | the shared `BatteryGuard` cut-off (hysteresis as in the gate) |
 | `collision_stop` | critical | collision monitor STOP while a base motion runs. The monitor publishes its state only on change, so a STOP from before the motion counts only if no fresher state arrives within `collision_latch_grace_s` 0.5 s: a drive away from the obstacle gets a new state and is not cut short |
 | `stall` | critical | base: commanded speed (> 0.05 m/s or 0.1 rad/s) but measured odometry/rf2o ~0 for > `stall_s` 1.0 s while a base motion runs (the arm's tracking abort is its own `arm_tracking_abort` event) |
-| `arm_tracking_abort` | warning | arm: setpoint vs measured tracking error above `limits.arm_tracking_error_rad` + `limits.arm_tracking_lag_s` x the motion's velocity; never interrupts the model's turn or a base motion (not in `BASE_INTERRUPTS`) |
+| `arm_tracking_abort` | warning | arm: setpoint vs measured tracking error of a joint (named in the event) above `limits.arm_tracking_error_rad` + the larger of `limits.arm_tracking_lag_s` x the motion's velocity and the joint's setpoint travel within `limits.arm_tracking_delay_s`; never interrupts the model's turn or a base motion (not in `BASE_INTERRUPTS`) |
 | `wheel_slip` | warning | swerve residual (decoded from the twist covariance `var_xy = 0.002 + r^2`; parked fixed value = none) > `slip_residual_warn_mps` 0.1 |
 | `bump` | warning / critical | horizontal acceleration spike after baseline removal >= `bump_warn_mps2` 4 / `bump_critical_mps2` 9 m/s^2 for `bump_min_samples` (2) consecutive IMU samples; one glitchy sample is ignored and the severity follows the weakest sample of the run |
 | `tilt` | warning | tilt from the IMU orientation > `tilt_warn_deg` 10 deg |
@@ -1102,7 +1102,19 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
   with per-joint velocity <= `arm_max_joint_velocity_rps` (default 1.0 rad/s; `speed_scale` 0.5 = that maximum, lower is proportionally slower) streamed at
   25 Hz; blocks until converged (`arm_converge_tolerance_rad`) or `arm_converge_timeout_s` after the trajectory.
   Aborts and holds the measured pose when `/follower/joint_states` is older than 0.3 s, the tracking error (setpoint vs
-  measured, gripper excluded) exceeds `arm_tracking_error_rad` (0.25) + `arm_tracking_lag_s` (0.25 s) x the motion's joint velocity cap (0.5 rad at full speed 1.0 rad/s, 0.3 rad at 0.2 rad/s: servos lag more at speed), or `stop` is called. One arm motion at a time.
+  measured, gripper excluded) of a joint exceeds `arm_tracking_error_rad` (0.25) + the larger of `arm_tracking_lag_s` (0.25 s) x the motion's joint velocity cap (0.5 rad at full speed 1.0 rad/s, 0.3 rad at 0.2 rad/s: servos lag more at speed) and how far that joint's setpoint travelled within the last `arm_tracking_delay_s` (0.65 s), or `stop` is called. The abort message and the `arm_tracking_abort` event name the joint. One arm motion at a time.
+- **Tracking limit and the follower delay** (2026-10-11 12:19:55, `arm_home` aborted: tracking error 0.504 rad over 0.500
+  after 1.6 s of a 1.0 rad/s home, the following slow `move_arm_joints` converged). Evidence: the follower's `joint:value`
+  journal lines (Loki, `ros2-lerobot_follower.service`) against the setpoints reconstructed from the mcp_server timing line
+  (first setpoint, 33 ticks of the 54-tick quintic) show every joint following as a pure delay, the unloaded, lowering
+  wrist_flex as much as the gravity-loaded ones (least-squares delay: shoulder_lift 0.53 s, elbow_flex 0.65 s, wrist_flex
+  0.63 s); at the abort shoulder_lift lagged 0.47 rad (plus its sag) and elbow_flex 0.43 rad. The bus loop ran normally
+  (Mimir `servo_cycle_duration_seconds` about 11 ms, 80 cycles/s). Until about 10:33 mcp_server was CPU-starved
+  (ticks 85-140 ms), so motions ran 2-3x slower and the same delay stayed under the 0.5 rad limit; with nominal ticks a
+  full-speed joint is about 0.5-0.65 rad behind its setpoint while it follows correctly. The fix keeps the base
+  threshold and the speed term and only lets a joint lag by the setpoint travel of the measured delay window, so the
+  limit shrinks back to 0.25 + 0.25 x vmax once the setpoint stands still; a jammed joint still aborts (at full speed
+  after about 0.85 rad instead of 0.5). `arm_tracking_delay_s: 0` restores the instantaneous threshold.
 - **Settle policy** (`settle` on `move_arm_joints` / `move_arm_cartesian`): `final` waits for convergence (above);
   `trajectory_end` returns as soon as the last setpoint is streamed (after one more stale/tracking check) with status
   `converged`, `settling=true` while joints are still outside their converge tolerance, and `tracking_error_rad` (the

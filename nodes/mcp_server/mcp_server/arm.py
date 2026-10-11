@@ -242,18 +242,42 @@ class ArmBackend(Protocol):
         ...
 
 
-def tracking_limit(base_rad: float, lag_s: float, velocity_rps: float) -> float:
-    """Tracking-error abort threshold of a motion: servos lag their setpoint more the faster they move.
+def tracking_limit(base_rad: float, lag_s: float, velocity_rps: float, travel_rad: float = 0.0) -> float:
+    """Tracking-error abort threshold of a joint: servos lag their setpoint more the faster they move.
 
     Args:
         base_rad (float): Threshold at standstill (rad).
         lag_s (float): Expected servo lag (s); the threshold grows by lag_s * velocity_rps.
         velocity_rps (float): Per-joint velocity cap of the motion (rad/s).
+        travel_rad (float): How far the joint's setpoint travelled within the follower delay window
+            (limits.arm_tracking_delay_s); replaces the speed term when larger.
 
     Returns:
         float: The abort threshold (rad).
     """
-    return base_rad + lag_s * velocity_rps
+    return base_rad + max(lag_s * velocity_rps, travel_rad)
+
+
+def setpoint_travel(history: list[tuple[float, dict[str, float]]], now: float, window_s: float) -> dict[str, float]:
+    """Span of each joint's setpoints over the last window_s (a joint delayed by up to window_s lags by at most this).
+
+    Args:
+        history (list[tuple[float, dict[str, float]]]): (time, setpoint) pairs, oldest first; the newest is current.
+        now (float): Current time (s).
+        window_s (float): Window length (s); the setpoint current at its start counts too.
+
+    Returns:
+        dict[str, float]: Joint -> max - min of its setpoints in the window (rad); empty without history.
+    """
+    if not history:
+        return {}
+    first = 0
+    for index, (stamp, _) in enumerate(history):
+        if stamp <= now - window_s:
+            first = index
+    recent = [setpoint for _, setpoint in history[first:]]
+    joints = set(history[-1][1])
+    return {j: max(s[j] for s in recent if j in s) - min(s[j] for s in recent if j in s) for j in sorted(joints)}
 
 
 class ArmController:
@@ -308,7 +332,9 @@ class ArmController:
         self._relax_hold: tuple[float, list[str]] | None = None
         self._streaming = False
         self._moving: list[str] = []  # joints of the running motion
-        self._tracking_limit = config.limits.arm_tracking_error_rad  # abort threshold of the running motion (rad)
+        self._tracking_vmax = 0.0  # velocity cap of the running motion (rad/s), sets the speed term of tracking_limit
+        # (time, setpoint) seen by the running motion's tracking checks, pruned to limits.arm_tracking_delay_s.
+        self._setpoint_history: list[tuple[float, dict[str, float]]] = []
         self._slow_zone: dict[str, object] | None = None  # slow-zone summary of the running motion
         self._self_collision: dict[str, object] | None = None  # body soft-boundary summary of the running motion
         self._first_setpoint_at: float | None = None  # when the running motion published its first trajectory setpoint
@@ -1771,22 +1797,61 @@ class ArmController:
         with self._lock:
             setpoint = self._last_setpoint
         if setpoint is not None:
-            error = max_abs_error(setpoint, sample.positions, [j for j in tracked if j in setpoint])
-            limit = self._tracking_limit
-            if error > limit:
+            lagging = self.tracking_violation(now, setpoint, sample.positions, tracked)
+            if lagging is not None:
+                joint, error, limit = lagging
                 self._interrupted_by = "arm_tracking_abort"
                 if self.monitor is not None:
                     self.monitor.report_arm_tracking_abort(
-                        f"arm tracking error {error:.3f} rad exceeds {limit:.3f}",
-                        {"tracking_error_rad": round(error, 4)},
+                        f"arm tracking error {error:.3f} rad exceeds {limit:.3f} ({joint})",
+                        {"tracking_error_rad": round(error, 4), "joint": joint},
                     )
-                return "aborted_tracking", f"tracking error {error:.3f} rad exceeds {limit:.3f}"
+                return "aborted_tracking", f"tracking error {error:.3f} rad exceeds {limit:.3f} ({joint})"
         load = sample.efforts.get(self.gripper, 0.0)
         if target_load is not None and self.cfg.grip_profiles.closing_load_sign * load >= target_load:
             return "grasped", f"closing load {load:g} reached the grip profile target_load {target_load:g}"
         if effort_threshold is not None and abs(load) >= effort_threshold:
             return "grasped", f"gripper effort reached {effort_threshold}"
         return None
+
+    def tracking_violation(
+        self, now: float, setpoint: dict[str, float], positions: dict[str, float], tracked: list[str]
+    ) -> tuple[str, float, float] | None:
+        """Record the current setpoint and find the joint lagging it beyond its tracking limit.
+
+        A joint's limit is tracking_limit with the speed term of the motion's velocity cap, or the travel of its setpoint
+        within limits.arm_tracking_delay_s when larger: the follower chain reaches a setpoint that much later (measured
+        2026-10-11), so a joint that far behind is following, not jammed. The limit shrinks back to the speed term once
+        the setpoint has stood still for the window.
+
+        Args:
+            now (float): Backend time of the check (s).
+            setpoint (dict[str, float]): Last published setpoint (target space).
+            positions (dict[str, float]): Measured positions.
+            tracked (list[str]): Joints whose tracking error is checked.
+
+        Returns:
+            tuple[str, float, float] | None: (joint, error, limit) of the joint with the largest error among those over
+                their limit, or None when every tracked joint is within its limit.
+        """
+        limits = self.cfg.limits
+        window = limits.arm_tracking_delay_s
+        history = self._setpoint_history
+        history.append((now, dict(setpoint)))
+        while len(history) > 1 and history[1][0] <= now - window:
+            history.pop(0)
+        travel = setpoint_travel(history, now, window)
+        worst: tuple[str, float, float] | None = None
+        for joint in tracked:
+            if joint not in setpoint:
+                continue
+            error = abs(setpoint[joint] - positions[joint])
+            limit = tracking_limit(
+                limits.arm_tracking_error_rad, limits.arm_tracking_lag_s, self._tracking_vmax, travel.get(joint, 0.0)
+            )
+            if error > limit and (worst is None or error > worst[1]):
+                worst = (joint, error, limit)
+        return worst
 
     def guarded_trajectory(
         self,
@@ -2078,7 +2143,8 @@ class ArmController:
         self._settle_policy = settle
         self._trajectory_end = None
         start = self.start_from_settling(start, moving)
-        self._tracking_limit = tracking_limit(limits.arm_tracking_error_rad, limits.arm_tracking_lag_s, vmax)
+        self._tracking_vmax = vmax
+        self._setpoint_history = []
         started = self.backend.now()
         self._moving = list(moving)
         self._settle_probe = None

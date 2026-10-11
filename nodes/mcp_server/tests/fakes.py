@@ -41,6 +41,8 @@ class FakeArmBackend:
         self.last_sleep = 0.0
         # Autonomy commands and register writes in publish order (events keeps the autonomy topics only).
         self.timeline: list[tuple[str, dict[str, float]]] = []
+        # Backend time of each entry of commands (DelayedFollower replays them after a per-joint delay).
+        self.command_times: list[float] = []
 
     def joint_sample(self) -> JointSample | None:
         if self.no_samples:
@@ -53,6 +55,7 @@ class FakeArmBackend:
             hook, self.on_publish_command = self.on_publish_command, None
             hook(self)
         self.commands.append(dict(positions))
+        self.command_times.append(self.t)
         self.events.append(("command", dict(positions)))
         self.timeline.append(("command", dict(positions)))
         if self.follow and (self.stale_after is None or self.t < self.stale_after):
@@ -85,6 +88,42 @@ class FakeArmBackend:
         self.last_sleep = seconds
         if self.on_sleep is not None:
             self.on_sleep(self)
+
+
+class DelayedFollower:
+    """Follower whose joints reach each published command only after a per-joint delay (an on_sleep hook).
+
+    Fitted to the 2026-10-11 12:19:55 arm_home tracking abort: every joint, the unloaded wrist_flex as much as the
+    gravity-loaded shoulder_lift and elbow_flex, followed the streamed quintic as a pure delay (least-squares fit of the
+    follower's measured joint lines against the reconstructed setpoints: shoulder_lift 0.53 s, elbow_flex 0.65 s,
+    wrist_flex 0.63 s). Joints without a measured delay use default_delay_s.
+    """
+
+    def __init__(self, backend: FakeArmBackend, delays_s: dict[str, float], default_delay_s: float) -> None:
+        """Attach to the backend: it stops jumping to commands and replays them delayed on every sleep.
+
+        Args:
+            backend (FakeArmBackend): Simulated follower.
+            delays_s (dict[str, float]): Joint -> command-to-motion delay (s).
+            default_delay_s (float): Delay of the other joints (s).
+        """
+        self.delays_s = delays_s
+        self.default_delay_s = default_delay_s
+        backend.follow = False
+        backend.on_sleep = self
+
+    def __call__(self, backend: FakeArmBackend) -> None:
+        """Set every joint to the newest command published at least its delay ago.
+
+        Args:
+            backend (FakeArmBackend): Simulated follower.
+        """
+        for joint in backend.positions:
+            due = backend.t - self.delays_s.get(joint, self.default_delay_s)
+            for stamp, command in zip(reversed(backend.command_times), reversed(backend.commands), strict=True):
+                if stamp <= due + 1e-9 and joint in command:
+                    backend.positions[joint] = command[joint]
+                    break
 
 
 class PerceptionFakeMixin:
