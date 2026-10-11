@@ -1464,6 +1464,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_grasp_docking_controller_uses_absolute_costmap_topics_and_clears_the_dock_threshold` | Controller costmap and footprint topics are absolute (`/local_costmap/...`), collision detection on, `simulation_time_step` set, `dock_collision_threshold` >= 0.25 + `docking_threshold`. |
 | `test_grasp_docking_angular_speed_within_swerve_limit` | `v_angular_max` and `rotate_to_heading_angular_vel` are at most the swerve wz limit (velocity_smoother 0.5). |
 | `test_mcp_server_approach_block_matches_grasp_docking_params` | mcp_server `approach`: `staging_offset_m` = -`staging_x_offset`, `docking_threshold_m` = `docking_threshold`, `/grasp/detected_dock_pose`, `/grasp/dock_robot`, tracker `rate_hz` > 2 / `external_detection_timeout`. |
+| `test_mcp_server_approach_block_sets_every_weight_explicitly` | The deployed mcp_server `approach.weights` lists margin 1.0, cost 0.5, travel 0.2, heading 0.1 instead of relying on the defaults. |
 | `test_every_test_is_documented_in_tests_readme` | Every `test_*` function in `test_nav_stack_config.py` is listed in this section. |
 
 ### test_nav_footprint.py

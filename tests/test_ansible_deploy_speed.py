@@ -1037,10 +1037,7 @@ FOLDED_LAUNCH_COMMANDS = {
         "ros2 launch realsense2_camera rs_launch.py enable_accel:=false enable_gyro:=false "
         "depth_module.depth_profile:=848x480x90 rgb_camera.color_profile:=1280x720x30 align_depth.enable:=true"
     ),
-    "nav2_bringup": (
-        "ros2 launch nav2_bringup bringup_launch.py use_localization:=False "
-        "params_file:={{ ros2_repo_dest }}/nodes/nav2_bringup/config/nav2_params.yaml"
-    ),
+    "nav2_bringup": "ros2 launch {{ ros2_repo_dest }}/nodes/nav2_bringup/launch/nav2_launch.py",
 }
 
 

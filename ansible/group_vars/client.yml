@@ -1465,6 +1465,11 @@ ros2_nodes:
         pose_error_xy_m: 0.03
         pose_error_yaw_deg: 3.0
         margin_cap_m: 0.08
+        weights:
+          margin: 1.0
+          cost: 0.5
+          travel: 0.2
+          heading: 0.1
         staging_offset_m: 0.30
         docking_threshold_m: 0.03
         corridor_samples: 5

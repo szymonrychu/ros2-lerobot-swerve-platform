@@ -557,6 +557,11 @@ def test_mcp_server_approach_block_matches_grasp_docking_params() -> None:
     assert approach["tracker"]["rate_hz"] > 2.0 / plugin["external_detection_timeout"]
 
 
+def test_mcp_server_approach_block_sets_every_weight_explicitly() -> None:
+    weights = node_config("mcp_server")["approach"]["weights"]
+    assert weights == {"margin": 1.0, "cost": 0.5, "travel": 0.2, "heading": 0.1}
+
+
 def test_nav2_has_every_server_section() -> None:
     doc = nav2()
     for section in NAV2_SECTIONS:
