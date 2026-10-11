@@ -421,3 +421,50 @@ def test_motion_queue_watch_settings_defaults_and_bounds() -> None:
     for bad in ({"watch_rate_hz": 0.0}, {"watch_rate_hz": 20.5}, {"watch_max_per_call": 0}, {"watch_max_per_call": 17}):
         with pytest.raises(ValidationError):
             MotionQueueSettings(**bad)
+
+
+def test_frontier_settings_defaults_match_the_design_table() -> None:
+    f = McpServerConfig().frontiers
+    assert (f.min_length_m, f.map_max_age_s, f.geodesic_downsample) == (0.30, 60.0, 2)
+    assert (f.pass_clearance_margin_m, f.view_clearance_margin_m) == (0.03, 0.05)
+    assert (f.standoff_min_m, f.standoff_max_m, f.los_candidates) == (0.4, 1.2, 5)
+    assert (f.match_radius_m, f.epoch_reset_known_fraction, f.retired_keep, f.max_listed) == (0.6, 0.5, 50, 15)
+    assert (f.poi_radius_m, f.facing_half_angle_deg, f.facing_max_distance_m) == (2.0, 30.0, 6.0)
+    assert (f.compute_path_timeout_s, f.look_timeout_s, f.look_camera) == (5.0, 20.0, "front")
+
+
+def test_compute_path_topics_default_to_the_nav2_planner_server() -> None:
+    t = McpServerConfig().topics
+    assert (t.compute_path_action, t.planner_id) == ("/compute_path_to_pose", "GridBased")
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"standoff_min_m": 1.2, "standoff_max_m": 1.2},
+        {"standoff_min_m": 1.5, "standoff_max_m": 1.0},
+        {"geodesic_downsample": 0},
+        {"min_length_m": 0.0},
+        {"epoch_reset_known_fraction": 1.5},
+        {"los_candidates": 0},
+        {"look_camera": "rear"},
+        {"unknown_key": 1},
+    ],
+)
+def test_frontier_settings_reject_invalid_values(bad: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        McpServerConfig.model_validate({"frontiers": bad})
+
+
+def test_frontier_settings_accept_a_valid_override() -> None:
+    f = McpServerConfig.model_validate(
+        {
+            "frontiers": {
+                "standoff_min_m": 0.5,
+                "standoff_max_m": 2.0,
+                "geodesic_downsample": 3,
+                "look_camera": "gripper",
+            }
+        }
+    ).frontiers
+    assert (f.standoff_min_m, f.standoff_max_m, f.geodesic_downsample, f.look_camera) == (0.5, 2.0, 3, "gripper")

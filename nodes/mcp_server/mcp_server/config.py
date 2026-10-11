@@ -125,6 +125,8 @@ class TopicSettings(StrictModel):
     map: str = "/map"
     collision_monitor_state: str = "/collision_monitor_state"
     navigate_action: str = "/navigate_to_pose"
+    compute_path_action: str = "/compute_path_to_pose"  # Nav2 planner_server, checks one frontier observation pose
+    planner_id: str = "GridBased"  # planner_server plugin id used by compute_path_action
     gripper_camera: str = "/camera_0/image_raw/compressed"
     front_camera: str = "/overview_camera/image_raw/compressed"
     local_costmap: str = "/local_costmap/costmap"  # subscribed lazily by get_topdown_view, latest message only
@@ -1236,6 +1238,43 @@ class GraspSettings(StrictModel):
     )
 
 
+class FrontierSettings(StrictModel):
+    """Frontier detection and the frontier tools (frontiers.py, frontier_tools.py): computed lazily per /map version."""
+
+    min_length_m: float = Field(default=0.30, gt=0.0)  # smaller clusters are dropped (12 cells at 2.5 cm)
+    map_max_age_s: float = Field(default=60.0, gt=0.0)  # older /map is unavailable (slam publishes every 10 s)
+    geodesic_downsample: int = Field(default=2, ge=1)  # geodesic grid cell = map resolution x this
+    # Traversable cell = known free with clearance >= footprint.width_m / 2 + this.
+    pass_clearance_margin_m: float = Field(default=0.03, ge=0.0)
+    # Observation pose clearance >= nav footprint circumscribed radius (static half-diagonal without it) + this.
+    view_clearance_margin_m: float = Field(default=0.05, ge=0.0)
+    standoff_min_m: float = Field(default=0.4, ge=0.0)  # observation pose distance window to the nearest frontier cell
+    standoff_max_m: float = Field(default=1.2, gt=0.0)
+    los_candidates: int = Field(default=5, ge=1)  # best-scored poses checked for line of sight
+    match_radius_m: float = Field(default=0.6, gt=0.0)  # centroid distance that keeps an id across map versions
+    # Known cells below this fraction of the previous map, or a resolution change: new epoch, ids restart.
+    epoch_reset_known_fraction: float = Field(default=0.5, gt=0.0, le=1.0)
+    retired_keep: int = Field(default=50, ge=0)  # retired ids remembered ("gone, replaced by")
+    max_listed: int = Field(default=15, ge=1)  # list_frontiers cap (reachable first, by path distance)
+    poi_radius_m: float = Field(default=2.0, gt=0.0)  # nearest_poi search radius
+    facing_half_angle_deg: float = Field(default=30.0, gt=0.0, le=180.0)  # lookup faces a frontier within this angle
+    facing_max_distance_m: float = Field(default=6.0, gt=0.0)  # ... and within this distance of the lookup position
+    compute_path_timeout_s: float = Field(default=5.0, gt=0.0)  # plan_frontier_visit Nav2 check
+    look_timeout_s: float = Field(default=20.0, gt=0.0)  # look_toward_frontier rotation timeout
+    look_camera: Literal["front", "gripper"] = "front"  # look_toward_frontier default camera
+
+    @model_validator(mode="after")
+    def standoff_window_not_empty(self) -> "FrontierSettings":
+        """Require standoff_min_m < standoff_max_m.
+
+        Returns:
+            FrontierSettings: The validated settings.
+        """
+        if self.standoff_min_m >= self.standoff_max_m:
+            raise ValueError("frontiers.standoff_min_m must be below standoff_max_m")
+        return self
+
+
 class McpServerConfig(StrictModel):
     """Top-level mcp_server configuration."""
 
@@ -1265,6 +1304,7 @@ class McpServerConfig(StrictModel):
     grip_profiles: GripProfileSettings = GripProfileSettings()
     # Declarative guard rules (guard_rules.py); code default: enabled, no rules (the deployed set lives in client.yml).
     guard_rules: GuardRuleSettings = GuardRuleSettings()
+    frontiers: FrontierSettings = FrontierSettings()
 
 
 def load_config(path: Path) -> McpServerConfig:
