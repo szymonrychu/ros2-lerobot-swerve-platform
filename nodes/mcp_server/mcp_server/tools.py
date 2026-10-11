@@ -6,7 +6,7 @@ import json
 import logging
 import time
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from typing import Annotated, Any, Literal
 
 from mcp.server.auth.provider import AccessToken
@@ -363,6 +363,17 @@ class RobotMCPServer(MCPServer):
             }
             LOGGER.info("tool_call %s", json.dumps(line))
 
+    def lease_scope(self, need: LeaseNeed | None) -> AbstractContextManager[None]:
+        """Bind the tool body to the arm lease it was checked against (ControlManager.lease_scope).
+
+        Args:
+            need (LeaseNeed | None): The tool's lease need (TOOL_SUBSYSTEM), None when it needs none.
+
+        Returns:
+            AbstractContextManager[None]: The scope (a no-op without a control manager).
+        """
+        return nullcontext() if self.control is None else self.control.lease_scope(need)
+
     async def call_tool_with_digest(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
         """Run a tool, then attach the digest to its result (or to its error message).
 
@@ -391,7 +402,8 @@ class RobotMCPServer(MCPServer):
                 self.blocking[name] = self.blocking.get(name, 0) + 1
             session = lookup_tools.CURRENT_SESSION.set(session_key(context))
             try:
-                result = await super().call_tool(name, arguments, context)
+                with self.lease_scope(need):
+                    result = await super().call_tool(name, arguments, context)
             finally:
                 lookup_tools.CURRENT_SESSION.reset(session)
                 if blocks:
@@ -484,8 +496,11 @@ def register_tools(
         external_busy=server.blocking_tool if isinstance(server, RobotMCPServer) else None,
         tilt_gate=lambda: monitor.tilt_refusal("nav"),
         lease_gate=control.step_refusal,
+        lease_scope=control.step_scope,
     )
     control.queue_busy = queue.busy
+    if isinstance(server, RobotMCPServer):
+        control.blocking_tool = server.blocking_tool
     monitor.control_line = control.digest
     if isinstance(server, RobotMCPServer):
         server.motion_queue = queue
@@ -766,8 +781,11 @@ def register_core_tools(ctx: ToolContext) -> None:
         tool without it is refused. arm: the autonomy lease, taken by commanding the measured pose (needs fresh joint
         states); it is sticky: while it is held the leader arm and web UI are ignored, and it is not handed back
         automatically - release it explicitly with release_control when done. A human can still end it (web UI Home
-        button): the next arm tool is then refused saying so. base: held inside this server (humans can still drive).
-        Both may be held at once. Taking a lease already held is a no-op (held_since unchanged). Allowed under battery
+        button): the next arm tool is then refused saying so, also a tool already running (a grasp that is still
+        planning fails its next motion instead of re-taking the arm). An arm held implicitly by mcp_server (a web UI
+        grasp, a stop) is not your lease until you take it. base: held inside this server (humans can still drive).
+        Both may be held at once. Taking a lease already held is a no-op (held_since unchanged). Leases are global to
+        this server, not per MCP session: another client of the same server shares them. Allowed under battery
         cut-off and at any tilt level: the motion tools themselves are still refused there."""
         with tool_errors():
             return control.take(subsystem)
@@ -794,21 +812,28 @@ def register_core_tools(ctx: ToolContext) -> None:
         keep_position=true skips the park. The release ALWAYS happens: a failed park is reported in reset (arm homed |
         kept | failed: why | skipped: why; base neutral | kept | failed: why), never kept as a held lease. Under battery
         cut-off the arm park is skipped (skipped: battery_cutoff). A lease not held is reported as skipped: not held.
-        Refused while the motion queue runs: cancel_motions or wait_for_event first. Call release_control whenever you
+        A stop during the park keeps the arm lease (reset arm 'stopped: ...'; the arm holds where it stopped).
+        Refused while the motion queue runs (cancel_motions or wait_for_event first) and while another motion tool or
+        an arm motion runs (stop first). carried_object_radius_m 0 means no carried object. Call release_control whenever you
         are done with a subsystem; a lease is otherwise kept indefinitely. Navigation footprint: an arm release with
         keep_position=true freezes the arm, so Nav2, the collision monitor and the lidar self filter then treat the
         robot as its body plus the arm's ground shadow plus, with carried_object_radius_m (0..0.3 m, keep_position
         only), a circle of that radius at the tool point: release the arm this way before driving with the arm out or
         carrying something. take_control(subsystem='arm') and a parked release go back to the body footprint. Parking
-        the arm (keep_position=false, also subsystem='all') is REFUSED while the gripper carries an object
-        (carried_object_radius_m set, last grasp held, or a holding load): put the object down first
-        (release_object)."""
+        the arm (keep_position=false) is REFUSED while the gripper carries an object (get_control_state arm.carrying:
+        carried_object_radius_m set, last grasp held - grasped or unverified -, or a holding load): put the object
+        down first (release_object). subsystem='all' while carrying still releases the base and reports reset.arm
+        'refused: carrying (...)'. A keep_position release while carrying keeps the grip strength."""
         with tool_errors():
             return control.release(subsystem, keep_position, carried_object_radius_m)
 
     @tool()
     def get_control_state() -> ControlState:
-        """Both control leases (no motion): arm {held, held_since (epoch s), at_home (the five non-gripper joints
+        """Both control leases (no motion): arm {held (your take_control lease), held_since (epoch s), held_by (agent,
+        mcp_server for an implicit hold such as a web UI grasp, or filter_node's active source; null when unknown),
+        carrying {carrying, reasons, radius_m} (the one carrying signal: the last grasp held - grasped or unverified -,
+        carried_object_radius_m of the last keep release, a holding load; it survives take_control and a server
+        restart, and parking is refused while it is true), at_home (the five non-gripper joints
         within settle tolerance of the stored home pose; the gripper is ignored, so holding an object at home counts;
         null when unknown or no home is stored), home_stored, active_source (filter_node: leader, web_ui, autonomy),
         lost (how the lease ended if this server did not release it, e.g. taken over by web_ui)}, base {held,

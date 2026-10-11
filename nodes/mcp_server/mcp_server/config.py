@@ -1081,6 +1081,9 @@ class GripProfileSettings(StrictModel):
     # still outside the empty band, the hold steps once toward closed to squeeze_max_rad past the contact (never past
     # closed, torque limit unchanged) and the hold is measured again; None = never re-tighten.
     retighten_load_below: float | None = Field(default=30.0, gt=0.0)
+    # An 'unverified' empty-band hold (grasp_object) keeps its profile's torque limit while the agent looks at the image;
+    # after this long (s) the default preset's torque limit is restored so the servo does not heat; None = never.
+    unverified_hold_relax_s: float | None = Field(default=60.0, gt=0.0)
 
     @model_validator(mode="after")
     def presets_within_caps(self) -> "GripProfileSettings":

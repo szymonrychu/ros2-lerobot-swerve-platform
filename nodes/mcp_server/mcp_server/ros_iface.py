@@ -50,6 +50,7 @@ from .base_motion import (
     run_stop,
 )
 from .config import McpServerConfig
+from .control import NavGoalRegistry
 from .floor_guard import monitor_tilt_sample
 from .footprint import costmap_node, published_footprint_topic
 from .footprint_geometry import Point2
@@ -191,6 +192,18 @@ def wait_future(future: Any, timeout_s: float) -> bool:
     return done.wait(timeout_s) or future.done()
 
 
+def cancel_goal_handle(handle: Any) -> bool:
+    """Cancel one NavigateToPose goal by its handle.
+
+    Args:
+        handle (Any): rclpy ClientGoalHandle of an accepted goal.
+
+    Returns:
+        bool: True when the action server answered the cancel within CANCEL_WAIT_S.
+    """
+    return wait_future(handle.cancel_goal_async(), CANCEL_WAIT_S)
+
+
 class RosNavPort(NavPort):
     """NavPort over the rclpy NavigateToPose action client and cancel service of a RosRobot."""
 
@@ -234,7 +247,10 @@ class RosNavPort(NavPort):
         self.handle = send.result()
         if self.handle is None or not self.handle.accepted:
             return False
-        self.result_future = self.handle.get_result_async()
+        handle = self.handle
+        self.robot.own_goals.add(handle)  # the base reset cancels only goals this server sent
+        self.result_future = handle.get_result_async()
+        self.result_future.add_done_callback(lambda _f: self.robot.own_goals.discard(handle))
         return True
 
     def result_ready(self) -> bool:
@@ -371,6 +387,7 @@ class RosRobot:
         )
         self.subscribe(String, t.poi_result, lambda msg: self.poi.on_result(msg.data), COMMAND_QOS)
         self.nav_client = ActionClient(self.node, NavigateToPose, t.navigate_action, callback_group=self.group)
+        self.own_goals = NavGoalRegistry()  # NavigateToPose goals this server sent (release_control base reset)
         self.cancel_client = self.node.create_client(
             CancelGoal, t.navigate_action + CANCEL_SUFFIX, callback_group=self.group
         )
@@ -1507,12 +1524,13 @@ class RosRobot:
         return run_stop(self.base_stop.set, self.publish_twist, self.cancel_all_goals, self.arm.stop_hold)
 
     def reset_base(self) -> bool:
-        """Base half of stop (release_control base reset): cancel every Nav2 goal and publish zero twist.
+        """Base half of stop (release_control base reset): cancel the Nav2 goals this server sent (never a human's
+        web UI goal) and publish zero twist.
 
         Returns:
-            bool: True when the Nav2 cancel service answered.
+            bool: True when every cancel was answered (also with no own goal active).
         """
-        return run_base_stop(self.base_stop.set, self.publish_twist, self.cancel_all_goals)
+        return run_base_stop(self.base_stop.set, self.publish_twist, lambda: self.own_goals.cancel(cancel_goal_handle))
 
     def steer_positions(self) -> dict[str, float] | None:
         """Fresh steer joint positions from the swerve joint states (control.steer_joint_names present ones).

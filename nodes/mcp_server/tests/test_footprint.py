@@ -310,9 +310,9 @@ def test_parked_release_is_refused_while_carrying(tmp_path: Path) -> None:
     ctl.take("arm")
     ctl.release("arm", keep_position=True, carried_object_radius_m=CARRIED)
     ctl.take("arm")
-    for target in ("arm", "all"):
-        with pytest.raises(ToolError, match=r"put the object down first \(release_object\)"):
-            ctl.release(target, keep_position=False)
+    with pytest.raises(ToolError, match=r"put the object down first \(release_object\)"):
+        ctl.release("arm", keep_position=False)
+    assert ctl.release("all", keep_position=False).reset["arm"].startswith("refused: carrying (")
     assert robot.arm.control_held is True
     # Mid-job release keeping the position stays allowed while carrying.
     assert ctl.release("arm", keep_position=True, carried_object_radius_m=CARRIED).reset == {"arm": "kept"}
@@ -324,7 +324,7 @@ def test_parked_release_is_refused_while_the_last_grasp_is_held(tmp_path: Path) 
     ctl.take("arm")
     robot.arm.grasp_held = True
     with pytest.raises(ToolError, match="last grasp"):
-        ctl.release("all", keep_position=False)
+        ctl.release("arm", keep_position=False)
     robot.arm.grasp_held = False
     assert ctl.release("arm", keep_position=False).released == ["arm"]
 

@@ -253,11 +253,25 @@ class ControlResult(BaseModel):
     positions: dict[str, float] | None = None
 
 
+class CarryingState(BaseModel):
+    """Whether the gripper carries an object: the one carrying signal (release_control refuses to park while true)."""
+
+    carrying: bool = False
+    # Why: carried_object_radius_m of the last keep_position arm release, the last close held an object (grasped or an
+    # unverified empty-band hold), a holding load on the gripper. A measured wide-open jaw clears the first two.
+    reasons: list[str] = Field(default_factory=list)
+    radius_m: float | None = None  # carried_object_radius_m of the last keep_position arm release, None without one
+
+
 class ArmControlState(BaseModel):
     """Arm lease (the filter_node autonomy lease) as get_control_state reports it."""
 
-    held: bool
+    held: bool  # this agent's lease (take_control), not an implicit hold by the web UI grasp or a stop
     held_since: float | None = None  # wall clock (s since the epoch) the lease was taken, None while not held
+    # Who commands the arm: agent (take_control), mcp_server (an implicit hold: web UI grasp, stop), or filter_node's
+    # active source (leader, web_ui); None when unknown.
+    held_by: str | None = None
+    carrying: CarryingState = Field(default_factory=CarryingState)
     at_home: bool | None = None  # five non-gripper joints within settle tolerance of home; None: unknown/no home
     home_stored: bool = False
     active_source: str | None = None  # filter_node active arm source (leader, web_ui, autonomy)

@@ -10,9 +10,12 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Literal, Protocol
 
+from .carry import CarryStore, GraspKind, carry_path
 from .config import ArmBaseOffset, LimitSettings, McpServerConfig
 from .floor_guard import FloorGuard, FloorOverride, GuardReport, JawModel, TiltSample, retime, step_scales
 from .grasp import jaw_clearance
@@ -52,6 +55,15 @@ CHANGED_EPS = 1e-9
 ORPHAN_LEASE_WINDOW_S = 3.0
 # lost_note after the /arm/home service (web UI Home button) released a lease this server held.
 HOME_SERVICE_RELEASE_NOTE = "released by the /arm/home service (web UI Home button)"
+# lost_note after the startup orphan check released an autonomy lease left behind by a crashed predecessor.
+RESTART_RELEASE_NOTE = "mcp_server restarted (the orphaned autonomy lease was released)"
+# filter_node's active source while no input is active (filter_node.arbitration.SOURCE_NONE), e.g. right after it
+# restarted: the lease is gone but nobody took it over.
+SOURCE_NONE = "none"
+SOURCE_NONE_NOTE = "filter_node reports no active source (restarted?)"
+# Lease generation the running tool or queued step checked (control.ControlManager.lease_scope); None = no check (the
+# web UI grasp service, the /arm/home service, release_control's park): those take the arm implicitly as before.
+EXPECTED_LEASE: ContextVar[int | None] = ContextVar("expected_arm_lease", default=None)
 # Widest object the jaws can enclose (m); move_cartesian's object_width_m must lie in (0, MAX_OBJECT_WIDTH_M].
 MAX_OBJECT_WIDTH_M = 0.08
 ROLL_JOINT = "wrist_roll"
@@ -326,10 +338,20 @@ class ArmController:
         self.tilt_source = tilt_source or (lambda: None)
         self._held = False
         self._acquired_at = -math.inf
-        # Carried-object tracking for release_control: the last gripper close ended 'grasped' and no open succeeded
-        # since (grasp_held); gripper_opens counts the successful opens (an open drops a carried object).
-        self.grasp_held = False
-        self.gripper_opens = 0
+        # Bumped whenever a lease starts or ends (take, release, take-over): a tool that checked the lease at entry
+        # (EXPECTED_LEASE) is refused once it changed, instead of silently re-taking the arm.
+        self.lease_generation = 0
+        # Carried-object record (the last close holds an object, the carried radius of the last keep release),
+        # persisted next to the home pose so a restart still knows the gripper carries something.
+        self.carry = CarryStore(carry_path(config.arm.home_file))
+        # Backend time an 'unverified' empty-band hold started at its profile torque (relaxed after
+        # grip_profiles.unverified_hold_relax_s); None without one.
+        self._unverified_since: float | None = None
+        self.stop_requests = 0  # request_stop calls (a stop during release_control's park keeps the lease)
+        # Called with the converged flag after every /arm/home service call (control: static footprint).
+        self.on_home_service: Callable[[bool], None] | None = None
+        # Home pose cache: ((mtime_ns, size, inode) of the file or None when missing, pose or the load error).
+        self._home_cache: tuple[tuple[int, int, int] | None, dict[str, float] | None | HomeStoreError] | None = None
         # How the lease ended when this server did not release it itself (take-over, /arm/home); None otherwise.
         self.lost_note: str | None = None
         self.held_since: float | None = None  # wall clock (s since the epoch) the current lease was taken
@@ -462,6 +484,67 @@ class ArmController:
         """
         return self._held
 
+    @property
+    def grasp_held(self) -> bool:
+        """Whether the last gripper close holds an object (grasped or an unverified hold) and no open succeeded since.
+
+        Returns:
+            bool: True while held (persisted in the carry record).
+        """
+        return self.carry.get().grasp_held
+
+    @grasp_held.setter
+    def grasp_held(self, held: bool) -> None:
+        """Set or clear the held grasp (a plain set counts as a verified grasp).
+
+        Args:
+            held (bool): Whether the gripper holds an object.
+        """
+        self.note_grasp("grasped" if held else None)
+
+    def note_grasp(self, kind: GraspKind | None) -> None:
+        """Record the outcome of a gripper close in the carry record.
+
+        Args:
+            kind (GraspKind | None): grasped / unverified (an object is held), None (nothing held).
+        """
+        self.carry.update(grasp_held=kind is not None, grasp_kind=kind)
+        if kind != "unverified":
+            self._unverified_since = None
+
+    def note_open(self) -> None:
+        """A converged open dropped whatever the gripper carried: clear the carry record (also the radius)."""
+        self.carry.clear()
+        self._unverified_since = None
+
+    def jaw_wide_open(self, sample: JointSample) -> bool:
+        """Whether the measured jaw is more open than any grasp can stop (limits.gripper_grasp_max_open_rad).
+
+        Args:
+            sample (JointSample): Fresh joint sample.
+
+        Returns:
+            bool: True when nothing can be held between the jaws.
+        """
+        closed, opened = self.cfg.arm.gripper_closed_rad, self.cfg.arm.gripper_open_rad
+        sign = 1.0 if opened > closed else -1.0
+        limit = self.cfg.limits.gripper_grasp_max_open_rad
+        return (sample.positions[self.gripper] - limit) * sign > 0.0
+
+    def ensure_lease(self) -> None:
+        """Take the lease for a motion: implicitly when no lease was checked (EXPECTED_LEASE unset), else only the
+        checked lease may move the arm.
+
+        Raises:
+            ArmError: When a checked lease ended or changed hands since the tool (or queued step) started.
+        """
+        expected = EXPECTED_LEASE.get()
+        if expected is not None and (not self._held or self.lease_generation != expected):
+            note = self.lost_note or "the lease changed hands since this call started"
+            raise ArmError(f"arm control not held ({note}) - call take_control(subsystem='arm')")
+        if not self._held:
+            self.acquire()
+
     def fresh_sample(self) -> JointSample | None:
         """Latest joint sample if it is fresh and names every arm joint.
 
@@ -593,6 +676,7 @@ class ArmController:
         with self._lock:
             if not self._held:
                 self._held = True
+                self.lease_generation += 1
                 self._acquired_at = self.backend.now()
                 self.held_since = time.time()
                 self.lost_note = None
@@ -608,7 +692,8 @@ class ArmController:
         """
         with self._lock:
             self._held = False
-            self.lost_note = f"taken over by {source}"
+            self.lease_generation += 1
+            self.lost_note = SOURCE_NONE_NOTE if source == SOURCE_NONE else f"taken over by {source}"
             self.forget_locked()
         self.restore_default_torque_limit()
 
@@ -624,19 +709,26 @@ class ArmController:
             control_held=True, message="autonomy lease acquired at the measured pose", positions=positions
         )
 
-    def release(self) -> ControlResult:
+    def release(self, restore_torque: bool = True) -> ControlResult:
         """End the lease: abort any motion, stop the keepalive, then hand the arm back to filter_node's other sources.
+
+        Args:
+            restore_torque (bool): Restore the default gripper torque limit; False keeps a grip profile's torque on a
+                carried object (release_control keep_position=true while carrying).
 
         Returns:
             ControlResult: Lease state.
         """
         self._stop.set()
         with self._lock:
+            if self._held:
+                self.lease_generation += 1
             self._held = False
             self.lost_note = None
             self.forget_locked()
             self.backend.publish_release()
-        self.restore_default_torque_limit()
+        if restore_torque:
+            self.restore_default_torque_limit()
         return ControlResult(control_held=False, message="autonomy lease released")
 
     def check_orphan_lease(self, started_at: float) -> OrphanCheck:
@@ -663,11 +755,13 @@ class ArmController:
                     return "clear"
                 self.forget_locked()
                 self.backend.publish_release()
+                self.lost_note = RESTART_RELEASE_NOTE
             return "released"
         return "clear" if now - started_at >= ORPHAN_LEASE_WINDOW_S else "pending"
 
     def request_stop(self) -> None:
         """Ask the running motion (if any) to abort and hold."""
+        self.stop_requests += 1
         self._stop.set()
 
     def hold(self) -> bool:
@@ -716,6 +810,7 @@ class ArmController:
 
     def keepalive_tick(self) -> None:
         """Periodic (ROS timer) hook: republish the last setpoint while holding the lease and idle; drop a lost lease."""
+        self.relax_unverified_hold()
         if not self._held:
             return
         other = self.lease_lost_to()
@@ -729,6 +824,17 @@ class ArmController:
                 self.relax_due_locked()
                 self.backend.publish_command(self.commanded(self._last_setpoint))
                 self.settle_probe_due_locked()
+
+    def relax_unverified_hold(self) -> None:
+        """Restore the default gripper torque once an 'unverified' empty-band hold kept its profile torque for
+        grip_profiles.unverified_hold_relax_s (the servo heats while the agent looks at the image for minutes)."""
+        since = self._unverified_since
+        relax_s = self.cfg.grip_profiles.unverified_hold_relax_s
+        if since is None or relax_s is None or self.backend.now() - since < relax_s:
+            return
+        self._unverified_since = None
+        LOGGER.info("unverified gripper hold kept %g s: default torque limit restored", relax_s)
+        self.restore_default_torque_limit()
 
     def validate_targets(self, targets: dict[str, float]) -> None:
         """Reject empty, unknown or non-finite joint targets.
@@ -807,8 +913,7 @@ class ArmController:
         safe = self.clamp_targets(targets)
         clamped = sorted(j for j in targets if abs(safe[j] - targets[j]) > CHANGED_EPS)
         self.check_roll_guard(safe, self.command_base(sample), sample)
-        if not self._held:
-            self.acquire()
+        self.ensure_lease()
         start = self.command_base(self.require_sample())
         with self.holding_arm_for_gripper(list(targets)):
             return self.stream(start, start | safe, vmax, list(targets), clamped, floor=floor, settle=settle)
@@ -850,8 +955,7 @@ class ArmController:
             base = self.command_base(sample)
             for target in safe:
                 self.check_roll_guard(target, base, sample)
-            if not self._held:
-                self.acquire()
+            self.ensure_lease()
             start = self.command_base(self.require_sample())
             full = [start | s for s in safe]
             moving = sorted({j for s in path for j in s})
@@ -910,8 +1014,7 @@ class ArmController:
                 self.check_roll_guard(guard_view, pose, sample)
                 pose = pose | target
                 full.append(pose)
-            if not self._held:
-                self.acquire()
+            self.ensure_lease()
             start = self.command_base(self.require_sample())
             moving = sorted({j for t in targets for j in t})
             return self.stream(
@@ -1139,6 +1242,7 @@ class ArmController:
             raise ArmError("give exactly one of open_fraction or close_until_effort=true")
         if grip_profile is not None and not close_until_effort:
             raise ArmError("grip_profile applies to close_until_effort=true only")
+        self._unverified_since = None  # a new gripper motion ends an unverified hold's relax timer
         closed, opened = self.cfg.arm.gripper_closed_rad, self.cfg.arm.gripper_open_rad
         if open_fraction is not None:
             if not 0.0 <= open_fraction <= 1.0:
@@ -1152,10 +1256,9 @@ class ArmController:
                     result = self.stream_to(targets, vmax, floor)
                     if open_fraction == 0.0:
                         result = self.grasp_from_stall(result, start_jaw, self.cfg.grip_profiles.default.squeeze_rad)
-                        self.grasp_held = result.status == "grasped"
+                        self.note_grasp("grasped" if result.status == "grasped" else None)
                     elif result.status == "converged":
-                        self.grasp_held = False
-                        self.gripper_opens += 1
+                        self.note_open()
                     return result
                 finally:
                     self.restore_default_torque_limit()  # after the jaw moved: never squeeze harder before opening
@@ -1171,9 +1274,8 @@ class ArmController:
         with self.exclusive_motion(), self.holding_arm_for_gripper([self.gripper]):
             result: ArmMotionResult | None = None
             try:
+                self.ensure_lease()
                 self.write_torque_limit(profile.torque_limit)
-                if not self._held:
-                    self.acquire()
                 start = self.command_base(self.require_sample())
                 start_jaw = self.require_sample().positions[self.gripper]
                 goal = start | clamp_to_limits(
@@ -1203,7 +1305,7 @@ class ArmController:
             finally:
                 if result is None or result.status != "grasped":
                     self.restore_default_torque_limit()
-        self.grasp_held = result.status == "grasped"
+        self.note_grasp("grasped" if result.status == "grasped" else None)
         if result.status == "converged":
             message = (
                 result.message if result.message.startswith("closed without contact") else "closed without contact"
@@ -1506,6 +1608,7 @@ class ArmController:
         with self.exclusive_motion():
             if not self._held:
                 raise ArmError("arm control lost before the hold")
+            self.ensure_lease()
             jaw = self.require_sample().positions[self.gripper]
             with self._lock:
                 intent = dict(self._last_target) if self._last_target is not None else None
@@ -1518,6 +1621,8 @@ class ArmController:
             self.write_torque_limit(grip.profile.torque_limit)
             if not self.command(intent | {self.gripper: hold}):
                 raise ArmError("arm control lost before the hold")
+            self.note_grasp("unverified")
+            self._unverified_since = self.backend.now()
         return (
             f"holding the jaw at {hold:.3f} rad ({squeeze:.3f} rad squeeze past {jaw:.3f} rad) with grip profile "
             f"{grip.name} (torque_limit {grip.profile.torque_limit})"
@@ -1596,7 +1701,7 @@ class ArmController:
         SelfCollisionError only when no route clears the body.
         """
         try:
-            pose = load_home(self.cfg.arm.home_file)
+            pose = self.stored_home()
         except HomeStoreError as exc:
             raise ArmError(f"home pose file unreadable: {exc}") from exc
         if pose is None:
@@ -1650,7 +1755,10 @@ class ArmController:
         finally:
             if was_held and not self._held:
                 self.lost_note = HOME_SERVICE_RELEASE_NOTE
-        return result.status == "converged", f"{result.status}: {result.message}"
+        converged = result.status == "converged"
+        if self.on_home_service is not None:
+            self.on_home_service(converged)
+        return converged, f"{result.status}: {result.message}"
 
     def set_home(self) -> dict[str, float]:
         """Store the measured pose as the home pose.
@@ -1665,6 +1773,34 @@ class ArmController:
             raise ArmError(f"cannot store home pose at {self.cfg.arm.home_file}: {exc}") from exc
         return pose
 
+    def stored_home(self) -> dict[str, float] | None:
+        """The stored home pose, re-read only when the file changed (vitals and control state ask on every call).
+
+        Returns:
+            dict[str, float] | None: Joint name -> rad, None when no pose is stored.
+
+        Raises:
+            HomeStoreError: For an unreadable file (cached like a pose until the file changes).
+        """
+        path: Path = self.cfg.arm.home_file
+        try:
+            st = path.stat()
+            key: tuple[int, int, int] | None = (st.st_mtime_ns, st.st_size, st.st_ino)
+        except OSError:
+            key = None
+        cache = self._home_cache
+        if cache is None or cache[0] != key:
+            loaded: dict[str, float] | None | HomeStoreError
+            try:
+                loaded = None if key is None else load_home(path)
+            except HomeStoreError as exc:
+                loaded = exc
+            cache = (key, loaded)
+            self._home_cache = cache
+        if isinstance(cache[1], HomeStoreError):
+            raise cache[1]
+        return None if cache[1] is None else dict(cache[1])
+
     def home_stored(self) -> bool:
         """Whether a valid home pose is stored.
 
@@ -1672,7 +1808,7 @@ class ArmController:
             bool: True when loadable.
         """
         try:
-            return load_home(self.cfg.arm.home_file) is not None
+            return self.stored_home() is not None
         except HomeStoreError:
             return False
 
@@ -1686,7 +1822,7 @@ class ArmController:
                 are stale.
         """
         try:
-            pose = load_home(self.cfg.arm.home_file)
+            pose = self.stored_home()
         except HomeStoreError:
             return None
         sample = self.fresh_sample()

@@ -390,6 +390,8 @@ def test_get_control_state_and_release_tool(server: Any, robot: FakeRobot) -> No
         "home_stored": True,
         "active_source": "autonomy",
         "lost": None,
+        "held_by": None,
+        "carrying": {"carrying": False, "reasons": [], "radius_m": None},
     }
     assert state["base"] == {"held": False, "held_since": None, "steering_neutral": True}
     call(server, "take_control", {"subsystem": "arm"})

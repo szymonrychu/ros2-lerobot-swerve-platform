@@ -15,6 +15,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, Protocol
 
@@ -651,6 +652,7 @@ class MotionQueue:
         sleep: Callable[[float], None] = time.sleep,
         tilt_gate: Callable[[], str | None] | None = None,
         lease_gate: Callable[[str], str | None] | None = None,
+        lease_scope: Callable[[str], AbstractContextManager[None]] | None = None,
     ) -> None:
         """Create the queue (the worker starts on the first enqueue).
 
@@ -668,6 +670,9 @@ class MotionQueue:
             lease_gate (Callable[[str], str | None] | None): Control lease refusal for a step kind (None when its
                 lease is held, control.ControlManager.step_refusal), re-checked before every step: a lease lost
                 mid-queue (web UI Home, a human take-over) fails the step instead of silently re-taking it.
+            lease_scope (Callable[[str], AbstractContextManager[None]] | None): Binds a running step to the lease it
+                was checked against (control.ControlManager.step_scope): a lease lost while the step plans or moves
+                fails its next motion.
         """
         self.robot = robot
         self.cfg = config
@@ -680,6 +685,7 @@ class MotionQueue:
         self.sleep = sleep
         self.tilt_gate = tilt_gate or (lambda: None)
         self.lease_gate = lease_gate or (lambda kind: None)
+        self.lease_scope = lease_scope or (lambda kind: nullcontext())
         self._cond = threading.Condition()
         self._pending: deque[QueuedStep] = deque()
         self._events: deque[MotionEvent] = deque(maxlen=self.settings.event_history)
@@ -1027,6 +1033,20 @@ class MotionQueue:
                 self._running.phase = "planning"
             for q in group:
                 self.emit_locked("step_started", q, describe(q.step))
+        with self.lease_scope(head.kind):
+            return self.run_group(group, generation)
+
+    def run_group(self, group: list[QueuedStep], generation: int) -> "Outcome":
+        """Run a dispatched group by its head's kind.
+
+        Args:
+            group (list[QueuedStep]): Blend group.
+            generation (int): Dispatch generation.
+
+        Returns:
+            Outcome: What happened.
+        """
+        head = group[0].step
         kind = head.kind
         if kind in ARM_KINDS:
             return self.run_arm(group, generation)

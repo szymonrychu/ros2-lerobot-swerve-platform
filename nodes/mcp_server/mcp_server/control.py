@@ -1,30 +1,41 @@
 """Per-subsystem control leases: take_control / release_control / get_control_state and the lease check.
 
 The arm lease is the filter_node autonomy lease (ArmController.acquire / release): the hardware arbitration honours
-it. The base lease is a flag inside mcp_server (nothing downstream arbitrates /cmd_vel_nav; humans can still drive).
-Every arm or base tool is refused without its lease (tools.TOOL_SUBSYSTEM, checked centrally before the tool body).
-Releasing resets by default: the arm drives to its stored home pose, the base is zeroed (Nav2 cancelled, zero twist)
-and the steering is verified neutral. A failed reset is reported, but the release always happens.
+it. The agent's lease is the ArmController lease generation recorded at take_control: an implicit hold of the arm by
+mcp_server (the web UI grasp service, a stop during a foreign motion) is not the agent's lease, and a tool bound to a
+lease (lease_scope, arm.EXPECTED_LEASE) is refused as soon as that lease ended or changed hands instead of re-taking
+the arm. The base lease is a flag inside mcp_server (nothing downstream arbitrates /cmd_vel_nav; humans can still
+drive). Leases are global to the server, not per MCP session. Every arm or base tool is refused without its lease
+(tools.TOOL_SUBSYSTEM, checked centrally before the tool body). Releasing resets by default: the arm drives to its
+stored home pose, the base is zeroed (only this server's Nav2 goals cancelled, zero twist) and the steering is verified
+neutral. A failed reset is reported, but the release happens (except a park stopped by the stop tool: the arm then
+holds and the lease is kept).
 
 The navigation footprint (footprint.NavFootprint) follows the arm lease: take_control('arm') publishes the static
-body footprint (the arm may move from then on), an arm release that parked the arm publishes it too, and any other
-arm release (keep_position=true, or a park that failed) publishes the footprint of the measured, now frozen arm pose,
-with the carried object circle when carried_object_radius_m is given. Parking the arm is refused while it carries an
-object (carried_object_radius_m set at the last release, the last grasp held, or a holding load on the gripper).
+body footprint (the arm may move from then on), an arm release that parked the arm publishes it too (as does a
+converged /arm/home service call), and any other arm release (keep_position=true, or a park that failed) publishes the
+footprint of the measured, now frozen arm pose, with the carried object circle when carried_object_radius_m is given.
+
+Carrying is one signal (ControlState.arm.carrying, carrying_state): the persisted carry record (carry.py: the last
+close held an object, grasped or unverified, and the carried radius of the last keep release, 0 meaning none), cleared
+when the measured jaw is wide open, plus a live holding load on the gripper. Parking the arm is refused while it
+carries (subsystem='all' still releases the base and reports reset.arm 'refused: carrying (...)'), and a keep_position
+release while carrying keeps the grip profile's torque limit.
 """
 
 import threading
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from typing import Literal, Protocol
 
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryGuard
 
-from .arm import ArmController, ArmError
+from .arm import EXPECTED_LEASE, SOURCE_NONE, ArmController, ArmError
 from .config import McpServerConfig
 from .footprint import NavFootprint
-from .models import ArmControlState, BaseControlState, ControlState, ReleaseResult
+from .models import ArmControlState, BaseControlState, CarryingState, ControlState, ReleaseResult
 from .motion_queue import ARM_KINDS, BASE_KINDS, LiveState, Precondition, evaluate_precondition
 
 Subsystem = Literal["arm", "base"]
@@ -37,7 +48,15 @@ ARM_LEASE_KINDS = ARM_KINDS | {"gripper", "grasp"}
 SUBSYSTEMS: tuple[Subsystem, ...] = ("arm", "base")
 RELEASE_ORDER: tuple[Subsystem, ...] = ("base", "arm")  # base first: stop the wheels before the arm moves home
 QUEUE_BUSY_REFUSAL = "release_control refused: the motion queue is running - cancel_motions or wait_for_event first"
+MOTION_BUSY_REFUSAL = "release_control refused: {what} - call stop first or wait for it to finish"
+RELEASE_TOOL = "release_control"  # counts as a blocking tool itself while it parks
 NOT_HELD = "skipped: not held"
+# A stop during the park: the arm holds where it stopped and the lease is kept (not handed to the leader / web UI).
+STOPPED_PARK = "stopped: the park was stopped; the arm holds where it stopped and the lease is kept"
+# Expected lease generation of a scope whose arm lease ended before it started (never a real generation).
+LOST_LEASE = -1
+# Arm/base outcomes after which the lease is still held (or was never held): not counted as released.
+KEPT_PREFIXES = (NOT_HELD, "stopped:", "refused:")
 # carried_object_radius_m range (m): the rough size of the object in the gripper.
 MAX_CARRIED_RADIUS_M = 0.3
 RADIUS_NEEDS_KEEP = (
@@ -122,8 +141,57 @@ def wait_steering_neutral(
     )
 
 
+class NavGoalRegistry:
+    """Nav2 goals this server sent (run_nav), so the base reset cancels only its own goals, never a human's web UI goal.
+
+    Handles are opaque (rclpy ClientGoalHandle in ros_iface); a goal is registered when Nav2 accepts it and discarded
+    when its result arrives.
+    """
+
+    def __init__(self) -> None:
+        """Create an empty registry."""
+        self.lock = threading.Lock()
+        self.handles: list[object] = []
+
+    def add(self, handle: object) -> None:
+        """Register an accepted goal.
+
+        Args:
+            handle (object): Goal handle.
+        """
+        with self.lock:
+            self.handles.append(handle)
+
+    def discard(self, handle: object) -> None:
+        """Forget a finished goal (no error when unknown).
+
+        Args:
+            handle (object): Goal handle.
+        """
+        with self.lock:
+            self.handles = [h for h in self.handles if h is not handle]
+
+    def cancel(self, cancel_one: Callable[[object], bool]) -> bool:
+        """Cancel every registered goal and forget them.
+
+        Args:
+            cancel_one (Callable[[object], bool]): Cancels one goal; True when Nav2 answered the cancel.
+
+        Returns:
+            bool: True when every cancel was answered (also when there was nothing to cancel).
+        """
+        with self.lock:
+            handles, self.handles = self.handles, []
+        return all([cancel_one(h) for h in handles])
+
+
 class ControlManager:
-    """Both control leases: take, release (with the reset), state, the lease checks and the vitals digest."""
+    """Both control leases: take, release (with the reset), state, the lease checks and the vitals digest.
+
+    The agent's arm lease is the ArmController lease generation recorded at take_control: an implicit hold of the arm
+    (the web UI grasp service, a stop during a foreign motion) is not this agent's lease, and a lease that ended or
+    changed hands (a new generation) is not held any more.
+    """
 
     def __init__(
         self,
@@ -136,11 +204,12 @@ class ControlManager:
         sleep: Callable[[float], None] = time.sleep,
         wall: Callable[[], float] = time.time,
         footprint: NavFootprint | None = None,
+        blocking_tool: Callable[[], str | None] = lambda: None,
     ) -> None:
         """Create the manager.
 
         Args:
-            arm (ArmController): Arm controller (owns the arm lease).
+            arm (ArmController): Arm controller (owns the arm lease and the carry record).
             base (BaseOps): Base zeroing and steer joint feed.
             config (McpServerConfig): Node configuration (control section).
             guard (BatteryGuard | None): Battery guard; under cut-off the arm reset is skipped.
@@ -149,22 +218,27 @@ class ControlManager:
             sleep (Callable[[float], None]): Sleep for the steering wait (s).
             wall (Callable[[], float]): Wall clock for held_since (s since the epoch).
             footprint (NavFootprint | None): Published navigation footprint; None publishes nothing.
+            blocking_tool (Callable[[], str | None]): Name of a blocking motion tool running now (RobotMCPServer
+                .blocking_tool); release is refused while one other than release_control runs.
         """
         self.arm = arm
         self.config = config
         self.footprint = footprint
-        # carried_object_radius_m of the last arm release and the gripper open count then (an open clears it).
-        self.carried_radius: float | None = None
-        self.carried_opens = 0
         self.base = base
         self.cfg = config.control
         self.guard = guard
         self.queue_busy = queue_busy
+        self.blocking_tool = blocking_tool
         self.clock = clock
         self.sleep = sleep
         self.wall = wall
         self.lock = threading.Lock()
         self.base_since: float | None = None  # wall time the base lease was taken, None while not held
+        # Lease generation of the agent's arm lease (ArmController.lease_generation at take_control) and when it was
+        # taken; None while the agent does not hold the arm.
+        self.arm_generation: int | None = None
+        self.arm_since: float | None = None
+        arm.on_home_service = self.home_service_done
 
     @property
     def base_held(self) -> bool:
@@ -175,8 +249,26 @@ class ControlManager:
         """
         return self.base_since is not None
 
+    @property
+    def arm_held(self) -> bool:
+        """Whether the agent holds the arm lease: taken with take_control and not ended or re-taken since.
+
+        Returns:
+            bool: True while held (a stale record is cleared).
+        """
+        generation = self.arm_generation
+        if generation is None:
+            return False
+        if self.arm.control_held and self.arm.lease_generation == generation:
+            return True
+        with self.lock:
+            if self.arm_generation == generation:
+                self.arm_generation = None
+                self.arm_since = None
+        return False
+
     def held(self, subsystem: Subsystem) -> bool:
-        """Whether one lease is held.
+        """Whether one lease is held by the agent.
 
         Args:
             subsystem (Subsystem): arm or base.
@@ -184,20 +276,25 @@ class ControlManager:
         Returns:
             bool: True while held.
         """
-        return self.arm.control_held if subsystem == "arm" else self.base_held
+        return self.arm_held if subsystem == "arm" else self.base_held
 
     def take(self, subsystem: Subsystem) -> ControlState:
         """Take one lease; a no-op (keeping held_since) when it is already held. Moves nothing.
 
         Args:
-            subsystem (Subsystem): arm (commands the measured pose, needs fresh joint states) or base.
+            subsystem (Subsystem): arm (commands the measured pose, needs fresh joint states; an arm held implicitly
+                by mcp_server is adopted as is) or base.
 
         Returns:
             ControlState: Both leases afterwards.
         """
         if subsystem == "arm":
-            if not self.arm.control_held:
-                self.arm.acquire()
+            if not self.arm_held:
+                if not self.arm.control_held:
+                    self.arm.acquire()
+                with self.lock:
+                    self.arm_generation = self.arm.lease_generation
+                    self.arm_since = self.wall()
             if self.footprint is not None:
                 self.footprint.publish_static()
         else:
@@ -205,6 +302,37 @@ class ControlManager:
                 if self.base_since is None:
                     self.base_since = self.wall()
         return self.state()
+
+    @contextmanager
+    def lease_scope(self, need: LeaseNeed | None) -> Iterator[None]:
+        """Run a tool body (or queued step) bound to the arm lease it was checked against: an arm motion inside it is
+        refused once that lease ended or changed hands (arm.EXPECTED_LEASE), instead of re-taking the arm.
+
+        Args:
+            need (LeaseNeed | None): The tool's lease need; only 'arm' binds the arm lease.
+
+        Yields:
+            None: Runs the body.
+        """
+        generation = self.arm_generation if self.arm_held else None
+        # Lost between the lease check and here: an impossible generation, so no motion re-takes the arm.
+        token = EXPECTED_LEASE.set(LOST_LEASE if generation is None else generation) if need == "arm" else None
+        try:
+            yield
+        finally:
+            if token is not None:
+                EXPECTED_LEASE.reset(token)
+
+    def step_scope(self, kind: str) -> AbstractContextManager[None]:
+        """lease_scope for one queued step kind (motion_queue dispatch).
+
+        Args:
+            kind (str): Step kind.
+
+        Returns:
+            AbstractContextManager[None]: The scope.
+        """
+        return self.lease_scope("arm" if "arm" in self.step_needs([kind]) else None)
 
     def release(
         self, subsystem: ReleaseTarget, keep_position: bool = False, carried_object_radius_m: float | None = None
@@ -215,33 +343,46 @@ class ControlManager:
             subsystem (ReleaseTarget): arm, base or all.
             keep_position (bool): True skips the reset (arm keeps its last goal, base only clears the flag).
             carried_object_radius_m (float | None): keep_position=true arm release only: radius (0..0.3 m) of the
-                carried object, a circle around the tool point added to the footprint.
+                carried object, a circle around the tool point added to the footprint (0 means none).
 
         Returns:
-            ReleaseResult: Released subsystems, per subsystem reset outcome and the state afterwards.
+            ReleaseResult: Released subsystems, per subsystem reset outcome and the state afterwards. With
+                subsystem='all' while carrying, the base is still released and reset.arm says 'refused: carrying (...)'.
 
         Raises:
-            ToolError: While the motion queue runs, for an invalid carried_object_radius_m, or when the arm would park
-                while carrying an object (nothing is released).
+            ToolError: While the motion queue or another blocking motion tool runs, while an arm motion runs (arm
+                targeted), for an invalid carried_object_radius_m, or when subsystem='arm' would park while carrying
+                an object (nothing is released).
         """
         targets = RELEASE_ORDER if subsystem == "all" else (subsystem,)
         if carried_object_radius_m is not None:
             self.check_carried_radius(carried_object_radius_m, keep_position, "arm" in targets)
+            carried_object_radius_m = carried_object_radius_m or None  # 0 = no carried object
         if self.queue_busy():
             raise ToolError(QUEUE_BUSY_REFUSAL)
-        if not keep_position and "arm" in targets and self.arm.control_held:
-            reasons = self.carrying()
+        other = self.blocking_tool()
+        if other is not None and other != RELEASE_TOOL:
+            raise ToolError(MOTION_BUSY_REFUSAL.format(what=f"{other} is running"))
+        if "arm" in targets and self.arm_held and self.arm.motion_running:
+            raise ToolError(MOTION_BUSY_REFUSAL.format(what="an arm motion is running"))
+        carry_refusal: str | None = None
+        if not keep_position and "arm" in targets and self.arm_held:
+            reasons = self.carrying_state().reasons
             if reasons:
-                raise ToolError(CARRYING_REFUSAL.format(reasons="; ".join(reasons)))
+                if subsystem != "all":
+                    raise ToolError(CARRYING_REFUSAL.format(reasons="; ".join(reasons)))
+                carry_refusal = f"refused: carrying ({'; '.join(reasons)})"
         released: list[str] = []
         reset: dict[str, str] = {}
         for name in targets:
             if name == "base":
                 outcome = self.release_base(keep_position)
+            elif carry_refusal is not None:
+                outcome = carry_refusal
             else:
                 outcome = self.release_arm(keep_position, carried_object_radius_m)
             reset[name] = outcome
-            if not outcome.startswith(NOT_HELD):
+            if not outcome.startswith(KEPT_PREFIXES):
                 released.append(name)
         return ReleaseResult(released=released, reset=reset, state=self.state())
 
@@ -265,42 +406,61 @@ class ControlManager:
                 f"release_control refused: carried_object_radius_m must be within 0..{MAX_CARRIED_RADIUS_M:g} m "
                 f"(got {radius:g})"
             )
-        if not self.arm.control_held:
+        if not self.arm_held:
             raise ToolError(RADIUS_NEEDS_LEASE)
 
-    def carrying(self) -> list[str]:
-        """Why the gripper counts as carrying an object (empty when it does not).
+    def carrying_state(self) -> CarryingState:
+        """The one carrying signal: the carry record (radius of the last keep release, the last close held an object)
+        unless the measured jaw is wide open (then the record is cleared), plus a live holding load on the gripper.
 
         Returns:
-            list[str]: carried_object_radius_m set at the last release (no gripper open since), the last grasp held
-                (ArmController.grasp_held), and a holding load on the gripper (the gripper_holding precondition).
+            CarryingState: carrying, reasons and the carried radius.
         """
-        reasons = []
-        if self.carried_radius is not None and self.arm.gripper_opens == self.carried_opens:
-            reasons.append(f"carried_object_radius_m {self.carried_radius:g} m set at the last arm release")
-        if self.arm.grasp_held:
-            reasons.append("the last grasp is held (the gripper was not opened since)")
         sample = self.arm.fresh_sample()
+        record = self.arm.carry.get()
+        if sample is not None and (record.grasp_held or record.radius_m is not None) and self.arm.jaw_wide_open(sample):
+            record = self.arm.carry.clear()  # a human (or an open outside this server) emptied the gripper
+        reasons = []
+        if record.radius_m is not None:
+            reasons.append(f"carried_object_radius_m {record.radius_m:g} m set at the last arm release")
+        if record.grasp_held:
+            if record.grasp_kind == "unverified":
+                reasons.append("the last grasp is an unverified hold (closed into the empty band, kept gripping)")
+            else:
+                reasons.append("the last grasp is held (the gripper was not opened since)")
         if sample is not None:
             live = LiveState(joints=self.arm.measured(sample), gripper_effort=sample.efforts.get(self.arm.gripper))
             holding, why = evaluate_precondition(Precondition(type="gripper_holding"), live, self.config)
             if holding:
                 reasons.append(f"holding load: {why}")
-        return reasons
+        return CarryingState(carrying=bool(reasons), reasons=reasons, radius_m=record.radius_m)
+
+    def carrying(self) -> list[str]:
+        """Why the gripper counts as carrying an object (empty when it does not).
+
+        Returns:
+            list[str]: carrying_state().reasons.
+        """
+        return self.carrying_state().reasons
 
     def release_arm(self, keep_position: bool, carried_object_radius_m: float | None = None) -> str:
         """Release the arm lease, homing first unless kept, skipped under battery cut-off or no home is stored; then
         publish the footprint (static after a home, else the frozen measured pose with the carried object).
 
+        A stop during the park keeps the lease (the arm holds where the stop left it) instead of handing the arm to
+        the leader arm or the web UI. A keep release while carrying keeps the grip profile's torque limit.
+
         Args:
             keep_position (bool): Release only.
-            carried_object_radius_m (float | None): Carried object radius (keep_position only).
+            carried_object_radius_m (float | None): Carried object radius (keep_position only; None = none).
 
         Returns:
-            str: homed | kept | failed: <why> | skipped: <why> (a footprint that could not be computed is appended).
+            str: homed | kept | failed: <why> | skipped: <why> | stopped: <why> (a footprint that could not be
+                computed is appended).
         """
-        if not self.arm.control_held:
+        if not self.arm_held:
             return NOT_HELD if self.arm.lost_note is None else f"{NOT_HELD} ({self.arm.lost_note})"
+        stops = self.arm.stop_requests
         if keep_position:
             outcome = "kept"
         elif self.guard is not None and self.guard.is_cutoff():
@@ -314,12 +474,28 @@ class ControlManager:
                 outcome = f"failed: {exc}"
             else:
                 outcome = "homed" if result.status == "converged" else f"failed: {result.status}: {result.message}"
+            if self.arm.stop_requests != stops and self.arm.control_held:
+                self.arm.hold()
+                return STOPPED_PARK
+        carrying = self.carrying_state().carrying
         if self.arm.control_held:
-            self.arm.release()
+            self.arm.release(restore_torque=not (keep_position and carrying))
+        with self.lock:
+            self.arm_generation = None
+            self.arm_since = None
         radius = carried_object_radius_m if keep_position else None
-        self.carried_radius = radius
-        self.carried_opens = self.arm.gripper_opens
+        self.arm.carry.update(radius_m=radius)
         return self.publish_footprint(outcome, radius)
+
+    def home_service_done(self, converged: bool) -> None:
+        """After the /arm/home service (web UI Home button): a converged home parks the arm, so the static body
+        footprint applies again.
+
+        Args:
+            converged (bool): Whether the home motion converged.
+        """
+        if converged and self.footprint is not None:
+            self.footprint.publish_static()
 
     def publish_footprint(self, outcome: str, radius: float | None) -> str:
         """Footprint after an arm release: static when homed, else the measured (frozen) pose.
@@ -345,6 +521,9 @@ class ControlManager:
     def release_base(self, keep_position: bool) -> str:
         """Release the base lease, zeroing the base and waiting for neutral steering unless kept.
 
+        The lease is cleared before the reset starts: base tools are refused during the wait, and a take_control
+        ('base') meanwhile is a new lease that stays held.
+
         Args:
             keep_position (bool): Clear the flag only.
 
@@ -354,25 +533,38 @@ class ControlManager:
         with self.lock:
             if self.base_since is None:
                 return NOT_HELD
-        try:
-            if keep_position:
-                return "kept"
-            cancelled = self.base.reset_base()
-            ok, why = wait_steering_neutral(
-                self.base.steer_positions,
-                self.cfg.steer_joint_names,
-                self.cfg.steer_neutral_tolerance_rad,
-                self.cfg.base_reset_timeout_s,
-                self.clock,
-                self.sleep,
-                self.cfg.steer_poll_s,
-            )
-            if not ok:
-                return f"failed: {why}"
-            return "neutral" if cancelled else "failed: Nav2 cancel service did not answer (zero twist sent)"
-        finally:
-            with self.lock:
-                self.base_since = None
+            self.base_since = None
+        if keep_position:
+            return "kept"
+        cancelled = self.base.reset_base()
+        ok, why = wait_steering_neutral(
+            self.base.steer_positions,
+            self.cfg.steer_joint_names,
+            self.cfg.steer_neutral_tolerance_rad,
+            self.cfg.base_reset_timeout_s,
+            self.clock,
+            self.sleep,
+            self.cfg.steer_poll_s,
+        )
+        if not ok:
+            return f"failed: {why}"
+        return "neutral" if cancelled else "failed: Nav2 cancel service did not answer (zero twist sent)"
+
+    def held_by(self) -> str | None:
+        """Who commands the arm now.
+
+        Returns:
+            str | None: agent (take_control), mcp_server (an implicit hold: web UI grasp, stop), filter_node's active
+                source otherwise (leader, web_ui), None when unknown.
+        """
+        if self.arm_held:
+            return "agent"
+        if self.arm.control_held:
+            return "mcp_server"
+        src = self.arm.backend.active_source()
+        if src is None or src.value in (self.config.arm.autonomy_source_name, SOURCE_NONE):
+            return None
+        return src.value
 
     def state(self) -> ControlState:
         """Both leases now.
@@ -381,9 +573,12 @@ class ControlManager:
             ControlState: Arm and base lease state.
         """
         src = self.arm.backend.active_source()
+        held = self.arm_held
         arm = ArmControlState(
-            held=self.arm.control_held,
-            held_since=round(self.arm.held_since, 3) if self.arm.control_held and self.arm.held_since else None,
+            held=held,
+            held_since=round(self.arm_since, 3) if held and self.arm_since is not None else None,
+            held_by=self.held_by(),
+            carrying=self.carrying_state(),
             at_home=self.arm.at_home(),
             home_stored=self.arm.home_stored(),
             active_source=None if src is None else src.value,
@@ -410,7 +605,7 @@ class ControlManager:
             str | None: The refusal, None when the lease is held.
         """
         if need == "any":
-            if self.arm.control_held or self.base_held:
+            if self.arm_held or self.base_held:
                 return None
             return (
                 f"{tool_name} refused: arm or base control not held - call take_control(subsystem='arm') or "
@@ -485,5 +680,5 @@ class ControlManager:
         """
         at_home = self.arm.at_home()
         where = "" if at_home is None else ("@home" if at_home else "@away")
-        arm = "H" if self.arm.control_held else "-"
+        arm = "H" if self.arm_held else "-"
         return f"ctl arm={arm}{where} base={'H' if self.base_held else '-'}"
