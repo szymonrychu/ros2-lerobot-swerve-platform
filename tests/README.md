@@ -526,7 +526,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - config (`test_config.py`): defaults (0.0.0.0:18200 `/mcp`, topics, conservative limits, timeouts), repo-relative URDF
   path resolution, YAML overrides, empty file, unknown keys rejected, hard caps (0.25 m/s, speed scale 0.5, 1024 px),
   `MCP_SERVER_CONFIG` lookup, `MCP_SERVER_TOKEN` refused when missing/blank/short and stripped otherwise, settle
-  tolerance default 0.08 and validated between the converge tolerance and the tracking abort (defaults 0.25 rad + 0.25 s x velocity); arm velocity default 1.0
+  tolerance default 0.08 and validated between the converge tolerance and the tracking abort (defaults 0.25 rad + 0 s x velocity: the delay window carries the lag); the `imu_level_reference` code default equals the swerve tilt guard's `DEFAULT_LEVEL_REFERENCE_*_DEG` (parity test reading its source); arm velocity default 1.0
   rad/s with the 1.5 cap, roll guard defaults (0.1 / 0.8) and validation, `arm.jaw_open_axis` default and normalisation
   (zero and wrong-length vectors rejected), `arm.joint_limit_overrides_rad` default empty with name and lower < upper checks
 - trajectory (`test_trajectory.py`): quintic blend endpoints/monotonicity, limit clamping with margin, duration from the
@@ -580,7 +580,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   request or None on timeout.
 - arm controller (`test_arm.py`): lease acquire/release, streamed motion with implicit acquire and velocity cap, speed
   scale, clamping, argument validation, abort + hold on stale feedback / tracking error / stop (tracking limit grows
-  with the motion's velocity: `tracking_limit`, a 0.4 rad lag passes at full speed and aborts at 0.2 rad/s), no hold after filter_node
+  with the motion's velocity: `tracking_limit`; a follower 0.35 s behind passes at full speed through the delay window, a 0.4 rad offset aborts at 0.2 rad/s), no hold after filter_node
   switches source, convergence timeout, Cartesian moves (unreachable reported without motion), gripper open fraction
   and close-until-effort, home/set_home, keepalive and lease loss, state with stale data omitted; gripper closed default
   is a follower joint position; sag ratchet (fake backend `sag`): a small steady-state error settles as `converged`
@@ -629,10 +629,14 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `tilt_error` saying the base drive is inhibited and cancels; error back to warning re-emits `tilt_warning` (base drive
   enabled again, or "base drive still inhibited" when `base_drive_inhibited` stays true); the inhibit released while
   still at warning is an info `tilt_drive_enabled`; clear is an info `tilt_clear` without cancel; malformed states dropped; `tilt_warning` / `tilt_error`
-  interrupt running base motions (`BASE_INTERRUPTS`); a failing canceller is tolerated; refusal reasons by level (warning:
+  interrupt running base motions (`BASE_INTERRUPTS`); a failing canceller is tolerated and, after every retry failed,
+  raises a critical `tilt_nav_cancel_failed` (the helper runs the cancel inline with a no-op sleep); an unanswered
+  cancel is retried until answered (3 calls); refusal reasons by level (warning:
   nav only, error: nav and manual, "base inhibited by the tilt guard"); manual drive, the allowed flags and the vitals
   line follow `base_drive_inhibited` at warning, not only the level; a stale state keeps its level enforced and is
-  flagged; the IMU fallback `tilt` warning is silent while the guard reports and returns when it goes stale; body state
+  flagged; at level ok a stale state or `imu_ok: false` refuses navigation (manual drive allowed,
+  `navigation_allowed` false) until a fresh state with the IMU arrives; the IMU fallback `tilt` warning is silent
+  while the guard reports and returns when it goes stale; body state
   `tilt_guard` fields (level, roll/pitch, limits, allowed flags, age) and the vitals line; tools: classification
   (`TILT_NAV_TOOLS`, `TILT_MANUAL_BASE_TOOLS`), `navigate_to_pose` / `move_relative` / `look_around` refused with the
   reason in warning and error without touching the robot, `drive` allowed in warning, refused in warning while the base stays inhibited and refused in error, arm tools
@@ -658,6 +662,29 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `get_control_state` / `release_control(all)` payloads; the vitals carry `ctl arm=-@home base=-` /
   `ctl arm=H@away base=H`; the `any` need is satisfied by either lease; a queued gripper step fails at dispatch when
   the arm lease is not held
+- control leases and the carrying signal (`test_control_carrying.py`, `control.py` / `arm.py` / `carry.py`): lease
+  generation (H1): a `grasp_object` whose planning is interrupted by the web UI Home (`/arm/home`) ends `aborted` with
+  `arm control not held (released by the /arm/home service ...)` and the arm is not re-taken (the next arm tool is
+  refused), a queued grasp step whose lease was released and implicitly re-taken during planning fails
+  `arm control not held`, a motion without an expected lease still acquires implicitly (GraspService, /arm/home), an
+  expected generation that no longer matches refuses the motion; agent lease (H2): a web UI grasp's implicit hold does
+  not let `move_arm_joints` pass, `get_control_state` shows `held: false`, `held_by: mcp_server`, and `take_control`
+  adopts it (`held_by: agent`); a stop during a foreign motion holds the arm but grants no lease (release says not
+  held); a lease ended and re-taken by someone else is no longer the agent's; grip torque (H3): a keep_position
+  release after a soft grasp writes no torque_limit, the parked release after an open ends at the default torque; a
+  keep release without carrying restores the default; carrying (H4, M4, M6, live L2): after an `unverified` grasp the
+  carrying state names the unverified hold and `release_control(arm)` is refused, an open clears it, `release(all)`
+  while carrying releases and resets the base and reports `reset.arm = refused: carrying (...)` with the arm lease
+  kept, a measured jaw wider than `gripper_grasp_max_open_rad` clears grasp_held and the radius, radius 0 does not
+  block parking, `take_control` / `get_control_state` show `arm.carrying` with the radius after a keep release and the
+  refusal names it, an empty carrying state; persistence (H7): the carry record survives a restarted ArmController
+  (park still refused), the orphan release notes `mcp_server restarted`, a converged `/arm/home` publishes the static
+  footprint (a non-converged one does not); release refused while an arm motion or another blocking tool runs
+  (release_control itself does not count) (M1); base tools refused during the base reset and a `take_control('base')`
+  during the steering wait stays held (M3); a stop during the park keeps the lease (`stopped: ...`, no release) (L3);
+  `filter_node reports no active source (restarted?)` after an active source `none` (L2); the home pose is read once
+  until the file changes (L1); `NavGoalRegistry` cancels only registered goals, a discarded goal is skipped, nothing to
+  cancel is a success and an unanswered cancel reports failure; the registry is thread-safe (M2)
 - camera config (`test_camera_config.py`): cameras default to not calibrated with parent frames `gripper_link` / `base_link`,
   intrinsics source rules (calibration file XOR hfov with width and height), mount parent frame adopted and checked, front
   camera restricted to `base_link`, unknown camera keys rejected, `arm.base_in_base_link` and reach ordering
@@ -802,7 +829,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   each command after the measured clean servo lag (0.22 s) runs the logged full-speed home from the logged start pose
   and converges with the default `arm_tracking_delay_s` 0.35; a follower stalled 1.2 s still aborts (the check compares
   against the setpoint of 0.35 s ago); a jammed arm still aborts a full-speed home at the speed-term limit
-  (base + lag x vmax); `tracking_limit` grows with the speed
+  (base + lag x vmax); `tracking_limit` grows with the speed; `arm_tracking_lag_s` is 0 and a jammed joint at vmax
+  1 rad/s aborts with the newest setpoint at most error + delay x vmax (+ two ticks) ahead (about 0.6 rad, not 0.85);
+  a follower 0.4 s behind (just past the delay window) still converges
 - stream timing (`test_arm_stream_timing.py`): on a fake clock with jittery 40-60 ms ticks (late wake-ups) a full-speed
   move finishes at its planned `trajectory_s` (+- one period) with every setpoint equal to the analytic quintic at its
   publish time; a tick overrunning by 2.5 periods publishes the plan at the real time in one larger step with no burst
@@ -859,6 +888,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   between steps halts it; `cancel` aborts the running step (robot stopped) and drops the rest, but never stops an idle
   robot; `replace` drops pending steps only; battery cut-off at dispatch; enqueue refused while a blocking tool or
   another arm motion runs; grasp steps through the runner (grasped = contact, missed and unverified = failure without a contact event,
+  an unverified grasp halts the queue even with `on_fail: skip`,
   refused without a runner); waits (idle at once, `step_done`, timeout, cursor), status with progress; planning phase (status `phase`
   `planning` with `planning_s` until the first setpoint, then `executing`; `planned` event with `planning_s` between
   `step_started` and `step_done`, never waking a wait) and blended-group progress that follows published trajectory
@@ -928,7 +958,10 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   gripper camera image (`camera_image("gripper", 640)`) to an unverified result (a camera failure becomes a warning, a
   grasped result takes no picture); the grasp_object / release_object descriptions explain `unverified` (image,
   release_object, plush with grip_profile soft, retightened) and the output schema lists it; `GraspService` returns `unverified`
-  with the hold step; stop between steps and lost lease
+  with the hold step; the queue / web UI reason asks for `get_camera_image 'gripper'` (no "attached"), the
+  `grasp_object` reason points at the attached image, the outcome description mentions both; an unverified hold
+  keeps the soft torque until `unverified_hold_relax_s`, then the default is written once (still held); stop between
+  steps and lost lease
   abort, infeasible plans do not move, half-open before the roll at the lifted pre-grasp, release (open fraction and
   lift), every straight-line step at its waypoint speed (slow lift of a tall object), the `plan_grasp` /
   `grasp_object` / `release_object` tools (dry run, overrides, bad params, schemas teach `gap_below_m`, the scoop gap
@@ -976,7 +1009,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   target_load contact (holds the measured jaw) relaxing to 0 is re-tightened by the full cap; the re-tighten stops at
   closed; soft (already at the cap) is not re-tightened; a healthy holding load (150) is not re-tightened; a jaw that
   sank into the empty band during the hold is not re-tightened; `retighten_load_below: null` disables it; an
-  empty-band close stays `closed_no_contact` with `retightened` null. The shared `stalling` fake reports a healthy
+  empty-band close stays `closed_no_contact` with `retightened` null; a gentle hold is never re-tightened (gentle has
+  `retighten: false`, normal / firm / soft true) and an inline override can opt out; a re-tightened hold whose new
+  measurement shows crush_risk goes back to the previous hold (`retighten_reverted` true). The shared `stalling` fake reports a healthy
   hold load (100) during the hold check so the other tests keep their single hold
 - gripper-only motions near the floor and the body (`test_gripper_close_speed.py`, deployed client.yml config): the
   2026-10-11 10:27 close (jaw tip 12.5 mm above the floor, the stationary upper arm 14.9 mm from the lidar) plans at

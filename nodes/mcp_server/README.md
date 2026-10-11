@@ -230,6 +230,7 @@ missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresho
 | `tilt_error` (source `tilt_guard`) | critical | `/tilt_guard/state` level entered `error` (base drive inhibited by swerve_drive_controller) |
 | `tilt_drive_enabled` (source `tilt_guard`) | info | `base_drive_inhibited` released while the level is still `warning` (manual `drive` works again) |
 | `tilt_clear` (source `tilt_guard`) | info | `/tilt_guard/state` level back to `ok` |
+| `tilt_nav_cancel_failed` (source `tilt_guard`) | critical | the Nav2 goal cancel at a warning/error entry was not answered after `tilt_cancel_attempts` (3) tries `tilt_cancel_retry_s` (1 s) apart: a goal may still drive the tilted robot, call `stop` |
 | `tilt` | warning | IMU fallback only while the tilt guard is silent (no `/tilt_guard/state` for `tilt_guard_stale_s` 3 s): tilt from the IMU orientation > `tilt_warn_deg` 10 deg |
 | `human_takeover` | critical | active source leaves `autonomy` while this server holds the lease |
 | `cpu_overheat` | warning / critical | CPU >= 75 / 82 C |
@@ -397,7 +398,7 @@ that does not match the contract is logged and dropped.
 
 | Level change | Robot event | Nav2 goals | Tools |
 |---|---|---|---|
-| -> `warning` | `tilt_warning`, critical (claude_agent interrupts the running instruction at once): roll/pitch vs limits and "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool ...), then wait for the guard to clear". From `error` the message says the base drive is enabled again, or, when `base_drive_inhibited` stays true (the inhibit can outlast the error), that the base drive is still inhibited and no base motion tools work yet | every goal cancelled (`cancel_all_goals` from a worker thread), a running `navigate_to_pose` / `move_relative` / `drive` / `look_around` ends `interrupted` (`BASE_INTERRUPTS`) | `navigate_to_pose`, `move_relative`, `look_around` and `enqueue_motions` with a base step refused; queued base steps fail at dispatch (status `tilt_guard`); `drive` allowed unless `base_drive_inhibited` is still true (then refused like at `error`) |
+| -> `warning` | `tilt_warning`, critical (claude_agent interrupts the running instruction at once): roll/pitch vs limits and "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool ...), then wait for the guard to clear". From `error` the message says the base drive is enabled again, or, when `base_drive_inhibited` stays true (the inhibit can outlast the error), that the base drive is still inhibited and no base motion tools work yet | every goal cancelled (`cancel_all_goals` from a worker thread, retried `monitor.tilt_cancel_attempts` (3) times `monitor.tilt_cancel_retry_s` (1 s) apart; never answered: a critical `tilt_nav_cancel_failed` event telling the agent to call `stop`), a running `navigate_to_pose` / `move_relative` / `drive` / `look_around` ends `interrupted` (`BASE_INTERRUPTS`) | `navigate_to_pose`, `move_relative`, `look_around` and `enqueue_motions` with a base step refused; queued base steps fail at dispatch (status `tilt_guard`); `drive` allowed unless `base_drive_inhibited` is still true (then refused like at `error`) |
 | -> `error` | `tilt_error`, critical: "base drive is inhibited until the IMU is back within limits; no base motion tools work" | every goal cancelled | every base motion tool refused (`base inhibited by the tilt guard`) |
 | `warning`, `base_drive_inhibited` true -> false | `tilt_drive_enabled`, info: "base drive enabled again" plus the manual drive-back instruction | - | `drive` allowed again (navigation still refused) |
 | -> `ok` | `tilt_clear`, info | - | everything allowed again |
@@ -408,7 +409,10 @@ commands while inhibited, so `drive` is refused then instead of being silently i
 affected. Refusals are MCP tool errors, e.g. `drive refused: base inhibited by the tilt guard (level error, roll 16.0 deg
 (limits 8/15), pitch 1.0 deg (limits 12/20)): no base motion until the IMU is back within limits`. A state older than
 `monitor.tilt_guard_stale_s` (3 s) is stale: its last level stays enforced (the refusal and `get_body_state` say so) and
-the IMU fallback `tilt` warning runs again. `get_body_state` reports `tilt_guard` (`level`, `roll_deg`, `pitch_deg`,
+the IMU fallback `tilt` warning runs again. A dead guard is never trusted as level: at level `ok`, a stale state or
+`imu_ok: false` refuses navigation (`navigate_to_pose`, `move_relative`, `look_around`, queued base steps: "automatic
+navigation is refused until the tilt guard reports a fresh state with its IMU"), while short manual `drive` moves stay
+allowed; `navigation_allowed` is false then too. `get_body_state` reports `tilt_guard` (`level`, `roll_deg`, `pitch_deg`,
 `limits`, `since`, `base_drive_inhibited`, `imu_ok`, `age_s`, `stale`, `navigation_allowed`, `manual_drive_allowed`;
 null with a note before the first message; both allowed flags are false while `base_drive_inhibited`) and the vitals
 line ends with e.g. `tilt guard warning: roll 9.0 deg (limits 8/15), pitch 2.5 deg (limits 12/20)` once a state has
@@ -448,10 +452,20 @@ body: so before the battery and tilt gates, and a tool without its lease is refu
 | any (placeholder) | a future head tool: `LeaseNeed` `"any"` is satisfied by either lease, so a base-to-arm hand-over needs no head reset. No tool uses it yet; `ControlManager.refusal(name, "any")` implements it |
 
 - **Arm lease** = the filter_node autonomy lease (the hardware arbitration). `take_control('arm')` is
-  `ArmController.acquire()`. A human can end it: the web UI Home button calls `/arm/home` (always releases), and a
-  filter_node switch to another source drops it. The next arm tool is then refused saying how it was lost
-  (`ArmController.lost_note`: `taken over by web_ui`, `released by the /arm/home service (web UI Home button)`); the
-  agent never silently re-takes it. GraspService (web UI grasp) still takes it implicitly.
+  `ArmController.acquire()` (or adopts an arm mcp_server already holds implicitly) and records the lease generation
+  (`ArmController.lease_generation`, bumped whenever a lease starts or ends). The agent holds the arm only while that
+  generation is current (`ControlManager.arm_held`): an implicit hold by the web UI grasp service or by a `stop` during
+  a foreign motion is not the agent's lease (`get_control_state` `arm.held_by`: `agent`, `mcp_server` for such an
+  implicit hold, or filter_node's active source such as `leader` / `web_ui`). A human can end it: the web UI Home button
+  calls `/arm/home` (always releases), and a filter_node switch to another source drops it. The next arm tool is then
+  refused saying how it was lost (`ArmController.lost_note`: `taken over by web_ui`, `released by the /arm/home service
+  (web UI Home button)`, `filter_node reports no active source (restarted?)`, `mcp_server restarted (the orphaned
+  autonomy lease was released)`); the agent never silently re-takes it, also not inside a running tool: every arm tool
+  body and queued step runs bound to the generation it was checked against (`ControlManager.lease_scope` sets
+  `arm.EXPECTED_LEASE`), so a grasp still planning when the human pressed Home fails its next motion (`aborted`, reason
+  `arm control not held (...) - call take_control(subsystem='arm')`) instead of re-acquiring the arm. GraspService (web
+  UI grasp) and the `/arm/home` service pass no generation and still take the arm implicitly.
+- Leases are global to the server, not per MCP session (two clients of one server share them).
 - **Base lease** = a flag inside mcp_server (nothing downstream arbitrates `/cmd_vel_nav`; humans can still drive).
 - Both may be held at once. `stop` does not release leases.
 - **Refusal text**: `move_arm_joints refused: arm control not held - call take_control(subsystem='arm')`; with a lost
@@ -464,26 +478,40 @@ body: so before the battery and tilt gates, and a tool without its lease is refu
 
 | Subsystem | Default reset | `reset` values |
 |---|---|---|
-| arm | `ArmController.home(keep_prior_control=True)` (the self-collision-safe home routes), then `release()` | `homed`, `kept` (keep_position), `failed: no home pose stored`, `failed: <status>: <message>`, `failed: <error>`, `skipped: battery_cutoff` (battery below cut-off: release only), `skipped: not held` |
-| base | `RosRobot.reset_base()` (the base half of `stop`: abort base calls, zero twist, cancel every Nav2 goal, zero twist), then wait until every `control.steer_joint_names` joint on `/swerve_drive/joint_states` is within `control.steer_neutral_tolerance_rad` (0.05) of 0, at most `control.base_reset_timeout_s` (6 s = swerve `idle_recenter_s` 3 s + 3 s; the controller straightens the wheels itself after 3 s of zero twist) | `neutral`, `kept`, `failed: steering not neutral within 6 s (...)`, `failed: no fresh steer joint states ...`, `failed: Nav2 cancel service did not answer (zero twist sent)`, `skipped: not held` |
+| arm | `ArmController.home(keep_prior_control=True)` (the self-collision-safe home routes), then `release()` | `homed`, `kept` (keep_position), `failed: no home pose stored`, `failed: <status>: <message>`, `failed: <error>`, `skipped: battery_cutoff` (battery below cut-off: release only), `skipped: not held`, `stopped: ...` (a `stop` during the park: the arm holds where it stopped and the lease is KEPT, not handed to the leader arm / web UI), `refused: carrying (...)` (`all` while carrying, see below) |
+| base | `RosRobot.reset_base()` (the base half of `stop`: abort base calls, zero twist, cancel the Nav2 goals THIS server sent (`control.NavGoalRegistry`, filled by `run_nav`; a human's web UI goal is left alone; `stop` still cancels every goal), zero twist), then wait until every `control.steer_joint_names` joint on `/swerve_drive/joint_states` is within `control.steer_neutral_tolerance_rad` (0.05) of 0, at most `control.base_reset_timeout_s` (6 s = swerve `idle_recenter_s` 3 s + 3 s; the controller straightens the wheels itself after 3 s of zero twist) | `neutral`, `kept`, `failed: steering not neutral within 6 s (...)`, `failed: no fresh steer joint states ...`, `failed: Nav2 cancel service did not answer (zero twist sent)`, `skipped: not held` |
 
 `all` resets the base first (wheels stopped before the arm moves), then the arm. A lease not held is not released
-(`skipped: not held`). The call is refused while the motion queue runs (`cancel_motions or wait_for_event first`).
+(`skipped: not held`). The base lease is cleared before its reset starts: base tools are refused during the up to 6 s
+steering wait, and a `take_control('base')` meanwhile is a new lease that stays held. The call is refused while the
+motion queue runs (`cancel_motions or wait_for_event first`), while another blocking motion tool runs, and (arm
+targeted) while an arm motion runs (`release_control refused: an arm motion is running - call stop first or wait for it
+to finish`), so a release never aborts a motion mid-trajectory.
 
-**Carrying an object.** Parking the arm (`keep_position=false`, the default, also `subsystem='all'`, and the
-mandatory job-end release) is refused while the gripper carries an object: `release_control refused: the arm cannot
-park while the gripper carries an object (<reasons>) - put the object down first (release_object), or release with
-keep_position=true`. Reasons (`ControlManager.carrying`): `carried_object_radius_m` was set at the last arm release and
-the gripper was not opened since; the last grasp is held (`ArmController.grasp_held`: the last close ended `grasped`
-and no open succeeded since); a holding load (the motion queue's `gripper_holding` precondition: jaw short of closed,
-not wide open, load >= `motion_queue.holding_min_effort`). A release with `keep_position=true` stays allowed (that is
-how the robot drives while carrying something). `carried_object_radius_m` is refused without `keep_position=true`,
-with `subsystem='base'`, outside 0..0.3 m, or without the arm lease held.
+**Carrying an object: one signal.** `get_control_state` / `take_control` / `release_control` report
+`arm.carrying = {carrying, reasons, radius_m}` (`ControlManager.carrying_state`), the only carrying signal of
+mcp_server. Reasons: `carried_object_radius_m` of the last keep_position arm release (`radius_m`; 0 means none); the
+last grasp is held (`ArmController.grasp_held`: the last close ended `grasped`, or grasp_object's `unverified`
+empty-band hold kept gripping, and no open converged since); a holding load (the motion queue's `gripper_holding`
+precondition: jaw short of closed, not wide open, load >= `motion_queue.holding_min_effort`). The first two live in
+the carry record (`carry.py`, `<home_file dir>/carry.yaml`, written atomically on every change), so they survive
+`take_control` and an mcp_server restart; a converged open clears it, and so does a measured jaw more open than
+`limits.gripper_grasp_max_open_rad` (a human emptied the gripper with the leader arm). Parking the arm
+(`keep_position=false`) is refused while carrying: `release_control refused: the arm cannot park while the gripper
+carries an object (<reasons>) - put the object down first (release_object), or release with keep_position=true`;
+`subsystem='all'` still releases (and resets) the base and reports `reset.arm = "refused: carrying (<reasons>)"` with
+the arm lease kept. A release with `keep_position=true` stays allowed (that is how the robot drives while carrying
+something) and, while carrying, keeps the grip profile's torque limit on the gripper (`ArmController.release(
+restore_torque=False)`); the default torque comes back with the next open or a parked release. `carried_object_radius_m`
+is refused without `keep_position=true`, with `subsystem='base'`, outside 0..0.3 m, or without the arm lease held.
 
 **get_control_state** (sensor): `arm.at_home` is true when the five non-gripper joints are within
 `limits.settle_tolerance_for(joint)` (0.08 rad default) of the stored home pose; the gripper is excluded so a job may
 end at home holding an object; `null` without a stored home or fresh joint states. `base.steering_neutral` is `null`
-without fresh swerve joint states. `held_since` is wall-clock epoch seconds. `footprint` reports the published
+without fresh swerve joint states. `held_since` is wall-clock epoch seconds (the agent's lease). `arm.held_by` and
+`arm.carrying` are described above. A converged `/arm/home` service call (web UI Home) runs the footprint tick, which
+publishes the static footprint again. The stored home pose is cached by file stat (mtime, size, inode) and re-read
+only after it changed. `footprint` reports the published
 navigation footprint: `kind` (`static` / `dynamic` / `conservative`), `vertices` (costmap footprint vertex count),
 `carried_object_radius_m` (`null` without one) and `consumers` (`local_costmap`, `global_costmap`, `laser_filter`,
 `collision_monitor`: `ok`, `pending`, or `unavailable: ...` / `refused: ...` / `timeout: ...` / `republished: ...`);
@@ -577,7 +605,8 @@ IMU level reference: the BNO055 is not mounted exactly level; on the floor the r
 0.100) was fitted on it reads a constant roll 0.5-0.8 / pitch 1.2-1.4 deg. That floor IS the robot plane, so the raw
 tilt counted the mounting bias twice: at base_link x 0.29-0.32 it lifted the surface 5.3-8.2 mm, and top_down tips
 ended 16.3 mm above the floor on a 20 mm leg (3.7 mm jaw overlap). The slow zone, the grasp surface and the reported
-`tilt_deg` therefore use the IMU tilt minus `imu_level_reference` (default 0, 0); an IMU-sourced `slow_zone` / plan
+`tilt_deg` therefore use the IMU tilt minus `imu_level_reference` (default roll 0.7 / pitch 1.3 deg, equal to the
+swerve tilt guard's code default: a parity test keeps them equal); an IMU-sourced `slow_zone` / plan
 `surface` also reports the raw `imu_tilt_deg` and `imu_level_reference_deg`. client.yml sets roll 0.7 / pitch 1.3 deg
 (the 2026-10-11 investigation values, not a fresh capture). Re-capture it (mean IMU roll/pitch while parked level)
 whenever the floor height is recalibrated; a real slope beyond the reference still lifts the surface.
@@ -944,8 +973,11 @@ holds the measured position plus the profile's `squeeze_rad` toward closed, neve
 grasp, and the reasons say the jaw reached the empty band and the object may be soft/squashed or absent. The
 `grasp_object` tool then attaches a fresh gripper camera image (`robot.camera_image("gripper", 640)`, capped by
 `limits.max_image_px`; a camera failure adds a warning instead) so the agent can look: object in the jaws, treat it as
-held; otherwise `release_object` (opens and lifts) and retry. The web UI's GraspService returns the same outcome without
-an image. A contact that fails verification (`blocked`, jaw within `min_hold_gap_rad` of closed or load below
+held; otherwise `release_object` (opens and lifts) and retry. Only the `grasp_object` tool attaches the image, so the
+reason text there says "look at the attached gripper camera image"; everywhere else (queued grasp steps, the web UI's
+GraspService, which returns the same outcome without an image) it says "call get_camera_image 'gripper' and look at
+it". An unverified hold counts as carrying (`get_control_state` `arm.carrying`), and its profile torque limit is
+relaxed to the default after `grip_profiles.unverified_hold_relax_s` (60 s; the servo heats while the agent looks). A contact that fails verification (`blocked`, jaw within `min_hold_gap_rad` of closed or load below
 `hold_effort_min`) opens again, lifts and retreats: `missed`. Any other motion status, a
 refusal or a stop (stop tool, or the service `stop`) stops and holds: `aborted` with the reason, and the default
 gripper torque limit is restored. Results carry the close's `grip_profile`, `holding_load`, `slipping` and
@@ -1078,15 +1110,18 @@ A close with a profile:
 4. holds the stall position plus `squeeze_rad` toward closed (effort contacts hold the measured position);
 5. measures the hold: two samples `hold_check_delay_s` apart; `holding_load` is the second sample's effort, `slipping`
    when the jaw closed more than `slip_threshold_rad` between them, `crush_risk` when `|holding_load| > crush_load`;
-   **re-tighten** (`ArmController.retighten_hold`, any profile): when the closing-direction holding load is below
+   **re-tighten** (`ArmController.retighten_hold`, profiles with `retighten: true`: normal, firm, soft; not gentle,
+   whose 0.01 rad squeeze would grow 8x on a light rigid object that reads about 0 load): when the closing-direction
+   holding load is below
    `retighten_load_below` (30) and the measured jaw is still outside the empty band (not within
    `gripper_empty_stall_rad` of closed), the hold steps once further toward closed, to `squeeze_max_rad` past the
    contact position in total (normal: 0.03 + 0.05; an effort contact, which holds the measured position: + 0.08;
    soft already squeezes the cap, so nothing is left), never past closed and with the torque limit unchanged; the
    hold is then measured again and the result reports `retightened: true` (`false` when the check found nothing to
-   do, null without a grasp). It applies to every profile because the check is cheap and the step is bounded by the
-   same caps a preset may use; it fires only when the servo is not pushing at all, so it never adds squeeze to a
-   loaded hold. `retighten_load_below: null` disables it;
+   do, null without a grasp). The step is bounded by the same caps a preset may use and fires only when the servo is
+   not pushing at all, so it never adds squeeze to a loaded hold; a re-tightened hold whose new measurement shows
+   `crush_risk` goes back to the hold before it (`retighten_reverted: true`; `crush_risk` reports that measurement).
+   An inline override can set `retighten` too. `retighten_load_below: null` disables it for every profile;
 6. reports `grip_profile` (name, applied values, `capped` fields) and `torque_limit_readback`: `verified` /
    `mismatch ...` when the bridge's `/follower/servo_registers` dump (about every 10 s) arrived after the write,
    else `unverified ...` (logged).
@@ -1099,8 +1134,9 @@ limits.gripper_velocity_rps`. Presets above a cap fail config validation; inline
 **Torque restore**: a grasp keeps its profile's torque limit while holding. The default preset's `torque_limit` is
 written back after every open (after the jaw moved, so the jaw never squeezes harder before it opens), after a close
 that did not grasp (`closed_no_contact`, `blocked`, any abort, an exception; an `unverified` grasp_object writes the
-profile's limit again for its hold and keeps it until the release), when a grasp run aborts, on
-`release_control`, when the lease is lost to another source, and on mcp_server startup (as soon as the bridge
+profile's limit again for its hold and keeps it until the release or `unverified_hold_relax_s`), when a grasp run
+aborts, on `release_control` (except a keep_position release while carrying: the grip stays), when the lease is lost
+to another source, and on mcp_server startup (as soon as the bridge
 subscribes `/follower/set_register`), so a crash or an unexpected end never leaves the gripper weakened or strong.
 
 ```yaml
@@ -1111,12 +1147,13 @@ grip_profiles:
   closing_load_sign: 1        # sign of the decoded gripper effort while closing on an object
   hold_check_delay_s: 0.25
   slip_threshold_rad: 0.01
-  retighten_load_below: 30    # re-tighten a hold that relaxed below this load (null = never)
+  retighten_load_below: 30    # re-tighten a retighten profile's hold that relaxed below this load (null = never)
+  unverified_hold_relax_s: 60 # unverified hold: profile torque this long, then the default (null = never)
   presets:
-    gentle: {squeeze_rad: 0.01, torque_limit: 250, close_speed_rps: 0.2, target_load: 80, contact_effort_threshold: 120, crush_load: 200}
-    normal: {squeeze_rad: 0.03, torque_limit: 500, close_speed_rps: 0.5, target_load: 200, contact_effort_threshold: 300, crush_load: 450}
-    firm: {squeeze_rad: 0.05, torque_limit: 650, close_speed_rps: 0.4, target_load: 300, contact_effort_threshold: 350, crush_load: 600}
-    soft: {squeeze_rad: 0.08, torque_limit: 600, close_speed_rps: 0.3, target_load: 150, contact_effort_threshold: 250, crush_load: 550}
+    gentle: {squeeze_rad: 0.01, torque_limit: 250, close_speed_rps: 0.2, target_load: 80, contact_effort_threshold: 120, crush_load: 200, retighten: false}
+    normal: {squeeze_rad: 0.03, torque_limit: 500, close_speed_rps: 0.5, target_load: 200, contact_effort_threshold: 300, crush_load: 450, retighten: true}
+    firm: {squeeze_rad: 0.05, torque_limit: 650, close_speed_rps: 0.4, target_load: 300, contact_effort_threshold: 350, crush_load: 600, retighten: true}
+    soft: {squeeze_rad: 0.08, torque_limit: 600, close_speed_rps: 0.3, target_load: 150, contact_effort_threshold: 250, crush_load: 550, retighten: true}
 ```
 
 ## Motion queue
@@ -1131,7 +1168,8 @@ wrist_roll, object_width_m}` (both with `speed_scale`, `settle`, `surface_z_m`, 
 `gripper {open_fraction | close_until_effort, effort_threshold}` (also with the slow-zone fields), `base_relative {dx, dy, dyaw, precise, timeout_s}`,
 `navigate_to_pose {x, y, yaw, frame, precise, timeout_s}`, `wait_s {seconds}` and `grasp {object, strategy, params,
 approach_pitch_deg, surface_z_m, tilt_override_deg, surfaces}` (the `grasp_object` plan + execute through `GraspExecutor`; `grasped` succeeds, `unverified` (still holding, needs a
-look: `get_camera_image` 'gripper') / `missed` / `aborted` / `infeasible` fail). The call is all or nothing: an unknown joint, a bad speed, a timeout above
+look: `get_camera_image` 'gripper'; it always stops the queue, also with `on_fail: skip`, since the object may be in the
+jaws) / `missed` / `aborted` / `infeasible` fail). The call is all or nothing: an unknown joint, a bad speed, a timeout above
 `timeouts.nav_max_timeout_s` or an unreachable cartesian target (IK is solved at enqueue time, seeded with the previous
 queued arm target, else the commanded pose) refuses the whole call with every reason (`step i (kind): reason`). At most
 `motion_queue.max_steps` (32) pending steps. `replace=true` drops the pending steps first (the running one finishes).
@@ -1293,8 +1331,9 @@ Not modelled: a payload in the gripper (adds torque the model does not know), a 
   Aborts and holds the measured pose when `/follower/joint_states` is older than 0.3 s, the tracking error (gripper
   excluded: the measured joint against the setpoint commanded `arm_tracking_delay_s` (0.35 s) earlier, by publish time;
   a joint between that setpoint and the newest one has error 0) of a joint exceeds `arm_tracking_error_rad` (0.25) +
-  `arm_tracking_lag_s` (0.25 s) x the motion's joint velocity cap (0.5 rad at full speed 1.0 rad/s, 0.3 rad at 0.2 rad/s:
-  servos lag more at speed), or `stop` is called. The abort message and the `arm_tracking_abort` event name the joint. One arm motion at a time.
+  `arm_tracking_lag_s` x the motion's joint velocity cap (`arm_tracking_lag_s` is 0: the delay window already carries
+  the servo lag, and stacking both let a jammed joint at 1 rad/s run 0.85 rad behind the newest setpoint before the
+  abort; now about 0.6 rad), or `stop` is called. The abort message and the `arm_tracking_abort` event name the joint. One arm motion at a time.
 - **Tracking limit and the follower delay**: the follower chain reaches a setpoint about 0.2 s after it is published
   (clean servo lag 0.20-0.24 s on every joint, the unloaded wrist_flex as much as the gravity-loaded ones: least-squares
   fit of the follower's `joint:value` journal lines against the actual setpoint publish times, 2026-10-11 with P=16).
@@ -1499,8 +1538,8 @@ floor_guard:              # below-surface slow zone (see Arm mount and floor slo
   surface_z_m: 0.0
   imu_max_age_s: 1.0
   imu_level_reference:    # IMU roll/pitch (deg) on the calibration floor, subtracted from the IMU tilt
-    roll_deg: 0.0         # client.yml: 0.7 (BNO055 mounting bias); re-capture after a floor height recalibration
-    pitch_deg: 0.0        # client.yml: 1.3
+    roll_deg: 0.7         # BNO055 mounting bias (= swerve tilt guard default); re-capture after a floor height recalibration
+    pitch_deg: 1.3
 grasp:                    # grasp planner defaults, overridable per call via params (see Grasp macros)
   approach_distance_m: 0.04
   pre_grasp_clearance_m: 0.05
@@ -1629,7 +1668,9 @@ monitor:                  # all optional; thresholds of the body monitor (see Bo
   bump_critical_mps2: 9.0
   bump_min_samples: 2
   tilt_warn_deg: 10          # IMU fallback warning, only while /tilt_guard/state is silent
-  tilt_guard_stale_s: 3.0    # /tilt_guard/state older than this is stale (last level still enforced)
+  tilt_guard_stale_s: 3.0    # /tilt_guard/state older than this is stale (last level still enforced; nav refused at ok)
+  tilt_cancel_attempts: 3    # Nav2 cancel tries at a tilt warning/error entry, then tilt_nav_cancel_failed
+  tilt_cancel_retry_s: 1.0
 ```
 
 ## Claude Code setup
