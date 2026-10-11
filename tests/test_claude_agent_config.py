@@ -224,7 +224,7 @@ def test_effector_and_denied_tools_match_mcp_server_motion_tools() -> None:
 
 
 def test_control_lease_tools_classified_in_group_vars_and_defaults() -> None:
-    """take/release_control uncapped, get_control_state a sensor, arm_set_home denied, in client.yml and code defaults."""
+    """take/release_control uncapped, get_control_state a sensor, arm_set_home denied (client.yml and defaults)."""
     pytest.importorskip("pydantic")
     spec = importlib.util.spec_from_file_location("claude_agent_config", NODE_DIR / "claude_agent" / "config.py")
     module = importlib.util.module_from_spec(spec)
