@@ -197,6 +197,7 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "list_lookups",
         "get_lookup_image",
         "annotate_lookup",
+        "delete_photos",
         *FRONTIER_TOOLS,
     }
     for t in tools:

@@ -74,6 +74,7 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "list_lookups": {},
     "get_lookup_image": {"lookup_id": "0" * 32},
     "annotate_lookup": {"lookup_id": "0" * 32, "note": "n"},
+    "delete_photos": {"keep_newest": 1000, "dry_run": True},
     "list_frontiers": {},
     "plan_frontier_visit": {"id": 1},
 }

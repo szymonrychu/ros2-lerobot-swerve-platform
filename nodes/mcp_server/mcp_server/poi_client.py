@@ -11,6 +11,9 @@ from .geometry import normalize_angle
 from .models import RobotError
 from .perception_models import PoiView
 
+# poi_store bulk photo delete; its payload travels in the command's "selector" field instead of "poi".
+DELETE_PHOTOS_OP = "delete_photos"
+
 
 class PoiStoreDown(RobotError):
     """Nothing listens on /poi/command (poi_store is not running)."""
@@ -101,16 +104,17 @@ class PoiRequests:
         return result
 
     def request(self, op: str, poi: dict[str, Any]) -> dict[str, Any]:
-        """Send an add/update/delete command and wait for its result.
+        """Send an add/update/delete (or delete_photos) command and wait for its result.
 
         Args:
-            op (str): "add", "update" or "delete".
-            poi (dict[str, Any]): POI payload as defined by poi_store.
+            op (str): "add", "update", "delete" or "delete_photos".
+            poi (dict[str, Any]): POI payload as defined by poi_store; for delete_photos the PhotoSelector, sent as
+                the command's "selector" field.
 
         Returns:
             dict[str, Any]: The accepted result {request_id, ok: True, message, poi}.
         """
-        return self.send(op, {"poi": poi})
+        return self.send(op, {"selector" if op == DELETE_PHOTOS_OP else "poi": poi})
 
     def clear(self, created_by: str) -> dict[str, Any]:
         """Delete every POI made by one creator and wait for the result.
