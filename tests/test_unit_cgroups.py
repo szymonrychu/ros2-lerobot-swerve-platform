@@ -120,7 +120,7 @@ def test_directives_sit_in_the_service_section() -> None:
 
 
 def test_resolve_maps_new_keys() -> None:
-    """resolve_and_deploy.yml maps the type defaults keys to the node_* variables (memory_high is derived, see below)."""
+    """resolve_and_deploy.yml maps the type defaults keys to node_* variables (memory_high is derived)."""
     text = RESOLVE_TASKS.read_text()
     for var, key in (
         ("node_cpu_weight", "cpu_weight"),
