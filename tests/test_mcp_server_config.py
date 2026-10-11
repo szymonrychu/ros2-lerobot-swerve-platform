@@ -388,6 +388,30 @@ def test_mcp_server_config_renders_guard_rules_in_dry_run() -> None:
     assert cfg["motion_queue"]["watch_max_per_call"] == 8
 
 
+def mcp_base_tools() -> set[str]:
+    """Tools that need the base lease, read from mcp_server tools.py TOOL_SUBSYSTEM without importing the node.
+
+    Returns:
+        set[str]: Names of the base-moving tools.
+    """
+    tree = ast.parse((REPO_ROOT / "nodes/mcp_server/mcp_server/tools.py").read_text())
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "TOOL_SUBSYSTEM":
+            table = ast.literal_eval(node.value)
+            return {name for name, need in table.items() if need == "base"}
+    raise AssertionError("TOOL_SUBSYSTEM not found in tools.py")
+
+
+def test_base_guard_rules_cover_every_base_moving_tool() -> None:
+    """A guard rule about base motion must apply to every tool that moves the base (incl. the frontier tools)."""
+    base = mcp_base_tools()
+    assert {"navigate_to_pose", "go_to_frontier", "look_toward_frontier"} <= base
+    for rule in node_config("mcp_server")["guard_rules"]["rules"]:
+        tools = set(rule["applies_to"].get("tools", []))
+        if tools & base:
+            assert base <= tools, f"{rule['name']} misses base tools {sorted(base - tools)}"
+
+
 def test_mcp_server_config_lazy_steer_states() -> None:
     """The swerve joint states are subscribed only while read (review M5): first-message wait and idle destroy."""
     control = node_config("mcp_server")["control"]

@@ -1546,7 +1546,7 @@ ros2_nodes:
               the outline), or call release_control with keep_position=true to hand the base back holding its pose, then repeat
               the base move."
             applies_to:
-              tools: [navigate_to_pose, move_relative, drive, look_around]
+              tools: [navigate_to_pose, move_relative, drive, look_around, go_to_frontier, look_toward_frontier]
               steps: [base_relative, navigate_to_pose]
             all:
               - {field: footprint.kind, op: eq, value: static}
@@ -1558,7 +1558,7 @@ ros2_nodes:
             message: "An object is carried but the footprint does not include it. Call release_control with carried_object_radius_m set to the
               object radius (or put the object down with release_object), then repeat the base move."
             applies_to:
-              tools: [navigate_to_pose, move_relative, drive, look_around]
+              tools: [navigate_to_pose, move_relative, drive, look_around, go_to_frontier, look_toward_frontier]
               steps: [base_relative, navigate_to_pose]
             all:
               - {field: arm.carrying, op: eq, value: true}
