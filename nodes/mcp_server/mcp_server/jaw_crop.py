@@ -18,23 +18,25 @@ from .ik import ArmKinematics
 JPEG_QUALITY = 85
 
 
-def jaw_points(kin: ArmKinematics, jaw: JawModel, joints: dict[str, float]) -> dict[str, np.ndarray]:
-    """Jaw points in the arm base frame, computed as SelfCollisionChecker.fixed_points does.
+def jaw_points(
+    kin: ArmKinematics, jaw: JawModel, frames: dict[str, np.ndarray], gripper_angle: float
+) -> dict[str, np.ndarray]:
+    """Jaw points in the arm base frame: the one definition shared by self_collision and the jaw crop.
 
     Args:
-        kin (ArmKinematics): Arm kinematics on the URDF.
+        kin (ArmKinematics): Arm kinematics on the URDF (tool_offset).
         jaw (JawModel): Moving jaw geometry.
-        joints (dict[str, float]): Joint name -> rad (measured space); the gripper angle moves the moving jaw tip.
+        frames (dict[str, np.ndarray]): kin.link_frames(joints).
+        gripper_angle (float): Measured gripper angle (rad); it moves the moving jaw tip.
 
     Returns:
         dict[str, np.ndarray]: 'jaw_tip', 'tool_point' and 'moving_jaw_tip' -> (3,) positions.
     """
-    frames = kin.link_frames(joints)
     tool = frames[TOOL_FRAME_LINK]
     return {
         "jaw_tip": tool[:3, 3],
         "tool_point": tool[:3, :3] @ kin.tool_offset + tool[:3, 3],
-        "moving_jaw_tip": jaw.moving_tip(frames[GRIPPER_LINK], joints.get("gripper", jaw.closed_rad)),
+        "moving_jaw_tip": jaw.moving_tip(frames[GRIPPER_LINK], gripper_angle),
     }
 
 
@@ -69,8 +71,9 @@ def jaw_crop(
         return None
     t_gripper = kin.link_frame(joints, setup.parent_frame)
     t_optical = optical_from_mount(t_gripper @ setup.mount.to_matrix())
-    front = np.array(list(jaw_points(kin, jaw, joints).values()))
-    into_jaws = kin.link_frame(joints, GRIPPER_LINK)[:3, :3] @ jaw.depth_axis
+    frames = kin.link_frames(joints)
+    front = np.array(list(jaw_points(kin, jaw, frames, joints.get("gripper", jaw.closed_rad)).values()))
+    into_jaws = frames[GRIPPER_LINK][:3, :3] @ jaw.depth_axis
     pts = np.vstack([front, front + s.crop_depth_m * into_jaws])
     uv, depth = project_points(setup.intrinsics, t_optical, pts)
     visible = (depth > MIN_DEPTH) & np.all(np.isfinite(uv), axis=1) & np.all(np.abs(uv) < MAX_PROJECTED_PX, axis=1)

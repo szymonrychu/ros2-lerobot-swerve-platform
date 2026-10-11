@@ -42,8 +42,9 @@ from .arm_geometry import (
 )
 from .body_model import BodyModel, Obstacle, capsule_signed_distance
 from .config import ArmBaseOffset, BodyCheckSettings, McpServerConfig
-from .floor_guard import GRIPPER_LINK, TOOL_FRAME_LINK, JawModel, yaw_matrix
+from .floor_guard import GRIPPER_LINK, JawModel, yaw_matrix
 from .ik import ArmKinematics
+from .jaw_crop import jaw_points
 
 CAPSULES = (UPPER_ARM_CAPSULE, FOREARM_CAPSULE, WRIST_CAPSULE)
 CHECKED_PARTS = (*(c[0] for c in CAPSULES), GRIPPER_BODY, *JAW_POINTS)
@@ -489,12 +490,7 @@ class SelfCollisionChecker:
         """
         origins = {key: frames[link][:3, 3] for key, link in LINK_ORIGINS.items()}
         out = {name: self.to_base_link(np.vstack([origins[a], origins[b]])) for name, a, b, _ in CAPSULES}
-        gripper, tool = frames[GRIPPER_LINK], frames[TOOL_FRAME_LINK]
-        jaw = {
-            "jaw_tip": tool[:3, 3],
-            "tool_point": tool[:3, :3] @ self.kin.tool_offset + tool[:3, 3],
-            "moving_jaw_tip": self.jaw.moving_tip(gripper, joints.get(self.gripper, self.jaw.closed_rad)),
-        }
+        jaw = jaw_points(self.kin, self.jaw, frames, joints.get(self.gripper, self.jaw.closed_rad))
         for name in JAW_POINTS:
             out[name] = self.to_base_link(jaw[name][None, :])
         return out

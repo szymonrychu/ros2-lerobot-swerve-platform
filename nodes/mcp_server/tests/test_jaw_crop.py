@@ -84,8 +84,8 @@ def run(setup, kin, jaw, s, w=WIDTH, h=HEIGHT, joints=None):
 
 
 def test_jaw_points_match_the_self_collision_definition(kin: ArmKinematics, jaw: JawModel) -> None:
-    pts = jaw_points(kin, jaw, JOINTS)
     frames = kin.link_frames(JOINTS)
+    pts = jaw_points(kin, jaw, frames, JOINTS["gripper"])
     tool = frames[TOOL_FRAME_LINK]
     assert set(pts) == {"jaw_tip", "tool_point", "moving_jaw_tip"}
     np.testing.assert_allclose(pts["jaw_tip"], tool[:3, 3])
@@ -98,7 +98,7 @@ def test_box_contains_tool_point_and_both_jaw_tips(kin: ArmKinematics, jaw: JawM
     box = run(setup, kin, jaw, settings(crop_margin_px=0, crop_depth_m=0.0, crop_min_px=1))
     assert box is not None
     x0, y0, x1, y1 = box
-    pts = jaw_points(kin, jaw, JOINTS)
+    pts = jaw_points(kin, jaw, kin.link_frames(JOINTS), JOINTS["gripper"])
     for u, v in pixels_of(setup, kin, np.array(list(pts.values()))):
         assert x0 <= u <= x1 and y0 <= v <= y1
 
@@ -111,7 +111,7 @@ def test_box_includes_the_depth_points(kin: ArmKinematics, jaw: JawModel) -> Non
     assert box is not None and shallow is not None
     assert (box[2] - box[0]) * (box[3] - box[1]) > (shallow[2] - shallow[0]) * (shallow[3] - shallow[1])
     depth_axis = kin.link_frame(JOINTS, GRIPPER_LINK)[:3, :3] @ jaw.depth_axis
-    back = np.array([p + 0.05 * depth_axis for p in jaw_points(kin, jaw, JOINTS).values()])
+    back = np.array([p + 0.05 * depth_axis for p in jaw_points(kin, jaw, kin.link_frames(JOINTS), JOINTS["gripper"]).values()])
     for u, v in pixels_of(setup, kin, back):
         assert box[0] <= u <= box[2] and box[1] <= v <= box[3]
 
@@ -190,3 +190,15 @@ def test_crop_jpeg_content_comes_from_the_box() -> None:
 def test_crop_jpeg_rejects_undecodable_input() -> None:
     with pytest.raises(ValueError):
         crop_jpeg(b"not a jpeg", (0, 0, 10, 10), 100)
+
+
+def test_self_collision_fixed_points_reuse_jaw_points(cfg: McpServerConfig, kin: ArmKinematics, jaw: JawModel, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SelfCollisionChecker.fixed_points takes its jaw points from jaw_crop.jaw_points (one definition)."""
+    from mcp_server import self_collision
+
+    marker = {name: np.full(3, float(i)) for i, name in enumerate(("jaw_tip", "tool_point", "moving_jaw_tip"))}
+    monkeypatch.setattr(self_collision, "jaw_points", lambda *args, **kwargs: marker)
+    checker = self_collision.SelfCollisionChecker.from_config(kin, cfg, jaw)
+    out = checker.fixed_points(kin.link_frames(JOINTS), JOINTS)
+    for name, point in marker.items():
+        np.testing.assert_allclose(out[name], checker.to_base_link(point[None, :]))
