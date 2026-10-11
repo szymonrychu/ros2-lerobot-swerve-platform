@@ -1133,7 +1133,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `test_replace_drops_orphaned_watch_sets`, `test_finished_sets_are_dropped_and_status_reports_the_active_one`;
   thread: `test_watcher_thread_wakes_wait_for_event` (reason `watch_triggered`),
   `test_watcher_thread_sleeps_while_no_set_is_active`, `test_watcher_at_20hz_keeps_the_25hz_arm_stream_period`
-  (deadline-scheduled 25 Hz loop, best-of-2 p95 tick period at most 1 ms above the watcher-off run). Also
+  (deadline-scheduled 25 Hz loop beside the watcher at 20 Hz; p95 thread CPU time per watcher tick, the most it can
+  add to a stream period, under 1 ms - load-independent, unlike a wall-clock A/B of the stream). Also
   `test_monitor.py::test_report_watch_trigger_emits_a_warning_event` (warning, not debounced, not an interrupt) and
   `test_config.py::test_motion_queue_watch_settings_defaults_and_bounds`
 - motion queue tools (`test_motion_tools.py`): registration and classification (`enqueue_motions` motion,

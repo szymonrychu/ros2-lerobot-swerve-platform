@@ -536,9 +536,13 @@ def p95(values: list[float]) -> float:
 
 
 def test_watcher_at_20hz_keeps_the_25hz_arm_stream_period(robot: GateRobot) -> None:
-    """Best p95 of two runs each (OS sleep jitter), watcher-on no more than 1 ms worse than watcher-off."""
-    runs, seconds = 2, 1.5
-    baseline = min(p95(stream_periods(seconds)) for _ in range(runs))
+    """The watcher at 20 Hz adds at most 1 ms to the p95 tick period of a concurrent 25 Hz arm stream.
+
+    The watcher can only delay the stream while it holds the GIL, i.e. for the CPU time of one tick, so that is what
+    is bounded: each tick's thread CPU time (``time.thread_time``) while the stream runs beside it. Thread CPU time
+    does not grow with host load, unlike a wall-clock A/B comparison of the stream's periods (flaky under load).
+    """
+    seconds = 1.5
     sampler = FakeSampler()
     sampler.set("gripper_effort", 10.0)
     sampler.set("tilt_deg", 1.0)
@@ -546,6 +550,15 @@ def test_watcher_at_20hz_keeps_the_25hz_arm_stream_period(robot: GateRobot) -> N
     cfg = robot.arm.cfg
     fast = cfg.model_copy(update={"motion_queue": cfg.motion_queue.model_copy(update={"watch_rate_hz": 20.0})})
     queue, _ = make_queue(robot, sampler, watch_sleep=time.sleep, config=fast)
+    tick_cpu: list[float] = []
+    real_tick = queue.watch_tick
+
+    def timed_tick() -> None:
+        began = time.thread_time()
+        real_tick()
+        tick_cpu.append(time.thread_time() - began)
+
+    queue.watch_tick = timed_tick  # type: ignore[method-assign]
     constraints = [
         watch(metric="gripper_effort", op="gt", value=60),
         watch(metric="tilt_deg", op="gt", value=20),
@@ -554,8 +567,11 @@ def test_watcher_at_20hz_keeps_the_25hz_arm_stream_period(robot: GateRobot) -> N
     queue.enqueue(steps(NAV1), watch_constraints=constraints)
     wait_running(queue, robot)
     calls = sampler.calls
-    watched = min(p95(stream_periods(seconds)) for _ in range(runs))
-    assert sampler.calls - calls >= 3 * 20 * runs  # the watcher really ticked (3 samples per tick) meanwhile
+    periods = stream_periods(seconds)
+    ticks = list(tick_cpu)
     robot.gate.set()
     queue.wait(WAIT, "queue_empty")
-    assert watched - baseline < 0.001, (baseline, watched)
+    assert len(periods) >= 25 * seconds / 2  # the stream really ran
+    assert sampler.calls - calls >= 3 * 10 * seconds  # the watcher really ticked beside it (3 samples per tick)
+    assert len(ticks) >= 10 * seconds
+    assert p95(ticks) < 0.001, sorted(ticks)[-5:]

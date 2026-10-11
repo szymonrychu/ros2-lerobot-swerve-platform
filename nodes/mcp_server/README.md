@@ -1276,8 +1276,9 @@ A watch set binds to the job ids of its enqueue call and is active while the run
 dispatch through the step end); appended calls have their own sets, and sets none of whose steps is pending or running
 any more are dropped (e.g. by `replace=true`). The `motion-watch` daemon thread (started with the worker) sleeps on the
 queue condition while no set is active and otherwise ticks at `motion_queue.watch_rate_hz` (10 Hz, at most 20). It
-never runs inside the 25 Hz arm setpoint stream (`on_tick`); the overhead test keeps a fake stream's tick-period p95
-at most 1 ms above the watcher-off run with the watcher at 20 Hz.
+never runs inside the 25 Hz arm setpoint stream (`on_tick`); the overhead test runs a fake 25 Hz stream beside the
+watcher at 20 Hz and bounds what the watcher can add to its tick period (the GIL hold of one tick, measured as the
+tick's thread CPU time) at p95 under 1 ms.
 
 A trip is decided under the queue lock and generation-checked: when the step ended (or was cancelled) while the caches
 were sampled, the late trip is dropped. It emits `watch_triggered` {watch, metric, value, op, threshold, action}, counts
