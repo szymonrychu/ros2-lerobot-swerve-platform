@@ -205,5 +205,7 @@ def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
         assert target["address"] == f"127.0.0.1:{expected_port(entry)}", name
         assert target.get("path", "/metrics") == "/metrics", name
         checked += 1
-    assert checked == len(CONTRACT_NODES) == 15
-    assert set(targets) == CONTRACT_NODES
+    disabled = {n for n in CONTRACT_NODES if not nodes[n].get("enabled", True)}
+    assert disabled == {"topic_scraper_api"}  # disabled 2026-10-11, not scraped
+    assert checked == len(CONTRACT_NODES) - len(disabled) == 14
+    assert set(targets) == CONTRACT_NODES - disabled

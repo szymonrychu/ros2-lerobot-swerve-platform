@@ -24,3 +24,17 @@ def test_scraper_does_not_subscribe_raw_images() -> None:
     allowed = scraper_config()["allowed_types"]
     assert "sensor_msgs/msg/Image" not in allowed
     assert "sensor_msgs/msg/CompressedImage" in allowed
+
+
+SERVER_VARS = REPO_ROOT / "ansible" / "group_vars" / "server.yml"
+
+
+def test_scraper_is_disabled_on_both_hosts_and_not_scraped() -> None:
+    """topic_scraper_api stays installed but stopped on robot and server (user, 2026-10-11); Alloy does not scrape it."""
+    for path in (CLIENT_VARS, SERVER_VARS):
+        data = yaml.safe_load(path.read_text())
+        entry = next(n for n in data["ros2_nodes"] if n["name"] == "topic_scraper_api")
+        assert entry["present"] is True, path.name
+        assert entry["enabled"] is False, path.name
+        targets = data.get("monitoring_agent_node_targets") or []
+        assert all(t["node"] != "topic_scraper_api" for t in targets), path.name

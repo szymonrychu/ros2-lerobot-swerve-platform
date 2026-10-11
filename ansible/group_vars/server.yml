@@ -101,7 +101,8 @@ ros2_nodes:
   - name: topic_scraper_api
     node_type: topic_scraper_api
     present: true
-    enabled: true
+    # Disabled 2026-10-11 (user): ~0.4 cores of always-on debug subscriptions; enable again for debugging sessions.
+    enabled: false
     config: |
       host: "0.0.0.0"
       port: 18100

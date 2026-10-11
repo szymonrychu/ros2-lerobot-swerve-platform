@@ -194,7 +194,7 @@ So both master2master and the test API feed the same filter → feetech chain.
 
 ### Topic scraper debug API (client + server)
 
-The **topic_scraper_api** node runs on both hosts and exposes:
+The **topic_scraper_api** node is installed on both hosts but disabled (`enabled: false`, 2026-10-11: about 0.4 cores of always-on subscriptions on the robot); set `enabled: true` in `group_vars/<host>.yml` and deploy to use it for a debugging session. When running it exposes:
 
 - `GET /topics` for topic metadata (topic, endpoint, type, sample status)
 - `GET /topics/<topic-path>` for latest sample payload plus timing fields (`header_stamp_ns`, `received_at_ns`)
@@ -406,7 +406,7 @@ estimate.
 | haptic_controller (disabled) | no data | 48M | 128M |
 | realsense_d435i (retired) | no data | 128M | 512M |
 
-The enabled nodes protect **1768 MiB** in total: under a quarter of the 8 GB Pi 5, which leaves about 6.3 GB for the
+The enabled nodes protect **1648 MiB** in total: under a quarter of the 8 GB Pi 5, which leaves about 6.3 GB for the
 OS, page cache, monitoring and unprotected work.
 
 ### Host slices (`playbooks/tasks/cgroup_headroom.yml`)
@@ -415,7 +415,7 @@ Every client deploy (tags `config`, `always`) installs two slice drop-ins named 
 systemd when either changed:
 
 - `/etc/systemd/system/system.slice.d/`: `MemoryLow=` the sum of `memory_low` over the present and enabled nodes
-  (1768M). A unit's `MemoryLow` only protects as far as every ancestor allocates protection, so without it the units'
+  (1648M). A unit's `MemoryLow` only protects as far as every ancestor allocates protection, so without it the units'
   values would protect nothing.
 - `/etc/systemd/system/user.slice.d/`: `CPUWeight=` / `IOWeight=` `ros2_user_slice_cpu_weight` /
   `ros2_user_slice_io_weight` (50). SSH sessions and the deploy's `become` steps (`uv sync`, git, apt) run in session

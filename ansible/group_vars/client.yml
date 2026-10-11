@@ -694,7 +694,8 @@ ros2_nodes:
   - name: topic_scraper_api
     node_type: topic_scraper_api
     present: true
-    enabled: true
+    # Disabled 2026-10-11 (user): ~0.4 cores of always-on debug subscriptions; enable again for debugging sessions.
+    enabled: false
     config: |
       host: "0.0.0.0"
       port: 18100
@@ -1682,7 +1683,6 @@ monitoring_agent_node_targets:
   - {node: map_guard, address: "127.0.0.1:19110", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
-  - {node: topic_scraper_api, address: "127.0.0.1:18100", path: /metrics}
   - {node: mcp_server, address: "127.0.0.1:18200", path: /metrics}
   - {node: claude_agent, address: "127.0.0.1:18300", path: /metrics}
 # nginx on port 80: web UI at /, /grafana/ redirected to the server (roles/web_proxy defaults).

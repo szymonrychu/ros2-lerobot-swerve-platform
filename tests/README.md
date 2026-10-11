@@ -157,9 +157,9 @@ of 2026-10-11 (Mimir) are pinned in `MEASURED_MIB`.
 | `test_memory_low_is_about_the_measured_working_set` | `memory_low` is between the p50 working set and 16 MiB above it; unmeasured types have one. |
 | `test_memory_max_is_a_generous_safety_net` | `memory_max` is at least 2x the 24 h peak (2x `memory_low` when unmeasured); mcp_server at least 1G. |
 | `test_measured_and_unmeasured_cover_every_robot_type` | The measurement table names every robot type exactly once. |
-| `test_memory_low_sum_leaves_room_for_the_os` | The enabled nodes protect 1768 MiB, under a third of the 8 GB Pi. |
+| `test_memory_low_sum_leaves_room_for_the_os` | The enabled nodes protect 1648 MiB, under a third of the 8 GB Pi. |
 | `test_server_keeps_its_limits_without_tiers` | Server types keep `CPUQuota` / `MemoryMax`, carry no tier keys, render no `MemoryHigh` / `MemoryLow`. |
-| `test_system_slice_allocates_the_robot_memory_low` | The `system.slice` drop-in template sums `memory_low` over present and enabled nodes (M and G, missing keys 0): 1768M on the client. |
+| `test_system_slice_allocates_the_robot_memory_low` | The `system.slice` drop-in template sums `memory_low` over present and enabled nodes (M and G, missing keys 0): 1648M on the client. |
 | `test_user_slice_loses_to_robot_units` | The `user.slice` drop-in renders `CPUWeight=50`, `IOWeight=50` from `group_vars/client.yml`. |
 | `test_headroom_tasks_are_reversible_and_wired_into_the_client_deploy` | `cgroup_headroom.yml` installs both drop-ins, removes them when `ros2_cgroup_headroom_enabled` is false, reloads systemd; the client deploy includes it with tags `config`, `always`. |
 | `test_monitoring_slice_stays_low_priority` | `monitoring.slice` keeps CPU/IO weight 20, its memory caps and a positive `OOMScoreAdjust`. |
@@ -196,6 +196,7 @@ Client topic_scraper_api config (`ansible/group_vars/client.yml`).
 | Test | Covers |
 |---|---|
 | `test_scraper_does_not_subscribe_raw_images` | Raw `sensor_msgs/msg/Image` is not in `allowed_types` (about 20 MB/s of raw frames cost about 0.4 cores to deserialize); `CompressedImage` stays. |
+| `test_scraper_is_disabled_on_both_hosts_and_not_scraped` | topic_scraper_api is installed (`present: true`) but `enabled: false` on the robot and the server, and Alloy has no scrape target for it. |
 
 ### `test_topic_scraper_collect.py`
 

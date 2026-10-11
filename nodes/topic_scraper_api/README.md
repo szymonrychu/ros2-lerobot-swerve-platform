@@ -1,5 +1,7 @@
 # topic_scraper_api
 
+> Disabled on both hosts since 2026-10-11 (`enabled: false` in `ansible/group_vars/client.yml` / `server.yml`): enable it and deploy for a debugging session. `scripts/rtk_diag.sh --no-scraper` skips its section.
+
 ROS2 node that discovers topics dynamically, subscribes to supported message types, and exposes latest samples over HTTP as JSON.
 
 ## Purpose

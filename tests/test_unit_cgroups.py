@@ -371,9 +371,9 @@ def enabled_memory_low_sum(variables: dict) -> int:
 
 
 def test_memory_low_sum_leaves_room_for_the_os() -> None:
-    """The enabled robot nodes protect 1768 MiB in total, well under a third of the 8 GB Pi."""
+    """The enabled robot nodes protect 1648 MiB in total, well under a third of the 8 GB Pi."""
     total = enabled_memory_low_sum(load(CLIENT_VARS))
-    assert total == 1768
+    assert total == 1648
     assert total <= MAX_MEMORY_LOW_SUM_MIB < CLIENT_RAM_MIB / 3
 
 
@@ -408,7 +408,7 @@ def test_system_slice_allocates_the_robot_memory_low() -> None:
     variables = load(CLIENT_VARS)
     text = render_headroom("system-slice-headroom.conf.j2", **variables)
     assert "[Slice]\n" in text
-    assert "MemoryLow=1768M\n" in text
+    assert "MemoryLow=1648M\n" in text
     assert "MemoryLow=0M\n" in render_headroom(
         "system-slice-headroom.conf.j2", ros2_nodes=[], ros2_node_type_defaults={}
     )
