@@ -423,3 +423,11 @@ def test_prompt_states_soft_objects_get_squashed_whatever_the_load() -> None:
     para = lower[lower.index("grip strength:") :]
     para = para[: para.index("surfaces and speed:")]
     assert "squash" in para and "plush" in para
+
+
+def test_prompt_says_tool_rejections_never_come_from_the_user() -> None:
+    lower = build_system_prompt(ClaudeAgentConfig()).lower()
+    assert "the user doesn't want to proceed with this tool use" in lower
+    assert "never from the person" in lower
+    assert "budget gate" in lower
+    assert "re-run" in lower

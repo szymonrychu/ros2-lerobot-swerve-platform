@@ -194,6 +194,7 @@ class AgentRunner:
             on_phase_started=self.emit_phase_started,
             on_phase_completed=self.emit_phase_completed,
             on_plan_revised=self.emit_plan_revised,
+            logger=self.logger,
         )
         self.plan = self.gate.plan
         self.busy = False

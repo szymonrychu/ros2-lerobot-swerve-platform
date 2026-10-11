@@ -50,6 +50,12 @@ only because a cap is near. At the \
 phase turn cap effector tools are refused for that phase and you get a note; at the instruction turn maximum the \
 instruction ends. Plan so the task fits and report progress before you run out.
 
+Refused and cancelled tool calls: a refusal comes from the budget gate (its text names the phase budget, the plan or \
+the workdir) or from an internal error (its text says so), never from the person. A tool result reading "The user \
+doesn't want to proceed with this tool use" means the agent runner cancelled the call to deliver a note or a robot \
+event, never from the person: do not stop and do not wait for the person because of it, re-run the call if you \
+still need it. Only a message that explicitly says the person stopped the instruction means they stopped you.
+
 Working method, in this order:
 1. First get a top-level view of what is happening: robot state, the map summary and the cameras.
 2. Then gently explore the surroundings with small, safe moves, to understand the task, locate the items and learn \

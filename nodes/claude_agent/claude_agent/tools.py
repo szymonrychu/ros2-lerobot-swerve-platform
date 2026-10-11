@@ -1,5 +1,6 @@
 """Tool classification and the permission gate: enforces the agent-chosen per-phase ro/rw/turn budgets, sandboxes the notes file tools to the workdir."""
 
+import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -18,6 +19,10 @@ KIND_UNCAPPED = "uncapped"
 KIND_NOTES = "notes"
 KIND_PLAN = "plan"
 AGENT_PREFIX = "mcp__agent__"
+INTERNAL_ERROR_MESSAGE = (
+    "internal error in the permission gate: {error}; the call did not run. This refusal comes from an error in the "
+    "agent runner, not the user: retry the call once, or report the error"
+)
 OUTSIDE_WORKDIR_MESSAGE = "{name} denied: {detail}; file tools only work inside the workdir {workdir}"
 # Built-in file tools allowed for the agent's notes, with the input field naming the path (Glob/Grep: optional, default cwd).
 NOTES_PATH_FIELDS = {"Read": "file_path", "Write": "file_path", "Edit": "file_path", "Glob": "path", "Grep": "path"}
@@ -141,6 +146,7 @@ class EffectorGate:
         on_phase_started: Callable[[dict[str, Any]], None] | None = None,
         on_phase_completed: Callable[[dict[str, Any]], None] | None = None,
         on_plan_revised: Callable[[dict[str, Any]], None] | None = None,
+        logger: logging.Logger | Any = None,
     ) -> None:
         """Create the gate.
 
@@ -152,6 +158,8 @@ class EffectorGate:
             on_phase_started (Callable[[dict], None] | None): Called with the phase payload when a phase becomes active.
             on_phase_completed (Callable[[dict], None] | None): Called with the phase payload when a phase is closed.
             on_plan_revised (Callable[[dict], None] | None): Called with the plan payload after a revision.
+            logger (logging.Logger | Any): Object with error(str) for internal gate errors; defaults to the stdlib
+                ``claude_agent`` logger.
         """
         self.config = config
         self.plan = PlanTracker(
@@ -163,6 +171,7 @@ class EffectorGate:
             on_change=on_count,
         )
         self.on_denied = on_denied
+        self.logger = logger or logging.getLogger("claude_agent")
 
     def reset(self) -> None:
         """Start a new instruction: forget the plan and zero the counters."""
@@ -180,12 +189,36 @@ class EffectorGate:
             PermissionResultDeny: The denial.
         """
         if self.on_denied:
-            self.on_denied({"id": tool_use_id, "name": name, "reason": reason})
+            try:
+                self.on_denied({"id": tool_use_id, "name": name, "reason": reason})
+            except Exception as exc:  # noqa: BLE001 - a broken event sink must not turn into a CLI-side rejection
+                self.logger.error(f"recording the denial of {name} failed: {type(exc).__name__}: {exc}")
         return PermissionResultDeny(message=reason)
 
     async def can_use_tool(
         self, tool_name: str, tool_input: dict[str, Any], context: ToolPermissionContext
     ) -> PermissionResult:
+        """Permission callback given to the SDK: decide(), with any exception turned into an explicit denial.
+
+        An exception escaping the callback makes the SDK send an error control response, and the CLI then shows the
+        model a generic rejection; here it becomes a logged denial whose reason names the internal error instead.
+
+        Args:
+            tool_name (str): Full tool name.
+            tool_input (dict[str, Any]): Tool arguments.
+            context (ToolPermissionContext): Carries the tool_use_id.
+
+        Returns:
+            PermissionResult: The decision of decide(), or a Deny with INTERNAL_ERROR_MESSAGE when it raised.
+        """
+        try:
+            return self.decide(tool_name, tool_input, context)
+        except Exception as exc:  # noqa: BLE001 - every failure must reach the model as an explicit reason
+            error = f"{type(exc).__name__}: {exc}"
+            self.logger.error(f"permission gate failed for {tool_name}: {error}")
+            return self.deny(context.tool_use_id, short_name(tool_name), INTERNAL_ERROR_MESSAGE.format(error=error))
+
+    def decide(self, tool_name: str, tool_input: dict[str, Any], context: ToolPermissionContext) -> PermissionResult:
         """Decide whether a tool call may run.
 
         Args:

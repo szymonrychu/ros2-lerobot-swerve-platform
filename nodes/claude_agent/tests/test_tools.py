@@ -1,5 +1,7 @@
 """Tool classification, budget gating (ro/rw counting) and permission denial."""
 
+import asyncio
+import logging
 from pathlib import Path
 
 import pytest
@@ -337,3 +339,56 @@ async def test_grep_glob_filter_escaping_workdir_denied(workdir: Path) -> None:
 async def test_other_builtins_still_denied(workdir: Path, name: str) -> None:
     result = await notes_gate(workdir).can_use_tool(name, {"file_path": "NOTES.md"}, ctx())
     assert isinstance(result, PermissionResultDeny) and "not available" in result.message
+
+
+async def test_parallel_sensor_and_effector_requests_both_get_an_explicit_decision() -> None:
+    gate = gate_with_plan(rw=5)
+    move, camera = await asyncio.gather(
+        gate.can_use_tool("mcp__robot__move_arm_cartesian", {"x": 0.25}, ctx("m")),
+        gate.can_use_tool("mcp__robot__get_annotated_camera_image", {"camera": "gripper"}, ctx("c")),
+    )
+    assert isinstance(move, PermissionResultAllow) and isinstance(camera, PermissionResultAllow)
+    assert (gate.plan.ro_used, gate.plan.rw_used) == (1, 1)
+
+
+async def test_parallel_requests_past_the_rw_cap_deny_the_effector_with_the_budget_reason() -> None:
+    denied: list[dict] = []
+    gate = gate_with_plan(rw=1, on_denied=denied.append)
+    results = await asyncio.gather(
+        *(gate.can_use_tool("mcp__robot__drive", {}, ctx(f"d{i}")) for i in range(3)),
+        gate.can_use_tool("mcp__robot__get_camera_image", {}, ctx("c")),
+    )
+    assert [type(r) for r in results[:3]].count(PermissionResultAllow) == 1
+    assert all("rw budget exhausted" in r.message for r in results[:3] if isinstance(r, PermissionResultDeny))
+    assert isinstance(results[3], PermissionResultAllow)
+    assert len(denied) == 2 and gate.plan.rw_used == 1
+
+
+async def test_exception_inside_the_gate_becomes_an_explicit_internal_error_denial(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    denied: list[dict] = []
+    gate = gate_with_plan(on_denied=denied.append)
+
+    def broken(kind: str) -> str | None:
+        raise RuntimeError("tracker exploded")
+
+    monkeypatch.setattr(gate.plan, "charge", broken)
+    with caplog.at_level(logging.ERROR, logger="claude_agent"):
+        result = await gate.can_use_tool("mcp__robot__drive", {}, ctx("x"))
+    assert isinstance(result, PermissionResultDeny)
+    assert result.message.startswith("internal error in the permission gate: RuntimeError: tracker exploded")
+    assert "not the user" in result.message
+    assert denied == [{"id": "x", "name": "drive", "reason": result.message}]
+    assert "tracker exploded" in caplog.text
+
+
+async def test_a_failing_denial_callback_still_returns_the_explicit_denial(caplog: pytest.LogCaptureFixture) -> None:
+    def explode(info: dict) -> None:
+        raise ValueError("ui sink down")
+
+    gate = EffectorGate(ClaudeAgentConfig(), on_denied=explode)
+    with caplog.at_level(logging.ERROR, logger="claude_agent"):
+        result = await gate.can_use_tool("mcp__robot__drive", {}, ctx("y"))
+    assert isinstance(result, PermissionResultDeny) and result.message == "call agent.set_task_plan first"
+    assert "ui sink down" in caplog.text
