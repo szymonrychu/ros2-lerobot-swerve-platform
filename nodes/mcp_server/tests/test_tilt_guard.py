@@ -353,6 +353,7 @@ NAV_ARGS: dict[str, dict[str, Any]] = {
     "look_around": {},
     "go_to_frontier": {"id": 1},
     "look_toward_frontier": {"id": 1},
+    "approach_for_grasp": {"x": 1.5, "y": 2.0, "z": 0.05},
 }
 
 
@@ -373,6 +374,7 @@ def test_tool_classification_covers_every_base_motion_tool() -> None:
         "look_around",
         "go_to_frontier",
         "look_toward_frontier",
+        "approach_for_grasp",
     }
     assert TILT_MANUAL_BASE_TOOLS == {"drive"}
     assert (TILT_NAV_TOOLS | TILT_MANUAL_BASE_TOOLS) <= MOTION_TOOLS

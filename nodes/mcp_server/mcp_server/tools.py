@@ -24,6 +24,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from . import (
+    approach_tools,
     body_tools,
     camera_tools,
     frontier_tools,
@@ -107,6 +108,7 @@ TOOL_NAMES = (
     *guard_tools.TOOL_NAMES,
     *lookup_tools.TOOL_NAMES,
     *frontier_tools.TOOL_NAMES,
+    *approach_tools.TOOL_NAMES,
 )
 # Battery cut-off classification, the single source of truth (also read by claude_agent for its effector caps).
 # MOTION_TOOLS move the base or the arm/gripper (arm_set_home is included: it rewrites the stored home pose a later
@@ -130,6 +132,7 @@ MOTION_TOOLS = frozenset(
         "resume_motions",
         "go_to_frontier",
         "look_toward_frontier",
+        "approach_for_grasp",
     }
 )
 ALWAYS_ALLOWED_TOOLS = frozenset(
@@ -154,6 +157,7 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         *guard_tools.TOOL_NAMES,
         *lookup_tools.TOOL_NAMES,
         *frontier_tools.SENSOR_TOOL_NAMES,
+        *approach_tools.SENSOR_TOOL_NAMES,
     }
 )
 # Blocking motion tools refused while the motion queue runs (the queue's worker is the single motion owner then).
@@ -178,6 +182,7 @@ TOOL_SUBSYSTEM: dict[str, LeaseNeed] = {
     "look_around": "base",  # base-only spin (look_around never moves the arm)
     "go_to_frontier": "base",
     "look_toward_frontier": "base",  # base-only turn (the arm never moves)
+    "approach_for_grasp": "base",  # drives to the grasp pose (suggest_approach_pose is read-only and needs none)
 }
 # Tools that may move while parking (release_control homes the arm): counted as a running blocking motion so the queue
 # does not start meanwhile; their own queue-busy refusal lives in the tool (control.QUEUE_BUSY_REFUSAL).
@@ -189,9 +194,9 @@ Frames: 'map' is the SLAM map (x/y metres, yaw radians CCW); 'base_link' is the 
 Look before moving: call get_robot_state, get_map_summary and get_camera_image first. Prefer navigate_to_pose /
 move_relative (Nav2 plans around obstacles) over drive. Arm motions are slow, clamped to joint limits and abort on
 stale feedback or tracking error. Control leases: call take_control(subsystem='arm') before any arm or gripper tool
-and take_control(subsystem='base') before any base tool (navigate_to_pose, move_relative, drive, look_around); a tool
-without its lease is refused and nothing moves. Both may be held at once. The arm lease is sticky: while held the
-leader arm and web UI are ignored. When done call release_control(subsystem='arm'|'base'|'all'): by default it parks
+and take_control(subsystem='base') before any base tool (navigate_to_pose, move_relative, drive, look_around,
+approach_for_grasp); a tool without its lease is refused and nothing moves. Both may be held at once. The arm
+lease is sticky: while held the leader arm and web UI are ignored. When done call release_control(subsystem='arm'|'base'|'all'): by default it parks
 (the arm drives to its stored home pose, the base stops and its steering straightens) and always releases, reporting
 a failed park; keep_position=true releases without moving. get_control_state shows both leases and whether the arm
 is at home. Exploring: list_frontiers (or the numbered frontiers on get_topdown_view) shows where the known map ends;
@@ -200,9 +205,9 @@ rank them yourself, look_toward_frontier first (turn and photo, no travel), then
 robot_events_since_last_call (body events such as overheat, collision_stop, stall, bump, battery_low raised since the
 previous tool call) and a vitals one-liner (battery V, hottest servo C, CPU C, tilt guard level with roll/pitch vs
 limits, leases as 'ctl arm=H@home base=-': H held, - not held); get_body_state gives the full picture.
-Tilt guard: at tilt_warning (critical event) Nav2 goals are cancelled and navigate_to_pose, move_relative, look_around
-and queued base steps are refused; drive back to level ground manually with short drive moves, then wait for
-tilt_clear. At tilt_error the base drive is inhibited and every base motion tool is refused (arm tools still work);
+Tilt guard: at tilt_warning (critical event) Nav2 goals are cancelled and navigate_to_pose, move_relative, look_around,
+approach_for_grasp and queued base steps are refused; drive back to level ground manually with short drive moves,
+then wait for tilt_clear. At tilt_error the base drive is inhibited and every base motion tool is refused (arm tools still work);
 the inhibit can outlast the error (back at warning with the base still inhibited): drive works again only after the
 info event tilt_drive_enabled (or tilt_clear).
 A motion that ends with status 'interrupted' was stopped safely because of a critical event (interrupted_by): read
@@ -214,7 +219,12 @@ events plus a state digest, cancel_motions or stop clear the queue. A running ar
 refused. enqueue_motions can carry watch_constraints (a sensor metric crossing a threshold aborts or pauses the
 queue; wait_for_event wakes with watch_triggered; resume_motions continues a pause).
 Guard rules: a refusal whose text starts "guard rule '<name>' refused" names the rule and the observed values; adapt
-(take the way out the text names) and do not retry the same call; check_guard_rules shows the verdicts without calling."""
+(take the way out the text names) and do not retry the same call; check_guard_rules shows the verdicts without calling.
+Grasp approach: before driving to a grasp call suggest_approach_pose (read-only: ranked base poses from the arm's reach
+map and the costmap, checked with the current footprint), then approach_for_grasp (needs the base lease; dry_run=true
+shows the plan and mode first), then plan_grasp / grasp_object. approach_for_grasp servos on the camera when it sees
+the target, else navigates; status arrived_out_of_reach means the arm cannot reach the target from where the base
+stopped."""
 
 Camera = Literal["gripper", "front"]
 
@@ -565,6 +575,7 @@ def register_tools(
         lookups=lookup_tools.make_recorder(robot, config),
         engine=engine,
         frontiers=FrontierTracker(config.frontiers, footprint_width_m=config.footprint.width_m),
+        footprint=footprint,
     )
     for module in (*TOOL_MODULES, *extra_modules):
         module(ctx)
@@ -1122,6 +1133,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     guard_tools.register,
     lookup_tools.register,
     frontier_tools.register,
+    approach_tools.register,
 )
 
 

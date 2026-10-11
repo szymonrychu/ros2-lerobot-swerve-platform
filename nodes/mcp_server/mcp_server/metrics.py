@@ -88,6 +88,10 @@ NAV_GOALS = Counter("mcp_nav_goals_total", "Navigation goals by final result sta
 NAV_DURATION = Histogram(
     "mcp_nav_goal_duration_seconds", "Navigation goal duration (goal start to finish)", buckets=NAV_BUCKETS
 )
+DOCK_GOALS = Counter("mcp_dock_goals_total", "Docking goals by final result status", ["result"])
+DOCK_DURATION = Histogram(
+    "mcp_dock_goal_duration_seconds", "Docking goal duration (goal start to finish)", buckets=NAV_BUCKETS
+)
 LOOKUP_WRITES = Counter("mcp_lookup_writes_total", "Camera images recorded in the lookup store", ["tool"])
 LOOKUP_WRITE_FAILURES = Counter(
     "mcp_lookup_write_failures_total",

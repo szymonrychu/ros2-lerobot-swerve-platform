@@ -269,3 +269,21 @@ StopBox margins, falloff, decimals). Uses shapely for the polygon union, offsets
 ```bash
 uv run python scripts/gen_nav_footprint.py
 ```
+
+## gen_reach_map.py
+
+Builds or checks the committed arm reach map `nodes/mcp_server/mcp_server/data/reach_map.npz` (inverse reachability of
+the arm with the robot body, used by the approach planner). Thin wrapper: it runs `python -m mcp_server.reach_map
+build|check` in the mcp_server uv environment (ikpy, numpy) with the mcp_server config of
+`ansible/group_vars/client.yml`, from the repository root. The robot runs from the git checkout and never builds the
+map. `--check` exits 1 when the artifact is missing or stale (its key differs from the key of the current config).
+`tests/test_mcp_server_config.py` fails while the artifact does not match `client.yml`.
+
+Regenerate and commit the file after any change to the body, the arm mount (`base_in_base_link`, `arm_base_height_m`),
+joint limits or offsets, the tool point, the jaw, the body check margins or the `reach_map` grid in `client.yml`
+(about 1.5 min on the M4). See `nodes/mcp_server/README.md` (Reach map).
+
+```bash
+uv run python scripts/gen_reach_map.py          # rebuild
+uv run python scripts/gen_reach_map.py --check  # exit 1 when stale
+```

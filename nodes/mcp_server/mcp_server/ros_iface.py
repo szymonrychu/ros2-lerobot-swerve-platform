@@ -14,11 +14,11 @@ from typing import Any
 
 import numpy as np
 import rclpy
-from action_msgs.msg import GoalInfo, GoalStatus, GoalStatusArray
+from action_msgs.msg import GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import Point32, PolygonStamped, PoseStamped, Twist
 from geometry_msgs.msg import Polygon as PolygonMsg
-from nav2_msgs.action import ComputePathToPose, NavigateToPose
+from nav2_msgs.action import ComputePathToPose, DockRobot, NavigateToPose
 from nav2_msgs.msg import CollisionMonitorState
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
@@ -37,7 +37,9 @@ from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from tf2_ros import Buffer, TransformException, TransformListener
 
+from .approach import CostGrid, PathInfo
 from .arm import ArmController, ArmError, JointSample
+from .base_dock import DockGoal, DockResult, run_dock
 from .base_motion import (
     DriveError,
     DriveOutcome,
@@ -85,6 +87,18 @@ from .perception import (
     summarize_scan,
 )
 from .poi_client import PoiRequests, parse_poi_list
+from .ros_dock import (
+    CANCEL_SUFFIX,
+    CANCEL_WAIT_S,
+    GOAL_STATUS_NAMES,
+    DetectionPublisher,
+    GlobalCostmapCache,
+    RosDockPort,
+    RosPlannerPort,
+    cancel_goal_handle,
+    cancel_zero_id,
+    wait_future,
+)
 from .spin import FrameCache
 from .staleness import Stamped, sample_ages
 from .topdown import TopdownInputs, grid_layer, transform_points
@@ -112,9 +126,8 @@ COMMAND_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=History
 # /robot_events: reliable so a consumer never misses an event.
 EVENT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=50)
 MONITOR_TICK_S = 0.25
-CANCEL_SUFFIX = "/_action/cancel_goal"
 STATUS_SUFFIX = "/_action/status"
-CANCEL_WAIT_S = 1.0
+PLAN_TIMEOUT_S = 5.0  # wait for one ComputePathToPose plan
 NAV_POLL_S = 0.05
 STEER_REAP_CHECKS = 4  # idle checks of the lazy swerve joint states subscription per control.steer_states_idle_s
 SWERVE_STATES_KEY = "swerve_joint_states"
@@ -122,15 +135,6 @@ SWERVE_STATES_KEY = "swerve_joint_states"
 ORPHAN_CHECK_PERIOD_S = 0.2
 # Startup gripper torque_limit write: retried at this period until the follower bridge subscribes set_register.
 STARTUP_TORQUE_PERIOD_S = 1.0
-GOAL_STATUS_NAMES = {
-    GoalStatus.STATUS_UNKNOWN: "unknown",
-    GoalStatus.STATUS_ACCEPTED: "accepted",
-    GoalStatus.STATUS_EXECUTING: "executing",
-    GoalStatus.STATUS_CANCELING: "canceling",
-    GoalStatus.STATUS_SUCCEEDED: "succeeded",
-    GoalStatus.STATUS_CANCELED: "canceled",
-    GoalStatus.STATUS_ABORTED: "aborted",
-}
 COLLISION_ACTIONS = {0: "do_nothing", 1: "stop", 2: "slowdown", 3: "approach", 4: "limit"}
 # Nav2 costmaps subscribe their `footprint` input with SystemDefaultsQoS (reliable, volatile).
 FOOTPRINT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=1)
@@ -192,33 +196,6 @@ def finite_by_name(names: Sequence[str], values: Sequence[float]) -> dict[str, f
         dict[str, float]: Joint name -> finite value.
     """
     return {n: v for n, v in zip(names, (float(x) for x in values), strict=False) if math.isfinite(v)}
-
-
-def wait_future(future: Any, timeout_s: float) -> bool:
-    """Block the calling (non-executor) thread until an rclpy future completes.
-
-    Args:
-        future (Any): rclpy Future.
-        timeout_s (float): Maximum wait.
-
-    Returns:
-        bool: True when done within the timeout.
-    """
-    done = threading.Event()
-    future.add_done_callback(lambda _f: done.set())
-    return done.wait(timeout_s) or future.done()
-
-
-def cancel_goal_handle(handle: Any) -> bool:
-    """Cancel one NavigateToPose goal by its handle.
-
-    Args:
-        handle (Any): rclpy ClientGoalHandle of an accepted goal.
-
-    Returns:
-        bool: True when the action server answered the cancel within CANCEL_WAIT_S.
-    """
-    return wait_future(handle.cancel_goal_async(), CANCEL_WAIT_S)
 
 
 class RosNavPort(NavPort):
@@ -411,6 +388,21 @@ class RosRobot:
         self.own_goals = NavGoalRegistry()  # NavigateToPose goals this server sent (release_control base reset)
         self.cancel_client = self.node.create_client(
             CancelGoal, t.navigate_action + CANCEL_SUFFIX, callback_group=self.group
+        )
+        # Grasp docking (approach_for_grasp): DockRobot goals of /grasp/docking_server, planning-only ComputePathToPose,
+        # the lazy global costmap and the detection publisher (publishes only when a tool calls publish_detection).
+        a = config.approach
+        self.dock_client = ActionClient(self.node, DockRobot, a.dock_action, callback_group=self.group)
+        self.own_dock_goals = NavGoalRegistry()  # DockRobot goals this server sent (release_control base reset)
+        self.dock_cancel_client = self.node.create_client(
+            CancelGoal, a.dock_action + CANCEL_SUFFIX, callback_group=self.group
+        )
+        self.planner_client = ActionClient(self.node, ComputePathToPose, a.planner_action, callback_group=self.group)
+        self.costmap_cache = GlobalCostmapCache(
+            self.node, a.global_costmap_topic, self.group, config.topdown.costmap_wait_s
+        )
+        self.detection = DetectionPublisher(
+            self.node.create_publisher(PoseStamped, a.detection_topic, COMMAND_QOS), t.map_frame
         )
         # After the cancel client: a latched warning/error cancels Nav2 goals as soon as it arrives.
         self.subscribe(String, t.tilt_guard_state, lambda msg: self.monitor.on_tilt_guard(msg.data), TILT_GUARD_QOS)
@@ -1497,6 +1489,77 @@ class RosRobot:
         finally:
             self.base_motion.release()
 
+    def dock(self, goal: DockGoal, timeout_s: float) -> DockResult:
+        """Send a DockRobot goal to the grasp docking server and block until it finishes, times out, stop is called or a
+        critical event fires (same base motion lock, stop flag and interrupts as navigate).
+
+        Args:
+            goal (DockGoal): Dock pose, type and staging options.
+            timeout_s (float): Timeout for the whole goal, staging included (s); the goal is cancelled when it expires.
+
+        Returns:
+            DockResult: Outcome with the DockRobot error code and the final pose.
+
+        Raises:
+            BaseMotionBusyError: Another base motion is running.
+            RobotError: The docking server is not available or did not answer.
+        """
+        if not self.base_motion.acquire(blocking=False):
+            raise BaseMotionBusyError("another base motion is running; call stop first")
+        try:
+            self.base_stop.clear()
+            with self.monitor.base_motion():
+                watch = self.monitor.watch(BASE_INTERRUPTS)
+                port = RosDockPort(
+                    self.dock_client,
+                    self.own_dock_goals,
+                    self.cfg.timeouts.action_server_wait_s,
+                    lambda: self.publish_twist(0.0, 0.0, 0.0),
+                    self.robot_pose,
+                )
+                return run_dock(
+                    port, goal, timeout_s, self.base_stop.is_set, watch.check, time.monotonic, time.sleep, NAV_POLL_S
+                )
+        finally:
+            self.base_motion.release()
+
+    def dock_ready(self) -> bool:
+        """Whether the grasp docking action server answers within the action server wait.
+
+        Returns:
+            bool: True when available.
+        """
+        return bool(self.dock_client.wait_for_server(timeout_sec=self.cfg.timeouts.action_server_wait_s))
+
+    def plan_path(self, goal: BasePose) -> PathInfo:
+        """Plan from the robot's pose to a goal with ComputePathToPose (planning only, nothing moves).
+
+        Args:
+            goal (BasePose): Goal pose (map).
+
+        Returns:
+            PathInfo: ok with the path length, no_path, or unavailable with the reason.
+        """
+        planner = RosPlannerPort(self.planner_client, self.cfg.timeouts.action_server_wait_s, PLAN_TIMEOUT_S)
+        return planner.plan(goal)
+
+    def global_costmap(self) -> CostGrid | None:
+        """Latest global costmap with its age (subscribes on the first call).
+
+        Returns:
+            CostGrid | None: Grid, None when none was received.
+        """
+        return self.costmap_cache.latest()
+
+    def publish_detection(self, pose: BasePose, stamp_ns: int) -> None:
+        """Publish one dock detection pose for the grasp docking server.
+
+        Args:
+            pose (BasePose): Detected dock pose in the map frame.
+            stamp_ns (int): Image capture time (ns since the epoch), used as the header stamp.
+        """
+        self.detection.publish(pose, stamp_ns)
+
     def move_relative(
         self, dx: float, dy: float, dyaw: float, timeout_s: float, precise: bool = False
     ) -> NavigationResult:
@@ -1628,16 +1691,15 @@ class RosRobot:
         self.twist_pub.publish(msg)
 
     def cancel_all_goals(self) -> bool:
-        """Cancel every NavigateToPose goal (zero goal id and stamp).
+        """Cancel every NavigateToPose goal and every grasp DockRobot goal (zero goal id and stamp). The docking
+        server's own staging NavigateToPose goal is a NavigateToPose goal and is covered by the first cancel.
 
         Returns:
-            bool: True when the cancel service answered.
+            bool: True when the Nav2 cancel service answered and the docking server (if running) answered.
         """
-        if not self.cancel_client.wait_for_service(timeout_sec=CANCEL_WAIT_S):
-            return False
-        request = CancelGoal.Request()
-        request.goal_info = GoalInfo()
-        return wait_future(self.cancel_client.call_async(request), CANCEL_WAIT_S)
+        nav = cancel_zero_id(self.cancel_client, required=True)
+        dock = cancel_zero_id(self.dock_cancel_client, required=False)
+        return nav and dock
 
     def stop(self) -> StopResult:
         """Cancel navigation and zero the base always; hold the arm only if this server controls it.
@@ -1649,13 +1711,17 @@ class RosRobot:
         return run_stop(self.base_stop.set, self.publish_twist, self.cancel_all_goals, self.arm.stop_hold)
 
     def reset_base(self) -> bool:
-        """Base half of stop (release_control base reset): cancel the Nav2 goals this server sent (never a human's
-        web UI goal) and publish zero twist.
+        """Base half of stop (release_control base reset): cancel the Nav2 and docking goals this server sent (never a
+        human's web UI goal) and publish zero twist.
 
         Returns:
             bool: True when every cancel was answered (also with no own goal active).
         """
-        return run_base_stop(self.base_stop.set, self.publish_twist, lambda: self.own_goals.cancel(cancel_goal_handle))
+        return run_base_stop(
+            self.base_stop.set,
+            self.publish_twist,
+            lambda: all([r.cancel(cancel_goal_handle) for r in (self.own_goals, self.own_dock_goals)]),
+        )
 
     def init_steer_states(self) -> None:
         """State of the lazy topics.swerve_joint_states subscription (swerve publishes it at 50 Hz, only release_control

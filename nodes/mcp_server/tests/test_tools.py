@@ -199,6 +199,8 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "annotate_lookup",
         "delete_photos",
         *FRONTIER_TOOLS,
+        "suggest_approach_pose",
+        "approach_for_grasp",
     }
     for t in tools:
         assert t.description and len(t.description) > 60, t.name

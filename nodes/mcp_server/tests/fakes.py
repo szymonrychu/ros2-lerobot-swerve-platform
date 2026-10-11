@@ -11,7 +11,9 @@ from ros2_common.lookups import INDEX_FILE, LookupRecord
 from ros2_common.photos import PHOTO_KIND, PhotoAdd, PhotoSelector, photo_as_poi
 
 from mcp_server import config as mcp_config
+from mcp_server.approach import CostGrid, PathInfo
 from mcp_server.arm import JointSample
+from mcp_server.base_dock import DockGoal, DockResult
 from mcp_server.frontiers import MapGrid
 from mcp_server.models import BasePose, PathPlan, RobotError
 from mcp_server.poi_client import PoiStoreDown
@@ -252,6 +254,14 @@ class PerceptionFakeMixin:
         self.photo_commands: list[tuple[str, dict]] = []
         self.photo_error: Exception | None = None
         self.base_resets = 0
+        # Grasp docking (no motion): goals counted, detections recorded, costmap and planner results set by the test.
+        self.dock_goals: list[tuple[DockGoal, float]] = []
+        self.dock_result: DockResult | None = None  # None = succeeded
+        self.planned_poses: list[BasePose] = []
+        self.path_info = PathInfo(status="ok", length_m=1.0)
+        self.costmap: CostGrid | None = None
+        self.detections: list[tuple[BasePose, int]] = []
+        self.dock_server_up = True  # whether the docking action server answers
         # Footprint sink (footprint.FootprintSink): published polygons, parameter sets and periodic callbacks.
         self.footprint_polygons: list[tuple[str, list[tuple[float, float]]]] = []
         self.stamped_polygons: list[tuple[str, str, list[tuple[float, float]]]] = []
@@ -300,6 +310,23 @@ class PerceptionFakeMixin:
     def reset_base(self) -> bool:
         self.base_resets += 1
         return True
+
+    def dock(self, goal: DockGoal, timeout_s: float) -> DockResult:
+        self.dock_goals.append((goal, timeout_s))
+        return self.dock_result or DockResult(status="succeeded", goal=goal, final_pose=self.pose)
+
+    def dock_ready(self) -> bool:
+        return self.dock_server_up
+
+    def plan_path(self, goal: BasePose) -> PathInfo:
+        self.planned_poses.append(goal)
+        return self.path_info
+
+    def global_costmap(self) -> CostGrid | None:
+        return self.costmap
+
+    def publish_detection(self, pose: BasePose, stamp_ns: int) -> None:
+        self.detections.append((pose, stamp_ns))
 
     def steer_positions(self) -> dict[str, float] | None:
         return None if self.steer is None else dict(self.steer)

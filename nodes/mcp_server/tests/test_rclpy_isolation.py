@@ -1,4 +1,4 @@
-"""Guard: pure logic stays rclpy-free; only ros_iface.py and __main__.py import ROS packages."""
+"""Guard: pure logic stays rclpy-free; only ros_iface.py, ros_dock.py and __main__.py import ROS packages."""
 
 import ast
 from pathlib import Path
@@ -15,7 +15,7 @@ ROS_ROOTS = {
     "nav2_msgs",
     "action_msgs",
 }
-ROS_MODULES = {"ros_iface.py", "__main__.py"}
+ROS_MODULES = {"ros_iface.py", "ros_dock.py", "__main__.py"}
 
 
 def imported_roots(path: Path) -> set[str]:

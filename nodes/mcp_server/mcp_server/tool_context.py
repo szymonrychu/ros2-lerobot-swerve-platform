@@ -9,7 +9,9 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.battery import BatteryGuard
 
+from .approach import CostGrid, PathInfo
 from .arm import ArmController
+from .base_dock import DockGoal, DockResult
 from .base_motion import DriveOutcome, SpinOutcome
 from .config import McpServerConfig
 from .frontiers import FrontierTracker, MapGrid
@@ -19,6 +21,7 @@ from .topdown import TopdownInputs
 
 if TYPE_CHECKING:  # control imports motion_queue, which imports this module; lookup_tools imports this module
     from .control import ControlManager
+    from .footprint import NavFootprint
     from .guard_rules import GuardEngine
     from .lookup_tools import LookupRecorder
 
@@ -27,7 +30,14 @@ LOGGER = logging.getLogger("mcp_server.tools")
 # while the guard is at warning or error; manual base moves only at error (base drive inhibited). enqueue_motions is
 # refused when it carries a base step (base_relative / navigate_to_pose are Nav2 goals). Arm tools are unaffected.
 TILT_NAV_TOOLS = frozenset(
-    {"navigate_to_pose", "move_relative", "look_around", "go_to_frontier", "look_toward_frontier"}
+    {
+        "navigate_to_pose",
+        "move_relative",
+        "look_around",
+        "go_to_frontier",
+        "look_toward_frontier",
+        "approach_for_grasp",
+    }
 )
 TILT_MANUAL_BASE_TOOLS = frozenset({"drive"})
 
@@ -77,6 +87,26 @@ class RobotApi(Protocol):
         """Blocking NavigateToPose relative to base_link."""
         ...
 
+    def dock(self, goal: DockGoal, timeout_s: float) -> DockResult:
+        """Blocking DockRobot goal on the grasp docking server (same lock, stop and interrupts as navigate)."""
+        ...
+
+    def dock_ready(self) -> bool:
+        """Whether the grasp docking action server answers (waits at most the action server wait)."""
+        ...
+
+    def plan_path(self, goal: BasePose) -> PathInfo:
+        """ComputePathToPose from the robot's pose (planning only): ok with the length, no_path or unavailable."""
+        ...
+
+    def global_costmap(self) -> CostGrid | None:
+        """Latest global costmap with its age (subscribes lazily), None when none was received."""
+        ...
+
+    def publish_detection(self, pose: BasePose, stamp_ns: int) -> None:
+        """Publish a dock detection pose (map frame) stamped with the image capture time (ns)."""
+        ...
+
     def drive(self, vx: float, vy: float, wz: float, duration_s: float) -> DriveOutcome:
         """Timed velocity command."""
         ...
@@ -92,9 +122,10 @@ class RobotApi(Protocol):
         ...
 
     def reset_base(self) -> bool:
-        """Base half of stop (release_control base reset): cancel every Nav2 goal and publish zero twist.
+        """Base half of stop (release_control base reset): cancel the Nav2 and docking goals this server sent and publish
+        zero twist.
 
-        Returns True when the Nav2 cancel service answered."""
+        Returns True when every cancel was answered."""
         ...
 
     def steer_positions(self) -> dict[str, float] | None:
@@ -160,6 +191,7 @@ class ToolContext:
     lookups: "LookupRecorder | None" = None  # camera lookup recorder (lookup_tools.record_lookup)
     engine: "GuardEngine | None" = None  # guard rule engine (guard_tools.check_guard_rules)
     frontiers: FrontierTracker | None = None  # frontier tracker (frontier_tools); None without frontier tools
+    footprint: "NavFootprint | None" = None  # the published Nav2 footprint (None without nav_footprint config)
 
     def lease_gate(self, tool_name: str, kinds: list[str]) -> None:
         """Refuse an enqueue whose steps need a control lease that is not held, before the robot is touched.

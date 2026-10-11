@@ -73,6 +73,8 @@ def ros_iface(monkeypatch: pytest.MonkeyPatch) -> Iterator[ModuleType]:
     for name in ROS_MODULES:
         monkeypatch.setitem(sys.modules, name, MagicMock())
     monkeypatch.delitem(sys.modules, "mcp_server.ros_iface", raising=False)
+    monkeypatch.delitem(sys.modules, "mcp_server.ros_dock", raising=False)
     module = importlib.import_module("mcp_server.ros_iface")
     yield module
     sys.modules.pop("mcp_server.ros_iface", None)
+    sys.modules.pop("mcp_server.ros_dock", None)

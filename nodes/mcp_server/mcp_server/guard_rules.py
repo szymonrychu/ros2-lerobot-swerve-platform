@@ -57,6 +57,7 @@ GUARDABLE_TOOLS = frozenset(
         "enqueue_motions",
         "go_to_frontier",
         "look_toward_frontier",
+        "approach_for_grasp",
         "take_control",
     }
 )

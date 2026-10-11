@@ -35,7 +35,7 @@ params (notably collision_monitor and docking_server) fails to configure and abo
 | smoother_server | SimpleSmoother. |
 | velocity_smoother | open loop, `max_velocity [0.25, 0.25, 0.5]`, `min_velocity [-0.25, -0.25, -0.5]`, accel 1.0 m/s^2, 2.0 rad/s^2. |
 | collision_monitor | `base_link` / `odom`, `cmd_vel_smoothed -> cmd_vel`; a direction-aware `stop` polygon `StopBox` (`velocity_polygon`): the H footprint swept 2 cm toward the commanded direction (generated), source `/scan_filtered`. `StopBox` is enabled (validated on the robot, see [Collision monitor](#collision-monitor)). A second polygon `ArmStop` (`approach`, direction-aware) takes its shape from mcp_server and is enabled only while the arm is released out of the static footprint (see [Dynamic footprint](#dynamic-footprint-arm-released)). |
-| docking_server | One `SimpleChargingDock` plugin (a non-empty plugin list is mandatory) and no docks: it configures with an empty dock database and only accepts requests that carry an explicit dock pose. |
+| docking_server | (stock, not used for grasping: see [Grasp docking server](#grasp-docking-server)) One `SimpleChargingDock` plugin (a non-empty plugin list is mandatory) and no docks: it configures with an empty dock database and only accepts requests that carry an explicit dock pose. |
 | waypoint_follower | WaitAtWaypoint. |
 | route_server | `graph_filepath: ""`: configures with an empty graph ("No graph file provided to load yet"); a graph can be loaded later through its `set_route_graph` service. |
 
@@ -181,6 +181,22 @@ deploy):
   0.42 m doorway); expect several times that on the RPi 5, still far below the 2 s `max_planning_time`. Replans only
   happen when the path becomes invalid.
 - SLAM: see [slam_toolbox](../slam_toolbox/README.md#map-resolution) (raster every 10 s instead of 5 s to compensate).
+
+## Grasp docking server
+
+`launch/nav2_launch.py` is the launch command Ansible uses. It includes the stock `bringup_launch.py` (`use_localization:=False`, `config/nav2_params.yaml`) and adds a `GroupAction` with `PushRosNamespace('grasp')` holding a second `opennav_docking` node, `docking_server` (`/grasp/docking_server`, params `config/grasp_docking_params.yaml`), and its own `lifecycle_manager_grasp` (autostart, `node_names: [docking_server]`).
+
+Why a second docking server: Jazzy's `navigation_launch.py` does not remap the `docking_server` `cmd_vel`, so the stock `/docking_server` publishes straight to `/cmd_vel` and would bypass velocity_smoother and collision_monitor (StopBox, ArmStop). The grasp server remaps `cmd_vel` to `/cmd_vel_nav` (so it joins the normal chain) and `navigate_to_pose` to the absolute `/navigate_to_pose` (its staging navigation uses the stock bt_navigator). The stock `docking_server` section of `nav2_params.yaml` is untouched.
+
+| Setting | Value |
+|---|---|
+| Plugin | `grasp_servoed`, `SimpleNonChargingDock`, external detection on (`/grasp/detected_dock_pose`, published by mcp_server's target tracker), `external_detection_timeout` 1.0 s, zero translations and rotations, `filter_coef` 0.3 |
+| Geometry | `docking_threshold` 0.03 m, `staging_x_offset` -0.30 m (mcp_server `approach.staging_offset_m` 0.30 and `docking_threshold_m` must match) |
+| Controller | `v_linear_max` 0.15, `v_angular_max` and `rotate_to_heading_angular_vel` 0.5 (swerve wz limit), collision check on the absolute `/local_costmap/costmap_raw` and `/local_costmap/published_footprint` (dynamic footprint carries over), `dock_collision_threshold` 0.30 (>= 0.25 m projection + threshold) |
+
+`tests/test_nav_stack_config.py` pins the launch file (via `ast`), these invariants and the sync with the mcp_server `approach` block. Needs the apt package `ros-jazzy-opennav-docking`.
+
+Validation in Docker for the grasp group: not run (no ROS image run for this change); the config is checked statically by the tests above.
 
 ## Validation in Docker
 

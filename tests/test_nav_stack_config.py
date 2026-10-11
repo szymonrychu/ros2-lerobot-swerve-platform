@@ -39,6 +39,8 @@ LASER_FILTER_PARAMS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footpri
 FILTERED_SCAN = "/scan_filtered"
 RF2O_FUSED_TOPIC = "/odom_rf2o_twist"
 RF2O_PARAMS = REPO_ROOT / "nodes" / "rf2o_laser_odometry" / "config" / "rf2o.yaml"
+NAV2_LAUNCH = REPO_ROOT / "nodes" / "nav2_bringup" / "launch" / "nav2_launch.py"
+GRASP_DOCKING_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "grasp_docking_params.yaml"
 NAV2_README = REPO_ROOT / "nodes" / "nav2_bringup" / "README.md"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
 NODES_README = REPO_ROOT / "nodes" / "README.md"
@@ -433,11 +435,131 @@ def test_slam_playbooks_deploy_node_and_create_maps_dir(playbook: str) -> None:
     assert args["mode"] == "0755"
 
 
-def test_nav2_launch_passes_repo_params_without_localization() -> None:
-    command = client_vars()["ros2_node_type_defaults"]["nav2_bringup"]["node_launch_command"]
-    assert "params_file:={{ ros2_repo_dest }}/nodes/nav2_bringup/config/nav2_params.yaml" in command
-    assert "use_localization:=False" in command
-    assert "slam:=True" not in command
+def test_nav2_launch_uses_the_repo_wrapper() -> None:
+    """Ansible starts nav2 through the repo wrapper (stock bringup plus the grasp docking server)."""
+    defaults = client_vars()["ros2_node_type_defaults"]["nav2_bringup"]
+    launch = "{{ ros2_repo_dest }}/nodes/nav2_bringup/launch/nav2_launch.py"
+    assert defaults["node_launch_command"] == f"ros2 launch {launch}"
+    assert "ros-jazzy-opennav-docking" in defaults["apt_packages"]
+
+
+def launch_calls(name: str) -> list[ast.Call]:
+    """Return every call to a function or class named `name` in the nav2 wrapper launch file.
+
+    Args:
+        name: Simple (unqualified) callee name.
+
+    Returns:
+        list[ast.Call]: The matching call nodes.
+    """
+    tree = ast.parse(NAV2_LAUNCH.read_text())
+    return [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and (getattr(n.func, "id", None) == name or getattr(n.func, "attr", None) == name)
+    ]
+
+
+def call_kwarg(call: ast.Call, key: str) -> Any:
+    """Literal value of a keyword argument of a call (ast.literal_eval).
+
+    Args:
+        call: The call node.
+        key: Keyword name.
+
+    Returns:
+        Any: The evaluated literal.
+    """
+    kw = next(k for k in call.keywords if k.arg == key)
+    return ast.literal_eval(kw.value)
+
+
+def test_nav2_launch_includes_stock_bringup_without_localization() -> None:
+    source = NAV2_LAUNCH.read_text()
+    assert "bringup_launch.py" in source
+    assert "nav2_params.yaml" in source
+    includes = launch_calls("IncludeLaunchDescription")
+    assert len(includes) == 1
+    args = next(k for k in includes[0].keywords if k.arg == "launch_arguments").value
+    assert "use_localization" in ast.unparse(args)
+    assert "'False'" in ast.unparse(args)
+    assert "params_file" in ast.unparse(args)
+
+
+def test_nav2_launch_grasp_docking_server_is_namespaced_and_remapped() -> None:
+    """The stock navigation_launch.py does not remap docking_server cmd_vel; the namespaced copy must."""
+    pushes = launch_calls("PushRosNamespace")
+    assert len(pushes) == 1
+    assert ast.literal_eval(pushes[0].args[0]) == "grasp"
+    assert len(launch_calls("GroupAction")) == 1
+    nodes = {call_kwarg(c, "name"): c for c in launch_calls("Node")}
+    assert set(nodes) == {"docking_server", "lifecycle_manager_grasp"}
+    dock = nodes["docking_server"]
+    assert call_kwarg(dock, "package") == "opennav_docking"
+    assert call_kwarg(dock, "executable") == "opennav_docking"
+    assert call_kwarg(dock, "remappings") == [("cmd_vel", "/cmd_vel_nav"), ("navigate_to_pose", "/navigate_to_pose")]
+    assert "grasp_docking_params.yaml" in NAV2_LAUNCH.read_text()
+    manager = nodes["lifecycle_manager_grasp"]
+    assert call_kwarg(manager, "package") == "nav2_lifecycle_manager"
+    assert call_kwarg(manager, "executable") == "lifecycle_manager"
+    manager_params = call_kwarg(manager, "parameters")
+    assert manager_params == [{"autostart": True, "node_names": ["docking_server"]}]
+
+
+def grasp_docking() -> dict:
+    """Parameters of /grasp/docking_server.
+
+    Returns:
+        dict: The ros__parameters mapping.
+    """
+    return yaml.safe_load(GRASP_DOCKING_PARAMS.read_text())["/grasp/docking_server"]["ros__parameters"]
+
+
+def test_grasp_docking_params_plugin_and_external_detection() -> None:
+    p = grasp_docking()
+    assert p["dock_plugins"] == ["grasp_servoed"]
+    plugin = p["grasp_servoed"]
+    assert plugin["plugin"] == "opennav_docking::SimpleNonChargingDock"
+    assert plugin["use_external_detection_pose"] is True
+    assert plugin["external_detection_timeout"] == 1.0
+    assert plugin["use_stall_detection"] is False
+    # The detection already is the dock pose: no offsets between the detected and the dock frame.
+    for key in ("translation_x", "translation_y", "rotation_yaw", "rotation_pitch", "rotation_roll"):
+        assert plugin[f"external_detection_{key}"] == 0.0
+
+
+def test_grasp_docking_controller_uses_absolute_costmap_topics_and_clears_the_dock_threshold() -> None:
+    p = grasp_docking()
+    controller = p["controller"]
+    assert controller["costmap_topic"] == "/local_costmap/costmap_raw"
+    assert controller["footprint_topic"] == "/local_costmap/published_footprint"
+    assert controller["use_collision_detection"] is True
+    assert "simulation_time_step" in controller
+    assert controller["dock_collision_threshold"] >= 0.25 + p["grasp_servoed"]["docking_threshold"]
+
+
+def test_grasp_docking_angular_speed_within_swerve_limit() -> None:
+    swerve_wz = nav2()["velocity_smoother"]["ros__parameters"]["max_velocity"][2]
+    assert swerve_wz == 0.5
+    controller = grasp_docking()["controller"]
+    assert controller["v_angular_max"] <= swerve_wz
+    assert controller["rotate_to_heading_angular_vel"] <= swerve_wz
+
+
+def test_mcp_server_approach_block_matches_grasp_docking_params() -> None:
+    approach = node_config("mcp_server")["approach"]
+    p = grasp_docking()
+    plugin = p["grasp_servoed"]
+    assert approach["staging_offset_m"] == -plugin["staging_x_offset"]
+    assert approach["docking_threshold_m"] == plugin["docking_threshold"]
+    assert approach["detection_topic"] == "/grasp/detected_dock_pose"
+    assert approach["dock_action"] == "/grasp/dock_robot"
+    assert approach["tracker"]["rate_hz"] > 2.0 / plugin["external_detection_timeout"]
+
+
+def test_mcp_server_approach_block_sets_every_weight_explicitly() -> None:
+    weights = node_config("mcp_server")["approach"]["weights"]
+    assert weights == {"margin": 1.0, "cost": 0.5, "travel": 0.2, "heading": 0.1}
 
 
 def test_nav2_has_every_server_section() -> None:

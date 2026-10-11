@@ -15,6 +15,7 @@ import sys
 import tomllib
 from pathlib import Path
 
+import numpy as np
 import pytest
 import yaml
 
@@ -202,6 +203,8 @@ def test_mcp_server_node_entry_and_config() -> None:
         "grip_profiles",
         "control",
         "guard_rules",
+        "reach_map",
+        "approach",
     }
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
@@ -834,3 +837,89 @@ def test_client_yml_lookups_comment_points_to_an_existing_readme_section() -> No
     readme = (NODE_DIR / "README.md").read_text()
     for section in sections:
         assert f"\n## {section}\n" in readme, section
+
+
+REACH_MAP_FILE = NODE_DIR / "mcp_server" / "data" / "reach_map.npz"
+REACH_MAP_SCRIPT = REPO_ROOT / "scripts" / "gen_reach_map.py"
+REACH_MAP_KEY_PROGRAM = (
+    "from pathlib import Path; from mcp_server.reach_map import checker_from_config, config_from_client_yml, "
+    "reach_map_key; c = config_from_client_yml(Path('ansible/group_vars/client.yml')); "
+    "print(reach_map_key(checker_from_config(c), c.reach_map))"
+)
+
+
+def mcp_server_yml_config() -> dict:
+    """The parsed mcp_server config block of client.yml.
+
+    Returns:
+        dict: The node's config.
+    """
+    doc = yaml.safe_load(CLIENT_VARS.read_text())
+    node = next(n for n in doc["ros2_nodes"] if n["name"] == "mcp_server")
+    return yaml.safe_load(node["config"])
+
+
+def load_reach_map_meta() -> dict:
+    """The meta record of the committed reach map (fails naming the generator when the file is missing).
+
+    Returns:
+        dict: meta JSON of reach_map.npz.
+    """
+    assert REACH_MAP_FILE.is_file(), f"{REACH_MAP_FILE} is missing: run scripts/gen_reach_map.py"
+    with np.load(REACH_MAP_FILE, allow_pickle=False) as data:
+        return json.loads(str(data["meta"]))
+
+
+def test_reach_map_artifact_key_matches_deployed_config() -> None:
+    """The committed reach map was built for the inputs of client.yml's mcp_server config ."""
+    meta = load_reach_map_meta()
+    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
+    result = subprocess.run(
+        ["uv", "run", "--quiet", "--frozen", "--project", str(NODE_DIR), "python", "-c", REACH_MAP_KEY_PROGRAM],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert meta["key"] == result.stdout.strip(), (
+        "nodes/mcp_server/mcp_server/data/reach_map.npz is stale for ansible/group_vars/client.yml (body, arm mount, "
+        "joint limits/offsets, margins or reach_map grid changed): regenerate it with scripts/gen_reach_map.py"
+    )
+
+
+def test_reach_map_artifact_grid_equals_configured_grid() -> None:
+    """The artifact's meta grid equals the explicit reach_map: block of client.yml."""
+    config = mcp_server_yml_config()["reach_map"]
+    meta = load_reach_map_meta()
+    grid = meta["grid"]
+    assert grid["heading_step_deg"] == config["heading_step_deg"]
+    assert grid["r_step_m"] == config["r_step_m"]
+    assert grid["z_step_m"] == config["z_step_m"]
+    assert len(grid["r_m"]) == round(config["r_max_m"] / config["r_step_m"])
+    assert len(grid["z_m"]) == round(config["z_max_m"] / config["z_step_m"])
+    assert meta["planar_samples"] == config["planar_samples"]
+    assert meta["samples_per_cell"] == config["samples_per_cell"]
+
+
+def test_reach_map_block_is_explicit_and_default_file() -> None:
+    """client.yml spells out every reach_map grid field, names the generator and leaves the file at its default."""
+    config = mcp_server_yml_config()["reach_map"]
+    assert set(config) == {
+        "heading_step_deg",
+        "r_step_m",
+        "r_max_m",
+        "z_step_m",
+        "z_max_m",
+        "planar_samples",
+        "samples_per_cell",
+    }
+    assert "scripts/gen_reach_map.py" in CLIENT_VARS.read_text()
+
+
+def test_gen_reach_map_check_passes_on_committed_artifact() -> None:
+    """scripts/gen_reach_map.py --check exits 0 for the committed artifact."""
+    result = subprocess.run(
+        ["uv", "run", "python", str(REACH_MAP_SCRIPT), "--check"], cwd=REPO_ROOT, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

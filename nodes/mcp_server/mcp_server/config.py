@@ -26,6 +26,8 @@ GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the grippe
 FRONT_CAMERA_PARENT = "base_link"
 DEFAULT_OBJECTS_FILE = Path("/var/lib/ros2/objects/objects.json")
 DEFAULT_LOOKUPS_DIR = Path("/var/lib/ros2/poi/lookups")  # camera lookups, next to poi_store's poi.json
+# Offline inverse reachability map (reach_map.py), committed inside the package so it deploys with the git checkout.
+DEFAULT_REACH_MAP_FILE = Path(__file__).resolve().parent / "data" / "reach_map.npz"
 MIN_TOKEN_LENGTH = 24
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 # Hard caps no config may exceed (match the Nav2 velocity smoother and the swerve controller).
@@ -1006,6 +1008,107 @@ class BodyCheckSettings(StrictModel):
         return self
 
 
+class ReachMapSettings(StrictModel):
+    """Grid of the offline inverse reachability map (reach_map.py); every field except file is part of its key.
+
+    Pan headings every heading_step_deg inside the shoulder_pan range (minus the limit margin), tool distance from the
+    pan axis r_step_m .. r_max_m every r_step_m, tool height (base_link z, floor = 0) z_step_m .. z_max_m every z_step_m,
+    and the approach pitches of arm_reach.POINT_PITCHES_DEG. The map is built by forward sampling planar_samples
+    (shoulder_lift, elbow_flex, wrist_flex) configurations at pan 0 and keeping up to samples_per_cell of them nearest
+    each cell and pitch for the body check.
+    """
+
+    heading_step_deg: float = Field(default=5.0, ge=1.0, le=90.0)
+    r_step_m: float = Field(default=0.02, gt=0.0, le=0.2)
+    r_max_m: float = Field(default=0.48, gt=0.0, le=1.0)
+    z_step_m: float = Field(default=0.025, gt=0.0, le=0.2)
+    z_max_m: float = Field(default=0.45, gt=0.0, le=1.0)
+    planar_samples: tuple[int, int, int] = (72, 72, 37)
+    samples_per_cell: int = Field(default=2, ge=1, le=16)
+    file: Path = DEFAULT_REACH_MAP_FILE
+
+    @model_validator(mode="after")
+    def grid_has_cells(self) -> "ReachMapSettings":
+        """Require at least one radius and one height cell and at least two samples per planar joint.
+
+        Returns:
+            ReachMapSettings: The validated settings.
+        """
+        if self.r_max_m < self.r_step_m or self.z_max_m < self.z_step_m:
+            raise ValueError("reach_map: r_max_m / z_max_m must be at least r_step_m / z_step_m")
+        if min(self.planar_samples) < 2:
+            raise ValueError("reach_map.planar_samples needs at least 2 samples for each of the 3 planar joints")
+        return self
+
+
+class ApproachWeights(StrictModel):
+    """Weights of the approach candidate score (approach.score_value); all terms are dimensionless except travel (1/m)."""
+
+    margin: float = Field(default=1.0, ge=0.0)
+    cost: float = Field(default=0.5, ge=0.0)
+    travel: float = Field(default=0.2, ge=0.0)
+    heading: float = Field(default=0.1, ge=0.0)
+
+
+class TrackerSettings(StrictModel):
+    """Camera target tracker of the servoed grasp approach (template matching on frames, target_tracker.py).
+
+    A match is published only with a score of at least min_score and within max_correction_m of the planned target;
+    rate_hz must stay above twice the docking plugin's external_detection_timeout rate.
+    """
+
+    rate_hz: float = Field(default=5.0, gt=0.0)
+    min_score: float = Field(default=0.6, gt=0.0, le=1.0)
+    template_px: int = Field(default=48, ge=8)
+    search_px: int = Field(default=96, ge=8)
+    max_correction_m: float = Field(default=0.10, gt=0.0)
+    edge_margin_px: int = Field(default=20, ge=0)
+
+    @model_validator(mode="after")
+    def search_larger_than_template(self) -> "TrackerSettings":
+        """Require a search window larger than the template (else matchTemplate has nowhere to look).
+
+        Returns:
+            TrackerSettings: The validated settings.
+        """
+        if self.search_px <= self.template_px:
+            raise ValueError(f"tracker.search_px ({self.search_px}) must exceed template_px ({self.template_px})")
+        return self
+
+
+class ApproachSettings(StrictModel):
+    """Approach pose planner (approach.py) and the grasp docking interfaces.
+
+    Candidates: base yaws every yaw_step_deg, the best cells_per_yaw reach map cells per yaw whose expected margin
+    (margin - (pose_error_xy_m + rad(pose_error_yaw_deg) * |target - base|)) is at least min_expected_margin_m. The
+    footprint is checked on global_costmap_topic at the dock pose, the staging pose (staging_offset_m back along the
+    yaw) and corridor_samples poses between them; a costmap older than costmap_stale_s is refused. The best
+    verify_top_k are re-checked with point_reach and the best path_check_k planned on planner_action.
+    staging_offset_m, docking_threshold_m, dock_action and detection_topic must match the grasp docking server params.
+    """
+
+    yaw_step_deg: float = Field(default=10.0, gt=0.0, le=90.0)
+    cells_per_yaw: int = Field(default=30, ge=1)
+    min_expected_margin_m: float = 0.0
+    pose_error_xy_m: float = Field(default=0.03, ge=0.0)
+    pose_error_yaw_deg: float = Field(default=3.0, ge=0.0)
+    margin_cap_m: float = Field(default=0.08, gt=0.0)
+    weights: ApproachWeights = ApproachWeights()
+    staging_offset_m: float = Field(default=0.30, ge=0.0)
+    docking_threshold_m: float = Field(default=0.03, gt=0.0)
+    corridor_samples: int = Field(default=5, ge=0)
+    verify_top_k: int = Field(default=5, ge=0)
+    path_check_k: int = Field(default=3, ge=0)
+    global_costmap_topic: str = Field(default="/global_costmap/costmap", pattern=r"^/")
+    costmap_stale_s: float = Field(default=5.0, gt=0.0)
+    planner_action: str = Field(default="/compute_path_to_pose", pattern=r"^/")
+    dock_action: str = Field(default="/grasp/dock_robot", pattern=r"^/")
+    detection_topic: str = Field(default="/grasp/detected_dock_pose", pattern=r"^/")
+    # Whole DockRobot goal, staging navigation included (s).
+    dock_timeout_s: float = Field(default=120.0, gt=0.0)
+    tracker: TrackerSettings = TrackerSettings()
+
+
 class GripProfile(StrictModel):
     """How the gripper closes on and holds one kind of object (values in servo units, tune on the real gripper).
 
@@ -1326,6 +1429,8 @@ class McpServerConfig(StrictModel):
     floor_guard: FloorGuardSettings = FloorGuardSettings()
     body: BodySettings = BodySettings()
     body_check: BodyCheckSettings = BodyCheckSettings()
+    reach_map: ReachMapSettings = ReachMapSettings()
+    approach: ApproachSettings = ApproachSettings()
     grasp: GraspSettings = GraspSettings()
     grip_profiles: GripProfileSettings = GripProfileSettings()
     # Declarative guard rules (guard_rules.py); code default: enabled, no rules (the deployed set lives in client.yml).

@@ -43,6 +43,8 @@ Robot MCP server for LLM agents (Claude Code and other MCP clients). One rclpy n
 | `grasp_object(object, strategy='auto', params, approach_pitch_deg, surface_z_m, tilt_override_deg, grip_profile, surfaces)` | Plan and execute (motion): outcome `unverified` for every close that holds something (verified contact or empty-band hold; it attaches a fresh gripper camera frame cropped to the jaws, at most `grasp_check.image_px` (640) px, as an image content item, and `grasp_check.grasp_id` for `confirm_grasp`) / `missed` / `aborted` / `infeasible` (these attach no image; `grasped` is only the band-only outcome of the web UI and the motion queue, which attach no image either), with the executed steps (each with the `residual_error` of arm joints off their intended target), the final gripper position/load, the grip report (`grip_profile`, `holding_load`, `slipping`, `crush_risk`, `retightened`; see Grip profiles), `residual_error` and `warnings` (joints off their target beyond their converge tolerance) and `held_pose` (measured jaw centre and tool point against the last waypoint). See Grasp macros. |
 | `release_object(params, surface_z_m, tilt_override_deg, surfaces)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. The way out of an `unverified` grasp whose image shows empty jaws, or of a `confirm_grasp` that came back `missed` (then retry). |
 | `confirm_grasp(grasp_id, object_between_fingers: yes\|no\|unsure, evidence: 1..500 chars)` | Record your look at the jaw crop of the last held close (sensor class: moves nothing, needs no lease, not a motion tool) and get `{grasp_id, band, image, fused, evidence, carrying, next}`. Fuse table in Grasp verification. An unknown or superseded `grasp_id` (a later close or an open) is a tool error and changes nothing; calling again overwrites the earlier verdict. |
+| `suggest_approach_pose(x, y, z \| object_id, z_m \| poi_id, z_m \| camera, u, v, surface_height_m, pitch_deg, max_results<=10, check_path=true)` | Where to park the base for a grasp (sensor, no lease, no motion). Exactly one target form; `z` / `z_m` is the grasp height above the floor (stored objects and POIs have none, so it is required: nothing is invented). Inverts the committed reach map (`data/reach_map.npz`, loaded at start-up: a stale or missing file is logged as an error and both approach tools then refuse with the regenerate command) over every base yaw, scores the poses on the global costmap with the CURRENT `NavFootprint` points (dock pose, staging pose `approach.staging_offset_m` behind it, corridor between), verifies the top `approach.verify_top_k` with `point_reach` and plans the top `approach.path_check_k` with `ComputePathToPose` (planning only). Returns ranked `candidates` (`pose`, `staging_pose`, `reach` with margins, `costmap`, `verified`, `path`, `score`), `rejected` counts (`out_of_reach`, `collision`, `unknown_space`, `staging_blocked`, `corridor_blocked`, `below_margin`, `not_verified`, `no_path`), `costmap_age_s`, `reach_map {key, created_at}`, `docking {server_ready, action}` and `notes`. Refuses without a global costmap newer than `approach.costmap_stale_s`. |
+| `approach_for_grasp(target, pose, pitch_deg, prefer_mode='auto', timeout_s, dry_run=false)` | Drive to the best approach pose (motion, needs the base lease, battery gate, tilt gate `nav`, refused while the motion queue runs). Runs the suggest pipeline (or re-validates the given candidate `pose`; one that is no longer valid is refused), then picks the mode: `servoed` only when a calibrated camera (front, or the gripper camera at the current measured joints) sees the target from both the staging and the dock pose (`edge_margin_px` from every border), else `navigate` (a precise Nav2 goal) with the reason in `mode_reason`; `prefer_mode='servoed'` is refused when it is not possible. Servoed: a `DetectionLoop` (`approach.tracker`) publishes real detections on `/grasp/detected_dock_pose` while `RobotApi.dock` runs the DockRobot goal (`dock_type grasp_servoed`, `navigate_to_staging_pose`), and is stopped in a `finally`. The base motion lock, `monitor.base_motion()` and the `BASE_INTERRUPTS` watch are those of `navigate_to_pose` (stop, a critical event or the timeout cancel the goal and zero the base). After a success the target is re-checked with `point_reach` at the measured pose (`reach_after`); unreachable is `arrived_out_of_reach`, never `succeeded`. Result: `status` (`succeeded`, `arrived_out_of_reach`, `failed`, `rejected`, `interrupted`, `canceled`, `timeout`, `planned` for a dry run), `mode`, `mode_reason`, `error_code` / `error_name` / `num_retries` (DockRobot 90x; a failed servoed dock suggests `prefer_mode='navigate'`), `goal`, `final_pose`, `reach_after` (with the `point_reach` `suggestion` when out of reach), `detections_published`, `detections_rejected` (tracker jumps beyond `max_correction_m`), `duration_s`. `dry_run=true` sends no goal and publishes no detection or twist: it returns `plan`, `mode`, `would_send` (the DockRobot goal or the navigate goal), `docking` readiness and, in servoed mode, `tracker` (one step on a fresh frame: the detection pose it would publish, or why none). |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` needs the arm lease and keeps it afterwards (also after a failed motion); the `/arm/home` service (web UI Home button) still always releases. |
 | `pixel_to_ground(camera, u, v, surface_height_m=0.0, image_width, image_height)` | Point seen at a pixel (sensor). **u, v are pixels of the calibrated image size** (640x480; `get_annotated_camera_image` and `mark_candidate_points` images) unless `image_width` / `image_height` give the size of the image the pixel came from: `get_camera_image` returns 384x288 by default, and an unscaled small-image pixel lands at the wrong place (2026-10-10). Both sizes are needed and must keep the calibrated aspect (a crop is refused); the result then also reports `pixel_input` (what was passed and the scale). Returns `pixel` (calibrated size), `image` (calibrated size), `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
 | `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
@@ -513,7 +515,7 @@ that does not match the contract is logged and dropped.
 
 | Level change | Robot event | Nav2 goals | Tools |
 |---|---|---|---|
-| -> `warning` | `tilt_warning`, critical (claude_agent interrupts the running instruction at once): roll/pitch vs limits and "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool ...), then wait for the guard to clear". From `error` the message says the base drive is enabled again, or, when `base_drive_inhibited` stays true (the inhibit can outlast the error), that the base drive is still inhibited and no base motion tools work yet | every goal cancelled (`cancel_all_goals` from a worker thread, retried `monitor.tilt_cancel_attempts` (3) times `monitor.tilt_cancel_retry_s` (1 s) apart; never answered: a critical `tilt_nav_cancel_failed` event telling the agent to call `stop`), a running `navigate_to_pose` / `move_relative` / `drive` / `look_around` ends `interrupted` (`BASE_INTERRUPTS`) | `navigate_to_pose`, `move_relative`, `look_around` and `enqueue_motions` with a base step refused; queued base steps fail at dispatch (status `tilt_guard`); `drive` allowed unless `base_drive_inhibited` is still true (then refused like at `error`) |
+| -> `warning` | `tilt_warning`, critical (claude_agent interrupts the running instruction at once): roll/pitch vs limits and "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool ...), then wait for the guard to clear". From `error` the message says the base drive is enabled again, or, when `base_drive_inhibited` stays true (the inhibit can outlast the error), that the base drive is still inhibited and no base motion tools work yet | every goal cancelled (`cancel_all_goals` from a worker thread, retried `monitor.tilt_cancel_attempts` (3) times `monitor.tilt_cancel_retry_s` (1 s) apart; never answered: a critical `tilt_nav_cancel_failed` event telling the agent to call `stop`), a running `navigate_to_pose` / `move_relative` / `drive` / `look_around` / `approach_for_grasp` ends `interrupted` (`BASE_INTERRUPTS`) | `navigate_to_pose`, `move_relative`, `look_around`, `approach_for_grasp` and `enqueue_motions` with a base step refused; queued base steps fail at dispatch (status `tilt_guard`); `drive` allowed unless `base_drive_inhibited` is still true (then refused like at `error`) |
 | -> `error` | `tilt_error`, critical: "base drive is inhibited until the IMU is back within limits; no base motion tools work" | every goal cancelled | every base motion tool refused (`base inhibited by the tilt guard`) |
 | `warning`, `base_drive_inhibited` true -> false | `tilt_drive_enabled`, info: "base drive enabled again" plus the manual drive-back instruction | - | `drive` allowed again (navigation still refused) |
 | -> `ok` | `tilt_clear`, info | - | everything allowed again |
@@ -547,8 +549,8 @@ partition every tool):
 
 | Class | Tools |
 |---|---|
-| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions`, `resume_motions` |
-| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `check_guard_rules`, `plan_grasp`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi`, `list_lookups`, `get_lookup_image`, `annotate_lookup`, `delete_photos` |
+| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions`, `resume_motions`, `approach_for_grasp` |
+| `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `check_guard_rules`, `plan_grasp`, `suggest_approach_pose`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi`, `list_lookups`, `get_lookup_image`, `annotate_lookup`, `delete_photos` |
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
 
@@ -561,9 +563,9 @@ body: so before the battery and tilt gates, and a tool without its lease is refu
 | Lease | Tools |
 |---|---|
 | arm | `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `grasp_object`, `release_object` |
-| base | `navigate_to_pose`, `move_relative`, `drive`, `look_around` (base-only spin) |
+| base | `navigate_to_pose`, `move_relative`, `drive`, `look_around` (base-only spin), `approach_for_grasp` |
 | per step | `enqueue_motions`: `arm_joints` / `arm_cartesian` / `gripper` / `grasp` steps need arm, `base_relative` / `navigate_to_pose` (`motion_queue.BASE_KINDS`) need base; checked first inside the tool, naming every missing lease |
-| none | `stop`, `cancel_motions`, `wait_for_event`, `get_motion_status`, `take_control` / `release_control` / `get_control_state`, `plan_grasp`, `arm_set_home`, camera, perception and POI tools |
+| none | `stop`, `cancel_motions`, `wait_for_event`, `get_motion_status`, `take_control` / `release_control` / `get_control_state`, `plan_grasp`, `suggest_approach_pose`, `arm_set_home`, camera, perception and POI tools |
 | any (placeholder) | a future head tool: `LeaseNeed` `"any"` is satisfied by either lease, so a base-to-arm hand-over needs no head reset. No tool uses it yet; `ControlManager.refusal(name, "any")` implements it |
 
 - **Arm lease** = the filter_node autonomy lease (the hardware arbitration). `take_control('arm')` is
@@ -931,6 +933,196 @@ Sample spacing and the margin (accepted limitation): the 2 mm margin is exact be
 cap) and up to 8.7 mm between two `joint_line` samples (0.02 rad: planner free moves, home routes). That cannot
 cross any obstacle (the thinnest, a side frame, is 35 mm) and a dip along a straight chord past a round surface is below
 1 mm, but a path skimming a sharp obstacle edge between two samples can come closer than 2 mm undetected.
+
+## Reach map
+
+`mcp_server/reach_map.py` is an offline inverse reachability map of the arm with the robot body: for every cell of a
+grid around the shoulder_pan axis it stores which approach pitches put the tool point there without touching the body.
+It is built on the dev Mac and is meant to be loaded at runtime (the approach planner ranks base poses with it); the
+robot never computes it, so it costs no robot CPU.
+
+Grid (`reach_map:` config, `ReachMapSettings`; values are the defaults):
+
+| Axis | Values |
+|---|---|
+| heading | tool bearing from the pan axis in base_link, every `heading_step_deg` (5) inside the bearings the pan range minus the limit margin covers (43 headings, -105 .. 105 deg) |
+| r | horizontal distance from the pan axis, `r_step_m` (0.02) .. `r_max_m` (0.48) every `r_step_m` (24) |
+| z | tool height in base_link (floor = 0), `z_step_m` (0.025) .. `z_max_m` (0.45) every `z_step_m` (18) |
+| pitch | `POINT_PITCHES_DEG` (-30 .. 90 every 15 deg, + down), one bit each |
+
+Build (forward sampling, RM4D-style, no numeric IK): forward kinematics of an even `planar_samples` (72 x 72 x 37)
+grid of shoulder_lift x elbow_flex x wrist_flex inside their limits (minus the margin) at pan 0, wrist_roll 0, gripper
+closed. The pan axis is vertical, so turning the pan only rotates a sample about it: its r, z and pitch stay and its
+bearing moves by the pan angle (`pan_geometry` checks that FK at a pan angle equals the pan 0 FK rotated about the
+pan joint axis within 1e-6 m, and that the axis is vertical within 1e-4 rad; the URDF's `rpy="3.14159 ..."` tilts it
+2.65e-6 rad, under 2 um at full reach). Each sample belongs to the cell nearest its (r, z) and to the nearest pitch
+within 7.5 deg. Per heading every sample whose required pan lies inside the pan range is a candidate; the
+`samples_per_cell` (2) nearest each cell centre and pitch are body checked at that pan in batches of
+`ENVELOPE_BATCH_SAMPLES` (32). The verdict is `SelfCollisionChecker.clear_of`'s at `body_check.hard_margin_m` (one
+pruned pass bounded at the soft margin gives it and the clearance; a test pins the verdict to `clear_of`). Stored in
+a compressed `.npz` (written to a temporary file and renamed):
+
+- `pitch_mask` uint16 [H, R, Z]: bit k set = pitch k reachable and collision-free in that cell;
+- `clearance` float16 [H, R, Z]: best body clearance of the cell's clear samples (m, saturated at the 3 cm soft
+  margin), NaN where no pitch works;
+- `meta` JSON: key, version, grid (headings, radii, heights, pitches, pan axis), planar_samples, samples_per_cell,
+  compute_s, created_at and counts (samples, checked, clear, reachable cells and cell-pitches).
+
+A cell is reachable when some sample within half a cell of its centre works, so its edge cells are about a centimetre
+optimistic; on the 30 deg test grid `point_reach` (IK at the exact centre) confirms at least 90 % of sampled reachable
+cells and refutes at least 90 % of the unreachable ones.
+
+Key: sha256 of `arm_reach.reach_inputs(checker)` (body, arm link model, mount, joint limits, joint offsets, limit
+margin: the same inputs as the envelope's key, which is unchanged), the tool point offset, the jaw (closed angle, open
+axis), the hard and soft margins, the grid fields (everything in `ReachMapSettings` but `file`), the pitches and
+`REACH_MAP_VERSION`. `ReachMap.load(path, checker, settings)` raises `ReachMapMissing` (no file or unreadable) or
+`ReachMapStale(expected, found)` (built for other inputs); both messages name the regenerate command, so a stale map
+is never used silently. The file defaults to the package `mcp_server/data/reach_map.npz` (`reach_map.file`), so it
+deploys with the git checkout.
+
+Query: `ReachMap.cells(z, pitch_deg | None)` returns the reachable cells of the height slice nearest z (within half a
+step; outside the grid nothing): heading_deg, r_m, the working pitches, clearance and `margin_m`, the horizontal
+distance from the cell centre to the nearest unreachable cell centre in that slice (cells outside the grid count as
+unreachable: the ring one r step beyond `r_max_m` and the heading rows one step beyond each end of the pan range).
+`ReachMap.describe()` gives key, version, created_at, compute_s, grid and counts.
+
+CLI (from `nodes/mcp_server`):
+
+```bash
+uv run python -m mcp_server.reach_map build --client-yml ../../ansible/group_vars/client.yml --out mcp_server/data/reach_map.npz
+uv run python -m mcp_server.reach_map check --client-yml ../../ansible/group_vars/client.yml  # exit 1 when missing or stale
+```
+
+Regenerate after any change to the body, arm mount, joint limits or offsets, tool point, jaw, margins or the
+`reach_map` grid. Measured on the M4 dev Mac 2026-10-11 with the deployed client.yml config and the default grid:
+82 s (191,808 FK samples, 147,798 body-checked poses, 101,436 clear; 12,838 of 18,576 cells and 52,738 cell-pitches
+reachable), 360 MB peak RSS, a 17 KB file. The committed artifact is this build: `uv run python scripts/gen_reach_map.py`
+(repo root; `--check` exits 1 when stale) wrote it in 93 s CPU / 2 min 26 s wall, 12,838 reachable of 18,576 cells, 52,738
+reachable cell-pitches, 17,188 bytes. `tests/test_mcp_server_config.py` fails (naming the script) when its key no longer
+matches client.yml's mcp_server config or its grid differs from the `reach_map:` block there. The hatchling wheel
+includes `mcp_server/data/` (package files), and the robot runs from the git checkout, which carries the committed file. Doubling the planar density on the default r / z cells (30 deg headings)
+adds 1.9 % reachable cell-pitches.
+
+## Approach planner
+
+`mcp_server/approach.py` (pure, no ROS) ranks base poses from which the arm reaches a target, by inverting the reach
+map against the global costmap. Settings: `approach:` (`ApproachSettings`, defaults in parentheses).
+
+Target (`ApproachTarget`): exactly one of `xyz` (map frame, z = height above the floor), `object_id` (ObjectMemory),
+`poi_id` (point POI or area centroid) or `pixel` `{camera, u, v, surface_height_m}` (ground point at that height,
+z = the surface height). Objects and POIs store no height, so `z_m` is required for them and refused for the other
+forms. `resolve_target` resolves it with injected lookups; an unknown object, POI or a pixel that misses the surface
+raises `ApproachUnavailable`.
+
+Candidates (`generate_seeds`, `invert`): for every base yaw 0..360 deg every `yaw_step_deg` (10; yaws wrapped to
+[-180, 180)) and every reachable cell of `ReachMap.cells(z, pitch)` (heading h from the pan axis in base_link, r):
+
+- pan axis P = T - r (cos(yaw + h), sin(yaw + h)); base B = P - R(yaw) a, a = the pan axis in base_link (from the arm
+  mount config);
+- `expected_margin_m` = `margin_m` - (`pose_error_xy_m` (0.03) + rad(`pose_error_yaw_deg` (3)) * |T - B|): the cell
+  margin left when the base stops off by the pose error (the yaw error swings the target by its lever arm);
+- cells below `min_expected_margin_m` (0.0) are dropped (`below_margin`), the best `cells_per_yaw` (30) per yaw kept.
+  No cell at the height (or pitch) gives no candidate and an `out_of_reach` note: no fallback pose is invented.
+
+Costmap check (`score_candidates`) on `global_costmap_topic` (`/global_costmap/costmap`, OccupancyGrid translation:
+100 lethal, 99 inscribed, -1 unknown). The grid must be fresh: none received or older than `costmap_stale_s` (5)
+raises `ApproachUnavailable` with the reason. The current footprint polygon (`NavFootprint.current.points`, passed in)
+is rasterised once per yaw with `cv2.fillPoly` (`footprint_mask`) on a 16x finer grid; a costmap cell belongs to the
+footprint when more than half of it is covered, which keeps the raster area within 5 % of the polygon at the 2.5 cm
+costmap resolution (the base origin is taken at its cell centre, up to half a cell off). A pose is blocked when a
+footprint cell is lethal, unknown or outside the grid, or the centre cell is at least inscribed. Each candidate is
+checked at the dock pose, the staging pose (`staging_offset_m` (0.30) back along the yaw, where the docking server
+starts) and `corridor_samples` (5) poses evenly between them, and counted once, in this order: `collision` (dock
+lethal or inscribed centre), `unknown_space`, `staging_blocked`, `corridor_blocked`. The result reports the dock
+`max_cost` / `mean_cost` and the staging and corridor maxima.
+
+Score (`score_value`, higher is better; `weights`):
+
+```text
+score = margin (1.0) * min(expected_margin_m, margin_cap_m) / margin_cap_m     # margin_cap_m 0.08
+      - cost (0.5) * mean_cost / 100
+      - travel (0.2) * travel_m          # path length + staging leg when planned, else straight line from the robot
+      - heading (0.1) * |h| / 180        # prefer the arm straight ahead
+```
+
+`rank` sorts best first. Hooks (injected callables, so the module stays ROS-free):
+
+- `verify_top_k`: the best `verify_top_k` (5) are re-checked with `point_reach` (the grasp planner's IK and body
+  check) on the target in the candidate's base_link; failures are dropped (`not_verified`), the rest of the list
+  stays unverified (`verified: null`).
+- `path_check`: the best `path_check_k` (3) are planned to their staging pose (ComputePathToPose, planning only);
+  `no_path` drops the candidate (`no_path`), `ok` replaces travel by the path length plus `staging_offset_m` and
+  re-ranks, `unavailable` is kept and reported. Without a robot pose travel is not scored and paths are
+  `unavailable: no robot pose`.
+
+`suggest` runs the whole pipeline and returns `ApproachSuggestion` (target, ranked candidates with pose, staging_pose,
+reach {heading_deg, r_m, z_m, pitches_deg, clearance_m, margin_m, expected_margin_m}, costmap, verified, path,
+travel_m, score; `rejected` counters; `costmap_age_s`; notes). The rest of `approach:` (`docking_threshold_m`,
+`planner_action`, `dock_action`, `detection_topic`, `dock_timeout_s`, `tracker`) configures the grasp docking server
+interfaces and the camera target tracker; `staging_offset_m` and `docking_threshold_m` must match the grasp docking
+server params.
+
+### ROS adapters of the approach tools
+
+`mcp_server/ros_dock.py` (imports rclpy, like `ros_iface.py`) holds the ROS side; `RosRobot` creates the clients at
+startup and exposes `dock()`, `plan_path()`, `global_costmap()` and `publish_detection()` on `RobotApi`.
+
+| Interface | Name (`approach:` setting) | Use |
+|---|---|---|
+| action `nav2_msgs/action/DockRobot` (client) | `/grasp/dock_robot` (`dock_action`) | `RosDockPort`: goal by pose (`use_dock_id` false, `dock_pose` PoseStamped in `map`, `dock_type`, `navigate_to_staging_pose`, `max_staging_time`); feedback state tracked by name (`NAV_TO_STAGING_POSE` .. `RETRY`); result = status, `error_code`, `num_retries`. Own goals are registered like the NavigateToPose goals. |
+| action `nav2_msgs/action/ComputePathToPose` (client) | `/compute_path_to_pose` (`planner_action`) | `RosPlannerPort`: plans from the robot's current pose (`use_start` false), planning only. `ok` with the path length, `no_path` (aborted or empty path, with the error code), `unavailable` (server down, no answer, rejected, no result within 5 s). |
+| topic `nav_msgs/OccupancyGrid` (subscriber, reliable transient local) | `/global_costmap/costmap` (`global_costmap_topic`) | `GlobalCostmapCache`: subscribed on the first `global_costmap()` call (waits `topdown.costmap_wait_s` for the first message), then the newest grid as a `CostGrid` with `age_s` since it was received. A stale grid is returned with its age; `approach.check_grid` refuses it against `costmap_stale_s`. |
+| topic `geometry_msgs/PoseStamped` (publisher) | `/grasp/detected_dock_pose` (`detection_topic`) | `DetectionPublisher`: frame `map` (another frame is refused), header stamp = the image capture stamp passed in. It publishes only when `publish_detection()` is called, never on its own. |
+
+`cancel_all_goals` (the `stop` tool, the monitor's tilt-warning canceller) cancels every NavigateToPose goal and then
+every `/grasp/dock_robot` goal with the zero goal id; the docking server's internal staging goal is a NavigateToPose
+goal and is covered by the first cancel. A docking server that is not running is not waited for (its cancel service is
+only asked when it is up), so a stop is never delayed by it. `reset_base` (the `release_control` base reset) cancels
+the NavigateToPose and the docking goals this server sent. `dock()` takes the same base motion lock and stop flag as
+`navigate_to_pose` and ends on critical events (`run_dock`).
+
+### Camera target tracker (servoed mode)
+
+`mcp_server/target_tracker.py` (pure: frames, `Scene`s, base poses and the surface height are passed in) is the
+detection source of the servoed grasp approach. Settings: `approach.tracker` (`TrackerSettings`).
+
+- `visible(scene, point_base_link, edge_margin_px)`: the precheck that picks the mode. True only when the base_link
+  point projects into the image (`Scene.project`) at least `edge_margin_px` (20) from every border; False behind the
+  camera, off the image, inside the margin, or when the scene cannot reach base_link (gripper camera without
+  `arm.base_in_base_link`).
+- `dock_pose_from_target(target_map, dock_yaw, t_rel)`: dock pose = target - R(dock_yaw) t_rel, yaw = dock_yaw, frame
+  `map` (`t_rel` = the target in the planned dock frame).
+- `TargetTracker(planned_target, dock_yaw, t_rel, settings)`: seeded with a grayscale `template_px` (48) patch either
+  around the agent's pixel (`seed_from_pixel`, pixel targets; the estimate becomes that pixel's surface point) or, on
+  the first `step` where the projected planned target is in view with room for the patch, around that projection (the
+  seed frame returns no detection: matching a template against its own frame would only echo the plan). Each
+  `step(frame_bgr, stamp, scene, base_pose_at_stamp, surface_z)` predicts the target pixel from the estimate, rescales
+  the template by the predicted distance ratio (seed camera distance / current), runs `cv2.matchTemplate`
+  TM_CCOEFF_NORMED in a `search_px` (96, grown with the template) window with a sub-pixel peak, accepts a score >=
+  `min_score` (0.6), cuts the pixel's ray with the surface plane (`Scene.ground_point`), takes it to the map with the
+  base pose at the capture stamp, and rejects it when it is farther than `max_correction_m` (0.10) from the planned
+  target. Counters: `frames`, `accepted`, `rejected` (jumps), `low_score`. The `Detection` carries the dock pose, the
+  capture stamp unchanged, the target, the pixel and the score.
+- `DetectionLoop(tracker, source, publish, rate_hz)`: a thread that pulls the newest `TrackerInput` from `source` at
+  `rate_hz` (5, at least twice the docking plugin's `external_detection_timeout` rate), skips frames whose stamp is not
+  newer than the last one, and calls `publish` (`publish_detection`) only for accepted detections. `stop()` (or leaving
+  the `with` block) sets the stop event and joins the thread; source, tracking and publish errors are logged and
+  counted in `errors` without ending the loop.
+
+No accepted match means nothing is published for that frame, and a stored target position is never re-stamped as a
+detection: when detections stop, the docking plugin times out (FAILED_TO_DETECT_DOCK, 904) and stops the base.
+
+Limits today:
+
+- The front camera is not calibrated (no intrinsics and mount in the client config), so it cannot see a target in the
+  tracker's sense; the gripper camera is calibrated but, with the arm parked, often does not see the target from the
+  staging and dock poses. Until a camera sees the target, approaches run in blind mode (`navigate_to_pose(precise)`)
+  and the servoed loop stays unexercised on the robot; the tool's `mode` / `mode_reason` say which mode ran and why.
+- The template is rescaled isotropically by distance only: perspective foreshortening from a changing view angle and
+  in-plane rotation of the base are not compensated, so large heading changes or steep view-angle changes during the
+  approach lower the score (frames below `min_score` publish nothing).
+- The target must lie on a flat surface of known height (`surface_z`) and carry visible texture (a featureless patch is
+  not seeded); repeated textures can produce a confident wrong match, which `max_correction_m` bounds.
 
 ## Unmeasured efforts
 
@@ -1858,6 +2050,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `grasp_check.py` | no | grasp verification models (`GripEvidence`, `CropInfo`, `GraspCheck`), `band_verdict`, `fuse` |
 | `jaw_crop.py` | no | jaw crop: project the jaw region into the gripper camera, `crop_jpeg` |
 | `base_motion.py` | no | timed clamped drive loop, continuous spin with marks (`run_spin`), stop sequence (`run_stop`) and its base half (`run_base_stop`) |
+| `base_dock.py` | no | `DockGoal` / `DockResult` / `DockPort` and the blocking `run_dock` loop over `nav2_msgs/action/DockRobot` (mirrors `run_nav`: server down or no answer raises `RobotError`; rejected, critical event = cancel + zero twist, stop, timeout, result and error-code mapping 0/901..906/999). The loop publishes nothing but a zero twist after a critical event; the docking server drives. The ROS adapter is `ros_dock.py`. |
 | `control.py` | no | control leases: `ControlManager` (take / release with the arm home and base steering resets / carried-object park refusal / footprint triggers / state / lease refusals / vitals digest), `wait_steering_neutral` |
 | `footprint.py`, `footprint_geometry.py` | no | navigation footprint: `NavFootprint` (static / dynamic / conservative, arm shadow, carried circle, republish tick following the released arm, consumers and their outcomes via `FootprintSink`), `python -m mcp_server.footprint` (parked-arm shadow for the generator); shared outline / parked-arm union / circle / offset / inflation geometry (also imported by `scripts/gen_nav_footprint.py`) |
 | `motion_queue.py` | no | motion queue: step models, blend groups, preconditions, worker thread, watch constraints (watcher thread, abort / pause / resume), events, waits |
@@ -1873,6 +2066,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `monitor.py` | no | `RobotMonitor`: vitals, events, digest, `MotionWatch` |
 | `tool_context.py`, `body_tools.py` | no | `ToolContext` / `RobotApi`; the `get_body_state` module |
 | `camera_tools.py` | no | the camera tool module (registered in `tools.TOOL_MODULES`) |
+| `approach_tools.py` | no | the `suggest_approach_pose` / `approach_for_grasp` module (reach map load at registration, mode selection, dry run, `reach_after`); planner in `approach.py`, dock loop in `base_dock.py`, tracker in `target_tracker.py` |
 | `lookup_store.py`, `lookup_tools.py` | no | photo store facade: read-only `LookupStore` over poi_store's `index.jsonl` (`records`, `get`, `query`, `image`) plus `write_image` / `remove_image` of the JPEG, and `photo_summary` (record metadata with the view derived on read for legacy lines); models shared via `ros2_common.lookups` / `ros2_common.photos`. The recorder hook of the camera tools (JPEG write, then a poi_store photo `add`) and the `list_lookups` / `get_lookup_image` / `annotate_lookup` / `delete_photos` module (see [Photos (photo POIs)](#photos-photo-pois)) |
 | `camera_scene.py`, `camera_overlay.py`, `camera_candidates.py`, `camera_calib.py` | no | calibrated scene and frames, overlay drawing and candidate grids, candidate sets, sample store and solver wiring |
 | `tools.py` | no | MCP tools, `StaticTokenVerifier`, Streamable HTTP app |
@@ -1914,6 +2108,7 @@ expose it on the LAN. The MCP path and the admin route stay behind the token. `r
 | `mcp_motion_watch_triggers_total{metric,action}` | motion queue watch constraints that triggered, by metric and action (`abort`/`pause`) |
 | `mcp_frontier_compute_seconds{stage}`, `mcp_frontier_count` | `frontier_tools.refresh` / `geodesic_for`: per-stage frontier compute time (`extract`, `traversability`, `field`, `match` once per `/map` version, `geodesic` once per version and robot cell; a cache hit observes nothing) and the frontier count of the latest version; see [Frontiers](#frontiers) |
 | `mcp_nav_goals_total{result}`, `mcp_nav_goal_duration_seconds` | `nav_result` in `base_motion.py`, so every Nav2 goal that was sent (`succeeded`, `canceled`, `timeout`, `interrupted`, `rejected`, ...); errors before a goal exists (Nav2 not available) raise and are not counted |
+| `mcp_dock_goals_total{result}`, `mcp_dock_goal_duration_seconds` | `dock_result` in `base_dock.py`, one count per docking goal that was sent (`succeeded`, `failed`, `rejected`, `interrupted`, `canceled`, `timeout`); server unavailable or no answer raise and are not counted |
 
 ### Grasp result mapping
 
@@ -1967,6 +2162,26 @@ floor_guard:              # below-surface slow zone (see Arm mount and floor slo
   imu_level_reference:    # IMU roll/pitch (deg) on the calibration floor, subtracted from the IMU tilt
     roll_deg: 0.7         # BNO055 mounting bias (= swerve tilt guard default); re-capture after a floor height recalibration
     pitch_deg: 1.3
+approach:                 # approach pose planner and grasp docking interfaces (see "Approach planner")
+  yaw_step_deg: 10
+  cells_per_yaw: 30
+  min_expected_margin_m: 0.0
+  pose_error_xy_m: 0.03
+  pose_error_yaw_deg: 3
+  margin_cap_m: 0.08
+  weights: {margin: 1.0, cost: 0.5, travel: 0.2, heading: 0.1}
+  staging_offset_m: 0.30          # = -staging_x_offset of the grasp docking server
+  docking_threshold_m: 0.03       # = its docking_threshold
+  corridor_samples: 5
+  verify_top_k: 5
+  path_check_k: 3
+  global_costmap_topic: /global_costmap/costmap
+  costmap_stale_s: 5
+  planner_action: /compute_path_to_pose
+  dock_action: /grasp/dock_robot
+  detection_topic: /grasp/detected_dock_pose
+  dock_timeout_s: 120
+  tracker: {rate_hz: 5, min_score: 0.6, template_px: 48, search_px: 96, max_correction_m: 0.10, edge_margin_px: 20}
 grasp:                    # grasp planner defaults, overridable per call via params (see Grasp macros)
   approach_distance_m: 0.04
   pre_grasp_clearance_m: 0.05
