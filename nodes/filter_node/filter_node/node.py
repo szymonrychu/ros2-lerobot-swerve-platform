@@ -4,7 +4,8 @@ import time
 from typing import Any
 
 import rclpy
-from rclpy.executors import SingleThreadedExecutor
+from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from ros2_metrics import resolve_metrics_port, start_metrics_server
@@ -43,11 +44,34 @@ def joint_positions(msg: JointState) -> dict[str, float]:
 
 
 def run_filter_node(config: FilterConfig) -> None:
-    """Run the filter node: subscribe input_topic, publish filtered output_topic at control_loop_hz."""
+    """Run the filter node until systemd (or Ctrl-C) stops it; shutdown is clean (exit 0, no traceback).
+
+    Args:
+        config (FilterConfig): Node configuration.
+    """
     start_metrics_server(resolve_metrics_port(config.metrics_port), NODE_NAME)
-    metrics = FilterMetrics()
     rclpy.init()
     node = Node(NODE_NAME)
+    try:
+        serve_filter_node(config, node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    except RCLError:
+        if rclpy.ok():  # a publish or wait set racing the SIGTERM handler is shutdown noise; anything else is a bug
+            raise
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+def serve_filter_node(config: FilterConfig, node: Node) -> None:
+    """Subscribe input_topic and publish filtered output_topic at control_loop_hz until the context is shut down.
+
+    Args:
+        config (FilterConfig): Node configuration.
+        node (Node): The rclpy node to attach subscriptions, publishers and timers to.
+    """
+    metrics = FilterMetrics()
     algorithm_cls = get_algorithm(config.algorithm)
     algorithm = algorithm_cls(config.algorithm_params)
     pub = node.create_publisher(JointState, config.output_topic, FILTER_QOS)
@@ -200,6 +224,3 @@ def run_filter_node(config: FilterConfig) -> None:
             if names and len(positions) == len(names):
                 pub.publish(fill_command(JointState(), clock.now().to_msg(), names, positions, SOURCE_LEADER))
         executor.spin_once(timeout_sec=control_period_s)
-
-    node.destroy_node()
-    rclpy.shutdown()

@@ -4,7 +4,8 @@ import json
 import time
 
 import rclpy
-from rclpy.executors import SingleThreadedExecutor
+from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import JointState
@@ -29,9 +30,32 @@ def _index_of(name: str, names: list[str]) -> int | None:
 
 
 def run_haptic_node(config: HapticConfig) -> None:
-    """Run the haptic controller node. Does not return until shutdown."""
+    """Run the haptic controller node until systemd (or Ctrl-C) stops it; shutdown is clean (exit 0, no traceback).
+
+    Args:
+        config (HapticConfig): Node configuration.
+    """
     rclpy.init()
     node = Node("haptic_controller")
+    try:
+        serve_haptic_node(config, node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    except RCLError:
+        if rclpy.ok():  # a publish or wait set racing the SIGTERM handler is shutdown noise; anything else is a bug
+            raise
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+def serve_haptic_node(config: HapticConfig, node: Node) -> None:
+    """Control the leader gripper until the rclpy context is shut down.
+
+    Args:
+        config (HapticConfig): Node configuration.
+        node (Node): The rclpy node to attach subscriptions and publishers to.
+    """
     pub = node.create_publisher(JointState, config.leader_cmd_topic, HAPTIC_QOS)
     pub_set_register = node.create_publisher(String, config.leader_set_register_topic, HAPTIC_QOS)
 
@@ -216,9 +240,6 @@ def run_haptic_node(config: HapticConfig) -> None:
             out.velocity = []
             out.effort = []
             pub.publish(out)
-
-    node.destroy_node()
-    rclpy.shutdown()
 
 
 def main() -> None:
