@@ -1,7 +1,10 @@
 import Box from '@mui/material/Box'
+import { lazy, Suspense } from 'react'
 import { CameraStream } from '../components/CameraStream'
 import { useLayout } from '../layout/useLayout'
 import { TabConfig } from '../types'
+
+const ArmView = lazy(() => import('../arm/ArmView.tsx'))
 
 interface Props {
   tab: TabConfig
@@ -17,8 +20,9 @@ const CELL_SX = { flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden', 
  *
  * @param tab - tab config (gripper_camera_topic, overview_camera_topic)
  * @param topicData - latest payload per topic
+ * @param publish - ROS publish helper
  */
-export default function ArmTab({ tab, topicData }: Props) {
+export default function ArmTab({ tab, topicData, publish }: Props) {
   const layout = useLayout()
   const direction = layout === 'phone' ? 'column' : 'row'
   const streamMinHeight = layout === 'phone' ? 'clamp(10dvh, 28dvh, 40dvh)' : 0
@@ -36,7 +40,11 @@ export default function ArmTab({ tab, topicData }: Props) {
         <Box sx={{ ...CELL_SX, minHeight: streamMinHeight }}>
           <CameraStream topic={tab.overview_camera_topic} data={topicData[tab.overview_camera_topic ?? '']} alt="overview camera" />
         </Box>
-        <Box data-testid="arm-view-slot" sx={{ ...CELL_SX, minHeight: streamMinHeight }} />
+        <Box data-testid="arm-view-slot" sx={{ ...CELL_SX, minHeight: streamMinHeight }}>
+          <Suspense fallback={null}>
+            <ArmView tab={tab} topicData={topicData} publish={publish} />
+          </Suspense>
+        </Box>
       </Box>
       <Box data-testid="arm-jog-slot" sx={{ flex: '0 0 auto' }} />
     </Box>

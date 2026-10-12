@@ -4,6 +4,7 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import type { URDFRobot, URDFJoint } from 'urdf-loader'
 import { RobotModel } from './RobotModel'
+import { findLink } from '../arm/armView.ts'
 import log from '../logging'
 import { solveCCDIK } from './ccdIKSolver'
 
@@ -100,18 +101,8 @@ interface Props {
   onReady?: (ready: boolean) => void
   /** Hidden arms draw nothing and ignore pointer input (handles cannot be grabbed). */
   visible?: boolean
-}
-
-/**
- * Link or frame of the arm by name (urdf-loader keeps fixed frames in `frames`).
- *
- * @param robot - loaded URDF robot
- * @param name - link name
- * @returns the object, or undefined
- */
-function findLink(robot: URDFRobot, name: string): THREE.Object3D | undefined {
-  const frames = (robot as unknown as { frames?: Record<string, THREE.Object3D> }).frames
-  return frames?.[name] ?? robot.links[name]
+  /** Called with the solid (live) arm model once loaded, and with null on unmount. */
+  onRobotLoaded?: (robot: URDFRobot | null) => void
 }
 
 /** Finds t such that lineOrigin + t*lineDir is closest to the given ray. */
@@ -139,6 +130,7 @@ export function InteractiveArm({
   orbitRef,
   onReady,
   visible = true,
+  onRobotLoaded,
 }: Props) {
   const { gl, camera, invalidate } = useThree()
   const visibleRef = useRef(visible)
@@ -693,7 +685,7 @@ export function InteractiveArm({
   return (
     <>
       {/* Solid arm — always tracks live servo position */}
-      <RobotModel urdfFile={urdfFile} jointStates={liveJointStates} position={position} visible={visible} />
+      <RobotModel urdfFile={urdfFile} jointStates={liveJointStates} position={position} visible={visible} onRobotLoaded={onRobotLoaded} />
       {/* Ghost arm — always in scene; body opacity 0 normally, ghost during drag; hosts rings */}
       <RobotModel
         urdfFile={urdfFile}
