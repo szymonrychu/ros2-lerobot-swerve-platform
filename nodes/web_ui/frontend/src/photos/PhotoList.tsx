@@ -9,6 +9,7 @@ import ListItem from '@mui/material/ListItem'
 import ListItemText from '@mui/material/ListItemText'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
+import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { capturedAt, deletePhotos, fetchPhotos, Photo, PHOTO_LIMIT, PhotoDeleteSelector, photoImageUrl, photoThumbUrl } from './api'
 
@@ -130,7 +131,8 @@ export function PhotoList({ tabId, revision, selectedPoiId, selectedPoiName, onS
   const previewCleanup = (selector: PhotoDeleteSelector) => {
     setNotice(null)
     return send({ ...selector, dry_run: true }, (count, bytes, message, ok) => {
-      if (ok) setPreview({ selector, count, bytes })
+      if (ok && count > 0) setPreview({ selector, count, bytes })
+      else if (ok) setNotice(previewText(count, bytes))
       else setNotice(`Preview failed: ${message}`)
     })
   }
@@ -152,19 +154,19 @@ export function PhotoList({ tabId, revision, selectedPoiId, selectedPoiName, onS
     <OverlayPanel title={title} open anchor="left" docked>
       <Box data-testid="photo-list-panel">
         <Box sx={{ pb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Button size="small" variant="outlined" color="error" disabled={busy || checked.size === 0} onClick={deleteSelected}>
+          <Button variant="outlined" color="error" disabled={busy || checked.size === 0} onClick={deleteSelected}>
             Delete selected
           </Button>
           {checked.size > 0 && <Typography variant="caption">{`${checked.size} selected`}</Typography>}
         </Box>
         <List dense disablePadding sx={{ maxHeight: LIST_MAX_HEIGHT, overflowY: 'auto' }}>
           {error !== null && (
-            <Typography variant="body2" color="error" sx={{ px: 1.5, pb: 1 }} role="alert">
+            <Typography variant="body2" color="error" sx={{ px: 1, pb: 1 }} role="alert">
               {`Could not load photos: ${error}`}
             </Typography>
           )}
           {photos.length === 0 && error === null && (
-            <Typography variant="body2" color="text.secondary" sx={{ px: 1.5, pb: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ px: 1, pb: 1 }}>
               {selectedPoiName === null ? 'No photos yet.' : `No photos linked to ${selectedPoiName} yet.`}
             </Typography>
           )}
@@ -186,7 +188,7 @@ export function PhotoList({ tabId, revision, selectedPoiId, selectedPoiName, onS
                 secondaryTypographyProps={{ sx: { overflowWrap: 'anywhere' } }}
               />
               {onSelect && (
-                <Button size="small" onClick={() => onSelect(p)} aria-label={`details of photo ${p.id}`}>
+                <Button onClick={() => onSelect(p)} aria-label={`details of photo ${p.id}`}>
                   Details
                 </Button>
               )}
@@ -194,41 +196,36 @@ export function PhotoList({ tabId, revision, selectedPoiId, selectedPoiName, onS
           ))}
         </List>
         {nextBefore !== null && (
-          <Box sx={{ px: 1.5, py: 0.5 }}>
-            <Button size="small" onClick={more}>
+          <Box sx={{ px: 1, py: 0.5 }}>
+            <Button onClick={more}>
               more
             </Button>
           </Box>
         )}
-        <Box sx={{ px: 1.5, py: 1, display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+        <Box sx={{ px: 1, py: 1, display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
           <TextField id="photo-cleanup-days" size="small" type="number" label="Older than (days)" value={days} onChange={(e) => setDays(e.target.value)} sx={{ width: FIELD_WIDTH }} />
-          <Button size="small" variant="outlined" disabled={busy || !daysValid} onClick={() => previewCleanup({ older_than_s: daysNum * SECONDS_PER_DAY })}>
+          <Button variant="outlined" disabled={busy || !daysValid} onClick={() => previewCleanup({ older_than_s: daysNum * SECONDS_PER_DAY })}>
             Preview older than
           </Button>
           <TextField id="photo-cleanup-keep" size="small" type="number" label="Keep newest" value={keep} onChange={(e) => setKeep(e.target.value)} sx={{ width: FIELD_WIDTH }} />
-          <Button size="small" variant="outlined" disabled={busy || !keepValid} onClick={() => previewCleanup({ keep_newest: keepNum })}>
+          <Button variant="outlined" disabled={busy || !keepValid} onClick={() => previewCleanup({ keep_newest: keepNum })}>
             Preview keep newest
           </Button>
         </Box>
-        {preview !== null && (
-          <Box sx={{ px: 1.5, pb: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-            <Typography variant="body2">{previewText(preview.count, preview.bytes)}</Typography>
-            {preview.count > 0 && (
-              <Button size="small" variant="contained" color="error" disabled={busy} onClick={confirmCleanup}>
-                Confirm delete
-              </Button>
-            )}
-            <Button size="small" onClick={() => setPreview(null)}>
-              Cancel
-            </Button>
-          </Box>
-        )}
         {notice !== null && (
-          <Typography variant="body2" color="text.secondary" sx={{ px: 1.5, pb: 1 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ px: 1, pb: 1 }}>
             {notice}
           </Typography>
         )}
       </Box>
+      <ConfirmDialog
+        open={preview !== null}
+        title="Delete photos?"
+        body={preview === null ? undefined : previewText(preview.count, preview.bytes)}
+        confirmLabel="Delete"
+        onConfirm={() => void confirmCleanup()}
+        onCancel={() => setPreview(null)}
+      />
     </OverlayPanel>
   )
 }

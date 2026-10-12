@@ -1,4 +1,4 @@
-/** Panel of one selected photo: image, capture facts, name/note/link editor and delete with confirmation. */
+/** Panel of one selected photo: image, capture facts, name/note/link editor and delete (confirmed in a dialog). */
 import { useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -7,6 +7,7 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import Link from '@mui/material/Link'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
+import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { postPoi } from '../poi/api'
 import { POI_NAME_MAX, POI_NOTE_MAX, type Poi } from '../poi/types'
@@ -34,7 +35,7 @@ export interface PhotoPanelProps {
 }
 
 /**
- * Photo detail and editor. Save sends one `update` with name, note and linked POI ids; Delete first asks, then sends
+ * Photo detail and editor. Save sends one `update` with name, note and linked POI ids; Delete confirms in a dialog, then sends
  * `delete`. Remount (key by photo id) to reset the form for another photo.
  */
 export function PhotoPanel({ tabId, photo, pois, onClose, onDeleted, fetchImpl = fetch }: PhotoPanelProps) {
@@ -101,26 +102,21 @@ export function PhotoPanel({ tabId, photo, pois, onClose, onDeleted, fetchImpl =
         ))}
       </Box>
       <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-        <Button size="small" variant="contained" disabled={busy} onClick={save}>
+        <Button variant="contained" disabled={busy} onClick={save}>
           Save
         </Button>
-        {!confirming && (
-          <Button size="small" variant="outlined" color="error" disabled={busy} onClick={() => setConfirming(true)}>
-            Delete
-          </Button>
-        )}
+        <Button variant="outlined" color="error" disabled={busy} onClick={() => setConfirming(true)}>
+          Delete
+        </Button>
       </Box>
-      {confirming && (
-        <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          <Typography variant="body2">Delete this photo and its image?</Typography>
-          <Button size="small" variant="contained" color="error" disabled={busy} onClick={remove}>
-            Confirm delete
-          </Button>
-          <Button size="small" onClick={() => setConfirming(false)}>
-            Cancel
-          </Button>
-        </Box>
-      )}
+      <ConfirmDialog
+        open={confirming}
+        title="Delete photo?"
+        body="Delete this photo and its image?"
+        confirmLabel="Delete"
+        onConfirm={() => void remove()}
+        onCancel={() => setConfirming(false)}
+      />
       {message !== null && (
         <Typography variant="body2" color={message.ok ? 'text.secondary' : 'error'} role={message.ok ? undefined : 'alert'} sx={{ mt: 0.5 }}>
           {message.text}

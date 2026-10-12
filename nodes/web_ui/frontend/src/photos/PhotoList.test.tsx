@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { theme } from '../theme'
 import { PhotoList } from './PhotoList'
+import { designViolations, SOURCES } from '../layout/designRules'
 
 function photo(id: string, ts: number) {
   return {
@@ -126,7 +127,7 @@ describe('PhotoList', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview older than' }))
     expect(await screen.findByText('deletes 3 photos (2.5 MB)')).toBeTruthy()
     expect(f.posted).toEqual([{ op: 'delete_photos', selector: { older_than_s: 7 * 86400, dry_run: true } }])
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(f.posted).toHaveLength(2))
     expect(f.posted[1]).toEqual({ op: 'delete_photos', selector: { older_than_s: 7 * 86400 } })
     await waitFor(() => expect(screen.queryByText('deletes 3 photos (2.5 MB)')).toBeNull())
@@ -152,7 +153,14 @@ describe('PhotoList', () => {
     fireEvent.change(screen.getByLabelText('Keep newest'), { target: { value: '99' } })
     fireEvent.click(screen.getByRole('button', { name: 'Preview keep newest' }))
     expect(await screen.findByText('deletes 0 photos (0.0 MB)')).toBeTruthy()
-    expect(screen.queryByRole('button', { name: 'Confirm delete' })).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('uses the default button size and passes the design rules', async () => {
+    render(ui(makeFetch()))
+    await screen.findAllByTestId('photo-row')
+    expect(document.querySelector('.MuiButton-sizeSmall')).toBeNull()
+    expect(designViolations('photos/PhotoList.tsx', SOURCES['photos/PhotoList.tsx'])).toEqual([])
   })
 
   it('refetches when the /poi/photos revision changes', async () => {

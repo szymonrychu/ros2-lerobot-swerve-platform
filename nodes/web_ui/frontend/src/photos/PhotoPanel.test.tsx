@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { Photo } from './api'
 import { PhotoPanel } from './PhotoPanel'
 import type { Poi } from '../poi/types'
+import { designViolations, SOURCES } from '../layout/designRules'
 
 function photo(over: Partial<Photo> = {}): Photo {
   return {
@@ -134,8 +135,9 @@ describe('PhotoPanel', () => {
     render(ui(f, photo(), { onDeleted }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
     expect(f.posted).toHaveLength(0)
-    expect(screen.getByText(/Delete this photo/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.textContent).toMatch(/Delete this photo/)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(f.posted).toHaveLength(1))
     expect(f.posted[0]).toEqual({ op: 'delete', poi: { id: 'ph1' } })
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith('ph1'))
@@ -147,6 +149,16 @@ describe('PhotoPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(f.posted).toHaveLength(0)
-    expect(screen.getByRole('button', { name: 'Delete' })).toBeTruthy()
+  })
+
+  it('has no inline confirm row and uses the default button size', () => {
+    render(ui(makeFetch()))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(screen.queryByRole('button', { name: 'Confirm delete' })).toBeNull()
+    expect(document.querySelector('.MuiButton-sizeSmall')).toBeNull()
+  })
+
+  it('passes the design rules', () => {
+    expect(designViolations('photos/PhotoPanel.tsx', SOURCES['photos/PhotoPanel.tsx'])).toEqual([])
   })
 })

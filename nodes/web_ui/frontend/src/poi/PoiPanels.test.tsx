@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { theme } from '../theme'
 import { PoiEditorPanel, PoiListPanel } from './PoiPanels'
+import { designViolations, SOURCES } from '../layout/designRules'
+import { POI_NAME_MAX } from './types'
 import type { Poi } from './types'
 
 let viewportWidth = 1400
@@ -76,5 +78,61 @@ describe.each([
     fireEvent.pointerDown(screen.getByText('Door'))
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Collapse POI list' }))
     expect(parent).not.toHaveBeenCalled()
+  })
+})
+
+describe('POI panels declutter', () => {
+  beforeEach(() => {
+    viewportWidth = 1400
+  })
+
+  it('shows the status as text, with a state mark only for open', () => {
+    const done: Poi = { ...POI, id: 'p2', name: 'Shelf', status: 'done' }
+    const { container } = renderWithTheme(<PoiListPanel pois={[POI, done]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} />)
+    expect(container.querySelector('.MuiChip-root')).toBeNull()
+    expect(screen.getByText('open')).toBeTruthy()
+    expect(screen.getByText('done')).toBeTruthy()
+    expect(screen.getAllByTestId('poi-status-mark')).toHaveLength(1)
+  })
+
+  it('has no Collapse text and shows the count once', () => {
+    renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} />)
+    expect(screen.queryByText('Collapse')).toBeNull()
+    expect(screen.getAllByText(/Points of interest \(1\)/)).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse POI list' }))
+  })
+
+  it('collapse button in the header calls onToggle', () => {
+    const onToggle = vi.fn()
+    renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={onToggle} onFocus={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse POI list' }))
+    expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+
+  it('editor has no drag hint and shows the counter only within 10% of the limit', () => {
+    renderWithTheme(<PoiEditorPanel poi={POI} busy={false} onClose={vi.fn()} onSend={vi.fn()} />)
+    expect(screen.queryByText(/Drag the selected/)).toBeNull()
+    expect(screen.queryByText(new RegExp(`/${POI_NAME_MAX}$`))).toBeNull()
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'x'.repeat(Math.ceil(POI_NAME_MAX * 0.9)) } })
+    expect(screen.getByText(`${Math.ceil(POI_NAME_MAX * 0.9)}/${POI_NAME_MAX}`)).toBeTruthy()
+  })
+
+  it('delete confirms in the shared ConfirmDialog and sends only after confirming', () => {
+    const onSend = vi.fn(async () => ({ ok: true, message: 'ok' }))
+    renderWithTheme(<PoiEditorPanel poi={POI} busy={false} onClose={vi.fn()} onSend={onSend as never} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
+    expect(onSend).toHaveBeenCalledWith({ op: 'delete', poi: { id: 'p1' } }, 'POI deleted')
+  })
+
+  it('uses the default button size', () => {
+    renderWithTheme(<PoiEditorPanel poi={POI} busy={false} onClose={vi.fn()} onSend={vi.fn()} />)
+    expect(document.querySelector('.MuiButton-sizeSmall')).toBeNull()
+  })
+
+  it('passes the design rules', () => {
+    expect(designViolations('poi/PoiPanels.tsx', SOURCES['poi/PoiPanels.tsx'])).toEqual([])
   })
 })

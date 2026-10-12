@@ -2,12 +2,6 @@
 import { useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Chip from '@mui/material/Chip'
-import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogContentText from '@mui/material/DialogContentText'
-import DialogTitle from '@mui/material/DialogTitle'
 import List from '@mui/material/List'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
@@ -18,13 +12,28 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import IconButton from '@mui/material/IconButton'
+import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { MONO_FONT, TOUCH_TARGET_PX } from '../theme'
 import { zonePctError, zoneUpdateCommand } from './editor'
-import { formatUpdated, objectDetails, OBJECT_COLOR, sortPois, STATUS_COLORS } from './style'
+import { formatUpdated, objectDetails, sortPois } from './style'
 import { Poi, POI_NAME_MAX, POI_NOTE_MAX, POI_STATUSES, POI_ZONES, PoiCommand, PoiResult, PoiStatus, PoiZone, ZONE_PCT_MAX, ZONE_PCT_MIN } from './types'
 
+/** Fraction of a text limit from which the character counter is shown. */
+const COUNTER_FROM = 0.9
+
 const KIND_TITLES = { point: 'Point', area: 'Area', object: 'Object', photo: 'Photo' } as const
+
+/**
+ * Character counter text, shown only within 10% of the limit.
+ * @param length - current text length.
+ * @param max - the limit.
+ * @returns "length/max" near the limit, otherwise undefined.
+ */
+function counterText(length: number, max: number): string | undefined {
+  return length >= max * COUNTER_FROM ? `${length}/${max}` : undefined
+}
 
 /** Collapsible list of all POIs; a row click selects the POI and centres the view on it. */
 export function PoiListPanel({
@@ -56,7 +65,7 @@ export function PoiListPanel({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            px: 1.5,
+            px: 1,
             minHeight: TOUCH_TARGET_PX,
             cursor: 'pointer',
             color: 'text.primary',
@@ -71,18 +80,18 @@ export function PoiListPanel({
     )
   }
   return (
-    <OverlayPanel title={`Points of interest (${pois.length})`} open anchor="left" docked>
-      <Box data-testid="poi-list-panel">
-        <Box
-          component="button"
-          onClick={onToggle}
-          aria-expanded
-          aria-label="Collapse POI list"
-          sx={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: TOUCH_TARGET_PX, color: 'text.secondary' }}
-        >
+    <OverlayPanel
+      title={`Points of interest (${pois.length})`}
+      open
+      anchor="left"
+      docked
+      actions={
+        <IconButton aria-label="Collapse POI list" aria-expanded size="small" onClick={onToggle}>
           <ExpandLessIcon fontSize="small" />
-          <Typography variant="caption">Collapse</Typography>
-        </Box>
+        </IconButton>
+      }
+    >
+      <Box data-testid="poi-list-panel">
         <List dense disablePadding sx={{ maxHeight: { xs: '28dvh', sm: '40dvh' }, overflowY: 'auto' }}>
           {pois.length === 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ pb: 1 }}>
@@ -101,11 +110,14 @@ export function PoiListPanel({
                 primaryTypographyProps={{ noWrap: true }}
                 secondaryTypographyProps={{ noWrap: true }}
               />
-              <Chip
-                size="small"
-                label={p.status}
-                sx={{ ml: 1, bgcolor: p.kind === 'object' ? OBJECT_COLOR : STATUS_COLORS[p.status], color: '#0d1117', fontWeight: 700 }}
-              />
+              <Box sx={{ ml: 1, display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                {p.status === 'open' && (
+                  <Box data-testid="poi-status-mark" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'warning.main' }} />
+                )}
+                <Typography variant="caption" color="text.secondary">
+                  {p.status}
+                </Typography>
+              </Box>
             </ListItemButton>
           ))}
         </List>
@@ -174,14 +186,14 @@ export function PoiEditorPanel({
       onKeyDown={(e) => e.stopPropagation()}
       data-testid="poi-editor"
     >
-      <Stack spacing={1.5} sx={{ mt: 0.5 }}>
+      <Stack spacing={1} sx={{ mt: 0.5 }}>
         <TextField
           label="Name"
           size="small"
           value={name}
           onChange={(e) => setName(e.target.value)}
           error={name.length > POI_NAME_MAX}
-          helperText={`${name.length}/${POI_NAME_MAX}`}
+          helperText={counterText(name.length, POI_NAME_MAX)}
           slotProps={{ htmlInput: { maxLength: POI_NAME_MAX } }}
         />
         <TextField
@@ -193,7 +205,7 @@ export function PoiEditorPanel({
           value={note}
           onChange={(e) => setNote(e.target.value)}
           error={note.length > POI_NOTE_MAX}
-          helperText={`${note.length}/${POI_NOTE_MAX}`}
+          helperText={counterText(note.length, POI_NOTE_MAX)}
           slotProps={{ htmlInput: { maxLength: POI_NOTE_MAX } }}
         />
         <TextField select label="Status" size="small" value={status} onChange={(e) => setStatus(e.target.value as PoiStatus)}>
@@ -245,32 +257,23 @@ export function PoiEditorPanel({
             {objectDetails(poi, Date.now() / 1000)}
           </Typography>
         )}
-        <Typography variant="caption" color="text.secondary">
-          Drag the selected {poi.kind === 'area' ? 'area or its vertices' : poi.kind} on the map (top view) to move it.
-        </Typography>
         <Stack direction="row" spacing={1}>
-          <Button variant="contained" onClick={save} disabled={busy || !dirty || !valid} sx={{ flex: 1, minHeight: TOUCH_TARGET_PX }}>
+          <Button variant="contained" onClick={save} disabled={busy || !dirty || !valid} sx={{ flex: 1 }}>
             Save
           </Button>
-          <Button color="error" variant="outlined" onClick={() => setConfirmDelete(true)} disabled={busy} sx={{ minHeight: TOUCH_TARGET_PX }}>
+          <Button color="error" variant="outlined" onClick={() => setConfirmDelete(true)} disabled={busy}>
             Delete
           </Button>
         </Stack>
       </Stack>
-      <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>
-        <DialogTitle>Delete point of interest?</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            &quot;{poi.name || '(unnamed)'}&quot; will be removed for everyone, including the agent.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDelete(false)}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={remove}>
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Delete point of interest?"
+        body={`"${poi.name || '(unnamed)'}" will be removed for everyone, including the agent.`}
+        confirmLabel="Delete"
+        onConfirm={remove}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </Box>
     </OverlayPanel>
   )
