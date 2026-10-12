@@ -1438,16 +1438,17 @@ class RosRobot:
         """
         return self.poi.request(op, poi)
 
-    def poi_clear(self, created_by: str) -> dict[str, Any]:
+    def poi_clear(self, created_by: str, statuses: list[str] | None = None) -> dict[str, Any]:
         """Send a poi_store clear for one creator and wait for the /poi/result.
 
         Args:
             created_by (str): "agent" or "user".
+            statuses (list[str] | None): Only clear POIs in these statuses; None clears every status.
 
         Returns:
             dict[str, Any]: The accepted result; ``poi`` holds {"removed": count}.
         """
-        return self.poi.clear(created_by)
+        return self.poi.clear(created_by, statuses)
 
     def navigate(
         self, x: float, y: float, yaw: float, frame: str, timeout_s: float, precise: bool = False

@@ -248,6 +248,7 @@ class PerceptionFakeMixin:
         self.pois: list[dict] = []
         self.poi_commands: list[tuple[str, dict]] = []
         self.poi_clears: list[str] = []
+        self.poi_clear_statuses: list[list[str] | None] = []
         # poi_store's photo store (E11) in the default lookups dir (conftest points it at the test's tmp dir), every
         # photo command (op, payload) and an error to raise for photo commands (PoiTimeout, PoiStoreDown, ...).
         self.photo_store = FakePhotoStore(mcp_config.DEFAULT_LOOKUPS_DIR)
@@ -381,12 +382,17 @@ class PerceptionFakeMixin:
             raise RobotError("poi_store is not running (no /poi/list received)")
         return list(self.pois), len(self.poi_commands)
 
-    def poi_clear(self, created_by: str) -> dict:
+    def poi_clear(self, created_by: str, statuses: list[str] | None = None) -> dict:
         if not self.poi_store_up:
             raise PoiStoreDown("poi_store is not running (no subscriber on /poi/command)")
         self.poi_clears.append(created_by)
-        doomed = [p for p in self.pois if p.get("created_by") == created_by]
-        self.pois = [p for p in self.pois if p.get("created_by") != created_by]
+        self.poi_clear_statuses.append(statuses)
+
+        def doomed_poi(p: dict) -> bool:
+            return p.get("created_by") == created_by and (statuses is None or p.get("status") in statuses)
+
+        doomed = [p for p in self.pois if doomed_poi(p)]
+        self.pois = [p for p in self.pois if not doomed_poi(p)]
         return {"ok": True, "message": f"cleared {len(doomed)}", "poi": {"removed": len(doomed)}}
 
     def poi_request(self, op: str, poi: dict) -> dict:

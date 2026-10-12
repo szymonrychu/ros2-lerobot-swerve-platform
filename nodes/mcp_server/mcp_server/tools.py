@@ -15,7 +15,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
 from mcp.types import CallToolResult, ImageContent, TextContent
-from pydantic import Field
+from pydantic import Field, TypeAdapter
 from ros2_common.battery import BatteryGuard
 from ros2_metrics import render_latest
 from starlette.applications import Starlette
@@ -79,6 +79,7 @@ TIMING_RESULT_KEYS = (
 SERVER_NAME = "robot"
 TOKEN_CLIENT_ID = "robot-mcp-client"
 ADMIN_CLEAR_AGENT_POIS_PATH = "/admin/clear_agent_pois"
+CLEAR_STATUSES = TypeAdapter(list[Literal["open", "done", "cancelled"]])
 METRICS_PATH = "/metrics"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 ADMIN_POI_CREATOR = "agent"
@@ -1192,7 +1193,13 @@ def build_app(
             if scheme.lower() != "bearer" or await verifier.verify_token(presented.strip()) is None:
                 return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
             try:
-                result = await run_in_threadpool(robot.poi_clear, ADMIN_POI_CREATOR)
+                raw = await request.body()
+                statuses = CLEAR_STATUSES.validate_python(json.loads(raw)["statuses"]) if raw.strip() else None
+            except (ValueError, KeyError, TypeError) as exc:
+                message = f'body must be JSON {{"statuses": ["open"|"done"|"cancelled", ...]}}: {exc}'
+                return JSONResponse({"ok": False, "error": message}, status_code=400)
+            try:
+                result = await run_in_threadpool(robot.poi_clear, ADMIN_POI_CREATOR, statuses)
             except PoiStoreDown as exc:
                 return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
             except PoiTimeout as exc:

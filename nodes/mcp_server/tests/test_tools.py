@@ -25,7 +25,7 @@ from mcp_server.models import (
     SectorObstacle,
     StopResult,
 )
-from mcp_server.poi_client import PoiTimeout
+from mcp_server.poi_client import PoiRequests, PoiTimeout
 from mcp_server.tool_context import TILT_NAV_TOOLS
 from mcp_server.tools import (
     ALWAYS_ALLOWED_TOOLS,
@@ -519,6 +519,53 @@ def test_admin_clear_removes_agent_pois_and_returns_the_count(robot: FakeRobot) 
     assert robot.poi_clears == ["agent"] and [p["id"] for p in robot.pois] == ["b"]
 
 
+def test_admin_clear_forwards_a_status_filter(robot: FakeRobot) -> None:
+    robot.pois = [
+        {"id": "a", "created_by": "agent", "status": "done"},
+        {"id": "b", "created_by": "agent", "status": "open"},
+        {"id": "c", "created_by": "user", "status": "done"},
+    ]
+    with TestClient(admin_app(robot)) as client:
+        resp = client.post(ADMIN_PATH, headers={"Authorization": f"Bearer {TOKEN}"}, json={"statuses": ["done"]})
+    assert resp.status_code == 200 and resp.json() == {"ok": True, "removed": 1}
+    assert robot.poi_clear_statuses == [["done"]] and [p["id"] for p in robot.pois] == ["b", "c"]
+
+
+def test_admin_clear_without_a_body_sends_no_status_filter(robot: FakeRobot) -> None:
+    with TestClient(admin_app(robot)) as client:
+        resp = client.post(ADMIN_PATH, headers={"Authorization": f"Bearer {TOKEN}"})
+    assert resp.status_code == 200 and robot.poi_clear_statuses == [None]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"statuses": ["open", "bogus"]}, {"statuses": "done"}, {"statuses": [1]}, ["done"], {"statuses": None}],
+)
+def test_admin_clear_rejects_invalid_statuses_without_clearing(robot: FakeRobot, body: Any) -> None:
+    robot.pois = [{"id": "a", "created_by": "agent", "status": "open"}]
+    with TestClient(admin_app(robot)) as client:
+        resp = client.post(ADMIN_PATH, headers={"Authorization": f"Bearer {TOKEN}"}, json=body)
+    assert resp.status_code == 400 and resp.json()["ok"] is False and resp.json()["error"]
+    assert robot.poi_clears == [] and len(robot.pois) == 1
+
+
+def test_admin_clear_rejects_a_malformed_body(robot: FakeRobot) -> None:
+    with TestClient(admin_app(robot)) as client:
+        resp = client.post(ADMIN_PATH, headers={"Authorization": f"Bearer {TOKEN}"}, content=b"{nope")
+    assert resp.status_code == 400 and robot.poi_clears == []
+
+
+def test_poi_requests_clear_puts_statuses_on_the_command() -> None:
+    sent: list[dict] = []
+    reqs = PoiRequests(lambda payload: sent.append(json.loads(payload)), lambda: True, 0.05, lambda: "r1")
+    for statuses, expected in ((["done", "cancelled"], ["done", "cancelled"]), (None, None)):
+        sent.clear()
+        with pytest.raises(PoiTimeout):
+            reqs.clear("agent", statuses)
+        assert sent[0]["op"] == "clear" and sent[0]["created_by"] == "agent"
+        assert sent[0].get("statuses") == expected
+
+
 def test_admin_clear_is_503_when_poi_store_is_down(robot: FakeRobot) -> None:
     robot.poi_store_up = False
     with TestClient(admin_app(robot)) as client:
@@ -529,9 +576,9 @@ def test_admin_clear_is_503_when_poi_store_is_down(robot: FakeRobot) -> None:
 def test_admin_clear_is_504_on_timeout_and_502_on_rejection(robot: FakeRobot, monkeypatch: pytest.MonkeyPatch) -> None:
     headers = {"Authorization": f"Bearer {TOKEN}"}
     with TestClient(admin_app(robot)) as client:
-        monkeypatch.setattr(robot, "poi_clear", lambda _c: (_ for _ in ()).throw(PoiTimeout("no answer")))
+        monkeypatch.setattr(robot, "poi_clear", lambda *_a: (_ for _ in ()).throw(PoiTimeout("no answer")))
         assert client.post(ADMIN_PATH, headers=headers).status_code == 504
-        monkeypatch.setattr(robot, "poi_clear", lambda _c: (_ for _ in ()).throw(RobotError("poi_store rejected")))
+        monkeypatch.setattr(robot, "poi_clear", lambda *_a: (_ for _ in ()).throw(RobotError("poi_store rejected")))
         assert client.post(ADMIN_PATH, headers=headers).status_code == 502
 
 

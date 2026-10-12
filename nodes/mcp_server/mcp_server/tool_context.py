@@ -172,8 +172,8 @@ class RobotApi(Protocol):
         """Send a /poi/command and wait for its /poi/result; RobotError when poi_store is down, slow or rejects."""
         ...
 
-    def poi_clear(self, created_by: str) -> dict[str, Any]:
-        """Clear every POI of one creator; the result's ``poi`` is {"removed": count}. RobotError as poi_request."""
+    def poi_clear(self, created_by: str, statuses: list[str] | None = None) -> dict[str, Any]:
+        """Clear the POIs of one creator (only the given statuses when set); the result's ``poi`` is {"removed": count}. RobotError as poi_request."""
         ...
 
 

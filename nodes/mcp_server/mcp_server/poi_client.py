@@ -116,16 +116,20 @@ class PoiRequests:
         """
         return self.send(op, {"selector" if op == DELETE_PHOTOS_OP else "poi": poi})
 
-    def clear(self, created_by: str) -> dict[str, Any]:
-        """Delete every POI made by one creator and wait for the result.
+    def clear(self, created_by: str, statuses: list[str] | None = None) -> dict[str, Any]:
+        """Delete the POIs made by one creator (optionally only some statuses) and wait for the result.
 
         Args:
             created_by (str): "agent" or "user".
+            statuses (list[str] | None): Only delete POIs in these statuses; None deletes every status.
 
         Returns:
             dict[str, Any]: The accepted result; ``poi`` holds {"removed": count}.
         """
-        return self.send("clear", {"created_by": created_by})
+        fields: dict[str, Any] = {"created_by": created_by}
+        if statuses is not None:
+            fields["statuses"] = statuses
+        return self.send("clear", fields)
 
 
 def parse_poi_list(payload: str) -> tuple[list[dict[str, Any]], int]:
