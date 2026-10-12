@@ -49,7 +49,7 @@ import { baseMarkerLabel, basePlacement } from '../gps/basePlacement'
 import { BaseGpsPayload, GPS_BASE_STATUS_KEY, isBaseSample } from '../gps/gpsStatus'
 import { anchorSummary, validAnchor } from '../map3d/geo'
 import { goalButtonState } from '../map/goalControl'
-import { splitToolbar, TOOLBAR_GROUPS } from '../map/toolbarGroups'
+import { anyInRow, splitToolbar, TOOLBAR_GROUPS } from '../map/toolbarGroups'
 import { useLayout } from '../layout/useLayout'
 import { tiltStatus } from '../tilt/tiltStatus'
 import type { TiltStatus } from '../tilt/tiltStatus'
@@ -660,6 +660,7 @@ export default function MapNavTab({
               )}
             </ButtonGroup>
           )}
+          {anyInRow(overflow, ['cameraView', 'layers']) && (
           <Stack direction="row" role="group" aria-label="Map view" sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
             {inRow('cameraView') && (
               <>
@@ -692,6 +693,7 @@ export default function MapNavTab({
             </Tooltip>
             )}
           </Stack>
+          )}
           {inRow('mapFile') && (
           <ButtonGroup variant="outlined" aria-label="Map file">
             <Button startIcon={<SaveIcon />} disabled={busy} onClick={() => void runAction('/api/map/save', 'Saving map...')}>

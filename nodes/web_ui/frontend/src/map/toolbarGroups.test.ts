@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ALWAYS_VISIBLE_GROUPS, TOOLBAR_GROUPS, splitToolbar } from './toolbarGroups'
+import { ALWAYS_VISIBLE_GROUPS, TOOLBAR_GROUPS, anyInRow, splitToolbar } from './toolbarGroups'
 import type { LayoutClass } from '../layout/useLayout'
 
 const ids = (gs: readonly { id: string }[]) => gs.map((g) => g.id)
@@ -27,5 +27,17 @@ describe('splitToolbar', () => {
     const { visible, overflow } = splitToolbar(TOOLBAR_GROUPS, 'phone')
     expect([...visible, ...overflow].length).toBe(TOOLBAR_GROUPS.length)
     expect(ids(visible)).toEqual(ids(TOOLBAR_GROUPS.filter((g) => g.priority === 'high')))
+  })
+})
+
+describe('anyInRow', () => {
+  it('is false on phone for the map view group (both children are in the menu)', () => {
+    const { overflow } = splitToolbar(TOOLBAR_GROUPS, 'phone')
+    expect(anyInRow(overflow, ['cameraView', 'layers'])).toBe(false)
+  })
+
+  it.each<LayoutClass>(['tablet', 'desktop'])('is true on %s', (layout) => {
+    const { overflow } = splitToolbar(TOOLBAR_GROUPS, layout)
+    expect(anyInRow(overflow, ['cameraView', 'layers'])).toBe(true)
   })
 })

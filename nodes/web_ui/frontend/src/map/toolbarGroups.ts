@@ -42,3 +42,14 @@ export function splitToolbar<G extends ToolbarGroup>(
   const toOverflow = (g: G) => g.priority === 'low' && !ALWAYS_VISIBLE_GROUPS.includes(g.id)
   return { visible: groups.filter((g) => !toOverflow(g)), overflow: groups.filter(toOverflow) }
 }
+
+/**
+ * Whether any of the given groups is rendered in the row (not in the overflow menu).
+ *
+ * @param overflow - groups moved to the 'more' menu.
+ * @param ids - group ids to check.
+ * @returns true when at least one id is not in overflow.
+ */
+export function anyInRow(overflow: readonly ToolbarGroup[], ids: readonly string[]): boolean {
+  return ids.some((id) => !overflow.some((g) => g.id === id))
+}
