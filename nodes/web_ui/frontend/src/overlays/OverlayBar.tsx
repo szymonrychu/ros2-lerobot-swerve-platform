@@ -1,9 +1,7 @@
 import { useState } from 'react'
 import Box from '@mui/material/Box'
-import Chip from '@mui/material/Chip'
 import IconButton from '@mui/material/IconButton'
 import Stack from '@mui/material/Stack'
-import Typography from '@mui/material/Typography'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { OverlayItem } from '../types'
@@ -11,7 +9,7 @@ import { extractField } from '../utils/fieldExtract'
 import { RobotIcon } from '../components/RobotIcon'
 import { BaseJointMessage } from '../map3d/baseJoints'
 import { useLayout } from '../layout/useLayout'
-import { MONO_FONT } from '../theme'
+import { StatusItem } from '../components/StatusItem'
 
 interface Props {
   overlays: OverlayItem[]
@@ -39,7 +37,7 @@ export function OverlayBar({ overlays, topicData, jointStatesTopic, connected }:
         display: 'flex',
         alignItems: 'center',
         gap: 1,
-        px: { xs: 1, sm: 1.5 },
+        px: { xs: 1, sm: 2 },
         py: 0.5,
         bgcolor: 'background.paper',
         borderTop: 1,
@@ -60,32 +58,12 @@ export function OverlayBar({ overlays, topicData, jointStatesTopic, connected }:
                 ? item.format
                   ? value.toFixed(parseInt(item.format.replace('.', '').replace('f', '')))
                   : String(value)
-                : '—'
-            return (
-              <Box key={`${item.topic}:${item.field}`} sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
-                <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-                  {item.label}
-                </Typography>
-                <Typography variant="body2" sx={{ fontFamily: MONO_FONT, fontWeight: 700 }}>
-                  {formatted}
-                </Typography>
-                {item.unit && (
-                  <Typography variant="caption" color="text.secondary">
-                    {item.unit}
-                  </Typography>
-                )}
-              </Box>
-            )
+                : '--'
+            return <StatusItem key={`${item.topic}:${item.field}`} label={item.label} value={formatted} unit={item.unit} />
           })}
         <RobotIcon joints={jointStatesTopic ? (topicData[jointStatesTopic] as BaseJointMessage | undefined) : undefined} />
       </Stack>
-      <Chip
-        size="small"
-        variant="outlined"
-        color={connected ? 'success' : 'default'}
-        label={connected ? '● live' : '○ connecting…'}
-        sx={{ flexShrink: 0 }}
-      />
+      <StatusItem label="" value={connected ? 'Live' : 'Connecting'} />
       {narrow && overlays.length > 0 && (
         <IconButton
           size="small"

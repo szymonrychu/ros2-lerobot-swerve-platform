@@ -35,30 +35,30 @@ const SILENT: RoverGpsPayload = {
 }
 
 describe('GpsChip', () => {
-  it('renders no fix with satellites and the not-fixed icon', () => {
+  it('renders no fix with satellites and an error mark', () => {
     const html = renderToStaticMarkup(<GpsChip status={roverGpsStatus(NO_FIX, CFG, NOW, NOW)} role="robot" />)
     expect(html).toContain('Robot: No fix - 7 sats')
-    expect(html).toContain('data-testid="GpsNotFixedIcon"')
-    expect(html).toContain('MuiChip-colorError')
+    expect(html).not.toContain('<svg')
+    expect(html).toContain('data-testid="status-mark"')
   })
 
-  it('renders receiver silent with the GPS-off icon', () => {
+  it('renders receiver silent with an error mark', () => {
     const html = renderToStaticMarkup(<GpsChip status={roverGpsStatus(SILENT, CFG, NOW, NOW)} role="robot" />)
     expect(html).toContain('Robot: receiver silent')
-    expect(html).toContain('data-testid="GpsOffIcon"')
-    expect(html).toContain('MuiChip-colorError')
+    expect(html).not.toContain('<svg')
+    expect(html).toContain('data-testid="status-mark"')
   })
 
   it('renders no data distinctly from silent', () => {
     const html = renderToStaticMarkup(<GpsChip status={roverGpsStatus(undefined, CFG, NOW, null)} role="robot" />)
     expect(html).toContain('Robot: no data')
-    expect(html).toContain('MuiChip-colorDefault')
+    expect(html).not.toContain('data-testid="status-mark"')
   })
 
   it('renders a reachable base without a status yet', () => {
     const status = baseGpsStatus({ reachable: true, has_status: false, reason: 'no status yet' }, NO_FIX, CFG, NOW, NOW, NOW)
     const html = renderToStaticMarkup(<GpsChip status={status} role="base" />)
     expect(html).toContain('Base: no status yet')
-    expect(html).toContain('data-testid="CellTowerIcon"')
+    expect(html).not.toContain('<svg')
   })
 })

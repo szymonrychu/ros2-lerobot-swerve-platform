@@ -1,12 +1,12 @@
 /** Job header chip: the time budget the agent declared in set_task_plan and the time left of it, ticking each second. */
 import { useEffect, useState } from 'react'
-import Chip from '@mui/material/Chip'
+import { StatusItem, type StatusState } from '../components/StatusItem'
 import { timeBudget, timeBudgetLabel } from './agentModel'
 import type { ChatState } from './agentModel'
 
 /** Refresh period of the time left while the job runs. */
 const TICK_MS = 1000
-/** Seconds left below which the chip turns amber. */
+/** Seconds left below which the reading is marked as a warning. */
 const LOW_LEFT_S = 120
 
 /**
@@ -36,6 +36,10 @@ export function TimeBudgetChip({ state }: { state: ChatState }) {
   const nowMs = useNowMs(state.busy)
   const budget = timeBudget(state, nowMs)
   if (budget === null) return null
-  const color = budget.leftS <= 0 ? 'error' : budget.leftS < LOW_LEFT_S ? 'warning' : 'default'
-  return <Chip size="small" variant="outlined" color={color} label={timeBudgetLabel(budget)} data-testid="time-budget" />
+  const level: StatusState = budget.leftS <= 0 ? 'error' : budget.leftS < LOW_LEFT_S ? 'warn' : 'ok'
+  return (
+    <span data-testid="time-budget">
+      <StatusItem label="" value={timeBudgetLabel(budget)} state={level} />
+    </span>
+  )
 }
