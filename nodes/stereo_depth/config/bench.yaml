@@ -1,0 +1,10 @@
+# python3 -m stereo_depth.bench settings (env STEREO_BENCH_CONFIG replaces this path). Every combination is timed.
+sizes:
+  - [480, 360]   # deployed size
+  - [640, 480]
+num_disparities: [32, 48, 64]   # multiples of 16; 48 is deployed
+matchers: [bm, sgbm_3way, sgbm]   # StereoBM, StereoSGBM MODE_SGBM_3WAY (deployed), StereoSGBM MODE_SGBM
+threads: [1, 2]
+block_size: 5
+runs: 10
+target_fps: 5.0

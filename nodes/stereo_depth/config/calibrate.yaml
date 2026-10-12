@@ -1,0 +1,29 @@
+# python3 -m stereo_depth.calibrate settings (env STEREO_CALIBRATE_CONFIG replaces this path).
+# Run capture first (with overview_camera running), then solve. See README "Calibration".
+
+# capture: save synced pairs that show the board; solve: calibrate from the saved pairs and write the files.
+mode: capture
+
+# chessboard (inner corners detected) or charuco. Count squares, not corners; measure the printed square edge.
+board: chessboard
+squares_x: 9
+squares_y: 6
+square_size_m: 0.025
+# ChArUco only: marker edge (below the square edge) and the cv2.aruco predefined dictionary.
+marker_size_m: 0.018
+dictionary: DICT_4X4_50
+
+# Capture: this many pairs, at least this far apart (move and tilt the board in between).
+capture_count: 30
+capture_interval_s: 1.0
+image_dir: /var/lib/ros2/camera_calibration/captures
+
+# Solve: needs min_pairs pairs with the board in both images; refuses to write above rms_limit_px.
+min_pairs: 10
+rms_limit_px: 0.5
+output_dir: /var/lib/ros2/camera_calibration
+
+# Capture input (the left camera keeps the overview topics).
+left_image_topic: /overview_camera/image_raw
+right_image_topic: /stereo/right/image_raw
+sync_slop_s: 0.002

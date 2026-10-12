@@ -81,6 +81,58 @@ state that survives redeploys:
 `write_stereo_calibration(dir, calibration)` writes all three files atomically (temp file plus rename).
 `stereo_calibration_from_opencv(...)` builds the model from `cv2.stereoCalibrate` / `cv2.stereoRectify` outputs.
 
+## Calibration procedure
+
+`python3 -m stereo_depth.calibrate` (`stereo_depth/calibrate.py`) captures board pairs and writes the three files
+above. Config: `STEREO_CALIBRATE_CONFIG`, default `config/calibrate.yaml` (keys: `mode` capture or solve, `board`
+chessboard or charuco, `squares_x`, `squares_y`, `square_size_m`, `marker_size_m`, `dictionary`, `capture_count`,
+`capture_interval_s`, `image_dir`, `output_dir`, `min_pairs`, `rms_limit_px`, the two image topics and
+`sync_slop_s`).
+
+1. Mount both cameras rigidly (the calibration is only valid for this mount; the IMX219 fixed lenses do not drift).
+2. Print the board flat and stiff (default: chessboard 9x6 squares, 25 mm). Measure the printed square edge and set
+   `square_size_m`. For a ChArUco board also set `marker_size_m` and `dictionary`; at 480x360 its markers must be at
+   least about 15 px in the image (for example 7x5 squares of 35 mm with 26 mm markers at 0.6 m).
+3. Capture with `overview_camera` running (the tool subscribes to `/overview_camera/image_raw` and
+   `/stereo/right/image_raw`). On the client:
+
+   ```bash
+   source /opt/ros/jazzy/setup.bash
+   source /opt/ros2-nodes/stereo_depth/venv/bin/activate
+   cd /opt/ros2-lerobot-swerve-platform/nodes/stereo_depth
+   cp config/calibrate.yaml /tmp/calibrate.yaml          # edit board, mode: capture
+   STEREO_CALIBRATE_CONFIG=/tmp/calibrate.yaml python3 -m stereo_depth.calibrate
+   ```
+
+   A pair is saved (`image_dir/pair_NNNN_left.png` / `_right.png`) only when the board is found in both images and
+   at most once per `capture_interval_s`. Move and tilt the board between saves: near and far, all image corners,
+   tilts up to about 30 degrees, always fully inside both images.
+4. Solve: set `mode: solve` and run the same command. It runs `cv2.calibrateCamera` per camera,
+   `cv2.stereoCalibrate` with `CALIB_FIX_INTRINSIC` and `cv2.stereoRectify` (alpha 0, zero disparity), and prints the
+   stereo RMS, baseline and focal length.
+5. Check the RMS. Above `rms_limit_px` (default 0.5 px) nothing is written and the tool exits 1: recapture with a
+   flatter, sharper board covering more of the image. Fewer than `min_pairs` usable pairs also exits 1.
+6. No restart is needed for this node: it re-checks the files every `calibration_check_s` and loads the new
+   calibration. `overview_camera` reads `stereo_left.yaml` / `stereo_right.yaml` for its `camera_info_url` only at
+   launch, so restart it (`sudo systemctl restart ros2-overview_camera`) to publish the calibrated camera_info.
+
+The written files pass both readers: this node's `load_stereo_calibration` and the overview_camera launch gate (a
+12-element `P` with non-zero focal terms).
+
+## Benchmark
+
+`python3 -m stereo_depth.bench` (`stereo_depth/bench.py`) times a grid of sizes, `num_disparities`, matchers (`bm`
+StereoBM, `sgbm_3way`, `sgbm`) and thread counts on a synthetic textured pair, and prints the median wall time per
+pair and the cores used at `target_fps` (process CPU time per pair times the rate). Config: `STEREO_BENCH_CONFIG`,
+default `config/bench.yaml` (`sizes`, `num_disparities`, `matchers`, `threads`, `block_size`, `runs`,
+`target_fps`). Run it on the client with the same two `source` lines and `cd` as above:
+
+```bash
+python3 -m stereo_depth.bench
+```
+
+Record the client table in this README (CPU estimate) once it has run on the Pi.
+
 ## Config
 
 The config is the YAML file named by `STEREO_DEPTH_CONFIG` (default `/etc/ros2/stereo_depth/config.yaml`). It is the
@@ -146,6 +198,10 @@ times were scaled x5 to the Pi 5 Cortex-A76, and the on-device benchmark replace
 - `stereo_depth/messages.py` - `image_to_grey()`, `depth_image_msg()`, `camera_info_msg()`, `disparity_msg()` and
   `stamp_ns()`. It needs no rclpy.
 - `stereo_depth/node.py` - `StereoDepthNode` (sync, gates, rate cap, publish) and `run()`.
+- `stereo_depth/calibrate.py` - the calibration tool: `CalibrateConfig`, board detection (`board_points()`),
+  `solve()`, `write_calibration()` (RMS gate), pair files and `CaptureNode`.
+- `stereo_depth/bench.py` - the matcher benchmark: `BenchConfig`, `run_bench()` and `format_table()`.
+- `config/calibrate.yaml`, `config/bench.yaml` - the tool defaults.
 - `stereo_depth/__main__.py` - the entry point, `python3 -m stereo_depth`.
 
 ## Dependencies
@@ -191,6 +247,16 @@ needed. It also builds the synthetic pairs: a random texture, and the same textu
   - the skew gate, size mismatches, bad encodings and all-invalid pairs;
   - the rate cap (jitter and a long run), the optional disparity and the matcher threads;
   - `run()` and `main()`.
+- `tests/test_calibrate.py` (boards rendered with known K, zero distortion, R and a 60 mm T):
+  - the repo config, env path and config rejections (unknown key, missing file, marker size, dictionary, squares);
+  - chessboard object points, board detection in both images (chessboard and ChArUco) and no board;
+  - the solve recovering the baseline within 1% with RMS under 0.5 px (chessboard and ChArUco), and too few pairs;
+  - the written files loading in `load_stereo_calibration` and passing the overview_camera launch gate;
+  - the RMS gate refusing to write;
+  - saving and loading pairs (a half pair is skipped), `run_solve()` with and without pairs;
+  - the capture node: topics and slop, the interval, board and count gates, undecodable images.
+- `tests/test_bench.py` - the repo grid, env path, config rejections, the shifted synthetic pair, each matcher kind,
+  one timed cell, the table shape and `main()`.
 
 ## Deploy
 
