@@ -338,6 +338,15 @@ The config flag `agent_poi_reset` (`keep_open` default, or `clear_all`) decides 
 `{"statuses": ["done", "cancelled"]}` so only finished or cancelled agent POIs are removed and open ones (and their map markers)
 survive the new session; `clear_all` sends no body and removes every agent POI, as before.
 
+### complete_phase map hint
+
+`agent.complete_phase` scans its `summary` for map coordinates written after the word "map" (regex
+`\(\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*\)`, e.g. `map (2.56,-0.79)`). When at least one is found it reads the POIs through the
+runner's robot tool caller (`list_pois`, 5 s bound). For each coordinate with no POI within `poi_hint_radius_m` (config field,
+default 0.5 m) the tool result gets a trailing `Not on the map yet: (x, y) ... Mark each now: call remember_object / add_poi.`
+A summary with a POI nearby or without coordinates gives the unchanged result. A failing, timed-out or malformed `list_pois`
+never breaks `complete_phase` and adds no hint.
+
 A background `SingleThreadedExecutor` thread runs the callback, which hands the raw text to the asyncio loop with
 `loop.call_soon_threadsafe` (`AgentRunner.post_robot_event`); invalid payloads are dropped.
 
@@ -499,6 +508,7 @@ unknown keys are rejected.
 | `job_end_park_timeout_s` | `60` | Bound of each robot call of the forced park (`cancel_motions`, `release_control`, the keep_position fallback) |
 | `effector_tools` / `uncapped_tools` / `sensor_tools` / `denied_tools` | see above | Short tool names (no `mcp__robot__`) |
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |
+| `poi_hint_radius_m` | `0.5` | complete_phase adds "Not on the map yet" for `map (x, y)` in the summary with no POI within this many m |
 | `mcp_token_file` | `/etc/ros2/mcp_server/token` | `MCP_SERVER_TOKEN=<token>` (or the bare token), read per session |
 | `http_host` / `http_port` | `127.0.0.1` / `18300` | API bind |
 | `history_size` | `500` | Events kept in RAM (older ones are read from the session log) |

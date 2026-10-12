@@ -2,6 +2,9 @@
 ``revise_plan`` / ``raise_phase_budget`` / ``answer_condition``: their schemas, descriptions and result texts, bound to
 a ``PlanTracker``."""
 
+import math
+import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
@@ -19,7 +22,12 @@ from .plan_tree import (
     OUTCOMES,
     PlanError,
 )
+from .robot_stop import RobotToolResult
 
+RobotToolCaller = Callable[[str, dict[str, Any], float], Awaitable[RobotToolResult]]
+LIST_POIS_TOOL = "list_pois"
+LIST_POIS_TIMEOUT_S = 5.0
+MAP_COORDINATES = re.compile(r"\bmap\b[^()\n]{0,20}?\(\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\)", re.IGNORECASE)
 PLAN_SERVER_NAME = "agent"
 SET_PLAN_TOOL = "set_task_plan"
 COMPLETE_PHASE_TOOL = "complete_phase"
@@ -402,11 +410,80 @@ def format_answered(
     return " ".join(parts)
 
 
-def build_plan_tools(tracker: PlanTracker) -> list[SdkMcpTool[Any]]:
+def map_coordinates(summary: Any) -> list[tuple[float, float]]:
+    """Map coordinates written as ``map (x, y)`` in a phase summary.
+
+    Args:
+        summary (Any): The summary text (anything else gives no coordinates).
+
+    Returns:
+        list[tuple[float, float]]: The (x, y) pairs in order of appearance, duplicates removed.
+    """
+    if not isinstance(summary, str):
+        return []
+    found = [(float(x), float(y)) for x, y in MAP_COORDINATES.findall(summary)]
+    return list(dict.fromkeys(found))
+
+
+def poi_positions(data: dict[str, Any] | None) -> list[tuple[float, float]] | None:
+    """The (x, y) of every POI in a list_pois result.
+
+    Args:
+        data (dict[str, Any] | None): The structured list_pois result.
+
+    Returns:
+        list[tuple[float, float]] | None: Positions (POIs without x and y are skipped), None when the data is no POI list.
+    """
+    pois = data.get("pois") if isinstance(data, dict) else None
+    if not isinstance(pois, list):
+        return None
+    positions: list[tuple[float, float]] = []
+    for view in pois:
+        poi = view.get("poi") if isinstance(view, dict) else None
+        if isinstance(poi, dict) and isinstance(poi.get("x"), (int, float)) and isinstance(poi.get("y"), (int, float)):
+            positions.append((float(poi["x"]), float(poi["y"])))
+    return positions
+
+
+async def poi_hint(summary: Any, robot_tool_caller: RobotToolCaller | None, radius_m: float) -> str:
+    """Text asking the agent to mark the summary's map coordinates that have no POI within the radius.
+
+    Args:
+        summary (Any): The phase summary.
+        robot_tool_caller (RobotToolCaller | None): Calls a robot tool (name, arguments, timeout in s); None disables the hint.
+        radius_m (float): A coordinate with a POI closer than this is already on the map.
+
+    Returns:
+        str: The hint, or "" when there are no coordinates, all have a POI, or list_pois failed (never raises).
+    """
+    coordinates = map_coordinates(summary)
+    if not coordinates or robot_tool_caller is None:
+        return ""
+    try:
+        result = await robot_tool_caller(LIST_POIS_TOOL, {}, LIST_POIS_TIMEOUT_S)
+    except Exception:  # noqa: BLE001 - the hint is optional; complete_phase must not break
+        return ""
+    positions = None if result.is_error else poi_positions(result.data)
+    if positions is None:
+        return ""
+    missing = [
+        (x, y) for x, y in coordinates if not any(math.hypot(x - px, y - py) <= radius_m for px, py in positions)
+    ]
+    if not missing:
+        return ""
+    listed = ", ".join(f"({x:g}, {y:g})" for x, y in missing)
+    return (
+        f"Not on the map yet: {listed} (no POI within {radius_m:g} m). Mark each now: call remember_object / add_poi."
+    )
+
+
+def build_plan_tools(tracker: PlanTracker, robot_tool_caller: RobotToolCaller | None = None) -> list[SdkMcpTool[Any]]:
     """Build the five planning tools bound to a tracker.
 
     Args:
         tracker (PlanTracker): Receives the plan, completions, answers, revision and raises.
+        robot_tool_caller (RobotToolCaller | None): Calls one robot MCP tool (name, arguments, timeout in s); complete_phase
+            reads list_pois through it for the "Not on the map yet" hint (None: no hint).
 
     Returns:
         list[SdkMcpTool[Any]]: The tool list for the SDK MCP server.
@@ -445,9 +522,9 @@ def build_plan_tools(tracker: PlanTracker) -> list[SdkMcpTool[Any]]:
             )
         except PlanError as exc:
             return text_result(f"Phase not completed: {exc}", True)
-        return text_result(
-            format_completed(closed, following, tracker.transition_notes, tracker.pending_condition, tracker.retried)
-        )
+        text = format_completed(closed, following, tracker.transition_notes, tracker.pending_condition, tracker.retried)
+        hint = await poi_hint(args.get("summary"), robot_tool_caller, tracker.config.poi_hint_radius_m)
+        return text_result(f"{text} {hint}" if hint else text)
 
     @tool(REVISE_PLAN_TOOL, REVISE_PLAN_DESCRIPTION, revise_plan_schema(max_iterations))
     async def revise_plan(args: dict[str, Any]) -> dict[str, Any]:
@@ -482,13 +559,14 @@ def build_plan_tools(tracker: PlanTracker) -> list[SdkMcpTool[Any]]:
     return [set_task_plan, complete_phase, revise_plan, raise_phase_budget, answer_condition]
 
 
-def build_plan_server(tracker: PlanTracker) -> McpSdkServerConfig:
+def build_plan_server(tracker: PlanTracker, robot_tool_caller: RobotToolCaller | None = None) -> McpSdkServerConfig:
     """Build the in-process SDK MCP server named ``agent``.
 
     Args:
         tracker (PlanTracker): Receives the plan set by the agent.
+        robot_tool_caller (RobotToolCaller | None): Robot tool caller for the complete_phase POI hint.
 
     Returns:
         McpSdkServerConfig: Server config for ``ClaudeAgentOptions.mcp_servers["agent"]``.
     """
-    return create_sdk_mcp_server(PLAN_SERVER_NAME, tools=build_plan_tools(tracker))
+    return create_sdk_mcp_server(PLAN_SERVER_NAME, tools=build_plan_tools(tracker, robot_tool_caller))

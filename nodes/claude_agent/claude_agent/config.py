@@ -162,6 +162,8 @@ class ClaudeAgentConfig(BaseModel):
         min_effector_time_left_s: The permission gate denies an effector call (except stop/cancel/release-type safety tools and
             an opening set_gripper) when less instruction time than this is left, so the watchdog never cuts a motion in half.
         connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
+        poi_hint_radius_m: complete_phase hints "Not on the map yet" for each ``map (x, y)`` in the summary with no POI
+            within this distance (m).
         stop_timeout_s: Bound for the robot ``stop`` call and for the model interrupt, each.
         shutdown_stop_timeout_s: Shorter bound for the robot ``stop`` call at service shutdown (mcp_server may be gone).
         shutdown_client_timeout_s: Bound at service shutdown for each of: the model interrupt, the session disconnect,

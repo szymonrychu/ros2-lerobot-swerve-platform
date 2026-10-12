@@ -57,7 +57,7 @@ from .metrics import (
     USAGE_TOKEN_KINDS,
     WATCHDOG_FIRES,
 )
-from .plan_tools import PLAN_SERVER_NAME, build_plan_server
+from .plan_tools import PLAN_SERVER_NAME, RobotToolCaller, build_plan_server
 from .plan_tree import STATUS_PENDING, reachable_phases
 from .poi_clear import PoiClearResult, call_clear_agent_pois
 from .prompt import build_system_prompt
@@ -204,6 +204,7 @@ def build_options(
     env: dict[str, str],
     system_prompt: str,
     post_tool_use: HookCallback | None = None,
+    robot_tool_caller: RobotToolCaller | None = None,
 ) -> ClaudeAgentOptions:
     """Build the SDK options: the robot MCP tools, the in-process planning server and the five notes file tools, permissions decided by the gate.
 
@@ -214,6 +215,7 @@ def build_options(
         env (dict[str, str]): Child environment from build_child_env.
         system_prompt (str): System prompt text.
         post_tool_use (HookCallback | None): PostToolUse hook whose context is appended to every tool result.
+        robot_tool_caller (RobotToolCaller | None): Robot tool caller complete_phase reads list_pois through for its POI hint.
 
     Returns:
         ClaudeAgentOptions: Options whose built-in tools are exactly Read/Write/Edit/Glob/Grep (the gate confines them to
@@ -241,7 +243,7 @@ def build_options(
         setting_sources=[],
         mcp_servers={
             MCP_SERVER_NAME: {"type": "http", "url": config.mcp_url, "headers": {"Authorization": f"Bearer {token}"}},
-            PLAN_SERVER_NAME: build_plan_server(gate.plan),
+            PLAN_SERVER_NAME: build_plan_server(gate.plan, robot_tool_caller),
         },
         strict_mcp_config=True,
         env=env,
@@ -791,6 +793,7 @@ class AgentRunner:
                 build_child_env(self.base_env, self.config),
                 build_system_prompt(self.config),
                 self.add_time_left,
+                self.call_robot_tool_safely,
             )
             client = self.client_factory(options)
             try:
