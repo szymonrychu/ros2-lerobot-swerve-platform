@@ -70,7 +70,7 @@ export function OverlayPanel({ title, open, anchor, onClose, docked = false, act
         </Typography>
         {actions}
         {onClose && (
-          <IconButton aria-label="Close" size="small" onClick={onClose} style={TOUCH_STYLE}>
+          <IconButton aria-label="Close" size="small" onClick={onClose} style={coarse ? TOUCH_STYLE : undefined}>
             <CloseIcon fontSize="small" />
           </IconButton>
         )}
