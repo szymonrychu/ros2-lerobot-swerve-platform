@@ -231,3 +231,85 @@ def test_get_body_state_is_a_sensor_tool_never_refused_in_cutoff(robot: FakeRobo
     guard.update(8.0)
     server = build_mcp_server(robot, McpServerConfig(), TOKEN, guard)
     assert call(server, "get_body_state", {}).structured_content["battery"]["cutoff"] is True
+
+
+# --- poi_hint nudge: camera and look_around results after N images without a POI write ---
+
+HINT_KEY = "poi_hint"
+CAMERA = ("get_camera_image", {"camera": "gripper"})
+
+
+def hint_of(res: Any) -> str | None:
+    """poi_hint from the structured content or _meta, checked against the digest text block."""
+    holder = res.structured_content if res.structured_content is not None else res.meta
+    in_text = [json.loads(c.text) for c in res.content if c.type == "text" and DIGEST_KEY in c.text]
+    assert (HINT_KEY in in_text[0]) == (HINT_KEY in holder)
+    return holder.get(HINT_KEY)
+
+
+def test_poi_hint_appears_after_the_third_image_result(server: Any) -> None:
+    assert [hint_of(call(server, *CAMERA)) for _ in range(2)] == [None, None]
+    hint = hint_of(call(server, *CAMERA))
+    assert hint and "add_poi" in hint
+    assert hint_of(call(server, *CAMERA))  # stays until a POI is written
+
+
+def test_look_around_results_count_and_carry_the_hint(server: Any) -> None:
+    take(server, "base")
+    call(server, *CAMERA)
+    call(server, *CAMERA)
+    assert hint_of(call(server, "look_around", {})) is not None
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("add_poi", {"kind": "point", "name": "dock", "x": 1.0, "y": 2.0}),
+        ("remember_object", {"label": "cup", "x": 1.0, "y": 2.0}),
+    ],
+)
+def test_poi_writes_reset_the_counter(server: Any, tool: str, args: dict[str, Any]) -> None:
+    for _ in range(3):
+        call(server, *CAMERA)
+    call(server, tool, args)
+    assert hint_of(call(server, *CAMERA)) is None
+    assert hint_of(call(server, *CAMERA)) is None
+    assert hint_of(call(server, *CAMERA)) is not None
+
+
+def test_update_poi_resets_the_counter(server: Any, robot: FakeRobot) -> None:
+    robot.pois = [{"id": "p1", "name": "a"}]
+    for _ in range(3):
+        call(server, *CAMERA)
+    call(server, "update_poi", {"id": "p1", "name": "b"})
+    assert hint_of(call(server, *CAMERA)) is None
+
+
+def test_annotate_lookup_resets_the_counter(server: Any, robot: FakeRobot) -> None:
+    lookup_id = None
+    for _ in range(3):
+        res = call(server, *CAMERA)
+        lookup_id = next(json.loads(c.text) for c in res.content if c.type == "text")["lookup_id"]
+    call(server, "annotate_lookup", {"lookup_id": lookup_id, "note": "mug"})
+    assert hint_of(call(server, *CAMERA)) is None
+
+
+def test_failed_poi_write_does_not_reset_and_other_tools_never_carry_the_hint(server: Any, robot: FakeRobot) -> None:
+    for _ in range(3):
+        call(server, *CAMERA)
+    robot.poi_store_up = False
+    with pytest.raises(ToolError):
+        call(server, "add_poi", {"kind": "point", "name": "dock", "x": 1.0, "y": 2.0})
+    robot.poi_store_up = True
+    state = call(server, "get_robot_state", {})
+    assert HINT_KEY not in state.structured_content
+    assert hint_of(call(server, *CAMERA)) is not None
+
+
+def test_hint_after_images_is_configurable(robot: FakeRobot, monitor: RobotMonitor) -> None:
+    cfg = McpServerConfig.model_validate({"auto_poi": {"hint_after_images": 1}})
+    cfg.cameras.calibration_dir = robot.arm.cfg.arm.home_file.parent / "calibration"
+    server = build_mcp_server(robot, cfg, TOKEN, None, monitor)
+    assert hint_of(call(server, *CAMERA)) is not None
+    with pytest.raises(ValueError):
+        McpServerConfig.model_validate({"auto_poi": {"hint_after_images": 0}})

@@ -1,8 +1,9 @@
 """Shared context handed to every tool module (one place to register modules, see tools.TOOL_MODULES)."""
 
 import logging
+import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 from mcp.server.mcpserver import MCPServer
@@ -40,6 +41,30 @@ TILT_NAV_TOOLS = frozenset(
     }
 )
 TILT_MANUAL_BASE_TOOLS = frozenset({"drive"})
+
+
+class PoiWriteCounter:
+    """Camera and look_around results since the last agent POI write (poi_hint nudge, see tools.POI_HINT_TOOLS)."""
+
+    def __init__(self) -> None:
+        """Start at zero."""
+        self.lock = threading.Lock()
+        self.images = 0
+
+    def note_image(self) -> int:
+        """Count one camera or look_around result.
+
+        Returns:
+            int: Results counted since the last reset, this one included.
+        """
+        with self.lock:
+            self.images += 1
+            return self.images
+
+    def reset(self) -> None:
+        """A POI was written (add_poi, update_poi, remember_object, annotate_lookup): start counting again."""
+        with self.lock:
+            self.images = 0
 
 
 class MotionOwner(Protocol):
@@ -192,6 +217,7 @@ class ToolContext:
     engine: "GuardEngine | None" = None  # guard rule engine (guard_tools.check_guard_rules)
     frontiers: FrontierTracker | None = None  # frontier tracker (frontier_tools); None without frontier tools
     footprint: "NavFootprint | None" = None  # the published Nav2 footprint (None without nav_footprint config)
+    poi_writes: PoiWriteCounter = field(default_factory=PoiWriteCounter)  # shared with RobotMCPServer
 
     def lease_gate(self, tool_name: str, kinds: list[str]) -> None:
         """Refuse an enqueue whose steps need a control lease that is not held, before the robot is touched.

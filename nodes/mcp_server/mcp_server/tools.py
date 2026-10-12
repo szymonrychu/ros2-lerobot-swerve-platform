@@ -62,7 +62,7 @@ from .monitor import DIGEST_DEFAULT_SESSION, RobotMonitor
 from .motion_queue import MotionQueue
 from .poi_client import PoiStoreDown, PoiTimeout
 from .surfaces import MAX_REGIONS, SurfaceRegion
-from .tool_context import RobotApi, ToolContext
+from .tool_context import PoiWriteCounter, RobotApi, ToolContext
 
 LOGGER = logging.getLogger("mcp_server.timing")
 # Keys of an arm motion result copied into the per-call timing line (trajectory seconds vs settle seconds apart).
@@ -194,6 +194,14 @@ DIGEST_VITALS_KEY = "vitals"
 # is reported as a nav_abort robot event (a stuck spot for auto_poi.AutoPoiMarker) before the digest is taken.
 NAV_RESULT_TOOLS = frozenset({"navigate_to_pose", "move_relative", "go_to_frontier"})
 NAV_ABORTED = "aborted"
+# Tools whose results count toward the poi_hint nudge: once auto_poi.hint_after_images of them returned since the last
+# POI write (add_poi, update_poi, remember_object, annotate_lookup reset the count), their result carries poi_hint.
+POI_HINT_TOOLS = frozenset({"get_camera_image", "look_around"})
+POI_HINT_KEY = "poi_hint"
+POI_HINT = (
+    "You have looked at {count} images since the last map marking. If you saw something worth finding again (a place, "
+    "an object, a hazard), mark it now: add_poi (or remember_object), then annotate_lookup to link this photo."
+)
 INSTRUCTIONS = """Controls a swerve-drive mobile robot with an SO101 5-DOF arm and gripper (ROS 2 Jazzy, Nav2, SLAM).
 Frames: 'map' is the SLAM map (x/y metres, yaw radians CCW); 'base_link' is the robot (x forward, y left).
 Look before moving: call get_robot_state, get_map_summary and get_camera_image first. Prefer navigate_to_pose /
@@ -361,6 +369,8 @@ class RobotMCPServer(MCPServer):
         self.control: ControlManager | None = None
         self.guard_engine: GuardEngine | None = None
         self.blocking: dict[str, int] = {}  # running blocking motion tools (QUEUE_EXCLUSIVE_TOOLS) -> count
+        self.poi_writes = PoiWriteCounter()  # shared with the ToolContext (register_tools)
+        self.poi_hint_after = 3  # auto_poi.hint_after_images (register_tools)
 
     def blocking_tool(self) -> str | None:
         """Name of a blocking motion tool running now (the motion queue refuses to start meanwhile).
@@ -474,6 +484,10 @@ class RobotMCPServer(MCPServer):
         # threadpool: the digest waits for events still being handed to the sinks (auto_poi_id annotations)
         events, vitals = await run_in_threadpool(self.monitor.digest, session_key(context))
         payload = {DIGEST_EVENTS_KEY: events, DIGEST_VITALS_KEY: vitals}
+        if name in POI_HINT_TOOLS:
+            count = self.poi_writes.note_image()
+            if count >= self.poi_hint_after:
+                payload[POI_HINT_KEY] = POI_HINT.format(count=count)
         update: dict[str, Any] = {"content": [*result.content, TextContent(type="text", text=json.dumps(payload))]}
         if result.structured_content is not None:
             update["structured_content"] = {**result.structured_content, **payload}
@@ -574,6 +588,7 @@ def register_tools(
         server.motion_queue = queue
         server.control = control
         server.guard_engine = engine
+        server.poi_hint_after = config.auto_poi.hint_after_images
     ctx = ToolContext(
         server=server,
         robot=robot,
@@ -586,6 +601,7 @@ def register_tools(
         engine=engine,
         frontiers=FrontierTracker(config.frontiers, footprint_width_m=config.footprint.width_m),
         footprint=footprint,
+        poi_writes=server.poi_writes if isinstance(server, RobotMCPServer) else PoiWriteCounter(),
     )
     for module in (*TOOL_MODULES, *extra_modules):
         module(ctx)

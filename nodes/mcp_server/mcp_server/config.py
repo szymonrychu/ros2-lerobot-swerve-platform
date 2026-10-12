@@ -837,6 +837,8 @@ class AutoPoiSettings(StrictModel):
     max_pose_age_s: float = Field(default=2.0, gt=0.0)  # an older map pose is stale: no POI (never a placeholder)
     # RobotEvent types that mark a stuck point (collision_stop from the monitor, nav_abort from a Nav2 abort result).
     event_types: list[str] = Field(default_factory=lambda: ["collision_stop", "nav_abort"])
+    # camera / look_around results since the last POI write after which results carry a poi_hint nudge
+    hint_after_images: int = Field(default=3, ge=1)
 
 
 class LookupSettings(StrictModel):

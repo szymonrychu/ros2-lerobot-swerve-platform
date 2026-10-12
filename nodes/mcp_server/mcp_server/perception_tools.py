@@ -337,7 +337,9 @@ def register(ctx: ToolContext) -> None:
         """Remember or merge an object; the description is passed to the decorator."""
         del frame  # the only supported frame
         with tool_errors():
-            return store.remember(label, x, y, note, confidence)
+            record = store.remember(label, x, y, note, confidence)
+        ctx.poi_writes.reset()
+        return record
 
     @server.tool(
         description=(
@@ -502,6 +504,7 @@ def register(ctx: ToolContext) -> None:
                 if radius_m is not None:
                     poi["radius_m"] = radius_m
             result = robot.poi_request("add", poi)
+        ctx.poi_writes.reset()
         return PoiResult(ok=True, message=str(result.get("message", "")), poi=result.get("poi"))
 
     @server.tool(
@@ -549,6 +552,7 @@ def register(ctx: ToolContext) -> None:
                     "nothing to update: give at least one of name, note, status, x/y, polygon, zone, speed_limit_pct"
                 )
             result = robot.poi_request("update", {"id": id, **changes})
+        ctx.poi_writes.reset()
         return PoiResult(ok=True, message=str(result.get("message", "")), poi=result.get("poi"))
 
     @server.tool(

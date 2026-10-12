@@ -441,6 +441,7 @@ def register(ctx: ToolContext) -> None:
             ctx.robot.poi_request("update", changes)
         except RobotError as exc:
             raise ToolError(str(exc)) from exc
+        ctx.poi_writes.reset()
         data = photo_summary(known(lookup_id))
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(data))], structured_content=data)
 

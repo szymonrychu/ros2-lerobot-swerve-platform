@@ -268,6 +268,15 @@ most `poi.request_timeout_s` for poi_store, and the digest waits (up to 5 s) for
 collision_stop that ends a motion has its `auto_poi_id` in that motion's result. A poi_store failure is logged
 (`mcp_server.auto_poi`) and never breaks the event path or the tool result. `auto_poi.enabled: false` turns it off.
 
+**`poi_hint` nudge.** The server counts `get_camera_image` and `look_around` results since the last agent POI write
+(`tool_context.PoiWriteCounter`, one counter per server). From the `auto_poi.hint_after_images`-th result on (default 3,
+at least 1), that result carries a **`poi_hint`** string next to `robot_events_since_last_call` and `vitals` (in the digest
+text block and in `structured_content`, or `_meta` for image results) telling the agent to mark what it saw with
+`add_poi` / `remember_object` and link the photo with `annotate_lookup`. It repeats on every further image result until a
+successful `add_poi`, `update_poi`, `remember_object` or `annotate_lookup` resets the count; the next image result after
+that write has no `poi_hint`. Other tools never carry it, auto stuck points and the photo POIs the camera records do not
+reset it, and a failed write does not either.
+
 **Digest on every tool result.** `RobotMCPServer.call_tool` (one override, so every current and future tool gets it)
 adds `robot_events_since_last_call` (events since the previous tool call of the same MCP session: one cursor per `Mcp-Session-Id`, so
 claude_agent's own `robot_stop` session never consumes the model's events; a new session sees the retained history, at most
@@ -2320,6 +2329,7 @@ auto_poi:                 # auto stuck points (see Auto stuck points); defaults 
   merge_radius_m: 0.5            # a repeat within this distance updates the same stuck POI
   max_pose_age_s: 2.0            # an older map pose is stale: no POI
   event_types: [collision_stop, nav_abort]
+  hint_after_images: 3           # camera / look_around results since the last POI write before poi_hint appears
 lookups:                  # photo JPEG directory (see Photos (photo POIs)); poi_store owns the index and retention
   store_dir: /var/lib/ros2/poi/lookups
 control:                  # control leases: release_control base reset (see Control leases)
