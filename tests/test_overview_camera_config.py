@@ -476,9 +476,33 @@ def test_node_directory_layout_without_calibration_or_stereo_leftovers() -> None
     for path in (LAUNCH_FILE, LAUNCH_FILE.with_name("overview_camera_config.py"), PARAMS_FILE, README):
         assert path.is_file(), path
     assert not (NODE_DIR / "calibration").exists()
+
+
+def test_readme_documents_both_cameras_sync_and_calibration() -> None:
     readme = README.read_text()
-    for needle in ("cam -l", "AfMode", "IMX708", "dtoverlay=imx708,cam0", "/overview_camera/image_raw/compressed"):
+    for needle in (
+        "cam -l",
+        "left_camera_id",
+        "right_camera_id",
+        "IMX219",
+        "dtoverlay=imx219,cam0",
+        "dtoverlay=imx219,cam1",
+        "/overview_camera/image_raw/compressed",
+        "/stereo/right/image_raw",
+        "SyncMode",
+        "multicast",
+        "480x360",
+        "stereo_left.yaml",
+        "nodes/stereo_depth/README.md",
+    ):
         assert needle in readme, needle
+
+
+def test_nodes_readme_lists_overview_camera_pair_and_stereo_depth() -> None:
+    nodes_readme = (REPO_ROOT / "nodes" / "README.md").read_text()
+    assert "stereo_depth/" in nodes_readme
+    line = next(row for row in nodes_readme.splitlines() if row.startswith("- **overview_camera/**"))
+    assert "IMX219" in line, line
 
 
 def params() -> dict:
@@ -492,17 +516,34 @@ def params() -> dict:
 
 def test_camera_defaults_match_the_requirements() -> None:
     camera = params()["camera"]
-    assert camera["width"] == 640 and camera["height"] == 480
-    assert camera["FrameDurationLimits"] == [66666, 66666]
-    assert camera["AfMode"] == "continuous"
-    assert camera["frame_id"] == "overview_camera_optical_frame"
-    assert camera["jpeg_quality"] == 80
-    assert set(params()) == {"launch", "camera"}, "no disparity, sync or calibration sections"
-    assert "SyncMode" not in camera and "sync_mode" not in camera
+    assert camera["sensor_mode"] == "1640:1232", "ISP downscale from the binned full-FoV mode, not the 640x480 crop"
+    assert camera["width"] == 480 and camera["height"] == 360
+    assert camera["FrameDurationLimits"] == [200000, 200000]
+    assert camera["AeExposureMode"] == "short"
+    assert camera["role"] == "video" and camera["format"] == "RGB888"
+    assert "AfMode" not in camera, "IMX219 has a fixed-focus lens"
+    assert set(params()) == {"launch", "camera", "left", "right"}, "no disparity or point cloud sections"
 
 
-def test_launch_settings_default_to_no_camera_id() -> None:
-    assert params()["launch"] == {"camera_id": ""}
+def test_side_defaults_keep_the_overview_role_on_the_left() -> None:
+    left, right = params()["left"], params()["right"]
+    assert left == {
+        "namespace": "/overview_camera",
+        "sync_mode": "server",
+        "frame_id": "overview_camera_optical_frame",
+        "jpeg_quality": 80,
+    }
+    assert right["namespace"] == "/stereo/right"
+    assert right["sync_mode"] == "client"
+    assert right["frame_id"] == "stereo_right_optical_frame"
+
+
+def test_launch_settings_default_to_no_camera_ids() -> None:
+    assert params()["launch"] == {
+        "left_camera_id": "",
+        "right_camera_id": "",
+        "calibration_dir": "/var/lib/ros2/camera_calibration",
+    }
 
 
 def launch_source() -> str:
@@ -526,26 +567,27 @@ def test_launch_file_is_valid_python_with_a_launch_description() -> None:
         "component_container_mt",
         "use_intra_process_comms",
         "camera::CameraNode",
-        "/overview_camera",
         "image_raw/compressed",
         "camera_info",
+        "camera_info_url",
+        "camera_selector",
+        "SIDE_INDEX",
     ],
 )
-def test_launch_file_builds_the_single_camera_pipeline(needle: str) -> None:
+def test_launch_file_builds_the_two_camera_pipeline(needle: str) -> None:
     assert needle in launch_source()
 
 
-def test_launch_file_has_no_stereo_or_calibration_stages() -> None:
+def test_launch_file_has_two_camera_nodes_in_one_container() -> None:
     source = launch_source()
-    for retired in (
-        "RectifyNode",
-        "DisparityNode",
-        "PointCloudNode",
-        "calibration_ready",
-        "CALIBRATION_DIR",
-        "stereo",
-        "SyncMode",
-    ):
+    assert source.count("ComposableNodeContainer(") == 1
+    assert source.count("ComposableNode(") == 1, "one ComposableNode built per side in a loop"
+    assert '("left", "right")' in source
+
+
+def test_launch_file_has_no_rectify_disparity_or_point_cloud_stages() -> None:
+    source = launch_source()
+    for retired in ("RectifyNode", "DisparityNode", "PointCloudNode", "image_proc", "stereo_image_proc"):
         assert retired not in source, retired
     assert "from overview_camera_config import" in source
 

@@ -1790,31 +1790,46 @@ Static checks of the overview_camera node from the repo files (YAML via `yaml.sa
 | `test_docs_describe_the_imx219_pair_boot_overlays_and_memory` | `ansible/README.md` names both imx219 overlays and the SyncMode patch, its memory row for overview_camera is an estimate with 128M / 384M, and the ansible-deploy skill's overview_camera row says IMX219, not IMX708. |
 | `test_realsense_is_uninstalled` | `realsense_d435i` is `present: false`. |
 | `test_guessed_camera_link_frame_is_removed_from_the_static_tf_config` | `static_tf_publisher` no longer publishes `camera_link` (imu_link and laser_frame stay). |
-| `test_node_directory_layout_without_calibration_or_stereo_leftovers` | Node files exist, there is no `calibration/` directory and the README names `cam -l`, `AfMode`, IMX708, the overlay and the compressed topic. |
-| `test_camera_defaults_match_the_requirements` | `params.yaml`: 640x480, 15 fps limits, continuous autofocus, optical frame id, JPEG quality 80, only `launch` and `camera` sections. |
-| `test_launch_settings_default_to_no_camera_id` | Empty `camera_id` by default. |
+| `test_node_directory_layout_without_calibration_or_stereo_leftovers` | Node files exist and there is no `calibration/` directory. |
+| `test_readme_documents_both_cameras_sync_and_calibration` | The README names `cam -l`, both camera ID keys, IMX219 and both overlays, the left and right topics, SyncMode, the Wi-Fi multicast caveat, 480x360, `stereo_left.yaml` and links `nodes/stereo_depth/README.md`. |
+| `test_nodes_readme_lists_overview_camera_pair_and_stereo_depth` | `nodes/README.md` has a `stereo_depth/` line and its `overview_camera/` line names the IMX219 pair. |
+| `test_camera_defaults_match_the_requirements` | `params.yaml` `camera`: `sensor_mode` 1640:1232, 480x360, 5 fps limits, `AeExposureMode` short, video / RGB888, no `AfMode`; sections `launch`, `camera`, `left`, `right` only. |
+| `test_side_defaults_keep_the_overview_role_on_the_left` | Left: `/overview_camera`, sync server, `overview_camera_optical_frame`, JPEG 80. Right: `/stereo/right`, sync client, `stereo_right_optical_frame`. |
+| `test_launch_settings_default_to_no_camera_ids` | Empty `left_camera_id` / `right_camera_id` and the calibration dir `/var/lib/ros2/camera_calibration`. |
 | `test_launch_file_is_valid_python_with_a_launch_description` | The launch file parses and defines `generate_launch_description`. |
-| `test_launch_file_builds_the_single_camera_pipeline` | (parametrized) The launch file names the container, intra-process option, `camera::CameraNode`, the `/overview_camera` namespace and the compressed / camera_info topics. |
-| `test_launch_file_has_no_stereo_or_calibration_stages` | No rectify / disparity / point cloud / calibration gating / SyncMode in the launch file. |
+| `test_launch_file_builds_the_two_camera_pipeline` | (parametrized) The launch file names the container, intra-process option, `camera::CameraNode`, the compressed / camera_info topics, `camera_info_url`, `camera_selector` and `SIDE_INDEX`. |
+| `test_launch_file_has_two_camera_nodes_in_one_container` | One container, one `ComposableNode` built per side in a `("left", "right")` loop. |
+| `test_launch_file_has_no_rectify_disparity_or_point_cloud_stages` | No rectify / disparity / point cloud / image_proc stages in the launch file. |
 | `test_every_new_root_test_file_is_documented` | Every `test_overview_camera*.py` file and test function is listed in this README. |
 
 ### `test_overview_camera_launch_config.py`
 
-Unit tests of the pure-Python launch helper `nodes/overview_camera/launch/overview_camera_config.py` (imported via path setup): settings merge, camera selection and the camera_ros parameter dict.
+Unit tests of the pure-Python launch helper `nodes/overview_camera/launch/overview_camera_config.py` (imported via path setup): settings merge, camera selection by ID or side index, the calibration gate of `camera_info_url` and the camera_ros parameter dicts of the left and right IMX219.
 
 | Test | Description |
 |---|---|
 | `test_deep_merge_overrides_nested_keys_without_touching_the_base` | `deep_merge` merges nested dicts into a new dict. |
-| `test_load_settings_returns_defaults_when_the_override_is_missing_or_empty` | Missing or empty deployed config leaves the defaults (640 wide). |
+| `test_load_settings_returns_defaults_when_the_override_is_missing_or_empty` | Missing or empty deployed config leaves the defaults (480 wide). |
 | `test_load_settings_applies_the_deployed_override` | A nested override replaces only the keys it sets. |
-| `test_load_settings_accepts_a_top_level_camera_id_in_the_override` | The flat `camera_id` lands in the `launch` section. |
+| `test_load_settings_accepts_top_level_camera_ids_in_the_override` | The flat `left_camera_id` / `right_camera_id` land in the `launch` section. |
 | `test_camera_selector_prefers_the_libcamera_id` | A configured ID is used as is, without warning. |
-| `test_camera_selector_falls_back_to_index_zero_with_a_warning` | No ID selects index 0 and returns a warning that mentions `cam -l`. |
+| `test_camera_selector_falls_back_to_the_side_index_with_a_warning` | (parametrized) No ID selects index 0 / 1 and returns a warning that mentions `cam -l` and the index. |
 | `test_camera_selector_treats_whitespace_as_unset` | A whitespace-only ID counts as unset. |
-| `test_camera_parameters_of_the_overhead_camera` | Params: ID, 640x480, 15 fps limits, `AfMode` 2 (continuous), frame id and the image_transport JPEG quality 80. |
-| `test_camera_parameters_have_no_calibration_url_and_no_sync_mode` | No `camera_info_url`, no `SyncMode`, and the flat `jpeg_quality` setting is translated. |
-| `test_af_mode_names_map_to_the_libcamera_enum` | (parametrized) manual / auto / continuous (any case) map to 0 / 1 / 2. |
-| `test_camera_parameters_reject_an_unknown_af_mode` | An unknown AfMode name raises `ValueError`. |
+| `test_side_indexes_keep_left_on_cam0_and_right_on_cam1` | `SIDE_INDEX` is left 0, right 1. |
+| `test_projection_is_valid_rejects_missing_short_zero_focal_or_non_numeric_matrices` | (parametrized) None, empty, all-zero, 11 elements, zero fy, non-numeric and NaN projections are rejected. |
+| `test_projection_is_valid_accepts_a_real_projection` | A finite 12-element P with non-zero focal terms is accepted. |
+| `test_calibration_problem_names_a_missing_file` | A missing file is reported by name. |
+| `test_calibration_problem_names_a_zero_projection` | A zero P is reported. |
+| `test_calibration_problem_names_invalid_yaml` | Unparsable YAML is reported. |
+| `test_calibration_problem_is_none_for_a_valid_file` | A valid file has no problem. |
+| `test_calibration_path_uses_the_stereo_depth_file_names` | `stereo_left.yaml` / `stereo_right.yaml` in the calibration dir. |
+| `test_camera_info_url_is_empty_with_a_reason_when_the_calibration_is_unusable` | No usable file: empty URL plus the reason. |
+| `test_camera_info_url_points_at_a_valid_calibration_file` | A valid file: `file://` URL, no reason. |
+| `test_left_camera_parameters_keep_the_overview_role` | Left params: ID, sensor mode, 480x360, 5 fps, AE short (1), SyncMode 1, overview frame id, JPEG 80, no `AfMode`, launch-only keys stripped. |
+| `test_right_camera_parameters_are_the_sync_client` | Right params: index, SyncMode 2, right frame id, the given `camera_info_url`, 480x360 at 5 fps, no `AfMode`. |
+| `test_namespaces_keep_the_overview_topics_on_the_left` | Left namespace `/overview_camera`, right `/stereo/right`. |
+| `test_enum_names_map_to_the_libcamera_values` | (parametrized) SyncMode off / server / client and AeExposureMode normal / short / long (any case) map to 0 / 1 / 2. |
+| `test_camera_parameters_reject_an_unknown_sync_mode` | An unknown `sync_mode` raises `ValueError`. |
 
 ### test_ansible_deploy_speed.py
 
