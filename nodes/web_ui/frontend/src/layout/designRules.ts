@@ -8,7 +8,7 @@ export const SELF_PATH = 'layout/designRules.ts'
 export const SOURCES: Record<string, string> = {
   ...Object.fromEntries(
     Object.entries(import.meta.glob(['../**/*.ts', '../**/*.tsx', '!../**/*.test.ts', '!../**/*.test.tsx'], { query: '?raw', import: 'default', eager: true })).map(
-      ([path, text]) => [path.replace(/^\.\.\//, ''), text as string],
+      ([path, text]) => [path.replace(/^\.\.\//, '').replace(/^\.\//, 'layout/'), text as string],
     ),
   ),
   [SELF_PATH]: selfSource,

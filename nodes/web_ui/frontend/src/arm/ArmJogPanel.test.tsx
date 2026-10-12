@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
-import { theme, TOUCH_TARGET_PX } from '../theme'
+import { CONTROL_PX, theme } from '../theme'
 import { TabConfig } from '../types'
 import { postArm } from './armApi'
 import ArmJogPanel from './ArmJogPanel'
@@ -159,12 +159,12 @@ describe('ArmJogPanel', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
-  it('every button is at least TOUCH_TARGET_PX high and wide', () => {
+  it('every button is at least CONTROL_PX high and wide (the coarse-pointer floor is covered in theme.test)', () => {
     renderPanel('autonomy')
     for (const b of screen.getAllByRole('button')) {
       const s = getComputedStyle(b)
-      expect(parseFloat(s.minHeight)).toBeGreaterThanOrEqual(TOUCH_TARGET_PX)
-      expect(parseFloat(s.minWidth)).toBeGreaterThanOrEqual(TOUCH_TARGET_PX)
+      expect(parseFloat(s.minHeight)).toBeGreaterThanOrEqual(CONTROL_PX)
+      expect(parseFloat(s.minWidth)).toBeGreaterThanOrEqual(CONTROL_PX)
     }
   })
 
