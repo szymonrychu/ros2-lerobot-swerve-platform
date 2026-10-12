@@ -829,6 +829,16 @@ class PoiSettings(StrictModel):
     near_radius_m: float = Field(default=5.0, gt=0.0)  # list_pois(near=True) keeps POIs within this distance
 
 
+class AutoPoiSettings(StrictModel):
+    """Auto stuck points (auto_poi.AutoPoiMarker): robot events that drop a point POI at the robot pose."""
+
+    enabled: bool = True  # false: no POI is ever added or updated by the marker
+    merge_radius_m: float = Field(default=0.5, gt=0.0)  # a repeat within this distance updates the same stuck POI
+    max_pose_age_s: float = Field(default=2.0, gt=0.0)  # an older map pose is stale: no POI (never a placeholder)
+    # RobotEvent types that mark a stuck point (collision_stop from the monitor, nav_abort from a Nav2 abort result).
+    event_types: list[str] = Field(default_factory=lambda: ["collision_stop", "nav_abort"])
+
+
 class LookupSettings(StrictModel):
     """Camera photo directory: the JPEG target of every camera image (poi_store owns the index and retention)."""
 
@@ -1436,6 +1446,7 @@ class McpServerConfig(StrictModel):
     # None: no footprint is published (the Nav2 / laser_filter configs keep their static polygons).
     nav_footprint: NavFootprintSettings | None = None
     poi: PoiSettings = PoiSettings()
+    auto_poi: AutoPoiSettings = AutoPoiSettings()
     lookups: LookupSettings = Field(default_factory=LookupSettings)
     floor_guard: FloorGuardSettings = FloorGuardSettings()
     body: BodySettings = BodySettings()

@@ -245,12 +245,28 @@ missing). A 4 Hz timer runs the stall, latched-collision and CPU checks. Thresho
 | `tilt` | warning | IMU fallback only while the tilt guard is silent (no `/tilt_guard/state` for `tilt_guard_stale_s` 3 s): tilt from the IMU orientation > `tilt_warn_deg` 10 deg |
 | `human_takeover` | critical | active source leaves `autonomy` while this server holds the lease |
 | `cpu_overheat` | warning / critical | CPU >= 75 / 82 C |
+| `nav_abort` (source `nav2`) | warning | Nav2 aborted the goal of `navigate_to_pose`, `move_relative` or `go_to_frontier` (the tool result has status `aborted`); `data` = `{tool, message}`; never debounced; raised by `call_tool_with_digest` before the digest is taken |
 | `<type>_cleared` | info | a level condition (overheat, servo_error, battery_*, tilt, wheel_slip, stall, cpu_overheat) ended |
 
 Events are debounced per (type, source) (`debounce_default_s` 30 s, shorter for bump 2 s / collision_stop 1.5 s / stall 1.5 s /
 human_takeover 5 s, so a repeat during a retried motion is not hidden; an escalation always passes). Each event is published on **`/robot_events`** (`std_msgs/String`, reliable,
 depth 50) as JSON `{"seq": int, "ts": float (epoch s), "type": str, "severity": "info"|"warning"|"critical",
-"source": str, "message": str, "data": object}`; `seq` starts at 1 per process.
+"source": str, "message": str, "data": object}`; `seq` starts at 1 per process. The monitor fans every event out to
+all its sinks in order (`set_sink` replaces them, `add_sink` appends; a failing sink is logged and the next one still
+runs): the `/robot_events` publisher first, then the auto stuck-point marker.
+
+**Auto stuck points (`auto_poi.py`).** `AutoPoiMarker.on_event(event, pose)` turns a stuck event (`auto_poi.event_types`,
+default `collision_stop` and `nav_abort`) at a fresh map pose (`robot_pose()`, at most `auto_poi.max_pose_age_s` 2 s old)
+into a point POI: kind `point`, `created_by: agent`, name `stuck: collision stop` / `stuck: Nav2 abort`, note
+`stuck <n> times, last <local time> (<polygon or Nav2 message>)`. A repeat within `auto_poi.merge_radius_m` (0.5 m) of an
+open agent `stuck:` point, or inside an open agent `stuck:` area, updates only that POI's note (count and time) instead of
+adding one. No pose, a stale pose or a non-map pose means no POI (never a placeholder). It never creates an area or a
+keepout (a keepout would block Nav2): the agent upgrades the point itself. The added or updated id is put on the digest
+entry of that event as **`auto_poi_id`** in `robot_events_since_last_call` (only on events that got one; `/robot_events`
+JSON is unchanged). `ros_iface` wires it with `attach_auto_poi`; the marker runs on the delivering thread and waits at
+most `poi.request_timeout_s` for poi_store, and the digest waits (up to 5 s) for events still being delivered, so a
+collision_stop that ends a motion has its `auto_poi_id` in that motion's result. A poi_store failure is logged
+(`mcp_server.auto_poi`) and never breaks the event path or the tool result. `auto_poi.enabled: false` turns it off.
 
 **Digest on every tool result.** `RobotMCPServer.call_tool` (one override, so every current and future tool gets it)
 adds `robot_events_since_last_call` (events since the previous tool call of the same MCP session: one cursor per `Mcp-Session-Id`, so
@@ -2062,6 +2078,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
 | `topdown.py`, `perception_models.py` | no | robot-up top-down renderer (layers, transforms); perception result models |
 | `object_memory.py`, `look_around.py`, `poi_client.py` | no | object POI memory + merge, look_around plan/loop/montage, POI request matching |
+| `auto_poi.py` | no | `AutoPoiMarker` (stuck events to point POIs, merge by radius), `attach_auto_poi` (monitor sink + `auto_poi_id` annotation) |
 | `frontiers.py` | no | frontier core: `MapGrid`, vectorised WFD `extract_frontiers`, `traversability`, `geodesic_from`, `observation_pose`, `FrontierTracker` (stable ids, epochs, retired successors), `facing_lookup`, `nearest_poi`, cell/map conversion |
 | `frontier_tools.py` | no | `list_frontiers`, `plan_frontier_visit`, `go_to_frontier`, `look_toward_frontier` (one `TOOL_MODULES` entry) |
 | `perception_tools.py` | no | the perception, memory, look_around and POI tools (one `TOOL_MODULES` entry) |
@@ -2298,6 +2315,11 @@ motion_queue: {max_steps: 32, event_history: 200, status_events: 10, wait_events
                holding_min_effort: 100.0, holding_min_gap_rad: 0.05,
                watch_rate_hz: 10.0, watch_max_per_call: 8}  # watcher rate (gt 0, le 20) and watches per call (1..16)
 poi: {request_timeout_s: 3.0, near_radius_m: 5.0}
+auto_poi:                 # auto stuck points (see Auto stuck points); defaults shown
+  enabled: true                  # false: the marker never adds or updates a POI
+  merge_radius_m: 0.5            # a repeat within this distance updates the same stuck POI
+  max_pose_age_s: 2.0            # an older map pose is stale: no POI
+  event_types: [collision_stop, nav_abort]
 lookups:                  # photo JPEG directory (see Photos (photo POIs)); poi_store owns the index and retention
   store_dir: /var/lib/ros2/poi/lookups
 control:                  # control leases: release_control base reset (see Control leases)

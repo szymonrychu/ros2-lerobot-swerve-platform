@@ -190,6 +190,10 @@ TOOL_SUBSYSTEM: dict[str, LeaseNeed] = {
 PARKING_TOOLS = frozenset({"release_control"})
 DIGEST_EVENTS_KEY = "robot_events_since_last_call"
 DIGEST_VITALS_KEY = "vitals"
+# Base motion tools whose structured result is a NavigationResult: status "aborted" means Nav2 aborted the goal, which
+# is reported as a nav_abort robot event (a stuck spot for auto_poi.AutoPoiMarker) before the digest is taken.
+NAV_RESULT_TOOLS = frozenset({"navigate_to_pose", "move_relative", "go_to_frontier"})
+NAV_ABORTED = "aborted"
 INSTRUCTIONS = """Controls a swerve-drive mobile robot with an SO101 5-DOF arm and gripper (ROS 2 Jazzy, Nav2, SLAM).
 Frames: 'map' is the SLAM map (x/y metres, yaw radians CCW); 'base_link' is the robot (x forward, y left).
 Look before moving: call get_robot_state, get_map_summary and get_camera_image first. Prefer navigate_to_pose /
@@ -459,11 +463,16 @@ class RobotMCPServer(MCPServer):
         except UnexpectedToolError:
             raise
         except ToolError as exc:
-            events, vitals = self.monitor.digest(session_key(context))
+            events, vitals = await run_in_threadpool(self.monitor.digest, session_key(context))
             raise ToolError(f"{exc}\n{json.dumps({DIGEST_EVENTS_KEY: events, DIGEST_VITALS_KEY: vitals})}") from exc
         if not isinstance(result, CallToolResult):
             return result
-        events, vitals = self.monitor.digest(session_key(context))
+        structured = result.structured_content or {}
+        if name in NAV_RESULT_TOOLS and structured.get("status") == NAV_ABORTED:
+            # threadpool: the event sinks (publisher, auto POI marker) run here and the marker waits for poi_store
+            await run_in_threadpool(self.monitor.report_nav_abort, name, str(structured.get("message") or ""))
+        # threadpool: the digest waits for events still being handed to the sinks (auto_poi_id annotations)
+        events, vitals = await run_in_threadpool(self.monitor.digest, session_key(context))
         payload = {DIGEST_EVENTS_KEY: events, DIGEST_VITALS_KEY: vitals}
         update: dict[str, Any] = {"content": [*result.content, TextContent(type="text", text=json.dumps(payload))]}
         if result.structured_content is not None:

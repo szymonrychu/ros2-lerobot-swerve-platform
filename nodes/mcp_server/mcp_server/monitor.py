@@ -2,7 +2,9 @@
 IMU bump/tilt, tilt guard, human takeover, CPU temperature). Pure logic, fed by thin ROS callbacks in ros_iface.
 
 Events are debounced per (type, source), published through a sink (the /robot_events publisher), kept in a ring buffer
-for the per-call digest and the get_body_state tool, and consulted by running motions through MotionWatch.
+for the per-call digest and the get_body_state tool, and consulted by running motions through MotionWatch. Every sink
+(the publisher and auto_poi.AutoPoiMarker) receives every event; a sink can annotate an event (auto_poi_id) for the
+digest, which waits for in-flight deliveries so those annotations are not missed.
 """
 
 import functools
@@ -72,6 +74,9 @@ THROTTLE_NOW_MASK = 0xF  # get_throttled bits 0-3: under-voltage, freq capped, t
 STALL_SOURCE = "base"
 DIGEST_DEFAULT_SESSION = ""  # digest key of callers without an MCP session id
 MAX_DIGEST_SESSIONS = 16
+DELIVERY_WAIT_S = 5.0  # digest waits at most this long for events still being handed to the sinks
+NAV_ABORT_EVENT = "nav_abort"  # warning: Nav2 aborted a base motion goal (raised from the tool result)
+NAV_ABORT_SOURCE = "nav2"
 MIN_QUATERNION_NORM = 0.5
 # Tilt guard (/tilt_guard/state from swerve_drive_controller): event names consumed by claude_agent and web_ui.
 TILT_SOURCE = "tilt_guard"
@@ -200,8 +205,13 @@ def delivers(method: Callable[..., Any]) -> Callable[..., Any]:
         with self.lock:
             result = method(self, *args, **kwargs)
             outbox, self.outbox = self.outbox, []
-        for event in outbox:
-            self.deliver(event)
+        try:
+            for event in outbox:
+                self.deliver(event)
+        finally:
+            with self.lock:
+                self.in_flight -= len(outbox)
+                self.delivered.notify_all()
         return result
 
     return wrapper
@@ -298,7 +308,11 @@ class RobotMonitor:
         self.sleep = sleep
         self.lock = threading.RLock()
         self.outbox: list[RobotEvent] = []
-        self.sink: Callable[[RobotEvent], None] | None = None
+        self.sinks: list[Callable[[RobotEvent], None]] = []
+        self.in_flight = 0  # events emitted but not yet handed to every sink
+        self.delivered = threading.Condition(self.lock)
+        self.delivery_wait_s = DELIVERY_WAIT_S
+        self.annotations: dict[int, dict[str, Any]] = {}  # event seq -> extra digest fields (auto_poi_id)
         self.events: deque[RobotEvent] = deque(maxlen=settings.history_size)
         self.seq = 0
         self.digest_cursors: OrderedDict[str, int] = OrderedDict()  # LRU: session id -> last seq already digested
@@ -327,12 +341,31 @@ class RobotMonitor:
     # --- plumbing ---------------------------------------------------------------------------------------------------
 
     def set_sink(self, sink: Callable[[RobotEvent], None] | None) -> None:
-        """Set the callback that receives every new event (the /robot_events publisher).
+        """Replace every sink with this callback (the /robot_events publisher); None removes them all.
 
         Args:
             sink (Callable[[RobotEvent], None] | None): Callback; its failures are logged, never raised.
         """
-        self.sink = sink
+        self.sinks = [] if sink is None else [sink]
+
+    def add_sink(self, sink: Callable[[RobotEvent], None]) -> None:
+        """Add one more callback that receives every new event, after the existing ones (the auto POI marker).
+
+        Args:
+            sink (Callable[[RobotEvent], None]): Callback; its failures are logged, never raised.
+        """
+        self.sinks = [*self.sinks, sink]
+
+    def annotate(self, seq: int, fields: dict[str, Any]) -> None:
+        """Attach extra fields to one retained event's digest entry (e.g. auto_poi_id); unknown seqs are ignored.
+
+        Args:
+            seq (int): Event sequence number.
+            fields (dict[str, Any]): Fields merged into the event dict of the digest.
+        """
+        with self.lock:
+            if any(e.seq == seq for e in self.events):
+                self.annotations[seq] = {**self.annotations.get(seq, {}), **fields}
 
     def set_nav_canceller(self, canceller: Callable[[], bool] | None) -> None:
         """Set the callback that cancels every Nav2 goal (called when the tilt guard enters warning or error).
@@ -343,17 +376,16 @@ class RobotMonitor:
         self.nav_canceller = canceller
 
     def deliver(self, event: RobotEvent) -> None:
-        """Hand one event to the sink.
+        """Hand one event to every sink in order; a failing sink is logged and the others still run.
 
         Args:
             event (RobotEvent): New event.
         """
-        if self.sink is None:
-            return
-        try:
-            self.sink(event)
-        except Exception:  # a broken publisher must not stop detection
-            LOGGER.exception("robot event sink failed for %s", event.type)
+        for sink in self.sinks:
+            try:
+                sink(event)
+            except Exception:  # a broken publisher or marker must not stop detection or the other sinks
+                LOGGER.exception("robot event sink failed for %s", event.type)
 
     def emit(
         self,
@@ -388,10 +420,13 @@ class RobotMonitor:
         event = RobotEvent(
             seq=self.seq, ts=self.wall(), type=type_, severity=severity, source=source, message=message, data=data or {}
         )
+        if len(self.events) == self.events.maxlen:
+            self.annotations.pop(self.events[0].seq, None)
         self.events.append(event)
         ROBOT_EVENTS.labels(severity).inc()
         self.last_emit[key] = (now, severity)
         self.outbox.append(event)
+        self.in_flight += 1
         LOGGER.log(
             logging.INFO if severity == "info" else logging.WARNING,
             "robot event %s %s %s: %s",
@@ -908,6 +943,25 @@ class RobotMonitor:
         )
 
     @delivers
+    def report_nav_abort(self, tool: str, message: str) -> None:
+        """Report that Nav2 aborted a base motion goal (a navigate_to_pose result with status aborted).
+
+        A warning, never debounced: every abort is a stuck spot candidate for the auto POI marker.
+
+        Args:
+            tool (str): Tool whose goal was aborted.
+            message (str): The result's message.
+        """
+        self.emit(
+            NAV_ABORT_EVENT,
+            "warning",
+            NAV_ABORT_SOURCE,
+            f"Nav2 aborted the {tool} goal" + (f": {message}" if message else ""),
+            {"tool": tool, "message": message},
+            debounce=False,
+        )
+
+    @delivers
     def report_arm_tracking_abort(self, message: str, data: dict[str, Any] | None = None) -> None:
         """The arm tracking error exceeded its limit (setpoint vs measured): the arm is stalled or blocked.
 
@@ -1120,12 +1174,19 @@ class RobotMonitor:
             tuple[list[dict[str, Any]], str]: Event dicts (the /robot_events contract) and the vitals one-liner.
         """
         with self.lock:
+            if not self.delivered.wait_for(lambda: self.in_flight <= 0, self.delivery_wait_s):
+                LOGGER.warning(
+                    "digest: %d events still being delivered after %.1f s", self.in_flight, self.delivery_wait_s
+                )
             cursor = self.digest_cursors.pop(session, 0)
             fresh = [e for e in self.events if e.seq > cursor]
             self.digest_cursors[session] = self.seq
             while len(self.digest_cursors) > self.max_digest_sessions:
                 self.digest_cursors.popitem(last=False)
-        events = [e.model_dump(mode="json") for e in fresh[-self.cfg.digest_max_events :]]
+            events = [
+                {**e.model_dump(mode="json"), **self.annotations.get(e.seq, {})}
+                for e in fresh[-self.cfg.digest_max_events :]
+            ]
         return events, self.vitals_line()
 
     def vitals_line(self) -> str:

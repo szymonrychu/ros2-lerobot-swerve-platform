@@ -39,6 +39,7 @@ from tf2_ros import Buffer, TransformException, TransformListener
 
 from .approach import CostGrid, PathInfo
 from .arm import ArmController, ArmError, JointSample
+from .auto_poi import AutoPoiMarker, attach_auto_poi
 from .base_dock import DockGoal, DockResult, run_dock
 from .base_motion import (
     DriveError,
@@ -368,7 +369,7 @@ class RosRobot:
             self.subscribe(BatteryState, config.battery.topic, on_battery)
 
         self.events_pub = self.node.create_publisher(String, t.robot_events, EVENT_QOS)
-        self.monitor.set_sink(self.publish_event)
+        self.monitor.set_sink(self.publish_event)  # sink fan-out: the auto POI marker is added once self.poi exists
         self.monitor.set_nav_canceller(self.cancel_all_goals)  # run off the callback thread, retried
 
         self.cmd_pub = self.node.create_publisher(JointState, t.autonomy_command, COMMAND_QOS)
@@ -381,6 +382,9 @@ class RosRobot:
             config.poi.request_timeout_s,
         )
         self.subscribe(String, t.poi_result, lambda msg: self.poi.on_result(msg.data), COMMAND_QOS)
+        # Stuck events become point POIs at the robot pose (auto_poi_id in the digest). The marker runs on the delivering
+        # thread (reentrant group, multi-threaded executor) and waits at most poi.request_timeout_s for poi_store.
+        attach_auto_poi(self.monitor, AutoPoiMarker(self, config.auto_poi), self.robot_pose)
         self.nav_client = ActionClient(self.node, NavigateToPose, t.navigate_action, callback_group=self.group)
         self.compute_client = ActionClient(
             self.node, ComputePathToPose, t.compute_path_action, callback_group=self.group
