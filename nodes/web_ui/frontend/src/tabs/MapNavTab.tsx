@@ -31,6 +31,8 @@ import FitScreenIcon from '@mui/icons-material/FitScreen'
 import SaveIcon from '@mui/icons-material/Save'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import LayersIcon from '@mui/icons-material/Layers'
+import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
+import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary'
 import VerticalAlignBottomIcon from '@mui/icons-material/VerticalAlignBottom'
 import ThreeDRotationIcon from '@mui/icons-material/ThreeDRotation'
 import HomeIcon from '@mui/icons-material/Home'
@@ -49,6 +51,7 @@ import { BaseGpsPayload, GPS_BASE_STATUS_KEY, isBaseSample } from '../gps/gpsSta
 import { anchorSummary, validAnchor } from '../map3d/geo'
 import { goalButtonState } from '../map/goalControl'
 import { anyInRow, splitToolbar, TOOLBAR_GROUPS } from '../map/toolbarGroups'
+import { MapSidebar } from '../layout/MapSidebar'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { useLayout } from '../layout/useLayout'
 import { tiltStatus } from '../tilt/tiltStatus'
@@ -179,8 +182,10 @@ export default function MapNavTab({
   const closeMore = () => setMoreAnchor(null)
   const [panelOpen, setPanelOpen] = useState<boolean | null>(null) // null = follow screen size
   const [poiListOpen, setPoiListOpen] = useState<boolean | null>(null) // null = open on wide screens only
+  const [photoListOpen, setPhotoListOpen] = useState(false) // the photo list only shows when asked for
   const showPanel = panelOpen ?? !narrow
   const showPoiList = poiListOpen ?? !narrow
+  const hasPoi = Boolean(tab.poi_list_topic)
 
   const mapFrame = tab.map_frame ?? 'map'
   // Each value keeps its identity until its own topic updates, so the memoised scene skips unrelated traffic.
@@ -526,6 +531,205 @@ export default function MapNavTab({
   const snackbarOpen = action.state !== 'idle' && action.message !== ''
   const hasArm = Boolean(tab.arm_urdf)
 
+  // POI list, POI editor, photo panel and photo list. Phone: a column spanning the map, so the panels' bottom
+  // sheets anchor to its bottom edge (hidden while the layers or grasp sheet is up). Wide: sections of the sidebar.
+  const poiPanels = hasPoi && (
+    <>
+      {(narrow || showPoiList) && (
+        <PoiListPanel
+          pois={poi.pois}
+          selectedId={poi.selectedId}
+          open={showPoiList && !(narrow && poi.selected)}
+          onToggle={() => setPoiListOpen(!showPoiList)}
+          onFocus={poi.focus}
+        />
+      )}
+      {poi.selected && (
+        <PoiEditorPanel
+          key={poi.selected.id}
+          poi={poi.selected}
+          busy={poi.busy}
+          onClose={() => poi.select(null)}
+          onSend={poi.send}
+        />
+      )}
+      {openPhoto && (
+        <PhotoPanel
+          key={openPhoto.id}
+          tabId={tab.id}
+          photo={openPhoto}
+          pois={poi.pois}
+          onClose={() => setPickedPhoto(null)}
+          onDeleted={() => setPickedPhoto(null)}
+        />
+      )}
+      {photoListOpen && (
+        <PhotoList
+          onSelect={setPickedPhoto}
+          tabId={tab.id}
+          revision={photoRevision}
+          selectedPoiId={poi.selectedId}
+          selectedPoiName={poi.selected ? poi.selected.name || '(unnamed)' : null}
+        />
+      )}
+    </>
+  )
+  const panels = (
+    <>
+      {poiPanels && narrow && (
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            p: 1,
+            boxSizing: 'border-box',
+            display: showPanel || graspOpen ? 'none' : 'flex',
+            flexDirection: 'column',
+            gap: 1,
+            zIndex: 1,
+            pointerEvents: 'none',
+            '& > *': { pointerEvents: 'auto' },
+          }}
+        >
+          {poiPanels}
+        </Box>
+      )}
+      {graspOpen && (
+        <Box data-grasp-panel sx={{ display: 'contents' }}>
+          <GraspPanel state={grasp} onClose={() => setGraspOpen(false)} />
+        </Box>
+      )}
+      {!narrow && poiPanels}
+      <OverlayPanel title="Layers" open={showPanel} anchor="right" onClose={() => setPanelOpen(false)}>
+        <Box>
+          {LAYER_GROUPS.map((g) => (
+            <Box key={g.title} sx={{ mb: 0.5 }}>
+              <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 2 }}>
+                {g.title}
+              </Typography>
+              {g.keys.map((k) => {
+                const disabled = (k === 'gpsMap' && !gpsAvailable) || (k === 'rtkBase' && basePosition === null)
+                return (
+                  <Box key={k}>
+                    <FormControlLabel
+                      sx={{ display: 'flex', mr: 0, minHeight: '2.5rem' }}
+                      disabled={disabled}
+                      control={<Checkbox size="small" checked={layers[k] && !disabled} onChange={() => toggleLayer(k)} />}
+                      label={
+                        <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          {LAYER_SWATCH[k] && <Swatch color={LAYER_SWATCH[k]!} />}
+                          <Typography variant="body2" component="span">
+                            {LAYER_LABELS[k]}
+                          </Typography>
+                        </Box>
+                      }
+                    />
+                    {disabled && k === 'rtkBase' && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+                        Needs the GPS anchor and a fresh base station position.
+                      </Typography>
+                    )}
+                    {disabled && k === 'gpsMap' && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+                        Needs a GPS fix and compass heading (or drive ~5 m to fit): waiting for {GPS_ANCHOR_TOPIC}.
+                      </Typography>
+                    )}
+                    {k === 'gpsMap' && tileSources.length > 1 && tileSource && (
+                      <ToggleButtonGroup
+                        exclusive
+                        size="small"
+                        value={tileSource.id}
+                        onChange={(_, id: string | null) => {
+                          if (id === null) return
+                          setStoredTileSource(id)
+                          writeStoredTileSource(browserStorage(), id)
+                        }}
+                        aria-label="Map tile source"
+                        sx={{ ml: 4, mb: 0.5 }}
+                      >
+                        {tileSources.map((src) => (
+                          <ToggleButton key={src.id} value={src.id} sx={{ py: 0, px: 1, textTransform: 'none' }}>
+                            {src.label}
+                          </ToggleButton>
+                        ))}
+                      </ToggleButtonGroup>
+                    )}
+                    {k === 'gpsMap' && layers.gpsMap && tileCaption && (
+                      <Typography variant="caption" color="warning.main" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+                        {tileCaption}
+                      </Typography>
+                    )}
+                    {k === 'gpsMap' && anchor && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+                        Anchor: {anchorSummary(anchor)}
+                      </Typography>
+                    )}
+                    {k === 'photos' && layers.photos && (
+                      <Box sx={{ ml: 4, mb: 0.5 }}>
+                        <ToggleButtonGroup
+                          exclusive
+                          size="small"
+                          value={photoAge}
+                          onChange={(_, v: PhotoAge | null) => v !== null && setPhotoAge(v)}
+                          aria-label="Photo age filter"
+                        >
+                          {PHOTO_AGES.map((a) => (
+                            <ToggleButton key={a} value={a} sx={{ py: 0, px: 1, textTransform: 'none' }}>
+                              {PHOTO_AGE_LABELS[a]}
+                            </ToggleButton>
+                          ))}
+                        </ToggleButtonGroup>
+                        <Typography variant="caption" color={layerPhotos.error ? 'error' : 'text.secondary'} sx={{ display: 'block' }}>
+                          {layerPhotos.error
+                            ? `Could not load photos: ${layerPhotos.error}`
+                            : `showing ${layerPhotos.photos.length} of ${layerPhotos.total}${layerPhotos.total > LAYER_MAX_PHOTOS ? ` (newest ${LAYER_MAX_PHOTOS} max)` : ''}`}
+                        </Typography>
+                      </Box>
+                    )}
+                    {k === 'localCostmap' && !tab.local_costmap_topic && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
+                        No costmap topic configured.
+                      </Typography>
+                    )}
+                  </Box>
+                )
+              })}
+              {g.title === 'Points of interest' && <PoiLegend />}
+            </Box>
+          ))}
+          <Divider sx={{ my: 1 }} />
+          <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 2 }}>
+            Legend
+          </Typography>
+          {MAP_LEGEND.map(([label, color]) => (
+            <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1, lineHeight: '1.375rem' }}>
+              <Swatch color={color} />
+              <Typography variant="body2">{label}</Typography>
+            </Box>
+          ))}
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontFamily: MONO_FONT }}>
+            {robotPose ? `Robot ${robotPose.x.toFixed(2)}, ${robotPose.y.toFixed(2)}` : `No ${mapFrame} pose (robot at origin)`}
+          </Typography>
+          {tab.arm_command_topic && (
+            <Typography variant="body2" color={armReady ? 'success.main' : 'warning.main'} sx={{ mt: 0.5 }}>
+              {armReady ? 'Drag arm rings/handles to move the arm' : 'Waiting for arm servo positions...'}
+            </Typography>
+          )}
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            {topView
+              ? goalMode
+                ? 'Press to place the goal, drag to set heading. Two fingers / right button pan, wheel or pinch zooms.'
+                : 'Top view: drag to pan, wheel or pinch to zoom.'
+              : 'Orbit: drag to rotate, right button / two fingers pan, wheel or pinch zooms.'}
+          </Typography>
+        </Box>
+      </OverlayPanel>
+    </>
+  )
+  // Wide layouts: the sidebar exists only while a panel is open, so with every panel closed the map is full width.
+  const sidebarOpen =
+    showPanel || graspOpen || (hasPoi && (showPoiList || poi.selected !== null || openPhoto !== null || photoListOpen))
+
   return (
     <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Paper
@@ -670,6 +874,30 @@ export default function MapNavTab({
                 onClick={() => setPanelOpen(!showPanel)}
               >
                 <LayersIcon />
+              </IconButton>
+            </Tooltip>
+            )}
+            {inRow('layers') && hasPoi && !narrow && (
+            <Tooltip title={showPoiList ? 'Hide POI list' : 'Show POI list'}>
+              <IconButton
+                aria-label={showPoiList ? 'Hide POI list' : 'Show POI list'}
+                aria-pressed={showPoiList}
+                color={showPoiList ? 'primary' : 'default'}
+                onClick={() => setPoiListOpen(!showPoiList)}
+              >
+                <FormatListBulletedIcon />
+              </IconButton>
+            </Tooltip>
+            )}
+            {inRow('layers') && hasPoi && (
+            <Tooltip title={photoListOpen ? 'Hide photo list' : 'Show photo list'}>
+              <IconButton
+                aria-label={photoListOpen ? 'Hide photo list' : 'Show photo list'}
+                aria-pressed={photoListOpen}
+                color={photoListOpen ? 'primary' : 'default'}
+                onClick={() => setPhotoListOpen((o) => !o)}
+              >
+                <PhotoLibraryIcon />
               </IconButton>
             </Tooltip>
             )}
@@ -857,6 +1085,18 @@ export default function MapNavTab({
                     {showPanel ? 'Hide layers and legend' : 'Show layers and legend'}
                   </MenuItem>
                 )}
+                {inMenu('layers') && hasPoi && (
+                  <MenuItem
+                    selected={photoListOpen}
+                    sx={{ minHeight: TOUCH_TARGET }}
+                    onClick={() => {
+                      setPhotoListOpen((o) => !o)
+                      closeMore()
+                    }}
+                  >
+                    {photoListOpen ? 'Hide photo list' : 'Show photo list'}
+                  </MenuItem>
+                )}
                 {inMenu('mapFile') && [
                   <MenuItem
                     key="save"
@@ -880,315 +1120,133 @@ export default function MapNavTab({
         </Stack>
       </Paper>
 
-      <Box
-        ref={containerRef}
-        sx={{
-          flex: 1,
-          minHeight: 0,
-          position: 'relative',
-          overflow: 'hidden',
-          bgcolor: CANVAS_BG,
-          cursor: goalMode || poiAdding || graspPicking ? 'crosshair' : poi.dragging ? 'grabbing' : 'default',
-          touchAction: 'none',
-        }}
-        onContextMenu={(e) => e.preventDefault()}
-      >
-        <Suspense
-          fallback={
-            <Centered>
-              <CircularProgress size={24} />
-            </Centered>
-          }
+      <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'row' }}>
+        <Box
+          ref={containerRef}
+          data-testid="map-container"
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            minHeight: 0,
+            position: 'relative',
+            overflow: 'hidden',
+            bgcolor: CANVAS_BG,
+            cursor: goalMode || poiAdding || graspPicking ? 'crosshair' : poi.dragging ? 'grabbing' : 'default',
+            touchAction: 'none',
+          }}
+          onContextMenu={(e) => e.preventDefault()}
         >
-          <MapScene
-            tileSource={tileSource}
-            tileZoom={tab.tile_display_zoom}
-            onTileCaption={setTileCaption}
-            baseUrdf={tab.base_urdf}
-            armUrdf={tab.arm_urdf}
-            armOffset={tab.arm_offset}
-            armCommandTopic={tab.arm_command_topic}
-            publish={publish}
-            onArmReady={onArmReady}
-            map={map}
-            costmap={isCleared(costmapMsg) ? null : costmapMsg}
-            globalPath={globalPath}
-            localPath={localPath}
-            goal={goal}
-            draftGoal={draftGoal}
-            footprint={footprint}
-            robotPose={robotPose}
-            baseJoints={baseJoints}
-            armJoints={armJoints}
-            anchor={anchor}
-            basePosition={basePosition}
-            baseLabel={baseLabel}
-            layers={layers}
-            topView={topView}
-            goalMode={goalMode || poiAdding || graspPicking}
-            pois={poi.pois}
-            selectedPoiId={poi.selectedId}
-            poiDraft={poi.draft}
-            photos={layerPhotos.photos}
-            selectedPhotoId={openPhoto?.id ?? null}
-            onSelectPhoto={goalMode || poiAdding || graspPicking ? null : selectPhotoOnMap}
-            graspPreview={graspOpen ? grasp.preview : null}
-            popup={popup}
-            onPopupClose={closePopup}
-            onPopupOpen={openPopupItem}
-            controllerRef={controllerRef}
-            mapFrame={mapFrame}
-          />
-        </Suspense>
-        {layers.gpsMap && anchor && tileSource?.attribution && (
-          <Typography
-            variant="caption"
-            sx={{
-              position: 'absolute',
-              right: 4,
-              bottom: 2,
-              px: 0.5,
-              color: 'text.secondary',
-              bgcolor: 'rgba(0,0,0,0.45)',
-              pointerEvents: 'none',
-              fontSize: '0.65rem',
-            }}
-          >
-            {tileSource.attribution}
-          </Typography>
-        )}
-
-        {!map && (
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ position: 'absolute', top: 1, left: 1, pointerEvents: 'none' }}
-          >
-            Waiting for map on {tab.map_topic ?? '?'}...
-          </Typography>
-        )}
-
-        {tab.poi_list_topic && (
-          <Box
-            sx={{
-              position: 'absolute',
-              // Phone: the column spans the map so the panel bottom sheets anchor to its bottom edge.
-              top: { xs: 0, sm: 8 },
-              left: { xs: 0, sm: 8 },
-              right: { xs: 0, sm: 'auto' },
-              bottom: { xs: 0, sm: 'auto' },
-              p: { xs: 1, sm: 0 },
-              boxSizing: 'border-box',
-              width: { sm: 'clamp(15rem, 30vw, 20rem)' },
-              maxWidth: { sm: 'calc(100% - 1rem)' },
-              display: { xs: showPanel || graspOpen ? 'none' : 'flex', sm: 'flex' },
-              flexDirection: 'column',
-              gap: 1,
-              zIndex: 1,
-              pointerEvents: 'none',
-              '& > *': { pointerEvents: 'auto' },
-            }}
-          >
-            <PoiListPanel
-              pois={poi.pois}
-              selectedId={poi.selectedId}
-              open={showPoiList && !(narrow && poi.selected)}
-              onToggle={() => setPoiListOpen(!showPoiList)}
-              onFocus={poi.focus}
-            />
-            {poi.selected && (
-              <PoiEditorPanel
-                key={poi.selected.id}
-                poi={poi.selected}
-                busy={poi.busy}
-                onClose={() => poi.select(null)}
-                onSend={poi.send}
-              />
-            )}
-            {openPhoto && (
-              <PhotoPanel
-                key={openPhoto.id}
-                tabId={tab.id}
-                photo={openPhoto}
-                pois={poi.pois}
-                onClose={() => setPickedPhoto(null)}
-                onDeleted={() => setPickedPhoto(null)}
-              />
-            )}
-            <PhotoList
-              onSelect={setPickedPhoto}
-              tabId={tab.id}
-              revision={photoRevision}
-              selectedPoiId={poi.selectedId}
-              selectedPoiName={poi.selected ? poi.selected.name || '(unnamed)' : null}
-            />
-          </Box>
-        )}
-
-        {graspPicking && (
-          <Alert
-            severity="info"
-            data-grasp-panel
-            onPointerDown={(e) => e.stopPropagation()}
-            action={
-              <Button color="inherit" size="small" onClick={() => setGraspPick()}>
-                Cancel
-              </Button>
+          <Suspense
+            fallback={
+              <Centered>
+                <CircularProgress size={24} />
+              </Centered>
             }
-            sx={{ position: 'absolute', top: 1, left: '50%', transform: 'translateX(-50%)', zIndex: 3, maxWidth: 'calc(100% - 1rem)' }}
           >
-            Click the object on the map
-          </Alert>
-        )}
+            <MapScene
+              tileSource={tileSource}
+              tileZoom={tab.tile_display_zoom}
+              onTileCaption={setTileCaption}
+              baseUrdf={tab.base_urdf}
+              armUrdf={tab.arm_urdf}
+              armOffset={tab.arm_offset}
+              armCommandTopic={tab.arm_command_topic}
+              publish={publish}
+              onArmReady={onArmReady}
+              map={map}
+              costmap={isCleared(costmapMsg) ? null : costmapMsg}
+              globalPath={globalPath}
+              localPath={localPath}
+              goal={goal}
+              draftGoal={draftGoal}
+              footprint={footprint}
+              robotPose={robotPose}
+              baseJoints={baseJoints}
+              armJoints={armJoints}
+              anchor={anchor}
+              basePosition={basePosition}
+              baseLabel={baseLabel}
+              layers={layers}
+              topView={topView}
+              goalMode={goalMode || poiAdding || graspPicking}
+              pois={poi.pois}
+              selectedPoiId={poi.selectedId}
+              poiDraft={poi.draft}
+              photos={layerPhotos.photos}
+              selectedPhotoId={openPhoto?.id ?? null}
+              onSelectPhoto={goalMode || poiAdding || graspPicking ? null : selectPhotoOnMap}
+              graspPreview={graspOpen ? grasp.preview : null}
+              popup={popup}
+              onPopupClose={closePopup}
+              onPopupOpen={openPopupItem}
+              controllerRef={controllerRef}
+              mapFrame={mapFrame}
+            />
+          </Suspense>
+          {layers.gpsMap && anchor && tileSource?.attribution && (
+            <Typography
+              variant="caption"
+              sx={{
+                position: 'absolute',
+                right: 4,
+                bottom: 2,
+                px: 0.5,
+                color: 'text.secondary',
+                bgcolor: 'rgba(0,0,0,0.45)',
+                pointerEvents: 'none',
+                fontSize: '0.65rem',
+              }}
+            >
+              {tileSource.attribution}
+            </Typography>
+          )}
 
-        {graspOpen && (
-          <Box data-grasp-panel sx={{ display: 'contents' }}>
-            <GraspPanel state={grasp} onClose={() => setGraspOpen(false)} />
-          </Box>
-        )}
+          {!map && (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{ position: 'absolute', top: 1, left: 1, pointerEvents: 'none' }}
+            >
+              Waiting for map on {tab.map_topic ?? '?'}...
+            </Typography>
+          )}
 
-        <OverlayPanel title="Layers" open={showPanel} anchor="right" onClose={() => setPanelOpen(false)}>
-          <Box>
-              {LAYER_GROUPS.map((g) => (
-                <Box key={g.title} sx={{ mb: 0.5 }}>
-                  <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 2 }}>
-                    {g.title}
-                  </Typography>
-                  {g.keys.map((k) => {
-                    const disabled = (k === 'gpsMap' && !gpsAvailable) || (k === 'rtkBase' && basePosition === null)
-                    return (
-                      <Box key={k}>
-                        <FormControlLabel
-                          sx={{ display: 'flex', mr: 0, minHeight: '2.5rem' }}
-                          disabled={disabled}
-                          control={<Checkbox size="small" checked={layers[k] && !disabled} onChange={() => toggleLayer(k)} />}
-                          label={
-                            <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              {LAYER_SWATCH[k] && <Swatch color={LAYER_SWATCH[k]!} />}
-                              <Typography variant="body2" component="span">
-                                {LAYER_LABELS[k]}
-                              </Typography>
-                            </Box>
-                          }
-                        />
-                        {disabled && k === 'rtkBase' && (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                            Needs the GPS anchor and a fresh base station position.
-                          </Typography>
-                        )}
-                        {disabled && k === 'gpsMap' && (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                            Needs a GPS fix and compass heading (or drive ~5 m to fit): waiting for {GPS_ANCHOR_TOPIC}.
-                          </Typography>
-                        )}
-                        {k === 'gpsMap' && tileSources.length > 1 && tileSource && (
-                          <ToggleButtonGroup
-                            exclusive
-                            size="small"
-                            value={tileSource.id}
-                            onChange={(_, id: string | null) => {
-                              if (id === null) return
-                              setStoredTileSource(id)
-                              writeStoredTileSource(browserStorage(), id)
-                            }}
-                            aria-label="Map tile source"
-                            sx={{ ml: 4, mb: 0.5 }}
-                          >
-                            {tileSources.map((src) => (
-                              <ToggleButton key={src.id} value={src.id} sx={{ py: 0, px: 1, textTransform: 'none' }}>
-                                {src.label}
-                              </ToggleButton>
-                            ))}
-                          </ToggleButtonGroup>
-                        )}
-                        {k === 'gpsMap' && layers.gpsMap && tileCaption && (
-                          <Typography variant="caption" color="warning.main" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                            {tileCaption}
-                          </Typography>
-                        )}
-                        {k === 'gpsMap' && anchor && (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                            Anchor: {anchorSummary(anchor)}
-                          </Typography>
-                        )}
-                        {k === 'photos' && layers.photos && (
-                          <Box sx={{ ml: 4, mb: 0.5 }}>
-                            <ToggleButtonGroup
-                              exclusive
-                              size="small"
-                              value={photoAge}
-                              onChange={(_, v: PhotoAge | null) => v !== null && setPhotoAge(v)}
-                              aria-label="Photo age filter"
-                            >
-                              {PHOTO_AGES.map((a) => (
-                                <ToggleButton key={a} value={a} sx={{ py: 0, px: 1, textTransform: 'none' }}>
-                                  {PHOTO_AGE_LABELS[a]}
-                                </ToggleButton>
-                              ))}
-                            </ToggleButtonGroup>
-                            <Typography variant="caption" color={layerPhotos.error ? 'error' : 'text.secondary'} sx={{ display: 'block' }}>
-                              {layerPhotos.error
-                                ? `Could not load photos: ${layerPhotos.error}`
-                                : `showing ${layerPhotos.photos.length} of ${layerPhotos.total}${layerPhotos.total > LAYER_MAX_PHOTOS ? ` (newest ${LAYER_MAX_PHOTOS} max)` : ''}`}
-                            </Typography>
-                          </Box>
-                        )}
-                        {k === 'localCostmap' && !tab.local_costmap_topic && (
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                            No costmap topic configured.
-                          </Typography>
-                        )}
-                      </Box>
-                    )
-                  })}
-                  {g.title === 'Points of interest' && <PoiLegend />}
-                </Box>
-              ))}
-              <Divider sx={{ my: 1 }} />
-              <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 2 }}>
-                Legend
-              </Typography>
-              {MAP_LEGEND.map(([label, color]) => (
-                <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1, lineHeight: '1.375rem' }}>
-                  <Swatch color={color} />
-                  <Typography variant="body2">{label}</Typography>
-                </Box>
-              ))}
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontFamily: MONO_FONT }}>
-                {robotPose ? `Robot ${robotPose.x.toFixed(2)}, ${robotPose.y.toFixed(2)}` : `No ${mapFrame} pose (robot at origin)`}
-              </Typography>
-              {tab.arm_command_topic && (
-                <Typography variant="body2" color={armReady ? 'success.main' : 'warning.main'} sx={{ mt: 0.5 }}>
-                  {armReady ? 'Drag arm rings/handles to move the arm' : 'Waiting for arm servo positions...'}
-                </Typography>
-              )}
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                {topView
-                  ? goalMode
-                    ? 'Press to place the goal, drag to set heading. Two fingers / right button pan, wheel or pinch zooms.'
-                    : 'Top view: drag to pan, wheel or pinch to zoom.'
-                  : 'Orbit: drag to rotate, right button / two fingers pan, wheel or pinch zooms.'}
-              </Typography>
-          </Box>
-        </OverlayPanel>
+          {graspPicking && (
+            <Alert
+              severity="info"
+              data-grasp-panel
+              onPointerDown={(e) => e.stopPropagation()}
+              action={
+                <Button color="inherit" size="small" onClick={() => setGraspPick()}>
+                  Cancel
+                </Button>
+              }
+              sx={{ position: 'absolute', top: 1, left: '50%', transform: 'translateX(-50%)', zIndex: 3, maxWidth: 'calc(100% - 1rem)' }}
+            >
+              Click the object on the map
+            </Alert>
+          )}
 
-        <Snackbar
-          open={snackbarOpen}
-          autoHideDuration={SNACKBAR_MS[action.state]}
-          onClose={(_e, reason) => reason !== 'clickaway' && setAction({ state: 'idle', message: '' })}
-          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-          sx={{ position: 'absolute' }}
-        >
-          <Alert
-            onPointerDown={(e) => e.stopPropagation()}
-            variant="filled"
-            severity={action.state === 'ok' ? 'success' : action.state === 'error' ? 'error' : 'info'}
-            onClose={busy ? undefined : () => setAction({ state: 'idle', message: '' })}
-            sx={{ width: '100%' }}
+          <Snackbar
+            open={snackbarOpen}
+            autoHideDuration={SNACKBAR_MS[action.state]}
+            onClose={(_e, reason) => reason !== 'clickaway' && setAction({ state: 'idle', message: '' })}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            sx={{ position: 'absolute' }}
           >
-            {action.message}
-          </Alert>
-        </Snackbar>
+            <Alert
+              onPointerDown={(e) => e.stopPropagation()}
+              variant="filled"
+              severity={action.state === 'ok' ? 'success' : action.state === 'error' ? 'error' : 'info'}
+              onClose={busy ? undefined : () => setAction({ state: 'idle', message: '' })}
+              sx={{ width: '100%' }}
+            >
+              {action.message}
+            </Alert>
+          </Snackbar>
+          {narrow && <MapSidebar>{panels}</MapSidebar>}
+        </Box>
+        {!narrow && sidebarOpen && <MapSidebar>{panels}</MapSidebar>}
       </Box>
     </Box>
   )

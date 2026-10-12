@@ -1,12 +1,14 @@
 /**
  * Floating panel drawn over the map or a 3D view. Phone: bottom sheet (max 60dvh).
  * Flat: opaque background, 1 px border, radius 2, no shadow or blur.
- * Tablet and desktop: floating card of width clamp(280px, 30vw, 380px) anchored left, right or bottom.
+ * Tablet and desktop: floating card of width clamp(280px, 30vw, 380px) anchored left, right or bottom; inside a
+ * MapSidebar it is a stacked section of the docked column instead (in flow, full width, divider below).
  */
 import type { CSSProperties, ReactNode } from 'react'
 import { Box, IconButton, Typography, useMediaQuery } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
 import { PANEL_BG, TOKENS, TOUCH_TARGET_PX } from '../theme'
+import { useDockedInSidebar } from './MapSidebar'
 import { useLayout } from './useLayout'
 
 const CARD_WIDTH = 'clamp(280px, 30vw, 380px)'
@@ -38,12 +40,16 @@ export interface OverlayPanelProps {
 export function OverlayPanel({ title, open, anchor, onClose, docked = false, actions, children }: OverlayPanelProps) {
   const layout = useLayout()
   const coarse = useMediaQuery('(pointer: coarse)')
+  const inSidebar = useDockedInSidebar()
   if (!open) return null
 
   const phone = layout === 'phone'
+  const section = inSidebar && !phone
   let position: CSSProperties
   if (phone) {
     position = { left: 0, right: 0, bottom: 0, maxHeight: SHEET_MAX_HEIGHT, borderRadius: '0' }
+  } else if (section) {
+    position = { position: 'relative', width: '100%', borderRadius: '0' }
   } else if (docked) {
     position = { position: 'relative', width: '100%', maxHeight: '75dvh' }
   } else if (anchor === 'bottom') {
@@ -56,9 +62,17 @@ export function OverlayPanel({ title, open, anchor, onClose, docked = false, act
     <Box
       data-testid="overlay-panel"
       data-layout={layout}
+      data-docked={section}
       onPointerDown={(e) => e.stopPropagation()}
       style={{ position: 'absolute', zIndex: Z_INDEX, flexShrink: 0, background: PANEL_BG, ...position }}
-      sx={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', border: 1, borderColor: 'divider', borderRadius: `${TOKENS.radius}px` }}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        borderRadius: `${TOKENS.radius}px`,
+        borderColor: 'divider',
+        ...(section ? { borderBottom: 1 } : { border: 1 }),
+      }}
     >
       <Box
         data-testid="overlay-panel-header"

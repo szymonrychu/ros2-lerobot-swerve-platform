@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { theme, PANEL_BG, TOKENS, TOUCH_TARGET_PX } from '../theme'
 import { useLayout } from './useLayout'
+import { MapSidebar } from './MapSidebar'
 import { OverlayPanel } from './OverlayPanel'
 import { designViolations, SOURCES } from './designRules'
 
@@ -179,8 +180,38 @@ describe('OverlayPanel', () => {
     expect(panel.style.boxShadow).toBe('')
   })
 
+  it.each([800, 1400])('inside a MapSidebar at %i px: an in-flow section with the header and a divider below', (width) => {
+    viewportWidth = width
+    renderWithTheme(
+      <MapSidebar>
+        <OverlayPanel title="Layers" open anchor="right" onClose={() => undefined}>b</OverlayPanel>
+      </MapSidebar>,
+    )
+    const panel = screen.getByTestId('overlay-panel')
+    expect(panel.getAttribute('data-docked')).toBe('true')
+    expect(panel.style.position).toBe('relative')
+    expect(panel.style.width).toBe('100%')
+    expect(panel.getAttribute('style')).not.toContain('clamp(')
+    expect(panel.contains(screen.getByTestId('overlay-panel-header'))).toBe(true)
+    expect(screen.getByRole('button', { name: 'Close' })).toBeTruthy()
+  })
+
+  it('docked prop outside a sidebar: an in-flow card on wide layouts, a bottom sheet on phone', () => {
+    viewportWidth = 1400
+    const { unmount } = renderWithTheme(<OverlayPanel title="T" open anchor="bottom" docked>b</OverlayPanel>)
+    let panel = screen.getByTestId('overlay-panel')
+    expect(panel.style.position).toBe('relative')
+    expect(panel.getAttribute('data-docked')).toBe('false')
+    unmount()
+    viewportWidth = 400
+    renderWithTheme(<OverlayPanel title="T" open anchor="bottom" docked>b</OverlayPanel>)
+    panel = screen.getByTestId('overlay-panel')
+    expect(panel.style.position).toBe('absolute')
+    expect(panel.style.bottom).toBe('0px')
+  })
+
   it('passes the design rules', () => {
-    for (const file of ['layout/OverlayPanel.tsx', 'layout/ConfirmDialog.tsx']) {
+    for (const file of ['layout/OverlayPanel.tsx', 'layout/ConfirmDialog.tsx', 'layout/MapSidebar.tsx']) {
       expect(designViolations(file, SOURCES[file])).toEqual([])
     }
   })

@@ -29,6 +29,7 @@ import type { Poi } from '../poi/types'
 import type { FocusTarget } from './mapFocus'
 import { MapPopup } from './MapPopup'
 import { pickGround } from './picking'
+import { useInvalidateOnResize } from './useInvalidateOnResize'
 import type { TileSourceInfo } from './tileSources'
 import {
   BaseStationMarker,
@@ -389,15 +390,21 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
 
 /** The canvas; memoised so the tab's re-renders on unrelated topics never reach it. */
 export const MapScene = memo(function MapScene(props: MapSceneProps & { mapFrame?: string }) {
+  // The canvas fills this box; when a docked sidebar opens or closes beside the map the box changes width, the
+  // Canvas resizes with it and one frame is requested (the loop stays on demand).
+  const boxRef = useRef<HTMLDivElement>(null)
+  useInvalidateOnResize(boxRef)
   return (
-    <Canvas
-      frameloop="demand"
-      camera={{ position: INITIAL_CAMERA, fov: CAMERA_FOV, near: 0.02, far: 1000 }}
-      style={{ background: CANVAS_BG, touchAction: 'none' }}
-      dpr={[1, 2]}
-    >
-      <SceneContents {...props} />
-    </Canvas>
+    <div ref={boxRef} style={{ width: '100%', height: '100%' }}>
+      <Canvas
+        frameloop="demand"
+        camera={{ position: INITIAL_CAMERA, fov: CAMERA_FOV, near: 0.02, far: 1000 }}
+        style={{ background: CANVAS_BG, touchAction: 'none' }}
+        dpr={[1, 2]}
+      >
+        <SceneContents {...props} />
+      </Canvas>
+    </div>
   )
 })
 
