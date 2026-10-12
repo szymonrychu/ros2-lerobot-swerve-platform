@@ -1405,6 +1405,7 @@ Static checks of the `leader_bridge` deployment (leader arm teleop relay, Client
 | `test_client_playbook_deploys_the_bridge` | `deploy_nodes_client.yml` deploys `leader_bridge` with its tags. |
 | `test_ci_matrix_lists_the_node` | The CI node matrix names `leader_bridge`. |
 | `test_docs_list_the_node_and_this_test` | `nodes/README.md` lists the node and this README documents the file. |
+| `test_shipped_arm_tab_names_the_arm_urdf` | The deployed web_ui Arm tab sets `arm_urdf: so101_arm.urdf` and the file exists under `nodes/web_ui/urdf`. |
 
 ### test_nav_stack_config.py
 

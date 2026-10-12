@@ -91,3 +91,11 @@ def test_ci_matrix_lists_the_node() -> None:
 def test_docs_list_the_node_and_this_test() -> None:
     assert "**leader_bridge/**" in (REPO_ROOT / "nodes" / "README.md").read_text()
     assert "test_leader_bridge_config.py" in (REPO_ROOT / "tests" / "README.md").read_text()
+
+
+def test_shipped_arm_tab_names_the_arm_urdf() -> None:
+    """The deployed Arm tab carries arm_urdf, an existing file under web_ui/urdf, so its 3D view is not empty."""
+    web_ui = yaml.safe_load(client_node("web_ui")["config"])
+    arm = next(t for t in web_ui["tabs"] if t["type"] == "arm")
+    assert arm["arm_urdf"] == "so101_arm.urdf"
+    assert (REPO_ROOT / "nodes" / "web_ui" / "urdf" / arm["arm_urdf"]).is_file()
