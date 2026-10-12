@@ -3,12 +3,13 @@ import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import Box from '@mui/material/Box'
 import log from '../logging'
+import { AXIS_COLOR, GRID_COLOR, SERIES_COLORS } from '../map3d/palette'
 import { CANVAS_BG, SANS_FONT } from '../theme'
 import { TabConfig } from '../types'
 import { getOrCreateBuffer } from '../utils/graphBuffers'
 
-const AXIS_STROKE = '#9da7b3'
-const GRID_STROKE = 'rgba(255, 255, 255, 0.08)'
+const AXIS_STROKE = AXIS_COLOR
+const GRID_STROKE = GRID_COLOR
 const MIN_PLOT_HEIGHT = 80
 
 /**
@@ -45,13 +46,13 @@ export default function SensorGraphTab({ tab, topicData }: Props) {
 
     const series: uPlot.Series[] = [
       {},
-      ...topics.flatMap((ts) =>
-        ts.fields.map((f) => ({
+      ...topics
+        .flatMap((ts) => ts.fields)
+        .map((f, i) => ({
           label: f.label,
-          stroke: f.color ?? '#888',
+          stroke: f.color ?? SERIES_COLORS[i % SERIES_COLORS.length],
           width: 1,
-        }))
-      ),
+        })),
     ]
 
     const container = containerRef.current

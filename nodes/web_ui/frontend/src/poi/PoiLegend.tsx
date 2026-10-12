@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
-import { KIND_COLORS, KIND_SHAPE, zoneStyle, type MarkerShape } from './style'
+import { KIND_COLORS, KIND_SHAPE, SHAPE_CLIP, zoneStyle, type MarkerShape } from './style'
 import type { Poi, PoiZone } from './types'
 
 interface LegendEntry {
@@ -8,13 +8,6 @@ interface LegendEntry {
   label: string
   color: string
   shape: MarkerShape
-}
-
-const SHAPE_CLIP: Record<MarkerShape, string> = {
-  circle: 'circle(50%)',
-  square: 'none',
-  diamond: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)',
-  triangle: 'polygon(50% 0, 100% 100%, 0 100%)',
 }
 
 /** Reference open area per zone, so the legend reads the zone colour from zoneStyle instead of duplicating it. */

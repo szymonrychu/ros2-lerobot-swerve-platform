@@ -71,3 +71,9 @@ export const ARM_COLORS = {
   ghost: 0xcccccc,
   mesh: 0x888888,
 } as const
+
+/** Sensor graph chrome: light grey axis text, faint white grid and ticks. */
+export const AXIS_COLOR = '#9a9a9a'
+export const GRID_COLOR = 'rgba(255, 255, 255, 0.08)'
+/** Sensor graph series colours, greyscale steps used in order when a field sets no colour of its own. */
+export const SERIES_COLORS = ['#f2f2f2', '#b3b3b3', '#808080', '#d9d9d9', '#999999', '#666666'] as const

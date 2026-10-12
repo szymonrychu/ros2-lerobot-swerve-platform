@@ -93,7 +93,7 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
               style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
             />
           ) : (
-            <WaitingMessage>Waiting for {tab.color_topic}…</WaitingMessage>
+            <WaitingMessage>Waiting for {tab.color_topic}...</WaitingMessage>
           )}
         </Box>
         <Box sx={PREVIEW_SX}>
@@ -104,7 +104,7 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
               style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
             />
           ) : (
-            <WaitingMessage>Waiting for {tab.depth_topic}…</WaitingMessage>
+            <WaitingMessage>Waiting for {tab.depth_topic}...</WaitingMessage>
           )}
         </Box>
       </Stack>
@@ -128,7 +128,7 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
             <OrbitControls makeDefault />
           </Canvas>
         ) : (
-          <WaitingMessage>Waiting for depth + color + camera info…</WaitingMessage>
+          <WaitingMessage>Waiting for depth + color + camera info...</WaitingMessage>
         )}
       </Box>
     </Box>

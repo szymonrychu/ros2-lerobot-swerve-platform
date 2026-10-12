@@ -24,6 +24,14 @@ export function markerSides(kind: PoiKind): number {
   return SHAPE_SIDES[KIND_SHAPE[kind]]
 }
 
+/** CSS clip-path of each marker shape, for list and legend swatches. */
+export const SHAPE_CLIP: Record<MarkerShape, string> = {
+  circle: 'circle(50%)',
+  square: 'none',
+  diamond: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)',
+  triangle: 'polygon(50% 0, 100% 100%, 0 100%)',
+}
+
 export { CREATOR_OUTLINE, KIND_COLORS, OBJECT_COLOR, STATUS_COLORS, ZONE_COLORS }
 const CLOSED_OPACITY = 0.35
 const OPEN_OPACITY = 0.6

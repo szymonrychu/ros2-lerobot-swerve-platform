@@ -9,9 +9,9 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { filterItems, focusRequestFor, isLocated, sortItems } from '../poi/poiItems'
 import type { PendingFocus, PoiItem } from '../poi/poiItems'
-import { fillColor, formatUpdated } from '../poi/style'
+import { fillColor, formatUpdated, KIND_SHAPE, SHAPE_CLIP } from '../poi/style'
 import type { PoiKind } from '../poi/types'
-import { TOUCH_TARGET_PX } from '../theme'
+import { TOKENS, TOUCH_TARGET_PX } from '../theme'
 
 const KIND_ORDER: readonly PoiKind[] = ['point', 'area', 'object', 'photo']
 const NO_POSITION_REASON = 'no map position'
@@ -55,7 +55,7 @@ export default function PoiTab({ items, onShowOnMap, now }: Props) {
 
   return (
     <Box sx={{ height: '100%', overflow: 'auto', p: 2 }}>
-      <Stack spacing={1.5}>
+      <Stack spacing={2}>
         <TextField size="small" label="Search" value={query} onChange={(e) => setQuery(e.target.value)} fullWidth />
         <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
           {KIND_ORDER.map((kind) => (
@@ -64,10 +64,14 @@ export default function PoiTab({ items, onShowOnMap, now }: Props) {
               label={kind}
               clickable
               role="button"
-              color={kinds.has(kind) ? 'primary' : 'default'}
-              variant={kinds.has(kind) ? 'filled' : 'outlined'}
+              variant="outlined"
+              aria-pressed={kinds.has(kind)}
               onClick={() => toggle(kind)}
-              sx={{ minHeight: TOUCH_TARGET_PX }}
+              sx={{
+                minHeight: TOUCH_TARGET_PX,
+                borderRadius: TOKENS.radius,
+                ...(kinds.has(kind) && { borderColor: TOKENS.accent, color: TOKENS.accent, bgcolor: TOKENS.bgRaised }),
+              }}
             />
           ))}
         </Stack>
@@ -78,8 +82,13 @@ export default function PoiTab({ items, onShowOnMap, now }: Props) {
         ) : (
           <List disablePadding>
             {visible.map((item) => (
-              <ListItem key={item.key} divider sx={{ gap: 1.5, flexWrap: 'wrap', px: 0 }}>
-                <Box data-testid="kind-swatch" data-color={swatchColor(item)} sx={{ width: '1rem', height: '1rem', borderRadius: '50%', bgcolor: swatchColor(item), flexShrink: 0 }} />
+              <ListItem key={item.key} divider sx={{ gap: 2, flexWrap: 'wrap', px: 0 }}>
+                <Box
+                  data-testid="kind-swatch"
+                  data-color={swatchColor(item)}
+                  data-shape={KIND_SHAPE[item.kind]}
+                  sx={{ width: '1rem', height: '1rem', clipPath: SHAPE_CLIP[KIND_SHAPE[item.kind]], bgcolor: swatchColor(item), flexShrink: 0 }}
+                />
                 <Box sx={{ flex: '1 1 12rem', minWidth: 0 }}>
                   <Typography variant="subtitle2" noWrap>{item.name}</Typography>
                   <Typography variant="caption" color="text.secondary" component="div">

@@ -3,9 +3,9 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import PoiTab, { swatchColor } from './PoiTab'
 import { sortItems, type PoiItem } from '../poi/poiItems'
-import { KIND_COLORS, markerColors, STATUS_COLORS, ZONE_COLORS } from '../poi/style'
+import { KIND_COLORS, KIND_SHAPE, markerColors, STATUS_COLORS, ZONE_COLORS } from '../poi/style'
 import type { Poi } from '../poi/types'
-import { TOUCH_TARGET_PX } from '../theme'
+import { TOKENS, TOUCH_TARGET_PX } from '../theme'
 
 function item(over: Partial<PoiItem>): PoiItem {
   return { key: 'poi:a', kind: 'point', name: 'Door', x: 1, y: 2, note: '', updated: 1000, source: 'poi', ...over }
@@ -41,6 +41,25 @@ describe('PoiTab', () => {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${kind}$`, 'i') }))
       expect(rows()).toHaveLength(4)
     }
+  })
+
+  it('kind chips are outlined radius-2 with the accent as selected state, never primary-filled', () => {
+    render(<PoiTab items={ITEMS} onShowOnMap={vi.fn()} />)
+    const chip = screen.getByRole('button', { name: /^point$/i })
+    expect(chip.className).not.toMatch(/colorPrimary|MuiChip-filled/)
+    expect(chip.className).toMatch(/MuiChip-outlined/)
+    expect(chip.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(chip)
+    expect(chip.getAttribute('aria-pressed')).toBe('true')
+    expect(chip.className).not.toMatch(/colorPrimary|MuiChip-filled/)
+    expect(getComputedStyle(chip).borderColor.replace(/\s/g, '')).toBe('rgb(232,234,237)')
+    expect(TOKENS.accent).toBe('#e8eaed')
+  })
+
+  it('every row swatch shows the KIND_SHAPE of its kind', () => {
+    render(<PoiTab items={ITEMS} onShowOnMap={vi.fn()} />)
+    const shapes = rows().map((r) => within(r).getByTestId('kind-swatch').getAttribute('data-shape'))
+    expect(shapes.sort()).toEqual(ITEMS.map((i) => KIND_SHAPE[i.kind]).sort())
   })
 
   it('searches name and note', () => {
