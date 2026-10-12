@@ -7,6 +7,7 @@ import type { Photo } from '../photos/api'
 import type { PhotoLayerData } from '../photos/usePhotoLayer'
 import { itemId } from '../poi/poiItems'
 import type { Poi } from '../poi/types'
+import { TOUCH_TARGET_PX } from '../theme'
 import type { TabConfig } from '../types'
 import type { MapSceneProps, SceneController } from './MapScene'
 import { consumeFocus, resolveFocus, whenController, type FocusTarget } from './mapFocus'
@@ -232,6 +233,23 @@ describe('MapPopup', () => {
     fireEvent.pointerDown(screen.getByText('Kitchen'))
     fireEvent.doubleClick(screen.getByText('Kitchen'))
     expect(parentDown).not.toHaveBeenCalled()
+  })
+
+  it('keeps every popup button at least TOUCH_TARGET_PX square', () => {
+    const t: FocusTarget = {
+      anchor: { x: 3, y: 4 },
+      item: { key: 'photo:f1', kind: 'photo', name: 'Shot', x: 3, y: 4, note: '', updated: 1700000000, source: 'photo' },
+    }
+    for (const target_ of [target(), t]) {
+      cleanup()
+      render(<MapPopup target={target_} onClose={vi.fn()} onOpen={vi.fn()} />)
+      const buttons = screen.getAllByRole('button')
+      expect(buttons.length).toBeGreaterThanOrEqual(2)
+      for (const btn of buttons) {
+        expect(parseFloat(btn.style.minWidth)).toBeGreaterThanOrEqual(TOUCH_TARGET_PX)
+        expect(parseFloat(btn.style.minHeight)).toBeGreaterThanOrEqual(TOUCH_TARGET_PX)
+      }
+    }
   })
 
   it('closes on its X and on Escape', () => {

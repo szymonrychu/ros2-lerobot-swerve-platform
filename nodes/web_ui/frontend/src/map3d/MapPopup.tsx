@@ -12,7 +12,7 @@ import { capturedAt, photoThumbUrl } from '../photos/api'
 import { isClick } from '../poi/editor'
 import { itemId, type PoiItem } from '../poi/poiItems'
 import { KIND_COLORS, STATUS_COLORS, ZONE_COLORS } from '../poi/style'
-import { PANEL_BG, SANS_FONT } from '../theme'
+import { PANEL_BG, SANS_FONT, TOUCH_TARGET_PX } from '../theme'
 import { rosToThree } from './coords'
 import type { FocusTarget } from './mapFocus'
 
@@ -171,8 +171,8 @@ export function MapPopup({ target, onClose, onOpen }: MapPopupProps) {
 
 function buttonStyle(primary: boolean): CSSProperties {
   return {
-    minWidth: 32,
-    minHeight: 32,
+    minWidth: TOUCH_TARGET_PX,
+    minHeight: TOUCH_TARGET_PX,
     padding: '0 10px',
     font: `600 12px ${SANS_FONT}`,
     color: primary ? '#0b0d10' : '#e6edf3',
