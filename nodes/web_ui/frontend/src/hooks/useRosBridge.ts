@@ -44,7 +44,7 @@ export function useRosBridge(_topics: string[], onError?: (error: BridgeError) =
     }
 
     ws.onmessage = (evt) => {
-      log.debug('[bridge] ←', evt.data.length, 'bytes')
+      log.debug('[bridge] recv', evt.data.length, 'bytes')
       const frame = parseWsFrame(evt.data as string)
       if (frame?.kind === 'envelope') {
         log.debug('[bridge] topic updated:', frame.topic)
@@ -82,7 +82,7 @@ export function useRosBridge(_topics: string[], onError?: (error: BridgeError) =
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       const frame = JSON.stringify({ type: 'publish', topic, msg_type: msgType, data })
       wsRef.current.send(frame)
-      log.debug('[bridge] → publish:', topic)
+      log.debug('[bridge] send publish:', topic)
     }
   }, [])
 

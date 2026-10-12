@@ -109,8 +109,9 @@ describe('designViolations on shipped sources', () => {
     expect(designViolations(SELF_PATH, SOURCES[SELF_PATH])).toEqual([])
   })
 
-  it.each(['theme.ts', 'main.tsx'])('%s has no violations', (file) => {
-    expect(designViolations(file, SOURCES[file])).toEqual([])
+  it('every non-test source under src has no violations', () => {
+    const all = Object.entries(SOURCES).flatMap(([file, source]) => designViolations(file, source))
+    expect(all).toEqual([])
   })
 })
 

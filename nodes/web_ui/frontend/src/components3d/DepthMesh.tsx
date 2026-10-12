@@ -79,7 +79,7 @@ export default function DepthMesh({
         for (let u = 0; u < W; u++) {
           const i = v * W + u
           const d = depth[i]
-          const z = d / 1000.0  // mm → metres
+          const z = d / 1000.0  // mm to metres
           if (d > 0) {
             positions[i * 3 + 0] = (u - cx) * z / fx      // x: right
             positions[i * 3 + 1] = -((v - cy) * z / fy)   // y: up (flip image Y)
@@ -109,7 +109,7 @@ export default function DepthMesh({
           const d00 = depth[i00], d10 = depth[i10]
           const d01 = depth[i01], d11 = depth[i11]
 
-          // Upper triangle: top-left → top-right → bottom-left
+          // Upper triangle: top-left to top-right to bottom-left
           if (
             d00 > 0 && d10 > 0 && d01 > 0 &&
             Math.max(d00, d10, d01) - Math.min(d00, d10, d01) < DISCONTINUITY_MM
@@ -118,7 +118,7 @@ export default function DepthMesh({
             indexArray[indexCount++] = i10
             indexArray[indexCount++] = i01
           }
-          // Lower triangle: top-right → bottom-right → bottom-left
+          // Lower triangle: top-right to bottom-right to bottom-left
           if (
             d10 > 0 && d11 > 0 && d01 > 0 &&
             Math.max(d10, d11, d01) - Math.min(d10, d11, d01) < DISCONTINUITY_MM

@@ -54,6 +54,20 @@ A `rclpy` node (`web_ui_bridge`) subscribes to ROS2 topics and stores the latest
 
 Inbound publish frames (`{"type": "publish", "topic", "msg_type", "data"}`) are only accepted for allowlisted topics (tab `goal_topic` / `arm_command_topic`). JSON values are converted to each message field's type (int fields such as `header.stamp.sec` get ints, float fields get floats, numeric arrays are converted element-wise); a value that does not fit its field is rejected and logged, not silently dropped. A zero `header.stamp` is filled with the node clock, and an empty `header.frame_id` on a `map_nav` goal topic is filled with the tab's `map_frame`.
 
+## Design rules
+
+The UI is a neutral dark theme in the style of Grafana without its colour detail. The rules are enforced by a test, so read them here before adding UI.
+
+- **Tokens and accent.** `frontend/src/theme.ts` (`TOKENS`) is the only place with colour literals. The accent is white; there is no green "ok" state. Panels are flat and opaque (no shadows, blur or gradients); font weights are 400 and 500 only; spacing stays on the 0.5 grid.
+- **Colour only for warning and error.** Normal and healthy states are plain text. Never use `color="secondary"` or a filled `Alert`.
+- **Map palette.** `frontend/src/map3d/palette.ts` is the one map palette: zones and paths are coloured, POI kinds are told apart by shape, not hue.
+- **StatusItem.** One shared status row (label plus value); show each fact once instead of repeating it in chips, banners and panels.
+- **ToolButton.** The shared button for map and tool actions; icon buttons carry `aria-label` and a Tooltip, never `title=`.
+- **StateBanner.** The single banner for a persistent state (for example the tilt guard or a lost connection).
+- **ConfirmDialog versus two-click arm.** Use ConfirmDialog for destructive or irreversible actions; use the two-click arm (first click arms, second click fires) for repeatable motion actions. Stop buttons are never covered by a panel or dialog.
+- **MapSidebar.** Map panels live in the MapSidebar beside the map instead of floating over it.
+- **Guard test.** `frontend/src/layout/designRules.ts` holds `designViolations()`; `designRules.test.ts` runs it over every non-test source under `src` with no allow-list and fails on any colour literal, shadow, secondary colour, filled Alert, weight outside 400/500, off-grid spacing, decorative Unicode or `title=` on a button.
+
 ## Battery (optional `battery` section)
 
 The robot is powered by a 3-cell pack; the `lerobot_follower` feetech bridge publishes its voltage as `sensor_msgs/BatteryState` on `/battery_state`. With a top-level `battery:` section web_ui subscribes to it, shows it in the AppBar and rejects commands from the web UI when the pack is empty. Without the section nothing is subscribed and nothing is blocked.

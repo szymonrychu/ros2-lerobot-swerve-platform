@@ -59,7 +59,7 @@ describe('ArmTab', () => {
   it('shows the waiting message, never a placeholder image, for a stream without a frame', () => {
     setViewport(1400)
     renderTab({ [OVERVIEW]: { jpeg_b64: 'BBB' } })
-    expect(screen.getByText(`Waiting for ${GRIPPER}…`)).toBeTruthy()
+    expect(screen.getByText(`Waiting for ${GRIPPER}...`)).toBeTruthy()
     expect(screen.queryByAltText('gripper camera')).toBeNull()
     expect(screen.getByAltText('overview camera')).toBeTruthy()
   })
