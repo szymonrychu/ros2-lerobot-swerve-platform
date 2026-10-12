@@ -1,5 +1,5 @@
 /**
- * "Show on map" from the POI tab: resolve a pending focus to a map point plus the item its popup shows, and wait
+ * "Show on map" from the POI tab: resolve a pending focus to a map point plus the item the sidebar opens, and wait
  * for the scene controller (the map tab mounts its lazy 3D chunk after the switch) before centring on it.
  */
 import type { Photo } from '../photos/api'
@@ -11,9 +11,9 @@ import type { SceneController } from './MapScene'
 /** How often to look for the scene controller while the 3D chunk loads, ms. */
 export const CONTROLLER_POLL_MS = 100
 
-/** What the map centres on and what its popup shows. */
+/** What the map centres on and what the sidebar opens. */
 export interface FocusTarget {
-  /** Map-frame point the popup arrow points at (an area's centroid). */
+  /** Map-frame point to centre on (an area's centroid). */
   anchor: Vec2
   item: PoiItem
 }
@@ -69,7 +69,7 @@ export function whenController(
  * @param pois - POIs currently known to the map
  * @param photos - photos currently known to the map
  * @param getController - reads the current controller
- * @param onFocused - called once after centring, with the resolved target (open the popup, clear the request)
+ * @param onFocused - called once after centring, with the resolved target (open the item, clear the request)
  * @param intervalMs - controller poll period
  * @returns cancel; stops waiting for the controller
  */

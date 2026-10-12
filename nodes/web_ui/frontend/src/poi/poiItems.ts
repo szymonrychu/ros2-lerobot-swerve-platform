@@ -23,7 +23,7 @@ export interface PoiItem {
   source: PoiItemSource
 }
 
-/** A request for the map to centre on, and open the popup of, one POI or photo. */
+/** A request for the map to centre on, and open in the sidebar, one POI or photo. */
 export interface PendingFocus {
   kind: PoiItemSource
   id: string

@@ -24,10 +24,7 @@ import type { GraspPreviewData } from '../grasp/useGrasp'
 import { PhotoLayer } from '../photos/PhotoLayer'
 import type { Photo } from '../photos/api'
 import { PoiLayer } from '../poi/PoiLayer'
-import type { PoiItem } from '../poi/poiItems'
 import type { Poi } from '../poi/types'
-import type { FocusTarget } from './mapFocus'
-import { MapPopup } from './MapPopup'
 import { pickGround } from './picking'
 import { useInvalidateOnResize } from './useInvalidateOnResize'
 import type { TileSourceInfo } from './tileSources'
@@ -98,11 +95,6 @@ export interface MapSceneProps {
   onSelectPhoto: ((id: string) => void) | null
   /** Grasp panel preview (object box, planned tool path) in base_link, or null. */
   graspPreview: GraspPreviewData | null
-  /** The one map popup (show-on-map), or null. Callbacks must be stable: the scene is memoised. */
-  popup: FocusTarget | null
-  onPopupClose: () => void
-  /** Popup action: open the item's POI editor or photo panel. */
-  onPopupOpen: (item: PoiItem) => void
   controllerRef: MutableRefObject<SceneController | null>
 }
 
@@ -321,7 +313,7 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
     <>
       <ambientLight intensity={0.7} />
       <directionalLight position={[5, 10, 5]} intensity={1} />
-      <gridHelper args={[20, 20, '#2a3038', '#1a1f26']} position={[0, LIFT.gps - 0.002, 0]} />
+      <gridHelper args={[20, 20, SCENE_COLORS.gridCentre, SCENE_COLORS.gridLine]} position={[0, LIFT.gps - 0.002, 0]} />
 
       {layers.gpsMap && props.anchor && props.tileSource && (
         <GpsTilesLayer
@@ -358,7 +350,6 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
       )}
       <PoiLayer pois={props.pois} selectedId={props.selectedPoiId} draft={props.poiDraft} visible={layers.pois} />
       <PhotoLayer photos={props.photos} selectedId={props.selectedPhotoId} visible={layers.photos} onSelect={props.onSelectPhoto} />
-      {props.popup && <MapPopup target={props.popup} onClose={props.onPopupClose} onOpen={props.onPopupOpen} />}
       <Suspense fallback={null}>
         <RobotLayer
           pose={props.robotPose}

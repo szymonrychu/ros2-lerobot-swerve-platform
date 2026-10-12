@@ -39,6 +39,8 @@ export const SCENE_COLORS = {
   free: '#fefefe',
   occupied: '#000000',
   unknown: '#cdcdcd',
+  gridCentre: '#2a2a2a',
+  gridLine: '#1a1a1a',
 } as const
 
 /** Layer toolbar swatches (kept here so the toolbar does not pull in the 3D chunk). */

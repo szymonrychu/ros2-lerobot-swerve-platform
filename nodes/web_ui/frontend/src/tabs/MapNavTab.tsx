@@ -74,9 +74,9 @@ import { PhotoList } from '../photos/PhotoList'
 import { PhotoPanel } from '../photos/PhotoPanel'
 import type { Photo } from '../photos/api'
 import { ageCutoff, LAYER_MAX_PHOTOS, PHOTO_AGE_LABELS, PHOTO_AGES, type PhotoAge } from '../photos/geometry'
-import { itemId, type PendingFocus, type PoiItem } from '../poi/poiItems'
+import type { PendingFocus } from '../poi/poiItems'
 import type { PhotoLayerData } from '../photos/usePhotoLayer'
-import { consumeFocus, resolveFocus, whenController } from '../map3d/mapFocus'
+import { consumeFocus, whenController } from '../map3d/mapFocus'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
 import { PoiLegend } from '../poi/PoiLegend'
 import { canFinishArea, isClick } from '../poi/editor'
@@ -283,14 +283,21 @@ export default function MapNavTab({
   const [pickedPhoto, setPickedPhoto] = useState<Photo | null>(null)
   // The open photo follows the refetched data (name, note and links change after a save).
   const openPhoto = pickedPhoto && (photos.photos.find((p) => p.id === pickedPhoto.id) ?? pickedPhoto)
+  const selectPoi = poi.select
+  // One item open at a time: opening a photo deselects the POI, selecting a POI closes the photo.
   const selectPhotoOnMap = useCallback(
-    (id: string) => setPickedPhoto(photos.photos.find((p) => p.id === id) ?? null),
-    [photos.photos],
+    (id: string) => {
+      selectPoi(null)
+      setPickedPhoto(photos.photos.find((p) => p.id === id) ?? null)
+    },
+    [photos.photos, selectPoi],
   )
+  useEffect(() => {
+    if (poi.selectedId) setPickedPhoto(null)
+  }, [poi.selectedId])
 
   // "Show on map" from the POI tab (the request survives the tab switch in App): make the target visible, then
-  // once the scene controller exists centre on it, open the popup and clear the request.
-  const [popupRequest, setPopupRequest] = useState<PendingFocus | null>(null)
+  // once the scene controller exists centre on it, open it in the sidebar (bottom sheet on a phone) and clear the request.
   const onFocusConsumedRef = useRef(onFocusConsumed)
   onFocusConsumedRef.current = onFocusConsumed
   useEffect(() => {
@@ -308,27 +315,11 @@ export default function MapNavTab({
     if (!pendingFocus) return
     return consumeFocus(pendingFocus, poi.pois, photos.photos, () => controllerRef.current, () => {
       fittedRef.current = true // a map arriving later must not move the view off the focused item
-      setPopupRequest(pendingFocus)
+      if (pendingFocus.kind === 'photo') selectPhotoOnMap(pendingFocus.id)
+      else selectPoi(pendingFocus.id)
       onFocusConsumedRef.current?.()
     })
-  }, [pendingFocus, poi.pois, photos.photos])
-  // The popup re-resolves so it follows edits and disappears when its item is deleted.
-  const popup = useMemo(
-    () => (popupRequest ? resolveFocus(popupRequest, poi.pois, photos.photos) : null),
-    [popupRequest, poi.pois, photos.photos],
-  )
-  const closePopup = useCallback(() => setPopupRequest(null), [])
-  const selectPoi = poi.select
-  const openPopupItem = useCallback(
-    (item: PoiItem) => {
-      setPopupRequest(null)
-      const id = itemId(item)
-      if (item.source === 'photo') setPickedPhoto(photos.photos.find((p) => p.id === id) ?? null)
-      else selectPoi(id)
-    },
-    [photos.photos, selectPoi],
-  )
-
+  }, [pendingFocus, poi.pois, photos.photos, selectPhotoOnMap, selectPoi])
   const armMount = useMemo(() => tab.arm_offset ?? DEFAULT_ARM_OFFSET, [tab.arm_offset])
   const grasp = useGrasp({ tabId: tab.id, topicData, mount: armMount, notify: setAction })
   const [graspOpen, setGraspOpen] = useState(false)
@@ -1176,9 +1167,6 @@ export default function MapNavTab({
               selectedPhotoId={openPhoto?.id ?? null}
               onSelectPhoto={goalMode || poiAdding || graspPicking ? null : selectPhotoOnMap}
               graspPreview={graspOpen ? grasp.preview : null}
-              popup={popup}
-              onPopupClose={closePopup}
-              onPopupOpen={openPopupItem}
               controllerRef={controllerRef}
               mapFrame={mapFrame}
             />
