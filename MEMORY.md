@@ -149,6 +149,15 @@
 - mcp_server keeps `record_lookup`, the 32-hex lookup ids and the lookup tools as a facade, so the grasp jaw crop (E1, `full_frame=False`: no FOV), frontier facing (E5) and failure evidence (E8) did not change. New: `delete_photos`; `delete_poi` / `update_poi` take photo ids; each photo carries a `view` (camera position, yaw, pitch, hfov; the uncalibrated front camera uses the base heading and has no pitch or FOV, never invented).
 - Rejected: photos inside poi.json (multi-MB rewrite per camera call), a virtual photo kind owned by mcp_server (the web UI could not delete), SQLite (not needed at this size).
 
+## Stereo depth (IMX219 pair, client)
+
+* **Two IMX219 on cam0/cam1 replace the IMX708 overview camera and the Arducam ToF** (2026-10-12, design `docs/plans/2026-10-13-stereo-depth-design.md`). Why:
+  - The IMX219 lens is fixed, while the IMX708's VCM lens drifts even in manual focus (gravity on the pan/tilt head, temperature, vibration), and any lens shift breaks the stereo calibration.
+  - The Arducam ToF never came up. It stays installed and `enabled: false`.
+  - The client has only about 0.3-0.45 of 4 cores free. So the pair runs at 480x360 (ISP-downscaled from the 1640x1232 binned mode) with SGBM 3WAY and 48 disparities, about 0.4 core at 5 fps, on the client rather than offloaded to the server.
+* `nodes/stereo_depth` publishes depth on the ToF contract (`/stereo/depth/image_raw`: 16UC1 mm, 0 = invalid, plus `/stereo/camera_info`), so the Head tab needs no serializer change. The left camera keeps the `/overview_camera/*` topics.
+* No calibration, a pair skew above `sync_slop_s` (2 ms; libcamera SyncMode keeps the sensors in step), a size mismatch or an all-invalid pair means nothing is published (logged and counted). Calibration lives in `/var/lib/ros2/camera_calibration/{stereo_left,stereo_right,stereo}.yaml` and is picked up without a restart.
+
 ## ROS2 topic publishing
 
 * **No placeholder data**: Only real, valid data from sensors or actual state may be published on ROS2 topics. Do not publish zeroed/coerced/synthetic data when reads fail or are invalid. If valid data is unavailable, skip publishing for that cycle. See CLAUDE.md "No Placeholder Data on Topics".

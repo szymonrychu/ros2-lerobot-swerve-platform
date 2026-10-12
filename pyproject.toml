@@ -92,6 +92,7 @@ lint-nodes = { shell = """
   (cd nodes/map_guard && uv run --frozen poe lint)
   (cd nodes/costmap_zones && uv run --frozen poe lint)
   (cd nodes/steamdeck_ui/bridge && uv run --frozen poe lint)
+  (cd nodes/stereo_depth && uv run --frozen poe lint)
 """ }
 lint-ansible = { shell = """
   set -e

@@ -1,0 +1,58 @@
+[project]
+name = "stereo-depth"
+version = "0.1.0"
+description = "Stereo depth from the synced IMX219 pair: OpenCV StereoSGBM to 16UC1 depth in millimetres"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    # sensor_msgs (Image, CameraInfo) imports numpy at runtime (numpy dependency guard); same pins as mcp_server,
+    # whose aarch64 wheels already deploy on the client.
+    "numpy==2.4.3",
+    "opencv-python-headless==4.13.0.92",
+    "pydantic==2.13.5",
+    "pyyaml==6.0.3",
+    "prometheus-client>=0.20",
+    "ros2-metrics",
+]
+
+[dependency-groups]
+dev = [
+    "ruff==0.15.20",
+    "vulture>=2.11,<3",
+    "poethepoet>=0.42.0,<0.43",
+    "pytest>=9.0.0,<10",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
+
+[tool.ruff]
+line-length = 120
+extend-exclude = [".venv", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  ruff check stereo_depth tests
+  ruff format --check stereo_depth tests
+  vulture stereo_depth tests --min-confidence 80
+""" }
+lint-fix = { shell = """
+  ruff check --fix stereo_depth tests
+  ruff format stereo_depth tests
+""" }
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
