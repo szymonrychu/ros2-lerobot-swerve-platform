@@ -24,6 +24,7 @@ CONFIG_METRICS_PORTS = {
     "poi_store": 19109,
     "map_guard": 19110,
     "costmap_zones": 19111,
+    "arducam_tof": 19112,
 }
 ENV_METRICS_PORTS = {"gripper_uvc_camera": 19105, "rplidar_a1": 19106}
 # Nodes with an HTTP server serve /metrics on it: node -> key path of the port in its config.
@@ -51,6 +52,7 @@ SHARED_NODE_TYPES = [
     "bno055_imu",
     "gps_rtk",
     "uvc_camera",
+    "arducam_tof",
     "poi_store",
     "claude_agent",
     "test_joint_api",
@@ -207,6 +209,7 @@ def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
         assert target.get("path", "/metrics") == "/metrics", name
         checked += 1
     disabled = {n for n in CONTRACT_NODES if not nodes[n].get("enabled", True)}
-    assert disabled == {"topic_scraper_api"}  # disabled 2026-10-11, not scraped
+    assert disabled == {"topic_scraper_api", "arducam_tof"}  # topic_scraper_api disabled 2026-10-11; arducam_tof until the camera is plugged in
     assert checked == len(CONTRACT_NODES - disabled)
-    assert set(targets) == CONTRACT_NODES - disabled
+    # arducam_tof is listed ahead of enabling so the scrape works the moment it is switched on.
+    assert set(targets) == CONTRACT_NODES - disabled | {"arducam_tof"}

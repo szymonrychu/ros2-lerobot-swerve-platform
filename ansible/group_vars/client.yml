@@ -27,7 +27,7 @@ ros2_user_slice_io_weight: 50
 # Cgroup model (ansible/README.md, "Node resource model"): robot headroom guaranteed, background constrained. Robot node
 # types set no cpu_quota and no memory_high; priority comes from the weight tiers (systemd default weight is 100):
 #   critical (servos, swerve, ros2_master, filter_node, static_tf, bno055_imu)  cpu/io_weight 1000, oom_score_adjust -900
-#   normal   (lidar, odometry, EKF, Nav2, SLAM, cameras, GPS, POI, map_guard)    cpu/io_weight  500, oom_score_adjust -500
+#   normal   (lidar, odometry, EKF, Nav2, SLAM, cameras incl. ToF, GPS, POI, map_guard)    cpu/io_weight  500, oom_score_adjust -500
 #   agent    (mcp_server, claude_agent, web_ui, scraper, master2master, leader_bridge, haptic)  cpu/io_weight  300, oom_score_adjust -200
 # memory_low protects about the measured typical working set, memory_max is a safety net at >= 2x the 24 h peak.
 # Nav2 MPPI overlay: nav2_mppi_controller 1.3.13 + the model_delay patch (PR #6154 ported to xtensor), built into
@@ -128,6 +128,23 @@ ros2_node_type_defaults:
     cpu_weight: 500
     io_weight: 500
     oom_score_adjust: -500
+  arducam_tof:
+    deploy_mode: native
+    node_launch_command: "python3 -m arducam_tof"
+    node_src_dir: "nodes/bridges/arducam_tof"
+    pythonpath_parent: true
+    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    src_shared: true
+    # Estimate, no series yet (deployed disabled): a 240x180 ToF frame pair at publish_rate_hz is small, so MemoryLow
+    # follows uvc_camera (p50 66.7 MiB) with the SDK and numpy, MemoryMax 2x or more. Re-measure once enabled.
+    memory_low: "64M"
+    memory_max: "192M"
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
+    config_path: /etc/ros2/arducam_tof
+    env:
+      - ARDUCAM_TOF_CONFIG=/etc/ros2/arducam_tof/config.yaml
   filter_node:
     deploy_mode: native
     node_launch_command: "python3 -m filter_node"
@@ -911,6 +928,24 @@ ros2_nodes:
       - UVC_MAX_FPS=10
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy).
       - METRICS_PORT=19105
+  # Arducam ToF camera on CSI cam1 (overlay in overview_camera_boot_config.yml): depth, amplitude and camera_info for the
+  # web UI head tab. Disabled until the camera is plugged in; enable with `enabled: true` and deploy arducam_tof.
+  - name: arducam_tof
+    node_type: arducam_tof
+    present: true
+    enabled: false
+    config: |
+      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
+      metrics_port: 19112
+      # CSI cam1 (the IMX708 overview camera is cam0); unproven until the camera is plugged in.
+      camera_index: 1
+      range_mode: 4m
+      confidence_threshold: 30
+      frame_id: tof_optical_frame
+      publish_rate_hz: 10.0
+      depth_topic: /tof/depth/image_raw
+      amplitude_topic: /tof/amplitude/image_raw
+      camera_info_topic: /tof/camera_info
   - name: rplidar_a1
     node_type: rplidar_a1
     present: true
@@ -2131,6 +2166,7 @@ monitoring_agent_node_targets:
   - {node: poi_store, address: "127.0.0.1:19109", path: /metrics}
   - {node: map_guard, address: "127.0.0.1:19110", path: /metrics}
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
+  - {node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
   - {node: mcp_server, address: "127.0.0.1:18200", path: /metrics}

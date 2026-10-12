@@ -1,0 +1,41 @@
+---
+# Arducam ToF SDK (arducam-tof-sdk-dev) from the Arducam arm64 apt repo, for the arducam_tof node. Unproven on Ubuntu
+# noble until the camera is plugged in (the repo targets Raspberry Pi OS), so this never fails a deploy: when the repo
+# or the package is unavailable the source file is removed again (a dead repo would break the batched node apt run)
+# and a warning is printed. Idempotent: apt_repository and apt report no change once everything is in place. The repo
+# is trusted=yes because Arducam publishes no verified signing key for it that this playbook could pin.
+- name: Install the Arducam ToF SDK without ever failing the deploy
+  when: ansible_machine == "aarch64"
+  tags: [arducam_tof, apt]
+  block:
+    - name: Add the Arducam arm64 apt repo
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=arm64 trusted=yes] https://arducam.github.io/arducam_ppa linux main"
+        filename: arducam
+        state: present
+        update_cache: false
+      become: true
+
+    - name: Install arducam-tof-sdk-dev
+      ansible.builtin.apt:
+        name: arducam-tof-sdk-dev
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      become: true
+  rescue:
+    - name: Remove the Arducam apt repo again so later apt runs stay clean
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=arm64 trusted=yes] https://arducam.github.io/arducam_ppa linux main"
+        filename: arducam
+        state: absent
+        update_cache: false
+      become: true
+      failed_when: false
+
+    - name: Warn that the Arducam ToF SDK is unavailable
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: arducam-tof-sdk-dev could not be installed from the Arducam apt repo
+          ({{ ansible_failed_result.msg | default('unknown error') }}). Deploy continues; arducam_tof stays disabled
+          until the SDK installs (re-run: ./scripts/deploy-nodes.sh client arducam_tof).

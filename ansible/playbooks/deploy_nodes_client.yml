@@ -82,6 +82,10 @@
       ansible.builtin.include_tasks: tasks/overview_camera_boot_config.yml
       tags: [boot, overview_camera]
 
+    - name: Arducam ToF SDK apt repo and package (non-fatal when unavailable)
+      ansible.builtin.include_tasks: tasks/arducam_tof_sdk.yml
+      tags: [arducam_tof, apt]
+
     - name: BNO055 software I2C bus (i2c-gpio on GPIO2/3), reboot only when changed
       ansible.builtin.include_tasks:
         file: tasks/bno055_i2c_boot_config.yml
@@ -172,6 +176,15 @@
           vars:
             _deploy_node_name: leader_bridge
           tags: [leader_bridge, apt, python, build, config]
+
+        - name: Deploy arducam_tof
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [arducam_tof]
+          vars:
+            _deploy_node_name: arducam_tof
+          tags: [arducam_tof, apt, python, build, config]
 
         - name: Deploy filter_node
           ansible.builtin.include_tasks:
