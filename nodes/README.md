@@ -7,6 +7,7 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **ros2_master/** — ROS2 daemon (used by server and client).
 - **master2master/** — Topic proxy (Client only).
 - **bridges/uvc_camera/** — UVC camera bridge.
+- **bridges/arducam_tof/** - Arducam ToF camera bridge: `/tof/depth/image_raw` (16UC1 mm), `/tof/amplitude/image_raw` (mono16), `/tof/camera_info`; never publishes placeholder frames; deployed disabled (Client only).
 - **bridges/feetech_servos/** — Feetech servos bridge (configurable namespace, extra namespaces on the same bus, position or wheel/velocity mode per joint; leader/follower example configs).
 - **leader_bridge/** — Leader arm teleop relay: `/leader/joint_states` (server) to `/filter/input_joint_updates` (filter_node leader input); replaces master2master's leader rule, never bypasses filter_node arbitration (Client only).
 - **lerobot_teleop/** — Leader → follower teleop node (Client only).
