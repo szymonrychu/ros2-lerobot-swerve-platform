@@ -135,10 +135,13 @@ def should_save(
     last_save_monotonic: float,
     now: float,
     interval: float,
-    current_profile: CalibrationProfile | None,
-    saved_profile: CalibrationProfile | None,
+    read_this_episode: bool,
+    stationary: bool,
 ) -> bool:
     """Decide whether the calibration profile should be read from the chip and saved now.
+
+    Reading the offsets needs a CONFIG-mode round trip that stops /imu/data for about 1.5 s, so the chip is read once
+    per calibration episode (mag reaching 3) and only while the robot stands still.
 
     Args:
         status: (sys, gyro, accel, mag) calibration status; only mag is gated (a wheeled robot cannot do the
@@ -146,11 +149,11 @@ def should_save(
         last_save_monotonic: Monotonic time of the last save attempt.
         now: Current monotonic time.
         interval: Minimum seconds between attempts.
-        current_profile: Profile just read from the chip, or None when not read yet.
-        saved_profile: Profile known to be on disk, or None.
+        read_this_episode: True when the profile was already read since mag last reached 3.
+        stationary: True when the robot stands still (a read mid-drive would blind the EKF and the tilt guard).
 
     Returns:
-        bool: True when mag is 3, the interval elapsed, and the profile is not known to equal the saved one.
+        bool: True when mag is 3, the interval elapsed, the episode was not read yet and the robot is stationary.
     """
     if not status or len(status) < 4 or any(v is None for v in status[:4]):
         return False
@@ -158,7 +161,22 @@ def should_save(
         return False
     if now - last_save_monotonic < interval:
         return False
-    return current_profile is None or current_profile != saved_profile
+    return not read_this_episode and stationary
+
+
+def calibration_episode_read(status: tuple | None, read_this_episode: bool) -> bool:
+    """Update the per-episode read flag from a calibration status: it clears when mag drops below 3.
+
+    Args:
+        status: (sys, gyro, accel, mag) calibration status, or None when the read failed.
+        read_this_episode: Current flag.
+
+    Returns:
+        bool: The new flag (unchanged for an unreadable status).
+    """
+    if not status or len(status) < 4 or status[3] is None:
+        return read_this_episode
+    return read_this_episode and status[3] == CALIBRATED
 
 
 def enter_config_mode(bno: Any) -> None:

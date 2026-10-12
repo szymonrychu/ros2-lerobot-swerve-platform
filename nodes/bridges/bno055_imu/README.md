@@ -142,11 +142,13 @@ The node now keeps the sensor offsets in `calibration_file` (JSON: `accel_offset
   switched to `operation_mode`; the log shows `restored calibration profile from <file>`. A missing file means an
   uncalibrated start. A corrupt or implausible file (missing keys, values outside int16, radius outside 1-2000) logs a
   warning and the node starts uncalibrated.
-- **Save**: at most every `calibration_save_interval_s`, when `mag` reports 3 (only the magnetometer is gated: a wheeled
-  robot cannot do the accelerometer 6-orientation motion, and the compass heading needs only the mag offsets),
-  the node briefly switches to CONFIG mode, reads the offsets, switches back and writes the file atomically (temp file
+- **Save**: once per calibration episode (after `mag` reaches 3, again only after it dropped below 3 and returned),
+  checked every `calibration_save_interval_s` and only while the robot is stationary per wheel odometry (needs the gyro
+  bias estimator; without it the stillness check is skipped). Only the magnetometer is gated: a wheeled robot cannot
+  do the accelerometer 6-orientation motion, and the compass heading needs only the mag offsets. The node briefly switches to CONFIG mode, reads the offsets, switches back and writes the file atomically (temp file
   plus `os.replace`) only if it differs from what is on disk; the log shows `saved calibration profile`. That cycle
-  publishes nothing while fusion restarts (about 1.5 s). The adafruit_bno055 offset properties do not switch modes
+  publishes nothing while fusion restarts (about 1.5 s), which the tilt guard reports as a stale IMU; reading the chip
+  every interval used to blank `/imu/data` once a minute for as long as `mag` stayed 3. The adafruit_bno055 offset properties do not switch modes
   themselves (library 5.4.22), so the node does it explicitly.
 - **Restored flag**: `/imu/calibration` JSON carries `restored: true` once a saved profile is on the chip (restored at
   init, or just saved). The chip itself reports 0 after a restart until it re-checks, so consumers (web_ui compass

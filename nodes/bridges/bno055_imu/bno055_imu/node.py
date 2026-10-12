@@ -17,7 +17,14 @@ from std_msgs.msg import String
 
 from . import metrics
 from .burst import read_sample
-from .calibration import CalibrationProfile, apply_profile, load_profile, save_if_changed, should_save
+from .calibration import (
+    CalibrationProfile,
+    apply_profile,
+    calibration_episode_read,
+    load_profile,
+    save_if_changed,
+    should_save,
+)
 from .config import ImuNodeConfig
 from .covariance import CovarianceEstimator
 from .gyro_bias import GyroBiasEstimator, load_bias, save_bias
@@ -471,6 +478,7 @@ def run_imu_node(config: ImuNodeConfig) -> None:
     calibration_path = Path(config.calibration_file) if config.calibration_file else None
     saved_profile: CalibrationProfile | None = None
     last_save_s = time.monotonic()
+    profile_read_this_episode = False  # the chip profile was read since mag last reached 3
 
     init_attempt = 0
     bno, used_addr = None, None
@@ -735,8 +743,12 @@ def run_imu_node(config: ImuNodeConfig) -> None:
             if now_s - last_save_s >= config.calibration_save_interval_s:
                 last_save_s = now_s
                 try:
-                    if should_save(bno.calibration_status, 0.0, now_s, 0.0, None, saved_profile):
+                    status = bno.calibration_status
+                    profile_read_this_episode = calibration_episode_read(status, profile_read_this_episode)
+                    stationary = bias_est.stationary(now_s) if bias_est is not None else True
+                    if should_save(status, 0.0, now_s, 0.0, profile_read_this_episode, stationary):
                         new_profile = save_if_changed(bno, calibration_path, target_mode, saved_profile)
+                        profile_read_this_episode = True
                         if new_profile != saved_profile:
                             saved_profile = new_profile
                             node.get_logger().info(f"saved calibration profile to {calibration_path}")

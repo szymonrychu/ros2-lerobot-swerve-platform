@@ -10,6 +10,7 @@ from bno055_imu.calibration import (
     CONFIG_MODE_VALUE,
     CalibrationProfile,
     apply_profile,
+    calibration_episode_read,
     load_profile,
     profile_from_dict,
     profile_to_dict,
@@ -104,36 +105,46 @@ def test_profile_from_dict_rejects_non_dict() -> None:
 
 def test_should_save_gates_on_mag_only() -> None:
     """A wheeled robot cannot do the accel 6-orientation dance; the compass needs only the mag offsets."""
-    assert should_save((0, 0, 0, 3), 0.0, 100.0, 60.0, None, None)
-    assert not should_save((0, 3, 3, 2), 0.0, 100.0, 60.0, None, None)
+    assert should_save((0, 0, 0, 3), 0.0, 100.0, 60.0, read_this_episode=False, stationary=True)
+    assert not should_save((0, 3, 3, 2), 0.0, 100.0, 60.0, read_this_episode=False, stationary=True)
 
 
 def test_should_save_full_calibration_still_saves() -> None:
     """gyro, accel and mag must be 3; sys is ignored."""
-    assert should_save((0, 3, 3, 3), 0.0, 100.0, 60.0, None, None)
-    assert should_save((3, 3, 3, 3), 0.0, 100.0, 60.0, None, None)
-    assert not should_save((0, 3, 3, 2), 0.0, 100.0, 60.0, None, None)
+    assert should_save((0, 3, 3, 3), 0.0, 100.0, 60.0, read_this_episode=False, stationary=True)
+    assert should_save((3, 3, 3, 3), 0.0, 100.0, 60.0, read_this_episode=False, stationary=True)
+    assert not should_save((0, 3, 3, 2), 0.0, 100.0, 60.0, read_this_episode=False, stationary=True)
 
 
 def test_should_save_invalid_status() -> None:
     """None or short status never saves."""
-    assert not should_save(None, 0.0, 100.0, 60.0, None, None)
-    assert not should_save((0, 3, 3), 0.0, 100.0, 60.0, None, None)
-    assert not should_save((0, None, 3, 3), 0.0, 100.0, 60.0, None, None)
+    assert not should_save(None, 0.0, 100.0, 60.0, read_this_episode=False, stationary=True)
+    assert not should_save((0, 3, 3), 0.0, 100.0, 60.0, read_this_episode=False, stationary=True)
+    assert not should_save((0, None, 3, 3), 0.0, 100.0, 60.0, read_this_episode=False, stationary=True)
 
 
 def test_should_save_respects_interval() -> None:
     """Not before the interval has elapsed."""
-    assert not should_save(FULL, 50.0, 100.0, 60.0, None, None)
-    assert should_save(FULL, 40.0, 100.0, 60.0, None, None)
+    assert not should_save(FULL, 50.0, 100.0, 60.0, read_this_episode=False, stationary=True)
+    assert should_save(FULL, 40.0, 100.0, 60.0, read_this_episode=False, stationary=True)
 
 
-def test_should_save_only_when_profile_differs() -> None:
-    """An identical profile skips; unknown current profile (not yet read) or a different one saves."""
-    assert not should_save(FULL, 0.0, 100.0, 60.0, PROFILE, PROFILE)
-    other = CalibrationProfile((0, 0, 0), (0, 0, 0), (0, 0, 0), 1000, 480)
-    assert should_save(FULL, 0.0, 100.0, 60.0, other, PROFILE)
-    assert should_save(FULL, 0.0, 100.0, 60.0, PROFILE, None)
+def test_should_save_reads_the_chip_once_per_calibration_episode() -> None:
+    """Reading the offsets needs a CONFIG-mode round trip that stops /imu/data for ~1.5 s (the tilt guard then
+    reports the IMU stale): once the profile was read while mag is 3, never read again until mag drops and returns."""
+    assert not should_save(FULL, 0.0, 1000.0, 60.0, read_this_episode=True, stationary=True)
+
+
+def test_should_save_waits_until_the_robot_is_stationary() -> None:
+    """The ~1.5 s IMU gap must not happen while driving (EKF and tilt guard lose the IMU mid-motion)."""
+    assert not should_save(FULL, 0.0, 100.0, 60.0, read_this_episode=False, stationary=False)
+
+
+def test_calibration_episode_tracks_mag_level() -> None:
+    """The episode flag clears when mag drops below 3 and is kept otherwise."""
+    assert calibration_episode_read((0, 3, 3, 2), read_this_episode=True) is False
+    assert calibration_episode_read((0, 3, 3, 3), read_this_episode=True) is True
+    assert calibration_episode_read(None, read_this_episode=True) is True
 
 
 def test_write_profile_atomic_creates_parent(tmp_path: Path) -> None:
