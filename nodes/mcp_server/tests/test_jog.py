@@ -323,3 +323,41 @@ def test_handle_json_answers_a_plain_jog_at_once(tmp_path: Path) -> None:
     arm, be, service, _ = make(tmp_path)
     answer = service.handle_json(json.dumps({"action": "jog", "jog": {"kind": "wrist_pitch", "direction": "down"}}))
     assert answer is not None and json.loads(answer)["ok"] is True
+
+
+def test_jog_is_refused_while_a_human_source_commands_the_arm(tmp_path: Path) -> None:
+    arm, be, service, _ = make(tmp_path)
+    be.source = "leader"  # filter_node reports the leader arm (a human teleoperating) and mcp_server holds no lease
+    for kind, direction in [("cartesian", "up"), ("shoulder_pan", "left"), ("gripper", "open")]:
+        refused = jog(service, kind, direction)
+        assert refused["ok"] is False and "leader" in refused["error"] and "take control" in refused["error"], refused
+    assert be.commands == []
+    be.source = "none"  # nobody commands the follower: the jog takes the lease like a web-UI grasp
+    assert jog(service, "gripper", "open")["ok"] is True
+
+
+def test_jog_runs_once_the_lease_is_held(tmp_path: Path) -> None:
+    arm, be, service, _ = make(tmp_path)
+    be.source = "leader"
+    assert jog(service, "cartesian", "up")["ok"] is False
+    arm.acquire()  # web UI Take control (/arm/take_control) acquires the autonomy lease
+    be.source = "autonomy"
+    assert jog(service, "cartesian", "up")["ok"] is True
+
+
+def test_jog_is_refused_while_the_agent_holds_the_arm(tmp_path: Path) -> None:
+    from mcp_server.tools import build_mcp_server
+
+    from .test_tools import TOKEN, FakeRobot, call, take
+
+    robot = FakeRobot(tmp_path)
+    sent: list[dict[str, Any]] = []
+    grasp = GraspService(robot.arm, McpServerConfig(), publish=sent.append)
+    robot.grasp = grasp  # type: ignore[attr-defined]
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, "arm")
+    refused = grasp.handle({"action": "jog", "request_id": "j", "jog": {"kind": "gripper", "direction": "open"}})
+    assert refused is not None and refused["ok"] is False and "agent" in refused["error"], refused
+    call(server, "release_control", {"subsystem": "arm"})
+    done = grasp.handle({"action": "jog", "request_id": "k", "jog": {"kind": "gripper", "direction": "open"}})
+    assert done is not None and done["ok"] is True, done

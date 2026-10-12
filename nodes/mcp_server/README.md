@@ -1423,8 +1423,9 @@ holds one, else from the measured pose (`ArmState.tool_pose`), so sag is never l
 the cap; an omitted one uses the cap. The joint signs come from the kinematics, never from URDF axis conventions.
 
 A jog is refused with `{"ok": false, "error": "jog refused: <reason>"}` (nothing moved, no lease taken) under the
-battery cut-off, without fresh `/follower/joint_states`, while a grasp execute/release runs, while another (non-jog)
-arm motion runs, when the IK target is unreachable, when the step would hit the robot body (self-collision, checked
+battery cut-off, without fresh `/follower/joint_states`, while the agent holds the arm (`take_control`), while
+mcp_server holds no lease and filter_node's fresh active source is another one than `autonomy`/`none` (e.g. `leader`:
+take control first, `/arm/take_control`), while a grasp execute/release runs, while another (non-jog) arm motion runs, when the IK target is unreachable, when the step would hit the robot body (self-collision, checked
 before the lease is taken), when a cartesian step would end below `arm.floor_z_m + jog.floor_clearance_m` (a step that
 rises is never refused for the floor), when the joint is at its limit, when the gripper is already fully open/closed,
 and for a `wrist_roll` step while the gripper is open past `limits.roll_max_gripper_open_rad` (the roll guard; a jog step

@@ -42,7 +42,7 @@ from .control import MAX_CARRIED_RADIUS_M, ControlManager, LeaseNeed, ReleaseTar
 from .floor_guard import TiltOverrideDeg
 from .footprint import NavFootprint
 from .frontiers import FrontierTracker
-from .grasp_tools import SURFACES_DESC, floor_override, grip_profile_description
+from .grasp_tools import SURFACES_DESC, GraspService, floor_override, grip_profile_description
 from .guard_rules import GUARD_ORIGIN, GuardEngine, GuardRejection
 from .guard_state import GuardState
 from .metrics import TOOL_CALLS, TOOL_DURATION
@@ -581,6 +581,9 @@ def register_tools(
     )
     robot.arm.motion_guard = lambda start, target: arm_motion_guard(engine, start, target)
     control.queue_busy = queue.busy
+    grasp = getattr(robot, "grasp", None)  # RosRobot's web-UI GraspService: jogs refuse while the agent holds the arm
+    if isinstance(grasp, GraspService):
+        grasp.jogger.agent_holds = lambda: control.arm_held
     if isinstance(server, RobotMCPServer):
         control.blocking_tool = server.blocking_tool
     monitor.control_line = control.digest

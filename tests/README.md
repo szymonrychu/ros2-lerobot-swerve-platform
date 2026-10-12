@@ -1279,7 +1279,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   clearance (a rising one passes), a joint at its limit, wrist roll with the gripper open past the roll limit, a
   running grasp action; coalescing: while a jog runs a newer one replaces the pending one (the replaced one is answered
   superseded), the last request runs next and every request gets exactly one answer; `stop` drops the pending jog;
-  `handle_json` answers a plain jog at once
+  `handle_json` answers a plain jog at once; refused while the leader (a fresh non-autonomy active source) commands the
+  arm and mcp_server holds no lease, allowed once the lease is held or the source is `none`; refused while the agent
+  holds the arm with take_control (wired by `build_mcp_server`), allowed after release_control
 - grasp hold regressions of the 2026-10-10 grip tuning session (`test_grasp_hold.py`, fake follower that sags by the
   gravity model with sag compensation on): the full grasp_object sequence keeps shoulder_pan commanded at the planned
   grasp pose through the close and its hold check, within the planned samples through lift and retreat and at the

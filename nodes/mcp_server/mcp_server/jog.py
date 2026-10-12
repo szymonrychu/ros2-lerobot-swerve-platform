@@ -26,7 +26,7 @@ from typing import Any, Literal, Protocol
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .arm import ROLL_JOINT, ArmController, ArmError
+from .arm import ROLL_JOINT, SOURCE_NONE, ArmController, ArmError
 from .config import JogSettings
 from .ik import ArmKinematics, UnreachableError
 from .models import ArmMotionResult
@@ -165,6 +165,8 @@ class Jogger:
         self.lock = threading.Lock()
         self.running = False
         self.pending: tuple[JogSpec, dict[str, Any]] | None = None
+        # Whether the agent holds the arm (ControlManager.arm_held, wired by tools.register_tools); None never refuses.
+        self.agent_holds: Callable[[], bool] | None = None
 
     def submit(self, spec: JogSpec, head: dict[str, Any]) -> dict[str, Any] | None:
         """Run a jog now, or make it the pending jog when one runs (replacing and answering the previous pending one).
@@ -238,6 +240,9 @@ class Jogger:
         try:
             if self.guard is not None and self.guard.is_cutoff():
                 raise JogRefused(self.guard.rejection_message())
+            holder = self.foreign_holder()
+            if holder is not None:
+                raise JogRefused(holder)
             state = self.arm.state()
             if state.tool_pose is None:
                 raise JogRefused(
@@ -268,6 +273,27 @@ class Jogger:
             "motion": motion.model_dump(mode="json"),
         }
         return head | {"ok": True, "result": result}
+
+    def foreign_holder(self) -> str | None:
+        """Refusal reason when someone else commands the arm: the agent's take_control lease, or (while mcp_server
+        holds no lease) a fresh filter_node active source other than autonomy and none, e.g. the leader arm.
+
+        Returns:
+            str | None: The reason, None when a jog may take or use the lease.
+        """
+        if self.agent_holds is not None and self.agent_holds():
+            return "the agent holds the arm (take_control); wait until it releases control"
+        arm = self.arm
+        if arm.control_held:
+            return None
+        src = arm.backend.active_source()
+        if (
+            src is None
+            or not src.fresh(arm.backend.now(), arm.cfg.timeouts.state_stale_s)
+            or src.value in (arm.cfg.arm.autonomy_source_name, SOURCE_NONE)
+        ):
+            return None
+        return f"the arm is commanded by {src.value}: take control first"
 
     def cap(self, spec: JogSpec) -> float:
         """Step cap of a jog kind.
