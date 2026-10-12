@@ -4,17 +4,14 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Checkbox from '@mui/material/Checkbox'
 import FormControlLabel from '@mui/material/FormControlLabel'
-import IconButton from '@mui/material/IconButton'
 import Link from '@mui/material/Link'
-import Paper from '@mui/material/Paper'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import CloseIcon from '@mui/icons-material/Close'
+import { OverlayPanel } from '../layout/OverlayPanel'
 import { postPoi } from '../poi/api'
 import { POI_NAME_MAX, POI_NOTE_MAX, type Poi } from '../poi/types'
 import { capturedAt, type Photo, photoImageUrl, photoThumbUrl } from './api'
 
-const PANEL_BG = 'rgba(22, 27, 34, 0.92)'
 /** Longest side of the image the panel loads. */
 export const PANEL_IMAGE_PX = 640
 const DEG_PER_RAD = 180 / Math.PI
@@ -71,17 +68,10 @@ export function PhotoPanel({ tabId, photo, pois, onClose, onDeleted, fetchImpl =
   }
 
   return (
-    <Paper variant="outlined" sx={{ bgcolor: PANEL_BG, width: '100%', p: 1.5 }} onPointerDown={(e) => e.stopPropagation()} data-testid="photo-panel">
-      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-        <Typography variant="overline" sx={{ flex: 1, lineHeight: 2 }}>
-          Photo
-        </Typography>
-        <IconButton size="small" aria-label="Close photo" onClick={onClose}>
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </Box>
+    <OverlayPanel title="Photo" open anchor="left" docked onClose={onClose}>
+    <Box data-testid="photo-panel">
       <Link href={photoImageUrl(photo.id)} target="_blank" rel="noreferrer">
-        <Box component="img" src={photoThumbUrl(photo.id, PANEL_IMAGE_PX)} alt={`${photo.camera} photo ${capturedAt(photo.ts)}`} sx={{ width: '100%', height: 'auto', display: 'block', borderRadius: 0.5 }} />
+        <Box component="img" src={photoThumbUrl(photo.id, PANEL_IMAGE_PX)} alt={`${photo.camera} photo ${capturedAt(photo.ts)}`} sx={{ width: '100%', maxWidth: '100%', height: 'auto', display: 'block', borderRadius: 0.5 }} />
       </Link>
       <Typography variant="body2" sx={{ mt: 1 }}>{`Taken ${capturedAt(photo.ts)}`}</Typography>
       <Typography variant="body2">{`Camera ${photo.camera}, tool ${photo.tool}`}</Typography>
@@ -95,7 +85,7 @@ export function PhotoPanel({ tabId, photo, pois, onClose, onDeleted, fetchImpl =
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
         Linked POIs
       </Typography>
-      <Box sx={{ maxHeight: 130, overflowY: 'auto' }} role="group" aria-label="Linked POIs">
+      <Box sx={{ maxHeight: '8rem', overflowY: 'auto' }} role="group" aria-label="Linked POIs">
         {linkable.length === 0 && (
           <Typography variant="body2" color="text.secondary">
             No POIs to link.
@@ -136,6 +126,7 @@ export function PhotoPanel({ tabId, photo, pois, onClose, onDeleted, fetchImpl =
           {message.text}
         </Typography>
       )}
-    </Paper>
+    </Box>
+    </OverlayPanel>
   )
 }

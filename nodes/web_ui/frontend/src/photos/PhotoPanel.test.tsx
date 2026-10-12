@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { Photo } from './api'
 import { PhotoPanel } from './PhotoPanel'
@@ -43,7 +43,47 @@ function ui(f: ReturnType<typeof makeFetch>, p: Photo = photo(), extra: Partial<
   return <PhotoPanel tabId="t" photo={p} pois={POIS} onClose={() => {}} onDeleted={() => {}} fetchImpl={f.impl} {...extra} />
 }
 
+let viewportWidth = 1400
+
+/** Minimal matchMedia: evaluates min-width / max-width px conditions against viewportWidth. */
+function installMatchMedia(): void {
+  window.matchMedia = ((query: string) => {
+    const min = /min-width:\s*([\d.]+)px/.exec(query)
+    const max = /max-width:\s*([\d.]+)px/.exec(query)
+    let matches = true
+    if (min && viewportWidth < Number(min[1])) matches = false
+    if (max && viewportWidth > Number(max[1])) matches = false
+    return { matches, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(), onchange: null }
+  }) as typeof window.matchMedia
+}
+
+beforeEach(() => {
+  viewportWidth = 1400
+  installMatchMedia()
+})
 afterEach(cleanup)
+
+describe.each([
+  [400, 'phone'],
+  [1400, 'desktop'],
+])('PhotoPanel layout at %i px (%s)', (width, cls) => {
+  it('renders inside OverlayPanel, closes from its header, uses relative sizes', () => {
+    viewportWidth = width
+    const onClose = vi.fn()
+    render(ui(makeFetch(), photo(), { onClose }))
+    const overlay = screen.getByTestId('overlay-panel')
+    expect(overlay.getAttribute('data-layout')).toBe(cls)
+    expect(overlay.contains(screen.getByTestId('photo-panel'))).toBe(true)
+    expect(screen.queryByTestId('overlay-panel-handle') !== null).toBe(cls === 'phone')
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+    const img = screen.getByRole('img')
+    expect(getComputedStyle(img).maxWidth).toBe('100%')
+    const group = screen.getByRole('group', { name: 'Linked POIs' })
+    expect(group.className).not.toMatch(/130/)
+    expect(getComputedStyle(group).maxHeight).toMatch(/rem|dvh/)
+  })
+})
 
 describe('PhotoPanel', () => {
   it('shows the image at max_px 640 linking to the full size, and the capture facts', () => {
