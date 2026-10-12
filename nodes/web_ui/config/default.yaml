@@ -5,6 +5,15 @@ bridge:
   host: localhost
   port: 9090
 
+# Robot and base GPS chips: rover status over DDS, base status from GET /status of the base gps_rtk node's
+# NTRIP caster (port 5016, next to the /rtk mountpoint). null for either disables that chip.
+gps_status:
+  rover_topic: /client/gps/status
+  base_url: http://server.ros2.lan:5016/status
+  base_poll_hz: 1.0
+  stale_after_s: 5.0
+  base_timeout_s: 2.0
+
 tabs:
   # Merged 3D map tab: SLAM map, Nav2 plans + local costmap, robot and interactive arm model, GPS fix with
   # an auto-fitted anchor over map tiles proxied through /api/tiles. Every map_nav field below is optional

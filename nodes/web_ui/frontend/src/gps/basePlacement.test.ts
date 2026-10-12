@@ -6,6 +6,7 @@ import type { BaseGpsPayload, BaseGpsSample } from './gpsStatus'
 const ANCHOR: GpsAnchor = { lat: 52.0, lon: 21.0, heading_rad: 0.6 }
 const BASE: BaseGpsSample = {
   reachable: true,
+  has_status: true,
   role: 'base',
   quality: 4,
   fix: 'RTK Fixed',
@@ -49,6 +50,11 @@ describe('basePlacement', () => {
     const down: BaseGpsPayload = { reachable: false, error: 'timeout' }
     expect(basePlacement(ANCHOR, down)).toBeNull()
     expect(basePlacement(ANCHOR, { ...BASE, stale: true })).toBeNull()
+  })
+
+  it('is null when the base answered without a status', () => {
+    const pending: BaseGpsPayload = { reachable: true, has_status: false, reason: 'no status yet' }
+    expect(basePlacement(ANCHOR, pending)).toBeNull()
   })
 
   it('is null when lat/lon are missing or not finite', () => {

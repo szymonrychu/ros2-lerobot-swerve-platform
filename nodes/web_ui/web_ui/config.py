@@ -319,11 +319,12 @@ class TabConfig(BaseModel):
 
 
 class GpsStatusConfig(BaseModel):
-    """GPS status chips: rover status topic (DDS) and base status endpoint (HTTP poll of the server scraper).
+    """GPS status chips: rover status topic (DDS) and base status endpoint (HTTP poll of the base gps_rtk node).
 
     Attributes:
         rover_topic: std_msgs/String JSON topic published by the rover gps_rtk node, or None.
-        base_url: Scraper URL of the base status topic (e.g. http://server:18100/topics/server/gps/status), or None.
+        base_url: GET /status of the base gps_rtk node's NTRIP caster (e.g. http://server.ros2.lan:5016/status),
+            or None for no base chip.
         base_poll_hz: Base poll rate in Hz.
         stale_after_s: Seconds without a new sample before a status counts as stale.
         base_timeout_s: HTTP timeout of one base poll in seconds.

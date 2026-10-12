@@ -5,16 +5,17 @@ import CellTowerIcon from '@mui/icons-material/CellTower'
 import GpsFixedIcon from '@mui/icons-material/GpsFixed'
 import GpsNotFixedIcon from '@mui/icons-material/GpsNotFixed'
 import GpsOffIcon from '@mui/icons-material/GpsOff'
-import type { GpsChipStatus } from '../gps/gpsStatus'
+import { roverIcon, type GpsChipStatus } from '../gps/gpsStatus'
 
 /** AppBar chip with a GPS fix summary; the details are in the tooltip, and only the short label shows on phones. */
 export function GpsChip({ status, role }: { status: GpsChipStatus; role: 'robot' | 'base' }) {
+  const kind = roverIcon(status.level)
   const icon =
     role === 'base' ? (
       <CellTowerIcon />
-    ) : status.level === 'no_data' || status.level === 'stale' ? (
+    ) : kind === 'off' ? (
       <GpsOffIcon />
-    ) : status.level === 'rtk_fixed' ? (
+    ) : kind === 'fixed' ? (
       <GpsFixedIcon />
     ) : (
       <GpsNotFixedIcon />

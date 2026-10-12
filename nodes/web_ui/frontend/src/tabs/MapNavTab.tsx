@@ -47,7 +47,7 @@ import log from '../logging'
 import { Pose2D, Vec2, yawToQuaternion } from '../map/mapMath'
 import { ActionResult, confirmClick, isCleared, parseActionResult, RESET_CONFIRM_MS } from '../map/mapActions'
 import { baseMarkerLabel, basePlacement } from '../gps/basePlacement'
-import { BaseGpsPayload, GPS_BASE_STATUS_KEY } from '../gps/gpsStatus'
+import { BaseGpsPayload, GPS_BASE_STATUS_KEY, isBaseSample } from '../gps/gpsStatus'
 import { anchorSummary, validAnchor } from '../map3d/geo'
 import { goalButtonState } from '../map/goalControl'
 import { tiltStatus } from '../tilt/tiltStatus'
@@ -198,7 +198,7 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
   const gpsAvailable = anchor !== null
   const baseStatus = topicData[GPS_BASE_STATUS_KEY] as BaseGpsPayload | null | undefined
   const basePosition = useMemo(() => basePlacement(anchor, baseStatus), [anchor, baseStatus])
-  const baseLabel = baseStatus && baseStatus.reachable ? baseMarkerLabel(baseStatus) : 'Base'
+  const baseLabel = isBaseSample(baseStatus) ? baseMarkerLabel(baseStatus) : 'Base'
   const map = isCleared(mapMsg) ? null : mapMsg
   const mapBox = useMemo<Bounds | null>(() => (map ? mapBounds(map) : null), [map])
 

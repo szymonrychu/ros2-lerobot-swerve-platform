@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from web_ui.config import AppConfig, TabConfig, load_config
+from web_ui.config import AppConfig, GpsStatusConfig, TabConfig, load_config
 
 
 def test_load_config_minimal(config_yaml: Path) -> None:
@@ -148,14 +148,14 @@ def test_gps_status_absent_means_off() -> None:
 
 def test_gps_status_defaults_and_roles_and_api_dump() -> None:
     cfg = AppConfig.model_validate(
-        {"gps_status": {"rover_topic": "/client/gps/status", "base_url": "http://s:18100/x"}}
+        {"gps_status": {"rover_topic": "/client/gps/status", "base_url": "http://s:5016/status"}}
     )
     gps = cfg.gps_status
     assert gps is not None
     assert (gps.base_poll_hz, gps.stale_after_s, gps.base_timeout_s) == (1.0, 5.0, 2.0)
     assert cfg.topic_roles() == {"/client/gps/status": "gps_status"}
     assert "/client/gps/status" in cfg.all_subscribed_topics()
-    assert cfg.model_dump()["gps_status"]["base_url"] == "http://s:18100/x"
+    assert cfg.model_dump()["gps_status"]["base_url"] == "http://s:5016/status"
 
 
 def test_gps_status_all_optional() -> None:
@@ -200,3 +200,18 @@ def test_gps_compass_settings_none_when_disabled_or_without_map_nav_tab() -> Non
     off = TabConfig(id="m", type="map_nav", label="Map", gps_anchor_imu_topic="/imu/data", gps_anchor_compass=False)
     assert AppConfig(tabs=[off]).gps_compass_settings() is None
     assert AppConfig(tabs=[]).gps_compass_settings() is None
+
+
+def test_default_yaml_gps_status_points_at_base_caster_status_route() -> None:
+    """default.yaml enables both GPS chips; the base status comes from the base node's NTRIP caster GET /status."""
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
+    gps = cfg.gps_status
+    assert gps is not None
+    assert gps.rover_topic == "/client/gps/status"
+    assert gps.base_url == "http://server.ros2.lan:5016/status"
+    defaults = GpsStatusConfig()
+    assert (gps.base_poll_hz, gps.stale_after_s, gps.base_timeout_s) == (
+        defaults.base_poll_hz,
+        defaults.stale_after_s,
+        defaults.base_timeout_s,
+    )
