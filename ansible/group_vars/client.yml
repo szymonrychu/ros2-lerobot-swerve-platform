@@ -1405,6 +1405,15 @@ ros2_nodes:
           gripper_camera_mount:
             xyz: [-0.0046, 0.0364, -0.0364]
             rpy: [-1.5622, 1.1950, -1.4466]
+        # Head tab: overview camera as head RGB, greyscale ToF depth and amplitude from the arducam_tof node.
+        # Pan/tilt is a disabled placeholder; nothing is published.
+        - id: head
+          type: head
+          label: "Head"
+          rgb_camera_topic: /overview_camera/image_raw/compressed
+          tof_depth_topic: /tof/depth/image_raw
+          tof_amplitude_topic: /tof/amplitude/image_raw
+          tof_range_m: 4.0
         - id: overview_camera
           type: camera
           label: "Overview"

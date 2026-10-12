@@ -274,7 +274,8 @@ def test_default_yaml_arm_tab_replaces_gripper_cam_tab() -> None:
     assert "camera" not in ids
     assert ids.index("arm") == 1
     assert cfg.tabs[1].type == "arm" and cfg.tabs[1].label == "Arm"
-    assert ids.index("overview_camera") == 2
+    assert ids.index("head") == 2
+    assert ids.index("overview_camera") == 3
     assert cfg.tabs[1].arm_urdf == "so101_arm.urdf"
 
 

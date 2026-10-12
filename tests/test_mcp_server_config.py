@@ -63,7 +63,7 @@ AUTONOMY = {
 TILE_CACHE_DIR = "/var/cache/web_ui/tiles"
 TILE_CACHE_TASKS = PLAYBOOKS_DIR / "tasks" / "web_ui_tile_cache_dir.yml"
 LEGACY_MAP_KEYS = {"urdf_file", "topic", "arm_urdf_file", "arm_joint_topic", "scan_topic", "costmap_topic"}
-WEB_UI_TABS = ["map", "agent", "arm", "overview_camera", "poi"]
+WEB_UI_TABS = ["map", "agent", "arm", "head", "overview_camera", "poi"]
 REMOVED_WEB_UI_TABS = {"arm_servos", "local_nav", "gps_nav", "scene3d", "robot_status"}
 
 
@@ -477,12 +477,19 @@ def test_web_ui_tab_set() -> None:
     assert arm["gripper_camera_topic"] == "/camera_0/image_raw/compressed"
     assert arm["overview_camera_topic"] == "/overview_camera/image_raw/compressed"
     assert "topic" not in arm
-    overview = tabs[3]
+    head = tabs[3]
+    assert head["type"] == "head"
+    assert head["label"] == "Head"
+    assert head["rgb_camera_topic"] == "/overview_camera/image_raw/compressed"
+    assert head["tof_depth_topic"] == "/tof/depth/image_raw"
+    assert head["tof_amplitude_topic"] == "/tof/amplitude/image_raw"
+    assert head["tof_range_m"] == 4.0
+    overview = tabs[4]
     assert overview["id"] == "overview_camera"
     assert overview["type"] == "camera"
     assert overview["label"] == "Overview"
     assert overview["topic"] == "/overview_camera/image_raw/compressed"
-    poi = tabs[4]
+    poi = tabs[5]
     assert poi["type"] == "poi"
     assert poi["id"] == "poi"
     assert poi["label"] == "POI"

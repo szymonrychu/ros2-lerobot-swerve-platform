@@ -239,7 +239,7 @@ def test_removed_tab_types_rejected(tab_type: str) -> None:
         TabConfig(id="x", type=tab_type, label="X")
 
 
-@pytest.mark.parametrize("tab_type", ["camera", "sensor_graph", "poi", "rgbd_camera", "map_nav"])
+@pytest.mark.parametrize("tab_type", ["camera", "sensor_graph", "poi", "rgbd_camera", "map_nav", "head"])
 def test_kept_tab_types_valid(tab_type: str) -> None:
     assert TabConfig(id="x", type=tab_type, label="X").type == tab_type
 
@@ -262,7 +262,7 @@ def test_default_yaml_tab_set_map_first() -> None:
     cfg = load_config(DEFAULT_YAML)
     types = [t.type for t in cfg.tabs]
     assert types[0] == "map_nav"
-    assert types == ["map_nav", "arm", "camera", "poi"]
+    assert types == ["map_nav", "arm", "head", "camera", "poi"]
     for removed in REMOVED_TAB_TYPES:
         assert removed not in types
     tab = cfg.tabs[0]
@@ -1165,3 +1165,19 @@ def test_topic_type_hints_have_no_master2master_relay_topics() -> None:
     assert TOPIC_TYPE_HINTS["/scan"] is LaserScan
     assert TOPIC_TYPE_HINTS["/local_costmap/costmap"] is OccupancyGrid
     assert TOPIC_TYPE_HINTS["/camera_0/image_raw"] is Image
+
+
+def test_client_yml_web_ui_tabs_validate_and_head_matches_default() -> None:
+    import yaml
+
+    client_yml = Path(__file__).resolve().parents[3] / "ansible" / "group_vars" / "client.yml"
+    nodes = yaml.safe_load(client_yml.read_text())["ros2_nodes"]
+    node = next(n for n in nodes if n["name"] == "web_ui")
+    shipped = AppConfig.model_validate(yaml.safe_load(node["config"]))
+    head = next(t for t in shipped.tabs if t.type == "head")
+    default_head = next(t for t in load_config(DEFAULT_YAML).tabs if t.type == "head")
+    assert [t.id for t in shipped.tabs].index("head") == [t.id for t in shipped.tabs].index("arm") + 1
+    assert head.tof_depth_topic == default_head.tof_depth_topic == "/tof/depth/image_raw"
+    assert head.tof_amplitude_topic == default_head.tof_amplitude_topic == "/tof/amplitude/image_raw"
+    assert head.rgb_camera_topic == "/overview_camera/image_raw/compressed"
+    assert head.tof_range_m == 4.0
