@@ -144,6 +144,11 @@ class TopicSettings(StrictModel):
     home_service: str = "/arm/home"
     swerve_joint_states: str = "/swerve_drive/joint_states"  # steer joints for the release_control base reset
     set_home_service: str = "/arm/set_home"
+    # std_srvs/Trigger services of the web UI Arm tab (ControlManager.take_web_ui / release_web_ui).
+    take_control_service: str = "/arm/take_control"
+    release_control_service: str = "/arm/release_control"
+    # Leader arm joints as filter_node receives them (sensor_msgs/JointState); take_control is refused while they move.
+    leader_joint_updates: str = "/filter/input_joint_updates"
     # Web-UI grasp actions: JSON requests (std_msgs/String) on grasp_command, JSON results on grasp_result.
     grasp_command: str = "/grasp/command"
     grasp_result: str = "/grasp/result"
@@ -707,6 +712,9 @@ class ControlSettings(StrictModel):
     # the first read waits this long for a first message, the subscription is destroyed after steer_states_idle_s unread.
     steer_states_wait_s: float = Field(default=0.5, gt=0.0, le=5.0)
     steer_states_idle_s: float = Field(default=30.0, gt=0.0)
+    # /arm/take_control (web UI) is refused while a leader joint moved more than this within the window.
+    leader_motion_threshold_rad: float = Field(default=0.02, gt=0.0, le=0.5)
+    leader_motion_window_s: float = Field(default=0.5, gt=0.0, le=5.0)
 
 
 class NavFootprintSettings(StrictModel):

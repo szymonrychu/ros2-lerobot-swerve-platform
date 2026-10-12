@@ -53,7 +53,7 @@ from .base_motion import (
     run_stop,
 )
 from .config import McpServerConfig
-from .control import NavGoalRegistry
+from .control import ControlManager, LeaderActivity, NavGoalRegistry
 from .floor_guard import monitor_tilt_sample
 from .footprint import costmap_node, published_footprint_topic
 from .footprint_geometry import Point2
@@ -443,6 +443,12 @@ class RosRobot:
         self.node.create_timer(MONITOR_TICK_S, self.monitor.tick, callback_group=self.group)
         self.node.create_service(Trigger, t.home_service, self.on_home, callback_group=self.group)
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
+        # Web UI Arm tab: take / release the arm lease through the ControlManager (bound by bind_control).
+        self.control: ControlManager | None = None
+        self.leader = LeaderActivity(config.control.leader_motion_threshold_rad, config.control.leader_motion_window_s)
+        self.subscribe(JointState, t.leader_joint_updates, self.on_leader_joints, SENSOR_QOS)
+        self.node.create_service(Trigger, t.take_control_service, self.on_take_control, callback_group=self.group)
+        self.node.create_service(Trigger, t.release_control_service, self.on_release_control, callback_group=self.group)
         self.node.create_timer(
             1.0 / config.limits.hold_republish_hz, self.arm.keepalive_tick, callback_group=self.group
         )
@@ -965,6 +971,56 @@ class RosRobot:
         response.success, response.message = self.arm.home_service_call()
         if response.success and self.footprint_tick is not None:
             self.footprint_tick()  # the arm is parked now: back to the static footprint without waiting for the tick
+        return response
+
+    def bind_control(self, control: ControlManager) -> None:
+        """Serve /arm/take_control and /arm/release_control through the tool server's ControlManager.
+
+        Args:
+            control (ControlManager): Lease manager (shared with the agent's take_control / release_control).
+        """
+        control.leader_moving = lambda: self.leader.moving(time.monotonic())
+        self.control = control
+
+    def on_leader_joints(self, msg: JointState) -> None:
+        """Feed the leader activity tracker.
+
+        Args:
+            msg (JointState): Leader joint positions as filter_node receives them.
+        """
+        self.leader.feed(finite_by_name(msg.name, msg.position), time.monotonic())
+
+    def on_take_control(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """/arm/take_control: the web UI takes the arm lease (holder web_ui) at the measured pose.
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success and message (refused for the agent holding the arm, battery cut-off, a moving
+                leader).
+        """
+        if self.control is None:
+            response.success, response.message = False, "take_control refused: mcp_server is not ready"
+        else:
+            response.success, response.message = self.control.take_web_ui()
+        return response
+
+    def on_release_control(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """/arm/release_control: publish the autonomy release (the leader takes over) and clear the web_ui holder.
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success and message.
+        """
+        if self.control is None:
+            response.success, response.message = False, "release_control refused: mcp_server is not ready"
+        else:
+            response.success, response.message = self.control.release_web_ui()
         return response
 
     def on_set_home(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:

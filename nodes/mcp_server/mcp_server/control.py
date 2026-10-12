@@ -11,6 +11,10 @@ stored home pose, the base is zeroed (only this server's Nav2 goals cancelled, z
 neutral. A failed reset is reported, but the release happens (except a park stopped by the stop tool: the arm then
 holds and the lease is kept).
 
+The web UI takes the same lease through take_web_ui / release_web_ui (std_srvs/Trigger /arm/take_control and
+/arm/release_control, holder web_ui): refused while the agent holds the arm, under battery cut-off and while the leader
+arm moves (LeaderActivity).
+
 The navigation footprint (footprint.NavFootprint) follows the arm lease: take_control('arm') publishes the static
 body footprint (the arm may move from then on), an arm release that parked the arm publishes it too (as does a
 converged /arm/home service call), and any other arm release (keep_position=true, or a park that failed) publishes the
@@ -25,6 +29,7 @@ release while carrying keeps the grip profile's torque limit.
 
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from typing import Literal, Protocol
@@ -70,6 +75,67 @@ CARRYING_REFUSAL = (
     "release_control refused: the arm cannot park while the gripper carries an object ({reasons}) - put the object "
     "down first (release_object), or release with keep_position=true"
 )
+
+
+WEB_UI_HOLDER = "web_ui"  # ControlState.arm.held_by of a lease taken by the web UI (/arm/take_control)
+WEB_UI_NOT_HELD = "arm control not held by web_ui"
+WEB_UI_AGENT_REFUSAL = "take_control refused: the agent holds the arm - wait for it to release or stop it first"
+WEB_UI_BATTERY_REFUSAL = "take_control refused: battery below cut-off"
+WEB_UI_LEADER_REFUSAL = "take_control refused: the leader arm is moving - hold it still and try again"
+
+
+class LeaderActivity:
+    """Recent leader arm joint motion (the master2master output feeding filter_node), for the web UI take refusal."""
+
+    def __init__(self, threshold_rad: float, window_s: float) -> None:
+        """Create the tracker.
+
+        Args:
+            threshold_rad (float): A joint whose position spread in the window exceeds this counts as moving (rad).
+            window_s (float): Look-back window (s).
+        """
+        self.threshold_rad = threshold_rad
+        self.window_s = window_s
+        self.samples: deque[tuple[float, dict[str, float]]] = deque()
+        self.lock = threading.Lock()
+
+    def feed(self, positions: dict[str, float], now: float) -> None:
+        """Record one leader sample and drop the ones older than the window.
+
+        Args:
+            positions (dict[str, float]): Joint name -> position (rad).
+            now (float): Sample time (s, monotonic).
+        """
+        with self.lock:
+            self.samples.append((now, dict(positions)))
+            self.trim(now)
+
+    def trim(self, now: float) -> None:
+        """Drop samples older than the window (caller holds the lock).
+
+        Args:
+            now (float): Current time (s, monotonic).
+        """
+        while self.samples and now - self.samples[0][0] > self.window_s:
+            self.samples.popleft()
+
+    def moving(self, now: float) -> bool:
+        """Whether any leader joint moved more than the threshold within the window.
+
+        Args:
+            now (float): Current time (s, monotonic).
+
+        Returns:
+            bool: True when the leader is actively moving.
+        """
+        with self.lock:
+            self.trim(now)
+            spread: dict[str, tuple[float, float]] = {}
+            for _, positions in self.samples:
+                for joint, value in positions.items():
+                    low, high = spread.get(joint, (value, value))
+                    spread[joint] = (min(low, value), max(high, value))
+        return any(high - low > self.threshold_rad for low, high in spread.values())
 
 
 def grasp_reason(record: CarryRecord) -> str:
@@ -262,6 +328,68 @@ class ControlManager:
         # taken; None while the agent does not hold the arm.
         self.arm_generation: int | None = None
         self.arm_since: float | None = None
+        # Lease generation of the web UI's arm lease (take_web_ui); None while the web UI does not hold the arm.
+        self.web_ui_generation: int | None = None
+        # Whether the leader arm is moving now (ros_iface binds LeaderActivity.moving); take_web_ui refuses then.
+        self.leader_moving: Callable[[], bool] = lambda: False
+
+    @property
+    def web_ui_held(self) -> bool:
+        """Whether the web UI holds the arm lease: taken with take_web_ui and not ended or re-taken since.
+
+        Returns:
+            bool: True while held (a stale record is cleared).
+        """
+        generation = self.web_ui_generation
+        if generation is None:
+            return False
+        if self.arm.control_held and self.arm.lease_generation == generation:
+            return True
+        with self.lock:
+            if self.web_ui_generation == generation:
+                self.web_ui_generation = None
+        return False
+
+    def take_web_ui(self) -> tuple[bool, str]:
+        """/arm/take_control: the web UI takes the arm (lease holder web_ui, commands the measured pose, moves nothing).
+
+        Returns:
+            tuple[bool, str]: success and message; refused while the agent holds the arm, under battery cut-off and
+                while the leader arm is moving.
+        """
+        if self.arm_held:
+            return False, WEB_UI_AGENT_REFUSAL
+        if self.guard is not None and self.guard.is_cutoff():
+            return False, WEB_UI_BATTERY_REFUSAL
+        if self.web_ui_held:
+            return True, "arm control already held by web_ui"
+        if self.leader_moving():
+            return False, WEB_UI_LEADER_REFUSAL
+        try:
+            if not self.arm.control_held:
+                self.arm.acquire()
+        except ArmError as exc:
+            return False, f"take_control refused: {exc}"
+        with self.lock:
+            self.web_ui_generation = self.arm.lease_generation
+        if self.footprint is not None:
+            self.footprint.publish_static()
+        return True, "arm control taken by web_ui at the measured pose"
+
+    def release_web_ui(self) -> tuple[bool, str]:
+        """/arm/release_control: publish the autonomy release so the follower hands back to the leader (filter_node's
+        proximity rule applies) and clear the holder. The arm stays where it is.
+
+        Returns:
+            tuple[bool, str]: success and message; refused when the web UI does not hold the arm.
+        """
+        if not self.web_ui_held:
+            return False, WEB_UI_NOT_HELD
+        self.arm.release()
+        with self.lock:
+            self.web_ui_generation = None
+        self.publish_footprint("kept", None)
+        return True, "arm control released by web_ui; the leader takes over once it is close to the arm"
 
     @property
     def base_held(self) -> bool:
@@ -318,6 +446,7 @@ class ControlManager:
                 with self.lock:
                     self.arm_generation = self.arm.lease_generation
                     self.arm_since = self.wall()
+                    self.web_ui_generation = None  # the agent adopts the lease: the web UI no longer holds it
             if self.footprint is not None:
                 self.footprint.publish_static()
         else:
@@ -572,10 +701,13 @@ class ControlManager:
 
         Returns:
             str | None: agent (take_control), mcp_server (an implicit hold: web UI grasp, stop), filter_node's active
-                source otherwise (leader, web_ui), None when unknown.
+                source otherwise (leader), None when unknown.
+                web_ui is the lease the web UI took with /arm/take_control.
         """
         if self.arm_held:
             return "agent"
+        if self.web_ui_held:
+            return WEB_UI_HOLDER
         if self.arm.control_held:
             return "mcp_server"
         src = self.arm.backend.active_source()

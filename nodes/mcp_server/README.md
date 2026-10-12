@@ -666,6 +666,25 @@ navigation footprint: `kind` (`static` / `dynamic` / `conservative`), `vertices`
 `collision_monitor`: `ok`, `pending`, or `unavailable: ...` / `refused: ...` / `timeout: ...` / `republished: ...`);
 `footprint` is `null` without a `nav_footprint` config block.
 
+### Web UI take / release (`/arm/take_control`, `/arm/release_control`)
+
+Two `std_srvs/Trigger` services let the web UI Arm tab take the arm from the leader (or the agent's idle hold) and hand
+it back with one button. Both go through the same `ControlManager` and arm lease as the agent's `take_control`
+(`topics.take_control_service`, `topics.release_control_service`).
+
+- `/arm/take_control` acquires the lease for the holder `web_ui` (`ControlManager.take_web_ui`): filter_node's active
+  source becomes `autonomy` and the measured pose is commanded, so the arm does not move. Idempotent. Refused (success
+  false, message says why) while the agent holds the arm, under battery cut-off, and while the leader arm is actively
+  moving (a leader joint moved more than `control.leader_motion_threshold_rad`, 0.02 rad, within
+  `control.leader_motion_window_s`, 0.5 s, measured on `topics.leader_joint_updates`, `/filter/input_joint_updates`).
+- `/arm/release_control` (`ControlManager.release_web_ui`) publishes the autonomy release and clears the holder; the
+  arm stays put and filter_node's proximity rule (0.15 rad) hands it back to the leader once the leader arm is
+  close. Refused when the web UI does not hold the arm (the agent's lease is never released by it).
+- `/arm/home` is unchanged: it moves home, then releases (which also clears the `web_ui` holder).
+- `get_control_state` reports `arm.held_by: "web_ui"` (`arm.held` stays the agent's lease). The startup orphan check
+  never drops a `web_ui` lease (this process holds it). An agent `take_control` while the web UI holds the arm adopts
+  the lease (the holder becomes `agent`).
+
 ## Navigation footprint
 
 `footprint.py` (`NavFootprint`, no ROS) decides what Nav2, the collision monitor and the lidar self filter treat as

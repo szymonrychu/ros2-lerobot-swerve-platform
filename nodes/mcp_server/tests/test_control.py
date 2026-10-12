@@ -8,7 +8,12 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_server.config import McpServerConfig
-from mcp_server.control import ControlManager, steering_neutral, wait_steering_neutral
+from mcp_server.control import (
+    ControlManager,
+    LeaderActivity,
+    steering_neutral,
+    wait_steering_neutral,
+)
 from mcp_server.monitor import RobotMonitor
 from mcp_server.tools import TOOL_SUBSYSTEM, build_mcp_server
 
@@ -453,3 +458,132 @@ def test_release_control_counts_as_a_blocking_motion_while_it_parks(server: Any,
     call(server, "release_control", {"subsystem": "all"})
     assert seen == ["release_control"]
     assert server.blocking_tool() is None
+
+
+# --- web UI take / release (std_srvs/Trigger /arm/take_control, /arm/release_control) ------------------------------
+
+
+def test_web_ui_take_acquires_the_lease_at_the_measured_pose(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    robot.arm_backend.positions["elbow_flex"] = 0.4
+    ctl = manager(robot)
+    ok, message = ctl.take_web_ui()
+    assert ok is True and "web_ui" in message
+    assert robot.arm.control_held is True and ctl.web_ui_held is True and ctl.arm_held is False
+    assert robot.arm_backend.commands[-1]["elbow_flex"] == pytest.approx(0.4)  # measured pose, the arm does not move
+    state = ctl.state().arm
+    assert state.held_by == "web_ui" and state.held is False
+    assert ctl.take_web_ui()[0] is True  # idempotent
+    assert len(robot.arm_backend.commands) == 1
+
+
+def test_web_ui_take_is_refused_while_the_agent_holds_the_arm(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    ctl = manager(robot)
+    ctl.take("arm")
+    ok, message = ctl.take_web_ui()
+    assert ok is False and "agent" in message
+    assert ctl.web_ui_held is False and ctl.arm_held is True
+
+
+def test_web_ui_take_is_refused_under_battery_cutoff(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    ctl = manager(robot, guard=make_guard(LOW_V))
+    ok, message = ctl.take_web_ui()
+    assert ok is False and "battery" in message
+    assert robot.arm.control_held is False and robot.arm_backend.commands == []
+
+
+def test_web_ui_take_is_refused_while_the_leader_moves(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    ctl = manager(robot)
+    ctl.leader_moving = lambda: True
+    ok, message = ctl.take_web_ui()
+    assert ok is False and "leader" in message and "moving" in message
+    assert robot.arm.control_held is False and robot.arm_backend.commands == []
+
+
+def test_web_ui_release_hands_back_to_the_leader_and_clears_the_holder(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    ctl = manager(robot)
+    ctl.take_web_ui()
+    ok, message = ctl.release_web_ui()
+    assert ok is True and "released" in message
+    assert robot.arm_backend.releases == 1 and robot.arm.control_held is False
+    assert ctl.web_ui_held is False and ctl.state().arm.held_by is None
+
+
+def test_web_ui_release_without_the_lease_is_refused_and_publishes_nothing(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    ctl = manager(robot)
+    ok, message = ctl.release_web_ui()
+    assert ok is False and "not held" in message and robot.arm_backend.releases == 0
+    ctl.take("arm")
+    assert ctl.release_web_ui()[0] is False and robot.arm.control_held is True  # the agent's lease is not released
+
+
+def test_agent_take_over_a_web_ui_lease_clears_the_web_ui_holder(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    ctl = manager(robot)
+    ctl.take_web_ui()
+    ctl.take("arm")
+    assert ctl.web_ui_held is False and ctl.arm_held is True and ctl.state().arm.held_by == "agent"
+
+
+def test_orphan_check_keeps_a_web_ui_lease(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    ctl = manager(robot)
+    ctl.take_web_ui()
+    robot.arm_backend.source = "autonomy"
+    robot.arm_backend.events.clear()
+    assert robot.arm.check_orphan_lease(robot.arm_backend.t - 1.0) == "clear"
+    assert robot.arm_backend.events == [] and ctl.web_ui_held is True
+
+
+def test_home_service_after_web_ui_take_goes_home_and_clears_the_holder(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    store_home_then_move_away(robot)
+    ctl = manager(robot)
+    ctl.take_web_ui()
+    ok, _ = robot.arm.home_service_call()  # /arm/home reused unchanged: home, then release
+    assert ok is True and robot.arm.control_held is False and robot.arm_backend.releases == 1
+    assert ctl.web_ui_held is False and ctl.state().arm.held_by is None
+
+
+def test_get_control_state_tool_reports_the_web_ui_holder(server: Any, robot: FakeRobot) -> None:
+    server.control.take_web_ui()
+    arm = call(server, "get_control_state", {}).structured_content["arm"]
+    assert arm["held_by"] == "web_ui" and arm["held"] is False
+
+
+def test_leader_activity_flags_motion_above_the_threshold_in_the_window() -> None:
+    leader = LeaderActivity(threshold_rad=0.02, window_s=0.5)
+    assert leader.moving(10.0) is False  # no samples yet
+    leader.feed({"elbow_flex": 0.100, "gripper": 0.5}, 10.0)
+    leader.feed({"elbow_flex": 0.105, "gripper": 0.5}, 10.2)
+    assert leader.moving(10.3) is False  # jitter below the threshold
+    leader.feed({"elbow_flex": 0.150, "gripper": 0.5}, 10.4)
+    assert leader.moving(10.5) is True
+    assert leader.moving(11.0) is False  # the motion left the window
+
+
+def test_leader_activity_ignores_joints_that_appear_later() -> None:
+    leader = LeaderActivity(threshold_rad=0.02, window_s=0.5)
+    leader.feed({"elbow_flex": 0.1}, 1.0)
+    leader.feed({"elbow_flex": 0.1, "wrist_roll": 3.0}, 1.2)
+    assert leader.moving(1.3) is False
+
+
+def test_ros_services_take_and_release_through_the_control_manager(ros_iface: Any, tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    ctl = manager(robot)
+    iface = ros_iface.RosRobot.__new__(ros_iface.RosRobot)
+    iface.control = ctl
+    response = type("R", (), {"success": None, "message": None})()
+    iface.on_take_control(None, response)
+    assert response.success is True and ctl.web_ui_held is True
+    iface.on_release_control(None, response)
+    assert response.success is True and ctl.web_ui_held is False and robot.arm_backend.releases == 1
+    iface.control = None
+    iface.on_take_control(None, response)
+    assert response.success is False and "not ready" in response.message
