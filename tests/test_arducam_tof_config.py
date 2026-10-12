@@ -4,8 +4,12 @@ arducam_tof runs on the client and publishes the Arducam ToF depth, amplitude an
 disabled (the camera is not plugged in yet) and its SDK install never fails a deploy.
 """
 
+import importlib.util
+import os
+import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -13,6 +17,9 @@ GROUP_VARS = REPO_ROOT / "ansible" / "group_vars"
 CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml"
 SDK_TASKS = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "arducam_tof_sdk.yml"
 NODE = "arducam_tof"
+DRIVER_CONFIG = Path(
+    os.environ.get("ARDUCAM_TOF_DRIVER_CONFIG", REPO_ROOT / "nodes/bridges/arducam_tof/arducam_tof/config.py")
+)
 METRICS_PORT = 19112
 APT_REPO = "https://arducam.github.io/arducam_ppa linux main"
 SDK_PACKAGE = "arducam-tof-sdk-dev"
@@ -83,6 +90,20 @@ def test_deployed_config_holds_only_keys_the_driver_accepts() -> None:
     assert config["camera_index"] == 1
     assert config["metrics_port"] == METRICS_PORT
     assert config["range_mode"] in ("near", "far")
+
+
+@pytest.mark.skipif(not DRIVER_CONFIG.is_file(), reason="arducam_tof driver (T1) is not in this tree yet")
+def test_deployed_config_loads_in_the_real_driver_load_config(tmp_path: Path) -> None:
+    """The deployed YAML passes the driver's own load_config (extra keys forbidden, ranges checked)."""
+    spec = importlib.util.spec_from_file_location("arducam_tof_driver_config", DRIVER_CONFIG)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    path = tmp_path / "config.yaml"
+    path.write_text(client_node(NODE)["config"])
+    loaded = module.load_config(path)
+    assert loaded.camera_index == 1
+    assert loaded.metrics_port == METRICS_PORT
 
 
 def test_head_tab_topics_are_documented_in_the_config_comments() -> None:
