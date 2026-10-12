@@ -225,9 +225,9 @@ describe('MapNavTab with the docked sidebar', () => {
     await screen.findByTestId('scene')
   }
 
-  /** The panel (an OverlayPanel) whose header shows the given title. */
+  /** The panel (an OverlayPanel) whose header title (not its actions) shows the given title. */
   function panelTitled(title: RegExp): HTMLElement {
-    const header = screen.getAllByTestId('overlay-panel-header').find((h) => title.test(h.textContent ?? ''))
+    const header = screen.getAllByTestId('overlay-panel-header').find((h) => title.test(h.firstElementChild?.textContent ?? ''))
     expect(header, `panel ${title}`).toBeTruthy()
     return header!.closest('[data-testid="overlay-panel"]') as HTMLElement
   }
