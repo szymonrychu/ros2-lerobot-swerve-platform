@@ -16,6 +16,8 @@ NODE = "arducam_tof"
 METRICS_PORT = 19112
 APT_REPO = "https://arducam.github.io/arducam_ppa linux main"
 SDK_PACKAGE = "arducam-tof-sdk-dev"
+DRIVER_KEYS = {"camera_index", "range_mode", "confidence_threshold", "frame_id", "publish_rate_hz", "metrics_port"}
+HEAD_TAB_TOPICS = ("/tof/depth/image_raw", "/tof/amplitude/image_raw", "/tof/camera_info")
 NORMAL_TIER = (500, 500, -500)
 
 
@@ -74,15 +76,20 @@ def test_ros2_nodes_entry_deploys_disabled() -> None:
     assert isinstance(node["config"], str)
 
 
-def test_deployed_config_holds_the_defaults_and_head_tab_topics() -> None:
+def test_deployed_config_holds_only_keys_the_driver_accepts() -> None:
+    """The driver config (T1 TofConfig) rejects unknown keys and takes range_mode near or far."""
     config = yaml.safe_load(client_node(NODE)["config"])
+    assert set(config) == DRIVER_KEYS
     assert config["camera_index"] == 1
     assert config["metrics_port"] == METRICS_PORT
-    for key in ("range_mode", "confidence_threshold", "frame_id", "publish_rate_hz"):
-        assert key in config
-    assert config["depth_topic"] == "/tof/depth/image_raw"
-    assert config["amplitude_topic"] == "/tof/amplitude/image_raw"
-    assert config["camera_info_topic"] == "/tof/camera_info"
+    assert config["range_mode"] in ("near", "far")
+
+
+def test_head_tab_topics_are_documented_in_the_config_comments() -> None:
+    """The topics are fixed in the driver, so they are comments (a topic key would fail validation)."""
+    text = client_node(NODE)["config"]
+    for topic in HEAD_TAB_TOPICS:
+        assert f"# {topic}" in text or f" {topic}" in text.split("#", 1)[1]
 
 
 def test_metrics_port_is_scraped() -> None:

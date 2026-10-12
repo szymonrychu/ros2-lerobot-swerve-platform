@@ -939,13 +939,15 @@ ros2_nodes:
       metrics_port: 19112
       # CSI cam1 (the IMX708 overview camera is cam0); unproven until the camera is plugged in.
       camera_index: 1
-      range_mode: 4m
+      # near or far (the driver rejects anything else, and any key not listed here).
+      range_mode: far
       confidence_threshold: 30
       frame_id: tof_optical_frame
       publish_rate_hz: 10.0
-      depth_topic: /tof/depth/image_raw
-      amplitude_topic: /tof/amplitude/image_raw
-      camera_info_topic: /tof/camera_info
+      # Topics are fixed in the driver (the web_ui head tab subscribes to them):
+      # /tof/depth/image_raw
+      # /tof/amplitude/image_raw
+      # /tof/camera_info
   - name: rplidar_a1
     node_type: rplidar_a1
     present: true
