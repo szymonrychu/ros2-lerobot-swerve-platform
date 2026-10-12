@@ -112,7 +112,7 @@ export function PoiListPanel({
               />
               <Box sx={{ ml: 1, display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
                 {p.status === 'open' && (
-                  <Box data-testid="poi-status-mark" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: 'warning.main' }} />
+                  <Box data-testid="poi-status-mark" sx={{ width: 6, height: 6, bgcolor: 'text.primary' }} />
                 )}
                 <Typography variant="caption" color="text.secondary">
                   {p.status}

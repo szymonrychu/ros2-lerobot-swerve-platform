@@ -95,6 +95,19 @@ describe('POI panels declutter', () => {
     expect(screen.getAllByTestId('poi-status-mark')).toHaveLength(1)
   })
 
+  it('draws the open state mark as a 6 px square in a neutral colour, not the warning hue', () => {
+    renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} />)
+    const style = getComputedStyle(screen.getByTestId('poi-status-mark'))
+    expect(style.width).toBe('6px')
+    expect(style.height).toBe('6px')
+    expect(style.borderRadius).not.toBe('50%')
+    expect(style.backgroundColor).not.toBe('')
+    expect(style.backgroundColor).not.toBe(getComputedStyle(document.createElement('div')).backgroundColor)
+    const warning = document.createElement('div')
+    warning.style.backgroundColor = theme.palette.warning.main
+    expect(style.backgroundColor).not.toBe(warning.style.backgroundColor)
+  })
+
   it('has no Collapse text and shows the count once', () => {
     renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} />)
     expect(screen.queryByText('Collapse')).toBeNull()
