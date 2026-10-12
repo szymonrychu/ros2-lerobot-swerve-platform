@@ -2177,7 +2177,7 @@ monitoring_agent_node_targets:
   - {node: poi_store, address: "127.0.0.1:19109", path: /metrics}
   - {node: map_guard, address: "127.0.0.1:19110", path: /metrics}
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
-  - {node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}
+  # arducam_tof (127.0.0.1:19112) is added here when the node is enabled: only enabled nodes are scraped.
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
   - {node: mcp_server, address: "127.0.0.1:18200", path: /metrics}

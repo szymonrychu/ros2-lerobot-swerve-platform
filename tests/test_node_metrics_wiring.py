@@ -209,7 +209,8 @@ def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
         assert target.get("path", "/metrics") == "/metrics", name
         checked += 1
     disabled = {n for n in CONTRACT_NODES if not nodes[n].get("enabled", True)}
-    assert disabled == {"topic_scraper_api", "arducam_tof"}  # topic_scraper_api disabled 2026-10-11; arducam_tof until the camera is plugged in
+    # topic_scraper_api disabled 2026-10-11; arducam_tof until the camera is plugged in.
+    assert disabled == {"topic_scraper_api", "arducam_tof"}
     assert checked == len(CONTRACT_NODES - disabled)
-    # arducam_tof is listed ahead of enabling so the scrape works the moment it is switched on.
-    assert set(targets) == CONTRACT_NODES - disabled | {"arducam_tof"}
+    # Only enabled nodes are scraped: a disabled target would read as down. Add a target when enabling the node.
+    assert set(targets) == CONTRACT_NODES - disabled

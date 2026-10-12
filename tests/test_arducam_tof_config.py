@@ -111,9 +111,15 @@ def test_head_tab_topics_are_documented_in_the_config_comments() -> None:
         assert f"# {topic}" in text or f" {topic}" in text.split("#", 1)[1]
 
 
-def test_metrics_port_is_scraped() -> None:
-    targets = {t["node"]: t for t in load_group("client")["monitoring_agent_node_targets"]}
-    assert targets[NODE]["address"] == f"127.0.0.1:{METRICS_PORT}"
+def test_metrics_port_is_scraped_exactly_when_the_node_is_enabled() -> None:
+    """Alloy scrapes only enabled nodes (a disabled target would read as down); add the target when enabling."""
+    group = load_group("client")
+    targets = {t["node"]: t for t in group["monitoring_agent_node_targets"]}
+    entry = next(n for n in group["ros2_nodes"] if n["name"] == NODE)
+    if entry.get("present", True) and entry.get("enabled", True):
+        assert targets[NODE]["address"] == f"127.0.0.1:{METRICS_PORT}"
+    else:
+        assert NODE not in targets
 
 
 def test_sdk_task_adds_the_arducam_repo_and_installs_the_sdk() -> None:
