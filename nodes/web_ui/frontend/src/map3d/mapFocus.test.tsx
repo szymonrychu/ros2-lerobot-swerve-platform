@@ -358,7 +358,7 @@ describe('MapNavTab show-on-map', () => {
     await screen.findByRole('dialog', { name: 'Door' })
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
-    expect(await screen.findByRole('button', { name: 'Close editor' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Close' })).toBeTruthy()
     expect(screen.getByDisplayValue('front entrance')).toBeTruthy()
   })
 })

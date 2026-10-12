@@ -50,6 +50,7 @@ import { BaseGpsPayload, GPS_BASE_STATUS_KEY, isBaseSample } from '../gps/gpsSta
 import { anchorSummary, validAnchor } from '../map3d/geo'
 import { goalButtonState } from '../map/goalControl'
 import { anyInRow, splitToolbar, TOOLBAR_GROUPS } from '../map/toolbarGroups'
+import { OverlayPanel } from '../layout/OverlayPanel'
 import { useLayout } from '../layout/useLayout'
 import { tiltStatus } from '../tilt/tiltStatus'
 import type { TiltStatus } from '../tilt/tiltStatus'
@@ -991,10 +992,15 @@ export default function MapNavTab({
           <Box
             sx={{
               position: 'absolute',
-              top: 8,
-              left: 8,
-              width: { xs: showPanel ? 0 : 'calc(100% - 16px)', sm: 300 },
-              maxWidth: 'calc(100% - 16px)',
+              // Phone: the column spans the map so the panel bottom sheets anchor to its bottom edge.
+              top: { xs: 0, sm: 8 },
+              left: { xs: 0, sm: 8 },
+              right: { xs: 0, sm: 'auto' },
+              bottom: { xs: 0, sm: 'auto' },
+              p: { xs: 1, sm: 0 },
+              boxSizing: 'border-box',
+              width: { sm: 300 },
+              maxWidth: { sm: 'calc(100% - 16px)' },
               display: { xs: showPanel || graspOpen ? 'none' : 'flex', sm: 'flex' },
               flexDirection: 'column',
               gap: 1,
@@ -1006,7 +1012,7 @@ export default function MapNavTab({
             <PoiListPanel
               pois={poi.pois}
               selectedId={poi.selectedId}
-              open={showPoiList}
+              open={showPoiList && !(narrow && poi.selected)}
               onToggle={() => setPoiListOpen(!showPoiList)}
               onFocus={poi.focus}
             />
@@ -1065,16 +1071,8 @@ export default function MapNavTab({
           <GraspPanel state={grasp} onClose={() => setGraspOpen(false)} />
         </Collapse>
 
-        <Collapse
-          in={showPanel}
-          sx={{ position: 'absolute', top: 8, right: 8, width: { xs: 'calc(100% - 16px)', sm: 260 }, zIndex: 1 }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <Paper
-            variant="outlined"
-            sx={{ maxHeight: { xs: '55vh', sm: '70vh' }, overflowY: 'auto', bgcolor: 'rgba(22, 27, 34, 0.92)' }}
-          >
-            <Box sx={{ px: 1.5, py: 1 }}>
+        <OverlayPanel title="Layers" open={showPanel} anchor="right" onClose={() => setPanelOpen(false)}>
+          <Box>
               {LAYER_GROUPS.map((g) => (
                 <Box key={g.title} sx={{ mb: 0.5 }}>
                   <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 2 }}>
@@ -1195,9 +1193,8 @@ export default function MapNavTab({
                     : 'Top view: drag to pan, wheel or pinch to zoom.'
                   : 'Orbit: drag to rotate, right button / two fingers pan, wheel or pinch zooms.'}
               </Typography>
-            </Box>
-          </Paper>
-        </Collapse>
+          </Box>
+        </OverlayPanel>
 
         <Snackbar
           open={snackbarOpen}

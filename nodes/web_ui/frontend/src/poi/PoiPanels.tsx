@@ -3,13 +3,11 @@ import { useEffect, useState } from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
-import Collapse from '@mui/material/Collapse'
 import Dialog from '@mui/material/Dialog'
 import DialogActions from '@mui/material/DialogActions'
 import DialogContent from '@mui/material/DialogContent'
 import DialogContentText from '@mui/material/DialogContentText'
 import DialogTitle from '@mui/material/DialogTitle'
-import IconButton from '@mui/material/IconButton'
 import List from '@mui/material/List'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemText from '@mui/material/ListItemText'
@@ -18,15 +16,14 @@ import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import CloseIcon from '@mui/icons-material/Close'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import { MONO_FONT } from '../theme'
+import { OverlayPanel } from '../layout/OverlayPanel'
+import { MONO_FONT, TOUCH_TARGET_PX } from '../theme'
 import { zonePctError, zoneUpdateCommand } from './editor'
 import { formatUpdated, objectDetails, OBJECT_COLOR, sortPois, STATUS_COLORS } from './style'
 import { Poi, POI_NAME_MAX, POI_NOTE_MAX, POI_STATUSES, POI_ZONES, PoiCommand, PoiResult, PoiStatus, PoiZone, ZONE_PCT_MAX, ZONE_PCT_MIN } from './types'
 
-const PANEL_BG = 'rgba(22, 27, 34, 0.92)'
 const KIND_TITLES = { point: 'Point', area: 'Area', object: 'Object', photo: 'Photo' } as const
 
 /** Collapsible list of all POIs; a row click selects the POI and centres the view on it. */
@@ -44,45 +41,56 @@ export function PoiListPanel({
   onFocus: (poi: Poi) => void
 }) {
   const now = Date.now() / 1000
+  if (!open) {
+    return (
+      <Paper variant="outlined" sx={{ width: '100%' }} onPointerDown={(e) => e.stopPropagation()} data-testid="poi-list-toggle">
+        <Box
+          component="button"
+          onClick={onToggle}
+          aria-expanded={false}
+          aria-label="Expand POI list"
+          sx={{
+            all: 'unset',
+            boxSizing: 'border-box',
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: 1.5,
+            minHeight: TOUCH_TARGET_PX,
+            cursor: 'pointer',
+            color: 'text.primary',
+          }}
+        >
+          <Typography variant="overline" sx={{ lineHeight: 2 }}>
+            Points of interest ({pois.length})
+          </Typography>
+          <ExpandMoreIcon fontSize="small" />
+        </Box>
+      </Paper>
+    )
+  }
   return (
-    <Paper
-      variant="outlined"
-      sx={{ bgcolor: PANEL_BG, width: '100%' }}
-      onPointerDown={(e) => e.stopPropagation()}
-      data-testid="poi-list-panel"
-    >
-      <Box
-        component="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-label={open ? 'Collapse POI list' : 'Expand POI list'}
-        sx={{
-          all: 'unset',
-          boxSizing: 'border-box',
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          px: 1.5,
-          minHeight: 40,
-          cursor: 'pointer',
-          color: 'text.primary',
-        }}
-      >
-        <Typography variant="overline" sx={{ lineHeight: 2 }}>
-          Points of interest ({pois.length})
-        </Typography>
-        {open ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-      </Box>
-      <Collapse in={open}>
-        <List dense disablePadding sx={{ maxHeight: { xs: '28vh', sm: '40vh' }, overflowY: 'auto' }}>
+    <OverlayPanel title={`Points of interest (${pois.length})`} open anchor="left" docked>
+      <Box data-testid="poi-list-panel">
+        <Box
+          component="button"
+          onClick={onToggle}
+          aria-expanded
+          aria-label="Collapse POI list"
+          sx={{ all: 'unset', cursor: 'pointer', display: 'flex', alignItems: 'center', minHeight: TOUCH_TARGET_PX, color: 'text.secondary' }}
+        >
+          <ExpandLessIcon fontSize="small" />
+          <Typography variant="caption">Collapse</Typography>
+        </Box>
+        <List dense disablePadding sx={{ maxHeight: { xs: '28dvh', sm: '40dvh' }, overflowY: 'auto' }}>
           {pois.length === 0 && (
-            <Typography variant="body2" color="text.secondary" sx={{ px: 1.5, pb: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ pb: 1 }}>
               No points of interest yet.
             </Typography>
           )}
           {sortPois(pois).map((p) => (
-            <ListItemButton key={p.id} selected={p.id === selectedId} onClick={() => onFocus(p)} sx={{ minHeight: 48 }}>
+            <ListItemButton key={p.id} selected={p.id === selectedId} onClick={() => onFocus(p)} sx={{ minHeight: (t) => t.spacing(6) }}>
               <ListItemText
                 primary={p.name || '(unnamed)'}
                 secondary={
@@ -101,8 +109,8 @@ export function PoiListPanel({
             </ListItemButton>
           ))}
         </List>
-      </Collapse>
-    </Paper>
+      </Box>
+    </OverlayPanel>
   )
 }
 
@@ -160,21 +168,12 @@ export function PoiEditorPanel({
   }
 
   return (
-    <Paper
-      variant="outlined"
-      sx={{ bgcolor: PANEL_BG, width: '100%', p: 1.5, maxHeight: { xs: '60vh', sm: '75vh' }, overflowY: 'auto' }}
-      onPointerDown={(e) => e.stopPropagation()}
+    <OverlayPanel title={`${KIND_TITLES[poi.kind]} - created by ${poi.created_by}`} open anchor="left" docked onClose={onClose}>
+    <Box
+      sx={{ maxHeight: { xs: '60dvh', sm: '75dvh' }, overflowY: 'auto' }}
       onKeyDown={(e) => e.stopPropagation()}
       data-testid="poi-editor"
     >
-      <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="overline" sx={{ lineHeight: 2 }}>
-          {KIND_TITLES[poi.kind]} - created by {poi.created_by}
-        </Typography>
-        <IconButton aria-label="Close editor" size="small" onClick={onClose}>
-          <CloseIcon fontSize="small" />
-        </IconButton>
-      </Stack>
       <Stack spacing={1.5} sx={{ mt: 0.5 }}>
         <TextField
           label="Name"
@@ -250,10 +249,10 @@ export function PoiEditorPanel({
           Drag the selected {poi.kind === 'area' ? 'area or its vertices' : poi.kind} on the map (top view) to move it.
         </Typography>
         <Stack direction="row" spacing={1}>
-          <Button variant="contained" onClick={save} disabled={busy || !dirty || !valid} sx={{ flex: 1, minHeight: 44 }}>
+          <Button variant="contained" onClick={save} disabled={busy || !dirty || !valid} sx={{ flex: 1, minHeight: TOUCH_TARGET_PX }}>
             Save
           </Button>
-          <Button color="error" variant="outlined" onClick={() => setConfirmDelete(true)} disabled={busy} sx={{ minHeight: 44 }}>
+          <Button color="error" variant="outlined" onClick={() => setConfirmDelete(true)} disabled={busy} sx={{ minHeight: TOUCH_TARGET_PX }}>
             Delete
           </Button>
         </Stack>
@@ -272,6 +271,7 @@ export function PoiEditorPanel({
           </Button>
         </DialogActions>
       </Dialog>
-    </Paper>
+    </Box>
+    </OverlayPanel>
   )
 }

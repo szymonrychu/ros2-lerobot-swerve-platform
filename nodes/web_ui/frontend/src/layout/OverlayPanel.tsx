@@ -23,6 +23,8 @@ export interface OverlayPanelProps {
   anchor: 'left' | 'right' | 'bottom'
   /** When set, a close button is shown and calls this. */
   onClose?: () => void
+  /** Tablet and desktop only: lay the card out in the normal flow of its parent (a docked column) instead of floating. Phone stays a bottom sheet. */
+  docked?: boolean
   children?: ReactNode
 }
 
@@ -30,7 +32,7 @@ export interface OverlayPanelProps {
  * @param props see OverlayPanelProps.
  * @returns the panel, or null when closed.
  */
-export function OverlayPanel({ title, open, anchor, onClose, children }: OverlayPanelProps) {
+export function OverlayPanel({ title, open, anchor, onClose, docked = false, children }: OverlayPanelProps) {
   const layout = useLayout()
   if (!open) return null
 
@@ -38,6 +40,8 @@ export function OverlayPanel({ title, open, anchor, onClose, children }: Overlay
   let position: CSSProperties
   if (phone) {
     position = { left: 0, right: 0, bottom: 0, maxHeight: SHEET_MAX_HEIGHT, borderRadius: '16px 16px 0 0' }
+  } else if (docked) {
+    position = { position: 'relative', width: '100%', maxHeight: '75dvh' }
   } else if (anchor === 'bottom') {
     position = { bottom: CARD_MARGIN, left: '50%', transform: 'translateX(-50%)', width: CARD_WIDTH, maxHeight: '60vh' }
   } else {
@@ -49,7 +53,7 @@ export function OverlayPanel({ title, open, anchor, onClose, children }: Overlay
       data-testid="overlay-panel"
       data-layout={layout}
       onPointerDown={(e) => e.stopPropagation()}
-      style={{ position: 'absolute', zIndex: Z_INDEX, background: PANEL_BG, ...position }}
+      style={{ position: 'absolute', zIndex: Z_INDEX, flexShrink: 0, background: PANEL_BG, ...position }}
       sx={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', border: 1, borderColor: 'divider', borderRadius: 2, backdropFilter: 'blur(6px)' }}
     >
       {phone && (
