@@ -11,6 +11,8 @@ export const SANS_FONT = 'Roboto, "Segoe UI", system-ui, -apple-system, "Helveti
 export const TOUCH_TARGET_PX = 44
 /** Background behind canvases, 3D views and plots. */
 export const CANVAS_BG = '#0b0d10'
+/** Translucent background of floating overlay panels drawn over the map or 3D view. */
+export const PANEL_BG = 'rgba(22, 27, 34, 0.92)'
 
 export const theme = createTheme({
   palette: {

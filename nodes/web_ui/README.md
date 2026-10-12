@@ -28,6 +28,10 @@ Responsive behaviour (phones from 360x640 to 1920x1080+ screens, portrait and la
 
 Tab selection: the app opens on the first `map_nav` tab, and `map_nav` tabs are always listed first whatever the config order (`frontend/src/tabSelection.ts`). The last tab the viewer selected is remembered in `localStorage` (key `web_ui.activeTabId`) and restored on reload only while a tab with that id still exists; otherwise the map tab (or the first tab, if no map tab is configured) is shown. Storage errors (private mode, blocked site data) are ignored.
 
+## Layout model
+
+The UI has three layout classes from the theme breakpoints: `phone` (width < 600), `tablet` (600 to 1199) and `desktop` (>= 1200), read with `useLayout()` (`frontend/src/layout/useLayout.ts`). `OverlayPanel` (`frontend/src/layout/OverlayPanel.tsx`) is the shared floating panel: a bottom sheet with a drag handle on phone, a card anchored left, right or bottom on tablet and desktop. It stops pointerdown propagation so the map underneath does not react.
+
 ## Architecture
 
 Single Python process: FastAPI (uvicorn) on port 8080 serves:
