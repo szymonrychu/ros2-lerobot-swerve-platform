@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { formatUpdated, KIND_COLORS, markerColors, ZONE_COLORS, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
-import type { Poi } from './types'
+import { designViolations, SOURCES } from '../layout/designRules'
+import { formatUpdated, KIND_COLORS, KIND_SHAPE, markerColors, ZONE_COLORS, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
+import type { Poi, PoiKind } from './types'
 
 function poi(over: Partial<Poi>): Poi {
   return {
@@ -199,5 +200,21 @@ describe('markerColors', () => {
     expect(markerColors(poi({ ...area, zone: 'slow', speed_limit_pct: 40 }))).toEqual({ fill: ZONE_COLORS.slow, outline: ZONE_COLORS.slow })
     expect(markerColors(poi({ ...area, zone: 'none' }))).toEqual({ fill: KIND_COLORS['area-none'], outline: KIND_COLORS['area-none'] })
     expect(ZONE_COLORS.keepout).not.toBe(ZONE_COLORS.slow)
+  })
+})
+
+describe('KIND_SHAPE', () => {
+  const kinds: PoiKind[] = ['point', 'area', 'object', 'photo']
+
+  it('gives every kind its own shape', () => {
+    expect(Object.keys(KIND_SHAPE).sort()).toEqual([...kinds].sort())
+    expect(new Set(kinds.map((k) => KIND_SHAPE[k])).size).toBe(kinds.length)
+  })
+
+  it('keeps the poi marker sources free of design-rule violations', () => {
+    for (const path of ['poi/style.ts', 'poi/PoiLayer.tsx', 'poi/PoiLegend.tsx']) {
+      expect(SOURCES[path], path).toBeTruthy()
+      expect(designViolations(path, SOURCES[path])).toEqual([])
+    }
   })
 })

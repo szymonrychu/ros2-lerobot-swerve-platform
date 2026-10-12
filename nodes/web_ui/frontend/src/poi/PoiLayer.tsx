@@ -9,15 +9,18 @@ import * as THREE from 'three'
 import type { Vec2 } from '../map/mapMath'
 import { rosToThree, ThreeTuple } from '../map3d/coords'
 import { MapLabel } from '../map3d/MapLabel'
-import { markerColors, objectDetails, poiStyle, zoneLabel, zoneStyle } from './style'
+import { SCENE_COLORS } from '../map3d/palette'
+import { KIND_SHAPE, markerColors, objectDetails, poiStyle, zoneLabel, zoneStyle } from './style'
 import type { Poi } from './types'
 
 /** Stacking heights (three y, metres), above the goal marker. */
 const POI_LIFT = { fill: 0.034, outline: 0.036, handle: 0.04, draft: 0.042 } as const
 const DISC_SEGMENTS = 40
 const HANDLE_RADIUS_M = 0.06
-const DRAFT_COLOR = '#ffdc00'
+const DRAFT_COLOR = SCENE_COLORS.draft
 /** Half diagonal of the diamond that marks a remembered object, m. */
+/** Polygon sides of the filled marker mesh per shape (circle: a fine polygon). */
+const SHAPE_SIDES = { circle: DISC_SEGMENTS, square: 4, diamond: 4, triangle: 3 } as const
 const OBJECT_MARKER_RADIUS_M = 0.07
 
 function closedOutline(polygon: [number, number][], lift: number): ThreeTuple[] {
@@ -41,6 +44,7 @@ function PoiLabel({ poi, lift }: { poi: Poi; lift: number }) {
   )
 }
 
+/** A point: a disc (KIND_SHAPE.point) of the POI radius in the point kind colour. */
 const PointMarker = memo(function PointMarker({ poi, selected }: { poi: Poi; selected: boolean }) {
   const style = poiStyle(poi, selected)
   const colors = markerColors(poi)
@@ -55,7 +59,7 @@ const PointMarker = memo(function PointMarker({ poi, selected }: { poi: Poi; sel
   return (
     <group position={rosToThree(poi, POI_LIFT.fill)}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={2}>
-        <circleGeometry args={[poi.radius_m, DISC_SEGMENTS]} />
+        <circleGeometry args={[poi.radius_m, SHAPE_SIDES[KIND_SHAPE.point]]} />
         <meshBasicMaterial color={colors.fill} transparent opacity={style.opacity} depthWrite={false} toneMapped={false} />
       </mesh>
       <group position={[0, POI_LIFT.outline - POI_LIFT.fill, 0]}>
@@ -73,7 +77,7 @@ const PointMarker = memo(function PointMarker({ poi, selected }: { poi: Poi; sel
   )
 })
 
-/** A remembered object: a diamond in the object kind colour with a status ring with its label (times seen and last sighting in the tooltip). */
+/** A remembered object: a diamond (KIND_SHAPE.object) in the object kind colour with a status ring with its label (times seen and last sighting in the tooltip). */
 const ObjectMarker = memo(function ObjectMarker({ poi, selected }: { poi: Poi; selected: boolean }) {
   const style = poiStyle(poi, selected)
   const colors = markerColors(poi)
@@ -90,7 +94,7 @@ const ObjectMarker = memo(function ObjectMarker({ poi, selected }: { poi: Poi; s
   return (
     <group position={rosToThree(poi, POI_LIFT.fill)}>
       <mesh rotation={[-Math.PI / 2, 0, Math.PI / 4]} renderOrder={2}>
-        <circleGeometry args={[OBJECT_MARKER_RADIUS_M * Math.SQRT2, 4]} />
+        <circleGeometry args={[OBJECT_MARKER_RADIUS_M * Math.SQRT2, SHAPE_SIDES[KIND_SHAPE.object]]} />
         <meshBasicMaterial color={colors.fill} transparent opacity={Math.min(1, style.opacity + 0.3)} depthWrite={false} toneMapped={false} />
       </mesh>
       <group position={[0, POI_LIFT.outline - POI_LIFT.fill, 0]}>
@@ -136,7 +140,7 @@ const AreaMarker = memo(function AreaMarker({ poi, selected }: { poi: Poi; selec
         poi.polygon.map(([x, y], i) => (
           <mesh key={i} position={rosToThree({ x, y }, POI_LIFT.handle)} rotation={[-Math.PI / 2, 0, 0]} renderOrder={3}>
             <circleGeometry args={[HANDLE_RADIUS_M, 20]} />
-            <meshBasicMaterial color="#ffffff" depthTest={false} toneMapped={false} />
+            <meshBasicMaterial color={SCENE_COLORS.robotFront} depthTest={false} toneMapped={false} />
           </mesh>
         ))}
       <PoiLabel poi={poi} lift={POI_LIFT.fill} />

@@ -1,12 +1,20 @@
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
-import { KIND_COLORS, zoneStyle } from './style'
+import { KIND_COLORS, KIND_SHAPE, zoneStyle, type MarkerShape } from './style'
 import type { Poi, PoiZone } from './types'
 
 interface LegendEntry {
   id: string
   label: string
   color: string
+  shape: MarkerShape
+}
+
+const SHAPE_CLIP: Record<MarkerShape, string> = {
+  circle: 'circle(50%)',
+  square: 'none',
+  diamond: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)',
+  triangle: 'polygon(50% 0, 100% 100%, 0 100%)',
 }
 
 /** Reference open area per zone, so the legend reads the zone colour from zoneStyle instead of duplicating it. */
@@ -16,15 +24,15 @@ function zoneColor(zone: Exclude<PoiZone, 'none'>): string {
 }
 
 const KIND_ENTRIES: LegendEntry[] = [
-  { id: 'point', label: 'Point', color: KIND_COLORS.point },
-  { id: 'object', label: 'Object', color: KIND_COLORS.object },
-  { id: 'photo', label: 'Photo', color: KIND_COLORS.photo },
+  { id: 'point', label: 'Point', color: KIND_COLORS.point, shape: KIND_SHAPE.point },
+  { id: 'object', label: 'Object', color: KIND_COLORS.object, shape: KIND_SHAPE.object },
+  { id: 'photo', label: 'Photo', color: KIND_COLORS.photo, shape: KIND_SHAPE.photo },
 ]
 
 const ZONE_ENTRIES: LegendEntry[] = [
-  { id: 'none', label: 'Area, no zone', color: KIND_COLORS['area-none'] },
-  { id: 'slow', label: 'Slow zone', color: zoneColor('slow') },
-  { id: 'keepout', label: 'Keepout zone', color: zoneColor('keepout') },
+  { id: 'none', label: 'Area, no zone', color: KIND_COLORS['area-none'], shape: KIND_SHAPE.area },
+  { id: 'slow', label: 'Slow zone', color: zoneColor('slow'), shape: KIND_SHAPE.area },
+  { id: 'keepout', label: 'Keepout zone', color: zoneColor('keepout'), shape: KIND_SHAPE.area },
 ]
 
 function Row({ entry }: { entry: LegendEntry }) {
@@ -34,7 +42,8 @@ function Row({ entry }: { entry: LegendEntry }) {
         component="span"
         data-testid={`legend-swatch-${entry.id}`}
         data-color={entry.color}
-        sx={{ width: '1rem', height: '1rem', bgcolor: entry.color, border: 1, borderColor: 'grey.600', flexShrink: 0, display: 'inline-block' }}
+        data-shape={entry.shape}
+        sx={{ width: '1rem', height: '1rem', bgcolor: entry.color, clipPath: SHAPE_CLIP[entry.shape], flexShrink: 0, display: 'inline-block' }}
       />
       <Typography variant="body2" component="span">
         {entry.label}
@@ -43,10 +52,10 @@ function Row({ entry }: { entry: LegendEntry }) {
   )
 }
 
-/** Colour key of the map markers: kind fills (point, object, photo) and area zones (none, slow, keepout). */
+/** Key of the map markers: kind shapes and greyscale fills (point, object, photo) and area zones (none, slow, keepout). */
 export function PoiLegend() {
   return (
-    <Box sx={{ ml: 4, mb: 0.5 }} aria-label="Marker colour legend">
+    <Box sx={{ ml: 4, mb: 0.5 }} aria-label="Marker legend">
       {[...KIND_ENTRIES, ...ZONE_ENTRIES].map((e) => (
         <Row key={e.id} entry={e} />
       ))}

@@ -5,6 +5,12 @@ import { POI_STATUSES, POI_ZONES, ZONE_PCT_MAX, ZONE_PCT_MIN, type PoiZone } fro
 
 const DEFAULT_CONFIDENCE = 1
 
+/** Marker shapes: the one cue (besides zone colour) that tells POI kinds apart now that their hues are greyscale. */
+export type MarkerShape = 'circle' | 'square' | 'diamond' | 'triangle'
+
+/** Shape of each POI kind on the map and in the legend; all distinct. */
+export const KIND_SHAPE: Record<PoiKind, MarkerShape> = { point: 'circle', area: 'square', object: 'diamond', photo: 'triangle' }
+
 export { CREATOR_OUTLINE, KIND_COLORS, OBJECT_COLOR, STATUS_COLORS, ZONE_COLORS }
 const CLOSED_OPACITY = 0.35
 const OPEN_OPACITY = 0.6
