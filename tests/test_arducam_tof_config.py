@@ -92,7 +92,6 @@ def test_deployed_config_holds_only_keys_the_driver_accepts() -> None:
     assert config["range_mode"] in ("near", "far")
 
 
-@pytest.mark.skipif(not DRIVER_CONFIG.is_file(), reason="arducam_tof driver (T1) is not in this tree yet")
 def test_deployed_config_loads_in_the_real_driver_load_config(tmp_path: Path) -> None:
     """The deployed YAML passes the driver's own load_config (extra keys forbidden, ranges checked)."""
     spec = importlib.util.spec_from_file_location("arducam_tof_driver_config", DRIVER_CONFIG)
