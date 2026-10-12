@@ -1,0 +1,52 @@
+[project]
+name = "leader_bridge"
+version = "0.1.0"
+description = "Relays only the server leader arm /leader/joint_states to the client filter_node leader input"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "numpy>=1.26.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2,<10",
+    "ruff==0.15.20",
+    "vulture>=2.11,<3",
+    "poethepoet>=0.42.0,<0.43",
+]
+
+[tool.uv]
+constraint-dependencies = [
+    "annotated-types<0.8",
+]
+package = false
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  ruff check leader_bridge tests
+  ruff format --check leader_bridge tests
+  vulture leader_bridge tests --min-confidence 80
+""" }
+lint-fix = { shell = """
+  ruff check --fix leader_bridge tests
+  ruff format leader_bridge tests
+""" }
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
