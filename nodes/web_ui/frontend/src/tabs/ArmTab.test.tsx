@@ -1,0 +1,64 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render, screen } from '@testing-library/react'
+import { ThemeProvider } from '@mui/material/styles'
+import { theme } from '../theme'
+import { TabConfig } from '../types'
+import ArmTab from './ArmTab'
+
+const GRIPPER = '/gripper/image_raw'
+const OVERVIEW = '/overview/image_raw'
+
+const TAB = {
+  id: 'arm',
+  type: 'arm',
+  label: 'Arm',
+  gripper_camera_topic: GRIPPER,
+  overview_camera_topic: OVERVIEW,
+} as TabConfig
+
+function setViewport(width: number): void {
+  window.matchMedia = ((query: string) => {
+    const min = /min-width:\s*([\d.]+)px/.exec(query)
+    const max = /max-width:\s*([\d.]+)px/.exec(query)
+    const matches = !((min && width < Number(min[1])) || (max && width > Number(max[1])))
+    return { matches, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(), onchange: null }
+  }) as typeof window.matchMedia
+}
+
+function renderTab(topicData: Record<string, unknown>) {
+  return render(
+    <ThemeProvider theme={theme}>
+      <ArmTab tab={TAB} topicData={topicData} publish={vi.fn()} />
+    </ThemeProvider>,
+  )
+}
+
+afterEach(cleanup)
+
+describe('ArmTab', () => {
+  it('phone: stacks streams and the 3D view vertically', () => {
+    setViewport(400)
+    renderTab({ [GRIPPER]: { jpeg_b64: 'AAA' }, [OVERVIEW]: { jpeg_b64: 'BBB' } })
+    expect(screen.getByTestId('arm-layout').getAttribute('data-direction')).toBe('column')
+    expect(screen.getByAltText('gripper camera').getAttribute('src')).toBe('data:image/jpeg;base64,AAA')
+    expect(screen.getByAltText('overview camera').getAttribute('src')).toBe('data:image/jpeg;base64,BBB')
+    expect(screen.getByTestId('arm-view-slot')).toBeTruthy()
+    expect(screen.getByTestId('arm-jog-slot')).toBeTruthy()
+  })
+
+  it('desktop: places streams side by side with the 3D view slot', () => {
+    setViewport(1400)
+    renderTab({ [GRIPPER]: { jpeg_b64: 'AAA' }, [OVERVIEW]: { jpeg_b64: 'BBB' } })
+    expect(screen.getByTestId('arm-layout').getAttribute('data-direction')).toBe('row')
+    expect(screen.getByTestId('arm-view-slot')).toBeTruthy()
+  })
+
+  it('shows the waiting message, never a placeholder image, for a stream without a frame', () => {
+    setViewport(1400)
+    renderTab({ [OVERVIEW]: { jpeg_b64: 'BBB' } })
+    expect(screen.getByText(`Waiting for ${GRIPPER}…`)).toBeTruthy()
+    expect(screen.queryByAltText('gripper camera')).toBeNull()
+    expect(screen.getByAltText('overview camera')).toBeTruthy()
+  })
+})
