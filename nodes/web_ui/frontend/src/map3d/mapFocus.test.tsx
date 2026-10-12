@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import ThemeProvider from '@mui/material/styles/ThemeProvider'
 import { useEffect } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Photo } from '../photos/api'
 import type { PhotoLayerData } from '../photos/usePhotoLayer'
 import { itemId } from '../poi/poiItems'
@@ -27,7 +27,7 @@ vi.mock('./MapScene', () => {
     useEffect(() => {
       const delay = mocks.controllerDelayMs
       if (delay === null) return
-      const controller: SceneController = { pick: () => null, centerOn: mocks.centerOn, fit: () => undefined }
+      const controller: SceneController = { pick: () => ({ x: 1, y: 2 }), centerOn: mocks.centerOn, fit: () => undefined }
       const timer = setTimeout(() => {
         props.controllerRef.current = controller
       }, delay)
@@ -38,6 +38,7 @@ vi.mock('./MapScene', () => {
     }, [props.controllerRef])
     return (
       <div data-testid="scene">
+        <canvas data-testid="canvas" />
         <span data-testid="photo-count">{props.photos.length}</span>
         <button type="button" onClick={() => props.onSelectPhoto?.('f1')}>
           tap photo marker
@@ -215,6 +216,13 @@ describe('MapNavTab show-on-map', () => {
   const TOPICS = { '/poi/list': { revision: 1, pois: [poi({ id: 'p1', name: 'Door', note: 'front entrance' })] } }
   const PHOTOS: PhotoLayerData = { photos: [photo({ id: 'f1', name: 'Shot' })], total: 1, error: null }
 
+  // The first render pays the cold dynamic import of MapNavTab; do it once, outside any test's 5 s budget.
+  beforeAll(async () => {
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined })
+    await import('../tabs/MapNavTab')
+    vi.unstubAllGlobals()
+  }, 60_000)
+
   beforeEach(() => {
     mocks.centerOn.mockClear()
     mocks.controllerDelayMs = 0
@@ -306,6 +314,19 @@ describe('MapNavTab show-on-map', () => {
     fireEvent.click(screen.getByRole('button', { name: 'tap photo marker' }))
     expect(await screen.findByRole('group', { name: 'Linked POIs' })).toBeTruthy()
     expect(screen.getByTestId('map-sidebar').contains(screen.getByRole('group', { name: 'Linked POIs' }))).toBe(true)
+  })
+
+  it('a tap on a POI marker opens the POI in the sidebar', async () => {
+    await renderTab(null)
+    expect(screen.queryByDisplayValue('front entrance')).toBeNull()
+    await act(() => new Promise((r) => setTimeout(r, 50))) // the mocked scene exposes its controller on a timer
+    // jsdom has no PointerEvent: a MouseEvent of the same type carries the button and coordinates the handler reads.
+    act(() => {
+      screen.getByTestId('canvas').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+    })
+    expect(await screen.findByDisplayValue('front entrance')).toBeTruthy()
+    expect(screen.getByTestId('map-sidebar').contains(screen.getByDisplayValue('front entrance'))).toBe(true)
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('only one item is open at a time', async () => {
