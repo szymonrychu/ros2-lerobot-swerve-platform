@@ -1,0 +1,178 @@
+[
+ {
+  "id": "T1",
+  "title": "Boot overlays to two IMX219 and the camera_ros SyncMode patch in the colcon build",
+  "short": "boot-syncmode",
+  "repo": ".",
+  "model": "opus",
+  "requirement": "Tests first in tests/test_overview_camera_config.py (port the boot and patch tests from `git show 08bc9b8^:tests/test_stereo_camera_config.py`), seen failing before the change. (1) ansible/playbooks/tasks/overview_camera_boot_config.yml writes camera_auto_detect=0, dtoverlay=imx219,cam0 and dtoverlay=imx219,cam1, removes dtoverlay=imx708,cam0 and dtoverlay=arducam-pivariety,cam1 with state: absent, and no task removes imx219 lines; every task is aarch64-only and registers its result; the client reboots only when one of them changed; file name, include and tags (boot, overview_camera) unchanged. (2) Restore `git show 08bc9b8^:nodes/stereo_camera/patches/camera_ros-0001-expose-sync-controls.patch > nodes/overview_camera/patches/camera_ros-0001-expose-sync-controls.patch`; it adds IF(rpi::SyncMode) and IF(rpi::SyncFrames); the camera_ros colcon_source entry in ansible/group_vars/client.yml lists it under patches; libcamera tag v0.7.2+rpt20260817 and camera_ros commit 8f792e27a6dbc81e4943a75765fc1b7b7d37b301 unchanged; no apt camera_ros or libcamera. (3) overview_camera node type comment says two IMX219 (left cam0, right cam1); memory re-estimated for two cameras (memory_low 128M, memory_max 384M, commented as an estimate); tier stays normal robot (cpu_weight 500). (4) overview_camera ros2_nodes entry config holds exactly left_camera_id: \"\" and right_camera_id: \"\" (contract overview-camera-config, read by T2's launch as flat keys). (5) arducam_tof entry and camera_index comments say cam1 now carries the right IMX219, the node has no CSI port and stays enabled: false; nodes/bridges/arducam_tof/README.md says the same. (6) Tests pin all of the above. Docs: ansible/README.md (camera boot overlay paragraph, memory table row), .claude/skills/ansible-deploy/SKILL.md overview_camera row, tests/README.md (every changed or new test function).",
+  "value": "The robot boots with both IMX219 cameras and a camera_ros build that can sync them.",
+  "files": [
+   "ansible/playbooks/tasks/overview_camera_boot_config.yml",
+   "nodes/overview_camera/patches/camera_ros-0001-expose-sync-controls.patch",
+   "ansible/group_vars/client.yml",
+   "tests/test_overview_camera_config.py",
+   "tests/README.md",
+   "ansible/README.md",
+   "nodes/bridges/arducam_tof/README.md",
+   ".claude/skills/ansible-deploy/SKILL.md"
+  ],
+  "notes": "Restore prior code with `git show 08bc9b8^:<path> > <path>` (or > <new path>) and adapt; never retype it. Prior boot file: `git show 08bc9b8^:ansible/playbooks/tasks/stereo_camera_boot_config.yml`. Keep the bno055 boot pattern. tests/test_ansible_deploy_speed.py maps the boot file name to its node tag; keep the name. The include display name in deploy_nodes_client.yml is renamed by T6, not here. Do not touch launch/params/README tests of test_overview_camera_config.py (T2 owns them). Do not deploy.",
+  "verify": "uv run pytest tests/test_overview_camera_config.py tests/test_ansible_deploy_speed.py -v && uv run poe lint && uv run poe test-ansible",
+  "owns": [
+   "overview-camera-config"
+  ],
+  "uses": [],
+  "dependsOn": []
+ },
+ {
+  "id": "T2",
+  "title": "Two synced IMX219 CameraNodes in the overview_camera launch with a calibration gate",
+  "short": "stereo-launch",
+  "repo": ".",
+  "requirement": "Tests first in tests/test_overview_camera_launch_config.py (port from `git show 08bc9b8^:tests/test_stereo_camera_launch_config.py`) and the launch/params/README tests of tests/test_overview_camera_config.py, seen failing. (1) One component_container_mt with intra-process comms holds two camera::CameraNode: left in namespace /overview_camera (topics /overview_camera/image_raw, /overview_camera/image_raw/compressed, /overview_camera/camera_info exactly as today) and right in /stereo/right (/stereo/right/image_raw, /stereo/right/camera_info). (2) Each side selected by libcamera ID (left_camera_id, right_camera_id from params.yaml launch section and the deployed flat keys), falling back to index 0 / 1 with a logged warning (restored camera_selector). (3) Both sides: sensor_mode \"1640:1232\", width 480, height 360 (configurable in params.yaml), role video, format RGB888, FrameDurationLimits [200000, 200000] (5 fps), AeExposureMode short; SyncMode 1 on left and 2 on right (restored SYNC_MODES / enum_value); no AfMode. Left keeps frame_id overview_camera_optical_frame and jpeg_quality 80; right frame_id stereo_right_optical_frame. (4) camera_info_url is file:///var/lib/ros2/camera_calibration/stereo_left.yaml / stereo_right.yaml only when that file has a valid 12-element P with non-zero focal terms (restored calibration_problem / projection_is_valid); otherwise empty and the reason is logged. No image_proc, stereo_image_proc or point cloud stages. (5) The old 'no SyncMode / no stereo / single camera / AfMode' assertions are replaced by pins of the above. (6) Docs: nodes/overview_camera/README.md documents both cameras, topics, sync, the Wi-Fi multicast caveat, `cam -l` for both IDs, and links the calibration procedure in nodes/stereo_depth/README.md; nodes/README.md updates the overview_camera line and adds a stereo_depth/ line (/stereo/depth/image_raw 16UC1 mm, /stereo/camera_info); tests/README.md lists every changed or new test function.",
+  "value": "Both cameras stream synced at 5 fps while the overview view keeps its topic names.",
+  "files": [
+   "nodes/overview_camera/launch/overview_camera.launch.py",
+   "nodes/overview_camera/launch/overview_camera_config.py",
+   "nodes/overview_camera/config/params.yaml",
+   "nodes/overview_camera/README.md",
+   "tests/test_overview_camera_launch_config.py",
+   "tests/test_overview_camera_config.py",
+   "tests/README.md",
+   "nodes/README.md"
+  ],
+  "notes": "Restore prior code with `git show 08bc9b8^:<path> > <path>` (or > <new path>) and adapt; never retype it. Port helpers from `git show 08bc9b8^:nodes/stereo_camera/launch/stereo_camera_config.py` and `.../stereo_camera.launch.py` and `.../config/params.yaml` (write them to a scratch path outside the repo first). Drop disparity_parameters, stage_plan, publish_points and af_mode_value. Design D1 overrides the brief: 480x360 and 5 fps, not 640x480 / 10 fps. Launch helpers run under system Python: no node-package imports.",
+  "verify": "uv run pytest tests/test_overview_camera_launch_config.py tests/test_overview_camera_config.py -v && uv run poe lint",
+  "owns": [],
+  "uses": [
+   "overview-camera-config"
+  ],
+  "dependsOn": [
+   "T1"
+  ]
+ },
+ {
+  "id": "T3",
+  "title": "stereo_depth node: SGBM depth from the synced pair on the ToF contract, registered in lint and CI",
+  "short": "stereo-depth-node",
+  "repo": ".",
+  "model": "opus",
+  "size": "large",
+  "sizeReason": "One new node package (pyproject, lock, six modules, five test files, README) plus the lint/CI registry lines that must land with it (test_ci_workflow fails when a node dir is missing from the matrix); splitting the package leaves half a node with no runnable entry point.",
+  "requirement": "Tests first (nodes/stereo_depth/tests: test_config.py, test_calibration.py, test_depth.py, test_messages.py, test_node.py with rclpy and message_filters mocked), seen failing. (1) Restore each prior file with `git show 08bc9b8^:nodes/stereo_depth/<path> > nodes/stereo_depth/<path>` (not poetry.lock) and convert to a uv project like nodes/bridges/arducam_tof (ruff, vulture, poe lint/test, ros2-metrics path dep, package = false); declare numpy and opencv-python-headless (numpy guard); commit uv.lock. (2) config.py: frozen pydantic DepthConfig, extra=forbid, from STEREO_DEPTH_CONFIG or /etc/ros2/stereo_depth/config.yaml; keys left_image_topic (/overview_camera/image_raw), right_image_topic (/stereo/right/image_raw), depth_topic (/stereo/depth/image_raw), camera_info_topic (/stereo/camera_info), publish_disparity (false) and disparity_topic (/stereo/disparity), calibration_dir (/var/lib/ros2/camera_calibration), num_disparities (48, multiple of 16), block_size (5, odd), p1, p2, uniqueness_ratio, speckle_window_size, speckle_range, disp12_max_diff, pre_filter_cap, min_depth_m (0.3) < max_depth_m (4.0), sync_slop_s (0.002), max_rate_hz (5.0), matcher_threads, frame_id, metrics_port (19113). (3) calibration.py: load and validate stereo_left.yaml / stereo_right.yaml (ROS camera_info YAML: K, D, R, P, size; right P[3] = -fx*B) and stereo.yaml (R, T, Q, size, rms); write them (contract stereo-calibration-files, used by T4); build initUndistortRectifyMap maps once (CV_16SC2); missing or invalid files return None with the reason. (4) depth.py: restored disparity_to_depth_mm plus StereoSGBM MODE_SGBM_3WAY on grey rectified images, fixed-point disparity / 16; a synthetic rectified pair shifted by a known disparity gives depth within 2% of f*B/d; invalid, unmatched and out-of-range pixels are 0. (5) node.py: message_filters.ApproximateTimeSynchronizer (slop from config) on the two image topics; rate cap at max_rate_hz; publishes 16UC1 mm depth (left stamp, frame_id) and camera_info (rectified left P, same header), optional DisparityImage. Nothing is published without valid calibration, on a size mismatch or a skew above slop; each case logs (throttled) and increments stereo_depth_frames_dropped_total{reason}; also stereo_depth_frames_published_total and histograms for matcher seconds and pair skew seconds. While calibration is missing it re-checks the files periodically. No cv_bridge (numpy reshape of Image.data). (6) README: topics, config keys, metrics, no-placeholder behaviour, CPU estimate, how to run tests. (7) Registered in .github/workflows/ci.yml matrix, root pyproject.toml lint-nodes and scripts/lint-all-nodes.sh. (8) MEMORY.md records the decision: IMX219 stereo replaces the IMX708 and the ToF (fixed lens vs VCM drift, ToF never came up, client CPU).",
+  "value": "The robot gets real depth from the stereo pair, and never fake depth.",
+  "files": [
+   "nodes/stereo_depth/pyproject.toml",
+   "nodes/stereo_depth/uv.lock",
+   "nodes/stereo_depth/stereo_depth/__init__.py",
+   "nodes/stereo_depth/stereo_depth/__main__.py",
+   "nodes/stereo_depth/stereo_depth/config.py",
+   "nodes/stereo_depth/stereo_depth/calibration.py",
+   "nodes/stereo_depth/stereo_depth/depth.py",
+   "nodes/stereo_depth/stereo_depth/messages.py",
+   "nodes/stereo_depth/stereo_depth/node.py",
+   "nodes/stereo_depth/tests/__init__.py",
+   "nodes/stereo_depth/tests/conftest.py",
+   "nodes/stereo_depth/tests/test_config.py",
+   "nodes/stereo_depth/tests/test_calibration.py",
+   "nodes/stereo_depth/tests/test_depth.py",
+   "nodes/stereo_depth/tests/test_messages.py",
+   "nodes/stereo_depth/tests/test_node.py",
+   "nodes/stereo_depth/README.md",
+   ".github/workflows/ci.yml",
+   "pyproject.toml",
+   "scripts/lint-all-nodes.sh",
+   "MEMORY.md"
+  ],
+  "notes": "Restore prior code with `git show 08bc9b8^:<path> > <path>` (or > <new path>) and adapt; never retype it. The old node consumed stereo_image_proc DisparityImage; the new one runs SGBM itself (design D1). Match the opencv-python-headless pin used by mcp_server if numpy constraints allow (aarch64 wheels known to deploy). SGBM P1/P2 and WLS are left to the builder: WLS needs opencv-contrib and stays out unless measured at >= 5 fps. Brief settings: P1 8*cn*bs^2-style 200/800, uniquenessRatio 10, speckleWindowSize 100, speckleRange 2, disp12MaxDiff 1, preFilterCap 31. Do not edit tests/README.md (T6 writes the per-node section) or ansible files (T6).",
+  "verify": "cd nodes/stereo_depth && uv run pytest tests -v && uv run poe lint && cd ../.. && uv run pytest tests/test_ci_workflow.py -v && uv run poe lint-nodes",
+  "owns": [
+   "stereo-calibration-files",
+   "stereo-depth-config"
+  ],
+  "uses": [],
+  "dependsOn": []
+ },
+ {
+  "id": "T4",
+  "title": "Config-driven stereo calibration and benchmark tools in the stereo_depth package",
+  "short": "stereo-tools",
+  "repo": ".",
+  "requirement": "Tests first (nodes/stereo_depth/tests/test_calibrate.py, test_bench.py), seen failing. (1) python3 -m stereo_depth.calibrate, config from STEREO_CALIBRATE_CONFIG or config/calibrate.yaml (board type chessboard or ChArUco, squares, square and marker size, dictionary, capture count, image dir, output dir /var/lib/ros2/camera_calibration, RMS limit). Capture mode saves synced pairs from /overview_camera/image_raw and /stereo/right/image_raw; solve mode runs per-camera calibrateCamera, stereoCalibrate (CALIB_FIX_INTRINSIC) and stereoRectify (alpha 0) and writes stereo_left.yaml, stereo_right.yaml and stereo.yaml through stereo_depth.calibration (contract stereo-calibration-files). (2) On a synthetic board pair rendered with known K, D, R and T the recovered baseline is within 1% and RMS under 0.5 px; the written files load in the T3 loader and pass the T2 launch gate rule (12-element P, non-zero focal terms); it refuses to write above the configured RMS limit. (3) python3 -m stereo_depth.bench, config config/bench.yaml (sizes, numDisparities, matcher BM / SGBM 3WAY / SGBM, threads, runs): times each cell on a synthetic textured pair and prints median ms and cores at 5 fps; a test runs a one-cell grid and checks the table shape. (4) nodes/stereo_depth/README.md: calibration procedure (mount, print board, capture, solve, check RMS; the node picks the files up without a redeploy), the bench command, and the new tests in its test list.",
+  "value": "The user can calibrate the mounted pair and measure the real Pi cost without writing code.",
+  "files": [
+   "nodes/stereo_depth/stereo_depth/calibrate.py",
+   "nodes/stereo_depth/config/calibrate.yaml",
+   "nodes/stereo_depth/stereo_depth/bench.py",
+   "nodes/stereo_depth/config/bench.yaml",
+   "nodes/stereo_depth/tests/test_calibrate.py",
+   "nodes/stereo_depth/tests/test_bench.py",
+   "nodes/stereo_depth/README.md"
+  ],
+  "notes": "Use cv2.aruco CharucoBoard / CharucoDetector (OpenCV 4.7+ API). Calibrate at the published 480x360. Matcher parameters come from DepthConfig defaults (contract stereo-depth-config). Config file over CLI flags. Brief section 4 has the benchmark method.",
+  "verify": "cd nodes/stereo_depth && uv run pytest tests -v && uv run poe lint",
+  "owns": [],
+  "uses": [
+   "stereo-calibration-files",
+   "stereo-depth-config"
+  ],
+  "dependsOn": [
+   "T3"
+  ]
+ },
+ {
+  "id": "T5",
+  "title": "Head tab depth on /stereo/depth/image_raw; every /overview_camera consumer kept working",
+  "short": "head-consumers",
+  "repo": ".",
+  "requirement": "Pinned tests first (tests/test_mcp_server_config.py test_web_ui_tab_set and test_mcp_server_front_camera_is_the_compressed_overview_camera, nodes/web_ui/tests/test_map3d_backend.py head defaults), seen failing. (1) Head tab in ansible/group_vars/client.yml and nodes/web_ui/config/default.yaml: tof_depth_topic /stereo/depth/image_raw, tof_range_m 4.0, tof_amplitude_topic removed (stereo has no amplitude); comments say the depth comes from stereo_depth. (2) Arm overview_camera_topic, head rgb_camera_topic, the Overview tab and mcp_server topics.front_camera stay /overview_camera/image_raw/compressed, and the tests assert it, so web_ui arm/head/overview tabs, mcp_server get_camera_image, camera lookups and photo POIs, and the agent through mcp_server keep working. (3) mcp_server tool descriptions in tools.py no longer claim the front camera is 640x480 (no hardcoded size). (4) Docs: nodes/web_ui/README.md and nodes/mcp_server/README.md state the overview stream is 480x360 at 5 Hz from the left IMX219 and the Head tab shows stereo depth; tests/README.md rows updated.",
+  "value": "The Head tab shows stereo depth and nothing that used the overview camera breaks.",
+  "files": [
+   "ansible/group_vars/client.yml",
+   "nodes/web_ui/config/default.yaml",
+   "nodes/web_ui/tests/test_map3d_backend.py",
+   "nodes/web_ui/README.md",
+   "nodes/mcp_server/mcp_server/tools.py",
+   "nodes/mcp_server/README.md",
+   "tests/test_mcp_server_config.py",
+   "tests/README.md"
+  ],
+  "notes": "Design D2 keeps the overview topic names, so no consumer is repointed. HeadTab already renders without amplitude. Keep the tof_* keys and the ToF label (cosmetic rename not approved). Do not edit nodes/mcp_server/tests/test_config.py unless a pin breaks.",
+  "verify": "uv run pytest tests/test_mcp_server_config.py -v && (cd nodes/web_ui && uv run pytest tests -q && uv run poe lint) && (cd nodes/mcp_server && uv run pytest tests -q && uv run poe lint)",
+  "owns": [],
+  "uses": [],
+  "dependsOn": [
+   "T2"
+  ]
+ },
+ {
+  "id": "T6",
+  "title": "stereo_depth Ansible node, background cgroup tier and metrics wiring",
+  "short": "stereo-ansible",
+  "repo": ".",
+  "requirement": "Tests first (new tests/test_stereo_depth_config.py, tests/test_unit_cgroups.py, tests/test_node_metrics_wiring.py), seen failing. (1) Node type stereo_depth in ansible/group_vars/client.yml: native, python3 -m stereo_depth, node_src_dir nodes/stereo_depth, src_shared true, config_path /etc/ros2/stereo_depth, env STEREO_DEPTH_CONFIG=/etc/ros2/stereo_depth/config.yaml, apt ros-jazzy-message-filters and ros-jazzy-stereo-msgs when not already present, memory_low 96M and memory_max 384M commented as an estimate. (2) New background tier cpu_weight 100, io_weight 100, oom_score_adjust 0, below every robot and agent tier, with stereo_depth its only member; test_unit_cgroups.py gains the tier. (3) ros2_nodes entry stereo_depth present and enabled, config with every DepthConfig default explicit and metrics_port 19113; monitoring_agent_node_targets has 127.0.0.1:19113; test_node_metrics_wiring.py lists the port and the shared node type. (4) ansible/playbooks/deploy_nodes_client.yml has a tagged Deploy stereo_depth block (tags [stereo_depth, apt, python, build, config]) after overview_camera, and the boot include display name says IMX219 pair. (5) test_stereo_depth_config.py pins node type, entry, block and tags. (6) Docs: ansible/README.md (tiers table, memory table, metrics port table), .claude/skills/ansible-deploy/SKILL.md stereo_depth row, tests/README.md (new file, changed tests, and a 'Per-node tests (stereo_depth)' section listing every test file under nodes/stereo_depth/tests/).",
+  "value": "One deploy command installs the depth node at a priority that never starves the robot.",
+  "files": [
+   "ansible/group_vars/client.yml",
+   "ansible/playbooks/deploy_nodes_client.yml",
+   "tests/test_stereo_depth_config.py",
+   "tests/test_unit_cgroups.py",
+   "tests/test_node_metrics_wiring.py",
+   "ansible/README.md",
+   ".claude/skills/ansible-deploy/SKILL.md",
+   "tests/README.md"
+  ],
+  "notes": "Reference only: `git show 08bc9b8^:ansible/playbooks/nodes/client/stereo_depth.yml` (per-node playbooks were replaced by Deploy blocks in deploy_nodes_client.yml). Mirror arducam_tof (tests/test_arducam_tof_config.py). Read DepthConfig keys from nodes/stereo_depth/stereo_depth/config.py. Do not deploy.",
+  "verify": "uv run pytest tests/test_stereo_depth_config.py tests/test_unit_cgroups.py tests/test_node_metrics_wiring.py tests/test_ansible_deploy_speed.py -v && uv run pytest tests -q && uv run poe lint && uv run poe test-ansible",
+  "owns": [],
+  "uses": [
+   "stereo-depth-config"
+  ],
+  "dependsOn": [
+   "T3",
+   "T4",
+   "T5"
+  ]
+ }
+]
