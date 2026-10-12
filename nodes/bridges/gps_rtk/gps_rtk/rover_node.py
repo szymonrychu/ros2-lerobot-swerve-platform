@@ -40,7 +40,7 @@ class GpsRtkRoverNode(Node):
         """
         super().__init__(NODE_NAME)
         self.config = config
-        self._clock = clock
+        self._monotonic = clock
         self._started_s = clock()
         self._latest_fix: NavSatFix | None = None
         self._latest_gga: dict[str, Any] | None = None
@@ -61,7 +61,7 @@ class GpsRtkRoverNode(Node):
         self._diag_counter = 0
 
     def _on_nmea(self, sentence: str) -> None:
-        now = self._clock()
+        now = self._monotonic()
         with self._fix_lock:
             self._last_nmea_s = now
         if "GGA" not in sentence:
@@ -153,7 +153,7 @@ class GpsRtkRoverNode(Node):
             last_nmea_s = self._last_nmea_s
             last_gga_s = self._last_gga_s
         status = build_rover_status(
-            now_s=self._clock(),
+            now_s=self._monotonic(),
             started_s=self._started_s,
             last_nmea_s=last_nmea_s,
             last_gga_s=last_gga_s,

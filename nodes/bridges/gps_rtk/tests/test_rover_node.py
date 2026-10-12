@@ -110,3 +110,8 @@ def test_non_gga_sentences_keep_receiver_not_silent(node: Any, clock: Clock) -> 
     node._on_nmea(RMC)
     node._publish_status()
     assert published_status(node) == []
+
+
+def test_node_does_not_shadow_rclpy_node_clock(node: Any) -> None:
+    """rclpy.Node keeps its ROS clock in _clock (create_timer reads self._clock.handle); overriding it crashed start-up."""
+    assert "_clock" not in vars(node)
