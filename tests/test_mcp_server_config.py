@@ -195,6 +195,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "motion_queue",
         "poi",
         "lookups",
+        "auto_poi",
         "cameras",
         "floor_guard",
         "body",
@@ -578,6 +579,26 @@ def test_mcp_server_config_validates_with_frontiers_block_at_defaults() -> None:
     commented = [line for line in block.splitlines() if re.match(r"^  [a-z_]+:", line)]
     assert len(commented) == len(defaults)
     assert all("#" in line for line in commented), "every frontiers key carries a short comment"
+
+
+def test_mcp_server_config_pins_auto_poi_block() -> None:
+    """The client.yml mcp_server `auto_poi:` block pins the stuck-point marker and validates as AutoPoiSettings."""
+    pytest.importorskip("pydantic")
+    sys.path[:0] = [str(REPO_ROOT / "nodes" / "mcp_server"), str(REPO_ROOT / "shared")]
+    try:
+        from mcp_server.config import AutoPoiSettings, McpServerConfig
+    finally:
+        del sys.path[:2]
+    raw = node_config("mcp_server")
+    assert raw["auto_poi"] == {
+        "enabled": True,
+        "merge_radius_m": 0.5,
+        "max_pose_age_s": 2.0,
+        "event_types": ["collision_stop", "nav_abort"],
+    }
+    cfg = McpServerConfig.model_validate(raw)
+    assert cfg.auto_poi == AutoPoiSettings.model_validate(raw["auto_poi"])
+    assert set(raw["auto_poi"]) == set(AutoPoiSettings.model_fields), "every AutoPoiSettings key is pinned"
 
 
 def test_mcp_server_setup_tasks_create_token_and_arm_dir() -> None:

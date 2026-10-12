@@ -1713,6 +1713,13 @@ ros2_nodes:
       # (poi_store photos: block below).
       lookups:
         store_dir: /var/lib/ros2/poi/lookups
+      # Auto stuck points (nodes/mcp_server/README.md, "Auto stuck points"): a collision_stop or a Nav2 abort drops a
+      # point POI "stuck: <reason>" at a fresh map pose; a repeat nearby updates it. Never a keepout or an area.
+      auto_poi:
+        enabled: true
+        merge_radius_m: 0.5 # a repeat within this distance updates the same stuck POI
+        max_pose_age_s: 2.0 # an older map pose is stale: no POI
+        event_types: [collision_stop, nav_abort]
       # Frontier exploration (list_frontiers, plan_frontier_visit, go_to_frontier, look_toward_frontier), computed per /map
       # version; every key at its FrontierSettings default (nodes/mcp_server/README.md).
       frontiers:
