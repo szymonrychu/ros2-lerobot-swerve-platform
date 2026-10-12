@@ -240,21 +240,25 @@ class TofBridge:
     def open_camera(self) -> None:
         """Open and start the SDK camera, set the range and read the intrinsics; on failure log and schedule a retry."""
         camera: Any = None
+        opened = started = False
         try:
             camera = ac.ArducamCamera()
             ret = camera.open(ac.Connection.CSI, self.config.camera_index)
             if not sdk_ok(ret):
                 raise RuntimeError(f"open(CSI, {self.config.camera_index}) returned {ret}")
+            opened = True
             ret = camera.start(ac.FrameType.DEPTH)
             if not sdk_ok(ret):
-                camera.close()
                 raise RuntimeError(f"start(DEPTH) returned {ret}")
+            started = True
             self.set_range(camera)
             info = camera.getCameraInfo()
             self.width, self.height = int(info.width), int(info.height)
             self.intrinsics = self.read_intrinsics(camera)
         except Exception as e:  # the SDK raises bare RuntimeErrors from its native layer
             OPEN_FAILURES.inc()
+            if opened:  # release the device, else every retry fails with it busy
+                self.release(camera, started)
             self.logger.error(
                 f"Could not open the ToF camera (index {self.config.camera_index}): {e}; retrying in {OPEN_RETRY_S} s."
             )
@@ -367,10 +371,19 @@ class TofBridge:
     def close(self) -> None:
         """Stop and close the camera if it is open (idempotent)."""
         camera, self.camera = self.camera, None
-        if camera is None:
-            return
+        if camera is not None:
+            self.release(camera, started=True)
+
+    def release(self, camera: Any, started: bool) -> None:
+        """Stop (when started) and close an opened SDK camera, logging instead of raising on SDK errors.
+
+        Args:
+            camera (Any): Opened ac.ArducamCamera.
+            started (bool): Whether start() succeeded, so stop() is due before close().
+        """
         try:
-            camera.stop()
+            if started:
+                camera.stop()
             camera.close()
         except Exception as e:  # closing a camera that went away must not mask the reason we are closing it
             self.logger.warning(f"Error closing the ToF camera: {e}")

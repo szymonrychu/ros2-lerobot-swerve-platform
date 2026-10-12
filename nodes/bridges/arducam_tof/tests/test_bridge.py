@@ -87,6 +87,8 @@ class FakeCamera:
         }
         self.frames: list[Any] = []
         self.request_error: BaseException | None = None
+        self.range_error: BaseException | None = None
+        self.info_error: BaseException | None = None
         self.calls: list[tuple[Any, ...]] = []
         self.released: list[Any] = []
 
@@ -109,6 +111,8 @@ class FakeCamera:
     def setControl(self, control: str, value: int) -> int:
         self.calls.append(("setControl", control, value))
         if control == "RANGE":
+            if self.range_error is not None:
+                raise self.range_error
             self.controls["RANGE"] = value
             return self.range_rets.get(value, 0)
         return 0
@@ -119,6 +123,8 @@ class FakeCamera:
         return self.controls[control]
 
     def getCameraInfo(self) -> types.SimpleNamespace:
+        if self.info_error is not None:
+            raise self.info_error
         return types.SimpleNamespace(width=WIDTH, height=HEIGHT, device_type="HQVGA")
 
     def requestFrame(self, timeout: int) -> Any:
@@ -507,6 +513,26 @@ def test_camera_that_fails_to_start_is_closed_and_retried(harness: Harness) -> N
     harness.clock.now_s += bridge.OPEN_RETRY_S
     harness.bridge.step()
     assert len(harness.cameras) == 2
+
+
+@pytest.mark.parametrize("fault", ["range_error", "info_error"])
+def test_camera_that_fails_after_start_is_stopped_closed_and_retried(harness: Harness, fault: str) -> None:
+    harness.prepare = lambda camera: setattr(camera, fault, RuntimeError("SDK error"))
+    before = counter("tof_camera_open_failures_total")
+
+    harness.bridge.step()
+
+    assert harness.cameras[0].names()[-2:] == ["stop", "close"]
+    assert harness.bridge.camera is None
+    assert harness.total_published() == 0
+    assert harness.logger.error.called
+    assert counter("tof_camera_open_failures_total") == before + 1
+
+    harness.clock.now_s += bridge.OPEN_RETRY_S
+    harness.prepare = lambda camera: camera.frames.append(good_frame())
+    harness.bridge.step()
+    assert len(harness.cameras) == 2
+    assert len(harness.published(bridge.DEPTH_TOPIC)) == 1
 
 
 def test_camera_constructor_error_is_an_open_failure(monkeypatch: pytest.MonkeyPatch, harness: Harness) -> None:
