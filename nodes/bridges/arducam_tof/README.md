@@ -65,7 +65,7 @@ Run in this directory: `uv run pytest tests -q` and `uv run poe lint` (ruff and 
 
 ## Deploy
 
-The node is deployed on the client by Ansible as node type `arducam_tof`, **disabled by default** (`enabled: false` in `ansible/group_vars/client.yml`). To enable it once the camera is plugged in, set `enabled: true` on the `arducam_tof` entry and run:
+The node is deployed on the client by Ansible as node type `arducam_tof`, **disabled by default** (`enabled: false` in `ansible/group_vars/client.yml`). To enable it once the camera is plugged in, set `enabled: true` on the `arducam_tof` entry, add `{node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}` to `monitoring_agent_node_targets`, and run:
 
 ```bash
 mkdir -p .logs
