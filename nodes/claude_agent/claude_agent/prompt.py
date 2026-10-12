@@ -261,13 +261,7 @@ obstacles.
 Memory: remember_object for things you find (with map coordinates), list_objects before searching again. Remembered \
 objects are POIs (kind object) shown on the person's map. Call list_pois at the start (it lists every POI, objects \
 included, and states each kind; they may hold tasks from the person); add_poi to mark a place where something needs to \
-happen (with a clear note), update_poi when it is done. When the person starts a new session, your own POIs and objects \
-are removed (the person's POIs stay), so anything that must outlive a session goes to NOTES.md. Behaviour learnings go to NOTES.md. Keep POI positions accurate: whenever you compute a better location estimate for a POI or object (seen closer, located with the gripper camera instead of the far front camera, consistent across several views, or after a better localisation), update it. A new sighting of similar quality: call remember_object again (it averages the sightings). A clearly better estimate, or the object has moved: update_poi with the new x and y (it replaces the position), and add to its note 'position refined from (x, y): <reason>'. On the person's POIs change only their position this way (keep their name, status and intent). Mark more POIs: use them as a scratchpad for future assignments. Mark objects and areas of interest you pass or see \
-(remember_object, add_poi with a note), and mark critical obstacles (a drop, a stair edge, a cable, a fragile item, a \
-spot where you got stuck, a place the person says not to go) as area POIs with zone 'keepout' (and a note saying what and why), and tight or cluttered places \
-as zone 'slow' with speed_limit_pct. Never send a navigation goal inside a keepout. To pass through one, ask the person \
-before setting the zone status to cancelled. Your zones vanish at a new session: ask the person to draw permanent ones in \
-the web UI or note them in NOTES.md. After a map reset, list_pois and check the zones still sit where intended. The calibration tools \
+happen (with a clear note), update_poi when it is done. POIs persist across sessions; NOTES.md holds no map coordinates. Behaviour learnings go to NOTES.md. Keep POI positions accurate: whenever you compute a better location estimate for a POI or object (seen closer, located with the gripper camera instead of the far front camera, consistent across several views, or after a better localisation), update it. A new sighting of similar quality: call remember_object again (it averages the sightings). A clearly better estimate, or the object has moved: update_poi with the new x and y (it replaces the position), and add to its note 'position refined from (x, y): <reason>'. On the person's POIs change only their position this way (keep their name, status and intent). Never send a navigation goal inside a keepout. To pass through one, ask the person before setting the zone status to cancelled. After a map reset, list_pois and check the zones still sit where intended. The calibration tools \
 (capture_calibration_sample, solve_camera_calibration, clear_calibration_samples) are used only when the person asks \
 to calibrate.
 
@@ -305,6 +299,15 @@ image) at phase boundaries, before an irreversible action (closing the gripper o
 large or fast move), and whenever a tool reports a problem (error, interrupted_by, a convergence or tracking \
 warning, an unexpected result). Otherwise trust a motion tool's own success result, which already reports expected \
 vs achieved, and go on to the next step; say what you actually saw when you do check.
+
+Map marking: mark the map at these moments, not only when you remember. (1) After look_around or any camera image \
+that shows an object: remember_object it (or add_poi with a note for an area of interest). (2) After a collision_stop \
+or a Nav2 abort: the runner already drops an automatic stuck point; if the problem is lasting (a drop, a stair edge, a \
+cable, a fragile item, a tight or cluttered place) upgrade it with update_poi to an area POI with zone 'keepout' (or \
+zone 'slow' with speed_limit_pct) and a note saying what and why. (3) Before complete_phase: mark what the phase \
+taught you that is not on the map yet. (4) When an object has moved: update_poi with the new x and y and note \
+'position refined from (x, y): <reason>'. POIs persist across sessions and NOTES.md holds no map coordinates, so the \
+map is the only place for positions. Use POIs as a scratchpad for future assignments.
 
 Arm settle: move_arm_joints and move_arm_cartesian take settle. The default 'trajectory_end' returns as soon as the \
 streamed trajectory finished, with settling=true and the current tracking_error_rad while joints still close in: \

@@ -211,10 +211,25 @@ def test_prompt_teaches_memory_pois_and_calibration() -> None:
     for needle in ("remember_object", "list_objects", "list_pois", "add_poi", "update_poi", "NOTES.md"):
         assert needle in text, needle
     lower = text.lower()
-    assert "objects are pois" in lower and "new session" in lower
-    assert "your own pois and objects are removed" in lower and "person's pois stay" in lower
+    assert "objects are pois" in lower
+    assert "removed" not in lower[lower.index("memory:") : lower.index("lookups:")]
+    assert "vanish at a new session" not in lower and "removed at a new session" not in lower
     assert "calibrat" in lower and "only when the person asks" in lower
     assert "capture_calibration_sample" in text and "solve_camera_calibration" in text
+
+
+def test_prompt_has_map_marking_section_with_triggers() -> None:
+    text = build_system_prompt(ClaudeAgentConfig())
+    assert text.index("Memory:") < text.index("Safety rules:") < text.index("Map marking:") < text.index("Arm settle:")
+    section = text[text.index("Map marking:") : text.index("Arm settle:")]
+    lower = section.lower()
+    assert "look_around" in section and "camera image" in lower and "object" in lower
+    assert "collision_stop" in section and "nav2" in lower and "abort" in lower
+    assert "stuck point" in lower and "keepout" in lower and "slow" in lower
+    assert "complete_phase" in section
+    assert "moved" in lower
+    assert "pois persist across sessions" in lower
+    assert "notes.md holds no map coordinates" in lower
 
 
 def test_every_default_tool_is_named_in_the_prompt() -> None:
