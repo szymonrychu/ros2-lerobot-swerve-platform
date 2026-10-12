@@ -49,6 +49,7 @@ jobs:
       matrix:
         # Every nodes/**/pyproject.toml; tests/test_ci_workflow.py keeps this in sync.
         node:
+          - bridges/arducam_tof
           - bridges/bno055_imu
           - bridges/feetech_servos
           - bridges/gps_rtk
