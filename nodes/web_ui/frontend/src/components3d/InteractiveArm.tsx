@@ -7,6 +7,7 @@ import { RobotModel } from './RobotModel'
 import { findLink } from '../arm/armView.ts'
 import log from '../logging'
 import { solveCCDIK } from './ccdIKSolver'
+import { createOrbitHold } from './orbitHold'
 
 const PUBLISH_INTERVAL_MS = 50 // throttle to ~20Hz
 const RING_RADIUS = 0.045 // world-space metres — slightly larger than arm cross-section
@@ -419,6 +420,8 @@ export function InteractiveArm({
       return null
     }
 
+    const orbitHold = createOrbitHold()
+
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return
 
@@ -454,7 +457,7 @@ export function InteractiveArm({
         }
         setRingAppearance(entry, COLOR_DRAG, OPACITY_DRAG)
         setGhostBodyOpacity(GHOST_BODY_OPACITY)
-        if (orbitRef.current) orbitRef.current.enabled = false
+        orbitHold.hold(orbitRef.current)
         canvas.style.cursor = 'grabbing'
         invalidate()
         log.debug('[interactive] ring drag start:', entry.jointName)
@@ -473,7 +476,7 @@ export function InteractiveArm({
         mat.color.setHex(EE_COLOR_DRAG)
         mat.opacity = EE_OPACITY_DRAG
         setGhostBodyOpacity(GHOST_BODY_OPACITY)
-        if (orbitRef.current) orbitRef.current.enabled = false
+        orbitHold.hold(orbitRef.current)
         canvas.style.cursor = 'grabbing'
         invalidate()
         log.debug('[interactive] IK drag start on', jointName)
@@ -497,7 +500,7 @@ export function InteractiveArm({
           }
         }
         setGhostBodyOpacity(GHOST_BODY_OPACITY)
-        if (orbitRef.current) orbitRef.current.enabled = false
+        orbitHold.hold(orbitRef.current)
         canvas.style.cursor = 'grabbing'
         invalidate()
       }
@@ -664,7 +667,7 @@ export function InteractiveArm({
       setGhostBodyOpacity(0)
       publishNow()
       activeDragRef.current = null
-      if (orbitRef.current) orbitRef.current.enabled = true
+      orbitHold.release(orbitRef.current)
       canvas.style.cursor = ''
       invalidate()
       log.debug('[interactive] drag end')
@@ -678,7 +681,7 @@ export function InteractiveArm({
       canvas.removeEventListener('pointerdown', onPointerDown, { capture: true } as EventListenerOptions)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
-      if (orbitRef.current) orbitRef.current.enabled = true
+      orbitHold.release(orbitRef.current)
     }
   }, [gl, invalidate, publishNow, setRingAppearance, getRingScreenCenter, setGhostBodyOpacity, orbitRef, jointSpheresRef, sphereByUuidRef, updateArrowPositions])
 
