@@ -216,7 +216,6 @@ class ClaudeAgentConfig(BaseModel):
     mcp_url: str = "http://127.0.0.1:18200/mcp"
     mcp_token_file: str = "/etc/ros2/mcp_server/token"
     agent_poi_reset: Literal["keep_open", "clear_all"] = "keep_open"
-    poi_review_followup: bool = True  # send one POI REVIEW message per instruction that ended without a POI write
     poi_hint_radius_m: float = Field(default=0.5, gt=0.0)  # complete_phase map-coordinate hint radius
     http_host: str = "127.0.0.1"
     http_port: int = Field(default=18300, ge=1, le=65535)

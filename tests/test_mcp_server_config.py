@@ -196,7 +196,6 @@ def test_mcp_server_node_entry_and_config() -> None:
         "poi",
         "auto_poi",
         "lookups",
-        "auto_poi",
         "cameras",
         "floor_guard",
         "body",
@@ -207,7 +206,6 @@ def test_mcp_server_node_entry_and_config() -> None:
         "guard_rules",
         "reach_map",
         "approach",
-        "auto_poi",
     }
     assert cfg["server"] == {"host": "0.0.0.0", "port": PORT, "path": "/mcp"}
     assert cfg["arm"]["home_file"] == f"{ARM_DIR}/home.yaml"
@@ -619,6 +617,7 @@ def test_mcp_server_config_pins_auto_poi_block() -> None:
         "merge_radius_m": 0.5,
         "max_pose_age_s": 2.0,
         "event_types": ["collision_stop", "nav_abort"],
+        "hint_after_images": 3,
     }
     cfg = McpServerConfig.model_validate(raw)
     assert cfg.auto_poi == AutoPoiSettings.model_validate(raw["auto_poi"])
