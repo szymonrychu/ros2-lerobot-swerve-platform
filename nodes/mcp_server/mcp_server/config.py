@@ -841,6 +841,20 @@ class AutoPoiSettings(StrictModel):
     hint_after_images: int = Field(default=3, ge=1)
 
 
+class JogSettings(StrictModel):
+    """Web-UI arm jog (jog.Jogger, action 'jog' on /grasp/command): step caps and the jog speed.
+
+    A requested step larger than its cap is clamped to the cap; an omitted step uses the cap.
+    """
+
+    max_cartesian_step_m: float = Field(default=0.01, gt=0.0, le=0.05)  # tool point step in the gripper frame
+    max_joint_step_rad: float = Field(default=0.05, gt=0.0, le=0.3)  # shoulder_pan / wrist_pitch / wrist_roll step
+    max_gripper_step: float = Field(default=0.1, gt=0.0, le=1.0)  # gripper open fraction step (0 closed, 1 open)
+    speed_scale: float = Field(default=0.3, gt=0.0, le=HARD_MAX_SPEED_SCALE)  # capped to limits.arm_max_speed_scale
+    # A cartesian step whose tool point would end lower than arm.floor_z_m + floor_clearance_m is refused.
+    floor_clearance_m: float = Field(default=0.01, ge=0.0)
+
+
 class LookupSettings(StrictModel):
     """Camera photo directory: the JPEG target of every camera image (poi_store owns the index and retention)."""
 
@@ -1449,6 +1463,7 @@ class McpServerConfig(StrictModel):
     nav_footprint: NavFootprintSettings | None = None
     poi: PoiSettings = PoiSettings()
     auto_poi: AutoPoiSettings = AutoPoiSettings()
+    jog: JogSettings = JogSettings()
     lookups: LookupSettings = Field(default_factory=LookupSettings)
     floor_guard: FloorGuardSettings = FloorGuardSettings()
     body: BodySettings = BodySettings()

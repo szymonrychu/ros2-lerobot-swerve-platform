@@ -28,6 +28,7 @@ from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, g
 from .grasp_check import Band, CropInfo, FusedOutcome, GraspCheck, GripEvidence, ImageState, ImageVerdict
 from .grip import ResolvedGrip, resolve_grip_profile
 from .jaw_crop import crop_jpeg, jaw_crop
+from .jog import Jogger, JogSpec
 from .lookup_tools import record_lookup
 from .metrics import GRASP_ATTEMPTS, GRASP_PLANS, GRASP_RESULT_BY_OUTCOME, GRASP_VERDICTS
 from .models import ArmMotionResult, CarryingState, RobotError
@@ -729,8 +730,9 @@ class GraspServiceRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["plan", "execute", "release", "stop"]
+    action: Literal["plan", "execute", "release", "stop", "jog"]
     request_id: str | None = None
+    jog: JogSpec | None = None  # required for action 'jog' (jog.JogSpec)
     object: ObjectSpec | None = None
     strategy: StrategyChoice = "auto"
     params: dict[str, Any] | None = None
@@ -750,14 +752,17 @@ class GraspService:
         config: McpServerConfig,
         guard: CutoffGuard | None = None,
         stop_count: Callable[[], int] | None = None,
+        publish: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         """Create the service.
 
         Args:
             arm (ArmController): Arm controller.
             config (McpServerConfig): Node configuration.
-            guard (CutoffGuard | None): Battery cut-off guard; execute/release are refused in cut-off.
+            guard (CutoffGuard | None): Battery cut-off guard; execute/release/jog are refused in cut-off.
             stop_count (Callable[[], int] | None): Robot stop counter (a stop tool call aborts a running grasp).
+            publish (Callable[[dict[str, Any]], None] | None): Sends an answer on /grasp/result outside handle's
+                return (coalesced jogs); None logs and drops such answers.
         """
         self.arm = arm
         self.cfg = config
@@ -766,15 +771,16 @@ class GraspService:
         self.executor = GraspExecutor(arm, config)
         self.cancel = threading.Event()
         self.busy = threading.Lock()
+        self.jogger = Jogger(arm, config.jog, guard, publish or unsent_answer)
 
-    def handle_json(self, text: str) -> str:
+    def handle_json(self, text: str) -> str | None:
         """handle() for a JSON string.
 
         Args:
             text (str): Request JSON.
 
         Returns:
-            str: Response JSON.
+            str | None: Response JSON, or None when the answer goes out later through publish (a coalesced jog).
         """
         try:
             request = json.loads(text)
@@ -782,17 +788,19 @@ class GraspService:
             return json.dumps({"ok": False, "request_id": None, "action": None, "error": f"invalid JSON: {exc}"})
         if not isinstance(request, dict):
             return json.dumps({"ok": False, "request_id": None, "action": None, "error": "request must be an object"})
-        return json.dumps(self.handle(request))
+        answer = self.handle(request)
+        return None if answer is None else json.dumps(answer)
 
-    def handle(self, request: dict[str, Any]) -> dict[str, Any]:
+    def handle(self, request: dict[str, Any]) -> dict[str, Any] | None:
         """Run one request.
 
         Args:
             request (dict[str, Any]): {action, request_id?, object?, strategy?, params?, approach_pitch_deg?,
-                surface_z_m?, tilt_override_deg?, grip_profile?, surfaces?}.
+                surface_z_m?, tilt_override_deg?, grip_profile?, surfaces?, jog?}.
 
         Returns:
-            dict[str, Any]: {ok, request_id, action, result} or {ok: false, request_id, action, error}.
+            dict[str, Any] | None: {ok, request_id, action, result} or {ok: false, request_id, action, error}; None
+                for a jog whose answer goes out through publish (it was coalesced, see jog.Jogger.submit).
         """
         head = {"request_id": request.get("request_id"), "action": request.get("action")}
         try:
@@ -801,10 +809,13 @@ class GraspService:
             return head | {"ok": False, "error": f"invalid request: {exc}"}
         if req.action == "stop":
             self.cancel.set()
+            self.jogger.drop_pending()
             held, note = self.arm.stop_hold()
             return head | {"ok": True, "result": {"arm_held": held, "message": note}}
         if req.action != "plan" and self.guard is not None and self.guard.is_cutoff():
             return head | {"ok": False, "error": self.guard.rejection_message()}
+        if req.action == "jog":
+            return self.jog(req, head)
         try:
             params = grasp_params(self.cfg.grasp, req.params, req.grip_profile)
             grip = self.executor.resolve_grip(params)
@@ -836,6 +847,31 @@ class GraspService:
         finally:
             self.busy.release()
         return head | {"ok": True, "result": result.model_dump(mode="json")}
+
+    def jog(self, req: GraspServiceRequest, head: dict[str, Any]) -> dict[str, Any] | None:
+        """Hand a jog to the coalescing jogger, unless the request has no spec or a grasp action runs.
+
+        Args:
+            req (GraspServiceRequest): Validated request with action 'jog'.
+            head (dict[str, Any]): {request_id, action}.
+
+        Returns:
+            dict[str, Any] | None: The answer, or None when it goes out through publish.
+        """
+        if req.jog is None:
+            return head | {"ok": False, "error": "'jog' is required for jog"}
+        if self.busy.locked():
+            return head | {"ok": False, "error": "jog refused: a grasp action is running; send action 'stop' first"}
+        return self.jogger.submit(req.jog, head)
+
+
+def unsent_answer(answer: dict[str, Any]) -> None:
+    """Default publish of GraspService without a /grasp/result publisher: log the answer.
+
+    Args:
+        answer (dict[str, Any]): The answer that had no publisher.
+    """
+    LOGGER.warning("no /grasp/result publisher for answer %s", json.dumps(answer))
 
 
 def grasp_tool_result(result: BaseModel, image: ImageContent | None) -> CallToolResult:

@@ -1269,6 +1269,17 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   and half-planes; the pre-grasp and roll moves run at `approach_speed_scale` (default 0.3, also the planned
   pre_grasp / open speed), per call via `params`, capped to `limits.arm_max_speed_scale` and refused above the hard
   maximum, and the plan_grasp / grasp_object schemas offer it
+- web-UI arm jog (`test_jog.py`): `jog` config defaults (0.01 m, 0.05 rad, 0.1 open fraction, unknown keys
+  rejected); `JogSpec` accepts only the directions of its kind and a positive step; `jog` spec required; cartesian
+  `up` moves the tool point one capped step along the gripper-frame up axis keeping the pitch, `forward`/`back`/`left`
+  follow the gripper frame (approach axis, horizontal left); joint steps (shoulder_pan left turns the heading left,
+  capped to 0.05 rad, other joints untouched; wrist_pitch up lowers the pitch; wrist_roll left/right); gripper steps
+  are open-fraction steps (capped to 0.1, refused when fully closed); refusals with nothing published: no fresh joint
+  states, battery cut-off, IK unreachable, self-collision (cartesian and joint), a descending step below the floor
+  clearance (a rising one passes), a joint at its limit, wrist roll with the gripper open past the roll limit, a
+  running grasp action; coalescing: while a jog runs a newer one replaces the pending one (the replaced one is answered
+  superseded), the last request runs next and every request gets exactly one answer; `stop` drops the pending jog;
+  `handle_json` answers a plain jog at once
 - grasp hold regressions of the 2026-10-10 grip tuning session (`test_grasp_hold.py`, fake follower that sags by the
   gravity model with sag compensation on): the full grasp_object sequence keeps shoulder_pan commanded at the planned
   grasp pose through the close and its hold check, within the planned samples through lift and retreat and at the

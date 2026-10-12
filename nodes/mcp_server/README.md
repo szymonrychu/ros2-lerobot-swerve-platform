@@ -1359,13 +1359,13 @@ pan push while squeezing).
 
 The web UI (or any ROS client) publishes a JSON request as `std_msgs/String` on `topics.grasp_command`
 (`/grasp/command`, reliable, depth 10) and receives the JSON answer on `topics.grasp_result` (`/grasp/result`). `stop`
-and invalid requests are answered at once; `plan`, `execute` and `release` run in a worker thread (one execute/release
-at a time).
+and invalid requests are answered at once; `plan`, `execute`, `release` and `jog` run in a worker thread (one
+execute/release at a time; jogs coalesce, see "Jog" below).
 
 Request:
 
 ```json
-{"action": "plan" | "execute" | "release" | "stop",
+{"action": "plan" | "execute" | "release" | "stop" | "jog",
  "request_id": "optional string, echoed back",
  "object": {"frame": "arm" | "base_link", "x": 0.22, "y": 0.0, "support_z": -0.100,
             "width_m": 0.03, "depth_m": 0.03, "height_m": 0.04, "yaw": null, "gap_below_m": 0.0},
@@ -1376,7 +1376,8 @@ Request:
  "tilt_override_deg": {"roll": 0.0, "pitch": 0.0},
  "grip_profile": "gentle" | "normal" | "firm" | "soft" | {"base": "gentle", "squeeze_rad": 0.01},
  "surfaces": [{"name": "stair", "height_m": -0.10, "frame": "arm",
-               "edge": {"point": [0.16, 0.0], "direction": [0.0, -1.0]}}]}
+               "edge": {"point": [0.16, 0.0], "direction": [0.0, -1.0]}}],
+ "jog": {"kind": "cartesian", "direction": "up", "step": 0.01}}
 ```
 
 `object` is required for `plan` and `execute`; everything else is optional (`strategy` defaults to `auto`, `params`
@@ -1402,7 +1403,41 @@ keys are `grasp` config fields; `grip_profile` defaults to `grip_profiles.defaul
 
 `stop` answers `{"ok": true, ..., "result": {"arm_held": bool, "message": str}}` and aborts a running execute/release.
 Errors answer `{"ok": false, "request_id": ..., "action": ..., "error": "..."}` (invalid JSON or fields, missing
-object, unknown params, another action running, battery cut-off for execute/release).
+object or jog spec, unknown params, another action running, battery cut-off for execute/release/jog).
+
+**Jog** (`jog.py`, the Arm tab jog panel). `{"action": "jog", "request_id": "...", "jog": {"kind", "direction",
+"step"?}}` moves the arm one small step; `jog` is required and rejects unknown keys:
+
+| kind | directions | step (default and cap) | how |
+|---|---|---|---|
+| `cartesian` | `up`, `down`, `forward`, `back`, `left`, `right` | m, `jog.max_cartesian_step_m` 0.01 | tool point along the gripper frame, approach pitch kept: `solve_cartesian` then `move_cartesian` |
+| `shoulder_pan` | `left`, `right` | rad, `jog.max_joint_step_rad` 0.05 | `move_joints`; left turns the gripper heading counter-clockwise (seen from above) |
+| `wrist_pitch` | `up`, `down` | rad, `jog.max_joint_step_rad` 0.05 | `move_joints` on `wrist_flex`; up tilts the gripper up (lowers the approach pitch) |
+| `wrist_roll` | `left`, `right` | rad, `jog.max_joint_step_rad` 0.05 | `move_joints`; left is + roll |
+| `gripper` | `open`, `close` | open fraction, `jog.max_gripper_step` 0.1 | `set_gripper(open_fraction)` |
+
+The gripper frame: `forward`/`back` along the approach axis (the way the gripper points), `left`/`right` horizontal and
+perpendicular to the approach heading (roll ignored), `up`/`down` perpendicular to both (world up when the gripper points
+horizontally, away from the robot when it points straight down). A step starts from the commanded pose while the lease
+holds one, else from the measured pose (`ArmState.tool_pose`), so sag is never locked in. A larger `step` is clamped to
+the cap; an omitted one uses the cap. The joint signs come from the kinematics, never from URDF axis conventions.
+
+A jog is refused with `{"ok": false, "error": "jog refused: <reason>"}` (nothing moved, no lease taken) under the
+battery cut-off, without fresh `/follower/joint_states`, while a grasp execute/release runs, while another (non-jog)
+arm motion runs, when the IK target is unreachable, when the step would hit the robot body (self-collision, checked
+before the lease is taken), when a cartesian step would end below `arm.floor_z_m + jog.floor_clearance_m` (a step that
+rises is never refused for the floor), when the joint is at its limit, when the gripper is already fully open/closed,
+and for a `wrist_roll` step while the gripper is open past `limits.roll_max_gripper_open_rad` (the roll guard; a jog step
+is below `roll_guard_min_change_rad`, so the jog checks the opening itself). The floor slow zone applies to the motion.
+
+A done step answers `{"ok": true, ..., "result": {"kind", "direction", "step", "step_capped", "status", "message",
+"tool_pose": {"x", "y", "z", "pitch"}, "motion": <ArmMotionResult>}}` (`status` is the motion status, e.g.
+`converged`).
+
+Coalescing: while a jog runs, a newer jog becomes the single pending one and replaces any earlier pending jog, which is
+answered at once with `{"ok": false, "error": "superseded by a newer jog ..."}`; the pending jog runs when the current
+one ends (the last request wins, never an unbounded queue). `stop` drops the pending jog (answered `dropped by stop
+before it ran`). Every request gets exactly one answer on `/grasp/result`.
 
 The camera overlay `planned_gripper` of `get_annotated_camera_image` takes one point: pass a plan waypoint (x, y, z)
 to draw it.
@@ -2087,6 +2122,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `perception.py` | no | scan sectors/points, map stats/PNG, image encoding |
 | `topdown.py`, `perception_models.py` | no | robot-up top-down renderer (layers, transforms); perception result models |
 | `object_memory.py`, `look_around.py`, `poi_client.py` | no | object POI memory + merge, look_around plan/loop/montage, POI request matching |
+| `jog.py` | no | web-UI arm jog: `JogSpec`, `Jogger` (gripper-frame cartesian steps via IK, joint and gripper steps, step caps, refusals, last-request-wins coalescing), `gripper_axes` |
 | `auto_poi.py` | no | `AutoPoiMarker` (stuck events to point POIs, merge by radius), `attach_auto_poi` (monitor sink + `auto_poi_id` annotation) |
 | `frontiers.py` | no | frontier core: `MapGrid`, vectorised WFD `extract_frontiers`, `traversability`, `geodesic_from`, `observation_pose`, `FrontierTracker` (stable ids, epochs, retired successors), `facing_lookup`, `nearest_poi`, cell/map conversion |
 | `frontier_tools.py` | no | `list_frontiers`, `plan_frontier_visit`, `go_to_frontier`, `look_toward_frontier` (one `TOOL_MODULES` entry) |
@@ -2330,6 +2366,12 @@ auto_poi:                 # auto stuck points (see Auto stuck points); defaults 
   max_pose_age_s: 2.0            # an older map pose is stale: no POI
   event_types: [collision_stop, nav_abort]
   hint_after_images: 3           # camera / look_around results since the last POI write before poi_hint appears
+jog:                      # web-UI arm jog (action 'jog' on /grasp/command, see Web-UI contract); defaults shown
+  max_cartesian_step_m: 0.01     # tool point step cap (gt 0, le 0.05); a larger request is clamped
+  max_joint_step_rad: 0.05       # shoulder_pan / wrist_pitch / wrist_roll step cap (gt 0, le 0.3)
+  max_gripper_step: 0.1          # gripper open-fraction step cap (gt 0, le 1)
+  speed_scale: 0.3               # jog speed, capped to limits.arm_max_speed_scale
+  floor_clearance_m: 0.01        # a cartesian step ending below arm.floor_z_m + this is refused
 lookups:                  # photo JPEG directory (see Photos (photo POIs)); poi_store owns the index and retention
   store_dir: /var/lib/ros2/poi/lookups
 control:                  # control leases: release_control base reset (see Control leases)

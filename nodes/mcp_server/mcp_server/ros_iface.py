@@ -430,8 +430,15 @@ class RosRobot:
         self.monitor.lease_held = lambda: self.arm.control_held
         # Web-UI grasp actions (JSON in on grasp_command, JSON out on grasp_result); 'stop' answers at once, the
         # other actions run in a worker thread so they never block the executor.
-        self.grasp = GraspService(self.arm, config, battery_guard, self.stop_count)
+        # Coalesced jogs are answered through publish (outside the request's own worker thread return).
         self.grasp_result_pub = self.node.create_publisher(String, t.grasp_result, COMMAND_QOS)
+        self.grasp = GraspService(
+            self.arm,
+            config,
+            battery_guard,
+            self.stop_count,
+            publish=lambda answer: self.grasp_result_pub.publish(String(data=json.dumps(answer))),
+        )
         self.subscribe(String, t.grasp_command, self.on_grasp_command, COMMAND_QOS)
         self.node.create_timer(MONITOR_TICK_S, self.monitor.tick, callback_group=self.group)
         self.node.create_service(Trigger, t.home_service, self.on_home, callback_group=self.group)
@@ -932,7 +939,9 @@ class RosRobot:
         """
 
         def answer() -> None:
-            self.grasp_result_pub.publish(String(data=self.grasp.handle_json(msg.data)))
+            text = self.grasp.handle_json(msg.data)
+            if text is not None:  # None: a coalesced jog, answered later through GraspService.publish
+                self.grasp_result_pub.publish(String(data=text))
 
         try:
             is_stop = json.loads(msg.data).get("action") == "stop"
