@@ -40,7 +40,7 @@ export function GpsChip({ status, role }: { status: GpsChipStatus; role: 'robot'
         sx={{
           flexShrink: 0,
           fontWeight: 600,
-          maxWidth: { xs: 120, sm: 'none' },
+          maxWidth: { xs: '7.5rem', sm: 'none' },
           '& .MuiChip-label': { px: { xs: 0.75, sm: 1 } },
           '& .MuiChip-icon': { display: { xs: 'none', sm: 'inline-block' } },
         }}

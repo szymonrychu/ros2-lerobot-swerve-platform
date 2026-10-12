@@ -9,7 +9,7 @@ import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import { filterItems, focusRequestFor, isLocated, sortItems } from '../poi/poiItems'
 import type { PendingFocus, PoiItem } from '../poi/poiItems'
-import { formatUpdated, KIND_COLORS, ZONE_COLORS } from '../poi/style'
+import { fillColor, formatUpdated } from '../poi/style'
 import type { PoiKind } from '../poi/types'
 import { TOUCH_TARGET_PX } from '../theme'
 
@@ -25,14 +25,13 @@ interface Props {
 }
 
 /**
- * Swatch colour of an item: its kind colour, or the zone colour of an area with a zone.
+ * Swatch colour of an item: the same fill the map marker uses (poi/style fillColor).
  *
  * @param item - item
  * @returns CSS colour
  */
 export function swatchColor(item: PoiItem): string {
-  if (item.kind === 'area') return item.zone === 'keepout' || item.zone === 'slow' ? ZONE_COLORS[item.zone] : KIND_COLORS['area-none']
-  return KIND_COLORS[item.kind]
+  return fillColor(item.kind, item.zone, item.status)
 }
 
 /**

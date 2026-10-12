@@ -1,5 +1,5 @@
 /** POI presentation (colours by status, creator marker) and list helpers. */
-import type { Poi, PoiList } from './types'
+import type { Poi, PoiKind, PoiList, PoiStatus } from './types'
 import { POI_STATUSES, POI_ZONES, ZONE_PCT_MAX, ZONE_PCT_MIN, type PoiZone } from './types'
 
 const DEFAULT_CONFIDENCE = 1
@@ -48,6 +48,31 @@ export function poiStyle(poi: Poi, selected: boolean): PoiStyle {
 }
 
 /**
+ * Colour of a zone: its zone colour while the POI is open, grey otherwise.
+ *
+ * @param zone - keepout or slow
+ * @param status - POI status
+ * @returns CSS colour
+ */
+export function zoneColor(zone: 'keepout' | 'slow', status: PoiStatus | undefined): string {
+  return status === 'open' ? ZONE_COLORS[zone] : STATUS_COLORS.cancelled
+}
+
+/**
+ * Fill colour of a POI or photo marker: the kind colour, or for an area the zone colour (neutral without a zone).
+ * The one rule behind map markers and list swatches.
+ *
+ * @param kind - POI kind
+ * @param zone - area zone
+ * @param status - POI status (photos have none)
+ * @returns CSS colour
+ */
+export function fillColor(kind: PoiKind, zone: PoiZone | undefined, status: PoiStatus | undefined): string {
+  if (kind !== 'area') return KIND_COLORS[kind]
+  return zone === 'keepout' || zone === 'slow' ? zoneColor(zone, status) : KIND_COLORS['area-none']
+}
+
+/**
  * Style of an area with a keepout or slow zone: red / amber fill, solid outline; grey and faint unless the POI is open.
  *
  * @param poi - POI
@@ -58,7 +83,7 @@ export function zoneStyle(poi: Poi, selected: boolean): PoiStyle | null {
   const zone = poi.zone ?? 'none'
   if (zone === 'none') return null
   const active = poi.status === 'open'
-  const color = active ? ZONE_COLORS[zone] : STATUS_COLORS.cancelled
+  const color = zoneColor(zone, poi.status)
   return {
     fill: color,
     outline: selected ? SELECTED_OUTLINE : color,
@@ -78,8 +103,7 @@ export function zoneStyle(poi: Poi, selected: boolean): PoiStyle | null {
  */
 export function markerColors(poi: Poi): { fill: string; outline: string } {
   if (poi.kind === 'area') {
-    const zone = zoneStyle(poi, false)
-    const color = zone ? zone.fill : KIND_COLORS['area-none']
+    const color = fillColor(poi.kind, poi.zone, poi.status)
     return { fill: color, outline: color }
   }
   return { fill: KIND_COLORS[poi.kind], outline: STATUS_COLORS[poi.status] }

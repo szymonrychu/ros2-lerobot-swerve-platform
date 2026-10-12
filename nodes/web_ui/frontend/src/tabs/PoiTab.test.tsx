@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import PoiTab from './PoiTab'
+import PoiTab, { swatchColor } from './PoiTab'
 import { sortItems, type PoiItem } from '../poi/poiItems'
-import { KIND_COLORS, ZONE_COLORS } from '../poi/style'
+import { KIND_COLORS, markerColors, STATUS_COLORS, ZONE_COLORS } from '../poi/style'
+import type { Poi } from '../poi/types'
 import { TOUCH_TARGET_PX } from '../theme'
 
 function item(over: Partial<PoiItem>): PoiItem {
@@ -59,8 +60,21 @@ describe('PoiTab', () => {
     expect(within(row).getByText(/done/i)).toBeTruthy()
     expect(within(row).getByText(/33 min ago/)).toBeTruthy()
     const swatch = within(row).getByTestId('kind-swatch')
-    expect(swatch.getAttribute('data-color')).toBe(ZONE_COLORS.keepout)
+    expect(swatch.getAttribute('data-color')).toBe(STATUS_COLORS.cancelled)
     expect(within(row).getByText('area')).toBeTruthy()
+  })
+
+  it('swatch of an open keepout area is the zone colour, as on the map', () => {
+    render(<PoiTab items={[{ ...ITEMS[1], status: 'open' }]} onShowOnMap={vi.fn()} />)
+    expect(screen.getByTestId('kind-swatch').getAttribute('data-color')).toBe(ZONE_COLORS.keepout)
+  })
+
+  it('swatchColor is the map marker fill for every item', () => {
+    for (const item of ITEMS) {
+      if (item.source !== 'poi') continue
+      const poi = { ...item, id: 'x', frame: 'map', polygon: [], radius_m: 1, status: item.status ?? 'open', created_by: 'user', created_at: 0, updated_at: 0 } as unknown as Poi
+      expect(swatchColor(item)).toBe(markerColors(poi).fill)
+    }
   })
 
   it('swatch uses the kind colour', () => {

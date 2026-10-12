@@ -350,7 +350,7 @@ describe('MapNavTab show-on-map', () => {
     expect(mocks.centerOn).toHaveBeenCalledWith({ x: 3, y: 4 })
     expect(consumed).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Open photo' }))
-    expect(await screen.findByRole('button', { name: 'Close photo' })).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Close' })).toBeTruthy()
   })
 
   it("the popup's Edit opens the POI editor and only one popup shows", async () => {

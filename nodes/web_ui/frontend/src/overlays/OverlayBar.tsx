@@ -4,14 +4,13 @@ import Chip from '@mui/material/Chip'
 import IconButton from '@mui/material/IconButton'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
-import useMediaQuery from '@mui/material/useMediaQuery'
-import { useTheme } from '@mui/material/styles'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { OverlayItem } from '../types'
 import { extractField } from '../utils/fieldExtract'
 import { RobotIcon } from '../components/RobotIcon'
 import { BaseJointMessage } from '../map3d/baseJoints'
+import { useLayout } from '../layout/useLayout'
 import { MONO_FONT } from '../theme'
 
 interface Props {
@@ -24,12 +23,11 @@ interface Props {
 
 /**
  * Status bar under the active tab: configured overlay values, swerve wheel yaw and link state.
- * Items wrap onto further lines when space runs out; on phones (below 'sm') the values collapse
+ * Items wrap onto further lines when space runs out; on phones (layout class 'phone') the values collapse
  * behind a toggle so the bar takes one line and leaves the height to the tab.
  */
 export function OverlayBar({ overlays, topicData, jointStatesTopic, connected }: Props) {
-  const theme = useTheme()
-  const narrow = useMediaQuery(theme.breakpoints.down('sm'))
+  const narrow = useLayout() === 'phone'
   const [expanded, setExpanded] = useState(false)
   const showValues = !narrow || expanded
 

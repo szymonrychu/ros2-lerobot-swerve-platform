@@ -998,8 +998,8 @@ export default function MapNavTab({
               bottom: { xs: 0, sm: 'auto' },
               p: { xs: 1, sm: 0 },
               boxSizing: 'border-box',
-              width: { sm: 300 },
-              maxWidth: { sm: 'calc(100% - 16px)' },
+              width: { sm: 'clamp(15rem, 30vw, 20rem)' },
+              maxWidth: { sm: 'calc(100% - 1rem)' },
               display: { xs: showPanel || graspOpen ? 'none' : 'flex', sm: 'flex' },
               flexDirection: 'column',
               gap: 1,
@@ -1054,7 +1054,7 @@ export default function MapNavTab({
                 Cancel
               </Button>
             }
-            sx={{ position: 'absolute', top: 1, left: '50%', transform: 'translateX(-50%)', zIndex: 3, maxWidth: 'calc(100% - 16px)' }}
+            sx={{ position: 'absolute', top: 1, left: '50%', transform: 'translateX(-50%)', zIndex: 3, maxWidth: 'calc(100% - 1rem)' }}
           >
             Click the object on the map
           </Alert>

@@ -83,7 +83,7 @@ export default function RgbdCameraTab({ tab, topicData }: Props) {
       <Stack
         direction={{ xs: 'column', sm: 'row' }}
         divider={<Box sx={{ flexShrink: 0, bgcolor: 'divider', width: { xs: '100%', sm: '1px' }, height: { xs: '1px', sm: 'auto' } }} />}
-        sx={{ height: { xs: '40%', sm: '25%' }, minHeight: 120, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}
+        sx={{ height: { xs: '40dvh', sm: '25dvh' }, minHeight: 'clamp(7.5rem, 20dvh, 15rem)', flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}
       >
         <Box sx={PREVIEW_SX}>
           {colorData?.jpeg_b64 ? (

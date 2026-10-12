@@ -30,7 +30,7 @@ Tab selection: the app opens on the first `map_nav` tab, and `map_nav` tabs are 
 
 ## Layout model
 
-The UI has three layout classes from the theme breakpoints: `phone` (width < 600), `tablet` (600 to 1199) and `desktop` (>= 1200), read with `useLayout()` (`frontend/src/layout/useLayout.ts`). `OverlayPanel` (`frontend/src/layout/OverlayPanel.tsx`) is the shared floating panel: a bottom sheet with a drag handle on phone, a card anchored left, right or bottom on tablet and desktop. It stops pointerdown propagation so the map underneath does not react.
+The UI has three layout classes from the theme breakpoints: `phone` (width < 600), `tablet` (600 to 1199) and `desktop` (>= 1200), read with `useLayout()` (`frontend/src/layout/useLayout.ts`). `OverlayPanel` (`frontend/src/layout/OverlayPanel.tsx`) is the shared floating panel: a bottom sheet with a drag handle on phone, a card anchored left, right or bottom on tablet and desktop. It stops pointerdown propagation so the map underneath does not react. The guard test `frontend/src/layout/hardcodedSizes.test.ts` fails when a fixed pixel layout size (fixed panel widths, pixel or vh-only max heights, `calc(100% - 16px)`, `useMediaQuery`) returns to the migrated files, or when the `PANEL_BG` colour literal appears anywhere but `theme.ts`; touch targets, image request sizes and scroll thresholds are allow-listed by constant name.
 
 ## Architecture
 
