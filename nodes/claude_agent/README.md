@@ -119,8 +119,8 @@ used up) and only counted (`ro_used`, per instruction and per active phase) for 
 
 | Counter | Counts | Instruction maximum (config) | Per-phase maximum (config) |
 |---|---|---|---|
-| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` (one call however many steps it queues), `go_to_frontier`, `look_toward_frontier`, `approach_for_grasp` (drives the base to the best grasp pose, needs the base lease); a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (150) | `max_phase_rw_cap` (40) |
-| turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (200) | `max_phase_turn_cap` (40) |
+| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions` (one call however many steps it queues), `go_to_frontier`, `look_toward_frontier`, `approach_for_grasp` (drives the base to the best grasp pose, needs the base lease); a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (400) | `max_phase_rw_cap` (100) |
+| turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (500) | `max_phase_turn_cap` (100) |
 
 Sensor calls (kind `sensor`: `suggest_approach_pose` (read-only ranked base poses for a grasp), `plan_grasp` (dry run, no motion), `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `get_arm_reach`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the object memory tools, the POI tools, `list_frontiers`, `plan_frontier_visit`, `get_motion_status`, `wait_for_event` and `get_control_state`) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
 
@@ -133,8 +133,10 @@ and works with or without a plan. Keep `effector_tools` plus `denied_tools` equa
 
 The in-process SDK MCP server `agent` (`claude_agent_sdk.create_sdk_mcp_server`) offers five tools:
 
-- `mcp__agent__set_task_plan(complexity, rationale, phases | plan)`: `complexity` is `trivial`, `simple`, `moderate`, `complex` or
-  `very_complex`. Give exactly one of `phases` (the flat form, kept for compatibility: 1 to 12 objects `{name, goal, rw_cap,
+- `mcp__agent__set_task_plan(complexity, rationale, time_budget_min, phases | plan)`: `complexity` is `trivial`, `simple`,
+  `moderate`, `complex` or `very_complex`. `time_budget_min` (required, a number above 0) is the time budget of the whole
+  task in minutes, counted from the instruction start; a missing value or one above `max_instruction_time_min` (120) rejects
+  the plan with the reason (see "Watchdog and session start"). Give exactly one of `phases` (the flat form, kept for compatibility: 1 to 12 objects `{name, goal, rw_cap,
   turn_cap}`, converted to a `seq` of phase nodes with generated ids `p1`, `p2`, ...) or `plan` (a plan tree, see "Plan tree" below). `goal` is a measurable success criterion
   (for example "within 10 cm of the tomato"). `turn_cap` is an integer >= 1, `rw_cap` an integer >= 0 (0 for a sensing-only
   phase). A stray `ro_cap` from the model is ignored silently. A cap above its per-phase maximum is clamped and the result says which; if the caps of all phases summed exceed an
@@ -147,12 +149,15 @@ The in-process SDK MCP server `agent` (`claude_agent_sdk.create_sdk_mcp_server`)
   without one of them the call is rejected with a message naming the missing field. `evidence_lookup_ids` is optional. The
   failure fields are ignored for `done` / `skipped`. Then either the phase is re-entered automatically (see "Retry policy") or the cursor walks on to the next phase, a
   pending condition, or the end of the plan.
-- `mcp__agent__revise_plan(rationale, phases | plan)`: once per instruction, replaces the remainder of the plan with a flat list or
+- `mcp__agent__revise_plan(rationale, phases | plan, time_budget_min?)`: once per instruction, replaces the remainder of the plan with a flat list or
   a new tree (an unfinished active phase is closed as `failed`; every phase that already ran stays in `phases` as history, its id
   cannot be reused and `outcome_of` may name it; a pending condition is dropped). The new caps must fit into the instruction maxima
-  minus what phases already used.
-- `mcp__agent__raise_phase_budget(rw_cap?, turn_cap?, rationale)`: once per phase entry (a loop iteration or an automatic retry is a
-  new entry), new total caps for the active phase (not lower than now), limited to what is left of the instruction maxima.
+  minus what phases already used. An optional `time_budget_min` extends the task's time budget like a raise does.
+- `mcp__agent__raise_phase_budget(rw_cap?, turn_cap?, time_budget_min?, rationale)`: new total caps for the active phase and/or
+  a new total time budget for the task (at least one, none lower than now, rationale required). It may be called as often as
+  needed: each cap is limited to its per-phase maximum (`max_phase_rw_cap` / `max_phase_turn_cap`) and to what is left of the
+  instruction maxima, `time_budget_min` to `max_instruction_time_min`; the result notes every value that was limited. The
+  phase's `raised` flag tells whether the current entry (a loop iteration or an automatic retry is a new entry) was raised.
 - `mcp__agent__answer_condition(node_id, value, evidence)`: answers the pending `ask` condition of an `if` / `while` node with
   `true` / `false` and the evidence (what a camera image or sensor showed). Evidence is required; a wrong `node_id` or a
   non-boolean value is rejected.
@@ -247,7 +252,7 @@ Gate (`tools.py`, `can_use_tool`):
   0.5`) are counted as rw (against the active phase when there is one) but pass regardless of a missing or finished plan, a
   pending condition, exhausted caps or the time left, so the model can always put an object down before the job end.
 - Effector calls are counted against the ACTIVE phase and denied past its cap: `phase 2 'Drive' rw budget exhausted (N/N); call
-  agent.complete_phase (outcome 'failed' if ...), agent.revise_plan, or raise this phase once with agent.raise_phase_budget` (a
+  agent.complete_phase (outcome 'failed' if ...), agent.revise_plan, or raise this phase with agent.raise_phase_budget` (a
   `tool_denied` event).
 - Phase turn cap: when the active phase has used its turns, effector tools are denied (sensors stay allowed) for that phase and, once per phase, the runner
   interrupts the model and continues the same instruction with a `PHASE TURN CAP` note (the same follow-up mechanism as robot events).
@@ -276,7 +281,7 @@ home), measurable goals, generous per-phase cap guidance (plan roughly double th
 15-30, drive rw 8-20 / turns 10-25, pick rw 20-40 / turns 30-40, drop rw 10-20 / turns 10-20, home rw 2-6 / turns 5-10;
 `look_around` counts 1), raising a low phase early (before the budget runs out) with `raise_phase_budget`, or adding a retry phase with `revise_plan`, never giving up only because a cap is near, that sensor calls are
 unlimited, the maxima, explicit honest `complete_phase` calls and starting work immediately after planning. The six example
-phases at the top of the guidance sum to rw 116 and turns 150, which fits `max_rw_cap` 150 and `max_turn_cap` 200 with room for
+phases at the top of the guidance sum to rw 116 and turns 150, which fits `max_rw_cap` 400 and `max_turn_cap` 500 with room for
 raises (the maxima were 100 and 150 before).
 
 Three prompt paragraphs cover grasping. `Gripper:` explains the fixed and the moving jaw (at wrist roll 0 the fixed jaw is the dark
@@ -463,15 +468,24 @@ SIGKILL). Each of those waits is bounded by `shutdown_client_timeout_s`.
 
 ## Watchdog and session start
 
-Time budget: a PostToolUse hook appends `instruction time left: N s` to every tool result, and the permission gate
-denies an effector call with an explicit reason (report and end the instruction) when fewer than
-`min_effector_time_left_s` (60) seconds are left, so a slow grasp or gripper close is not started just to be cut off.
+Time budget per task: `set_task_plan` declares `time_budget_min` for the whole task. Before a plan exists the pre-plan
+watchdog `instruction_timeout_s` (900 s) holds; once the plan is accepted the watchdog deadline moves (asyncio
+`Timeout.reschedule`) to the declared budget measured from the instruction start, earlier or later than 900 s. A
+`raise_phase_budget` or `revise_plan` with a larger `time_budget_min` moves it again, never past
+`max_instruction_time_min` (120 min); a lower value is refused. The `plan`, `plan_revised` and `state` events carry the
+budget and its deadline for the web UI (see Events).
+
+Time left: a PostToolUse hook appends `instruction time left: N s` (of the declared budget once a plan is set) to every
+tool result, and the permission gate denies an effector call with an explicit reason (raise `time_budget_min` if the
+ceiling allows, else report and end the instruction) when fewer than `min_effector_time_left_s` (60) seconds of the
+declared budget are left, so a slow grasp or gripper close is not started just to be cut off.
 Still allowed with no time left: the uncapped tools (`stop`, `cancel_motions`, `take_control`, `release_control`),
 `release_object` and `set_gripper` that opens (`close_until_effort` unset and `open_fraction >= 0.5`). `arm_home` and
 the rest of the effectors are refused (they start a motion). When the watchdog still fires mid-call, the `error` event
 names the cut-off call and its elapsed time (`cut_off_call: {name, id, elapsed_s}`) after the robot stop.
 
-Each instruction runs under `instruction_timeout_s` (900): on expiry the model is interrupted, the robot stopped, the
+Each instruction runs under its watchdog (`instruction_timeout_s`, 900 s, until a plan declares its time budget): on
+expiry the model is interrupted, the robot stopped, the
 session discarded, an `error` event and `turn_end` status `timeout` are emitted and `busy` is cleared. Starting the
 Claude session is bounded by `connect_timeout_s` (240); a failure or timeout is an `error` event and clears `busy`. The
 SDK's own initialize timeout is 60 s unless `CLAUDE_CODE_STREAM_CLOSE_TIMEOUT` (ms) is set in the service environment;
@@ -505,8 +519,8 @@ unknown keys are rejected.
 | Key | Default | Meaning |
 |---|---|---|
 | `model` | `opus` | Model alias or id |
-| `max_rw_cap` / `max_turn_cap` | `150` / `200` | Hard maxima of the caps of all phases together per instruction (SDK `max_turns` = `max_turn_cap` + 10) |
-| `max_phase_rw_cap` / `max_phase_turn_cap` | `40` / `40` | Maxima of the caps of one phase (larger values are clamped) |
+| `max_rw_cap` / `max_turn_cap` | `400` / `500` | Hard maxima of the caps of all phases together per instruction (SDK `max_turns` = `max_turn_cap` + 10) |
+| `max_phase_rw_cap` / `max_phase_turn_cap` | `100` / `100` | Maxima of the caps of one phase (larger values are clamped, at planning and at every raise) |
 | `max_loop_iterations` | `5` | Largest `max_iterations` of a `while` node (1 to 5) |
 | `retry_success_threshold` | `0.5` | A failed phase is re-entered automatically from this `p_retry_success` on (0 to 1) |
 | `max_auto_retries` | `6` | Most automatic phase re-entries per instruction, across all phases |
@@ -530,8 +544,9 @@ unknown keys are rejected.
 | `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` | `1.0` / `2.0` | Nav2 goal precision stated in the prompt (keep equal to the Nav2 goal checker and mcp_server `nav`) |
 | `nav_intermediate_xy_tolerance_cm` / `nav_intermediate_yaw_tolerance_deg` | `3.0` / `5.0` | Tolerance at which a default navigation goal ends early (stated in the prompt; `precise=true` gives the values above; keep equal to mcp_server `nav.intermediate_*`) |
 | `camera_note` | see `config.py` | Camera mounting (angled gripper camera looks slightly from left to right, upright images) and the overhead `front` camera (640x480, looks down at the front of the robot and the arm; overview first, judge arm-to-object distance) |
-| `instruction_timeout_s` | `900` | Watchdog per instruction |
-| `min_effector_time_left_s` | `60` | Effector calls are denied when less instruction time is left (see Watchdog); the default needs no Ansible override |
+| `instruction_timeout_s` | `900` | Pre-plan watchdog per instruction; once `set_task_plan` declares `time_budget_min` the watchdog fires at that budget instead |
+| `max_instruction_time_min` | `120` | Ceiling of the declared `time_budget_min`: `set_task_plan` refuses more, raises and revisions are limited to it |
+| `min_effector_time_left_s` | `60` | Effector calls are denied when less instruction time is left (of the declared budget once a plan is set; see Watchdog); the default needs no Ansible override |
 | `connect_timeout_s` | `240` | Bound for starting the Claude session |
 | `stop_timeout_s` | `5` | Bound for the robot stop call and for the model interrupt |
 | `mcp_check_timeout_s` | `30` | Bound for each step of the robot MCP server check before an instruction (status query, pending wait, reconnect) and for the `/metrics` reachability probe |
@@ -575,7 +590,7 @@ The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this
 
 | Route | Result |
 |---|---|
-| `GET /api/state` | `{busy, model, max_turns, hard_max: {rw_cap, turn_cap}, phase_max: {rw_cap, turn_cap}, ro_used (sensor calls, uncapped), rw_used, turns_used, effector_calls_used (= rw_used), plan, active_phase, session_started_at, last_activity_at, now}`; `plan` is `{complexity, rationale, revised, revision_rationale, active_phase, phases: [{index, name, goal, status (pending/active/done/failed/skipped), rw_cap, turn_cap, ro_used, rw_used, turns_used, raised, summary}]}` or `null` until the agent set one; `active_phase` is the index of the active phase or `null`; `last_activity_at` is the Unix time (float) of the latest instruction start or end (any status), stop or reset, `null` before any, and `now` is the robot clock: the Ansible deploy guard (`ansible/playbooks/tasks/agent_idle_guard.yml`) waits for `now - last_activity_at` to exceed `ros2_agent_quiet_min` before a client deploy |
+| `GET /api/state` | `{busy, model, max_turns, hard_max: {rw_cap, turn_cap}, phase_max: {rw_cap, turn_cap}, ro_used (sensor calls, uncapped), rw_used, turns_used, effector_calls_used (= rw_used), plan, active_phase, session_started_at, last_activity_at, now}`; `plan` is `{complexity, rationale, time_budget_min, time_left_s, time_left_at, revised, revision_rationale, active_phase, phases: [{index, name, goal, status (pending/active/done/failed/skipped), rw_cap, turn_cap, ro_used, rw_used, turns_used, raised, summary}]}` or `null` until the agent set one; `active_phase` is the index of the active phase or `null`; `last_activity_at` is the Unix time (float) of the latest instruction start or end (any status), stop or reset, `null` before any, and `now` is the robot clock: the Ansible deploy guard (`ansible/playbooks/tasks/agent_idle_guard.yml`) waits for `now - last_activity_at` to exceed `ros2_agent_quiet_min` before a client deploy |
 | `GET /api/history?before_seq=<int>&limit=<int>` | `{events: [...], has_more}`: the newest `limit` events (default 100, max 500) with `seq < before_seq` (the newest overall without it), ascending `seq`; `has_more` is true when older events exist |
 | `GET /api/retry_outcomes?limit=<int>` | `{records: [...], path_ok}`: the newest `limit` (1..5000, default 1000) records of the retry calibration ledger, newest last (read in a thread); `path_ok` is false once a ledger write failed; `422` for a limit outside 1..5000 |
 | `POST /api/message` `{text, deny_tools?}` | `202 {ok: true}`; `409 {ok: false, message: "busy"}`; `400` on empty or invalid text, or when `deny_tools` is not a list of strings that are all in `effector_tools` (the message names the bad entry); an empty `deny_tools` is the same as absent. See "Arm-only evaluation mode" |
@@ -605,14 +620,14 @@ Every event is `{seq: int, ts: float, type, ...}`:
 | `tool_cancelled` | `id`, `name` (short); a tool result came back with Claude Code's generic "user doesn't want to proceed" text without a user stop (the follow-up corrects it for the model) |
 | `turn_end` | `status` (`done` / `interrupted` / `error` / `max_turns` / `turn_cap` / `timeout`), `cost_usd`, `num_turns`, `effector_calls` (rw calls), `instruction_id` (the id of the `user_message` it ends, also on error, timeout and early-interrupt ends); `job_end` (`{forced_park: true, result, keep_position_release?}` or `{check_error}`) only when the job-end check forced a park or failed |
 | `error` | `message` (authentication failures, missing token file, session failures) |
-| `plan` | the plan payload (`complexity`, `rationale`, `revised`, `revision_rationale`, `active_phase`, `phases` as a flat preorder list with `index`, caps and usage, `tree` (the plan tree: phase nodes as `{type, id, index}`, `if` with `branch`, `while` with `iteration` and `exit_reason`), `pending_condition` (`null` or `{node_id, node_type, question, iteration}`)); emitted when the agent sets its plan |
+| `plan` | the plan payload (`complexity`, `rationale`, `time_budget_min` (the declared minutes), `time_left_s` and `time_left_at` (the deadline: seconds left at emit time and the Unix time of the emit, so a client computes `time_left_s - (now - time_left_at)`), `revised`, `revision_rationale`, `active_phase`, `phases` as a flat preorder list with `index`, caps and usage, `tree` (the plan tree: phase nodes as `{type, id, index}`, `if` with `branch`, `while` with `iteration` and `exit_reason`), `pending_condition` (`null` or `{node_id, node_type, question, iteration}`)); emitted when the agent sets its plan |
 | `phase_started` | the phase payload (`index`, `name`, `goal`, `status`, caps, usage, `raised`, `summary`, `id`, `depth` (root level 1), `attempt`, `max_attempts`, `iteration` (of the innermost `while`, 0 outside loops), `p_retry_success`, `retry_change`, `failure` (always null on a fresh entry)); emitted when a phase becomes active, again on each loop iteration and automatic retry |
 | `phase_completed` | `index`, `name`, `goal`, `outcome` (`done` / `failed` / `skipped`), `summary`, `usage` `{ro_used, rw_used, turns_used}`, `caps` `{rw_cap, turn_cap}`, `id`, `attempt`, `max_attempts`, `iteration`, `depth`, `p_retry_success`, `retry_change`, `failure` (the `FailureRecord` `{type, eai_error_type, explanation, evidence}` of a failed close by the model, see "Failure record"; null for `done` / `skipped` and the implicit close of `revise_plan`) (usage and caps of that entry) |
 | `condition_pending` | `node_id`, `node_type` (`if` / `while`), `question`, `iteration` (while: the iteration the answer would start; if: of the enclosing loop); effector calls are denied until it is answered |
 | `condition_answered` | the `condition_pending` fields plus `value` and `evidence` |
 | `plan_revised` | the revised plan payload plus `revision_rationale`; emitted after `revise_plan` (the replaced active phase gets a `phase_completed` with outcome `failed` first) |
 | `robot_event` | `event_seq`, `event_ts`, `event_type`, `severity` (`info` / `warning` / `critical`), `source`, `message`, `data` (the `/robot_events` fields, renamed so they do not clash with the event's own `seq` / `ts` / `type`) |
-| `state` | `busy`, `ro_used`, `rw_used`, `turns_used`, `effector_calls_used` (= `rw_used`), `plan` (object or `null`), `active_phase`; emitted at each instruction start (counters 0, plan `null`), after each counted call and each model turn |
+| `state` | `busy`, `ro_used`, `rw_used`, `turns_used`, `effector_calls_used` (= `rw_used`), `plan` (object or `null`, with `time_budget_min`, `time_left_s` and `time_left_at` as in `plan`, so a raise of the time budget reaches the UI), `active_phase`; emitted at each instruction start (counters 0, plan `null`), after each counted call and each model turn |
 
 Text in tool results is cut at 4000 characters (`truncated: true`); images are downscaled to `image_thumbnail_max_px`
 and re-encoded as JPEG.

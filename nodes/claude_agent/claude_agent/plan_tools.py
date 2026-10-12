@@ -9,7 +9,7 @@ from typing import Any
 
 from claude_agent_sdk import McpSdkServerConfig, SdkMcpTool, create_sdk_mcp_server, tool
 
-from .budget import COMPLEXITIES, PlanTracker
+from .budget import COMPLEXITIES, TIME_BUDGET_REQUIRED_MESSAGE, PlanTracker
 from .failure import EAI_ERROR_MEANINGS, EAI_ERROR_TYPES, FAILURE_TYPE_MEANINGS, FAILURE_TYPES
 from .plan_tree import (
     CAP_FIELDS,
@@ -20,6 +20,7 @@ from .plan_tree import (
     NODE_SEQ,
     NODE_TYPES,
     OUTCOMES,
+    TIME_BUDGET_FIELD,
     PlanError,
 )
 from .robot_stop import RobotToolResult
@@ -76,7 +77,9 @@ SET_PLAN_DESCRIPTION = (
     "turns), plus a measurable goal. Give either a flat list of 1 to 12 phases or a plan tree with seq / if / while "
     "nodes for branches and bounded loops. Sensor calls are unlimited and need no cap. Call this FIRST in every "
     "instruction, then start working at once; effector tools are refused until a plan is set. The first phase is "
-    "active (or the first ask condition is pending). Plan generously (roughly double your estimate). Per-phase caps "
+    "active (or the first ask condition is pending). Declare time_budget_min, the minutes the whole task may take; "
+    "the instruction watchdog then fires at that budget (counted from the instruction start). Plan caps and time "
+    "generously (roughly double your estimate). Per-phase caps "
     "above the per-phase maxima are clamped; the caps of all phases together (each phase counted once, both if "
     "branches included) must stay within the instruction maxima or the plan is rejected."
 )
@@ -96,12 +99,14 @@ REVISE_PLAN_DESCRIPTION = (
     "Replace the REMAINING plan (once per instruction) when a phase failed or the situation changed, with a flat "
     "phases list or a plan tree. Phases that already ran stay as they are (their ids cannot be reused, outcome_of may "
     "name them); an unfinished active phase is closed as failed. Needs a rationale; the new phases get their own "
-    "rw_cap and turn_cap within what is left of the instruction maxima."
+    "rw_cap and turn_cap within what is left of the instruction maxima. Optionally extend the task's time_budget_min "
+    "(new total minutes, up to the ceiling)."
 )
 RAISE_PHASE_DESCRIPTION = (
-    "Raise the caps of the ACTIVE phase once per phase entry, giving a rationale. Pass the new total cap for each of "
-    "rw_cap, turn_cap you want raised (at least one); values are limited to what is left of the instruction maxima. "
-    "Do it early, when the phase runs low, rather than giving up."
+    "Raise the caps of the ACTIVE phase and/or the time budget of the whole task, giving a rationale; you may raise "
+    "again whenever the phase runs low. Pass the new total for each of rw_cap, turn_cap, time_budget_min you want "
+    "raised (at least one); caps are limited to the per-phase maxima and to what is left of the instruction maxima, "
+    "time_budget_min to the ceiling. Do it early, when the phase or the time runs low, rather than giving up."
 )
 ANSWER_CONDITION_DESCRIPTION = (
     "Answer the pending 'ask' condition of an if or while node with true or false and the evidence you based it on "
@@ -155,7 +160,12 @@ RAISE_PHASE_SCHEMA: dict[str, Any] = {
     "properties": {
         "rw_cap": {"type": "integer", "minimum": 0, "description": "New total effector call cap of the phase."},
         "turn_cap": {"type": "integer", "minimum": 1, "description": "New total turn cap of the phase."},
-        "rationale": {"type": "string", "description": "Why the phase needs more."},
+        TIME_BUDGET_FIELD: {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "New total minutes for the whole task, counted from the instruction start.",
+        },
+        "rationale": {"type": "string", "description": "Why the phase or the task needs more."},
     },
     "required": ["rationale"],
 }
@@ -168,6 +178,24 @@ ANSWER_CONDITION_SCHEMA: dict[str, Any] = {
     },
     "required": ["node_id", "value", "evidence"],
 }
+
+
+def time_budget_schema(ceiling: float, description: str) -> dict[str, Any]:
+    """Build the schema of a time_budget_min argument.
+
+    Args:
+        ceiling (float): max_instruction_time_min.
+        description (str): What the value means for this tool.
+
+    Returns:
+        dict[str, Any]: A number above 0 (the ceiling is named in the description, values above it are refused or
+        limited by the tracker with a reason).
+    """
+    return {
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "description": f"{description} At most {ceiling:g} (max_instruction_time_min).",
+    }
 
 
 def plan_node_schema(max_loop_iterations: int) -> dict[str, Any]:
@@ -187,35 +215,41 @@ def plan_node_schema(max_loop_iterations: int) -> dict[str, Any]:
     }
 
 
-def set_plan_schema(max_loop_iterations: int) -> dict[str, Any]:
+def set_plan_schema(max_loop_iterations: int, ceiling: float) -> dict[str, Any]:
     """Build the input schema of set_task_plan.
 
     Args:
         max_loop_iterations (int): Largest max_iterations of a while node.
+        ceiling (float): max_instruction_time_min.
 
     Returns:
-        dict[str, Any]: JSON schema with complexity, rationale, phases and plan (phases or plan).
+        dict[str, Any]: JSON schema with complexity, rationale, time_budget_min (required), phases and plan (phases
+        or plan).
     """
     return {
         "type": "object",
         "properties": {
             "complexity": {"type": "string", "enum": list(COMPLEXITIES), "description": "Your judgement of the task."},
             "rationale": {"type": "string", "description": "Why this plan and these caps."},
+            TIME_BUDGET_FIELD: time_budget_schema(
+                ceiling, "Minutes the whole task may take (about twice your honest estimate)."
+            ),
             "phases": PHASES_SCHEMA,
             "plan": plan_node_schema(max_loop_iterations),
         },
-        "required": ["complexity", "rationale"],
+        "required": ["complexity", "rationale", TIME_BUDGET_FIELD],
     }
 
 
-def revise_plan_schema(max_loop_iterations: int) -> dict[str, Any]:
+def revise_plan_schema(max_loop_iterations: int, ceiling: float) -> dict[str, Any]:
     """Build the input schema of revise_plan.
 
     Args:
         max_loop_iterations (int): Largest max_iterations of a while node.
+        ceiling (float): max_instruction_time_min.
 
     Returns:
-        dict[str, Any]: JSON schema with rationale, phases and plan (phases or plan).
+        dict[str, Any]: JSON schema with rationale, phases and plan (phases or plan) and an optional time_budget_min.
     """
     return {
         "type": "object",
@@ -223,6 +257,9 @@ def revise_plan_schema(max_loop_iterations: int) -> dict[str, Any]:
             "rationale": {"type": "string", "description": "Why the remaining plan changes."},
             "phases": {**PHASES_SCHEMA, "description": "The new remaining phases; the first becomes active."},
             "plan": plan_node_schema(max_loop_iterations),
+            TIME_BUDGET_FIELD: time_budget_schema(
+                ceiling, "Optional new total minutes for the whole task (extends the time budget)."
+            ),
         },
         "required": ["rationale"],
     }
@@ -344,13 +381,15 @@ def format_plan(plan: dict[str, Any], notes: list[str], verb: str) -> str:
     Returns:
         str: Text the model reads.
     """
-    lines = [f"Plan {verb} ({plan['complexity']}), {len(plan['phases'])} phases:"]
+    minutes = plan.get(TIME_BUDGET_FIELD)
+    budget = f", time budget {minutes:g} min" if minutes is not None else ""
+    lines = [f"Plan {verb} ({plan['complexity']}{budget}), {len(plan['phases'])} phases:"]
     lines += [f"{describe_phase(phase)} [{phase['status']}]" for phase in plan["phases"]]
     tree = plan.get("tree")
     if tree and has_control_nodes(tree):
         lines.append(f"Flow: {outline(tree)}")
     if notes:
-        lines.append("Caps adjusted: " + "; ".join(notes) + ".")
+        lines.append("Adjusted: " + "; ".join(notes) + ".")
     pending = plan.get("pending_condition")
     if pending:
         lines.append(describe_next(None, pending))
@@ -489,6 +528,7 @@ def build_plan_tools(tracker: PlanTracker, robot_tool_caller: RobotToolCaller | 
         list[SdkMcpTool[Any]]: The tool list for the SDK MCP server.
     """
     max_iterations = tracker.config.max_loop_iterations
+    ceiling = tracker.config.max_instruction_time_min
     complete_description = COMPLETE_PHASE_DESCRIPTION.format(threshold=tracker.config.retry_success_threshold)
 
     def text_result(text: str, is_error: bool = False) -> dict[str, Any]:
@@ -497,11 +537,17 @@ def build_plan_tools(tracker: PlanTracker, robot_tool_caller: RobotToolCaller | 
             result["is_error"] = True
         return result
 
-    @tool(SET_PLAN_TOOL, SET_PLAN_DESCRIPTION, set_plan_schema(max_iterations))
+    @tool(SET_PLAN_TOOL, SET_PLAN_DESCRIPTION, set_plan_schema(max_iterations, ceiling))
     async def set_task_plan(args: dict[str, Any]) -> dict[str, Any]:
+        if args.get(TIME_BUDGET_FIELD) is None:
+            return text_result(f"Plan rejected: {TIME_BUDGET_REQUIRED_MESSAGE}", True)
         try:
             plan, notes = tracker.set_plan(
-                args.get("complexity"), args.get("rationale"), args.get("phases"), args.get("plan")
+                args.get("complexity"),
+                args.get("rationale"),
+                args.get("phases"),
+                args.get("plan"),
+                args.get(TIME_BUDGET_FIELD),
             )
         except PlanError as exc:
             return text_result(f"Plan rejected: {exc}", True)
@@ -526,10 +572,12 @@ def build_plan_tools(tracker: PlanTracker, robot_tool_caller: RobotToolCaller | 
         hint = await poi_hint(args.get("summary"), robot_tool_caller, tracker.config.poi_hint_radius_m)
         return text_result(f"{text} {hint}" if hint else text)
 
-    @tool(REVISE_PLAN_TOOL, REVISE_PLAN_DESCRIPTION, revise_plan_schema(max_iterations))
+    @tool(REVISE_PLAN_TOOL, REVISE_PLAN_DESCRIPTION, revise_plan_schema(max_iterations, ceiling))
     async def revise_plan(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            plan, notes = tracker.revise_plan(args.get("rationale"), args.get("phases"), args.get("plan"))
+            plan, notes = tracker.revise_plan(
+                args.get("rationale"), args.get("phases"), args.get("plan"), args.get(TIME_BUDGET_FIELD)
+            )
         except PlanError as exc:
             return text_result(f"Revision rejected: {exc}", True)
         return text_result(format_plan(plan, notes, "revised"))
@@ -537,12 +585,16 @@ def build_plan_tools(tracker: PlanTracker, robot_tool_caller: RobotToolCaller | 
     @tool(RAISE_PHASE_TOOL, RAISE_PHASE_DESCRIPTION, RAISE_PHASE_SCHEMA)
     async def raise_phase_budget(args: dict[str, Any]) -> dict[str, Any]:
         try:
-            phase, notes = tracker.raise_phase_budget(args.get("rw_cap"), args.get("turn_cap"), args.get("rationale"))
+            phase, notes = tracker.raise_phase_budget(
+                args.get("rw_cap"), args.get("turn_cap"), args.get("rationale"), args.get(TIME_BUDGET_FIELD)
+            )
         except PlanError as exc:
             return text_result(f"Raise rejected: {exc}", True)
+        minutes = tracker.time_budget_min
+        budget = f", {TIME_BUDGET_FIELD}={minutes:g}" if minutes is not None else ""
         text = (
             f"Phase {phase['index'] + 1} budget raised: rw_cap={phase['rw_cap']}, "
-            f"turn_cap={phase['turn_cap']}. This phase entry cannot be raised again."
+            f"turn_cap={phase['turn_cap']}{budget}. Raise again if it runs low."
         )
         if notes:
             text += " " + "; ".join(notes) + "."

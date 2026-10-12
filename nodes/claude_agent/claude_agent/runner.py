@@ -346,8 +346,10 @@ class AgentRunner:
             time_left=self.instruction_time_left,
             evidence_provider=self.evidence.snapshot,
             lookup_ids_seen=self.evidence.seen_lookup_ids,
+            on_time_budget=self.apply_time_budget,
         )
         self.plan = self.gate.plan
+        self.watchdog: asyncio.Timeout | None = None
         self.busy = False
         BUSY.set(0)
         self.session_started_at = time.time()
@@ -390,13 +392,48 @@ class AgentRunner:
         self.session_totals: dict[str, float] = {}
         SECONDS_SINCE_ACTIVITY.set_function(self.seconds_since_activity)
 
+    def instruction_budget_s(self) -> float:
+        """Seconds the instruction may run in total: the declared time budget once a plan set one, else the pre-plan
+        instruction_timeout_s.
+
+        Returns:
+            float: The budget in seconds, measured from the instruction start.
+        """
+        minutes = self.plan.time_budget_min
+        return minutes * 60 if minutes is not None else self.config.instruction_timeout_s
+
     def instruction_time_left(self) -> float:
         """Seconds until the instruction watchdog fires.
 
         Returns:
-            float: instruction_timeout_s minus the time since the instruction started, never below 0.
+            float: instruction_budget_s() minus the time since the instruction started, never below 0.
         """
-        return max(0.0, self.config.instruction_timeout_s - (time.monotonic() - self.instruction_started_at))
+        return max(0.0, self.instruction_budget_s() - (time.monotonic() - self.instruction_started_at))
+
+    def apply_time_budget(self, _minutes: float) -> None:
+        """Tracker callback: the time budget was declared or extended; move the running watchdog's deadline to it.
+
+        Args:
+            _minutes (float): The new budget (read back through instruction_budget_s()).
+        """
+        watchdog = self.watchdog
+        if watchdog is None or watchdog.expired():
+            return
+        watchdog.reschedule(asyncio.get_running_loop().time() + self.instruction_time_left())
+
+    def plan_with_deadline(self, plan: dict[str, Any] | None) -> dict[str, Any] | None:
+        """Add the deadline of the time budget to a plan payload, for the web UI's time-left display.
+
+        Args:
+            plan (dict[str, Any] | None): The plan payload (with time_budget_min), or None before a plan.
+
+        Returns:
+            dict[str, Any] | None: The payload plus time_left_s (seconds left at emit time, rounded to 0.1 s) and
+            time_left_at (Unix time of the emit); None stays None.
+        """
+        if plan is None:
+            return None
+        return {**plan, "time_left_s": round(self.instruction_time_left(), 1), "time_left_at": time.time()}
 
     async def add_time_left(self, _input_data: Any, tool_use_id: str | None, context: Any) -> dict[str, Any]:
         """PostToolUse hook: add the remaining instruction time to every tool result the model sees.
@@ -618,7 +655,7 @@ class AgentRunner:
             phases and their usage, or None) and active_phase (index or None).
         """
         usage = self.plan.usage()
-        return {**usage, "effector_calls_used": usage["rw_used"]}
+        return {**usage, "plan": self.plan_with_deadline(usage["plan"]), "effector_calls_used": usage["rw_used"]}
 
     def emit_state(self) -> None:
         """Publish a state event."""
@@ -630,7 +667,7 @@ class AgentRunner:
         Args:
             plan (dict[str, Any]): The plan payload.
         """
-        self.events.append("plan", **plan)
+        self.events.append("plan", **(self.plan_with_deadline(plan) or {}))
         self.emit_state()
 
     def emit_phase_started(self, phase: dict[str, Any]) -> None:
@@ -720,7 +757,7 @@ class AgentRunner:
         Args:
             plan (dict[str, Any]): The revised plan payload.
         """
-        self.events.append("plan_revised", **plan)
+        self.events.append("plan_revised", **(self.plan_with_deadline(plan) or {}))
         self.emit_state()
 
     def emit_denied(self, info: dict[str, Any]) -> None:
@@ -969,16 +1006,19 @@ class AgentRunner:
         Args:
             text (str): The user's instruction.
         """
-        watchdog = asyncio.timeout(self.config.instruction_timeout_s)
+        watchdog = asyncio.timeout(self.instruction_time_left())
         try:
             try:
                 async with watchdog:
+                    self.watchdog = watchdog
                     await self.run_turn(text)
             except TimeoutError:
                 if not watchdog.expired():
                     raise
+                self.watchdog = None
                 await self.abort_on_timeout()
         finally:
+            self.watchdog = None
             self.pending_followup = None
             self.interrupt_pending = False
             self.busy = False
@@ -989,7 +1029,9 @@ class AgentRunner:
     async def abort_on_timeout(self) -> None:
         """The watchdog expired: stop the robot, interrupt and discard the session, end the turn as "timeout"."""
         WATCHDOG_FIRES.inc()
-        message = f"instruction timed out after {self.config.instruction_timeout_s:g} s"
+        message = f"instruction timed out after {self.instruction_budget_s():g} s"
+        if self.plan.time_budget_min is not None:
+            message += f" (the declared time budget of {self.plan.time_budget_min:g} min)"
         cut_off = self.cut_off_call()
         fields: dict[str, Any] = {}
         if cut_off is not None:

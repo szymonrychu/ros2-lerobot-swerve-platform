@@ -56,8 +56,8 @@ def test_constants() -> None:
 
 def test_defaults_of_hard_and_phase_maxima() -> None:
     cfg = ClaudeAgentConfig()
-    assert (cfg.max_rw_cap, cfg.max_turn_cap) == (150, 200)
-    assert (cfg.max_phase_rw_cap, cfg.max_phase_turn_cap) == (40, 40)
+    assert (cfg.max_rw_cap, cfg.max_turn_cap) == (400, 500)
+    assert (cfg.max_phase_rw_cap, cfg.max_phase_turn_cap) == (100, 100)
     assert not hasattr(cfg, "max_ro_cap") and not hasattr(cfg, "max_phase_ro_cap")
     assert cfg.max_turns > cfg.max_turn_cap
 
@@ -301,7 +301,7 @@ def test_instruction_turn_maximum() -> None:
     assert t.turn_cap_reached() is True
 
 
-def test_raise_phase_budget_once_with_rationale_within_instruction_maxima() -> None:
+def test_raise_phase_budget_repeats_with_rationale_within_instruction_maxima() -> None:
     t = planned()
     with pytest.raises(PlanError, match="rationale"):
         t.raise_phase_budget(4, None, " ")
@@ -310,8 +310,8 @@ def test_raise_phase_budget_once_with_rationale_within_instruction_maxima() -> N
     phase_dict, notes = t.raise_phase_budget(4, 12, "the tomato is far")
     assert notes == []
     assert (phase_dict["rw_cap"], phase_dict["turn_cap"], phase_dict["raised"]) == (4, 12, True)
-    with pytest.raises(PlanError, match="already raised"):
-        t.raise_phase_budget(5, None, "again")
+    phase_dict, notes = t.raise_phase_budget(5, None, "again")
+    assert notes == [] and phase_dict["rw_cap"] == 5, "a phase may be raised more than once"
 
 
 def test_raise_cannot_lower_and_is_clamped_to_the_remaining_instruction_budget() -> None:
@@ -445,7 +445,7 @@ def test_server_is_an_in_process_sdk_server_named_agent() -> None:
     tools = {t.name: t for t in build_plan_tools(tracker())}
     assert set(tools) == {"set_task_plan", "complete_phase", "revise_plan", "raise_phase_budget", "answer_condition"}
     schema = tools["set_task_plan"].input_schema
-    assert schema["required"] == ["complexity", "rationale"]
+    assert schema["required"] == ["complexity", "rationale", "time_budget_min"]
     assert schema["properties"]["complexity"]["enum"] == list(COMPLEXITIES)
     phases = schema["properties"]["phases"]
     assert phases["minItems"] == 1 and phases["maxItems"] == 12
@@ -466,7 +466,9 @@ def by_name(t: PlanTracker) -> dict:
 async def test_set_task_plan_handler_accepts_and_reports_clamping() -> None:
     t = tracker(max_phase_rw_cap=20)
     handlers = by_name(t)
-    ok = await handlers["set_task_plan"]({"complexity": "moderate", "rationale": "big", "phases": [phase(rw=50)]})
+    ok = await handlers["set_task_plan"](
+        {"complexity": "moderate", "rationale": "big", "phases": [phase(rw=50)], "time_budget_min": 20}
+    )
     assert not ok.get("is_error")
     text = ok["content"][0]["text"]
     assert "rw_cap" in text and "20" in text and "Start working" in text and "Locate" in text
@@ -477,7 +479,9 @@ async def test_set_task_plan_handler_accepts_and_reports_clamping() -> None:
 async def test_handlers_report_errors_as_error_results() -> None:
     t = tracker()
     handlers = by_name(t)
-    bad = await handlers["set_task_plan"]({"complexity": "huge", "rationale": "x", "phases": [phase()]})
+    bad = await handlers["set_task_plan"](
+        {"complexity": "huge", "rationale": "x", "phases": [phase()], "time_budget_min": 20}
+    )
     assert bad["is_error"] is True and "complexity" in bad["content"][0]["text"]
     missing = await handlers["set_task_plan"]({"complexity": "simple"})
     assert missing["is_error"] is True

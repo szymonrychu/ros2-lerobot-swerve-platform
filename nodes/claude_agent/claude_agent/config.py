@@ -160,9 +160,14 @@ class ClaudeAgentConfig(BaseModel):
             prompt (keep equal to mcp_server nav.intermediate_xy_tolerance_m).
         nav_intermediate_yaw_tolerance_deg: Heading tolerance at which a default goal ends early, stated in the prompt.
         camera_note: Description of the gripper camera mounting and image orientation, stated in the prompt.
-        instruction_timeout_s: Watchdog per instruction; on expiry the model is interrupted, the robot stopped and the turn ends as "timeout".
+        instruction_timeout_s: Pre-plan watchdog per instruction: it holds until agent.set_task_plan declares the task's
+            time_budget_min, then the watchdog fires at that budget (measured from the instruction start) instead. On
+            expiry the model is interrupted, the robot stopped and the turn ends as "timeout".
+        max_instruction_time_min: Ceiling of the declared time budget in minutes: set_task_plan refuses a larger
+            time_budget_min, raise_phase_budget and revise_plan extend it at most up to this.
         min_effector_time_left_s: The permission gate denies an effector call (except stop/cancel/release-type safety tools and
-            an opening set_gripper) when less instruction time than this is left, so the watchdog never cuts a motion in half.
+            an opening set_gripper) when less instruction time than this is left (of the declared time budget once a plan
+            is set, of instruction_timeout_s before), so the watchdog never cuts a motion in half.
         connect_timeout_s: Bound for starting the Claude session (SDK connect/initialize).
         poi_hint_radius_m: complete_phase hints "Not on the map yet" for each ``map (x, y)`` in the summary with no POI
             within this distance (m).
@@ -193,10 +198,10 @@ class ClaudeAgentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     model: str = "opus"
-    max_rw_cap: int = Field(default=150, ge=1)
-    max_turn_cap: int = Field(default=200, ge=1)
-    max_phase_rw_cap: int = Field(default=40, ge=1)
-    max_phase_turn_cap: int = Field(default=40, ge=1)
+    max_rw_cap: int = Field(default=400, ge=1)
+    max_turn_cap: int = Field(default=500, ge=1)
+    max_phase_rw_cap: int = Field(default=100, ge=1)
+    max_phase_turn_cap: int = Field(default=100, ge=1)
     max_loop_iterations: int = Field(default=DEFAULT_MAX_LOOP_ITERATIONS, ge=1, le=MAX_LOOP_ITERATIONS_LIMIT)
     retry_success_threshold: float = Field(default=DEFAULT_RETRY_SUCCESS_THRESHOLD, ge=0, le=1)
     max_auto_retries: int = Field(default=DEFAULT_MAX_AUTO_RETRIES, ge=0)
@@ -229,6 +234,7 @@ class ClaudeAgentConfig(BaseModel):
     nav_intermediate_yaw_tolerance_deg: float = Field(default=DEFAULT_NAV_INTERMEDIATE_YAW_TOLERANCE_DEG, gt=0)
     camera_note: str = DEFAULT_CAMERA_NOTE
     instruction_timeout_s: float = Field(default=900.0, gt=0)
+    max_instruction_time_min: float = Field(default=120.0, gt=0)
     min_effector_time_left_s: float = Field(default=60.0, ge=0)
     connect_timeout_s: float = Field(default=240.0, gt=0)
     stop_timeout_s: float = Field(default=5.0, gt=0)

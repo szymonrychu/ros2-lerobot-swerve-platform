@@ -313,8 +313,23 @@ def test_reentry_caps_are_fresh_and_clamped_to_the_room_left() -> None:
     t.complete_phase("failed", "missed", p_retry_success=0.0, retry_change="x", **FAILURE)
     work = t.phase_dicts()[0]
     assert (work["rw_cap"], work["rw_used"], work["raised"], work["iteration"]) == (2, 0, False, 2)
-    phase, _ = t.raise_phase_budget(3, None, "the raise is per entry")
+    phase, _ = t.raise_phase_budget(3, None, "the raised flag is per entry")
     assert phase["raised"] is True
+    phase, notes = t.raise_phase_budget(None, None, "a second raise of the same entry", 30)
+    assert phase["raised"] is True and notes == [] and t.time_budget_min == 30
+
+
+def test_raise_phase_budget_may_be_called_more_than_once_per_phase() -> None:
+    t = PlanTracker(ClaudeAgentConfig(max_phase_rw_cap=6, max_rw_cap=50))
+    t.set_plan("simple", "r", plan=seq(ph("a", rw=2), ph("b", rw=3)))
+    for cap in (3, 4, 5):
+        phase, notes = t.raise_phase_budget(cap, None, f"raise to {cap}")
+        assert phase["rw_cap"] == cap and notes == []
+    phase, notes = t.raise_phase_budget(9, None, "past the per-phase maximum")
+    assert phase["rw_cap"] == 6
+    assert notes == ["rw_cap limited from 9 to 6, the per-phase maximum max_phase_rw_cap 6"]
+    phase, notes = t.raise_phase_budget(7, None, "still more")
+    assert phase["rw_cap"] == 6 and notes == ["rw_cap stays at 6: it is at the per-phase maximum max_phase_rw_cap 6"]
 
 
 def test_first_entry_after_a_loop_is_clamped_to_the_room_left() -> None:
@@ -645,7 +660,7 @@ def test_tool_names_and_schemas() -> None:
     tools = {tool.name: tool for tool in build_plan_tools(PlanTracker(ClaudeAgentConfig()))}
     assert set(tools) == {"set_task_plan", "complete_phase", "revise_plan", "raise_phase_budget", "answer_condition"}
     plan_schema = tools["set_task_plan"].input_schema
-    assert plan_schema["required"] == ["complexity", "rationale"]
+    assert plan_schema["required"] == ["complexity", "rationale", "time_budget_min"]
     assert {"phases", "plan"} <= set(plan_schema["properties"])
     assert tools["revise_plan"].input_schema["required"] == ["rationale"]
     complete = tools["complete_phase"].input_schema["properties"]
@@ -658,7 +673,9 @@ def test_tool_names_and_schemas() -> None:
 
 async def test_set_task_plan_handler_accepts_a_tree() -> None:
     t = PlanTracker(ClaudeAgentConfig())
-    res = await handlers(t)["set_task_plan"]({"complexity": "moderate", "rationale": "loop", "plan": PICK_LOOP})
+    res = await handlers(t)["set_task_plan"](
+        {"complexity": "moderate", "rationale": "loop", "plan": PICK_LOOP, "time_budget_min": 20}
+    )
     assert not res.get("is_error")
     text = res["content"][0]["text"]
     assert "pickloop" in text and "Look" in text and "while" in text

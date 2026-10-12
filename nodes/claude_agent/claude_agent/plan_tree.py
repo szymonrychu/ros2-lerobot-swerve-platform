@@ -47,6 +47,8 @@ BRANCH_THEN = "then"
 BRANCH_ELSE = "else"
 BRANCH_NONE = "none"
 P_RANGE_MESSAGE = "p_retry_success must be a number from 0 to 1"
+TIME_BUDGET_FIELD = "time_budget_min"
+TIME_BUDGET_MESSAGE = TIME_BUDGET_FIELD + " must be a number of minutes above 0"
 
 
 class PlanError(ValueError):
@@ -67,7 +69,7 @@ class Phase:
         ro_used (int): Sensor calls in the current entry (telemetry only, never capped).
         rw_used (int): Effector calls allowed in the current entry.
         turns_used (int): Model turns while the current entry was active.
-        raised (bool): Whether the one raise of the current entry was used.
+        raised (bool): Whether the current entry was raised at least once (raises repeat within the maxima).
         summary (str): The agent's summary at completion.
         id (str): Node id (generated p<n> for the flat form).
         depth (int): Nesting level of the phase node (the root is level 1).
@@ -452,6 +454,23 @@ def as_probability(value: Any) -> float:
     """
     if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 1:
         raise PlanError(P_RANGE_MESSAGE)
+    return float(value)
+
+
+def as_minutes(value: Any) -> float:
+    """Validate a time budget in minutes.
+
+    Args:
+        value (Any): Raw value from the model.
+
+    Returns:
+        float: The minutes.
+
+    Raises:
+        PlanError: When it is not a finite number above 0.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 < value < float("inf"):
+        raise PlanError(TIME_BUDGET_MESSAGE)
     return float(value)
 
 

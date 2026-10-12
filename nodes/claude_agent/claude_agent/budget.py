@@ -35,6 +35,7 @@ from .plan_tree import (
     STATUS_PENDING,
     STEP_ASK,
     STEP_PHASE,
+    TIME_BUDGET_FIELD,
     Frame,
     Phase,
     PlanError,
@@ -42,6 +43,7 @@ from .plan_tree import (
     TreeParser,
     advance,
     as_int,
+    as_minutes,
     as_probability,
     as_text,
     loop_iteration,
@@ -64,9 +66,17 @@ NO_PENDING_CONDITION_MESSAGE = "no condition is pending"
 WRONG_CONDITION_MESSAGE = "condition '{given}' is not pending; the pending condition is '{pending}'"
 PLAN_EXISTS_MESSAGE = "a plan is already set for this instruction; adapt it once with agent.revise_plan"
 ALREADY_REVISED_MESSAGE = "the plan was already revised once in this instruction; finish it and report to the user"
-ALREADY_RAISED_MESSAGE = (
-    "this phase's budget was already raised once; complete the phase (as failed if needed) or revise the plan"
+TIME_BUDGET_REQUIRED_MESSAGE = (
+    TIME_BUDGET_FIELD + " is required: the minutes the whole task may take (about twice your honest estimate)"
 )
+TIME_ABOVE_CEILING_MESSAGE = (
+    TIME_BUDGET_FIELD + " {value:g} is above the ceiling max_instruction_time_min {ceiling:g}; declare at most "
+    "{ceiling:g} minutes"
+)
+TIME_LOWER_MESSAGE = (
+    TIME_BUDGET_FIELD + " {value:g} is lower than the current {current:g}; the time budget can only be extended"
+)
+TIME_LIMITED_NOTE = TIME_BUDGET_FIELD + " limited from {value:g} to the ceiling max_instruction_time_min {ceiling:g}"
 PLAN_INPUT_MESSAGE = "give exactly one of phases or plan"
 RATIONALE_REQUIRED_MESSAGE = "{what} needs a rationale"
 P_REQUIRED_MESSAGE = (
@@ -82,12 +92,8 @@ INVALID_ENUM_MESSAGE = "{field} must be one of {values}"
 LOOKUP_IDS_MESSAGE = "evidence_lookup_ids must be a list of lookup id strings"
 EXHAUSTED_MESSAGE = (
     "phase {number} '{name}' {label} budget exhausted ({used}/{cap}); call agent.complete_phase (outcome 'failed' if "
-    "the goal is not met) to move on, agent.revise_plan to adapt the remaining phases, or raise this phase once with "
-    "agent.raise_phase_budget giving a reason"
-)
-EXHAUSTED_AFTER_RAISE_MESSAGE = (
-    "phase {number} '{name}' {label} budget exhausted ({used}/{cap}) and the phase was already raised once; call "
-    "agent.complete_phase (outcome 'failed' if the goal is not met) or agent.revise_plan"
+    "the goal is not met) to move on, agent.revise_plan to adapt the remaining phases, or raise this phase with "
+    "agent.raise_phase_budget giving a reason (raises repeat up to the per-phase maximum)"
 )
 INSTRUCTION_RW_EXHAUSTED_MESSAGE = (
     "the instruction effector maximum is used up ({used}/{cap}); complete the phase (outcome 'failed' if the goal is "
@@ -96,7 +102,7 @@ INSTRUCTION_RW_EXHAUSTED_MESSAGE = (
 TURN_NOTE = (
     "PHASE TURN CAP: phase {number} '{name}' used its {cap} turns. Effector tools are refused for this phase: call "
     "agent.complete_phase now (outcome 'failed' if the goal '{goal}' is not met), or agent.revise_plan, or raise the "
-    "phase once with agent.raise_phase_budget giving a reason."
+    "phase with agent.raise_phase_budget giving a reason."
 )
 RETRY_NOTE = (
     "Automatic retry {attempt}/{max_attempts} - apply: {change}. Last attempt failed ({failure_type}/{eai_error_type}): "
@@ -115,6 +121,8 @@ NO_RW_ROOM_NOTE = (
     "{maximum}; sense only, then close it (outcome 'failed' if its goal needs a motion)"
 )
 RAISE_LIMITED_NOTE = "{cap} limited from {value} to {room}, what is left of the instruction maximum {maximum}"
+PHASE_LIMITED_NOTE = "{cap} limited from {value} to {room}, the per-phase maximum max_phase_{cap} {maximum}"
+PHASE_STAYS_NOTE = "{cap} stays at {current}: it is at the per-phase maximum max_phase_{cap} {maximum}"
 RAISE_STAYS_NOTE = (
     "{cap} stays at {current}: nothing is left of the instruction maximum {maximum} beyond the current cap"
 )
@@ -158,6 +166,7 @@ class PlanTracker:
         rationale (str): Why the plan ("" before a plan).
         revised (bool): Whether the one revision of the instruction was used.
         revision_rationale (str): Why the plan was revised ("" when it was not).
+        time_budget_min (float | None): The declared time budget of the whole task in minutes (None before a plan).
         ro_used (int): Sensor calls so far in the instruction (telemetry only, never capped).
         rw_used (int): Effector calls allowed so far in the instruction.
         turns_used (int): Model turns so far in the instruction.
@@ -175,6 +184,7 @@ class PlanTracker:
         on_condition_answered: Callable[[dict[str, Any]], None] | None = None,
         evidence_provider: Callable[[], PhaseEvidence] | None = None,
         lookup_ids_seen: Callable[[], set[str]] | None = None,
+        on_time_budget: Callable[[float], None] | None = None,
     ) -> None:
         """Create the tracker.
 
@@ -192,6 +202,8 @@ class PlanTracker:
                 entry for a failed close's FailureRecord (None: empty evidence).
             lookup_ids_seen (Callable[[], set[str]] | None): Returns the lookup ids seen in the instruction; the ids
                 the model cites are kept only when seen (None: the evidence's own lookup_ids).
+            on_time_budget (Callable[[float], None] | None): Called with the minutes whenever the time budget is
+                declared or extended (before the plan / revision listeners run), so the watchdog can move.
         """
         self.config = config
         self.on_plan = on_plan
@@ -203,6 +215,7 @@ class PlanTracker:
         self.on_condition_answered = on_condition_answered
         self.evidence_provider = evidence_provider
         self.lookup_ids_seen = lookup_ids_seen
+        self.on_time_budget = on_time_budget
         self.reset()
 
     def reset(self) -> None:
@@ -224,6 +237,7 @@ class PlanTracker:
         self.rationale = ""
         self.revised = False
         self.revision_rationale = ""
+        self.time_budget_min: float | None = None
         self.ro_used = 0
         self.rw_used = 0
         self.turns_used = 0
@@ -260,14 +274,15 @@ class PlanTracker:
         """The plan as the event/API payload.
 
         Returns:
-            dict[str, Any] | None: complexity, rationale, revised, revision_rationale, active_phase, phases (flat,
-            preorder, with index), tree and pending_condition; None before a plan.
+            dict[str, Any] | None: complexity, rationale, time_budget_min, revised, revision_rationale, active_phase,
+            phases (flat, preorder, with index), tree and pending_condition; None before a plan.
         """
         if self.root is None:
             return None
         return {
             "complexity": self.complexity,
             "rationale": self.rationale,
+            "time_budget_min": self.time_budget_min,
             "revised": self.revised,
             "revision_rationale": self.revision_rationale,
             "active_phase": self.active,
@@ -500,8 +515,57 @@ class PlanTracker:
             raise PlanError(NO_ACTIVE_PHASE_MESSAGE)
         return self.phases[self.active]
 
+    def declared_minutes(self, time_budget_min: Any) -> float:
+        """Validate the time budget declared with a new plan.
+
+        Args:
+            time_budget_min (Any): Minutes for the whole task.
+
+        Returns:
+            float: The minutes.
+
+        Raises:
+            PlanError: Not a number above 0, or above max_instruction_time_min.
+        """
+        minutes = as_minutes(time_budget_min)
+        ceiling = self.config.max_instruction_time_min
+        if minutes > ceiling:
+            raise PlanError(TIME_ABOVE_CEILING_MESSAGE.format(value=minutes, ceiling=ceiling))
+        return minutes
+
+    def extended_minutes(self, time_budget_min: Any) -> tuple[float, list[str]]:
+        """Validate an extension of the time budget (a raise or a revision), limited to the ceiling.
+
+        Args:
+            time_budget_min (Any): New total minutes for the whole task.
+
+        Returns:
+            tuple[float, list[str]]: The minutes to apply and the note when they were limited to the ceiling.
+
+        Raises:
+            PlanError: Not a number above 0, or lower than the current budget.
+        """
+        minutes = as_minutes(time_budget_min)
+        current = self.time_budget_min
+        if current is not None and minutes < current:
+            raise PlanError(TIME_LOWER_MESSAGE.format(value=minutes, current=current))
+        ceiling = self.config.max_instruction_time_min
+        if minutes > ceiling:
+            return max(ceiling, current or 0.0), [TIME_LIMITED_NOTE.format(value=minutes, ceiling=ceiling)]
+        return minutes, []
+
+    def apply_time_budget(self, minutes: float) -> None:
+        """Set the time budget and tell the watchdog.
+
+        Args:
+            minutes (float): Validated minutes for the whole task.
+        """
+        self.time_budget_min = minutes
+        if self.on_time_budget:
+            self.on_time_budget(minutes)
+
     def set_plan(
-        self, complexity: Any, rationale: Any, phases: Any = None, plan: Any = None
+        self, complexity: Any, rationale: Any, phases: Any = None, plan: Any = None, time_budget_min: Any = None
     ) -> tuple[dict[str, Any], list[str]]:
         """Accept the plan (once per instruction) and walk to its first phase or pending condition.
 
@@ -510,18 +574,22 @@ class PlanTracker:
             rationale (Any): Why this plan.
             phases (Any): Flat list of {name, goal, rw_cap, turn_cap}, 1 to 12 (a stray ro_cap is ignored), or None.
             plan (Any): Plan tree root node, or None (exactly one of phases and plan).
+            time_budget_min (Any): Minutes for the whole task, above 0 and at most max_instruction_time_min. The
+                set_task_plan tool requires it; None (internal callers only) keeps the pre-plan instruction_timeout_s.
 
         Returns:
             tuple[dict[str, Any], list[str]]: The plan payload and the notes about clamped caps.
 
         Raises:
-            PlanError: Invalid values, caps summing above the instruction maxima, or a plan already set.
+            PlanError: Invalid values, caps summing above the instruction maxima, a time budget above the ceiling, or
+            a plan already set.
         """
         if self.root is not None:
             raise PlanError(PLAN_EXISTS_MESSAGE)
         if complexity not in COMPLEXITIES:
             raise PlanError(f"complexity must be one of {', '.join(COMPLEXITIES)}")
         text = as_text("rationale", rationale)
+        minutes = None if time_budget_min is None else self.declared_minutes(time_budget_min)
         root, parser = self.parse(phases, plan, 0, set())
         self.check_sums(parser.phases, {cap: 0 for cap in CAP_FIELDS})
         self.complexity = complexity
@@ -530,6 +598,8 @@ class PlanTracker:
         self.root = root
         self.stack = (Frame(root),)
         self.transition_notes = []
+        if minutes is not None:
+            self.apply_time_budget(minutes)
         kind = self.walk(None)
         payload = self.plan or {}
         if self.on_plan:
@@ -761,24 +831,30 @@ class PlanTracker:
         self.announce(kind)
         return answered, self.following()
 
-    def revise_plan(self, rationale: Any, phases: Any = None, plan: Any = None) -> tuple[dict[str, Any], list[str]]:
+    def revise_plan(
+        self, rationale: Any, phases: Any = None, plan: Any = None, time_budget_min: Any = None
+    ) -> tuple[dict[str, Any], list[str]]:
         """Replace the remaining plan (once per instruction); phases that ran stay, an active one is closed as failed.
 
         Args:
             rationale (Any): Why the plan changes.
             phases (Any): The new remaining phases (flat, 1 to 12), or None.
             plan (Any): The new plan tree, or None (exactly one of phases and plan).
+            time_budget_min (Any): New total minutes for the whole task (extends the budget, limited to
+                max_instruction_time_min), or None to keep the budget.
 
         Returns:
-            tuple[dict[str, Any], list[str]]: The plan payload and the notes about clamped caps.
+            tuple[dict[str, Any], list[str]]: The plan payload and the notes about clamped caps and time.
 
         Raises:
-            PlanError: No plan, a second revision, invalid values, or caps beyond what is left of the instruction maxima.
+            PlanError: No plan, a second revision, invalid values, a lower time budget, or caps beyond what is left of
+            the instruction maxima.
         """
         self.require_plan()
         if self.revised:
             raise PlanError(ALREADY_REVISED_MESSAGE)
         text = as_text("rationale", rationale)
+        minutes, time_notes = (None, []) if time_budget_min is None else self.extended_minutes(time_budget_min)
         kept = [phase for phase in self.phases if phase.status != STATUS_PENDING]
         root, parser = self.parse(phases, plan, len(kept), {phase.id for phase in kept})
         self.check_sums(parser.phases, {cap: self.instruction_used(cap) for cap in CAP_FIELDS})
@@ -794,40 +870,45 @@ class PlanTracker:
         self.revised = True
         self.revision_rationale = text
         self.transition_notes = []
+        if minutes is not None:
+            self.apply_time_budget(minutes)
         kind = self.walk(None)
         payload = self.plan or {}
         if self.on_plan_revised:
             self.on_plan_revised(payload)
         self.announce(kind)
-        return payload, parser.notes
+        return payload, parser.notes + time_notes
 
-    def raise_phase_budget(self, rw_cap: Any, turn_cap: Any, rationale: Any) -> tuple[dict[str, Any], list[str]]:
-        """Raise the caps of the active phase (once per entry) within what is left of the instruction maxima.
+    def raise_phase_budget(
+        self, rw_cap: Any, turn_cap: Any, rationale: Any, time_budget_min: Any = None
+    ) -> tuple[dict[str, Any], list[str]]:
+        """Raise the caps of the active phase and/or the task's time budget; raises repeat as often as needed, each cap
+        limited to its per-phase maximum and to what is left of the instruction maxima, the time to the ceiling.
 
         Args:
             rw_cap (Any): New total effector cap, or None to keep.
             turn_cap (Any): New total turn cap, or None to keep.
             rationale (Any): Why; required.
+            time_budget_min (Any): New total minutes for the whole task, or None to keep.
 
         Returns:
-            tuple[dict[str, Any], list[str]]: The phase payload and the notes about caps limited to the remaining room.
+            tuple[dict[str, Any], list[str]]: The phase payload and the notes about values limited by a maximum.
 
         Raises:
-            PlanError: No plan or active phase, a pending condition, missing rationale or caps, a lower cap, or a
-            second raise of the entry.
+            PlanError: No plan or active phase, a pending condition, missing rationale or values, or a lower cap or
+            time budget.
         """
         self.require_plan()
         phase = self.require_active()
-        if phase.raised:
-            raise PlanError(ALREADY_RAISED_MESSAGE)
         if not isinstance(rationale, str) or not rationale.strip():
             raise PlanError(RATIONALE_REQUIRED_MESSAGE.format(what="raising a phase budget"))
         requested = {"rw_cap": rw_cap, "turn_cap": turn_cap}
         given = {cap: as_int(cap, value, CAP_MINIMA[cap]) for cap, value in requested.items() if value is not None}
-        if not given:
-            raise PlanError("give at least one of rw_cap, turn_cap")
+        if not given and time_budget_min is None:
+            raise PlanError(f"give at least one of rw_cap, turn_cap, {TIME_BUDGET_FIELD}")
+        minutes, notes = (None, []) if time_budget_min is None else self.extended_minutes(time_budget_min)
         maxima = self.instruction_maxima()
-        notes: list[str] = []
+        phase_maxima = {"rw_cap": self.config.max_phase_rw_cap, "turn_cap": self.config.max_phase_turn_cap}
         updates: dict[str, int] = {}
         reachable = [p for p in reachable_phases(self.stack) if p.status == STATUS_PENDING]
         for cap, value in given.items():
@@ -836,17 +917,22 @@ class PlanTracker:
                 raise PlanError(f"{cap} {value} is lower than the current {current}; a raise cannot lower a cap")
             reserved = sum(getattr(p, cap) for p in reachable)
             room = maxima[cap] - (self.instruction_used(cap) - self.phase_usage(phase, cap)) - reserved
-            if value > room:
-                value = max(room, current)
-                template = RAISE_STAYS_NOTE if value == current else RAISE_LIMITED_NOTE
-                notes.append(
-                    template.format(cap=cap, value=given[cap], room=value, current=current, maximum=maxima[cap])
-                )
+            limit, maximum, limited, stays = (
+                (phase_maxima[cap], phase_maxima[cap], PHASE_LIMITED_NOTE, PHASE_STAYS_NOTE)
+                if phase_maxima[cap] <= room
+                else (room, maxima[cap], RAISE_LIMITED_NOTE, RAISE_STAYS_NOTE)
+            )
+            if value > limit:
+                value = max(limit, current)
+                template = stays if value == current else limited
+                notes.append(template.format(cap=cap, value=given[cap], room=value, current=current, maximum=maximum))
             updates[cap] = value
         for cap, value in updates.items():
             setattr(phase, cap, value)
         phase.raised = True
         phase.turn_noted = False
+        if minutes is not None:
+            self.apply_time_budget(minutes)
         if self.on_change:
             self.on_change()
         return phase.as_dict(), notes
@@ -876,8 +962,7 @@ class PlanTracker:
         Returns:
             str: Text the model reads.
         """
-        template = EXHAUSTED_AFTER_RAISE_MESSAGE if phase.raised else EXHAUSTED_MESSAGE
-        return template.format(number=phase.index + 1, name=phase.name, label=label, used=used, cap=cap)
+        return EXHAUSTED_MESSAGE.format(number=phase.index + 1, name=phase.name, label=label, used=used, cap=cap)
 
     def charge(self, kind: str) -> str | None:
         """Count one robot call; effector calls are checked against the active phase budget, sensor calls never are.

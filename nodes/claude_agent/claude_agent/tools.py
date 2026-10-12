@@ -28,8 +28,10 @@ AGENT_PREFIX = "mcp__agent__"
 TIME_LEFT_TEXT = "instruction time left: {left:.0f} s"
 TIME_BUDGET_MESSAGE = (
     "{name} denied: " + TIME_LEFT_TEXT + ", below the {minimum:g} s minimum for starting a motion (the instruction "
-    "watchdog would cut it off half done). Do not start new motions: report what is done and what is left, and end the "
-    "instruction (stop, cancel_motions, release_object and opening the gripper are still allowed)"
+    "watchdog would cut it off half done). If the task needs more time and the ceiling allows it, raise "
+    "time_budget_min with agent.raise_phase_budget first; otherwise do not start new motions: report what is done and "
+    "what is left, and end the instruction (stop, cancel_motions, release_object and opening the gripper are still "
+    "allowed)"
 )
 # Effector tools that only let go of an object: never refused by the time left, the plan or the caps (still counted).
 INSTRUCTION_DENIED_MESSAGE = "{name} is disabled for this instruction (evaluation arm-only mode)"
@@ -183,7 +185,7 @@ class EffectorGate:
     Until set_task_plan has been accepted for the instruction every sensor and effector tool is denied; the notes file
     tools, the planning tools and the uncapped tools (stop, take/release control) are always allowed and never
     counted (the planning tools validate their own input). Past a cap of the active phase the call is denied; the phase
-    can be raised once, completed, or the plan revised.
+    can be raised (again and again, within the maxima), completed, or the plan revised.
 
     Attributes:
         plan (PlanTracker): Plan, phase budgets and usage counters of the current instruction.
@@ -204,6 +206,7 @@ class EffectorGate:
         time_left: Callable[[], float] | None = None,
         evidence_provider: Callable[[], PhaseEvidence] | None = None,
         lookup_ids_seen: Callable[[], set[str]] | None = None,
+        on_time_budget: Callable[[float], None] | None = None,
     ) -> None:
         """Create the gate.
 
@@ -220,12 +223,15 @@ class EffectorGate:
             on_condition_answered (Callable[[dict], None] | None): Called when the agent answered it.
             logger (logging.Logger | Any): Object with error(str) for internal gate errors; defaults to the stdlib
                 ``claude_agent`` logger.
-            time_left (Callable[[], float] | None): Seconds of instruction time left; effector calls are denied below
-                ``config.min_effector_time_left_s`` (None disables the check).
+            time_left (Callable[[], float] | None): Seconds of instruction time left (of the declared time budget once a
+                plan is set); effector calls are denied below ``config.min_effector_time_left_s`` (None disables the
+                check).
             evidence_provider (Callable[[], PhaseEvidence] | None): Forwarded to PlanTracker: the evidence of the
                 active phase entry for a failed close's FailureRecord.
             lookup_ids_seen (Callable[[], set[str]] | None): Forwarded to PlanTracker: the lookup ids seen in the
                 instruction (validates the ids the model cites).
+            on_time_budget (Callable[[float], None] | None): Forwarded to PlanTracker: called with the minutes when the
+                task's time budget is declared or extended.
         """
         self.config = config
         self.plan = PlanTracker(
@@ -239,6 +245,7 @@ class EffectorGate:
             on_condition_answered=on_condition_answered,
             evidence_provider=evidence_provider,
             lookup_ids_seen=lookup_ids_seen,
+            on_time_budget=on_time_budget,
         )
         self.on_denied = on_denied
         self.time_left = time_left
@@ -280,7 +287,8 @@ class EffectorGate:
         return PermissionResultDeny(message=reason)
 
     def time_budget_denial(self, name: str, tool_input: dict[str, Any]) -> str | None:
-        """Reason to refuse an effector call because too little instruction time is left.
+        """Reason to refuse an effector call because less than min_effector_time_left_s of instruction time is left
+        (time_left counts against the declared time budget once a plan is set, against instruction_timeout_s before).
 
         Args:
             name (str): Short tool name.

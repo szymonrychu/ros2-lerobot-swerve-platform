@@ -20,9 +20,9 @@ from claude_agent.config import (
 def test_defaults() -> None:
     cfg = ClaudeAgentConfig()
     assert cfg.model == "opus"
-    assert (cfg.max_rw_cap, cfg.max_turn_cap) == (150, 200)
+    assert (cfg.max_rw_cap, cfg.max_turn_cap) == (400, 500)
     assert cfg.max_turns == cfg.max_turn_cap + TURN_MARGIN
-    assert (cfg.max_phase_rw_cap, cfg.max_phase_turn_cap) == (40, 40)
+    assert (cfg.max_phase_rw_cap, cfg.max_phase_turn_cap) == (100, 100)
     assert not hasattr(cfg, "max_ro_cap") and not hasattr(cfg, "max_phase_ro_cap")
     assert cfg.robot_events_topic == "/robot_events"
     assert not hasattr(cfg, "poi_command_topic")
