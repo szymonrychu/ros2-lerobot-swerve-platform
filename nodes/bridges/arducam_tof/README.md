@@ -28,7 +28,7 @@ YAML file named by `ARDUCAM_TOF_CONFIG` (default `/etc/ros2/arducam_tof/config.y
 
 | Key | Default | Allowed | Meaning |
 |-----|---------|---------|---------|
-| `camera_index` | `0` | 0..63 | Video device index the SDK opens over CSI (`/dev/video<N>`). The ToF on the Pi 5 cam1 connector may need `1` (or whatever index its video node gets); the robot entry uses `1` because the overview camera is on cam0. Check with `v4l2-ctl --list-devices` once the camera is plugged in. |
+| `camera_index` | `0` | 0..63 | Video device index the SDK opens over CSI (`/dev/video<N>`). The robot entry keeps `1` from when the ToF sat on the Pi 5 cam1 connector; cam1 now carries the right IMX219 (cam0 the left), so the node has no CSI port. Check with `v4l2-ctl --list-devices` if the camera gets a port again. |
 | `range_mode` | `far` | `near`, `far` | `far` is 4 m (head camera looking across a room); `near` is 2 m with finer depth. The SDK gets millimetres; if it rejects them, metres are tried. |
 | `confidence_threshold` | `30.0` | 0..65535 | Pixels with SDK confidence below this are published as depth 0. |
 | `frame_id` | `tof_optical_frame` | non-empty | TF frame of every header. |
@@ -65,7 +65,7 @@ Run in this directory: `uv run pytest tests -q` and `uv run poe lint` (ruff and 
 
 ## Deploy
 
-The node is deployed on the client by Ansible as node type `arducam_tof`, **disabled by default** (`enabled: false` in `ansible/group_vars/client.yml`). To enable it once the camera is plugged in, set `enabled: true` on the `arducam_tof` entry, add `{node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}` to `monitoring_agent_node_targets`, and run:
+The node is deployed on the client by Ansible as node type `arducam_tof`, **disabled** (`enabled: false` in `ansible/group_vars/client.yml`). Both Pi 5 CSI connectors now carry the IMX219 pair of `overview_camera` (left cam0, right IMX219 on cam1) and the boot config removes the `arducam-pivariety,cam1` overlay, so the ToF has no CSI port and stays `enabled: false`. To enable it once it has a port and overlay again, set `enabled: true` on the `arducam_tof` entry, add `{node: arducam_tof, address: "127.0.0.1:19112", path: /metrics}` to `monitoring_agent_node_targets`, and run:
 
 ```bash
 mkdir -p .logs

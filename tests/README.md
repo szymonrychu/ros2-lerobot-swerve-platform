@@ -1756,13 +1756,14 @@ Static checks of the web_ui Agent tab in `ansible/group_vars/client.yml` (no ROS
 
 ### `test_overview_camera_config.py`
 
-Static checks of the overview_camera node from the repo files (YAML via `yaml.safe_load`, launch file via `ast`; no ROS needed): boot overlay and reboot, the multi-source colcon build (rf2o unchanged, libcamera meson args, camera_ros pin, patches, no apt camera stack), node type / entry / resources, retired stereo wiring, RealSense removal, `camera_link` removal, params defaults and launch structure.
+Static checks of the overview_camera node from the repo files (YAML via `yaml.safe_load`, launch file via `ast`; no ROS needed): IMX219 pair boot overlays and reboot, the camera_ros SyncMode patch, the arducam_tof port note, the docs, the multi-source colcon build (rf2o unchanged, libcamera meson args, camera_ros pin, patches, no apt camera stack), node type / entry / resources, retired stereo wiring, RealSense removal, `camera_link` removal, params defaults and launch structure.
 
 | Test | Description |
 |---|---|
-| `test_boot_tasks_set_the_imx708_and_tof_overlays_in_firmware_config` | `overview_camera_boot_config.yml` writes `camera_auto_detect=0`, `dtoverlay=imx708,cam0` and `dtoverlay=arducam-pivariety,cam1` (Arducam ToF camera; and nothing else) to `/boot/firmware/config.txt`, each with a regexp that matches its own line (no duplicates on rerun). |
-| `test_boot_tasks_remove_stale_imx219_overlays_idempotently` | A first `state: absent` task deletes every `dtoverlay=imx219...` line (cam0, cam1, bare) and keeps `imx708`, `camera_auto_detect` and commented lines. |
-| `test_boot_tasks_register_results_and_reboot_only_when_changed` | Each overlay task registers its result and the single reboot task (last) runs only when one of them changed. |
+| `test_boot_tasks_set_the_imx219_pair_overlays_in_firmware_config` | `overview_camera_boot_config.yml` writes `camera_auto_detect=0`, `dtoverlay=imx219,cam0` (left) and `dtoverlay=imx219,cam1` (right), in that order and nothing else, to `/boot/firmware/config.txt`, each with a regexp that matches its own line (no duplicates on rerun). |
+| `test_boot_tasks_remove_the_imx708_and_tof_overlays_and_never_imx219` | Two leading `state: absent` tasks delete `dtoverlay=imx708,cam0` and `dtoverlay=arducam-pivariety,cam1` (one each); none matches an imx219 line, `camera_auto_detect` or a commented line, and no task mentions imx219 for removal. |
+| `test_boot_tasks_register_results_and_reboot_only_when_changed` | All five lineinfile tasks register distinct results and the single reboot task (last) runs only when one of them changed. |
+| `test_boot_tasks_carry_the_boot_tag_like_the_bno055_boot_config` | Every task of the boot file, the reboot included, is tagged `boot` (the `bno055_i2c_boot_config.yml` pattern). |
 | `test_boot_overlays_use_the_same_path_as_the_uart_task` | The camera overlay edits the same config.txt path as the existing UART task in `deploy_nodes_client.yml`. |
 | `test_client_playbook_applies_the_camera_boot_overlay_in_pre_tasks_tagged_boot_and_node` | The client playbook includes the boot task file in `pre_tasks`, tagged only `boot` and `overview_camera`. |
 | `test_boot_overlays_are_only_written_on_aarch64_hosts` | Overlay tasks are guarded by `ansible_machine == "aarch64"`. |
@@ -1777,12 +1778,16 @@ Static checks of the overview_camera node from the repo files (YAML via `yaml.sa
 | `test_gripper_uvc_camera_uses_a_stable_device_path` | The gripper UVC camera is configured by its `/dev/v4l/by-id` path, since the overview CSI camera's driver takes `/dev/video0..9`. |
 | `test_gripper_camera_is_calibrated_with_a_repo_intrinsics_file` | mcp_server's gripper camera has a calibrated mount on `gripper_link` and intrinsics from `nodes/mcp_server/calibration/gripper_camera.yaml` (640x480, 3x3 matrix, 5 distortion terms). |
 | `test_camera_image_wait_covers_discovery_on_a_loaded_pi` | mcp_server `timeouts.image_timeout_s` >= 5 s: each camera call subscribes afresh and discovery exceeds 2 s with the full stack running. |
-| `test_only_the_libcamera_patch_is_listed_and_it_exists_in_the_repo` | Only the libcamera `package.xml` patch is listed and present; the camera_ros SyncMode patch is gone. |
+| `test_source_patches_are_listed_and_exist_in_the_repo` | libcamera lists its `package.xml` patch and camera_ros lists `camera_ros-0001-expose-sync-controls.patch`; both files exist in `nodes/overview_camera/patches/` and nothing else does. |
+| `test_camera_ros_patch_exposes_the_sync_controls` | The camera_ros patch edits `src/type_extent.cpp` to add `IF(rpi::SyncMode)` and `IF(rpi::SyncFrames)`, and not the output controls `SyncReady` / `SyncTimer`. |
 | `test_libcamera_patch_adds_a_meson_package_xml` | The libcamera patch adds a `package.xml` with `build_type` meson. |
 | `test_apt_packages_carry_the_build_deps_and_never_the_apt_camera_stack` | The apt list has the build dependencies and the image_transport compressed plugins, no stereo/image_proc/calibration packages, and no node type installs `ros-jazzy-camera-ros` or `ros-jazzy-libcamera`. |
 | `test_launcher_template_sources_the_first_source_workspace_for_a_list` | The launcher template sources the workspace of a dict source or of the first list item. |
-| `test_overview_camera_node_type_resources_and_launch_command` | Node type: native, no `CPUQuota`, `MemoryLow` 96M, `Nice` 5, `MemoryMax` 256M, config path/env and the `ros2 launch` command. |
-| `test_overview_camera_node_entry_is_present_and_enabled` | The `overview_camera` ros2_nodes entry is present and enabled and its config only holds `camera_id`. |
+| `test_overview_camera_node_type_resources_and_launch_command` | Node type: native, no `CPUQuota`, `MemoryLow` 128M and `MemoryMax` 384M (estimate for two cameras), `CPUWeight` 500 (normal robot tier), `Nice` 5, config path/env and the `ros2 launch` command. |
+| `test_overview_camera_node_entry_is_present_and_enabled` | The `overview_camera` ros2_nodes entry is present and enabled and its config is exactly `left_camera_id: ""` and `right_camera_id: ""` (contract overview-camera-config, flat launch keys). |
+| `test_overview_camera_node_type_comment_names_the_imx219_pair` | The comment above the node type says two IMX219 (left cam0, right cam1); neither it nor the entry mentions IMX708. |
+| `test_arducam_tof_has_no_csi_port_and_stays_disabled` | The `arducam_tof` entry stays `enabled: false`, its comments say cam1 carries the right IMX219 and the node has no CSI port, and `nodes/bridges/arducam_tof/README.md` says the same. |
+| `test_docs_describe_the_imx219_pair_boot_overlays_and_memory` | `ansible/README.md` names both imx219 overlays and the SyncMode patch, its memory row for overview_camera is an estimate with 128M / 384M, and the ansible-deploy skill's overview_camera row says IMX219, not IMX708. |
 | `test_realsense_is_uninstalled` | `realsense_d435i` is `present: false`. |
 | `test_guessed_camera_link_frame_is_removed_from_the_static_tf_config` | `static_tf_publisher` no longer publishes `camera_link` (imu_link and laser_frame stay). |
 | `test_node_directory_layout_without_calibration_or_stereo_leftovers` | Node files exist, there is no `calibration/` directory and the README names `cam -l`, `AfMode`, IMX708, the overlay and the compressed topic. |

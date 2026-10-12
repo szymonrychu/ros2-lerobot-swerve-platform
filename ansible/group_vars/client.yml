@@ -274,20 +274,22 @@ ros2_node_type_defaults:
     oom_score_adjust: -500
     apt_packages:
       - ros-jazzy-realsense2-camera
-  # Raspberry Pi Camera Module 3 (IMX708) on CSI cam0, mounted overhead: Raspberry Pi libcamera fork + camera_ros built
-  # from pinned sources into /opt/ros2-ws (libcamera first). The apt ros-jazzy-camera-ros / ros-jazzy-libcamera
-  # packages must NOT be installed: they would shadow the fork. Boot overlay:
-  # playbooks/tasks/overview_camera_boot_config.yml. See nodes/overview_camera/README.md.
+  # Two IMX219 cameras on the Pi 5 CSI ports (left cam0, right cam1), synced through libcamera's rpi::SyncMode: Raspberry
+  # Pi libcamera fork + camera_ros (with the SyncMode patch) built from pinned sources into /opt/ros2-ws (libcamera
+  # first). The apt ros-jazzy-camera-ros / ros-jazzy-libcamera packages must NOT be installed: they would shadow the
+  # fork. Boot overlays: playbooks/tasks/overview_camera_boot_config.yml. See nodes/overview_camera/README.md.
   overview_camera:
     deploy_mode: native
     node_launch_command: "ros2 launch {{ ros2_repo_dest }}/nodes/overview_camera/launch/overview_camera.launch.py"
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/overview_camera]
-    # One 640x480 camera at 15 fps with JPEG compression (p99 13% of a core on 2026-10-11).
-    # Working set MiB p50/24 h peak 94.6/95.6 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
-    memory_low: "96M"
-    memory_max: "256M"
+    # Estimate for two cameras in one container, no series yet: one 640x480 camera at 15 fps with JPEG had a working
+    # set p50/24 h peak of 94.6/95.6 MiB (Mimir, 2026-10-11). The second CameraNode shares the process and its
+    # CameraManager, so it adds its frame buffers and not a second runtime: MemoryLow ~ 1.33x the one-camera p50,
+    # MemoryMax 4x the one-camera peak. Re-measure once both cameras run.
+    memory_low: "128M"
+    memory_max: "384M"
     cpu_weight: 500
     io_weight: 500
     oom_score_adjust: -500
@@ -319,6 +321,9 @@ ros2_node_type_defaults:
         commit: 8f792e27a6dbc81e4943a75765fc1b7b7d37b301
         package: camera_ros
         workspace: /opt/ros2-ws
+        # Exposes the rpi::SyncMode and rpi::SyncFrames controls as parameters (left server, right client).
+        patches:
+          - "{{ ros2_repo_dest }}/nodes/overview_camera/patches/camera_ros-0001-expose-sync-controls.patch"
     apt_packages:
       - git
       - build-essential
@@ -928,8 +933,8 @@ ros2_nodes:
       - UVC_MAX_FPS=10
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy).
       - METRICS_PORT=19105
-  # Arducam ToF camera on CSI cam1 (overlay in overview_camera_boot_config.yml): depth, amplitude and camera_info for the
-  # web UI head tab. Disabled until the camera is plugged in; enable with `enabled: true` and deploy arducam_tof.
+  # Arducam ToF camera: depth, amplitude and camera_info for the web UI head tab. CSI cam1 now carries the right IMX219
+  # (overview_camera_boot_config.yml removes the ToF overlay), so this node has no CSI port and stays `enabled: false`.
   - name: arducam_tof
     node_type: arducam_tof
     present: true
@@ -937,7 +942,7 @@ ros2_nodes:
     config: |
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
       metrics_port: 19112
-      # CSI cam1 (the IMX708 overview camera is cam0); unproven until the camera is plugged in.
+      # Was CSI cam1; cam1 now carries the right IMX219 and cam0 the left, so the node has no CSI port (stays disabled).
       camera_index: 1
       # near or far (the driver rejects anything else, and any key not listed here).
       range_mode: far
@@ -960,14 +965,17 @@ ros2_nodes:
     node_type: realsense_d435i
     present: false
     enabled: false
-  # Overhead Camera Module 3 (IMX708): no TF yet (mount pose not measured). Camera ID: `cam -l` on the client, see the README.
+  # Two IMX219 cameras (left cam0, right cam1): no TF yet (mount pose not measured). Camera IDs: `cam -l` on the client,
+  # see the README.
   - name: overview_camera
     node_type: overview_camera
     present: true
     enabled: true
     config: |
-      # libcamera ID of the camera (`cam -l`); empty selects camera index 0 and logs a warning.
-      camera_id: ""
+      # libcamera IDs of the left (cam0) and right (cam1) cameras (`cam -l`); empty selects index 0 (left) or 1 (right)
+      # and logs a warning.
+      left_camera_id: ""
+      right_camera_id: ""
   - name: lerobot_follower
     node_type: feetech_servos
     present: true

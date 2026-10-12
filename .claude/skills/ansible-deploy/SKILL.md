@@ -100,7 +100,7 @@ A node list is one tag-filtered run, so there is nothing to parallelise. Servo n
 | `gripper_uvc_camera` | USB camera bridge |
 | `rplidar_a1` | LiDAR bridge (USB) |
 | `realsense_d435i` | Removed (present: false): replaced by `overview_camera` |
-| `overview_camera` | Raspberry Pi Camera Module 3 (IMX708) on CSI cam0, mounted overhead; libcamera fork + camera_ros built from source into `/opt/ros2-ws` (first deploy compiles for a long time at lowest priority); sets `camera_auto_detect=0` + `dtoverlay=imx708,cam0` + `dtoverlay=arducam-pivariety,cam1` (Arducam ToF) in `/boot/firmware/config.txt`, removes stale `imx219` overlays and reboots the client only when something changed; publishes `/overview_camera/image_raw`, `/overview_camera/image_raw/compressed`, `camera_info` |
+| `overview_camera` | Two IMX219 cameras on the Pi 5 CSI ports (left cam0, right cam1); libcamera fork + camera_ros (with the SyncMode patch `camera_ros-0001-expose-sync-controls.patch`) built from source into `/opt/ros2-ws` (first deploy compiles for a long time at lowest priority); sets `camera_auto_detect=0` + `dtoverlay=imx219,cam0` + `dtoverlay=imx219,cam1` in `/boot/firmware/config.txt`, removes `dtoverlay=imx708,cam0` and `dtoverlay=arducam-pivariety,cam1` (the Arducam ToF has no CSI port and stays disabled) and reboots the client only when something changed; publishes `/overview_camera/image_raw`, `/overview_camera/image_raw/compressed`, `camera_info` |
 | `lerobot_follower` | SO-101 follower arm + swerve servos group `swerve_drive` (feetech, one USB bus) |
 | `swerve_drive_servos` | Removed (present: false): swerve servos now run inside `lerobot_follower` (shared bus) |
 | `swerve_controller` | Swerve drive kinematics |

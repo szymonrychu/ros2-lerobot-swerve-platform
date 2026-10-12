@@ -1,8 +1,8 @@
 """Static invariants of the overview_camera node: boot overlay, source build, Ansible wiring, launch and params.
 
 No ROS or Raspberry Pi is available on the dev machine, so these tests read the repo files directly (YAML via
-yaml.safe_load, launch files via ast) and pin the pipeline of one Raspberry Pi Camera Module 3 (IMX708) on CSI cam0
-published through a libcamera fork + camera_ros built from source.
+yaml.safe_load, launch files via ast) and pin the pipeline of two IMX219 cameras on the Pi 5 CSI ports (left cam0,
+right cam1) published through a libcamera fork + camera_ros (with the SyncMode patch) built from source.
 """
 
 import ast
@@ -29,8 +29,15 @@ PARAMS_FILE = NODE_DIR / "config" / "params.yaml"
 PATCHES_DIR = NODE_DIR / "patches"
 README = NODE_DIR / "README.md"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
+ANSIBLE_README = ANSIBLE_DIR / "README.md"
+DEPLOY_SKILL = REPO_ROOT / ".claude" / "skills" / "ansible-deploy" / "SKILL.md"
+ARDUCAM_TOF_README = REPO_ROOT / "nodes" / "bridges" / "arducam_tof" / "README.md"
 
 BOOT_CONFIG_PATH = "/boot/firmware/config.txt"
+IMX219_OVERLAYS = ("dtoverlay=imx219,cam0", "dtoverlay=imx219,cam1")
+RETIRED_OVERLAYS = ("dtoverlay=imx708,cam0", "dtoverlay=arducam-pivariety,cam1")
+LIBCAMERA_PATCH = "libcamera-0001-add-package-xml.patch"
+SYNC_PATCH = "camera_ros-0001-expose-sync-controls.patch"
 LIBCAMERA_TAG = "v0.7.2+rpt20260817"
 CAMERA_ROS_COMMIT = "8f792e27a6dbc81e4943a75765fc1b7b7d37b301"
 LIBCAMERA_MESON_ARGS = [
@@ -117,49 +124,51 @@ def boot_tasks() -> list[dict]:
 # --- boot overlays -------------------------------------------------------------------------------------------------
 
 
-def test_boot_tasks_set_the_imx708_and_tof_overlays_in_firmware_config() -> None:
-    present = [
+def lineinfile_tasks(state: str | None) -> list[dict]:
+    """lineinfile arguments of the boot tasks that add (state None) or remove (state "absent") a line.
+
+    Args:
+        state: None for the tasks that write a line, "absent" for the removals.
+
+    Returns:
+        list[dict]: The lineinfile arguments, in file order.
+    """
+    return [
         t["ansible.builtin.lineinfile"]
         for t in boot_tasks()
-        if "ansible.builtin.lineinfile" in t and t["ansible.builtin.lineinfile"].get("state") != "absent"
+        if "ansible.builtin.lineinfile" in t and t["ansible.builtin.lineinfile"].get("state") == state
     ]
+
+
+def test_boot_tasks_set_the_imx219_pair_overlays_in_firmware_config() -> None:
+    present = lineinfile_tasks(None)
     assert {task["path"] for task in present} == {BOOT_CONFIG_PATH}
-    assert {task["line"] for task in present} == {
-        "camera_auto_detect=0",
-        "dtoverlay=imx708,cam0",
-        # Arducam ToF camera on the second CSI port (cam0 is the overview camera).
-        "dtoverlay=arducam-pivariety,cam1",
-    }
+    # Left IMX219 on cam0, right IMX219 on cam1, auto detection off (the overlays are explicit).
+    assert [task["line"] for task in present] == ["camera_auto_detect=0", *IMX219_OVERLAYS]
     for task in present:
         # Each line is replaced in place (regexp) so a rerun never appends a duplicate.
         assert re.search(task["regexp"], task["line"]), task
 
 
-def test_boot_tasks_remove_stale_imx219_overlays_idempotently() -> None:
-    absent = [
-        t["ansible.builtin.lineinfile"]
-        for t in boot_tasks()
-        if "ansible.builtin.lineinfile" in t and t["ansible.builtin.lineinfile"].get("state") == "absent"
-    ]
-    assert len(absent) == 1
-    task = absent[0]
-    assert task["path"] == BOOT_CONFIG_PATH and "line" not in task
-    for stale in ("dtoverlay=imx219,cam0", "dtoverlay=imx219,cam1", "dtoverlay=imx219"):
-        assert re.search(task["regexp"], stale), stale
-    for kept in (
-        "dtoverlay=imx708,cam0",
-        "dtoverlay=arducam-pivariety,cam1",
-        "camera_auto_detect=0",
-        "# dtoverlay=imx219,cam0",
-    ):
-        assert not re.search(task["regexp"], kept), kept
-    assert boot_tasks()[0]["ansible.builtin.lineinfile"] == task, "stale lines go before the new ones are added"
+def test_boot_tasks_remove_the_imx708_and_tof_overlays_and_never_imx219() -> None:
+    absent = lineinfile_tasks("absent")
+    assert len(absent) == len(RETIRED_OVERLAYS)
+    for task in absent:
+        assert task["path"] == BOOT_CONFIG_PATH and "line" not in task
+    for retired in RETIRED_OVERLAYS:
+        assert sum(bool(re.search(t["regexp"], retired)) for t in absent) == 1, retired
+    for kept in (*IMX219_OVERLAYS, "dtoverlay=imx219", "camera_auto_detect=0", "# dtoverlay=imx708,cam0"):
+        for task in absent:
+            assert not re.search(task["regexp"], kept), (kept, task)
+    assert "imx219" not in str(absent), "no task removes an imx219 line"
+    first = [t["ansible.builtin.lineinfile"] for t in boot_tasks()[: len(absent)]]
+    assert first == absent, "retired lines go before the new ones are added"
 
 
 def test_boot_tasks_register_results_and_reboot_only_when_changed() -> None:
     tasks = boot_tasks()
     registered = [t["register"] for t in tasks if "ansible.builtin.lineinfile" in t]
-    assert len(registered) == 4 and len(set(registered)) == 4
+    assert len(registered) == 5 and len(set(registered)) == 5
     reboot = [t for t in tasks if "ansible.builtin.reboot" in t]
     assert len(reboot) == 1
     condition = reboot[0]["when"]
@@ -168,6 +177,11 @@ def test_boot_tasks_register_results_and_reboot_only_when_changed() -> None:
         assert f"{name}.changed" in condition
     assert reboot[0]["ansible.builtin.reboot"]["reboot_timeout"] == 120
     assert tasks[-1] is reboot[0], "reboot comes after every overlay task"
+
+
+def test_boot_tasks_carry_the_boot_tag_like_the_bno055_boot_config() -> None:
+    for task in boot_tasks():
+        assert task["tags"] == ["boot"], task["name"]
 
 
 def test_boot_overlays_use_the_same_path_as_the_uart_task() -> None:
@@ -306,13 +320,22 @@ def test_overview_camera_node_type_builds_libcamera_then_camera_ros() -> None:
         assert source["workspace"] == "/opt/ros2-ws"
 
 
-def test_only_the_libcamera_patch_is_listed_and_it_exists_in_the_repo() -> None:
+def test_source_patches_are_listed_and_exist_in_the_repo() -> None:
     libcamera, camera_ros = type_defaults("overview_camera")["colcon_source"]
-    assert libcamera["patches"] == [
-        "{{ ros2_repo_dest }}/nodes/overview_camera/patches/libcamera-0001-add-package-xml.patch"
-    ]
-    assert "patches" not in camera_ros, "the SyncMode patch is gone together with the stereo pair"
-    assert [p.name for p in PATCHES_DIR.iterdir()] == ["libcamera-0001-add-package-xml.patch"]
+    assert libcamera["patches"] == [f"{{{{ ros2_repo_dest }}}}/nodes/overview_camera/patches/{LIBCAMERA_PATCH}"]
+    assert camera_ros["patches"] == [f"{{{{ ros2_repo_dest }}}}/nodes/overview_camera/patches/{SYNC_PATCH}"]
+    for patch in (*libcamera["patches"], *camera_ros["patches"]):
+        assert (PATCHES_DIR / Path(patch).name).is_file(), patch
+    assert sorted(p.name for p in PATCHES_DIR.iterdir()) == [SYNC_PATCH, LIBCAMERA_PATCH]
+
+
+def test_camera_ros_patch_exposes_the_sync_controls() -> None:
+    patch = (PATCHES_DIR / SYNC_PATCH).read_text()
+    assert "+++ b/src/type_extent.cpp" in patch
+    assert "+  IF(rpi::SyncMode)" in patch
+    assert "+  IF(rpi::SyncFrames)" in patch
+    # SyncReady and SyncTimer are outputs; only the two inputs are exposed as parameters.
+    assert "+  IF(rpi::SyncReady)" not in patch and "+  IF(rpi::SyncTimer)" not in patch
 
 
 def test_libcamera_patch_adds_a_meson_package_xml() -> None:
@@ -348,8 +371,10 @@ def test_overview_camera_node_type_resources_and_launch_command() -> None:
     assert defaults["deploy_mode"] == "native"
     assert defaults["node_src_dir"] == ""
     assert "cpu_quota" not in defaults
-    assert defaults["memory_low"] == "96M"
-    assert defaults["memory_max"] == "256M"
+    # Two IMX219 cameras in one container: an estimate, re-measured once both run.
+    assert defaults["memory_low"] == "128M"
+    assert defaults["memory_max"] == "384M"
+    assert defaults["cpu_weight"] == 500, "stays in the normal robot tier"
     assert defaults["nice"] == 5
     assert defaults["config_path"] == "/etc/ros2/overview_camera"
     assert "OVERVIEW_CAMERA_CONFIG=/etc/ros2/overview_camera/config.yaml" in defaults["env"]
@@ -362,9 +387,75 @@ def test_overview_camera_node_entry_is_present_and_enabled() -> None:
     entry = node_entry("overview_camera")
     assert entry["node_type"] == "overview_camera"
     assert entry["present"] is True and entry["enabled"] is True
-    config = yaml.safe_load(entry["config"])
-    # Until the libcamera ID is read with `cam -l`, the camera is selected by index 0 (the launch logs a warning).
-    assert set(config) <= {"camera_id"}
+    # Flat keys merged into the launch section: until the libcamera IDs are read with `cam -l`, each side falls back
+    # to its index (left 0, right 1) and the launch logs a warning.
+    assert yaml.safe_load(entry["config"]) == {"left_camera_id": "", "right_camera_id": ""}
+
+
+def node_type_comment(name: str) -> str:
+    """Comment block directly above a node type in group_vars/client.yml.
+
+    Args:
+        name: Node type.
+
+    Returns:
+        str: The comment lines, joined.
+    """
+    lines = CLIENT_VARS.read_text().splitlines()
+    index = lines.index(f"  {name}:")
+    comment: list[str] = []
+    while lines[index - 1].strip().startswith("#"):
+        index -= 1
+        comment.insert(0, lines[index])
+    return "\n".join(comment)
+
+
+def node_entry_text(name: str) -> str:
+    """Text of one ros2_nodes entry including the comment block above it.
+
+    Args:
+        name: Node name.
+
+    Returns:
+        str: The entry text up to the next entry.
+    """
+    lines = CLIENT_VARS.read_text().splitlines()
+    index = lines.index(f"  - name: {name}")
+    start = index
+    while lines[start - 1].strip().startswith("#"):
+        start -= 1
+    end = index + 1
+    while not lines[end].startswith("  - name: "):
+        end += 1
+    return "\n".join(lines[start:end])
+
+
+def test_overview_camera_node_type_comment_names_the_imx219_pair() -> None:
+    comment = node_type_comment("overview_camera")
+    assert "two imx219" in comment.lower()
+    assert "left" in comment and "cam0" in comment and "right" in comment and "cam1" in comment
+    assert "IMX708" not in comment
+    assert "IMX708" not in node_entry_text("overview_camera")
+
+
+def test_arducam_tof_has_no_csi_port_and_stays_disabled() -> None:
+    entry = node_entry("arducam_tof")
+    assert entry["enabled"] is False
+    text = node_entry_text("arducam_tof")
+    assert "right IMX219" in text and "no CSI port" in text
+    assert "IMX708" not in text
+    readme = ARDUCAM_TOF_README.read_text()
+    assert "right IMX219" in readme and "no CSI port" in readme
+
+
+def test_docs_describe_the_imx219_pair_boot_overlays_and_memory() -> None:
+    readme = ANSIBLE_README.read_text()
+    for needle in (*IMX219_OVERLAYS, SYNC_PATCH):
+        assert needle in readme, needle
+    row = next(line for line in readme.splitlines() if line.startswith("| overview_camera |"))
+    assert row.endswith("| 128M | 384M |") and "estimate" in row, row
+    skill = next(line for line in DEPLOY_SKILL.read_text().splitlines() if line.startswith("| `overview_camera`"))
+    assert "IMX219" in skill and "IMX708" not in skill, skill
 
 
 def test_realsense_is_uninstalled() -> None:
