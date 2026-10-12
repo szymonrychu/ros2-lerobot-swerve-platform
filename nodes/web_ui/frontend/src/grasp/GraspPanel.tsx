@@ -9,20 +9,19 @@ import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Collapse from '@mui/material/Collapse'
-import IconButton from '@mui/material/IconButton'
-import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
-import CloseIcon from '@mui/icons-material/Close'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import StopCircleIcon from '@mui/icons-material/StopCircle'
 import { ADVANCED_PARAMS, describeHold, describeOutcome, GraspAnswer, GRIP_PROFILES, isGripProfile, summarizePlan } from './grasp'
 import { GRASP_MENU } from './pick'
 import type { GraspPanelState } from './useGrasp'
+import { OverlayPanel } from '../layout/OverlayPanel'
+import { useLayout } from '../layout/useLayout'
 import { MONO_FONT } from '../theme'
 
 interface Props {
@@ -55,7 +54,7 @@ function Field({
       onChange={(e) => onChange(e.target.value)}
       inputProps={{ inputMode: 'decimal', autoComplete: 'off', style: { fontFamily: MONO_FONT } }}
       InputLabelProps={{ shrink: true }}
-      sx={{ flex: '1 1 90px', minWidth: 90 }}
+      sx={{ flex: '1 1 5.6rem', minWidth: '5.6rem' }}
     />
   )
 }
@@ -125,23 +124,13 @@ export function GraspPanel({ state, onClose }: Props) {
   const planAnswer = state.plan?.outcome ?? (state.lastAnswer?.action === 'plan' ? state.lastAnswer : null)
   const run = state.stream?.state === 'done' ? state.stream.outcome : null
   const actionBusy = executing || state.planning
+  // A phone bottom sheet would cover the map while the user taps the object, so it shrinks to the pick banner.
+  const compactForPick = useLayout() === 'phone' && state.pickMode
   const feasiblePlan = state.planFresh && state.plan?.outcome.plan?.feasible === true
 
   return (
-    <Paper
-      variant="outlined"
-      aria-label="Grasp panel"
-      sx={{ maxHeight: { xs: '62vh', sm: '70vh' }, overflowY: 'auto', bgcolor: 'rgba(22, 27, 34, 0.94)' }}
-    >
-      <Stack spacing={1.25} sx={{ p: 1.5 }}>
-        <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="overline" sx={{ lineHeight: 2 }}>
-            Grasp
-          </Typography>
-          <IconButton size="small" aria-label="Close grasp panel" onClick={onClose}>
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        </Stack>
+    <OverlayPanel title="Grasp" open anchor="bottom" onClose={onClose}>
+      <Stack spacing={1.25} aria-label="Grasp panel" sx={{ maxHeight: { xs: '62dvh', sm: '70dvh' } }}>
 
         {executing && (
           <Button
@@ -176,6 +165,7 @@ export function GraspPanel({ state, onClose }: Props) {
           </Typography>
         )}
 
+        <Stack spacing={1.25} sx={{ display: compactForPick ? 'none' : 'flex' }}>
         <Button
           size="small"
           color="inherit"
@@ -276,7 +266,7 @@ export function GraspPanel({ state, onClose }: Props) {
 
         <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: 'wrap' }}>
           {state.hasTarget && (
-            <Button variant="outlined" disabled={actionBusy} onClick={state.requestPlan} sx={{ flex: '1 1 90px' }}>
+            <Button variant="outlined" disabled={actionBusy} onClick={state.requestPlan} sx={{ flex: '1 1 5.6rem' }}>
               {state.planning ? 'Planning...' : 'Plan again'}
             </Button>
           )}
@@ -287,7 +277,7 @@ export function GraspPanel({ state, onClose }: Props) {
               disabled={!state.canExecute}
               onClick={state.requestExecute}
               title="Needs a feasible plan for exactly these inputs"
-              sx={{ flex: '1 1 90px' }}
+              sx={{ flex: '1 1 5.6rem' }}
             >
               Execute
             </Button>
@@ -298,7 +288,7 @@ export function GraspPanel({ state, onClose }: Props) {
             disabled={actionBusy}
             onClick={state.release}
             title="Open the gripper and lift. Click twice to confirm."
-            sx={{ flex: '1 1 90px' }}
+            sx={{ flex: '1 1 5.6rem' }}
           >
             {state.releaseArmed ? 'Confirm release' : 'Release'}
           </Button>
@@ -351,7 +341,8 @@ export function GraspPanel({ state, onClose }: Props) {
         {run && <Result answer={run} title={state.stream?.action ?? 'Grasp'} />}
         {planAnswer && !state.planning && <Result answer={planAnswer} title="Plan" />}
         {!planAnswer && state.lastAnswer && !state.lastAnswer.ok && <Result answer={state.lastAnswer} title="Grasp" />}
+        </Stack>
       </Stack>
-    </Paper>
+    </OverlayPanel>
   )
 }

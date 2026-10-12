@@ -11,7 +11,6 @@ import Button from '@mui/material/Button'
 import ButtonGroup from '@mui/material/ButtonGroup'
 import Checkbox from '@mui/material/Checkbox'
 import CircularProgress from '@mui/material/CircularProgress'
-import Collapse from '@mui/material/Collapse'
 import Divider from '@mui/material/Divider'
 import FormControlLabel from '@mui/material/FormControlLabel'
 import IconButton from '@mui/material/IconButton'
@@ -1055,21 +1054,17 @@ export default function MapNavTab({
                 Cancel
               </Button>
             }
-            sx={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 3, maxWidth: 'calc(100% - 16px)' }}
+            sx={{ position: 'absolute', top: 1, left: '50%', transform: 'translateX(-50%)', zIndex: 3, maxWidth: 'calc(100% - 16px)' }}
           >
             Click the object on the map
           </Alert>
         )}
 
-        <Collapse
-          in={graspOpen}
-          unmountOnExit
-          data-grasp-panel
-          sx={{ position: 'absolute', bottom: 8, left: 8, width: { xs: 'calc(100% - 16px)', sm: 360 }, zIndex: 2 }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <GraspPanel state={grasp} onClose={() => setGraspOpen(false)} />
-        </Collapse>
+        {graspOpen && (
+          <Box data-grasp-panel sx={{ display: 'contents' }}>
+            <GraspPanel state={grasp} onClose={() => setGraspOpen(false)} />
+          </Box>
+        )}
 
         <OverlayPanel title="Layers" open={showPanel} anchor="right" onClose={() => setPanelOpen(false)}>
           <Box>

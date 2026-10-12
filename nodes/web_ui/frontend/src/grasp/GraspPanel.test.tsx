@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, render as rtlRender, screen } from '@testing-library/react'
+import { ThemeProvider } from '@mui/material/styles'
+import { theme } from '../theme'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { GraspPanel } from './GraspPanel'
 import { DEFAULT_FORM } from './grasp'
@@ -125,5 +129,41 @@ describe('GraspPanel', () => {
     }
     const html = render(state({ stream: { requestId: 'r', action: 'execute', state: 'done', outcome: run } }))
     expect(html).toContain('Grip gentle, holding load 131')
+  })
+})
+
+
+let viewportWidth = 1400
+
+function installMatchMedia(): void {
+  window.matchMedia = ((query: string) => {
+    const min = /min-width:\s*([\d.]+)px/.exec(query)
+    const matches = !(min && viewportWidth < Number(min[1]))
+    return { matches, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(), onchange: null }
+  }) as typeof window.matchMedia
+}
+
+describe('GraspPanel on OverlayPanel', () => {
+  afterEach(cleanup)
+
+  it('is a bottom sheet with a handle on a phone', () => {
+    viewportWidth = 390
+    installMatchMedia()
+    rtlRender(<ThemeProvider theme={theme}><GraspPanel state={state()} onClose={() => undefined} /></ThemeProvider>)
+    const panel = screen.getByTestId('overlay-panel')
+    expect(panel.getAttribute('data-layout')).toBe('phone')
+    expect(screen.getByTestId('overlay-panel-handle')).toBeTruthy()
+    expect(panel.style.background).not.toContain('0.94')
+  })
+
+  it('is a floating card without a handle on desktop, and closes', () => {
+    viewportWidth = 1400
+    installMatchMedia()
+    const onClose = vi.fn()
+    rtlRender(<ThemeProvider theme={theme}><GraspPanel state={state()} onClose={onClose} /></ThemeProvider>)
+    expect(screen.getByTestId('overlay-panel').getAttribute('data-layout')).toBe('desktop')
+    expect(screen.queryByTestId('overlay-panel-handle')).toBeNull()
+    screen.getByLabelText('Close').click()
+    expect(onClose).toHaveBeenCalled()
   })
 })
