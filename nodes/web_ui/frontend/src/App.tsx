@@ -24,6 +24,7 @@ import PlaceIcon from '@mui/icons-material/Place'
 import CameraIcon from '@mui/icons-material/Camera'
 import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
+import FaceIcon from '@mui/icons-material/Face'
 import TabIcon from '@mui/icons-material/Tab'
 import log from './logging'
 import { batteryStatus, cutoffBanner } from './battery/batteryStatus'
@@ -53,6 +54,7 @@ const ArmTab = lazy(() => import('./tabs/ArmTab'))
 const CameraTab = lazy(() => import('./tabs/CameraTab'))
 const SensorGraphTab = lazy(() => import('./tabs/SensorGraphTab'))
 const PoiTab = lazy(() => import('./tabs/PoiTab'))
+const HeadTab = lazy(() => import('./tabs/HeadTab'))
 const RgbdCameraTab = lazy(() => import('./tabs/RgbdCameraTab'))
 const MapNavTab = lazy(() => import('./tabs/MapNavTab'))
 const AgentChatTab = lazy(() => import('./tabs/AgentChatTab'))
@@ -70,6 +72,7 @@ const TAB_ICONS: Record<string, ReactElement> = {
   arm: <PrecisionManufacturingIcon />,
   camera: <VideocamIcon />,
   rgbd_camera: <CameraIcon />,
+  head: <FaceIcon />,
   sensor_graph: <ShowChartIcon />,
   poi: <PlaceIcon />,
   agent_chat: <SmartToyIcon />,
@@ -103,6 +106,7 @@ function renderTab(
     case 'camera': return <CameraTab {...props} />
     case 'sensor_graph': return <SensorGraphTab {...props} />
     case 'poi': return <PoiTab items={poi.items} onShowOnMap={poi.onShowOnMap} />
+    case 'head': return <HeadTab {...props} />
     case 'rgbd_camera': return <RgbdCameraTab {...props} />
     case 'map_nav':
       return <MapNavTab {...props} tilt={tilt} photos={poi.photos} pendingFocus={pendingFocus} onFocusConsumed={onFocusConsumed} />

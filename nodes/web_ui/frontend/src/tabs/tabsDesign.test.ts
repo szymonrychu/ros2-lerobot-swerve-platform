@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { designViolations, SOURCES } from '../layout/designRules'
 import { ARM_COLORS, AXIS_COLOR, GRID_COLOR, SERIES_COLORS } from '../map3d/palette'
 
-const FILES = ['tabs/PoiTab.tsx', 'tabs/RgbdCameraTab.tsx', 'tabs/SensorGraphTab.tsx', 'components3d/RobotModel.tsx']
+const FILES = ['tabs/HeadTab.tsx', 'tabs/PoiTab.tsx', 'tabs/RgbdCameraTab.tsx', 'tabs/SensorGraphTab.tsx', 'components3d/RobotModel.tsx']
 
 describe('tabs follow the design rules', () => {
   it.each(FILES)('%s has no design violations', (path) => {

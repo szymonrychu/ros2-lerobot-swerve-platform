@@ -8,7 +8,7 @@
 export const TAB_STORAGE_KEY = 'web_ui.activeTabId'
 export const PRIMARY_TAB_TYPE = 'map_nav'
 /** Tab types the dashboard renders; others (e.g. the merged-away nav_local, nav_gps, scene3d, robot_status, effector_graph) are dropped. */
-export const SUPPORTED_TAB_TYPES: readonly string[] = ['map_nav', 'arm', 'camera', 'rgbd_camera', 'poi', 'sensor_graph', 'agent_chat']
+export const SUPPORTED_TAB_TYPES: readonly string[] = ['map_nav', 'arm', 'camera', 'rgbd_camera', 'head', 'poi', 'sensor_graph', 'agent_chat']
 
 /** Minimal tab shape the helpers need (a TabConfig satisfies it). */
 export interface TabRef {

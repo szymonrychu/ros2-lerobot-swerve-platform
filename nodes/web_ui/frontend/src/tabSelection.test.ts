@@ -110,7 +110,7 @@ describe('supportedTabs', () => {
 
   it('lists exactly the kept tab types', () => {
     expect([...SUPPORTED_TAB_TYPES].sort()).toEqual(
-      ['agent_chat', 'arm', 'camera', 'map_nav', 'poi', 'rgbd_camera', 'sensor_graph'].sort(),
+      ['agent_chat', 'arm', 'camera', 'head', 'map_nav', 'poi', 'rgbd_camera', 'sensor_graph'].sort(),
     )
   })
 })

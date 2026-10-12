@@ -63,6 +63,10 @@ export interface TabConfig {
   // arm tab: cameras, arm-glued 3D view and arm control (backend fills defaults for unset fields)
   gripper_camera_topic?: string // sensor_msgs/CompressedImage of the gripper camera
   overview_camera_topic?: string // sensor_msgs/CompressedImage of the overview camera
+  rgb_camera_topic?: string // head tab: sensor_msgs/CompressedImage of the head RGB camera
+  tof_depth_topic?: string // head tab: ToF depth topic (payload carries depth_preview_b64)
+  tof_amplitude_topic?: string // head tab: ToF amplitude topic (payload carries jpeg_b64)
+  tof_range_m?: number // head tab: ToF maximum range in metres
   gripper_camera_mount?: CameraMount // gripper camera pose in the URDF link gripper_link (same as mcp_server)
   active_source_topic?: string // default /filter/active_source (which command source drives the arm)
   arm_home_service?: string // default /arm/home
