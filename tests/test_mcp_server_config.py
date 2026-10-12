@@ -795,6 +795,18 @@ def test_mcp_server_states_no_hardcoded_front_camera_size() -> None:
     assert "480x360, 5 Hz" in web_readme and "640x480, 15 Hz" not in web_readme
 
 
+def test_mcp_server_get_camera_image_docs_name_the_imx219_left_camera() -> None:
+    """No text calls the front camera a 640x480 Camera Module 3, and calibrated_image is not given as 640x480 here."""
+    mcp_dir = REPO_ROOT / "nodes" / "mcp_server"
+    texts = {str(p): p.read_text() for p in [mcp_dir / "README.md", *(mcp_dir / "mcp_server").glob("*.py")]}
+    for name, text in texts.items():
+        assert "Camera Module 3" not in text, name
+        assert "640x480 overhead" not in text, name
+        assert "640x480 here" not in text, name
+    row = next(line for line in texts[str(mcp_dir / "README.md")].splitlines() if line.startswith("| `get_camera_image("))
+    assert "IMX219" in row and "480x360" in row
+
+
 def test_mcp_gripper_closed_target_is_inside_the_follower_gripper_command_range() -> None:
     """Direct (autonomy) gripper commands are clamped to the follower servo's command range: -0.165 rad (steps
     2048 + rad * 4096 / 2pi, not inverted) must lie above command_min_steps, and the README documents the steps."""
