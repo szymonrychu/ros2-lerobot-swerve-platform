@@ -755,3 +755,11 @@ def test_prompt_teaches_the_time_budget_and_repeatable_raises() -> None:
     assert "raise_phase_budget" in lower and "more than once per phase" in lower
     assert "(once per phase, with a" not in lower
     assert "never past 90 minutes" in lower
+
+
+def test_prompt_plans_time_and_caps_at_twice_the_honest_estimate() -> None:
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    assert "time_budget_min is required" in lower
+    assert "time_budget_min and the caps at about twice your honest estimate" in lower
+    assert "prefer overshooting and delivering to undershooting and stopping" in lower
+    assert "raise budgets early with agent.raise_phase_budget rather than end unfinished" in lower

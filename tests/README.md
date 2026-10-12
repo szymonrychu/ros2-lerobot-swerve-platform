@@ -547,7 +547,7 @@ Covers:
   (never negative); the timeout `error` event names the cut-off call (`cut_off_call` name and elapsed) and stays plain with no call in flight;
   the prompt states the rule; the prompt asks set_task_plan for `time_budget_min` for the whole task (at most
   `max_instruction_time_min`), names the pre-plan watchdog (`instruction_timeout_s`), and says raise_phase_budget may be called more
-  than once per phase and extends the time budget never past the ceiling (`test_prompt_teaches_the_time_budget_and_repeatable_raises`)
+  than once per phase and extends the time budget never past the ceiling (`test_prompt_teaches_the_time_budget_and_repeatable_raises`); it names time_budget_min as required, asks for time_budget_min and the caps at about twice the honest estimate, to prefer overshooting and delivering to undershooting and stopping, and to raise budgets early with raise_phase_budget rather than end unfinished (`test_prompt_plans_time_and_caps_at_twice_the_honest_estimate`)
 - shutdown stop (`test_robot_stop.py`, `test_runner.py`): a refused connection is reported as `unreachable` with a plain
   reason (no raw `ExceptionGroup`), tool errors of a reachable server are not; at shutdown an unreachable mcp_server is
   logged at INFO (an ERROR outside shutdown) and a hanging stop is bounded by `shutdown_stop_timeout_s`

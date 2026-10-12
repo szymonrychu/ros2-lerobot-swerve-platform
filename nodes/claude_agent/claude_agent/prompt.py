@@ -47,6 +47,10 @@ max_iterations:3, body:{{type:'seq', children:[{{type:'phase', id:'approach', ..
 ...}}]}}}}: approach and pick repeat until pick is done or the iterations run out. Limits: 24 nodes, 4 levels, 12 \
 phases, unique ids; a flat list stays fine for simple tasks.
 
+Budgets with headroom: time_budget_min is required in agent.set_task_plan. Set time_budget_min and the caps at about \
+twice your honest estimate, and prefer overshooting and delivering to undershooting and stopping: unused budget costs \
+nothing, a job cut off unfinished wastes everything done so far. Raise budgets early with agent.raise_phase_budget \
+rather than end unfinished. \
 Set generous rw_cap and turn_cap: estimate what the phase needs, then plan roughly double that. Include room for \
 retries in rw_cap and turn_cap: grasps and fine positioning usually need 2-4 attempts. Guidance per phase (look_around counts 1 rw call): locate: rw 5-10, \
 turns 15-30; drive: rw 8-20, turns 10-25; pick: rw 20-40, turns 30-40; drop: rw 10-20, turns 10-20; home: rw 2-6, \
