@@ -70,4 +70,7 @@ describe('design rules', () => {
   it('toolbarGroups.ts has no violations', () => {
     expect(designViolations('map/toolbarGroups.ts', SOURCES['map/toolbarGroups.ts'])).toEqual([])
   })
+  it('MapNavTab.tsx has no violations', () => {
+    expect(designViolations('tabs/MapNavTab.tsx', SOURCES['tabs/MapNavTab.tsx'])).toEqual([])
+  })
 })

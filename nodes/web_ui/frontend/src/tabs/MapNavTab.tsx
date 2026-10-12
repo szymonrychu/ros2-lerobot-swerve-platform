@@ -725,7 +725,7 @@ export default function MapNavTab({
       <Paper
         square
         elevation={0}
-        sx={{ flexShrink: 0, px: { xs: 1, sm: 1.5 }, py: 1, borderBottom: 1, borderColor: 'divider' }}
+        sx={{ flexShrink: 0, px: { xs: 1, sm: 2 }, py: 1, borderBottom: 1, borderColor: 'divider' }}
       >
         <Stack
           direction="row"
@@ -1066,7 +1066,7 @@ export default function MapNavTab({
                 bottom: 2,
                 px: 0.5,
                 color: 'text.secondary',
-                bgcolor: 'rgba(0,0,0,0.45)',
+                bgcolor: 'background.paper',
                 pointerEvents: 'none',
                 fontSize: '0.65rem',
               }}
@@ -1096,7 +1096,7 @@ export default function MapNavTab({
           >
             <Alert
               onPointerDown={(e) => e.stopPropagation()}
-              variant="filled"
+              variant="standard"
               severity={action.state === 'ok' ? 'success' : action.state === 'error' ? 'error' : 'info'}
               onClose={busy ? undefined : () => setAction({ state: 'idle', message: '' })}
               sx={{ width: '100%' }}
