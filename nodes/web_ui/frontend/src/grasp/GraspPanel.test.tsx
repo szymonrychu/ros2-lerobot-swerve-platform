@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render as rtlRender, screen } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
-import { PANEL_BG, theme } from '../theme'
+import { theme } from '../theme'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { GraspPanel } from './GraspPanel'
 import { DEFAULT_FORM } from './grasp'
@@ -153,7 +153,7 @@ describe('GraspPanel on OverlayPanel', () => {
     const panel = screen.getByTestId('overlay-panel')
     expect(panel.getAttribute('data-layout')).toBe('phone')
     expect(screen.getByTestId('overlay-panel-handle')).toBeTruthy()
-    expect(panel.style.background).toBe(PANEL_BG)
+    expect(panel.style.background).toBe('rgb(22, 24, 29)') // PANEL_BG, normalised by jsdom
   })
 
   it('hides the form but keeps the pick banner while picking on a phone', () => {

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
-import { theme, PANEL_BG, TOUCH_TARGET_PX } from '../theme'
+import { theme, PANEL_BG, TOKENS, TOUCH_TARGET_PX } from '../theme'
 import { useLayout } from './useLayout'
 import { OverlayPanel } from './OverlayPanel'
 
@@ -129,9 +129,9 @@ describe('OverlayPanel', () => {
   })
 
   it('uses the PANEL_BG token as background', () => {
-    expect(PANEL_BG).toBe('rgba(22, 27, 34, 0.92)')
+    expect(PANEL_BG).toBe(TOKENS.bgPanel)
     renderWithTheme(<OverlayPanel title="T" open anchor="left">b</OverlayPanel>)
-    expect(screen.getByTestId('overlay-panel').style.background).toBe(PANEL_BG)
+    expect(screen.getByTestId('overlay-panel').style.background).toBe('rgb(22, 24, 29)') // PANEL_BG, normalised by jsdom
   })
 
   it.each([400, 1400])('touch targets are at least TOUCH_TARGET_PX at %i px', (width) => {

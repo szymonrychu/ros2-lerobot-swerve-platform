@@ -20,7 +20,7 @@ const GUARDED_FILES = [
   'components/GpsChip.tsx',
   'overlays/OverlayBar.tsx',
 ]
-const PANEL_BG_LITERAL = 'rgba(22, 27, 34'
+const PANEL_BG_LITERAL = '#16181d'
 const THEME_FILE = 'theme.ts'
 
 /**
@@ -74,7 +74,7 @@ describe('hard-coded layout sizes', () => {
     })
   }
 
-  it('the PANEL_BG rgba literal appears only in theme.ts', () => {
+  it('the PANEL_BG literal appears only in theme.ts', () => {
     const offenders = Object.keys(SOURCES).filter((f) => f !== THEME_FILE && SOURCES[f].includes(PANEL_BG_LITERAL))
     expect(offenders).toEqual([])
     expect(source(THEME_FILE)).toContain(PANEL_BG_LITERAL)
