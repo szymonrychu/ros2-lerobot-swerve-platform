@@ -6,6 +6,8 @@ import type { Photo } from './api'
 export const WEDGE_LENGTH_M = 0.175
 /** Display-only wedge width when the field of view is unknown (60 deg; not data, the wedge is dashed). */
 export const DEFAULT_HFOV_RAD = Math.PI / 3
+/** Circumradius of the triangle that marks a photo on the map, m (readable at phone zoom). */
+export const PHOTO_MARKER_RADIUS_M = 0.07
 /** Most photos the map layer draws. */
 export const LAYER_MAX_PHOTOS = 1000
 const SECONDS_PER_HOUR = 3600
@@ -36,6 +38,20 @@ export function photoWedge(photo: Photo): Wedge | null {
   const hfov = v.hfov ?? DEFAULT_HFOV_RAD
   const edge = (a: number): Vec2Tuple => [v.x + WEDGE_LENGTH_M * Math.cos(a), v.y + WEDGE_LENGTH_M * Math.sin(a)]
   return { vertices: [[v.x, v.y], edge(v.yaw + hfov / 2), edge(v.yaw - hfov / 2)], dashed: v.hfov === null }
+}
+
+/**
+ * The triangle marker (KIND_SHAPE.photo) of a located photo.
+ *
+ * @param photo - the photo
+ * @returns three map-frame vertices on a circle of PHOTO_MARKER_RADIUS_M around the camera position, the first along the yaw; null when unlocated
+ */
+export function photoMarker(photo: Photo): [Vec2Tuple, Vec2Tuple, Vec2Tuple] | null {
+  const v = photo.view
+  if (v === null) return null
+  const vertex = (a: number): Vec2Tuple => [v.x + PHOTO_MARKER_RADIUS_M * Math.cos(a), v.y + PHOTO_MARKER_RADIUS_M * Math.sin(a)]
+  const third = (2 * Math.PI) / 3
+  return [vertex(v.yaw), vertex(v.yaw + third), vertex(v.yaw - third)]
 }
 
 /**

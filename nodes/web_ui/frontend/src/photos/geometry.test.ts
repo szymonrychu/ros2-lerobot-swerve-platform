@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Photo, PhotoView } from './api'
-import { ageCutoff, cameraColor, DEFAULT_HFOV_RAD, newestPhotos, photoWedge, WEDGE_LENGTH_M } from './geometry'
+import { designViolations, SOURCES } from '../layout/designRules'
+import { KIND_SHAPE } from '../poi/style'
+import { ageCutoff, cameraColor, DEFAULT_HFOV_RAD, newestPhotos, PHOTO_MARKER_RADIUS_M, photoMarker, photoWedge, WEDGE_LENGTH_M } from './geometry'
 
 function view(over: Partial<PhotoView> = {}): PhotoView {
   return { x: 1, y: 2, z: 0.3, yaw: 0, pitch: 0.1, hfov: Math.PI / 2, source: 'camera_mount', ...over }
@@ -68,5 +70,26 @@ describe('layer helpers', () => {
   it('gives every camera the one photo colour', () => {
     expect(cameraColor('head')).toBe(cameraColor('head'))
     expect(cameraColor('head')).toBe(cameraColor('gripper'))
+  })
+})
+
+describe('photoMarker (KIND_SHAPE.photo triangle on the map)', () => {
+  it('is a triangle of the photo marker radius around the camera position, apex along the yaw', () => {
+    expect(KIND_SHAPE.photo).toBe('triangle')
+    const m = photoMarker(photo('a', { view: view({ yaw: Math.PI / 2 }) }))!
+    expect(m).toHaveLength(3)
+    for (const [x, y] of m) expect(Math.hypot(x - 1, y - 2)).toBeCloseTo(PHOTO_MARKER_RADIUS_M)
+    expect(m[0][0]).toBeCloseTo(1)
+    expect(m[0][1]).toBeCloseTo(2 + PHOTO_MARKER_RADIUS_M)
+  })
+
+  it('is null for an unlocated photo', () => {
+    expect(photoMarker(photo('a', { x: null, y: null, view: null }))).toBeNull()
+  })
+
+  it('is drawn by PhotoLayer from photoMarker, free of design-rule violations', () => {
+    const path = 'photos/PhotoLayer.tsx'
+    expect(SOURCES[path]).toContain('photoMarker')
+    expect(designViolations(path, SOURCES[path])).toEqual([])
   })
 })
