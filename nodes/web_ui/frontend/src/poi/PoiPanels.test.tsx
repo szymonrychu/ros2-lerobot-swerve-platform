@@ -45,7 +45,7 @@ describe.each([
     const panel = screen.getByTestId('overlay-panel')
     expect(panel.getAttribute('data-layout')).toBe(cls)
     expect(panel.contains(screen.getByText('Door'))).toBe(true)
-    expect(screen.queryByTestId('overlay-panel-handle') !== null).toBe(cls === 'phone')
+    expect(screen.queryByTestId('overlay-panel-handle')).toBeNull()
   })
 
   it('list shows only a toggle when closed, and toggling calls onToggle', () => {

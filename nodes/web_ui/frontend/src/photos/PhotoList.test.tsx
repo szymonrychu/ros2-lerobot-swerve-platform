@@ -78,7 +78,7 @@ describe.each([
     const panel = screen.getByTestId('overlay-panel')
     expect(panel.getAttribute('data-layout')).toBe(cls)
     expect(panel.contains(screen.getByTestId('photo-list-panel'))).toBe(true)
-    expect(screen.queryByTestId('overlay-panel-handle') !== null).toBe(cls === 'phone')
+    expect(screen.queryByTestId('overlay-panel-handle')).toBeNull()
     const img = document.querySelector('img') as HTMLElement
     expect(getComputedStyle(img).width).toBe('4.5rem')
   })

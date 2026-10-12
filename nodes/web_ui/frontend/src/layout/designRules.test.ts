@@ -113,3 +113,10 @@ describe('designViolations on shipped sources', () => {
     expect(designViolations(file, SOURCES[file])).toEqual([])
   })
 })
+
+describe('SOURCES keys', () => {
+  it('files of the layout directory are keyed with the layout/ prefix', () => {
+    expect(SOURCES['layout/OverlayPanel.tsx']).toBeDefined()
+    expect(Object.keys(SOURCES).some((f) => f.startsWith('./'))).toBe(false)
+  })
+})

@@ -5,8 +5,10 @@ import { ThemeProvider } from '@mui/material/styles'
 import { theme, PANEL_BG, TOKENS, TOUCH_TARGET_PX } from '../theme'
 import { useLayout } from './useLayout'
 import { OverlayPanel } from './OverlayPanel'
+import { designViolations, SOURCES } from './designRules'
 
 let viewportWidth = 1400
+let coarsePointer = false
 
 /** Minimal matchMedia: evaluates min-width / max-width px conditions against viewportWidth. */
 function installMatchMedia(): void {
@@ -16,6 +18,7 @@ function installMatchMedia(): void {
       const max = /max-width:\s*([\d.]+)px/.exec(query)
       if (min && viewportWidth < Number(min[1])) return false
       if (max && viewportWidth > Number(max[1])) return false
+      if (/pointer:\s*coarse/.test(query)) return coarsePointer
       return true
     }
     return {
@@ -39,7 +42,10 @@ function renderWithTheme(ui: React.ReactElement) {
   return render(<ThemeProvider theme={theme}>{ui}</ThemeProvider>)
 }
 
-beforeEach(() => installMatchMedia())
+beforeEach(() => {
+  coarsePointer = false
+  installMatchMedia()
+})
 afterEach(() => cleanup())
 
 describe('useLayout', () => {
@@ -65,14 +71,15 @@ describe('OverlayPanel', () => {
     expect(screen.queryByTestId('overlay-panel')).toBeNull()
   })
 
-  it('phone: bottom sheet with drag handle and 60dvh max height', () => {
+  it('phone: bottom sheet with a square top, no handle, 60dvh max height', () => {
     viewportWidth = 400
     renderWithTheme(<OverlayPanel title="T" open anchor="left">body</OverlayPanel>)
     const panel = screen.getByTestId('overlay-panel')
     expect(panel.getAttribute('data-layout')).toBe('phone')
     expect(panel.style.maxHeight).toBe('60dvh')
     expect(panel.style.bottom).toBe('0px')
-    expect(screen.getByTestId('overlay-panel-handle')).toBeTruthy()
+    expect(panel.style.borderRadius).toBe('0')
+    expect(screen.queryByTestId('overlay-panel-handle')).toBeNull()
   })
 
   it.each([
@@ -140,9 +147,32 @@ describe('OverlayPanel', () => {
     const close = screen.getByRole('button', { name: 'Close' })
     expect(parseFloat(close.style.minWidth)).toBeGreaterThanOrEqual(TOUCH_TARGET_PX)
     expect(parseFloat(close.style.minHeight)).toBeGreaterThanOrEqual(TOUCH_TARGET_PX)
-    if (width < 600) {
-      const handle = screen.getByTestId('overlay-panel-handle')
-      expect(parseFloat(handle.style.minHeight)).toBeGreaterThanOrEqual(TOUCH_TARGET_PX)
+  })
+
+  it('header is panelHeaderPx high on a fine pointer, TOUCH_TARGET_PX on a coarse one', () => {
+    const { unmount } = renderWithTheme(<OverlayPanel title="T" open anchor="left">b</OverlayPanel>)
+    expect(screen.getByTestId('overlay-panel-header').style.minHeight).toBe(`${TOKENS.panelHeaderPx}px`)
+    unmount()
+    coarsePointer = true
+    renderWithTheme(<OverlayPanel title="T" open anchor="left">b</OverlayPanel>)
+    expect(screen.getByTestId('overlay-panel-header').style.minHeight).toBe(`${TOUCH_TARGET_PX}px`)
+  })
+
+  it('renders the actions slot in the header', () => {
+    renderWithTheme(<OverlayPanel title="T" open anchor="left" actions={<button>Act</button>}>b</OverlayPanel>)
+    expect(screen.getByTestId('overlay-panel-header').contains(screen.getByRole('button', { name: 'Act' }))).toBe(true)
+  })
+
+  it('is flat: no shadow, no backdrop filter, opaque background', () => {
+    renderWithTheme(<OverlayPanel title="T" open anchor="left">b</OverlayPanel>)
+    const panel = screen.getByTestId('overlay-panel')
+    expect(panel.style.backdropFilter ?? '').toBe('')
+    expect(panel.style.boxShadow).toBe('')
+  })
+
+  it('passes the design rules', () => {
+    for (const file of ['layout/OverlayPanel.tsx', 'layout/ConfirmDialog.tsx']) {
+      expect(designViolations(file, SOURCES[file])).toEqual([])
     }
   })
 })

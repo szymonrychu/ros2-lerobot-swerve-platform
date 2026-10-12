@@ -1,11 +1,12 @@
 /**
- * Floating panel drawn over the map or a 3D view. Phone: bottom sheet with a drag handle (max 60dvh).
+ * Floating panel drawn over the map or a 3D view. Phone: bottom sheet (max 60dvh).
+ * Flat: opaque background, 1 px border, radius 2, no shadow or blur.
  * Tablet and desktop: floating card of width clamp(280px, 30vw, 380px) anchored left, right or bottom.
  */
 import type { CSSProperties, ReactNode } from 'react'
-import { Box, IconButton, Typography } from '@mui/material'
+import { Box, IconButton, Typography, useMediaQuery } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
-import { PANEL_BG, TOUCH_TARGET_PX } from '../theme'
+import { PANEL_BG, TOKENS, TOUCH_TARGET_PX } from '../theme'
 import { useLayout } from './useLayout'
 
 const CARD_WIDTH = 'clamp(280px, 30vw, 380px)'
@@ -25,6 +26,8 @@ export interface OverlayPanelProps {
   onClose?: () => void
   /** Tablet and desktop only: lay the card out in the normal flow of its parent (a docked column) instead of floating. Phone stays a bottom sheet. */
   docked?: boolean
+  /** Controls shown on the right of the header, before the close button. */
+  actions?: ReactNode
   children?: ReactNode
 }
 
@@ -32,14 +35,15 @@ export interface OverlayPanelProps {
  * @param props see OverlayPanelProps.
  * @returns the panel, or null when closed.
  */
-export function OverlayPanel({ title, open, anchor, onClose, docked = false, children }: OverlayPanelProps) {
+export function OverlayPanel({ title, open, anchor, onClose, docked = false, actions, children }: OverlayPanelProps) {
   const layout = useLayout()
+  const coarse = useMediaQuery('(pointer: coarse)')
   if (!open) return null
 
   const phone = layout === 'phone'
   let position: CSSProperties
   if (phone) {
-    position = { left: 0, right: 0, bottom: 0, maxHeight: SHEET_MAX_HEIGHT, borderRadius: '16px 16px 0 0' }
+    position = { left: 0, right: 0, bottom: 0, maxHeight: SHEET_MAX_HEIGHT, borderRadius: '0' }
   } else if (docked) {
     position = { position: 'relative', width: '100%', maxHeight: '75dvh' }
   } else if (anchor === 'bottom') {
@@ -54,26 +58,24 @@ export function OverlayPanel({ title, open, anchor, onClose, docked = false, chi
       data-layout={layout}
       onPointerDown={(e) => e.stopPropagation()}
       style={{ position: 'absolute', zIndex: Z_INDEX, flexShrink: 0, background: PANEL_BG, ...position }}
-      sx={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', border: 1, borderColor: 'divider', borderRadius: 2, backdropFilter: 'blur(6px)' }}
+      sx={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', border: 1, borderColor: 'divider', borderRadius: `${TOKENS.radius}px` }}
     >
-      {phone && (
-        <Box
-          data-testid="overlay-panel-handle"
-          style={{ minHeight: TOUCH_TARGET_PX }}
-          sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, touchAction: 'none' }}
-        >
-          <Box sx={{ width: 40, height: 4, borderRadius: 2, bgcolor: 'text.secondary', opacity: 0.6 }} />
-        </Box>
-      )}
-      <Box sx={{ display: 'flex', alignItems: 'center', px: 1.5, flexShrink: 0 }}>
-        <Typography variant="overline" sx={{ flex: 1 }}>{title}</Typography>
+      <Box
+        data-testid="overlay-panel-header"
+        style={{ minHeight: coarse ? TOUCH_TARGET_PX : TOKENS.panelHeaderPx }}
+        sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, flexShrink: 0, borderBottom: 1, borderColor: 'divider' }}
+      >
+        <Typography noWrap sx={{ flex: 1, fontSize: TOKENS.fontSizes.sm, fontWeight: TOKENS.fontWeights.medium, color: 'text.secondary' }}>
+          {title}
+        </Typography>
+        {actions}
         {onClose && (
           <IconButton aria-label="Close" size="small" onClick={onClose} style={TOUCH_STYLE}>
             <CloseIcon fontSize="small" />
           </IconButton>
         )}
       </Box>
-      <Box sx={{ overflow: 'auto', px: 1.5, pb: 1.5 }}>{children}</Box>
+      <Box sx={{ overflow: 'auto', p: 1 }}>{children}</Box>
     </Box>
   )
 }

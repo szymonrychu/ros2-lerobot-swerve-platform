@@ -74,7 +74,7 @@ describe.each([
     const overlay = screen.getByTestId('overlay-panel')
     expect(overlay.getAttribute('data-layout')).toBe(cls)
     expect(overlay.contains(screen.getByTestId('photo-panel'))).toBe(true)
-    expect(screen.queryByTestId('overlay-panel-handle') !== null).toBe(cls === 'phone')
+    expect(screen.queryByTestId('overlay-panel-handle')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalledTimes(1)
     const img = screen.getByRole('img')

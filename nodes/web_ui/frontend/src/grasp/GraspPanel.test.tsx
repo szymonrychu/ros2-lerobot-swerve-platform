@@ -146,13 +146,13 @@ function installMatchMedia(): void {
 describe('GraspPanel on OverlayPanel', () => {
   afterEach(cleanup)
 
-  it('is a bottom sheet with a handle on a phone', () => {
+  it('is a bottom sheet without a handle on a phone', () => {
     viewportWidth = 390
     installMatchMedia()
     rtlRender(<ThemeProvider theme={theme}><GraspPanel state={state()} onClose={() => undefined} /></ThemeProvider>)
     const panel = screen.getByTestId('overlay-panel')
     expect(panel.getAttribute('data-layout')).toBe('phone')
-    expect(screen.getByTestId('overlay-panel-handle')).toBeTruthy()
+    expect(screen.queryByTestId('overlay-panel-handle')).toBeNull()
     expect(panel.style.background).toBe('rgb(22, 24, 29)') // PANEL_BG, normalised by jsdom
   })
 
