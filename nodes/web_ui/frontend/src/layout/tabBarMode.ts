@@ -2,23 +2,21 @@ import type { LayoutClass } from './useLayout'
 
 export interface TabBarMode {
   drawer: boolean
-  showIcons: boolean
-  showLabels: boolean
   scrollable: boolean
 }
 
 /**
  * Tab bar presentation per layout class.
  * @param layout - current layout class
- * @returns phone: drawer plus label-only scrollable tabs; tablet: scrollable icon+label tabs; desktop: full icon+label tabs.
+ * @returns phone: drawer plus label-only scrollable tabs; tablet: scrollable label-only tabs; desktop: label-only tabs, no scrolling.
  */
 export function tabBarMode(layout: LayoutClass): TabBarMode {
   switch (layout) {
     case 'phone':
-      return { drawer: true, showIcons: false, showLabels: true, scrollable: true }
+      return { drawer: true, scrollable: true }
     case 'tablet':
-      return { drawer: false, showIcons: true, showLabels: true, scrollable: true }
+      return { drawer: false, scrollable: true }
     case 'desktop':
-      return { drawer: false, showIcons: true, showLabels: true, scrollable: false }
+      return { drawer: false, scrollable: false }
   }
 }
