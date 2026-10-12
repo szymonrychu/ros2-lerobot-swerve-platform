@@ -84,6 +84,7 @@ POI_TAB_DEFAULTS: dict[str, str] = {key: MAP_NAV_DEFAULTS[key] for key in ("poi_
 ARM_TAB_DEFAULTS: dict[str, str] = {
     "gripper_camera_topic": "/camera_0/image_raw/compressed",
     "overview_camera_topic": "/overview_camera/image_raw/compressed",
+    "arm_urdf": MAP_NAV_DEFAULTS["arm_urdf"],
     "arm_joint_states_topic": MAP_NAV_DEFAULTS["arm_joint_states_topic"],
     "active_source_topic": "/filter/active_source",
     "grasp_command_topic": MAP_NAV_DEFAULTS["grasp_command_topic"],

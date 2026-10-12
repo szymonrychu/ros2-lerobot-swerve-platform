@@ -1338,6 +1338,7 @@ ros2_nodes:
           label: "Arm"
           gripper_camera_topic: /camera_0/image_raw/compressed
           overview_camera_topic: /overview_camera/image_raw/compressed
+          arm_urdf: so101_arm.urdf
           arm_joint_states_topic: /follower/joint_states
           arm_offset: [0.0592, -0.05, 0.100]
           gripper_camera_mount:

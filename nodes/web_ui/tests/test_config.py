@@ -226,6 +226,7 @@ def test_arm_tab_defaults() -> None:
     assert tab.gripper_camera_topic == "/camera_0/image_raw/compressed"
     assert tab.overview_camera_topic == "/overview_camera/image_raw/compressed"
     assert tab.arm_joint_states_topic == "/follower/joint_states"
+    assert tab.arm_urdf == "so101_arm.urdf"
     assert tab.arm_offset == (0.0592, -0.05, 0.100)
     assert tab.gripper_camera_mount is not None
     assert tab.gripper_camera_mount.xyz == (-0.0046, 0.0364, -0.0364)
@@ -274,3 +275,4 @@ def test_default_yaml_arm_tab_replaces_gripper_cam_tab() -> None:
     assert ids.index("arm") == 1
     assert cfg.tabs[1].type == "arm" and cfg.tabs[1].label == "Arm"
     assert ids.index("overview_camera") == 2
+    assert cfg.tabs[1].arm_urdf == "so101_arm.urdf"
