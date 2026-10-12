@@ -71,6 +71,7 @@ import type { Photo } from '../photos/api'
 import { LAYER_MAX_PHOTOS, PHOTO_AGE_LABELS, PHOTO_AGES, type PhotoAge } from '../photos/geometry'
 import type { PendingFocus } from '../poi/poiItems'
 import { usePhotoLayer } from '../photos/usePhotoLayer'
+import { resolveFocus } from '../map3d/mapFocus'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
 import { PoiLegend } from '../poi/PoiLegend'
 import { canFinishArea, isClick } from '../poi/editor'
@@ -154,7 +155,7 @@ function Centered({ children }: { children: ReactNode }) {
   )
 }
 
-export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(undefined) }: Props) {
+export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(undefined), pendingFocus = null, onFocusConsumed }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const controllerRef = useRef<SceneController | null>(null)
   const pointersRef = useRef<Set<number>>(new Set())
@@ -278,6 +279,23 @@ export default function MapNavTab({ tab, topicData, publish, tilt = tiltStatus(u
     (id: string) => setPickedPhoto(layerPhotos.photos.find((p) => p.id === id) ?? null),
     [layerPhotos.photos],
   )
+
+  // "Show on map" from the POI tab: make the target's layer visible, centre on it and open its panel (the popup).
+  useEffect(() => {
+    if (!pendingFocus) return
+    if (pendingFocus.kind === 'photo') {
+      if (!layers.photos) setLayers((s) => ({ ...s, photos: true }))
+      if (photoAge !== 'all') setPhotoAge('all')
+    } else if (!layers.pois) {
+      setLayers((s) => ({ ...s, pois: true }))
+    }
+    const target = resolveFocus(pendingFocus, poi.pois, layerPhotos.photos)
+    if (!target) return
+    controllerRef.current?.centerOn(target.point)
+    if (target.photo) setPickedPhoto(target.photo)
+    else poi.select(target.poiId)
+    onFocusConsumed?.()
+  }, [pendingFocus, layers.photos, layers.pois, photoAge, poi.pois, layerPhotos.photos, onFocusConsumed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const armMount = useMemo(() => tab.arm_offset ?? DEFAULT_ARM_OFFSET, [tab.arm_offset])
   const grasp = useGrasp({ tabId: tab.id, topicData, mount: armMount, notify: setAction })
