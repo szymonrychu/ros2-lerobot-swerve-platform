@@ -8,22 +8,18 @@ import type { ReactNode } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import ButtonGroup from '@mui/material/ButtonGroup'
 import Checkbox from '@mui/material/Checkbox'
 import CircularProgress from '@mui/material/CircularProgress'
 import Divider from '@mui/material/Divider'
 import FormControlLabel from '@mui/material/FormControlLabel'
-import IconButton from '@mui/material/IconButton'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Paper from '@mui/material/Paper'
 import Snackbar from '@mui/material/Snackbar'
 import Stack from '@mui/material/Stack'
-import Tooltip from '@mui/material/Tooltip'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
-import StopCircleIcon from '@mui/icons-material/StopCircle'
 import PlaceIcon from '@mui/icons-material/Place'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import MyLocationIcon from '@mui/icons-material/MyLocation'
@@ -42,7 +38,6 @@ import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd'
 import BackHandIcon from '@mui/icons-material/BackHand'
-import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import log from '../logging'
 import { Pose2D, Vec2, yawToQuaternion } from '../map/mapMath'
 import { ActionResult, confirmClick, isCleared, parseActionResult, RESET_CONFIRM_MS } from '../map/mapActions'
@@ -50,7 +45,10 @@ import { baseMarkerLabel, basePlacement } from '../gps/basePlacement'
 import { BaseGpsPayload, GPS_BASE_STATUS_KEY, isBaseSample } from '../gps/gpsStatus'
 import { anchorSummary, validAnchor } from '../map3d/geo'
 import { goalButtonState } from '../map/goalControl'
-import { anyInRow, splitToolbar, TOOLBAR_GROUPS } from '../map/toolbarGroups'
+import { anyInRow, splitToolbar, stopGroupIds, TOOLBAR_GROUPS } from '../map/toolbarGroups'
+import { MapStatusLine } from '../map/MapStatusLine'
+import { ToolButton, ToolGroup } from '../components/ToolButton'
+import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { MapSidebar } from '../layout/MapSidebar'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { useLayout } from '../layout/useLayout'
@@ -91,6 +89,7 @@ const MapScene = lazy(() => import('../map3d/MapScene'))
 
 const ROBOT_POSE_TOPIC = '/web_ui/robot_pose'
 const GPS_ANCHOR_TOPIC = '/web_ui/gps_anchor'
+const STOP_SX = { px: 3, flexShrink: 0, fontWeight: 500, letterSpacing: 0 }
 const TOUCH_TARGET = '2.75rem' // 44 px minimum touch target
 const ROBOT_FIT_SPAN_M = 4 // view size around the robot when there is no map to fit
 const SNACKBAR_MS: Record<ActionResult['state'], number | null> = { idle: null, busy: null, ok: 4000, error: 10000 }
@@ -162,7 +161,7 @@ export default function MapNavTab({
   const [goalMode, setGoalMode] = useState(false)
   const [draft, setDraft] = useState<GoalDraft | null>(null)
   const [action, setAction] = useState<ActionResult>({ state: 'idle', message: '' })
-  const [resetArmedAt, setResetArmedAt] = useState<number | null>(null)
+  const [resetOpen, setResetOpen] = useState(false)
   const [setHomeArmedAt, setSetHomeArmedAt] = useState<number | null>(null)
   const [armReady, setArmReady] = useState(false)
   const [layers, setLayers] = useState<LayerState>(() => readLayerState(browserStorage()))
@@ -233,12 +232,7 @@ export default function MapNavTab({
     )
   }, [mapBox])
 
-  // Armed two-step buttons disarm after the confirm window.
-  useEffect(() => {
-    if (resetArmedAt === null) return
-    const timer = setTimeout(() => setResetArmedAt(null), RESET_CONFIRM_MS)
-    return () => clearTimeout(timer)
-  }, [resetArmedAt])
+  // The armed set-home button disarms after the confirm window.
   useEffect(() => {
     if (setHomeArmedAt === null) return
     const timer = setTimeout(() => setSetHomeArmedAt(null), RESET_CONFIRM_MS)
@@ -492,10 +486,10 @@ export default function MapNavTab({
     }
   }
 
-  const onResetClick = () => {
-    const next = confirmClick(resetArmedAt, Date.now())
-    setResetArmedAt(next.armedAt)
-    if (next.fire) void runAction('/api/map/reset', 'Resetting map...')
+  const togglePoiMode = (mode: 'add_point' | 'add_area') => {
+    setGoalMode(false)
+    setLayers((s) => ({ ...s, pois: true }))
+    poi.setMode(poi.mode === mode ? 'none' : mode)
   }
 
   const onSetHomeClick = () => {
@@ -517,10 +511,15 @@ export default function MapNavTab({
   }
 
   const busy = action.state === 'busy'
-  const resetArmed = resetArmedAt !== null
+  const stopIds = stopGroupIds(grasp.executing)
   const setHomeArmed = setHomeArmedAt !== null
   const snackbarOpen = action.state !== 'idle' && action.message !== ''
   const hasArm = Boolean(tab.arm_urdf)
+  const hintItems: string[] = []
+  if (goalMode) hintItems.push('Press on the map to set the goal, drag to set its heading')
+  if (poi.mode === 'add_point') hintItems.push('Click the map to place a point of interest')
+  if (poi.mode === 'add_area') hintItems.push(`Area: ${poi.draft.length} vertices, double-click or Enter finishes`)
+  if (graspPicking) hintItems.push('Click the object on the map')
 
   // POI list, POI editor, photo panel and photo list. Phone: a column spanning the map, so the panels' bottom
   // sheets anchor to its bottom edge (hidden while the layers or grasp sheet is up). Wide: sections of the sidebar.
@@ -733,197 +732,101 @@ export default function MapNavTab({
           useFlexGap
           sx={{ flexWrap: narrow ? 'nowrap' : 'wrap', alignItems: 'center', gap: 1, overflowX: narrow ? 'auto' : 'visible' }}
         >
-          <Button
-            variant="contained"
-            color="error"
-            size="large"
-            startIcon={<StopCircleIcon />}
-            onClick={() => void runAction('/api/nav/stop', 'Stopping...')}
-            title="Cancel the current Nav2 goal; Nav2 stops the robot"
-            sx={{ px: 3, flexShrink: 0, fontWeight: 800, letterSpacing: '0.05em' }}
-          >
-            STOP
-          </Button>
-          {grasp.executing && (
-            <Button
-              variant="contained"
-              color="error"
-              size="large"
-              startIcon={<StopCircleIcon />}
-              onClick={grasp.stop}
-              title="Stop and hold the arm, aborting the running grasp"
-              sx={{ px: 3, flexShrink: 0, fontWeight: 800, letterSpacing: '0.05em' }}
-            >
+          {stopIds.includes('stop') && (
+            <Button variant="contained" color="error" onClick={() => void runAction('/api/nav/stop', 'Stopping...')} sx={STOP_SX}>
+              STOP
+            </Button>
+          )}
+          {stopIds.includes('stopGrasp') && (
+            <Button variant="contained" color="error" onClick={grasp.stop} sx={STOP_SX}>
               STOP GRASP
             </Button>
           )}
-          {inRow('cameraView') && (
-          <Button
-            variant={topView ? 'contained' : 'outlined'}
-            startIcon={topView ? <VerticalAlignBottomIcon /> : <ThreeDRotationIcon />}
-            onClick={() => setTopView((v) => !v)}
-            aria-pressed={topView}
-            title={topView ? 'Unlock the camera (free orbit)' : 'Lock a top-down camera (needed to set goals)'}
-          >
-            {topView ? 'Top view' : 'Orbit'}
-          </Button>
-          )}
-          <Tooltip title={goalButton.tooltip}>
-            <span>
-              <Button
-                variant={goalMode ? 'contained' : 'outlined'}
-                color="secondary"
-                startIcon={<PlaceIcon />}
-                onClick={() => {
-                  poi.setMode('none')
-                  setGoalMode((m) => !m)
-                }}
-                disabled={goalButton.disabled}
-                aria-pressed={goalMode}
-                title="Press on the map to set the goal position; drag to set its heading"
-              >
-                {goalMode ? 'Tap map to set goal' : 'Set goal'}
-              </Button>
-            </span>
-          </Tooltip>
-          {inRow('poi') && tab.poi_command_topic && (
-            <ButtonGroup variant="outlined" aria-label="Points of interest">
-              <Tooltip title={topView ? '' : 'Switch to Top view to add POIs'}>
-                <span>
-                  <Button
-                    variant={poi.mode === 'add_point' ? 'contained' : 'outlined'}
-                    startIcon={<AddLocationAltIcon />}
-                    disabled={!topView}
-                    aria-pressed={poi.mode === 'add_point'}
-                    onClick={() => {
-                      setGoalMode(false)
-                      setLayers((s) => ({ ...s, pois: true }))
-                      poi.setMode(poi.mode === 'add_point' ? 'none' : 'add_point')
-                    }}
-                    title="Click the map to place a point of interest"
-                  >
-                    {poi.mode === 'add_point' ? 'Click map' : 'Add point'}
-                  </Button>
-                </span>
-              </Tooltip>
-              <Tooltip title={topView ? '' : 'Switch to Top view to add POIs'}>
-                <span>
-                  <Button
-                    variant={poi.mode === 'add_area' ? 'contained' : 'outlined'}
-                    startIcon={<PolylineIcon />}
-                    disabled={!topView}
-                    aria-pressed={poi.mode === 'add_area'}
-                    onClick={() => {
-                      setGoalMode(false)
-                      setLayers((s) => ({ ...s, pois: true }))
-                      poi.setMode(poi.mode === 'add_area' ? 'none' : 'add_area')
-                    }}
-                    title="Click the vertices of the area; double-click or Enter finishes"
-                  >
-                    {poi.mode === 'add_area' ? `Area: ${poi.draft.length} vertices` : 'Add area'}
-                  </Button>
-                </span>
-              </Tooltip>
-              {poi.mode === 'add_area' && (
-                <Button startIcon={<CheckIcon />} disabled={!canFinishArea(poi.draft)} onClick={poi.finishArea}>
-                  Finish
-                </Button>
-              )}
-              {poiAdding && (
-                <Button startIcon={<CloseIcon />} color="inherit" onClick={poi.cancelDraft}>
-                  Cancel
-                </Button>
-              )}
-            </ButtonGroup>
-          )}
           {anyInRow(overflow, ['cameraView', 'layers']) && (
-          <Stack direction="row" role="group" aria-label="Map view" sx={{ border: 1, borderColor: 'divider', borderRadius: 1 }}>
-            {inRow('cameraView') && (
-              <>
-            <Tooltip title="Center on robot">
-              <span>
-                <IconButton aria-label="Center on robot" disabled={!robotPose} onClick={centerOnRobot}>
-                  <MyLocationIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="Fit map">
-              <span>
-                <IconButton aria-label="Fit map" disabled={!mapBox && !robotPose} onClick={fit}>
-                  <FitScreenIcon />
-                </IconButton>
-              </span>
-            </Tooltip>
-              </>
-            )}
-            {inRow('layers') && (
-            <Tooltip title={showPanel ? 'Hide layers and legend' : 'Show layers and legend'}>
-              <IconButton
-                aria-label={showPanel ? 'Hide layers and legend' : 'Show layers and legend'}
-                aria-pressed={showPanel}
-                color={showPanel ? 'primary' : 'default'}
-                onClick={() => setPanelOpen(!showPanel)}
-              >
-                <LayersIcon />
-              </IconButton>
-            </Tooltip>
-            )}
-            {inRow('layers') && hasPoi && !narrow && (
-            <Tooltip title={showPoiList ? 'Hide POI list' : 'Show POI list'}>
-              <IconButton
-                aria-label={showPoiList ? 'Hide POI list' : 'Show POI list'}
-                aria-pressed={showPoiList}
-                color={showPoiList ? 'primary' : 'default'}
-                onClick={() => setPoiListOpen(!showPoiList)}
-              >
-                <FormatListBulletedIcon />
-              </IconButton>
-            </Tooltip>
-            )}
-            {inRow('layers') && hasPoi && (
-            <Tooltip title={photoListOpen ? 'Hide photo list' : 'Show photo list'}>
-              <IconButton
-                aria-label={photoListOpen ? 'Hide photo list' : 'Show photo list'}
-                aria-pressed={photoListOpen}
-                color={photoListOpen ? 'primary' : 'default'}
-                onClick={() => setPhotoListOpen((o) => !o)}
-              >
-                <PhotoLibraryIcon />
-              </IconButton>
-            </Tooltip>
-            )}
-          </Stack>
+            <ToolGroup label="Map view">
+              {inRow('cameraView') && (
+                <>
+                  <ToolButton label="Top view" icon={topView ? <VerticalAlignBottomIcon /> : <ThreeDRotationIcon />} pressed={topView} onClick={() => setTopView((v) => !v)} />
+                  <ToolButton label="Center on robot" icon={<MyLocationIcon />} disabled={!robotPose} onClick={centerOnRobot} />
+                  <ToolButton label="Fit map" icon={<FitScreenIcon />} disabled={!mapBox && !robotPose} onClick={fit} />
+                </>
+              )}
+              {inRow('layers') && (
+                <ToolButton
+                  label={showPanel ? 'Hide layers and legend' : 'Show layers and legend'}
+                  icon={<LayersIcon />}
+                  pressed={showPanel}
+                  onClick={() => setPanelOpen(!showPanel)}
+                />
+              )}
+              {inRow('layers') && hasPoi && !narrow && (
+                <ToolButton
+                  label={showPoiList ? 'Hide POI list' : 'Show POI list'}
+                  icon={<FormatListBulletedIcon />}
+                  pressed={showPoiList}
+                  onClick={() => setPoiListOpen(!showPoiList)}
+                />
+              )}
+              {inRow('layers') && hasPoi && (
+                <ToolButton
+                  label={photoListOpen ? 'Hide photo list' : 'Show photo list'}
+                  icon={<PhotoLibraryIcon />}
+                  pressed={photoListOpen}
+                  onClick={() => setPhotoListOpen((o) => !o)}
+                />
+              )}
+            </ToolGroup>
+          )}
+          <ToolGroup label="Goal">
+            <ToolButton
+              label={goalButton.disabled && goalButton.tooltip ? goalButton.tooltip : 'Set goal'}
+              icon={<PlaceIcon />}
+              pressed={goalMode}
+              disabled={goalButton.disabled}
+              onClick={() => {
+                poi.setMode('none')
+                setGoalMode((m) => !m)
+              }}
+            />
+          </ToolGroup>
+          {inRow('poi') && tab.poi_command_topic && (
+            <ToolGroup label="Points of interest">
+              <ToolButton
+                label={topView ? 'Add point' : 'Add point (needs Top view)'}
+                icon={<AddLocationAltIcon />}
+                disabled={!topView}
+                pressed={poi.mode === 'add_point'}
+                onClick={() => togglePoiMode('add_point')}
+              />
+              <ToolButton
+                label={topView ? 'Add area' : 'Add area (needs Top view)'}
+                icon={<PolylineIcon />}
+                disabled={!topView}
+                pressed={poi.mode === 'add_area'}
+                onClick={() => togglePoiMode('add_area')}
+              />
+              {poi.mode === 'add_area' && (
+                <ToolButton label="Finish area" icon={<CheckIcon />} disabled={!canFinishArea(poi.draft)} onClick={poi.finishArea} />
+              )}
+              {poiAdding && <ToolButton label="Cancel placing" icon={<CloseIcon />} onClick={poi.cancelDraft} />}
+            </ToolGroup>
           )}
           {inRow('mapFile') && (
-          <ButtonGroup variant="outlined" aria-label="Map file">
-            <Button startIcon={<SaveIcon />} disabled={busy} onClick={() => void runAction('/api/map/save', 'Saving map...')}>
-              Save map
-            </Button>
-            <Button
-              variant={resetArmed ? 'contained' : 'outlined'}
-              color={resetArmed ? 'warning' : 'primary'}
-              startIcon={<RestartAltIcon />}
-              disabled={busy}
-              onClick={onResetClick}
-              title="Discard the current SLAM map and start a new one (the saved map file is kept). Click twice to confirm."
-            >
-              {resetArmed ? 'Confirm reset' : 'Reset map'}
-            </Button>
-          </ButtonGroup>
+            <ToolGroup label="Map file">
+              <ToolButton label="Save map" icon={<SaveIcon />} disabled={busy} onClick={() => void runAction('/api/map/save', 'Saving map...')} />
+              <ToolButton label="Reset map" icon={<RestartAltIcon />} disabled={busy} onClick={() => setResetOpen(true)} />
+            </ToolGroup>
           )}
           {tab.grasp_command_topic && (
             <>
-              <Button
-                variant={graspOpen || graspPicking ? 'contained' : 'outlined'}
-                startIcon={<BackHandIcon />}
-                endIcon={<ArrowDropDownIcon />}
-                aria-haspopup="menu"
-                aria-expanded={graspMenuAnchor !== null}
+              <ToolButton
+                label="Grasp"
+                icon={<BackHandIcon />}
+                pressed={graspOpen || graspPicking}
+                expanded={graspMenuAnchor !== null}
                 onClick={(e) => setGraspMenuAnchor(e.currentTarget)}
-                title="Choose a grasp strategy, then click the object on the map"
-              >
-                Grasp
-              </Button>
+              />
+              {graspPicking && <ToolButton label="Cancel grasp pick" icon={<CloseIcon />} onClick={() => setGraspPick()} />}
               <Menu anchorEl={graspMenuAnchor} open={graspMenuAnchor !== null} onClose={() => setGraspMenuAnchor(null)}>
                 {GRASP_MENU.map((m) => (
                   <MenuItem
@@ -939,40 +842,20 @@ export default function MapNavTab({
             </>
           )}
           {hasArm && (
-            <ButtonGroup variant="outlined" aria-label="Arm home">
-              <Button
-                startIcon={<HomeIcon />}
-                disabled={busy}
-                onClick={() => void runAction('/api/arm/home', 'Moving arm home...')}
-                title="Move the arm to its saved home pose"
-              >
-                Arm home
-              </Button>
-              <Button
-                variant={setHomeArmed ? 'contained' : 'outlined'}
-                color={setHomeArmed ? 'warning' : 'primary'}
-                startIcon={<BookmarkAddIcon />}
+            <ToolGroup label="Arm home">
+              <ToolButton label="Arm home" icon={<HomeIcon />} disabled={busy} onClick={() => void runAction('/api/arm/home', 'Moving arm home...')} />
+              <ToolButton
+                label={setHomeArmed ? 'Confirm set home' : 'Set home'}
+                icon={<BookmarkAddIcon />}
+                pressed={setHomeArmed}
                 disabled={busy}
                 onClick={onSetHomeClick}
-                title="Save the arm's current pose as its home pose. Click twice to confirm."
-              >
-                {setHomeArmed ? 'Confirm home' : 'Set home'}
-              </Button>
-            </ButtonGroup>
+              />
+            </ToolGroup>
           )}
           {overflow.length > 0 && (
             <>
-              <Tooltip title="More map controls">
-                <IconButton
-                  aria-label="More map controls"
-                  aria-haspopup="menu"
-                  aria-expanded={moreAnchor !== null}
-                  onClick={(e) => setMoreAnchor(e.currentTarget)}
-                  sx={{ flexShrink: 0, minWidth: TOUCH_TARGET, minHeight: TOUCH_TARGET }}
-                >
-                  <MoreVertIcon />
-                </IconButton>
-              </Tooltip>
+              <ToolButton label="More map controls" icon={<MoreVertIcon />} expanded={moreAnchor !== null} onClick={(e) => setMoreAnchor(e.currentTarget)} />
               <Menu anchorEl={moreAnchor} open={moreAnchor !== null} onClose={closeMore}>
                 {inMenu('cameraView') && [
                   <MenuItem
@@ -1016,9 +899,7 @@ export default function MapNavTab({
                     disabled={!topView}
                     sx={{ minHeight: TOUCH_TARGET }}
                     onClick={() => {
-                      setGoalMode(false)
-                      setLayers((s) => ({ ...s, pois: true }))
-                      poi.setMode(poi.mode === 'add_point' ? 'none' : 'add_point')
+                      togglePoiMode('add_point')
                       closeMore()
                     }}
                   >
@@ -1030,9 +911,7 @@ export default function MapNavTab({
                     disabled={!topView}
                     sx={{ minHeight: TOUCH_TARGET }}
                     onClick={() => {
-                      setGoalMode(false)
-                      setLayers((s) => ({ ...s, pois: true }))
-                      poi.setMode(poi.mode === 'add_area' ? 'none' : 'add_area')
+                      togglePoiMode('add_area')
                       closeMore()
                     }}
                   >
@@ -1100,9 +979,16 @@ export default function MapNavTab({
                   >
                     Save map
                   </MenuItem>,
-                  // The menu stays open after the first click so the second click can confirm the reset.
-                  <MenuItem key="reset" disabled={busy} selected={resetArmed} sx={{ minHeight: TOUCH_TARGET }} onClick={onResetClick}>
-                    {resetArmed ? 'Confirm reset' : 'Reset map'}
+                  <MenuItem
+                    key="reset"
+                    disabled={busy}
+                    sx={{ minHeight: TOUCH_TARGET }}
+                    onClick={() => {
+                      closeMore()
+                      setResetOpen(true)
+                    }}
+                  >
+                    Reset map
                   </MenuItem>,
                 ]}
               </Menu>
@@ -1199,21 +1085,7 @@ export default function MapNavTab({
             </Typography>
           )}
 
-          {graspPicking && (
-            <Alert
-              severity="info"
-              data-grasp-panel
-              onPointerDown={(e) => e.stopPropagation()}
-              action={
-                <Button color="inherit" size="small" onClick={() => setGraspPick()}>
-                  Cancel
-                </Button>
-              }
-              sx={{ position: 'absolute', top: 1, left: '50%', transform: 'translateX(-50%)', zIndex: 3, maxWidth: 'calc(100% - 1rem)' }}
-            >
-              Click the object on the map
-            </Alert>
-          )}
+          <MapStatusLine items={hintItems} />
 
           <Snackbar
             open={snackbarOpen}
@@ -1236,6 +1108,17 @@ export default function MapNavTab({
         </Box>
         {!narrow && sidebarOpen && <MapSidebar>{panels}</MapSidebar>}
       </Box>
+      <ConfirmDialog
+        open={resetOpen}
+        title="Reset map?"
+        body="Discards the current SLAM map and starts a new one. The saved map file is kept."
+        confirmLabel="Reset map"
+        onCancel={() => setResetOpen(false)}
+        onConfirm={() => {
+          setResetOpen(false)
+          void runAction('/api/map/reset', 'Resetting map...')
+        }}
+      />
     </Box>
   )
 }

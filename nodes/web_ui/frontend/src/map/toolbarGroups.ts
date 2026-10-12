@@ -11,12 +11,16 @@ export interface ToolbarGroup {
   priority: ToolbarPriority
 }
 
-/** Groups that stay visible on every layout class: STOP, goal and arm control. */
-export const ALWAYS_VISIBLE_GROUPS: readonly string[] = ['stop', 'goal', 'grasp', 'armHome']
+/** The two stop controls: STOP (navigation) always applies, STOP GRASP while a grasp is running. */
+export const STOP_GROUPS: readonly string[] = ['stop', 'stopGrasp']
+
+/** Groups that stay visible on every layout class: the stops, goal and arm control. */
+export const ALWAYS_VISIBLE_GROUPS: readonly string[] = [...STOP_GROUPS, 'goal', 'grasp', 'armHome']
 
 /** Toolbar groups in display order. Layers (with the POI and photo toggles), POI tools and camera view are low priority. */
 export const TOOLBAR_GROUPS: readonly ToolbarGroup[] = [
   { id: 'stop', priority: 'high' },
+  { id: 'stopGrasp', priority: 'high' },
   { id: 'cameraView', priority: 'low' },
   { id: 'goal', priority: 'high' },
   { id: 'poi', priority: 'low' },
@@ -25,6 +29,16 @@ export const TOOLBAR_GROUPS: readonly ToolbarGroup[] = [
   { id: 'grasp', priority: 'high' },
   { id: 'armHome', priority: 'high' },
 ]
+
+/**
+ * The stop controls whose action applies now; they always sit in the primary toolbar, never in the overflow menu.
+ *
+ * @param graspExecuting - whether a grasp is running.
+ * @returns ids of the stop groups to render.
+ */
+export function stopGroupIds(graspExecuting: boolean): string[] {
+  return STOP_GROUPS.filter((id) => id !== 'stopGrasp' || graspExecuting)
+}
 
 /**
  * Split toolbar groups into the ones shown in the row and the ones in the 'more' menu.
