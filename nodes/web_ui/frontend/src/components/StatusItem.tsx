@@ -16,6 +16,8 @@ interface Props {
   unit?: string
   /** warn and error colour the value and add a square mark; ok and unknown stay neutral (never green). */
   state?: StatusState
+  /** Draw the neutral square mark for a state that is not a warning (e.g. an open item). */
+  marked?: boolean
   /** Details shown on hover and used as the accessible name. */
   tooltip?: ReactNode
   /** Accessible name when the tooltip is not plain text. */
@@ -28,7 +30,7 @@ interface Props {
  * @param props - label, value, optional unit, state and tooltip
  * @returns the reading as an inline row
  */
-export function StatusItem({ label, value, unit, state = 'ok', tooltip, ariaLabel }: Props) {
+export function StatusItem({ label, value, unit, state = 'ok', marked = false, tooltip, ariaLabel }: Props) {
   const colour = state === 'warn' || state === 'error' ? STATE_COLOUR[state] : null
   const item = (
     <Box
@@ -41,13 +43,13 @@ export function StatusItem({ label, value, unit, state = 'ok', tooltip, ariaLabe
         whiteSpace: 'nowrap',
       }}
     >
-      {colour && (
+      {(colour || marked) && (
         <Box
           data-testid="status-mark"
           sx={{
             width: MARK_PX,
             height: MARK_PX,
-            bgcolor: colour,
+            bgcolor: colour ?? 'text.primary',
             alignSelf: 'center',
             flexShrink: 0,
           }}

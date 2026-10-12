@@ -13,6 +13,7 @@ import Typography from '@mui/material/Typography'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import IconButton from '@mui/material/IconButton'
+import { StatusItem } from '../components/StatusItem'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { MONO_FONT, TOUCH_TARGET_PX } from '../theme'
@@ -110,13 +111,8 @@ export function PoiListPanel({
                 primaryTypographyProps={{ noWrap: true }}
                 secondaryTypographyProps={{ noWrap: true }}
               />
-              <Box sx={{ ml: 1, display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                {p.status === 'open' && (
-                  <Box data-testid="poi-status-mark" sx={{ width: 6, height: 6, bgcolor: 'text.primary' }} />
-                )}
-                <Typography variant="caption" color="text.secondary">
-                  {p.status}
-                </Typography>
+              <Box sx={{ ml: 1 }}>
+                <StatusItem label="" value={p.status} marked={p.status === 'open'} />
               </Box>
             </ListItemButton>
           ))}
