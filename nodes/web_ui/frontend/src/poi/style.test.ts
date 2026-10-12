@@ -157,9 +157,9 @@ describe('zoneStyle and zoneLabel', () => {
     expect(s?.lineWidth).toBeGreaterThanOrEqual(4)
   })
 
-  it('draws an open slow zone cyan', () => {
+  it('draws an open slow zone amber', () => {
     const s = zoneStyle(area({ zone: 'slow', speed_limit_pct: 40 }), false)
-    expect(s).toMatchObject({ fill: '#39cccc', opacity: 0.35 })
+    expect(s).toMatchObject({ fill: ZONE_COLORS.slow, opacity: 0.35 })
   })
 
   it('greys out a zone whose status is not open', () => {
