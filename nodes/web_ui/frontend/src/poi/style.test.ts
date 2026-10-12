@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatUpdated, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
+import { formatUpdated, KIND_COLORS, markerColors, ZONE_COLORS, objectDetails, OBJECT_COLOR, parsePoiList, poiStyle, sortPois, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
 import type { Poi } from './types'
 
 function poi(over: Partial<Poi>): Poi {
@@ -177,5 +177,27 @@ describe('zoneStyle and zoneLabel', () => {
   it('labels zones', () => {
     expect(zoneLabel(area({ zone: 'keepout' }))).toBe('KEEPOUT')
     expect(zoneLabel(area({ zone: 'slow', speed_limit_pct: 40 }))).toBe('SLOW 40%')
+  })
+})
+
+describe('markerColors', () => {
+  it('has kind colours that never reuse a status colour', () => {
+    expect(Object.keys(KIND_COLORS).sort()).toEqual(['area-none', 'object', 'photo', 'point'])
+    for (const c of Object.values(KIND_COLORS)) expect(Object.values(STATUS_COLORS)).not.toContain(c)
+    expect(new Set(Object.values(KIND_COLORS)).size).toBe(4)
+  })
+
+  it('fills points and objects by kind and outlines them by status', () => {
+    expect(markerColors(poi({ kind: 'point', status: 'done' }))).toEqual({ fill: KIND_COLORS.point, outline: STATUS_COLORS.done })
+    expect(markerColors(poi({ kind: 'object', status: 'open' }))).toEqual({ fill: KIND_COLORS.object, outline: STATUS_COLORS.open })
+    expect(KIND_COLORS.object).toBe(OBJECT_COLOR)
+  })
+
+  it('colours areas by zone: slow amber, keepout red, none neutral', () => {
+    const area = { kind: 'area' as const, polygon: [[0, 0], [1, 0], [0, 1]] as [number, number][] }
+    expect(markerColors(poi({ ...area, zone: 'keepout' }))).toEqual({ fill: ZONE_COLORS.keepout, outline: ZONE_COLORS.keepout })
+    expect(markerColors(poi({ ...area, zone: 'slow', speed_limit_pct: 40 }))).toEqual({ fill: ZONE_COLORS.slow, outline: ZONE_COLORS.slow })
+    expect(markerColors(poi({ ...area, zone: 'none' }))).toEqual({ fill: KIND_COLORS['area-none'], outline: KIND_COLORS['area-none'] })
+    expect(ZONE_COLORS.keepout).not.toBe(ZONE_COLORS.slow)
   })
 })

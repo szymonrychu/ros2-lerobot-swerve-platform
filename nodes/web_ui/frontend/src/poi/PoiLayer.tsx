@@ -8,7 +8,7 @@ import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Vec2 } from '../map/mapMath'
 import { rosToThree, ThreeTuple } from '../map3d/coords'
-import { objectDetails, poiStyle, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
+import { markerColors, objectDetails, poiStyle, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
 import type { Poi } from './types'
 
 /** Stacking heights (three y, metres), above the goal marker. */
@@ -54,6 +54,7 @@ function PoiLabel({ poi, lift }: { poi: Poi; lift: number }) {
 
 const PointMarker = memo(function PointMarker({ poi, selected }: { poi: Poi; selected: boolean }) {
   const style = poiStyle(poi, selected)
+  const colors = markerColors(poi)
   const ring = useMemo(() => {
     const pts: ThreeTuple[] = []
     for (let i = 0; i <= DISC_SEGMENTS; i++) {
@@ -66,12 +67,12 @@ const PointMarker = memo(function PointMarker({ poi, selected }: { poi: Poi; sel
     <group position={rosToThree(poi, POI_LIFT.fill)}>
       <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={2}>
         <circleGeometry args={[poi.radius_m, DISC_SEGMENTS]} />
-        <meshBasicMaterial color={style.fill} transparent opacity={style.opacity} depthWrite={false} toneMapped={false} />
+        <meshBasicMaterial color={colors.fill} transparent opacity={style.opacity} depthWrite={false} toneMapped={false} />
       </mesh>
       <group position={[0, POI_LIFT.outline - POI_LIFT.fill, 0]}>
         <Line
           points={ring}
-          color={style.outline}
+          color={selected ? style.outline : colors.outline}
           lineWidth={style.lineWidth}
           dashed={style.dashed}
           dashSize={0.04}
@@ -83,9 +84,10 @@ const PointMarker = memo(function PointMarker({ poi, selected }: { poi: Poi; sel
   )
 })
 
-/** A remembered object: a diamond in the object colour with its label (times seen and last sighting in the tooltip). */
+/** A remembered object: a diamond in the object kind colour with a status ring with its label (times seen and last sighting in the tooltip). */
 const ObjectMarker = memo(function ObjectMarker({ poi, selected }: { poi: Poi; selected: boolean }) {
   const style = poiStyle(poi, selected)
+  const colors = markerColors(poi)
   const diamond = useMemo(() => {
     const r = OBJECT_MARKER_RADIUS_M
     const pts: ThreeTuple[] = [
@@ -100,10 +102,10 @@ const ObjectMarker = memo(function ObjectMarker({ poi, selected }: { poi: Poi; s
     <group position={rosToThree(poi, POI_LIFT.fill)}>
       <mesh rotation={[-Math.PI / 2, 0, Math.PI / 4]} renderOrder={2}>
         <circleGeometry args={[OBJECT_MARKER_RADIUS_M * Math.SQRT2, 4]} />
-        <meshBasicMaterial color={style.fill} transparent opacity={Math.min(1, style.opacity + 0.3)} depthWrite={false} toneMapped={false} />
+        <meshBasicMaterial color={colors.fill} transparent opacity={Math.min(1, style.opacity + 0.3)} depthWrite={false} toneMapped={false} />
       </mesh>
       <group position={[0, POI_LIFT.outline - POI_LIFT.fill, 0]}>
-        <Line points={diamond} color={style.outline} lineWidth={style.lineWidth} dashed={style.dashed} dashSize={0.03} gapSize={0.02} />
+        <Line points={diamond} color={selected ? style.outline : colors.outline} lineWidth={style.lineWidth} dashed={style.dashed} dashSize={0.03} gapSize={0.02} />
       </group>
       <PoiLabel poi={{ ...poi, x: 0, y: 0 }} lift={0} />
     </group>
@@ -111,8 +113,10 @@ const ObjectMarker = memo(function ObjectMarker({ poi, selected }: { poi: Poi; s
 })
 
 const AreaMarker = memo(function AreaMarker({ poi, selected }: { poi: Poi; selected: boolean }) {
-  const style = zoneStyle(poi, selected) ?? poiStyle(poi, selected)
-  const fillOpacity = zoneStyle(poi, selected) ? style.opacity : style.opacity * 0.6
+  const zone = zoneStyle(poi, selected)
+  const style = zone ?? poiStyle(poi, selected)
+  const colors = markerColors(poi)
+  const fillOpacity = zone ? style.opacity : style.opacity * 0.6
   const geometry = useMemo(() => {
     const shape = new THREE.Shape(poi.polygon.map(([x, y]) => new THREE.Vector2(x, y)))
     return new THREE.ShapeGeometry(shape)
@@ -123,7 +127,7 @@ const AreaMarker = memo(function AreaMarker({ poi, selected }: { poi: Poi; selec
     <>
       <mesh geometry={geometry} position={[0, POI_LIFT.fill, 0]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={2}>
         <meshBasicMaterial
-          color={style.fill}
+          color={colors.fill}
           transparent
           opacity={fillOpacity}
           depthWrite={false}
@@ -133,7 +137,7 @@ const AreaMarker = memo(function AreaMarker({ poi, selected }: { poi: Poi; selec
       </mesh>
       <Line
         points={outline}
-        color={style.outline}
+        color={selected ? style.outline : colors.outline}
         lineWidth={style.lineWidth}
         dashed={style.dashed}
         dashSize={0.06}

@@ -7,12 +7,14 @@ const DEFAULT_CONFIDENCE = 1
 export const STATUS_COLORS = { open: '#ffb000', done: '#2ecc40', cancelled: '#8b949e' } as const
 /** Fill of remembered objects (not a status colour, so they stand out from the other POIs). */
 export const OBJECT_COLOR = '#b967ff'
+/** Marker fill by POI kind (never a status colour; status is the outline). area-none is the neutral fill of an area without a zone. */
+export const KIND_COLORS = { point: '#2fd0e8', object: OBJECT_COLOR, photo: '#ff7ac6', 'area-none': '#7d8fa9' } as const
 export const CREATOR_OUTLINE = { agent: '#2f9bff', user: '#ffffff' } as const
 const SELECTED_OUTLINE = '#ff4fd8'
 const CLOSED_OPACITY = 0.35
 const OPEN_OPACITY = 0.6
 const MIN_AREA_VERTICES = 3
-export const ZONE_COLORS = { keepout: '#ff4136', slow: '#39cccc' } as const
+export const ZONE_COLORS = { keepout: '#ff4136', slow: '#ff9f1c' } as const
 const ZONE_OPACITY = { keepout: 0.45, slow: 0.35 } as const
 const INACTIVE_ZONE_OPACITY = 0.2
 const KEEPOUT_LINE_WIDTH = 4
@@ -46,7 +48,7 @@ export function poiStyle(poi: Poi, selected: boolean): PoiStyle {
 }
 
 /**
- * Style of an area with a keepout or slow zone: red / cyan fill, solid outline; grey and faint unless the POI is open.
+ * Style of an area with a keepout or slow zone: red / amber fill, solid outline; grey and faint unless the POI is open.
  *
  * @param poi - POI
  * @param selected - whether it is the selected POI
@@ -65,6 +67,22 @@ export function zoneStyle(poi: Poi, selected: boolean): PoiStyle | null {
     dashed: false,
     creatorTag: poi.created_by,
   }
+}
+
+/**
+ * Fill and outline colours of a map marker. Points and objects: fill by kind, outline by status. Areas: both from the zone
+ * (slow amber, keepout red, no zone neutral).
+ *
+ * @param poi - POI
+ * @returns fill and outline colours
+ */
+export function markerColors(poi: Poi): { fill: string; outline: string } {
+  if (poi.kind === 'area') {
+    const zone = zoneStyle(poi, false)
+    const color = zone ? zone.fill : KIND_COLORS['area-none']
+    return { fill: color, outline: color }
+  }
+  return { fill: KIND_COLORS[poi.kind], outline: STATUS_COLORS[poi.status] }
 }
 
 /**
