@@ -290,7 +290,7 @@ class ToolEventClient(FakeClient):
 
 def warning_runner(tmp_path: Path, **config):
     runner, events, cfg = make_runner(tmp_path)
-    runner.config = ClaudeAgentConfig(mcp_token_file=cfg.mcp_token_file, **config)
+    runner.config = ClaudeAgentConfig(mcp_token_file=cfg.mcp_token_file, poi_review_followup=False, **config)
     ToolEventClient.release = asyncio.Event()
     runner.client_factory = ToolEventClient
     return runner, events
