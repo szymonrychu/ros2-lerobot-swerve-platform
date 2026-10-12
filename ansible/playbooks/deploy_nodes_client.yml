@@ -164,6 +164,15 @@
             _extra_env: "{{ ['ROS2_SERVER_HOST=' + ros2_server_host] if (ros2_server_host is defined and ros2_server_host | length > 0) else [] }}"
           tags: [master2master, apt, python, build, config]
 
+        - name: Deploy leader_bridge
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [leader_bridge]
+          vars:
+            _deploy_node_name: leader_bridge
+          tags: [leader_bridge, apt, python, build, config]
+
         - name: Deploy filter_node
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml

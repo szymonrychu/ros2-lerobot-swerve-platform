@@ -44,7 +44,10 @@ NORMAL = {
 }  # fmt: skip
 AGENT = {
     "weights": (300, 300, -200),
-    "types": ["mcp_server", "claude_agent", "web_ui", "topic_scraper_api", "master2master", "haptic_controller"],
+    "types": [
+        "mcp_server", "claude_agent", "web_ui", "topic_scraper_api", "master2master", "leader_bridge",
+        "haptic_controller",
+    ],
 }
 TIERS = [CRITICAL, NORMAL, AGENT]
 ROBOT_TYPES = {t for tier in TIERS for t in tier["types"]}

@@ -17,7 +17,7 @@ ros2_hosts_entries:
   - { ip: "192.168.1.35", hostname: "controller.ros2.lan" }
 
 # DDS discovery: simple discovery restricted to each host (rendered first into every ROS2 node unit; node env entries
-# after it override). Only the client's master2master adds the server as a static peer (ROS_STATIC_PEERS) so it alone
+# after it override). Only the client's master2master and leader_bridge add the server as a static peer (ROS_STATIC_PEERS) so they alone
 # bridges the hosts. The former FastDDS discovery server is uninstalled: launch_ros' one-shot lifecycle and component
 # service calls (slam_toolbox configure, Nav2 composable loading) hung intermittently through it. The original
 # "restarted nodes get no data" problem was logind RemoveIPC deleting FastDDS shared memory (see dds_host_setup.yml).

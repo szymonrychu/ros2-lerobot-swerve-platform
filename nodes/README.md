@@ -8,6 +8,7 @@ All ROS2 node source code lives here. Deployment is via Ansible: the repo is clo
 - **master2master/** — Topic proxy (Client only).
 - **bridges/uvc_camera/** — UVC camera bridge.
 - **bridges/feetech_servos/** — Feetech servos bridge (configurable namespace, extra namespaces on the same bus, position or wheel/velocity mode per joint; leader/follower example configs).
+- **leader_bridge/** — Leader arm teleop relay: `/leader/joint_states` (server) to `/filter/input_joint_updates` (filter_node leader input); replaces master2master's leader rule, never bypasses filter_node arbitration (Client only).
 - **lerobot_teleop/** — Leader → follower teleop node (Client only).
 - **filter_node/** — Modular joint command filter (e.g. Kalman) for follower teleop (Client only).
 - **test_joint_api/** — REST API for joint updates feeding the same path as master2master (Client only).

@@ -1,10 +1,11 @@
 """Invariants of the DDS discovery setup in Ansible group_vars and templates.
 
 All ROS2 nodes use simple discovery restricted to the host (ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST from the shared
-ros2_dds_env rendered by the unit template). Only the client's master2master adds the server as a static peer, so it
-is the single process bridging the two hosts; server nodes list no static peers (that caused every client node to mesh
-with the server over Wi-Fi). The former FastDDS discovery server is uninstalled (present: false): launch_ros' one-shot
-lifecycle/component service calls hung intermittently through it. logind must keep the node user's shared memory.
+ros2_dds_env rendered by the unit template). Only the client's master2master and leader_bridge add the server as a
+static peer, so they are the only processes bridging the two hosts; server nodes list no static peers (that caused
+every client node to mesh with the server over Wi-Fi). The former FastDDS discovery server is uninstalled
+(present: false): launch_ros' one-shot lifecycle/component service calls hung intermittently through it. logind must
+keep the node user's shared memory.
 """
 
 from pathlib import Path
@@ -50,7 +51,7 @@ def all_env_entries(group: dict) -> list[str]:
 
 
 @pytest.mark.parametrize("host", ["client", "server"])
-def test_nodes_do_not_override_discovery_except_master2master_peer(host: str) -> None:
+def test_nodes_do_not_override_discovery_except_bridge_peers(host: str) -> None:
     group = load_vars(host)
     for entry in all_env_entries(group):
         assert not entry.startswith(FORBIDDEN_NODE_ENV), f"{host}: {entry}"
@@ -63,7 +64,8 @@ def test_nodes_do_not_override_discovery_except_master2master_peer(host: str) ->
     peers += [
         (n["name"], e) for n in group["ros2_nodes"] for e in n.get("env", []) or [] if e.startswith("ROS_STATIC_PEERS")
     ]
-    expected = [("master2master", "ROS_STATIC_PEERS={{ ros2_server_hostname }}")] if host == "client" else []
+    peer = "ROS_STATIC_PEERS={{ ros2_server_hostname }}"
+    expected = [("master2master", peer), ("leader_bridge", peer)] if host == "client" else []
     assert peers == expected
 
 

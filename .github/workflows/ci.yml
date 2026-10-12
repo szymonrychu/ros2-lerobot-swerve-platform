@@ -58,6 +58,7 @@ jobs:
           - filter_node
           - haptic_controller
           - laser_filter
+          - leader_bridge
           - lerobot_teleop
           - master2master
           - map_guard
