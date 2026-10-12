@@ -22,7 +22,7 @@ import MenuIcon from '@mui/icons-material/Menu'
 import MapIcon from '@mui/icons-material/Map'
 import VideocamIcon from '@mui/icons-material/Videocam'
 import ShowChartIcon from '@mui/icons-material/ShowChart'
-import ThreeDRotationIcon from '@mui/icons-material/ThreeDRotation'
+import PlaceIcon from '@mui/icons-material/Place'
 import CameraIcon from '@mui/icons-material/Camera'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
 import TabIcon from '@mui/icons-material/Tab'
@@ -36,7 +36,11 @@ import type { BaseGpsPayload, RoverGpsPayload } from './gps/gpsStatus'
 import { TiltBanner } from './components/TiltBanner'
 import { useRosBridge } from './hooks/useRosBridge'
 import { OverlayBar } from './overlays/OverlayBar'
-import { browserStorage, initialTabIndex, orderTabs, readStoredTabId, supportedTabs, writeStoredTabId } from './tabSelection'
+import { usePhotoLayer } from './photos/usePhotoLayer'
+import { toPoiItems } from './poi/poiItems'
+import type { PendingFocus, PoiItem } from './poi/poiItems'
+import { parsePoiList } from './poi/style'
+import { browserStorage, initialTabIndex, mapTabIndex, orderTabs, readStoredTabId, supportedTabs, writeStoredTabId } from './tabSelection'
 import { AppConfig, TabConfig } from './types'
 import { TILT_GUARD_STATE_KEY, tiltEntered, tiltStatus } from './tilt/tiltStatus'
 import type { TiltLevel, TiltPayload, TiltStatus } from './tilt/tiltStatus'
@@ -44,12 +48,14 @@ import { feedAllGraphBuffers } from './utils/graphBuffers'
 
 const CameraTab = lazy(() => import('./tabs/CameraTab'))
 const SensorGraphTab = lazy(() => import('./tabs/SensorGraphTab'))
-const ImuOrientationTab = lazy(() => import('./tabs/ImuOrientationTab'))
+const PoiTab = lazy(() => import('./tabs/PoiTab'))
 const RgbdCameraTab = lazy(() => import('./tabs/RgbdCameraTab'))
 const MapNavTab = lazy(() => import('./tabs/MapNavTab'))
 const AgentChatTab = lazy(() => import('./tabs/AgentChatTab'))
 
 const APP_TITLE = 'Robot'
+const POI_LIST_TOPIC = '/poi/list'
+const POI_PHOTOS_TOPIC = '/poi/photos'
 // How often the battery and GPS chips re-evaluate staleness (ms).
 const BATTERY_TICK_MS = 1000
 // How long a command-rejected toast stays visible (ms).
@@ -62,7 +68,7 @@ const TAB_ICONS: Record<string, ReactElement> = {
   camera: <VideocamIcon />,
   rgbd_camera: <CameraIcon />,
   sensor_graph: <ShowChartIcon />,
-  imu_orientation: <ThreeDRotationIcon />,
+  poi: <PlaceIcon />,
   agent_chat: <SmartToyIcon />,
 }
 
@@ -84,14 +90,17 @@ function renderTab(
   publish: (t: string, mt: string, d: unknown) => void,
   battery: BatteryStatus,
   tilt: TiltStatus,
+  poi: { items: PoiItem[]; onShowOnMap: (focus: PendingFocus) => void },
+  pendingFocus: PendingFocus | null,
+  onFocusConsumed: () => void,
 ) {
   const props = { tab, topicData, publish }
   switch (tab.type) {
     case 'camera': return <CameraTab {...props} />
     case 'sensor_graph': return <SensorGraphTab {...props} />
-    case 'imu_orientation': return <ImuOrientationTab {...props} />
+    case 'poi': return <PoiTab items={poi.items} onShowOnMap={poi.onShowOnMap} />
     case 'rgbd_camera': return <RgbdCameraTab {...props} />
-    case 'map_nav': return <MapNavTab {...props} tilt={tilt} />
+    case 'map_nav': return <MapNavTab {...props} tilt={tilt} pendingFocus={pendingFocus} onFocusConsumed={onFocusConsumed} />
     case 'agent_chat': return <AgentChatTab {...props} battery={battery} />
     default:
       return (
@@ -107,6 +116,7 @@ export default function App() {
   const narrow = useMediaQuery(theme.breakpoints.down('sm'))
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [activeTab, setActiveTab] = useState(0)
+  const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [errorToast, setErrorToast] = useState<string | null>(null)
   const [batteryRxAt, setBatteryRxAt] = useState<number | null>(null)
@@ -146,6 +156,14 @@ export default function App() {
     : []
 
   const { topicData, connected, publish } = useRosBridge(allTopics, (e) => setErrorToast(e.message))
+
+  // POI tab data: the latched /poi/list plus the photo store (refetched when its /poi/photos revision moves).
+  const poiTabCfg = config?.tabs.find((t) => t.type === 'poi')
+  const poiList = useMemo(() => parsePoiList(topicData[poiTabCfg?.poi_list_topic ?? POI_LIST_TOPIC]), [topicData, poiTabCfg?.poi_list_topic])
+  const photoSummary = topicData[poiTabCfg?.poi_photos_topic ?? POI_PHOTOS_TOPIC] as { revision?: unknown } | null | undefined
+  const photoRevision = typeof photoSummary?.revision === 'number' ? photoSummary.revision : null
+  const poiPhotos = usePhotoLayer(poiTabCfg !== undefined, 'all', photoRevision)
+  const poiItems = useMemo(() => toPoiItems(poiList?.pois ?? [], poiPhotos.photos), [poiList, poiPhotos.photos])
 
   const tilt = tiltStatus(topicData[TILT_GUARD_STATE_KEY] as TiltPayload | null | undefined)
   useEffect(() => {
@@ -205,6 +223,14 @@ export default function App() {
   }
 
   const tab = tabs[activeTab]
+
+  // Show-on-map: remember what to focus, then switch to the map tab (it consumes the request).
+  const showOnMap = (focus: PendingFocus) => {
+    const mapIndex = mapTabIndex(tabs)
+    if (mapIndex < 0) return
+    setPendingFocus(focus)
+    selectTab(mapIndex)
+  }
 
   return (
     <>
@@ -273,7 +299,7 @@ export default function App() {
             </Centered>
           }
         >
-          {tab && renderTab(tab, topicData, publish, battery, tilt)}
+          {tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap }, pendingFocus, () => setPendingFocus(null))}
         </Suspense>
       </Box>
 

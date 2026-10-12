@@ -31,7 +31,7 @@ VALID_TAB_TYPES: frozenset[str] = frozenset(
     {
         "camera",
         "sensor_graph",
-        "imu_orientation",
+        "poi",
         "rgbd_camera",
         "map_nav",
         "agent_chat",
@@ -39,6 +39,7 @@ VALID_TAB_TYPES: frozenset[str] = frozenset(
 )
 
 MAP_NAV_TAB_TYPE = "map_nav"
+POI_TAB_TYPE = "poi"
 AGENT_CHAT_TAB_TYPE = "agent_chat"
 # Default claude_agent API base URL proxied by the agent_chat tab (claude_agent http_port in client.yml).
 DEFAULT_AGENT_URL = "http://127.0.0.1:18300"
@@ -75,6 +76,8 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "grasp_result_topic": "/grasp/result",
     "lookups_dir": "/var/lib/ros2/poi/lookups",
 }
+# Topics a poi tab reads (defaults filled for unset fields; same values as the map_nav defaults).
+POI_TAB_DEFAULTS: dict[str, str] = {key: MAP_NAV_DEFAULTS[key] for key in ("poi_list_topic", "poi_photos_topic")}
 # Default disk cache cap for proxied map tiles (MiB).
 DEFAULT_TILE_CACHE_MAX_MB = 256
 DEFAULT_TILE_MAX_ZOOM = 18
@@ -267,19 +270,22 @@ class TabConfig(BaseModel):
 
     @model_validator(mode="after")
     def apply_map_nav_defaults(self) -> TabConfig:
-        """Fill unset map_nav fields with MAP_NAV_DEFAULTS and reject empty ones.
+        """Fill unset map_nav (MAP_NAV_DEFAULTS) and poi (POI_TAB_DEFAULTS) fields and reject empty ones.
 
         Returns:
             TabConfig: This tab with map_nav defaults applied.
         """
-        if self.type != MAP_NAV_TAB_TYPE:
+        if self.type not in (MAP_NAV_TAB_TYPE, POI_TAB_TYPE):
             return self
-        for field, default in MAP_NAV_DEFAULTS.items():
+        defaults = MAP_NAV_DEFAULTS if self.type == MAP_NAV_TAB_TYPE else POI_TAB_DEFAULTS
+        for field, default in defaults.items():
             value = getattr(self, field)
             if value is None:
                 setattr(self, field, default)
             elif not value.strip():
-                raise ValueError(f"map_nav tab {self.id!r}: {field} must not be empty")
+                raise ValueError(f"{self.type} tab {self.id!r}: {field} must not be empty")
+        if self.type != MAP_NAV_TAB_TYPE:
+            return self
         ids = [src.id for src in self.tile_sources]
         if len(set(ids)) != len(ids):
             raise ValueError(f"map_nav tab {self.id!r}: tile_sources ids must be unique, got {ids}")
@@ -457,10 +463,12 @@ class AppConfig(BaseModel):
             dict[str, str]: Topic name -> role.
         """
         roles: dict[str, str] = {}
-        for tab in self.map_nav_tabs():
+        for tab in self.tabs:
+            if tab.type not in (MAP_NAV_TAB_TYPE, POI_TAB_TYPE):
+                continue
             for attr, role in MAP_NAV_TOPIC_ROLES:
                 topic = getattr(tab, attr)
-                if topic:
+                if topic and (tab.type == MAP_NAV_TAB_TYPE or attr in POI_TAB_DEFAULTS):
                     roles[topic] = role
         if self.battery is not None:
             roles[self.battery.topic] = BATTERY_ROLE

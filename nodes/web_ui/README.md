@@ -12,7 +12,7 @@ Runs as a native service on the client RPi. Accessible at `http://client.ros2.la
 | Agent | `agent_chat` | Chat with the `claude_agent` node (Claude with the robot MCP tools): see [Agent tab](#agent-tab-agent_chat) |
 | Gripper Cam | `camera` | Live JPEG from the arm camera (`/camera_0/image_raw/compressed`) |
 | Overview | `camera` | Live JPEG from the overhead camera (`/overview_camera/image_raw/compressed`, 640x480, 15 Hz) looking down at the front of the robot and the arm |
-| IMU | `imu_orientation` | Orientation and rolling acceleration / gyro graphs from `/imu/data` |
+| POI | `poi` | One list of POIs and photos (kind chips, search, sort); each row's button centres it on the map and opens its popup. Reads `poi_list_topic` / `poi_photos_topic` (default `/poi/list`, `/poi/photos`) |
 
 The `rgbd_camera` tab type (colour + 16UC1 depth previews and mesh) is still implemented but is not in the default or deployed config: no depth source is deployed. `sensor_graph` (generic rolling time-series for configured topic fields) is still a valid tab type but is not in the default config. The valid types are `VALID_TAB_TYPES` in `web_ui/config.py`; the frontend renders the same set (`frontend/src/App.tsx`). The default tab list is `config/default.yaml`, the deployed one is the `web_ui` block in `ansible/group_vars/client.yml`. Tab types that no longer exist (for example `nav_local`, `nav_gps`, `scene3d`, `robot_status`, `effector_graph`) are rejected by the backend config validation and dropped by the frontend, so a stale config shows no dead tabs.
 

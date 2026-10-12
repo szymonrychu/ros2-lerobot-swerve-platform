@@ -239,16 +239,30 @@ def test_removed_tab_types_rejected(tab_type: str) -> None:
         TabConfig(id="x", type=tab_type, label="X")
 
 
-@pytest.mark.parametrize("tab_type", ["camera", "sensor_graph", "imu_orientation", "rgbd_camera", "map_nav"])
+@pytest.mark.parametrize("tab_type", ["camera", "sensor_graph", "poi", "rgbd_camera", "map_nav"])
 def test_kept_tab_types_valid(tab_type: str) -> None:
     assert TabConfig(id="x", type=tab_type, label="X").type == tab_type
+
+
+def test_imu_orientation_tab_type_rejected() -> None:
+    with pytest.raises(ValidationError):
+        TabConfig(id="x", type="imu_orientation", label="X")
+
+
+def test_poi_tab_gets_poi_topic_defaults_and_roles() -> None:
+    cfg = AppConfig(tabs=[TabConfig(id="poi", type="poi", label="POI")])
+    tab = cfg.tabs[0]
+    assert tab.poi_list_topic == "/poi/list"
+    assert tab.poi_photos_topic == "/poi/photos"
+    assert cfg.topic_roles() == {"/poi/list": "poi_list", "/poi/photos": "poi_photos"}
+    assert {"/poi/list", "/poi/photos"} <= set(cfg.all_subscribed_topics())
 
 
 def test_default_yaml_tab_set_map_first() -> None:
     cfg = load_config(DEFAULT_YAML)
     types = [t.type for t in cfg.tabs]
     assert types[0] == "map_nav"
-    assert types == ["map_nav", "camera", "camera", "imu_orientation"]
+    assert types == ["map_nav", "camera", "camera", "poi"]
     for removed in REMOVED_TAB_TYPES:
         assert removed not in types
     tab = cfg.tabs[0]

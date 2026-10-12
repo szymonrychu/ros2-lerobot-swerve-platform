@@ -69,6 +69,7 @@ import { PhotoList } from '../photos/PhotoList'
 import { PhotoPanel } from '../photos/PhotoPanel'
 import type { Photo } from '../photos/api'
 import { LAYER_MAX_PHOTOS, PHOTO_AGE_LABELS, PHOTO_AGES, type PhotoAge } from '../photos/geometry'
+import type { PendingFocus } from '../poi/poiItems'
 import { usePhotoLayer } from '../photos/usePhotoLayer'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
 import { PoiLegend } from '../poi/PoiLegend'
@@ -120,6 +121,9 @@ interface Props {
   publish: (topic: string, msgType: string, data: unknown) => void
   /** Tilt guard state; at warning/error goal setting is disabled. */
   tilt?: TiltStatus
+  /** Map focus requested from the POI tab; the map clears it through onFocusConsumed once handled. */
+  pendingFocus?: PendingFocus | null
+  onFocusConsumed?: () => void
 }
 
 interface FramedPose extends Pose2D {

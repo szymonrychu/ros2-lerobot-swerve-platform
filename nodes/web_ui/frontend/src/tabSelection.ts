@@ -8,7 +8,7 @@
 export const TAB_STORAGE_KEY = 'web_ui.activeTabId'
 export const PRIMARY_TAB_TYPE = 'map_nav'
 /** Tab types the dashboard renders; others (e.g. the merged-away nav_local, nav_gps, scene3d, robot_status, effector_graph) are dropped. */
-export const SUPPORTED_TAB_TYPES: readonly string[] = ['map_nav', 'camera', 'rgbd_camera', 'imu_orientation', 'sensor_graph', 'agent_chat']
+export const SUPPORTED_TAB_TYPES: readonly string[] = ['map_nav', 'camera', 'rgbd_camera', 'poi', 'sensor_graph', 'agent_chat']
 
 /** Minimal tab shape the helpers need (a TabConfig satisfies it). */
 export interface TabRef {
@@ -54,8 +54,18 @@ export function initialTabIndex(tabs: readonly TabRef[], storedId: string | null
     const stored = tabs.findIndex((t) => t.id === storedId)
     if (stored >= 0) return stored
   }
-  const map = tabs.findIndex((t) => t.type === PRIMARY_TAB_TYPE)
+  const map = mapTabIndex(tabs)
   return map >= 0 ? map : 0
+}
+
+/**
+ * Index of the map tab.
+ *
+ * @param tabs - tabs in display order
+ * @returns index of the first map_nav tab, or -1 when none is configured
+ */
+export function mapTabIndex(tabs: readonly TabRef[]): number {
+  return tabs.findIndex((t) => t.type === PRIMARY_TAB_TYPE)
 }
 
 /**

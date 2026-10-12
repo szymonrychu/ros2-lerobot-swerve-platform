@@ -1339,12 +1339,11 @@ ros2_nodes:
           type: camera
           label: "Overview"
           topic: /overview_camera/image_raw/compressed
-        - id: imu_graphs
-          type: imu_orientation
-          label: "IMU"
-          topics:
-            - topic: /imu/data
-              fields: []
+        - id: poi
+          type: poi
+          label: "POI"
+          poi_list_topic: /poi/list
+          poi_photos_topic: /poi/photos
       # Status bar readouts from live client topics; "position[name=fl_steer]" picks the joint by name, not by index.
       overlays:
         - topic: /client/gps/fix

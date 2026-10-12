@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   initialTabIndex,
+  mapTabIndex,
   orderTabs,
   readStoredTabId,
   SUPPORTED_TAB_TYPES,
@@ -11,7 +12,7 @@ import {
 
 const TABS = [
   { id: 'rgbd_camera', type: 'rgbd_camera' },
-  { id: 'imu', type: 'imu_orientation' },
+  { id: 'imu', type: 'poi' },
   { id: 'map', type: 'map_nav' },
   { id: 'map2', type: 'map_nav' },
 ]
@@ -109,7 +110,25 @@ describe('supportedTabs', () => {
 
   it('lists exactly the kept tab types', () => {
     expect([...SUPPORTED_TAB_TYPES].sort()).toEqual(
-      ['agent_chat', 'camera', 'imu_orientation', 'map_nav', 'rgbd_camera', 'sensor_graph'].sort(),
+      ['agent_chat', 'camera', 'map_nav', 'poi', 'rgbd_camera', 'sensor_graph'].sort(),
     )
+  })
+})
+
+describe('mapTabIndex', () => {
+  it('returns the index of the map_nav tab', () => {
+    expect(mapTabIndex(TABS)).toBe(2)
+  })
+
+  it('returns -1 without a map_nav tab', () => {
+    expect(mapTabIndex(TABS.slice(0, 2))).toBe(-1)
+    expect(mapTabIndex([])).toBe(-1)
+  })
+})
+
+describe('imu tab removal', () => {
+  it('does not support imu_orientation', () => {
+    expect(SUPPORTED_TAB_TYPES).not.toContain('imu_orientation')
+    expect(SUPPORTED_TAB_TYPES).toContain('poi')
   })
 })

@@ -63,7 +63,7 @@ AUTONOMY = {
 TILE_CACHE_DIR = "/var/cache/web_ui/tiles"
 TILE_CACHE_TASKS = PLAYBOOKS_DIR / "tasks" / "web_ui_tile_cache_dir.yml"
 LEGACY_MAP_KEYS = {"urdf_file", "topic", "arm_urdf_file", "arm_joint_topic", "scan_topic", "costmap_topic"}
-WEB_UI_TABS = ["map", "agent", "camera", "overview_camera", "imu_graphs"]
+WEB_UI_TABS = ["map", "agent", "camera", "overview_camera", "poi"]
 REMOVED_WEB_UI_TABS = {"arm_servos", "local_nav", "gps_nav", "scene3d", "robot_status"}
 
 
@@ -466,7 +466,10 @@ def test_web_ui_tab_set() -> None:
     assert overview["type"] == "camera"
     assert overview["label"] == "Overview"
     assert overview["topic"] == "/overview_camera/image_raw/compressed"
-    assert tabs[4]["type"] == "imu_orientation"
+    poi = tabs[4]
+    assert poi["type"] == "poi"
+    assert poi["id"] == "poi"
+    assert poi["label"] == "POI"
 
 
 def test_web_ui_map_tab_uses_contract_fields() -> None:
