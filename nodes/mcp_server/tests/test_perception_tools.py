@@ -60,6 +60,22 @@ def test_descriptions_document_the_view_conventions(server: Any) -> None:
     assert "poi_store" in docs["add_poi"]
 
 
+def test_agent_poi_descriptions_say_pois_persist() -> None:
+    docs = {**{"ZONE_HELP": perception_tools.ZONE_HELP}}
+    for _, text in docs.items():
+        assert "session-scoped" not in text and "removed" not in text
+        assert "persist" in text and "survive a new session" in text
+
+
+def test_remember_object_description_says_pois_persist(server: Any) -> None:
+    text = tool_descriptions(server)["remember_object"]
+    assert "removed" not in text and "session-scoped" not in text
+    assert "persist" in text and "survive a new session" in text
+    for name, desc in tool_descriptions(server).items():
+        assert "session-scoped" not in desc, name
+        assert "removed when the person starts a new session" not in desc, name
+
+
 # --- get_topdown_view ------------------------------------------------------------------------------------------
 
 

@@ -53,8 +53,8 @@ ZONE_HELP = (
     "Zones (areas only): zone 'keepout' = Nav2 will not plan or drive into the area (the robot can still leave if it "
     "is already inside; never set a navigation goal inside a keepout). zone 'slow' = the MPPI controller speed is "
     "capped to speed_limit_pct (10..100, required for slow) while the robot centre is inside. A zone is active only "
-    "while status is 'open' (done/cancelled switch it off). Zones you create are session-scoped: your POIs are "
-    "removed at the next agent session, so ask the person to create permanent ones in the web UI."
+    "while status is 'open' (done/cancelled switch it off). Your POIs persist: open ones survive a new session "
+    "(done and cancelled ones are cleared), so a zone you create stays in force until you or the person end it."
 )
 
 
@@ -319,8 +319,8 @@ def register(ctx: ToolContext) -> None:
     @server.tool(
         description=(
             "Remember an object you saw (for example after locating it in a camera image) in map coordinates. It is "
-            "saved as a POI of kind 'object' (created_by 'agent') in poi_store, so it shows on the person's map and "
-            "is removed when the person starts a new session. A sighting of the same label within "
+            "saved as a POI of kind 'object' (created_by 'agent') in poi_store, so it shows on the person's map. Agent "
+            "POIs persist: open ones survive a new session. A sighting of the same label within "
             f"{config.objects.merge_radius_m:g} m of a remembered object updates that object (position averaged, "
             "times_seen + 1) instead of adding a new one. Returns the object with id, first_seen, last_seen, "
             "times_seen. No motion."
