@@ -432,6 +432,13 @@ With problems and fewer than `job_end_max_followups` (2) job-end follow-ups used
 The model parks first because it knows what it holds and what is around; the home routes only avoid the robot's own
 body.
 
+**POI review.** When the job-end check passes, the runner sends one `POI REVIEW: ...` follow-up (same path as the job-end
+follow-ups) if the instruction used camera tools (`get_camera_image`, `get_annotated_camera_image`, `get_topdown_view`)
+or motion (effector) tools and made no successful POI write (`add_poi`, `update_poi`, `remember_object`,
+`annotate_lookup`). At most one per instruction; never after a user stop, the turn cap, a timeout or an error; never
+when `poi_review_followup` is `false`. It does not use up the `job_end_max_followups`: the job-end check runs again
+after the review's reply.
+
 After the last follow-up the runner parks itself, each call bounded by `job_end_park_timeout_s` (60) and shown in the
 chat as a `tool_call` / `tool_result` pair with `source: "job_end"`: `cancel_motions` first (mcp_server refuses a
 release while the motion queue runs), then `release_control(subsystem="all")` with the default reset (the arm drives
@@ -505,6 +512,7 @@ unknown keys are rejected.
 | `max_auto_retries` | `6` | Most automatic phase re-entries per instruction, across all phases |
 | `retry_ledger_max_records` | `5000` | Bound of the retry calibration ledger; past it the oldest half is dropped (at least 100, see "Retry calibration ledger") |
 | `job_end_max_followups` | `2` | "JOB END REFUSED" follow-ups before the runner parks the arm itself (see "Job end") |
+| `poi_review_followup` | `true` | One "POI REVIEW" follow-up when an instruction used camera or motion tools and wrote no POI (see "Job end") |
 | `job_end_park_timeout_s` | `60` | Bound of each robot call of the forced park (`cancel_motions`, `release_control`, the keep_position fallback) |
 | `effector_tools` / `uncapped_tools` / `sensor_tools` / `denied_tools` | see above | Short tool names (no `mcp__robot__`) |
 | `mcp_url` | `http://127.0.0.1:18200/mcp` | Robot MCP server |

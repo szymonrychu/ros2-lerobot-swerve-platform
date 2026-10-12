@@ -104,6 +104,15 @@ JOB_END_PARK_ARGS: dict[str, Any] = {"subsystem": "all"}
 # Fallback of a park refused for carrying: frees both leases without moving the arm (mcp_server keeps the pose).
 JOB_END_KEEP_ARGS: dict[str, Any] = {"subsystem": "all", "keep_position": True}
 JOB_END_FOLLOWUP_MARKER = "JOB END REFUSED:"
+# Turn-end POI review: an instruction that looked or moved but wrote no POI gets one last chance to mark the map.
+POI_REVIEW_MARKER = "POI REVIEW:"
+POI_WRITE_TOOLS = frozenset({"add_poi", "update_poi", "remember_object", "annotate_lookup"})
+CAMERA_TOOLS = frozenset({"get_camera_image", "get_annotated_camera_image", "get_topdown_view"})
+POI_REVIEW_TEXT = (
+    f"{POI_REVIEW_MARKER} this instruction used the camera or moved the robot but marked nothing on the map. Before "
+    "you finish: for each object, area, obstacle or place you saw or learned, call remember_object or add_poi (and "
+    "annotate_lookup to link the photos that show it). If there is truly nothing worth marking, say so in one line."
+)
 JOB_END_CARRY_TEXT = "You are carrying an object{reasons}: put the object down first (release_object), then park. "
 JOB_END_PARK_TEXT = 'Park: release_control(subsystem="all"). '
 PLAN_REMEDY_PENDING = (
@@ -370,6 +379,9 @@ class AgentRunner:
         self.mcp_prober = mcp_prober or self.default_mcp_prober
         self.robot_tool_caller = robot_tool_caller or self.default_robot_tool_caller
         self.job_end_followups = 0
+        self.poi_review_sent = False
+        self.explored = False
+        self.poi_writes = 0
         self.took_control = False
         self.checking_job_end = False
         self.last_warning_interrupt: dict[str, float] = {}
@@ -740,6 +752,9 @@ class AgentRunner:
         self.pending_followup = None
         self.interrupt_pending = False
         self.job_end_followups = 0
+        self.poi_review_sent = False
+        self.explored = False
+        self.poi_writes = 0
         self.took_control = False
         self.last_warning_interrupt = {}
         self.digest = self.take_digest()
@@ -1062,6 +1077,8 @@ class AgentRunner:
                     job_end: dict[str, Any] | None = None
                     if self.job_end_applies(message):
                         followup, job_end = await self.run_job_end_check()
+                        if followup is None and job_end is None:
+                            followup = self.take_poi_review()
                         if followup is not None:
                             continue
                     status = self.finish_turn(message, job_end)
@@ -1085,6 +1102,29 @@ class AgentRunner:
         if self.interrupted or self.turn_capped:
             return False
         return result_to_turn_end(result, False, 0)["status"] == STATUS_DONE
+
+    def take_poi_review(self) -> str | None:
+        """The one POI REVIEW follow-up of an instruction, once the job-end check passed.
+
+        Returns:
+            str | None: The follow-up, or None (flag off, already sent, nothing explored, or a POI was written).
+        """
+        if not self.config.poi_review_followup or self.poi_review_sent or not self.explored or self.poi_writes:
+            return None
+        self.poi_review_sent = True
+        return POI_REVIEW_TEXT
+
+    def note_poi_activity(self, name: str, is_error: bool) -> None:
+        """Track, for the POI review, camera or motion use and successful POI writes of the instruction.
+
+        Args:
+            name (str): Short tool name.
+            is_error (bool): Whether the tool result was an error.
+        """
+        if name in POI_WRITE_TOOLS:
+            self.poi_writes += 0 if is_error else 1
+        elif name in CAMERA_TOOLS or classify_tool(self.config, f"{ROBOT_PREFIX}{name}") == KIND_EFFECTOR:
+            self.explored = True
 
     async def call_robot_tool_safely(self, name: str, args: dict[str, Any], timeout_s: float) -> RobotToolResult:
         """Call a robot tool through robot_tool_caller, turning a raised exception into an error result.
@@ -1295,6 +1335,7 @@ class AgentRunner:
                 continue
             name = short_name(self.tools_in_flight.pop(block.tool_use_id, block.tool_use_id))
             self.tool_started_at.pop(block.tool_use_id, None)
+            self.note_poi_activity(name, bool(block.is_error))
             if name == TAKE_CONTROL_TOOL and not block.is_error:
                 self.took_control = True
             if block.is_error or name == WAIT_FOR_EVENT_TOOL:

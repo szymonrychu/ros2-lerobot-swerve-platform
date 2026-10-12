@@ -130,6 +130,8 @@ class ClaudeAgentConfig(BaseModel):
             past it the oldest half of the records is dropped (at least 100).
         job_end_max_followups: "JOB END REFUSED" follow-ups the runner sends when an instruction would end with the arm
             out of home, a lease held or the plan unfinished; after that many the runner parks the arm itself.
+        poi_review_followup: Send one "POI REVIEW" follow-up when an instruction used camera or motion tools and wrote
+            no POI (add_poi, update_poi, remember_object, annotate_lookup), so it can still mark what it found.
         job_end_park_timeout_s: Bound for each robot call of the runner's forced job-end park (cancel_motions,
             release_control and its keep_position fallback).
         effector_tools: Short names (no mcp__robot__ prefix) of the motion tools; keep in sync with mcp_server MOTION_TOOLS.
@@ -200,6 +202,7 @@ class ClaudeAgentConfig(BaseModel):
     max_auto_retries: int = Field(default=DEFAULT_MAX_AUTO_RETRIES, ge=0)
     retry_ledger_max_records: int = Field(default=DEFAULT_RETRY_LEDGER_MAX_RECORDS, ge=MIN_RETRY_LEDGER_MAX_RECORDS)
     job_end_max_followups: int = Field(default=DEFAULT_JOB_END_MAX_FOLLOWUPS, ge=0)
+    poi_review_followup: bool = True
     job_end_park_timeout_s: float = Field(default=DEFAULT_JOB_END_PARK_TIMEOUT_S, gt=0)
     effector_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_EFFECTOR_TOOLS))
     uncapped_tools: list[str] = Field(default_factory=lambda: list(DEFAULT_UNCAPPED_TOOLS))

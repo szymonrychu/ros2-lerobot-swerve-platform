@@ -528,3 +528,128 @@ def test_plan_remedy_per_plan_state() -> None:
     finished = tracker_with(phases=[phase_spec(name="Pick")])
     finished.complete_phase("done", "ok")
     assert plan_problems(finished) == [] and plan_remedy(finished) == ""
+
+
+POI_REVIEW_MARKER = "POI REVIEW"
+
+
+def explore_script(*calls: tuple[str, str, bool]) -> list:
+    """Tool calls (name, result text, is_error) then a final text."""
+    script: list = []
+    for index, (name, text, is_error) in enumerate(calls):
+        script += [tool_call(f"c{index}", name), tool_result(f"c{index}", text, is_error)]
+    return [*script, AssistantMessage(content=[TextBlock(text="Done.")], model="opus"), make_result()]
+
+
+def clean_caller() -> FakeToolCaller:
+    return FakeToolCaller({"get_control_state": [state(CLEAN)]})
+
+
+def test_poi_review_followup_flag_defaults_on(tmp_path: Path) -> None:
+    assert make_config(tmp_path).poi_review_followup is True
+
+
+async def test_camera_use_without_poi_writes_gets_one_poi_review(tmp_path: Path) -> None:
+    script = explore_script(("get_camera_image", "image", False))
+    runner, events, _ = make_runner(tmp_path, script=script, tool_caller=clean_caller())
+    await run(runner)
+    queries = FakeClient.instances[0].queries
+    assert len(queries) == 2, "one review, never a second"
+    assert queries[1].startswith(POI_REVIEW_MARKER)
+    assert "add_poi" in queries[1] and "remember_object" in queries[1]
+    assert of_type(events, "turn_end")[0]["status"] == "done"
+
+
+async def test_motion_use_without_poi_writes_gets_one_poi_review(tmp_path: Path) -> None:
+    script = explore_script(("drive", "ok", False))
+    runner, _, _ = make_runner(tmp_path, script=script, tool_caller=clean_caller())
+    await run(runner)
+    queries = FakeClient.instances[0].queries
+    assert len(queries) == 2 and queries[1].startswith(POI_REVIEW_MARKER)
+
+
+async def test_instruction_without_camera_or_motion_gets_no_review(tmp_path: Path) -> None:
+    script = explore_script(("list_pois", "[]", False))
+    runner, _, _ = make_runner(tmp_path, script=script, tool_caller=clean_caller())
+    await run(runner)
+    assert FakeClient.instances[0].queries == ["go"]
+
+
+async def test_each_poi_write_tool_suppresses_the_review(tmp_path: Path) -> None:
+    for writer in ("add_poi", "update_poi", "remember_object", "annotate_lookup"):
+        FakeClient.instances.clear()
+        script = explore_script(("get_camera_image", "image", False), (writer, "ok", False))
+        runner, _, _ = make_runner(tmp_path, script=script, tool_caller=clean_caller())
+        await run(runner)
+        assert FakeClient.instances[0].queries == ["go"], writer
+
+
+async def test_a_failed_poi_write_does_not_count(tmp_path: Path) -> None:
+    script = explore_script(("get_camera_image", "image", False), ("add_poi", "refused", True))
+    runner, _, _ = make_runner(tmp_path, script=script, tool_caller=clean_caller())
+    await run(runner)
+    queries = FakeClient.instances[0].queries
+    assert len(queries) == 2 and queries[1].startswith(POI_REVIEW_MARKER)
+
+
+async def test_flag_off_sends_no_review(tmp_path: Path) -> None:
+    script = explore_script(("get_camera_image", "image", False))
+    runner, _, _ = make_runner(
+        tmp_path, script=script, tool_caller=clean_caller(), config=make_config(tmp_path, poi_review_followup=False)
+    )
+    await run(runner)
+    assert FakeClient.instances[0].queries == ["go"]
+
+
+async def test_turn_cap_sends_no_review(tmp_path: Path) -> None:
+    runners: list = []
+
+    async def capped(_client: FakeClient) -> None:
+        runners[0].turn_capped = True
+
+    script = [capped, *explore_script(("get_camera_image", "image", False))]
+    runner, _, _ = make_runner(tmp_path, script=script, tool_caller=clean_caller())
+    runners.append(runner)
+    await run(runner)
+    assert FakeClient.instances[0].queries == ["go"]
+
+
+async def test_user_stop_sends_no_review(tmp_path: Path) -> None:
+    runner, _, _ = make_runner(tmp_path, block=True, tool_caller=clean_caller())
+    assert await runner.start_instruction("go") is True
+    await asyncio.sleep(0.05)
+    assert await runner.interrupt() is True
+    await runner.wait_idle()
+    assert FakeClient.instances[0].queries == ["go"]
+
+
+async def test_review_comes_after_the_job_end_refusals_and_does_not_replace_them(tmp_path: Path) -> None:
+    caller = FakeToolCaller({"get_control_state": [state(ARM_OUT), state(CLEAN)]})
+    script = explore_script(("get_camera_image", "image", False))
+    runner, events, _ = make_runner(tmp_path, script=script, tool_caller=caller)
+    await run(runner)
+    queries = FakeClient.instances[0].queries
+    assert len(queries) == 3
+    assert queries[1].startswith(JOB_END_FOLLOWUP_MARKER)
+    assert queries[2].startswith(POI_REVIEW_MARKER)
+    assert caller.names() == ["get_control_state"] * 3, "the job-end check runs again after the review"
+    assert "job_end" not in of_type(events, "turn_end")[0]
+
+
+async def test_review_does_not_use_up_the_job_end_followups(tmp_path: Path) -> None:
+    caller = FakeToolCaller({"get_control_state": [state(CLEAN), state(ARM_OUT), state(CLEAN)]})
+    script = explore_script(("get_camera_image", "image", False))
+    runner, _, _ = make_runner(tmp_path, script=script, tool_caller=caller)
+    await run(runner)
+    queries = FakeClient.instances[0].queries
+    assert queries[1].startswith(POI_REVIEW_MARKER) and queries[2].startswith(JOB_END_FOLLOWUP_MARKER)
+    assert runner.job_end_followups == 1
+
+
+async def test_review_state_resets_per_instruction(tmp_path: Path) -> None:
+    script = explore_script(("get_camera_image", "image", False))
+    runner, _, _ = make_runner(tmp_path, script=script, tool_caller=clean_caller())
+    await run(runner)
+    await run(runner)
+    queries = [q for client in FakeClient.instances for q in client.queries]
+    assert sum(q.startswith(POI_REVIEW_MARKER) for q in queries) == 2
