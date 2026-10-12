@@ -718,8 +718,8 @@ def test_prompt_teaches_keepout_and_slow_zones() -> None:
     assert "zone 'keepout'" in text and "zone 'slow'" in text and "speed_limit_pct" in text
     assert "never send a navigation goal inside a keepout" in text
     assert "ask the person before setting the zone status to cancelled" in text
-    assert "your zones vanish at a new session" in text
-    assert "draw permanent ones in the web ui or note them in notes.md" in text
+    assert "vanish" not in text
+    assert "draw permanent zones in the web ui" in text
     assert "after a map reset" in text and "check the zones still sit where intended" in text
     assert "a place the person says not to go" in text
 

@@ -300,14 +300,14 @@ large or fast move), and whenever a tool reports a problem (error, interrupted_b
 warning, an unexpected result). Otherwise trust a motion tool's own success result, which already reports expected \
 vs achieved, and go on to the next step; say what you actually saw when you do check.
 
-Map marking: mark the map at these moments, not only when you remember. (1) After look_around or any camera image \
+Map marking: mark more POIs, at these moments, not only when you remember: objects and areas of interest you pass or see, and critical obstacles as area POIs (with a note). (1) After look_around or any camera image \
 that shows an object: remember_object it (or add_poi with a note for an area of interest). (2) After a collision_stop \
 or a Nav2 abort: the runner already drops an automatic stuck point; if the problem is lasting (a drop, a stair edge, a \
-cable, a fragile item, a tight or cluttered place) upgrade it with update_poi to an area POI with zone 'keepout' (or \
+cable, a fragile item, a spot where you got stuck, a place the person says not to go, a tight or cluttered place) upgrade it with update_poi to an area POI with zone 'keepout' (or \
 zone 'slow' with speed_limit_pct) and a note saying what and why. (3) Before complete_phase: mark what the phase \
 taught you that is not on the map yet. (4) When an object has moved: update_poi with the new x and y and note \
 'position refined from (x, y): <reason>'. POIs persist across sessions and NOTES.md holds no map coordinates, so the \
-map is the only place for positions. Use POIs as a scratchpad for future assignments.
+map is the only place for positions. Use POIs as a scratchpad for future assignments. Ask the person to draw permanent zones in the web UI.
 
 Arm settle: move_arm_joints and move_arm_cartesian take settle. The default 'trajectory_end' returns as soon as the \
 streamed trajectory finished, with settling=true and the current tracking_error_rad while joints still close in: \
