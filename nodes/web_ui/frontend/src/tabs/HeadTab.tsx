@@ -46,7 +46,8 @@ function Preview({ topic, jpeg, alt }: PreviewProps) {
 }
 
 /**
- * Head tab: head RGB stream and ToF depth preview, optional ToF amplitude, and a disabled pan/tilt block.
+ * Head tab: head RGB stream and depth preview (16UC1 mm: stereo_depth or a ToF camera), optional amplitude (only
+ * when the tab names an amplitude topic), and a disabled pan/tilt block.
  * The pan/tilt controls hold the place for a future head mount: they are disabled and never publish.
  * Phone stacks the previews vertically; tablet and desktop put them side by side.
  *
@@ -68,21 +69,23 @@ export default function HeadTab({ tab, topicData }: Props) {
           <CameraStream topic={tab.rgb_camera_topic} data={topicData[tab.rgb_camera_topic ?? '']} alt="head camera" />
         </Box>
         <Box sx={{ ...CELL_SX, minHeight: cellMinHeight }}>
-          <Preview topic={tab.tof_depth_topic} jpeg={depth?.depth_preview_b64} alt="ToF depth" />
+          <Preview topic={tab.tof_depth_topic} jpeg={depth?.depth_preview_b64} alt="depth" />
         </Box>
-        {showAmplitude && (
+        {showAmplitude && tab.tof_amplitude_topic && (
           <Box sx={{ ...CELL_SX, minHeight: cellMinHeight }}>
             <Preview topic={tab.tof_amplitude_topic} jpeg={amplitude?.jpeg_b64} alt="ToF amplitude" />
           </Box>
         )}
       </Box>
       <Stack direction="row" spacing={2} sx={{ flex: '0 0 auto', alignItems: 'center', flexWrap: 'wrap', px: 1 }}>
-        <FormControlLabel
-          control={<Switch checked={showAmplitude} onChange={(e) => setShowAmplitude(e.target.checked)} />}
-          label="amplitude"
-        />
+        {tab.tof_amplitude_topic && (
+          <FormControlLabel
+            control={<Switch checked={showAmplitude} onChange={(e) => setShowAmplitude(e.target.checked)} />}
+            label="amplitude"
+          />
+        )}
         {tab.tof_range_m !== undefined && (
-          <Typography variant="body2" color="text.secondary">{`ToF range ${tab.tof_range_m} m`}</Typography>
+          <Typography variant="body2" color="text.secondary">{`depth range ${tab.tof_range_m} m`}</Typography>
         )}
       </Stack>
       <Stack data-testid="head-pan-tilt" spacing={1} sx={{ flex: '0 0 auto', p: 1 }}>

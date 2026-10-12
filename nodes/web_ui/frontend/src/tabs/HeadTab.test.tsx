@@ -30,10 +30,10 @@ function setViewport(width: number): void {
   }) as typeof window.matchMedia
 }
 
-function renderTab(topicData: Record<string, unknown>, publish = vi.fn()) {
+function renderTab(topicData: Record<string, unknown>, publish = vi.fn(), tab: TabConfig = TAB) {
   return render(
     <ThemeProvider theme={theme}>
-      <HeadTab tab={TAB} topicData={topicData} publish={publish} />
+      <HeadTab tab={tab} topicData={topicData} publish={publish} />
     </ThemeProvider>,
   )
 }
@@ -51,7 +51,7 @@ describe('HeadTab', () => {
     setViewport(1400)
     renderTab(FRAMES)
     expect(screen.getByAltText('head camera').getAttribute('src')).toBe('data:image/jpeg;base64,RRR')
-    expect(screen.getByAltText('ToF depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
+    expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
   })
 
   it('shows the amplitude preview only after the toggle, off by default', () => {
@@ -63,6 +63,15 @@ describe('HeadTab', () => {
     expect(screen.queryByText(`Waiting for ${AMP}...`)).toBeNull()
     fireEvent.click(toggle)
     expect(screen.getByAltText('ToF amplitude').getAttribute('src')).toBe('data:image/jpeg;base64,AAA')
+  })
+
+  it('has no amplitude switch when the tab has no amplitude topic (stereo depth)', () => {
+    setViewport(1400)
+    const { tof_amplitude_topic: _unused, ...stereo } = TAB
+    renderTab(FRAMES, vi.fn(), stereo as TabConfig)
+    expect(screen.queryByRole('checkbox', { name: 'amplitude' })).toBeNull()
+    expect(screen.queryByText(/Waiting for undefined/)).toBeNull()
+    expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
   })
 
   it('shows Waiting for <topic> and no image for streams without a message', () => {

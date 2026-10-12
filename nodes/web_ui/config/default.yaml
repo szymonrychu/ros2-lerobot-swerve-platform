@@ -67,14 +67,13 @@ tabs:
     arm_urdf: so101_arm.urdf
     arm_joint_states_topic: /follower/joint_states
 
-  # Head tab: overview camera as head RGB, greyscale ToF depth (near bright) and amplitude from arducam_tof.
-  # Pan/tilt is a disabled placeholder; nothing is published.
+  # Head tab: overview camera (left IMX219) as head RGB and greyscale depth (near bright) from stereo_depth (16UC1 mm,
+  # the ToF contract; no amplitude image from a stereo pair). Pan/tilt is a disabled placeholder; nothing is published.
   - id: head
     type: head
     label: "Head"
     rgb_camera_topic: /overview_camera/image_raw/compressed
-    tof_depth_topic: /tof/depth/image_raw
-    tof_amplitude_topic: /tof/amplitude/image_raw
+    tof_depth_topic: /stereo/depth/image_raw
     tof_range_m: 4.0
 
   - id: overview_camera

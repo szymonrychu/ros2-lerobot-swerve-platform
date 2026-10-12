@@ -738,7 +738,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         structured_output=False,
         description=(
             "Take one fresh photo from a robot camera and return it as a JPEG image plus its capture timestamp. "
-            "'gripper' looks out of the gripper (use it to aim grasps); 'front' is the overhead camera (640x480) "
+            "'gripper' looks out of the gripper (use it to aim grasps); 'front' is the overhead camera "
             "looking down at the front of the robot, the arm and the floor in front of it: the best view for judging "
             "gripper-to-object position (take it first for an overview, then use 'gripper' to aim). The default size "
             f"is {config.limits.default_camera_px} px on the longest side (cheap, fine for aiming checks): pass a "
@@ -754,7 +754,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         camera: Annotated[
             Camera,
             Field(
-                description="'gripper' (USB camera on the gripper) or 'front' (overhead camera looking down at the front of the robot, 640x480)"
+                description="'gripper' (USB camera on the gripper) or 'front' (overhead camera looking down at the front of the robot)"
             ),
         ],
         max_px: Annotated[

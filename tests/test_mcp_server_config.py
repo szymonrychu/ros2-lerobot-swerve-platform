@@ -481,8 +481,8 @@ def test_web_ui_tab_set() -> None:
     assert head["type"] == "head"
     assert head["label"] == "Head"
     assert head["rgb_camera_topic"] == "/overview_camera/image_raw/compressed"
-    assert head["tof_depth_topic"] == "/tof/depth/image_raw"
-    assert head["tof_amplitude_topic"] == "/tof/amplitude/image_raw"
+    assert head["tof_depth_topic"] == "/stereo/depth/image_raw"
+    assert "tof_amplitude_topic" not in head, "the stereo pair has no amplitude image"
     assert head["tof_range_m"] == 4.0
     overview = tabs[4]
     assert overview["id"] == "overview_camera"
@@ -780,6 +780,19 @@ def test_mcp_server_front_camera_is_the_compressed_overview_camera() -> None:
     topics = node_config("mcp_server").get("topics", {})
     assert topics["front_camera"] == "/overview_camera/image_raw/compressed"
     assert "realsense_camera" not in topics
+
+
+def test_mcp_server_states_no_hardcoded_front_camera_size() -> None:
+    """The front camera is now the left IMX219 at 480x360: tool descriptions name no size, the READMEs say 480x360."""
+    tools_source = (REPO_ROOT / "nodes" / "mcp_server" / "mcp_server" / "tools.py").read_text()
+    assert "overhead camera (640x480)" not in tools_source
+    assert "front of the robot, 640x480" not in tools_source
+    mcp_readme = (REPO_ROOT / "nodes" / "mcp_server" / "README.md").read_text()
+    assert "640x480 for both" not in mcp_readme
+    assert "480x360" in mcp_readme
+    web_readme = (REPO_ROOT / "nodes" / "web_ui" / "README.md").read_text()
+    assert "/stereo/depth/image_raw" in web_readme and "stereo_depth" in web_readme
+    assert "480x360, 5 Hz" in web_readme and "640x480, 15 Hz" not in web_readme
 
 
 def test_mcp_gripper_closed_target_is_inside_the_follower_gripper_command_range() -> None:
