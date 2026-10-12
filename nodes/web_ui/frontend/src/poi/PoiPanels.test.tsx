@@ -92,12 +92,12 @@ describe('POI panels declutter', () => {
     expect(container.querySelector('.MuiChip-root')).toBeNull()
     expect(screen.getByText('open')).toBeTruthy()
     expect(screen.getByText('done')).toBeTruthy()
-    expect(screen.getAllByTestId('poi-status-mark')).toHaveLength(1)
+    expect(screen.getAllByTestId('status-mark')).toHaveLength(1)
   })
 
   it('draws the open state mark as a 6 px square in a neutral colour, not the warning hue', () => {
     renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} />)
-    const style = getComputedStyle(screen.getByTestId('poi-status-mark'))
+    const style = getComputedStyle(screen.getByTestId('status-mark'))
     expect(style.width).toBe('6px')
     expect(style.height).toBe('6px')
     expect(style.borderRadius).not.toBe('50%')
