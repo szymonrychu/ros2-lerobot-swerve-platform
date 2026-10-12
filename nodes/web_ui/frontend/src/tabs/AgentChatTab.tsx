@@ -8,26 +8,19 @@ import Button from '@mui/material/Button'
 import Chip from '@mui/material/Chip'
 import Collapse from '@mui/material/Collapse'
 import Dialog from '@mui/material/Dialog'
-import DialogActions from '@mui/material/DialogActions'
-import DialogContent from '@mui/material/DialogContent'
-import DialogContentText from '@mui/material/DialogContentText'
-import DialogTitle from '@mui/material/DialogTitle'
 import IconButton from '@mui/material/IconButton'
 import CircularProgress from '@mui/material/CircularProgress'
-import LinearProgress from '@mui/material/LinearProgress'
 import Paper from '@mui/material/Paper'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import SendIcon from '@mui/icons-material/Send'
-import StopIcon from '@mui/icons-material/Stop'
-import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { postAgent } from '../agent/agentApi'
-import { PhasePanel } from '../agent/PhasePanel'
+import { AgentHeader } from '../agent/AgentHeader'
 import { PhaseProgress } from '../agent/PhaseProgress'
-import { composerBlockReason, headerStatus, phaseProgress, phaseRows, statusLabel } from '../agent/agentModel'
-import type { ChatItem, RobotEventSeverity, ToolContent, ToolKind, UsageChip, UsageLevel } from '../agent/agentModel'
+import { composerBlockReason, phaseProgress, statusLabel } from '../agent/agentModel'
+import type { ChatItem, RobotEventSeverity, ToolContent, ToolKind } from '../agent/agentModel'
 import { useAgentChat } from '../agent/useAgentChat'
 import { cutoffBanner } from '../battery/batteryStatus'
 import type { BatteryStatus } from '../battery/batteryStatus'
@@ -53,7 +46,6 @@ const KIND_COLORS: Record<ToolKind, 'info' | 'warning' | 'default' | 'secondary'
   notes: 'secondary',
   plan: 'secondary',
 }
-const USAGE_COLORS: Record<UsageLevel, 'default' | 'warning' | 'error'> = { ok: 'default', warn: 'warning', full: 'error' }
 const EVENT_SEVERITY: Record<RobotEventSeverity, 'info' | 'warning' | 'error'> = { info: 'info', warning: 'warning', critical: 'error' }
 // Distance from the bottom (px) within which the transcript keeps following new messages.
 const STICK_THRESHOLD_PX = 48
@@ -128,11 +120,6 @@ function ToolCard({ item, onOpenImage }: { item: ToolItem; onOpenImage: (src: st
       </Collapse>
     </Paper>
   )
-}
-
-function UsageChipView({ chip }: { chip: UsageChip }) {
-  const color = USAGE_COLORS[chip.level]
-  return <Chip size="small" variant={chip.level === 'ok' ? 'outlined' : 'filled'} color={color} label={chip.label} data-testid={`usage-${chip.key}`} />
 }
 
 function PlanCard({ item }: { item: PlanItem }) {
@@ -287,12 +274,9 @@ export default function AgentChatTab({ battery }: Props) {
   const { chat, info, connected, refreshInfo, loadOlder, loadingOlder, setFollowing, clearCache } = useAgentChat()
   const [text, setText] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
-  const [confirmReset, setConfirmReset] = useState(false)
   const [viewImage, setViewImage] = useState<string | null>(null)
   const listRef = useRef<VirtuosoHandle>(null)
 
-  const header = headerStatus(info, chat)
-  const rows = phaseRows(chat.plan)
   const batteryMessage = battery ? cutoffBanner(battery) : null
   const blockReason = composerBlockReason({ busy: chat.busy, connected, batteryCutoff: batteryMessage !== null, batteryMessage })
   const canSend = blockReason === null && text.trim().length > 0
@@ -328,7 +312,6 @@ export default function AgentChatTab({ battery }: Props) {
   }
 
   const reset = async () => {
-    setConfirmReset(false)
     setActionError(null)
     const res = await postAgent('reset')
     if (res.ok) clearCache()
@@ -339,23 +322,7 @@ export default function AgentChatTab({ battery }: Props) {
   return (
     // Absolutely fill the (position: relative) main area so the transcript, not the page, is what scrolls.
     <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
-      <Box sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', borderBottom: 1, borderColor: 'divider' }}>
-        <Chip size="small" label={header.model ?? 'model unknown'} variant="outlined" />
-        <Chip size="small" color={header.busy ? 'warning' : connected ? 'success' : 'default'} label={header.busy ? 'working' : connected ? 'idle' : 'disconnected'} />
-        {header.complexity !== null && <Chip size="small" color="secondary" label={header.complexity.replace('_', ' ')} />}
-        <PhasePanel rows={rows} header={header.phase} chat={chat} />
-        {header.chips.map((chip) => (
-          <UsageChipView key={chip.key} chip={chip} />
-        ))}
-        <Box sx={{ flex: 1 }} />
-        <Button size="small" startIcon={<StopIcon />} color="error" variant="outlined" disabled={!chat.busy} onClick={() => void stop()} sx={{ minHeight: TOUCH_TARGET_PX }}>
-          Stop
-        </Button>
-        <Button size="small" startIcon={<RestartAltIcon />} variant="outlined" disabled={resetBlocked} onClick={() => setConfirmReset(true)} sx={{ minHeight: TOUCH_TARGET_PX }}>
-          New session
-        </Button>
-      </Box>
-      {chat.busy && <LinearProgress />}
+      <AgentHeader info={info} chat={chat} connected={connected} resetBlocked={resetBlocked} onStop={() => void stop()} onReset={() => void reset()} />
 
       <Box sx={{ flex: 1, minHeight: 0, position: 'relative' }}>
         {chat.items.length === 0 && (
@@ -412,17 +379,6 @@ export default function AgentChatTab({ battery }: Props) {
           </Button>
         </Stack>
       </Box>
-
-      <Dialog open={confirmReset} onClose={() => setConfirmReset(false)}>
-        <DialogTitle>Start a new session?</DialogTitle>
-        <DialogContent>
-          <DialogContentText>The conversation, the usage counters and the task plan are cleared.</DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmReset(false)}>Cancel</Button>
-          <Button color="error" onClick={() => void reset()}>New session</Button>
-        </DialogActions>
-      </Dialog>
 
       <Dialog open={viewImage !== null} onClose={() => setViewImage(null)} maxWidth="lg">
         {viewImage && <Box component="img" src={viewImage} alt="tool result enlarged" sx={{ maxWidth: '100%', display: 'block' }} onClick={() => setViewImage(null)} />}

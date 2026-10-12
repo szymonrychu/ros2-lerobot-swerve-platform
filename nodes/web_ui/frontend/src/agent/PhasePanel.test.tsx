@@ -3,8 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { PhasePanel, PHASE_PANEL_STORAGE_KEY, readPhasePanelOpen, writePhasePanelOpen } from './PhasePanel'
 import type { PhaseStorage } from './PhasePanel'
-import { emptyChat, parsePlan } from './agentModel'
-import type { ChatState, PhaseRow } from './agentModel'
+import type { PhaseRow } from './agentModel'
 
 afterEach(cleanup)
 
@@ -45,24 +44,13 @@ describe('phase storage helpers', () => {
 })
 
 describe('PhasePanel', () => {
-  it('shows the time budget chip beside the phase chip, before the phase list wrapper', () => {
-    const plan = parsePlan({ complexity: 'simple', phases: [], time_budget_min: 30, time_left_s: 600, time_left_at: Date.now() / 1000 })
-    const state: ChatState = { ...emptyChat(), busy: false, plan }
-    render(<PhasePanel rows={ROWS} header={HEADER} storage={memoryStorage()} chat={state} />)
-    const phase = screen.getByTestId('active-phase')
-    const budget = screen.getByTestId('time-budget')
-    expect(budget.textContent).toContain('budget 30 min')
-    expect(phase.parentElement).toBe(budget.parentElement)
-    expect(phase.compareDocumentPosition(budget) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(budget.nextElementSibling?.querySelector('[data-testid="phase-panel"]') ?? budget.nextElementSibling).not.toBeNull()
-  })
   it('renders nothing without rows', () => {
     const { container } = render(<PhasePanel rows={[]} header={null} storage={memoryStorage()} />)
     expect(container.innerHTML).toBe('')
   })
   it('is closed by default, chip shows phase n/m and progress', () => {
     render(<PhasePanel rows={ROWS} header={HEADER} storage={memoryStorage()} />)
-    expect(screen.getByTestId('active-phase').textContent).toBe('Phase 2/2: grasp')
+    expect(screen.getByTestId('active-phase').textContent).toContain('2/2 grasp')
     expect(screen.getByTestId('phase-attempt').textContent).toBe('attempt 1/3')
     expect(screen.queryByTestId('phase-row-1')).toBeNull()
   })
@@ -86,5 +74,25 @@ describe('PhasePanel', () => {
     expect(screen.queryByTestId('phase-row-1')).toBeNull()
     fireEvent.click(screen.getByTestId('active-phase'))
     expect(screen.getByTestId('phase-row-1')).toBeTruthy()
+  })
+  it('shows row status as text, coloured only for failed and skipped', () => {
+    const rows: PhaseRow[] = [
+      { ...BASE, number: 1, name: 'a', status: 'done', active: false },
+      { ...BASE, number: 2, name: 'b', status: 'failed', active: false },
+      { ...BASE, number: 3, name: 'c', status: 'skipped', active: false },
+    ]
+    render(<PhasePanel rows={rows} header={null} storage={memoryStorage({ [PHASE_PANEL_STORAGE_KEY]: '1' })} />)
+    expect(document.querySelector('.MuiChip-root')).toBeNull()
+    const color = (n: number) => getComputedStyle(screen.getByTestId(`phase-row-${n}`).querySelector('[data-testid="phase-status"]') as HTMLElement).color
+    expect(screen.getByTestId('phase-row-1').textContent).toContain('done')
+    const neutral = color(1)
+    expect(color(2)).not.toBe(neutral)
+    expect(color(3)).not.toBe(neutral)
+    expect(color(2)).not.toBe(color(3))
+  })
+  it('joins raised, attempt, iteration and p as plain text with a hyphen', () => {
+    const rows: PhaseRow[] = [{ ...BASE, number: 1, name: 'a', status: 'active', active: true, raised: true, attemptLabel: 'attempt 2/3', iterationLabel: 'iteration 4', pRetrySuccess: 0.7 }]
+    render(<PhasePanel rows={rows} header={null} storage={memoryStorage({ [PHASE_PANEL_STORAGE_KEY]: '1' })} />)
+    expect(screen.getByTestId('phase-progress').textContent).toBe('raised - attempt 2/3 - iteration 4 - p 0.70')
   })
 })

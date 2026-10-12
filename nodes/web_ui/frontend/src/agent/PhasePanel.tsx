@@ -1,15 +1,16 @@
-/** Collapsible list of the agent plan phases: a header chip ("Phase n/m: name") toggles the rows; closed by default, remembered per viewer. */
+/** Collapsible list of the agent plan phases: a header dropdown ("phase n/m name") toggles the rows; closed by default, remembered per viewer. */
 import { useState } from 'react'
 import Box from '@mui/material/Box'
-import Chip from '@mui/material/Chip'
+import ButtonBase from '@mui/material/ButtonBase'
 import Collapse from '@mui/material/Collapse'
 import LinearProgress from '@mui/material/LinearProgress'
 import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { PhaseProgress } from './PhaseProgress'
-import { TimeBudgetChip } from './TimeBudgetChip'
-import type { ChatState, PhaseRow, PhaseStatus, UsageBar, UsageLevel } from './agentModel'
+import { StatusItem } from '../components/StatusItem'
+import { CONTROL_PX, TOKENS, TOUCH_TARGET_PX } from '../theme'
+import type { PhaseRow, PhaseStatus, UsageBar, UsageLevel } from './agentModel'
 
 export const PHASE_PANEL_STORAGE_KEY = 'web_ui.agentPhasesOpen'
 /** Open phase list height cap: half the dynamic viewport so the chat stays usable on a phone. */
@@ -66,13 +67,8 @@ function browserStorage(): PhaseStorage | undefined {
   }
 }
 
-const PHASE_STATUS_COLORS: Record<PhaseStatus, 'default' | 'primary' | 'success' | 'error' | 'warning'> = {
-  pending: 'default',
-  active: 'primary',
-  done: 'success',
-  failed: 'error',
-  skipped: 'warning',
-}
+/** Row status text colour: only failed and skipped carry hue, every other status stays neutral. */
+const PHASE_STATUS_COLORS: Partial<Record<PhaseStatus, string>> = { failed: 'error.main', skipped: 'warning.main' }
 const BAR_COLORS: Record<UsageLevel, 'primary' | 'warning' | 'error'> = { ok: 'primary', warn: 'warning', full: 'error' }
 
 function UsageBarView({ bar }: { bar: UsageBar }) {
@@ -91,18 +87,17 @@ function PhaseRowView({ row }: { row: PhaseRow }) {
       data-status={row.status}
       sx={{
         px: 1, py: 0.5, borderRadius: 1, border: 1, borderColor: row.active ? 'primary.main' : 'divider',
-        bgcolor: row.active ? 'action.selected' : 'transparent', opacity: row.status === 'pending' ? 0.7 : 1,
+        bgcolor: row.active ? 'action.selected' : 'transparent',
       }}
     >
-      <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-        <Chip size="small" color={PHASE_STATUS_COLORS[row.status]} variant={row.active ? 'filled' : 'outlined'} label={row.status} />
-        <Typography variant="body2" sx={{ fontWeight: row.active ? 700 : 500 }}>{row.number}. {row.name}</Typography>
-        {row.raised && <Chip size="small" variant="outlined" label="raised" />}
-        <PhaseProgress attemptLabel={row.attemptLabel} iterationLabel={row.iterationLabel} pRetrySuccess={row.pRetrySuccess} />
+      <Stack direction="row" gap={1} alignItems="baseline" flexWrap="wrap">
+        <Typography variant="caption" data-testid="phase-status" sx={{ color: PHASE_STATUS_COLORS[row.status] ?? 'text.secondary' }}>{row.status}</Typography>
+        <Typography variant="body2" sx={{ fontWeight: row.active ? 500 : 400 }}>{row.number}. {row.name}</Typography>
+        <PhaseProgress lead={row.raised ? 'raised' : undefined} attemptLabel={row.attemptLabel} iterationLabel={row.iterationLabel} pRetrySuccess={row.pRetrySuccess} />
         <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{row.goal}</Typography>
       </Stack>
       {row.status !== 'pending' && (
-        <Stack direction="row" gap={1.5} alignItems="center" sx={{ mt: 0.5 }}>
+        <Stack direction="row" gap={2} alignItems="center" sx={{ mt: 0.5 }}>
           <Typography variant="caption" color="text.secondary">sensors {row.sensorCalls}</Typography>
           {row.bars.map((bar) => <UsageBarView key={bar.key} bar={bar} />)}
         </Stack>
@@ -113,15 +108,14 @@ function PhaseRowView({ row }: { row: PhaseRow }) {
 }
 
 /**
- * Header chip plus a collapsible list of all phases.
+ * Phase dropdown (a StatusItem that toggles the list) plus the collapsible list of all phases.
  *
  * @param rows - phase rows (phaseRows()); nothing is rendered when empty
- * @param header - the active phase for the chip; null after the last phase (chip then shows the finished count)
+ * @param header - the active phase for the dropdown; null after the last phase (it then shows the finished count)
  * @param storage - open/closed persistence, defaults to localStorage
- * @param chat - live chat state; when given, the declared time budget and time left show beside the phase chip
  * @returns the dropdown
  */
-export function PhasePanel({ rows, header, storage, chat }: { rows: PhaseRow[]; header: PhaseHeader | null; storage?: PhaseStorage; chat?: ChatState }) {
+export function PhasePanel({ rows, header, storage }: { rows: PhaseRow[]; header: PhaseHeader | null; storage?: PhaseStorage }) {
   const store = storage ?? browserStorage()
   const [open, setOpen] = useState(() => readPhasePanelOpen(store))
   if (rows.length === 0) return null
@@ -130,20 +124,13 @@ export function PhasePanel({ rows, header, storage, chat }: { rows: PhaseRow[]; 
     setOpen(next)
     writePhasePanelOpen(store, next)
   }
-  const label = header !== null ? `Phase ${header.number}/${header.total}: ${header.name}` : `Phases ${rows.filter((r) => r.status === 'done').length}/${rows.length}`
+  const value = header !== null ? `${header.number}/${header.total} ${header.name}` : `${rows.filter((r) => r.status === 'done').length}/${rows.length} done`
   return (
     <Box sx={{ display: 'contents' }}>
-      <Chip
-        size="small"
-        color="primary"
-        label={label}
-        onClick={toggle}
-        onDelete={toggle}
-        deleteIcon={<ExpandMoreIcon sx={{ transform: open ? 'rotate(180deg)' : 'none' }} />}
-        aria-expanded={open}
-        data-testid="active-phase"
-      />
-      {chat !== undefined && <TimeBudgetChip state={chat} />}
+      <ButtonBase onClick={toggle} aria-expanded={open} data-testid="active-phase" sx={{ gap: 0.5, minWidth: 0, borderRadius: 1, alignItems: 'center', minHeight: CONTROL_PX, '@media (pointer: coarse)': { minHeight: TOUCH_TARGET_PX } }}>
+        <StatusItem label="phase" value={value} />
+        <ExpandMoreIcon sx={{ fontSize: TOKENS.fontSizes.lg, alignSelf: 'center', transform: open ? 'rotate(180deg)' : 'none' }} />
+      </ButtonBase>
       {header !== null && <PhaseProgress attemptLabel={header.attemptLabel} iterationLabel={header.iterationLabel} pRetrySuccess={null} />}
       <Box sx={{ flexBasis: '100%' }}>
         <Collapse in={open} unmountOnExit>
