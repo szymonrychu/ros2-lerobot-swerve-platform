@@ -1966,11 +1966,12 @@ ros2_nodes:
       model: opus
       # The agent splits each task into phases and sets rw (effector calls) / turn caps per phase via
       # agent.set_task_plan. Sensor calls are never capped. The caps of all phases together stay within the
-      # instruction maxima, one phase within the per-phase maxima.
-      max_rw_cap: 150
-      max_turn_cap: 200
-      max_phase_rw_cap: 40
-      max_phase_turn_cap: 40
+      # instruction maxima, one phase within the per-phase maxima. raise_phase_budget may be called more than once per
+      # phase within these maxima.
+      max_rw_cap: 400
+      max_turn_cap: 500
+      max_phase_rw_cap: 100
+      max_phase_turn_cap: 100
       # Plan tree: largest max_iterations of a while node (1 to 5). A phase closed as failed is re-entered
       # automatically when its p_retry_success >= retry_success_threshold, attempts and budget allow it, and
       # fewer than max_auto_retries automatic re-entries happened in this instruction.
@@ -2018,7 +2019,10 @@ ros2_nodes:
       nav_goal_yaw_tolerance_deg: 2.0
       nav_intermediate_xy_tolerance_cm: 3.0
       nav_intermediate_yaw_tolerance_deg: 5.0
+      # Pre-plan watchdog: until set_task_plan declares time_budget_min the instruction ends after this many seconds;
+      # afterwards the declared budget (from the instruction start) applies, at most max_instruction_time_min.
       instruction_timeout_s: 900
+      max_instruction_time_min: 120
       # Latency: the model gap (median 3.3 s) is mostly output tokens. Explicit medium effort, thinking text not streamed,
       # 1 h prompt cache TTL (idle gaps over 5 min), api_timing events in the session log, and context kept bounded by
       # auto-compaction at 60% of the window (fresh_with_digest starts a new session per instruction instead).

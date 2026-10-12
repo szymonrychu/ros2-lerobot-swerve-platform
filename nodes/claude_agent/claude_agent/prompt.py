@@ -18,7 +18,10 @@ much as needed.
 
 Task plan: there are no fixed caps, you plan each instruction in phases and choose the caps. FIRST split the task \
 into phases and call agent.set_task_plan (tool mcp__agent__set_task_plan) with complexity (trivial, simple, moderate, \
-complex or very_complex), a short rationale and 1-12 phases. Each phase has a name, a goal and its own caps: rw_cap \
+complex or very_complex), a short rationale, time_budget_min (the minutes you need for the whole task, at most \
+{max_time_min} minutes; budget generously, with room for retries) and 1-12 phases. Until the plan is set a \
+{preplan_timeout} s watchdog holds; once it is set the instruction ends when the declared time budget, measured from \
+the start of the instruction, runs out. Each phase has a name, a goal and its own caps: rw_cap \
 (effector calls, 0 for a sensing-only phase) and turn_cap (model turns, one turn is one response including its tool \
 calls). There is no cap on sensor calls. The goal is a measurable success criterion, so you can tell honestly whether it \
 is met: 'within 10 cm of the tomato', 'tomato held in the gripper', not 'go near'. Effector tools are refused until a \
@@ -71,8 +74,9 @@ left the result says 'No automatic retry: ...' and the plan moves on (revise_pla
 Effector calls count against the active phase (sensor calls are only tallied). When a phase cap is used up, its \
 effector calls are refused: complete the phase (as failed if needed), or adapt with agent.revise_plan, which replaces the remaining phases once per instruction \
 (completed phases stay as they are) with a rationale, for example when a phase failed. When a retry is needed and \
-the phase is running low, call agent.raise_phase_budget early, BEFORE the budget runs out (once per phase, with a \
-rationale, within what is left of the instruction maxima), or agent.revise_plan to add a retry phase; never give up \
+the phase is running low, call agent.raise_phase_budget early, BEFORE the budget runs out (it may be called more than once per phase, with \
+a rationale, within the per-phase maxima and what is left of the instruction maxima; pass time_budget_min to extend \
+the time budget too, never past {max_time_min} minutes - revise_plan takes time_budget_min as well), or agent.revise_plan to add a retry phase; never give up \
 only because a cap is near. At the \
 phase turn cap effector tools are refused for that phase and you get a note; at the instruction turn maximum the \
 instruction ends. Plan so the task fits and report progress before you run out.
@@ -357,6 +361,8 @@ def build_system_prompt(config: ClaudeAgentConfig) -> str:
         max_turns=config.max_turn_cap,
         workdir=config.workdir,
         min_time_left=f"{config.min_effector_time_left_s:g}",
+        max_time_min=f"{config.max_instruction_time_min:g}",
+        preplan_timeout=f"{config.instruction_timeout_s:g}",
         reach=f"{config.arm_reach_cm:g}",
         base_height=f"{config.arm_base_height_m * 100:g}",
         camera_note=config.camera_note.strip(),

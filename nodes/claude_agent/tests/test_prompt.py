@@ -72,7 +72,7 @@ def test_prompt_demands_explicit_honest_phase_completion() -> None:
     lower = build_system_prompt(ClaudeAgentConfig()).lower()
     assert "complete every phase" in lower or "always complete" in lower
     assert "failed" in lower and "skipped" in lower and "honest" in lower
-    assert "once per instruction" in lower and "once per phase" in lower
+    assert "once per instruction" in lower
 
 
 def test_prompt_has_no_old_static_caps() -> None:
@@ -744,3 +744,14 @@ def test_prompt_teaches_frontier_exploration() -> None:
     ):
         assert needle in section, needle
     assert lower.index("spatial perception:") < lower.index("exploration:")
+
+
+def test_prompt_teaches_the_time_budget_and_repeatable_raises() -> None:
+    cfg = ClaudeAgentConfig(max_instruction_time_min=90, instruction_timeout_s=600)
+    lower = " ".join(build_system_prompt(cfg).lower().split())
+    assert "time_budget_min" in lower and "whole task" in lower
+    assert "at most 90 minutes" in lower
+    assert "600 s" in lower and "until the plan is set" in lower
+    assert "raise_phase_budget" in lower and "more than once per phase" in lower
+    assert "(once per phase, with a" not in lower
+    assert "never past 90 minutes" in lower

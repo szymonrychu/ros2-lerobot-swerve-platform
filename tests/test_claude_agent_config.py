@@ -588,6 +588,7 @@ def test_service_template_hardening_is_optional() -> None:
 def test_claude_agent_config_has_watchdog_and_sdk_initialize_timeout() -> None:
     cfg = yaml.safe_load(node_entry("claude_agent")["config"])
     assert cfg["instruction_timeout_s"] == 900
+    assert cfg["max_instruction_time_min"] == 120
     env = client_vars()["ros2_node_type_defaults"]["claude_agent"]["env"]
     assert "CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=180000" in env
 
@@ -642,8 +643,8 @@ def test_claude_agent_config_has_budget_maxima_and_robot_events_topic() -> None:
     The static caps are gone; events come from /robot_events.
     """
     raw = yaml.safe_load(node_entry("claude_agent")["config"])
-    assert (raw["max_rw_cap"], raw["max_turn_cap"]) == (150, 200)
-    assert (raw["max_phase_rw_cap"], raw["max_phase_turn_cap"]) == (40, 40)
+    assert (raw["max_rw_cap"], raw["max_turn_cap"]) == (400, 500)
+    assert (raw["max_phase_rw_cap"], raw["max_phase_turn_cap"]) == (100, 100)
     assert "max_ro_cap" not in raw and "max_phase_ro_cap" not in raw
     assert "effector_call_cap" not in raw and "max_turns" not in raw
     assert raw["robot_events_topic"] == "/robot_events"

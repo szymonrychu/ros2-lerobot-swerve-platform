@@ -525,7 +525,7 @@ The **claude_agent** node has tests under `nodes/claude_agent/tests/` (no networ
 `conftest.py`, the Agent SDK dataclasses are built directly). Run from `nodes/claude_agent`: `uv run pytest tests -q`.
 Covers:
 
-- config (`test_config.py`): defaults (opus, hard maxima rw 150 / turns 200, no `max_ro_cap` / `max_phase_ro_cap`, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
+- config (`test_config.py`): defaults (opus, hard maxima rw 400 / turns 500, per phase 100 / 100, `max_instruction_time_min` 120, no `max_ro_cap` / `max_phase_ro_cap`, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
   tool lists disjoint (stop can never be an effector), `get_arm_reach` a sensor tool (free, not effector-capped) in both the code
   defaults and the client.yml config, invalid numbers and unknown keys rejected, YAML loading, the plan tree and retry defaults
   (`max_loop_iterations` 5, `retry_success_threshold` 0.5, `max_auto_retries` 6) and their bounds, the same three keys set
@@ -545,7 +545,9 @@ Covers:
   counted as rw; allowed at the minimum; stop, cancel_motions, release_object, acquire/release_control and an opening `set_gripper`
   allowed with no time left, a closing one denied; sensors and planning tools unaffected; a PostToolUse hook adds `instruction time left: N s`
   (never negative); the timeout `error` event names the cut-off call (`cut_off_call` name and elapsed) and stays plain with no call in flight;
-  the prompt states the rule
+  the prompt states the rule; the prompt asks set_task_plan for `time_budget_min` for the whole task (at most
+  `max_instruction_time_min`), names the pre-plan watchdog (`instruction_timeout_s`), and says raise_phase_budget may be called more
+  than once per phase and extends the time budget never past the ceiling (`test_prompt_teaches_the_time_budget_and_repeatable_raises`)
 - shutdown stop (`test_robot_stop.py`, `test_runner.py`): a refused connection is reported as `unreachable` with a plain
   reason (no raw `ExceptionGroup`), tool errors of a reachable server are not; at shutdown an unreachable mcp_server is
   logged at INFO (an ERROR outside shutdown) and a hanging stop is bounded by `shutdown_stop_timeout_s`
@@ -1664,7 +1666,7 @@ layout; no ROS needed).
 | `test_claude_agent_node_type_defaults` | `claude_agent` node type: native, `nodes/claude_agent`, `python3 -m claude_agent`, no CPU quota (the CLI needs about 1.3 s of CPU per request), MemoryMax 1G, MemoryLow 96M, agent-facing tier, nice, user `claude_agent`, group `mcp-token`, `environment_file` `/etc/ros2/claude_agent/env`, `DISABLE_AUTOUPDATER=1`, no secret in `env`. |
 | `test_claude_agent_entry_after_mcp_server_and_enabled` | Present + enabled `ros2_nodes` entry directly after `poi_store` (which follows `mcp_server`). |
 | `test_claude_agent_config_valid_and_consistent_with_mcp_server` | The entry's config validates against the node's pydantic model, binds 127.0.0.1:18300, points at mcp_server's URL and token file, and every classified tool exists in `mcp_server/tools.py`. |
-| `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (rw 150 / turns 200), the per-phase maxima (40 / 40), no ro maxima and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`; no `poi_command_topic` (the reset clears POIs over HTTP via mcp_server). |
+| `test_claude_agent_config_has_budget_maxima_and_robot_events_topic` | The client.yml config sets the hard maxima (rw 400 / turns 500), the per-phase maxima (100 / 100), no ro maxima and `robot_events_topic: /robot_events`, and no longer has `effector_call_cap` / `max_turns`; no `poi_command_topic` (the reset clears POIs over HTTP via mcp_server). |
 | `test_claude_agent_config_pins_poi_behaviour` | The client.yml config sets `agent_poi_reset: keep_open`, `poi_review_followup: true` and `poi_hint_radius_m: 0.5` explicitly, and validates against `ClaudeAgentConfig`. |
 | `test_mcp_tool_names_finds_async_tools` | The registered-tool scanner reads both `def` and `async def` functions decorated with `@tool` / `@server.tool`, so an async mcp_server tool cannot slip past the parity checks. |
 | `test_every_registered_mcp_tool_is_classified_exactly_once` | Every tool mcp_server registers sits in exactly one of `effector_tools`, `uncapped_tools`, `sensor_tools` and `denied_tools`, and the lists name no unknown tool, in both the client.yml config and the code defaults. |
@@ -1694,7 +1696,7 @@ layout; no ROS needed).
 | `test_resolve_and_deploy_passes_hardening_with_empty_defaults` | `resolve_and_deploy.yml` hands the four hardening keys to the role, each with a `default(...)`. |
 | `test_role_defaults_keep_hardening_off` | `ros2_node_deploy` defaults leave all four hardening variables empty/false. |
 | `test_service_template_hardening_is_optional` | Unit template (jinja2 when installed): no hardening lines by default or with empty values (identical output); the four lines and no ProtectSystem/ProtectHome when set. |
-| `test_claude_agent_config_has_watchdog_and_sdk_initialize_timeout` | The entry's config sets `instruction_timeout_s: 900` and the node env raises the SDK initialize timeout (`CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=180000`). |
+| `test_claude_agent_config_has_watchdog_and_sdk_initialize_timeout` | The entry's config sets `instruction_timeout_s: 900` (pre-plan watchdog), `max_instruction_time_min: 120` and the node env raises the SDK initialize timeout (`CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=180000`). |
 | `test_setup_tasks_create_persistent_workdir_owned_0750` | `claude_agent_setup.yml` creates `/var/lib/claude_agent/workspace` (the agent's persistent notes volume) as a directory owned by `claude_agent`, mode 0750, after its parent HOME directory. |
 | `test_ansible_never_removes_the_workdir_or_state_dir` | No Ansible task (file `state: absent`, `rm` in command/shell) deletes anything under `/var/lib/claude_agent`, so notes and the session log survive deploys. |
 | `test_claude_agent_config_workdir_state_dir_and_hardware_facts` | The entry's config sets `workdir`, `state_dir`, `arm_base_height_m` 0.100 (measured mount, equal to mcp_server) and `arm_reach_cm`; the service `HOME` stays `/var/lib/claude_agent`, separate from the workdir. |
