@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement, ReactNode } from 'react'
 import Alert from '@mui/material/Alert'
 import AppBar from '@mui/material/AppBar'
@@ -32,7 +32,7 @@ import { BatteryChip } from './components/BatteryChip'
 import { GpsChip } from './components/GpsChip'
 import { GPS_BASE_STATUS_KEY, baseGpsStatus, roverGpsStatus } from './gps/gpsStatus'
 import type { BaseGpsPayload, RoverGpsPayload } from './gps/gpsStatus'
-import { TiltBanner } from './components/TiltBanner'
+import { StateBanner } from './components/StateBanner'
 import { useRosBridge } from './hooks/useRosBridge'
 import { tabBarMode } from './layout/tabBarMode'
 import { useLayout } from './layout/useLayout'
@@ -45,8 +45,8 @@ import type { PendingFocus, PoiItem } from './poi/poiItems'
 import { parsePoiList } from './poi/style'
 import { browserStorage, initialTabIndex, mapTabIndex, orderTabs, readStoredTabId, supportedTabs, writeStoredTabId } from './tabSelection'
 import { AppConfig, TabConfig } from './types'
-import { TILT_GUARD_STATE_KEY, tiltEntered, tiltStatus } from './tilt/tiltStatus'
-import type { TiltLevel, TiltPayload, TiltStatus } from './tilt/tiltStatus'
+import { TILT_GUARD_STATE_KEY, tiltStatus } from './tilt/tiltStatus'
+import type { TiltPayload, TiltStatus } from './tilt/tiltStatus'
 import { feedAllGraphBuffers } from './utils/graphBuffers'
 
 const ArmTab = lazy(() => import('./tabs/ArmTab'))
@@ -64,8 +64,6 @@ const POI_PHOTOS_TOPIC = '/poi/photos'
 const BATTERY_TICK_MS = 1000
 // How long a command-rejected toast stays visible (ms).
 const ERROR_TOAST_MS = 8000
-// How long the tilt entry toast stays visible (ms); the banner stays for the whole condition.
-const TILT_TOAST_MS = 15000
 
 const TAB_ICONS: Record<string, ReactElement> = {
   map_nav: <MapIcon />,
@@ -128,8 +126,6 @@ export default function App() {
   const [batteryRxAt, setBatteryRxAt] = useState<number | null>(null)
   const [roverRxAt, setRoverRxAt] = useState<number | null>(null)
   const [baseRxAt, setBaseRxAt] = useState<number | null>(null)
-  const [tiltToast, setTiltToast] = useState<TiltStatus | null>(null)
-  const lastTiltLevel = useRef<TiltLevel>('ok')
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   // Map tabs first: the map is the primary view whatever order the config lists tabs in.
@@ -140,7 +136,7 @@ export default function App() {
     fetch('/api/config')
       .then((r) => r.json())
       .then((data: AppConfig) => {
-        log.info('[app] Config loaded —', data.tabs.length, 'tabs,', data.overlays.length, 'overlay items')
+        log.info('[app] Config loaded -', data.tabs.length, 'tabs,', data.overlays.length, 'overlay items')
         setActiveTab(initialTabIndex(orderTabs(supportedTabs(data.tabs)), readStoredTabId(browserStorage())))
         setConfig(data)
       })
@@ -176,11 +172,6 @@ export default function App() {
   const poiItems = useMemo(() => toPoiItems(poiList?.pois ?? [], poiPhotos.photos), [poiList, poiPhotos.photos])
 
   const tilt = tiltStatus(topicData[TILT_GUARD_STATE_KEY] as TiltPayload | null | undefined)
-  useEffect(() => {
-    if (tiltEntered(lastTiltLevel.current, tilt.level)) setTiltToast(tilt)
-    else if (tilt.level === 'ok') setTiltToast(null)
-    lastTiltLevel.current = tilt.level
-  }, [tilt.level]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const batteryCfg = config?.battery ?? null
   const batteryData = batteryCfg ? (topicData[batteryCfg.topic] as BatteryPayload | null | undefined) : undefined
@@ -218,7 +209,7 @@ export default function App() {
     return (
       <Centered>
         <CircularProgress size={24} />
-        <Typography color="text.secondary">Loading config…</Typography>
+        <Typography color="text.secondary">Loading config...</Typography>
       </Centered>
     )
   }
@@ -245,14 +236,14 @@ export default function App() {
   return (
     <>
       <AppBar position="static">
-        <Toolbar variant="dense" disableGutters sx={{ px: { xs: 0.5, sm: 1.5 }, gap: 1, minHeight: TOUCH_TARGET_PX }}>
+        <Toolbar variant="dense" disableGutters sx={{ px: { xs: 0.5, sm: 2 }, gap: 1, minHeight: TOUCH_TARGET_PX }}>
           {mode.drawer && (
             <IconButton aria-label="Open tab list" onClick={() => setDrawerOpen(true)} edge="start">
               <MenuIcon />
             </IconButton>
           )}
           {!mode.drawer && (
-            <Typography variant="subtitle1" component="h1" sx={{ fontWeight: 700, mr: 1, whiteSpace: 'nowrap' }}>
+            <Typography variant="subtitle1" component="h1" sx={{ fontWeight: 500, mr: 1, whiteSpace: 'nowrap' }}>
               {APP_TITLE}
             </Typography>
           )}
@@ -269,9 +260,7 @@ export default function App() {
               <Tab
                 key={t.id}
                 label={t.label}
-                icon={mode.showIcons ? tabIcon(t.type) : undefined}
-                iconPosition="start"
-                sx={{ px: { xs: 1.5, sm: 2 }, minWidth: { xs: '4.5rem', sm: '5.625rem' }, minHeight: TOUCH_TARGET_PX }}
+                sx={{ px: { xs: 1, sm: 2 }, minWidth: { xs: '4.5rem', sm: '5.625rem' }, minHeight: TOUCH_TARGET_PX }}
               />
             ))}
           </Tabs>
@@ -281,11 +270,9 @@ export default function App() {
         </Toolbar>
       </AppBar>
       {banner && (
-        <Alert severity="error" variant="filled" square role="alert">
-          {banner}
-        </Alert>
+        <StateBanner state="error">{banner}</StateBanner>
       )}
-      <TiltBanner status={tilt} />
+      {tilt.banner && <StateBanner state={tilt.banner.severity === 'error' ? 'error' : 'warn'}>{tilt.banner.text}</StateBanner>}
 
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <List
@@ -319,24 +306,8 @@ export default function App() {
         onClose={(_e, reason) => reason !== 'clickaway' && setErrorToast(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert severity="error" variant="filled" onClose={() => setErrorToast(null)} sx={{ width: '100%' }}>
+        <Alert severity="error" variant="outlined" onClose={() => setErrorToast(null)} sx={{ width: '100%' }}>
           {errorToast}
-        </Alert>
-      </Snackbar>
-
-      <Snackbar
-        open={tiltToast?.banner != null}
-        autoHideDuration={TILT_TOAST_MS}
-        onClose={(_e, reason) => reason !== 'clickaway' && setTiltToast(null)}
-        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-      >
-        <Alert
-          severity={tiltToast?.banner?.severity ?? 'warning'}
-          variant="filled"
-          onClose={() => setTiltToast(null)}
-          sx={{ width: '100%' }}
-        >
-          {tiltToast?.banner?.text}
         </Alert>
       </Snackbar>
 

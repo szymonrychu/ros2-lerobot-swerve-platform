@@ -390,9 +390,9 @@ export default function AgentChatTab({ battery }: Props) {
           </Alert>
         )}
         {blockReason && !chat.busy && (
-          <Alert severity={batteryMessage ? 'error' : 'info'} sx={{ mb: 1 }}>
+          <Typography variant="caption" color={batteryMessage ? 'error' : 'text.secondary'} component="p" sx={{ mb: 1 }}>
             {blockReason}
-          </Alert>
+          </Typography>
         )}
         <Stack direction="row" gap={1} alignItems="flex-end">
           <TextField
