@@ -78,7 +78,7 @@
         reboot_timeout: 120
       tags: [boot, gps_rtk_rover]
 
-    - name: Camera boot overlay (cam0 IMX708), reboot only when changed
+    - name: Camera boot overlays (IMX219 pair on cam0 and cam1), reboot only when changed
       ansible.builtin.include_tasks: tasks/overview_camera_boot_config.yml
       tags: [boot, overview_camera]
 
@@ -281,6 +281,15 @@
           vars:
             _deploy_node_name: overview_camera
           tags: [overview_camera, apt, python, build, config]
+
+        - name: Deploy stereo_depth
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [stereo_depth]
+          vars:
+            _deploy_node_name: stereo_depth
+          tags: [stereo_depth, apt, python, build, config]
 
         - name: Deploy lerobot_follower
           ansible.builtin.include_tasks:

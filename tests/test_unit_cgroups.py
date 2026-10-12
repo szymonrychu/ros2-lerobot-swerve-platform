@@ -54,8 +54,13 @@ AGENT = {
         "haptic_controller",
     ],
 }
+# Background tier: work the robot can lose (stereo depth): the systemd default weight and no OOM protection, below
+# every robot and agent tier.
+BACKGROUND = {"weights": (100, 100, 0), "types": ["stereo_depth"]}
 TIERS = [CRITICAL, NORMAL, AGENT]
+ALL_TIERS = [*TIERS, BACKGROUND]
 ROBOT_TYPES = {t for tier in TIERS for t in tier["types"]}
+TIERED_TYPES = {t for tier in ALL_TIERS for t in tier["types"]}
 # systemd's default CPUWeight/IOWeight of every unit and slice that sets none.
 DEFAULT_WEIGHT = 100
 # Client Pi 5 RAM; the OS, page cache and unprotected services keep everything above the summed MemoryLow.
@@ -274,7 +279,7 @@ def test_robot_types_carry_no_cpu_quota_or_memory_high() -> None:
 def test_tiers_have_expected_weights() -> None:
     """Each client node type of a tier carries that tier's cpu_weight, io_weight and oom_score_adjust."""
     defaults = type_defaults(CLIENT_VARS)
-    for tier in TIERS:
+    for tier in ALL_TIERS:
         cpu, io, oom = tier["weights"]
         for node_type in tier["types"]:
             entry = defaults[node_type]
@@ -292,15 +297,25 @@ def test_tiers_dominate_default_system_work() -> None:
     assert weights[0][2] < weights[1][2] < weights[2][2]
 
 
+def test_background_tier_is_below_every_robot_and_agent_tier() -> None:
+    """The background tier has the default weight and no OOM protection: every robot and agent tier outweighs it
+    and is killed after it."""
+    cpu, io, oom = BACKGROUND["weights"]
+    assert (cpu, io, oom) == (DEFAULT_WEIGHT, DEFAULT_WEIGHT, 0)
+    for tier in TIERS:
+        tier_cpu, tier_io, tier_oom = tier["weights"]
+        assert tier_cpu > cpu and tier_io > io and tier_oom < oom
+
+
 def test_tiers_do_not_overlap() -> None:
     """A node type is in exactly one tier."""
-    names = [t for tier in TIERS for t in tier["types"]]
+    names = [t for tier in ALL_TIERS for t in tier["types"]]
     assert len(names) == len(set(names))
 
 
 def test_every_client_type_is_tiered() -> None:
     """Every client node type except the uninstalled fastdds_discovery_server is in a tier."""
-    assert set(type_defaults(CLIENT_VARS)) - ROBOT_TYPES == {"fastdds_discovery_server"}
+    assert set(type_defaults(CLIENT_VARS)) - TIERED_TYPES == {"fastdds_discovery_server"}
     entry = type_defaults(CLIENT_VARS)["fastdds_discovery_server"]
     for key in ("cpu_weight", "io_weight", "memory_low", "memory_max", "oom_score_adjust"):
         assert key not in entry, key
@@ -313,7 +328,7 @@ def test_every_robot_type_has_memory_low_below_memory_max() -> None:
     """Every robot node type protects some memory and its MemoryMax safety net is at least twice MemoryLow; mcp_server
     gets at least 1G."""
     defaults = type_defaults(CLIENT_VARS)
-    for node_type in ROBOT_TYPES:
+    for node_type in TIERED_TYPES:
         low = to_mib(defaults[node_type]["memory_low"])
         assert low >= 32, node_type
         assert to_mib(defaults[node_type]["memory_max"]) >= 2 * low, node_type

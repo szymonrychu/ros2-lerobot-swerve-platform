@@ -25,6 +25,7 @@ CONFIG_METRICS_PORTS = {
     "map_guard": 19110,
     "costmap_zones": 19111,
     "arducam_tof": 19112,
+    "stereo_depth": 19113,
 }
 ENV_METRICS_PORTS = {"gripper_uvc_camera": 19105, "rplidar_a1": 19106}
 # Nodes with an HTTP server serve /metrics on it: node -> key path of the port in its config.
@@ -53,6 +54,7 @@ SHARED_NODE_TYPES = [
     "gps_rtk",
     "uvc_camera",
     "arducam_tof",
+    "stereo_depth",
     "poi_store",
     "claude_agent",
     "test_joint_api",
