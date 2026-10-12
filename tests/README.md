@@ -1407,7 +1407,7 @@ Static checks of the `arducam_tof` deployment (Arducam ToF depth camera for the 
 | `test_node_type_has_no_dds_peer` | No `ROS_STATIC_PEERS` on the node type. |
 | `test_ros2_nodes_entry_deploys_disabled` | `ros2_nodes` entry is `present: true`, `enabled: false` with a `config` string. |
 | `test_deployed_config_holds_only_keys_the_driver_accepts` | Deployed YAML keys are exactly the driver config keys (unknown keys are rejected by the driver), `camera_index: 1`, metrics port, `range_mode` near or far. |
-| `test_deployed_config_loads_in_the_real_driver_load_config` | The deployed YAML loads in the driver's real `load_config` (skipped until `nodes/bridges/arducam_tof` is in the tree). |
+| `test_deployed_config_loads_in_the_real_driver_load_config` | The deployed YAML loads in the driver's real `load_config`; runs unconditionally. |
 | `test_head_tab_topics_are_documented_in_the_config_comments` | The fixed depth, amplitude and camera_info topics are listed in the config comments. |
 | `test_metrics_port_is_scraped` | The metrics port is in `monitoring_agent_node_targets`. |
 | `test_sdk_task_adds_the_arducam_repo_and_installs_the_sdk` | `arducam_tof_sdk.yml` adds the Arducam apt repo and installs `arducam-tof-sdk-dev`. |
