@@ -16,8 +16,6 @@ import Tab from '@mui/material/Tab'
 import Tabs from '@mui/material/Tabs'
 import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
-import useMediaQuery from '@mui/material/useMediaQuery'
-import { useTheme } from '@mui/material/styles'
 import MenuIcon from '@mui/icons-material/Menu'
 import MapIcon from '@mui/icons-material/Map'
 import VideocamIcon from '@mui/icons-material/Videocam'
@@ -35,6 +33,9 @@ import { GPS_BASE_STATUS_KEY, baseGpsStatus, roverGpsStatus } from './gps/gpsSta
 import type { BaseGpsPayload, RoverGpsPayload } from './gps/gpsStatus'
 import { TiltBanner } from './components/TiltBanner'
 import { useRosBridge } from './hooks/useRosBridge'
+import { tabBarMode } from './layout/tabBarMode'
+import { useLayout } from './layout/useLayout'
+import { TOUCH_TARGET_PX } from './theme'
 import { OverlayBar } from './overlays/OverlayBar'
 import { usePhotoLayer } from './photos/usePhotoLayer'
 import type { PhotoLayerData } from './photos/usePhotoLayer'
@@ -114,8 +115,7 @@ function renderTab(
 }
 
 export default function App() {
-  const theme = useTheme()
-  const narrow = useMediaQuery(theme.breakpoints.down('sm'))
+  const mode = tabBarMode(useLayout())
   const [config, setConfig] = useState<AppConfig | null>(null)
   const [activeTab, setActiveTab] = useState(0)
   const [pendingFocus, setPendingFocus] = useState<PendingFocus | null>(null)
@@ -240,13 +240,13 @@ export default function App() {
   return (
     <>
       <AppBar position="static">
-        <Toolbar variant="dense" disableGutters sx={{ px: { xs: 0.5, sm: 1.5 }, gap: 1, minHeight: 48 }}>
-          {narrow && (
+        <Toolbar variant="dense" disableGutters sx={{ px: { xs: 0.5, sm: 1.5 }, gap: 1, minHeight: TOUCH_TARGET_PX }}>
+          {mode.drawer && (
             <IconButton aria-label="Open tab list" onClick={() => setDrawerOpen(true)} edge="start">
               <MenuIcon />
             </IconButton>
           )}
-          {!narrow && (
+          {!mode.drawer && (
             <Typography variant="subtitle1" component="h1" sx={{ fontWeight: 700, mr: 1, whiteSpace: 'nowrap' }}>
               {APP_TITLE}
             </Typography>
@@ -254,7 +254,7 @@ export default function App() {
           <Tabs
             value={tabs.length > 0 ? Math.min(activeTab, tabs.length - 1) : false}
             onChange={(_e, i: number) => selectTab(i)}
-            variant="scrollable"
+            variant={mode.scrollable ? 'scrollable' : 'standard'}
             scrollButtons="auto"
             allowScrollButtonsMobile
             aria-label="Dashboard tabs"
@@ -264,9 +264,9 @@ export default function App() {
               <Tab
                 key={t.id}
                 label={t.label}
-                icon={narrow ? undefined : tabIcon(t.type)}
+                icon={mode.showIcons ? tabIcon(t.type) : undefined}
                 iconPosition="start"
-                sx={{ px: { xs: 1.5, sm: 2 }, minWidth: { xs: 72, sm: 90 } }}
+                sx={{ px: { xs: 1.5, sm: 2 }, minWidth: { xs: '4.5rem', sm: '5.625rem' }, minHeight: TOUCH_TARGET_PX }}
               />
             ))}
           </Tabs>
@@ -284,11 +284,11 @@ export default function App() {
 
       <Drawer anchor="left" open={drawerOpen} onClose={() => setDrawerOpen(false)}>
         <List
-          sx={{ width: 260, maxWidth: '85vw' }}
+          sx={{ width: 'clamp(16rem, 85vw, 20rem)' }}
           subheader={<ListSubheader sx={{ bgcolor: 'background.paper' }}>{APP_TITLE} tabs</ListSubheader>}
         >
           {tabs.map((t, i) => (
-            <ListItemButton key={t.id} selected={i === activeTab} onClick={() => selectTab(i)} sx={{ minHeight: 48 }}>
+            <ListItemButton key={t.id} selected={i === activeTab} onClick={() => selectTab(i)} sx={{ minHeight: TOUCH_TARGET_PX }}>
               <ListItemIcon>{tabIcon(t.type)}</ListItemIcon>
               <ListItemText primary={t.label} />
             </ListItemButton>
