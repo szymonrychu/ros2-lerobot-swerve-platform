@@ -1023,6 +1023,7 @@ async def test_turn_cap_not_hit_when_the_instruction_finishes_within_it(tmp_path
 async def test_no_turn_cap_before_a_plan_is_set(tmp_path: Path) -> None:
     script = [assistant(TextBlock(text=str(i))) for i in range(5)] + [tool_results(), make_result()]
     runner, events, _ = make_runner(tmp_path, script=script)
+    runner.config = runner.config.model_copy(update={"poi_review_followup": False})
     await runner.start_instruction("go")
     await runner.wait_idle()
     assert [e for e in events.history() if e["type"] == "turn_end"][0]["status"] == "done"
@@ -1233,6 +1234,7 @@ class ParallelToolsPhaseNoteClient(FakeClient):
 
 async def test_phase_turn_cap_interrupt_waits_for_tool_calls_in_flight(tmp_path: Path) -> None:
     runner, events, _ = make_runner(tmp_path)
+    runner.config = runner.config.model_copy(update={"poi_review_followup": False})
     runner.client_factory = ParallelToolsPhaseNoteClient
     await runner.start_instruction("go")
     await asyncio.wait_for(runner.wait_idle(), timeout=3)
@@ -1262,6 +1264,7 @@ class GenericRejectionClient(FakeClient):
 
 async def test_generic_rejection_is_corrected_in_a_follow_up_that_says_it_was_not_the_user(tmp_path: Path) -> None:
     runner, events, _ = make_runner(tmp_path)
+    runner.config = runner.config.model_copy(update={"poi_review_followup": False})
     runner.client_factory = GenericRejectionClient
     await runner.start_instruction("go")
     await asyncio.wait_for(runner.wait_idle(), timeout=3)
