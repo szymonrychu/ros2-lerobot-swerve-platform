@@ -1,0 +1,30 @@
+[
+  {
+    "id": "B1",
+    "text": "Neutral dark theme with a white accent and no green ok: colour only for warning and error, flat opaque panels, weights 400 and 500, and a guard test that enforces it.",
+    "decisions": ["D1"],
+    "tasks": ["T1", "T2", "T6", "T9", "T10", "T17", "T19", "T20"],
+    "status": "approved"
+  },
+  {
+    "id": "B2",
+    "text": "Map colour: keepout and slow zones and nav paths keep their colour, POI kinds are greyscale and told apart by shape, all from one palette file.",
+    "decisions": ["D2"],
+    "tasks": ["T3", "T4", "T5", "T17", "T18"],
+    "status": "approved"
+  },
+  {
+    "id": "B3",
+    "text": "Docked right sidebar on tablet and desktop that shrinks the map, bottom sheets on phones, and no MapPopup: show on map centres the item and opens it in the sidebar.",
+    "decisions": ["D3"],
+    "tasks": ["T6", "T7", "T8"],
+    "status": "approved"
+  },
+  {
+    "id": "B4",
+    "text": "One status line, STOP plus STOP GRASP in the toolbar only, a flat agent chat log, a Dialog for destructive actions and the two-click arm for robot motion, with decluttered panels and copy.",
+    "decisions": ["D4"],
+    "tasks": ["T9", "T10", "T11", "T12", "T13", "T14", "T15", "T16", "T18"],
+    "status": "approved"
+  }
+]

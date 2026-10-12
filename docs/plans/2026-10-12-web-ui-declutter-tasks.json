@@ -1,0 +1,558 @@
+[
+  {
+    "id": "T1",
+    "title": "Neutral theme tokens with a white accent and pointer-split touch sizes",
+    "short": "theme-tokens",
+    "repo": ".",
+    "requirement": "Test first in src/theme.test.ts (first line `// @vitest-environment jsdom` if it renders), seen failing before theme.ts changes. (1) theme.ts exports `TOKENS` with the brief 2.1 surface (bgCanvas, bgPanel, bgRaised), border (border, borderStrong), text (textPrimary, textSecondary, textDisabled), error and warning values, radius 2, borderWidth 1, panelHeaderPx 32, controlPx 32, touchTargetPx 44, fontSizes 11/12/13/14/16 and fontWeights { regular: 400, medium: 500 } only; there is no `ok` token and no stop weight. (2) `TOKENS.accent` is a neutral white or light grey with no hue (test: R, G and B differ by at most 8 and each is at least 0xd0) and `TOKENS.accentText` is dark (each channel at most 0x30). (3) The MUI theme: palette.mode 'dark'; primary.main === TOKENS.accent; secondary.main === TOKENS.textSecondary; info.main === TOKENS.textSecondary; success.main === TOKENS.textPrimary (healthy is neutral text, never green); error.main and warning.main take the state tokens; background { default: bgCanvas, paper: bgPanel }; divider === TOKENS.border; text uses the three text tokens; shape.borderRadius === 2. (4) Typography: fontSize 13, a system sans fontFamily (no web font); every variant's fontWeight is 400 or 500; overline has textTransform 'none' and letterSpacing 0; button has textTransform 'none'; theme.ts exports `MONO_FONT` (system mono stack). (5) Component overrides: MuiChip root borderRadius 2 with defaultProps variant 'outlined' and size 'small'; MuiAlert defaultProps variant 'outlined' and root borderRadius 2 with borderLeftWidth 3; MuiPaper defaultProps elevation 0 and root backgroundImage 'none' with a 1 px TOKENS.border border; MuiButton defaultProps disableElevation; MuiButton and MuiIconButton root minHeight/minWidth TOUCH_TARGET_PX (44) under `@media (pointer: coarse)` and CONTROL_PX (32) otherwise; MuiTooltip tooltip fontSize 11 on bgRaised with a border; MuiTab minHeight 40 and fontWeight 500 with the indicator in the accent; MuiLinearProgress height 2, radius 0. (6) MuiCssBaseline sets body fontVariantNumeric 'tabular-nums' and body background bgCanvas. (7) `CANVAS_BG === TOKENS.bgCanvas` and `PANEL_BG === TOKENS.bgPanel` (opaque, no alpha); `TOUCH_TARGET_PX` stays 44 and `CONTROL_PX` (32) is exported; layout/hardcodedSizes.test.ts PANEL_BG_LITERAL is updated to the new literal and the test stays green. (8) main.tsx keeps ThemeProvider plus CssBaseline. The full suite `npx vitest run` stays green (the 44 px assertions hold on a coarse pointer). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "Every later task builds on one neutral token set, so the white accent and state-only colour are decided in one place.",
+    "files": [
+      "nodes/web_ui/frontend/src/theme.ts",
+      "nodes/web_ui/frontend/src/theme.test.ts",
+      "nodes/web_ui/frontend/src/main.tsx",
+      "nodes/web_ui/frontend/src/layout/hardcodedSizes.test.ts"
+    ],
+    "notes": "Brief P1 adapted: accent white, no green ok (D1). F5 b: 44 px coarse, 32 px fine. F7 a: opaque PANEL_BG. F12 a: system sans plus mono. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/theme.test.ts src/layout/hardcodedSizes.test.ts && npm run lint && npx tsc --noEmit",
+    "owns": [
+      "theme-tokens"
+    ],
+    "uses": [],
+    "dependsOn": []
+  },
+  {
+    "id": "T2",
+    "title": "Design rules guard: designViolations() plus its rule tests",
+    "short": "design-rules",
+    "repo": ".",
+    "requirement": "Test first in src/layout/designRules.test.ts, seen failing before designRules.ts exists. (1) layout/designRules.ts exports `designViolations(path: string, source: string): string[]`, one message per violation naming the rule and line, and `SOURCES: Record<string, string>` built with the same `import.meta.glob` raw pattern as layout/hardcodedSizes.test.ts, excluding test files. (2) Rules, each with a failing and a passing fixture in the test: (a) no `#hex`, `rgb(`, `rgba(`, `hsl(` or `0x` colour literal outside theme.ts and map3d/palette.ts; (b) no boxShadow, backdropFilter, textShadow or gradient; (c) no `color=\"secondary\"`; (d) no Alert with `variant=\"filled\"`; (e) fontWeight only 400 or 500 (600, 700, 800 and 'bold' are violations, STOP included); (f) no off-grid spacing values 1.25, 0.75, 1.5 or 2.5 in sx spacing keys (m, p, gap and their side variants); (g) no em dash, ellipsis character, arrows (U+2190 to U+21FF), the glyphs U+25CF and U+25CB, emoji or other decorative Unicode in string literals or JSX text (the degree sign and plain Latin text are allowed); (h) no `title=` on a `<Button` or `<IconButton` line. (3) designRules.test.ts asserts `designViolations` returns [] for theme.ts and main.tsx from SOURCES. No allow-list of all files yet: later tasks assert their own files, and T20 flips the test to every source. Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "One machine check that holds the declutter rules, so slop cannot creep back file by file.",
+    "files": [
+      "nodes/web_ui/frontend/src/layout/designRules.ts",
+      "nodes/web_ui/frontend/src/layout/designRules.test.ts"
+    ],
+    "notes": "Brief P2, adapted: instead of a shared GUARDED_FILES list (which every task would edit and conflict on), each later task asserts designViolations() for its own files in its own test; T20 runs it over all sources. Rule (e) follows the design (400 and 500 only), not the brief's 600-for-STOP. Rule (g) covers the user's writing rule. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/layout/designRules.test.ts && npm run lint && npx tsc --noEmit",
+    "owns": [
+      "design-rules"
+    ],
+    "uses": [
+      "theme-tokens"
+    ],
+    "dependsOn": [
+      "T1"
+    ]
+  },
+  {
+    "id": "T3",
+    "title": "One map palette: zones and nav paths coloured, POI kinds and photos greyscale",
+    "short": "map-palette",
+    "repo": ".",
+    "requirement": "Test first in src/map3d/palette.test.ts, seen failing before palette.ts exists. (1) map3d/palette.ts is the one file that defines every map, scene and marker colour: zone colours (keepout from TOKENS.error, slow from TOKENS.warning), the nav path colour (keeps its hue), KIND_COLORS for every POI kind, OBJECT_COLOR, the photo marker colour, the selection highlight (=== TOKENS.accent), STATUS outline colours, and LAYER_SWATCH and MAP_LEGEND. (2) LAYER_SWATCH (moved out of tabs/MapNavTab.tsx) and the scene colours in map3d/sceneLayers.tsx (SCENE_COLORS) import from palette.ts with no copy; poi/style.ts re-exports or imports KIND_COLORS, ZONE_COLORS, STATUS_COLORS and OBJECT_COLOR from palette.ts and keeps its function API (poiStyle, zoneStyle, markerColors). (3) palette.test.ts asserts: every LAYER_SWATCH entry equals its scene colour; the photos swatch equals the photo marker colour; the POIs swatch equals KIND_COLORS.point; zone keepout and slow equal TOKENS.error and TOKENS.warning; every colour other than the two zones and the nav path is achromatic (R = G = B), including every KIND_COLORS entry, OBJECT_COLOR, the photo colour and STATUS outline colours; POI status stays distinguishable on markers by a neutral lightness step, not hue. (4) photos/geometry.ts: the per-camera hash palette is replaced by the one photo colour from palette.ts (cameraColor removed or returning it); photos/geometry.test.ts is updated to that rule. poi/style.test.ts is updated to the new greyscale values, keeping its zone and markerColors behaviour tests. (5) designViolations() from layout/designRules.ts returns [] for map3d/palette.ts, map3d/sceneLayers.tsx colour constants, poi/style.ts and photos/geometry.ts (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "Map colour means something again: red and amber zones and the nav path stand out because nothing else competes.",
+    "files": [
+      "nodes/web_ui/frontend/src/map3d/palette.ts",
+      "nodes/web_ui/frontend/src/map3d/palette.test.ts",
+      "nodes/web_ui/frontend/src/map3d/sceneLayers.tsx",
+      "nodes/web_ui/frontend/src/tabs/MapNavTab.tsx",
+      "nodes/web_ui/frontend/src/poi/style.ts",
+      "nodes/web_ui/frontend/src/poi/style.test.ts",
+      "nodes/web_ui/frontend/src/photos/geometry.ts",
+      "nodes/web_ui/frontend/src/photos/geometry.test.ts"
+    ],
+    "notes": "Brief P3 adapted to D2 (F2 c): kinds greyscale; the previous round's kind fills are removed. Selection highlight uses the white accent. MapNavTab chain: T3 -> T7 -> T8 -> T11 -> T12 -> T13. Arm and robot model colours are not here (T17 adds RobotModel, T18 adds InteractiveArm, after round 3). GraspPreview and PhotoLayer colours move in T4. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/map3d/palette.test.ts src/poi/style.test.ts src/photos/geometry.test.ts && npm run lint && npx tsc --noEmit",
+    "owns": [
+      "map-palette"
+    ],
+    "uses": [
+      "theme-tokens",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T2"
+    ]
+  },
+  {
+    "id": "T4",
+    "title": "MapLabel: one map label style; grasp preview and photo layer colours from the palette",
+    "short": "map-label",
+    "repo": ".",
+    "requirement": "Test first in src/map3d/MapLabel.test.tsx (`// @vitest-environment jsdom`), seen failing. (1) map3d/MapLabel.tsx exports `MapLabel({ children, zone?: 'keepout' | 'slow' })`: SANS_FONT at 11 px, weight 500, radius 2, an opaque TOKENS.bgPanel background with a 1 px TOKENS.border border, TOKENS.textPrimary text; a zone label carries a border in the zone colour from palette.ts and no other label is coloured. (2) The three inline label styles in map3d/sceneLayers.tsx, poi/PoiLayer.tsx and grasp/GraspPreview.tsx are replaced by `<MapLabel>`; the 800-weight coloured zone word is gone. (3) grasp/GraspPreview.tsx takes OBJECT_COLOR and its path colour from palette.ts (the magenta grasp path becomes the selection accent); photos/PhotoLayer.tsx takes its selected colour from palette.ts. (4) designViolations() from layout/designRules.ts returns [] for map3d/MapLabel.tsx, map3d/sceneLayers.tsx, grasp/GraspPreview.tsx and photos/PhotoLayer.tsx (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "Map labels read as one calm instrument style instead of three ad hoc ones.",
+    "files": [
+      "nodes/web_ui/frontend/src/map3d/MapLabel.tsx",
+      "nodes/web_ui/frontend/src/map3d/MapLabel.test.tsx",
+      "nodes/web_ui/frontend/src/map3d/sceneLayers.tsx",
+      "nodes/web_ui/frontend/src/poi/PoiLayer.tsx",
+      "nodes/web_ui/frontend/src/grasp/GraspPreview.tsx",
+      "nodes/web_ui/frontend/src/photos/PhotoLayer.tsx"
+    ],
+    "notes": "Brief P4 minus the MapPopup restyle: D3 removes MapPopup (T8). Labels keep frameloop demand: no per-frame state. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/map3d/MapLabel.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [
+      "map-label"
+    ],
+    "uses": [
+      "theme-tokens",
+      "map-palette",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T3"
+    ]
+  },
+  {
+    "id": "T5",
+    "title": "POI kinds told apart by marker shape, greyscale",
+    "short": "poi-kind-shape",
+    "repo": ".",
+    "requirement": "Test first in src/poi/style.test.ts (new describe block) and src/poi/PoiLegend.test.tsx, seen failing. (1) poi/style.ts exports `KIND_SHAPE: Record<PoiKind, MarkerShape>` with `type MarkerShape` (for example circle, square, diamond, triangle, ring); every kind maps to a distinct shape (test asserts uniqueness over all kinds). (2) poi/PoiLayer.tsx draws each marker in its kind's shape, greyscale from palette.ts, sized to stay distinguishable at phone zoom (the existing on-screen marker size rule is kept). (3) poi/PoiLegend.tsx shows each kind's shape (data-shape attribute) and greyscale colour from palette.ts; PoiLegend.test.tsx asserts each legend swatch's shape equals KIND_SHAPE and its colour equals KIND_COLORS; zone swatches stay red and amber. (4) designViolations() from layout/designRules.ts returns [] for poi/style.ts, poi/PoiLayer.tsx and poi/PoiLegend.tsx (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "Operators still tell points, objects and photos apart at a glance after the hues are gone.",
+    "files": [
+      "nodes/web_ui/frontend/src/poi/style.ts",
+      "nodes/web_ui/frontend/src/poi/style.test.ts",
+      "nodes/web_ui/frontend/src/poi/PoiLayer.tsx",
+      "nodes/web_ui/frontend/src/poi/PoiLegend.tsx",
+      "nodes/web_ui/frontend/src/poi/PoiLegend.test.tsx"
+    ],
+    "notes": "D2: marker shapes per kind are left to the builder (design 'Left to the builder'). PoiLegend is reused by the Layers panel in T12. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/poi/style.test.ts src/poi/PoiLegend.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [
+      "poi-kind-shape"
+    ],
+    "uses": [
+      "map-palette",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T4"
+    ]
+  },
+  {
+    "id": "T6",
+    "title": "Flat Panel chrome and the ConfirmDialog",
+    "short": "panel-chrome",
+    "repo": ".",
+    "requirement": "Test first in src/layout/layout.test.tsx and src/layout/ConfirmDialog.test.tsx (`// @vitest-environment jsdom`), seen failing. (1) OverlayPanel header is TOKENS.panelHeaderPx (32) high on a fine pointer and TOUCH_TARGET_PX on a coarse pointer, with a sentence-case title (12/500, text.secondary) and an `actions?: ReactNode` slot on the right; close is an IconButton with aria-label 'Close'. (2) No backdropFilter, no shadow, radius 2, opaque PANEL_BG, 1 px TOKENS.border; the phone bottom sheet has a square top and the decorative handle is removed (the `overlay-panel-handle` test id is gone; its test is updated to assert absence). The body padding is `p: 1`. (3) layout/ConfirmDialog.tsx exports `ConfirmDialog({ open, title, body?, confirmLabel, onConfirm, onCancel })`: an MUI Dialog with a Cancel button and an error-coloured confirm button; Escape and Cancel call onCancel and never onConfirm; confirm calls onConfirm once. (4) The existing layout class, pointerdown isolation and touch target tests stay green. (5) designViolations() from layout/designRules.ts returns [] for layout/OverlayPanel.tsx and layout/ConfirmDialog.tsx (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "Every panel looks and behaves the same, and destructive actions get one confirm pattern.",
+    "files": [
+      "nodes/web_ui/frontend/src/layout/OverlayPanel.tsx",
+      "nodes/web_ui/frontend/src/layout/layout.test.tsx",
+      "nodes/web_ui/frontend/src/layout/ConfirmDialog.tsx",
+      "nodes/web_ui/frontend/src/layout/ConfirmDialog.test.tsx"
+    ],
+    "notes": "Brief P5 without the docked mode, which is T7. F9 b: Dialog for destructive actions; ConfirmDialog is consumed by T11 (map reset), T14 (POI and photo deletes) and T15 (reset session). Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/layout/layout.test.tsx src/layout/ConfirmDialog.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [
+      "panel-chrome",
+      "confirm-dialog"
+    ],
+    "uses": [
+      "theme-tokens",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T2"
+    ]
+  },
+  {
+    "id": "T7",
+    "title": "Docked map sidebar on tablet and desktop; the map shrinks instead of being covered",
+    "short": "map-sidebar",
+    "repo": ".",
+    "requirement": "Test first in src/layout/MapSidebar.test.tsx and src/map3d/useInvalidateOnResize.test.tsx (`// @vitest-environment jsdom`), seen failing. (1) layout/MapSidebar.tsx exports `MapSidebar({ children })`: on tablet and desktop a docked right column of width clamp(280px, 30vw, 380px), full height of the map area, opaque PANEL_BG, a 1 px TOKENS.border left border, scrolling internally; on phone it renders its children unchanged so panels stay bottom sheets. (2) OverlayPanel gains a docked mode: inside MapSidebar on tablet and desktop it renders in flow (no absolute position) as a stacked section with the T6 header; phone behaviour is unchanged. (3) tabs/MapNavTab.tsx: on tablet and desktop the map container and MapSidebar sit in one flex row; the sidebar renders only while at least one panel is open (POI list, POI editor, photo panel, photo list, layers, grasp), so with all closed the map takes the full width; the photo list renders only when asked for. A test renders MapNavTab on tablet with each panel open and asserts the panel is inside the sidebar element and not inside the map container. (4) map3d/useInvalidateOnResize.ts exports `useInvalidateOnResize(ref)`: a ResizeObserver on the canvas container calls R3F `invalidate()` once per size change (test with a mocked ResizeObserver: one call per change, none without a change, observer disconnected on unmount). MapScene uses it and keeps frameloop=\"demand\"; the Canvas resizes with its container. (5) Map gestures do not regress: the existing goalGesture, picking, mapFocus and MapNavTab tests stay green; a pointerdown inside the sidebar does not reach the map. (6) designViolations() from layout/designRules.ts returns [] for layout/MapSidebar.tsx and map3d/useInvalidateOnResize.ts (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "On tablet and desktop nothing covers the map any more: panels sit beside it and the map uses the rest of the width.",
+    "files": [
+      "nodes/web_ui/frontend/src/layout/MapSidebar.tsx",
+      "nodes/web_ui/frontend/src/layout/MapSidebar.test.tsx",
+      "nodes/web_ui/frontend/src/layout/OverlayPanel.tsx",
+      "nodes/web_ui/frontend/src/layout/layout.test.tsx",
+      "nodes/web_ui/frontend/src/tabs/MapNavTab.tsx",
+      "nodes/web_ui/frontend/src/map3d/MapScene.tsx",
+      "nodes/web_ui/frontend/src/map3d/useInvalidateOnResize.ts",
+      "nodes/web_ui/frontend/src/map3d/useInvalidateOnResize.test.tsx"
+    ],
+    "notes": "D3, brief P5 docked mode and O1-O3. Opus: layout rewiring of the largest file plus the R3F resize under frameloop demand, where a wrong fix either stalls the canvas or renders every frame. MapNavTab chain: after T3, before T8. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/layout/MapSidebar.test.tsx src/map3d/useInvalidateOnResize.test.tsx src/layout/layout.test.tsx src/map3d/mapFocus.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [
+      "map-sidebar"
+    ],
+    "uses": [
+      "panel-chrome",
+      "theme-tokens",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T3",
+      "T6"
+    ],
+    "model": "opus"
+  },
+  {
+    "id": "T8",
+    "title": "Remove MapPopup: show on map centres and opens the item in the sidebar",
+    "short": "no-map-popup",
+    "repo": ".",
+    "requirement": "Test first in src/map3d/mapFocus.test.tsx, seen failing. (1) map3d/MapPopup.tsx is deleted; MapScene has no `popup`, `onPopupClose` or `onPopupOpen` props and no popup render. (2) Show on map (App pendingFocus) still centres once via consumeFocus when the SceneController exists, then opens the item: a POI in the POI editor panel, a photo in the photo panel, in the MapSidebar on tablet and desktop and as a bottom sheet on phone. A map tap on a POI or photo marker opens it the same way. (3) mapFocus.test.tsx: the `MapPopup` describe block is removed and its behaviours are migrated to the sidebar flow: centres once and consumes once with an immediate and with a late controller; never consumes while the controller is missing; an unknown id opens nothing; a photo from App's photos opens the photo panel; only one item is open at a time; a pointerdown inside the opened panel does not reach the map; the opened panel's action buttons meet TOUCH_TARGET_PX on a coarse pointer (migrated from the daa1be6 popup test). (4) designViolations() from layout/designRules.ts returns [] for map3d/MapScene.tsx and map3d/mapFocus.ts (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "Finding a POI from the list lands it centred with its details beside the map, with no card covering it.",
+    "files": [
+      "nodes/web_ui/frontend/src/map3d/MapPopup.tsx",
+      "nodes/web_ui/frontend/src/map3d/MapScene.tsx",
+      "nodes/web_ui/frontend/src/map3d/mapFocus.ts",
+      "nodes/web_ui/frontend/src/map3d/mapFocus.test.tsx",
+      "nodes/web_ui/frontend/src/tabs/MapNavTab.tsx"
+    ],
+    "notes": "D3 (F13 b follows from F6 b). MapNavTab chain: after T7, before T11. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/map3d/mapFocus.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [],
+    "uses": [
+      "map-sidebar",
+      "panel-chrome",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T7"
+    ]
+  },
+  {
+    "id": "T9",
+    "title": "StatusItem and the status bar: battery, GPS, link and time budget as text",
+    "short": "status-item",
+    "repo": ".",
+    "requirement": "Test first in src/components/StatusItem.test.tsx (`// @vitest-environment jsdom`), seen failing. (1) components/StatusItem.tsx exports `StatusItem({ label, value, unit?, state?: 'ok' | 'warn' | 'error' | 'unknown', tooltip? })`: label 11 px text.secondary, value 13 px MONO_FONT with tabular numerals, unit 11 px text.secondary; warn and error colour the value text with the state token and add a 6 px square state mark on the left; ok and unknown render the value in text.primary with no mark (never green). (2) BatteryChip, GpsChip (rover and base) and TimeBudgetChip keep their names and props but render a StatusItem: no `<Chip`, no status icons (the full-battery icon on a low level is gone), GPS quality 1 is not coloured; the tooltips keep their details. (3) overlays/OverlayBar.tsx renders its values as StatusItems; the link shows `Live` or `Connecting` with no glyphs and no green; an empty value is `--`; the overline header style is gone. (4) GpsChip.test.tsx and TimeBudgetChip.test.tsx are updated to the StatusItem rendering and keep their state mapping cases. (5) designViolations() from layout/designRules.ts returns [] for StatusItem.tsx, OverlayBar.tsx, BatteryChip.tsx, GpsChip.tsx and TimeBudgetChip.tsx (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "Battery, GPS and link read as one quiet instrument line where only a problem draws the eye.",
+    "files": [
+      "nodes/web_ui/frontend/src/components/StatusItem.tsx",
+      "nodes/web_ui/frontend/src/components/StatusItem.test.tsx",
+      "nodes/web_ui/frontend/src/overlays/OverlayBar.tsx",
+      "nodes/web_ui/frontend/src/components/BatteryChip.tsx",
+      "nodes/web_ui/frontend/src/components/GpsChip.tsx",
+      "nodes/web_ui/frontend/src/components/GpsChip.test.tsx",
+      "nodes/web_ui/frontend/src/agent/TimeBudgetChip.tsx",
+      "nodes/web_ui/frontend/src/agent/TimeBudgetChip.test.tsx"
+    ],
+    "notes": "Brief P6 with D1 F4 a: ok is neutral. App.tsx is not edited here (the chip components keep their names); App.tsx belongs to T10. Each fact is shown once: tilt shows only through the T10 StateBanner. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/components/StatusItem.test.tsx src/components/GpsChip.test.tsx src/agent/TimeBudgetChip.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [
+      "status-item"
+    ],
+    "uses": [
+      "theme-tokens",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T2"
+    ]
+  },
+  {
+    "id": "T10",
+    "title": "App chrome: one StateBanner, no duplicate tilt toast, tab bar without icons",
+    "short": "state-banner",
+    "repo": ".",
+    "requirement": "Test first in src/components/StateBanner.test.tsx (`// @vitest-environment jsdom`, migrated from TiltBanner.test.tsx), seen failing. (1) components/StateBanner.tsx exports `StateBanner({ state: 'warn' | 'error', children })`: a full-width standard (outlined) Alert with a 3 px left border in the state colour, no `variant=\"filled\"`. components/TiltBanner.tsx and its test are removed; their cases live in StateBanner.test.tsx. (2) App.tsx: the battery cut-off banner and the tilt banner both render through StateBanner; the tilt entry Snackbar is removed (the banner covers it); the error toast is outlined. (3) The tab bar shows text labels without icons; the drawer keeps its icons (test on the tab bar and the drawer). (4) tabs/AgentChatTab.tsx: the composer's second cut-off Alert becomes a one-line caption with the block reason. (5) No ellipsis character in App.tsx. designViolations() from layout/designRules.ts returns [] for App.tsx and components/StateBanner.tsx (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "A problem is announced once, in one consistent strip, and the tab bar stops shouting.",
+    "files": [
+      "nodes/web_ui/frontend/src/App.tsx",
+      "nodes/web_ui/frontend/src/components/StateBanner.tsx",
+      "nodes/web_ui/frontend/src/components/StateBanner.test.tsx",
+      "nodes/web_ui/frontend/src/components/TiltBanner.tsx",
+      "nodes/web_ui/frontend/src/components/TiltBanner.test.tsx",
+      "nodes/web_ui/frontend/src/tabs/AgentChatTab.tsx"
+    ],
+    "notes": "Brief P7 with F8 a. Round 3 T28 edits App.tsx (arm tab type): re-read it and keep the arm tab entry. AgentChatTab chain: T10 -> T15 -> T16. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/components/StateBanner.test.tsx src/tabSelection.test.ts && npm run lint && npx tsc --noEmit",
+    "owns": [
+      "state-banner"
+    ],
+    "uses": [
+      "theme-tokens",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T2"
+    ]
+  },
+  {
+    "id": "T11",
+    "title": "Icon-only map toolbar with STOP and STOP GRASP, plus the map status line",
+    "short": "map-toolbar",
+    "repo": ".",
+    "requirement": "Test first in src/components/ToolButton.test.tsx, src/map/MapStatusLine.test.tsx and src/map/toolbarGroups.test.ts, seen failing. (1) components/ToolButton.tsx exports `ToolButton({ label, icon, onClick, pressed?, disabled? })` (an IconButton in a Tooltip whose aria-label equals the tooltip text; `aria-pressed` set only for toggles; active state is the accent icon colour on bgRaised; no `title=`) and `ToolGroup` (grouped buttons share one 1 px bordered strip). (2) tabs/MapNavTab.tsx toolbar: every control except STOP and STOP GRASP is a ToolButton; no startIcon text buttons, no `title=`, no label morphing ('Tap map to set goal', 'Click map', 'Area: n vertices' are gone from labels); goal and POI modes use the accent active state, not `secondary`; the overflow menu is kept. (3) STOP and STOP GRASP are the only filled-colour controls: contained error, weight 500, text label, no letter spacing. Both sit in the primary toolbar on every layout class, never in the overflow menu, whenever their action applies (map/toolbarGroups.ts encodes this and toolbarGroups.test.ts asserts it per layout class). Safety behaviour is unchanged: each stop calls the same handler and publish as before (test). (4) map/MapStatusLine.tsx exports `MapStatusLine({ items })`: one line in a map corner rendering StatusItems or plain text; MapNavTab shows the mode hint there (goal mode, POI placement with the vertex count, grasp pick hint), and the floating grasp pick Alert over the map is removed. (5) Map reset uses ConfirmDialog (destructive); set home and release keep the two-click arm (robot motion). (6) designViolations() from layout/designRules.ts returns [] for components/ToolButton.tsx, map/toolbarGroups.ts and map/MapStatusLine.tsx (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "The toolbar becomes a quiet strip of icons where STOP and STOP GRASP are the only things that look urgent.",
+    "files": [
+      "nodes/web_ui/frontend/src/components/ToolButton.tsx",
+      "nodes/web_ui/frontend/src/components/ToolButton.test.tsx",
+      "nodes/web_ui/frontend/src/tabs/MapNavTab.tsx",
+      "nodes/web_ui/frontend/src/map/toolbarGroups.ts",
+      "nodes/web_ui/frontend/src/map/toolbarGroups.test.ts",
+      "nodes/web_ui/frontend/src/map/MapStatusLine.tsx",
+      "nodes/web_ui/frontend/src/map/MapStatusLine.test.tsx"
+    ],
+    "notes": "Brief P8 with D4 F10 b (STOP plus STOP GRASP, toolbar only) and F9 b. Anti-goal: a stop must never get harder to reach. MapNavTab chain: after T8, before T12. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/components/ToolButton.test.tsx src/map/MapStatusLine.test.tsx src/map/toolbarGroups.test.ts && npm run lint && npx tsc --noEmit",
+    "owns": [
+      "tool-button",
+      "map-status-line"
+    ],
+    "uses": [
+      "status-item",
+      "confirm-dialog",
+      "theme-tokens",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T8",
+      "T9",
+      "T6"
+    ]
+  },
+  {
+    "id": "T12",
+    "title": "Layers panel extracted and decluttered",
+    "short": "layers-panel",
+    "repo": ".",
+    "requirement": "Test first in src/map/LayersPanel.test.tsx (`// @vitest-environment jsdom`), seen failing. (1) map/LayersPanel.tsx holds the Layers panel moved out of tabs/MapNavTab.tsx, on OverlayPanel (docked in the sidebar on tablet and desktop). (2) Each disabled layer's reason is the row's tooltip, not a caption; the gesture and arm help paragraphs move behind one info ToolButton in the panel header actions (their content kept in its tooltip); no `mt: -0.5` or `ml: 4` offsets. (3) Layer toggles show their on state with the accent, not primary fill; swatches and the PoiLegend come from palette.ts and KIND_SHAPE. (4) The robot pose line leaves the panel and shows in the MapStatusLine as a mono StatusItem (the fact keeps one display). (5) designViolations() from layout/designRules.ts returns [] for map/LayersPanel.tsx and poi/PoiLegend.tsx (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "The Layers panel becomes a short list of toggles, and MapNavTab sheds about 125 lines.",
+    "files": [
+      "nodes/web_ui/frontend/src/map/LayersPanel.tsx",
+      "nodes/web_ui/frontend/src/map/LayersPanel.test.tsx",
+      "nodes/web_ui/frontend/src/tabs/MapNavTab.tsx",
+      "nodes/web_ui/frontend/src/poi/PoiLegend.tsx",
+      "nodes/web_ui/frontend/src/poi/PoiLegend.test.tsx"
+    ],
+    "notes": "Brief P9. MapNavTab chain: after T11, before T13. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/map/LayersPanel.test.tsx src/poi/PoiLegend.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [],
+    "uses": [
+      "tool-button",
+      "map-status-line",
+      "status-item",
+      "map-palette",
+      "poi-kind-shape",
+      "panel-chrome",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T11",
+      "T5"
+    ]
+  },
+  {
+    "id": "T13",
+    "title": "Grasp panel: no panel stops, one pick hint, compact result",
+    "short": "grasp-panel",
+    "repo": ".",
+    "requirement": "Test first in src/grasp/GraspPanel.test.tsx, seen failing. (1) Both grasp-panel stop buttons (STOP GRASP and the outlined Stop) are removed; the panel has no button whose name matches /stop/i (test); STOP GRASP in the toolbar (T11) is the stop. (2) The pick hint shows once, in the MapStatusLine; the panel's hint Alert is removed. (3) The grasp result renders as compact key-value rows (StatusItem), not stacked Alerts; 'Planning' and 'Running' are one status row; the panel has at most one helper caption. (4) The panel uses the T6 chrome and one default button size; the existing phone pick compaction test is updated, not deleted. (5) designViolations() from layout/designRules.ts returns [] for grasp/GraspPanel.tsx and tabs/MapNavTab.tsx (last task in the MapNavTab chain) (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "One place to stop a grasp and a result that reads in one glance.",
+    "files": [
+      "nodes/web_ui/frontend/src/grasp/GraspPanel.tsx",
+      "nodes/web_ui/frontend/src/grasp/GraspPanel.test.tsx",
+      "nodes/web_ui/frontend/src/tabs/MapNavTab.tsx"
+    ],
+    "notes": "Brief P10 grasp part with F10 b. No change to grasp safety logic or the stop handler. MapNavTab chain ends here. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/grasp/GraspPanel.test.tsx src/map/toolbarGroups.test.ts && npm run lint && npx tsc --noEmit",
+    "owns": [],
+    "uses": [
+      "map-status-line",
+      "status-item",
+      "panel-chrome",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T12"
+    ]
+  },
+  {
+    "id": "T14",
+    "title": "POI and photo panels: status text, quiet editor, one confirm pattern",
+    "short": "poi-photo-panels",
+    "repo": ".",
+    "requirement": "Test first in src/poi/PoiPanels.test.tsx, src/photos/PhotoPanel.test.tsx and src/photos/PhotoList.test.tsx, seen failing. (1) The POI list status is text, with a state mark only for `open`; no filled status chip and no hard-coded text colour. (2) The POI editor shows a character counter only within 10% of the limit; the drag hint paragraph is removed; the list's 'Collapse' text button is removed and the count shows once. (3) POI delete, photo delete and photo cleanup use ConfirmDialog; the inline confirm rows are removed. (4) One button size (default) across the three panels; headers use the T6 actions slot. (5) designViolations() from layout/designRules.ts returns [] for poi/PoiPanels.tsx, photos/PhotoPanel.tsx and photos/PhotoList.tsx (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "POI and photo panels show the data, not instructions, and confirm destructive actions the same way.",
+    "files": [
+      "nodes/web_ui/frontend/src/poi/PoiPanels.tsx",
+      "nodes/web_ui/frontend/src/poi/PoiPanels.test.tsx",
+      "nodes/web_ui/frontend/src/photos/PhotoPanel.tsx",
+      "nodes/web_ui/frontend/src/photos/PhotoPanel.test.tsx",
+      "nodes/web_ui/frontend/src/photos/PhotoList.tsx",
+      "nodes/web_ui/frontend/src/photos/PhotoList.test.tsx"
+    ],
+    "notes": "Brief P10 POI and photo part with F9 b. Not in the MapNavTab chain (no MapNavTab edit). Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/poi/PoiPanels.test.tsx src/photos/PhotoPanel.test.tsx src/photos/PhotoList.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [],
+    "uses": [
+      "confirm-dialog",
+      "panel-chrome",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T6"
+    ]
+  },
+  {
+    "id": "T15",
+    "title": "Agent header: state, phase dropdown and time left only",
+    "short": "agent-header",
+    "repo": ".",
+    "requirement": "Test first in src/agent/AgentHeader.test.tsx (`// @vitest-environment jsdom`), seen failing. (1) agent/AgentHeader.tsx (extracted from tabs/AgentChatTab.tsx) shows at most three things: the state, the phase dropdown and the time left, as StatusItems with zero `<Chip`. Model and usage move into the state item's tooltip, so no fact is lost; complexity leaves the header. (2) The busy state is shown once (the duplicate 'working' chip or progress bar goes). (3) PhasePanel transcript rows show status as text, coloured only for failed and skipped; 'raised', attempt, iteration and p are plain text joined by ' - '; the existing PhasePanel and PhaseProgress test ids are kept or updated, not deleted. (4) Reset session uses ConfirmDialog. (5) designViolations() from layout/designRules.ts returns [] for agent/AgentHeader.tsx, agent/PhasePanel.tsx and agent/PhaseProgress.tsx (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "The agent header fits one line and says what the agent is doing and how long is left.",
+    "files": [
+      "nodes/web_ui/frontend/src/agent/AgentHeader.tsx",
+      "nodes/web_ui/frontend/src/agent/AgentHeader.test.tsx",
+      "nodes/web_ui/frontend/src/tabs/AgentChatTab.tsx",
+      "nodes/web_ui/frontend/src/agent/PhasePanel.tsx",
+      "nodes/web_ui/frontend/src/agent/PhasePanel.test.tsx",
+      "nodes/web_ui/frontend/src/agent/PhaseProgress.tsx",
+      "nodes/web_ui/frontend/src/agent/PhaseProgress.test.tsx"
+    ],
+    "notes": "Brief P11 header part with D4. TimeBudgetChip (T9) already renders a StatusItem. AgentChatTab chain: after T10, before T16. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/agent/AgentHeader.test.tsx src/agent/PhasePanel.test.tsx src/agent/PhaseProgress.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [],
+    "uses": [
+      "status-item",
+      "confirm-dialog",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T10",
+      "T9",
+      "T6"
+    ]
+  },
+  {
+    "id": "T16",
+    "title": "Agent chat as a flat log with a role column",
+    "short": "chat-log",
+    "repo": ".",
+    "requirement": "Test first in src/agent/ChatLog.test.tsx (`// @vitest-environment jsdom`), seen failing. (1) agent/ChatLog.tsx renders the transcript as a flat log: one row per entry with a fixed-width role column (User, Agent, Tool, System) and the content beside it; no bubbles and no primary.dark fill. (2) Tool entries show the tool kind as a mono text label with no colour; tool status is coloured only on error. (3) The PlanCard has no secondary border; complexity shows only in the plan card, as text; phase start and complete entries are single log rows without chips. (4) The composer placeholder is short (no keyboard help) and the empty state is one line. (5) designViolations() from layout/designRules.ts returns [] for agent/ChatLog.tsx and tabs/AgentChatTab.tsx (last task in the AgentChatTab chain) (asserted in the task's test). Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "The chat reads like an operations log: scannable, dense and without decoration.",
+    "files": [
+      "nodes/web_ui/frontend/src/agent/ChatLog.tsx",
+      "nodes/web_ui/frontend/src/agent/ChatLog.test.tsx",
+      "nodes/web_ui/frontend/src/tabs/AgentChatTab.tsx"
+    ],
+    "notes": "Brief P11 transcript part with F11 b. AgentChatTab chain ends here. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/agent/ChatLog.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [],
+    "uses": [
+      "status-item",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T15"
+    ]
+  },
+  {
+    "id": "T17",
+    "title": "POI tab filters, sensor graph and RGBD tabs, robot model colours",
+    "short": "tabs-cleanup",
+    "repo": ".",
+    "requirement": "Test first in src/tabs/PoiTab.test.tsx and src/tabs/tabsDesign.test.ts, seen failing. (1) PoiTab's kind filter is a ToggleButtonGroup or outlined radius-2 chips with the accent selected state, not primary-filled chips; each kind swatch shows its KIND_SHAPE in its palette.ts greyscale colour. (2) RgbdCameraTab's ellipsis characters become '...'. (3) SensorGraphTab axis, grid and series colours come from TOKENS or palette.ts. (4) RobotModel colours move into palette.ts as achromatic or token values. (5) tabs/tabsDesign.test.ts asserts designViolations() returns [] for PoiTab.tsx, RgbdCameraTab.tsx, SensorGraphTab.tsx and components3d/RobotModel.tsx. Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "The remaining tabs follow the same quiet rules as the map.",
+    "files": [
+      "nodes/web_ui/frontend/src/tabs/PoiTab.tsx",
+      "nodes/web_ui/frontend/src/tabs/PoiTab.test.tsx",
+      "nodes/web_ui/frontend/src/tabs/RgbdCameraTab.tsx",
+      "nodes/web_ui/frontend/src/tabs/SensorGraphTab.tsx",
+      "nodes/web_ui/frontend/src/components3d/RobotModel.tsx",
+      "nodes/web_ui/frontend/src/map3d/palette.ts",
+      "nodes/web_ui/frontend/src/tabs/tabsDesign.test.ts"
+    ],
+    "notes": "Brief P12 minus the all-files guard (T20) and minus components/CameraStream.tsx (round 3 edits it; T19). Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/tabs/PoiTab.test.tsx src/tabs/tabsDesign.test.ts && npm run lint && npx tsc --noEmit",
+    "owns": [],
+    "uses": [
+      "map-palette",
+      "poi-kind-shape",
+      "theme-tokens",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T5"
+    ]
+  },
+  {
+    "id": "T18",
+    "title": "Arm tab, ArmView and ArmJogPanel on the declutter rules (after round 3)",
+    "short": "arm-declutter",
+    "repo": ".",
+    "requirement": "Test first in src/tabs/ArmTab.test.tsx and src/arm/ArmJogPanel.test.tsx, seen failing. Starts only once round 3 has landed the arm tab on main. (1) tabs/ArmTab.tsx is the live arm tab after round 3, so it is kept and restyled, not deleted: panels use the T6 chrome; no tab icon in the tab bar. (2) arm/ArmJogPanel.tsx: jog and mode controls are ToolButtons; Take control, Release and Home keep the two-click arm (robot motion); the control owner (active source) shows once, as a StatusItem; no status chips. (3) arm/ArmView.tsx and components3d/InteractiveArm.tsx take every colour from palette.ts (arm colours added there, achromatic except a state colour) and the camera-mode switch is a ToolGroup. (4) The tests assert designViolations() returns [] for tabs/ArmTab.tsx, arm/ArmView.tsx, arm/ArmJogPanel.tsx and components3d/InteractiveArm.tsx; round 3's arm behaviour tests stay green. Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "The arm tab, including the control owner, matches the rest of the UI once round 3 lands.",
+    "files": [
+      "nodes/web_ui/frontend/src/tabs/ArmTab.tsx",
+      "nodes/web_ui/frontend/src/tabs/ArmTab.test.tsx",
+      "nodes/web_ui/frontend/src/arm/ArmView.tsx",
+      "nodes/web_ui/frontend/src/arm/ArmJogPanel.tsx",
+      "nodes/web_ui/frontend/src/arm/ArmJogPanel.test.tsx",
+      "nodes/web_ui/frontend/src/components3d/InteractiveArm.tsx",
+      "nodes/web_ui/frontend/src/map3d/palette.ts"
+    ],
+    "notes": "Late on purpose: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel) is landing on main. If round 3 named a file differently, use its real path and say so in the report. Arm motion safety: no live motion in this task. Design assumption 'ArmTab.tsx may be dead code' is settled: round 3 T28 routes the arm tab to it, so it is restyled. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/tabs/ArmTab.test.tsx src/arm/ArmJogPanel.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [],
+    "uses": [
+      "tool-button",
+      "status-item",
+      "panel-chrome",
+      "map-palette",
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T13",
+      "T16",
+      "T17"
+    ]
+  },
+  {
+    "id": "T19",
+    "title": "Camera stream and camera tab copy and chrome (after round 3)",
+    "short": "camera-declutter",
+    "repo": ".",
+    "requirement": "Test first in src/components/CameraStream.test.tsx (`// @vitest-environment jsdom`), seen failing. (1) CameraStream's ellipsis character becomes '...' and its loading and error text is one short line. (2) CameraTab and CameraStream use theme tokens only (no raw colours, no filled Alerts). (3) The test asserts designViolations() returns [] for components/CameraStream.tsx and tabs/CameraTab.tsx and that the loading text has no ellipsis character. Existing tests touched by moved behaviour are updated, not deleted. npm run lint and npx tsc --noEmit are clean.",
+    "value": "Camera views lose the last stray glyphs and follow the shared rules.",
+    "files": [
+      "nodes/web_ui/frontend/src/components/CameraStream.tsx",
+      "nodes/web_ui/frontend/src/tabs/CameraTab.tsx",
+      "nodes/web_ui/frontend/src/components/CameraStream.test.tsx"
+    ],
+    "notes": "Late on purpose: round 3 T27 edits CameraStream.tsx and CameraTab.tsx. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run src/components/CameraStream.test.tsx && npm run lint && npx tsc --noEmit",
+    "owns": [],
+    "uses": [
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T18"
+    ]
+  },
+  {
+    "id": "T20",
+    "title": "Guard every source with the design rules; README design section",
+    "short": "guard-all",
+    "repo": ".",
+    "requirement": "Test first: flip src/layout/designRules.test.ts to iterate every non-test source in SOURCES with no allow-list, and see it fail if any file still violates (it must pass once all earlier tasks landed; fix any stray violation found in a file no earlier task listed and name it in the report). (1) designRules.test.ts asserts designViolations() returns [] for every non-test source under src. (2) nodes/web_ui/README.md gains a short 'Design rules' section: TOKENS and the white accent, colour only for warning and error, map palette.ts (zones and paths coloured, POI kinds by shape), StatusItem, ToolButton, StateBanner, ConfirmDialog versus two-click arm, MapSidebar, and the guard test. (3) The full suite, lint, type check and build pass: `npx vitest run && npm run lint && npx tsc --noEmit && npm run build`.",
+    "value": "The rules hold for the whole UI from now on, and the next developer can read them in one place.",
+    "files": [
+      "nodes/web_ui/frontend/src/layout/designRules.test.ts",
+      "nodes/web_ui/frontend/src/layout/designRules.ts",
+      "nodes/web_ui/README.md"
+    ],
+    "notes": "Brief P12 final step. Deploy (scripts/deploy-nodes.sh client web_ui, logged to .logs/) is the orchestrator's, after the run. Re-read every file in `files` at start and plan against what is on main then: round 3 (arm tab type, ArmView, arm routes, ArmJogPanel, leader_bridge Ansible) is still landing, so brief line numbers may be stale.",
+    "verify": "cd nodes/web_ui/frontend && npx vitest run && npm run lint && npx tsc --noEmit && npm run build",
+    "owns": [],
+    "uses": [
+      "design-rules"
+    ],
+    "dependsOn": [
+      "T13",
+      "T14",
+      "T16",
+      "T17",
+      "T18",
+      "T19",
+      "T10",
+      "T12"
+    ]
+  }
+]
