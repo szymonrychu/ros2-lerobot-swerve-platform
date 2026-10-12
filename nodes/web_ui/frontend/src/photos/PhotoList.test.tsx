@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { ThemeProvider } from '@mui/material/styles'
+import { theme } from '../theme'
 import { PhotoList } from './PhotoList'
 
 function photo(id: string, ts: number) {
@@ -48,7 +50,39 @@ function ui(f: ReturnType<typeof makeFetch>, over: Partial<Parameters<typeof Pho
   return <PhotoList tabId="t" revision={1} selectedPoiId={null} selectedPoiName={null} fetchImpl={f.impl} {...over} />
 }
 
+let viewportWidth = 1400
+
+/** Minimal matchMedia: evaluates min-width / max-width px conditions against viewportWidth. */
+function installMatchMedia(): void {
+  window.matchMedia = ((query: string) => {
+    const min = /min-width:\s*([\d.]+)px/.exec(query)
+    const max = /max-width:\s*([\d.]+)px/.exec(query)
+    let matches = true
+    if (min && viewportWidth < Number(min[1])) matches = false
+    if (max && viewportWidth > Number(max[1])) matches = false
+    return { matches, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(), onchange: null }
+  }) as typeof window.matchMedia
+}
+
 afterEach(cleanup)
+
+describe.each([
+  [400, 'phone'],
+  [1400, 'desktop'],
+])('PhotoList on OverlayPanel at %i px (%s)', (width, cls) => {
+  it('renders inside the overlay panel with rem and dvh sizes', async () => {
+    viewportWidth = width
+    installMatchMedia()
+    render(<ThemeProvider theme={theme}>{ui(makeFetch())}</ThemeProvider>)
+    await screen.findAllByTestId('photo-row')
+    const panel = screen.getByTestId('overlay-panel')
+    expect(panel.getAttribute('data-layout')).toBe(cls)
+    expect(panel.contains(screen.getByTestId('photo-list-panel'))).toBe(true)
+    expect(screen.queryByTestId('overlay-panel-handle') !== null).toBe(cls === 'phone')
+    const img = document.querySelector('img') as HTMLElement
+    expect(getComputedStyle(img).width).toBe('4.5rem')
+  })
+})
 
 describe('PhotoList', () => {
   it('lists photos with thumbnails and filters by the selected POI', async () => {

@@ -7,13 +7,14 @@ import Link from '@mui/material/Link'
 import List from '@mui/material/List'
 import ListItem from '@mui/material/ListItem'
 import ListItemText from '@mui/material/ListItemText'
-import Paper from '@mui/material/Paper'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
+import { OverlayPanel } from '../layout/OverlayPanel'
 import { capturedAt, deletePhotos, fetchPhotos, Photo, PHOTO_LIMIT, PhotoDeleteSelector, photoImageUrl, photoThumbUrl } from './api'
 
-const PANEL_BG = 'rgba(22, 27, 34, 0.92)'
-const THUMB_WIDTH_PX = 72
+const THUMB_WIDTH = '4.5rem'
+const FIELD_WIDTH = '8rem'
+const LIST_MAX_HEIGHT = { xs: '24dvh', sm: '32dvh' }
 const SECONDS_PER_DAY = 86400
 const BYTES_PER_MB = 1_000_000
 
@@ -148,87 +149,86 @@ export function PhotoList({ tabId, revision, selectedPoiId, selectedPoiName, onS
   const title = selectedPoiName === null ? `Camera photos (${total})` : `Photos of ${selectedPoiName} (${total})`
 
   return (
-    <Paper variant="outlined" sx={{ bgcolor: PANEL_BG, width: '100%' }} onPointerDown={(e) => e.stopPropagation()} data-testid="photo-list-panel">
-      <Typography variant="overline" sx={{ display: 'block', px: 1.5, lineHeight: 2 }}>
-        {title}
-      </Typography>
-      <Box sx={{ px: 1.5, pb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Button size="small" variant="outlined" color="error" disabled={busy || checked.size === 0} onClick={deleteSelected}>
-          Delete selected
-        </Button>
-        {checked.size > 0 && <Typography variant="caption">{`${checked.size} selected`}</Typography>}
-      </Box>
-      <List dense disablePadding sx={{ maxHeight: { xs: '24vh', sm: '32vh' }, overflowY: 'auto' }}>
-        {error !== null && (
-          <Typography variant="body2" color="error" sx={{ px: 1.5, pb: 1 }} role="alert">
-            {`Could not load photos: ${error}`}
-          </Typography>
-        )}
-        {photos.length === 0 && error === null && (
-          <Typography variant="body2" color="text.secondary" sx={{ px: 1.5, pb: 1 }}>
-            {selectedPoiName === null ? 'No photos yet.' : `No photos linked to ${selectedPoiName} yet.`}
-          </Typography>
-        )}
-        {photos.map((p) => (
-          <ListItem key={p.id} sx={{ gap: 0.5, alignItems: 'flex-start', pl: 0.5 }} data-testid="photo-row">
-            <Checkbox size="small" checked={checked.has(p.id)} onChange={() => toggle(p.id)} inputProps={{ 'aria-label': `select photo ${p.id}` }} />
-            <Link href={photoImageUrl(p.id)} target="_blank" rel="noreferrer" sx={{ flexShrink: 0 }}>
-              <Box
-                component="img"
-                src={photoThumbUrl(p.id)}
-                alt={`${p.camera} photo ${capturedAt(p.ts)}`}
-                loading="lazy"
-                sx={{ width: THUMB_WIDTH_PX, height: 'auto', display: 'block', borderRadius: 0.5 }}
+    <OverlayPanel title={title} open anchor="left" docked>
+      <Box data-testid="photo-list-panel">
+        <Box sx={{ pb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Button size="small" variant="outlined" color="error" disabled={busy || checked.size === 0} onClick={deleteSelected}>
+            Delete selected
+          </Button>
+          {checked.size > 0 && <Typography variant="caption">{`${checked.size} selected`}</Typography>}
+        </Box>
+        <List dense disablePadding sx={{ maxHeight: LIST_MAX_HEIGHT, overflowY: 'auto' }}>
+          {error !== null && (
+            <Typography variant="body2" color="error" sx={{ px: 1.5, pb: 1 }} role="alert">
+              {`Could not load photos: ${error}`}
+            </Typography>
+          )}
+          {photos.length === 0 && error === null && (
+            <Typography variant="body2" color="text.secondary" sx={{ px: 1.5, pb: 1 }}>
+              {selectedPoiName === null ? 'No photos yet.' : `No photos linked to ${selectedPoiName} yet.`}
+            </Typography>
+          )}
+          {photos.map((p) => (
+            <ListItem key={p.id} sx={{ gap: 0.5, alignItems: 'flex-start', pl: 0.5 }} data-testid="photo-row">
+              <Checkbox size="small" checked={checked.has(p.id)} onChange={() => toggle(p.id)} inputProps={{ 'aria-label': `select photo ${p.id}` }} />
+              <Link href={photoImageUrl(p.id)} target="_blank" rel="noreferrer" sx={{ flexShrink: 0 }}>
+                <Box
+                  component="img"
+                  src={photoThumbUrl(p.id)}
+                  alt={`${p.camera} photo ${capturedAt(p.ts)}`}
+                  loading="lazy"
+                  sx={{ width: THUMB_WIDTH, height: 'auto', display: 'block', borderRadius: 0.5 }}
+                />
+              </Link>
+              <ListItemText
+                primary={`${p.camera} - ${capturedAt(p.ts)}`}
+                secondary={p.name || p.note || p.tool}
+                secondaryTypographyProps={{ sx: { overflowWrap: 'anywhere' } }}
               />
-            </Link>
-            <ListItemText
-              primary={`${p.camera} - ${capturedAt(p.ts)}`}
-              secondary={p.name || p.note || p.tool}
-              secondaryTypographyProps={{ sx: { overflowWrap: 'anywhere' } }}
-            />
-            {onSelect && (
-              <Button size="small" onClick={() => onSelect(p)} aria-label={`details of photo ${p.id}`}>
-                Details
+              {onSelect && (
+                <Button size="small" onClick={() => onSelect(p)} aria-label={`details of photo ${p.id}`}>
+                  Details
+                </Button>
+              )}
+            </ListItem>
+          ))}
+        </List>
+        {nextBefore !== null && (
+          <Box sx={{ px: 1.5, py: 0.5 }}>
+            <Button size="small" onClick={more}>
+              more
+            </Button>
+          </Box>
+        )}
+        <Box sx={{ px: 1.5, py: 1, display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+          <TextField id="photo-cleanup-days" size="small" type="number" label="Older than (days)" value={days} onChange={(e) => setDays(e.target.value)} sx={{ width: FIELD_WIDTH }} />
+          <Button size="small" variant="outlined" disabled={busy || !daysValid} onClick={() => previewCleanup({ older_than_s: daysNum * SECONDS_PER_DAY })}>
+            Preview older than
+          </Button>
+          <TextField id="photo-cleanup-keep" size="small" type="number" label="Keep newest" value={keep} onChange={(e) => setKeep(e.target.value)} sx={{ width: FIELD_WIDTH }} />
+          <Button size="small" variant="outlined" disabled={busy || !keepValid} onClick={() => previewCleanup({ keep_newest: keepNum })}>
+            Preview keep newest
+          </Button>
+        </Box>
+        {preview !== null && (
+          <Box sx={{ px: 1.5, pb: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Typography variant="body2">{previewText(preview.count, preview.bytes)}</Typography>
+            {preview.count > 0 && (
+              <Button size="small" variant="contained" color="error" disabled={busy} onClick={confirmCleanup}>
+                Confirm delete
               </Button>
             )}
-          </ListItem>
-        ))}
-      </List>
-      {nextBefore !== null && (
-        <Box sx={{ px: 1.5, py: 0.5 }}>
-          <Button size="small" onClick={more}>
-            more
-          </Button>
-        </Box>
-      )}
-      <Box sx={{ px: 1.5, py: 1, display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
-        <TextField id="photo-cleanup-days" size="small" type="number" label="Older than (days)" value={days} onChange={(e) => setDays(e.target.value)} sx={{ width: 130 }} />
-        <Button size="small" variant="outlined" disabled={busy || !daysValid} onClick={() => previewCleanup({ older_than_s: daysNum * SECONDS_PER_DAY })}>
-          Preview older than
-        </Button>
-        <TextField id="photo-cleanup-keep" size="small" type="number" label="Keep newest" value={keep} onChange={(e) => setKeep(e.target.value)} sx={{ width: 130 }} />
-        <Button size="small" variant="outlined" disabled={busy || !keepValid} onClick={() => previewCleanup({ keep_newest: keepNum })}>
-          Preview keep newest
-        </Button>
-      </Box>
-      {preview !== null && (
-        <Box sx={{ px: 1.5, pb: 1, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-          <Typography variant="body2">{previewText(preview.count, preview.bytes)}</Typography>
-          {preview.count > 0 && (
-            <Button size="small" variant="contained" color="error" disabled={busy} onClick={confirmCleanup}>
-              Confirm delete
+            <Button size="small" onClick={() => setPreview(null)}>
+              Cancel
             </Button>
-          )}
-          <Button size="small" onClick={() => setPreview(null)}>
-            Cancel
-          </Button>
-        </Box>
-      )}
-      {notice !== null && (
-        <Typography variant="body2" color="text.secondary" sx={{ px: 1.5, pb: 1 }}>
-          {notice}
-        </Typography>
-      )}
-    </Paper>
+          </Box>
+        )}
+        {notice !== null && (
+          <Typography variant="body2" color="text.secondary" sx={{ px: 1.5, pb: 1 }}>
+            {notice}
+          </Typography>
+        )}
+      </Box>
+    </OverlayPanel>
   )
 }
