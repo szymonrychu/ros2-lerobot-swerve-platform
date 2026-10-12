@@ -67,7 +67,7 @@ export default function SensorGraphTab({ tab, topicData }: Props) {
       ],
     }
 
-    // Restore persistent buffer — already filled by App-level feedAllGraphBuffers()
+    // Restore persistent buffer - already filled by App-level feedAllGraphBuffers()
     const buf = getOrCreateBuffer(tab.id, seriesCount)
     const plot = new uPlot(opts, buf as uPlot.AlignedData, container)
     plotRef.current = plot
