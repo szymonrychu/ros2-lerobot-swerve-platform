@@ -60,3 +60,12 @@ export const MAP_LEGEND: [string, string][] = [
   ['Robot front', SCENE_COLORS.robotFront],
   ['Goal being set', SCENE_COLORS.draft],
 ]
+
+/** Colours of the arm views (hex numbers for three.js): greyscale, states told apart by lightness; axes by lightness and their label. */
+export const ARM_COLORS = {
+  handle: { idle: 0xb0b0b0, hover: 0xd4d4d4, drag: 0xffffff },
+  endEffector: { idle: 0x9a9a9a, hover: 0xc0c0c0, drag: 0xeeeeee },
+  axis: { x: 0xe0e0e0, y: 0xa8a8a8, z: 0x707070 },
+  ghost: 0xcccccc,
+  mesh: 0x888888,
+} as const

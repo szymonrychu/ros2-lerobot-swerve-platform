@@ -8,21 +8,22 @@ import { findLink } from '../arm/armView.ts'
 import log from '../logging'
 import { solveCCDIK } from './ccdIKSolver'
 import { createOrbitHold } from './orbitHold'
+import { ARM_COLORS } from '../map3d/palette'
 
 const PUBLISH_INTERVAL_MS = 50 // throttle to ~20Hz
-const RING_RADIUS = 0.045 // world-space metres — slightly larger than arm cross-section
+const RING_RADIUS = 0.045 // world-space metres - slightly larger than arm cross-section
 const RING_TUBE = 0.003
-const COLOR_IDLE = 0x44aaff
-const COLOR_HOVER = 0x66ccff
-const COLOR_DRAG = 0xffffff
+const COLOR_IDLE = ARM_COLORS.handle.idle
+const COLOR_HOVER = ARM_COLORS.handle.hover
+const COLOR_DRAG = ARM_COLORS.handle.drag
 const OPACITY_IDLE = 0.45
 const OPACITY_HOVER = 0.85
 const OPACITY_DRAG = 1.0
 const GHOST_BODY_OPACITY = 0.3
 const EE_SPHERE_RADIUS = 0.012
-const EE_COLOR_IDLE = 0xff6633
-const EE_COLOR_HOVER = 0xff8855
-const EE_COLOR_DRAG = 0xffaa77
+const EE_COLOR_IDLE = ARM_COLORS.endEffector.idle
+const EE_COLOR_HOVER = ARM_COLORS.endEffector.hover
+const EE_COLOR_DRAG = ARM_COLORS.endEffector.drag
 const EE_OPACITY_IDLE = 0.75
 const EE_OPACITY_HOVER = 0.95
 const EE_OPACITY_DRAG = 1.0
@@ -34,7 +35,7 @@ const ARROW_HEAD_LENGTH = 0.01
 const ARROW_OPACITY_IDLE = 0.60
 const ARROW_OPACITY_HOVER = 0.90
 const ARROW_OPACITY_DRAG = 1.0
-const ARROW_COLORS: Record<string, number> = { x: 0xff3333, y: 0x33cc33, z: 0x3399ff }
+const ARROW_COLORS: Record<string, number> = ARM_COLORS.axis
 
 // Ordered IK chain: each entry is the joint name and the child link it drives.
 // The sphere for joint[i] is placed at its child link; dragging it solves IK
@@ -71,7 +72,7 @@ interface ActiveRingDrag {
 interface ActiveIKDrag {
   type: 'ik'
   dragPlane: THREE.Plane
-  /** Index into IK_JOINTS for the grabbed sphere — chain is IK_JOINTS[0..ikJointIdx] */
+  /** Index into IK_JOINTS for the grabbed sphere - chain is IK_JOINTS[0..ikJointIdx] */
   ikJointIdx: number
 }
 
@@ -139,18 +140,18 @@ export function InteractiveArm({
   const cameraRef = useRef<THREE.Camera>(camera)
   cameraRef.current = camera
 
-  // Ghost robot ref — shows commanded position, hosts rings
+  // Ghost robot ref - shows commanded position, hosts rings
   const ghostRobotRef = useRef<URDFRobot | null>(null)
-  // Body meshes of the ghost (from loadMeshCb) — opacity toggled on drag
+  // Body meshes of the ghost (from loadMeshCb) - opacity toggled on drag
   const ghostBodyMeshesRef = useRef<THREE.Mesh[]>([])
 
   const ringsRef = useRef<RingEntry[]>([])
   const ringByUuidRef = useRef<Map<string, RingEntry>>(new Map())
   const activeDragRef = useRef<ActiveDrag | null>(null)
   const hoveredRingRef = useRef<RingEntry | null>(null)
-  // Map from joint name → sphere mesh (one per IK_JOINTS entry)
+  // Map from joint name -> sphere mesh (one per IK_JOINTS entry)
   const jointSpheresRef = useRef<Map<string, THREE.Mesh>>(new Map())
-  // Map from sphere uuid → IK_JOINTS index (for hit testing)
+  // Map from sphere uuid -> IK_JOINTS index (for hit testing)
   const sphereByUuidRef = useRef<Map<string, number>>(new Map())
   const commandedRef = useRef<Record<string, number>>({})
   const lastPublishRef = useRef<number>(0)
@@ -159,7 +160,7 @@ export function InteractiveArm({
   const axisArrowsRef = useRef<AxisArrowEntry[]>([])
   const arrowMeshByUuidRef = useRef<Map<string, AxisArrowEntry>>(new Map())
 
-  // Ghost joint states — frozen during drag so live updates don't overwrite setJointValue()
+  // Ghost joint states - frozen during drag so live updates don't overwrite setJointValue()
   const [ghostJointStates, setGhostJointStates] = useState<JointStates | undefined>(undefined)
 
   // Sync commanded positions + ghost states from live when not dragging
@@ -172,7 +173,7 @@ export function InteractiveArm({
     setGhostJointStates(liveJointStates)
     if (!hasInitialStateRef.current) {
       hasInitialStateRef.current = true
-      log.info('[interactive] initial servo positions received — arm control enabled')
+      log.info('[interactive] initial servo positions received - arm control enabled')
       onReady?.(true)
     }
     const robot = ghostRobotRef.current
@@ -687,9 +688,9 @@ export function InteractiveArm({
 
   return (
     <>
-      {/* Solid arm — always tracks live servo position */}
+      {/* Solid arm - always tracks live servo position */}
       <RobotModel urdfFile={urdfFile} jointStates={liveJointStates} position={position} visible={visible} onRobotLoaded={onRobotLoaded} />
-      {/* Ghost arm — always in scene; body opacity 0 normally, ghost during drag; hosts rings */}
+      {/* Ghost arm - always in scene; body opacity 0 normally, ghost during drag; hosts rings */}
       <RobotModel
         urdfFile={urdfFile}
         jointStates={ghostJointStates}

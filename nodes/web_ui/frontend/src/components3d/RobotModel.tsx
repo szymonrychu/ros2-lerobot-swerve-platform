@@ -6,9 +6,10 @@ import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import log from '../logging'
 import { URDF_TO_THREE_ROTATION_X } from '../map3d/coords'
+import { ARM_COLORS } from '../map3d/palette'
 
-const GHOST_COLOR = 0x66aaff
-const MESH_COLOR = 0x888888
+const GHOST_COLOR: number = ARM_COLORS.ghost
+const MESH_COLOR: number = ARM_COLORS.mesh
 
 /**
  * Parsed STL geometry per mesh URL, shared by every model in the session: InteractiveArm's ghost arm reuses the solid arm's meshes instead of fetching them again.

@@ -3,7 +3,7 @@ import { designViolations, SOURCES } from '../layout/designRules'
 import { cameraColor } from '../photos/geometry'
 import { KIND_COLORS, ZONE_COLORS, STATUS_COLORS, OBJECT_COLOR, markerColors } from '../poi/style'
 import { TOKENS } from '../theme'
-import { CREATOR_OUTLINE, LAYER_SWATCH, MAP_LEGEND, NAV_PATH_COLOR, PHOTO_COLOR, SCENE_COLORS, SELECTED_OUTLINE } from './palette'
+import { ARM_COLORS, CREATOR_OUTLINE, LAYER_SWATCH, MAP_LEGEND, NAV_PATH_COLOR, PHOTO_COLOR, SCENE_COLORS, SELECTED_OUTLINE } from './palette'
 
 const SCENE_KEY: Record<string, keyof typeof SCENE_COLORS> = {
   localCostmap: 'costmap',
@@ -70,5 +70,13 @@ describe('map palette', () => {
     for (const p of ['map3d/palette.ts', 'map3d/sceneLayers.tsx', 'poi/style.ts', 'photos/geometry.ts']) {
       expect(designViolations(p, SOURCES[p]), p).toEqual([])
     }
+  })
+
+  it('arm scene colours come from the palette and are greyscale', () => {
+    const grey = (hex: number): boolean => ((hex >> 16) & 255) === ((hex >> 8) & 255) && ((hex >> 8) & 255) === (hex & 255)
+    const values = [...Object.values(ARM_COLORS.handle), ...Object.values(ARM_COLORS.endEffector), ...Object.values(ARM_COLORS.axis), ARM_COLORS.ghost, ARM_COLORS.mesh]
+    for (const v of values) expect(grey(v), v.toString(16)).toBe(true)
+    for (const p of ['components3d/InteractiveArm.tsx', 'components3d/RobotModel.tsx']) expect(SOURCES[p], p).toContain("from '../map3d/palette'")
+    for (const p of ['components3d/InteractiveArm.tsx', 'components3d/RobotModel.tsx', 'arm/ArmView.tsx']) expect(designViolations(p, SOURCES[p]), p).toEqual([])
   })
 })

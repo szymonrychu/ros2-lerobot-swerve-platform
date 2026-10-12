@@ -9,6 +9,7 @@ import type { URDFRobot } from 'urdf-loader'
 import { InteractiveArm } from '../components3d/InteractiveArm'
 import { RobotModel } from '../components3d/RobotModel'
 import type { ArmCameraMode, ArmCameraMount } from '../map3d/armCamera'
+import { TOKENS } from '../theme'
 import { TabConfig } from '../types'
 import { ARM_CAMERA_MODES, applyArmCamera } from './armView.ts'
 
@@ -21,7 +22,6 @@ const MODE_LABELS: Record<ArmCameraMode, string> = {
 const DEFAULT_MODE: ArmCameraMode = 'side-left'
 const DEFAULT_MOUNT: ArmCameraMount = { xyz: [0, 0, 0], rpy: [0, 0, 0] }
 const CAMERA_FOV = 50
-const CANVAS_BG = '#14181d'
 const FREE_CAMERA_POSITION: [number, number, number] = [0.5, 0.4, 0.5]
 const FREE_CAMERA_TARGET: [number, number, number] = [0, 0.15, 0]
 
@@ -116,7 +116,7 @@ export default function ArmView({ tab, topicData, publish }: Props) {
       <Canvas
         frameloop="demand"
         camera={{ position: FREE_CAMERA_POSITION, fov: CAMERA_FOV, near: 0.01, far: 50 }}
-        style={{ background: CANVAS_BG, touchAction: 'none' }}
+        style={{ background: TOKENS.bgCanvas, touchAction: 'none' }}
         dpr={[1, 2]}
       >
         <ArmScene tab={tab} armJoints={armJoints} mode={mode} publish={publish} />
