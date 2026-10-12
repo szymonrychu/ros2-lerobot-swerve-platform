@@ -262,7 +262,7 @@ def test_default_yaml_tab_set_map_first() -> None:
     cfg = load_config(DEFAULT_YAML)
     types = [t.type for t in cfg.tabs]
     assert types[0] == "map_nav"
-    assert types == ["map_nav", "camera", "camera", "poi"]
+    assert types == ["map_nav", "arm", "camera", "poi"]
     for removed in REMOVED_TAB_TYPES:
         assert removed not in types
     tab = cfg.tabs[0]
