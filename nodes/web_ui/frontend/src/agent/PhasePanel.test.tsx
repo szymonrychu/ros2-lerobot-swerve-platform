@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { PhasePanel, PHASE_PANEL_STORAGE_KEY, readPhasePanelOpen, writePhasePanelOpen } from './PhasePanel'
 import type { PhaseStorage } from './PhasePanel'
-import type { PhaseRow } from './agentModel'
+import { emptyChat, parsePlan } from './agentModel'
+import type { ChatState, PhaseRow } from './agentModel'
 
 afterEach(cleanup)
 
@@ -44,6 +45,17 @@ describe('phase storage helpers', () => {
 })
 
 describe('PhasePanel', () => {
+  it('shows the time budget chip beside the phase chip, before the phase list wrapper', () => {
+    const plan = parsePlan({ complexity: 'simple', phases: [], time_budget_min: 30, time_left_s: 600, time_left_at: Date.now() / 1000 })
+    const state: ChatState = { ...emptyChat(), busy: false, plan }
+    render(<PhasePanel rows={ROWS} header={HEADER} storage={memoryStorage()} chat={state} />)
+    const phase = screen.getByTestId('active-phase')
+    const budget = screen.getByTestId('time-budget')
+    expect(budget.textContent).toContain('budget 30 min')
+    expect(phase.parentElement).toBe(budget.parentElement)
+    expect(phase.compareDocumentPosition(budget) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(budget.nextElementSibling?.querySelector('[data-testid="phase-panel"]') ?? budget.nextElementSibling).not.toBeNull()
+  })
   it('renders nothing without rows', () => {
     const { container } = render(<PhasePanel rows={[]} header={null} storage={memoryStorage()} />)
     expect(container.innerHTML).toBe('')

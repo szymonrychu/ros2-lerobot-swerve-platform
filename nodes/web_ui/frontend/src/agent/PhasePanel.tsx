@@ -8,7 +8,8 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { PhaseProgress } from './PhaseProgress'
-import type { PhaseRow, PhaseStatus, UsageBar, UsageLevel } from './agentModel'
+import { TimeBudgetChip } from './TimeBudgetChip'
+import type { ChatState, PhaseRow, PhaseStatus, UsageBar, UsageLevel } from './agentModel'
 
 export const PHASE_PANEL_STORAGE_KEY = 'web_ui.agentPhasesOpen'
 /** Open phase list height cap: half the dynamic viewport so the chat stays usable on a phone. */
@@ -117,9 +118,10 @@ function PhaseRowView({ row }: { row: PhaseRow }) {
  * @param rows - phase rows (phaseRows()); nothing is rendered when empty
  * @param header - the active phase for the chip; null after the last phase (chip then shows the finished count)
  * @param storage - open/closed persistence, defaults to localStorage
+ * @param chat - live chat state; when given, the declared time budget and time left show beside the phase chip
  * @returns the dropdown
  */
-export function PhasePanel({ rows, header, storage }: { rows: PhaseRow[]; header: PhaseHeader | null; storage?: PhaseStorage }) {
+export function PhasePanel({ rows, header, storage, chat }: { rows: PhaseRow[]; header: PhaseHeader | null; storage?: PhaseStorage; chat?: ChatState }) {
   const store = storage ?? browserStorage()
   const [open, setOpen] = useState(() => readPhasePanelOpen(store))
   if (rows.length === 0) return null
@@ -141,6 +143,7 @@ export function PhasePanel({ rows, header, storage }: { rows: PhaseRow[]; header
         aria-expanded={open}
         data-testid="active-phase"
       />
+      {chat !== undefined && <TimeBudgetChip state={chat} />}
       {header !== null && <PhaseProgress attemptLabel={header.attemptLabel} iterationLabel={header.iterationLabel} pRetrySuccess={null} />}
       <Box sx={{ flexBasis: '100%' }}>
         <Collapse in={open} unmountOnExit>
