@@ -1,0 +1,57 @@
+[project]
+name = "arducam-tof"
+version = "0.1.0"
+description = "Arducam ToF camera bridge for ROS2: depth, amplitude and camera_info from the Arducam SDK"
+requires-python = ">=3.12"
+dependencies = [
+    # sensor_msgs (Image, CameraInfo) imports numpy at runtime; the SDK requires numpy<2.
+    "numpy>=1.26,<2",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "prometheus-client>=0.20",
+    "ros2-metrics",
+    # The SDK ships aarch64 Linux wheels only; macOS dev machines run the tests against a mocked SDK.
+    "ArducamDepthCamera>=0.1.24,<0.2; sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
+
+[dependency-groups]
+dev = [
+    "ruff==0.15.20",
+    "vulture>=2.11,<3",
+    "poethepoet>=0.42.0,<0.43",
+    "pytest>=9.0.0,<10",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+ros2-metrics = { path = "../../../shared/ros2_metrics", editable = true }
+
+[tool.ruff]
+line-length = 120
+extend-exclude = [".venv", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+
+[tool.vulture]
+exclude = ["**/__pycache__"]
+min_confidence = 80
+
+[tool.poe.tasks]
+lint = { shell = """
+  set -e
+  ruff check arducam_tof tests
+  ruff format --check arducam_tof tests
+  vulture arducam_tof tests --min-confidence 80
+""" }
+lint-fix = { shell = """
+  ruff check --fix arducam_tof tests
+  ruff format arducam_tof tests
+""" }
+test = { shell = "pytest tests/ -v" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
