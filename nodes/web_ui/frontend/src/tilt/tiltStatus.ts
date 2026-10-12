@@ -65,8 +65,3 @@ export function tiltStatus(payload: TiltPayload | null | undefined): TiltStatus 
   if (text === null) return OK_STATUS
   return { level: 'ok', navBlocked: true, driveBlocked: false, banner: { severity: 'warning', text }, navBlockedReason: text }
 }
-
-/** True when the level just rose to warning or error (the moment for an interrupting toast). */
-export function tiltEntered(previous: TiltLevel, next: TiltLevel): boolean {
-  return next !== 'ok' && SEVERITY[next] > SEVERITY[previous]
-}

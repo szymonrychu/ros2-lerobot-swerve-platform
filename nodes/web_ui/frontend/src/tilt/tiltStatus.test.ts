@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { tiltEntered, tiltStatus, type TiltPayload } from './tiltStatus'
+import { tiltStatus, type TiltPayload } from './tiltStatus'
 
 const WARNING: TiltPayload = { level: 'warning', roll_deg: 12.5, pitch_deg: -3 }
 const ERROR: TiltPayload = { level: 'error', roll_deg: 25, pitch_deg: 4 }
@@ -66,17 +66,5 @@ describe('tiltStatus', () => {
   it('shows ? for missing angles and ignores unknown levels', () => {
     expect(tiltStatus({ level: 'warning' }).banner?.text).toContain('roll ? / pitch ? deg')
     expect(tiltStatus({ level: 'bogus' } as unknown as TiltPayload).level).toBe('ok')
-  })
-})
-
-describe('tiltEntered', () => {
-  it('fires on entering or worsening, not on repeats, relief or ok', () => {
-    expect(tiltEntered('ok', 'warning')).toBe(true)
-    expect(tiltEntered('ok', 'error')).toBe(true)
-    expect(tiltEntered('warning', 'error')).toBe(true)
-    expect(tiltEntered('warning', 'warning')).toBe(false)
-    expect(tiltEntered('error', 'warning')).toBe(false)
-    expect(tiltEntered('warning', 'ok')).toBe(false)
-    expect(tiltEntered('ok', 'ok')).toBe(false)
   })
 })
