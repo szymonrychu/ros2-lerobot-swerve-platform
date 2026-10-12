@@ -47,16 +47,18 @@ const render = (s: GraspPanelState) => renderToStaticMarkup(<GraspPanel state={s
 describe('GraspPanel', () => {
   it('has no position inputs and no strategy selector', () => {
     const html = render(state())
-    for (const text of ['Object', 'Advanced', 'Release', 'Stop']) expect(html).toContain(text)
+    for (const text of ['Object', 'Advanced', 'Release']) expect(html).toContain(text)
     for (const text of ['Pick on map', 'Strategy', 'base_link', 'label="x', 'Support z']) expect(html).not.toContain(text)
     expect(html).not.toMatch(/<label[^>]*>x</)
     expect(html).toContain('Choose Auto, Scoop, Angled or Top down')
   })
 
-  it('shows the pick banner with Cancel while picking', () => {
+  it('has no pick banner and no panel stop (the map status line and toolbar own them)', () => {
     const html = render(state({ pickMode: true, pickStrategy: 'scoop' }))
-    expect(html).toContain('Click the object on the map')
-    expect(html).toContain('Cancel')
+    expect(html).not.toContain('Click the object on the map')
+    expect(html).not.toContain('Cancel')
+    expect(html).not.toMatch(/>\s*Stop\s*</)
+    expect(render(state())).not.toMatch(/>\s*Stop\s*</)
   })
 
   it('offers Plan again once an object was clicked, Execute only for a feasible fresh plan', () => {
@@ -80,9 +82,9 @@ describe('GraspPanel', () => {
     expect(render(state({ form: { ...DEFAULT_FORM, strategy: 'auto' } }))).not.toContain('Gap below (m)')
   })
 
-  it('keeps a prominent Stop while executing', () => {
+  it('has no panel STOP GRASP while executing (the toolbar owns it)', () => {
     const html = render(state({ executing: true, stream: { requestId: 'r', action: 'execute', state: 'running', outcome: null } }))
-    expect(html).toContain('STOP GRASP')
+    expect(html).not.toContain('STOP GRASP')
     expect(html).toContain('Running execute')
   })
 
@@ -156,11 +158,11 @@ describe('GraspPanel on OverlayPanel', () => {
     expect(panel.style.background).toBe('rgb(22, 24, 29)') // PANEL_BG, normalised by jsdom
   })
 
-  it('hides the form but keeps the pick banner while picking on a phone', () => {
+  it('hides the form while picking on a phone', () => {
     viewportWidth = 390
     installMatchMedia()
     rtlRender(<ThemeProvider theme={theme}><GraspPanel state={state({ pickMode: true, pickStrategy: 'scoop' })} onClose={() => undefined} /></ThemeProvider>)
-    expect(screen.getByText(/Click the object on the map/)).toBeTruthy()
+    expect(screen.queryByText(/Click the object on the map/)).toBeNull()
     const form = screen.getByText('Object').closest('button')!.parentElement!
     expect(getComputedStyle(form).display).toBe('none')
   })

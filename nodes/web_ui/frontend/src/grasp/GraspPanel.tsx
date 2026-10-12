@@ -16,9 +16,7 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import StopCircleIcon from '@mui/icons-material/StopCircle'
 import { ADVANCED_PARAMS, describeHold, describeOutcome, GraspAnswer, GRIP_PROFILES, isGripProfile, summarizePlan } from './grasp'
-import { GRASP_MENU } from './pick'
 import type { GraspPanelState } from './useGrasp'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { useLayout } from '../layout/useLayout'
@@ -132,32 +130,7 @@ export function GraspPanel({ state, onClose }: Props) {
     <OverlayPanel title="Grasp" open anchor="bottom" onClose={onClose}>
       <Stack spacing={1.25} aria-label="Grasp panel" sx={{ maxHeight: { xs: '62dvh', sm: '70dvh' } }}>
 
-        {executing && (
-          <Button
-            fullWidth
-            variant="contained"
-            color="error"
-            size="large"
-            startIcon={<StopCircleIcon />}
-            onClick={state.stop}
-            sx={{ fontWeight: 800, letterSpacing: '0.05em', py: 1.5 }}
-          >
-            STOP GRASP
-          </Button>
-        )}
-
-        {state.pickMode ? (
-          <Alert
-            severity="info"
-            action={
-              <Button color="inherit" size="small" onClick={state.cancelPick}>
-                Cancel
-              </Button>
-            }
-          >
-            Click the object on the map ({GRASP_MENU.find((m) => m.strategy === state.pickStrategy)?.label ?? 'grasp'}). Esc cancels.
-          </Alert>
-        ) : (
+        {!state.pickMode && (
           <Typography variant="caption" color="text.secondary">
             {state.hasTarget
               ? `Object at x ${form.x} m, y ${form.y} m (base_link), standing on the floor. Choose a strategy in the Grasp menu to pick again.`
@@ -320,22 +293,8 @@ export function GraspPanel({ state, onClose }: Props) {
           </Alert>
         )}
 
-        {!executing && (
-          <Button
-            fullWidth
-            variant="outlined"
-            color="error"
-            startIcon={<StopCircleIcon />}
-            onClick={state.stop}
-            title="Stop and hold the arm (also aborts a running grasp)"
-            sx={{ fontWeight: 700 }}
-          >
-            Stop
-          </Button>
-        )}
-
         {state.stream?.state === 'running' && (
-          <Alert severity="info">{`Running ${state.stream.action ?? 'grasp'}... use Stop to abort.`}</Alert>
+          <Alert severity="info">{`Running ${state.stream.action ?? 'grasp'}... use STOP GRASP in the toolbar to abort.`}</Alert>
         )}
         {state.planning && <Alert severity="info">Planning...</Alert>}
         {run && <Result answer={run} title={state.stream?.action ?? 'Grasp'} />}
