@@ -294,7 +294,7 @@ export function GraspPanel({ state, onClose }: Props) {
         )}
 
         {state.stream?.state === 'running' && (
-          <Alert severity="info">{`Running ${state.stream.action ?? 'grasp'}... use STOP GRASP in the toolbar to abort.`}</Alert>
+          <Alert severity="info">{`Running ${state.stream.action ?? 'grasp'}... use the toolbar stop to abort.`}</Alert>
         )}
         {state.planning && <Alert severity="info">Planning...</Alert>}
         {run && <Result answer={run} title={state.stream?.action ?? 'Grasp'} />}
