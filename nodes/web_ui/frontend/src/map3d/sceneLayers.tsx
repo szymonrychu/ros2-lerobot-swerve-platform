@@ -7,11 +7,11 @@ import { useThree } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import log from '../logging'
-import { PANEL_BG, TOKENS } from '../theme'
 import { frontEdgeIndex, MapMeta, Pose2D, Vec2 } from '../map/mapMath'
 import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor, tilesAround } from './geo'
 import { mapPlacement } from './groundMath'
+import { MapLabel } from './MapLabel'
 import { SCENE_COLORS } from './palette'
 import { cropUvs, type TileCrop } from './tileSources'
 import { recordTileResult, tileFailureCaption, type TileResult, type TileResults } from './tileStatus'
@@ -405,20 +405,7 @@ export const BaseStationMarker = memo(function BaseStationMarker({ position, lab
         zIndexRange={[5, 0]}
         style={{ pointerEvents: 'none' }}
       >
-        <div
-          style={{
-            transform: 'translateY(-14px)',
-            whiteSpace: 'nowrap',
-            font: '500 11px sans-serif',
-            color: TOKENS.textPrimary,
-            background: PANEL_BG,
-            border: `1px solid ${SCENE_COLORS.rtkBase}`,
-            borderRadius: 4,
-            padding: '1px 5px',
-          }}
-        >
-          {label}
-        </div>
+        <MapLabel>{label}</MapLabel>
       </Html>
     </group>
   )

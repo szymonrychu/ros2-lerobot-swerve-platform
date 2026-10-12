@@ -5,10 +5,11 @@
 import { memo, useMemo } from 'react'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
+import { MapLabel } from '../map3d/MapLabel'
+import { OBJECT_COLOR, SELECTED_OUTLINE } from '../map3d/palette'
 import type { GraspPreviewData } from './useGrasp'
 
-const OBJECT_COLOR = '#ffb000'
-const PATH_COLOR = '#ff4dd2'
+const PATH_COLOR = SELECTED_OUTLINE
 const MARKER_RADIUS_M = 0.008
 
 const Box = memo(function Box({ box }: { box: NonNullable<GraspPreviewData['box']> }) {
@@ -40,20 +41,7 @@ export const GraspPreview = memo(function GraspPreview({ data }: { data: GraspPr
             <meshBasicMaterial color={PATH_COLOR} toneMapped={false} />
           </mesh>
           <Html center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
-            <div
-              style={{
-                transform: 'translateY(-14px)',
-                whiteSpace: 'nowrap',
-                font: '600 10px sans-serif',
-                color: '#fff',
-                background: 'rgba(13, 17, 23, 0.78)',
-                border: `1px solid ${PATH_COLOR}`,
-                borderRadius: 4,
-                padding: '0 4px',
-              }}
-            >
-              {w.label}
-            </div>
+            <MapLabel>{w.label}</MapLabel>
           </Html>
         </group>
       ))}

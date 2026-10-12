@@ -8,7 +8,8 @@ import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Vec2 } from '../map/mapMath'
 import { rosToThree, ThreeTuple } from '../map3d/coords'
-import { markerColors, objectDetails, poiStyle, STATUS_COLORS, zoneLabel, zoneStyle } from './style'
+import { MapLabel } from '../map3d/MapLabel'
+import { markerColors, objectDetails, poiStyle, zoneLabel, zoneStyle } from './style'
 import type { Poi } from './types'
 
 /** Stacking heights (three y, metres), above the goal marker. */
@@ -30,24 +31,12 @@ function PoiLabel({ poi, lift }: { poi: Poi; lift: number }) {
   const zone = zoneLabel(poi)
   return (
     <Html position={rosToThree(poi, lift)} center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
-      <div
-        style={{
-          transform: 'translateY(-22px)',
-          whiteSpace: 'nowrap',
-          font: '600 11px sans-serif',
-          color: '#fff',
-          background: 'rgba(13, 17, 23, 0.78)',
-          border: `1px solid ${STATUS_COLORS[poi.status]}`,
-          borderRadius: 4,
-          padding: '1px 5px',
-        }}
-        title={objectDetails(poi, Date.now() / 1000) || undefined}
-      >
+      <MapLabel zone={poi.zone === 'keepout' || poi.zone === 'slow' ? poi.zone : undefined} title={objectDetails(poi, Date.now() / 1000) || undefined}>
         <span style={{ opacity: 0.7, marginRight: 4 }}>{tag}</span>
         {poi.name || '(unnamed)'}
         {seen}
-        {zone && <span style={{ marginLeft: 6, color: zoneStyle(poi, false)?.fill, fontWeight: 800 }}>{zone}</span>}
-      </div>
+        {zone && <span style={{ marginLeft: 6 }}>{zone}</span>}
+      </MapLabel>
     </Html>
   )
 }

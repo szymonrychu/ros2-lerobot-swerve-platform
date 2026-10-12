@@ -4,12 +4,13 @@ import { useThree } from '@react-three/fiber'
 import { Line } from '@react-three/drei'
 import * as THREE from 'three'
 import { rosToThree, ThreeTuple } from '../map3d/coords'
+import { SELECTED_OUTLINE } from '../map3d/palette'
 import type { Photo } from './api'
 import { cameraColor, photoWedge } from './geometry'
 
 /** Stacking heights (three y, metres), above the POI layer. */
 const WEDGE_LIFT = { fill: 0.044, outline: 0.046 } as const
-const SELECTED_COLOR = '#ffffff'
+const SELECTED_COLOR = SELECTED_OUTLINE
 const FILL_OPACITY = 0.35
 const SELECTED_FILL_OPACITY = 0.7
 
