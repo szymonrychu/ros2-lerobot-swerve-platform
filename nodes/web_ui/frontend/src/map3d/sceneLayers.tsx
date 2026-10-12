@@ -7,10 +7,12 @@ import { useThree } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import log from '../logging'
+import { PANEL_BG, TOKENS } from '../theme'
 import { frontEdgeIndex, MapMeta, Pose2D, Vec2 } from '../map/mapMath'
 import { rosToThree, rosYawToThreeY, ThreeTuple } from './coords'
 import { GpsAnchor, tilesAround } from './geo'
 import { mapPlacement } from './groundMath'
+import { SCENE_COLORS } from './palette'
 import { cropUvs, type TileCrop } from './tileSources'
 import { recordTileResult, tileFailureCaption, type TileResult, type TileResults } from './tileStatus'
 
@@ -24,19 +26,7 @@ export const LIFT = {
   goal: 0.03,
 } as const
 
-export const SCENE_COLORS = {
-  robot: '#2f9bff',
-  robotFront: '#ffdc00',
-  globalPath: '#2ecc40',
-  localPath: '#ff851b',
-  goal: '#ff4136',
-  rtkBase: '#00e5ff',
-  draft: '#ffdc00',
-  costmap: '#c158dc',
-  free: '#fefefe',
-  occupied: '#000000',
-  unknown: '#cdcdcd',
-} as const
+export { SCENE_COLORS }
 
 export const DEFAULT_GPS_TILE_ZOOM = 19 // preferred display zoom; above the source max zoom tiles are stretched
 export const GPS_TILE_RADIUS = 2
@@ -419,9 +409,9 @@ export const BaseStationMarker = memo(function BaseStationMarker({ position, lab
           style={{
             transform: 'translateY(-14px)',
             whiteSpace: 'nowrap',
-            font: '600 11px sans-serif',
-            color: '#fff',
-            background: 'rgba(13, 17, 23, 0.78)',
+            font: '500 11px sans-serif',
+            color: TOKENS.textPrimary,
+            background: PANEL_BG,
             border: `1px solid ${SCENE_COLORS.rtkBase}`,
             borderRadius: 4,
             padding: '1px 5px',

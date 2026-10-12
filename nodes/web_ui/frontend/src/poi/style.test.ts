@@ -153,7 +153,7 @@ describe('zoneStyle and zoneLabel', () => {
 
   it('draws an open keepout red, thick and solid', () => {
     const s = zoneStyle(area({ zone: 'keepout' }), false)
-    expect(s).toMatchObject({ fill: '#ff4136', outline: '#ff4136', opacity: 0.45, dashed: false })
+    expect(s).toMatchObject({ fill: ZONE_COLORS.keepout, outline: ZONE_COLORS.keepout, opacity: 0.45, dashed: false })
     expect(s?.lineWidth).toBeGreaterThanOrEqual(4)
   })
 
@@ -171,7 +171,7 @@ describe('zoneStyle and zoneLabel', () => {
   })
 
   it('keeps the selection outline', () => {
-    expect(zoneStyle(area({ zone: 'keepout' }), true)?.outline).not.toBe('#ff4136')
+    expect(zoneStyle(area({ zone: 'keepout' }), true)?.outline).not.toBe(ZONE_COLORS.keepout)
   })
 
   it('labels zones', () => {

@@ -60,6 +60,7 @@ import {
   readStoredTileSource,
   writeStoredTileSource,
 } from '../map3d/tileSources'
+import { LAYER_SWATCH, MAP_LEGEND } from '../map3d/palette'
 import { LAYER_LABELS, LayerKey, LayerState, readLayerState, writeLayerState } from '../map3d/layers'
 import type { SceneController } from '../map3d/MapScene'
 import type { GridImageMsg, PathMsg } from '../map3d/sceneLayers'
@@ -90,26 +91,6 @@ const GPS_ANCHOR_TOPIC = '/web_ui/gps_anchor'
 const TOUCH_TARGET = '2.75rem' // 44 px minimum touch target
 const ROBOT_FIT_SPAN_M = 4 // view size around the robot when there is no map to fit
 const SNACKBAR_MS: Record<ActionResult['state'], number | null> = { idle: null, busy: null, ok: 4000, error: 10000 }
-
-/** Swatch colours (mirror sceneLayers.SCENE_COLORS; duplicated so the toolbar does not pull in the 3D chunk). */
-const LAYER_SWATCH: Partial<Record<LayerKey, string>> = {
-  localCostmap: '#c158dc',
-  globalPlan: '#2ecc40',
-  localPlan: '#ff851b',
-  goal: '#ff4136',
-  rtkBase: '#00e5ff',
-  footprint: '#2f9bff',
-  pois: '#ffb000',
-  photos: '#4cc9f0',
-}
-
-const MAP_LEGEND: [string, string][] = [
-  ['Free', '#fefefe'],
-  ['Occupied', '#000000'],
-  ['Unknown', '#cdcdcd'],
-  ['Robot front', '#ffdc00'],
-  ['Goal being set', '#ffdc00'],
-]
 
 const LAYER_GROUPS: { title: string; keys: LayerKey[] }[] = [
   { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap', 'rtkBase'] },

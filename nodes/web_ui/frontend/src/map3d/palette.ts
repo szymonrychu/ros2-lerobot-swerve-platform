@@ -1,0 +1,62 @@
+/**
+ * The one map palette: every colour of the map, the 3D scene and the POI and photo markers.
+ *
+ * Only three things carry a hue: the keepout zone (TOKENS.error), the slow zone (TOKENS.warning) and the navigation path.
+ * Everything else is greyscale, so those stand out. POI kinds are told apart by shape, POI status by a lightness step.
+ */
+import type { LayerKey } from './layers'
+import { TOKENS } from '../theme'
+
+/** Colour of the navigation paths (global and local); the only non-zone hue on the map. */
+export const NAV_PATH_COLOR = '#2ecc40'
+
+export const ZONE_COLORS = { keepout: TOKENS.error, slow: TOKENS.warning } as const
+
+/** POI status outline on markers: a neutral lightness step (open brightest, cancelled dimmest). */
+export const STATUS_COLORS = { open: '#f2f2f2', done: '#a6a6a6', cancelled: '#666666' } as const
+/** Marker outline of the creator: agent grey (and dashed), user white. */
+export const CREATOR_OUTLINE = { agent: '#999999', user: '#ffffff' } as const
+/** Outline of the selected POI. */
+export const SELECTED_OUTLINE: string = TOKENS.accent
+
+/** Fill of remembered objects. */
+export const OBJECT_COLOR = '#b8b8b8'
+/** Fill of photo markers and viewing wedges, one colour for every camera. */
+export const PHOTO_COLOR = '#8c8c8c'
+/** Marker fill by POI kind. area-none is the neutral fill of an area without a zone. */
+export const KIND_COLORS = { point: '#dcdcdc', object: OBJECT_COLOR, photo: PHOTO_COLOR, 'area-none': '#707070' } as const
+
+/** Colours of the 3D map scene. */
+export const SCENE_COLORS = {
+  robot: '#cfcfcf',
+  robotFront: '#ffffff',
+  globalPath: NAV_PATH_COLOR,
+  localPath: NAV_PATH_COLOR,
+  goal: '#ffffff',
+  rtkBase: '#bfbfbf',
+  draft: '#9a9a9a',
+  costmap: '#8a8a8a',
+  free: '#fefefe',
+  occupied: '#000000',
+  unknown: '#cdcdcd',
+} as const
+
+/** Layer toolbar swatches (kept here so the toolbar does not pull in the 3D chunk). */
+export const LAYER_SWATCH: Partial<Record<LayerKey, string>> = {
+  localCostmap: SCENE_COLORS.costmap,
+  globalPlan: SCENE_COLORS.globalPath,
+  localPlan: SCENE_COLORS.localPath,
+  goal: SCENE_COLORS.goal,
+  rtkBase: SCENE_COLORS.rtkBase,
+  footprint: SCENE_COLORS.robot,
+  pois: KIND_COLORS.point,
+  photos: PHOTO_COLOR,
+}
+
+export const MAP_LEGEND: [string, string][] = [
+  ['Free', SCENE_COLORS.free],
+  ['Occupied', SCENE_COLORS.occupied],
+  ['Unknown', SCENE_COLORS.unknown],
+  ['Robot front', SCENE_COLORS.robotFront],
+  ['Goal being set', SCENE_COLORS.draft],
+]

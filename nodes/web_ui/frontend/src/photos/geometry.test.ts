@@ -65,8 +65,8 @@ describe('layer helpers', () => {
     expect(ageCutoff('all', 1_000_000)).toBeNull()
   })
 
-  it('gives the same colour to the same camera and different colours to different cameras', () => {
+  it('gives every camera the one photo colour', () => {
     expect(cameraColor('head')).toBe(cameraColor('head'))
-    expect(cameraColor('head')).not.toBe(cameraColor('gripper'))
+    expect(cameraColor('head')).toBe(cameraColor('gripper'))
   })
 })

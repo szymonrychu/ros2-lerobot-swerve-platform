@@ -1,4 +1,5 @@
 /** Pure geometry and filters of the map photo layer (map frame, metres and radians). */
+import { PHOTO_COLOR } from '../map3d/palette'
 import type { Photo } from './api'
 
 /** Length of a viewing-direction wedge, m. */
@@ -14,8 +15,6 @@ const SECONDS_PER_DAY = 86400
 export type PhotoAge = '24h' | '7d' | 'all'
 export const PHOTO_AGES: readonly PhotoAge[] = ['24h', '7d', 'all']
 export const PHOTO_AGE_LABELS: Record<PhotoAge, string> = { '24h': '24 h', '7d': '7 d', all: 'All' }
-
-const CAMERA_PALETTE = ['#4cc9f0', '#f72585', '#b5e48c', '#ffd166', '#c77dff', '#ff9f1c', '#2ec4b6', '#e63946'] as const
 
 /** A viewing-direction wedge: apex first, then the left and right edge ends. */
 export interface Wedge {
@@ -63,13 +62,11 @@ export function ageCutoff(age: PhotoAge, nowS: number): number | null {
 }
 
 /**
- * Stable colour of a camera name.
+ * Colour of a camera's photos: the one photo colour, the same for every camera.
  *
- * @param camera - camera name
- * @returns a CSS colour from a fixed palette
+ * @param _camera - camera name (unused, cameras are not told apart by colour)
+ * @returns the photo marker colour
  */
-export function cameraColor(camera: string): string {
-  let h = 0
-  for (const ch of camera) h = (h * 31 + ch.charCodeAt(0)) >>> 0
-  return CAMERA_PALETTE[h % CAMERA_PALETTE.length]
+export function cameraColor(_camera: string): string {
+  return PHOTO_COLOR
 }
