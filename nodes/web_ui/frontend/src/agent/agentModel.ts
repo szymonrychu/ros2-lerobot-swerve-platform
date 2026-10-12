@@ -53,6 +53,16 @@ export interface PlanInfo {
   /** Index of the active phase; null before the first phase starts and after the last one was completed. */
   activePhase: number | null
   phases: PhaseInfo[]
+  /** Minutes the agent declared for the whole task (set_task_plan, raised later); null when the payload has none. */
+  timeBudgetMin: number | null
+  /** Unix time (seconds) the time budget runs out: time_left_at + time_left_s of the payload; null when not reported. */
+  deadline: number | null
+}
+
+/** The declared time budget and the seconds left of it (timeBudget()). */
+export interface TimeBudget {
+  budgetMin: number
+  leftS: number
 }
 
 /** GET /api/agent/state (claude_agent GET /api/state). */
@@ -302,6 +312,8 @@ export function parsePlan(raw: unknown): PlanInfo | null {
     revisionRationale: str(p.revision_rationale),
     activePhase: typeof p.active_phase === 'number' ? p.active_phase : null,
     phases: p.phases.map((phase, i) => parsePhase(phase, i)),
+    timeBudgetMin: optNum(p.time_budget_min),
+    deadline: typeof p.time_left_s === 'number' && typeof p.time_left_at === 'number' ? p.time_left_at + p.time_left_s : null,
   }
 }
 
@@ -659,6 +671,30 @@ export function headerStatus(info: AgentInfo | null, state: ChatState): HeaderSt
           usageChip('turns', 'turns', state.turnsUsed, null),
         ],
   }
+}
+
+/**
+ * The time budget the agent declared for the running task and how much of it is left.
+ * @param state live chat state (its plan follows plan, plan_revised and state events, so a raise moves the deadline)
+ * @param nowMs current Unix time in milliseconds (Date.now())
+ * @returns the declared minutes and the seconds left (0 once expired, never negative); null before a plan or when the
+ *   plan carries no budget or deadline
+ */
+export function timeBudget(state: ChatState, nowMs: number): TimeBudget | null {
+  const plan = state.plan
+  if (plan === null || plan.timeBudgetMin === null || plan.deadline === null) return null
+  return { budgetMin: plan.timeBudgetMin, leftS: Math.max(0, plan.deadline - nowMs / 1000) }
+}
+
+/**
+ * Header text of a time budget.
+ * @param budget declared minutes and seconds left
+ * @returns "budget N min, m:ss left" (seconds rounded down)
+ */
+export function timeBudgetLabel(budget: TimeBudget): string {
+  const left = Math.floor(budget.leftS)
+  const seconds = String(left % 60).padStart(2, '0')
+  return `budget ${budget.budgetMin} min, ${Math.floor(left / 60)}:${seconds} left`
 }
 
 /**

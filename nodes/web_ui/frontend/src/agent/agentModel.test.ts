@@ -17,6 +17,8 @@ import {
   phaseRows,
   reduceEvent,
   statusLabel,
+  timeBudget,
+  timeBudgetLabel,
 } from './agentModel'
 import type { AgentEvent, ChatState } from './agentModel'
 
@@ -520,5 +522,41 @@ describe('attempt and iteration of a phase', () => {
     expect(headerStatus(INFO as never, state).phase).toMatchObject({ number: 2, attemptLabel: 'attempt 2/3', iterationLabel: 'iteration 4' })
     const old = run([ev(1, 'plan', PLAN_PAYLOAD)])
     expect(headerStatus(INFO as never, old).phase).toMatchObject({ number: 2, attemptLabel: null, iterationLabel: null })
+  })
+})
+
+describe('timeBudget', () => {
+  const T0 = 1_700_000_000
+  const BUDGETED = { ...PLAN_PAYLOAD, time_budget_min: 30, time_left_s: 1500, time_left_at: T0 }
+
+  it('is null before a plan and for a plan without a declared budget', () => {
+    expect(timeBudget(emptyChat(), T0 * 1000)).toBeNull()
+    expect(timeBudget(run([ev(1, 'plan', PLAN_PAYLOAD)]), T0 * 1000)).toBeNull()
+  })
+
+  it('reads the budget and counts the time left down from the plan event deadline', () => {
+    const s = run([ev(1, 'plan', BUDGETED)])
+    expect(timeBudget(s, T0 * 1000)).toEqual({ budgetMin: 30, leftS: 1500 })
+    expect(timeBudget(s, (T0 + 100) * 1000)).toEqual({ budgetMin: 30, leftS: 1400 })
+  })
+
+  it('follows a raise carried by a later state event and keeps the deadline through phase events', () => {
+    const raised = { ...BUDGETED, time_budget_min: 45, time_left_s: 2300, time_left_at: T0 + 100 }
+    const s = run([ev(1, 'plan', BUDGETED), ev(2, 'state', { busy: true, plan: raised }), ev(3, 'phase_started', { index: 2, name: 'Pick' })])
+    expect(timeBudget(s, (T0 + 100) * 1000)).toEqual({ budgetMin: 45, leftS: 2300 })
+  })
+
+  it('reads the budget from a state snapshot', () => {
+    const info = { busy: true, model: 'opus', max_turns: 10, ro_used: 0, rw_used: 0, turns_used: 0, plan: BUDGETED, session_started_at: null }
+    expect(timeBudget(applyStateSnapshot(emptyChat(), info), (T0 + 1) * 1000)).toEqual({ budgetMin: 30, leftS: 1499 })
+  })
+
+  it('reports 0 left, never negative, once the budget expired', () => {
+    expect(timeBudget(run([ev(1, 'plan', BUDGETED)]), (T0 + 5000) * 1000)).toEqual({ budgetMin: 30, leftS: 0 })
+  })
+
+  it('labels the budget and the time left in m:ss', () => {
+    expect(timeBudgetLabel({ budgetMin: 30, leftS: 1499.4 })).toBe('budget 30 min, 24:59 left')
+    expect(timeBudgetLabel({ budgetMin: 7.5, leftS: 0 })).toBe('budget 7.5 min, 0:00 left')
   })
 })

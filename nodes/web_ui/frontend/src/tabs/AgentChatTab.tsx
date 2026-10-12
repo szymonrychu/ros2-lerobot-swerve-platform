@@ -26,6 +26,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { postAgent } from '../agent/agentApi'
 import { PhasePanel } from '../agent/PhasePanel'
 import { PhaseProgress } from '../agent/PhaseProgress'
+import { TimeBudgetChip } from '../agent/TimeBudgetChip'
 import { composerBlockReason, headerStatus, phaseProgress, phaseRows, statusLabel } from '../agent/agentModel'
 import type { ChatItem, RobotEventSeverity, ToolContent, ToolKind, UsageChip, UsageLevel } from '../agent/agentModel'
 import { useAgentChat } from '../agent/useAgentChat'
@@ -344,6 +345,7 @@ export default function AgentChatTab({ battery }: Props) {
         <Chip size="small" color={header.busy ? 'warning' : connected ? 'success' : 'default'} label={header.busy ? 'working' : connected ? 'idle' : 'disconnected'} />
         {header.complexity !== null && <Chip size="small" color="secondary" label={header.complexity.replace('_', ' ')} />}
         <PhasePanel rows={rows} header={header.phase} />
+        <TimeBudgetChip state={chat} />
         {header.chips.map((chip) => (
           <UsageChipView key={chip.key} chip={chip} />
         ))}
