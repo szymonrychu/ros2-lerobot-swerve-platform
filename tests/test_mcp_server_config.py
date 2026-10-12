@@ -194,6 +194,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "look_around",
         "motion_queue",
         "poi",
+        "auto_poi",
         "lookups",
         "auto_poi",
         "cameras",
@@ -559,6 +560,29 @@ def test_mcp_server_config_lookups_block_is_only_the_store_dir() -> None:
     finally:
         del sys.path[:2]
     assert str(cfg.lookups.store_dir) == LOOKUPS_DIR
+
+
+def test_client_yml_pins_the_agent_poi_settings() -> None:
+    """client.yml renders the agent POI keys (auto_poi, agent_poi_reset, poi_review_followup, poi_hint_radius_m)."""
+    pytest.importorskip("pydantic")
+    sys.path[:0] = [str(REPO_ROOT / "nodes" / "mcp_server"), str(REPO_ROOT / "shared")]
+    try:
+        from mcp_server.config import AutoPoiSettings, McpServerConfig
+    finally:
+        del sys.path[:2]
+    raw = node_config("mcp_server")
+    assert raw["auto_poi"] == {
+        "enabled": True,
+        "merge_radius_m": 0.5,
+        "max_pose_age_s": 2.0,
+        "event_types": ["collision_stop", "nav_abort"],
+        "hint_after_images": 3,
+    }
+    assert McpServerConfig.model_validate(raw).auto_poi == AutoPoiSettings(**raw["auto_poi"])
+    agent = node_config("claude_agent")
+    assert agent["agent_poi_reset"] == "keep_open"
+    assert agent["poi_review_followup"] is True
+    assert agent["poi_hint_radius_m"] == 0.5
 
 
 def test_mcp_server_config_validates_with_frontiers_block_at_defaults() -> None:

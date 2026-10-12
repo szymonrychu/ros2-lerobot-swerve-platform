@@ -1708,6 +1708,15 @@ ros2_nodes:
       poi:
         request_timeout_s: 3.0
         near_radius_m: 5.0
+      # Auto stuck points (nodes/mcp_server/README.md, "Auto stuck points" and "poi_hint nudge"): collision_stop and Nav2
+      # aborts drop a point POI at the robot pose; hint_after_images camera / look_around results without a POI write
+      # add a poi_hint to the result.
+      auto_poi:
+        enabled: true
+        merge_radius_m: 0.5
+        max_pose_age_s: 2.0
+        event_types: [collision_stop, nav_abort]
+        hint_after_images: 3
       # Camera photos (nodes/mcp_server/README.md, "Photos (photo POIs)"): the JPEG target directory only; every camera
       # image is a photo POI whose index and retention (max_records / max_bytes / max_age_days) poi_store owns
       # (poi_store photos: block below).
@@ -2019,6 +2028,12 @@ ros2_nodes:
       log_api_timing: true
       context_policy: compact
       autocompact_pct: 60
+      # Agent POIs survive a new session: keep_open clears only done / cancelled ones, clear_all clears every one.
+      agent_poi_reset: keep_open
+      # One "POI REVIEW" follow-up per instruction that used camera or motion tools and wrote no POI.
+      poi_review_followup: true
+      # complete_phase hints map coordinates in the summary with no POI within this distance (m).
+      poi_hint_radius_m: 0.5
       effector_tools:
         - navigate_to_pose
         - move_relative
