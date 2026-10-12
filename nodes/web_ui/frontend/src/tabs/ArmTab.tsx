@@ -1,5 +1,6 @@
 import Box from '@mui/material/Box'
 import { lazy, Suspense } from 'react'
+import ArmJogPanel from '../arm/ArmJogPanel'
 import { CameraStream } from '../components/CameraStream'
 import { useLayout } from '../layout/useLayout'
 import { TabConfig } from '../types'
@@ -28,7 +29,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   const streamMinHeight = layout === 'phone' ? 'clamp(10dvh, 28dvh, 40dvh)' : 0
 
   return (
-    <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', gap: 1, overflowY: layout === 'phone' ? 'auto' : 'hidden' }}>
+    <Box sx={{ width: '100%', height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', gap: 1, overflowY: layout === 'phone' ? 'auto' : 'hidden' }}>
       <Box
         data-testid="arm-layout"
         data-direction={direction}
@@ -46,7 +47,9 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
           </Suspense>
         </Box>
       </Box>
-      <Box data-testid="arm-jog-slot" sx={{ flex: '0 0 auto' }} />
+      <Box data-testid="arm-jog-slot" sx={{ flex: '0 0 auto' }}>
+        <ArmJogPanel tab={tab} topicData={topicData} />
+      </Box>
     </Box>
   )
 }

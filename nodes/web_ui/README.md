@@ -409,6 +409,18 @@ After code changes, run from repo root:
 ./scripts/deploy-nodes.sh client web_ui
 ```
 
+### Arm tab (`arm`)
+
+Layout: on tablet and desktop the gripper camera, the overview camera and the arm-glued 3D view (camera modes: side left/right, above, gripper) sit side by side with the jog panel docked below; on a phone everything stacks vertically and the jog panel is a bottom sheet (`OverlayPanel`).
+
+**Jog panel** (`frontend/src/arm/ArmJogPanel.tsx`, calls `arm/armApi.ts`, vitest `ArmJogPanel.test.tsx`):
+
+- **Active source** chip: the command source in `/filter/active_source` (`leader`, `web_ui`, `autonomy`, `none`; `unknown` before the first message). The web UI holds control while it reads `autonomy` (the mcp_server arm lease).
+- **Take control** (`POST /api/arm/take_control`) takes the lease; **Release** (`/api/arm/release`) hands the arm back to the leader and is disabled unless the lease is held. **Home** (`/api/arm/home`) needs two clicks (it reads **Confirm home** for 4 s); the home move releases the lease afterwards.
+- **Jog buttons** (each press is one small step via `POST /api/arm/jog`): tool up, down, forward, back, left, right; shoulder pan left/right; wrist pitch up/down; wrist roll left/right; gripper open/close. They are disabled unless the web UI holds control. Step sizes are capped by the mcp_server.
+- Refusals and errors from the backend (battery cut-off, `jog refused: ...`, timeouts, network failures) are shown under the buttons. All buttons are at least `TOUCH_TARGET_PX` (44 px).
+- While the Arm tab holds the lease, drags on the Map tab's interactive arm are ignored by filter_node (autonomy outranks web_ui); release first. The Map tab keeps its own Arm home / Set home buttons.
+
 ### Arm tab routes
 
 All take `tab=<arm tab id>` (404 for an unknown tab or one that is not an `arm` tab; `/api/arm/home` and `/api/arm/set_home` accept `map_nav` and `arm` tabs), are refused with 503 in battery cut-off, and answer 503 without the ROS bridge or when the service / mcp_server is not running. Replies are `{"ok", "message"}`.
