@@ -141,12 +141,21 @@ describe('OverlayPanel', () => {
     expect(screen.getByTestId('overlay-panel').style.background).toBe('rgb(22, 24, 29)') // PANEL_BG, normalised by jsdom
   })
 
-  it.each([400, 1400])('touch targets are at least TOUCH_TARGET_PX at %i px', (width) => {
+  it.each([400, 1400])('coarse pointer: close is at least TOUCH_TARGET_PX at %i px', (width) => {
     viewportWidth = width
+    coarsePointer = true
     renderWithTheme(<OverlayPanel title="T" open anchor="left" onClose={() => undefined}>b</OverlayPanel>)
     const close = screen.getByRole('button', { name: 'Close' })
     expect(parseFloat(close.style.minWidth)).toBeGreaterThanOrEqual(TOUCH_TARGET_PX)
     expect(parseFloat(close.style.minHeight)).toBeGreaterThanOrEqual(TOUCH_TARGET_PX)
+  })
+
+  it.each([400, 1400])('fine pointer: close does not stretch the header past panelHeaderPx at %i px', (width) => {
+    viewportWidth = width
+    renderWithTheme(<OverlayPanel title="T" open anchor="left" onClose={() => undefined}>b</OverlayPanel>)
+    const close = screen.getByRole('button', { name: 'Close' })
+    expect(parseFloat(close.style.minHeight || '0')).toBeLessThanOrEqual(TOKENS.panelHeaderPx)
+    expect(parseFloat(close.style.minWidth || '0')).toBeLessThanOrEqual(TOKENS.panelHeaderPx)
   })
 
   it('header is panelHeaderPx high on a fine pointer, TOUCH_TARGET_PX on a coarse one', () => {

@@ -52,4 +52,11 @@ describe('ConfirmDialog', () => {
     expect(onCancel).toHaveBeenCalledTimes(1)
     expect(onConfirm).not.toHaveBeenCalled()
   })
+
+  it('confirm is an outlined error button, not a second filled control', () => {
+    setup()
+    const confirm = screen.getByRole('button', { name: 'Delete' })
+    expect(confirm.className).toContain('MuiButton-outlinedError')
+    expect(confirm.className).not.toContain('MuiButton-contained')
+  })
 })
