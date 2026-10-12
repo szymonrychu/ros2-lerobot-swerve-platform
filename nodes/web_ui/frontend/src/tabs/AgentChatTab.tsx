@@ -24,9 +24,10 @@ import SendIcon from '@mui/icons-material/Send'
 import StopIcon from '@mui/icons-material/Stop'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import { postAgent } from '../agent/agentApi'
+import { PhasePanel } from '../agent/PhasePanel'
 import { PhaseProgress } from '../agent/PhaseProgress'
 import { composerBlockReason, headerStatus, phaseProgress, phaseRows, statusLabel } from '../agent/agentModel'
-import type { ChatItem, PhaseRow, PhaseStatus, RobotEventSeverity, ToolContent, ToolKind, UsageBar, UsageChip, UsageLevel } from '../agent/agentModel'
+import type { ChatItem, RobotEventSeverity, ToolContent, ToolKind, UsageChip, UsageLevel } from '../agent/agentModel'
 import { useAgentChat } from '../agent/useAgentChat'
 import { cutoffBanner } from '../battery/batteryStatus'
 import type { BatteryStatus } from '../battery/batteryStatus'
@@ -53,19 +54,11 @@ const KIND_COLORS: Record<ToolKind, 'info' | 'warning' | 'default' | 'secondary'
   plan: 'secondary',
 }
 const USAGE_COLORS: Record<UsageLevel, 'default' | 'warning' | 'error'> = { ok: 'default', warn: 'warning', full: 'error' }
-const PHASE_STATUS_COLORS: Record<PhaseStatus, 'default' | 'primary' | 'success' | 'error' | 'warning'> = {
-  pending: 'default',
-  active: 'primary',
-  done: 'success',
-  failed: 'error',
-  skipped: 'warning',
-}
-const BAR_COLORS: Record<UsageLevel, 'primary' | 'warning' | 'error'> = { ok: 'primary', warn: 'warning', full: 'error' }
 const EVENT_SEVERITY: Record<RobotEventSeverity, 'info' | 'warning' | 'error'> = { info: 'info', warning: 'warning', critical: 'error' }
 // Distance from the bottom (px) within which the transcript keeps following new messages.
 const STICK_THRESHOLD_PX = 48
-const RESULT_MAX_HEIGHT_PX = 220
-const THUMB_MAX_PX = 120
+const RESULT_MAX_HEIGHT = 'clamp(8rem, 30dvh, 14rem)'
+const THUMB_MAX_HEIGHT = 'clamp(5rem, 15dvh, 7.5rem)'
 
 function ImageThumb({ content, onOpen }: { content: Extract<ToolContent, { type: 'image' }>; onOpen: (src: string) => void }) {
   const src = `data:${content.media_type};base64,${content.data_b64}`
@@ -75,7 +68,7 @@ function ImageThumb({ content, onOpen }: { content: Extract<ToolContent, { type:
       src={src}
       alt="tool result"
       onClick={() => onOpen(src)}
-      sx={{ maxWidth: THUMB_MAX_PX * 1.6, maxHeight: THUMB_MAX_PX, borderRadius: 1, cursor: 'zoom-in', border: 1, borderColor: 'divider' }}
+      sx={{ maxWidth: `calc(${THUMB_MAX_HEIGHT} * 1.6)`, maxHeight: THUMB_MAX_HEIGHT, borderRadius: 1, cursor: 'zoom-in', border: 1, borderColor: 'divider' }}
     />
   )
 }
@@ -114,7 +107,7 @@ function ToolCard({ item, onOpenImage }: { item: ToolItem; onOpenImage: (src: st
           {!item.orphan && (
             <>
               <Typography variant="overline" color="text.secondary">Input</Typography>
-              <Box component="pre" sx={{ m: 0, p: 1, bgcolor: 'background.default', borderRadius: 1, fontFamily: MONO_FONT, fontSize: 12, overflow: 'auto', maxHeight: RESULT_MAX_HEIGHT_PX }}>
+              <Box component="pre" sx={{ m: 0, p: 1, bgcolor: 'background.default', borderRadius: 1, fontFamily: MONO_FONT, fontSize: 12, overflow: 'auto', maxHeight: RESULT_MAX_HEIGHT }}>
                 {JSON.stringify(item.input, null, 2)}
               </Box>
             </>
@@ -124,7 +117,7 @@ function ToolCard({ item, onOpenImage }: { item: ToolItem; onOpenImage: (src: st
               <Typography variant="overline" color="text.secondary">Output</Typography>
               <Box
                 component="pre"
-                sx={{ m: 0, p: 1, bgcolor: 'background.default', borderRadius: 1, fontFamily: MONO_FONT, fontSize: 12, overflow: 'auto', maxHeight: RESULT_MAX_HEIGHT_PX, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: result?.isError ? 'error.main' : 'text.primary' }}
+                sx={{ m: 0, p: 1, bgcolor: 'background.default', borderRadius: 1, fontFamily: MONO_FONT, fontSize: 12, overflow: 'auto', maxHeight: RESULT_MAX_HEIGHT, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: result?.isError ? 'error.main' : 'text.primary' }}
               >
                 {texts.map((t) => t.text).join('\n')}
               </Box>
@@ -140,54 +133,6 @@ function ToolCard({ item, onOpenImage }: { item: ToolItem; onOpenImage: (src: st
 function UsageChipView({ chip }: { chip: UsageChip }) {
   const color = USAGE_COLORS[chip.level]
   return <Chip size="small" variant={chip.level === 'ok' ? 'outlined' : 'filled'} color={color} label={chip.label} data-testid={`usage-${chip.key}`} />
-}
-
-function UsageBarView({ bar }: { bar: UsageBar }) {
-  return (
-    <Box sx={{ minWidth: 88, flex: 1 }} data-testid={`phase-bar-${bar.key}`} data-level={bar.level}>
-      <Typography variant="caption" color={bar.level === 'ok' ? 'text.secondary' : `${BAR_COLORS[bar.level]}.main`}>{bar.label}</Typography>
-      <LinearProgress variant="determinate" value={bar.fraction * 100} color={BAR_COLORS[bar.level]} sx={{ height: 5, borderRadius: 1 }} />
-    </Box>
-  )
-}
-
-function PhaseRowView({ row }: { row: PhaseRow }) {
-  return (
-    <Box
-      data-testid={`phase-row-${row.number}`}
-      data-status={row.status}
-      sx={{
-        px: 1, py: 0.5, borderRadius: 1, border: 1, borderColor: row.active ? 'primary.main' : 'divider',
-        bgcolor: row.active ? 'action.selected' : 'transparent', opacity: row.status === 'pending' ? 0.7 : 1,
-      }}
-    >
-      <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
-        <Chip size="small" color={PHASE_STATUS_COLORS[row.status]} variant={row.active ? 'filled' : 'outlined'} label={row.status} />
-        <Typography variant="body2" sx={{ fontWeight: row.active ? 700 : 500 }}>{row.number}. {row.name}</Typography>
-        {row.raised && <Chip size="small" variant="outlined" label="raised" />}
-        <PhaseProgress attemptLabel={row.attemptLabel} iterationLabel={row.iterationLabel} pRetrySuccess={row.pRetrySuccess} />
-        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{row.goal}</Typography>
-      </Stack>
-      {row.status !== 'pending' && (
-        <Stack direction="row" gap={1.5} alignItems="center" sx={{ mt: 0.5 }}>
-          <Typography variant="caption" color="text.secondary">sensors {row.sensorCalls}</Typography>
-          {row.bars.map((bar) => <UsageBarView key={bar.key} bar={bar} />)}
-        </Stack>
-      )}
-      {row.summary && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{row.summary}</Typography>}
-    </Box>
-  )
-}
-
-function PhasePanel({ rows }: { rows: PhaseRow[] }) {
-  if (rows.length === 0) return null
-  return (
-    <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: 'divider', maxHeight: 220, overflowY: 'auto' }} data-testid="phase-panel">
-      <Stack gap={0.5}>
-        {rows.map((row) => <PhaseRowView key={row.number} row={row} />)}
-      </Stack>
-    </Box>
-  )
 }
 
 function PlanCard({ item }: { item: PlanItem }) {
@@ -398,20 +343,18 @@ export default function AgentChatTab({ battery }: Props) {
         <Chip size="small" label={header.model ?? 'model unknown'} variant="outlined" />
         <Chip size="small" color={header.busy ? 'warning' : connected ? 'success' : 'default'} label={header.busy ? 'working' : connected ? 'idle' : 'disconnected'} />
         {header.complexity !== null && <Chip size="small" color="secondary" label={header.complexity.replace('_', ' ')} />}
-        {header.phase !== null && <Chip size="small" color="primary" label={`phase ${header.phase.number}/${header.phase.total}: ${header.phase.name}`} data-testid="active-phase" />}
-        {header.phase !== null && <PhaseProgress attemptLabel={header.phase.attemptLabel} iterationLabel={header.phase.iterationLabel} pRetrySuccess={null} />}
+        <PhasePanel rows={rows} header={header.phase} />
         {header.chips.map((chip) => (
           <UsageChipView key={chip.key} chip={chip} />
         ))}
         <Box sx={{ flex: 1 }} />
-        <Button size="small" startIcon={<StopIcon />} color="error" variant="outlined" disabled={!chat.busy} onClick={() => void stop()} sx={{ minHeight: 36 }}>
+        <Button size="small" startIcon={<StopIcon />} color="error" variant="outlined" disabled={!chat.busy} onClick={() => void stop()} sx={{ minHeight: TOUCH_TARGET_PX }}>
           Stop
         </Button>
-        <Button size="small" startIcon={<RestartAltIcon />} variant="outlined" disabled={resetBlocked} onClick={() => setConfirmReset(true)} sx={{ minHeight: 36 }}>
+        <Button size="small" startIcon={<RestartAltIcon />} variant="outlined" disabled={resetBlocked} onClick={() => setConfirmReset(true)} sx={{ minHeight: TOUCH_TARGET_PX }}>
           New session
         </Button>
       </Box>
-      <PhasePanel rows={rows} />
       {chat.busy && <LinearProgress />}
 
       <Box sx={{ flex: 1, minHeight: 0, position: 'relative' }}>
