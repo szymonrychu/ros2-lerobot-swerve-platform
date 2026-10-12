@@ -1,8 +1,8 @@
 /**
  * Grasp panel of the map tab (presentational): where the grasp result is shown. The object position comes from a map
- * click after choosing a strategy in the toolbar Grasp dropdown; the panel holds the pick hint, the collapsed object size
- * and advanced settings, Plan again / Execute / Release / Stop, the execute confirmation and the feasibility /
- * outcome readout. State lives in useGrasp.
+ * click after choosing a strategy in the toolbar Grasp dropdown; the panel holds the collapsed object size
+ * and advanced settings, Plan again / Execute / Release, the execute confirmation and the feasibility /
+ * outcome rows. State lives in useGrasp.
  */
 import { useState } from 'react'
 import Alert from '@mui/material/Alert'
@@ -10,6 +10,7 @@ import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Collapse from '@mui/material/Collapse'
 import Stack from '@mui/material/Stack'
+import Tooltip from '@mui/material/Tooltip'
 import TextField from '@mui/material/TextField'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
@@ -17,6 +18,9 @@ import Typography from '@mui/material/Typography'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { ADVANCED_PARAMS, describeHold, describeOutcome, GraspAnswer, GRIP_PROFILES, isGripProfile, summarizePlan } from './grasp'
+import type { Severity } from './grasp'
+import { StatusItem } from '../components/StatusItem'
+import type { StatusState } from '../components/StatusItem'
 import type { GraspPanelState } from './useGrasp'
 import { OverlayPanel } from '../layout/OverlayPanel'
 import { useLayout } from '../layout/useLayout'
@@ -57,60 +61,47 @@ function Field({
   )
 }
 
+/** One result line: wraps long text instead of running off the panel. */
+const ROW_SX = { '& > *': { whiteSpace: 'normal', flexShrink: 1 } } as const
+
+function Row({ label, value, state }: { label: string; value: string; state?: StatusState }) {
+  return (
+    <Box sx={ROW_SX}>
+      <StatusItem label={label} value={value} state={state} />
+    </Box>
+  )
+}
+
+const OUTCOME_STATE: Record<Severity, StatusState> = { success: 'ok', warning: 'warn', error: 'error' }
+
 function Result({ answer, title }: { answer: GraspAnswer; title: string }) {
-  if (!answer.ok) return <Alert severity="error">{`${title}: ${answer.error ?? 'failed'}`}</Alert>
+  if (!answer.ok) return <Row label={title} value={answer.error ?? 'failed'} state="error" />
   if (!answer.outcome) return null
   const { text, severity } = describeOutcome(answer.outcome)
   const plan = answer.plan
   const hold = describeHold(answer)
+  const reasons = [...answer.reasons, ...(plan?.reasons ?? []).filter((r) => !answer.reasons.includes(r))]
   return (
-    <Alert severity={severity} sx={{ '& .MuiAlert-message': { width: '100%' } }}>
-      <Typography variant="body2" sx={{ fontWeight: 700 }}>
-        {text}
-      </Typography>
+    <Stack spacing={0.5} data-testid="grasp-result">
+      <Row label="Result" value={text} state={OUTCOME_STATE[severity]} />
       {plan && plan.strategy && (
-        <Typography variant="body2">
-          Strategy: {plan.strategy}
-          {plan.approachPitchDeg !== undefined ? `, pitch ${Math.round(plan.approachPitchDeg)} deg` : ''}
-        </Typography>
+        <Row label="Strategy" value={`${plan.strategy}${plan.approachPitchDeg !== undefined ? `, pitch ${Math.round(plan.approachPitchDeg)} deg` : ''}`} />
       )}
-      {[...answer.reasons, ...(plan?.reasons ?? []).filter((r) => !answer.reasons.includes(r))].map((r) => (
-        <Typography key={r} variant="body2">
-          {`- ${r}`}
-        </Typography>
+      {reasons.map((r) => (
+        <Row key={r} label="Reason" value={r} />
       ))}
-      {plan && plan.attempts.length > 1 && (
-        <Box sx={{ mt: 0.5 }}>
-          <Typography variant="caption" color="text.secondary">
-            Auto attempts
-          </Typography>
-          {plan.attempts.map((a, i) => (
-            <Typography key={i} variant="caption" sx={{ display: 'block' }}>
-              {`${a.strategy ?? '?'}: ${a.feasible ? 'feasible' : 'infeasible'}${a.reasons.length ? ` (${a.reasons.join('; ')})` : ''}`}
-            </Typography>
-          ))}
-        </Box>
-      )}
-      {answer.steps.length > 0 && (
-        <Box sx={{ mt: 0.5 }}>
-          {answer.steps.map((s, i) => (
-            <Typography key={i} variant="caption" sx={{ display: 'block', fontFamily: MONO_FONT }}>
-              {`${s.label}: ${s.status}${s.message ? ` - ${s.message}` : ''}`}
-            </Typography>
-          ))}
-        </Box>
-      )}
-      {hold && (
-        <Typography variant="body2" color={answer.slipping || answer.crushRisk ? 'warning.main' : undefined}>
-          {hold}
-        </Typography>
-      )}
+      {plan && plan.attempts.length > 1 &&
+        plan.attempts.map((a, i) => (
+          <Row key={i} label="Attempt" value={`${a.strategy ?? '?'}: ${a.feasible ? 'feasible' : 'infeasible'}${a.reasons.length ? ` (${a.reasons.join('; ')})` : ''}`} />
+        ))}
+      {answer.steps.map((s, i) => (
+        <Row key={i} label="Step" value={`${s.label}: ${s.status}${s.message ? ` - ${s.message}` : ''}`} />
+      ))}
+      {hold && <Row label="Hold" value={hold} state={answer.slipping || answer.crushRisk ? 'warn' : undefined} />}
       {(answer.gripperPositionRad !== undefined || answer.gripperEffort !== undefined) && (
-        <Typography variant="caption" sx={{ display: 'block', fontFamily: MONO_FONT }}>
-          {`gripper ${answer.gripperPositionRad?.toFixed(2) ?? '?'} rad, load ${answer.gripperEffort?.toFixed(0) ?? '?'}`}
-        </Typography>
+        <Row label="Gripper" value={`${answer.gripperPositionRad?.toFixed(2) ?? '?'} rad, load ${answer.gripperEffort?.toFixed(0) ?? '?'}`} />
       )}
-    </Alert>
+    </Stack>
   )
 }
 
@@ -128,27 +119,19 @@ export function GraspPanel({ state, onClose }: Props) {
 
   return (
     <OverlayPanel title="Grasp" open anchor="bottom" onClose={onClose}>
-      <Stack spacing={1.25} aria-label="Grasp panel" sx={{ maxHeight: { xs: '62dvh', sm: '70dvh' } }}>
-
-        {!state.pickMode && (
-          <Typography variant="caption" color="text.secondary">
-            {state.hasTarget
-              ? `Object at x ${form.x} m, y ${form.y} m (base_link), standing on the floor. Choose a strategy in the Grasp menu to pick again.`
-              : 'Choose Auto, Scoop, Angled or Top down in the Grasp menu, then click the object on the map.'}
-          </Typography>
-        )}
-
-        <Stack spacing={1.25} sx={{ display: compactForPick ? 'none' : 'flex' }}>
-        <Button
-          size="small"
-          color="inherit"
-          onClick={() => setObjectOpen((o) => !o)}
-          endIcon={objectOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-          aria-expanded={objectOpen}
-          sx={{ justifyContent: 'space-between' }}
-        >
-          Object
-        </Button>
+      <Stack spacing={1} aria-label="Grasp panel" sx={{ maxHeight: { xs: '62dvh', sm: '70dvh' } }}>
+        <Stack spacing={1} sx={{ display: compactForPick ? 'none' : 'flex' }}>
+        <Tooltip title="Width is across the jaws, depth along the approach, gap below is the clear height under the object (Scoop needs room under it). Saved in this browser.">
+          <Button
+            color="inherit"
+            onClick={() => setObjectOpen((o) => !o)}
+            endIcon={objectOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+            aria-expanded={objectOpen}
+            sx={{ justifyContent: 'space-between' }}
+          >
+            Object
+          </Button>
+        </Tooltip>
         <Collapse in={objectOpen}>
           <Stack spacing={1}>
             <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: 'wrap' }}>
@@ -160,22 +143,15 @@ export function GraspPanel({ state, onClose }: Props) {
               )}
               <Field label="Yaw" unit="deg" placeholder="across" value={form.yaw} onChange={(yaw) => setForm({ yaw })} />
             </Stack>
-            <Typography variant="caption" color="text.secondary">
-              Width is across the jaws, depth along the approach. Saved in this browser. Gap below is the clear height
-              under the object (Scoop needs room under it).
-            </Typography>
           </Stack>
         </Collapse>
 
         <Stack spacing={0.5}>
-          <Typography variant="caption" color="text.secondary" id="grip-strength-label">
-            Grip strength
-          </Typography>
+          <StatusItem label="Grip strength" value={GRIP_PROFILES.find((g) => g.value === form.gripProfile)?.label ?? ''} />
           <ToggleButtonGroup
             exclusive
             fullWidth
-            size="small"
-            aria-labelledby="grip-strength-label"
+            aria-label="Grip strength"
             value={form.gripProfile}
             onChange={(_e, value: unknown) => {
               if (isGripProfile(value)) setForm({ gripProfile: value })
@@ -190,7 +166,6 @@ export function GraspPanel({ state, onClose }: Props) {
         </Stack>
 
         <Button
-          size="small"
           color="inherit"
           onClick={() => setAdvanced((a) => !a)}
           endIcon={advanced ? <ExpandLessIcon /> : <ExpandMoreIcon />}
@@ -201,9 +176,6 @@ export function GraspPanel({ state, onClose }: Props) {
         </Button>
         <Collapse in={advanced}>
           <Stack spacing={1}>
-            <Typography variant="caption" color="text.secondary">
-              Blank = the server default (shown in grey).
-            </Typography>
             <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: 'wrap' }}>
               {form.strategy === 'angled' && (
                 <Field label="Pitch" unit="deg" placeholder="45" value={form.pitchDeg} onChange={(pitchDeg) => setForm({ pitchDeg })} />
@@ -240,7 +212,7 @@ export function GraspPanel({ state, onClose }: Props) {
         <Stack direction="row" useFlexGap sx={{ gap: 1, flexWrap: 'wrap' }}>
           {state.hasTarget && (
             <Button variant="outlined" disabled={actionBusy} onClick={state.requestPlan} sx={{ flex: '1 1 5.6rem' }}>
-              {state.planning ? 'Planning...' : 'Plan again'}
+              Plan again
             </Button>
           )}
           {feasiblePlan && (
@@ -249,7 +221,6 @@ export function GraspPanel({ state, onClose }: Props) {
               color="warning"
               disabled={!state.canExecute}
               onClick={state.requestExecute}
-              title="Needs a feasible plan for exactly these inputs"
               sx={{ flex: '1 1 5.6rem' }}
             >
               Execute
@@ -260,21 +231,20 @@ export function GraspPanel({ state, onClose }: Props) {
             color={state.releaseArmed ? 'warning' : 'primary'}
             disabled={actionBusy}
             onClick={state.release}
-            title="Open the gripper and lift. Click twice to confirm."
             sx={{ flex: '1 1 5.6rem' }}
           >
             {state.releaseArmed ? 'Confirm release' : 'Release'}
           </Button>
         </Stack>
         {state.plan && !state.planFresh && (
-          <Typography variant="caption" color="warning.main">
+          <Typography variant="caption" color="warning.main" data-testid="grasp-caption">
             Settings changed since the last plan: plan again to get Execute.
           </Typography>
         )}
 
         {state.confirming && state.plan?.outcome.plan && (
           <Alert severity="warning" icon={false} sx={{ '& .MuiAlert-message': { width: '100%' } }}>
-            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            <Typography variant="body2" sx={{ fontWeight: 500 }}>
               The arm will move. Confirm execute?
             </Typography>
             {summarizePlan(state.plan.outcome.plan).map((l) => (
@@ -293,10 +263,9 @@ export function GraspPanel({ state, onClose }: Props) {
           </Alert>
         )}
 
-        {state.stream?.state === 'running' && (
-          <Alert severity="info">{`Running ${state.stream.action ?? 'grasp'}... use the toolbar stop to abort.`}</Alert>
+        {(state.planning || state.stream?.state === 'running') && (
+          <Row label="Status" value={state.planning ? 'Planning' : `Running ${state.stream?.action ?? 'grasp'}`} />
         )}
-        {state.planning && <Alert severity="info">Planning...</Alert>}
         {run && <Result answer={run} title={state.stream?.action ?? 'Grasp'} />}
         {planAnswer && !state.planning && <Result answer={planAnswer} title="Plan" />}
         {!planAnswer && state.lastAnswer && !state.lastAnswer.ok && <Result answer={state.lastAnswer} title="Grasp" />}

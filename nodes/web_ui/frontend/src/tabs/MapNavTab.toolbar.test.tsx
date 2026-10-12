@@ -160,6 +160,7 @@ describe('map toolbar controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel grasp pick' }))
     expect(screen.getByTestId('map-status-line').textContent).not.toContain('Click the object on the map')
     expect(screen.getByTestId('map-status-line').textContent).toContain('Robot')
+    expect(screen.getByTestId('map-status-line').textContent).toContain('Choose a strategy in the Grasp menu')
   })
 
   it('map reset asks in a ConfirmDialog and posts only after confirming', async () => {

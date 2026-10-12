@@ -498,6 +498,7 @@ export default function MapNavTab({
   if (poi.mode === 'add_point') hintItems.push('Click the map to place a point of interest')
   if (poi.mode === 'add_area') hintItems.push(`Area: ${poi.draft.length} vertices, double-click or Enter finishes`)
   if (graspPicking) hintItems.push('Click the object on the map')
+  else if (graspOpen && !grasp.hasTarget) hintItems.push('Choose a strategy in the Grasp menu, then click the object')
 
   const poseItem = (
     <StatusItem
