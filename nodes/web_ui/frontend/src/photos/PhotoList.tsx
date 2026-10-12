@@ -151,14 +151,21 @@ export function PhotoList({ tabId, revision, selectedPoiId, selectedPoiName, onS
   const title = selectedPoiName === null ? `Camera photos (${total})` : `Photos of ${selectedPoiName} (${total})`
 
   return (
-    <OverlayPanel title={title} open anchor="left" docked>
+    <OverlayPanel
+      title={title}
+      open
+      anchor="left"
+      docked
+      actions={
+        <Button variant="outlined" color="error" disabled={busy || checked.size === 0} onClick={deleteSelected}>
+          Delete selected
+        </Button>
+      }
+    >
       <Box data-testid="photo-list-panel">
-        <Box sx={{ pb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Button variant="outlined" color="error" disabled={busy || checked.size === 0} onClick={deleteSelected}>
-            Delete selected
-          </Button>
-          {checked.size > 0 && <Typography variant="caption">{`${checked.size} selected`}</Typography>}
-        </Box>
+        {checked.size > 0 && (
+          <Typography variant="caption" sx={{ display: 'block', pb: 0.5 }}>{`${checked.size} selected`}</Typography>
+        )}
         <List dense disablePadding sx={{ maxHeight: LIST_MAX_HEIGHT, overflowY: 'auto' }}>
           {error !== null && (
             <Typography variant="body2" color="error" sx={{ px: 1, pb: 1 }} role="alert">

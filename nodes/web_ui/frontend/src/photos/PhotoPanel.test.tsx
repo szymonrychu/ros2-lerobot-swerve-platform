@@ -158,6 +158,12 @@ describe('PhotoPanel', () => {
     expect(document.querySelector('.MuiButton-sizeSmall')).toBeNull()
   })
 
+  it('puts Delete in the header actions slot', () => {
+    render(ui(makeFetch()))
+    const header = screen.getByTestId('overlay-panel-header')
+    expect(within(header).getByRole('button', { name: 'Delete' })).toBeTruthy()
+  })
+
   it('passes the design rules', () => {
     expect(designViolations('photos/PhotoPanel.tsx', SOURCES['photos/PhotoPanel.tsx'])).toEqual([])
   })

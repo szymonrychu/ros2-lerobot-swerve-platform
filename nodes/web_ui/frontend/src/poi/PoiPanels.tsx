@@ -87,8 +87,8 @@ export function PoiListPanel({
       anchor="left"
       docked
       actions={
-        <IconButton aria-label="Collapse POI list" aria-expanded size="small" onClick={onToggle}>
-          <ExpandLessIcon fontSize="small" />
+        <IconButton aria-label="Collapse POI list" aria-expanded onClick={onToggle}>
+          <ExpandLessIcon />
         </IconButton>
       }
     >

@@ -163,6 +163,13 @@ describe('PhotoList', () => {
     expect(designViolations('photos/PhotoList.tsx', SOURCES['photos/PhotoList.tsx'])).toEqual([])
   })
 
+  it('puts Delete selected in the header actions slot', async () => {
+    render(ui(makeFetch()))
+    await screen.findAllByTestId('photo-row')
+    const header = screen.getByTestId('overlay-panel-header')
+    expect(within(header).getByRole('button', { name: 'Delete selected' })).toBeTruthy()
+  })
+
   it('refetches when the /poi/photos revision changes', async () => {
     const f = makeFetch()
     const { rerender } = render(ui(f))

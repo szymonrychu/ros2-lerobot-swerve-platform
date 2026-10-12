@@ -69,7 +69,18 @@ export function PhotoPanel({ tabId, photo, pois, onClose, onDeleted, fetchImpl =
   }
 
   return (
-    <OverlayPanel title="Photo" open anchor="left" docked onClose={onClose}>
+    <OverlayPanel
+      title="Photo"
+      open
+      anchor="left"
+      docked
+      onClose={onClose}
+      actions={
+        <Button variant="outlined" color="error" disabled={busy} onClick={() => setConfirming(true)}>
+          Delete
+        </Button>
+      }
+    >
     <Box data-testid="photo-panel">
       <Link href={photoImageUrl(photo.id)} target="_blank" rel="noreferrer">
         <Box component="img" src={photoThumbUrl(photo.id, PANEL_IMAGE_PX)} alt={`${photo.camera} photo ${capturedAt(photo.ts)}`} sx={{ width: '100%', maxWidth: '100%', height: 'auto', display: 'block', borderRadius: 0.5 }} />
@@ -104,9 +115,6 @@ export function PhotoPanel({ tabId, photo, pois, onClose, onDeleted, fetchImpl =
       <Box sx={{ display: 'flex', gap: 1, mt: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         <Button variant="contained" disabled={busy} onClick={save}>
           Save
-        </Button>
-        <Button variant="outlined" color="error" disabled={busy} onClick={() => setConfirming(true)}>
-          Delete
         </Button>
       </Box>
       <ConfirmDialog

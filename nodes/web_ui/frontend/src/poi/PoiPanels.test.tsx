@@ -145,6 +145,11 @@ describe('POI panels declutter', () => {
     expect(document.querySelector('.MuiButton-sizeSmall')).toBeNull()
   })
 
+  it('collapse icon button is the default size', () => {
+    renderWithTheme(<PoiListPanel pois={[POI]} selectedId={null} open onToggle={vi.fn()} onFocus={vi.fn()} />)
+    expect(document.querySelector('.MuiIconButton-sizeSmall')).toBeNull()
+  })
+
   it('passes the design rules', () => {
     expect(designViolations('poi/PoiPanels.tsx', SOURCES['poi/PoiPanels.tsx'])).toEqual([])
   })
