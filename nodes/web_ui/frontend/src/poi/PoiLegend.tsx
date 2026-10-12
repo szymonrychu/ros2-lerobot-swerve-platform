@@ -55,7 +55,7 @@ function Row({ entry }: { entry: LegendEntry }) {
 /** Key of the map markers: kind shapes and greyscale fills (point, object, photo) and area zones (none, slow, keepout). */
 export function PoiLegend() {
   return (
-    <Box sx={{ ml: 4, mb: 0.5 }} aria-label="Marker legend">
+    <Box sx={{ mb: 1 }} aria-label="Marker legend">
       {[...KIND_ENTRIES, ...ZONE_ENTRIES].map((e) => (
         <Row key={e.id} entry={e} />
       ))}

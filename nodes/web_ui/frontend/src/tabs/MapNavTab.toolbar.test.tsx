@@ -158,7 +158,8 @@ describe('map toolbar controls', () => {
     expect(screen.getByTestId('map-status-line').textContent).toContain('Click the object on the map')
     expect(within(screen.getByTestId('map-container')).queryByRole('alert')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Cancel grasp pick' }))
-    expect(screen.queryByTestId('map-status-line')).toBeNull()
+    expect(screen.getByTestId('map-status-line').textContent).not.toContain('Click the object on the map')
+    expect(screen.getByTestId('map-status-line').textContent).toContain('Robot')
   })
 
   it('map reset asks in a ConfirmDialog and posts only after confirming', async () => {

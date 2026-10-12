@@ -9,6 +9,8 @@ interface ToolButtonProps {
   label: string
   icon: ReactNode
   onClick: (event: MouseEvent<HTMLElement>) => void
+  /** Richer tooltip content when the accessible name alone is not enough (e.g. a help text); defaults to label. */
+  tooltip?: ReactNode
   /** Toggle state; leave undefined for a plain action so no aria-pressed is set. */
   pressed?: boolean
   disabled?: boolean
@@ -22,9 +24,9 @@ interface ToolButtonProps {
  * @param props - label (tooltip and aria-label), icon, onClick, optional pressed, disabled and expanded
  * @returns the button
  */
-export function ToolButton({ label, icon, onClick, pressed, disabled = false, expanded }: ToolButtonProps) {
+export function ToolButton({ label, icon, onClick, tooltip, pressed, disabled = false, expanded }: ToolButtonProps) {
   return (
-    <Tooltip title={label}>
+    <Tooltip title={tooltip ?? label}>
       <span>
         <IconButton
           aria-label={label}

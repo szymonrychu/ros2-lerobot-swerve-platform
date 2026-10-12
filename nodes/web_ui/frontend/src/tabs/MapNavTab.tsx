@@ -8,17 +8,12 @@ import type { ReactNode } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Checkbox from '@mui/material/Checkbox'
 import CircularProgress from '@mui/material/CircularProgress'
-import Divider from '@mui/material/Divider'
-import FormControlLabel from '@mui/material/FormControlLabel'
 import Menu from '@mui/material/Menu'
 import MenuItem from '@mui/material/MenuItem'
 import Paper from '@mui/material/Paper'
 import Snackbar from '@mui/material/Snackbar'
 import Stack from '@mui/material/Stack'
-import ToggleButton from '@mui/material/ToggleButton'
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import PlaceIcon from '@mui/icons-material/Place'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
@@ -46,11 +41,12 @@ import { BaseGpsPayload, GPS_BASE_STATUS_KEY, isBaseSample } from '../gps/gpsSta
 import { anchorSummary, validAnchor } from '../map3d/geo'
 import { goalButtonState } from '../map/goalControl'
 import { anyInRow, splitToolbar, stopGroupIds, TOOLBAR_GROUPS } from '../map/toolbarGroups'
+import { StatusItem } from '../components/StatusItem'
+import { LayersPanel } from '../map/LayersPanel'
 import { MapStatusLine } from '../map/MapStatusLine'
 import { ToolButton, ToolGroup } from '../components/ToolButton'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { MapSidebar } from '../layout/MapSidebar'
-import { OverlayPanel } from '../layout/OverlayPanel'
 import { useLayout } from '../layout/useLayout'
 import { tiltStatus } from '../tilt/tiltStatus'
 import type { TiltStatus } from '../tilt/tiltStatus'
@@ -61,22 +57,20 @@ import {
   readStoredTileSource,
   writeStoredTileSource,
 } from '../map3d/tileSources'
-import { LAYER_SWATCH, MAP_LEGEND } from '../map3d/palette'
-import { LAYER_LABELS, LayerKey, LayerState, readLayerState, writeLayerState } from '../map3d/layers'
+import { LayerKey, LayerState, readLayerState, writeLayerState } from '../map3d/layers'
 import type { SceneController } from '../map3d/MapScene'
 import type { GridImageMsg, PathMsg } from '../map3d/sceneLayers'
 import { browserStorage } from '../tabSelection'
-import { CANVAS_BG, MONO_FONT } from '../theme'
+import { CANVAS_BG } from '../theme'
 import { TabConfig } from '../types'
 import { PhotoList } from '../photos/PhotoList'
 import { PhotoPanel } from '../photos/PhotoPanel'
 import type { Photo } from '../photos/api'
-import { ageCutoff, LAYER_MAX_PHOTOS, PHOTO_AGE_LABELS, PHOTO_AGES, type PhotoAge } from '../photos/geometry'
+import { ageCutoff, type PhotoAge } from '../photos/geometry'
 import type { PendingFocus } from '../poi/poiItems'
 import type { PhotoLayerData } from '../photos/usePhotoLayer'
 import { consumeFocus, whenController } from '../map3d/mapFocus'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
-import { PoiLegend } from '../poi/PoiLegend'
 import { canFinishArea, isClick } from '../poi/editor'
 import { DEFAULT_ARM_OFFSET, GraspStrategy } from '../grasp/grasp'
 import { GRASP_MENU } from '../grasp/pick'
@@ -93,13 +87,6 @@ const STOP_SX = { px: 3, flexShrink: 0, fontWeight: 500, letterSpacing: 0 }
 const TOUCH_TARGET = '2.75rem' // 44 px minimum touch target
 const ROBOT_FIT_SPAN_M = 4 // view size around the robot when there is no map to fit
 const SNACKBAR_MS: Record<ActionResult['state'], number | null> = { idle: null, busy: null, ok: 4000, error: 10000 }
-
-const LAYER_GROUPS: { title: string; keys: LayerKey[] }[] = [
-  { title: 'Maps', keys: ['slamMap', 'localCostmap', 'gpsMap', 'rtkBase'] },
-  { title: 'Navigation', keys: ['globalPlan', 'localPlan', 'goal', 'footprint'] },
-  { title: 'Robot model', keys: ['robotBase', 'robotWheels', 'robotArm'] },
-  { title: 'Points of interest', keys: ['pois', 'photos'] },
-]
 
 interface Props {
   tab: TabConfig
@@ -125,15 +112,6 @@ interface JointStates {
 
 function inFrame<T extends { frame_id?: string }>(data: T | null | undefined, mapFrame: string): data is T {
   return Boolean(data) && (!data!.frame_id || data!.frame_id === mapFrame)
-}
-
-function Swatch({ color }: { color: string }) {
-  return (
-    <Box
-      component="span"
-      sx={{ width: '0.875rem', height: '0.875rem', bgcolor: color, border: 1, borderColor: 'grey.600', flexShrink: 0, display: 'inline-block' }}
-    />
-  )
 }
 
 function Centered({ children }: { children: ReactNode }) {
@@ -521,6 +499,16 @@ export default function MapNavTab({
   if (poi.mode === 'add_area') hintItems.push(`Area: ${poi.draft.length} vertices, double-click or Enter finishes`)
   if (graspPicking) hintItems.push('Click the object on the map')
 
+  const poseItem = (
+    <StatusItem
+      key="pose"
+      label="Robot"
+      value={robotPose ? `${robotPose.x.toFixed(2)}, ${robotPose.y.toFixed(2)}` : `no ${mapFrame} pose`}
+      tooltip={robotPose ? undefined : 'No pose in the map frame: the robot is drawn at the origin'}
+    />
+  )
+  const statusItems = [...hintItems, poseItem]
+
   // POI list, POI editor, photo panel and photo list. Phone: a column spanning the map, so the panels' bottom
   // sheets anchor to its bottom edge (hidden while the layers or grasp sheet is up). Wide: sections of the sidebar.
   const poiPanels = hasPoi && (
@@ -590,130 +578,30 @@ export default function MapNavTab({
         </Box>
       )}
       {!narrow && poiPanels}
-      <OverlayPanel title="Layers" open={showPanel} anchor="right" onClose={() => setPanelOpen(false)}>
-        <Box>
-          {LAYER_GROUPS.map((g) => (
-            <Box key={g.title} sx={{ mb: 0.5 }}>
-              <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 2 }}>
-                {g.title}
-              </Typography>
-              {g.keys.map((k) => {
-                const disabled = (k === 'gpsMap' && !gpsAvailable) || (k === 'rtkBase' && basePosition === null)
-                return (
-                  <Box key={k}>
-                    <FormControlLabel
-                      sx={{ display: 'flex', mr: 0, minHeight: '2.5rem' }}
-                      disabled={disabled}
-                      control={<Checkbox size="small" checked={layers[k] && !disabled} onChange={() => toggleLayer(k)} />}
-                      label={
-                        <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {LAYER_SWATCH[k] && <Swatch color={LAYER_SWATCH[k]!} />}
-                          <Typography variant="body2" component="span">
-                            {LAYER_LABELS[k]}
-                          </Typography>
-                        </Box>
-                      }
-                    />
-                    {disabled && k === 'rtkBase' && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                        Needs the GPS anchor and a fresh base station position.
-                      </Typography>
-                    )}
-                    {disabled && k === 'gpsMap' && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                        Needs a GPS fix and compass heading (or drive ~5 m to fit): waiting for {GPS_ANCHOR_TOPIC}.
-                      </Typography>
-                    )}
-                    {k === 'gpsMap' && tileSources.length > 1 && tileSource && (
-                      <ToggleButtonGroup
-                        exclusive
-                        size="small"
-                        value={tileSource.id}
-                        onChange={(_, id: string | null) => {
-                          if (id === null) return
-                          setStoredTileSource(id)
-                          writeStoredTileSource(browserStorage(), id)
-                        }}
-                        aria-label="Map tile source"
-                        sx={{ ml: 4, mb: 0.5 }}
-                      >
-                        {tileSources.map((src) => (
-                          <ToggleButton key={src.id} value={src.id} sx={{ py: 0, px: 1, textTransform: 'none' }}>
-                            {src.label}
-                          </ToggleButton>
-                        ))}
-                      </ToggleButtonGroup>
-                    )}
-                    {k === 'gpsMap' && layers.gpsMap && tileCaption && (
-                      <Typography variant="caption" color="warning.main" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                        {tileCaption}
-                      </Typography>
-                    )}
-                    {k === 'gpsMap' && anchor && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                        Anchor: {anchorSummary(anchor)}
-                      </Typography>
-                    )}
-                    {k === 'photos' && layers.photos && (
-                      <Box sx={{ ml: 4, mb: 0.5 }}>
-                        <ToggleButtonGroup
-                          exclusive
-                          size="small"
-                          value={photoAge}
-                          onChange={(_, v: PhotoAge | null) => v !== null && setPhotoAge(v)}
-                          aria-label="Photo age filter"
-                        >
-                          {PHOTO_AGES.map((a) => (
-                            <ToggleButton key={a} value={a} sx={{ py: 0, px: 1, textTransform: 'none' }}>
-                              {PHOTO_AGE_LABELS[a]}
-                            </ToggleButton>
-                          ))}
-                        </ToggleButtonGroup>
-                        <Typography variant="caption" color={layerPhotos.error ? 'error' : 'text.secondary'} sx={{ display: 'block' }}>
-                          {layerPhotos.error
-                            ? `Could not load photos: ${layerPhotos.error}`
-                            : `showing ${layerPhotos.photos.length} of ${layerPhotos.total}${layerPhotos.total > LAYER_MAX_PHOTOS ? ` (newest ${LAYER_MAX_PHOTOS} max)` : ''}`}
-                        </Typography>
-                      </Box>
-                    )}
-                    {k === 'localCostmap' && !tab.local_costmap_topic && (
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 4, mt: -0.5 }}>
-                        No costmap topic configured.
-                      </Typography>
-                    )}
-                  </Box>
-                )
-              })}
-              {g.title === 'Points of interest' && <PoiLegend />}
-            </Box>
-          ))}
-          <Divider sx={{ my: 1 }} />
-          <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 2 }}>
-            Legend
-          </Typography>
-          {MAP_LEGEND.map(([label, color]) => (
-            <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 1, lineHeight: '1.375rem' }}>
-              <Swatch color={color} />
-              <Typography variant="body2">{label}</Typography>
-            </Box>
-          ))}
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontFamily: MONO_FONT }}>
-            {robotPose ? `Robot ${robotPose.x.toFixed(2)}, ${robotPose.y.toFixed(2)}` : `No ${mapFrame} pose (robot at origin)`}
-          </Typography>
-          {tab.arm_command_topic && (
-            <Typography variant="body2" color={armReady ? 'success.main' : 'warning.main'} sx={{ mt: 0.5 }}>
-              {armReady ? 'Drag arm rings/handles to move the arm' : 'Waiting for arm servo positions...'}
-            </Typography>
-          )}
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-            {topView
-              ? goalMode
-                ? 'Press to place the goal, drag to set heading. Two fingers / right button pan, wheel or pinch zooms.'
-                : 'Top view: drag to pan, wheel or pinch to zoom.'
-              : 'Orbit: drag to rotate, right button / two fingers pan, wheel or pinch zooms.'}
-          </Typography>
-        </Box>
-      </OverlayPanel>
+      <LayersPanel
+        open={showPanel}
+        onClose={() => setPanelOpen(false)}
+        layers={layers}
+        onToggle={toggleLayer}
+        gpsAvailable={gpsAvailable}
+        rtkAvailable={basePosition !== null}
+        costmapConfigured={Boolean(tab.local_costmap_topic)}
+        tileSources={tileSources}
+        tileSource={tileSource}
+        onTileSource={(id) => {
+          setStoredTileSource(id)
+          writeStoredTileSource(browserStorage(), id)
+        }}
+        tileCaption={tileCaption}
+        anchorSummary={anchor ? anchorSummary(anchor) : null}
+        photoAge={photoAge}
+        onPhotoAge={setPhotoAge}
+        photoStatus={{ shown: layerPhotos.photos.length, total: layerPhotos.total, error: layerPhotos.error }}
+        topView={topView}
+        goalMode={goalMode}
+        hasArm={Boolean(tab.arm_command_topic)}
+        armReady={armReady}
+      />
     </>
   )
   // Wide layouts: the sidebar exists only while a panel is open, so with every panel closed the map is full width.
@@ -1085,7 +973,7 @@ export default function MapNavTab({
             </Typography>
           )}
 
-          <MapStatusLine items={hintItems} />
+          <MapStatusLine items={statusItems} />
 
           <Snackbar
             open={snackbarOpen}
