@@ -19,7 +19,7 @@ def pois_result(*xy: tuple[float, float]) -> RobotToolResult:
     )
 
 
-def make(caller: Any, radius: float | None = None, plans: int = 1) -> Any:
+def make(caller: Any, radius: float | None = None) -> Any:
     cfg = ClaudeAgentConfig() if radius is None else ClaudeAgentConfig(poi_hint_radius_m=radius)
     tracker = PlanTracker(cfg)
     tracker.set_plan("simple", "r", plan={"type": "seq", "id": "root", "children": [PHASE]})
