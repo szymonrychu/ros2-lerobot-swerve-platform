@@ -45,7 +45,12 @@ NORMAL = {
 AGENT = {
     "weights": (300, 300, -200),
     "types": [
-        "mcp_server", "claude_agent", "web_ui", "topic_scraper_api", "master2master", "leader_bridge",
+        "mcp_server",
+        "claude_agent",
+        "web_ui",
+        "topic_scraper_api",
+        "master2master",
+        "leader_bridge",
         "haptic_controller",
     ],
 }
